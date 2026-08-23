@@ -236,6 +236,39 @@ compliance customers.
 
 ---
 
+## Phase 11 — Migration & Import
+
+We're asking teams to switch off an entrenched incumbent (TestRail,
+Zephyr, qTest, Xray, PractiTest — see
+[COMPETITIVE_ANALYSIS.md](COMPETITIVE_ANALYSIS.md) for what each does
+well and what their users complain about). The switching cost is real
+existing test cases, real suite/plan structure, and real run history —
+a migration path that loses any of those isn't a migration path.
+`ReverseEngineerJob` (Phase 2) is the template: a typed job with status
+tracking that a background worker processes; import jobs follow the
+same shape.
+
+### Epic 11.1 — Import pipeline foundation
+- **P11-01** (L) Generic `ImportJob` model + pipeline: source enum, status tracking, field-mapping config stored as JSON, dedupe-by-external-id — the shared foundation every source-specific importer plugs into. `labels: area:db, area:api, type:feature`
+- **P11-02** (M) Field-mapping UI: preview parsed records against target `TestCase`/`TestPlan` fields, let the user adjust mapping and custom-field targets before committing — nothing writes until confirmed. `labels: area:web, type:feature`
+
+### Epic 11.2 — Source-specific importers
+- **P11-03** (L) TestRail importer: cases/suites/sections → `TestPlan`/`TestCase`, runs/results → `TestRun`/`TestResult`, via TestRail's REST API (`get_cases`/`get_suites`/`get_runs`/`get_results`). Build this first — it's the best-documented API in the category and the lowest-risk way to prove the import pipeline itself. `labels: area:api, integration, type:feature`
+- **P11-04** (L) Zephyr Scale (Jira) importer: test cases/cycles/executions via the Zephyr Scale REST API v2, folder structure → `TestPlan` hierarchy. Highest-complaint-volume source platform (see competitive analysis), so highest-value migration target despite a less uniform API than TestRail's. `labels: area:api, integration, type:feature`
+- **P11-05** (M) Xray (Jira) importer: bulk CSV/JSON export via a JQL query → `TestCase`/`TestPlan`. Automation *result* ingestion is already covered by Phase 5's generic Cucumber/JUnit/NUnit ingestion — that's the same format Xray itself consumes. `labels: area:api, integration, type:feature`
+- **P11-06** (L) qTest importer: `test-cases`/`test-runs`/`test-logs` resources via the qTest REST API v3, module hierarchy → `TestPlan` hierarchy. `labels: area:api, integration, type:feature`
+- **P11-07** (M) Generic CSV/Excel importer with a reusable column-mapping template — the catch-all for PractiTest, TestLink, and any spreadsheet-tracked suite without a first-class importer. `labels: area:api, area:web, type:feature`
+
+### Epic 11.3 — Historical run data
+- **P11-08** (L) Historical run-data backfill: import pass/fail execution history with *original* timestamps (not import date), so pass-rate trends, flaky-test detection (`P5-05`), and release-to-release charts (`P7-07`) aren't empty or skewed on day one. A cold-start dashboard with no history is itself an adoption blocker. `labels: area:api, type:feature`
+
+### Epic 11.4 — Migration UX
+- **P11-09** (M) Post-import diff/summary report: what imported cleanly, what was skipped or ambiguous and needs manual review, what dedupe collisions were found. `labels: area:web, type:feature`
+- **P11-10** (M) "Migration assistant" wizard: connect source credentials → scope preview (counts of what will import) → field mapping → import → diff report, as one guided flow rather than disconnected tools. `labels: area:web, type:feature`
+- **P11-11** (S) Import job re-run/incremental sync: re-running an import against the same source only pulls new/changed records (reuses `P11-01`'s external-id dedupe) — supports running in parallel with the old tool during a phased migration instead of forcing a hard cutover. `labels: area:api, type:feature`
+
+---
+
 ## Suggested sequencing
 
 This is a lot of surface area; the phases aren't strictly sequential, but a
@@ -249,3 +282,4 @@ reasonable dependency-respecting order is:
 6. **Phase 4** (QA strategy generation) can slot in anytime after Phase 1; it's largely self-contained.
 7. **Phase 8/9** (mobile parity, integrations) are pull-based — build them once specific customers/use cases demand them, not speculatively.
 8. **Phase 10** (hardening) isn't "last" — P10-01 through P10-04 should start the moment there's real customer data, likely alongside Phase 3.
+9. **Phase 11** (migration/import) isn't "last" either, despite the number — `P11-01`/`P11-02` (the import pipeline foundation) and `P11-03` (the TestRail importer) should start as soon as Phase 1's auth/multi-tenancy lands, since customer acquisition depends on painless switching, not on every other phase being done first. The historical-run-backfill piece (`P11-08`) benefits from Phase 5's `TestRun`/`TestResult` ingestion work existing first, but the case/plan importers don't need to wait for it.
