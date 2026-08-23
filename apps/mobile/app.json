@@ -1,0 +1,14 @@
+{
+  "expo": {
+    "name": "QI Platform",
+    "slug": "qi-platform-mobile",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "automatic",
+    "ios": { "supportsTablet": true },
+    "android": {},
+    "extra": {
+      "apiUrl": "http://localhost:4000"
+    }
+  }
+}

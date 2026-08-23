@@ -1,0 +1,428 @@
+// Quality Intelligence Platform — core data model.
+//
+// Design principle: test PLAN TYPES and COMPLIANCE FRAMEWORKS are data, not
+// hardcoded enums. New plan shapes (a new compliance form, a new testing
+// discipline) are added by inserting rows + a JSON field schema, not by
+// shipping a migration. This is the fix for "shoehorning" that most test
+// case tools do.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ---------------------------------------------------------------------------
+// Tenancy
+// ---------------------------------------------------------------------------
+
+model Organization {
+  id        String    @id @default(cuid())
+  name      String
+  slug      String    @unique
+  createdAt DateTime  @default(now())
+  projects  Project[]
+}
+
+model Project {
+  id             String   @id @default(cuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id])
+  name           String
+  slug           String
+  repoUrl        String?
+  defaultBranch  String   @default("main")
+  createdAt      DateTime @default(now())
+
+  testPlans           TestPlan[]
+  testCases           TestCase[]
+  requirements        Requirement[]
+  releases            Release[]
+  testRuns            TestRun[]
+  reverseEngineerJobs ReverseEngineerJob[]
+
+  @@unique([organizationId, slug])
+}
+
+// ---------------------------------------------------------------------------
+// Pluggable test plan typing
+// ---------------------------------------------------------------------------
+
+enum TestPlanCategory {
+  FUNCTIONAL // unit, functional, contract, instrumentation, e2e, ...
+  QUALITY_STRATEGY // holistic QA strategy plans (per testlio-style structured strategy)
+  COMPLIANCE // governance / compliance acceptance plans (SOC2, HIPAA, PCI-DSS, ...)
+  RELEASE_READINESS // release acceptance criteria plans
+  CUSTOM
+}
+
+// One row per plan "shape" an org can author against. `fieldSchema` is a
+// JSON Schema document describing the custom fields a TestPlan of this type
+// carries in `TestPlan.customFields`. This is how new compliance forms or
+// bespoke internal QA templates get added without a code change.
+model TestPlanType {
+  id           String           @id @default(cuid())
+  key          String           @unique // e.g. "unit", "contract", "soc2-cc", "release-readiness"
+  name         String
+  category     TestPlanCategory
+  description  String?
+  fieldSchema  Json // JSON Schema for TestPlan.customFields
+  isBuiltIn    Boolean          @default(false)
+  createdAt    DateTime         @default(now())
+
+  testPlans TestPlan[]
+  testCases TestCase[]
+}
+
+model TestPlan {
+  id             String       @id @default(cuid())
+  projectId      String
+  project        Project      @relation(fields: [projectId], references: [id])
+  testPlanTypeId String
+  testPlanType   TestPlanType @relation(fields: [testPlanTypeId], references: [id])
+  releaseId      String?
+  release        Release?     @relation(fields: [releaseId], references: [id])
+
+  name         String
+  description  String?
+  status       TestPlanStatus @default(DRAFT)
+  customFields Json           @default("{}") // validated against testPlanType.fieldSchema
+
+  acceptanceCriteria AcceptanceCriterion[]
+  testCases          TestCase[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+enum TestPlanStatus {
+  DRAFT
+  ACTIVE
+  IN_REVIEW
+  APPROVED
+  ARCHIVED
+}
+
+// ---------------------------------------------------------------------------
+// Requirements & acceptance criteria
+// ---------------------------------------------------------------------------
+
+model Requirement {
+  id          String   @id @default(cuid())
+  projectId   String
+  project     Project  @relation(fields: [projectId], references: [id])
+  title       String
+  description String?
+  externalRef String? // e.g. Jira key, Linear issue id, doc URL
+  createdAt   DateTime @default(now())
+
+  acceptanceCriteria AcceptanceCriterion[]
+}
+
+model AcceptanceCriterion {
+  id            String       @id @default(cuid())
+  testPlanId    String
+  testPlan      TestPlan     @relation(fields: [testPlanId], references: [id])
+  requirementId String?
+  requirement   Requirement? @relation(fields: [requirementId], references: [id])
+  description   String
+  status        AcceptanceCriterionStatus @default(PENDING)
+  createdAt     DateTime     @default(now())
+}
+
+enum AcceptanceCriterionStatus {
+  PENDING
+  MET
+  NOT_MET
+  AT_RISK
+}
+
+// ---------------------------------------------------------------------------
+// Test cases (BDD-normalized) + provenance back to automated test code
+// ---------------------------------------------------------------------------
+
+enum TestCaseType {
+  UNIT
+  FUNCTIONAL
+  CONTRACT
+  INSTRUMENTATION
+  SMOKE
+  SANITY
+  REGRESSION
+  E2E
+  PERFORMANCE
+  SECURITY
+  ACCESSIBILITY
+  EXPLORATORY
+  COMPLIANCE
+  OTHER
+}
+
+enum AutomationStatus {
+  MANUAL
+  AUTOMATED
+  PARTIALLY_AUTOMATED
+  NEEDS_AUTOMATION
+}
+
+// The canonical, human-readable test case. Whether it was authored by a
+// human or reverse-engineered from code by the AI agent, it lives here in
+// the same BDD-normalized shape.
+model TestCase {
+  id             String        @id @default(cuid())
+  projectId      String
+  project        Project       @relation(fields: [projectId], references: [id])
+  testPlanId     String?
+  testPlan       TestPlan?     @relation(fields: [testPlanId], references: [id])
+  testPlanTypeId String?
+  testPlanType   TestPlanType? @relation(fields: [testPlanTypeId], references: [id])
+
+  title      String
+  background String? // BDD "Background:" (shared Given context), optional
+  given      String[] // Given steps
+  when       String[] // When steps
+  then       String[] // Then steps
+  tags       String[]
+  priority   TestCasePriority @default(MEDIUM)
+  testType   TestCaseType
+  automationStatus AutomationStatus @default(MANUAL)
+
+  origin     TestCaseOrigin @default(AUTHORED) // AUTHORED vs AI_REVERSE_ENGINEERED
+  confidence Float? // set when origin = AI_REVERSE_ENGINEERED; agent's self-rated confidence 0-1
+
+  source              TestCaseSource?
+  complianceControls  TestCaseComplianceControl[]
+  results             TestResult[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+enum TestCasePriority {
+  CRITICAL
+  HIGH
+  MEDIUM
+  LOW
+}
+
+enum TestCaseOrigin {
+  AUTHORED
+  AI_REVERSE_ENGINEERED
+  IMPORTED
+}
+
+// Links a TestCase back to the automated test that implements it, so the
+// platform can blend coverage/results from real test frameworks with the
+// human-readable BDD layer.
+model TestCaseSource {
+  id                 String   @id @default(cuid())
+  testCaseId         String   @unique
+  testCase           TestCase @relation(fields: [testCaseId], references: [id])
+  repoUrl            String?
+  filePath           String
+  functionName       String?
+  framework          String // "jest" | "pytest" | "junit5" | "cypress" | "playwright" | "postman" | "custom:<name>" ...
+  frameworkFamily    FrameworkFamily @default(CUSTOM)
+  lastSyncedCommitSha String?
+  lastSyncedAt        DateTime?
+
+  @@index([framework])
+}
+
+// Known frameworks get first-class evaluators; anything else falls back to
+// the custom-framework evaluation path (heuristic + AI-assisted parsing).
+enum FrameworkFamily {
+  JEST
+  VITEST
+  MOCHA
+  PYTEST
+  JUNIT
+  TESTNG
+  RSPEC
+  GO_TEST
+  CYPRESS
+  PLAYWRIGHT
+  SELENIUM
+  APPIUM
+  POSTMAN
+  PACT
+  ROBOT_FRAMEWORK
+  CUSTOM
+}
+
+// A unit of work for the AI agent: "read this source and produce BDD test
+// cases." Tracks status so long repo scans can run async.
+model ReverseEngineerJob {
+  id        String   @id @default(cuid())
+  projectId String
+  project   Project  @relation(fields: [projectId], references: [id])
+
+  inputType   ReverseEngineerInputType
+  inputRef    String // file path, repo+glob, or opaque paste id
+  framework   String?
+  status      JobStatus @default(PENDING)
+  error       String?
+
+  resultTestCaseIds String[] // TestCase ids produced by this job
+
+  createdAt   DateTime  @default(now())
+  startedAt   DateTime?
+  completedAt DateTime?
+}
+
+enum ReverseEngineerInputType {
+  PASTE
+  FILE_UPLOAD
+  REPO_SCAN
+}
+
+enum JobStatus {
+  PENDING
+  RUNNING
+  SUCCEEDED
+  FAILED
+}
+
+// ---------------------------------------------------------------------------
+// Compliance & governance
+// ---------------------------------------------------------------------------
+
+model ComplianceFramework {
+  id          String   @id @default(cuid())
+  key         String   @unique // "soc2", "hipaa", "pci-dss", "gdpr", "iso27001", "fda-21-cfr-part-11", custom keys allowed
+  name        String
+  version     String?
+  description String?
+  isBuiltIn   Boolean  @default(false)
+
+  controls ComplianceControl[]
+}
+
+model ComplianceControl {
+  id          String              @id @default(cuid())
+  frameworkId String
+  framework   ComplianceFramework @relation(fields: [frameworkId], references: [id])
+  code        String // e.g. "CC6.1"
+  title       String
+  description String?
+
+  testCases TestCaseComplianceControl[]
+
+  @@unique([frameworkId, code])
+}
+
+model TestCaseComplianceControl {
+  testCaseId String
+  testCase   TestCase          @relation(fields: [testCaseId], references: [id])
+  controlId  String
+  control    ComplianceControl @relation(fields: [controlId], references: [id])
+
+  @@id([testCaseId, controlId])
+}
+
+// ---------------------------------------------------------------------------
+// Execution results (blended across frameworks/CI providers)
+// ---------------------------------------------------------------------------
+
+model TestRun {
+  id         String   @id @default(cuid())
+  projectId  String
+  project    Project  @relation(fields: [projectId], references: [id])
+  ciProvider String // "github-actions" | "circleci" | "jenkins" | ...
+  ciRunUrl   String?
+  commitSha  String
+  branch     String
+  startedAt  DateTime
+  finishedAt DateTime?
+  status     TestRunStatus @default(RUNNING)
+
+  results TestResult[]
+}
+
+enum TestRunStatus {
+  RUNNING
+  PASSED
+  FAILED
+  PARTIAL
+}
+
+model TestResult {
+  id             String    @id @default(cuid())
+  testRunId      String
+  testRun        TestRun   @relation(fields: [testRunId], references: [id])
+  testCaseId     String?
+  testCase       TestCase? @relation(fields: [testCaseId], references: [id])
+  externalTestId String? // raw framework test id when not yet mapped to a TestCase
+  status         TestResultStatus
+  durationMs     Int?
+  errorMessage   String?
+
+  @@index([testRunId])
+  @@index([testCaseId])
+}
+
+enum TestResultStatus {
+  PASS
+  FAIL
+  SKIP
+  FLAKY
+}
+
+// ---------------------------------------------------------------------------
+// Releases & readiness
+// ---------------------------------------------------------------------------
+
+model Release {
+  id         String   @id @default(cuid())
+  projectId  String
+  project    Project  @relation(fields: [projectId], references: [id])
+  name       String
+  targetDate DateTime?
+  status     ReleaseStatus @default(PLANNING)
+
+  testPlans TestPlan[]
+  riskFlags RiskFlag[]
+
+  createdAt DateTime @default(now())
+}
+
+enum ReleaseStatus {
+  PLANNING
+  IN_TESTING
+  READY
+  SHIPPED
+  BLOCKED
+}
+
+// A detected gap or risk feeding the release-readiness dashboard, e.g. from
+// PR scanning finding changed files with no mapped test coverage.
+model RiskFlag {
+  id               String    @id @default(cuid())
+  releaseId        String
+  release          Release   @relation(fields: [releaseId], references: [id])
+  severity         RiskSeverity
+  source           RiskSource
+  description      String
+  relatedFilePath  String?
+  relatedPrUrl     String?
+  createdAt        DateTime  @default(now())
+  resolvedAt       DateTime?
+}
+
+enum RiskSeverity {
+  CRITICAL
+  HIGH
+  MEDIUM
+  LOW
+}
+
+enum RiskSource {
+  PR_SCAN_COVERAGE_GAP
+  FAILING_TEST
+  FLAKY_TEST
+  MANUAL_FLAG
+  MISSING_COMPLIANCE_CONTROL
+}

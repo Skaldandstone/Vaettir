@@ -1,0 +1,13 @@
+node_modules/
+dist/
+.next/
+.turbo/
+.expo/
+*.tsbuildinfo
+.env
+.env.local
+.DS_Store
+coverage/
+prisma/dev.db
+prisma/migrations/dev/
+.vercel/
