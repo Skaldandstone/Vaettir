@@ -229,6 +229,12 @@ model TestCaseSource {
   lastSyncedCommitSha String?
   lastSyncedAt        DateTime?
 
+  // The raw id the test framework/CI reports for this test (e.g.
+  // "CartTest::test_empty_checkout_throws"). Once set, incoming TestResults
+  // match to this TestCase by exact id instead of fuzzy file/function
+  // matching -- this is what P5-04/P5-14's CI listener key off of.
+  externalTestId String? @unique
+
   @@index([framework])
 }
 
@@ -266,6 +272,14 @@ model ReverseEngineerJob {
   status      JobStatus @default(PENDING)
   error       String?
 
+  // Set when inputType = CI_UNMATCHED_RESULT: the specific TestResult that
+  // triggered this job by arriving with no matching TestCaseSource. Lets the
+  // pipeline auto-link the produced TestCase's TestCaseSource.externalTestId
+  // back to it once the job succeeds, so the *next* run of that same test
+  // matches immediately instead of re-flagging.
+  triggeringResultId String?     @unique
+  triggeringResult   TestResult? @relation(fields: [triggeringResultId], references: [id])
+
   resultTestCaseIds String[] // TestCase ids produced by this job
 
   createdAt   DateTime  @default(now())
@@ -277,6 +291,8 @@ enum ReverseEngineerInputType {
   PASTE
   FILE_UPLOAD
   REPO_SCAN
+  // Auto-triggered: a CI test result came in with no matching TestCaseSource.
+  CI_UNMATCHED_RESULT
 }
 
 enum JobStatus {
@@ -356,9 +372,16 @@ model TestResult {
   testCaseId     String?
   testCase       TestCase? @relation(fields: [testCaseId], references: [id])
   externalTestId String? // raw framework test id when not yet mapped to a TestCase
+  // File path as reported by the CI result (JUnit XML classname->file mapping,
+  // etc). Needed to fetch source when this result is unmatched and gets
+  // auto-enqueued for reverse-engineering (P5-14) -- without it we know a
+  // test ran but not where to go read it.
+  externalFilePath String?
   status         TestResultStatus
   durationMs     Int?
   errorMessage   String?
+
+  reverseEngineerJob ReverseEngineerJob?
 
   @@index([testRunId])
   @@index([testCaseId])
