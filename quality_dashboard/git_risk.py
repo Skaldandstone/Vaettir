@@ -91,9 +91,45 @@ class RiskEntry:
     test_confidence: float
     risk_score: float
     matched_test: str | None
+    confidence_source: str  # "coverage" (real coverage.json data) or "heuristic" (test-file presence)
 
 
-def compute_risk_footprint(repo_path: Path, since_days: int = 90, top_n: int = 15) -> list[RiskEntry]:
+def _heuristic_confidence(path: str, test_contents: dict[Path, str], repo_path: Path) -> tuple[float, str | None]:
+    module = _module_name(path)
+    topic = _normalized_topic(module)
+    matched_test: str | None = None
+    confidence = 0.0
+    for tf, content in test_contents.items():
+        test_topic = _normalized_topic(tf.stem)
+        name_hit = topic == test_topic or module.lower() in tf.name.lower()
+        content_hit = re.search(rf"\b{re.escape(module)}\b", content) is not None
+        if name_hit and content_hit:
+            return 1.0, str(tf.relative_to(repo_path))
+        if name_hit and confidence < 0.7:
+            confidence = 0.7
+            matched_test = str(tf.relative_to(repo_path))
+        elif content_hit and confidence < 0.4:
+            confidence = 0.4
+            matched_test = str(tf.relative_to(repo_path))
+    return confidence, matched_test
+
+
+def compute_risk_footprint(
+    repo_path: Path,
+    since_days: int = 90,
+    top_n: int = 15,
+    coverage_data: dict[str, float] | None = None,
+) -> list[RiskEntry]:
+    """Ranks files by change_frequency * (1 - test_coverage_confidence).
+
+    When `coverage_data` (a {path: percent_covered} map from a real
+    coverage.json, see coverage_data.py) has an entry for a given file, that
+    real percentage is used directly. Otherwise falls back to the test-file
+    presence heuristic -- coverage.json only ever covers what pytest's
+    --cov scope reaches (Python source), so frontend files and anything
+    outside that scope always use the heuristic even when coverage_data
+    is provided.
+    """
     churn = _churn_counts(repo_path, since_days)
     if not churn:
         return []
@@ -109,24 +145,14 @@ def compute_risk_footprint(repo_path: Path, since_days: int = 90, top_n: int = 1
 
     entries: list[RiskEntry] = []
     for path, count in churn.items():
-        module = _module_name(path)
-        topic = _normalized_topic(module)
-        matched_test: str | None = None
-        confidence = 0.0
-        for tf, content in test_contents.items():
-            test_topic = _normalized_topic(tf.stem)
-            name_hit = topic == test_topic or module.lower() in tf.name.lower()
-            content_hit = re.search(rf"\b{re.escape(module)}\b", content) is not None
-            if name_hit and content_hit:
-                confidence = 1.0
-                matched_test = str(tf.relative_to(repo_path))
-                break
-            if name_hit and confidence < 0.7:
-                confidence = 0.7
-                matched_test = str(tf.relative_to(repo_path))
-            elif content_hit and confidence < 0.4:
-                confidence = 0.4
-                matched_test = str(tf.relative_to(repo_path))
+        normalized_path = path.replace("\\", "/")
+        if coverage_data is not None and normalized_path in coverage_data:
+            confidence = coverage_data[normalized_path] / 100
+            matched_test = None
+            source = "coverage"
+        else:
+            confidence, matched_test = _heuristic_confidence(path, test_contents, repo_path)
+            source = "heuristic"
 
         change_frequency = count / max_churn
         risk_score = change_frequency * (1 - confidence)
@@ -137,6 +163,7 @@ def compute_risk_footprint(repo_path: Path, since_days: int = 90, top_n: int = 1
                 test_confidence=confidence,
                 risk_score=risk_score,
                 matched_test=matched_test,
+                confidence_source=source,
             )
         )
 

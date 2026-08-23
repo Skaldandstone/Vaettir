@@ -6,6 +6,7 @@ import argparse
 import sys
 from pathlib import Path
 
+from quality_dashboard.coverage_data import fetch_latest_coverage
 from quality_dashboard.git_risk import compute_risk_footprint
 from quality_dashboard.github_data import GitHubDataError, fetch_workflow_runs
 from quality_dashboard.metrics import compute_job_metrics
@@ -20,6 +21,12 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--runs", type=int, default=50, help="How many recent completed runs to fetch (default: 50)")
     parser.add_argument("--since-days", type=int, default=90, help="Git churn lookback window in days (default: 90)")
     parser.add_argument("--top-n", type=int, default=15, help="How many riskiest files to show (default: 15)")
+    parser.add_argument(
+        "--coverage-artifact",
+        default="backend-test-results",
+        help="Name of the CI artifact containing coverage.json, if any (default: backend-test-results). "
+        "Pass '' to skip and always use the test-file-presence heuristic.",
+    )
     parser.add_argument("--out", default="dashboard.html", help="Output HTML file path")
     args = parser.parse_args(argv)
 
@@ -35,7 +42,16 @@ def main(argv: list[str] | None = None) -> int:
     if not clone_path.exists():
         print(f"error: --clone-path {clone_path} does not exist", file=sys.stderr)
         return 1
-    risk_entries = compute_risk_footprint(clone_path, since_days=args.since_days, top_n=args.top_n)
+
+    coverage_data = None
+    if args.coverage_artifact:
+        coverage_data = fetch_latest_coverage(args.repo, args.workflow_file, args.coverage_artifact)
+        if coverage_data is None:
+            print("note: no coverage.json artifact found on recent runs -- falling back to the test-presence heuristic", file=sys.stderr)
+        else:
+            print(f"Found real coverage data for {len(coverage_data)} files", file=sys.stderr)
+
+    risk_entries = compute_risk_footprint(clone_path, since_days=args.since_days, top_n=args.top_n, coverage_data=coverage_data)
 
     html = render_dashboard(args.repo, job_metrics, risk_entries)
     Path(args.out).write_text(html, encoding="utf-8")

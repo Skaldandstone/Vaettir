@@ -120,14 +120,18 @@ def _job_card(job: JobMetrics) -> str:
 
 def _risk_row(entry: RiskEntry, rank: int) -> str:
     cls = _risk_class(entry.risk_score)
-    test_label = entry.matched_test or "none found"
+    test_label = entry.matched_test or ("real coverage data" if entry.confidence_source == "coverage" else "none found")
     confidence_pct = f"{entry.test_confidence * 100:.0f}%"
+    source_label = "measured" if entry.confidence_source == "coverage" else "estimated"
     return f"""
       <tr>
         <td class="rank">{rank}</td>
         <td class="path"><code>{escape(entry.path)}</code></td>
         <td class="num">{entry.change_count}</td>
-        <td class="num"><span class="pill {cls}">{confidence_pct}</span></td>
+        <td class="num">
+          <span class="pill {cls}">{confidence_pct}</span>
+          <span class="source-tag source-{entry.confidence_source}">{source_label}</span>
+        </td>
         <td class="test-cell">{escape(test_label)}</td>
         <td class="num risk-cell"><span class="pill {cls}">{entry.risk_score:.2f}</span></td>
       </tr>"""
@@ -371,6 +375,15 @@ def render_dashboard(
   table.risk code {{ font-family: var(--mono); font-size: 0.85rem; }}
   table.risk tr:last-child td {{ border-bottom: none; }}
   .test-cell {{ color: var(--text-dim); font-family: var(--mono); font-size: 0.8rem; }}
+  .source-tag {{
+    display: inline-block;
+    margin-left: 0.4rem;
+    font-size: 0.68rem;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    color: var(--text-dim);
+  }}
+  .source-tag.source-coverage {{ color: var(--accent); }}
   .empty {{ color: var(--text-dim); padding: 1rem; text-align: center; }}
   .chart-figure {{
     margin: 0 0 1.5rem;
@@ -455,10 +468,14 @@ def render_dashboard(
 
   <footer>
     Pass rate is a rolling window over the last 20 completed runs per job.
-    Risk score = change_frequency × (1 − test_coverage_confidence), where
-    confidence is a presence heuristic (no test file found → 0%, a plausibly
-    matching file found → 40–100%) pending real coverage.json/JUnit export.
-    See QUALITY_INTELLIGENCE.md for the full methodology.
+    Risk score = change_frequency × (1 − test_coverage_confidence). Rows
+    tagged <strong>measured</strong> use a real per-file percentage from a
+    coverage.json artifact on a recent CI run; rows tagged
+    <strong>estimated</strong> fall back to a test-file-presence heuristic
+    (no test file found → 0%, a plausibly matching file found → 40–100%) for
+    files outside that coverage scope (e.g. frontend code, or a repo with no
+    exported coverage artifact yet). See QUALITY_INTELLIGENCE.md for the full
+    methodology.
   </footer>
 </div>
 """

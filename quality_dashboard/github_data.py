@@ -55,19 +55,26 @@ def _parse_dt(value: str | None) -> datetime | None:
     return datetime.fromisoformat(value.replace("Z", "+00:00"))
 
 
+def _resolve_workflow_id(repo: str, workflow_file: str) -> int:
+    workflows = _gh_api(f"repos/{repo}/actions/workflows")
+    for wf in workflows.get("workflows", []):
+        if wf["path"].endswith(workflow_file):
+            return wf["id"]
+    raise GitHubDataError(f"No workflow matching '{workflow_file}' found in {repo}")
+
+
+def fetch_run_ids(repo: str, workflow_file: str, limit: int = 20) -> list[int]:
+    """Completed run ids for `workflow_file`, newest first."""
+    workflow_id = _resolve_workflow_id(repo, workflow_file)
+    runs_payload = _gh_api(f"repos/{repo}/actions/workflows/{workflow_id}/runs?per_page={limit}&status=completed")
+    return [run["id"] for run in runs_payload.get("workflow_runs", [])]
+
+
 def fetch_workflow_runs(repo: str, workflow_file: str, limit: int = 50) -> list[JobRun]:
     """Fetches the last `limit` completed runs of `workflow_file` (e.g. 'ci.yml')
     for `repo` ('owner/name'), flattened to one JobRun per job per run, newest first.
     """
-    workflows = _gh_api(f"repos/{repo}/actions/workflows")
-    workflow_id = None
-    for wf in workflows.get("workflows", []):
-        if wf["path"].endswith(workflow_file):
-            workflow_id = wf["id"]
-            break
-    if workflow_id is None:
-        raise GitHubDataError(f"No workflow matching '{workflow_file}' found in {repo}")
-
+    workflow_id = _resolve_workflow_id(repo, workflow_file)
     runs_payload = _gh_api(f"repos/{repo}/actions/workflows/{workflow_id}/runs?per_page={limit}&status=completed")
     job_runs: list[JobRun] = []
     for run in runs_payload.get("workflow_runs", []):

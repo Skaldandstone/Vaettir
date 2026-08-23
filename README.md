@@ -18,23 +18,32 @@ Read these in order:
 
 ## What it actually measures, and from what
 
-No CI job in most repos (Kall included, as of this writing) exports a
-machine-readable coverage or JUnit artifact — see
-[QUALITY_INTELLIGENCE.md #4](./QUALITY_INTELLIGENCE.md#4-data-contract-for-full-fidelity-metrics)
-for the details. So v1 works entirely from two things every repo already
-has:
+Most repos' CI doesn't export a machine-readable coverage or JUnit
+artifact, so this tool always works from two things every GitHub-hosted
+repo with Actions CI already has:
 
 - **GitHub Actions run/job history**, via `gh api` (reuses your existing
   `gh auth login` session — no separate token setup) → real pass/fail,
   duration, and timestamp per job, per run.
-- **`git log --stat`** on a local clone → real change frequency per file,
-  cross-referenced against a simple test-file-presence heuristic to
-  produce a ranked risk-footprint table.
+- **`git log --stat`** on a local clone → real change frequency per file.
 
-When a target repo starts exporting `coverage.json` or JUnit XML, this
-tool should be extended to prefer that real data over the presence
-heuristic — that upgrade path is intentionally documented, not silently
-assumed away.
+For the second half of the risk formula (how confident we are a changed
+file is actually tested), the tool tries two sources in order:
+
+1. **Real coverage data** — if a recent CI run has an artifact containing
+   `coverage.json` (`pytest-cov`'s `--cov-report=json`), `coverage_data.py`
+   downloads it via `gh run download` and uses the real per-file
+   `percent_covered`. This is what Kall's CI now exports (see
+   `--coverage-artifact`, default `backend-test-results`).
+2. **Test-file-presence heuristic** — for anything the coverage artifact
+   doesn't cover (frontend code, a repo with no coverage export at all),
+   `git_risk.py` falls back to checking whether a plausibly-matching test
+   file exists.
+
+Each row in the risk table is tagged **measured** or **estimated** so
+it's never ambiguous which one produced a given number. See
+[QUALITY_INTELLIGENCE.md #4](./QUALITY_INTELLIGENCE.md#4-data-contract-for-full-fidelity-metrics)
+for the full rationale.
 
 ## Usage
 
@@ -59,6 +68,7 @@ Flags:
 | `--runs` | `50` | How many recent completed runs to fetch |
 | `--since-days` | `90` | Git churn lookback window |
 | `--top-n` | `15` | How many riskiest files to list |
+| `--coverage-artifact` | `backend-test-results` | CI artifact name containing `coverage.json`; pass `''` to always use the heuristic |
 | `--out` | `dashboard.html` | Output file |
 
 Output is one self-contained HTML file — no external JS/CSS, safe to open
@@ -66,8 +76,6 @@ directly, email, or publish as a static page.
 
 ## Explicitly out of scope for v1
 
-- Modifying a target repo's own CI to export `coverage.json`/JUnit XML —
-  a separate, small follow-up against that repo, not bundled here.
 - Any persistent server, database, or scheduled automation — this is an
   on-demand CLI producing a static file. Wiring it into a deploy pipeline
   (so a snapshot is generated and linked at every deploy, per
