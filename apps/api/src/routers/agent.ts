@@ -1,8 +1,10 @@
 import { z } from "zod";
+import { TRPCError } from "@trpc/server";
 import { reverseEngineerTestFile } from "@tci/ai-agent";
 import { router, protectedProcedure, requireProjectAccess } from "../trpc.js";
 import { persistReverseEngineerResult } from "../services/reverseEngineerPersist.js";
 import { kickReverseEngineerQueue } from "../jobs/reverseEngineerWorker.js";
+import { scanRepoForTestFiles } from "../services/repoScan.js";
 
 export const agentRouter = router({
   // Reverse-engineers a pasted/uploaded test file into BDD test cases and
@@ -61,6 +63,43 @@ export const agentRouter = router({
       // the time this fires, runJob's PENDING guard makes it a safe no-op.
       void kickReverseEngineerQueue();
       return { id: job.id, status: job.status };
+    }),
+
+  // Clones a repo (shallow, single branch), finds files that look like
+  // tests by naming convention, and queues one REPO_SCAN job per file --
+  // each processed by the same worker/poller as a submitJob PASTE job, just
+  // with the content sourced from the clone instead of a paste box. Caps at
+  // MAX_FILES (see repoScan.ts) so a huge repo can't queue thousands of
+  // jobs from a single click.
+  scanRepo: protectedProcedure
+    .input(z.object({ projectId: z.string(), repoUrl: z.string().optional(), ref: z.string().default("main") }))
+    .output(z.object({ scannedFileCount: z.number(), queuedJobIds: z.array(z.string()) }))
+    .mutation(async ({ ctx, input }) => {
+      await requireProjectAccess(ctx, input.projectId, "EDITOR");
+      const project = await ctx.prisma.project.findUniqueOrThrow({ where: { id: input.projectId } });
+      const repoUrl = input.repoUrl ?? project.repoUrl;
+      if (!repoUrl) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "No repo URL provided and the project has none configured" });
+      }
+
+      const files = await scanRepoForTestFiles(repoUrl, input.ref);
+
+      const jobs = await Promise.all(
+        files.map((f) =>
+          ctx.prisma.reverseEngineerJob.create({
+            data: {
+              projectId: input.projectId,
+              inputType: "REPO_SCAN",
+              inputRef: f.relativePath,
+              content: f.content,
+              status: "PENDING",
+            },
+          }),
+        ),
+      );
+      void kickReverseEngineerQueue();
+
+      return { scannedFileCount: files.length, queuedJobIds: jobs.map((j) => j.id) };
     }),
 
   jobStatus: protectedProcedure

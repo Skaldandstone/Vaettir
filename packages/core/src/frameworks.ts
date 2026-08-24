@@ -120,6 +120,21 @@ export const KNOWN_FRAMEWORKS: FrameworkSignature[] = [
   },
 ];
 
+// A generic fallback for repo scanning: files that look like tests by
+// naming convention even when no KNOWN_FRAMEWORKS entry's filePatterns
+// match (e.g. a framework not in the table yet). Kept separate from
+// detectFramework, which needs file+content together and is used per-file
+// once content is already in hand -- this only needs a path, so the repo
+// walker can filter file listings before reading any content.
+const GENERIC_TEST_FILE_PATTERNS = [/\.test\.[tj]sx?$/, /\.spec\.[tj]sx?$/, /^test_.*\.py$/, /_test\.py$/, /_test\.go$/, /Test\.java$/, /_spec\.rb$/];
+
+export function isLikelyTestFile(filePath: string): boolean {
+  return (
+    KNOWN_FRAMEWORKS.some((sig) => sig.filePatterns.some((p) => p.test(filePath))) ||
+    GENERIC_TEST_FILE_PATTERNS.some((p) => p.test(filePath))
+  );
+}
+
 export function detectFramework(filePath: string, content: string): FrameworkSignature {
   for (const sig of KNOWN_FRAMEWORKS) {
     const fileMatch = sig.filePatterns.some((p) => p.test(filePath));

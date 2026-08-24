@@ -17,6 +17,11 @@ export default function ReverseEngineerPage() {
   const [jobs, setJobs] = useState<RouterOutputs["agent"]["listJobs"]>([]);
   const [submittingJob, setSubmittingJob] = useState(false);
 
+  const [repoUrl, setRepoUrl] = useState("");
+  const [repoRef, setRepoRef] = useState("main");
+  const [scanning, setScanning] = useState(false);
+  const [scanResult, setScanResult] = useState<RouterOutputs["agent"]["scanRepo"] | null>(null);
+
   function loadJobs() {
     if (!projectId) return;
     trpc.agent.listJobs.query({ projectId }).then(setJobs).catch(() => undefined);
@@ -59,6 +64,21 @@ export default function ReverseEngineerPage() {
     }
   }
 
+  async function scanRepo() {
+    setScanning(true);
+    setError(null);
+    setScanResult(null);
+    try {
+      const res = await trpc.agent.scanRepo.mutate({ projectId, repoUrl: repoUrl || undefined, ref: repoRef });
+      setScanResult(res);
+      loadJobs();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setScanning(false);
+    }
+  }
+
   return (
     <div>
       <h1>Reverse-engineer a test into BDD</h1>
@@ -69,6 +89,48 @@ export default function ReverseEngineerPage() {
           Project ID (required to persist)
           <input value={projectId} onChange={(e) => setProjectId(e.target.value)} style={{ width: "100%" }} />
         </label>
+      </div>
+
+      <div
+        style={{
+          display: "grid",
+          gap: 8,
+          maxWidth: 720,
+          border: "1px solid #e5e5e5",
+          borderRadius: 8,
+          padding: 16,
+          margin: "16px 0",
+        }}
+      >
+        <h2 style={{ margin: 0 }}>Scan a repository</h2>
+        <p style={{ color: "#666", margin: 0 }}>
+          Clones a repo, finds test files by naming convention, and queues one background job per file.
+        </p>
+        <label>
+          Repo URL <span style={{ color: "#888" }}>(https only; falls back to the project&apos;s repo URL if blank)</span>
+          <input
+            value={repoUrl}
+            onChange={(e) => setRepoUrl(e.target.value)}
+            placeholder="https://github.com/org/repo.git"
+            style={{ width: "100%" }}
+          />
+        </label>
+        <label>
+          Branch
+          <input value={repoRef} onChange={(e) => setRepoRef(e.target.value)} style={{ width: 200 }} />
+        </label>
+        <button onClick={scanRepo} disabled={scanning || !projectId}>
+          {scanning ? "Cloning + scanning…" : "Scan repository"}
+        </button>
+        {scanResult && (
+          <p style={{ color: "green" }}>
+            Found {scanResult.scannedFileCount} test file(s), queued {scanResult.queuedJobIds.length} background job(s).
+          </p>
+        )}
+      </div>
+
+      <h2>...or paste a single test file</h2>
+      <div style={{ display: "grid", gap: 8, maxWidth: 720 }}>
         <label>
           File path
           <input value={filePath} onChange={(e) => setFilePath(e.target.value)} style={{ width: "100%" }} />
