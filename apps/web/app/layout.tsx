@@ -13,6 +13,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
         <body style={{ fontFamily: "system-ui, sans-serif", margin: 0 }}>
           <nav style={{ display: "flex", alignItems: "center", gap: 16, padding: "12px 24px", borderBottom: "1px solid #e5e5e5" }}>
             <a href="/">Test Case Intelligence</a>
+            <a href="/projects">Projects</a>
             <a href="/test-cases">Test Cases</a>
             <a href="/reverse-engineer">Reverse Engineer</a>
             <a href="/settings/organization">Settings</a>

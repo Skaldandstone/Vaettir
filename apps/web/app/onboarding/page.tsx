@@ -19,7 +19,7 @@ export default function OnboardingPage() {
       .query()
       .then((orgs) => {
         if (orgs.length > 0) {
-          router.push("/test-cases");
+          router.push("/projects");
         } else {
           setChecking(false);
         }

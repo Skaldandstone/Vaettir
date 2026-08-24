@@ -1,10 +1,12 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { trpc, type RouterOutputs } from "../../lib/trpc";
 
-export default function TestCasesPage() {
-  const [projectId, setProjectId] = useState("");
+function TestCasesPageInner() {
+  const searchParams = useSearchParams();
+  const [projectId, setProjectId] = useState(searchParams.get("projectId") ?? "");
   const [cases, setCases] = useState<RouterOutputs["testCases"]["list"]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -43,5 +45,13 @@ export default function TestCasesPage() {
         ))}
       </ul>
     </div>
+  );
+}
+
+export default function TestCasesPage() {
+  return (
+    <Suspense fallback={<p>Loading…</p>}>
+      <TestCasesPageInner />
+    </Suspense>
   );
 }
