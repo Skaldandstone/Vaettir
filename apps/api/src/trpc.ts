@@ -47,6 +47,23 @@ const ROLE_RANK: Record<OrgRole, number> = {
 };
 
 /**
+ * Enforces that the current session user belongs to `organizationId` at or
+ * above `minRole`. The building block both requireProjectAccess and any
+ * org-level router (settings, seats, billing) should use.
+ */
+export function requireOrgRole(
+  ctx: { user: NonNullable<Context["user"]> },
+  organizationId: string,
+  minRole: OrgRole = "VIEWER",
+) {
+  const membership = ctx.user.memberships.find((m) => m.organizationId === organizationId);
+  if (!membership || ROLE_RANK[membership.role] < ROLE_RANK[minRole]) {
+    throw new TRPCError({ code: "FORBIDDEN", message: "Not a member of this organization" });
+  }
+  return membership;
+}
+
+/**
  * Enforces that the current session user belongs to the organization that
  * owns `projectId`, at or above `minRole`. This is what makes org/project
  * scoping real (P1-06) instead of trusting a client-supplied projectId --
@@ -65,10 +82,6 @@ export async function requireProjectAccess(
     throw new TRPCError({ code: "NOT_FOUND", message: "Project not found" });
   }
 
-  const membership = ctx.user.memberships.find((m) => m.organizationId === project.organizationId);
-  if (!membership || ROLE_RANK[membership.role] < ROLE_RANK[minRole]) {
-    throw new TRPCError({ code: "FORBIDDEN", message: "Not a member of this project's organization" });
-  }
-
+  const membership = requireOrgRole(ctx, project.organizationId, minRole);
   return { project, membership };
 }

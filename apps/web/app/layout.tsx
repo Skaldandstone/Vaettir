@@ -15,6 +15,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
             <a href="/">Test Case Intelligence</a>
             <a href="/test-cases">Test Cases</a>
             <a href="/reverse-engineer">Reverse Engineer</a>
+            <a href="/settings/organization">Settings</a>
             <div style={{ marginLeft: "auto" }}>
               <SignedOut>
                 <SignInButton />

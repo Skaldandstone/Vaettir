@@ -10,6 +10,26 @@ const stepOutputSchema = z.object({
   expectedResponse: z.string().nullable(),
 });
 
+// Shared by create and update: the fields that make up a test case's
+// content, independent of which record it belongs to.
+const testCaseContentSchema = z.object({
+  testPlanId: z.string().optional(),
+  title: z.string().min(1),
+  background: z.string().optional(),
+  given: z.array(z.string()).default([]),
+  when: z.array(z.string()).default([]),
+  then: z.array(z.string()).default([]),
+  steps: z.array(TestCaseStepInputSchema).default([]),
+  tags: z.array(z.string()).default([]),
+  testType: z.string(),
+  priority: z.enum(["CRITICAL", "HIGH", "MEDIUM", "LOW"]).default("MEDIUM"),
+});
+
+function requireAtLeastOneFormat(v: z.infer<typeof testCaseContentSchema>) {
+  return (v.given.length > 0 && v.when.length > 0 && v.then.length > 0) || v.steps.length > 0;
+}
+const AT_LEAST_ONE_FORMAT_MESSAGE = "Provide either given/when/then or at least one structured step";
+
 export const testCasesRouter = router({
   list: protectedProcedure
     .input(z.object({ projectId: z.string() }))
@@ -94,25 +114,9 @@ export const testCasesRouter = router({
   // (per the AI reverse-engineering path) just BDD. At least one is
   // required; an empty test case isn't a valid one.
   create: protectedProcedure
-    .input(
-      z
-        .object({
-          projectId: z.string(),
-          testPlanId: z.string().optional(),
-          title: z.string(),
-          background: z.string().optional(),
-          given: z.array(z.string()).default([]),
-          when: z.array(z.string()).default([]),
-          then: z.array(z.string()).default([]),
-          steps: z.array(TestCaseStepInputSchema).default([]),
-          tags: z.array(z.string()).default([]),
-          testType: z.string(),
-          priority: z.enum(["CRITICAL", "HIGH", "MEDIUM", "LOW"]).default("MEDIUM"),
-        })
-        .refine((v) => (v.given.length > 0 && v.when.length > 0 && v.then.length > 0) || v.steps.length > 0, {
-          message: "Provide either given/when/then or at least one structured step",
-        }),
-    )
+    .input(testCaseContentSchema.extend({ projectId: z.string() }).refine(requireAtLeastOneFormat, {
+      message: AT_LEAST_ONE_FORMAT_MESSAGE,
+    }))
     .mutation(async ({ ctx, input }) => {
       await requireProjectAccess(ctx, input.projectId, "EDITOR");
       return ctx.prisma.testCase.create({
@@ -137,6 +141,49 @@ export const testCasesRouter = router({
             })),
           },
         },
+      });
+    }),
+
+  update: protectedProcedure
+    .input(testCaseContentSchema.extend({ id: z.string() }).refine(requireAtLeastOneFormat, {
+      message: AT_LEAST_ONE_FORMAT_MESSAGE,
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const existing = await ctx.prisma.testCase.findUniqueOrThrow({
+        where: { id: input.id },
+        select: { projectId: true },
+      });
+      await requireProjectAccess(ctx, existing.projectId, "EDITOR");
+
+      // Steps don't have stable client-side ids yet (the form just edits an
+      // ordered list), so replace-all is simpler and correct here; revisit
+      // if per-step history/comments ever need steps to persist identity
+      // across an edit.
+      return ctx.prisma.$transaction(async (tx) => {
+        await tx.testCaseStep.deleteMany({ where: { testCaseId: input.id } });
+        return tx.testCase.update({
+          where: { id: input.id },
+          data: {
+            testPlanId: input.testPlanId,
+            title: input.title,
+            background: input.background,
+            given: input.given,
+            when: input.when,
+            then: input.then,
+            tags: input.tags,
+            testType: input.testType as never,
+            priority: input.priority,
+            steps: {
+              create: input.steps.map((s, i) => ({
+                order: i,
+                action: s.action,
+                expectedActionOrData: s.expectedActionOrData ?? undefined,
+                expectedResult: s.expectedResult ?? undefined,
+                expectedResponse: s.expectedResponse ?? undefined,
+              })),
+            },
+          },
+        });
       });
     }),
 });

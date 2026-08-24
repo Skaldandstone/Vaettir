@@ -22,7 +22,10 @@ export default function TestCasesPage() {
 
   return (
     <div>
-      <h1>Test Cases</h1>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+        <h1>Test Cases</h1>
+        <a href="/test-cases/new">+ New test case</a>
+      </div>
       <label>
         Project ID:{" "}
         <input value={projectId} onChange={(e) => setProjectId(e.target.value)} placeholder="paste a project id" />

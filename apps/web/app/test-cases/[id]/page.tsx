@@ -24,7 +24,10 @@ export default function TestCaseDetailPage() {
 
   return (
     <div>
-      <h1>{tc.title}</h1>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+        <h1>{tc.title}</h1>
+        <a href={`/test-cases/${tc.id}/edit`}>Edit</a>
+      </div>
       <p>
         <strong>Type:</strong> {tc.testType} &nbsp; <strong>Priority:</strong> {tc.priority} &nbsp;
         <strong>Origin:</strong> {tc.origin}

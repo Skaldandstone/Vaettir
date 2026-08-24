@@ -1,6 +1,14 @@
 import { z } from "zod";
-import { router, protectedProcedure } from "../trpc.js";
 import { TRPCError } from "@trpc/server";
+import { DEFAULT_STEP_FIELD_LABELS, resolveStepFieldLabels, type StepFieldKey } from "@tci/core";
+import { router, protectedProcedure, requireOrgRole } from "../trpc.js";
+
+const stepFieldLabelsInputSchema = z.object(
+  Object.fromEntries(Object.keys(DEFAULT_STEP_FIELD_LABELS).map((k) => [k, z.string().min(1).optional()])) as Record<
+    StepFieldKey,
+    z.ZodOptional<z.ZodString>
+  >,
+);
 
 function slugify(name: string): string {
   return (
@@ -55,4 +63,52 @@ export const organizationRouter = router({
         select: { id: true, name: true, slug: true },
       }),
     ),
+
+  byId: protectedProcedure
+    .input(z.object({ id: z.string() }))
+    .output(
+      z.object({
+        id: z.string(),
+        name: z.string(),
+        slug: z.string(),
+        stepFieldLabelOverrides: z.record(z.string()),
+        stepFieldLabels: z.record(z.string()),
+      }),
+    )
+    .query(async ({ ctx, input }) => {
+      requireOrgRole(ctx, input.id);
+      const org = await ctx.prisma.organization.findUniqueOrThrow({
+        where: { id: input.id },
+        select: { id: true, name: true, slug: true, stepFieldLabels: true },
+      });
+      const overrides = (org.stepFieldLabels as Partial<Record<StepFieldKey, string>> | null) ?? {};
+      return {
+        id: org.id,
+        name: org.name,
+        slug: org.slug,
+        stepFieldLabelOverrides: overrides,
+        stepFieldLabels: resolveStepFieldLabels(overrides),
+      };
+    }),
+
+  // Renames the display labels for TestCaseStep's four fields (see
+  // Organization.stepFieldLabels). Only fields present in the input are
+  // set; omit a field to leave it at whatever it currently is (or the
+  // default, if never overridden) rather than resetting it.
+  updateStepFieldLabels: protectedProcedure
+    .input(z.object({ organizationId: z.string(), labels: stepFieldLabelsInputSchema }))
+    .mutation(async ({ ctx, input }) => {
+      requireOrgRole(ctx, input.organizationId, "ADMIN");
+      const org = await ctx.prisma.organization.findUniqueOrThrow({
+        where: { id: input.organizationId },
+        select: { stepFieldLabels: true },
+      });
+      const current = (org.stepFieldLabels as Partial<Record<StepFieldKey, string>> | null) ?? {};
+      const merged = { ...current, ...input.labels };
+      await ctx.prisma.organization.update({
+        where: { id: input.organizationId },
+        data: { stepFieldLabels: merged },
+      });
+      return resolveStepFieldLabels(merged);
+    }),
 });
