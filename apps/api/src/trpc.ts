@@ -1,5 +1,5 @@
 import { initTRPC } from "@trpc/server";
-import { prisma } from "@qi/db";
+import { prisma } from "@tci/db";
 
 export function createContext() {
   return { prisma };

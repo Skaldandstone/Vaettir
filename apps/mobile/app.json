@@ -1,7 +1,7 @@
 {
   "expo": {
-    "name": "QI Platform",
-    "slug": "qi-platform-mobile",
+    "name": "Test Case Intelligence",
+    "slug": "test-case-intelligence-mobile",
     "version": "0.1.0",
     "orientation": "portrait",
     "userInterfaceStyle": "automatic",

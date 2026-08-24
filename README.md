@@ -1,4 +1,4 @@
-# QI Platform
+# Test Case Intelligence
 
 A quality intelligence and test case management platform that blends every
 testing discipline — unit, functional, contract, instrumentation, smoke,
@@ -35,7 +35,7 @@ packages/
 - Core test case management: projects, pluggable test plan types, BDD-normalized
   test cases, requirements/acceptance criteria.
 - AI reverse-engineering: paste or upload an automated test file (any
-  framework — known frameworks get heuristic detection via `@qi/core`'s
+  framework — known frameworks get heuristic detection via `@tci/core`'s
   `detectFramework`, unknown ones fall back to AI-assisted structural
   reading) and get back readable Given/When/Then test cases, linked back to
   the source file/function via `TestCaseSource`.
@@ -67,14 +67,14 @@ packages/
 cp .env.example .env   # set DATABASE_URL and ANTHROPIC_API_KEY
 pnpm install
 pnpm db:generate
-pnpm --filter @qi/db migrate
-pnpm --filter @qi/db seed
+pnpm --filter @tci/db migrate
+pnpm --filter @tci/db seed
 pnpm dev
 ```
 
 - API: http://localhost:4000 (health check at `/health`, tRPC at `/trpc`)
 - Web: http://localhost:3000
-- Mobile: `pnpm --filter @qi/mobile start` (Expo Go / simulator)
+- Mobile: `pnpm --filter @tci/mobile start` (Expo Go / simulator)
 
 You'll need a Postgres instance reachable at `DATABASE_URL`, and an
 `ANTHROPIC_API_KEY` for the reverse-engineering agent

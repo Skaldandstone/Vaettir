@@ -3,7 +3,7 @@ import {
   ReverseEngineerResultSchema,
   type ReverseEngineerResult,
   detectFramework,
-} from "@qi/core";
+} from "@tci/core";
 
 const MODEL = "claude-sonnet-5";
 

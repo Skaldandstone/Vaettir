@@ -1,4 +1,4 @@
-# QI Platform Roadmap
+# Test Case Intelligence Roadmap
 
 This is the working backlog for the platform beyond the initial scaffold
 (see [README.md](README.md) for what's already built: core data model, AI

@@ -4,7 +4,7 @@ import { StatusBar } from "expo-status-bar";
 import { trpc } from "./lib/trpc";
 
 // Minimal read-only test case browser. Shares the exact TestCase shape and
-// tRPC contract with apps/web via @qi/api's AppRouter type + @qi/core.
+// tRPC contract with apps/web via @tci/api's AppRouter type + @tci/core.
 export default function App() {
   const [projectId, setProjectId] = useState("");
   const [cases, setCases] = useState<Awaited<ReturnType<typeof trpc.testCases.list.query>>>([]);
@@ -21,7 +21,7 @@ export default function App() {
   return (
     <SafeAreaView style={styles.container}>
       <StatusBar style="auto" />
-      <Text style={styles.title}>QI Platform</Text>
+      <Text style={styles.title}>Test Case Intelligence</Text>
       <TextInput
         style={styles.input}
         placeholder="Project ID"

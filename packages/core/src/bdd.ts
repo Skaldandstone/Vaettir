@@ -2,7 +2,7 @@ import { z } from "zod";
 
 // The canonical shape the AI agent must emit when reverse-engineering an
 // automated test into a human-readable BDD test case, and the shape the
-// web/mobile authoring UI edits directly. Keeping this in @qi/core means
+// web/mobile authoring UI edits directly. Keeping this in @tci/core means
 // the agent, the API, and both frontends validate against one definition.
 
 export const BddStepSchema = z.string().min(1);

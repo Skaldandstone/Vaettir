@@ -23,13 +23,13 @@ importers:
       '@fastify/cors':
         specifier: ^10.0.0
         version: 10.1.0
-      '@qi/ai-agent':
+      '@tci/ai-agent':
         specifier: workspace:*
         version: link:../../packages/ai-agent
-      '@qi/core':
+      '@tci/core':
         specifier: workspace:*
         version: link:../../packages/core
-      '@qi/db':
+      '@tci/db':
         specifier: workspace:*
         version: link:../../packages/db
       '@trpc/server':
@@ -51,7 +51,7 @@ importers:
 
   apps/mobile:
     dependencies:
-      '@qi/core':
+      '@tci/core':
         specifier: workspace:*
         version: link:../../packages/core
       '@trpc/client':
@@ -73,7 +73,7 @@ importers:
         specifier: 0.76.3
         version: 0.76.3(@babel/core@7.29.7(supports-color@8.1.1))(@babel/preset-env@7.29.7(@babel/core@7.29.7(supports-color@8.1.1))(supports-color@8.1.1))(@types/react@18.3.31)(react@18.3.1)(supports-color@8.1.1)
     devDependencies:
-      '@qi/api':
+      '@tci/api':
         specifier: workspace:*
         version: link:../api
       '@types/node':
@@ -88,7 +88,7 @@ importers:
 
   apps/web:
     dependencies:
-      '@qi/core':
+      '@tci/core':
         specifier: workspace:*
         version: link:../../packages/core
       '@trpc/client':
@@ -107,7 +107,7 @@ importers:
         specifier: ^18.3.0
         version: 18.3.1(react@18.3.1)
     devDependencies:
-      '@qi/api':
+      '@tci/api':
         specifier: workspace:*
         version: link:../api
       '@types/node':
@@ -128,7 +128,7 @@ importers:
       '@anthropic-ai/sdk':
         specifier: ^0.32.0
         version: 0.32.1
-      '@qi/core':
+      '@tci/core':
         specifier: workspace:*
         version: link:../core
       zod:

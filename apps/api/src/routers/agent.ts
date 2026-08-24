@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { reverseEngineerTestFile } from "@qi/ai-agent";
+import { reverseEngineerTestFile } from "@tci/ai-agent";
 import { router, publicProcedure } from "../trpc.js";
 
 export const agentRouter = router({
