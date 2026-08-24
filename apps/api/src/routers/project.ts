@@ -1,4 +1,6 @@
 import { z } from "zod";
+import { TRPCError } from "@trpc/server";
+import { Prisma } from "@tci/db";
 import { router, protectedProcedure, requireOrgRole } from "../trpc.js";
 
 function slugify(name: string): string {
@@ -107,5 +109,31 @@ export const projectRouter = router({
         data: { name: input.name, repoUrl: input.repoUrl, defaultBranch: input.defaultBranch },
         select: { id: true, name: true, slug: true },
       });
+    }),
+
+  // Deliberately ADMIN+ (not EDITOR, which can create). Every child relation
+  // (test cases, test plans, requirements, releases, test runs, reverse-
+  // engineer jobs) is RESTRICT, not CASCADE -- deleting a project with any
+  // content in it is a deliberate no-op with a clear message, not a silent
+  // wipe of everything under it. Delete the content first.
+  delete: protectedProcedure
+    .input(z.object({ id: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      const existing = await ctx.prisma.project.findUniqueOrThrow({
+        where: { id: input.id },
+        select: { organizationId: true },
+      });
+      requireOrgRole(ctx, existing.organizationId, "ADMIN");
+      try {
+        await ctx.prisma.project.delete({ where: { id: input.id } });
+      } catch (e) {
+        if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2003") {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "This project still has test cases, test plans, requirements, or other content. Delete those first.",
+          });
+        }
+        throw e;
+      }
     }),
 });

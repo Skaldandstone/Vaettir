@@ -81,6 +81,17 @@ export default function ProjectsPage() {
     }
   }
 
+  async function removeProject(id: string) {
+    if (!orgId) return;
+    setError(null);
+    try {
+      await trpc.project.delete.mutate({ id });
+      await loadProjects(orgId);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  }
+
   if (loading) return <p>Loading…</p>;
   if (error) return <p style={{ color: "crimson" }}>{error}</p>;
   if (!orgId) return <p>You don't belong to an organization yet. Go to onboarding first.</p>;
@@ -131,6 +142,7 @@ export default function ProjectsPage() {
                   <a href={`/test-plans?projectId=${p.id}`}>Test plans</a>
                   <a href={`/requirements?projectId=${p.id}`}>Requirements</a>
                   <button onClick={() => startEdit(p)}>Edit</button>
+                  <button onClick={() => removeProject(p.id)}>Delete</button>
                 </div>
               </>
             )}

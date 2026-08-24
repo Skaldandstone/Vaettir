@@ -236,6 +236,69 @@ export const organizationRouter = router({
       });
     }),
 
+  // Changing role/seatType is checked the same way an invite is: the seat
+  // limit only applies when the change actually consumes a seat that wasn't
+  // already held (e.g. switching a READ_ONLY member to FULL). Demoting or
+  // switching to READ_ONLY never needs a seat check -- it only frees one up.
+  updateMember: protectedProcedure
+    .input(
+      z.object({
+        membershipId: z.string(),
+        role: z.enum(["OWNER", "ADMIN", "EDITOR", "VIEWER", "COMPLIANCE_AUDITOR"]),
+        seatType: z.enum(["FULL", "READ_ONLY"]),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const membership = await ctx.prisma.membership.findUniqueOrThrow({
+        where: { id: input.membershipId },
+        include: { organization: { include: { planTier: true } } },
+      });
+      requireOrgRole(ctx, membership.organizationId, "ADMIN");
+
+      if (input.seatType === "READ_ONLY" && input.role !== "VIEWER") {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Read-only seats can only hold the Viewer role" });
+      }
+      if (membership.role === "OWNER" && input.role !== "OWNER") {
+        const otherOwners = await ctx.prisma.membership.count({
+          where: { organizationId: membership.organizationId, role: "OWNER", id: { not: membership.id } },
+        });
+        if (otherOwners === 0) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "An organization must have at least one Owner" });
+        }
+      }
+
+      if (input.seatType === "FULL" && membership.seatType === "READ_ONLY") {
+        const counts = await getSeatCounts(ctx.prisma, membership.organizationId);
+        const check = canAddSeat(membership.organization.planTier, counts, "FULL" as CoreSeatType);
+        if (!check.allowed) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: check.reason ?? "Seat limit reached" });
+        }
+      }
+
+      return ctx.prisma.membership.update({
+        where: { id: input.membershipId },
+        data: { role: input.role, seatType: input.seatType },
+      });
+    }),
+
+  removeMember: protectedProcedure
+    .input(z.object({ membershipId: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      const membership = await ctx.prisma.membership.findUniqueOrThrow({ where: { id: input.membershipId } });
+      requireOrgRole(ctx, membership.organizationId, "ADMIN");
+
+      if (membership.role === "OWNER") {
+        const otherOwners = await ctx.prisma.membership.count({
+          where: { organizationId: membership.organizationId, role: "OWNER", id: { not: membership.id } },
+        });
+        if (otherOwners === 0) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "An organization must have at least one Owner" });
+        }
+      }
+
+      await ctx.prisma.membership.delete({ where: { id: input.membershipId } });
+    }),
+
   revokeInvitation: protectedProcedure
     .input(z.object({ invitationId: z.string() }))
     .mutation(async ({ ctx, input }) => {
