@@ -40,6 +40,7 @@ export const agentRouter = router({
               testType: tc.testType as never,
               origin: "AI_REVERSE_ENGINEERED",
               confidence: tc.confidence,
+              reviewStatus: "PENDING_REVIEW",
               source: {
                 create: {
                   filePath: input.filePath,

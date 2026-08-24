@@ -26,7 +26,10 @@ function TestCasesPageInner() {
     <div>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
         <h1>Test Cases</h1>
-        <a href="/test-cases/new">+ New test case</a>
+        <div style={{ display: "flex", gap: 16 }}>
+          {projectId && <a href={`/test-cases/review?projectId=${projectId}`}>Review queue</a>}
+          <a href="/test-cases/new">+ New test case</a>
+        </div>
       </div>
       <label>
         Project ID:{" "}
@@ -40,6 +43,8 @@ function TestCasesPageInner() {
             <a href={`/test-cases/${tc.id}`}>{tc.title}</a>{" "}
             <small>
               [{tc.testType}] {tc.origin === "AI_REVERSE_ENGINEERED" ? "🤖 AI-reversed" : ""}
+              {tc.reviewStatus === "PENDING_REVIEW" && " ⏳ pending review"}
+              {tc.reviewStatus === "REJECTED" && " ❌ rejected"}
             </small>
           </li>
         ))}

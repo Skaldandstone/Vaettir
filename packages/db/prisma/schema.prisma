@@ -82,8 +82,9 @@ model User {
   name        String?
   createdAt   DateTime @default(now())
 
-  memberships     Membership[]
-  sentInvitations Invitation[]
+  memberships       Membership[]
+  sentInvitations   Invitation[]
+  reviewedTestCases TestCase[]   @relation("TestCaseReviewedBy")
 }
 
 enum OrgRole {
@@ -325,6 +326,17 @@ model TestCase {
   origin     TestCaseOrigin @default(AUTHORED) // AUTHORED vs AI_REVERSE_ENGINEERED
   confidence Float? // set when origin = AI_REVERSE_ENGINEERED; agent's self-rated confidence 0-1
 
+  // Human-authored and imported cases are trusted on arrival (APPROVED).
+  // AI-reverse-engineered cases start PENDING_REVIEW regardless of
+  // confidence -- confidence informs the reviewer's triage order, it doesn't
+  // bypass review. Set explicitly by the agent router at creation time; the
+  // schema default only covers the AUTHORED/IMPORTED paths.
+  reviewStatus TestCaseReviewStatus @default(APPROVED)
+  reviewedById String?
+  reviewedBy   User?                @relation("TestCaseReviewedBy", fields: [reviewedById], references: [id])
+  reviewedAt   DateTime?
+  reviewNote   String?
+
   source              TestCaseSource?
   complianceControls  TestCaseComplianceControl[]
   results             TestResult[]
@@ -376,6 +388,12 @@ enum TestCaseOrigin {
   AUTHORED
   AI_REVERSE_ENGINEERED
   IMPORTED
+}
+
+enum TestCaseReviewStatus {
+  APPROVED
+  PENDING_REVIEW
+  REJECTED
 }
 
 // Links a TestCase back to the automated test that implements it, so the

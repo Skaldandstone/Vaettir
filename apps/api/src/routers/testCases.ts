@@ -62,6 +62,10 @@ export const testCasesRouter = router({
         priority: z.string(),
         origin: z.string(),
         confidence: z.number().nullable(),
+        reviewStatus: z.string(),
+        reviewedByName: z.string().nullable(),
+        reviewedAt: z.date().nullable(),
+        reviewNote: z.string().nullable(),
         source: z
           .object({
             filePath: z.string(),
@@ -78,6 +82,7 @@ export const testCasesRouter = router({
           source: true,
           steps: { orderBy: { order: "asc" } },
           project: { include: { organization: { select: { stepFieldLabels: true } } } },
+          reviewedBy: { select: { name: true, email: true } },
         },
       });
       await requireProjectAccess(ctx, tc.projectId);
@@ -103,6 +108,10 @@ export const testCasesRouter = router({
         priority: tc.priority,
         origin: tc.origin,
         confidence: tc.confidence,
+        reviewStatus: tc.reviewStatus,
+        reviewedByName: tc.reviewedBy ? (tc.reviewedBy.name ?? tc.reviewedBy.email) : null,
+        reviewedAt: tc.reviewedAt,
+        reviewNote: tc.reviewNote,
         source: tc.source
           ? { filePath: tc.source.filePath, functionName: tc.source.functionName, framework: tc.source.framework }
           : null,
@@ -113,6 +122,53 @@ export const testCasesRouter = router({
   // structured step table (steps) -- and a case may carry either, both, or
   // (per the AI reverse-engineering path) just BDD. At least one is
   // required; an empty test case isn't a valid one.
+  // A queue of AI-reverse-engineered cases still awaiting a human decision,
+  // ordered by confidence ascending -- lowest-confidence (most likely to
+  // need a real look) first.
+  pendingReview: protectedProcedure
+    .input(z.object({ projectId: z.string() }))
+    .output(
+      z.array(
+        z.object({
+          id: z.string(),
+          title: z.string(),
+          confidence: z.number().nullable(),
+          sourceFilePath: z.string().nullable(),
+        }),
+      ),
+    )
+    .query(async ({ ctx, input }) => {
+      await requireProjectAccess(ctx, input.projectId);
+      const cases = await ctx.prisma.testCase.findMany({
+        where: { projectId: input.projectId, reviewStatus: "PENDING_REVIEW" },
+        include: { source: true },
+        orderBy: { confidence: "asc" },
+      });
+      return cases.map((c) => ({ id: c.id, title: c.title, confidence: c.confidence, sourceFilePath: c.source?.filePath ?? null }));
+    }),
+
+  approve: protectedProcedure
+    .input(z.object({ id: z.string(), note: z.string().optional() }))
+    .mutation(async ({ ctx, input }) => {
+      const existing = await ctx.prisma.testCase.findUniqueOrThrow({ where: { id: input.id }, select: { projectId: true } });
+      await requireProjectAccess(ctx, existing.projectId, "EDITOR");
+      return ctx.prisma.testCase.update({
+        where: { id: input.id },
+        data: { reviewStatus: "APPROVED", reviewedById: ctx.user.id, reviewedAt: new Date(), reviewNote: input.note },
+      });
+    }),
+
+  reject: protectedProcedure
+    .input(z.object({ id: z.string(), note: z.string().optional() }))
+    .mutation(async ({ ctx, input }) => {
+      const existing = await ctx.prisma.testCase.findUniqueOrThrow({ where: { id: input.id }, select: { projectId: true } });
+      await requireProjectAccess(ctx, existing.projectId, "EDITOR");
+      return ctx.prisma.testCase.update({
+        where: { id: input.id },
+        data: { reviewStatus: "REJECTED", reviewedById: ctx.user.id, reviewedAt: new Date(), reviewNote: input.note },
+      });
+    }),
+
   create: protectedProcedure
     .input(testCaseContentSchema.extend({ projectId: z.string() }).refine(requireAtLeastOneFormat, {
       message: AT_LEAST_ONE_FORMAT_MESSAGE,
