@@ -133,6 +133,7 @@ parsers for speed/cost/determinism.
 - **P5-04** (M) Test result ↔ `TestCase` matching: map an incoming `externalTestId` (e.g. `"CartTest::test_empty_checkout_throws"`) to an existing `TestCase.source` record via `TestCaseSource.externalTestId`; surface unmatched results for manual linking when auto-onboarding (`P5-14`) is off or low-confidence. `labels: area:api, type:feature`
 - **P5-05** (S) Flaky test detection: flag a `TestCase` as flaky when its results alternate PASS/FAIL across runs on the same commit/branch beyond a threshold. `labels: area:api, type:feature`
 - **P5-06** (M) Coverage data ingestion (Istanbul/nyc, coverage.py, JaCoCo) — separate from pass/fail results, feeds the release-readiness coverage-gap logic in Phase 7. `labels: area:api, type:feature`
+- **P5-15** (M) **Failure evidence capture**: a thin reporter/plugin for the major front-end test runners (Playwright, Cypress, WebdriverIO) that captures a screenshot on every run and, for video, keeps a rolling trailing buffer — but only *uploads* either as a `TestResultArtifact` when the test actually fails. Passing runs discard the capture immediately, so this doesn't quietly balloon storage. Headless/no-display runs simply produce nothing, which is the expected case, not an error. Schema (`TestResultArtifact`, types `SCREENSHOT`/`VIDEO`) is already in place; this ticket is the runner-side capture + the ingestion endpoint's multipart upload path (built alongside `P5-01`). `labels: area:api, type:feature`
 - **P5-14** (L) **Continuous coverage listening**: when a `TestResult` arrives with no `TestCaseSource` match (`P5-04`), don't just queue it for manual linking — fetch that test's source via the repo connector (`P2-02`, using `TestResult.externalFilePath` + the run's commit sha) and auto-enqueue a scoped `ReverseEngineerJob` (`inputType: CI_UNMATCHED_RESULT`) against just that file/function. The resulting `TestCase` lands in the same AI-review queue as any other reverse-engineered case (`P2-06`), and on success its `TestCaseSource.externalTestId` is set so the *next* run of that test matches immediately instead of re-flagging. This is what turns reverse-engineering from something someone has to remember to run into a standing guarantee: every test CI actually executes ends up with a readable counterpart, without a human ever pasting anything in. Depends on `P2-02` (repo connector) and `P2-01`'s job worker. `labels: area:api, area:ai, type:feature`
 
 ### Epic 5.2 — Native framework evaluators
@@ -140,7 +141,7 @@ parsers for speed/cost/determinism.
 - **P5-08** (L) Native Python parser (`ast` module via a small Python microservice, or a JS-side heuristic) for pytest structure extraction. `labels: area:ai, type:feature`
 - **P5-09** (M) Native JUnit/TestNG (Java) annotation-based extraction. `labels: area:ai, type:feature`
 - **P5-10** (M) Cypress/Playwright structural extraction (these are JS, so likely shares P5-07's parser with framework-specific step detection for `cy.*`/`page.*` calls). `labels: area:ai, type:feature`
-- **P5-11** (S) Framework evaluator registry/interface so adding a new native evaluator is a plugin, not a router change — formalizes the fallback-to-AI path that already exists conceptually in `@qi/core`'s `detectFramework`. `labels: area:core, type:architecture`
+- **P5-11** (S) Framework evaluator registry/interface so adding a new native evaluator is a plugin, not a router change — formalizes the fallback-to-AI path that already exists conceptually in `@tci/core`'s `detectFramework`. `labels: area:core, type:architecture`
 
 ### Epic 5.3 — Custom framework evaluation
 - **P5-12** (M) "Teach the platform your framework" flow: user provides 2-3 example test files from their custom/internal framework; the agent infers the structural pattern (how are test names decided? assertions? setup/teardown?) and the platform stores that as a reusable per-project heuristic instead of re-inferring from scratch every file. `labels: area:ai, type:feature`
@@ -269,12 +270,41 @@ same shape.
 
 ---
 
+## Phase 12 — Billing, Plans & Seats
+
+Seat-based SaaS pricing. Schema already landed (`PlanTier`, `Membership`
+with `seatType: FULL | READ_ONLY`, `Organization.planTierId`,
+`Organization.dataRetentionYears`) and seeded with the tier boundaries as
+specified: **Free** (≤3 full seats, 0 read-only seats), **Team** (4–50 full
+seats, 10 included read-only seats), **Business** (51–75), **Corp** (76+).
+Per-seat pricing is deliberately left null in the seed data — cost
+structure isn't decided yet; `packages/core/src/plan.ts` already has the
+pure seat-limit logic (`canAddSeat`, `minimumTierForSeatCount`) ready for
+whatever billing provider gets wired in.
+
+### Epic 12.1 — Seat management
+- **P12-01** (M) Seat management UI: org settings page listing members, their role, and seat type (full/read-only), with add/remove/change-seat-type actions gated through `canAddSeat`. `labels: area:web, type:feature`
+- **P12-02** (M) Invite flow: invite by email to a specific role + seat type; invite acceptance creates the `Membership` only after `canAddSeat` passes, with a clear "seat limit reached, upgrade to invite more people" state rather than a silent failure. `labels: area:web, area:api, type:feature`
+- **P12-03** (S) Read-only seat UI enforcement: a `VIEWER`-role, `READ_ONLY`-seat member should not see edit/create affordances anywhere in the UI, not just be blocked server-side — the seat type is a product experience, not only a permission check. `labels: area:web, type:feature`
+
+### Epic 12.2 — Plan lifecycle
+- **P12-04** (M) Plan upgrade/downgrade flow: changing `Organization.planTierId`, validated against current seat counts (can't downgrade below what's actually seated — surface which seats would need to be removed first). `labels: area:api, area:web, type:feature`
+- **P12-05** (L) Payment provider integration (Stripe is the default assumption pending a final decision) once pricing is set: subscription creation, seat-count-driven quantity updates, webhook-driven plan sync so `PlanTier` stays the source of truth for entitlements while the provider stays the source of truth for money. `labels: area:api, integration, type:feature`
+- **P12-06** (S) Usage/seat-count dashboard for org admins: current seats used vs. included at this tier, a clear "you're at 9/10, next seat requires Team" style prompt before someone hits a wall mid-invite. `labels: area:web, type:feature`
+
+### Epic 12.3 — Plan-gated features & data retention
+- **P12-07** (M) Feature-flag-by-tier plumbing: a simple `planTier.key -> Set<featureFlag>` lookup (data, not scattered `if` checks) so specific tiers can gate specific feature sets once those are mapped — deliberately built as an empty, ready-to-fill table now rather than hardcoded later. `labels: area:api, type:architecture`
+- **P12-08** (L) Data retention enforcement job: a scheduled job that purges/archives data older than `Organization.dataRetentionYears` (default 5) — evidence, audit logs, test results — respecting the higher retention windows compliance-heavy orgs may configure (`P3-08`). This is a real deletion job, not just a documented policy, and needs a dry-run mode and an audit trail of its own before it's trusted to run automatically. `labels: area:api, compliance, type:feature`
+- **P12-09** (S) Retention policy surfaced in the compliance UI: show an org's actual configured retention window next to the evidence/audit views it governs (`P3-01`), so it isn't a number nobody can see outside the database. `labels: area:web, compliance`
+
+---
+
 ## Suggested sequencing
 
 This is a lot of surface area; the phases aren't strictly sequential, but a
 reasonable dependency-respecting order is:
 
-1. **Phase 1** (auth/multi-tenancy) unblocks almost everything else safely shipping to real users.
+1. **Phase 1** (auth/multi-tenancy) unblocks almost everything else safely shipping to real users. `P1-01`/`P1-02`/`P1-03`/`P1-06` are built (email+password auth, JWT sessions, `Membership`-based RBAC, real org/project scoping on every router) — `P1-04` (SSO/SAML), `P1-05` (API keys), `P1-07`–`P1-15` (audit columns, settings UI, CRUD forms, search) are still open.
 2. **Phase 2 + Phase 5** (ingestion pipeline + evaluators) in parallel — both are "make the AI/data layer real" work.
 3. **Phase 3** (compliance) can start as soon as Phase 1 lands roles — it's largely independent of Phase 2/5/6.
 4. **Phase 6** (PR scanning) depends on Phase 5's result-matching to be useful, and feeds Phase 7 directly.
@@ -283,3 +313,4 @@ reasonable dependency-respecting order is:
 7. **Phase 8/9** (mobile parity, integrations) are pull-based — build them once specific customers/use cases demand them, not speculatively.
 8. **Phase 10** (hardening) isn't "last" — P10-01 through P10-04 should start the moment there's real customer data, likely alongside Phase 3.
 9. **Phase 11** (migration/import) isn't "last" either, despite the number — `P11-01`/`P11-02` (the import pipeline foundation) and `P11-03` (the TestRail importer) should start as soon as Phase 1's auth/multi-tenancy lands, since customer acquisition depends on painless switching, not on every other phase being done first. The historical-run-backfill piece (`P11-08`) benefits from Phase 5's `TestRun`/`TestResult` ingestion work existing first, but the case/plan importers don't need to wait for it.
+10. **Phase 12** (billing/seats) — schema and enforcement logic are already in (see above), so `P12-01`–`P12-03` (seat management UI, invites, read-only UI enforcement) can build directly on the now-real auth/RBAC layer. `P12-05` (payment provider integration) is explicitly blocked on a cost-structure decision, not on engineering sequencing — don't start it until pricing is set. `P12-08` (retention enforcement job) should land before Phase 10's SOC 2 work (`P10-01`) closes out, since "we retain data for 5 years" is itself a control an auditor will ask to see enforced, not just documented.
