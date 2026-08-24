@@ -13,6 +13,12 @@ export default function ProjectsPage() {
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editName, setEditName] = useState("");
+  const [editRepoUrl, setEditRepoUrl] = useState("");
+  const [editDefaultBranch, setEditDefaultBranch] = useState("main");
+  const [savingEdit, setSavingEdit] = useState(false);
+
   async function loadProjects(organizationId: string) {
     const list = await trpc.project.list.query({ organizationId });
     setProjects(list);
@@ -48,6 +54,33 @@ export default function ProjectsPage() {
     }
   }
 
+  function startEdit(p: { id: string; name: string; repoUrl: string | null }) {
+    setEditingId(p.id);
+    setEditName(p.name);
+    setEditRepoUrl(p.repoUrl ?? "");
+    trpc.project.byId.query({ id: p.id }).then((full) => setEditDefaultBranch(full.defaultBranch));
+  }
+
+  async function saveEdit() {
+    if (!editingId || !orgId) return;
+    setSavingEdit(true);
+    setError(null);
+    try {
+      await trpc.project.update.mutate({
+        id: editingId,
+        name: editName,
+        repoUrl: editRepoUrl || undefined,
+        defaultBranch: editDefaultBranch,
+      });
+      setEditingId(null);
+      await loadProjects(orgId);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setSavingEdit(false);
+    }
+  }
+
   if (loading) return <p>Loading…</p>;
   if (error) return <p style={{ color: "crimson" }}>{error}</p>;
   if (!orgId) return <p>You don't belong to an organization yet. Go to onboarding first.</p>;
@@ -70,14 +103,37 @@ export default function ProjectsPage() {
         </button>
       </div>
 
-      <ul>
+      <ul style={{ listStyle: "none", padding: 0 }}>
         {projects.map((p) => (
-          <li key={p.id}>
-            <strong>{p.name}</strong> <span style={{ color: "#888" }}>({p.id})</span>
-            {p.repoUrl && <> — {p.repoUrl}</>}
-            <div>
-              <a href={`/test-cases?projectId=${p.id}`}>Test cases</a>
-            </div>
+          <li key={p.id} style={{ marginBottom: 12, borderBottom: "1px solid #eee", paddingBottom: 10 }}>
+            {editingId === p.id ? (
+              <div style={{ display: "grid", gap: 6, maxWidth: 360 }}>
+                <input value={editName} onChange={(e) => setEditName(e.target.value)} placeholder="Name" />
+                <input value={editRepoUrl} onChange={(e) => setEditRepoUrl(e.target.value)} placeholder="Repo URL" />
+                <input
+                  value={editDefaultBranch}
+                  onChange={(e) => setEditDefaultBranch(e.target.value)}
+                  placeholder="Default branch"
+                />
+                <div style={{ display: "flex", gap: 8 }}>
+                  <button onClick={saveEdit} disabled={savingEdit || !editName}>
+                    {savingEdit ? "Saving…" : "Save"}
+                  </button>
+                  <button onClick={() => setEditingId(null)}>Cancel</button>
+                </div>
+              </div>
+            ) : (
+              <>
+                <strong>{p.name}</strong> <span style={{ color: "#888" }}>({p.id})</span>
+                {p.repoUrl && <> — {p.repoUrl}</>}
+                <div style={{ display: "flex", gap: 12, marginTop: 4 }}>
+                  <a href={`/test-cases?projectId=${p.id}`}>Test cases</a>
+                  <a href={`/test-plans?projectId=${p.id}`}>Test plans</a>
+                  <a href={`/requirements?projectId=${p.id}`}>Requirements</a>
+                  <button onClick={() => startEdit(p)}>Edit</button>
+                </div>
+              </>
+            )}
           </li>
         ))}
         {projects.length === 0 && <p style={{ color: "#666" }}>No projects yet — create one above.</p>}

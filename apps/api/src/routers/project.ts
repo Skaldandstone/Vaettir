@@ -67,4 +67,45 @@ export const projectRouter = router({
         select: { id: true, name: true, slug: true },
       });
     }),
+
+  byId: protectedProcedure
+    .input(z.object({ id: z.string() }))
+    .output(
+      z.object({
+        id: z.string(),
+        organizationId: z.string(),
+        name: z.string(),
+        slug: z.string(),
+        repoUrl: z.string().nullable(),
+        defaultBranch: z.string(),
+      }),
+    )
+    .query(async ({ ctx, input }) => {
+      const project = await ctx.prisma.project.findUniqueOrThrow({ where: { id: input.id } });
+      requireOrgRole(ctx, project.organizationId);
+      return project;
+    }),
+
+  update: protectedProcedure
+    .input(
+      z.object({
+        id: z.string(),
+        name: z.string().min(1),
+        repoUrl: z.string().optional(),
+        defaultBranch: z.string().min(1),
+      }),
+    )
+    .output(z.object({ id: z.string(), name: z.string(), slug: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      const existing = await ctx.prisma.project.findUniqueOrThrow({
+        where: { id: input.id },
+        select: { organizationId: true },
+      });
+      requireOrgRole(ctx, existing.organizationId, "EDITOR");
+      return ctx.prisma.project.update({
+        where: { id: input.id },
+        data: { name: input.name, repoUrl: input.repoUrl, defaultBranch: input.defaultBranch },
+        select: { id: true, name: true, slug: true },
+      });
+    }),
 });

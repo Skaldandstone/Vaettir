@@ -4,6 +4,7 @@ import { testPlansRouter } from "./routers/testPlans.js";
 import { agentRouter } from "./routers/agent.js";
 import { organizationRouter } from "./routers/organization.js";
 import { projectRouter } from "./routers/project.js";
+import { requirementsRouter } from "./routers/requirements.js";
 
 export const appRouter = router({
   testCases: testCasesRouter,
@@ -11,6 +12,7 @@ export const appRouter = router({
   agent: agentRouter,
   organization: organizationRouter,
   project: projectRouter,
+  requirements: requirementsRouter,
 });
 
 export type AppRouter = typeof appRouter;

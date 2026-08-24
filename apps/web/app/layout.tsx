@@ -15,6 +15,8 @@ export default function RootLayout({ children }: { children: ReactNode }) {
             <a href="/">Test Case Intelligence</a>
             <a href="/projects">Projects</a>
             <a href="/test-cases">Test Cases</a>
+            <a href="/test-plans">Test Plans</a>
+            <a href="/requirements">Requirements</a>
             <a href="/reverse-engineer">Reverse Engineer</a>
             <a href="/settings/members">Members</a>
             <a href="/settings/organization">Settings</a>
