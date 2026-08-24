@@ -24,7 +24,17 @@ model Organization {
   name      String
   slug      String    @unique
   createdAt DateTime  @default(now())
-  projects  Project[]
+
+  planTierId String
+  planTier   PlanTier @relation(fields: [planTierId], references: [id])
+
+  // How long evidence/audit-log/test-result data is retained before it's
+  // eligible for deletion. Defaults to the 5-year baseline; orgs on
+  // compliance-heavy plans may configure this higher per P3-08.
+  dataRetentionYears Int @default(5)
+
+  projects    Project[]
+  memberships Membership[]
 }
 
 model Project {
@@ -45,6 +55,70 @@ model Project {
   reverseEngineerJobs ReverseEngineerJob[]
 
   @@unique([organizationId, slug])
+}
+
+// ---------------------------------------------------------------------------
+// Identity & seat-based billing
+// ---------------------------------------------------------------------------
+
+model User {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  name         String?
+  passwordHash String
+  createdAt    DateTime @default(now())
+
+  memberships Membership[]
+}
+
+enum OrgRole {
+  OWNER
+  ADMIN
+  EDITOR
+  VIEWER
+  COMPLIANCE_AUDITOR
+}
+
+// A "seat" in the pricing model. FULL seats consume the plan's full-seat
+// allotment and can hold any OrgRole. READ_ONLY seats are cheaper/included
+// and are only ever a Membership with role: VIEWER -- enforced in
+// packages/core's seat-limit logic, not by a DB constraint, since the
+// membership row itself doesn't know the org's current plan.
+enum SeatType {
+  FULL
+  READ_ONLY
+}
+
+model Membership {
+  id             String       @id @default(cuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id])
+  userId         String
+  user           User         @relation(fields: [userId], references: [id])
+  role           OrgRole
+  seatType       SeatType     @default(FULL)
+  createdAt      DateTime     @default(now())
+
+  @@unique([organizationId, userId])
+  @@index([organizationId, seatType])
+}
+
+// Plan tiers as data, matching this project's existing "don't hardcode what
+// might change" pattern (see TestPlanType/ComplianceFramework). Seeded with
+// the tier boundaries as specified; cost fields are left null until pricing
+// is finalized -- this table is where that lands, not a code change.
+model PlanTier {
+  id                  String   @id @default(cuid())
+  key                 String   @unique // "free" | "team" | "business" | "corp"
+  name                String
+  sortOrder           Int
+  minFullSeats        Int // inclusive lower bound that qualifies for/requires this tier
+  maxFullSeats         Int? // inclusive upper bound; null = unlimited (top tier)
+  includedReadOnlySeats Int @default(0) // read-only seats bundled at this tier
+  maxReadOnlySeats      Int? // null = unlimited once on this tier
+  monthlyPricePerSeatCents Int? // null = not yet priced
+
+  organizations Organization[]
 }
 
 // ---------------------------------------------------------------------------
@@ -382,9 +456,32 @@ model TestResult {
   errorMessage   String?
 
   reverseEngineerJob ReverseEngineerJob?
+  artifacts          TestResultArtifact[]
 
   @@index([testRunId])
   @@index([testCaseId])
+}
+
+// Screenshot/video evidence captured while a front-end automated test was
+// running. The runner captures on every run but only *uploads* on failure --
+// this row only ever exists for a failing TestResult, by design. Headless
+// runs without a display surface simply produce none; that's expected, not
+// an error state.
+model TestResultArtifact {
+  id           String               @id @default(cuid())
+  testResultId String
+  testResult   TestResult           @relation(fields: [testResultId], references: [id])
+  type         TestResultArtifactType
+  storageUrl   String
+  capturedAt   DateTime             @default(now())
+  durationMs   Int? // set for VIDEO; the trailing window captured before failure
+
+  @@index([testResultId])
+}
+
+enum TestResultArtifactType {
+  SCREENSHOT
+  VIDEO
 }
 
 enum TestResultStatus {

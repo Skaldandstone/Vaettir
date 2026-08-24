@@ -1,12 +1,12 @@
 import { z } from "zod";
 import { reverseEngineerTestFile } from "@tci/ai-agent";
-import { router, publicProcedure } from "../trpc.js";
+import { router, protectedProcedure, requireProjectAccess } from "../trpc.js";
 
 export const agentRouter = router({
   // Reverse-engineers a pasted/uploaded test file into BDD test cases and
   // persists them, linked back to their TestCaseSource. Synchronous for now
   // (single-file); repo-scan jobs (ReverseEngineerJob) queue this per-file.
-  reverseEngineerFile: publicProcedure
+  reverseEngineerFile: protectedProcedure
     .input(
       z.object({
         projectId: z.string(),
@@ -16,6 +16,9 @@ export const agentRouter = router({
       }),
     )
     .mutation(async ({ ctx, input }) => {
+      if (input.persist) {
+        await requireProjectAccess(ctx, input.projectId, "EDITOR");
+      }
       const result = await reverseEngineerTestFile({
         filePath: input.filePath,
         content: input.content,

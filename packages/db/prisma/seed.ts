@@ -105,6 +105,53 @@ const BUILT_IN_COMPLIANCE_FRAMEWORKS = [
   { key: "iso27001", name: "ISO/IEC 27001", version: "2022" },
 ] as const;
 
+// Seat-based pricing tiers. `monthlyPricePerSeatCents` is left null across
+// the board -- cost structure isn't finalized yet; this table is where that
+// lands when it is, not a code change. See packages/core/src/plan.ts for
+// the enforcement logic that reads these bounds.
+const PLAN_TIERS = [
+  {
+    key: "free",
+    name: "Free",
+    sortOrder: 0,
+    minFullSeats: 1,
+    maxFullSeats: 3,
+    includedReadOnlySeats: 0,
+    maxReadOnlySeats: 0,
+    monthlyPricePerSeatCents: null,
+  },
+  {
+    key: "team",
+    name: "Team",
+    sortOrder: 1,
+    minFullSeats: 4,
+    maxFullSeats: 50,
+    includedReadOnlySeats: 10,
+    maxReadOnlySeats: 10,
+    monthlyPricePerSeatCents: null,
+  },
+  {
+    key: "business",
+    name: "Business",
+    sortOrder: 2,
+    minFullSeats: 51,
+    maxFullSeats: 75,
+    includedReadOnlySeats: 10,
+    maxReadOnlySeats: null,
+    monthlyPricePerSeatCents: null,
+  },
+  {
+    key: "corp",
+    name: "Corp",
+    sortOrder: 3,
+    minFullSeats: 76,
+    maxFullSeats: null,
+    includedReadOnlySeats: 10,
+    maxReadOnlySeats: null,
+    monthlyPricePerSeatCents: null,
+  },
+] as const;
+
 async function main() {
   for (const type of BUILT_IN_TEST_PLAN_TYPES) {
     await prisma.testPlanType.upsert({
@@ -122,8 +169,16 @@ async function main() {
     });
   }
 
+  for (const tier of PLAN_TIERS) {
+    await prisma.planTier.upsert({
+      where: { key: tier.key },
+      create: tier,
+      update: tier,
+    });
+  }
+
   console.log(
-    `Seeded ${BUILT_IN_TEST_PLAN_TYPES.length} test plan types and ${BUILT_IN_COMPLIANCE_FRAMEWORKS.length} compliance frameworks.`,
+    `Seeded ${BUILT_IN_TEST_PLAN_TYPES.length} test plan types, ${BUILT_IN_COMPLIANCE_FRAMEWORKS.length} compliance frameworks, and ${PLAN_TIERS.length} plan tiers.`,
   );
 }
 

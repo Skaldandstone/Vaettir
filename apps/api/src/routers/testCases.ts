@@ -1,21 +1,22 @@
 import { z } from "zod";
-import { router, publicProcedure } from "../trpc.js";
+import { router, protectedProcedure, requireProjectAccess } from "../trpc.js";
 
 export const testCasesRouter = router({
-  list: publicProcedure
+  list: protectedProcedure
     .input(z.object({ projectId: z.string() }))
-    .query(({ ctx, input }) =>
-      ctx.prisma.testCase.findMany({
+    .query(async ({ ctx, input }) => {
+      await requireProjectAccess(ctx, input.projectId);
+      return ctx.prisma.testCase.findMany({
         where: { projectId: input.projectId },
         include: { source: true, testPlan: true },
         orderBy: { updatedAt: "desc" },
-      }),
-    ),
+      });
+    }),
 
   // .output() bounds the inferred type to this schema instead of Prisma's
   // deeply-nested `include` payload type, which otherwise blows past tsc's
   // structural inference limit (TS2589) for consumers of the AppRouter type.
-  byId: publicProcedure
+  byId: protectedProcedure
     .input(z.object({ id: z.string() }))
     .output(
       z.object({
@@ -44,6 +45,7 @@ export const testCasesRouter = router({
         where: { id: input.id },
         include: { source: true },
       });
+      await requireProjectAccess(ctx, tc.projectId);
       return {
         id: tc.id,
         title: tc.title,
@@ -62,7 +64,7 @@ export const testCasesRouter = router({
       };
     }),
 
-  create: publicProcedure
+  create: protectedProcedure
     .input(
       z.object({
         projectId: z.string(),
@@ -77,8 +79,9 @@ export const testCasesRouter = router({
         priority: z.enum(["CRITICAL", "HIGH", "MEDIUM", "LOW"]).default("MEDIUM"),
       }),
     )
-    .mutation(({ ctx, input }) =>
-      ctx.prisma.testCase.create({
+    .mutation(async ({ ctx, input }) => {
+      await requireProjectAccess(ctx, input.projectId, "EDITOR");
+      return ctx.prisma.testCase.create({
         data: {
           projectId: input.projectId,
           testPlanId: input.testPlanId,
@@ -91,6 +94,6 @@ export const testCasesRouter = router({
           testType: input.testType as never,
           priority: input.priority,
         },
-      }),
-    ),
+      });
+    }),
 });

@@ -1,20 +1,23 @@
 import { z } from "zod";
-import { router, publicProcedure } from "../trpc.js";
+import { router, protectedProcedure, requireProjectAccess } from "../trpc.js";
 
 export const testPlansRouter = router({
-  list: publicProcedure
+  list: protectedProcedure
     .input(z.object({ projectId: z.string() }))
-    .query(({ ctx, input }) =>
-      ctx.prisma.testPlan.findMany({
+    .query(async ({ ctx, input }) => {
+      await requireProjectAccess(ctx, input.projectId);
+      return ctx.prisma.testPlan.findMany({
         where: { projectId: input.projectId },
         include: { testPlanType: true, acceptanceCriteria: true },
         orderBy: { updatedAt: "desc" },
-      }),
-    ),
+      });
+    }),
 
-  types: publicProcedure.query(({ ctx }) => ctx.prisma.testPlanType.findMany()),
+  // Not project-scoped: built-in + org-defined plan types are shared
+  // reference data, not something a single project owns.
+  types: protectedProcedure.query(({ ctx }) => ctx.prisma.testPlanType.findMany()),
 
-  create: publicProcedure
+  create: protectedProcedure
     .input(
       z.object({
         projectId: z.string(),
@@ -24,8 +27,9 @@ export const testPlansRouter = router({
         customFields: z.record(z.unknown()).default({}),
       }),
     )
-    .mutation(({ ctx, input }) =>
-      ctx.prisma.testPlan.create({
+    .mutation(async ({ ctx, input }) => {
+      await requireProjectAccess(ctx, input.projectId, "EDITOR");
+      return ctx.prisma.testPlan.create({
         data: {
           projectId: input.projectId,
           testPlanTypeId: input.testPlanTypeId,
@@ -33,6 +37,6 @@ export const testPlansRouter = router({
           description: input.description,
           customFields: input.customFields as never,
         },
-      }),
-    ),
+      });
+    }),
 });
