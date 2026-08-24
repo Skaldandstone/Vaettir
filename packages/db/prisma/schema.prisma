@@ -308,7 +308,7 @@ model TestCase {
 model TestCaseStep {
   id         String   @id @default(cuid())
   testCaseId String
-  testCase   TestCase @relation(fields: [testCaseId], references: [id])
+  testCase   TestCase @relation(fields: [testCaseId], references: [id], onDelete: Cascade)
   order      Int
 
   action                String // the trigger/action, e.g. "When the login button is pushed"
@@ -339,7 +339,7 @@ enum TestCaseOrigin {
 model TestCaseSource {
   id                 String   @id @default(cuid())
   testCaseId         String   @unique
-  testCase           TestCase @relation(fields: [testCaseId], references: [id])
+  testCase           TestCase @relation(fields: [testCaseId], references: [id], onDelete: Cascade)
   repoUrl            String?
   filePath           String
   functionName       String?

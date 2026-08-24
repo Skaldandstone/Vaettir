@@ -82,11 +82,16 @@ export const organizationRouter = router({
         select: { id: true, name: true, slug: true, stepFieldLabels: true },
       });
       const overrides = (org.stepFieldLabels as Partial<Record<StepFieldKey, string>> | null) ?? {};
+      // Strip undefined entries -- Partial<...> allows them, but the output
+      // schema (and the JSON response) shouldn't carry keys with no value.
+      const definedOverrides = Object.fromEntries(
+        Object.entries(overrides).filter((entry): entry is [string, string] => entry[1] !== undefined),
+      );
       return {
         id: org.id,
         name: org.name,
         slug: org.slug,
-        stepFieldLabelOverrides: overrides,
+        stepFieldLabelOverrides: definedOverrides,
         stepFieldLabels: resolveStepFieldLabels(overrides),
       };
     }),
