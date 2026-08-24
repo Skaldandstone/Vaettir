@@ -1,7 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { trpc, type RouterOutputs } from "../../lib/trpc";
+
+const ACTIVE_JOB_STATUSES = new Set(["PENDING", "RUNNING"]);
 
 export default function ReverseEngineerPage() {
   const [projectId, setProjectId] = useState("");
@@ -11,6 +13,24 @@ export default function ReverseEngineerPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<RouterOutputs["agent"]["reverseEngineerFile"] | null>(null);
+
+  const [jobs, setJobs] = useState<RouterOutputs["agent"]["listJobs"]>([]);
+  const [submittingJob, setSubmittingJob] = useState(false);
+
+  function loadJobs() {
+    if (!projectId) return;
+    trpc.agent.listJobs.query({ projectId }).then(setJobs).catch(() => undefined);
+  }
+
+  useEffect(loadJobs, [projectId]);
+
+  // Poll while any job is PENDING/RUNNING so status updates without a
+  // manual refresh; stops polling once nothing's in flight.
+  useEffect(() => {
+    if (!jobs.some((j) => ACTIVE_JOB_STATUSES.has(j.status))) return;
+    const t = setInterval(loadJobs, 2000);
+    return () => clearInterval(t);
+  }, [jobs, projectId]);
 
   async function submit() {
     setLoading(true);
@@ -23,6 +43,19 @@ export default function ReverseEngineerPage() {
       setError(String(e));
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function submitAsJob() {
+    setSubmittingJob(true);
+    setError(null);
+    try {
+      await trpc.agent.submitJob.mutate({ projectId, filePath, content });
+      loadJobs();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setSubmittingJob(false);
     }
   }
 
@@ -54,12 +87,38 @@ export default function ReverseEngineerPage() {
           <input type="checkbox" checked={persist} onChange={(e) => setPersist(e.target.checked)} /> Save results as
           test cases (requires Project ID)
         </label>
-        <button onClick={submit} disabled={loading || !content}>
-          {loading ? "Analyzing…" : "Reverse-engineer"}
-        </button>
+        <div style={{ display: "flex", gap: 8 }}>
+          <button onClick={submit} disabled={loading || !content}>
+            {loading ? "Analyzing…" : "Reverse-engineer now"}
+          </button>
+          <button onClick={submitAsJob} disabled={submittingJob || !content || !projectId}>
+            {submittingJob ? "Submitting…" : "Run as background job"}
+          </button>
+        </div>
       </div>
 
       {error && <p style={{ color: "crimson" }}>{error}</p>}
+
+      {projectId && jobs.length > 0 && (
+        <div style={{ marginTop: 24 }}>
+          <h2>Recent jobs</h2>
+          <ul style={{ listStyle: "none", padding: 0 }}>
+            {jobs.map((j) => (
+              <li key={j.id} style={{ borderBottom: "1px solid #eee", padding: "6px 0" }}>
+                <strong>{j.status}</strong> — {j.inputRef}
+                {j.status === "SUCCEEDED" && ` — ${j.resultTestCaseIds.length} test case(s) created`}
+                {j.status === "FAILED" && j.error && <span style={{ color: "crimson" }}> — {j.error}</span>}
+                {j.resultTestCaseIds.length > 0 && (
+                  <>
+                    {" "}
+                    <a href={`/test-cases/review?projectId=${projectId}`}>view in review queue</a>
+                  </>
+                )}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
 
       {result && (
         <div style={{ marginTop: 24 }}>

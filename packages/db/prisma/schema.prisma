@@ -450,6 +450,11 @@ model ReverseEngineerJob {
 
   inputType   ReverseEngineerInputType
   inputRef    String // file path, repo+glob, or opaque paste id
+  // Raw source for PASTE/FILE_UPLOAD jobs -- the worker needs the actual
+  // content to reverse-engineer, not just inputRef's path/label. REPO_SCAN
+  // and CI_UNMATCHED_RESULT jobs source content differently (repo clone,
+  // existing TestResult) once those pipelines exist, so this stays nullable.
+  content     String?
   framework   String?
   status      JobStatus @default(PENDING)
   error       String?
