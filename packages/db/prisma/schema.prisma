@@ -44,6 +44,7 @@ model Organization {
 
   projects    Project[]
   memberships Membership[]
+  invitations Invitation[]
 }
 
 model Project {
@@ -81,7 +82,8 @@ model User {
   name        String?
   createdAt   DateTime @default(now())
 
-  memberships Membership[]
+  memberships     Membership[]
+  sentInvitations Invitation[]
 }
 
 enum OrgRole {
@@ -105,8 +107,16 @@ enum SeatType {
 model Membership {
   id             String       @id @default(cuid())
   organizationId String
-  organization   Organization @relation(fields: [organizationId], references: [id])
+  // Deleting an org takes its memberships with it (they have no meaning
+  // without it); a Membership row is never meaningful on its own.
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   userId         String
+  // Deliberately NOT cascade: a departing/deleted User's org memberships
+  // should be handled explicitly (revoke seat, reassign ownership), not
+  // silently vanish, since a Membership is also the audit trail of who had
+  // access to what. Restrict (the default) blocks User deletion while
+  // memberships exist -- that's correct until P12 builds an explicit
+  // "remove member" flow that revokes first.
   user           User         @relation(fields: [userId], references: [id])
   role           OrgRole
   seatType       SeatType     @default(FULL)
@@ -114,6 +124,41 @@ model Membership {
 
   @@unique([organizationId, userId])
   @@index([organizationId, seatType])
+}
+
+// A pending seat offer. No email is sent by the platform yet (P9 territory)
+// -- the inviter is handed a shareable link to send however they like.
+// Deliberately NOT tied to Membership until accepted: an invitation is a
+// standing offer against a seat that hasn't been consumed, which is exactly
+// why seat-limit checks happen both at invite time AND at accept time (the
+// org's seat usage can change in between).
+model Invitation {
+  id             String           @id @default(cuid())
+  organizationId String
+  // An org's invitations are meaningless without the org -- cascade.
+  organization   Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  email          String
+  role           OrgRole
+  seatType       SeatType         @default(FULL)
+  token          String           @unique @default(cuid())
+  invitedById    String
+  // Deliberately NOT cascade: don't want the audit trail of "who invited
+  // whom" to vanish if the inviter's own account is later deleted.
+  invitedBy      User             @relation(fields: [invitedById], references: [id])
+  status         InvitationStatus @default(PENDING)
+  createdAt      DateTime         @default(now())
+  expiresAt      DateTime
+  acceptedAt     DateTime?
+
+  @@index([organizationId, status])
+  @@index([email])
+}
+
+enum InvitationStatus {
+  PENDING
+  ACCEPTED
+  REVOKED
+  EXPIRED
 }
 
 // Plan tiers as data, matching this project's existing "don't hardcode what

@@ -1,7 +1,24 @@
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
-import { DEFAULT_STEP_FIELD_LABELS, resolveStepFieldLabels, type StepFieldKey } from "@tci/core";
+import {
+  DEFAULT_STEP_FIELD_LABELS,
+  resolveStepFieldLabels,
+  canAddSeat,
+  type StepFieldKey,
+  type SeatType as CoreSeatType,
+} from "@tci/core";
 import { router, protectedProcedure, requireOrgRole } from "../trpc.js";
+import type { PrismaClient } from "@tci/db";
+
+const INVITATION_EXPIRY_DAYS = 7;
+
+async function getSeatCounts(prisma: PrismaClient, organizationId: string) {
+  const [fullSeats, readOnlySeats] = await Promise.all([
+    prisma.membership.count({ where: { organizationId, seatType: "FULL" } }),
+    prisma.membership.count({ where: { organizationId, seatType: "READ_ONLY" } }),
+  ]);
+  return { fullSeats, readOnlySeats };
+}
 
 const stepFieldLabelsInputSchema = z.object(
   Object.fromEntries(Object.keys(DEFAULT_STEP_FIELD_LABELS).map((k) => [k, z.string().min(1).optional()])) as Record<
@@ -115,5 +132,199 @@ export const organizationRouter = router({
         data: { stepFieldLabels: merged },
       });
       return resolveStepFieldLabels(merged);
+    }),
+
+  listMembers: protectedProcedure
+    .input(z.object({ organizationId: z.string() }))
+    .output(
+      z.array(
+        z.object({
+          id: z.string(),
+          role: z.string(),
+          seatType: z.string(),
+          userEmail: z.string(),
+          userName: z.string().nullable(),
+        }),
+      ),
+    )
+    .query(async ({ ctx, input }) => {
+      requireOrgRole(ctx, input.organizationId);
+      const memberships = await ctx.prisma.membership.findMany({
+        where: { organizationId: input.organizationId },
+        include: { user: { select: { email: true, name: true } } },
+        orderBy: { createdAt: "asc" },
+      });
+      return memberships.map((m) => ({
+        id: m.id,
+        role: m.role,
+        seatType: m.seatType,
+        userEmail: m.user.email,
+        userName: m.user.name,
+      }));
+    }),
+
+  listInvitations: protectedProcedure
+    .input(z.object({ organizationId: z.string() }))
+    .output(
+      z.array(
+        z.object({
+          id: z.string(),
+          email: z.string(),
+          role: z.string(),
+          seatType: z.string(),
+          token: z.string(),
+          expiresAt: z.date(),
+        }),
+      ),
+    )
+    .query(({ ctx, input }) => {
+      requireOrgRole(ctx, input.organizationId, "ADMIN");
+      return ctx.prisma.invitation.findMany({
+        where: { organizationId: input.organizationId, status: "PENDING" },
+        orderBy: { createdAt: "desc" },
+      });
+    }),
+
+  // Seat availability is checked here (at invite time) AND again in
+  // acceptInvitation (at accept time), since usage can change in between --
+  // an invite is a standing offer against a seat, not a seat hold.
+  inviteMember: protectedProcedure
+    .input(
+      z.object({
+        organizationId: z.string(),
+        email: z.string().email(),
+        role: z.enum(["ADMIN", "EDITOR", "VIEWER", "COMPLIANCE_AUDITOR"]),
+        seatType: z.enum(["FULL", "READ_ONLY"]).default("FULL"),
+      }),
+    )
+    .output(z.object({ id: z.string(), token: z.string(), expiresAt: z.date() }))
+    .mutation(async ({ ctx, input }) => {
+      requireOrgRole(ctx, input.organizationId, "ADMIN");
+
+      if (input.seatType === "READ_ONLY" && input.role !== "VIEWER") {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Read-only seats can only hold the Viewer role" });
+      }
+
+      const org = await ctx.prisma.organization.findUniqueOrThrow({
+        where: { id: input.organizationId },
+        include: { planTier: true },
+      });
+      const counts = await getSeatCounts(ctx.prisma, input.organizationId);
+      const check = canAddSeat(org.planTier, counts, input.seatType as CoreSeatType);
+      if (!check.allowed) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: check.reason ?? "Seat limit reached" });
+      }
+
+      const existingMember = await ctx.prisma.membership.findFirst({
+        where: { organizationId: input.organizationId, user: { email: input.email } },
+      });
+      if (existingMember) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "This person is already a member" });
+      }
+
+      const expiresAt = new Date(Date.now() + INVITATION_EXPIRY_DAYS * 24 * 60 * 60 * 1000);
+      return ctx.prisma.invitation.create({
+        data: {
+          organizationId: input.organizationId,
+          email: input.email,
+          role: input.role,
+          seatType: input.seatType,
+          invitedById: ctx.user.id,
+          expiresAt,
+        },
+        select: { id: true, token: true, expiresAt: true },
+      });
+    }),
+
+  revokeInvitation: protectedProcedure
+    .input(z.object({ invitationId: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      const invitation = await ctx.prisma.invitation.findUniqueOrThrow({ where: { id: input.invitationId } });
+      requireOrgRole(ctx, invitation.organizationId, "ADMIN");
+      await ctx.prisma.invitation.update({ where: { id: input.invitationId }, data: { status: "REVOKED" } });
+    }),
+
+  // Looks up the invitation by token for display before the user commits --
+  // deliberately returns org/role details without requiring the email match
+  // yet, so a signed-in user can see what they're being offered.
+  previewInvitation: protectedProcedure
+    .input(z.object({ token: z.string() }))
+    .output(
+      z.object({
+        organizationName: z.string(),
+        role: z.string(),
+        seatType: z.string(),
+        status: z.string(),
+        expired: z.boolean(),
+        emailMatches: z.boolean(),
+      }),
+    )
+    .query(async ({ ctx, input }) => {
+      const invitation = await ctx.prisma.invitation.findUniqueOrThrow({
+        where: { token: input.token },
+        include: { organization: { select: { name: true } } },
+      });
+      return {
+        organizationName: invitation.organization.name,
+        role: invitation.role,
+        seatType: invitation.seatType,
+        status: invitation.status,
+        expired: invitation.expiresAt < new Date(),
+        emailMatches: invitation.email.toLowerCase() === ctx.user.email.toLowerCase(),
+      };
+    }),
+
+  acceptInvitation: protectedProcedure
+    .input(z.object({ token: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      const invitation = await ctx.prisma.invitation.findUniqueOrThrow({
+        where: { token: input.token },
+        include: { organization: { include: { planTier: true } } },
+      });
+
+      if (invitation.status !== "PENDING") {
+        throw new TRPCError({ code: "BAD_REQUEST", message: `This invitation is ${invitation.status.toLowerCase()}` });
+      }
+      if (invitation.expiresAt < new Date()) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "This invitation has expired" });
+      }
+      if (invitation.email.toLowerCase() !== ctx.user.email.toLowerCase()) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: `This invitation was sent to ${invitation.email}, not your account's email`,
+        });
+      }
+
+      const existingMembership = await ctx.prisma.membership.findUnique({
+        where: { organizationId_userId: { organizationId: invitation.organizationId, userId: ctx.user.id } },
+      });
+      if (existingMembership) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "You're already a member of this organization" });
+      }
+
+      const counts = await getSeatCounts(ctx.prisma, invitation.organizationId);
+      const check = canAddSeat(invitation.organization.planTier, counts, invitation.seatType as CoreSeatType);
+      if (!check.allowed) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: `${check.reason ?? "Seat limit reached"} -- ask an admin to free up a seat or upgrade the plan`,
+        });
+      }
+
+      return ctx.prisma.$transaction(async (tx) => {
+        const membership = await tx.membership.create({
+          data: {
+            organizationId: invitation.organizationId,
+            userId: ctx.user.id,
+            role: invitation.role,
+            seatType: invitation.seatType,
+          },
+        });
+        await tx.invitation.update({
+          where: { id: invitation.id },
+          data: { status: "ACCEPTED", acceptedAt: new Date() },
+        });
+        return membership;
+      });
     }),
 });
