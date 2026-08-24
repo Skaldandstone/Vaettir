@@ -1,9 +1,12 @@
+import { z } from "zod";
 import Anthropic from "@anthropic-ai/sdk";
 import {
-  ReverseEngineerResultSchema,
+  ReverseEngineeredTestCaseSchema,
   type ReverseEngineerResult,
   detectFramework,
 } from "@tci/core";
+
+const AgentResponseSchema = z.object({ testCases: z.array(ReverseEngineeredTestCaseSchema) });
 
 const MODEL = "claude-sonnet-5";
 
@@ -25,8 +28,6 @@ const EMIT_TEST_CASES_TOOL: Anthropic.Tool = {
   input_schema: {
     type: "object",
     properties: {
-      detectedFramework: { type: "string" },
-      detectedFrameworkFamily: { type: "string" },
       testCases: {
         type: "array",
         items: {
@@ -65,7 +66,7 @@ const EMIT_TEST_CASES_TOOL: Anthropic.Tool = {
         },
       },
     },
-    required: ["detectedFramework", "detectedFrameworkFamily", "testCases"],
+    required: ["testCases"],
   },
 };
 
@@ -112,5 +113,20 @@ export async function reverseEngineerTestFile(
     throw new Error("Agent did not return a tool_use block");
   }
 
-  return ReverseEngineerResultSchema.parse(toolUse.input);
+  // detectedFramework/detectedFrameworkFamily used to be part of what we
+  // asked the model to emit, but that was unreliable in practice: the model
+  // sometimes omitted them from the tool call entirely, and when present
+  // returned freeform casing (e.g. "pytest") that doesn't match the strict
+  // Prisma FrameworkFamily enum ("PYTEST") it gets cast into downstream.
+  // We already compute this deterministically via detectFramework's regex
+  // heuristics -- there's no reason to ask the LLM to guess something we
+  // can derive precisely, so the heuristic result is the source of truth
+  // here, not the model's output.
+  const { testCases } = AgentResponseSchema.parse(toolUse.input);
+  const result: ReverseEngineerResult = {
+    detectedFramework: heuristic.label,
+    detectedFrameworkFamily: heuristic.family,
+    testCases,
+  };
+  return result;
 }
