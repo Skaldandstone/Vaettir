@@ -2,7 +2,10 @@
 
 import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
+import type { CSSProperties } from "react";
 import { trpc, type RouterOutputs } from "../../../lib/trpc";
+
+const cellStyle: CSSProperties = { border: "1px solid #e5e5e5", padding: "6px 10px", textAlign: "left" };
 
 export default function TestCaseDetailPage() {
   const params = useParams<{ id: string }>();
@@ -34,12 +37,46 @@ export default function TestCaseDetailPage() {
         </p>
       )}
       {tc.background && <p><strong>Background:</strong> {tc.background}</p>}
-      <h3>Given</h3>
-      <ul>{tc.given.map((s, i) => <li key={i}>{s}</li>)}</ul>
-      <h3>When</h3>
-      <ul>{tc.when.map((s, i) => <li key={i}>{s}</li>)}</ul>
-      <h3>Then</h3>
-      <ul>{tc.then.map((s, i) => <li key={i}>{s}</li>)}</ul>
+
+      {(tc.given.length > 0 || tc.when.length > 0 || tc.then.length > 0) && (
+        <>
+          <h3>Given</h3>
+          <ul>{tc.given.map((s, i) => <li key={i}>{s}</li>)}</ul>
+          <h3>When</h3>
+          <ul>{tc.when.map((s, i) => <li key={i}>{s}</li>)}</ul>
+          <h3>Then</h3>
+          <ul>{tc.then.map((s, i) => <li key={i}>{s}</li>)}</ul>
+        </>
+      )}
+
+      {tc.steps.length > 0 && (
+        <>
+          <h3>Steps</h3>
+          <table style={{ borderCollapse: "collapse", width: "100%" }}>
+            <thead>
+              <tr>
+                <th style={cellStyle}>#</th>
+                <th style={cellStyle}>{tc.stepFieldLabels.action}</th>
+                <th style={cellStyle}>{tc.stepFieldLabels.expectedActionOrData}</th>
+                <th style={cellStyle}>{tc.stepFieldLabels.expectedResult}</th>
+                <th style={cellStyle}>{tc.stepFieldLabels.expectedResponse}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {tc.steps.map((s) => (
+                <tr key={s.order}>
+                  <td style={cellStyle}>{s.order + 1}</td>
+                  <td style={cellStyle}>{s.action}</td>
+                  <td style={cellStyle}>{s.expectedActionOrData ?? "—"}</td>
+                  <td style={cellStyle}>{s.expectedResult ?? "—"}</td>
+                  <td style={cellStyle}>{s.expectedResponse ?? "—"}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </>
+      )}
+
       {tc.tags.length > 0 && (
         <p>
           <strong>Tags:</strong> {tc.tags.join(", ")}

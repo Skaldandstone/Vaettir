@@ -46,7 +46,8 @@ features will sit on top of. Nothing else is safely multi-user without this.
 - **P1-09** (S) Seed script for a demo org/project so new devs and CI have consistent fixture data instead of manually pasting project ids. `labels: dx`
 
 ### Epic 1.3 — Core CRUD UI hardening
-- **P1-10** (M) Test case create/edit forms in web (currently only reverse-engineering produces test cases; manual authoring UI is missing). `labels: area:web, type:feature`
+- **P1-10** (M) Test case create/edit forms in web, supporting **both authoring formats**: BDD (given/when/then) and the structured step table (`TestCaseStep` — action / expected action-or-data / expected result / expected response, with org-configurable field labels via `Organization.stepFieldLabels`). A test case needs at least one format populated, not necessarily both. Currently only reverse-engineering produces test cases (BDD only); manual authoring UI — in either format — is still missing. The read-side (detail page rendering steps when present) and the API (`testCases.create` accepting `steps[]`, `testCases.byId` returning them with resolved labels) are already built. `labels: area:web, type:feature`
+- **P1-16** (S) Step field label settings: org settings UI for renaming the four `TestCaseStep` field labels (stored in `Organization.stepFieldLabels`) — the default names ("Test Step", "Expected Action / Data", "Expected Result", "Expected Response") are explicitly placeholders; this is what lets a team make them their own without waiting on a code change. `labels: area:web, type:feature`
 - **P1-11** (M) Test plan create/edit UI, including dynamic form rendering from `TestPlanType.fieldSchema` (JSON Schema → form). `labels: area:web, type:feature`
 - **P1-12** (S) Requirement + AcceptanceCriterion CRUD UI, linkable to test plans. `labels: area:web, type:feature`
 - **P1-13** (M) Bulk operations: tag test cases, bulk move between test plans, bulk archive. `labels: area:web, type:feature`

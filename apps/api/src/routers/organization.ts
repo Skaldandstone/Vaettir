@@ -44,9 +44,15 @@ export const organizationRouter = router({
       });
     }),
 
-  mine: protectedProcedure.query(({ ctx }) =>
-    ctx.prisma.organization.findMany({
-      where: { memberships: { some: { userId: ctx.user.id } } },
-    }),
-  ),
+  // .output() bounds the inferred type instead of letting it flow straight
+  // from Prisma's Organization model -- see testCases.ts's byId for why
+  // (TS2589, deep instantiation, once enough routers compose in one AppRouter).
+  mine: protectedProcedure
+    .output(z.array(z.object({ id: z.string(), name: z.string(), slug: z.string() })))
+    .query(({ ctx }) =>
+      ctx.prisma.organization.findMany({
+        where: { memberships: { some: { userId: ctx.user.id } } },
+        select: { id: true, name: true, slug: true },
+      }),
+    ),
 });

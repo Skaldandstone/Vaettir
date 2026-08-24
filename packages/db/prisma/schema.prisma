@@ -33,6 +33,15 @@ model Organization {
   // compliance-heavy plans may configure this higher per P3-08.
   dataRetentionYears Int @default(5)
 
+  // Renames the display labels for TestCaseStep's four fields, e.g.
+  // {"expectedActionOrData": "Backend Call"}. Keys are the field names in
+  // TestCaseStep; any key not present falls back to
+  // @tci/core's DEFAULT_STEP_FIELD_LABELS. Exists because the field names
+  // themselves ("expected action or data" etc.) are acknowledged
+  // placeholders -- teams should be able to relabel them without a schema
+  // change or a migration.
+  stepFieldLabels Json?
+
   projects    Project[]
   memberships Membership[]
 }
@@ -274,9 +283,41 @@ model TestCase {
   source              TestCaseSource?
   complianceControls  TestCaseComplianceControl[]
   results             TestResult[]
+  // The structured step-table authoring format -- an alternative (or
+  // complement) to given/when/then above. A TestCase can carry either,
+  // both, or neither populated; the UI renders whichever has content. See
+  // TestCaseStep for why this exists alongside BDD rather than replacing it.
+  steps               TestCaseStep[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+}
+
+// A more granular, technical alternative to a single BDD "When"/"Then" pair
+// -- separates what the tester DOES from three independently-useful
+// observations: what happens beneath the UI (a request fires, with what
+// payload), what the *user* sees, and what the *system* actually returned.
+// Teams testing both a UI and the API/service behind it want these three
+// tracked separately instead of collapsed into one "expected result" line.
+//
+// Field names are intentionally plain and their DISPLAY labels are
+// deliberately not hardcoded anywhere in the app -- see
+// Organization.stepFieldLabels. Only `action` is required; the other three
+// are independently optional; e.g. a pure-UI step might only need
+// expectedResult.
+model TestCaseStep {
+  id         String   @id @default(cuid())
+  testCaseId String
+  testCase   TestCase @relation(fields: [testCaseId], references: [id])
+  order      Int
+
+  action                String // the trigger/action, e.g. "When the login button is pushed"
+  expectedActionOrData   String? // what should happen internally: an API call fires, with what data/payload
+  expectedResult         String? // the user-observable outcome, e.g. "The new page loads"
+  expectedResponse       String? // the technical/API response, e.g. "200 with { token, userId }"
+
+  @@unique([testCaseId, order])
+  @@index([testCaseId])
 }
 
 enum TestCasePriority {
