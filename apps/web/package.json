@@ -9,6 +9,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@clerk/nextjs": "^6.9.0",
     "@tci/core": "workspace:*",
     "@trpc/client": "^11.0.0-rc.502",
     "@trpc/server": "^11.0.0-rc.502",

@@ -1,17 +1,21 @@
 import { TRPCError, initTRPC } from "@trpc/server";
 import type { CreateFastifyContextOptions } from "@trpc/server/adapters/fastify";
 import { prisma, type OrgRole } from "@tci/db";
-import { extractBearerToken, verifySessionToken } from "./auth.js";
+import { verifyClerkSessionToken, getOrCreateLocalUser } from "./clerk.js";
+
+function extractBearerToken(authHeader: string | undefined): string | null {
+  if (!authHeader?.startsWith("Bearer ")) return null;
+  return authHeader.slice("Bearer ".length).trim() || null;
+}
 
 export async function createContext({ req }: CreateFastifyContextOptions) {
   const token = extractBearerToken(req.headers.authorization);
-  const payload = token ? verifySessionToken(token) : null;
+  const clerkUserId = token ? await verifyClerkSessionToken(token) : null;
 
-  const user = payload
-    ? await prisma.user.findUnique({
-        where: { id: payload.userId },
-        include: { memberships: true },
-      })
+  const user = clerkUserId
+    ? await getOrCreateLocalUser(clerkUserId).then((u) =>
+        prisma.user.findUniqueOrThrow({ where: { id: u.id }, include: { memberships: true } }),
+      )
     : null;
 
   return { prisma, user };
@@ -24,9 +28,9 @@ const t = initTRPC.context<Context>().create();
 export const router = t.router;
 export const publicProcedure = t.procedure;
 
-// Requires a valid session; does not by itself check org/project membership
-// -- see requireProjectAccess for that. Every router handling org-scoped
-// data should build on this, not publicProcedure (P1-02).
+// Requires a valid Clerk session; does not by itself check org/project
+// membership -- see requireProjectAccess for that. Every router handling
+// org-scoped data should build on this, not publicProcedure (P1-02).
 export const protectedProcedure = t.procedure.use(({ ctx, next }) => {
   if (!ctx.user) {
     throw new TRPCError({ code: "UNAUTHORIZED" });

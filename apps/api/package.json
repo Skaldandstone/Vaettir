@@ -10,19 +10,16 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
+    "@clerk/backend": "^1.18.0",
     "@fastify/cors": "^10.0.0",
     "@tci/ai-agent": "workspace:*",
     "@tci/core": "workspace:*",
     "@tci/db": "workspace:*",
     "@trpc/server": "^11.0.0-rc.502",
-    "bcryptjs": "^2.4.3",
     "fastify": "^5.0.0",
-    "jsonwebtoken": "^9.0.2",
     "zod": "^3.23.0"
   },
   "devDependencies": {
-    "@types/bcryptjs": "^2.4.6",
-    "@types/jsonwebtoken": "^9.0.7",
     "tsx": "^4.19.0",
     "typescript": "^5.6.0"
   }

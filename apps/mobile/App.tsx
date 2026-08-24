@@ -1,11 +1,39 @@
 import { useEffect, useState } from "react";
-import { SafeAreaView, ScrollView, Text, TextInput, View, StyleSheet } from "react-native";
+import { SafeAreaView, ScrollView, Text, TextInput, View, StyleSheet, Button } from "react-native";
 import { StatusBar } from "expo-status-bar";
-import { trpc } from "./lib/trpc";
+import { ClerkProvider, SignedIn, SignedOut, useAuth, useSignIn } from "@clerk/clerk-expo";
+import { tokenCache } from "@clerk/clerk-expo/token-cache";
+import { trpc, setAuthTokenGetter } from "./lib/trpc";
 
-// Minimal read-only test case browser. Shares the exact TestCase shape and
-// tRPC contract with apps/web via @tci/api's AppRouter type + @tci/core.
+const CLERK_PUBLISHABLE_KEY = process.env.EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY;
+
 export default function App() {
+  if (!CLERK_PUBLISHABLE_KEY) {
+    throw new Error("EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY is not set");
+  }
+  return (
+    <ClerkProvider publishableKey={CLERK_PUBLISHABLE_KEY} tokenCache={tokenCache}>
+      <StatusBar style="auto" />
+      <SignedIn>
+        <TestCaseBrowser />
+      </SignedIn>
+      <SignedOut>
+        <SignInScreen />
+      </SignedOut>
+    </ClerkProvider>
+  );
+}
+
+// Wires the tRPC client's token source to Clerk's session once signed in --
+// see lib/trpc.ts for why this can't just call useAuth() itself.
+function TestCaseBrowser() {
+  const { getToken } = useAuth();
+
+  useEffect(() => {
+    setAuthTokenGetter(getToken);
+    return () => setAuthTokenGetter(null);
+  }, [getToken]);
+
   const [projectId, setProjectId] = useState("");
   const [cases, setCases] = useState<Awaited<ReturnType<typeof trpc.testCases.list.query>>>([]);
   const [error, setError] = useState<string | null>(null);
@@ -20,7 +48,6 @@ export default function App() {
 
   return (
     <SafeAreaView style={styles.container}>
-      <StatusBar style="auto" />
       <Text style={styles.title}>Test Case Intelligence</Text>
       <TextInput
         style={styles.input}
@@ -39,6 +66,39 @@ export default function App() {
           </View>
         ))}
       </ScrollView>
+    </SafeAreaView>
+  );
+}
+
+// Minimal sign-in form using Clerk's Expo password-strategy flow. A
+// prettier UI (and sign-up) is Phase 8 (mobile parity) work -- this is
+// enough to authenticate and get a session token for local testing.
+function SignInScreen() {
+  const { signIn, setActive, isLoaded } = useSignIn();
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState<string | null>(null);
+
+  async function onSubmit() {
+    if (!isLoaded) return;
+    setError(null);
+    try {
+      const attempt = await signIn.create({ identifier: email, password });
+      if (attempt.status === "complete") {
+        await setActive({ session: attempt.createdSessionId });
+      }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  }
+
+  return (
+    <SafeAreaView style={styles.container}>
+      <Text style={styles.title}>Log in</Text>
+      <TextInput style={styles.input} placeholder="Email" value={email} onChangeText={setEmail} autoCapitalize="none" />
+      <TextInput style={styles.input} placeholder="Password" value={password} onChangeText={setPassword} secureTextEntry />
+      <Button title="Log in" onPress={onSubmit} />
+      {error && <Text style={{ color: "crimson" }}>{error}</Text>}
     </SafeAreaView>
   );
 }
