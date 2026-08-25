@@ -2,21 +2,38 @@ import { TRPCError, initTRPC } from "@trpc/server";
 import type { CreateFastifyContextOptions } from "@trpc/server/adapters/fastify";
 import { prisma, type OrgRole } from "@vaettir/db";
 import { verifyClerkSessionToken, getOrCreateLocalUser } from "./clerk.js";
+import { hashApiKey, looksLikeApiKey } from "./services/apiKeyAuth.js";
 
 function extractBearerToken(authHeader: string | undefined): string | null {
   if (!authHeader?.startsWith("Bearer ")) return null;
   return authHeader.slice("Bearer ".length).trim() || null;
 }
 
+// A CI service token (P1-05) resolves to its backing service User exactly
+// like a human session resolves to theirs -- from here on, every
+// protectedProcedure/requireOrgRole/audit-column call treats it identically.
+async function resolveApiKeyUser(rawKey: string) {
+  const apiKey = await prisma.apiKey.findUnique({ where: { hashedKey: hashApiKey(rawKey) } });
+  if (!apiKey || apiKey.revokedAt) return null;
+  // Best-effort last-used tracking; never let it block or fail the request.
+  prisma.apiKey.update({ where: { id: apiKey.id }, data: { lastUsedAt: new Date() } }).catch(() => undefined);
+  return prisma.user.findUnique({ where: { id: apiKey.serviceUserId }, include: { memberships: true } });
+}
+
 export async function createContext({ req }: CreateFastifyContextOptions) {
   const token = extractBearerToken(req.headers.authorization);
-  const clerkUserId = token ? await verifyClerkSessionToken(token) : null;
 
-  const user = clerkUserId
-    ? await getOrCreateLocalUser(clerkUserId).then((u) =>
-        prisma.user.findUniqueOrThrow({ where: { id: u.id }, include: { memberships: true } }),
-      )
-    : null;
+  const user = !token
+    ? null
+    : looksLikeApiKey(token)
+      ? await resolveApiKeyUser(token)
+      : await verifyClerkSessionToken(token).then((clerkUserId) =>
+          clerkUserId
+            ? getOrCreateLocalUser(clerkUserId).then((u) =>
+                prisma.user.findUniqueOrThrow({ where: { id: u.id }, include: { memberships: true } }),
+              )
+            : null,
+        );
 
   return { prisma, user };
 }

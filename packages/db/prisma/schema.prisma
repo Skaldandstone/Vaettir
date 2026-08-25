@@ -45,6 +45,7 @@ model Organization {
   projects    Project[]
   memberships Membership[]
   invitations Invitation[]
+  apiKeys     ApiKey[]
 }
 
 model Project {
@@ -98,6 +99,13 @@ model User {
   updatedReleases  Release[]  @relation("ReleaseUpdatedBy")
   createdRiskFlags RiskFlag[] @relation("RiskFlagCreatedBy")
   updatedRiskFlags RiskFlag[] @relation("RiskFlagUpdatedBy")
+
+  // P1-05: a service token is backed by its own real User row (the
+  // "service user") so it flows through every existing requireOrgRole /
+  // requireProjectAccess / createdById check unmodified -- no separate
+  // API-key authz code path to keep in sync with the human one.
+  apiKeyIdentity ApiKey?  @relation("ApiKeyServiceUser")
+  createdApiKeys ApiKey[] @relation("ApiKeyCreatedBy")
 }
 
 enum OrgRole {
@@ -173,6 +181,35 @@ enum InvitationStatus {
   ACCEPTED
   REVOKED
   EXPIRED
+}
+
+// A CI-friendly service token (P1-05): "test result ingestion, PR scanning,
+// that don't go through a human session." The full key is shown to the
+// caller exactly once at creation and never stored -- only its SHA-256
+// hash (for lookup) and a short prefix (for the UI to tell keys apart
+// without ever displaying the secret again). Auth resolves a presented key
+// to `serviceUser` and proceeds through the ordinary Clerk-session code
+// path from there, so every authz/audit-column rule applies unchanged.
+model ApiKey {
+  id             String       @id @default(cuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  name           String
+  keyPrefix      String
+  hashedKey      String       @unique
+  role           OrgRole      @default(EDITOR)
+
+  serviceUserId String @unique
+  serviceUser   User   @relation("ApiKeyServiceUser", fields: [serviceUserId], references: [id])
+
+  createdByUserId String?
+  createdByUser   User?   @relation("ApiKeyCreatedBy", fields: [createdByUserId], references: [id])
+
+  createdAt  DateTime  @default(now())
+  lastUsedAt DateTime?
+  revokedAt  DateTime?
+
+  @@index([organizationId])
 }
 
 // Plan tiers as data, matching this project's existing "don't hardcode what
