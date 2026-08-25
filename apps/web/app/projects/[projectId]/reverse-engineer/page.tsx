@@ -129,6 +129,12 @@ export default function ReverseEngineerPage() {
         {scanResult && (
           <p style={{ color: "var(--frost)" }}>
             Found {scanResult.scannedFileCount} test file(s), queued {scanResult.queuedJobIds.length} background job(s).
+            {scanResult.rateLimitedCount > 0 && (
+              <span style={{ color: "var(--ember)" }}>
+                {" "}
+                {scanResult.rateLimitedCount} held back by this org&apos;s hourly rate limit — try again shortly.
+              </span>
+            )}
           </p>
         )}
       </div>

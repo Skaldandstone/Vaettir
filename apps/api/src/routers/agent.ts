@@ -5,6 +5,7 @@ import { router, protectedProcedure, requireProjectAccess } from "../trpc.js";
 import { persistReverseEngineerResult } from "../services/reverseEngineerPersist.js";
 import { kickReverseEngineerQueue } from "../jobs/reverseEngineerWorker.js";
 import { scanRepoForTestFiles, scanChangedTestFiles, hashFileContent } from "../services/repoScan.js";
+import { assertReverseEngineerBudget, remainingReverseEngineerBudget } from "../services/rateLimit.js";
 
 export const agentRouter = router({
   // Reverse-engineers a pasted/uploaded test file into BDD test cases and
@@ -49,7 +50,8 @@ export const agentRouter = router({
   submitJob: protectedProcedure
     .input(z.object({ projectId: z.string(), filePath: z.string(), content: z.string().min(1) }))
     .mutation(async ({ ctx, input }) => {
-      await requireProjectAccess(ctx, input.projectId, "EDITOR");
+      const { project } = await requireProjectAccess(ctx, input.projectId, "EDITOR");
+      await assertReverseEngineerBudget(ctx.prisma, project.organizationId);
       const job = await ctx.prisma.reverseEngineerJob.create({
         data: {
           projectId: input.projectId,
@@ -78,9 +80,10 @@ export const agentRouter = router({
   // than being excluded forever once any TestCaseSource exists for its path.
   scanRepo: protectedProcedure
     .input(z.object({ projectId: z.string(), repoUrl: z.string().optional(), ref: z.string().default("main") }))
-    .output(z.object({ scannedFileCount: z.number(), queuedJobIds: z.array(z.string()) }))
+    .output(z.object({ scannedFileCount: z.number(), queuedJobIds: z.array(z.string()), rateLimitedCount: z.number() }))
     .mutation(async ({ ctx, input }) => {
-      await requireProjectAccess(ctx, input.projectId, "EDITOR");
+      const { project: projectRef } = await requireProjectAccess(ctx, input.projectId, "EDITOR");
+      await assertReverseEngineerBudget(ctx.prisma, projectRef.organizationId);
       const project = await ctx.prisma.project.findUniqueOrThrow({ where: { id: input.projectId } });
       const repoUrl = input.repoUrl ?? project.repoUrl;
       if (!repoUrl) {
@@ -110,8 +113,16 @@ export const agentRouter = router({
         await ctx.prisma.project.update({ where: { id: input.projectId }, data: { lastScannedCommitSha: headSha } });
       }
 
+      // Budget was checked before the (potentially slow) clone/scan above,
+      // but it can have moved since -- re-check against what was actually
+      // found. Queueing a partial batch (rather than refusing the whole
+      // scan) still makes progress instead of wasting the clone entirely.
+      const remaining = await remainingReverseEngineerBudget(ctx.prisma, projectRef.organizationId);
+      const filesToQueue = files.slice(0, remaining);
+      const rateLimitedCount = files.length - filesToQueue.length;
+
       const jobs = await Promise.all(
-        files.map((f) =>
+        filesToQueue.map((f) =>
           ctx.prisma.reverseEngineerJob.create({
             data: {
               projectId: input.projectId,
@@ -125,7 +136,7 @@ export const agentRouter = router({
       );
       void kickReverseEngineerQueue();
 
-      return { scannedFileCount: files.length, queuedJobIds: jobs.map((j) => j.id) };
+      return { scannedFileCount: files.length, queuedJobIds: jobs.map((j) => j.id), rateLimitedCount };
     }),
 
   jobStatus: protectedProcedure
