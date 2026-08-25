@@ -142,7 +142,7 @@ parsers for speed/cost/determinism.
 - **P5-08** (L) Native Python parser (`ast` module via a small Python microservice, or a JS-side heuristic) for pytest structure extraction. `labels: area:ai, type:feature`
 - **P5-09** (M) Native JUnit/TestNG (Java) annotation-based extraction. `labels: area:ai, type:feature`
 - **P5-10** (M) Cypress/Playwright structural extraction (these are JS, so likely shares P5-07's parser with framework-specific step detection for `cy.*`/`page.*` calls). `labels: area:ai, type:feature`
-- **P5-11** (S) Framework evaluator registry/interface so adding a new native evaluator is a plugin, not a router change — formalizes the fallback-to-AI path that already exists conceptually in `@tci/core`'s `detectFramework`. `labels: area:core, type:architecture`
+- **P5-11** (S) Framework evaluator registry/interface so adding a new native evaluator is a plugin, not a router change — formalizes the fallback-to-AI path that already exists conceptually in `@vaettir/core`'s `detectFramework`. `labels: area:core, type:architecture`
 
 ### Epic 5.3 — Custom framework evaluation
 - **P5-12** (M) "Teach the platform your framework" flow: user provides 2-3 example test files from their custom/internal framework; the agent infers the structural pattern (how are test names decided? assertions? setup/teardown?) and the platform stores that as a reusable per-project heuristic instead of re-inferring from scratch every file. `labels: area:ai, type:feature`

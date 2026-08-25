@@ -35,7 +35,7 @@ packages/
 - Core test case management: projects, pluggable test plan types, BDD-normalized
   test cases, requirements/acceptance criteria.
 - AI reverse-engineering: paste or upload an automated test file (any
-  framework — known frameworks get heuristic detection via `@tci/core`'s
+  framework — known frameworks get heuristic detection via `@vaettir/core`'s
   `detectFramework`, unknown ones fall back to AI-assisted structural
   reading) and get back readable Given/When/Then test cases, linked back to
   the source file/function via `TestCaseSource`.
@@ -51,7 +51,7 @@ packages/
   `requireProjectAccess`, so a project's data is only reachable by members of
   the organization that owns it.
 - Seat-based plans: `PlanTier` (Free/Team/Business/Corp) as seeded data, with
-  pure seat-limit enforcement in `@tci/core`'s `plan.ts` — pricing is
+  pure seat-limit enforcement in `@vaettir/core`'s `plan.ts` — pricing is
   intentionally left unset until the cost structure is finalized.
 
 ## Roadmap (not yet built)
@@ -82,8 +82,8 @@ packages/
 cp .env.example .env   # set DATABASE_URL, ANTHROPIC_API_KEY, and the Clerk keys below
 pnpm install
 pnpm db:generate
-pnpm --filter @tci/db migrate
-pnpm --filter @tci/db seed
+pnpm --filter @vaettir/db migrate
+pnpm --filter @vaettir/db seed
 pnpm dev
 ```
 
@@ -99,4 +99,4 @@ You'll need:
 - API: http://localhost:4000 (health check at `/health`, tRPC at `/trpc`)
 - Web: http://localhost:3000 (sign up, then you'll land on `/onboarding` to
   create your organization)
-- Mobile: `pnpm --filter @tci/mobile start` (Expo Go / simulator)
+- Mobile: `pnpm --filter @vaettir/mobile start` (Expo Go / simulator)

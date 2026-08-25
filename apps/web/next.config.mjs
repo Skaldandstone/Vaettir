@@ -1,6 +1,6 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  transpilePackages: ["@tci/core"],
+  transpilePackages: ["@vaettir/core"],
 };
 
 export default nextConfig;
