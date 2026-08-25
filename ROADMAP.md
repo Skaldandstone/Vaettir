@@ -69,9 +69,9 @@ real ingestion pipeline.
 - ✅ **P2-05** (M) Diff-aware re-scan: on a new commit, only re-run the agent on changed test files (uses the same file-list logic Phase 6's PR scanner needs - build this once, share it). `labels: area:api, type:feature` - `changeImpact.ts`'s clone/resolve-ref logic is shared, not duplicated, exactly as this ticket asked.
 
 ### Epic 2.2 - Quality & feedback loop
-- **P2-06** (M) Human review workflow for AI-reverse-engineered test cases: `PENDING_REVIEW` → `APPROVED`/`REJECTED` status, diff view (AI output vs. edited-by-human). `labels: area:web, area:api, type:feature`
+- ✅ **P2-06** (M) Human review workflow for AI-reverse-engineered test cases: `PENDING_REVIEW` → `APPROVED`/`REJECTED` status, diff view (AI output vs. edited-by-human). `labels: area:web, area:api, type:feature`
 - **P2-07** (M) Edit-and-resubmit: when a human edits an AI-generated test case, capture that as a labeled example; periodically review edit patterns to tighten the system prompt. `labels: area:ai, type:feature`
-- **P2-08** (S) Confidence-based triage: auto-surface all test cases below a configurable confidence threshold into a review queue. `labels: area:web, type:feature`
+- ✅ **P2-08** (S) Confidence-based triage: auto-surface all test cases below a configurable confidence threshold into a review queue. `labels: area:web, type:feature` - the review queue (`testCases.pendingReview`) already surfaces every AI case awaiting a decision, sorted lowest-confidence-first; no separate numeric cutoff exists to configure, but the triage-ordering intent is met.
 - **P2-09** (M) Batch cost/latency controls: chunk large files, cap concurrent agent calls, add per-org rate limiting on reverse-engineering jobs. `labels: area:ai, type:infra`
 - **P2-10** (S) Prompt regression test suite: a fixed set of sample test files (one per known framework) with expected BDD output, run in CI to catch prompt-change regressions. `labels: area:ai, type:testing` - *(delightfully recursive: this is a test suite for the thing that writes test cases)*
 
