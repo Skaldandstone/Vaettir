@@ -33,26 +33,26 @@ Auth, multi-tenancy, and hardening the CRUD surface the AI/dashboard
 features will sit on top of. Nothing else is safely multi-user without this.
 
 ### Epic 1.1 — Auth & Identity
-- **P1-01** (M) Add authentication (NextAuth or Clerk) with email/password + at least one SSO provider (Google Workspace). `labels: area:api, area:web, type:feature`
-- **P1-02** (M) Session/JWT handling in the tRPC context; replace `publicProcedure` with `protectedProcedure` across all routers. `labels: area:api, type:security`
-- **P1-03** (L) Role-based access control model: `Owner`, `Admin`, `Editor`, `Viewer`, `ComplianceAuditor` roles scoped per Organization/Project. `labels: area:api, area:db, type:feature`
-- **P1-04** (M) SSO/SAML support for enterprise orgs (compliance customers will require this). `labels: area:api, type:feature, compliance`
-- **P1-05** (S) API keys / service tokens for CI integrations (test result ingestion, PR scanning) that don't go through a human session. `labels: area:api, type:feature`
+- ✅ **P1-01** (M) Add authentication (NextAuth or Clerk) with email/password + at least one SSO provider (Google Workspace). `labels: area:api, area:web, type:feature` — done via Clerk; SSO provider config is an org-by-org Clerk dashboard setting, not code (see P1-04 for enterprise SAML specifically).
+- ✅ **P1-02** (M) Session/JWT handling in the tRPC context; replace `publicProcedure` with `protectedProcedure` across all routers. `labels: area:api, type:security`
+- ✅ **P1-03** (L) Role-based access control model: `Owner`, `Admin`, `Editor`, `Viewer`, `ComplianceAuditor` roles scoped per Organization/Project. `labels: area:api, area:db, type:feature`
+- **P1-04** (M) SSO/SAML support for enterprise orgs (compliance customers will require this). `labels: area:api, type:feature, compliance` — needs a Clerk Enterprise SSO/SAML connection configured per customer; not started.
+- ✅ **P1-05** (S) API keys / service tokens for CI integrations (test result ingestion, PR scanning) that don't go through a human session. `labels: area:api, type:feature`
 
 ### Epic 1.2 — Multi-tenancy hardening
-- **P1-06** (M) Enforce `organizationId`/`projectId` scoping in every query via a Prisma middleware or repository layer — audit the existing routers, which currently trust client-supplied `projectId`. `labels: area:api, type:security`
-- **P1-07** (S) Add `createdById`/`updatedById` audit columns to core models (`TestCase`, `TestPlan`, `Release`, `RiskFlag`). `labels: area:db`
-- **P1-08** (M) Org/project settings UI: members, roles, project repo linking. `labels: area:web, type:feature`
-- **P1-09** (S) Seed script for a demo org/project so new devs and CI have consistent fixture data instead of manually pasting project ids. `labels: dx`
+- ✅ **P1-06** (M) Enforce `organizationId`/`projectId` scoping in every query via a Prisma middleware or repository layer — audit the existing routers, which currently trust client-supplied `projectId`. `labels: area:api, type:security` — done via `requireProjectAccess`/`requireOrgRole` on every protected procedure, not a Prisma middleware; verified live that a cross-project id is correctly rejected, not just silently trusted.
+- ✅ **P1-07** (S) Add `createdById`/`updatedById` audit columns to core models (`TestCase`, `TestPlan`, `Release`, `RiskFlag`). `labels: area:db`
+- ✅ **P1-08** (M) Org/project settings UI: members, roles, project repo linking. `labels: area:web, type:feature`
+- ✅ **P1-09** (S) Seed script for a demo org/project so new devs and CI have consistent fixture data instead of manually pasting project ids. `labels: dx`
 
 ### Epic 1.3 — Core CRUD UI hardening
-- **P1-10** (M) Test case create/edit forms in web, supporting **both authoring formats**: BDD (given/when/then) and the structured step table (`TestCaseStep` — action / expected action-or-data / expected result / expected response, with org-configurable field labels via `Organization.stepFieldLabels`). A test case needs at least one format populated, not necessarily both. Currently only reverse-engineering produces test cases (BDD only); manual authoring UI — in either format — is still missing. The read-side (detail page rendering steps when present) and the API (`testCases.create` accepting `steps[]`, `testCases.byId` returning them with resolved labels) are already built. `labels: area:web, type:feature`
-- **P1-16** (S) Step field label settings: org settings UI for renaming the four `TestCaseStep` field labels (stored in `Organization.stepFieldLabels`) — the default names ("Test Step", "Expected Action / Data", "Expected Result", "Expected Response") are explicitly placeholders; this is what lets a team make them their own without waiting on a code change. `labels: area:web, type:feature`
-- **P1-11** (M) Test plan create/edit UI, including dynamic form rendering from `TestPlanType.fieldSchema` (JSON Schema → form). `labels: area:web, type:feature`
-- **P1-12** (S) Requirement + AcceptanceCriterion CRUD UI, linkable to test plans. `labels: area:web, type:feature`
-- **P1-13** (M) Bulk operations: tag test cases, bulk move between test plans, bulk archive. `labels: area:web, type:feature`
-- **P1-14** (S) Global search across test cases/plans (Postgres full-text to start; revisit if scale demands a search index). `labels: area:api, area:web`
-- **P1-15** (M) Replace ad-hoc `useEffect` fetch patterns in web with `@trpc/react-query` for caching/invalidation (current pages do manual state, fine for a scaffold, not for a real app). `labels: area:web, type:tech-debt`
+- ✅ **P1-10** (M) Test case create/edit forms in web, supporting **both authoring formats**: BDD (given/when/then) and the structured step table (`TestCaseStep` — action / expected action-or-data / expected result / expected response, with org-configurable field labels via `Organization.stepFieldLabels`). A test case needs at least one format populated, not necessarily both. `labels: area:web, type:feature`
+- ✅ **P1-16** (S) Step field label settings: org settings UI for renaming the four `TestCaseStep` field labels (stored in `Organization.stepFieldLabels`) — the default names ("Test Step", "Expected Action / Data", "Expected Result", "Expected Response") are explicitly placeholders; this is what lets a team make them their own without waiting on a code change. `labels: area:web, type:feature`
+- ✅ **P1-11** (M) Test plan create/edit UI, including dynamic form rendering from `TestPlanType.fieldSchema` (JSON Schema → form). `labels: area:web, type:feature`
+- ✅ **P1-12** (S) Requirement + AcceptanceCriterion CRUD UI, linkable to test plans. `labels: area:web, type:feature`
+- ✅ **P1-13** (M) Bulk operations: tag test cases, bulk move between test plans, bulk archive. `labels: area:web, type:feature`
+- ✅ **P1-14** (S) Global search across test cases/plans (Postgres full-text to start; revisit if scale demands a search index). `labels: area:api, area:web` — done via case-insensitive substring match; full-text is the noted future upgrade once relevance ranking matters.
+- **P1-15** (M) Replace ad-hoc `useEffect` fetch patterns in web with `@trpc/react-query` for caching/invalidation (current pages do manual state, fine for a scaffold, not for a real app). `labels: area:web, type:tech-debt` — still open; broad-blast-radius refactor across every page, deliberately left for a supervised session rather than done unattended.
 
 ---
 
@@ -171,14 +171,19 @@ tested," and feeds Phase 7's risk flags.
 The rollup: CI/CD release-to-release visibility, coverage against defined
 release acceptance criteria, and risk highlighting.
 
+Split across two pages rather than one: **Test Strategy** (pre-execution —
+risk, mitigations, coverage, run recommendations; what used to be
+`risk-analysis`) leads into **Release Readiness** (post-execution — how
+well a release adhered to that plan, actual results and readiness now).
+
 ### Epic 7.1 — Release model & acceptance tracking
-- **P7-01** (M) Release management UI: create/manage `Release`s, attach `TestPlan`s (including a `release-readiness` typed plan) and acceptance criteria. `labels: area:web, type:feature`
-- **P7-02** (M) Live acceptance-criteria status: each `AcceptanceCriterion` auto-computes `MET`/`NOT_MET`/`AT_RISK` from underlying test results rather than requiring manual status updates. `labels: area:api, type:feature`
-- **P7-03** (S) Release readiness score: single rollup number/traffic-light per release from criteria status + open risk flags + compliance control coverage. `labels: area:api, type:feature`
+- ✅ **P7-01** (M) Release management UI: create/manage `Release`s, attach `TestPlan`s (including a `release-readiness` typed plan) and acceptance criteria. `labels: area:web, type:feature`
+- **P7-02** (M) Live acceptance-criteria status: each `AcceptanceCriterion` auto-computes `MET`/`NOT_MET`/`AT_RISK` from underlying test results rather than requiring manual status updates. `labels: area:api, type:feature` — still manual (editable dropdown on the readiness page); auto-computing from `TestResult` needs the Phase 5 result-matching pipeline first.
+- ✅ **P7-03** (S) Release readiness score: single rollup number/traffic-light per release from criteria status + open risk flags + compliance control coverage. `labels: area:api, type:feature` — explainable weighted formula (criteria completion minus severity-weighted open-flag penalty, any open CRITICAL forces BLOCKED); compliance control coverage isn't factored in yet.
 
 ### Epic 7.2 — Dashboard
-- **P7-04** (L) Release readiness dashboard page: readiness score, acceptance criteria checklist, open risk flags (from PR scanning + coverage gaps + failing/flaky tests), trend vs. previous releases. `labels: area:web, type:feature`
-- **P7-05** (M) Granular drill-down: from the dashboard, click into any risk flag/failing test/uncovered file down to the actual `TestCase`/`TestCaseSource`. `labels: area:web, type:feature`
+- ✅ **P7-04** (L) Release readiness dashboard page: readiness score, acceptance criteria checklist, open risk flags (from PR scanning + coverage gaps + failing/flaky tests), trend vs. previous releases. `labels: area:web, type:feature` — trend vs. previous releases not built (see P7-07).
+- ✅ **P7-05** (M) Granular drill-down: from the dashboard, click into any risk flag/failing test/uncovered file down to the actual `TestCase`/`TestCaseSource`. `labels: area:web, type:feature` — test plans/cases link through; individual risk-flag-to-source-line drill-down not built.
 - **P7-06** (M) Holistic cross-project view: an org-level dashboard rolling up readiness across all projects/releases (useful once you have more than one team). `labels: area:web, type:feature`
 - **P7-07** (M) Release-to-release trend charts: pass rate, flaky test count, coverage %, mean time-to-green over the last N releases. `labels: area:web, type:feature`
 - **P7-08** (S) Configurable release gates: block a release status from moving to `READY` while criteria are unmet (soft warning vs. hard block, per-org policy). `labels: area:api, type:feature`
