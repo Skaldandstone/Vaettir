@@ -58,6 +58,13 @@ model Project {
   defaultBranch  String   @default("main")
   createdAt      DateTime @default(now())
 
+  // The commit SHA the most recent successful repo scan resolved `ref` to
+  // (P2-05). When set, the next scan diffs from here to HEAD instead of
+  // walking and hashing every test file in the repo -- one `git diff` call
+  // against just the changed paths, rather than a full-tree read+hash pass.
+  // Null until a project has been scanned at least once.
+  lastScannedCommitSha String?
+
   testPlans           TestPlan[]
   testCases           TestCase[]
   requirements        Requirement[]

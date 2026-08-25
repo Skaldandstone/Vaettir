@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
 import { createHash } from "node:crypto";
 import { isLikelyTestFile } from "@vaettir/core";
+import { cloneFullRepo, resolveRef } from "./changeImpact.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -80,20 +81,87 @@ async function walkTestFiles(
 // Shallow-clones repoUrl@ref into a temp dir and collects up to MAX_FILES
 // test files that are either new or have changed since they were last
 // scanned, always cleaning the clone up afterward even if reading files
-// throws partway through.
+// throws partway through. Full-tree walk + hash: correct on any repo state,
+// but reads and hashes every test file even when almost nothing changed --
+// the only option for a project's first scan, since there's no earlier
+// commit yet to diff from. See scanChangedTestFiles below for the faster
+// path once a project has a checkpoint.
+export interface ChangedFileScanResult {
+  files: ScannedTestFile[];
+  headSha: string;
+}
+
 export async function scanRepoForTestFiles(
   repoUrl: string,
   ref: string,
   knownHashes: Map<string, string> = new Map(),
-): Promise<ScannedTestFile[]> {
+): Promise<ChangedFileScanResult> {
   assertScannableRepoUrl(repoUrl);
   const dir = await mkdtemp(join(tmpdir(), "tci-repo-scan-"));
   try {
     await execFileAsync("git", ["clone", "--depth", "1", "--branch", ref, "--single-branch", repoUrl, dir]);
     const files: ScannedTestFile[] = [];
     await walkTestFiles(dir, dir, files, knownHashes);
-    return files;
+    const { stdout: headShaOut } = await execFileAsync("git", ["rev-parse", "HEAD"], { cwd: dir });
+    return { files, headSha: headShaOut.trim() };
   } finally {
     await rm(dir, { recursive: true, force: true });
+  }
+}
+
+// P2-05: once a project has been scanned before (`sinceCommitSha` set from
+// the prior scan's resolved HEAD), a re-scan only needs to look at what
+// `git diff` says actually changed between then and now -- one diff call
+// against a handful of paths, instead of walking and hashing every test
+// file in the repo again. Non-test-file changes (the vast majority of most
+// diffs) are filtered out before anything is read. `knownHashes` still
+// applies on top: a file can appear in the diff (e.g. a formatting-only
+// commit touched it) without its content actually differing from what's
+// already tracked, so the same skip-without-reading-if-possible reasoning
+// from the full-walk path still holds for entries where a stat/read is
+// unavoidable to know for sure.
+export async function scanChangedTestFiles(
+  repoUrl: string,
+  sinceCommitSha: string,
+  ref: string,
+  knownHashes: Map<string, string> = new Map(),
+): Promise<ChangedFileScanResult> {
+  assertScannableRepoUrl(repoUrl);
+  const { dir, cleanup } = await cloneFullRepo(repoUrl);
+  try {
+    const resolvedHead = await resolveRef(dir, ref);
+    const { stdout: headShaOut } = await execFileAsync("git", ["rev-parse", resolvedHead], { cwd: dir });
+    const headSha = headShaOut.trim();
+
+    const { stdout: diffOut } = await execFileAsync(
+      "git",
+      ["diff", "--name-only", `${sinceCommitSha}...${resolvedHead}`],
+      { cwd: dir },
+    );
+    const changedPaths = diffOut
+      .split("\n")
+      .map((line) => line.trim())
+      .filter(Boolean)
+      .filter((p) => isLikelyTestFile(p));
+
+    const files: ScannedTestFile[] = [];
+    for (const relativePath of changedPaths) {
+      if (files.length >= MAX_FILES) break;
+      const absolutePath = join(dir, relativePath);
+      let st;
+      try {
+        st = await stat(absolutePath);
+      } catch {
+        continue; // file was deleted in this range -- nothing to scan
+      }
+      if (!st.isFile() || st.size > MAX_FILE_BYTES) continue;
+      const content = await readFile(absolutePath, "utf-8");
+      const contentHash = hashFileContent(content);
+      if (knownHashes.get(relativePath) === contentHash) continue;
+      files.push({ relativePath, content, contentHash });
+    }
+    return { files, headSha };
+  } finally {
+    await cleanup();
   }
 }

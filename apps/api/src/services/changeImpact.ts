@@ -11,7 +11,7 @@ const execFileAsync = promisify(execFile);
 // file contents), diffing two refs needs both refs' history to actually be
 // present locally. `git clone` without `--single-branch`/`--depth` fetches
 // every branch, which is what lets `git diff base...head` work below.
-async function cloneFullRepo(repoUrl: string): Promise<{ dir: string; cleanup: () => Promise<void> }> {
+export async function cloneFullRepo(repoUrl: string): Promise<{ dir: string; cleanup: () => Promise<void> }> {
   assertScannableRepoUrl(repoUrl);
   const dir = await mkdtemp(join(tmpdir(), "tci-diff-"));
   await execFileAsync("git", ["clone", repoUrl, dir]);
@@ -23,7 +23,7 @@ async function cloneFullRepo(repoUrl: string): Promise<{ dir: string; cleanup: (
 // raw commit SHA (resolvable directly; "origin/<sha>" isn't a valid ref
 // pattern at all). Try the branch form first since that's the common case,
 // fall back to the bare form for SHAs and anything already resolvable.
-async function resolveRef(dir: string, ref: string): Promise<string> {
+export async function resolveRef(dir: string, ref: string): Promise<string> {
   try {
     await execFileAsync("git", ["rev-parse", "--verify", `origin/${ref}`], { cwd: dir });
     return `origin/${ref}`;

@@ -4,7 +4,7 @@ import { reverseEngineerTestFile } from "@vaettir/ai-agent";
 import { router, protectedProcedure, requireProjectAccess } from "../trpc.js";
 import { persistReverseEngineerResult } from "../services/reverseEngineerPersist.js";
 import { kickReverseEngineerQueue } from "../jobs/reverseEngineerWorker.js";
-import { scanRepoForTestFiles, hashFileContent } from "../services/repoScan.js";
+import { scanRepoForTestFiles, scanChangedTestFiles, hashFileContent } from "../services/repoScan.js";
 
 export const agentRouter = router({
   // Reverse-engineers a pasted/uploaded test file into BDD test cases and
@@ -66,12 +66,16 @@ export const agentRouter = router({
       return { id: job.id, status: job.status };
     }),
 
-  // Clones a repo (shallow, single branch), finds files that look like
-  // tests by naming convention, and queues one REPO_SCAN job per file --
-  // each processed by the same worker/poller as a submitJob PASTE job, just
-  // with the content sourced from the clone instead of a paste box. Caps at
-  // MAX_FILES (see repoScan.ts) so a huge repo can't queue thousands of
-  // jobs from a single click.
+  // Finds files that look like tests by naming convention and queues one
+  // REPO_SCAN job per file -- each processed by the same worker/poller as a
+  // submitJob PASTE job, just with the content sourced from a clone instead
+  // of a paste box. Caps at MAX_FILES (see repoScan.ts) so a huge repo
+  // can't queue thousands of jobs from a single click. The first scan of a
+  // project (or one against a caller-supplied repoUrl override) walks and
+  // hashes the whole repo; every scan after that diffs from the previous
+  // scan's checkpoint commit instead (P2-05) -- much cheaper, and it's what
+  // lets a genuinely-changed already-tracked file get caught at all rather
+  // than being excluded forever once any TestCaseSource exists for its path.
   scanRepo: protectedProcedure
     .input(z.object({ projectId: z.string(), repoUrl: z.string().optional(), ref: z.string().default("main") }))
     .output(z.object({ scannedFileCount: z.number(), queuedJobIds: z.array(z.string()) }))
@@ -90,7 +94,21 @@ export const agentRouter = router({
       const knownHashes = new Map(
         alreadyTracked.filter((s): s is { filePath: string; contentHash: string } => s.contentHash !== null).map((s) => [s.filePath, s.contentHash]),
       );
-      const files = await scanRepoForTestFiles(repoUrl, input.ref, knownHashes);
+
+      // The checkpoint only means something against the project's own
+      // configured repo -- a caller-supplied repoUrl override (scanning
+      // some other repo ad hoc) can't be diffed from a commit that belongs
+      // to a different repository, so that path always does a full walk
+      // and never touches the checkpoint.
+      const usingProjectRepo = !input.repoUrl || input.repoUrl === project.repoUrl;
+      const { files, headSha } =
+        usingProjectRepo && project.lastScannedCommitSha
+          ? await scanChangedTestFiles(repoUrl, project.lastScannedCommitSha, input.ref, knownHashes)
+          : await scanRepoForTestFiles(repoUrl, input.ref, knownHashes);
+
+      if (usingProjectRepo) {
+        await ctx.prisma.project.update({ where: { id: input.projectId }, data: { lastScannedCommitSha: headSha } });
+      }
 
       const jobs = await Promise.all(
         files.map((f) =>
