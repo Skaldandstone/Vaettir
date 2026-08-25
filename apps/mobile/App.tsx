@@ -48,7 +48,7 @@ function TestCaseBrowser() {
 
   return (
     <SafeAreaView style={styles.container}>
-      <Text style={styles.title}>Test Case Intelligence</Text>
+      <Text style={styles.title}>Vaettir</Text>
       <TextInput
         style={styles.input}
         placeholder="Project ID"

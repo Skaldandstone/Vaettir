@@ -1,6 +1,6 @@
 import { createTRPCProxyClient, httpBatchLink } from "@trpc/client";
 import Constants from "expo-constants";
-import type { AppRouter } from "@tci/api/src/router";
+import type { AppRouter } from "@vaettir/api/src/router";
 
 const API_URL =
   process.env.EXPO_PUBLIC_API_URL ?? (Constants.expoConfig?.extra?.apiUrl as string) ?? "http://localhost:4000";

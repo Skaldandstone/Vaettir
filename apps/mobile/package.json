@@ -1,5 +1,5 @@
 {
-  "name": "@tci/mobile",
+  "name": "@vaettir/mobile",
   "private": true,
   "version": "0.1.0",
   "main": "node_modules/expo/AppEntry.js",
@@ -11,7 +11,7 @@
   },
   "dependencies": {
     "@clerk/clerk-expo": "^2.9.0",
-    "@tci/core": "workspace:*",
+    "@vaettir/core": "workspace:*",
     "@trpc/client": "^11.0.0-rc.502",
     "expo": "~52.0.0",
     "expo-constants": "~17.0.0",
@@ -21,7 +21,7 @@
     "react-native": "0.76.3"
   },
   "devDependencies": {
-    "@tci/api": "workspace:*",
+    "@vaettir/api": "workspace:*",
     "@types/node": "^22.7.0",
     "@types/react": "^18.3.0",
     "typescript": "^5.6.0"

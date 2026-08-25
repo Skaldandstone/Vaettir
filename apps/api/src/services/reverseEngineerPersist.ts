@@ -1,5 +1,5 @@
-import type { PrismaClient } from "@tci/db";
-import type { ReverseEngineerResult } from "@tci/core";
+import type { PrismaClient } from "@vaettir/db";
+import type { ReverseEngineerResult } from "@vaettir/core";
 
 // Shared by the synchronous agent.reverseEngineerFile mutation and the
 // background job worker (jobs/reverseEngineerWorker.ts) so both paths

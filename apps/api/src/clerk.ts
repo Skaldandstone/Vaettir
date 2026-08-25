@@ -1,5 +1,5 @@
 import { createClerkClient, verifyToken } from "@clerk/backend";
-import { prisma, type User } from "@tci/db";
+import { prisma, type User } from "@vaettir/db";
 
 const CLERK_SECRET_KEY = process.env.CLERK_SECRET_KEY;
 

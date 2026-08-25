@@ -1,7 +1,7 @@
 {
   "expo": {
-    "name": "Test Case Intelligence",
-    "slug": "test-case-intelligence-mobile",
+    "name": "Vaettir",
+    "slug": "vaettir-mobile",
     "version": "0.1.0",
     "orientation": "portrait",
     "userInterfaceStyle": "automatic",

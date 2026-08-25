@@ -1,6 +1,6 @@
 import { z } from "zod";
-import { TestCaseStepInputSchema, resolveStepFieldLabels, type StepFieldKey } from "@tci/core";
-import { assessTestCaseRisk } from "@tci/ai-agent";
+import { TestCaseStepInputSchema, resolveStepFieldLabels, type StepFieldKey } from "@vaettir/core";
+import { assessTestCaseRisk } from "@vaettir/ai-agent";
 import { router, protectedProcedure, requireProjectAccess } from "../trpc.js";
 
 const stepOutputSchema = z.object({

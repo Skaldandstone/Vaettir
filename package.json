@@ -1,5 +1,5 @@
 {
-  "name": "test-case-intelligence",
+  "name": "vaettir",
   "private": true,
   "version": "0.1.0",
   "packageManager": "pnpm@11.23.0",
@@ -12,9 +12,9 @@
     "lint": "turbo run lint",
     "typecheck": "turbo run typecheck",
     "test": "turbo run test",
-    "db:generate": "pnpm --filter @tci/db generate",
-    "db:migrate": "pnpm --filter @tci/db migrate",
-    "db:studio": "pnpm --filter @tci/db studio"
+    "db:generate": "pnpm --filter @vaettir/db generate",
+    "db:migrate": "pnpm --filter @vaettir/db migrate",
+    "db:studio": "pnpm --filter @vaettir/db studio"
   },
   "devDependencies": {
     "turbo": "^2.3.0",

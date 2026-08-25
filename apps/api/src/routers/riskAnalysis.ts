@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
-import { fallbackRiskScoreFromPriority } from "@tci/core";
+import { fallbackRiskScoreFromPriority } from "@vaettir/core";
 import { router, protectedProcedure, requireProjectAccess } from "../trpc.js";
 import { getChangedFiles } from "../services/changeImpact.js";
 

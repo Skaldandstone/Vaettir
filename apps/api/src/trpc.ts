@@ -1,6 +1,6 @@
 import { TRPCError, initTRPC } from "@trpc/server";
 import type { CreateFastifyContextOptions } from "@trpc/server/adapters/fastify";
-import { prisma, type OrgRole } from "@tci/db";
+import { prisma, type OrgRole } from "@vaettir/db";
 import { verifyClerkSessionToken, getOrCreateLocalUser } from "./clerk.js";
 
 function extractBearerToken(authHeader: string | undefined): string | null {

@@ -1,4 +1,4 @@
-# Test Case Intelligence
+# Vaettir
 
 A quality intelligence and test case management platform that blends every
 testing discipline — unit, functional, contract, instrumentation, smoke,

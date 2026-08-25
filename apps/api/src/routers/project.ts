@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
-import { Prisma } from "@tci/db";
+import { Prisma } from "@vaettir/db";
 import { router, protectedProcedure, requireOrgRole } from "../trpc.js";
 
 function slugify(name: string): string {

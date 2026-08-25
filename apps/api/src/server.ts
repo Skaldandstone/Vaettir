@@ -23,7 +23,7 @@ const port = Number(process.env.API_PORT ?? 4000);
 server
   .listen({ port, host: "0.0.0.0" })
   .then(() => {
-    server.log.info(`test-case-intelligence API listening on :${port}`);
+    server.log.info(`vaettir API listening on :${port}`);
     startReverseEngineerJobPoller();
   })
   .catch((err) => {

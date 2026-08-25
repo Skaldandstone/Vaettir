@@ -4,7 +4,7 @@ import {
   ReverseEngineeredTestCaseSchema,
   type ReverseEngineerResult,
   detectFramework,
-} from "@tci/core";
+} from "@vaettir/core";
 
 const AgentResponseSchema = z.object({ testCases: z.array(ReverseEngineeredTestCaseSchema) });
 

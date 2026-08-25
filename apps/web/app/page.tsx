@@ -1,7 +1,7 @@
 export default function HomePage() {
   return (
     <div>
-      <h1>Test Case Intelligence</h1>
+      <h1>Vaettir</h1>
       <p>
         Quality intelligence and test case management: unit, functional, contract,
         instrumentation, smoke, sanity, and compliance test plans in one place, plus AI

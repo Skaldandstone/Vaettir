@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
-import { reverseEngineerTestFile } from "@tci/ai-agent";
+import { reverseEngineerTestFile } from "@vaettir/ai-agent";
 import { router, protectedProcedure, requireProjectAccess } from "../trpc.js";
 import { persistReverseEngineerResult } from "../services/reverseEngineerPersist.js";
 import { kickReverseEngineerQueue } from "../jobs/reverseEngineerWorker.js";

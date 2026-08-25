@@ -3,7 +3,7 @@ import { promisify } from "node:util";
 import { mkdtemp, readFile, rm, readdir, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
-import { isLikelyTestFile } from "@tci/core";
+import { isLikelyTestFile } from "@vaettir/core";
 
 const execFileAsync = promisify(execFile);
 

@@ -1,5 +1,5 @@
 import Anthropic from "@anthropic-ai/sdk";
-import { TestCaseRiskAssessmentSchema, RiskSeveritySchema, type TestCaseRiskAssessment } from "@tci/core";
+import { TestCaseRiskAssessmentSchema, RiskSeveritySchema, type TestCaseRiskAssessment } from "@vaettir/core";
 
 const MODEL = "claude-sonnet-5";
 

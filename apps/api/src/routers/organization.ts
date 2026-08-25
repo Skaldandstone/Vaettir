@@ -6,9 +6,9 @@ import {
   canAddSeat,
   type StepFieldKey,
   type SeatType as CoreSeatType,
-} from "@tci/core";
+} from "@vaettir/core";
 import { router, protectedProcedure, requireOrgRole } from "../trpc.js";
-import type { PrismaClient } from "@tci/db";
+import type { PrismaClient } from "@vaettir/db";
 
 const INVITATION_EXPIRY_DAYS = 7;
 

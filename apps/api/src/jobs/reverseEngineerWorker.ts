@@ -1,5 +1,5 @@
-import { prisma } from "@tci/db";
-import { reverseEngineerTestFile } from "@tci/ai-agent";
+import { prisma } from "@vaettir/db";
+import { reverseEngineerTestFile } from "@vaettir/ai-agent";
 import { persistReverseEngineerResult } from "../services/reverseEngineerPersist.js";
 
 // Single-instance, in-process poller -- no Redis/queue infra exists yet, and
