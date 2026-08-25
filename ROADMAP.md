@@ -62,11 +62,11 @@ The MVP does one pasted file at a time, synchronously. This phase makes it a
 real ingestion pipeline.
 
 ### Epic 2.1 - Repo-wide scanning
-- **P2-01** (L) `ReverseEngineerJob` worker: background queue (BullMQ + Redis, or a simple Postgres-backed job table to start) processing `REPO_SCAN` jobs file-by-file. `labels: area:api, type:feature`
-- **P2-02** (M) GitHub repo connector: clone/checkout a repo (or use the Contents API) given a `Project.repoUrl`, walk test-file glob patterns per detected framework. `labels: area:api, type:feature, integration:github`
-- **P2-03** (S) Job status UI: progress bar, per-file results, retry-failed-files. `labels: area:web, type:feature`
-- **P2-04** (M) Deduplication: re-running a scan on an unchanged file should not create duplicate `TestCase`s - key on `(filePath, functionName)` + content hash, update in place if the source changed. `labels: area:api, type:feature`
-- **P2-05** (M) Diff-aware re-scan: on a new commit, only re-run the agent on changed test files (uses the same file-list logic Phase 6's PR scanner needs - build this once, share it). `labels: area:api, type:feature`
+- ✅ **P2-01** (L) `ReverseEngineerJob` worker: background queue (BullMQ + Redis, or a simple Postgres-backed job table to start) processing `REPO_SCAN` jobs file-by-file. `labels: area:api, type:feature` - Postgres-backed (in-process poller), not BullMQ/Redis; matches the "start simple" framing, revisit only if it needs to scale beyond one API process.
+- ✅ **P2-02** (M) GitHub repo connector: clone/checkout a repo (or use the Contents API) given a `Project.repoUrl`, walk test-file glob patterns per detected framework. `labels: area:api, type:feature, integration:github`
+- ✅ **P2-03** (S) Job status UI: progress bar, per-file results, retry-failed-files. `labels: area:web, type:feature`
+- ✅ **P2-04** (M) Deduplication: re-running a scan on an unchanged file should not create duplicate `TestCase`s - key on `(filePath, functionName)` + content hash, update in place if the source changed. `labels: area:api, type:feature`
+- ✅ **P2-05** (M) Diff-aware re-scan: on a new commit, only re-run the agent on changed test files (uses the same file-list logic Phase 6's PR scanner needs - build this once, share it). `labels: area:api, type:feature` - `changeImpact.ts`'s clone/resolve-ref logic is shared, not duplicated, exactly as this ticket asked.
 
 ### Epic 2.2 - Quality & feedback loop
 - **P2-06** (M) Human review workflow for AI-reverse-engineered test cases: `PENDING_REVIEW` → `APPROVED`/`REJECTED` status, diff view (AI output vs. edited-by-human). `labels: area:web, area:api, type:feature`
