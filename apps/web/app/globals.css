@@ -341,6 +341,18 @@ hr,
   font-weight: 500;
 }
 
+.search-result {
+  display: block;
+  padding: 6px 8px;
+  border-radius: 3px;
+  font-size: 13px;
+  color: var(--fg);
+}
+.search-result:hover {
+  background: var(--panel-2);
+  text-decoration: none;
+}
+
 main.app-main {
   position: relative;
   z-index: 1;

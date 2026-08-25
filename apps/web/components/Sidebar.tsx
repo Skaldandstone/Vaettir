@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { trpc, type RouterOutputs } from "../lib/trpc";
+import { GlobalSearch } from "./GlobalSearch";
 
 const ORG_LINKS = [{ href: "/projects", label: "Projects" }];
 const ORG_ADMIN_LINKS = [
@@ -64,6 +65,9 @@ function ProjectSidebar({ projectId }: { projectId: string }) {
             </option>
           ))}
         </select>
+      </div>
+      <div className="sidebar-group">
+        <GlobalSearch projectId={projectId} />
       </div>
       <div className="sidebar-group">
         <div className="eyebrow sidebar-group-label">Project</div>
