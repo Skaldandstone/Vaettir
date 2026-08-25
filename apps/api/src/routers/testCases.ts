@@ -34,6 +34,17 @@ const AT_LEAST_ONE_FORMAT_MESSAGE = "Provide either given/when/then or at least 
 export const testCasesRouter = router({
   list: protectedProcedure
     .input(z.object({ projectId: z.string() }))
+    .output(
+      z.array(
+        z.object({
+          id: z.string(),
+          title: z.string(),
+          testType: z.string(),
+          origin: z.string(),
+          reviewStatus: z.string(),
+        }),
+      ),
+    )
     .query(async ({ ctx, input }) => {
       await requireProjectAccess(ctx, input.projectId);
       return ctx.prisma.testCase.findMany({

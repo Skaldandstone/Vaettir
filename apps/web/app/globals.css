@@ -1,0 +1,315 @@
+@import url('https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,300;0,9..144,500;0,9..144,600;1,9..144,400&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap');
+
+/* ---------- brand tokens (see /STYLE_GUIDE.md) ---------- */
+:root,
+[data-theme="warm"] {
+  --ink: #26211b;
+  --panel: #2e2820;
+  --panel-2: #332c23;
+  --line: #443b2f;
+  --fg: #f3ecdf;
+  --muted: #b8a88d;
+  --muted-dim: #7c7059;
+  --frost: #8fa37a;
+  --frost-dim: rgba(143, 163, 122, 0.12);
+  --ember: #be6a3e;
+  --ember-dim: rgba(190, 106, 62, 0.12);
+}
+
+[data-theme="dark"] {
+  --ink: #121110;
+  --panel: #1a1815;
+  --panel-2: #1f1c18;
+  --line: #322d26;
+  --fg: #f0eae0;
+  --muted: #a79a85;
+  --muted-dim: #675e4e;
+  --frost: #9db588;
+  --frost-dim: rgba(157, 181, 136, 0.12);
+  --ember: #d07a46;
+  --ember-dim: rgba(208, 122, 70, 0.12);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  background: var(--ink);
+}
+
+body {
+  background: var(--ink);
+  color: var(--fg);
+  font-family: "Inter", sans-serif;
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+  margin: 0;
+  transition: background 0.25s ease, color 0.25s ease;
+}
+
+/* subtle grain texture over the whole page -- see STYLE_GUIDE.md #5 */
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 1;
+  opacity: 0.05;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+
+a {
+  color: var(--frost);
+  text-decoration: none;
+}
+a:hover {
+  text-decoration: underline;
+}
+
+h1,
+h2,
+h3 {
+  font-family: "Fraunces", serif;
+  font-weight: 500;
+  margin: 0 0 12px;
+}
+h1 {
+  font-size: 32px;
+}
+h2 {
+  font-size: 21px;
+}
+h3 {
+  font-size: 17px;
+}
+p {
+  margin: 0 0 12px;
+}
+
+/* ---------- form elements -- unstyled by default in every browser, so
+   giving them one shared brand treatment here is what makes every page's
+   inputs/buttons/tables consistent without each page having to opt in ---------- */
+input,
+select,
+textarea {
+  font-family: inherit;
+  font-size: 14px;
+  color: var(--fg);
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  padding: 8px 10px;
+}
+input:focus,
+select:focus,
+textarea:focus {
+  outline: none;
+  border-color: var(--frost);
+}
+label {
+  display: block;
+  font-size: 13px;
+  color: var(--muted);
+  margin-bottom: 4px;
+}
+
+button {
+  font-family: inherit;
+  cursor: pointer;
+}
+button:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+/* ---------- buttons -- STYLE_GUIDE.md #5: radius 3px everywhere, primary
+   fills with --frost, secondary is outline-only ---------- */
+/* Bare, unclassed <button>s (most of the app's action buttons) get the
+   primary treatment by default, so every page's buttons look consistent
+   without per-page className changes. Opt into .btn-secondary explicitly
+   for a lower-emphasis action. */
+.btn,
+.btn-primary,
+button:not([class]) {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 500;
+  font-size: 14px;
+  padding: 9px 16px;
+  border-radius: 3px;
+  border: none;
+  background: var(--frost);
+  color: var(--ink);
+  transition: background 0.25s ease, border-color 0.25s ease, color 0.25s ease;
+}
+.btn-secondary {
+  background: transparent;
+  color: var(--fg);
+  border: 1px solid var(--line);
+}
+.btn-secondary:hover {
+  border-color: var(--muted-dim);
+}
+
+/* ---------- eyebrow / mono labels ---------- */
+.eyebrow {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.eyebrow.accent {
+  color: var(--frost);
+}
+
+/* ---------- panel / card ---------- */
+.panel {
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  background: var(--panel);
+  padding: 16px;
+}
+
+/* ---------- status text/backgrounds -- shared vocabulary for
+   success/error/pending states instead of ad hoc hex per page ---------- */
+.text-success {
+  color: var(--frost);
+}
+.text-error {
+  color: var(--ember);
+}
+.text-muted {
+  color: var(--muted);
+}
+.text-muted-dim {
+  color: var(--muted-dim);
+}
+.bg-success {
+  background: var(--frost-dim);
+}
+.bg-error {
+  background: var(--ember-dim);
+}
+.bg-pending {
+  background: var(--ember-dim);
+}
+
+/* ---------- tables ---------- */
+table {
+  border-collapse: collapse;
+  width: 100%;
+}
+th,
+td {
+  border: 1px solid var(--line);
+  padding: 8px 10px;
+  text-align: left;
+  font-size: 14px;
+}
+th {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 11.5px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+  font-weight: 500;
+}
+
+hr,
+.divider {
+  border: none;
+  border-top: 1px solid var(--line);
+}
+
+/* ---------- rune mark -- STYLE_GUIDE.md #4 ---------- */
+.rune {
+  display: inline-block;
+  stroke: var(--frost);
+  stroke-width: 6;
+  stroke-linecap: round;
+  fill: none;
+  transition: stroke 0.25s ease;
+}
+
+/* ---------- app nav ---------- */
+.app-nav {
+  position: relative;
+  z-index: 2;
+  border-bottom: 1px solid var(--line);
+}
+.app-nav-inner {
+  display: flex;
+  align-items: center;
+  gap: 28px;
+  height: 64px;
+  padding: 0 24px;
+}
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-family: "Fraunces", serif;
+  font-weight: 500;
+  font-size: 18px;
+  color: var(--fg);
+}
+.brand:hover {
+  text-decoration: none;
+}
+.app-nav-links {
+  display: flex;
+  gap: 20px;
+  font-size: 13.5px;
+  color: var(--muted);
+  flex-wrap: wrap;
+}
+.app-nav-links a {
+  color: var(--muted);
+}
+.app-nav-links a:hover {
+  color: var(--fg);
+  text-decoration: none;
+}
+
+.theme-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: transparent;
+  border: 1px solid var(--line);
+  color: var(--muted);
+  font-family: "JetBrains Mono", monospace;
+  font-size: 11.5px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 7px 12px;
+  border-radius: 3px;
+}
+.theme-toggle:hover {
+  border-color: var(--muted-dim);
+  color: var(--fg);
+}
+.theme-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  transition: background 0.25s ease;
+}
+
+main.app-main {
+  position: relative;
+  z-index: 2;
+  max-width: 1000px;
+  margin: 0 auto;
+  padding: 32px 24px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation: none !important;
+    transition: none !important;
+  }
+}

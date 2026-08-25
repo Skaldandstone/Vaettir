@@ -112,20 +112,20 @@ function RequirementsPageInner() {
       )}
 
       {loading && <p>Loading…</p>}
-      {error && <p style={{ color: "crimson" }}>{error}</p>}
+      {error && <p style={{ color: "var(--ember)" }}>{error}</p>}
       <ul style={{ listStyle: "none", padding: 0 }}>
         {requirements.map((r) => (
-          <li key={r.id} style={{ marginBottom: 10, borderBottom: "1px solid #eee", paddingBottom: 8 }}>
-            <strong>{r.title}</strong> {r.externalRef && <span style={{ color: "#888" }}>[{r.externalRef}]</span>}
-            <div style={{ color: "#666", fontSize: 13 }}>{r.description}</div>
-            <div style={{ fontSize: 12, color: "#888" }}>{r.acceptanceCriteriaCount} linked acceptance criteria</div>
+          <li key={r.id} style={{ marginBottom: 10, borderBottom: "1px solid var(--line)", paddingBottom: 8 }}>
+            <strong>{r.title}</strong> {r.externalRef && <span style={{ color: "var(--muted-dim)" }}>[{r.externalRef}]</span>}
+            <div style={{ color: "var(--muted)", fontSize: 13 }}>{r.description}</div>
+            <div style={{ fontSize: 12, color: "var(--muted-dim)" }}>{r.acceptanceCriteriaCount} linked acceptance criteria</div>
             <button onClick={() => startEdit(r)} style={{ marginRight: 8 }}>
               Edit
             </button>
             <button onClick={() => remove(r.id)}>Delete</button>
           </li>
         ))}
-        {projectId && !loading && requirements.length === 0 && <p style={{ color: "#666" }}>No requirements yet.</p>}
+        {projectId && !loading && requirements.length === 0 && <p style={{ color: "var(--muted)" }}>No requirements yet.</p>}
       </ul>
     </div>
   );

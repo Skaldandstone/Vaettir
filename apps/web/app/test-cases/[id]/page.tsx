@@ -5,7 +5,7 @@ import { useParams } from "next/navigation";
 import type { CSSProperties } from "react";
 import { trpc, type RouterOutputs } from "../../../lib/trpc";
 
-const cellStyle: CSSProperties = { border: "1px solid #e5e5e5", padding: "6px 10px", textAlign: "left" };
+const cellStyle: CSSProperties = { border: "1px solid var(--line)", padding: "6px 10px", textAlign: "left" };
 
 export default function TestCaseDetailPage() {
   const params = useParams<{ id: string }>();
@@ -51,7 +51,7 @@ export default function TestCaseDetailPage() {
     }
   }
 
-  if (error) return <p style={{ color: "crimson" }}>{error}</p>;
+  if (error) return <p style={{ color: "var(--ember)" }}>{error}</p>;
   if (!tc) return <p>Loading…</p>;
 
   return (
@@ -66,20 +66,20 @@ export default function TestCaseDetailPage() {
         {tc.confidence != null && ` (confidence ${(tc.confidence * 100).toFixed(0)}%)`}
       </p>
 
-      <div style={{ border: "1px solid #e5e5e5", borderRadius: 8, padding: 12, marginBottom: 16 }}>
+      <div style={{ border: "1px solid var(--line)", borderRadius: 8, padding: 12, marginBottom: 16 }}>
         <strong>Risk assessment:</strong>{" "}
         {tc.riskScore != null ? (
           <>
             {tc.riskScore}/100 ({tc.riskSeverity})
-            {tc.riskRationale && <p style={{ color: "#666", margin: "6px 0 0" }}>{tc.riskRationale}</p>}
+            {tc.riskRationale && <p style={{ color: "var(--muted)", margin: "6px 0 0" }}>{tc.riskRationale}</p>}
             {tc.riskAssessedAt && (
-              <p style={{ color: "#888", fontSize: 12, margin: "4px 0 0" }}>
+              <p style={{ color: "var(--muted-dim)", fontSize: 12, margin: "4px 0 0" }}>
                 Assessed {new Date(tc.riskAssessedAt).toLocaleDateString()}
               </p>
             )}
           </>
         ) : (
-          <span style={{ color: "#888" }}>Not yet assessed</span>
+          <span style={{ color: "var(--muted-dim)" }}>Not yet assessed</span>
         )}
         <div style={{ marginTop: 8 }}>
           <button onClick={assessRisk} disabled={assessingRisk}>
@@ -98,16 +98,16 @@ export default function TestCaseDetailPage() {
       {tc.origin === "AI_REVERSE_ENGINEERED" && (
         <div
           style={{
-            border: "1px solid #e5e5e5",
+            border: "1px solid var(--line)",
             borderRadius: 8,
             padding: 12,
             marginBottom: 16,
-            background: tc.reviewStatus === "PENDING_REVIEW" ? "#fffbea" : tc.reviewStatus === "REJECTED" ? "#fef2f2" : "#f0f9f0",
+            background: tc.reviewStatus === "PENDING_REVIEW" ? "var(--ember-dim)" : tc.reviewStatus === "REJECTED" ? "var(--ember-dim)" : "var(--frost-dim)",
           }}
         >
           <strong>Review status:</strong> {tc.reviewStatus}
           {tc.reviewedByName && (
-            <span style={{ color: "#666" }}>
+            <span style={{ color: "var(--muted)" }}>
               {" "}
               — {tc.reviewStatus === "REJECTED" ? "rejected" : "reviewed"} by {tc.reviewedByName}
               {tc.reviewedAt && ` on ${new Date(tc.reviewedAt).toLocaleDateString()}`}

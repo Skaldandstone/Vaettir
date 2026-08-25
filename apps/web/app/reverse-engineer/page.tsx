@@ -96,18 +96,18 @@ export default function ReverseEngineerPage() {
           display: "grid",
           gap: 8,
           maxWidth: 720,
-          border: "1px solid #e5e5e5",
+          border: "1px solid var(--line)",
           borderRadius: 8,
           padding: 16,
           margin: "16px 0",
         }}
       >
         <h2 style={{ margin: 0 }}>Scan a repository</h2>
-        <p style={{ color: "#666", margin: 0 }}>
+        <p style={{ color: "var(--muted)", margin: 0 }}>
           Clones a repo, finds test files by naming convention, and queues one background job per file.
         </p>
         <label>
-          Repo URL <span style={{ color: "#888" }}>(https only; falls back to the project&apos;s repo URL if blank)</span>
+          Repo URL <span style={{ color: "var(--muted-dim)" }}>(https only; falls back to the project&apos;s repo URL if blank)</span>
           <input
             value={repoUrl}
             onChange={(e) => setRepoUrl(e.target.value)}
@@ -123,7 +123,7 @@ export default function ReverseEngineerPage() {
           {scanning ? "Cloning + scanning…" : "Scan repository"}
         </button>
         {scanResult && (
-          <p style={{ color: "green" }}>
+          <p style={{ color: "var(--frost)" }}>
             Found {scanResult.scannedFileCount} test file(s), queued {scanResult.queuedJobIds.length} background job(s).
           </p>
         )}
@@ -159,17 +159,17 @@ export default function ReverseEngineerPage() {
         </div>
       </div>
 
-      {error && <p style={{ color: "crimson" }}>{error}</p>}
+      {error && <p style={{ color: "var(--ember)" }}>{error}</p>}
 
       {projectId && jobs.length > 0 && (
         <div style={{ marginTop: 24 }}>
           <h2>Recent jobs</h2>
           <ul style={{ listStyle: "none", padding: 0 }}>
             {jobs.map((j) => (
-              <li key={j.id} style={{ borderBottom: "1px solid #eee", padding: "6px 0" }}>
+              <li key={j.id} style={{ borderBottom: "1px solid var(--line)", padding: "6px 0" }}>
                 <strong>{j.status}</strong> — {j.inputRef}
                 {j.status === "SUCCEEDED" && ` — ${j.resultTestCaseIds.length} test case(s) created`}
-                {j.status === "FAILED" && j.error && <span style={{ color: "crimson" }}> — {j.error}</span>}
+                {j.status === "FAILED" && j.error && <span style={{ color: "var(--ember)" }}> — {j.error}</span>}
                 {j.resultTestCaseIds.length > 0 && (
                   <>
                     {" "}
@@ -188,7 +188,7 @@ export default function ReverseEngineerPage() {
             Detected: {result.result.detectedFramework} ({result.result.detectedFrameworkFamily})
           </h2>
           {result.result.testCases.map((tc, i) => (
-            <div key={i} style={{ border: "1px solid #e5e5e5", borderRadius: 8, padding: 16, marginBottom: 12 }}>
+            <div key={i} style={{ border: "1px solid var(--line)", borderRadius: 8, padding: 16, marginBottom: 12 }}>
               <h3>{tc.title}</h3>
               <p>
                 <strong>{tc.testType}</strong> · confidence {(tc.confidence * 100).toFixed(0)}%

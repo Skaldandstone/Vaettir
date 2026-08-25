@@ -1,0 +1,498 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Vaettir — Every place has its guardians</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,300;0,9..144,500;0,9..144,600;1,9..144,400&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap');
+
+  :root,
+  [data-theme="warm"] {
+    --ink: #26211B;
+    --panel: #2E2820;
+    --panel-2: #332C23;
+    --line: #443B2F;
+    --fg: #F3ECDF;
+    --muted: #B8A88D;
+    --muted-dim: #7C7059;
+    --frost: #8FA37A;
+    --frost-dim: rgba(143, 163, 122, 0.12);
+    --ember: #BE6A3E;
+    --ember-dim: rgba(190, 106, 62, 0.12);
+  }
+
+  [data-theme="dark"] {
+    --ink: #121110;
+    --panel: #1A1815;
+    --panel-2: #1F1C18;
+    --line: #322D26;
+    --fg: #F0EAE0;
+    --muted: #A79A85;
+    --muted-dim: #675E4E;
+    --frost: #9DB588;
+    --frost-dim: rgba(157, 181, 136, 0.12);
+    --ember: #D07A46;
+    --ember-dim: rgba(208, 122, 70, 0.12);
+  }
+
+  body { transition: background 0.25s ease, color 0.25s ease; }
+  .rune, .hero-rune-bg line { transition: stroke 0.25s ease; }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  html { background: var(--ink); }
+
+  body {
+    background: var(--ink);
+    color: var(--fg);
+    font-family: 'Inter', sans-serif;
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+    overflow-x: hidden;
+  }
+
+  /* subtle grain texture over the whole page */
+  body::before {
+    content: "";
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    z-index: 1;
+    opacity: 0.05;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  }
+
+  .wrap { max-width: 1100px; margin: 0 auto; padding: 0 32px; }
+
+  a { color: inherit; text-decoration: none; }
+
+  .eyebrow {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12.5px;
+    letter-spacing: 0.09em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+
+  .eyebrow .accent { color: var(--frost); }
+
+  /* ---------- rune mark ---------- */
+  .rune {
+    display: inline-block;
+    stroke: var(--frost);
+    stroke-width: 6;
+    stroke-linecap: round;
+    fill: none;
+    transition: stroke 0.25s ease;
+  }
+
+  /* ---------- nav ---------- */
+  nav {
+    position: relative;
+    z-index: 2;
+    border-bottom: 1px solid var(--line);
+  }
+  nav .wrap {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    height: 76px;
+  }
+  .brand {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .brand-word {
+    font-family: 'Fraunces', serif;
+    font-weight: 500;
+    font-size: 20px;
+    letter-spacing: 0.01em;
+  }
+  .nav-links {
+    display: flex;
+    gap: 36px;
+    font-size: 14.5px;
+    color: var(--muted);
+  }
+  .nav-links a:hover { color: var(--fg); }
+  .nav-cta {
+    font-size: 14px;
+    font-weight: 500;
+    color: var(--ink);
+    background: var(--frost);
+    padding: 9px 18px;
+    border-radius: 3px;
+    transition: background 0.25s ease;
+  }
+
+  .nav-right {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+  }
+
+  .theme-toggle {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    background: transparent;
+    border: 1px solid var(--line);
+    color: var(--muted);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    padding: 8px 14px;
+    border-radius: 3px;
+    cursor: pointer;
+    transition: border-color 0.25s ease, color 0.25s ease;
+  }
+  .theme-toggle:hover { border-color: var(--muted-dim); color: var(--fg); }
+  .theme-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--ember);
+    transition: background 0.25s ease;
+  }
+
+  /* ---------- hero ---------- */
+  .hero {
+    position: relative;
+    z-index: 2;
+    padding: 110px 0 100px;
+    text-align: center;
+    overflow: hidden;
+  }
+
+  .hero-rune-bg {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -55%);
+    width: 640px;
+    height: 640px;
+    opacity: 0.05;
+    z-index: -1;
+  }
+  .hero-rune-line { stroke: var(--frost); transition: stroke 0.25s ease; }
+
+  .hero .eyebrow-row {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    margin-bottom: 30px;
+  }
+
+  .hero h1 {
+    font-family: 'Fraunces', serif;
+    font-weight: 500;
+    font-size: 58px;
+    line-height: 1.14;
+    letter-spacing: -0.01em;
+    max-width: 780px;
+    margin: 0 auto;
+  }
+  .hero h1 .soft {
+    font-style: italic;
+    font-weight: 300;
+    color: var(--muted);
+  }
+
+  .hero .sub {
+    max-width: 520px;
+    margin: 28px auto 0;
+    color: var(--muted);
+    font-size: 17px;
+    line-height: 1.65;
+  }
+
+  .cta-row {
+    display: flex;
+    justify-content: center;
+    gap: 14px;
+    margin-top: 42px;
+  }
+  .btn-primary {
+    background: var(--frost);
+    color: var(--ink);
+    font-weight: 500;
+    font-size: 14.5px;
+    padding: 13px 24px;
+    border-radius: 3px;
+  }
+  .btn-secondary {
+    border: 1px solid var(--line);
+    color: var(--fg);
+    font-weight: 500;
+    font-size: 14.5px;
+    padding: 13px 24px;
+    border-radius: 3px;
+  }
+  .btn-secondary:hover { border-color: var(--muted-dim); }
+
+  /* ---------- three principles ---------- */
+  .principles {
+    position: relative;
+    z-index: 2;
+    border-top: 1px solid var(--line);
+    border-bottom: 1px solid var(--line);
+    background: var(--panel);
+  }
+  .principles .wrap {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+  }
+  .principle {
+    padding: 56px 40px;
+    border-left: 1px solid var(--line);
+  }
+  .principle:first-child { border-left: none; }
+  .p-num {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    color: var(--frost);
+    letter-spacing: 0.08em;
+    margin-bottom: 18px;
+  }
+  .principle h3 {
+    font-family: 'Fraunces', serif;
+    font-weight: 500;
+    font-size: 23px;
+    margin-bottom: 10px;
+  }
+  .principle p {
+    color: var(--muted);
+    font-size: 14.5px;
+    max-width: 260px;
+  }
+
+  /* ---------- lore quote ---------- */
+  .lore {
+    position: relative;
+    z-index: 2;
+    padding: 120px 0;
+    text-align: center;
+  }
+  .lore blockquote {
+    font-family: 'Fraunces', serif;
+    font-style: italic;
+    font-weight: 400;
+    font-size: 28px;
+    line-height: 1.5;
+    max-width: 640px;
+    margin: 0 auto;
+    color: var(--fg);
+  }
+  .lore blockquote .warm { color: var(--ember); font-style: normal; }
+  .lore cite {
+    display: block;
+    margin-top: 26px;
+    font-style: normal;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--muted-dim);
+  }
+
+  /* ---------- pronunciation strip ---------- */
+  .pron-strip {
+    position: relative;
+    z-index: 2;
+    border-top: 1px solid var(--line);
+    background: var(--panel-2);
+    padding: 20px 0;
+  }
+  .pron-strip .wrap {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 24px;
+    flex-wrap: wrap;
+  }
+  .pron-item {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12.5px;
+    color: var(--muted);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .pron-item b { color: var(--fg); font-weight: 500; }
+  .dot { width: 3px; height: 3px; border-radius: 50%; background: var(--muted-dim); }
+
+  /* ---------- footer ---------- */
+  footer {
+    position: relative;
+    z-index: 2;
+    border-top: 1px solid var(--line);
+    padding: 48px 0;
+  }
+  footer .wrap {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  .footer-word {
+    font-family: 'Fraunces', serif;
+    font-size: 15px;
+    color: var(--muted);
+  }
+  .footer-links {
+    display: flex;
+    gap: 28px;
+    font-size: 13.5px;
+    color: var(--muted-dim);
+  }
+  .footer-links a:hover { color: var(--muted); }
+
+  @media (max-width: 760px) {
+    .hero h1 { font-size: 38px; }
+    .nav-links { display: none; }
+    .principles .wrap { grid-template-columns: 1fr; }
+    .principle { border-left: none; border-top: 1px solid var(--line); }
+    .principle:first-child { border-top: none; }
+    .lore blockquote { font-size: 21px; }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    * { animation: none !important; transition: none !important; }
+  }
+</style>
+</head>
+<body>
+
+<nav>
+  <div class="wrap">
+    <div class="brand">
+      <svg class="rune" width="20" height="20" viewBox="0 0 40 40">
+        <line x1="20" y1="4" x2="20" y2="36"/>
+        <line x1="20" y1="14" x2="34" y2="4"/>
+        <line x1="20" y1="14" x2="6" y2="4"/>
+        <line x1="20" y1="24" x2="34" y2="34"/>
+        <line x1="20" y1="24" x2="6" y2="34"/>
+      </svg>
+      <span class="brand-word">vaettir</span>
+    </div>
+    <div class="nav-links">
+      <a href="#">Product</a>
+      <a href="#">Guardians</a>
+      <a href="#">Pricing</a>
+      <a href="#">Docs</a>
+    </div>
+    <div class="nav-right">
+      <button id="theme-toggle" class="theme-toggle" aria-label="Switch theme" type="button">
+        <span class="theme-dot"></span>
+        <span id="theme-label">warm</span>
+      </button>
+      <a href="#" class="nav-cta">Request access</a>
+    </div>
+  </div>
+</nav>
+
+<section class="hero">
+  <svg class="hero-rune-bg" viewBox="0 0 40 40">
+    <line x1="20" y1="4" x2="20" y2="36" class="hero-rune-line" stroke-width="0.6"/>
+    <line x1="20" y1="14" x2="34" y2="4" class="hero-rune-line" stroke-width="0.6"/>
+    <line x1="20" y1="14" x2="6" y2="4" class="hero-rune-line" stroke-width="0.6"/>
+    <line x1="20" y1="24" x2="34" y2="34" class="hero-rune-line" stroke-width="0.6"/>
+    <line x1="20" y1="24" x2="6" y2="34" class="hero-rune-line" stroke-width="0.6"/>
+  </svg>
+
+  <div class="wrap">
+    <div class="eyebrow-row">
+      <span class="eyebrow">VAETTIR <span class="accent">/ VAY-tir /</span> — noun, Old Norse</span>
+    </div>
+
+    <h1>Every place has its guardians.<br><span class="soft">So does your codebase.</span></h1>
+
+    <p class="sub">
+      Vaettir watches over every test, every run, every release —
+      quietly, until something's wrong.
+    </p>
+
+    <div class="cta-row">
+      <a href="#" class="btn-primary">Request access</a>
+      <a href="#" class="btn-secondary">See how it works</a>
+    </div>
+  </div>
+</section>
+
+<section class="principles">
+  <div class="wrap">
+    <div class="principle">
+      <div class="p-num">WARD</div>
+      <h3>Organize what matters</h3>
+      <p>Test cases, suites, and coverage kept in one place — structured the way your team actually works.</p>
+    </div>
+    <div class="principle">
+      <div class="p-num">WITNESS</div>
+      <h3>See every run clearly</h3>
+      <p>Execution history and results laid out plainly, so nothing passes unnoticed and nothing fails unseen.</p>
+    </div>
+    <div class="principle">
+      <div class="p-num">WARN</div>
+      <h3>Know before it ships</h3>
+      <p>Traceability and alerts that surface risk early — before it reaches the people who trusted you.</p>
+    </div>
+  </div>
+</section>
+
+<section class="lore">
+  <div class="wrap">
+    <blockquote>
+      “The old custom was to <span class="warm">warn the Vættir</span> before disturbing the ground.
+      We think your code deserves the same respect.”
+    </blockquote>
+    <cite>— on naming this thing</cite>
+  </div>
+</section>
+
+<div class="pron-strip">
+  <div class="wrap">
+    <div class="pron-item"><b>vaettir</b> — a guardian spirit tied to a place</div>
+    <div class="dot"></div>
+    <div class="pron-item">from Old Norse <b>vættir</b></div>
+    <div class="dot"></div>
+    <div class="pron-item">said <b>VAY-tir</b></div>
+  </div>
+</div>
+
+<footer>
+  <div class="wrap">
+    <span class="footer-word">vaettir</span>
+    <div class="footer-links">
+      <a href="#">Product</a>
+      <a href="#">Docs</a>
+      <a href="#">Contact</a>
+    </div>
+  </div>
+</footer>
+
+<script>
+  (function () {
+    var root = document.documentElement;
+    var btn = document.getElementById('theme-toggle');
+    var label = document.getElementById('theme-label');
+    var dot = document.querySelector('.theme-dot');
+
+    function setTheme(theme) {
+      root.setAttribute('data-theme', theme);
+      label.textContent = theme;
+      dot.style.background = theme === 'warm' ? 'var(--ember)' : 'var(--frost)';
+    }
+
+    setTheme('warm');
+
+    btn.addEventListener('click', function () {
+      var current = root.getAttribute('data-theme');
+      setTheme(current === 'warm' ? 'dark' : 'warm');
+    });
+  })();
+</script>
+</body>
+</html>

@@ -61,7 +61,7 @@ export default function OnboardingPage() {
         <button onClick={submit} disabled={loading || !organizationName}>
           {loading ? "Creating…" : "Create organization"}
         </button>
-        {error && <p style={{ color: "crimson" }}>{error}</p>}
+        {error && <p style={{ color: "var(--ember)" }}>{error}</p>}
       </div>
     </div>
   );

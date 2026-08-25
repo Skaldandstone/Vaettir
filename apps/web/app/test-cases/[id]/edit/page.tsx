@@ -17,7 +17,7 @@ export default function EditTestCasePage() {
       .catch((e) => setError(String(e)));
   }, [params.id]);
 
-  if (error) return <p style={{ color: "crimson" }}>{error}</p>;
+  if (error) return <p style={{ color: "var(--ember)" }}>{error}</p>;
   if (!tc) return <p>Loading…</p>;
 
   return (

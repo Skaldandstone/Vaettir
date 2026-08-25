@@ -43,7 +43,7 @@ export default function OrganizationSettingsPage() {
     }
   }
 
-  if (error) return <p style={{ color: "crimson" }}>{error}</p>;
+  if (error) return <p style={{ color: "var(--ember)" }}>{error}</p>;
   if (!labels) return <p>Loading…</p>;
 
   return (
@@ -51,7 +51,7 @@ export default function OrganizationSettingsPage() {
       <h1>{orgName} settings</h1>
 
       <h2>Test case step field labels</h2>
-      <p style={{ color: "#666", fontSize: 13 }}>
+      <p style={{ color: "var(--muted)", fontSize: 13 }}>
         These are the column headers shown on the structured step table when authoring a test case. Rename them to
         whatever fits your team.
       </p>
@@ -92,7 +92,7 @@ export default function OrganizationSettingsPage() {
         <button onClick={submit} disabled={saving}>
           {saving ? "Saving…" : "Save labels"}
         </button>
-        {saved && <p style={{ color: "green" }}>Saved.</p>}
+        {saved && <p style={{ color: "var(--frost)" }}>Saved.</p>}
       </div>
     </div>
   );

@@ -1,36 +1,59 @@
 import type { ReactNode } from "react";
 import { ClerkProvider, SignedIn, SignedOut, SignInButton, UserButton } from "@clerk/nextjs";
+import { RuneMark } from "../components/RuneMark";
+import { ThemeToggle } from "../components/ThemeToggle";
+import "./globals.css";
 
 export const metadata = {
-  title: "Vaettir",
-  description: "Quality intelligence & test case management",
+  title: "vaettir",
+  description: "Every place has its guardians. So does your codebase.",
 };
 
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (
-    <ClerkProvider>
+    <ClerkProvider
+      appearance={{
+        variables: {
+          colorPrimary: "#8fa37a",
+          colorBackground: "#2e2820",
+          colorText: "#f3ecdf",
+          colorInputBackground: "#26211b",
+          colorInputText: "#f3ecdf",
+          borderRadius: "3px",
+          fontFamily: "Inter, sans-serif",
+        },
+      }}
+    >
       <html lang="en">
-        <body style={{ fontFamily: "system-ui, sans-serif", margin: 0 }}>
-          <nav style={{ display: "flex", alignItems: "center", gap: 16, padding: "12px 24px", borderBottom: "1px solid #e5e5e5" }}>
-            <a href="/">Vaettir</a>
-            <a href="/projects">Projects</a>
-            <a href="/test-cases">Test Cases</a>
-            <a href="/test-plans">Test Plans</a>
-            <a href="/requirements">Requirements</a>
-            <a href="/reverse-engineer">Reverse Engineer</a>
-            <a href="/risk-analysis">Risk Analysis</a>
-            <a href="/settings/members">Members</a>
-            <a href="/settings/organization">Settings</a>
-            <div style={{ marginLeft: "auto" }}>
-              <SignedOut>
-                <SignInButton />
-              </SignedOut>
-              <SignedIn>
-                <UserButton />
-              </SignedIn>
+        <body>
+          <nav className="app-nav">
+            <div className="app-nav-inner">
+              <a href="/" className="brand">
+                <RuneMark />
+                vaettir
+              </a>
+              <div className="app-nav-links">
+                <a href="/projects">Projects</a>
+                <a href="/test-cases">Test Cases</a>
+                <a href="/test-plans">Test Plans</a>
+                <a href="/requirements">Requirements</a>
+                <a href="/reverse-engineer">Reverse Engineer</a>
+                <a href="/risk-analysis">Risk Analysis</a>
+                <a href="/settings/members">Members</a>
+                <a href="/settings/organization">Settings</a>
+              </div>
+              <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 12 }}>
+                <ThemeToggle />
+                <SignedOut>
+                  <SignInButton />
+                </SignedOut>
+                <SignedIn>
+                  <UserButton />
+                </SignedIn>
+              </div>
             </div>
           </nav>
-          <main style={{ padding: 24 }}>{children}</main>
+          <main className="app-main">{children}</main>
         </body>
       </html>
     </ClerkProvider>

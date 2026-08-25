@@ -93,7 +93,7 @@ export default function ProjectsPage() {
   }
 
   if (loading) return <p>Loading…</p>;
-  if (error) return <p style={{ color: "crimson" }}>{error}</p>;
+  if (error) return <p style={{ color: "var(--ember)" }}>{error}</p>;
   if (!orgId) return <p>You don't belong to an organization yet. Go to onboarding first.</p>;
 
   return (
@@ -106,7 +106,7 @@ export default function ProjectsPage() {
           <input value={name} onChange={(e) => setName(e.target.value)} style={{ width: "100%" }} />
         </label>
         <label>
-          Repo URL <span style={{ color: "#888" }}>(optional)</span>
+          Repo URL <span style={{ color: "var(--muted-dim)" }}>(optional)</span>
           <input value={repoUrl} onChange={(e) => setRepoUrl(e.target.value)} style={{ width: "100%" }} />
         </label>
         <button onClick={submit} disabled={creating || !name}>
@@ -116,7 +116,7 @@ export default function ProjectsPage() {
 
       <ul style={{ listStyle: "none", padding: 0 }}>
         {projects.map((p) => (
-          <li key={p.id} style={{ marginBottom: 12, borderBottom: "1px solid #eee", paddingBottom: 10 }}>
+          <li key={p.id} style={{ marginBottom: 12, borderBottom: "1px solid var(--line)", paddingBottom: 10 }}>
             {editingId === p.id ? (
               <div style={{ display: "grid", gap: 6, maxWidth: 360 }}>
                 <input value={editName} onChange={(e) => setEditName(e.target.value)} placeholder="Name" />
@@ -135,7 +135,7 @@ export default function ProjectsPage() {
               </div>
             ) : (
               <>
-                <strong>{p.name}</strong> <span style={{ color: "#888" }}>({p.id})</span>
+                <strong>{p.name}</strong> <span style={{ color: "var(--muted-dim)" }}>({p.id})</span>
                 {p.repoUrl && <> — {p.repoUrl}</>}
                 <div style={{ display: "flex", gap: 12, marginTop: 4 }}>
                   <a href={`/test-cases?projectId=${p.id}`}>Test cases</a>
@@ -148,7 +148,7 @@ export default function ProjectsPage() {
             )}
           </li>
         ))}
-        {projects.length === 0 && <p style={{ color: "#666" }}>No projects yet — create one above.</p>}
+        {projects.length === 0 && <p style={{ color: "var(--muted)" }}>No projects yet — create one above.</p>}
       </ul>
     </div>
   );

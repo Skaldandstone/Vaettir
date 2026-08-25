@@ -88,7 +88,7 @@ export default function MembersPage() {
   }
 
   if (loading) return <p>Loading…</p>;
-  if (error) return <p style={{ color: "crimson" }}>{error}</p>;
+  if (error) return <p style={{ color: "var(--ember)" }}>{error}</p>;
   if (!orgId) return <p>You don't belong to an organization yet.</p>;
 
   return (
@@ -176,12 +176,12 @@ export default function MembersPage() {
       </div>
 
       {inviteLink && (
-        <p style={{ background: "#f0f9f0", padding: 10, borderRadius: 6 }}>
+        <p style={{ background: "var(--frost-dim)", padding: 10, borderRadius: 6 }}>
           Invite created — copy this link and send it to them: <br />
           <code>{inviteLink}</code>
         </p>
       )}
-      {error && <p style={{ color: "crimson" }}>{error}</p>}
+      {error && <p style={{ color: "var(--ember)" }}>{error}</p>}
 
       {invitations.length > 0 && (
         <>
@@ -202,4 +202,4 @@ export default function MembersPage() {
   );
 }
 
-const cellStyle = { border: "1px solid #e5e5e5", padding: "6px 10px", textAlign: "left" as const };
+const cellStyle = { border: "1px solid var(--line)", padding: "6px 10px", textAlign: "left" as const };

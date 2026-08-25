@@ -36,7 +36,7 @@ function CustomFieldsForm({
           const arr = Array.isArray(value) ? (value as string[]) : [];
           return (
             <label key={key}>
-              {key} <span style={{ color: "#888" }}>(comma-separated)</span>
+              {key} <span style={{ color: "var(--muted-dim)" }}>(comma-separated)</span>
               <input
                 value={arr.join(", ")}
                 onChange={(e) =>
@@ -155,14 +155,14 @@ export default function TestPlanDetailPage() {
     load();
   }
 
-  if (error) return <p style={{ color: "crimson" }}>{error}</p>;
+  if (error) return <p style={{ color: "var(--ember)" }}>{error}</p>;
   if (!plan) return <p>Loading…</p>;
 
   return (
     <div style={{ maxWidth: 640 }}>
       <a href={`/test-plans?projectId=${plan.projectId}`}>&larr; Test plans</a>
       <h1>{plan.name}</h1>
-      <p style={{ color: "#666" }}>{plan.testPlanType.name} plan</p>
+      <p style={{ color: "var(--muted)" }}>{plan.testPlanType.name} plan</p>
 
       <div style={{ display: "grid", gap: 10, marginBottom: 24 }}>
         <label>
@@ -189,7 +189,7 @@ export default function TestPlanDetailPage() {
         <button onClick={save} disabled={saving || !name}>
           {saving ? "Saving…" : "Save"}
         </button>
-        {saved && <p style={{ color: "green" }}>Saved.</p>}
+        {saved && <p style={{ color: "var(--frost)" }}>Saved.</p>}
       </div>
 
       <h2>Acceptance criteria</h2>
@@ -210,7 +210,7 @@ export default function TestPlanDetailPage() {
             <button onClick={() => removeCriterion(c.id)}>Remove</button>
           </li>
         ))}
-        {plan.acceptanceCriteria.length === 0 && <p style={{ color: "#666" }}>No acceptance criteria yet.</p>}
+        {plan.acceptanceCriteria.length === 0 && <p style={{ color: "var(--muted)" }}>No acceptance criteria yet.</p>}
       </ul>
 
       <div style={{ display: "flex", gap: 8, marginTop: 12 }}>

@@ -104,26 +104,26 @@ function RiskAnalysisPageInner() {
         <input value={projectId} onChange={(e) => setProjectId(e.target.value)} placeholder="paste a project id" />
       </label>
 
-      <div style={{ border: "1px solid #e5e5e5", borderRadius: 8, padding: 16, margin: "16px 0" }}>
+      <div style={{ border: "1px solid var(--line)", borderRadius: 8, padding: 16, margin: "16px 0" }}>
         <h2 style={{ marginTop: 0 }}>Bulk-assess risk</h2>
-        <p style={{ color: "#666", margin: "0 0 8px" }}>
+        <p style={{ color: "var(--muted)", margin: "0 0 8px" }}>
           AI-assess severity/risk for every test case in this project that hasn&apos;t been assessed yet (up to 20 at a time).
         </p>
         <button onClick={bulkAssess} disabled={bulkAssessing || !projectId}>
           {bulkAssessing ? "Assessing…" : "Assess unrated test cases"}
         </button>
         {bulkResult && (
-          <p style={{ color: "green" }}>
+          <p style={{ color: "var(--frost)" }}>
             Assessed {bulkResult.assessedCount}, {bulkResult.failedCount} failed.
           </p>
         )}
       </div>
 
-      <div style={{ border: "1px solid #e5e5e5", borderRadius: 8, padding: 16, margin: "16px 0" }}>
+      <div style={{ border: "1px solid var(--line)", borderRadius: 8, padding: 16, margin: "16px 0" }}>
         <h2 style={{ marginTop: 0 }}>What should run for this change?</h2>
         <div style={{ display: "grid", gap: 8, maxWidth: 500 }}>
           <label>
-            Repo URL <span style={{ color: "#888" }}>(https only; falls back to the project&apos;s repo URL if blank)</span>
+            Repo URL <span style={{ color: "var(--muted-dim)" }}>(https only; falls back to the project&apos;s repo URL if blank)</span>
             <input value={repoUrl} onChange={(e) => setRepoUrl(e.target.value)} style={{ width: "100%" }} />
           </label>
           <div style={{ display: "flex", gap: 12 }}>
@@ -137,7 +137,7 @@ function RiskAnalysisPageInner() {
             </label>
           </div>
           <label>
-            Release <span style={{ color: "#888" }}>(optional — coverage gaps become persistent risk flags on this release)</span>
+            Release <span style={{ color: "var(--muted-dim)" }}>(optional — coverage gaps become persistent risk flags on this release)</span>
             <div style={{ display: "flex", gap: 8 }}>
               <select value={releaseId} onChange={(e) => setReleaseId(e.target.value)} style={{ flex: 1 }}>
                 <option value="">(none — ad-hoc check, no flags created)</option>
@@ -165,7 +165,7 @@ function RiskAnalysisPageInner() {
           </button>
         </div>
 
-        {error && <p style={{ color: "crimson" }}>{error}</p>}
+        {error && <p style={{ color: "var(--ember)" }}>{error}</p>}
 
         {result && (
           <div style={{ marginTop: 16 }}>
@@ -175,23 +175,23 @@ function RiskAnalysisPageInner() {
             </p>
 
             <h3>Must run ({result.mustRun.length})</h3>
-            {result.mustRun.length === 0 && <p style={{ color: "#666" }}>No tracked test case covers any changed file.</p>}
+            {result.mustRun.length === 0 && <p style={{ color: "var(--muted)" }}>No tracked test case covers any changed file.</p>}
             <ul style={{ listStyle: "none", padding: 0 }}>
               {result.mustRun.map((r) => (
-                <li key={r.testCaseId} style={{ borderBottom: "1px solid #eee", padding: "6px 0" }}>
+                <li key={r.testCaseId} style={{ borderBottom: "1px solid var(--line)", padding: "6px 0" }}>
                   <a href={`/test-cases/${r.testCaseId}`}>{r.title}</a>{" "}
-                  <span style={{ color: r.riskScore && r.riskScore >= 70 ? "crimson" : "#888" }}>
+                  <span style={{ color: r.riskScore && r.riskScore >= 70 ? "var(--ember)" : "var(--muted-dim)" }}>
                     [{r.riskScore ?? "—"}/100{r.riskSeverity ? ` ${r.riskSeverity}` : ""}]
                   </span>
-                  <div style={{ color: "#888", fontSize: 12 }}>{r.matchReason}</div>
+                  <div style={{ color: "var(--muted-dim)", fontSize: 12 }}>{r.matchReason}</div>
                 </li>
               ))}
             </ul>
 
             {result.coverageGaps.length > 0 && (
               <>
-                <h3 style={{ color: "crimson" }}>Coverage gaps ({result.coverageGaps.length})</h3>
-                <p style={{ color: "#666" }}>Changed files with no tracked test case covering them:</p>
+                <h3 style={{ color: "var(--ember)" }}>Coverage gaps ({result.coverageGaps.length})</h3>
+                <p style={{ color: "var(--muted)" }}>Changed files with no tracked test case covering them:</p>
                 <ul>
                   {result.coverageGaps.map((f) => (
                     <li key={f}>{f}</li>
@@ -204,24 +204,24 @@ function RiskAnalysisPageInner() {
       </div>
 
       {releaseId && (
-        <div style={{ border: "1px solid #e5e5e5", borderRadius: 8, padding: 16, margin: "16px 0" }}>
+        <div style={{ border: "1px solid var(--line)", borderRadius: 8, padding: 16, margin: "16px 0" }}>
           <h2 style={{ marginTop: 0 }}>Risk flags on this release</h2>
-          {riskFlags.length === 0 && <p style={{ color: "#666" }}>None yet.</p>}
+          {riskFlags.length === 0 && <p style={{ color: "var(--muted)" }}>None yet.</p>}
           <ul style={{ listStyle: "none", padding: 0 }}>
             {riskFlags.map((f) => (
               <li
                 key={f.id}
                 style={{
-                  borderBottom: "1px solid #eee",
+                  borderBottom: "1px solid var(--line)",
                   padding: "6px 0",
                   opacity: f.resolvedAt ? 0.5 : 1,
                 }}
               >
-                <strong style={{ color: f.severity === "CRITICAL" || f.severity === "HIGH" ? "crimson" : "#333" }}>
+                <strong style={{ color: f.severity === "CRITICAL" || f.severity === "HIGH" ? "var(--ember)" : "var(--fg)" }}>
                   {f.severity}
                 </strong>{" "}
                 [{f.source}] {f.description}
-                {f.resolvedAt && <span style={{ color: "green" }}> — resolved</span>}
+                {f.resolvedAt && <span style={{ color: "var(--frost)" }}> — resolved</span>}
               </li>
             ))}
           </ul>
@@ -233,10 +233,10 @@ function RiskAnalysisPageInner() {
           <h2>Past runs</h2>
           <ul style={{ listStyle: "none", padding: 0 }}>
             {runs.map((r) => (
-              <li key={r.id} style={{ borderBottom: "1px solid #eee", padding: "6px 0" }}>
+              <li key={r.id} style={{ borderBottom: "1px solid var(--line)", padding: "6px 0" }}>
                 <code>{r.baseRef}</code> → <code>{r.headRef}</code> — {r.changedFiles.length} file(s) changed,{" "}
                 {r.recommendedCount} test case(s) recommended{" "}
-                <span style={{ color: "#888" }}>({new Date(r.createdAt).toLocaleString()})</span>
+                <span style={{ color: "var(--muted-dim)" }}>({new Date(r.createdAt).toLocaleString()})</span>
               </li>
             ))}
           </ul>

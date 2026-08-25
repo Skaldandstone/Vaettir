@@ -31,7 +31,7 @@ export default function AcceptInvitePage() {
     }
   }
 
-  if (error) return <p style={{ color: "crimson" }}>{error}</p>;
+  if (error) return <p style={{ color: "var(--ember)" }}>{error}</p>;
   if (!preview) return <p>Loading…</p>;
 
   if (preview.status !== "PENDING") {

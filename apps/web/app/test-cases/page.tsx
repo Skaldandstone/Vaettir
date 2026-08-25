@@ -36,7 +36,7 @@ function TestCasesPageInner() {
         <input value={projectId} onChange={(e) => setProjectId(e.target.value)} placeholder="paste a project id" />
       </label>
       {loading && <p>Loading…</p>}
-      {error && <p style={{ color: "crimson" }}>{error}</p>}
+      {error && <p style={{ color: "var(--ember)" }}>{error}</p>}
       <ul>
         {cases.map((tc) => (
           <li key={tc.id}>

@@ -77,7 +77,7 @@ function TestPlansPageInner() {
       )}
 
       {loading && <p>Loading…</p>}
-      {error && <p style={{ color: "crimson" }}>{error}</p>}
+      {error && <p style={{ color: "var(--ember)" }}>{error}</p>}
       <ul>
         {plans.map((p) => (
           <li key={p.id}>
@@ -87,7 +87,7 @@ function TestPlansPageInner() {
             </small>
           </li>
         ))}
-        {projectId && !loading && plans.length === 0 && <p style={{ color: "#666" }}>No test plans yet.</p>}
+        {projectId && !loading && plans.length === 0 && <p style={{ color: "var(--muted)" }}>No test plans yet.</p>}
       </ul>
     </div>
   );

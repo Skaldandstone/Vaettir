@@ -44,26 +44,26 @@ function ReviewQueueInner() {
     <div style={{ maxWidth: 720 }}>
       <a href={`/test-cases?projectId=${projectId}`}>&larr; Test cases</a>
       <h1>Review queue</h1>
-      <p style={{ color: "#666" }}>
+      <p style={{ color: "var(--muted)" }}>
         AI-reverse-engineered test cases awaiting approval, lowest confidence first.
       </p>
       {loading && <p>Loading…</p>}
-      {error && <p style={{ color: "crimson" }}>{error}</p>}
-      {!loading && queue.length === 0 && <p style={{ color: "#666" }}>Nothing pending review.</p>}
+      {error && <p style={{ color: "var(--ember)" }}>{error}</p>}
+      {!loading && queue.length === 0 && <p style={{ color: "var(--muted)" }}>Nothing pending review.</p>}
       <ul style={{ listStyle: "none", padding: 0 }}>
         {queue.map((tc) => (
-          <li key={tc.id} style={{ border: "1px solid #e5e5e5", borderRadius: 8, padding: 12, marginBottom: 10 }}>
+          <li key={tc.id} style={{ border: "1px solid var(--line)", borderRadius: 8, padding: 12, marginBottom: 10 }}>
             <div style={{ display: "flex", justifyContent: "space-between" }}>
               <a href={`/test-cases/${tc.id}`}>
                 <strong>{tc.title}</strong>
               </a>
               {tc.confidence != null && (
-                <span style={{ color: tc.confidence < 0.6 ? "crimson" : "#888" }}>
+                <span style={{ color: tc.confidence < 0.6 ? "var(--ember)" : "var(--muted-dim)" }}>
                   {(tc.confidence * 100).toFixed(0)}% confidence
                 </span>
               )}
             </div>
-            {tc.sourceFilePath && <div style={{ color: "#888", fontSize: 13 }}>{tc.sourceFilePath}</div>}
+            {tc.sourceFilePath && <div style={{ color: "var(--muted-dim)", fontSize: 13 }}>{tc.sourceFilePath}</div>}
             <div style={{ marginTop: 8 }}>
               <button onClick={() => decide(tc.id, "approve")} disabled={busyId === tc.id} style={{ marginRight: 8 }}>
                 Approve
