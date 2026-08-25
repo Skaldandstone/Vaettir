@@ -82,7 +82,11 @@ export const agentRouter = router({
         throw new TRPCError({ code: "BAD_REQUEST", message: "No repo URL provided and the project has none configured" });
       }
 
-      const files = await scanRepoForTestFiles(repoUrl, input.ref);
+      const alreadyTracked = await ctx.prisma.testCaseSource.findMany({
+        where: { testCase: { projectId: input.projectId } },
+        select: { filePath: true },
+      });
+      const files = await scanRepoForTestFiles(repoUrl, input.ref, new Set(alreadyTracked.map((s) => s.filePath)));
 
       const jobs = await Promise.all(
         files.map((f) =>

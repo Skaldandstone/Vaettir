@@ -29,16 +29,23 @@ const IGNORED_DIRS = new Set(["node_modules", ".git", "dist", "build", ".next", 
 const MAX_FILES = 25;
 const MAX_FILE_BYTES = 100 * 1024;
 
-async function walkTestFiles(rootDir: string, dir: string, out: string[]): Promise<void> {
+// `excludePaths` holds paths already tracked as a TestCaseSource for this
+// project, checked (with separators normalized to match how they're stored)
+// before a match counts against MAX_FILES -- otherwise a re-scan of a repo
+// that's grown since the last one just re-finds the same already-tracked
+// files up to the cap and never reaches anything new.
+async function walkTestFiles(rootDir: string, dir: string, out: string[], excludePaths: Set<string>): Promise<void> {
   if (out.length >= MAX_FILES) return;
   const entries = await readdir(dir, { withFileTypes: true });
   for (const entry of entries) {
     if (out.length >= MAX_FILES) return;
     if (entry.isDirectory()) {
       if (IGNORED_DIRS.has(entry.name)) continue;
-      await walkTestFiles(rootDir, join(dir, entry.name), out);
+      await walkTestFiles(rootDir, join(dir, entry.name), out, excludePaths);
     } else if (entry.isFile() && isLikelyTestFile(entry.name)) {
-      out.push(relative(rootDir, join(dir, entry.name)));
+      const relativePath = relative(rootDir, join(dir, entry.name));
+      if (excludePaths.has(relativePath.split("\\").join("/"))) continue;
+      out.push(relativePath);
     }
   }
 }
@@ -53,14 +60,18 @@ export interface ScannedTestFile {
 // fixtures/snapshots occasionally masquerade as test files and blow up an
 // LLM call for no benefit), and always cleans the clone up afterward even
 // if reading files throws partway through.
-export async function scanRepoForTestFiles(repoUrl: string, ref: string): Promise<ScannedTestFile[]> {
+export async function scanRepoForTestFiles(
+  repoUrl: string,
+  ref: string,
+  excludePaths: Set<string> = new Set(),
+): Promise<ScannedTestFile[]> {
   assertScannableRepoUrl(repoUrl);
   const dir = await mkdtemp(join(tmpdir(), "tci-repo-scan-"));
   try {
     await execFileAsync("git", ["clone", "--depth", "1", "--branch", ref, "--single-branch", repoUrl, dir]);
 
     const relativePaths: string[] = [];
-    await walkTestFiles(dir, dir, relativePaths);
+    await walkTestFiles(dir, dir, relativePaths, excludePaths);
 
     const files: ScannedTestFile[] = [];
     for (const relativePath of relativePaths) {

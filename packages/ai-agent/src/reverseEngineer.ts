@@ -82,6 +82,34 @@ Rules:
 - If a framework you don't fully recognize is used, still do your best structural read (setup/act/assert phases, naming conventions) and reflect that uncertainty in confidence and notes.
 - Always call the emit_test_cases tool with your result. Do not respond in plain text.`;
 
+// For larger/more complex source files, the model sometimes double-encodes
+// its tool_use input: instead of a native `{ testCases: [...] }` object, it
+// emits `{ testCases: "{\"testCases\":[...]}" }` -- the whole payload
+// JSON-stringified and nested one level too deep inside the very field
+// it's supposed to be. Observed for real against a ~60-line Playwright spec
+// (github.com/Grunklegrok/Kall's submission-pipeline.spec.ts), not a
+// theoretical edge case. Anthropic tool schemas don't hard-enforce types
+// any more than they enforce "required" (see the framework-detection fix
+// above), so this is handled the same way: detect the malformed shape and
+// recover instead of crashing.
+function normalizeToolUseInput(rawInput: unknown): unknown {
+  if (typeof rawInput !== "object" || rawInput === null || !("testCases" in rawInput)) {
+    return rawInput;
+  }
+  const testCases = (rawInput as { testCases: unknown }).testCases;
+  if (typeof testCases !== "string") {
+    return rawInput;
+  }
+  const parsed: unknown = JSON.parse(testCases);
+  if (Array.isArray(parsed)) {
+    return { testCases: parsed };
+  }
+  if (typeof parsed === "object" && parsed !== null && "testCases" in parsed) {
+    return parsed;
+  }
+  return rawInput;
+}
+
 export interface ReverseEngineerInput {
   filePath: string;
   content: string;
@@ -122,7 +150,7 @@ export async function reverseEngineerTestFile(
   // heuristics -- there's no reason to ask the LLM to guess something we
   // can derive precisely, so the heuristic result is the source of truth
   // here, not the model's output.
-  const { testCases } = AgentResponseSchema.parse(toolUse.input);
+  const { testCases } = AgentResponseSchema.parse(normalizeToolUseInput(toolUse.input));
   const result: ReverseEngineerResult = {
     detectedFramework: heuristic.label,
     detectedFrameworkFamily: heuristic.family,
