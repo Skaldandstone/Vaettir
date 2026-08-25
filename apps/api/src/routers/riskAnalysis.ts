@@ -28,6 +28,11 @@ export const riskAnalysisRouter = router({
         repoUrl: z.string().optional(),
         baseRef: z.string().default("main"),
         headRef: z.string(),
+        // Optional: when given, coverage gaps become real RiskFlag rows on
+        // this release instead of just being returned inline. Omit for an
+        // ad-hoc pre-release check that doesn't need a persistent flag.
+        releaseId: z.string().optional(),
+        prUrl: z.string().optional(),
       }),
     )
     .output(
@@ -36,6 +41,7 @@ export const riskAnalysisRouter = router({
         changedFiles: z.array(z.string()),
         mustRun: z.array(recommendationOutput),
         coverageGaps: z.array(z.string()),
+        riskFlagsCreated: z.number(),
       }),
     )
     .mutation(async ({ ctx, input }) => {
@@ -44,6 +50,14 @@ export const riskAnalysisRouter = router({
       const repoUrl = input.repoUrl ?? project.repoUrl;
       if (!repoUrl) {
         throw new TRPCError({ code: "BAD_REQUEST", message: "No repo URL provided and the project has none configured" });
+      }
+
+      let release: { id: string; projectId: string } | null = null;
+      if (input.releaseId) {
+        release = await ctx.prisma.release.findUniqueOrThrow({ where: { id: input.releaseId } });
+        if (release.projectId !== input.projectId) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "That release does not belong to this project" });
+        }
       }
 
       const changedFiles = await getChangedFiles(repoUrl, input.baseRef, input.headRef);
@@ -67,6 +81,36 @@ export const riskAnalysisRouter = router({
         }))
         .sort((a, b) => b.riskScore - a.riskScore);
 
+      let riskFlagsCreated = 0;
+      if (release) {
+        // Don't flag a gap that's already flagged and unresolved for this
+        // release -- repeated runs against the same release (e.g. after
+        // pushing more commits to the same PR) shouldn't pile up duplicate
+        // flags for a file that was already caught.
+        const existingOpenGapFiles = new Set(
+          (
+            await ctx.prisma.riskFlag.findMany({
+              where: { releaseId: release.id, source: "PR_SCAN_COVERAGE_GAP", resolvedAt: null },
+              select: { relatedFilePath: true },
+            })
+          ).map((f) => f.relatedFilePath),
+        );
+        const newGaps = coverageGaps.filter((f) => !existingOpenGapFiles.has(f));
+        if (newGaps.length > 0) {
+          await ctx.prisma.riskFlag.createMany({
+            data: newGaps.map((f) => ({
+              releaseId: release!.id,
+              severity: "HIGH",
+              source: "PR_SCAN_COVERAGE_GAP",
+              description: `${f} changed between ${input.baseRef} and ${input.headRef} but no tracked test case covers it.`,
+              relatedFilePath: f,
+              relatedPrUrl: input.prUrl,
+            })),
+          });
+          riskFlagsCreated = newGaps.length;
+        }
+      }
+
       const run = await ctx.prisma.testSelectionRun.create({
         data: {
           projectId: input.projectId,
@@ -84,7 +128,7 @@ export const riskAnalysisRouter = router({
         },
       });
 
-      return { runId: run.id, changedFiles, mustRun, coverageGaps };
+      return { runId: run.id, changedFiles, mustRun, coverageGaps, riskFlagsCreated };
     }),
 
   listRuns: protectedProcedure
