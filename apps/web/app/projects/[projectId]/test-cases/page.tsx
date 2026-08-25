@@ -1,11 +1,21 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useParams } from "next/navigation";
 import { trpc, type RouterOutputs } from "@/lib/trpc";
 import { TestCaseTree, filterCasesByPath, collectKnownSuitePaths, UNASSIGNED } from "@/components/TestCaseTree";
 import { Drawer } from "@/components/Drawer";
 import { TestCaseDetailContent } from "@/components/TestCaseDetailContent";
+
+type Case = RouterOutputs["testCases"]["list"][number];
+
+const TEST_TYPES = [
+  "UNIT", "FUNCTIONAL", "CONTRACT", "INSTRUMENTATION", "SMOKE", "SANITY",
+  "REGRESSION", "E2E", "PERFORMANCE", "SECURITY", "ACCESSIBILITY",
+  "EXPLORATORY", "COMPLIANCE", "OTHER",
+];
+const REVIEW_STATUSES = ["APPROVED", "PENDING_REVIEW", "REJECTED"];
+const ORIGINS = ["AUTHORED", "AI_REVERSE_ENGINEERED", "IMPORTED"];
 
 function AssignSuiteControl({
   caseId,
@@ -99,6 +109,13 @@ export default function TestCasesPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  const [search, setSearch] = useState("");
+  const [typeFilter, setTypeFilter] = useState("");
+  const [reviewFilter, setReviewFilter] = useState("");
+  const [originFilter, setOriginFilter] = useState("");
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [bulkBusy, setBulkBusy] = useState(false);
+
   function load() {
     setLoading(true);
     setError(null);
@@ -112,9 +129,60 @@ export default function TestCasesPage() {
   }
 
   useEffect(load, [projectId]);
+  useEffect(() => setSelected(new Set()), [selectedPath, search, typeFilter, reviewFilter, originFilter]);
 
-  const visibleCases = filterCasesByPath(cases, selectedPath);
+  const pathFiltered = filterCasesByPath(cases, selectedPath);
+  const visibleCases = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    return pathFiltered.filter(
+      (tc) =>
+        (!q || tc.title.toLowerCase().includes(q) || tc.tags.some((t) => t.toLowerCase().includes(q))) &&
+        (!typeFilter || tc.testType === typeFilter) &&
+        (!reviewFilter || tc.reviewStatus === reviewFilter) &&
+        (!originFilter || tc.origin === originFilter),
+    );
+  }, [pathFiltered, search, typeFilter, reviewFilter, originFilter]);
+
   const knownPaths = collectKnownSuitePaths(cases);
+
+  function toggle(id: string) {
+    setSelected((s) => {
+      const next = new Set(s);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  function toggleAllVisible() {
+    setSelected((s) => (s.size === visibleCases.length ? new Set() : new Set(visibleCases.map((tc) => tc.id))));
+  }
+
+  async function bulkReview(decision: "approve" | "reject") {
+    setBulkBusy(true);
+    try {
+      await trpc.testCases.bulkReview.mutate({ projectId, ids: [...selected], decision });
+      setSelected(new Set());
+      load();
+    } finally {
+      setBulkBusy(false);
+    }
+  }
+
+  async function bulkDelete() {
+    if (!confirm(`Delete ${selected.size} test case(s)? This can't be undone.`)) return;
+    setBulkBusy(true);
+    try {
+      const res = await trpc.testCases.bulkDelete.mutate({ projectId, ids: [...selected] });
+      setSelected(new Set());
+      load();
+      if (res.blockedCount > 0) {
+        alert(`${res.deletedCount} deleted, ${res.blockedCount} couldn't be deleted (linked to compliance controls or risk analysis results).`);
+      }
+    } finally {
+      setBulkBusy(false);
+    }
+  }
 
   return (
     <div>
@@ -165,34 +233,90 @@ export default function TestCasesPage() {
           <TestCaseTree cases={cases} selectedPath={selectedPath} onSelect={setSelectedPath} />
           <div className="test-case-list">
             <QuickAddRow projectId={projectId} suitePath={selectedPath} onAdded={load} />
+
+            <div style={{ display: "flex", gap: 8, marginBottom: 10, flexWrap: "wrap" }}>
+              <input
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Search title or tags…"
+                style={{ flex: 1, minWidth: 160 }}
+              />
+              <select value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)}>
+                <option value="">All types</option>
+                {TEST_TYPES.map((t) => (
+                  <option key={t} value={t}>{t}</option>
+                ))}
+              </select>
+              <select value={reviewFilter} onChange={(e) => setReviewFilter(e.target.value)}>
+                <option value="">All review statuses</option>
+                {REVIEW_STATUSES.map((s) => (
+                  <option key={s} value={s}>{s}</option>
+                ))}
+              </select>
+              <select value={originFilter} onChange={(e) => setOriginFilter(e.target.value)}>
+                <option value="">All origins</option>
+                {ORIGINS.map((o) => (
+                  <option key={o} value={o}>{o}</option>
+                ))}
+              </select>
+            </div>
+
+            {selected.size > 0 && (
+              <div className="panel" style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10, padding: 10 }}>
+                <strong>{selected.size} selected</strong>
+                <button className="btn-secondary" onClick={() => bulkReview("approve")} disabled={bulkBusy}>
+                  Approve
+                </button>
+                <button className="btn-secondary" onClick={() => bulkReview("reject")} disabled={bulkBusy}>
+                  Reject
+                </button>
+                <button className="btn-secondary" onClick={bulkDelete} disabled={bulkBusy} style={{ color: "var(--ember)" }}>
+                  Delete
+                </button>
+                <button className="btn-secondary" onClick={() => setSelected(new Set())} disabled={bulkBusy} style={{ marginLeft: "auto" }}>
+                  Clear
+                </button>
+              </div>
+            )}
+
             {selectedPath === UNASSIGNED && (
               <p className="text-muted" style={{ fontSize: 13 }}>
                 These cases have no suite yet — assign one below, or leave them here.
               </p>
             )}
-            <ul>
+
+            {visibleCases.length > 0 && (
+              <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: "var(--muted)", marginBottom: 6 }}>
+                <input type="checkbox" checked={selected.size === visibleCases.length} onChange={toggleAllVisible} />
+                Select all ({visibleCases.length})
+              </label>
+            )}
+            <ul style={{ listStyle: "none", padding: 0 }}>
               {visibleCases.map((tc) => (
-                <li key={tc.id}>
-                  <a
-                    href={`/projects/${projectId}/test-cases/${tc.id}`}
-                    onClick={(e) => {
-                      e.preventDefault();
-                      setOpenCaseId(tc.id);
-                    }}
-                  >
-                    {tc.title}
-                  </a>{" "}
-                  <small>
-                    [{tc.testType}] {tc.origin === "AI_REVERSE_ENGINEERED" ? "🤖 AI-reversed" : ""}
-                    {tc.reviewStatus === "PENDING_REVIEW" && " ⏳ pending review"}
-                    {tc.reviewStatus === "REJECTED" && " ❌ rejected"}
-                  </small>
-                  {selectedPath === UNASSIGNED && (
-                    <AssignSuiteControl caseId={tc.id} knownPaths={knownPaths} onAssigned={load} />
-                  )}
+                <li key={tc.id} style={{ display: "flex", alignItems: "flex-start", gap: 8, padding: "3px 0" }}>
+                  <input type="checkbox" checked={selected.has(tc.id)} onChange={() => toggle(tc.id)} style={{ marginTop: 4 }} />
+                  <div>
+                    <a
+                      href={`/projects/${projectId}/test-cases/${tc.id}`}
+                      onClick={(e) => {
+                        e.preventDefault();
+                        setOpenCaseId(tc.id);
+                      }}
+                    >
+                      {tc.title}
+                    </a>{" "}
+                    <small>
+                      [{tc.testType}] {tc.origin === "AI_REVERSE_ENGINEERED" ? "🤖 AI-reversed" : ""}
+                      {tc.reviewStatus === "PENDING_REVIEW" && " ⏳ pending review"}
+                      {tc.reviewStatus === "REJECTED" && " ❌ rejected"}
+                    </small>
+                    {selectedPath === UNASSIGNED && (
+                      <AssignSuiteControl caseId={tc.id} knownPaths={knownPaths} onAssigned={load} />
+                    )}
+                  </div>
                 </li>
               ))}
-              {visibleCases.length === 0 && <p className="text-muted">No test cases in this folder.</p>}
+              {visibleCases.length === 0 && <p className="text-muted">No test cases match.</p>}
             </ul>
           </div>
         </div>

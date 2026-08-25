@@ -1,6 +1,8 @@
 import { z } from "zod";
+import { TRPCError } from "@trpc/server";
 import { TestCaseStepInputSchema, resolveStepFieldLabels, type StepFieldKey } from "@vaettir/core";
 import { assessTestCaseRisk } from "@vaettir/ai-agent";
+import { Prisma } from "@vaettir/db";
 import { router, protectedProcedure, requireProjectAccess } from "../trpc.js";
 
 const stepOutputSchema = z.object({
@@ -41,6 +43,8 @@ export const testCasesRouter = router({
           id: z.string(),
           title: z.string(),
           testType: z.string(),
+          priority: z.string(),
+          tags: z.array(z.string()),
           origin: z.string(),
           reviewStatus: z.string(),
           sourceFilePath: z.string().nullable(),
@@ -59,6 +63,8 @@ export const testCasesRouter = router({
         id: tc.id,
         title: tc.title,
         testType: tc.testType,
+        priority: tc.priority,
+        tags: tc.tags,
         origin: tc.origin,
         reviewStatus: tc.reviewStatus,
         sourceFilePath: tc.source?.filePath ?? null,
@@ -396,5 +402,63 @@ export const testCasesRouter = router({
         where: { id: input.id },
         data: { suitePath: input.suitePath || null },
       });
+    }),
+
+  delete: protectedProcedure
+    .input(z.object({ id: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      const existing = await ctx.prisma.testCase.findUniqueOrThrow({ where: { id: input.id }, select: { projectId: true } });
+      await requireProjectAccess(ctx, existing.projectId, "EDITOR");
+      try {
+        await ctx.prisma.testCase.delete({ where: { id: input.id } });
+      } catch (e) {
+        if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2003") {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "This test case is linked to a compliance control or a change-impact recommendation. Unlink those first.",
+          });
+        }
+        throw e;
+      }
+    }),
+
+  // Bulk select-and-act is the other half of the Qase-style ease-of-use
+  // pattern (search/filter is client-side, this is the one part that
+  // genuinely needs a server round trip). Scoped to projectId so a crafted
+  // request can't delete ids from a project the caller doesn't have access
+  // to -- ids outside the project are silently ignored, not an error, since
+  // the caller only ever offers ids it already rendered from this project.
+  bulkDelete: protectedProcedure
+    .input(z.object({ projectId: z.string(), ids: z.array(z.string()).min(1).max(200) }))
+    .output(z.object({ deletedCount: z.number(), blockedCount: z.number() }))
+    .mutation(async ({ ctx, input }) => {
+      await requireProjectAccess(ctx, input.projectId, "EDITOR");
+      let deletedCount = 0;
+      let blockedCount = 0;
+      for (const id of input.ids) {
+        try {
+          await ctx.prisma.testCase.delete({ where: { id, projectId: input.projectId } });
+          deletedCount++;
+        } catch {
+          blockedCount++;
+        }
+      }
+      return { deletedCount, blockedCount };
+    }),
+
+  bulkReview: protectedProcedure
+    .input(z.object({ projectId: z.string(), ids: z.array(z.string()).min(1).max(200), decision: z.enum(["approve", "reject"]) }))
+    .output(z.object({ updatedCount: z.number() }))
+    .mutation(async ({ ctx, input }) => {
+      await requireProjectAccess(ctx, input.projectId, "EDITOR");
+      const result = await ctx.prisma.testCase.updateMany({
+        where: { id: { in: input.ids }, projectId: input.projectId },
+        data: {
+          reviewStatus: input.decision === "approve" ? "APPROVED" : "REJECTED",
+          reviewedById: ctx.user.id,
+          reviewedAt: new Date(),
+        },
+      });
+      return { updatedCount: result.count };
     }),
 });
