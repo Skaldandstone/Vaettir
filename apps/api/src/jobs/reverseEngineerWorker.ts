@@ -10,8 +10,21 @@ import { persistReverseEngineerResult } from "../services/reverseEngineerPersist
 // queue (BullMQ+Redis) -- the job model and runJob's logic don't change,
 // only how a job gets picked up.
 const POLL_INTERVAL_MS = 5000;
+// A job stuck RUNNING longer than this almost certainly means the process
+// that claimed it (this poller, or a one-off script calling runJob/kick
+// directly) died or was killed mid-call rather than the LLM call actually
+// still being in flight -- reclaim it so it isn't stuck PENDING-forever's
+// evil twin: RUNNING-forever with nothing left to ever pick it back up.
+const STALE_RUNNING_MS = 10 * 60 * 1000;
 let processing = false;
 let pollHandle: NodeJS.Timeout | undefined;
+
+async function reclaimStaleRunningJobs(): Promise<void> {
+  await prisma.reverseEngineerJob.updateMany({
+    where: { status: "RUNNING", startedAt: { lt: new Date(Date.now() - STALE_RUNNING_MS) } },
+    data: { status: "PENDING", startedAt: null },
+  });
+}
 
 export async function runReverseEngineerJob(jobId: string): Promise<void> {
   // Re-fetch and gate on PENDING so a job already claimed by another tick
@@ -56,6 +69,7 @@ async function pollOnce(): Promise<void> {
   if (processing) return;
   processing = true;
   try {
+    await reclaimStaleRunningJobs();
     // Process every job currently PENDING, oldest first, one at a time --
     // not just the first one -- so a burst of submissions between poll
     // ticks doesn't wait multiple intervals to drain.
