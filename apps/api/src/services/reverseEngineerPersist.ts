@@ -38,12 +38,23 @@ export async function persistReverseEngineerResult(
         testType: tc.testType as never,
         confidence: tc.confidence,
       };
+      // Frozen exactly as the AI produced it, never touched by a later
+      // human edit -- see the schema comment on TestCase.aiSnapshot.
+      const aiSnapshot = {
+        title: tc.title,
+        background: tc.background ?? null,
+        given: tc.given,
+        when: tc.when,
+        then: tc.then,
+        tags: tc.tags,
+      };
 
       if (existing) {
         return prisma.testCase.update({
           where: { id: existing.testCaseId },
           data: {
             ...testCaseData,
+            aiSnapshot,
             reviewStatus: "PENDING_REVIEW",
             reviewedById: null,
             reviewedAt: null,
@@ -66,6 +77,7 @@ export async function persistReverseEngineerResult(
           origin: "AI_REVERSE_ENGINEERED",
           reviewStatus: "PENDING_REVIEW",
           ...testCaseData,
+          aiSnapshot,
           source: {
             create: {
               filePath: args.filePath,

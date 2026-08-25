@@ -6,6 +6,26 @@ import { trpc, type RouterOutputs } from "@/lib/trpc";
 
 const cellStyle: CSSProperties = { border: "1px solid var(--line)", padding: "6px 10px", textAlign: "left" };
 
+function arraysEqual(a: string[], b: string[]): boolean {
+  return a.length === b.length && a.every((v, i) => v === b[i]);
+}
+
+// A field-by-field comparison, not a line-level text diff -- the point is
+// "did the human change this since the AI wrote it", not a patch-style
+// rendering. Only fields that actually differ are worth showing; a case a
+// reviewer approved verbatim has nothing here to look at.
+function DiffField({ label, before, after }: { label: string; before: string; after: string }) {
+  return (
+    <div style={{ marginBottom: 10 }}>
+      <div className="eyebrow" style={{ fontSize: 11 }}>
+        {label}
+      </div>
+      <div style={{ color: "var(--ember)", textDecoration: "line-through", opacity: 0.75, fontSize: 13 }}>{before || "(empty)"}</div>
+      <div style={{ color: "var(--frost)", fontSize: 13 }}>{after || "(empty)"}</div>
+    </div>
+  );
+}
+
 // Shared between the full detail page (/test-cases/[id], for deep links and
 // bookmarking) and the drawer opened from the list -- see
 // STYLE_GUIDE-adjacent decision in TestCaseTree.tsx's commit: don't force a
@@ -28,6 +48,7 @@ export function TestCaseDetailContent({
   const [reviewNote, setReviewNote] = useState("");
   const [reviewing, setReviewing] = useState(false);
   const [assessingRisk, setAssessingRisk] = useState(false);
+  const [showDiff, setShowDiff] = useState(false);
 
   function load() {
     trpc.testCases.byId
@@ -152,6 +173,55 @@ export function TestCaseDetailContent({
               </button>
             </div>
           )}
+
+          {tc.aiSnapshot && (() => {
+            const snap = tc.aiSnapshot;
+            const changed =
+              snap.title !== tc.title ||
+              (snap.background ?? "") !== (tc.background ?? "") ||
+              !arraysEqual(snap.given, tc.given) ||
+              !arraysEqual(snap.when, tc.when) ||
+              !arraysEqual(snap.then, tc.then) ||
+              !arraysEqual(snap.tags, tc.tags);
+            if (!changed) {
+              return (
+                <p className="text-muted" style={{ fontSize: 12, marginTop: 8 }}>
+                  Matches what the AI originally generated — no human edits since.
+                </p>
+              );
+            }
+            return (
+              <div style={{ marginTop: 10 }}>
+                <button className="btn-secondary" style={{ fontSize: 12 }} onClick={() => setShowDiff((v) => !v)}>
+                  {showDiff ? "Hide" : "Show"} changes since AI generated this
+                </button>
+                {showDiff && (
+                  <div style={{ marginTop: 10, borderTop: "1px solid var(--line)", paddingTop: 10 }}>
+                    <p className="text-muted" style={{ fontSize: 11, margin: "0 0 8px" }}>
+                      <span style={{ color: "var(--ember)" }}>AI original</span> vs{" "}
+                      <span style={{ color: "var(--frost)" }}>current</span>
+                    </p>
+                    {snap.title !== tc.title && <DiffField label="Title" before={snap.title} after={tc.title} />}
+                    {(snap.background ?? "") !== (tc.background ?? "") && (
+                      <DiffField label="Background" before={snap.background ?? ""} after={tc.background ?? ""} />
+                    )}
+                    {!arraysEqual(snap.given, tc.given) && (
+                      <DiffField label="Given" before={snap.given.join(" / ")} after={tc.given.join(" / ")} />
+                    )}
+                    {!arraysEqual(snap.when, tc.when) && (
+                      <DiffField label="When" before={snap.when.join(" / ")} after={tc.when.join(" / ")} />
+                    )}
+                    {!arraysEqual(snap.then, tc.then) && (
+                      <DiffField label="Then" before={snap.then.join(" / ")} after={tc.then.join(" / ")} />
+                    )}
+                    {!arraysEqual(snap.tags, tc.tags) && (
+                      <DiffField label="Tags" before={snap.tags.join(", ")} after={tc.tags.join(", ")} />
+                    )}
+                  </div>
+                )}
+              </div>
+            );
+          })()}
         </div>
       )}
       {tc.background && <p><strong>Background:</strong> {tc.background}</p>}

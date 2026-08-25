@@ -404,6 +404,16 @@ model TestCase {
   origin     TestCaseOrigin @default(AUTHORED) // AUTHORED vs AI_REVERSE_ENGINEERED
   confidence Float? // set when origin = AI_REVERSE_ENGINEERED; agent's self-rated confidence 0-1
 
+  // Frozen snapshot of exactly what the AI produced (title/background/
+  // given/when/then/tags), written once whenever AI-generated content lands
+  // here -- at first creation, and again on P2-04's update-in-place when the
+  // source file changed enough to re-run the agent. NEVER touched by a
+  // human edit (testCases.update leaves it alone), so it stays a stable
+  // "what the AI actually said" baseline to diff the live, possibly-edited
+  // content against (P2-06's review-queue diff view). Null for AUTHORED/
+  // IMPORTED cases, which have no AI output to compare against.
+  aiSnapshot Json?
+
   // Human-authored and imported cases are trusted on arrival (APPROVED).
   // AI-reverse-engineered cases start PENDING_REVIEW regardless of
   // confidence -- confidence informs the reviewer's triage order, it doesn't

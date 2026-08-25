@@ -110,6 +110,19 @@ export const testCasesRouter = router({
             framework: z.string(),
           })
           .nullable(),
+        // The frozen AI output this case last got from the agent -- see the
+        // schema comment on TestCase.aiSnapshot. Null for AUTHORED/IMPORTED
+        // cases, or any AI case created before this field existed.
+        aiSnapshot: z
+          .object({
+            title: z.string(),
+            background: z.string().nullable(),
+            given: z.array(z.string()),
+            when: z.array(z.string()),
+            then: z.array(z.string()),
+            tags: z.array(z.string()),
+          })
+          .nullable(),
       }),
     )
     .query(async ({ ctx, input }) => {
@@ -157,6 +170,14 @@ export const testCasesRouter = router({
         source: tc.source
           ? { filePath: tc.source.filePath, functionName: tc.source.functionName, framework: tc.source.framework }
           : null,
+        aiSnapshot: tc.aiSnapshot as {
+          title: string;
+          background: string | null;
+          given: string[];
+          when: string[];
+          then: string[];
+          tags: string[];
+        } | null,
       };
     }),
 
