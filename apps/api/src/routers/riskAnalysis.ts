@@ -1,0 +1,161 @@
+import { z } from "zod";
+import { TRPCError } from "@trpc/server";
+import { fallbackRiskScoreFromPriority } from "@tci/core";
+import { router, protectedProcedure, requireProjectAccess } from "../trpc.js";
+import { getChangedFiles } from "../services/changeImpact.js";
+
+const recommendationOutput = z.object({
+  testCaseId: z.string(),
+  title: z.string(),
+  matchReason: z.string(),
+  riskScore: z.number().nullable(),
+  riskSeverity: z.string().nullable(),
+  sourceFilePath: z.string().nullable(),
+});
+
+export const riskAnalysisRouter = router({
+  // Diffs baseRef...headRef (merge-base diff, like a PR compare view) and
+  // matches changed files against known TestCase source files -- a test
+  // whose source file was literally touched by the diff always belongs in
+  // the must-run set (this isn't sampling; the code under it changed).
+  // Changed files with NO matching test case are surfaced separately as
+  // coverage gaps, since "nothing would catch a regression here" is itself
+  // the most actionable finding a change-impact tool can produce.
+  recommendForChange: protectedProcedure
+    .input(
+      z.object({
+        projectId: z.string(),
+        repoUrl: z.string().optional(),
+        baseRef: z.string().default("main"),
+        headRef: z.string(),
+      }),
+    )
+    .output(
+      z.object({
+        runId: z.string(),
+        changedFiles: z.array(z.string()),
+        mustRun: z.array(recommendationOutput),
+        coverageGaps: z.array(z.string()),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      await requireProjectAccess(ctx, input.projectId, "EDITOR");
+      const project = await ctx.prisma.project.findUniqueOrThrow({ where: { id: input.projectId } });
+      const repoUrl = input.repoUrl ?? project.repoUrl;
+      if (!repoUrl) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "No repo URL provided and the project has none configured" });
+      }
+
+      const changedFiles = await getChangedFiles(repoUrl, input.baseRef, input.headRef);
+
+      const candidates = await ctx.prisma.testCase.findMany({
+        where: { projectId: input.projectId, source: { filePath: { in: changedFiles } } },
+        include: { source: { select: { filePath: true } } },
+      });
+
+      const matchedFiles = new Set(candidates.map((c) => c.source?.filePath).filter((f): f is string => !!f));
+      const coverageGaps = changedFiles.filter((f) => !matchedFiles.has(f));
+
+      const mustRun = candidates
+        .map((tc) => ({
+          testCaseId: tc.id,
+          title: tc.title,
+          matchReason: `Source file changed: ${tc.source?.filePath}`,
+          riskScore: tc.riskScore ?? fallbackRiskScoreFromPriority(tc.priority),
+          riskSeverity: tc.riskSeverity,
+          sourceFilePath: tc.source?.filePath ?? null,
+        }))
+        .sort((a, b) => b.riskScore - a.riskScore);
+
+      const run = await ctx.prisma.testSelectionRun.create({
+        data: {
+          projectId: input.projectId,
+          baseRef: input.baseRef,
+          headRef: input.headRef,
+          changedFiles,
+          recommendations: {
+            create: mustRun.map((m) => ({
+              testCaseId: m.testCaseId,
+              recommended: true,
+              matchReason: m.matchReason,
+              riskScoreSnapshot: m.riskScore,
+            })),
+          },
+        },
+      });
+
+      return { runId: run.id, changedFiles, mustRun, coverageGaps };
+    }),
+
+  listRuns: protectedProcedure
+    .input(z.object({ projectId: z.string() }))
+    .output(
+      z.array(
+        z.object({
+          id: z.string(),
+          baseRef: z.string(),
+          headRef: z.string(),
+          changedFiles: z.array(z.string()),
+          recommendedCount: z.number(),
+          createdAt: z.date(),
+        }),
+      ),
+    )
+    .query(async ({ ctx, input }) => {
+      await requireProjectAccess(ctx, input.projectId);
+      const runs = await ctx.prisma.testSelectionRun.findMany({
+        where: { projectId: input.projectId },
+        include: { _count: { select: { recommendations: true } } },
+        orderBy: { createdAt: "desc" },
+        take: 50,
+      });
+      return runs.map((r) => ({
+        id: r.id,
+        baseRef: r.baseRef,
+        headRef: r.headRef,
+        changedFiles: r.changedFiles,
+        recommendedCount: r._count.recommendations,
+        createdAt: r.createdAt,
+      }));
+    }),
+
+  runById: protectedProcedure
+    .input(z.object({ id: z.string() }))
+    .output(
+      z.object({
+        id: z.string(),
+        baseRef: z.string(),
+        headRef: z.string(),
+        changedFiles: z.array(z.string()),
+        createdAt: z.date(),
+        recommendations: z.array(
+          z.object({
+            testCaseId: z.string(),
+            testCaseTitle: z.string(),
+            matchReason: z.string(),
+            riskScoreSnapshot: z.number().nullable(),
+          }),
+        ),
+      }),
+    )
+    .query(async ({ ctx, input }) => {
+      const run = await ctx.prisma.testSelectionRun.findUniqueOrThrow({
+        where: { id: input.id },
+        include: { recommendations: { include: { testCase: { select: { title: true } } }, orderBy: { riskScoreSnapshot: "desc" } } },
+      });
+      await requireProjectAccess(ctx, run.projectId);
+      return {
+        id: run.id,
+        baseRef: run.baseRef,
+        headRef: run.headRef,
+        changedFiles: run.changedFiles,
+        createdAt: run.createdAt,
+        recommendations: run.recommendations.map((r) => ({
+          testCaseId: r.testCaseId,
+          testCaseTitle: r.testCase.title,
+          matchReason: r.matchReason,
+          riskScoreSnapshot: r.riskScoreSnapshot,
+        })),
+      };
+    }),
+});

@@ -13,6 +13,7 @@ export default function TestCaseDetailPage() {
   const [error, setError] = useState<string | null>(null);
   const [reviewNote, setReviewNote] = useState("");
   const [reviewing, setReviewing] = useState(false);
+  const [assessingRisk, setAssessingRisk] = useState(false);
 
   function load() {
     trpc.testCases.byId
@@ -37,6 +38,19 @@ export default function TestCaseDetailPage() {
     }
   }
 
+  async function assessRisk() {
+    setAssessingRisk(true);
+    setError(null);
+    try {
+      await trpc.testCases.assessRisk.mutate({ id: params.id });
+      load();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setAssessingRisk(false);
+    }
+  }
+
   if (error) return <p style={{ color: "crimson" }}>{error}</p>;
   if (!tc) return <p>Loading…</p>;
 
@@ -51,6 +65,29 @@ export default function TestCaseDetailPage() {
         <strong>Origin:</strong> {tc.origin}
         {tc.confidence != null && ` (confidence ${(tc.confidence * 100).toFixed(0)}%)`}
       </p>
+
+      <div style={{ border: "1px solid #e5e5e5", borderRadius: 8, padding: 12, marginBottom: 16 }}>
+        <strong>Risk assessment:</strong>{" "}
+        {tc.riskScore != null ? (
+          <>
+            {tc.riskScore}/100 ({tc.riskSeverity})
+            {tc.riskRationale && <p style={{ color: "#666", margin: "6px 0 0" }}>{tc.riskRationale}</p>}
+            {tc.riskAssessedAt && (
+              <p style={{ color: "#888", fontSize: 12, margin: "4px 0 0" }}>
+                Assessed {new Date(tc.riskAssessedAt).toLocaleDateString()}
+              </p>
+            )}
+          </>
+        ) : (
+          <span style={{ color: "#888" }}>Not yet assessed</span>
+        )}
+        <div style={{ marginTop: 8 }}>
+          <button onClick={assessRisk} disabled={assessingRisk}>
+            {assessingRisk ? "Assessing…" : tc.riskScore != null ? "Re-assess risk" : "Assess risk"}
+          </button>
+        </div>
+      </div>
+
       {tc.source && (
         <p>
           <strong>Source:</strong> {tc.source.filePath}

@@ -63,6 +63,7 @@ model Project {
   releases            Release[]
   testRuns            TestRun[]
   reverseEngineerJobs ReverseEngineerJob[]
+  testSelectionRuns   TestSelectionRun[]
 
   @@unique([organizationId, slug])
 }
@@ -337,6 +338,19 @@ model TestCase {
   reviewedAt   DateTime?
   reviewNote   String?
 
+  // How bad it is if a bug in this scenario ships undetected -- distinct
+  // from `priority`, which is authoring/backlog intent set by a human up
+  // front. riskSeverity/riskScore are the AI-assessed "if this breaks and
+  // nobody caught it, how much does it hurt" signal, read from the actual
+  // BDD content + testType + what area of the app it covers. Reuses
+  // RiskSeverity (already used by RiskFlag) rather than inventing a
+  // parallel enum for the same four-point scale. Nullable until assessed --
+  // most test cases won't have this until someone runs assessTestCaseRisk.
+  riskSeverity   RiskSeverity?
+  riskScore      Int? // 0-100, combines severity + likelihood-of-regression
+  riskRationale  String?
+  riskAssessedAt DateTime?
+
   source              TestCaseSource?
   complianceControls  TestCaseComplianceControl[]
   results             TestResult[]
@@ -345,9 +359,50 @@ model TestCase {
   // both, or neither populated; the UI renders whichever has content. See
   // TestCaseStep for why this exists alongside BDD rather than replacing it.
   steps               TestCaseStep[]
+  selectionRecommendations TestSelectionRecommendation[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+}
+
+// One "what should we run for this change" analysis -- a diff between two
+// refs in a project's repo, mapped against known TestCase source files.
+// Persisted (not just computed and returned) so CI can reference a specific
+// run's recommendations later, and so there's an audit trail of what was
+// actually recommended for a given build, matching the ReverseEngineerJob
+// pattern rather than being fire-and-forget.
+model TestSelectionRun {
+  id          String   @id @default(cuid())
+  projectId   String
+  project     Project  @relation(fields: [projectId], references: [id])
+  baseRef     String
+  headRef     String
+  changedFiles String[]
+  createdAt   DateTime @default(now())
+
+  recommendations TestSelectionRecommendation[]
+}
+
+// One test case's inclusion/exclusion verdict within a TestSelectionRun.
+// `recommended=true` rows are the ones whose known source file was touched
+// by the diff (always run -- this isn't optional risk-based sampling, the
+// code under test literally changed); `recommended=false` rows are tracked
+// too so a UI can show "considered but not required" rather than only ever
+// showing the must-run list.
+model TestSelectionRecommendation {
+  id                 String           @id @default(cuid())
+  testSelectionRunId String
+  testSelectionRun   TestSelectionRun @relation(fields: [testSelectionRunId], references: [id], onDelete: Cascade)
+  testCaseId         String
+  testCase           TestCase         @relation(fields: [testCaseId], references: [id])
+  recommended        Boolean
+  matchReason        String
+  // Snapshot of the test case's risk score at the time of this run, not a
+  // live join -- so a past run's rationale stays interpretable even after
+  // the test case is reassessed later.
+  riskScoreSnapshot  Int?
+
+  @@index([testSelectionRunId])
 }
 
 // A more granular, technical alternative to a single BDD "When"/"Then" pair

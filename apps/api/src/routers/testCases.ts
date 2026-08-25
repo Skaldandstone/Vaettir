@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { TestCaseStepInputSchema, resolveStepFieldLabels, type StepFieldKey } from "@tci/core";
+import { assessTestCaseRisk } from "@tci/ai-agent";
 import { router, protectedProcedure, requireProjectAccess } from "../trpc.js";
 
 const stepOutputSchema = z.object({
@@ -66,6 +67,10 @@ export const testCasesRouter = router({
         reviewedByName: z.string().nullable(),
         reviewedAt: z.date().nullable(),
         reviewNote: z.string().nullable(),
+        riskSeverity: z.string().nullable(),
+        riskScore: z.number().nullable(),
+        riskRationale: z.string().nullable(),
+        riskAssessedAt: z.date().nullable(),
         source: z
           .object({
             filePath: z.string(),
@@ -112,6 +117,10 @@ export const testCasesRouter = router({
         reviewedByName: tc.reviewedBy ? (tc.reviewedBy.name ?? tc.reviewedBy.email) : null,
         reviewedAt: tc.reviewedAt,
         reviewNote: tc.reviewNote,
+        riskSeverity: tc.riskSeverity,
+        riskScore: tc.riskScore,
+        riskRationale: tc.riskRationale,
+        riskAssessedAt: tc.riskAssessedAt,
         source: tc.source
           ? { filePath: tc.source.filePath, functionName: tc.source.functionName, framework: tc.source.framework }
           : null,
@@ -167,6 +176,82 @@ export const testCasesRouter = router({
         where: { id: input.id },
         data: { reviewStatus: "REJECTED", reviewedById: ctx.user.id, reviewedAt: new Date(), reviewNote: input.note },
       });
+    }),
+
+  assessRisk: protectedProcedure
+    .input(z.object({ id: z.string() }))
+    .output(z.object({ riskSeverity: z.string().nullable(), riskScore: z.number().nullable(), riskRationale: z.string().nullable() }))
+    .mutation(async ({ ctx, input }) => {
+      const tc = await ctx.prisma.testCase.findUniqueOrThrow({
+        where: { id: input.id },
+        include: { source: { select: { filePath: true } } },
+      });
+      await requireProjectAccess(ctx, tc.projectId, "EDITOR");
+
+      const assessment = await assessTestCaseRisk({
+        title: tc.title,
+        given: tc.given,
+        when: tc.when,
+        then: tc.then,
+        testType: tc.testType,
+        sourceFilePath: tc.source?.filePath,
+      });
+
+      const updated = await ctx.prisma.testCase.update({
+        where: { id: input.id },
+        data: {
+          riskSeverity: assessment.severity,
+          riskScore: Math.round(assessment.riskScore),
+          riskRationale: assessment.rationale,
+          riskAssessedAt: new Date(),
+        },
+      });
+      return { riskSeverity: updated.riskSeverity, riskScore: updated.riskScore, riskRationale: updated.riskRationale };
+    }),
+
+  // Assesses every not-yet-assessed case in a project, sequentially (not
+  // Promise.all) to avoid firing a burst of concurrent LLM calls from one
+  // click -- this is a manual bulk action from a settings-style page, not
+  // latency-sensitive, so sequential + a sane cap is the simple, safe
+  // choice over adding real concurrency control for no real benefit yet.
+  assessProjectRisk: protectedProcedure
+    .input(z.object({ projectId: z.string(), limit: z.number().min(1).max(50).default(20) }))
+    .output(z.object({ assessedCount: z.number(), failedCount: z.number() }))
+    .mutation(async ({ ctx, input }) => {
+      await requireProjectAccess(ctx, input.projectId, "EDITOR");
+      const unassessed = await ctx.prisma.testCase.findMany({
+        where: { projectId: input.projectId, riskAssessedAt: null },
+        include: { source: { select: { filePath: true } } },
+        take: input.limit,
+      });
+
+      let assessedCount = 0;
+      let failedCount = 0;
+      for (const tc of unassessed) {
+        try {
+          const assessment = await assessTestCaseRisk({
+            title: tc.title,
+            given: tc.given,
+            when: tc.when,
+            then: tc.then,
+            testType: tc.testType,
+            sourceFilePath: tc.source?.filePath,
+          });
+          await ctx.prisma.testCase.update({
+            where: { id: tc.id },
+            data: {
+              riskSeverity: assessment.severity,
+              riskScore: Math.round(assessment.riskScore),
+              riskRationale: assessment.rationale,
+              riskAssessedAt: new Date(),
+            },
+          });
+          assessedCount++;
+        } catch {
+          failedCount++;
+        }
+      }
+      return { assessedCount, failedCount };
     }),
 
   create: protectedProcedure
