@@ -46,28 +46,22 @@ Local Docker isn't installed on the machine this was built from, same as Kall �
 
 ## Redeploying after a code change
 
-There's no CI trigger — deploys are manual, and because CodeBuild sources from S3 (not GitHub directly), a redeploy needs a fresh zip upload first:
+There's no push-triggered CI (see below for why that's not fixable in this account) — deploys are one command:
 
 ```bash
-# From the repo root, with vaettir-toolkit active (aws login if expired):
-git archive --format=zip -o /tmp/vaettir-source.zip HEAD
-aws s3 cp /tmp/vaettir-source.zip s3://vaettir-build-source-094842496450/vaettir-source.zip --profile vaettir-toolkit --region us-east-2
-
-# Rebuild whichever image changed
-aws codebuild start-build --project-name vaettir-api-build --profile vaettir-toolkit --region us-east-2
-aws codebuild start-build --project-name vaettir-web-build --profile vaettir-toolkit --region us-east-2
-
-# Force ECS to pull the new :latest image
-aws ecs update-service --cluster vaettir-cluster --service vaettir-api --force-new-deployment --profile vaettir-toolkit --region us-east-2
-aws ecs update-service --cluster vaettir-cluster --service vaettir-web --force-new-deployment --profile vaettir-toolkit --region us-east-2
+./scripts/deploy-aws.sh          # rebuild + redeploy both api and web
+./scripts/deploy-aws.sh api      # only api
+./scripts/deploy-aws.sh web      # only web
 ```
 
-`git archive` only includes committed, tracked files (no `.git`, no `node_modules`, respects `.gitignore`) — uncommitted local changes will not be deployed.
+Needs `vaettir-toolkit` active (`aws login --region us-east-2 --profile vaettir-toolkit` if expired). It packages the committed tree with `git archive` (no `.git`, no `node_modules`, respects `.gitignore` — uncommitted local changes are not deployed), uploads to S3, starts the CodeBuild project(s), waits for them, then forces a new ECS deployment.
+
+**Real push-triggered CI/CD is architecturally impossible in this account, not just unbuilt.** Confirmed via `aws iam simulate-principal-policy`: the SCP explicitly denies `codebuild:StartBuild`, `s3:PutObject`, and `ecs:UpdateService` to *every* identity except an interactive-browser-SSO session assuming `AccountFullAccessRole` — that includes the plain `VaettirBot` IAM user (even with stored credentials in GitHub Actions) and the CodeBuild service role itself (so builds can't even trigger their own redeploy on completion). There's no service-role or stored-credential path around this; only a human `aws login` produces a session that can call these. `scripts/deploy-aws.sh` is the practical ceiling here, not an intermediate step toward full automation.
 
 ## Known gaps / next steps
 
-- **No custom domain / ACM cert on the ALB.** Same tradeoff as Kall: CloudFront → ALB is plain HTTP internally (`OriginProtocolPolicy: http-only`), the one unencrypted hop in the path. Fix if a domain is ever added: attach an ACM cert to the ALB, flip the origin policy to `https-only`.
-- **No CI/CD trigger** — CodeBuild has to be started manually per the commands above, and (unlike a GitHub-sourced project) the source zip has to be re-uploaded every time too.
+- **No custom domain / ACM cert on the ALB.** Same tradeoff as Kall: CloudFront → ALB is plain HTTP internally (`OriginProtocolPolicy: http-only`), the one unencrypted hop in the path. Fix if a domain is ever added: attach an ACM cert to the ALB, flip the origin policy to `https-only`. Not a priority right now.
 - **`vaettir-api-task-role` is empty** — fine while the API makes no AWS SDK calls of its own; will need real permissions the moment a feature needs one (e.g. S3 storage, matching Kall's `kall-api-task-role` pattern, if Vaettir ever needs file storage).
-- **Backup retention is 1 day and single-AZ** — reasonable for a bootstrap/free-tier phase, not for a real production SLA.
+- **Backup retention is capped at 1 day** — this is an **enforced free-tier limit**, not a config choice: `aws rds modify-db-instance --backup-retention-period 7` fails outright with `FreeTierRestrictionError`. Only lifts if the account plan is upgraded.
+- **Single-AZ** — this one *is* a cost choice (multi-AZ roughly doubles RDS instance-hour cost) and is left as-is deliberately. (Note: this was briefly toggled on and back off again while investigating the above — confirmed reverted to single-AZ, `MultiAZ: false`, no lasting change.)
 - **Secrets are static, not auto-rotated** — see the `vaettir/database-url` note above.
