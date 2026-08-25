@@ -1,0 +1,25 @@
+# Runs via tsx rather than a compiled `node dist/server.js` start: packages/db
+# and packages/core are TS-source-only (package.json "main": "src/index.ts"),
+# so a plain-node runtime fails resolving their relative ".js" imports (only
+# the .ts files exist). tsx is what dev already uses successfully all session;
+# reusing it here avoids a separate build-pipeline fix for those packages.
+FROM node:22-slim AS runtime
+
+RUN corepack enable
+WORKDIR /app
+
+COPY . .
+RUN pnpm install --frozen-lockfile \
+    && pnpm --filter @vaettir/db generate
+
+ENV NODE_ENV=production \
+    API_PORT=8000
+EXPOSE 8000
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
+  CMD node -e "fetch('http://127.0.0.1:8000/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+
+# Migrations run here, on every container start, rather than as a separate
+# step -- RDS isn't reachable from outside the VPC, so the running task is
+# the only thing that ever has network access to it.
+CMD ["sh", "-c", "pnpm --filter @vaettir/db exec prisma migrate deploy && pnpm --filter @vaettir/api exec tsx src/server.ts"]
