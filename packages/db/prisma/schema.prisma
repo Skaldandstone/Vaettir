@@ -541,6 +541,16 @@ model TestCaseSource {
   lastSyncedCommitSha String?
   lastSyncedAt        DateTime?
 
+  // SHA-256 of the whole source file's raw content as of the last time this
+  // case was generated/refreshed from it (P2-04). A re-scan compares this
+  // against the file's current hash before re-running the LLM at all: an
+  // unchanged file is skipped outright (not just "already tracked, skip
+  // forever" -- the old behavior, which meant a changed file never got
+  // caught either), and a changed file's persist step updates this row's
+  // TestCase in place by (filePath, functionName) instead of creating a
+  // duplicate.
+  contentHash String?
+
   // The raw id the test framework/CI reports for this test (e.g.
   // "CartTest::test_empty_checkout_throws"). Once set, incoming TestResults
   // match to this TestCase by exact id instead of fuzzy file/function

@@ -4,7 +4,7 @@ import { reverseEngineerTestFile } from "@vaettir/ai-agent";
 import { router, protectedProcedure, requireProjectAccess } from "../trpc.js";
 import { persistReverseEngineerResult } from "../services/reverseEngineerPersist.js";
 import { kickReverseEngineerQueue } from "../jobs/reverseEngineerWorker.js";
-import { scanRepoForTestFiles } from "../services/repoScan.js";
+import { scanRepoForTestFiles, hashFileContent } from "../services/repoScan.js";
 
 export const agentRouter = router({
   // Reverse-engineers a pasted/uploaded test file into BDD test cases and
@@ -35,6 +35,7 @@ export const agentRouter = router({
       const created = await persistReverseEngineerResult(ctx.prisma, {
         projectId: input.projectId,
         filePath: input.filePath,
+        contentHash: hashFileContent(input.content),
         result,
       });
 
@@ -84,9 +85,12 @@ export const agentRouter = router({
 
       const alreadyTracked = await ctx.prisma.testCaseSource.findMany({
         where: { testCase: { projectId: input.projectId } },
-        select: { filePath: true },
+        select: { filePath: true, contentHash: true },
       });
-      const files = await scanRepoForTestFiles(repoUrl, input.ref, new Set(alreadyTracked.map((s) => s.filePath)));
+      const knownHashes = new Map(
+        alreadyTracked.filter((s): s is { filePath: string; contentHash: string } => s.contentHash !== null).map((s) => [s.filePath, s.contentHash]),
+      );
+      const files = await scanRepoForTestFiles(repoUrl, input.ref, knownHashes);
 
       const jobs = await Promise.all(
         files.map((f) =>

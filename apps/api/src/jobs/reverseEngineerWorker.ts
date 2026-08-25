@@ -1,6 +1,7 @@
 import { prisma } from "@vaettir/db";
 import { reverseEngineerTestFile } from "@vaettir/ai-agent";
 import { persistReverseEngineerResult } from "../services/reverseEngineerPersist.js";
+import { hashFileContent } from "../services/repoScan.js";
 
 // Single-instance, in-process poller -- no Redis/queue infra exists yet, and
 // running one API instance is the actual current deployment shape (see
@@ -46,6 +47,7 @@ export async function runReverseEngineerJob(jobId: string): Promise<void> {
     const created = await persistReverseEngineerResult(prisma, {
       projectId: job.projectId,
       filePath: job.inputRef,
+      contentHash: hashFileContent(job.content),
       result,
     });
     await prisma.reverseEngineerJob.update({
