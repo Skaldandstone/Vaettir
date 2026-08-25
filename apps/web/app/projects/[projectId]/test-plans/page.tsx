@@ -3,6 +3,8 @@
 import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import { trpc, type RouterOutputs } from "@/lib/trpc";
+import { Drawer } from "@/components/Drawer";
+import { TestPlanDetailContent } from "@/components/TestPlanDetailContent";
 
 export default function TestPlansPage() {
   const { projectId } = useParams<{ projectId: string }>();
@@ -13,6 +15,7 @@ export default function TestPlansPage() {
   const [loading, setLoading] = useState(false);
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [openPlanId, setOpenPlanId] = useState<string | null>(null);
 
   useEffect(() => {
     trpc.testPlans.types.query().then((t) => {
@@ -34,11 +37,11 @@ export default function TestPlansPage() {
   useEffect(loadPlans, [projectId]);
 
   async function submit() {
-    if (!testPlanTypeId) return;
+    if (!testPlanTypeId || !name.trim()) return;
     setCreating(true);
     setError(null);
     try {
-      await trpc.testPlans.create.mutate({ projectId, testPlanTypeId, name });
+      await trpc.testPlans.create.mutate({ projectId, testPlanTypeId, name: name.trim() });
       setName("");
       loadPlans();
     } catch (e) {
@@ -60,8 +63,13 @@ export default function TestPlansPage() {
             </option>
           ))}
         </select>
-        <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Plan name" />
-        <button onClick={submit} disabled={creating || !name}>
+        <input
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          onKeyDown={(e) => e.key === "Enter" && submit()}
+          placeholder="Plan name, press Enter…"
+        />
+        <button onClick={submit} disabled={creating || !name.trim()}>
           {creating ? "Creating…" : "+ New test plan"}
         </button>
       </div>
@@ -71,7 +79,15 @@ export default function TestPlansPage() {
       <ul>
         {plans.map((p) => (
           <li key={p.id}>
-            <a href={`/projects/${projectId}/test-plans/${p.id}`}>{p.name}</a>{" "}
+            <a
+              href={`/projects/${projectId}/test-plans/${p.id}`}
+              onClick={(e) => {
+                e.preventDefault();
+                setOpenPlanId(p.id);
+              }}
+            >
+              {p.name}
+            </a>{" "}
             <small>
               [{p.testPlanType.name}] {p.status} — {p.acceptanceCriteria.length} acceptance criteria
             </small>
@@ -79,6 +95,10 @@ export default function TestPlansPage() {
         ))}
         {!loading && plans.length === 0 && <p style={{ color: "var(--muted)" }}>No test plans yet.</p>}
       </ul>
+
+      <Drawer open={openPlanId !== null} onClose={() => setOpenPlanId(null)}>
+        {openPlanId && <TestPlanDetailContent id={openPlanId} onChanged={loadPlans} />}
+      </Drawer>
     </div>
   );
 }
