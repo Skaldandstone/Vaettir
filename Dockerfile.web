@@ -11,9 +11,14 @@ ENV NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=$NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY \
     NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
 
 COPY . .
+# apps/web only ever *type*-imports from @vaettir/api ("import type { AppRouter }"),
+# but that still means TypeScript has to resolve every module @vaettir/api's
+# router touches -- including @vaettir/db, whose package.json now points
+# "main"/"types" at dist/, not raw src. `turbo run build` builds core -> db ->
+# ai-agent -> api in dependency order before next build runs.
 RUN pnpm install --frozen-lockfile \
     && pnpm --filter @vaettir/db generate \
-    && pnpm --filter @vaettir/web build
+    && pnpm turbo run build --filter=@vaettir/web...
 
 FROM node:22-slim AS runtime
 WORKDIR /app
