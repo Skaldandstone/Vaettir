@@ -23,6 +23,11 @@ export default function ReverseEngineerPage() {
   const [scanning, setScanning] = useState(false);
   const [scanResult, setScanResult] = useState<RouterOutputs["agent"]["scanRepo"] | null>(null);
 
+  const [gherkinPath, setGherkinPath] = useState("features/example.feature");
+  const [gherkinContent, setGherkinContent] = useState("");
+  const [importingGherkin, setImportingGherkin] = useState(false);
+  const [gherkinResult, setGherkinResult] = useState<RouterOutputs["agent"]["importGherkin"] | null>(null);
+
   // Pre-fill the repo URL from the project itself so the user doesn't have
   // to go look it up on /projects again.
   useEffect(() => {
@@ -72,6 +77,20 @@ export default function ReverseEngineerPage() {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
       setSubmittingJob(false);
+    }
+  }
+
+  async function importGherkin() {
+    setImportingGherkin(true);
+    setError(null);
+    setGherkinResult(null);
+    try {
+      const res = await trpc.agent.importGherkin.mutate({ projectId, filePath: gherkinPath, content: gherkinContent });
+      setGherkinResult(res);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setImportingGherkin(false);
     }
   }
 
@@ -167,6 +186,38 @@ export default function ReverseEngineerPage() {
             {submittingJob ? "Submitting…" : "Run as background job"}
           </button>
         </div>
+      </div>
+
+      <h2>...or import a Gherkin/.feature file</h2>
+      <p style={{ color: "var(--muted)", margin: "0 0 8px" }}>
+        Already BDD, so this just parses and validates rather than inferring — each Scenario becomes its own test
+        case, landing pre-approved (no AI to double-check). A Scenario Outline&apos;s Examples table expands into one
+        case per row.
+      </p>
+      <div style={{ display: "grid", gap: 8, maxWidth: 720 }}>
+        <label>
+          File path
+          <input value={gherkinPath} onChange={(e) => setGherkinPath(e.target.value)} style={{ width: "100%" }} />
+        </label>
+        <label>
+          .feature source
+          <textarea
+            value={gherkinContent}
+            onChange={(e) => setGherkinContent(e.target.value)}
+            rows={12}
+            style={{ width: "100%", fontFamily: "monospace" }}
+            placeholder={"Feature: Checkout\n\n  Scenario: Empty cart cannot check out\n    Given the cart is empty\n    When the user attempts to check out\n    Then an EmptyCart error is shown"}
+          />
+        </label>
+        <button onClick={importGherkin} disabled={importingGherkin || !gherkinContent}>
+          {importingGherkin ? "Importing…" : "Import"}
+        </button>
+        {gherkinResult && (
+          <p style={{ color: "var(--frost)" }}>
+            Imported {gherkinResult.created.length} test case(s):{" "}
+            {gherkinResult.created.map((tc) => tc.title).join(", ")}
+          </p>
+        )}
       </div>
 
       {error && <p style={{ color: "var(--ember)" }}>{error}</p>}

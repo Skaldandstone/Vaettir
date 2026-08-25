@@ -1,23 +1,42 @@
-import type { PrismaClient } from "@vaettir/db";
+import { Prisma, type PrismaClient } from "@vaettir/db";
 import type { ReverseEngineerResult } from "@vaettir/core";
 
-// Shared by the synchronous agent.reverseEngineerFile mutation and the
-// background job worker (jobs/reverseEngineerWorker.ts) so both paths
-// create identical TestCase records -- same fields, same PENDING_REVIEW
-// gate (see P8-06) -- instead of drifting apart.
+// Shared by the synchronous agent.reverseEngineerFile mutation, the
+// background job worker (jobs/reverseEngineerWorker.ts), and P2-13's
+// Gherkin import, so every path that lands AI-shaped content on a TestCase
+// creates identical records instead of drifting apart. `origin` controls
+// the two things that genuinely differ by source:
+//   - AI_REVERSE_ENGINEERED starts PENDING_REVIEW and gets a frozen
+//     aiSnapshot to diff against later (P2-06) -- inference needs a human
+//     to check it.
+//   - IMPORTED (Gherkin) starts APPROVED with no snapshot and no
+//     confidence score -- it's a parse of content a human already wrote in
+//     BDD form, not an inference, so there's nothing to distrust or diff
+//     against (see the schema comment on TestCase.confidence/aiSnapshot).
 //
 // P2-04: keyed on (projectId, filePath, functionName) against the existing
 // TestCaseSource for that slot. An unseen key creates fresh, same as
 // before. A key that already has a TestCaseSource gets its TestCase
 // updated in place instead of a duplicate -- content changed enough that
-// the caller re-ran the LLM on this file (see repoScan.ts's hash-skip),
-// so the update also resets reviewStatus back to PENDING_REVIEW: an
-// AI-regenerated case needs a human to look at it again, same as a
-// brand-new one, even if a person had already approved the old content.
+// the caller re-ran the source (LLM regeneration or a re-import) -- and
+// for the AI path specifically, that reset also drops reviewStatus back to
+// PENDING_REVIEW: an AI-regenerated case needs a human to look at it
+// again, same as a brand-new one, even if a person had already approved
+// the old content. A re-imported Gherkin scenario has no such trust gap,
+// so it stays APPROVED.
 export async function persistReverseEngineerResult(
   prisma: PrismaClient,
-  args: { projectId: string; filePath: string; contentHash: string; result: ReverseEngineerResult },
+  args: {
+    projectId: string;
+    filePath: string;
+    contentHash: string;
+    result: ReverseEngineerResult;
+    origin?: "AI_REVERSE_ENGINEERED" | "IMPORTED";
+  },
 ) {
+  const origin = args.origin ?? "AI_REVERSE_ENGINEERED";
+  const isAi = origin === "AI_REVERSE_ENGINEERED";
+
   const existingSources = await prisma.testCaseSource.findMany({
     where: { testCase: { projectId: args.projectId }, filePath: args.filePath },
     select: { id: true, functionName: true, testCaseId: true },
@@ -36,28 +55,30 @@ export async function persistReverseEngineerResult(
         then: tc.then,
         tags: tc.tags,
         testType: tc.testType as never,
-        confidence: tc.confidence,
+        confidence: isAi ? tc.confidence : null,
       };
       // Frozen exactly as the AI produced it, never touched by a later
-      // human edit -- see the schema comment on TestCase.aiSnapshot.
-      const aiSnapshot = {
-        title: tc.title,
-        background: tc.background ?? null,
-        given: tc.given,
-        when: tc.when,
-        then: tc.then,
-        tags: tc.tags,
-      };
+      // human edit -- see the schema comment on TestCase.aiSnapshot. Only
+      // meaningful for the AI path; imported content has no "original AI
+      // output" to diff against.
+      const aiSnapshot = isAi
+        ? {
+            title: tc.title,
+            background: tc.background ?? null,
+            given: tc.given,
+            when: tc.when,
+            then: tc.then,
+            tags: tc.tags,
+          }
+        : null;
 
       if (existing) {
         return prisma.testCase.update({
           where: { id: existing.testCaseId },
           data: {
             ...testCaseData,
-            aiSnapshot,
-            reviewStatus: "PENDING_REVIEW",
-            reviewedById: null,
-            reviewedAt: null,
+            aiSnapshot: aiSnapshot ?? Prisma.JsonNull,
+            ...(isAi ? { reviewStatus: "PENDING_REVIEW", reviewedById: null, reviewedAt: null } : {}),
             source: {
               update: {
                 contentHash: args.contentHash,
@@ -74,10 +95,10 @@ export async function persistReverseEngineerResult(
       return prisma.testCase.create({
         data: {
           projectId: args.projectId,
-          origin: "AI_REVERSE_ENGINEERED",
-          reviewStatus: "PENDING_REVIEW",
+          origin,
+          reviewStatus: isAi ? "PENDING_REVIEW" : "APPROVED",
           ...testCaseData,
-          aiSnapshot,
+          aiSnapshot: aiSnapshot ?? Prisma.JsonNull,
           source: {
             create: {
               filePath: args.filePath,

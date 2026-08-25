@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 import { reverseEngineerTestFile } from "@vaettir/ai-agent";
+import { gherkinToReverseEngineerResult } from "@vaettir/core";
 import { router, protectedProcedure, requireProjectAccess } from "../trpc.js";
 import { persistReverseEngineerResult } from "../services/reverseEngineerPersist.js";
 import { kickReverseEngineerQueue } from "../jobs/reverseEngineerWorker.js";
@@ -41,6 +42,31 @@ export const agentRouter = router({
       });
 
       return { result, created };
+    }),
+
+  // P2-13: Gherkin/.feature files are already BDD -- this parses and
+  // validates rather than inferring, so it's plain code, not an LLM call
+  // (no rate limit, no job queue, no confidence score to distrust). Each
+  // Scenario in the file becomes its own TestCase; a Scenario Outline's
+  // Examples table expands into one case per row. Cases land APPROVED, not
+  // PENDING_REVIEW -- see reverseEngineerPersist.ts for why IMPORTED
+  // content skips the AI trust gate.
+  importGherkin: protectedProcedure
+    .input(z.object({ projectId: z.string(), filePath: z.string(), content: z.string().min(1) }))
+    .mutation(async ({ ctx, input }) => {
+      await requireProjectAccess(ctx, input.projectId, "EDITOR");
+      const result = gherkinToReverseEngineerResult(input.content);
+      if (result.testCases.length === 0) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "No usable Scenario found in this file (needs Given/When/Then steps)" });
+      }
+      const created = await persistReverseEngineerResult(ctx.prisma, {
+        projectId: input.projectId,
+        filePath: input.filePath,
+        contentHash: hashFileContent(input.content),
+        result,
+        origin: "IMPORTED",
+      });
+      return { created: created.map((tc) => ({ id: tc.id, title: tc.title })) };
     }),
 
   // Queues the same work as reverseEngineerFile but returns immediately --
