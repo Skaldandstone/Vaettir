@@ -234,18 +234,18 @@ hr,
   transition: stroke 0.25s ease;
 }
 
-/* ---------- app nav ---------- */
+/* ---------- app nav (top bar -- brand + account controls only; page
+   navigation lives in the sidebar below, not here) ---------- */
 .app-nav {
   position: relative;
-  z-index: 2;
+  z-index: 3;
   border-bottom: 1px solid var(--line);
 }
 .app-nav-inner {
   display: flex;
   align-items: center;
-  gap: 28px;
-  height: 64px;
-  padding: 0 24px;
+  height: 60px;
+  padding: 0 20px;
 }
 .brand {
   display: flex;
@@ -257,20 +257,6 @@ hr,
   color: var(--fg);
 }
 .brand:hover {
-  text-decoration: none;
-}
-.app-nav-links {
-  display: flex;
-  gap: 20px;
-  font-size: 13.5px;
-  color: var(--muted);
-  flex-wrap: wrap;
-}
-.app-nav-links a {
-  color: var(--muted);
-}
-.app-nav-links a:hover {
-  color: var(--fg);
   text-decoration: none;
 }
 
@@ -299,12 +285,115 @@ hr,
   transition: background 0.25s ease;
 }
 
+/* ---------- app shell: sidebar + main content ---------- */
+.app-shell {
+  display: flex;
+  align-items: flex-start;
+  min-height: calc(100vh - 60px);
+}
+
+.app-sidebar {
+  position: sticky;
+  top: 60px;
+  z-index: 2;
+  width: 220px;
+  flex-shrink: 0;
+  height: calc(100vh - 60px);
+  overflow-y: auto;
+  border-right: 1px solid var(--line);
+  padding: 24px 12px;
+}
+.sidebar-group {
+  margin-bottom: 24px;
+}
+.sidebar-group-label {
+  padding: 0 12px;
+  margin-bottom: 8px;
+}
+.sidebar-link {
+  display: block;
+  padding: 7px 12px;
+  border-radius: 3px;
+  font-size: 14px;
+  color: var(--muted);
+}
+.sidebar-link:hover {
+  color: var(--fg);
+  background: var(--panel);
+  text-decoration: none;
+}
+.sidebar-link.active {
+  color: var(--fg);
+  background: var(--frost-dim);
+  font-weight: 500;
+}
+
 main.app-main {
   position: relative;
-  z-index: 2;
-  max-width: 1000px;
-  margin: 0 auto;
-  padding: 32px 24px;
+  z-index: 1;
+  flex: 1;
+  min-width: 0;
+  padding: 32px 40px;
+}
+
+/* ---------- modal ("pop-out module") -- see components/Modal.tsx ---------- */
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 10;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+.modal-panel {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  padding: 24px;
+  width: 100%;
+  max-width: 480px;
+  max-height: calc(100vh - 48px);
+  overflow-y: auto;
+}
+.modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 16px;
+}
+.modal-close {
+  padding: 4px 10px;
+}
+
+@media (max-width: 760px) {
+  .app-shell {
+    flex-direction: column;
+  }
+  .app-sidebar {
+    position: static;
+    width: 100%;
+    height: auto;
+    border-right: none;
+    border-bottom: 1px solid var(--line);
+    display: flex;
+    gap: 8px;
+    overflow-x: auto;
+    padding: 12px;
+  }
+  .sidebar-group {
+    margin-bottom: 0;
+    display: flex;
+    gap: 4px;
+    align-items: center;
+  }
+  .sidebar-group-label {
+    display: none;
+  }
+  main.app-main {
+    padding: 20px;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {

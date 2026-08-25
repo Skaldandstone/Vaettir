@@ -1,12 +1,14 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { trpc, type RouterOutputs } from "../../lib/trpc";
 
 const ACTIVE_JOB_STATUSES = new Set(["PENDING", "RUNNING"]);
 
-export default function ReverseEngineerPage() {
-  const [projectId, setProjectId] = useState("");
+function ReverseEngineerPageInner() {
+  const searchParams = useSearchParams();
+  const [projectId, setProjectId] = useState(searchParams.get("projectId") ?? "");
   const [filePath, setFilePath] = useState("src/example.test.ts");
   const [content, setContent] = useState("");
   const [persist, setPersist] = useState(false);
@@ -21,6 +23,19 @@ export default function ReverseEngineerPage() {
   const [repoRef, setRepoRef] = useState("main");
   const [scanning, setScanning] = useState(false);
   const [scanResult, setScanResult] = useState<RouterOutputs["agent"]["scanRepo"] | null>(null);
+
+  // Arriving with ?projectId=... (e.g. from a project's "scan this repo"
+  // link) should pre-fill the repo URL from that project too, not just the
+  // id -- otherwise the user has to go look it up again on /projects.
+  useEffect(() => {
+    if (!projectId) return;
+    trpc.project.byId
+      .query({ id: projectId })
+      .then((p) => {
+        if (p.repoUrl) setRepoUrl(p.repoUrl);
+      })
+      .catch(() => undefined);
+  }, [projectId]);
 
   function loadJobs() {
     if (!projectId) return;
@@ -205,5 +220,13 @@ export default function ReverseEngineerPage() {
         </div>
       )}
     </div>
+  );
+}
+
+export default function ReverseEngineerPage() {
+  return (
+    <Suspense fallback={<p>Loading…</p>}>
+      <ReverseEngineerPageInner />
+    </Suspense>
   );
 }

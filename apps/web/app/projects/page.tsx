@@ -2,16 +2,19 @@
 
 import { useEffect, useState } from "react";
 import { trpc, type RouterOutputs } from "../../lib/trpc";
+import { Modal } from "../../components/Modal";
 
 export default function ProjectsPage() {
   const [orgId, setOrgId] = useState<string | null>(null);
   const [orgName, setOrgName] = useState("");
   const [projects, setProjects] = useState<RouterOutputs["project"]["list"]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  const [createOpen, setCreateOpen] = useState(false);
   const [name, setName] = useState("");
   const [repoUrl, setRepoUrl] = useState("");
-  const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
-  const [error, setError] = useState<string | null>(null);
 
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editName, setEditName] = useState("");
@@ -46,6 +49,7 @@ export default function ProjectsPage() {
       await trpc.project.create.mutate({ organizationId: orgId, name, repoUrl: repoUrl || undefined });
       setName("");
       setRepoUrl("");
+      setCreateOpen(false);
       await loadProjects(orgId);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -97,59 +101,82 @@ export default function ProjectsPage() {
   if (!orgId) return <p>You don't belong to an organization yet. Go to onboarding first.</p>;
 
   return (
-    <div style={{ maxWidth: 640 }}>
-      <h1>{orgName} projects</h1>
-
-      <div style={{ display: "grid", gap: 8, marginBottom: 24 }}>
-        <label>
-          Project name
-          <input value={name} onChange={(e) => setName(e.target.value)} style={{ width: "100%" }} />
-        </label>
-        <label>
-          Repo URL <span style={{ color: "var(--muted-dim)" }}>(optional)</span>
-          <input value={repoUrl} onChange={(e) => setRepoUrl(e.target.value)} style={{ width: "100%" }} />
-        </label>
-        <button onClick={submit} disabled={creating || !name}>
-          {creating ? "Creating…" : "+ New project"}
+    <div>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 20 }}>
+        <h1 style={{ margin: 0 }}>{orgName} projects</h1>
+        <button className="btn-primary" onClick={() => setCreateOpen(true)}>
+          + New project
         </button>
       </div>
 
       <ul style={{ listStyle: "none", padding: 0 }}>
         {projects.map((p) => (
           <li key={p.id} style={{ marginBottom: 12, borderBottom: "1px solid var(--line)", paddingBottom: 10 }}>
-            {editingId === p.id ? (
-              <div style={{ display: "grid", gap: 6, maxWidth: 360 }}>
-                <input value={editName} onChange={(e) => setEditName(e.target.value)} placeholder="Name" />
-                <input value={editRepoUrl} onChange={(e) => setEditRepoUrl(e.target.value)} placeholder="Repo URL" />
-                <input
-                  value={editDefaultBranch}
-                  onChange={(e) => setEditDefaultBranch(e.target.value)}
-                  placeholder="Default branch"
-                />
-                <div style={{ display: "flex", gap: 8 }}>
-                  <button onClick={saveEdit} disabled={savingEdit || !editName}>
-                    {savingEdit ? "Saving…" : "Save"}
-                  </button>
-                  <button onClick={() => setEditingId(null)}>Cancel</button>
-                </div>
-              </div>
-            ) : (
-              <>
-                <strong>{p.name}</strong> <span style={{ color: "var(--muted-dim)" }}>({p.id})</span>
-                {p.repoUrl && <> — {p.repoUrl}</>}
-                <div style={{ display: "flex", gap: 12, marginTop: 4 }}>
-                  <a href={`/test-cases?projectId=${p.id}`}>Test cases</a>
-                  <a href={`/test-plans?projectId=${p.id}`}>Test plans</a>
-                  <a href={`/requirements?projectId=${p.id}`}>Requirements</a>
-                  <button onClick={() => startEdit(p)}>Edit</button>
-                  <button onClick={() => removeProject(p.id)}>Delete</button>
-                </div>
-              </>
-            )}
+            <strong>{p.name}</strong> <span style={{ color: "var(--muted-dim)" }}>({p.id})</span>
+            {p.repoUrl && <> — {p.repoUrl}</>}
+            <div style={{ display: "flex", gap: 12, marginTop: 4 }}>
+              <a href={`/test-cases?projectId=${p.id}`}>Test cases</a>
+              <a href={`/test-plans?projectId=${p.id}`}>Test plans</a>
+              <a href={`/requirements?projectId=${p.id}`}>Requirements</a>
+              <button className="btn-secondary" onClick={() => startEdit(p)}>
+                Edit
+              </button>
+              <button className="btn-secondary" onClick={() => removeProject(p.id)}>
+                Delete
+              </button>
+            </div>
           </li>
         ))}
         {projects.length === 0 && <p style={{ color: "var(--muted)" }}>No projects yet — create one above.</p>}
       </ul>
+
+      <Modal open={createOpen} onClose={() => setCreateOpen(false)} title="New project">
+        <div style={{ display: "grid", gap: 10 }}>
+          <label>
+            Project name
+            <input value={name} onChange={(e) => setName(e.target.value)} style={{ width: "100%" }} />
+          </label>
+          <label>
+            Repo URL <span style={{ color: "var(--muted-dim)" }}>(optional)</span>
+            <input value={repoUrl} onChange={(e) => setRepoUrl(e.target.value)} style={{ width: "100%" }} />
+          </label>
+          <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 8 }}>
+            <button className="btn-secondary" onClick={() => setCreateOpen(false)}>
+              Cancel
+            </button>
+            <button className="btn-primary" onClick={submit} disabled={creating || !name}>
+              {creating ? "Creating…" : "Create project"}
+            </button>
+          </div>
+          {error && <p style={{ color: "var(--ember)" }}>{error}</p>}
+        </div>
+      </Modal>
+
+      <Modal open={editingId !== null} onClose={() => setEditingId(null)} title="Edit project">
+        <div style={{ display: "grid", gap: 10 }}>
+          <label>
+            Project name
+            <input value={editName} onChange={(e) => setEditName(e.target.value)} style={{ width: "100%" }} />
+          </label>
+          <label>
+            Repo URL
+            <input value={editRepoUrl} onChange={(e) => setEditRepoUrl(e.target.value)} style={{ width: "100%" }} />
+          </label>
+          <label>
+            Default branch
+            <input value={editDefaultBranch} onChange={(e) => setEditDefaultBranch(e.target.value)} style={{ width: "100%" }} />
+          </label>
+          <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 8 }}>
+            <button className="btn-secondary" onClick={() => setEditingId(null)}>
+              Cancel
+            </button>
+            <button className="btn-primary" onClick={saveEdit} disabled={savingEdit || !editName}>
+              {savingEdit ? "Saving…" : "Save"}
+            </button>
+          </div>
+          {error && <p style={{ color: "var(--ember)" }}>{error}</p>}
+        </div>
+      </Modal>
     </div>
   );
 }

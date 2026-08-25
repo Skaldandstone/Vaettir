@@ -35,7 +35,7 @@ export default function OnboardingPage() {
     setError(null);
     try {
       await trpc.organization.bootstrap.mutate({ organizationName });
-      router.push("/test-cases");
+      router.push("/projects");
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {

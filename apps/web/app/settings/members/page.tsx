@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { trpc, type RouterOutputs } from "../../../lib/trpc";
+import { Modal } from "../../../components/Modal";
 
 const ROLES = ["ADMIN", "EDITOR", "VIEWER", "COMPLIANCE_AUDITOR"];
 const EDIT_ROLES = ["OWNER", "ADMIN", "EDITOR", "VIEWER", "COMPLIANCE_AUDITOR"];
@@ -18,6 +19,7 @@ export default function MembersPage() {
   const [loading, setLoading] = useState(true);
   const [inviting, setInviting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [inviteOpen, setInviteOpen] = useState(false);
 
   async function loadOrgData(organizationId: string) {
     const [memberList, invitationList] = await Promise.all([
@@ -93,7 +95,12 @@ export default function MembersPage() {
 
   return (
     <div style={{ maxWidth: 640 }}>
-      <h1>{orgName} members</h1>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+        <h1>{orgName} members</h1>
+        <button className="btn-primary" onClick={() => setInviteOpen(true)}>
+          + Invite someone
+        </button>
+      </div>
 
       <h2>Current members</h2>
       <table style={{ borderCollapse: "collapse", width: "100%", marginBottom: 24 }}>
@@ -139,49 +146,55 @@ export default function MembersPage() {
         </tbody>
       </table>
 
-      <h2>Invite someone</h2>
-      <div style={{ display: "grid", gap: 8, maxWidth: 360, marginBottom: 16 }}>
-        <label>
-          Email
-          <input value={email} onChange={(e) => setEmail(e.target.value)} style={{ width: "100%" }} />
-        </label>
-        <div style={{ display: "flex", gap: 16 }}>
+      <Modal open={inviteOpen} onClose={() => setInviteOpen(false)} title="Invite someone">
+        <div style={{ display: "grid", gap: 10 }}>
           <label>
-            Role
-            <select
-              value={role}
-              onChange={(e) => {
-                setRole(e.target.value);
-                if (e.target.value !== "VIEWER") setSeatType("FULL");
-              }}
-            >
-              {ROLES.map((r) => (
-                <option key={r} value={r}>
-                  {r}
-                </option>
-              ))}
-            </select>
+            Email
+            <input value={email} onChange={(e) => setEmail(e.target.value)} style={{ width: "100%" }} />
           </label>
-          <label>
-            Seat type
-            <select value={seatType} onChange={(e) => setSeatType(e.target.value as "FULL" | "READ_ONLY")} disabled={role !== "VIEWER"}>
-              <option value="FULL">Full</option>
-              <option value="READ_ONLY">Read-only</option>
-            </select>
-          </label>
-        </div>
-        <button onClick={submitInvite} disabled={inviting || !email}>
-          {inviting ? "Sending…" : "Send invite"}
-        </button>
-      </div>
+          <div style={{ display: "flex", gap: 16 }}>
+            <label>
+              Role
+              <select
+                value={role}
+                onChange={(e) => {
+                  setRole(e.target.value);
+                  if (e.target.value !== "VIEWER") setSeatType("FULL");
+                }}
+              >
+                {ROLES.map((r) => (
+                  <option key={r} value={r}>
+                    {r}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label>
+              Seat type
+              <select value={seatType} onChange={(e) => setSeatType(e.target.value as "FULL" | "READ_ONLY")} disabled={role !== "VIEWER"}>
+                <option value="FULL">Full</option>
+                <option value="READ_ONLY">Read-only</option>
+              </select>
+            </label>
+          </div>
+          <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 8 }}>
+            <button className="btn-secondary" onClick={() => setInviteOpen(false)}>
+              Close
+            </button>
+            <button className="btn-primary" onClick={submitInvite} disabled={inviting || !email}>
+              {inviting ? "Sending…" : "Send invite"}
+            </button>
+          </div>
 
-      {inviteLink && (
-        <p style={{ background: "var(--frost-dim)", padding: 10, borderRadius: 6 }}>
-          Invite created — copy this link and send it to them: <br />
-          <code>{inviteLink}</code>
-        </p>
-      )}
-      {error && <p style={{ color: "var(--ember)" }}>{error}</p>}
+          {inviteLink && (
+            <p style={{ background: "var(--frost-dim)", padding: 10, borderRadius: 3 }}>
+              Invite created — copy this link and send it to them: <br />
+              <code>{inviteLink}</code>
+            </p>
+          )}
+          {error && <p style={{ color: "var(--ember)" }}>{error}</p>}
+        </div>
+      </Modal>
 
       {invitations.length > 0 && (
         <>

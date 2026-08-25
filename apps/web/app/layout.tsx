@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 import { ClerkProvider, SignedIn, SignedOut, SignInButton, SignUpButton, UserButton } from "@clerk/nextjs";
 import { RuneMark } from "../components/RuneMark";
 import { ThemeToggle } from "../components/ThemeToggle";
+import { Sidebar } from "../components/Sidebar";
 import "./globals.css";
 
 export const metadata = {
@@ -32,16 +33,6 @@ export default function RootLayout({ children }: { children: ReactNode }) {
                 <RuneMark />
                 vaettir
               </a>
-              <div className="app-nav-links">
-                <a href="/projects">Projects</a>
-                <a href="/test-cases">Test Cases</a>
-                <a href="/test-plans">Test Plans</a>
-                <a href="/requirements">Requirements</a>
-                <a href="/reverse-engineer">Reverse Engineer</a>
-                <a href="/risk-analysis">Risk Analysis</a>
-                <a href="/settings/members">Members</a>
-                <a href="/settings/organization">Settings</a>
-              </div>
               <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 12 }}>
                 <ThemeToggle />
                 <SignedOut>
@@ -60,7 +51,10 @@ export default function RootLayout({ children }: { children: ReactNode }) {
               </div>
             </div>
           </nav>
-          <main className="app-main">{children}</main>
+          <div className="app-shell">
+            <Sidebar />
+            <main className="app-main">{children}</main>
+          </div>
         </body>
       </html>
     </ClerkProvider>
