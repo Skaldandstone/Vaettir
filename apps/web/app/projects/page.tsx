@@ -112,12 +112,14 @@ export default function ProjectsPage() {
       <ul style={{ listStyle: "none", padding: 0 }}>
         {projects.map((p) => (
           <li key={p.id} style={{ marginBottom: 12, borderBottom: "1px solid var(--line)", paddingBottom: 10 }}>
-            <strong>{p.name}</strong> <span style={{ color: "var(--muted-dim)" }}>({p.id})</span>
+            <a href={`/projects/${p.id}`}>
+              <strong>{p.name}</strong>
+            </a>
             {p.repoUrl && <> — {p.repoUrl}</>}
             <div style={{ display: "flex", gap: 12, marginTop: 4 }}>
-              <a href={`/test-cases?projectId=${p.id}`}>Test cases</a>
-              <a href={`/test-plans?projectId=${p.id}`}>Test plans</a>
-              <a href={`/requirements?projectId=${p.id}`}>Requirements</a>
+              <a href={`/projects/${p.id}/test-cases`}>Test cases</a>
+              <a href={`/projects/${p.id}/test-plans`}>Test plans</a>
+              <a href={`/projects/${p.id}/requirements`}>Requirements</a>
               <button className="btn-secondary" onClick={() => startEdit(p)}>
                 Edit
               </button>

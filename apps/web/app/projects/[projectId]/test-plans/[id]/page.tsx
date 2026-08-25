@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
-import { trpc, type RouterOutputs } from "../../../lib/trpc";
+import { trpc, type RouterOutputs } from "@/lib/trpc";
 
 type Plan = RouterOutputs["testPlans"]["byId"];
 type FieldSchema = { type?: string; properties?: Record<string, { type?: string; items?: { type?: string } }> };
@@ -82,7 +82,7 @@ function CustomFieldsForm({
 }
 
 export default function TestPlanDetailPage() {
-  const params = useParams<{ id: string }>();
+  const params = useParams<{ projectId: string; id: string }>();
   const [plan, setPlan] = useState<Plan | null>(null);
   const [requirements, setRequirements] = useState<RouterOutputs["requirements"]["list"]>([]);
   const [saving, setSaving] = useState(false);
@@ -160,7 +160,7 @@ export default function TestPlanDetailPage() {
 
   return (
     <div style={{ maxWidth: 640 }}>
-      <a href={`/test-plans?projectId=${plan.projectId}`}>&larr; Test plans</a>
+      <a href={`/projects/${plan.projectId}/test-plans`}>&larr; Test plans</a>
       <h1>{plan.name}</h1>
       <p style={{ color: "var(--muted)" }}>{plan.testPlanType.name} plan</p>
 

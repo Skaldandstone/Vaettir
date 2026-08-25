@@ -1,19 +1,17 @@
 "use client";
 
-import { Suspense, useEffect, useState } from "react";
-import { useSearchParams } from "next/navigation";
-import { trpc, type RouterOutputs } from "../../../lib/trpc";
+import { useEffect, useState } from "react";
+import { useParams } from "next/navigation";
+import { trpc, type RouterOutputs } from "@/lib/trpc";
 
-function ReviewQueueInner() {
-  const searchParams = useSearchParams();
-  const [projectId] = useState(searchParams.get("projectId") ?? "");
+export default function ReviewQueuePage() {
+  const { projectId } = useParams<{ projectId: string }>();
   const [queue, setQueue] = useState<RouterOutputs["testCases"]["pendingReview"]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
 
   function load() {
-    if (!projectId) return;
     setLoading(true);
     setError(null);
     trpc.testCases.pendingReview
@@ -38,11 +36,9 @@ function ReviewQueueInner() {
     }
   }
 
-  if (!projectId) return <p>Missing project id.</p>;
-
   return (
     <div style={{ maxWidth: 720 }}>
-      <a href={`/test-cases?projectId=${projectId}`}>&larr; Test cases</a>
+      <a href={`/projects/${projectId}/test-cases`}>&larr; Test cases</a>
       <h1>Review queue</h1>
       <p style={{ color: "var(--muted)" }}>
         AI-reverse-engineered test cases awaiting approval, lowest confidence first.
@@ -54,7 +50,7 @@ function ReviewQueueInner() {
         {queue.map((tc) => (
           <li key={tc.id} style={{ border: "1px solid var(--line)", borderRadius: 8, padding: 12, marginBottom: 10 }}>
             <div style={{ display: "flex", justifyContent: "space-between" }}>
-              <a href={`/test-cases/${tc.id}`}>
+              <a href={`/projects/${projectId}/test-cases/${tc.id}`}>
                 <strong>{tc.title}</strong>
               </a>
               {tc.confidence != null && (
@@ -76,13 +72,5 @@ function ReviewQueueInner() {
         ))}
       </ul>
     </div>
-  );
-}
-
-export default function ReviewQueuePage() {
-  return (
-    <Suspense fallback={<p>Loading…</p>}>
-      <ReviewQueueInner />
-    </Suspense>
   );
 }

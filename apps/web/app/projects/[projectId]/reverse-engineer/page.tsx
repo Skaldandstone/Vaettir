@@ -1,17 +1,16 @@
 "use client";
 
-import { Suspense, useEffect, useState } from "react";
-import { useSearchParams } from "next/navigation";
-import { trpc, type RouterOutputs } from "../../lib/trpc";
+import { useEffect, useState } from "react";
+import { useParams } from "next/navigation";
+import { trpc, type RouterOutputs } from "@/lib/trpc";
 
 const ACTIVE_JOB_STATUSES = new Set(["PENDING", "RUNNING"]);
 
-function ReverseEngineerPageInner() {
-  const searchParams = useSearchParams();
-  const [projectId, setProjectId] = useState(searchParams.get("projectId") ?? "");
+export default function ReverseEngineerPage() {
+  const { projectId } = useParams<{ projectId: string }>();
   const [filePath, setFilePath] = useState("src/example.test.ts");
   const [content, setContent] = useState("");
-  const [persist, setPersist] = useState(false);
+  const [persist, setPersist] = useState(true);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<RouterOutputs["agent"]["reverseEngineerFile"] | null>(null);
@@ -24,11 +23,9 @@ function ReverseEngineerPageInner() {
   const [scanning, setScanning] = useState(false);
   const [scanResult, setScanResult] = useState<RouterOutputs["agent"]["scanRepo"] | null>(null);
 
-  // Arriving with ?projectId=... (e.g. from a project's "scan this repo"
-  // link) should pre-fill the repo URL from that project too, not just the
-  // id -- otherwise the user has to go look it up again on /projects.
+  // Pre-fill the repo URL from the project itself so the user doesn't have
+  // to go look it up on /projects again.
   useEffect(() => {
-    if (!projectId) return;
     trpc.project.byId
       .query({ id: projectId })
       .then((p) => {
@@ -38,7 +35,6 @@ function ReverseEngineerPageInner() {
   }, [projectId]);
 
   function loadJobs() {
-    if (!projectId) return;
     trpc.agent.listJobs.query({ projectId }).then(setJobs).catch(() => undefined);
   }
 
@@ -99,13 +95,6 @@ function ReverseEngineerPageInner() {
       <h1>Reverse-engineer a test into BDD</h1>
       <p>Paste an automated test file (any framework) and get back human-readable Given/When/Then test cases.</p>
 
-      <div style={{ display: "grid", gap: 8, maxWidth: 720 }}>
-        <label>
-          Project ID (required to persist)
-          <input value={projectId} onChange={(e) => setProjectId(e.target.value)} style={{ width: "100%" }} />
-        </label>
-      </div>
-
       <div
         style={{
           display: "grid",
@@ -134,7 +123,7 @@ function ReverseEngineerPageInner() {
           Branch
           <input value={repoRef} onChange={(e) => setRepoRef(e.target.value)} style={{ width: 200 }} />
         </label>
-        <button onClick={scanRepo} disabled={scanning || !projectId}>
+        <button onClick={scanRepo} disabled={scanning}>
           {scanning ? "Cloning + scanning…" : "Scan repository"}
         </button>
         {scanResult && (
@@ -162,13 +151,13 @@ function ReverseEngineerPageInner() {
         </label>
         <label>
           <input type="checkbox" checked={persist} onChange={(e) => setPersist(e.target.checked)} /> Save results as
-          test cases (requires Project ID)
+          test cases
         </label>
         <div style={{ display: "flex", gap: 8 }}>
           <button onClick={submit} disabled={loading || !content}>
             {loading ? "Analyzing…" : "Reverse-engineer now"}
           </button>
-          <button onClick={submitAsJob} disabled={submittingJob || !content || !projectId}>
+          <button onClick={submitAsJob} disabled={submittingJob || !content}>
             {submittingJob ? "Submitting…" : "Run as background job"}
           </button>
         </div>
@@ -176,7 +165,7 @@ function ReverseEngineerPageInner() {
 
       {error && <p style={{ color: "var(--ember)" }}>{error}</p>}
 
-      {projectId && jobs.length > 0 && (
+      {jobs.length > 0 && (
         <div style={{ marginTop: 24 }}>
           <h2>Recent jobs</h2>
           <ul style={{ listStyle: "none", padding: 0 }}>
@@ -188,7 +177,7 @@ function ReverseEngineerPageInner() {
                 {j.resultTestCaseIds.length > 0 && (
                   <>
                     {" "}
-                    <a href={`/test-cases/review?projectId=${projectId}`}>view in review queue</a>
+                    <a href={`/projects/${projectId}/test-cases/review`}>view in review queue</a>
                   </>
                 )}
               </li>
@@ -220,13 +209,5 @@ function ReverseEngineerPageInner() {
         </div>
       )}
     </div>
-  );
-}
-
-export default function ReverseEngineerPage() {
-  return (
-    <Suspense fallback={<p>Loading…</p>}>
-      <ReverseEngineerPageInner />
-    </Suspense>
   );
 }

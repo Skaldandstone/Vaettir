@@ -1,12 +1,11 @@
 "use client";
 
-import { Suspense, useEffect, useState } from "react";
-import { useSearchParams } from "next/navigation";
-import { trpc, type RouterOutputs } from "../../lib/trpc";
+import { useEffect, useState } from "react";
+import { useParams } from "next/navigation";
+import { trpc, type RouterOutputs } from "@/lib/trpc";
 
-function RiskAnalysisPageInner() {
-  const searchParams = useSearchParams();
-  const [projectId, setProjectId] = useState(searchParams.get("projectId") ?? "");
+export default function RiskAnalysisPage() {
+  const { projectId } = useParams<{ projectId: string }>();
   const [repoUrl, setRepoUrl] = useState("");
   const [baseRef, setBaseRef] = useState("main");
   const [headRef, setHeadRef] = useState("");
@@ -25,11 +24,9 @@ function RiskAnalysisPageInner() {
   const [riskFlags, setRiskFlags] = useState<RouterOutputs["releases"]["listRiskFlags"]>([]);
 
   function loadRuns() {
-    if (!projectId) return;
     trpc.riskAnalysis.listRuns.query({ projectId }).then(setRuns).catch(() => undefined);
   }
   function loadReleases() {
-    if (!projectId) return;
     trpc.releases.list.query({ projectId }).then(setReleases).catch(() => undefined);
   }
   useEffect(loadRuns, [projectId]);
@@ -45,7 +42,7 @@ function RiskAnalysisPageInner() {
   useEffect(loadRiskFlags, [releaseId]);
 
   async function createRelease() {
-    if (!projectId || !newReleaseName) return;
+    if (!newReleaseName) return;
     setCreatingRelease(true);
     setError(null);
     try {
@@ -99,17 +96,13 @@ function RiskAnalysisPageInner() {
   return (
     <div style={{ maxWidth: 800 }}>
       <h1>Change impact &amp; risk analysis</h1>
-      <label>
-        Project ID:{" "}
-        <input value={projectId} onChange={(e) => setProjectId(e.target.value)} placeholder="paste a project id" />
-      </label>
 
       <div style={{ border: "1px solid var(--line)", borderRadius: 8, padding: 16, margin: "16px 0" }}>
         <h2 style={{ marginTop: 0 }}>Bulk-assess risk</h2>
         <p style={{ color: "var(--muted)", margin: "0 0 8px" }}>
           AI-assess severity/risk for every test case in this project that hasn&apos;t been assessed yet (up to 20 at a time).
         </p>
-        <button onClick={bulkAssess} disabled={bulkAssessing || !projectId}>
+        <button onClick={bulkAssess} disabled={bulkAssessing}>
           {bulkAssessing ? "Assessing…" : "Assess unrated test cases"}
         </button>
         {bulkResult && (
@@ -155,12 +148,12 @@ function RiskAnalysisPageInner() {
                 placeholder="New release name"
                 style={{ flex: 1 }}
               />
-              <button onClick={createRelease} disabled={creatingRelease || !newReleaseName || !projectId}>
+              <button onClick={createRelease} disabled={creatingRelease || !newReleaseName}>
                 + New release
               </button>
             </div>
           </label>
-          <button onClick={analyze} disabled={analyzing || !projectId || !headRef}>
+          <button onClick={analyze} disabled={analyzing || !headRef}>
             {analyzing ? "Diffing + analyzing…" : "Analyze change"}
           </button>
         </div>
@@ -179,7 +172,7 @@ function RiskAnalysisPageInner() {
             <ul style={{ listStyle: "none", padding: 0 }}>
               {result.mustRun.map((r) => (
                 <li key={r.testCaseId} style={{ borderBottom: "1px solid var(--line)", padding: "6px 0" }}>
-                  <a href={`/test-cases/${r.testCaseId}`}>{r.title}</a>{" "}
+                  <a href={`/projects/${projectId}/test-cases/${r.testCaseId}`}>{r.title}</a>{" "}
                   <span style={{ color: r.riskScore && r.riskScore >= 70 ? "var(--ember)" : "var(--muted-dim)" }}>
                     [{r.riskScore ?? "—"}/100{r.riskSeverity ? ` ${r.riskSeverity}` : ""}]
                   </span>
@@ -243,13 +236,5 @@ function RiskAnalysisPageInner() {
         </div>
       )}
     </div>
-  );
-}
-
-export default function RiskAnalysisPage() {
-  return (
-    <Suspense fallback={<p>Loading…</p>}>
-      <RiskAnalysisPageInner />
-    </Suspense>
   );
 }

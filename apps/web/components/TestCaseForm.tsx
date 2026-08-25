@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { trpc } from "../lib/trpc";
+import { trpc } from "@/lib/trpc";
 
 const TEST_TYPES = [
   "UNIT",
@@ -31,7 +31,6 @@ interface StepRow {
 }
 
 interface TestCaseFormValue {
-  projectId: string;
   testPlanId: string;
   title: string;
   background: string;
@@ -48,7 +47,6 @@ const EMPTY_STEP: StepRow = { action: "", expectedActionOrData: "", expectedResu
 
 function defaultValue(): TestCaseFormValue {
   return {
-    projectId: "",
     testPlanId: "",
     title: "",
     background: "",
@@ -64,6 +62,7 @@ function defaultValue(): TestCaseFormValue {
 
 interface TestCaseFormProps {
   mode: "create" | "edit";
+  projectId: string;
   testCaseId?: string;
   initial?: Partial<TestCaseFormValue>;
   stepFieldLabels?: { action: string; expectedActionOrData: string; expectedResult: string; expectedResponse: string };
@@ -100,7 +99,7 @@ function StringListEditor({
   );
 }
 
-export default function TestCaseForm({ mode, testCaseId, initial, stepFieldLabels }: TestCaseFormProps) {
+export default function TestCaseForm({ mode, projectId, testCaseId, initial, stepFieldLabels }: TestCaseFormProps) {
   const router = useRouter();
   const [value, setValue] = useState<TestCaseFormValue>({ ...defaultValue(), ...initial });
   const [saving, setSaving] = useState(false);
@@ -146,10 +145,10 @@ export default function TestCaseForm({ mode, testCaseId, initial, stepFieldLabel
 
       const result =
         mode === "create"
-          ? await trpc.testCases.create.mutate({ ...payload, projectId: value.projectId })
+          ? await trpc.testCases.create.mutate({ ...payload, projectId })
           : await trpc.testCases.update.mutate({ ...payload, id: testCaseId! });
 
-      router.push(`/test-cases/${result.id}`);
+      router.push(`/projects/${projectId}/test-cases/${result.id}`);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -160,16 +159,6 @@ export default function TestCaseForm({ mode, testCaseId, initial, stepFieldLabel
   return (
     <div style={{ maxWidth: 720 }}>
       <div style={{ display: "grid", gap: 8, marginBottom: 20 }}>
-        {mode === "create" && (
-          <label>
-            Project ID
-            <input
-              value={value.projectId}
-              onChange={(e) => setValue((v) => ({ ...v, projectId: e.target.value }))}
-              style={{ width: "100%" }}
-            />
-          </label>
-        )}
         <label>
           Title
           <input
@@ -179,7 +168,7 @@ export default function TestCaseForm({ mode, testCaseId, initial, stepFieldLabel
           />
         </label>
         <label>
-          Background <span style={{ color: "#888" }}>(optional, shared context)</span>
+          Background <span style={{ color: "var(--muted-dim)" }}>(optional, shared context)</span>
           <textarea
             value={value.background}
             onChange={(e) => setValue((v) => ({ ...v, background: e.target.value }))}
@@ -210,7 +199,7 @@ export default function TestCaseForm({ mode, testCaseId, initial, stepFieldLabel
           </label>
         </div>
         <label>
-          Tags <span style={{ color: "#888" }}>(comma-separated)</span>
+          Tags <span style={{ color: "var(--muted-dim)" }}>(comma-separated)</span>
           <input
             value={value.tags}
             onChange={(e) => setValue((v) => ({ ...v, tags: e.target.value }))}
@@ -220,7 +209,7 @@ export default function TestCaseForm({ mode, testCaseId, initial, stepFieldLabel
       </div>
 
       <h2>Given / When / Then</h2>
-      <p style={{ color: "#666", fontSize: 13 }}>
+      <p style={{ color: "var(--muted)", fontSize: 13 }}>
         Fill this in, or the structured step table below, or both — at least one is required.
       </p>
       <StringListEditor label="Given" items={value.given} onChange={(given) => setValue((v) => ({ ...v, given }))} />
@@ -229,7 +218,7 @@ export default function TestCaseForm({ mode, testCaseId, initial, stepFieldLabel
 
       <h2>Structured steps</h2>
       {value.steps.map((step, i) => (
-        <div key={i} style={{ border: "1px solid #e5e5e5", borderRadius: 8, padding: 12, marginBottom: 10 }}>
+        <div key={i} style={{ border: "1px solid var(--line)", borderRadius: 8, padding: 12, marginBottom: 10 }}>
           <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6 }}>
             <strong>Step {i + 1}</strong>
             <button
@@ -276,10 +265,10 @@ export default function TestCaseForm({ mode, testCaseId, initial, stepFieldLabel
       </button>
 
       <div style={{ marginTop: 24 }}>
-        <button onClick={submit} disabled={saving || !value.title || (mode === "create" && !value.projectId)}>
+        <button onClick={submit} disabled={saving || !value.title}>
           {saving ? "Saving…" : mode === "create" ? "Create test case" : "Save changes"}
         </button>
-        {error && <p style={{ color: "crimson" }}>{error}</p>}
+        {error && <p style={{ color: "var(--ember)" }}>{error}</p>}
       </div>
     </div>
   );

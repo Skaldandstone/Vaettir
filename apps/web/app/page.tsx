@@ -15,9 +15,6 @@ export default function HomePage() {
         <a className="btn-primary" href="/projects">
           Go to projects
         </a>
-        <a className="btn-secondary" href="/reverse-engineer">
-          Reverse-engineer a test file
-        </a>
       </div>
     </div>
   );

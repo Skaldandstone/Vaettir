@@ -42,16 +42,25 @@ export const testCasesRouter = router({
           testType: z.string(),
           origin: z.string(),
           reviewStatus: z.string(),
+          sourceFilePath: z.string().nullable(),
         }),
       ),
     )
     .query(async ({ ctx, input }) => {
       await requireProjectAccess(ctx, input.projectId);
-      return ctx.prisma.testCase.findMany({
+      const cases = await ctx.prisma.testCase.findMany({
         where: { projectId: input.projectId },
         include: { source: true, testPlan: true },
         orderBy: { updatedAt: "desc" },
       });
+      return cases.map((tc) => ({
+        id: tc.id,
+        title: tc.title,
+        testType: tc.testType,
+        origin: tc.origin,
+        reviewStatus: tc.reviewStatus,
+        sourceFilePath: tc.source?.filePath ?? null,
+      }));
     }),
 
   // .output() bounds the inferred type to this schema instead of Prisma's

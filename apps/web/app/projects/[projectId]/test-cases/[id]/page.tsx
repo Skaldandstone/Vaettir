@@ -3,12 +3,12 @@
 import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import type { CSSProperties } from "react";
-import { trpc, type RouterOutputs } from "../../../lib/trpc";
+import { trpc, type RouterOutputs } from "@/lib/trpc";
 
 const cellStyle: CSSProperties = { border: "1px solid var(--line)", padding: "6px 10px", textAlign: "left" };
 
 export default function TestCaseDetailPage() {
-  const params = useParams<{ id: string }>();
+  const params = useParams<{ projectId: string; id: string }>();
   const [tc, setTc] = useState<RouterOutputs["testCases"]["byId"] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [reviewNote, setReviewNote] = useState("");
@@ -58,7 +58,7 @@ export default function TestCaseDetailPage() {
     <div>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
         <h1>{tc.title}</h1>
-        <a href={`/test-cases/${tc.id}/edit`}>Edit</a>
+        <a href={`/projects/${params.projectId}/test-cases/${tc.id}/edit`}>Edit</a>
       </div>
       <p>
         <strong>Type:</strong> {tc.testType} &nbsp; <strong>Priority:</strong> {tc.priority} &nbsp;

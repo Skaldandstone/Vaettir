@@ -2,11 +2,11 @@
 
 import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
-import { trpc, type RouterOutputs } from "../../../../lib/trpc";
-import TestCaseForm from "../../../../components/TestCaseForm";
+import { trpc, type RouterOutputs } from "@/lib/trpc";
+import TestCaseForm from "@/components/TestCaseForm";
 
 export default function EditTestCasePage() {
-  const params = useParams<{ id: string }>();
+  const params = useParams<{ projectId: string; id: string }>();
   const [tc, setTc] = useState<RouterOutputs["testCases"]["byId"] | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -25,6 +25,7 @@ export default function EditTestCasePage() {
       <h1>Edit test case</h1>
       <TestCaseForm
         mode="edit"
+        projectId={params.projectId}
         testCaseId={tc.id}
         stepFieldLabels={
           tc.stepFieldLabels as {

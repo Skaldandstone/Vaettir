@@ -1,12 +1,11 @@
 "use client";
 
-import { Suspense, useEffect, useState } from "react";
-import { useSearchParams } from "next/navigation";
-import { trpc, type RouterOutputs } from "../../lib/trpc";
+import { useEffect, useState } from "react";
+import { useParams } from "next/navigation";
+import { trpc, type RouterOutputs } from "@/lib/trpc";
 
-function RequirementsPageInner() {
-  const searchParams = useSearchParams();
-  const [projectId, setProjectId] = useState(searchParams.get("projectId") ?? "");
+export default function RequirementsPage() {
+  const { projectId } = useParams<{ projectId: string }>();
   const [requirements, setRequirements] = useState<RouterOutputs["requirements"]["list"]>([]);
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
@@ -16,20 +15,17 @@ function RequirementsPageInner() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  function load(id: string) {
+  function load() {
     setLoading(true);
     setError(null);
     trpc.requirements.list
-      .query({ projectId: id })
+      .query({ projectId })
       .then(setRequirements)
       .catch((e) => setError(String(e)))
       .finally(() => setLoading(false));
   }
 
-  useEffect(() => {
-    if (!projectId) return;
-    load(projectId);
-  }, [projectId]);
+  useEffect(load, [projectId]);
 
   function resetForm() {
     setTitle("");
@@ -46,7 +42,7 @@ function RequirementsPageInner() {
   }
 
   async function submit() {
-    if (!projectId || !title) return;
+    if (!title) return;
     setSaving(true);
     setError(null);
     try {
@@ -66,7 +62,7 @@ function RequirementsPageInner() {
         });
       }
       resetForm();
-      load(projectId);
+      load();
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -77,39 +73,33 @@ function RequirementsPageInner() {
   async function remove(id: string) {
     await trpc.requirements.delete.mutate({ id });
     if (editingId === id) resetForm();
-    load(projectId);
+    load();
   }
 
   return (
     <div style={{ maxWidth: 640 }}>
       <h1>Requirements</h1>
-      <label>
-        Project ID:{" "}
-        <input value={projectId} onChange={(e) => setProjectId(e.target.value)} placeholder="paste a project id" />
-      </label>
 
-      {projectId && (
-        <div style={{ display: "grid", gap: 8, margin: "16px 0", maxWidth: 420 }}>
-          <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Title" />
-          <textarea
-            value={description}
-            onChange={(e) => setDescription(e.target.value)}
-            placeholder="Description (optional)"
-            rows={2}
-          />
-          <input
-            value={externalRef}
-            onChange={(e) => setExternalRef(e.target.value)}
-            placeholder="External ref, e.g. JIRA-123 (optional)"
-          />
-          <div style={{ display: "flex", gap: 8 }}>
-            <button onClick={submit} disabled={saving || !title}>
-              {saving ? "Saving…" : editingId ? "Save changes" : "+ New requirement"}
-            </button>
-            {editingId && <button onClick={resetForm}>Cancel</button>}
-          </div>
+      <div style={{ display: "grid", gap: 8, margin: "16px 0", maxWidth: 420 }}>
+        <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Title" />
+        <textarea
+          value={description}
+          onChange={(e) => setDescription(e.target.value)}
+          placeholder="Description (optional)"
+          rows={2}
+        />
+        <input
+          value={externalRef}
+          onChange={(e) => setExternalRef(e.target.value)}
+          placeholder="External ref, e.g. JIRA-123 (optional)"
+        />
+        <div style={{ display: "flex", gap: 8 }}>
+          <button onClick={submit} disabled={saving || !title}>
+            {saving ? "Saving…" : editingId ? "Save changes" : "+ New requirement"}
+          </button>
+          {editingId && <button onClick={resetForm}>Cancel</button>}
         </div>
-      )}
+      </div>
 
       {loading && <p>Loading…</p>}
       {error && <p style={{ color: "var(--ember)" }}>{error}</p>}
@@ -125,16 +115,8 @@ function RequirementsPageInner() {
             <button onClick={() => remove(r.id)}>Delete</button>
           </li>
         ))}
-        {projectId && !loading && requirements.length === 0 && <p style={{ color: "var(--muted)" }}>No requirements yet.</p>}
+        {!loading && requirements.length === 0 && <p style={{ color: "var(--muted)" }}>No requirements yet.</p>}
       </ul>
     </div>
-  );
-}
-
-export default function RequirementsPage() {
-  return (
-    <Suspense fallback={<p>Loading…</p>}>
-      <RequirementsPageInner />
-    </Suspense>
   );
 }
