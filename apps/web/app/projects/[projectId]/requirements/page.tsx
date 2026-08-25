@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useParams } from "next/navigation";
 import { trpc, type RouterOutputs } from "@/lib/trpc";
 
@@ -14,6 +14,7 @@ export default function RequirementsPage() {
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [search, setSearch] = useState("");
 
   function load() {
     setLoading(true);
@@ -76,6 +77,17 @@ export default function RequirementsPage() {
     load();
   }
 
+  const visibleRequirements = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return requirements;
+    return requirements.filter(
+      (r) =>
+        r.title.toLowerCase().includes(q) ||
+        r.description?.toLowerCase().includes(q) ||
+        r.externalRef?.toLowerCase().includes(q),
+    );
+  }, [requirements, search]);
+
   return (
     <div style={{ maxWidth: 640 }}>
       <h1>Requirements</h1>
@@ -103,8 +115,18 @@ export default function RequirementsPage() {
 
       {loading && <p>Loading…</p>}
       {error && <p style={{ color: "var(--ember)" }}>{error}</p>}
+
+      {requirements.length > 0 && (
+        <input
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Search requirements…"
+          style={{ maxWidth: 300, marginBottom: 10 }}
+        />
+      )}
+
       <ul style={{ listStyle: "none", padding: 0 }}>
-        {requirements.map((r) => (
+        {visibleRequirements.map((r) => (
           <li key={r.id} style={{ marginBottom: 10, borderBottom: "1px solid var(--line)", paddingBottom: 8 }}>
             <strong>{r.title}</strong> {r.externalRef && <span style={{ color: "var(--muted-dim)" }}>[{r.externalRef}]</span>}
             <div style={{ color: "var(--muted)", fontSize: 13 }}>{r.description}</div>
@@ -116,6 +138,9 @@ export default function RequirementsPage() {
           </li>
         ))}
         {!loading && requirements.length === 0 && <p style={{ color: "var(--muted)" }}>No requirements yet.</p>}
+        {!loading && requirements.length > 0 && visibleRequirements.length === 0 && (
+          <p style={{ color: "var(--muted)" }}>No requirements match.</p>
+        )}
       </ul>
     </div>
   );

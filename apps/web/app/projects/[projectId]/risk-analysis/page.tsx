@@ -3,9 +3,53 @@
 import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import { trpc, type RouterOutputs } from "@/lib/trpc";
+import { Drawer } from "@/components/Drawer";
+
+function PastRunDetail({ id }: { id: string }) {
+  const [run, setRun] = useState<RouterOutputs["riskAnalysis"]["runById"] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    trpc.riskAnalysis.runById.query({ id }).then(setRun).catch((e) => setError(String(e)));
+  }, [id]);
+
+  if (error) return <p style={{ color: "var(--ember)" }}>{error}</p>;
+  if (!run) return <p>Loading…</p>;
+
+  return (
+    <div>
+      <h1 style={{ marginBottom: 4 }}>
+        <code>{run.baseRef}</code> → <code>{run.headRef}</code>
+      </h1>
+      <p className="text-muted" style={{ fontSize: 13 }}>
+        {new Date(run.createdAt).toLocaleString()} — {run.changedFiles.length} file(s) changed
+      </p>
+
+      <h3>Changed files</h3>
+      <ul style={{ fontSize: 13 }}>
+        {run.changedFiles.map((f) => (
+          <li key={f}>{f}</li>
+        ))}
+      </ul>
+
+      <h3>Recommended test cases ({run.recommendations.length})</h3>
+      <ul style={{ listStyle: "none", padding: 0 }}>
+        {run.recommendations.map((r) => (
+          <li key={r.testCaseId} style={{ borderBottom: "1px solid var(--line)", padding: "6px 0" }}>
+            <strong>{r.testCaseTitle}</strong>{" "}
+            <span style={{ color: "var(--muted-dim)" }}>[{r.riskScoreSnapshot ?? "—"}/100]</span>
+            <div style={{ color: "var(--muted)", fontSize: 12 }}>{r.matchReason}</div>
+          </li>
+        ))}
+        {run.recommendations.length === 0 && <p className="text-muted">No test cases were recommended for this run.</p>}
+      </ul>
+    </div>
+  );
+}
 
 export default function RiskAnalysisPage() {
   const { projectId } = useParams<{ projectId: string }>();
+  const [openRunId, setOpenRunId] = useState<string | null>(null);
   const [repoUrl, setRepoUrl] = useState("");
   const [baseRef, setBaseRef] = useState("main");
   const [headRef, setHeadRef] = useState("");
@@ -227,14 +271,26 @@ export default function RiskAnalysisPage() {
           <ul style={{ listStyle: "none", padding: 0 }}>
             {runs.map((r) => (
               <li key={r.id} style={{ borderBottom: "1px solid var(--line)", padding: "6px 0" }}>
-                <code>{r.baseRef}</code> → <code>{r.headRef}</code> — {r.changedFiles.length} file(s) changed,{" "}
-                {r.recommendedCount} test case(s) recommended{" "}
+                <a
+                  href="#"
+                  onClick={(e) => {
+                    e.preventDefault();
+                    setOpenRunId(r.id);
+                  }}
+                >
+                  <code>{r.baseRef}</code> → <code>{r.headRef}</code>
+                </a>{" "}
+                — {r.changedFiles.length} file(s) changed, {r.recommendedCount} test case(s) recommended{" "}
                 <span style={{ color: "var(--muted-dim)" }}>({new Date(r.createdAt).toLocaleString()})</span>
               </li>
             ))}
           </ul>
         </div>
       )}
+
+      <Drawer open={openRunId !== null} onClose={() => setOpenRunId(null)}>
+        {openRunId && <PastRunDetail id={openRunId} />}
+      </Drawer>
     </div>
   );
 }

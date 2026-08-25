@@ -1,10 +1,12 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useParams } from "next/navigation";
 import { trpc, type RouterOutputs } from "@/lib/trpc";
 import { Drawer } from "@/components/Drawer";
 import { TestPlanDetailContent } from "@/components/TestPlanDetailContent";
+
+const STATUSES = ["DRAFT", "ACTIVE", "IN_REVIEW", "APPROVED"];
 
 export default function TestPlansPage() {
   const { projectId } = useParams<{ projectId: string }>();
@@ -16,6 +18,8 @@ export default function TestPlansPage() {
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [openPlanId, setOpenPlanId] = useState<string | null>(null);
+  const [search, setSearch] = useState("");
+  const [statusFilter, setStatusFilter] = useState("");
 
   useEffect(() => {
     trpc.testPlans.types.query().then((t) => {
@@ -35,6 +39,13 @@ export default function TestPlansPage() {
   }
 
   useEffect(loadPlans, [projectId]);
+
+  const visiblePlans = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    return plans.filter(
+      (p) => (!q || p.name.toLowerCase().includes(q)) && (!statusFilter || p.status === statusFilter),
+    );
+  }, [plans, search, statusFilter]);
 
   async function submit() {
     if (!testPlanTypeId || !name.trim()) return;
@@ -76,8 +87,21 @@ export default function TestPlansPage() {
 
       {loading && <p>Loading…</p>}
       {error && <p style={{ color: "var(--ember)" }}>{error}</p>}
+
+      {plans.length > 0 && (
+        <div style={{ display: "flex", gap: 8, marginBottom: 10 }}>
+          <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search plans…" style={{ flex: 1, maxWidth: 300 }} />
+          <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
+            <option value="">All statuses</option>
+            {STATUSES.map((s) => (
+              <option key={s} value={s}>{s}</option>
+            ))}
+          </select>
+        </div>
+      )}
+
       <ul>
-        {plans.map((p) => (
+        {visiblePlans.map((p) => (
           <li key={p.id}>
             <a
               href={`/projects/${projectId}/test-plans/${p.id}`}
@@ -94,6 +118,7 @@ export default function TestPlansPage() {
           </li>
         ))}
         {!loading && plans.length === 0 && <p style={{ color: "var(--muted)" }}>No test plans yet.</p>}
+        {!loading && plans.length > 0 && visiblePlans.length === 0 && <p style={{ color: "var(--muted)" }}>No test plans match.</p>}
       </ul>
 
       <Drawer open={openPlanId !== null} onClose={() => setOpenPlanId(null)}>
