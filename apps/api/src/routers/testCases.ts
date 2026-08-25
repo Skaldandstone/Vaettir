@@ -36,7 +36,7 @@ const AT_LEAST_ONE_FORMAT_MESSAGE = "Provide either given/when/then or at least 
 
 export const testCasesRouter = router({
   list: protectedProcedure
-    .input(z.object({ projectId: z.string() }))
+    .input(z.object({ projectId: z.string(), includeArchived: z.boolean().default(false) }))
     .output(
       z.array(
         z.object({
@@ -49,13 +49,14 @@ export const testCasesRouter = router({
           reviewStatus: z.string(),
           sourceFilePath: z.string().nullable(),
           suitePath: z.string().nullable(),
+          archived: z.boolean(),
         }),
       ),
     )
     .query(async ({ ctx, input }) => {
       await requireProjectAccess(ctx, input.projectId);
       const cases = await ctx.prisma.testCase.findMany({
-        where: { projectId: input.projectId },
+        where: { projectId: input.projectId, ...(input.includeArchived ? {} : { archived: false }) },
         include: { source: true, testPlan: true },
         orderBy: { updatedAt: "desc" },
       });
@@ -69,6 +70,7 @@ export const testCasesRouter = router({
         reviewStatus: tc.reviewStatus,
         sourceFilePath: tc.source?.filePath ?? null,
         suitePath: tc.suitePath,
+        archived: tc.archived,
       }));
     }),
 
@@ -458,6 +460,58 @@ export const testCasesRouter = router({
           reviewedById: ctx.user.id,
           reviewedAt: new Date(),
         },
+      });
+      return { updatedCount: result.count };
+    }),
+
+  bulkSetTestPlan: protectedProcedure
+    .input(z.object({ projectId: z.string(), ids: z.array(z.string()).min(1).max(200), testPlanId: z.string().nullable() }))
+    .output(z.object({ updatedCount: z.number() }))
+    .mutation(async ({ ctx, input }) => {
+      await requireProjectAccess(ctx, input.projectId, "EDITOR");
+      if (input.testPlanId) {
+        const plan = await ctx.prisma.testPlan.findUniqueOrThrow({ where: { id: input.testPlanId }, select: { projectId: true } });
+        if (plan.projectId !== input.projectId) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "That test plan does not belong to this project" });
+        }
+      }
+      const result = await ctx.prisma.testCase.updateMany({
+        where: { id: { in: input.ids }, projectId: input.projectId },
+        data: { testPlanId: input.testPlanId },
+      });
+      return { updatedCount: result.count };
+    }),
+
+  // Tags are per-case arrays, not a shared join table, so a bulk "add tag"
+  // is a per-row union rather than one updateMany -- each case may already
+  // carry a different tag set. Bounded at the same 200-id cap as the other
+  // bulk ops, so this stays a handful of round trips at worst.
+  bulkAddTags: protectedProcedure
+    .input(z.object({ projectId: z.string(), ids: z.array(z.string()).min(1).max(200), tags: z.array(z.string().min(1)).min(1) }))
+    .output(z.object({ updatedCount: z.number() }))
+    .mutation(async ({ ctx, input }) => {
+      await requireProjectAccess(ctx, input.projectId, "EDITOR");
+      const cases = await ctx.prisma.testCase.findMany({
+        where: { id: { in: input.ids }, projectId: input.projectId },
+        select: { id: true, tags: true },
+      });
+      let updatedCount = 0;
+      for (const tc of cases) {
+        const merged = Array.from(new Set([...tc.tags, ...input.tags]));
+        await ctx.prisma.testCase.update({ where: { id: tc.id }, data: { tags: merged } });
+        updatedCount++;
+      }
+      return { updatedCount };
+    }),
+
+  bulkArchive: protectedProcedure
+    .input(z.object({ projectId: z.string(), ids: z.array(z.string()).min(1).max(200), archived: z.boolean() }))
+    .output(z.object({ updatedCount: z.number() }))
+    .mutation(async ({ ctx, input }) => {
+      await requireProjectAccess(ctx, input.projectId, "EDITOR");
+      const result = await ctx.prisma.testCase.updateMany({
+        where: { id: { in: input.ids }, projectId: input.projectId },
+        data: { archived: input.archived },
       });
       return { updatedCount: result.count };
     }),

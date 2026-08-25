@@ -334,6 +334,12 @@ model TestCase {
   // rather than being forced into a guessed suite.
   suitePath String?
 
+  // Soft-hide, not soft-delete: an archived case stays fully intact (still
+  // linked from past TestSelectionRecommendations, compliance controls,
+  // etc.) but drops out of the default list/tree view. Distinct from
+  // `delete`, which is a real removal blocked by those same FK links.
+  archived Boolean @default(false)
+
   origin     TestCaseOrigin @default(AUTHORED) // AUTHORED vs AI_REVERSE_ENGINEERED
   confidence Float? // set when origin = AI_REVERSE_ENGINEERED; agent's self-rated confidence 0-1
 

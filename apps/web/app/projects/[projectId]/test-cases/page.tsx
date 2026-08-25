@@ -104,6 +104,7 @@ export default function TestCasesPage() {
   const { projectId } = useParams<{ projectId: string }>();
   const [project, setProject] = useState<RouterOutputs["project"]["byId"] | null>(null);
   const [cases, setCases] = useState<RouterOutputs["testCases"]["list"]>([]);
+  const [plans, setPlans] = useState<RouterOutputs["testPlans"]["list"]>([]);
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
   const [openCaseId, setOpenCaseId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -113,35 +114,44 @@ export default function TestCasesPage() {
   const [typeFilter, setTypeFilter] = useState("");
   const [reviewFilter, setReviewFilter] = useState("");
   const [originFilter, setOriginFilter] = useState("");
+  const [showArchived, setShowArchived] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [bulkBusy, setBulkBusy] = useState(false);
+  const [bulkMovePlanId, setBulkMovePlanId] = useState("");
+  const [bulkTag, setBulkTag] = useState("");
 
   function load() {
     setLoading(true);
     setError(null);
-    Promise.all([trpc.project.byId.query({ id: projectId }), trpc.testCases.list.query({ projectId })])
-      .then(([proj, list]) => {
+    Promise.all([
+      trpc.project.byId.query({ id: projectId }),
+      trpc.testCases.list.query({ projectId, includeArchived: true }),
+      trpc.testPlans.list.query({ projectId }),
+    ])
+      .then(([proj, list, planList]) => {
         setProject(proj);
         setCases(list);
+        setPlans(planList);
       })
       .catch((e) => setError(e instanceof Error ? e.message : String(e)))
       .finally(() => setLoading(false));
   }
 
   useEffect(load, [projectId]);
-  useEffect(() => setSelected(new Set()), [selectedPath, search, typeFilter, reviewFilter, originFilter]);
+  useEffect(() => setSelected(new Set()), [selectedPath, search, typeFilter, reviewFilter, originFilter, showArchived]);
 
   const pathFiltered = filterCasesByPath(cases, selectedPath);
   const visibleCases = useMemo(() => {
     const q = search.trim().toLowerCase();
     return pathFiltered.filter(
       (tc) =>
+        (showArchived || !tc.archived) &&
         (!q || tc.title.toLowerCase().includes(q) || tc.tags.some((t) => t.toLowerCase().includes(q))) &&
         (!typeFilter || tc.testType === typeFilter) &&
         (!reviewFilter || tc.reviewStatus === reviewFilter) &&
         (!originFilter || tc.origin === originFilter),
     );
-  }, [pathFiltered, search, typeFilter, reviewFilter, originFilter]);
+  }, [pathFiltered, search, typeFilter, reviewFilter, originFilter, showArchived]);
 
   const knownPaths = collectKnownSuitePaths(cases);
 
@@ -179,6 +189,41 @@ export default function TestCasesPage() {
       if (res.blockedCount > 0) {
         alert(`${res.deletedCount} deleted, ${res.blockedCount} couldn't be deleted (linked to compliance controls or risk analysis results).`);
       }
+    } finally {
+      setBulkBusy(false);
+    }
+  }
+
+  async function bulkArchive(archived: boolean) {
+    setBulkBusy(true);
+    try {
+      await trpc.testCases.bulkArchive.mutate({ projectId, ids: [...selected], archived });
+      setSelected(new Set());
+      load();
+    } finally {
+      setBulkBusy(false);
+    }
+  }
+
+  async function bulkMove() {
+    setBulkBusy(true);
+    try {
+      await trpc.testCases.bulkSetTestPlan.mutate({ projectId, ids: [...selected], testPlanId: bulkMovePlanId || null });
+      setBulkMovePlanId("");
+      setSelected(new Set());
+      load();
+    } finally {
+      setBulkBusy(false);
+    }
+  }
+
+  async function bulkAddTag() {
+    if (!bulkTag.trim()) return;
+    setBulkBusy(true);
+    try {
+      await trpc.testCases.bulkAddTags.mutate({ projectId, ids: [...selected], tags: [bulkTag.trim()] });
+      setBulkTag("");
+      load();
     } finally {
       setBulkBusy(false);
     }
@@ -259,10 +304,14 @@ export default function TestCasesPage() {
                   <option key={o} value={o}>{o}</option>
                 ))}
               </select>
+              <label style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 13, color: "var(--muted)" }}>
+                <input type="checkbox" checked={showArchived} onChange={(e) => setShowArchived(e.target.checked)} />
+                Show archived
+              </label>
             </div>
 
             {selected.size > 0 && (
-              <div className="panel" style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10, padding: 10 }}>
+              <div className="panel" style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 10, marginBottom: 10, padding: 10 }}>
                 <strong>{selected.size} selected</strong>
                 <button className="btn-secondary" onClick={() => bulkReview("approve")} disabled={bulkBusy}>
                   Approve
@@ -270,6 +319,35 @@ export default function TestCasesPage() {
                 <button className="btn-secondary" onClick={() => bulkReview("reject")} disabled={bulkBusy}>
                   Reject
                 </button>
+                <button className="btn-secondary" onClick={() => bulkArchive(true)} disabled={bulkBusy}>
+                  Archive
+                </button>
+                <button className="btn-secondary" onClick={() => bulkArchive(false)} disabled={bulkBusy}>
+                  Restore
+                </button>
+                <span style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                  <select value={bulkMovePlanId} onChange={(e) => setBulkMovePlanId(e.target.value)} style={{ fontSize: 13 }}>
+                    <option value="">Move to plan…</option>
+                    {plans.map((p) => (
+                      <option key={p.id} value={p.id}>{p.name}</option>
+                    ))}
+                  </select>
+                  <button className="btn-secondary" onClick={bulkMove} disabled={bulkBusy || !bulkMovePlanId} style={{ fontSize: 13 }}>
+                    Move
+                  </button>
+                </span>
+                <span style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                  <input
+                    value={bulkTag}
+                    onChange={(e) => setBulkTag(e.target.value)}
+                    onKeyDown={(e) => e.key === "Enter" && bulkAddTag()}
+                    placeholder="add tag…"
+                    style={{ fontSize: 13, width: 100 }}
+                  />
+                  <button className="btn-secondary" onClick={bulkAddTag} disabled={bulkBusy || !bulkTag.trim()} style={{ fontSize: 13 }}>
+                    Tag
+                  </button>
+                </span>
                 <button className="btn-secondary" onClick={bulkDelete} disabled={bulkBusy} style={{ color: "var(--ember)" }}>
                   Delete
                 </button>
@@ -309,6 +387,7 @@ export default function TestCasesPage() {
                       [{tc.testType}] {tc.origin === "AI_REVERSE_ENGINEERED" ? "🤖 AI-reversed" : ""}
                       {tc.reviewStatus === "PENDING_REVIEW" && " ⏳ pending review"}
                       {tc.reviewStatus === "REJECTED" && " ❌ rejected"}
+                      {tc.archived && " · archived"}
                     </small>
                     {selectedPath === UNASSIGNED && (
                       <AssignSuiteControl caseId={tc.id} knownPaths={knownPaths} onAssigned={load} />
