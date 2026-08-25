@@ -6,6 +6,8 @@ export {};
 declare global {
   interface Window {
     Clerk?: {
+      loaded: boolean;
+      load(): Promise<void>;
       session?: {
         getToken(): Promise<string | null>;
       } | null;

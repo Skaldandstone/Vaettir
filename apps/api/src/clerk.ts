@@ -16,7 +16,14 @@ export async function verifyClerkSessionToken(token: string): Promise<string | n
   try {
     const payload = await verifyToken(token, { secretKey: getSecretKey() });
     return payload.sub;
-  } catch {
+  } catch (err) {
+    // A failed verification is an expected, routine case (expired/absent
+    // token) and correctly still returns null to the caller -- but
+    // swallowing the actual reason made every auth failure indistinguishable
+    // from "no token sent," which is exactly the kind of thing that turns a
+    // five-minute key-mismatch diagnosis into guesswork. Log it, still
+    // return null.
+    console.error("Clerk token verification failed:", err instanceof Error ? err.message : err);
     return null;
   }
 }
