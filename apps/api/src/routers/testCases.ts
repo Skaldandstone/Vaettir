@@ -196,7 +196,7 @@ export const testCasesRouter = router({
       await requireProjectAccess(ctx, existing.projectId, "EDITOR");
       return ctx.prisma.testCase.update({
         where: { id: input.id },
-        data: { reviewStatus: "APPROVED", reviewedById: ctx.user.id, reviewedAt: new Date(), reviewNote: input.note },
+        data: { reviewStatus: "APPROVED", reviewedById: ctx.user.id, reviewedAt: new Date(), reviewNote: input.note, updatedById: ctx.user.id },
       });
     }),
 
@@ -207,7 +207,7 @@ export const testCasesRouter = router({
       await requireProjectAccess(ctx, existing.projectId, "EDITOR");
       return ctx.prisma.testCase.update({
         where: { id: input.id },
-        data: { reviewStatus: "REJECTED", reviewedById: ctx.user.id, reviewedAt: new Date(), reviewNote: input.note },
+        data: { reviewStatus: "REJECTED", reviewedById: ctx.user.id, reviewedAt: new Date(), reviewNote: input.note, updatedById: ctx.user.id },
       });
     }),
 
@@ -237,6 +237,7 @@ export const testCasesRouter = router({
           riskScore: Math.round(assessment.riskScore),
           riskRationale: assessment.rationale,
           riskAssessedAt: new Date(),
+          updatedById: ctx.user.id,
         },
       });
       return { riskSeverity: updated.riskSeverity, riskScore: updated.riskScore, riskRationale: updated.riskRationale };
@@ -277,6 +278,7 @@ export const testCasesRouter = router({
               riskScore: Math.round(assessment.riskScore),
               riskRationale: assessment.rationale,
               riskAssessedAt: new Date(),
+              updatedById: ctx.user.id,
             },
           });
           assessedCount++;
@@ -305,6 +307,8 @@ export const testCasesRouter = router({
           title: input.title,
           testType: "FUNCTIONAL",
           suitePath: input.suitePath || undefined,
+          createdById: ctx.user.id,
+          updatedById: ctx.user.id,
         },
         select: { id: true },
       });
@@ -330,6 +334,8 @@ export const testCasesRouter = router({
           testType: input.testType as never,
           priority: input.priority,
           suitePath: input.suitePath || undefined,
+          createdById: ctx.user.id,
+          updatedById: ctx.user.id,
           steps: {
             create: input.steps.map((s, i) => ({
               order: i,
@@ -378,6 +384,7 @@ export const testCasesRouter = router({
             // so an empty string here is a deliberate un-assign, not an
             // accidental no-op.
             suitePath: input.suitePath ? input.suitePath : null,
+            updatedById: ctx.user.id,
             steps: {
               create: input.steps.map((s, i) => ({
                 order: i,
@@ -402,7 +409,7 @@ export const testCasesRouter = router({
       await requireProjectAccess(ctx, existing.projectId, "EDITOR");
       await ctx.prisma.testCase.update({
         where: { id: input.id },
-        data: { suitePath: input.suitePath || null },
+        data: { suitePath: input.suitePath || null, updatedById: ctx.user.id },
       });
     }),
 
@@ -459,6 +466,7 @@ export const testCasesRouter = router({
           reviewStatus: input.decision === "approve" ? "APPROVED" : "REJECTED",
           reviewedById: ctx.user.id,
           reviewedAt: new Date(),
+          updatedById: ctx.user.id,
         },
       });
       return { updatedCount: result.count };
@@ -477,7 +485,7 @@ export const testCasesRouter = router({
       }
       const result = await ctx.prisma.testCase.updateMany({
         where: { id: { in: input.ids }, projectId: input.projectId },
-        data: { testPlanId: input.testPlanId },
+        data: { testPlanId: input.testPlanId, updatedById: ctx.user.id },
       });
       return { updatedCount: result.count };
     }),
@@ -498,7 +506,7 @@ export const testCasesRouter = router({
       let updatedCount = 0;
       for (const tc of cases) {
         const merged = Array.from(new Set([...tc.tags, ...input.tags]));
-        await ctx.prisma.testCase.update({ where: { id: tc.id }, data: { tags: merged } });
+        await ctx.prisma.testCase.update({ where: { id: tc.id }, data: { tags: merged, updatedById: ctx.user.id } });
         updatedCount++;
       }
       return { updatedCount };
@@ -511,7 +519,7 @@ export const testCasesRouter = router({
       await requireProjectAccess(ctx, input.projectId, "EDITOR");
       const result = await ctx.prisma.testCase.updateMany({
         where: { id: { in: input.ids }, projectId: input.projectId },
-        data: { archived: input.archived },
+        data: { archived: input.archived, updatedById: ctx.user.id },
       });
       return { updatedCount: result.count };
     }),

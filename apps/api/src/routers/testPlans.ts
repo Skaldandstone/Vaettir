@@ -102,6 +102,8 @@ export const testPlansRouter = router({
           name: input.name,
           description: input.description,
           customFields: input.customFields as never,
+          createdById: ctx.user.id,
+          updatedById: ctx.user.id,
         },
       });
     }),
@@ -129,6 +131,7 @@ export const testPlansRouter = router({
           description: input.description,
           status: input.status,
           customFields: input.customFields as never,
+          updatedById: ctx.user.id,
         },
       });
     }),
@@ -149,7 +152,7 @@ export const testPlansRouter = router({
       }
       return ctx.prisma.testPlan.update({
         where: { id: input.testPlanId },
-        data: { releaseId: input.releaseId },
+        data: { releaseId: input.releaseId, updatedById: ctx.user.id },
         select: { id: true, releaseId: true },
       });
     }),

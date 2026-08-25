@@ -120,7 +120,13 @@ export const releasesRouter = router({
     .mutation(async ({ ctx, input }) => {
       await requireProjectAccess(ctx, input.projectId, "EDITOR");
       return ctx.prisma.release.create({
-        data: { projectId: input.projectId, name: input.name, targetDate: input.targetDate },
+        data: {
+          projectId: input.projectId,
+          name: input.name,
+          targetDate: input.targetDate,
+          createdById: ctx.user.id,
+          updatedById: ctx.user.id,
+        },
         select: { id: true, name: true },
       });
     }),
@@ -130,7 +136,7 @@ export const releasesRouter = router({
     .mutation(async ({ ctx, input }) => {
       const release = await ctx.prisma.release.findUniqueOrThrow({ where: { id: input.id } });
       await requireProjectAccess(ctx, release.projectId, "EDITOR");
-      return ctx.prisma.release.update({ where: { id: input.id }, data: { status: input.status } });
+      return ctx.prisma.release.update({ where: { id: input.id }, data: { status: input.status, updatedById: ctx.user.id } });
     }),
 
   readiness: protectedProcedure
@@ -198,7 +204,7 @@ export const releasesRouter = router({
       await requireProjectAccess(ctx, flag.release.projectId, "EDITOR");
       return ctx.prisma.riskFlag.update({
         where: { id: input.id },
-        data: { resolvedAt: input.resolved ? new Date() : null },
+        data: { resolvedAt: input.resolved ? new Date() : null, updatedById: ctx.user.id },
       });
     }),
 });

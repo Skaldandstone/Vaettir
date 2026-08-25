@@ -86,6 +86,18 @@ model User {
   memberships       Membership[]
   sentInvitations   Invitation[]
   reviewedTestCases TestCase[]   @relation("TestCaseReviewedBy")
+
+  // P1-07 audit columns: who created/last-updated each core record. Named
+  // relations (Prisma requires it once a model has more than one FK to the
+  // same target) -- see each model for the paired createdBy/updatedBy.
+  createdTestCases TestCase[] @relation("TestCaseCreatedBy")
+  updatedTestCases TestCase[] @relation("TestCaseUpdatedBy")
+  createdTestPlans TestPlan[] @relation("TestPlanCreatedBy")
+  updatedTestPlans TestPlan[] @relation("TestPlanUpdatedBy")
+  createdReleases  Release[]  @relation("ReleaseCreatedBy")
+  updatedReleases  Release[]  @relation("ReleaseUpdatedBy")
+  createdRiskFlags RiskFlag[] @relation("RiskFlagCreatedBy")
+  updatedRiskFlags RiskFlag[] @relation("RiskFlagUpdatedBy")
 }
 
 enum OrgRole {
@@ -227,6 +239,11 @@ model TestPlan {
 
   acceptanceCriteria AcceptanceCriterion[]
   testCases          TestCase[]
+
+  createdById String?
+  createdBy   User?   @relation("TestPlanCreatedBy", fields: [createdById], references: [id])
+  updatedById String?
+  updatedBy   User?   @relation("TestPlanUpdatedBy", fields: [updatedById], references: [id])
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -376,6 +393,11 @@ model TestCase {
   // TestCaseStep for why this exists alongside BDD rather than replacing it.
   steps               TestCaseStep[]
   selectionRecommendations TestSelectionRecommendation[]
+
+  createdById String?
+  createdBy   User?   @relation("TestCaseCreatedBy", fields: [createdById], references: [id])
+  updatedById String?
+  updatedBy   User?   @relation("TestCaseUpdatedBy", fields: [updatedById], references: [id])
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -690,7 +712,13 @@ model Release {
   testPlans TestPlan[]
   riskFlags RiskFlag[]
 
+  createdById String?
+  createdBy   User?   @relation("ReleaseCreatedBy", fields: [createdById], references: [id])
+  updatedById String?
+  updatedBy   User?   @relation("ReleaseUpdatedBy", fields: [updatedById], references: [id])
+
   createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }
 
 enum ReleaseStatus {
@@ -712,7 +740,14 @@ model RiskFlag {
   description      String
   relatedFilePath  String?
   relatedPrUrl     String?
+
+  createdById String?
+  createdBy   User?   @relation("RiskFlagCreatedBy", fields: [createdById], references: [id])
+  updatedById String?
+  updatedBy   User?   @relation("RiskFlagUpdatedBy", fields: [updatedById], references: [id])
+
   createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
   resolvedAt       DateTime?
 }
 

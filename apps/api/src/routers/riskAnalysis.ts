@@ -105,6 +105,8 @@ export const riskAnalysisRouter = router({
               description: `${f} changed between ${input.baseRef} and ${input.headRef} but no tracked test case covers it.`,
               relatedFilePath: f,
               relatedPrUrl: input.prUrl,
+              createdById: ctx.user.id,
+              updatedById: ctx.user.id,
             })),
           });
           riskFlagsCreated = newGaps.length;
