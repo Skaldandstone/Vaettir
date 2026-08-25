@@ -24,6 +24,7 @@ const testCaseContentSchema = z.object({
   tags: z.array(z.string()).default([]),
   testType: z.string(),
   priority: z.enum(["CRITICAL", "HIGH", "MEDIUM", "LOW"]).default("MEDIUM"),
+  suitePath: z.string().optional(),
 });
 
 function requireAtLeastOneFormat(v: z.infer<typeof testCaseContentSchema>) {
@@ -43,6 +44,7 @@ export const testCasesRouter = router({
           origin: z.string(),
           reviewStatus: z.string(),
           sourceFilePath: z.string().nullable(),
+          suitePath: z.string().nullable(),
         }),
       ),
     )
@@ -60,6 +62,7 @@ export const testCasesRouter = router({
         origin: tc.origin,
         reviewStatus: tc.reviewStatus,
         sourceFilePath: tc.source?.filePath ?? null,
+        suitePath: tc.suitePath,
       }));
     }),
 
@@ -91,6 +94,7 @@ export const testCasesRouter = router({
         riskScore: z.number().nullable(),
         riskRationale: z.string().nullable(),
         riskAssessedAt: z.date().nullable(),
+        suitePath: z.string().nullable(),
         source: z
           .object({
             filePath: z.string(),
@@ -141,6 +145,7 @@ export const testCasesRouter = router({
         riskScore: tc.riskScore,
         riskRationale: tc.riskRationale,
         riskAssessedAt: tc.riskAssessedAt,
+        suitePath: tc.suitePath,
         source: tc.source
           ? { filePath: tc.source.filePath, functionName: tc.source.functionName, framework: tc.source.framework }
           : null,
@@ -292,6 +297,7 @@ export const testCasesRouter = router({
           tags: input.tags,
           testType: input.testType as never,
           priority: input.priority,
+          suitePath: input.suitePath || undefined,
           steps: {
             create: input.steps.map((s, i) => ({
               order: i,
@@ -334,6 +340,12 @@ export const testCasesRouter = router({
             tags: input.tags,
             testType: input.testType as never,
             priority: input.priority,
+            // Update (unlike create) needs to distinguish "field omitted,
+            // leave alone" (undefined) from "field submitted empty, clear
+            // the assignment" (null) -- the form always submits this field,
+            // so an empty string here is a deliberate un-assign, not an
+            // accidental no-op.
+            suitePath: input.suitePath ? input.suitePath : null,
             steps: {
               create: input.steps.map((s, i) => ({
                 order: i,
@@ -345,6 +357,20 @@ export const testCasesRouter = router({
             },
           },
         });
+      });
+    }),
+
+  // Quick reassignment without opening the full edit form -- e.g. from the
+  // tree's "Unassigned" bucket. Pass null/"" to clear back to unassigned
+  // (or the derived source-file location, if it has one).
+  setSuite: protectedProcedure
+    .input(z.object({ id: z.string(), suitePath: z.string().nullable() }))
+    .mutation(async ({ ctx, input }) => {
+      const existing = await ctx.prisma.testCase.findUniqueOrThrow({ where: { id: input.id }, select: { projectId: true } });
+      await requireProjectAccess(ctx, existing.projectId, "EDITOR");
+      await ctx.prisma.testCase.update({
+        where: { id: input.id },
+        data: { suitePath: input.suitePath || null },
       });
     }),
 });

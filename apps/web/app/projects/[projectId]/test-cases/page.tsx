@@ -3,7 +3,51 @@
 import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import { trpc, type RouterOutputs } from "@/lib/trpc";
-import { TestCaseTree, filterCasesByPath } from "@/components/TestCaseTree";
+import { TestCaseTree, filterCasesByPath, collectKnownSuitePaths, UNASSIGNED } from "@/components/TestCaseTree";
+
+function AssignSuiteControl({
+  caseId,
+  knownPaths,
+  onAssigned,
+}: {
+  caseId: string;
+  knownPaths: string[];
+  onAssigned: () => void;
+}) {
+  const [value, setValue] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  async function assign() {
+    if (!value.trim()) return;
+    setSaving(true);
+    try {
+      await trpc.testCases.setSuite.mutate({ id: caseId, suitePath: value.trim() });
+      onAssigned();
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <span style={{ display: "inline-flex", gap: 4, marginLeft: 8 }}>
+      <input
+        list="known-suite-paths"
+        value={value}
+        onChange={(e) => setValue(e.target.value)}
+        placeholder="assign to suite…"
+        style={{ fontSize: 12, padding: "3px 6px", width: 160 }}
+      />
+      <button className="btn-secondary" style={{ padding: "3px 8px", fontSize: 12 }} onClick={assign} disabled={saving || !value.trim()}>
+        {saving ? "…" : "Assign"}
+      </button>
+      <datalist id="known-suite-paths">
+        {knownPaths.map((p) => (
+          <option key={p} value={p} />
+        ))}
+      </datalist>
+    </span>
+  );
+}
 
 export default function TestCasesPage() {
   const { projectId } = useParams<{ projectId: string }>();
@@ -13,7 +57,7 @@ export default function TestCasesPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
+  function load() {
     setLoading(true);
     setError(null);
     Promise.all([trpc.project.byId.query({ id: projectId }), trpc.testCases.list.query({ projectId })])
@@ -23,9 +67,12 @@ export default function TestCasesPage() {
       })
       .catch((e) => setError(e instanceof Error ? e.message : String(e)))
       .finally(() => setLoading(false));
-  }, [projectId]);
+  }
+
+  useEffect(load, [projectId]);
 
   const visibleCases = filterCasesByPath(cases, selectedPath);
+  const knownPaths = collectKnownSuitePaths(cases);
 
   return (
     <div>
@@ -73,6 +120,11 @@ export default function TestCasesPage() {
         <div className="test-case-layout">
           <TestCaseTree cases={cases} selectedPath={selectedPath} onSelect={setSelectedPath} />
           <div className="test-case-list">
+            {selectedPath === UNASSIGNED && (
+              <p className="text-muted" style={{ fontSize: 13 }}>
+                These cases have no suite yet — assign one below, or leave them here.
+              </p>
+            )}
             <ul>
               {visibleCases.map((tc) => (
                 <li key={tc.id}>
@@ -82,6 +134,9 @@ export default function TestCasesPage() {
                     {tc.reviewStatus === "PENDING_REVIEW" && " ⏳ pending review"}
                     {tc.reviewStatus === "REJECTED" && " ❌ rejected"}
                   </small>
+                  {selectedPath === UNASSIGNED && (
+                    <AssignSuiteControl caseId={tc.id} knownPaths={knownPaths} onAssigned={load} />
+                  )}
                 </li>
               ))}
               {visibleCases.length === 0 && <p className="text-muted">No test cases in this folder.</p>}

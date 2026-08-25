@@ -1,8 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { trpc } from "@/lib/trpc";
+import { collectKnownSuitePaths } from "@/components/TestCaseTree";
 
 const TEST_TYPES = [
   "UNIT",
@@ -37,6 +38,7 @@ interface TestCaseFormValue {
   testType: string;
   priority: string;
   tags: string;
+  suitePath: string;
   given: string[];
   when: string[];
   then: string[];
@@ -53,6 +55,7 @@ function defaultValue(): TestCaseFormValue {
     testType: "FUNCTIONAL",
     priority: "MEDIUM",
     tags: "",
+    suitePath: "",
     given: [],
     when: [],
     then: [],
@@ -104,6 +107,11 @@ export default function TestCaseForm({ mode, projectId, testCaseId, initial, ste
   const [value, setValue] = useState<TestCaseFormValue>({ ...defaultValue(), ...initial });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [knownSuitePaths, setKnownSuitePaths] = useState<string[]>([]);
+
+  useEffect(() => {
+    trpc.testCases.list.query({ projectId }).then((cases) => setKnownSuitePaths(collectKnownSuitePaths(cases)));
+  }, [projectId]);
 
   const labels = stepFieldLabels ?? {
     action: "Test Step",
@@ -141,6 +149,7 @@ export default function TestCaseForm({ mode, projectId, testCaseId, initial, ste
           .filter(Boolean),
         testType: value.testType,
         priority: value.priority as "CRITICAL" | "HIGH" | "MEDIUM" | "LOW",
+        suitePath: value.suitePath || undefined,
       };
 
       const result =
@@ -205,6 +214,20 @@ export default function TestCaseForm({ mode, projectId, testCaseId, initial, ste
             onChange={(e) => setValue((v) => ({ ...v, tags: e.target.value }))}
             style={{ width: "100%" }}
           />
+        </label>
+        <label>
+          Suite <span style={{ color: "var(--muted-dim)" }}>(optional, e.g. "auth/password-reset" — leave blank to stay unassigned)</span>
+          <input
+            list="known-suite-paths"
+            value={value.suitePath}
+            onChange={(e) => setValue((v) => ({ ...v, suitePath: e.target.value }))}
+            style={{ width: "100%" }}
+          />
+          <datalist id="known-suite-paths">
+            {knownSuitePaths.map((p) => (
+              <option key={p} value={p} />
+            ))}
+          </datalist>
         </label>
       </div>
 

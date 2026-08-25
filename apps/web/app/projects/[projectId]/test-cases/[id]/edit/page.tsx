@@ -41,6 +41,7 @@ export default function EditTestCasePage() {
           testType: tc.testType,
           priority: tc.priority,
           tags: tc.tags.join(", "),
+          suitePath: tc.suitePath ?? "",
           given: tc.given,
           when: tc.when,
           then: tc.then,

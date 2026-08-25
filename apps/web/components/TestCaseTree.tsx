@@ -3,16 +3,21 @@
 import { useMemo, useState } from "react";
 
 // TestRail/Qase organize test cases into a manually-curated suite/section
-// tree. We don't have (and didn't want to force) a separate Suite data
-// model for this -- an AI-reverse-engineered case already has a real,
-// meaningful location: the source file it was extracted from. Deriving the
-// tree from that path gives the same navigation benefit without new schema
-// surface area. Manually-authored cases (no source) land in one flat
-// bucket, since they have no natural folder of their own yet.
+// tree. Every case here gets a location in that tree -- `suitePath` is a
+// manual, user-settable "/"-delimited path any case can be assigned
+// (regardless of origin), and `sourceFilePath` is the file an
+// AI-reverse-engineered case came from, which serves as its DEFAULT
+// location before anyone manually reassigns it. A case with neither lands
+// in a distinct "Unassigned" bucket rather than being forced into a guess.
 export interface TreeCase {
   id: string;
   title: string;
   sourceFilePath: string | null;
+  suitePath: string | null;
+}
+
+function effectiveLocation(tc: TreeCase): string | null {
+  return tc.suitePath || tc.sourceFilePath;
 }
 
 interface TreeNode {
@@ -25,8 +30,9 @@ interface TreeNode {
 function buildTree(cases: TreeCase[]): TreeNode {
   const root: TreeNode = { name: "", path: "", children: new Map(), cases: [] };
   for (const tc of cases) {
-    if (!tc.sourceFilePath) continue;
-    const segments = tc.sourceFilePath.split("/");
+    const location = effectiveLocation(tc);
+    if (!location) continue;
+    const segments = location.split("/");
     let node = root;
     let path = "";
     for (const segment of segments) {
@@ -89,6 +95,8 @@ function countCases(node: TreeNode): number {
   return node.cases.length + [...node.children.values()].reduce((sum, c) => sum + countCases(c), 0);
 }
 
+export const UNASSIGNED = "__unassigned__";
+
 export function TestCaseTree({
   cases,
   selectedPath,
@@ -99,7 +107,7 @@ export function TestCaseTree({
   onSelect: (path: string | null) => void;
 }) {
   const tree = useMemo(() => buildTree(cases), [cases]);
-  const manualCount = cases.filter((c) => !c.sourceFilePath).length;
+  const unassignedCount = cases.filter((c) => !effectiveLocation(c)).length;
   const total = cases.length;
 
   return (
@@ -117,26 +125,41 @@ export function TestCaseTree({
         .map((child) => (
           <TreeNodeView key={child.path} node={child} depth={0} selectedPath={selectedPath} onSelect={onSelect} />
         ))}
-      {manualCount > 0 && (
+      {unassignedCount > 0 && (
         <div
-          className={`tree-row${selectedPath === "__manual__" ? " active" : ""}`}
+          className={`tree-row${selectedPath === UNASSIGNED ? " active" : ""}`}
           style={{ paddingLeft: 8 }}
-          onClick={() => onSelect("__manual__")}
+          onClick={() => onSelect(UNASSIGNED)}
         >
-          <span className="tree-label">Manually authored</span>
-          <span className="tree-count">{manualCount}</span>
+          <span className="tree-label">Unassigned</span>
+          <span className="tree-count">{unassignedCount}</span>
         </div>
       )}
     </div>
   );
 }
 
+// Distinct suite paths already in use (manual or source-derived) --
+// feeds a datalist so assigning a case doesn't invite near-duplicate
+// folders from typos ("auth" vs "Auth" vs "auht").
+export function collectKnownSuitePaths(cases: TreeCase[]): string[] {
+  const paths = new Set<string>();
+  for (const tc of cases) {
+    const location = effectiveLocation(tc);
+    if (location) paths.add(location);
+  }
+  return [...paths].sort();
+}
+
 // Filters a case list by the tree's current selection -- null = show
-// everything, "__manual__" = cases with no source file, otherwise a
-// path prefix (a directory or an exact file both work, since matching is
-// by prefix).
+// everything, UNASSIGNED = cases with no suitePath or source file,
+// otherwise a path prefix (a directory or an exact file both work, since
+// matching is by prefix).
 export function filterCasesByPath<T extends TreeCase>(cases: T[], selectedPath: string | null): T[] {
   if (selectedPath === null) return cases;
-  if (selectedPath === "__manual__") return cases.filter((c) => !c.sourceFilePath);
-  return cases.filter((c) => c.sourceFilePath === selectedPath || c.sourceFilePath?.startsWith(selectedPath + "/"));
+  if (selectedPath === UNASSIGNED) return cases.filter((c) => !effectiveLocation(c));
+  return cases.filter((c) => {
+    const location = effectiveLocation(c);
+    return location === selectedPath || location?.startsWith(selectedPath + "/");
+  });
 }

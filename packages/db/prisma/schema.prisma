@@ -324,6 +324,16 @@ model TestCase {
   testType   TestCaseType
   automationStatus AutomationStatus @default(MANUAL)
 
+  // Manual suite/folder assignment, independent of origin -- a "/"-delimited
+  // path like the tree UI's derived-from-source grouping (e.g.
+  // "auth/password-reset"), but settable on ANY case, not just ones with a
+  // source file. When set, this wins over the source-file-derived location
+  // for tree placement -- see components/TestCaseTree.tsx. Nullable: an
+  // unassigned case (common right after manual authoring) still needs
+  // somewhere to render, so it falls into a distinct "Unassigned" bucket
+  // rather than being forced into a guessed suite.
+  suitePath String?
+
   origin     TestCaseOrigin @default(AUTHORED) // AUTHORED vs AI_REVERSE_ENGINEERED
   confidence Float? // set when origin = AI_REVERSE_ENGINEERED; agent's self-rated confidence 0-1
 
