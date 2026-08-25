@@ -47,7 +47,7 @@ function PastRunDetail({ id }: { id: string }) {
   );
 }
 
-export default function RiskAnalysisPage() {
+export default function TestStrategyPage() {
   const { projectId } = useParams<{ projectId: string }>();
   const [openRunId, setOpenRunId] = useState<string | null>(null);
   const [repoUrl, setRepoUrl] = useState("");
@@ -139,7 +139,11 @@ export default function RiskAnalysisPage() {
 
   return (
     <div style={{ maxWidth: 800 }}>
-      <h1>Change impact &amp; risk analysis</h1>
+      <h1>Test strategy</h1>
+      <p className="text-muted" style={{ margin: "-8px 0 16px" }}>
+        Risk, mitigations, and coverage before you run anything —{" "}
+        <a href={`/projects/${projectId}/releases`}>Release Readiness</a> shows how it held up after.
+      </p>
 
       <div style={{ border: "1px solid var(--line)", borderRadius: 8, padding: 16, margin: "16px 0" }}>
         <h2 style={{ marginTop: 0 }}>Bulk-assess risk</h2>
@@ -184,6 +188,11 @@ export default function RiskAnalysisPage() {
                   </option>
                 ))}
               </select>
+              {releaseId && (
+                <a href={`/projects/${projectId}/releases/${releaseId}`} style={{ whiteSpace: "nowrap", alignSelf: "center" }}>
+                  View readiness →
+                </a>
+              )}
             </div>
             <div style={{ display: "flex", gap: 8, marginTop: 6 }}>
               <input
@@ -242,7 +251,10 @@ export default function RiskAnalysisPage() {
 
       {releaseId && (
         <div style={{ border: "1px solid var(--line)", borderRadius: 8, padding: 16, margin: "16px 0" }}>
-          <h2 style={{ marginTop: 0 }}>Risk flags on this release</h2>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
+            <h2 style={{ marginTop: 0 }}>Risk flags on this release</h2>
+            <a href={`/projects/${projectId}/releases/${releaseId}`}>Full readiness view →</a>
+          </div>
           {riskFlags.length === 0 && <p style={{ color: "var(--muted)" }}>None yet.</p>}
           <ul style={{ listStyle: "none", padding: 0 }}>
             {riskFlags.map((f) => (

@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { TRPCError } from "@trpc/server";
 import { router, protectedProcedure, requireProjectAccess } from "../trpc.js";
 
 const acceptanceCriterionOutput = z.object({
@@ -17,6 +18,7 @@ export const testPlansRouter = router({
           id: z.string(),
           name: z.string(),
           status: z.string(),
+          releaseId: z.string().nullable(),
           testPlanType: z.object({ id: z.string(), name: z.string() }),
           acceptanceCriteria: z.array(z.object({ id: z.string() })),
         }),
@@ -46,6 +48,7 @@ export const testPlansRouter = router({
         name: z.string(),
         description: z.string().nullable(),
         status: z.string(),
+        releaseId: z.string().nullable(),
         customFields: z.record(z.unknown()),
         testPlanType: z.object({
           id: z.string(),
@@ -68,6 +71,7 @@ export const testPlansRouter = router({
         name: plan.name,
         description: plan.description,
         status: plan.status,
+        releaseId: plan.releaseId,
         customFields: plan.customFields as Record<string, unknown>,
         testPlanType: {
           id: plan.testPlanType.id,
@@ -126,6 +130,27 @@ export const testPlansRouter = router({
           status: input.status,
           customFields: input.customFields as never,
         },
+      });
+    }),
+
+  setRelease: protectedProcedure
+    .input(z.object({ testPlanId: z.string(), releaseId: z.string().nullable() }))
+    .mutation(async ({ ctx, input }) => {
+      const plan = await ctx.prisma.testPlan.findUniqueOrThrow({
+        where: { id: input.testPlanId },
+        select: { projectId: true },
+      });
+      await requireProjectAccess(ctx, plan.projectId, "EDITOR");
+      if (input.releaseId) {
+        const release = await ctx.prisma.release.findUniqueOrThrow({ where: { id: input.releaseId } });
+        if (release.projectId !== plan.projectId) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "That release does not belong to this project" });
+        }
+      }
+      return ctx.prisma.testPlan.update({
+        where: { id: input.testPlanId },
+        data: { releaseId: input.releaseId },
+        select: { id: true, releaseId: true },
       });
     }),
 
