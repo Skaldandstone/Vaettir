@@ -10,7 +10,11 @@ import { startReverseEngineerJobPoller } from "./jobs/reverseEngineerWorker.js";
 // "project.byId,releases.byId,releases.readiness,..."), which routinely
 // exceeds find-my-way's 100-char default per-param length as pages grow
 // past a handful of parallel queries.
-const server = Fastify({ logger: true, maxParamLength: 5000 });
+//
+// bodyLimit raised from Fastify's 1MB default: P2-11's zip upload sends a
+// base64-encoded archive (up to 10MB raw, ~33% larger base64-encoded) as a
+// single mutation input, well past the default.
+const server = Fastify({ logger: true, maxParamLength: 5000, bodyLimit: 15 * 1024 * 1024 });
 
 await server.register(cors, { origin: true });
 

@@ -6,6 +6,7 @@ import { router, protectedProcedure, requireProjectAccess } from "../trpc.js";
 import { persistReverseEngineerResult } from "../services/reverseEngineerPersist.js";
 import { kickReverseEngineerQueue } from "../jobs/reverseEngineerWorker.js";
 import { scanRepoForTestFiles, scanChangedTestFiles, hashFileContent } from "../services/repoScan.js";
+import { scanZipForTestFiles } from "../services/zipScan.js";
 import { assertReverseEngineerBudget, remainingReverseEngineerBudget } from "../services/rateLimit.js";
 
 export const agentRouter = router({
@@ -153,6 +154,64 @@ export const agentRouter = router({
             data: {
               projectId: input.projectId,
               inputType: "REPO_SCAN",
+              inputRef: f.relativePath,
+              content: f.content,
+              status: "PENDING",
+            },
+          }),
+        ),
+      );
+      void kickReverseEngineerQueue();
+
+      return { scannedFileCount: files.length, queuedJobIds: jobs.map((j) => j.id), rateLimitedCount };
+    }),
+
+  // P2-11: the file-upload counterpart to scanRepo -- same queue-one-job-
+  // per-test-file shape, just reading from an uploaded zip of a test
+  // directory instead of cloning a repo. No git history exists for an
+  // upload, so there's no diff-aware path (P2-05's equivalent); every
+  // upload scans fresh, deduped only against whatever's already tracked by
+  // path+hash. `zipBase64` because tRPC's JSON transport has no native
+  // binary/multipart support -- the client base64-encodes the file before
+  // sending (see server.ts's raised bodyLimit for why that's viable at all).
+  uploadZip: protectedProcedure
+    .input(z.object({ projectId: z.string(), zipBase64: z.string().min(1) }))
+    .output(z.object({ scannedFileCount: z.number(), queuedJobIds: z.array(z.string()), rateLimitedCount: z.number() }))
+    .mutation(async ({ ctx, input }) => {
+      const { project } = await requireProjectAccess(ctx, input.projectId, "EDITOR");
+      await assertReverseEngineerBudget(ctx.prisma, project.organizationId);
+
+      const alreadyTracked = await ctx.prisma.testCaseSource.findMany({
+        where: { testCase: { projectId: input.projectId } },
+        select: { filePath: true, contentHash: true },
+      });
+      const knownHashes = new Map(
+        alreadyTracked.filter((s): s is { filePath: string; contentHash: string } => s.contentHash !== null).map((s) => [s.filePath, s.contentHash]),
+      );
+
+      let zipBuffer: Buffer;
+      try {
+        zipBuffer = Buffer.from(input.zipBase64, "base64");
+      } catch {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "zipBase64 is not valid base64" });
+      }
+      let files;
+      try {
+        files = scanZipForTestFiles(zipBuffer, knownHashes);
+      } catch (e) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: e instanceof Error ? e.message : String(e) });
+      }
+
+      const remaining = await remainingReverseEngineerBudget(ctx.prisma, project.organizationId);
+      const filesToQueue = files.slice(0, remaining);
+      const rateLimitedCount = files.length - filesToQueue.length;
+
+      const jobs = await Promise.all(
+        filesToQueue.map((f) =>
+          ctx.prisma.reverseEngineerJob.create({
+            data: {
+              projectId: input.projectId,
+              inputType: "FILE_UPLOAD",
               inputRef: f.relativePath,
               content: f.content,
               status: "PENDING",

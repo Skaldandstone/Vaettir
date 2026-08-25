@@ -6,6 +6,29 @@ import { trpc, type RouterOutputs } from "@/lib/trpc";
 
 const ACTIVE_JOB_STATUSES = new Set(["PENDING", "RUNNING"]);
 
+function readFileAsText(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result as string);
+    reader.onerror = () => reject(reader.error ?? new Error("Failed to read file"));
+    reader.readAsText(file);
+  });
+}
+
+// FileReader's readAsDataURL gives "data:<mime>;base64,<data>" -- strip the
+// prefix since the mutation just wants the raw base64 payload.
+function readFileAsBase64(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = reader.result as string;
+      resolve(result.slice(result.indexOf(",") + 1));
+    };
+    reader.onerror = () => reject(reader.error ?? new Error("Failed to read file"));
+    reader.readAsDataURL(file);
+  });
+}
+
 export default function ReverseEngineerPage() {
   const { projectId } = useParams<{ projectId: string }>();
   const [filePath, setFilePath] = useState("src/example.test.ts");
@@ -27,6 +50,9 @@ export default function ReverseEngineerPage() {
   const [gherkinContent, setGherkinContent] = useState("");
   const [importingGherkin, setImportingGherkin] = useState(false);
   const [gherkinResult, setGherkinResult] = useState<RouterOutputs["agent"]["importGherkin"] | null>(null);
+
+  const [uploadingZip, setUploadingZip] = useState(false);
+  const [zipResult, setZipResult] = useState<RouterOutputs["agent"]["uploadZip"] | null>(null);
 
   // Pre-fill the repo URL from the project itself so the user doesn't have
   // to go look it up on /projects again.
@@ -94,6 +120,22 @@ export default function ReverseEngineerPage() {
     }
   }
 
+  async function uploadZip(file: File) {
+    setUploadingZip(true);
+    setError(null);
+    setZipResult(null);
+    try {
+      const zipBase64 = await readFileAsBase64(file);
+      const res = await trpc.agent.uploadZip.mutate({ projectId, zipBase64 });
+      setZipResult(res);
+      loadJobs();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setUploadingZip(false);
+    }
+  }
+
   async function scanRepo() {
     setScanning(true);
     setError(null);
@@ -158,12 +200,52 @@ export default function ReverseEngineerPage() {
         )}
       </div>
 
-      <h2>...or paste a single test file</h2>
+      <h2>...or upload a zip of a test directory</h2>
+      <p style={{ color: "var(--muted)", margin: "0 0 8px" }}>
+        Finds test files by naming convention inside the zip and queues one background job per file, same as
+        scanning a repo — just from a local archive instead of a clone.
+      </p>
+      <div style={{ display: "grid", gap: 8, maxWidth: 720, marginBottom: 8 }}>
+        <input
+          type="file"
+          accept=".zip"
+          disabled={uploadingZip}
+          onChange={(e) => {
+            const file = e.target.files?.[0];
+            if (file) void uploadZip(file);
+            e.target.value = "";
+          }}
+        />
+        {uploadingZip && <p className="text-muted">Uploading + scanning…</p>}
+        {zipResult && (
+          <p style={{ color: "var(--frost)" }}>
+            Found {zipResult.scannedFileCount} test file(s), queued {zipResult.queuedJobIds.length} background job(s).
+            {zipResult.rateLimitedCount > 0 && (
+              <span style={{ color: "var(--ember)" }}>
+                {" "}
+                {zipResult.rateLimitedCount} held back by this org&apos;s hourly rate limit — try again shortly.
+              </span>
+            )}
+          </p>
+        )}
+      </div>
+
+      <h2>...or paste (or upload) a single test file</h2>
       <div style={{ display: "grid", gap: 8, maxWidth: 720 }}>
         <label>
           File path
           <input value={filePath} onChange={(e) => setFilePath(e.target.value)} style={{ width: "100%" }} />
         </label>
+        <input
+          type="file"
+          onChange={async (e) => {
+            const file = e.target.files?.[0];
+            if (!file) return;
+            setFilePath(file.name);
+            setContent(await readFileAsText(file));
+            e.target.value = "";
+          }}
+        />
         <label>
           Test source
           <textarea
@@ -199,6 +281,17 @@ export default function ReverseEngineerPage() {
           File path
           <input value={gherkinPath} onChange={(e) => setGherkinPath(e.target.value)} style={{ width: "100%" }} />
         </label>
+        <input
+          type="file"
+          accept=".feature"
+          onChange={async (e) => {
+            const file = e.target.files?.[0];
+            if (!file) return;
+            setGherkinPath(file.name);
+            setGherkinContent(await readFileAsText(file));
+            e.target.value = "";
+          }}
+        />
         <label>
           .feature source
           <textarea

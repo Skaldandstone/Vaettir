@@ -12,14 +12,16 @@
   "dependencies": {
     "@clerk/backend": "^1.18.0",
     "@fastify/cors": "^10.0.0",
+    "@trpc/server": "^11.0.0-rc.502",
     "@vaettir/ai-agent": "workspace:*",
     "@vaettir/core": "workspace:*",
     "@vaettir/db": "workspace:*",
-    "@trpc/server": "^11.0.0-rc.502",
+    "adm-zip": "^0.6.0",
     "fastify": "^5.0.0",
     "zod": "^3.23.0"
   },
   "devDependencies": {
+    "@types/adm-zip": "^0.5.8",
     "tsx": "^4.19.0",
     "typescript": "^5.6.0"
   }
