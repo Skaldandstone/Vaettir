@@ -4,6 +4,8 @@ import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import { trpc, type RouterOutputs } from "@/lib/trpc";
 import { TestCaseTree, filterCasesByPath, collectKnownSuitePaths, UNASSIGNED } from "@/components/TestCaseTree";
+import { Drawer } from "@/components/Drawer";
+import { TestCaseDetailContent } from "@/components/TestCaseDetailContent";
 
 function AssignSuiteControl({
   caseId,
@@ -49,11 +51,51 @@ function AssignSuiteControl({
   );
 }
 
+// TestRail/Qase both let you type a title and hit Enter right in the
+// list/tree to capture a test idea instantly -- no modal, no page nav. This
+// mirrors that: the full "+ New test case" form is still there for anyone
+// who wants to fill in given/when/then up front, but it's the secondary
+// path now, not the only one.
+function QuickAddRow({ projectId, suitePath, onAdded }: { projectId: string; suitePath: string | null; onAdded: () => void }) {
+  const [title, setTitle] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  async function submit() {
+    if (!title.trim()) return;
+    setSaving(true);
+    try {
+      await trpc.testCases.quickCreate.mutate({
+        projectId,
+        title: title.trim(),
+        suitePath: suitePath && suitePath !== UNASSIGNED ? suitePath : undefined,
+      });
+      setTitle("");
+      onAdded();
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
+      <input
+        value={title}
+        onChange={(e) => setTitle(e.target.value)}
+        onKeyDown={(e) => e.key === "Enter" && submit()}
+        placeholder={suitePath && suitePath !== UNASSIGNED ? `+ Quick-add a case in ${suitePath}…` : "+ Quick-add a case, press Enter…"}
+        style={{ flex: 1 }}
+        disabled={saving}
+      />
+    </div>
+  );
+}
+
 export default function TestCasesPage() {
   const { projectId } = useParams<{ projectId: string }>();
   const [project, setProject] = useState<RouterOutputs["project"]["byId"] | null>(null);
   const [cases, setCases] = useState<RouterOutputs["testCases"]["list"]>([]);
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
+  const [openCaseId, setOpenCaseId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -87,7 +129,7 @@ export default function TestCasesPage() {
         </div>
         <div style={{ display: "flex", gap: 16 }}>
           <a href={`/projects/${projectId}/test-cases/review`}>Review queue</a>
-          <a href={`/projects/${projectId}/test-cases/new`}>+ New test case</a>
+          <a href={`/projects/${projectId}/test-cases/new`}>Full editor</a>
         </div>
       </div>
 
@@ -109,10 +151,12 @@ export default function TestCasesPage() {
             </>
           ) : (
             <p className="text-muted" style={{ fontSize: 13 }}>
-              Connect a repo on the <a href="/projects">project settings</a> page and scan it, or{" "}
-              <a href={`/projects/${projectId}/test-cases/new`}>author a test case manually</a>.
+              Connect a repo on the <a href="/projects">project settings</a> page and scan it, or type a title below.
             </p>
           )}
+          <div style={{ marginTop: 12 }}>
+            <QuickAddRow projectId={projectId} suitePath={null} onAdded={load} />
+          </div>
         </div>
       )}
 
@@ -120,6 +164,7 @@ export default function TestCasesPage() {
         <div className="test-case-layout">
           <TestCaseTree cases={cases} selectedPath={selectedPath} onSelect={setSelectedPath} />
           <div className="test-case-list">
+            <QuickAddRow projectId={projectId} suitePath={selectedPath} onAdded={load} />
             {selectedPath === UNASSIGNED && (
               <p className="text-muted" style={{ fontSize: 13 }}>
                 These cases have no suite yet — assign one below, or leave them here.
@@ -128,7 +173,15 @@ export default function TestCasesPage() {
             <ul>
               {visibleCases.map((tc) => (
                 <li key={tc.id}>
-                  <a href={`/projects/${projectId}/test-cases/${tc.id}`}>{tc.title}</a>{" "}
+                  <a
+                    href={`/projects/${projectId}/test-cases/${tc.id}`}
+                    onClick={(e) => {
+                      e.preventDefault();
+                      setOpenCaseId(tc.id);
+                    }}
+                  >
+                    {tc.title}
+                  </a>{" "}
                   <small>
                     [{tc.testType}] {tc.origin === "AI_REVERSE_ENGINEERED" ? "🤖 AI-reversed" : ""}
                     {tc.reviewStatus === "PENDING_REVIEW" && " ⏳ pending review"}
@@ -144,6 +197,10 @@ export default function TestCasesPage() {
           </div>
         </div>
       )}
+
+      <Drawer open={openCaseId !== null} onClose={() => setOpenCaseId(null)}>
+        {openCaseId && <TestCaseDetailContent id={openCaseId} projectId={projectId} onChanged={load} />}
+      </Drawer>
     </div>
   );
 }

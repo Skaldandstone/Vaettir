@@ -279,6 +279,30 @@ export const testCasesRouter = router({
       return { assessedCount, failedCount };
     }),
 
+  // TestRail/Qase both let you type a title and hit Enter to capture a test
+  // idea immediately, filling in given/when/then/steps later -- deliberately
+  // skips requireAtLeastOneFormat, which the full create/update mutations
+  // still enforce for a case someone is treating as finished. A
+  // quick-created case is a legitimate draft, not an error state; the
+  // detail view calls this out and links to the editor instead of hiding
+  // the gap.
+  quickCreate: protectedProcedure
+    .input(z.object({ projectId: z.string(), title: z.string().min(1), suitePath: z.string().optional() }))
+    .output(z.object({ id: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      await requireProjectAccess(ctx, input.projectId, "EDITOR");
+      const created = await ctx.prisma.testCase.create({
+        data: {
+          projectId: input.projectId,
+          title: input.title,
+          testType: "FUNCTIONAL",
+          suitePath: input.suitePath || undefined,
+        },
+        select: { id: true },
+      });
+      return created;
+    }),
+
   create: protectedProcedure
     .input(testCaseContentSchema.extend({ projectId: z.string() }).refine(requireAtLeastOneFormat, {
       message: AT_LEAST_ONE_FORMAT_MESSAGE,

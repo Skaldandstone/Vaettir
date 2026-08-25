@@ -445,6 +445,43 @@ main.app-main {
   padding: 4px 10px;
 }
 
+/* ---------- drawer (slide-over "pop-out module") -- see components/Drawer.tsx ---------- */
+.drawer-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 10;
+  background: rgba(0, 0, 0, 0.4);
+  display: flex;
+  justify-content: flex-end;
+}
+.drawer-panel {
+  background: var(--ink);
+  border-left: 1px solid var(--line);
+  width: 100%;
+  max-width: 640px;
+  height: 100%;
+  overflow-y: auto;
+  padding: 28px;
+  position: relative;
+  animation: drawer-slide-in 0.2s ease;
+}
+.drawer-close {
+  position: absolute;
+  top: 20px;
+  right: 20px;
+  padding: 4px 10px;
+}
+@keyframes drawer-slide-in {
+  from {
+    transform: translateX(24px);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
 @media (max-width: 760px) {
   .app-shell {
     flex-direction: column;

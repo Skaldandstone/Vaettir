@@ -3,6 +3,8 @@
 import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import { trpc, type RouterOutputs } from "@/lib/trpc";
+import { Drawer } from "@/components/Drawer";
+import { TestCaseDetailContent } from "@/components/TestCaseDetailContent";
 
 export default function ReviewQueuePage() {
   const { projectId } = useParams<{ projectId: string }>();
@@ -10,6 +12,7 @@ export default function ReviewQueuePage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [openCaseId, setOpenCaseId] = useState<string | null>(null);
 
   function load() {
     setLoading(true);
@@ -50,7 +53,13 @@ export default function ReviewQueuePage() {
         {queue.map((tc) => (
           <li key={tc.id} style={{ border: "1px solid var(--line)", borderRadius: 8, padding: 12, marginBottom: 10 }}>
             <div style={{ display: "flex", justifyContent: "space-between" }}>
-              <a href={`/projects/${projectId}/test-cases/${tc.id}`}>
+              <a
+                href={`/projects/${projectId}/test-cases/${tc.id}`}
+                onClick={(e) => {
+                  e.preventDefault();
+                  setOpenCaseId(tc.id);
+                }}
+              >
                 <strong>{tc.title}</strong>
               </a>
               {tc.confidence != null && (
@@ -71,6 +80,10 @@ export default function ReviewQueuePage() {
           </li>
         ))}
       </ul>
+
+      <Drawer open={openCaseId !== null} onClose={() => setOpenCaseId(null)}>
+        {openCaseId && <TestCaseDetailContent id={openCaseId} projectId={projectId} onChanged={load} />}
+      </Drawer>
     </div>
   );
 }
