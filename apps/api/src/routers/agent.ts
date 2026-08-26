@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 import { reverseEngineerTestFile } from "@vaettir/ai-agent";
-import { gherkinToReverseEngineerResult } from "@vaettir/core";
+import { gherkinToReverseEngineerResult, postmanCollectionToReverseEngineerResult } from "@vaettir/core";
 import { router, protectedProcedure, requireProjectAccess } from "../trpc.js";
 import { persistReverseEngineerResult } from "../services/reverseEngineerPersist.js";
 import { kickReverseEngineerQueue } from "../jobs/reverseEngineerWorker.js";
@@ -59,6 +59,39 @@ export const agentRouter = router({
       const result = gherkinToReverseEngineerResult(input.content);
       if (result.testCases.length === 0) {
         throw new TRPCError({ code: "BAD_REQUEST", message: "No usable Scenario found in this file (needs Given/When/Then steps)" });
+      }
+      const created = await persistReverseEngineerResult(ctx.prisma, {
+        projectId: input.projectId,
+        filePath: input.filePath,
+        contentHash: hashFileContent(input.content),
+        result,
+        origin: "IMPORTED",
+      });
+      return { created: created.map((tc) => ({ id: tc.id, title: tc.title })) };
+    }),
+
+  // P2-12: request/assertion pairs, not functions -- structurally different
+  // from code-based frameworks, so like Gherkin this extracts rather than
+  // infers (plain JSON parse + regex over each request's test script, no
+  // LLM call). Each request with at least one pm.test(...) assertion in the
+  // collection becomes its own TestCase; a request with no test script has
+  // nothing to verify and is skipped. Same IMPORTED/APPROVED treatment as
+  // Gherkin -- see reverseEngineerPersist.ts.
+  importPostmanCollection: protectedProcedure
+    .input(z.object({ projectId: z.string(), filePath: z.string(), content: z.string().min(1) }))
+    .mutation(async ({ ctx, input }) => {
+      await requireProjectAccess(ctx, input.projectId, "EDITOR");
+      let result;
+      try {
+        result = postmanCollectionToReverseEngineerResult(input.content);
+      } catch (e) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: e instanceof Error ? e.message : String(e) });
+      }
+      if (result.testCases.length === 0) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "No requests with pm.test(...) assertions found in this collection",
+        });
       }
       const created = await persistReverseEngineerResult(ctx.prisma, {
         projectId: input.projectId,

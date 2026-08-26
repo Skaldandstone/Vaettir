@@ -54,6 +54,11 @@ export default function ReverseEngineerPage() {
   const [uploadingZip, setUploadingZip] = useState(false);
   const [zipResult, setZipResult] = useState<RouterOutputs["agent"]["uploadZip"] | null>(null);
 
+  const [postmanPath, setPostmanPath] = useState("collection.json");
+  const [postmanContent, setPostmanContent] = useState("");
+  const [importingPostman, setImportingPostman] = useState(false);
+  const [postmanResult, setPostmanResult] = useState<RouterOutputs["agent"]["importPostmanCollection"] | null>(null);
+
   // Pre-fill the repo URL from the project itself so the user doesn't have
   // to go look it up on /projects again.
   useEffect(() => {
@@ -117,6 +122,20 @@ export default function ReverseEngineerPage() {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
       setImportingGherkin(false);
+    }
+  }
+
+  async function importPostmanCollection() {
+    setImportingPostman(true);
+    setError(null);
+    setPostmanResult(null);
+    try {
+      const res = await trpc.agent.importPostmanCollection.mutate({ projectId, filePath: postmanPath, content: postmanContent });
+      setPostmanResult(res);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setImportingPostman(false);
     }
   }
 
@@ -309,6 +328,48 @@ export default function ReverseEngineerPage() {
           <p style={{ color: "var(--frost)" }}>
             Imported {gherkinResult.created.length} test case(s):{" "}
             {gherkinResult.created.map((tc) => tc.title).join(", ")}
+          </p>
+        )}
+      </div>
+
+      <h2>...or import a Postman collection</h2>
+      <p style={{ color: "var(--muted)", margin: "0 0 8px" }}>
+        Request/assertion pairs, not functions — this extracts each request&apos;s <code>pm.test(...)</code> checks
+        rather than inferring anything. A request with no test script has nothing to verify and is skipped.
+      </p>
+      <div style={{ display: "grid", gap: 8, maxWidth: 720 }}>
+        <label>
+          File path
+          <input value={postmanPath} onChange={(e) => setPostmanPath(e.target.value)} style={{ width: "100%" }} />
+        </label>
+        <input
+          type="file"
+          accept=".json"
+          onChange={async (e) => {
+            const file = e.target.files?.[0];
+            if (!file) return;
+            setPostmanPath(file.name);
+            setPostmanContent(await readFileAsText(file));
+            e.target.value = "";
+          }}
+        />
+        <label>
+          Collection JSON (exported from Postman)
+          <textarea
+            value={postmanContent}
+            onChange={(e) => setPostmanContent(e.target.value)}
+            rows={10}
+            style={{ width: "100%", fontFamily: "monospace" }}
+            placeholder='{"info": {"name": "..."}, "item": [...]}'
+          />
+        </label>
+        <button onClick={importPostmanCollection} disabled={importingPostman || !postmanContent}>
+          {importingPostman ? "Importing…" : "Import"}
+        </button>
+        {postmanResult && (
+          <p style={{ color: "var(--frost)" }}>
+            Imported {postmanResult.created.length} test case(s):{" "}
+            {postmanResult.created.map((tc) => tc.title).join(", ")}
           </p>
         )}
       </div>
