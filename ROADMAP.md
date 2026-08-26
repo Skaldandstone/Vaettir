@@ -77,7 +77,7 @@ real ingestion pipeline.
 
 ### Epic 2.3 - Multi-format input
 - ✅ **P2-11** (M) File upload support (not just paste) - zip of a test directory, single file upload. `labels: area:web, type:feature`
-- **P2-12** (S) Postman/Newman collection import → BDD (structurally different from code-based frameworks: request/assertion pairs, not functions). `labels: area:ai, type:feature`
+- ✅ **P2-12** (S) Postman/Newman collection import → BDD (structurally different from code-based frameworks: request/assertion pairs, not functions). `labels: area:ai, type:feature` - extracts each request's `pm.test(...)` assertions; a request with no test script is skipped.
 - ✅ **P2-13** (M) Gherkin/`.feature` file import - these are already BDD; this path validates/normalizes into the schema rather than inferring from scratch, and should reuse far less of the agent. `labels: area:ai, type:feature` - plain parser, zero LLM calls, exactly as scoped.
 
 ---
