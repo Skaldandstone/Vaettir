@@ -440,6 +440,31 @@ function AiCreditsSection({ organizationId }: { organizationId: string }) {
   );
 }
 
+function RetentionDryRunSection({ organizationId }: { organizationId: string }) {
+  const [result, setResult] = useState<RouterOutputs["organization"]["retentionDryRun"] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    trpc.organization.retentionDryRun
+      .query({ organizationId })
+      .then(setResult)
+      .catch((e) => setError(e instanceof Error ? e.message : String(e)));
+  }, [organizationId]);
+
+  if (error) return null; // non-admins can't call this -- fail silently rather than showing an error on a page they can still use
+  if (!result) return null;
+
+  const totalEligible = result.auditLogRowsEligible + result.testRunRowsEligible + result.testResultArtifactRowsEligible;
+
+  return (
+    <p className="text-muted" style={{ fontSize: 12, marginTop: 10 }}>
+      {totalEligible === 0
+        ? `Nothing is currently older than your ${result.retentionYears}-year policy.`
+        : `${result.auditLogRowsEligible} audit log entries, ${result.testRunRowsEligible} test runs, and ${result.testResultArtifactRowsEligible} evidence artifacts are currently older than your ${result.retentionYears}-year policy. Nothing is deleted automatically yet -- this is a report only.`}
+    </p>
+  );
+}
+
 export default function OrganizationSettingsPage() {
   const [orgId, setOrgId] = useState<string | null>(null);
   const [orgName, setOrgName] = useState("");
@@ -674,6 +699,7 @@ export default function OrganizationSettingsPage() {
             </button>
             {retentionSaved && <span style={{ color: "var(--frost)" }}>Saved.</span>}
           </div>
+          {orgId && <RetentionDryRunSection organizationId={orgId} />}
         </div>
       )}
 

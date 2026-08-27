@@ -12,6 +12,7 @@ import { router, protectedProcedure, requireOrgRole } from "../trpc.js";
 import type { PrismaClient } from "@vaettir/db";
 import { sendReadinessDigestForOrg } from "../jobs/readinessDigestScheduler.js";
 import { getAiCreditBalance } from "../services/aiCredits.js";
+import { computeRetentionDryRun } from "../services/retentionAudit.js";
 
 const INVITATION_EXPIRY_DAYS = 7;
 
@@ -488,6 +489,27 @@ export const organizationRouter = router({
         });
         return membership;
       });
+    }),
+
+  // P12-08 (dry-run half): read-only report of what's currently older than
+  // the org's retention window - no delete/purge capability exists yet
+  // (see services/retentionAudit.ts). ADMIN-gated since it's compliance-
+  // sensitive detail, not general org info.
+  retentionDryRun: protectedProcedure
+    .input(z.object({ organizationId: z.string() }))
+    .output(
+      z.object({
+        retentionYears: z.number(),
+        cutoffDate: z.date(),
+        auditLogRowsEligible: z.number(),
+        oldestAuditLogDate: z.date().nullable(),
+        testRunRowsEligible: z.number(),
+        testResultArtifactRowsEligible: z.number(),
+      }),
+    )
+    .query(async ({ ctx, input }) => {
+      requireOrgRole(ctx, input.organizationId, "ADMIN");
+      return computeRetentionDryRun(ctx.prisma, input.organizationId);
     }),
 
   // Plan tiers, sorted for display in a picker (Free -> Team -> Business ->
