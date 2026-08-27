@@ -24,6 +24,68 @@ function downloadCsv(filename: string, rows: string[][]) {
   URL.revokeObjectURL(url);
 }
 
+// P3-02: minimal RFC 4180 CSV parser (quoted fields, embedded commas,
+// escaped quotes as "") - the inverse of csvField/downloadCsv above.
+// Expects a header row containing at least "code" and "title"; a
+// "description" column is optional. Good enough for a control-set export
+// from a spreadsheet, which is the realistic source for this data.
+function parseControlsCsv(text: string): { code: string; title: string; description?: string }[] {
+  const rows: string[][] = [];
+  let row: string[] = [];
+  let field = "";
+  let inQuotes = false;
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (inQuotes) {
+      if (c === '"') {
+        if (text[i + 1] === '"') {
+          field += '"';
+          i++;
+        } else {
+          inQuotes = false;
+        }
+      } else {
+        field += c;
+      }
+    } else if (c === '"') {
+      inQuotes = true;
+    } else if (c === ",") {
+      row.push(field);
+      field = "";
+    } else if (c === "\n" || c === "\r") {
+      if (c === "\r" && text[i + 1] === "\n") i++;
+      row.push(field);
+      field = "";
+      rows.push(row);
+      row = [];
+    } else {
+      field += c;
+    }
+  }
+  if (field.length > 0 || row.length > 0) {
+    row.push(field);
+    rows.push(row);
+  }
+
+  const nonEmpty = rows.filter((r) => r.some((f) => f.trim().length > 0));
+  if (nonEmpty.length < 2) return [];
+  const header = (nonEmpty[0] ?? []).map((h) => h.trim().toLowerCase());
+  const codeIdx = header.indexOf("code");
+  const titleIdx = header.indexOf("title");
+  const descIdx = header.indexOf("description");
+  if (codeIdx === -1 || titleIdx === -1) {
+    throw new Error('CSV must have a header row with "code" and "title" columns');
+  }
+  return nonEmpty
+    .slice(1)
+    .filter((r) => (r[codeIdx] ?? "").trim() && (r[titleIdx] ?? "").trim())
+    .map((r) => ({
+      code: (r[codeIdx] ?? "").trim(),
+      title: (r[titleIdx] ?? "").trim(),
+      description: descIdx >= 0 && r[descIdx]?.trim() ? r[descIdx]?.trim() : undefined,
+    }));
+}
+
 function ControlRow({
   projectId,
   control,
@@ -126,6 +188,11 @@ export default function CompliancePage() {
   const [newDescription, setNewDescription] = useState("");
   const [savingControl, setSavingControl] = useState(false);
 
+  const [importModalOpen, setImportModalOpen] = useState(false);
+  const [importCsvText, setImportCsvText] = useState("");
+  const [importing, setImporting] = useState(false);
+  const [importResult, setImportResult] = useState<{ createdCount: number; skippedCount: number } | null>(null);
+
   function loadFrameworks() {
     setLoading(true);
     trpc.compliance.listFrameworks
@@ -197,6 +264,29 @@ export default function CompliancePage() {
     }
   }
 
+  async function importControls() {
+    if (!selectedFrameworkId) return;
+    setImporting(true);
+    setError(null);
+    setImportResult(null);
+    try {
+      const controls = parseControlsCsv(importCsvText);
+      if (controls.length === 0) {
+        setError('No rows found - check the CSV has a header row with "code" and "title" columns.');
+        return;
+      }
+      const result = await trpc.compliance.importControls.mutate({ frameworkId: selectedFrameworkId, controls });
+      setImportResult(result);
+      setImportCsvText("");
+      loadFrameworks();
+      loadControls();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setImporting(false);
+    }
+  }
+
   const [exporting, setExporting] = useState(false);
 
   async function exportCsv() {
@@ -262,6 +352,16 @@ export default function CompliancePage() {
               <button className="btn-secondary" style={{ fontSize: 13 }} onClick={exportCsv} disabled={exporting || controls.length === 0}>
                 {exporting ? "Exporting…" : "Export CSV"}
               </button>
+              <button
+                className="btn-secondary"
+                style={{ fontSize: 13 }}
+                onClick={() => {
+                  setImportResult(null);
+                  setImportModalOpen(true);
+                }}
+              >
+                Import controls
+              </button>
               <button className="btn-secondary" style={{ fontSize: 13 }} onClick={() => setControlModalOpen(true)}>
                 + Add control
               </button>
@@ -308,6 +408,40 @@ export default function CompliancePage() {
             </button>
             <button className="btn-primary" onClick={createFramework} disabled={savingFramework || !newKey.trim() || !newName.trim()}>
               {savingFramework ? "Creating…" : "Create"}
+            </button>
+          </div>
+        </div>
+      </Modal>
+
+      <Modal open={importModalOpen} onClose={() => setImportModalOpen(false)} title="Import controls from CSV">
+        <div style={{ display: "grid", gap: 10 }}>
+          <p className="text-muted" style={{ fontSize: 12, marginTop: 0 }}>
+            Paste a control set exported as CSV - a header row with <code>code</code>, <code>title</code>, and
+            optionally <code>description</code> columns, then one row per control (e.g. the AICPA Trust Services
+            Criteria for SOC 2, or NIST CSF subcategories). Existing controls with the same code on this framework
+            are left untouched, so re-running an updated import is safe.
+          </p>
+          <textarea
+            value={importCsvText}
+            onChange={(e) => setImportCsvText(e.target.value)}
+            rows={10}
+            placeholder={'code,title,description\nCC6.1,Logical access controls,"Restricts access to..."'}
+            style={{ width: "100%", fontFamily: "monospace", fontSize: 12 }}
+          />
+          {importResult && (
+            <p style={{ color: "var(--frost)", fontSize: 13 }}>
+              Imported {importResult.createdCount} control{importResult.createdCount === 1 ? "" : "s"}
+              {importResult.skippedCount > 0 &&
+                ` (${importResult.skippedCount} skipped - already exists on this framework)`}
+              .
+            </p>
+          )}
+          <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 8 }}>
+            <button className="btn-secondary" onClick={() => setImportModalOpen(false)}>
+              Close
+            </button>
+            <button className="btn-primary" onClick={importControls} disabled={importing || !importCsvText.trim()}>
+              {importing ? "Importing…" : "Import"}
             </button>
           </div>
         </div>

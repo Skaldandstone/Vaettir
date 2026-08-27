@@ -53,6 +53,38 @@ export const complianceRouter = router({
       });
     }),
 
+  // P3-02: bulk-import a control set (AICPA TSC, NIST CSF, etc.) from
+  // structured data an admin already has - a spreadsheet export, a vendor's
+  // published control list - rather than hand-typing each control through
+  // createControl one at a time, and rather than this codebase hand-seeding
+  // (and silently going stale on) the text of external published standards.
+  // skipDuplicates means re-importing an updated file is safe to run again:
+  // existing (frameworkId, code) rows are left alone, not overwritten.
+  importControls: protectedProcedure
+    .input(
+      z.object({
+        frameworkId: z.string(),
+        controls: z
+          .array(z.object({ code: z.string().min(1), title: z.string().min(1), description: z.string().optional() }))
+          .min(1)
+          .max(500),
+      }),
+    )
+    .output(z.object({ createdCount: z.number(), skippedCount: z.number() }))
+    .mutation(async ({ ctx, input }) => {
+      await ctx.prisma.complianceFramework.findUniqueOrThrow({ where: { id: input.frameworkId } });
+      const result = await ctx.prisma.complianceControl.createMany({
+        data: input.controls.map((c) => ({
+          frameworkId: input.frameworkId,
+          code: c.code,
+          title: c.title,
+          description: c.description,
+        })),
+        skipDuplicates: true,
+      });
+      return { createdCount: result.count, skippedCount: input.controls.length - result.count };
+    }),
+
   createControl: protectedProcedure
     .input(z.object({ frameworkId: z.string(), code: z.string().min(1), title: z.string().min(1), description: z.string().optional() }))
     .mutation(async ({ ctx, input }) => {
