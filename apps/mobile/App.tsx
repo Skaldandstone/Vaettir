@@ -39,13 +39,15 @@ function TestCaseBrowser() {
   const [error, setError] = useState<string | null>(null);
   const [openCaseId, setOpenCaseId] = useState<string | null>(null);
 
-  useEffect(() => {
+  function loadCases() {
     if (!projectId) return;
     trpc.testCases.list
       .query({ projectId })
       .then(setCases)
       .catch((e) => setError(String(e)));
-  }, [projectId]);
+  }
+
+  useEffect(loadCases, [projectId]);
 
   return (
     <SafeAreaView style={styles.container}>
@@ -67,24 +69,26 @@ function TestCaseBrowser() {
           </Pressable>
         ))}
       </ScrollView>
-      <TestCaseDetailModal id={openCaseId} onClose={() => setOpenCaseId(null)} />
+      <TestCaseDetailModal id={openCaseId} onClose={() => setOpenCaseId(null)} onChanged={loadCases} />
     </SafeAreaView>
   );
 }
 
-// P8-02: test case detail + BDD view in mobile - parity with web's detail
-// drawer (TestCaseDetailContent), but read-only and native-Modal-based
-// rather than a full page navigation, since the mobile app has no
-// navigation library wired up yet and the highest-value mobile use case
-// (per the roadmap's own framing) is quick lookup, not authoring.
-// Supports BOTH authoring formats (given/when/then and the structured
-// step table), same as web's P1-10, since a project can genuinely use
-// either.
-function TestCaseDetailModal({ id, onClose }: { id: string | null; onClose: () => void }) {
+// P8-02/P8-05: test case detail + BDD view in mobile, plus the AI
+// review-queue approval flow (parity with web's detail drawer's
+// Approve/Reject) - the mobile compliance sign-off flow (the ticket's
+// other half) needs a period + statement input, not just a tap, and isn't
+// attempted here; this covers what the roadmap itself calls out as the
+// clearer mobile-approvable action. Read-only-viewer-safe: buttons only
+// render when reviewStatus is actually PENDING_REVIEW, and the server
+// still enforces EDITOR+ regardless of what this UI shows.
+function TestCaseDetailModal({ id, onClose, onChanged }: { id: string | null; onClose: () => void; onChanged: () => void }) {
   const [detail, setDetail] = useState<Awaited<ReturnType<typeof trpc.testCases.byId.query>> | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [reviewNote, setReviewNote] = useState("");
+  const [reviewing, setReviewing] = useState(false);
 
-  useEffect(() => {
+  function load() {
     if (!id) {
       setDetail(null);
       return;
@@ -93,7 +97,25 @@ function TestCaseDetailModal({ id, onClose }: { id: string | null; onClose: () =
       .query({ id })
       .then(setDetail)
       .catch((e) => setError(String(e)));
-  }, [id]);
+  }
+
+  useEffect(load, [id]);
+
+  async function review(decision: "approve" | "reject") {
+    if (!id) return;
+    setReviewing(true);
+    setError(null);
+    try {
+      await trpc.testCases[decision].mutate({ id, note: reviewNote || undefined });
+      setReviewNote("");
+      load();
+      onChanged();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setReviewing(false);
+    }
+  }
 
   return (
     <Modal visible={id !== null} animationType="slide" onRequestClose={onClose}>
@@ -105,8 +127,24 @@ function TestCaseDetailModal({ id, onClose }: { id: string | null; onClose: () =
           <ScrollView style={{ marginTop: 12 }}>
             <Text style={styles.title}>{detail.title}</Text>
             <Text style={styles.rowMeta}>
-              {detail.testType} · {detail.priority} · {detail.origin}
+              {detail.testType} · {detail.priority} · {detail.origin} · {detail.reviewStatus}
             </Text>
+
+            {detail.reviewStatus === "PENDING_REVIEW" && (
+              <View style={styles.bddSection}>
+                <Text style={styles.bddLabel}>Review</Text>
+                <TextInput
+                  style={styles.input}
+                  placeholder="Optional note"
+                  value={reviewNote}
+                  onChangeText={setReviewNote}
+                />
+                <View style={{ flexDirection: "row", gap: 8 }}>
+                  <Button title={reviewing ? "…" : "Approve"} onPress={() => review("approve")} disabled={reviewing} />
+                  <Button title={reviewing ? "…" : "Reject"} onPress={() => review("reject")} disabled={reviewing} />
+                </View>
+              </View>
+            )}
 
             {detail.given.length > 0 && (
               <View style={styles.bddSection}>
