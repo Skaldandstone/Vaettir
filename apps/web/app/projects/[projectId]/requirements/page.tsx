@@ -3,6 +3,118 @@
 import { useEffect, useMemo, useState } from "react";
 import { useParams } from "next/navigation";
 import { trpc, type RouterOutputs } from "@/lib/trpc";
+import { Modal } from "@/components/Modal";
+
+// 2026-08-27 competitor parity audit: draft-and-review, same shape as
+// P4-02's strategy generation - nothing here creates a real TestCase
+// until the user explicitly picks which drafts to keep.
+function GenerateTestCasesModal({
+  requirementId,
+  projectId,
+  onClose,
+  onCreated,
+}: {
+  requirementId: string;
+  projectId: string;
+  onClose: () => void;
+  onCreated: () => void;
+}) {
+  const [drafts, setDrafts] = useState<RouterOutputs["requirements"]["generateTestCases"] | null>(null);
+  const [selected, setSelected] = useState<Set<number>>(new Set());
+  const [generating, setGenerating] = useState(true);
+  const [creating, setCreating] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    trpc.requirements.generateTestCases
+      .mutate({ requirementId })
+      .then((result) => {
+        setDrafts(result);
+        setSelected(new Set(result.map((_, i) => i)));
+      })
+      .catch((e) => setError(e instanceof Error ? e.message : String(e)))
+      .finally(() => setGenerating(false));
+  }, [requirementId]);
+
+  function toggle(i: number) {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(i)) next.delete(i);
+      else next.add(i);
+      return next;
+    });
+  }
+
+  async function createSelected() {
+    if (!drafts) return;
+    setCreating(true);
+    setError(null);
+    try {
+      for (const i of selected) {
+        const d = drafts[i]!;
+        await trpc.testCases.create.mutate({
+          projectId,
+          title: d.title,
+          given: d.given,
+          when: d.when,
+          then: d.then,
+          testType: "FUNCTIONAL",
+          priority: d.priority as "CRITICAL" | "HIGH" | "MEDIUM" | "LOW",
+        });
+      }
+      onCreated();
+      onClose();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setCreating(false);
+    }
+  }
+
+  return (
+    <Modal open onClose={onClose} title="Generate test cases with AI">
+      {generating && <p>Drafting…</p>}
+      {error && <p style={{ color: "var(--ember)" }}>{error}</p>}
+      {drafts && (
+        <div style={{ maxHeight: 500, overflowY: "auto" }}>
+          {drafts.map((d, i) => (
+            <div key={i} className="panel" style={{ marginBottom: 10, padding: 10 }}>
+              <label style={{ display: "flex", gap: 8, alignItems: "flex-start" }}>
+                <input type="checkbox" checked={selected.has(i)} onChange={() => toggle(i)} style={{ marginTop: 4 }} />
+                <div style={{ flex: 1 }}>
+                  <strong>{d.title}</strong>{" "}
+                  <span className="text-muted" style={{ fontSize: 12 }}>
+                    ({d.priority})
+                  </span>
+                  <div style={{ fontSize: 13, marginTop: 4 }}>
+                    <div>
+                      <em>Given</em> {d.given.join("; ")}
+                    </div>
+                    <div>
+                      <em>When</em> {d.when.join("; ")}
+                    </div>
+                    <div>
+                      <em>Then</em> {d.then.join("; ")}
+                    </div>
+                  </div>
+                </div>
+              </label>
+            </div>
+          ))}
+          {drafts.length === 0 && <p className="text-muted">No draft cases produced.</p>}
+          <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 10 }}>
+            <button className="btn-secondary" onClick={onClose}>
+              Cancel
+            </button>
+            <button className="btn-primary" onClick={createSelected} disabled={creating || selected.size === 0}>
+              {creating ? "Creating…" : `Create ${selected.size} selected`}
+            </button>
+          </div>
+        </div>
+      )}
+    </Modal>
+  );
+}
 
 export default function RequirementsPage() {
   const { projectId } = useParams<{ projectId: string }>();
@@ -15,6 +127,7 @@ export default function RequirementsPage() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
+  const [generatingForId, setGeneratingForId] = useState<string | null>(null);
 
   function load() {
     setLoading(true);
@@ -134,7 +247,10 @@ export default function RequirementsPage() {
             <button onClick={() => startEdit(r)} style={{ marginRight: 8 }}>
               Edit
             </button>
-            <button onClick={() => remove(r.id)}>Delete</button>
+            <button onClick={() => remove(r.id)} style={{ marginRight: 8 }}>
+              Delete
+            </button>
+            <button onClick={() => setGeneratingForId(r.id)}>Generate test cases with AI</button>
           </li>
         ))}
         {!loading && requirements.length === 0 && <p style={{ color: "var(--muted)" }}>No requirements yet.</p>}
@@ -142,6 +258,15 @@ export default function RequirementsPage() {
           <p style={{ color: "var(--muted)" }}>No requirements match.</p>
         )}
       </ul>
+
+      {generatingForId && (
+        <GenerateTestCasesModal
+          requirementId={generatingForId}
+          projectId={projectId}
+          onClose={() => setGeneratingForId(null)}
+          onCreated={load}
+        />
+      )}
     </div>
   );
 }

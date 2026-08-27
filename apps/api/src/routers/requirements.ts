@@ -1,5 +1,8 @@
 import { z } from "zod";
+import { TRPCError } from "@trpc/server";
+import { generateTestCasesFromRequirement } from "@vaettir/ai-agent";
 import { router, protectedProcedure, requireProjectAccess } from "../trpc.js";
+import { chargeAiCredits, InsufficientAiCreditsError } from "../services/aiCredits.js";
 
 export const requirementsRouter = router({
   list: protectedProcedure
@@ -82,5 +85,46 @@ export const requirementsRouter = router({
       });
       await requireProjectAccess(ctx, existing.projectId, "EDITOR");
       await ctx.prisma.requirement.delete({ where: { id: input.id } });
+    }),
+
+  // 2026-08-27 competitor parity audit: draft-only, same review-before-save
+  // shape as every other AI feature (P2-06, P4-02, P5-12) - nothing here
+  // creates a real TestCase; the caller reviews/edits the draft, then a
+  // separate testCases.create call (already built) commits whichever ones
+  // survive review.
+  generateTestCases: protectedProcedure
+    .input(z.object({ requirementId: z.string() }))
+    .output(
+      z.array(
+        z.object({
+          title: z.string(),
+          given: z.array(z.string()),
+          when: z.array(z.string()),
+          then: z.array(z.string()),
+          priority: z.string(),
+        }),
+      ),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const requirement = await ctx.prisma.requirement.findUniqueOrThrow({
+        where: { id: input.requirementId },
+        include: { project: { select: { id: true, name: true, organizationId: true } } },
+      });
+      await requireProjectAccess(ctx, requirement.projectId, "EDITOR");
+
+      try {
+        await chargeAiCredits(ctx.prisma, requirement.project.organizationId, "generateTestCasesFromRequirement");
+      } catch (e) {
+        if (e instanceof InsufficientAiCreditsError) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: e.message });
+        }
+        throw e;
+      }
+
+      return generateTestCasesFromRequirement({
+        requirementTitle: requirement.title,
+        requirementDescription: requirement.description,
+        projectName: requirement.project.name,
+      });
     }),
 });
