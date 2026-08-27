@@ -12,3 +12,6 @@ coverage/
 prisma/dev.db
 prisma/migrations/dev/
 .vercel/
+apps/web/e2e/.auth/
+apps/web/playwright-report/
+apps/web/test-results/

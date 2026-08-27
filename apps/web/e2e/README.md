@@ -1,0 +1,64 @@
+# Vaettir's own E2E suite
+
+Dogfooding: these Playwright tests exercise the Vaettir platform itself
+(this repo, `apps/web`), and are reverse-engineered into `TestCase`s in
+Vaettir's own **"TCM"** project (Test Case Management - Vaettir tracking
+its own testing, same as any customer's repo) using the exact same
+reverse-engineering pipeline every customer uses. Playwright is a native
+`FrameworkFamily` (see `packages/core/src/frameworks.ts`), so these get
+deterministic structural extraction, not a pure AI read.
+
+## Running locally
+
+```bash
+# 1. Start the API and web dev servers (see the root README)
+pnpm --filter @vaettir/api dev
+pnpm --filter @vaettir/web dev
+
+# 2. Set real credentials for a seeded test user with access to the org
+#    that owns the "Kall" and "TCM" projects
+export CLERK_TEST_EMAIL="you@example.com"
+export CLERK_TEST_PASSWORD="..."
+
+# 3. Install browsers once
+pnpm --filter @vaettir/web exec playwright install chromium
+
+# 4. Run the suite
+pnpm --filter @vaettir/web test:e2e
+```
+
+`global-setup.ts` signs in once via the real Clerk email/password form and
+saves the session (`e2e/.auth/user.json`, gitignored) for every other spec
+to reuse - signing in inside each test would be slow and would make every
+spec implicitly an auth test. `auth.spec.ts` itself runs in a separate
+Playwright project with no stored session, since it's testing the sign-in
+flow.
+
+## What's covered
+
+13 spec files, ~75 scenarios, across every major surface built this
+project: auth, projects, test cases (BDD authoring, quick-add, bulk ops,
+search, CSV import), test plans, requirements, AI reverse-engineering
+(paste/background-job/Gherkin/Postman/custom-framework-heuristic),
+compliance (framework/control mapping, evidence, sign-off, CSV export),
+test strategy (risk assessment, change-impact analysis, PR scan policy),
+release readiness (acceptance criteria, risk flags, release gates, trend
+charts), the org-wide dashboard, test runs (result linking, self-healing
+classify/approve/reject), the audit log, members/invites/seat usage/plan
+switching, and AI credits.
+
+## Not covered here
+
+- **Mobile** (`apps/mobile`) - Playwright drives a browser, not Expo/React
+  Native; mobile needs its own device/simulator-based E2E tooling if that
+  becomes a priority.
+- **The GitHub App webhook path** (P6-01/P6-05) - needs a real installed
+  GitHub App delivering a real webhook, not something a browser-driven
+  suite can trigger; see the verification approach already used for that
+  ticket in `ROADMAP.md` instead (a locally-posted, correctly-signed
+  simulated payload).
+- **Exact AI output content** - these tests check that AI-powered features
+  *respond* (a classification appears, a recommendation list renders),
+  not that the LLM's specific wording matches something fixed - LLM output
+  isn't stable enough for that, same reasoning as
+  `packages/ai-agent/scripts/promptRegression.ts`.
