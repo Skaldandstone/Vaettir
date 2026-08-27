@@ -167,6 +167,38 @@ tested," and feeds Phase 7's risk flags.
 
 ---
 
+## Phase 6.5 - Test Self-Healing (Suggest-Only)
+
+Vaettir doesn't execute tests or own test source - it ingests results from
+whatever CI/test runner the project already uses (Phase 5). That rules out
+the classic "self-healing" pattern (Mabl/Testim-style: the tool owns
+execution, so it can auto-retry a healed locator and confirm the fix
+before anyone sees a failure). What Vaettir *can* do: when a test fails,
+use the AI agent to tell "this looks like a brittle/selector-style
+failure, not a real regression" apart from a genuine behavior change, and
+propose a concrete fix - surfaced for human review, same as every other
+AI-generated content in this app (P2-06's review queue, P4-02's strategy
+draft, P5-12's inferred heuristic). **Never edits the connected repo or
+opens a PR on its own** - the repo connector (P2-02) is read-only today,
+and giving an agent unsupervised write access to someone's actual test
+source is a different, much higher-risk feature than anything else built
+so far; if real autonomy here is wanted later, that's its own explicit
+decision, not a default this phase reaches for.
+
+Depends on real ingested failure data (Phase 5, done) and repo diff
+access (`changeImpact.ts`'s `fetchFileAtCommit`/`getChangedFiles`, already
+built for P5-14 - full PR-triggered diff analysis from Phase 6 isn't a
+hard prerequisite, since a failure's own commit context is enough to
+diff against).
+
+- **P6.5-01** (M) Failure classification: given a failing `TestResult` with a matched `TestCaseSource`, diff the test's source (and the application code paths it exercises, where determinable) between the last commit it passed on and the failing commit; ask the agent to classify the failure as likely-brittle (selector/locator/text changed, structural refactor) vs. likely-real (behavior actually changed) with a rationale. Stored on the `TestResult`, not auto-acted on. `labels: area:ai, area:api, type:feature`
+- **P6.5-02** (L) Healing suggestion generation: for a failure classified likely-brittle, generate a concrete proposed fix (e.g. an updated selector/locator, an updated expected value) as a diff-style suggestion against the actual test source - grounded in the real code diff, not a guess from the error message alone. `labels: area:ai, type:feature`
+- **P6.5-03** (M) Suggestion review UI: surface classification + suggested fix on the failing result (Test Runs detail page), with approve/reject/edit actions - approving marks it reviewed and copies the suggested diff somewhere the developer can actually apply it (clipboard/download), it does not touch the repo. `labels: area:web, type:feature`
+- **P6.5-04** (S) Outcome tracking: when a test that had an approved healing suggestion later passes again (via normal `ingestJUnit` result flow), mark the suggestion as "resolved" - closes the loop on "did this suggestion actually help" without needing repo write access or a triggered re-run. `labels: area:api, type:feature`
+- **P6.5-05** (S) Aggregate signal: a project-level view of how many failures are brittle vs. real over time - if a specific test/file keeps generating brittle-failure suggestions, that's a signal the test itself (not the app) needs attention (e.g. a hardcoded selector that should be a data-testid). `labels: area:web, type:feature`
+
+---
+
 ## Phase 7 - Release Readiness & Quality Intelligence Dashboard
 
 The rollup: CI/CD release-to-release visibility, coverage against defined
