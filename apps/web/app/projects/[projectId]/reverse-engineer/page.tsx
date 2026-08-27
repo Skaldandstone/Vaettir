@@ -6,6 +6,61 @@ import { trpc, type RouterOutputs } from "@/lib/trpc";
 
 const ACTIVE_JOB_STATUSES = new Set(["PENDING", "RUNNING"]);
 
+// P2-07: the raw material for "periodically review edit patterns to
+// tighten the system prompt" -- a human reads this list and decides
+// whether the prompt needs adjusting; nothing here automates that
+// judgment call, it just makes the before/after visible in one place.
+function AiEditFeedbackSection({ projectId }: { projectId: string }) {
+  const [feedback, setFeedback] = useState<RouterOutputs["testCases"]["listAiEditFeedback"]>([]);
+
+  useEffect(() => {
+    trpc.testCases.listAiEditFeedback.query({ projectId }).then(setFeedback).catch(() => undefined);
+  }, [projectId]);
+
+  if (feedback.length === 0) return null;
+
+  return (
+    <div style={{ marginTop: 32 }}>
+      <h2 style={{ marginBottom: 4 }}>AI edit feedback</h2>
+      <p className="text-muted" style={{ fontSize: 13, marginBottom: 12 }}>
+        When a human corrects an AI-reverse-engineered case, that correction lands here - useful signal for whether
+        the system prompt needs tightening.
+      </p>
+      {feedback.map((f) => (
+        <div key={f.id} className="panel" style={{ marginBottom: 12, fontSize: 13 }}>
+          <p className="text-muted" style={{ margin: 0, fontSize: 12 }}>
+            Edited by {f.editedByEmail} · {new Date(f.editedAt).toLocaleString()}
+          </p>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginTop: 6 }}>
+            <div>
+              <div className="text-muted" style={{ fontSize: 11 }}>
+                Before (AI)
+              </div>
+              <strong>{f.beforeTitle}</strong>
+              <ul style={{ margin: "4px 0", paddingLeft: 18 }}>
+                {f.beforeGiven.map((s, i) => <li key={`bg${i}`}>Given {s}</li>)}
+                {f.beforeWhen.map((s, i) => <li key={`bw${i}`}>When {s}</li>)}
+                {f.beforeThen.map((s, i) => <li key={`bt${i}`}>Then {s}</li>)}
+              </ul>
+            </div>
+            <div>
+              <div className="text-muted" style={{ fontSize: 11 }}>
+                After (human-corrected)
+              </div>
+              <strong>{f.afterTitle}</strong>
+              <ul style={{ margin: "4px 0", paddingLeft: 18 }}>
+                {f.afterGiven.map((s, i) => <li key={`ag${i}`}>Given {s}</li>)}
+                {f.afterWhen.map((s, i) => <li key={`aw${i}`}>When {s}</li>)}
+                {f.afterThen.map((s, i) => <li key={`at${i}`}>Then {s}</li>)}
+              </ul>
+            </div>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function readFileAsText(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -598,6 +653,7 @@ export default function ReverseEngineerPage() {
           ))}
         </div>
       )}
+      <AiEditFeedbackSection projectId={projectId} />
     </div>
   );
 }

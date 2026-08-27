@@ -101,6 +101,7 @@ model Project {
   healingSuggestions  HealingSuggestion[]
   complianceEvidence  ComplianceEvidence[]
   complianceSignOffs  ComplianceSignOff[]
+  aiEditFeedback      AiEditFeedback[]
 
   @@unique([organizationId, slug])
 }
@@ -140,6 +141,7 @@ model User {
   reviewedHealingSuggestions HealingSuggestion[] @relation("HealingSuggestionReviewedBy")
   recordedComplianceEvidence ComplianceEvidence[]
   signedComplianceSignOffs   ComplianceSignOff[]
+  aiEditFeedback             AiEditFeedback[]
 
   // P1-05: a service token is backed by its own real User row (the
   // "service user") so it flows through every existing requireOrgRole /
@@ -564,6 +566,7 @@ model TestCase {
   results             TestResult[]
   healingSuggestions  HealingSuggestion[]
   complianceEvidence  ComplianceEvidence[]
+  aiEditFeedback      AiEditFeedback[]
   // The structured step-table authoring format -- an alternative (or
   // complement) to given/when/then above. A TestCase can carry either,
   // both, or neither populated; the UI renders whichever has content. See
@@ -1033,6 +1036,36 @@ model TestResult {
 
   @@index([testRunId])
   @@index([testCaseId])
+}
+
+// P2-07: when a human edits an AI-reverse-engineered test case, capture
+// the before/after as a labeled example -- the raw material for
+// periodically reviewing edit patterns to tighten the system prompt (a
+// human review process; this is just the capture mechanism). Only fires
+// for origin: AI_REVERSE_ENGINEERED cases whose title/given/when/then
+// actually changed -- an edit that only touches priority/tags/suite,
+// or an edit to an AUTHORED/IMPORTED case, isn't AI-quality feedback.
+model AiEditFeedback {
+  id         String   @id @default(cuid())
+  testCaseId String
+  testCase   TestCase @relation(fields: [testCaseId], references: [id])
+  projectId  String
+  project    Project  @relation(fields: [projectId], references: [id])
+
+  beforeTitle String
+  beforeGiven String[]
+  beforeWhen  String[]
+  beforeThen  String[]
+  afterTitle  String
+  afterGiven  String[]
+  afterWhen   String[]
+  afterThen   String[]
+
+  editedById String
+  editedBy   User     @relation(fields: [editedById], references: [id])
+  editedAt   DateTime @default(now())
+
+  @@index([projectId, editedAt])
 }
 
 // P6.5: suggest-only test self-healing -- classifies a failing TestResult

@@ -504,15 +504,44 @@ export const testCasesRouter = router({
     .mutation(async ({ ctx, input }) => {
       const existing = await ctx.prisma.testCase.findUniqueOrThrow({
         where: { id: input.id },
-        select: { projectId: true },
+        select: { projectId: true, origin: true, title: true, given: true, when: true, then: true },
       });
       const { project } = await requireProjectAccess(ctx, existing.projectId, "EDITOR");
+
+      // P2-07: a human correcting the AI's own output is the raw material
+      // for tightening the system prompt later -- capture it only when the
+      // BDD content actually changed (not e.g. just priority/tags/suite)
+      // on a case the AI originally wrote. An AUTHORED or IMPORTED case
+      // being edited isn't AI feedback, it's just normal editing.
+      const contentChanged =
+        existing.title !== input.title ||
+        JSON.stringify(existing.given) !== JSON.stringify(input.given) ||
+        JSON.stringify(existing.when) !== JSON.stringify(input.when) ||
+        JSON.stringify(existing.then) !== JSON.stringify(input.then);
+      const shouldCaptureFeedback = existing.origin === "AI_REVERSE_ENGINEERED" && contentChanged;
 
       // Steps don't have stable client-side ids yet (the form just edits an
       // ordered list), so replace-all is simpler and correct here; revisit
       // if per-step history/comments ever need steps to persist identity
       // across an edit.
       const updated = await ctx.prisma.$transaction(async (tx) => {
+        if (shouldCaptureFeedback) {
+          await tx.aiEditFeedback.create({
+            data: {
+              testCaseId: input.id,
+              projectId: existing.projectId,
+              beforeTitle: existing.title,
+              beforeGiven: existing.given,
+              beforeWhen: existing.when,
+              beforeThen: existing.then,
+              afterTitle: input.title,
+              afterGiven: input.given,
+              afterWhen: input.when,
+              afterThen: input.then,
+              editedById: ctx.user.id,
+            },
+          });
+        }
         await tx.testCaseStep.deleteMany({ where: { testCaseId: input.id } });
         return tx.testCase.update({
           where: { id: input.id },
@@ -689,5 +718,53 @@ export const testCasesRouter = router({
         data: { archived: input.archived, updatedById: ctx.user.id },
       });
       return { updatedCount: result.count };
+    }),
+
+  // P2-07: lists captured before/after edits of AI-reverse-engineered
+  // cases, most recent first -- the actual "periodically review edit
+  // patterns" step is a human reading this list and deciding whether the
+  // system prompt needs adjusting, not something this endpoint automates.
+  listAiEditFeedback: protectedProcedure
+    .input(z.object({ projectId: z.string(), limit: z.number().int().min(1).max(200).default(50) }))
+    .output(
+      z.array(
+        z.object({
+          id: z.string(),
+          testCaseId: z.string(),
+          beforeTitle: z.string(),
+          beforeGiven: z.array(z.string()),
+          beforeWhen: z.array(z.string()),
+          beforeThen: z.array(z.string()),
+          afterTitle: z.string(),
+          afterGiven: z.array(z.string()),
+          afterWhen: z.array(z.string()),
+          afterThen: z.array(z.string()),
+          editedAt: z.date(),
+          editedByEmail: z.string(),
+        }),
+      ),
+    )
+    .query(async ({ ctx, input }) => {
+      await requireProjectAccess(ctx, input.projectId);
+      const rows = await ctx.prisma.aiEditFeedback.findMany({
+        where: { projectId: input.projectId },
+        include: { editedBy: { select: { email: true } } },
+        orderBy: { editedAt: "desc" },
+        take: input.limit,
+      });
+      return rows.map((r) => ({
+        id: r.id,
+        testCaseId: r.testCaseId,
+        beforeTitle: r.beforeTitle,
+        beforeGiven: r.beforeGiven,
+        beforeWhen: r.beforeWhen,
+        beforeThen: r.beforeThen,
+        afterTitle: r.afterTitle,
+        afterGiven: r.afterGiven,
+        afterWhen: r.afterWhen,
+        afterThen: r.afterThen,
+        editedAt: r.editedAt,
+        editedByEmail: r.editedBy.email,
+      }));
     }),
 });
