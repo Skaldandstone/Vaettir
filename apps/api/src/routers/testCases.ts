@@ -80,6 +80,38 @@ export const testCasesRouter = router({
       }));
     }),
 
+  // P11-07-adjacent (2026-08-27 competitor parity audit): importCsv existed
+  // with no matching export - every competitor researched supports both
+  // directions. Returns the exact same field shape importCsv's header set
+  // expects (title/given/when/then/priority/tags), so export -> import is
+  // genuinely round-trippable, not just "data out" with no way back in.
+  // The actual CSV string construction happens client-side (same pattern
+  // P3-04's compliance report export already uses) - this returns
+  // structured data, not a pre-formatted file.
+  exportCsv: protectedProcedure
+    .input(z.object({ projectId: z.string(), includeArchived: z.boolean().default(false) }))
+    .output(
+      z.array(
+        z.object({
+          title: z.string(),
+          given: z.array(z.string()),
+          when: z.array(z.string()),
+          then: z.array(z.string()),
+          priority: z.string(),
+          tags: z.array(z.string()),
+        }),
+      ),
+    )
+    .query(async ({ ctx, input }) => {
+      await requireProjectAccess(ctx, input.projectId);
+      const cases = await ctx.prisma.testCase.findMany({
+        where: { projectId: input.projectId, ...(input.includeArchived ? {} : { archived: false }) },
+        orderBy: { title: "asc" },
+        select: { title: true, given: true, when: true, then: true, priority: true, tags: true },
+      });
+      return cases;
+    }),
+
   // .output() bounds the inferred type to this schema instead of Prisma's
   // deeply-nested `include` payload type, which otherwise blows past tsc's
   // structural inference limit (TS2589) for consumers of the AppRouter type.

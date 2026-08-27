@@ -5,25 +5,7 @@ import { useParams } from "next/navigation";
 import { trpc, type RouterOutputs } from "@/lib/trpc";
 import { Modal } from "@/components/Modal";
 import { Drawer } from "@/components/Drawer";
-
-// CSV field quoting: wrap in double quotes and escape embedded quotes
-// whenever the field contains a comma, quote, or newline -- the RFC 4180
-// rule every spreadsheet app expects.
-function csvField(value: string): string {
-  if (/[",\n]/.test(value)) return `"${value.replace(/"/g, '""')}"`;
-  return value;
-}
-
-function downloadCsv(filename: string, rows: string[][]) {
-  const csv = rows.map((row) => row.map(csvField).join(",")).join("\r\n");
-  const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = filename;
-  a.click();
-  URL.revokeObjectURL(url);
-}
+import { downloadCsv } from "@/lib/csv";
 
 // P3-02: minimal RFC 4180 CSV parser (quoted fields, embedded commas,
 // escaped quotes as "") - the inverse of csvField/downloadCsv above.

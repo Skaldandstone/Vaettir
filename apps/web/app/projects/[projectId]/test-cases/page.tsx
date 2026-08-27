@@ -8,6 +8,7 @@ import { Drawer } from "@/components/Drawer";
 import { Modal } from "@/components/Modal";
 import { TestCaseDetailContent } from "@/components/TestCaseDetailContent";
 import { isReadOnlySeat } from "@/lib/membership";
+import { downloadCsv } from "@/lib/csv";
 
 type Case = RouterOutputs["testCases"]["list"][number];
 
@@ -260,6 +261,13 @@ export default function TestCasesPage() {
     }
   }
 
+  async function exportCsv() {
+    const rows = await trpc.testCases.exportCsv.query({ projectId });
+    const header = ["title", "given", "when", "then", "priority", "tags"];
+    const body = rows.map((r) => [r.title, r.given.join("|"), r.when.join("|"), r.then.join("|"), r.priority, r.tags.join("|")]);
+    downloadCsv(`${project?.name ?? "test-cases"}.csv`, [header, ...body]);
+  }
+
   async function startManualRun() {
     if (selected.size === 0) return;
     setStartingRun(true);
@@ -286,6 +294,9 @@ export default function TestCasesPage() {
         </div>
         <div style={{ display: "flex", gap: 16, alignItems: "center" }}>
           <a href={`/projects/${projectId}/test-cases/review`}>Review queue</a>
+          <button className="btn-secondary" style={{ fontSize: 13 }} onClick={exportCsv}>
+            Export CSV
+          </button>
           {!readOnly && <a href={`/projects/${projectId}/test-cases/new`}>Full editor</a>}
           {!readOnly && (
             <button className="btn-secondary" style={{ fontSize: 13 }} onClick={() => setImportOpen(true)}>
