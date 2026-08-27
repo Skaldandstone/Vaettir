@@ -6,7 +6,8 @@
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "scripts": {
-    "build": "tsc -p tsconfig.json"
+    "build": "tsc -p tsconfig.json",
+    "test:prompts": "tsx scripts/promptRegression.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.32.0",
@@ -19,6 +20,7 @@
   "devDependencies": {
     "@types/babel__traverse": "^7.20.0",
     "@types/node": "^22.7.0",
+    "tsx": "^4.23.12",
     "typescript": "^5.6.0"
   }
 }
