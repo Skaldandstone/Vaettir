@@ -3,7 +3,34 @@ import { SafeAreaView, ScrollView, Text, TextInput, View, StyleSheet, Button, Mo
 import { StatusBar } from "expo-status-bar";
 import { ClerkProvider, SignedIn, SignedOut, useAuth, useSignIn } from "@clerk/clerk-expo";
 import { tokenCache } from "@clerk/clerk-expo/token-cache";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { trpc, setAuthTokenGetter } from "./lib/trpc";
+
+// P8-06: offline-friendly read caching. A spotty connection shouldn't
+// blank the test case list to nothing - show the last-known-good data
+// immediately, then refresh in the background. On a genuine fetch
+// failure (offline, server down), keep showing the cache instead of
+// replacing it with an error screen; the error is surfaced as a small
+// banner, not a full-screen blocker.
+const CASES_CACHE_KEY_PREFIX = "vaettir:cases:";
+
+async function readCachedCases(projectId: string): Promise<Awaited<ReturnType<typeof trpc.testCases.list.query>> | null> {
+  try {
+    const raw = await AsyncStorage.getItem(CASES_CACHE_KEY_PREFIX + projectId);
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
+  }
+}
+
+async function writeCachedCases(projectId: string, cases: Awaited<ReturnType<typeof trpc.testCases.list.query>>) {
+  try {
+    await AsyncStorage.setItem(CASES_CACHE_KEY_PREFIX + projectId, JSON.stringify(cases));
+  } catch {
+    // Best-effort - a full disk or a storage-denied environment shouldn't
+    // break the live fetch path, only the offline fallback.
+  }
+}
 
 const CLERK_PUBLISHABLE_KEY = process.env.EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY;
 
@@ -38,14 +65,44 @@ function TestCaseBrowser() {
   const [cases, setCases] = useState<Awaited<ReturnType<typeof trpc.testCases.list.query>>>([]);
   const [error, setError] = useState<string | null>(null);
   const [openCaseId, setOpenCaseId] = useState<string | null>(null);
+  const [showingCached, setShowingCached] = useState(false);
 
   function loadCases() {
     if (!projectId) return;
     trpc.testCases.list
       .query({ projectId })
-      .then(setCases)
-      .catch((e) => setError(String(e)));
+      .then((fresh) => {
+        setCases(fresh);
+        setShowingCached(false);
+        setError(null);
+        writeCachedCases(projectId, fresh);
+      })
+      .catch((e) => {
+        // Fetch failed (offline, server down) - fall back to whatever was
+        // last successfully cached rather than blanking the list. Only
+        // surfaces an error if there's no cache to fall back to either.
+        readCachedCases(projectId).then((cached) => {
+          if (cached) {
+            setCases(cached);
+            setShowingCached(true);
+          } else {
+            setError(e instanceof Error ? e.message : String(e));
+          }
+        });
+      });
   }
+
+  // Paint the cache immediately on project switch, before the network
+  // round-trip resolves, then loadCases() below refreshes it live.
+  useEffect(() => {
+    if (!projectId) return;
+    readCachedCases(projectId).then((cached) => {
+      if (cached) {
+        setCases(cached);
+        setShowingCached(true);
+      }
+    });
+  }, [projectId]);
 
   useEffect(loadCases, [projectId]);
 
@@ -59,6 +116,7 @@ function TestCaseBrowser() {
         onChangeText={setProjectId}
       />
       {error && <Text style={{ color: "crimson" }}>{error}</Text>}
+      {showingCached && !error && <Text style={styles.rowMeta}>Showing cached data - couldn&apos;t reach the server.</Text>}
       <ScrollView>
         {cases.map((tc) => (
           <Pressable key={tc.id} style={styles.row} onPress={() => setOpenCaseId(tc.id)}>
