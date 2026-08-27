@@ -9,6 +9,22 @@ import { scanRepoForTestFiles, scanChangedTestFiles, hashFileContent } from "../
 import { scanZipForTestFiles } from "../services/zipScan.js";
 import { assertReverseEngineerBudget, remainingReverseEngineerBudget } from "../services/rateLimit.js";
 import { getMostRecentHeuristic, recordHeuristicUsage } from "../services/customFrameworkHeuristic.js";
+import { chargeAiCredits, InsufficientAiCreditsError } from "../services/aiCredits.js";
+
+async function chargeOrThrow(
+  prisma: Parameters<typeof chargeAiCredits>[0],
+  organizationId: string,
+  operation: Parameters<typeof chargeAiCredits>[2],
+): Promise<void> {
+  try {
+    await chargeAiCredits(prisma, organizationId, operation);
+  } catch (e) {
+    if (e instanceof InsufficientAiCreditsError) {
+      throw new TRPCError({ code: "BAD_REQUEST", message: e.message });
+    }
+    throw e;
+  }
+}
 
 export const agentRouter = router({
   // Reverse-engineers a pasted/uploaded test file into BDD test cases and
@@ -29,6 +45,11 @@ export const agentRouter = router({
       if (input.persist) {
         await requireProjectAccess(ctx, input.projectId, "EDITOR");
       }
+      const project = await ctx.prisma.project.findUniqueOrThrow({
+        where: { id: input.projectId },
+        select: { organizationId: true },
+      });
+      await chargeOrThrow(ctx.prisma, project.organizationId, "reverseEngineerTestFile");
       const heuristic = await getMostRecentHeuristic(ctx.prisma, input.projectId);
       const result = await reverseEngineerTestFile({
         filePath: input.filePath,
@@ -282,7 +303,8 @@ export const agentRouter = router({
     )
     .output(z.object({ name: z.string(), description: z.string(), confidence: z.number() }))
     .mutation(async ({ ctx, input }) => {
-      await requireProjectAccess(ctx, input.projectId, "EDITOR");
+      const { project } = await requireProjectAccess(ctx, input.projectId, "EDITOR");
+      await chargeOrThrow(ctx.prisma, project.organizationId, "inferCustomFrameworkHeuristic");
       return inferCustomFrameworkHeuristic({ files: input.files });
     }),
 

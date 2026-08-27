@@ -65,6 +65,7 @@ model Organization {
   projects    Project[]
   memberships Membership[]
   invitations Invitation[]
+  aiCreditTransactions AiCreditTransaction[]
   apiKeys     ApiKey[]
   auditLogs   AuditLog[]
 }
@@ -263,7 +264,43 @@ model PlanTier {
   maxReadOnlySeats      Int? // null = unlimited once on this tier
   monthlyPricePerSeatCents Int? // null = not yet priced
 
+  // AI credits granted to an org on this tier at the start of each calendar
+  // month (see AiCreditTransaction) -- covers the real, variable LLM cost
+  // of reverse-engineering, PR-scan recommendations, risk assessment, and
+  // strategy generation. 0 is a valid, meaningful value (Free tier), not
+  // "unset" -- unlike monthlyPricePerSeatCents this always has a value.
+  includedAiCreditsPerMonth Int @default(0)
+
   organizations Organization[]
+}
+
+// Append-only ledger, not a mutable balance column -- an org's AI credit
+// balance is the sum of its transactions, same reasoning as AuditLog:
+// auditable, and a support agent (Phase 13) can see exactly where credits
+// went rather than trusting a number that could have drifted from reality.
+model AiCreditTransaction {
+  id             String                   @id @default(cuid())
+  organizationId String
+  organization   Organization             @relation(fields: [organizationId], references: [id])
+  type           AiCreditTransactionType
+  // Positive for GRANT/TOPUP, negative for CONSUMPTION and a deduction
+  // ADJUSTMENT -- signed so balance is always a plain sum, never a
+  // type-dependent add-or-subtract branch at read time.
+  amount         Int
+  // Which AI operation consumed credits (see AI_OPERATION_COSTS in
+  // services/aiCredits.ts) -- null for GRANT/TOPUP/ADJUSTMENT rows.
+  operation      String?
+  description    String?
+  createdAt      DateTime                 @default(now())
+
+  @@index([organizationId, createdAt])
+}
+
+enum AiCreditTransactionType {
+  GRANT
+  CONSUMPTION
+  TOPUP
+  ADJUSTMENT
 }
 
 // ---------------------------------------------------------------------------

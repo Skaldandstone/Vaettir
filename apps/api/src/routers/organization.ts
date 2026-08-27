@@ -10,6 +10,7 @@ import {
 import { router, protectedProcedure, requireOrgRole } from "../trpc.js";
 import type { PrismaClient } from "@vaettir/db";
 import { sendReadinessDigestForOrg } from "../jobs/readinessDigestScheduler.js";
+import { getAiCreditBalance } from "../services/aiCredits.js";
 
 const INVITATION_EXPIRY_DAYS = 7;
 
@@ -486,5 +487,50 @@ export const organizationRouter = router({
         });
         return membership;
       });
+    }),
+
+  // AI credit visibility: the running balance plus a recent-activity feed
+  // (grants, consumption by operation, top-ups) so an admin can see where
+  // credits went, not just a mystery number - same "auditable, not just a
+  // counter" reasoning as the ledger itself (see AiCreditTransaction).
+  aiCreditStatus: protectedProcedure
+    .input(z.object({ organizationId: z.string() }))
+    .output(
+      z.object({
+        balance: z.number(),
+        includedPerMonth: z.number(),
+        planTierName: z.string(),
+        recent: z.array(
+          z.object({
+            id: z.string(),
+            type: z.string(),
+            amount: z.number(),
+            operation: z.string().nullable(),
+            description: z.string().nullable(),
+            createdAt: z.date(),
+          }),
+        ),
+      }),
+    )
+    .query(async ({ ctx, input }) => {
+      requireOrgRole(ctx, input.organizationId);
+      const [balance, org, recent] = await Promise.all([
+        getAiCreditBalance(ctx.prisma, input.organizationId),
+        ctx.prisma.organization.findUniqueOrThrow({
+          where: { id: input.organizationId },
+          select: { planTier: { select: { name: true, includedAiCreditsPerMonth: true } } },
+        }),
+        ctx.prisma.aiCreditTransaction.findMany({
+          where: { organizationId: input.organizationId },
+          orderBy: { createdAt: "desc" },
+          take: 20,
+        }),
+      ]);
+      return {
+        balance,
+        includedPerMonth: org.planTier.includedAiCreditsPerMonth,
+        planTierName: org.planTier.name,
+        recent,
+      };
     }),
 });

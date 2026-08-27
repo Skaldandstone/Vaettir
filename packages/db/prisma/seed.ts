@@ -105,10 +105,14 @@ const BUILT_IN_COMPLIANCE_FRAMEWORKS = [
   { key: "iso27001", name: "ISO/IEC 27001", version: "2022" },
 ] as const;
 
-// Seat-based pricing tiers. `monthlyPricePerSeatCents` is left null across
-// the board -- cost structure isn't finalized yet; this table is where that
-// lands when it is, not a code change. See packages/core/src/plan.ts for
-// the enforcement logic that reads these bounds.
+// Seat-based pricing tiers. PROPOSED pricing pending James's sign-off (see
+// PRICING.md for the full reasoning and competitive comps) -- filled in
+// here so the platform has real, usable numbers rather than blocking on a
+// decision at 3am, but these are a recommendation, not a final call.
+// includedAiCreditsPerMonth sizes to each operation's real LLM cost (see
+// services/aiCredits.ts's AI_OPERATION_COSTS) plus a margin -- 1 credit
+// costs Vaettir ~$0.01 of underlying Claude API spend at the assumed
+// per-operation token estimates.
 const PLAN_TIERS = [
   {
     key: "free",
@@ -118,7 +122,8 @@ const PLAN_TIERS = [
     maxFullSeats: 3,
     includedReadOnlySeats: 0,
     maxReadOnlySeats: 0,
-    monthlyPricePerSeatCents: null,
+    monthlyPricePerSeatCents: 0,
+    includedAiCreditsPerMonth: 50,
   },
   {
     key: "team",
@@ -128,7 +133,8 @@ const PLAN_TIERS = [
     maxFullSeats: 50,
     includedReadOnlySeats: 10,
     maxReadOnlySeats: 10,
-    monthlyPricePerSeatCents: null,
+    monthlyPricePerSeatCents: 3900,
+    includedAiCreditsPerMonth: 500,
   },
   {
     key: "business",
@@ -138,7 +144,8 @@ const PLAN_TIERS = [
     maxFullSeats: 75,
     includedReadOnlySeats: 10,
     maxReadOnlySeats: null,
-    monthlyPricePerSeatCents: null,
+    monthlyPricePerSeatCents: 5900,
+    includedAiCreditsPerMonth: 2000,
   },
   {
     key: "corp",
@@ -148,7 +155,8 @@ const PLAN_TIERS = [
     maxFullSeats: null,
     includedReadOnlySeats: 10,
     maxReadOnlySeats: null,
-    monthlyPricePerSeatCents: null,
+    monthlyPricePerSeatCents: 8900,
+    includedAiCreditsPerMonth: 10000,
   },
 ] as const;
 

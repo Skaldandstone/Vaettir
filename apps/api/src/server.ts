@@ -6,6 +6,7 @@ import { appRouter } from "./router.js";
 import { createContext } from "./trpc.js";
 import { startReverseEngineerJobPoller } from "./jobs/reverseEngineerWorker.js";
 import { startReadinessDigestScheduler } from "./jobs/readinessDigestScheduler.js";
+import { startAiCreditGrantScheduler } from "./jobs/aiCreditGrantScheduler.js";
 import { verifyWebhookSignature } from "./services/githubApp.js";
 import { handlePullRequestWebhook, type GithubPullRequestPayload } from "./services/githubWebhook.js";
 
@@ -90,6 +91,7 @@ server
     server.log.info(`vaettir API listening on :${port}`);
     startReverseEngineerJobPoller();
     startReadinessDigestScheduler();
+    startAiCreditGrantScheduler();
   })
   .catch((err) => {
     server.log.error(err);

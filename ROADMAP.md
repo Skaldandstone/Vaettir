@@ -347,9 +347,10 @@ with `seatType: FULL | READ_ONLY`, `Organization.planTierId`,
 `Organization.dataRetentionYears`) and seeded with the tier boundaries as
 specified: **Free** (≤3 full seats, 0 read-only seats), **Team** (4–50 full
 seats, 10 included read-only seats), **Business** (51–75), **Corp** (76+).
-Per-seat pricing is deliberately left null in the seed data - cost
-structure isn't decided yet; `packages/core/src/plan.ts` already has the
-pure seat-limit logic (`canAddSeat`, `minimumTierForSeatCount`) ready for
+Per-seat pricing and AI credit grants are now seeded with a **proposed**
+(not yet business-signed-off) structure - see `PRICING.md` and Epic 12.4
+below; `packages/core/src/plan.ts` already has the pure seat-limit logic
+(`canAddSeat`, `minimumTierForSeatCount`) ready for
 whatever billing provider gets wired in.
 
 ### Epic 12.1 - Seat management
@@ -361,6 +362,11 @@ whatever billing provider gets wired in.
 - **P12-04** (M) Plan upgrade/downgrade flow: changing `Organization.planTierId`, validated against current seat counts (can't downgrade below what's actually seated - surface which seats would need to be removed first). `labels: area:api, area:web, type:feature`
 - **P12-05** (L) Payment provider integration (Stripe is the default assumption pending a final decision) once pricing is set: subscription creation, seat-count-driven quantity updates, webhook-driven plan sync so `PlanTier` stays the source of truth for entitlements while the provider stays the source of truth for money. `labels: area:api, integration, type:feature`
 - **P12-06** (S) Usage/seat-count dashboard for org admins: current seats used vs. included at this tier, a clear "you're at 9/10, next seat requires Team" style prompt before someone hits a wall mid-invite. `labels: area:web, type:feature`
+
+### Epic 12.4 - AI credits (metered AI usage, on top of per-seat pricing)
+- ✅ **P12-10** (L) AI credit ledger + per-operation metering: `AiCreditTransaction` (append-only, same auditability reasoning as `AuditLog`), `PlanTier.includedAiCreditsPerMonth`, `services/aiCredits.ts` (`chargeAiCredits`, `getAiCreditBalance`, `grantMonthlyCreditsIfNeeded`), and a `reverseEngineerWorker.ts`-style in-process monthly grant scheduler. `labels: area:api, area:db, type:feature` — wired into every real AI call site (`reverseEngineerFile`, the reverse-engineer job worker that `submitJob`/`scanRepo`/`uploadZip` all feed into, `inferCustomFrameworkHeuristic`, `assessTestCaseRisk` single + batch, `recommendTestPlansForDiff` on both the manual Test Strategy path and the automatic PR-scan webhook, `generateQaStrategyDraft`) - each charges a flat per-operation credit cost before calling the model and refuses the call with a clear error when the org's balance is insufficient. Flat costs (not exact token metering, since no `@vaettir/ai-agent` function currently returns token usage) sized to ~$0.01/credit of assumed Claude Sonnet-class API cost with ~2x headroom - see [PRICING.md](PRICING.md) for the full per-operation math. New "AI credits" section on the org settings page (balance + recent activity) and `organization.aiCreditStatus` query. Verified for real against the live Kall org's database: monthly grant lands the tier's full amount and is idempotent across repeated calls in the same month, a real charge deducts correctly and is visible in the transaction history, and draining the balance to zero correctly rejects the next charge attempt with a specific "needs N, has 0" error rather than silently proceeding or crashing. Real per-seat prices and AI credit grants for all four tiers are seeded and live (see `PRICING.md`) but are a **proposed** pricing structure awaiting business sign-off, not a finalized decision - the system enforces whatever numbers are in `PlanTier` today, so changing them later is a data change, not a code change.
+- **P12-11** (M) AI credit top-offs: `TOPUP` transactions purchased via the payment provider once `P12-05` lands - the ledger/balance side is already built and ready, this is just wiring a Stripe (or equivalent) checkout flow to create the transaction. Blocked on `P12-05`'s provider decision. `labels: area:api, integration, type:feature`
+- **P12-12** (S) Exact token-based AI metering: have `@vaettir/ai-agent`'s functions return real `usage.input_tokens`/`usage.output_tokens` and charge the actual amount instead of `P12-10`'s flat per-operation estimate. Worth doing once real usage data shows whether the estimates are over/under-charging - not blocking anything today. `labels: area:api, type:feature`
 
 ### Epic 12.3 - Plan-gated features & data retention
 - **P12-07** (M) Feature-flag-by-tier plumbing: a simple `planTier.key -> Set<featureFlag>` lookup (data, not scattered `if` checks) so specific tiers can gate specific feature sets once those are mapped - deliberately built as an empty, ready-to-fill table now rather than hardcoded later. `labels: area:api, type:architecture`

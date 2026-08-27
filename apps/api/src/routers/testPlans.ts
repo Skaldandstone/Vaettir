@@ -4,6 +4,7 @@ import { generateQaStrategyDraft } from "@vaettir/ai-agent";
 import { router, protectedProcedure, requireProjectAccess } from "../trpc.js";
 import { recordAudit } from "../services/auditLog.js";
 import { snapshotTestPlanVersion } from "../services/testPlanVersion.js";
+import { chargeAiCredits, InsufficientAiCreditsError } from "../services/aiCredits.js";
 
 const acceptanceCriterionOutput = z.object({
   id: z.string(),
@@ -287,7 +288,18 @@ export const testPlansRouter = router({
     )
     .mutation(async ({ ctx, input }) => {
       await requireProjectAccess(ctx, input.projectId, "EDITOR");
-      const project = await ctx.prisma.project.findUniqueOrThrow({ where: { id: input.projectId }, select: { name: true } });
+      const project = await ctx.prisma.project.findUniqueOrThrow({
+        where: { id: input.projectId },
+        select: { name: true, organizationId: true },
+      });
+      try {
+        await chargeAiCredits(ctx.prisma, project.organizationId, "generateQaStrategyDraft");
+      } catch (e) {
+        if (e instanceof InsufficientAiCreditsError) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: e.message });
+        }
+        throw e;
+      }
       const [testTypeGroups, frameworkGroups, totalTestCases] = await Promise.all([
         ctx.prisma.testCase.groupBy({ by: ["testType"], where: { projectId: input.projectId }, _count: true }),
         ctx.prisma.testCaseSource.groupBy({

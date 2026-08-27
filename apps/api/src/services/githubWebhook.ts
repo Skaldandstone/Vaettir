@@ -3,6 +3,7 @@ import { recommendTestPlansForDiff } from "@vaettir/ai-agent";
 import { getChangedFiles, getDiffContent } from "./changeImpact.js";
 import { matchChangedFilesToTestCases } from "./changeMatch.js";
 import { getInstallationAccessToken, postPrComment } from "./githubApp.js";
+import { chargeAiCredits } from "./aiCredits.js";
 
 const RELEVANT_ACTIONS = new Set(["opened", "synchronize", "reopened"]);
 
@@ -100,6 +101,7 @@ export async function handlePullRequestWebhook(
         select: { id: true, name: true, description: true },
       });
       if (testPlans.length > 0) {
+        await chargeAiCredits(prisma, project.organizationId, "recommendTestPlansForDiff", `webhook PR #${payload.number}`);
         const recommendation = await recommendTestPlansForDiff({ diffContent, testPlans });
         const relevantNames = testPlans.filter((p) => recommendation.relevantTestPlanIds.includes(p.id)).map((p) => p.name);
         aiSection = [

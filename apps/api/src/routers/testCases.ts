@@ -5,6 +5,7 @@ import { assessTestCaseRisk } from "@vaettir/ai-agent";
 import { Prisma } from "@vaettir/db";
 import { router, protectedProcedure, requireProjectAccess } from "../trpc.js";
 import { recordAudit } from "../services/auditLog.js";
+import { chargeAiCredits, InsufficientAiCreditsError } from "../services/aiCredits.js";
 
 const stepOutputSchema = z.object({
   order: z.number(),
@@ -269,7 +270,16 @@ export const testCasesRouter = router({
         where: { id: input.id },
         include: { source: { select: { filePath: true } } },
       });
-      await requireProjectAccess(ctx, tc.projectId, "EDITOR");
+      const { project } = await requireProjectAccess(ctx, tc.projectId, "EDITOR");
+
+      try {
+        await chargeAiCredits(ctx.prisma, project.organizationId, "assessTestCaseRisk");
+      } catch (e) {
+        if (e instanceof InsufficientAiCreditsError) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: e.message });
+        }
+        throw e;
+      }
 
       const assessment = await assessTestCaseRisk({
         title: tc.title,
@@ -302,7 +312,7 @@ export const testCasesRouter = router({
     .input(z.object({ projectId: z.string(), limit: z.number().min(1).max(50).default(20) }))
     .output(z.object({ assessedCount: z.number(), failedCount: z.number() }))
     .mutation(async ({ ctx, input }) => {
-      await requireProjectAccess(ctx, input.projectId, "EDITOR");
+      const { project } = await requireProjectAccess(ctx, input.projectId, "EDITOR");
       const unassessed = await ctx.prisma.testCase.findMany({
         where: { projectId: input.projectId, riskAssessedAt: null },
         include: { source: { select: { filePath: true } } },
@@ -313,6 +323,10 @@ export const testCasesRouter = router({
       let failedCount = 0;
       for (const tc of unassessed) {
         try {
+          // Charge (and stop the batch, not just this case) the moment
+          // credits run out -- partial progress on the batch is kept
+          // rather than the whole mutation failing outright.
+          await chargeAiCredits(ctx.prisma, project.organizationId, "assessTestCaseRisk");
           const assessment = await assessTestCaseRisk({
             title: tc.title,
             given: tc.given,
@@ -332,8 +346,9 @@ export const testCasesRouter = router({
             },
           });
           assessedCount++;
-        } catch {
+        } catch (e) {
           failedCount++;
+          if (e instanceof InsufficientAiCreditsError) break;
         }
       }
       return { assessedCount, failedCount };

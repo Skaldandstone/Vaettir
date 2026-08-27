@@ -384,6 +384,62 @@ function PlanTypesSection() {
   );
 }
 
+function AiCreditsSection({ organizationId }: { organizationId: string }) {
+  const [status, setStatus] = useState<RouterOutputs["organization"]["aiCreditStatus"] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    trpc.organization.aiCreditStatus
+      .query({ organizationId })
+      .then(setStatus)
+      .catch((e) => setError(e instanceof Error ? e.message : String(e)));
+  }, [organizationId]);
+
+  if (error) return <p style={{ color: "var(--ember)" }}>{error}</p>;
+  if (!status) return null;
+
+  return (
+    <div style={{ marginTop: 32 }}>
+      <h2>AI credits</h2>
+      <p style={{ color: "var(--muted)", fontSize: 13 }}>
+        Covers the real cost of AI-powered features (reverse-engineering, PR-scan recommendations, risk assessment,
+        strategy generation). Resets monthly per your plan tier; top-off purchases aren't available yet.
+      </p>
+      <div className="panel" style={{ marginBottom: 12 }}>
+        <div style={{ fontSize: 28, fontWeight: 700 }}>{status.balance}</div>
+        <div className="text-muted" style={{ fontSize: 12 }}>
+          credits remaining · {status.includedPerMonth}/month included on the {status.planTierName} plan
+        </div>
+      </div>
+      {status.recent.length > 0 && (
+        <table style={{ borderCollapse: "collapse", width: "100%" }}>
+          <thead>
+            <tr>
+              <th style={cellStyle}>When</th>
+              <th style={cellStyle}>Type</th>
+              <th style={cellStyle}>Operation</th>
+              <th style={cellStyle}>Amount</th>
+            </tr>
+          </thead>
+          <tbody>
+            {status.recent.map((t) => (
+              <tr key={t.id}>
+                <td style={cellStyle}>{new Date(t.createdAt).toLocaleString()}</td>
+                <td style={cellStyle}>{t.type}</td>
+                <td style={cellStyle}>{t.operation ?? t.description ?? "—"}</td>
+                <td style={{ ...cellStyle, color: t.amount < 0 ? "var(--ember)" : "var(--frost)" }}>
+                  {t.amount > 0 ? "+" : ""}
+                  {t.amount}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+    </div>
+  );
+}
+
 export default function OrganizationSettingsPage() {
   const [orgId, setOrgId] = useState<string | null>(null);
   const [orgName, setOrgName] = useState("");
@@ -713,6 +769,7 @@ export default function OrganizationSettingsPage() {
         </div>
       )}
 
+      {orgId && <AiCreditsSection organizationId={orgId} />}
       {orgId && <ApiKeysSection organizationId={orgId} />}
       <PlanTypesSection />
     </div>

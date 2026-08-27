@@ -3,6 +3,7 @@ import { reverseEngineerTestFile } from "@vaettir/ai-agent";
 import { persistReverseEngineerResult } from "../services/reverseEngineerPersist.js";
 import { hashFileContent } from "../services/repoScan.js";
 import { getMostRecentHeuristic, recordHeuristicUsage } from "../services/customFrameworkHeuristic.js";
+import { chargeAiCredits, InsufficientAiCreditsError } from "../services/aiCredits.js";
 
 // Single-instance, in-process poller -- no Redis/queue infra exists yet, and
 // running one API instance is the actual current deployment shape (see
@@ -43,6 +44,13 @@ export async function runReverseEngineerJob(jobId: string): Promise<void> {
   try {
     if (job.content === null) {
       throw new Error(`Job ${job.id} has no content to reverse-engineer (inputType ${job.inputType})`);
+    }
+    const project = await prisma.project.findUniqueOrThrow({ where: { id: job.projectId }, select: { organizationId: true } });
+    try {
+      await chargeAiCredits(prisma, project.organizationId, "reverseEngineerTestFile", `job ${job.id} (${job.inputRef})`);
+    } catch (e) {
+      if (e instanceof InsufficientAiCreditsError) throw new Error(e.message);
+      throw e;
     }
     const heuristic = await getMostRecentHeuristic(prisma, job.projectId);
     const result = await reverseEngineerTestFile({
