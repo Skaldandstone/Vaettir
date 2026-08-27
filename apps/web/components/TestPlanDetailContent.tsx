@@ -80,6 +80,105 @@ function CustomFieldsForm({
   );
 }
 
+// P4-01: a repeatable-row editor for one array-of-string field -- one row
+// per item, add/remove buttons, rather than the generic CustomFieldsForm's
+// single comma-separated text input for the same data. Comma-separated is
+// fine for a quick built-in type nobody's staring at for long; a QA
+// strategy's risk areas/entry/exit criteria are exactly the fields someone
+// is meant to sit down and think through one at a time.
+function StringListField({
+  label,
+  hint,
+  placeholder,
+  values,
+  onChange,
+}: {
+  label: string;
+  hint: string;
+  placeholder: string;
+  values: string[];
+  onChange: (values: string[]) => void;
+}) {
+  return (
+    <div>
+      <div style={{ fontWeight: 600 }}>{label}</div>
+      <p className="text-muted" style={{ fontSize: 12, marginTop: 2, marginBottom: 8 }}>
+        {hint}
+      </p>
+      {values.map((v, i) => (
+        <div key={i} style={{ display: "flex", gap: 6, marginBottom: 6 }}>
+          <input
+            value={v}
+            onChange={(e) => onChange(values.map((vv, j) => (j === i ? e.target.value : vv)))}
+            placeholder={placeholder}
+            style={{ flex: 1 }}
+          />
+          <button className="btn-secondary" onClick={() => onChange(values.filter((_, j) => j !== i))}>
+            Remove
+          </button>
+        </div>
+      ))}
+      <button className="btn-secondary" style={{ fontSize: 12 }} onClick={() => onChange([...values, ""])}>
+        + Add {label.toLowerCase().replace(/s$/, "")}
+      </button>
+    </div>
+  );
+}
+
+// P4-01: the QA Strategy plan type's own guided form, in place of the
+// generic CustomFieldsForm, since this is the plan type the roadmap calls
+// out by name for a "structured, guided form rather than raw JSON." Every
+// other plan type (built-in or custom, per P3-09) still gets the generic
+// renderer -- this one earns a dedicated form because its four fields are
+// exactly the fields a QA lead is meant to sit down and actually think
+// through, not just fill in.
+function QaStrategyForm({
+  values,
+  onChange,
+}: {
+  values: Record<string, unknown>;
+  onChange: (values: Record<string, unknown>) => void;
+}) {
+  const asStringArray = (v: unknown): string[] => (Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : []);
+  const riskAreas = asStringArray(values.riskAreas);
+  const environments = asStringArray(values.environments);
+  const entryCriteria = asStringArray(values.entryCriteria);
+  const exitCriteria = asStringArray(values.exitCriteria);
+
+  return (
+    <div style={{ display: "grid", gap: 18 }}>
+      <StringListField
+        label="Risk areas"
+        hint="Parts of the product most likely to break, or most costly if they do."
+        placeholder="e.g. Checkout payment flow"
+        values={riskAreas}
+        onChange={(v) => onChange({ ...values, riskAreas: v })}
+      />
+      <StringListField
+        label="Environments"
+        hint="Where this strategy's testing actually runs."
+        placeholder="e.g. Staging, iOS 17 physical device"
+        values={environments}
+        onChange={(v) => onChange({ ...values, environments: v })}
+      />
+      <StringListField
+        label="Entry criteria"
+        hint="What must be true before testing under this strategy can start."
+        placeholder="e.g. Feature flag enabled in staging"
+        values={entryCriteria}
+        onChange={(v) => onChange({ ...values, entryCriteria: v })}
+      />
+      <StringListField
+        label="Exit criteria"
+        hint="What must be true to call this strategy's testing done."
+        placeholder="e.g. Zero open Sev1 risk flags"
+        values={exitCriteria}
+        onChange={(v) => onChange({ ...values, exitCriteria: v })}
+      />
+    </div>
+  );
+}
+
 // Shared between the full detail page (/test-plans/[id], for deep links)
 // and the drawer opened from the list -- same pop-out-module split as
 // TestCaseDetailContent.
@@ -191,7 +290,11 @@ export function TestPlanDetailContent({
           </select>
         </label>
 
-        <CustomFieldsForm schema={plan.testPlanType.fieldSchema as FieldSchema} values={customFields} onChange={setCustomFields} />
+        {plan.testPlanType.key === "qa-strategy" ? (
+          <QaStrategyForm values={customFields} onChange={setCustomFields} />
+        ) : (
+          <CustomFieldsForm schema={plan.testPlanType.fieldSchema as FieldSchema} values={customFields} onChange={setCustomFields} />
+        )}
 
         <button onClick={save} disabled={saving || !name}>
           {saving ? "Saving…" : "Save"}
