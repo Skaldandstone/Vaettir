@@ -29,7 +29,15 @@ function DiffField({ label, before, after }: { label: string; before: string; af
 // P3-03: which compliance controls this specific case is evidence for.
 // Mapping a control here is what feeds the coverage view on the project's
 // /compliance page ("which controls have zero mapped test cases").
-function ComplianceControlsSection({ testCaseId, projectId }: { testCaseId: string; projectId: string }) {
+function ComplianceControlsSection({
+  testCaseId,
+  projectId,
+  readOnly,
+}: {
+  testCaseId: string;
+  projectId: string;
+  readOnly?: boolean;
+}) {
   const [mapped, setMapped] = useState<RouterOutputs["compliance"]["testCaseControls"] | null>(null);
   const [frameworks, setFrameworks] = useState<RouterOutputs["compliance"]["listFrameworks"]>([]);
   const [frameworkId, setFrameworkId] = useState("");
@@ -88,14 +96,16 @@ function ComplianceControlsSection({ testCaseId, projectId }: { testCaseId: stri
               <span>
                 {c.frameworkName}: <strong>{c.code}</strong> {c.title}
               </span>
-              <button className="btn-secondary" style={{ fontSize: 11 }} onClick={() => removeMapping(c.id)} disabled={busy}>
-                Unmap
-              </button>
+              {!readOnly && (
+                <button className="btn-secondary" style={{ fontSize: 11 }} onClick={() => removeMapping(c.id)} disabled={busy}>
+                  Unmap
+                </button>
+              )}
             </li>
           ))}
         </ul>
       )}
-      {frameworks.length > 0 && (
+      {!readOnly && frameworks.length > 0 && (
         <div style={{ display: "flex", gap: 6, marginTop: 6 }}>
           <select value={frameworkId} onChange={(e) => setFrameworkId(e.target.value)} style={{ fontSize: 12 }}>
             {frameworks.map((f) => (
@@ -132,11 +142,13 @@ export function TestCaseDetailContent({
   projectId,
   onEditHref,
   onChanged,
+  readOnly,
 }: {
   id: string;
   projectId: string;
   onEditHref?: string;
   onChanged?: () => void;
+  readOnly?: boolean;
 }) {
   const [tc, setTc] = useState<RouterOutputs["testCases"]["byId"] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -189,7 +201,7 @@ export function TestCaseDetailContent({
     <div>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
         <h1 style={{ margin: 0 }}>{tc.title}</h1>
-        <a href={onEditHref ?? `/projects/${projectId}/test-cases/${tc.id}/edit`}>Edit</a>
+        {!readOnly && <a href={onEditHref ?? `/projects/${projectId}/test-cases/${tc.id}/edit`}>Edit</a>}
       </div>
       <p>
         <strong>Type:</strong> {tc.testType} &nbsp; <strong>Priority:</strong> {tc.priority} &nbsp;
@@ -212,11 +224,13 @@ export function TestCaseDetailContent({
         ) : (
           <span style={{ color: "var(--muted-dim)" }}>Not yet assessed</span>
         )}
-        <div style={{ marginTop: 8 }}>
-          <button onClick={assessRisk} disabled={assessingRisk}>
-            {assessingRisk ? "Assessing…" : tc.riskScore != null ? "Re-assess risk" : "Assess risk"}
-          </button>
-        </div>
+        {!readOnly && (
+          <div style={{ marginTop: 8 }}>
+            <button onClick={assessRisk} disabled={assessingRisk}>
+              {assessingRisk ? "Assessing…" : tc.riskScore != null ? "Re-assess risk" : "Assess risk"}
+            </button>
+          </div>
+        )}
       </div>
 
       {tc.suitePath && (
@@ -232,7 +246,7 @@ export function TestCaseDetailContent({
         </p>
       )}
 
-      <ComplianceControlsSection testCaseId={tc.id} projectId={projectId} />
+      <ComplianceControlsSection testCaseId={tc.id} projectId={projectId} readOnly={readOnly} />
 
       {tc.origin === "AI_REVERSE_ENGINEERED" && (
         <div
@@ -254,7 +268,7 @@ export function TestCaseDetailContent({
           )}
           {tc.reviewNote && <p style={{ fontStyle: "italic", margin: "6px 0" }}>&ldquo;{tc.reviewNote}&rdquo;</p>}
 
-          {tc.reviewStatus === "PENDING_REVIEW" && (
+          {!readOnly && tc.reviewStatus === "PENDING_REVIEW" && (
             <div style={{ marginTop: 8 }}>
               <input
                 value={reviewNote}

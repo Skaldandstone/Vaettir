@@ -7,6 +7,7 @@ import { TestCaseTree, filterCasesByPath, collectKnownSuitePaths, UNASSIGNED } f
 import { Drawer } from "@/components/Drawer";
 import { Modal } from "@/components/Modal";
 import { TestCaseDetailContent } from "@/components/TestCaseDetailContent";
+import { isReadOnlySeat } from "@/lib/membership";
 
 type Case = RouterOutputs["testCases"]["list"][number];
 
@@ -104,6 +105,7 @@ function QuickAddRow({ projectId, suitePath, onAdded }: { projectId: string; sui
 export default function TestCasesPage() {
   const { projectId } = useParams<{ projectId: string }>();
   const [project, setProject] = useState<RouterOutputs["project"]["byId"] | null>(null);
+  const [readOnly, setReadOnly] = useState(false);
   const [cases, setCases] = useState<RouterOutputs["testCases"]["list"]>([]);
   const [plans, setPlans] = useState<RouterOutputs["testPlans"]["list"]>([]);
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
@@ -134,11 +136,14 @@ export default function TestCasesPage() {
       trpc.project.byId.query({ id: projectId }),
       trpc.testCases.list.query({ projectId, includeArchived: true }),
       trpc.testPlans.list.query({ projectId }),
+      trpc.organization.mine.query(),
     ])
-      .then(([proj, list, planList]) => {
+      .then(([proj, list, planList, orgs]) => {
         setProject(proj);
         setCases(list);
         setPlans(planList);
+        const org = orgs.find((o) => o.id === proj.organizationId);
+        setReadOnly(isReadOnlySeat(org?.seatType));
       })
       .catch((e) => setError(e instanceof Error ? e.message : String(e)))
       .finally(() => setLoading(false));
@@ -266,12 +271,20 @@ export default function TestCasesPage() {
         </div>
         <div style={{ display: "flex", gap: 16, alignItems: "center" }}>
           <a href={`/projects/${projectId}/test-cases/review`}>Review queue</a>
-          <a href={`/projects/${projectId}/test-cases/new`}>Full editor</a>
-          <button className="btn-secondary" style={{ fontSize: 13 }} onClick={() => setImportOpen(true)}>
-            Import CSV
-          </button>
+          {!readOnly && <a href={`/projects/${projectId}/test-cases/new`}>Full editor</a>}
+          {!readOnly && (
+            <button className="btn-secondary" style={{ fontSize: 13 }} onClick={() => setImportOpen(true)}>
+              Import CSV
+            </button>
+          )}
         </div>
       </div>
+
+      {readOnly && (
+        <p className="text-muted" style={{ fontSize: 13 }}>
+          You have read-only access to this organization — editing, creating, and bulk actions are hidden.
+        </p>
+      )}
 
       <Modal open={importOpen} onClose={() => setImportOpen(false)} title="Import test cases from CSV">
         <div style={{ display: "grid", gap: 10 }}>
@@ -329,9 +342,11 @@ export default function TestCasesPage() {
                 Connecting a repo doesn&apos;t scan it automatically — reverse-engineer its test files to populate this
                 list.
               </p>
-              <a className="btn-primary" href={`/projects/${projectId}/reverse-engineer`}>
-                Scan {project.repoUrl}
-              </a>
+              {!readOnly && (
+                <a className="btn-primary" href={`/projects/${projectId}/reverse-engineer`}>
+                  Scan {project.repoUrl}
+                </a>
+              )}
             </>
           ) : (
             <p className="text-muted" style={{ fontSize: 13 }}>
@@ -381,7 +396,7 @@ export default function TestCasesPage() {
               </label>
             </div>
 
-            {selected.size > 0 && (
+            {!readOnly && selected.size > 0 && (
               <div className="panel" style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 10, marginBottom: 10, padding: 10 }}>
                 <strong>{selected.size} selected</strong>
                 <button className="btn-secondary" onClick={() => bulkReview("approve")} disabled={bulkBusy}>
@@ -474,7 +489,7 @@ export default function TestCasesPage() {
       )}
 
       <Drawer open={openCaseId !== null} onClose={() => setOpenCaseId(null)}>
-        {openCaseId && <TestCaseDetailContent id={openCaseId} projectId={projectId} onChanged={load} />}
+        {openCaseId && <TestCaseDetailContent id={openCaseId} projectId={projectId} onChanged={load} readOnly={readOnly} />}
       </Drawer>
     </div>
   );

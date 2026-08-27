@@ -6,6 +6,7 @@ import { trpc, type RouterOutputs } from "@/lib/trpc";
 import { Drawer } from "@/components/Drawer";
 import { Modal } from "@/components/Modal";
 import { TestPlanDetailContent } from "@/components/TestPlanDetailContent";
+import { isReadOnlySeat } from "@/lib/membership";
 
 const STATUSES = ["DRAFT", "ACTIVE", "IN_REVIEW", "APPROVED"];
 
@@ -152,6 +153,7 @@ export default function TestPlansPage() {
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
   const [generateOpen, setGenerateOpen] = useState(false);
+  const [readOnly, setReadOnly] = useState(false);
 
   useEffect(() => {
     trpc.testPlans.types.query().then((t) => {
@@ -159,6 +161,13 @@ export default function TestPlansPage() {
       if (t[0]) setTestPlanTypeId(t[0].id);
     });
   }, []);
+
+  useEffect(() => {
+    Promise.all([trpc.project.byId.query({ id: projectId }), trpc.organization.mine.query()]).then(([proj, orgs]) => {
+      const org = orgs.find((o) => o.id === proj.organizationId);
+      setReadOnly(isReadOnlySeat(org?.seatType));
+    });
+  }, [projectId]);
 
   function loadPlans() {
     setLoading(true);
@@ -197,7 +206,13 @@ export default function TestPlansPage() {
   return (
     <div>
       <h1>Test Plans</h1>
+      {readOnly && (
+        <p className="text-muted" style={{ fontSize: 13 }}>
+          You have read-only access to this organization — creating and editing plans is hidden.
+        </p>
+      )}
 
+      {!readOnly && (
       <div style={{ display: "flex", gap: 8, alignItems: "center", margin: "16px 0" }}>
         <select value={testPlanTypeId} onChange={(e) => setTestPlanTypeId(e.target.value)}>
           {types.map((t) => (
@@ -219,6 +234,7 @@ export default function TestPlansPage() {
           Generate strategy with AI
         </button>
       </div>
+      )}
 
       {loading && <p>Loading…</p>}
       {error && <p style={{ color: "var(--ember)" }}>{error}</p>}

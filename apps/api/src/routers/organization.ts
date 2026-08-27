@@ -76,13 +76,24 @@ export const organizationRouter = router({
   // .output() bounds the inferred type instead of letting it flow straight
   // from Prisma's Organization model -- see testCases.ts's byId for why
   // (TS2589, deep instantiation, once enough routers compose in one AppRouter).
+  // P12-03: role/seatType are the CALLING USER's own membership in each org
+  // (not the org's overall data), read off ctx.user.memberships already
+  // loaded on context rather than a second query - this is what the web
+  // app's read-only UI gating (lib/membership.ts) is built on.
   mine: protectedProcedure
-    .output(z.array(z.object({ id: z.string(), name: z.string(), slug: z.string() })))
+    .output(z.array(z.object({ id: z.string(), name: z.string(), slug: z.string(), role: z.string(), seatType: z.string() })))
     .query(({ ctx }) =>
-      ctx.prisma.organization.findMany({
-        where: { memberships: { some: { userId: ctx.user.id } } },
-        select: { id: true, name: true, slug: true },
-      }),
+      ctx.prisma.organization
+        .findMany({
+          where: { memberships: { some: { userId: ctx.user.id } } },
+          select: { id: true, name: true, slug: true },
+        })
+        .then((orgs) =>
+          orgs.map((org) => {
+            const membership = ctx.user.memberships.find((m) => m.organizationId === org.id)!;
+            return { ...org, role: membership.role, seatType: membership.seatType };
+          }),
+        ),
     ),
 
   byId: protectedProcedure
