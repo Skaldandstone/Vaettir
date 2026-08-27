@@ -4,6 +4,7 @@ import { router, protectedProcedure, requireProjectAccess } from "../trpc.js";
 import { parseJUnitXml } from "../services/junitParse.js";
 import { recomputeFlaky } from "../services/flakyDetection.js";
 import { autoEnqueueUnmatchedResult } from "../services/continuousListening.js";
+import { resolveHealingSuggestionsOnPass } from "../services/healingSuggestion.js";
 import { buildArtifactKey, createUploadUrl, createViewUrl, canonicalUrl, keyFromCanonicalUrl } from "../services/artifactStorage.js";
 
 // P5-01: the actual data pipeline several other roadmap items (P4-03, P4-06,
@@ -93,6 +94,19 @@ export const testRunsRouter = router({
       // newly-alternating (or newly-stabilized) pattern would show up.
       const touchedTestCaseIds = [...new Set(sources.map((s) => s.testCaseId))];
       await Promise.all(touchedTestCaseIds.map((id) => recomputeFlaky(ctx.prisma, id)));
+
+      // P6.5-04: a matched test case that just came back PASS closes out
+      // any of its still-open healing suggestions -- this is the "did the
+      // suggestion actually help" signal, via a normal CI report rather
+      // than a triggered re-run this platform has no way to trigger.
+      const passedTestCaseIds = [
+        ...new Set(
+          parsed
+            .filter((p) => p.status === "PASS" && testCaseIdByExternalId.has(p.externalTestId))
+            .map((p) => testCaseIdByExternalId.get(p.externalTestId)!),
+        ),
+      ];
+      await Promise.all(passedTestCaseIds.map((id) => resolveHealingSuggestionsOnPass(ctx.prisma, id)));
 
       // P5-14: for every unmatched result that reported a file path, try to
       // auto-enqueue a scoped reverse-engineer job rather than leaving it

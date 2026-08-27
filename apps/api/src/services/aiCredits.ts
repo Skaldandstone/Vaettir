@@ -14,6 +14,7 @@ export const AI_OPERATION_COSTS = {
   recommendTestPlansForDiff: 8,
   assessTestCaseRisk: 2,
   generateQaStrategyDraft: 10,
+  classifyTestFailure: 7,
 } as const;
 
 export type AiOperation = keyof typeof AI_OPERATION_COSTS;

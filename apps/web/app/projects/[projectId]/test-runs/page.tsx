@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { Fragment, useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import { trpc, type RouterOutputs } from "@/lib/trpc";
 import { Drawer } from "@/components/Drawer";
@@ -88,6 +88,105 @@ function LinkResultPicker({
   );
 }
 
+const CLASSIFICATION_COLORS: Record<string, string> = {
+  BRITTLE: "#9a6700",
+  REAL_REGRESSION: "#cf222e",
+  UNCERTAIN: "#57606a",
+};
+
+// P6.5-03: classify-on-demand + review UI for a single failing result.
+// Never touches the repo -- approving a suggestion just marks it reviewed
+// so it stops showing as needing attention; the suggested diff is right
+// here to copy, not applied anywhere automatically.
+function HealingSuggestionPanel({ testResultId }: { testResultId: string }) {
+  const [suggestion, setSuggestion] = useState<RouterOutputs["healingSuggestions"]["byTestResult"]>(null);
+  const [loading, setLoading] = useState(true);
+  const [classifying, setClassifying] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  function load() {
+    trpc.healingSuggestions.byTestResult
+      .query({ testResultId })
+      .then(setSuggestion)
+      .finally(() => setLoading(false));
+  }
+
+  useEffect(load, [testResultId]);
+
+  async function classify() {
+    setClassifying(true);
+    setError(null);
+    try {
+      const result = await trpc.healingSuggestions.classify.mutate({ testResultId });
+      if (result.ok) setSuggestion(result.suggestion);
+      else setError(result.reason);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setClassifying(false);
+    }
+  }
+
+  async function review(status: "APPROVED" | "REJECTED") {
+    if (!suggestion) return;
+    try {
+      setSuggestion(await trpc.healingSuggestions.review.mutate({ id: suggestion.id, status }));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  }
+
+  if (loading) return null;
+
+  if (!suggestion) {
+    return (
+      <div style={{ marginTop: 4 }}>
+        <button className="btn-secondary" style={{ fontSize: 11 }} onClick={classify} disabled={classifying}>
+          {classifying ? "Classifying…" : "Classify failure"}
+        </button>
+        {error && <div style={{ color: "var(--ember)", fontSize: 11, marginTop: 4 }}>{error}</div>}
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ marginTop: 6, padding: 8, border: "1px solid var(--line)", borderRadius: 4, fontSize: 12 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+        <span style={{ fontWeight: 600, color: CLASSIFICATION_COLORS[suggestion.classification] ?? "inherit" }}>
+          {suggestion.classification.replace("_", " ")}
+        </span>
+        {suggestion.resolvedAt && <span style={{ color: "var(--frost)" }}>resolved</span>}
+        {suggestion.status !== "PENDING" && !suggestion.resolvedAt && (
+          <span className="text-muted">{suggestion.status.toLowerCase()}</span>
+        )}
+      </div>
+      <p style={{ margin: "4px 0" }}>{suggestion.classificationRationale}</p>
+      {suggestion.suggestedDiff && (
+        <>
+          <div className="text-muted" style={{ marginTop: 6 }}>
+            Suggested fix:
+          </div>
+          <pre style={{ background: "var(--panel-bg, #1a1a1a)", padding: 6, borderRadius: 3, overflowX: "auto", margin: "4px 0" }}>
+            {suggestion.suggestedDiff}
+          </pre>
+          {suggestion.suggestionRationale && <p className="text-muted" style={{ margin: 0 }}>{suggestion.suggestionRationale}</p>}
+        </>
+      )}
+      {suggestion.status === "PENDING" && (
+        <div style={{ display: "flex", gap: 6, marginTop: 6 }}>
+          <button className="btn-secondary" style={{ fontSize: 11 }} onClick={() => review("APPROVED")}>
+            Approve
+          </button>
+          <button className="btn-secondary" style={{ fontSize: 11 }} onClick={() => review("REJECTED")}>
+            Reject
+          </button>
+        </div>
+      )}
+      {error && <div style={{ color: "var(--ember)", fontSize: 11, marginTop: 4 }}>{error}</div>}
+    </div>
+  );
+}
+
 function TestRunDetail({ id }: { id: string }) {
   const [run, setRun] = useState<RouterOutputs["testRuns"]["byId"] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -129,21 +228,30 @@ function TestRunDetail({ id }: { id: string }) {
         </thead>
         <tbody>
           {run.results.map((r) => (
-            <tr key={r.id} style={{ borderBottom: "1px solid var(--line)" }}>
-              <td style={{ padding: "6px 8px", fontSize: 12, color: RESULT_COLORS[r.status] ?? "inherit", fontWeight: 600 }}>
-                {r.status}
-              </td>
-              <td style={{ padding: "6px 8px", fontSize: 13 }}>
-                {r.testCaseTitle ?? (
-                  <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-                    <span className="text-muted">{r.externalTestId ?? "(unknown)"} — unmatched</span>
-                    <LinkResultPicker testResultId={r.id} projectId={run.projectId} onLinked={load} />
-                  </div>
-                )}
-              </td>
-              <td style={{ padding: "6px 8px", fontSize: 12 }}>{r.durationMs !== null ? `${r.durationMs}ms` : "—"}</td>
-              <td style={{ padding: "6px 8px", fontSize: 12, color: "var(--ember)" }}>{r.errorMessage ?? ""}</td>
-            </tr>
+            <Fragment key={r.id}>
+              <tr style={{ borderBottom: r.status === "FAIL" && r.testCaseId ? "none" : "1px solid var(--line)" }}>
+                <td style={{ padding: "6px 8px", fontSize: 12, color: RESULT_COLORS[r.status] ?? "inherit", fontWeight: 600 }}>
+                  {r.status}
+                </td>
+                <td style={{ padding: "6px 8px", fontSize: 13 }}>
+                  {r.testCaseTitle ?? (
+                    <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                      <span className="text-muted">{r.externalTestId ?? "(unknown)"} — unmatched</span>
+                      <LinkResultPicker testResultId={r.id} projectId={run.projectId} onLinked={load} />
+                    </div>
+                  )}
+                </td>
+                <td style={{ padding: "6px 8px", fontSize: 12 }}>{r.durationMs !== null ? `${r.durationMs}ms` : "—"}</td>
+                <td style={{ padding: "6px 8px", fontSize: 12, color: "var(--ember)" }}>{r.errorMessage ?? ""}</td>
+              </tr>
+              {r.status === "FAIL" && r.testCaseId && (
+                <tr style={{ borderBottom: "1px solid var(--line)" }}>
+                  <td colSpan={4} style={{ padding: "0 8px 8px" }}>
+                    <HealingSuggestionPanel testResultId={r.id} />
+                  </td>
+                </tr>
+              )}
+            </Fragment>
           ))}
         </tbody>
       </table>
@@ -206,6 +314,43 @@ function CoverageSection({ projectId }: { projectId: string }) {
           ))}
         </tbody>
       </table>
+    </div>
+  );
+}
+
+// P6.5-05: aggregate brittle-vs-real signal for the project -- if a
+// specific test keeps generating brittle-failure suggestions, that's a
+// signal the test itself needs attention, not the app.
+function HealingSignalSection({ projectId }: { projectId: string }) {
+  const [signal, setSignal] = useState<RouterOutputs["healingSuggestions"]["aggregateSignal"] | null>(null);
+
+  useEffect(() => {
+    trpc.healingSuggestions.aggregateSignal.query({ projectId }).then(setSignal).catch(() => undefined);
+  }, [projectId]);
+
+  if (!signal || signal.totalCount === 0) return null;
+
+  return (
+    <div style={{ marginTop: 32 }}>
+      <h2 style={{ marginBottom: 4 }}>Failure classification signal</h2>
+      <p className="text-muted" style={{ fontSize: 13, marginBottom: 12 }}>
+        {signal.brittleCount} brittle · {signal.realRegressionCount} real regressions · {signal.uncertainCount} uncertain ·{" "}
+        {signal.resolvedCount} resolved (of {signal.totalCount} classified)
+      </p>
+      {signal.repeatOffenders.length > 0 && (
+        <>
+          <div className="eyebrow" style={{ marginBottom: 6 }}>
+            Repeat brittle offenders
+          </div>
+          <ul style={{ paddingLeft: 18, margin: 0 }}>
+            {signal.repeatOffenders.map((o) => (
+              <li key={o.testCaseId} style={{ fontSize: 13 }}>
+                {o.testCaseTitle} — {o.brittleCount} brittle failures
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
     </div>
   );
 }
@@ -288,6 +433,7 @@ export default function TestRunsPage() {
       </Drawer>
 
       <CoverageSection projectId={projectId} />
+      <HealingSignalSection projectId={projectId} />
     </div>
   );
 }

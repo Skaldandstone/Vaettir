@@ -98,6 +98,7 @@ model Project {
   auditLogs           AuditLog[]
   customFrameworkHeuristics CustomFrameworkHeuristic[]
   prScanPolicy        PrScanPolicy?
+  healingSuggestions  HealingSuggestion[]
 
   @@unique([organizationId, slug])
 }
@@ -134,6 +135,7 @@ model User {
   updatedReleases  Release[]  @relation("ReleaseUpdatedBy")
   createdRiskFlags RiskFlag[] @relation("RiskFlagCreatedBy")
   updatedRiskFlags RiskFlag[] @relation("RiskFlagUpdatedBy")
+  reviewedHealingSuggestions HealingSuggestion[] @relation("HealingSuggestionReviewedBy")
 
   // P1-05: a service token is backed by its own real User row (the
   // "service user") so it flows through every existing requireOrgRole /
@@ -548,6 +550,7 @@ model TestCase {
   source              TestCaseSource?
   complianceControls  TestCaseComplianceControl[]
   results             TestResult[]
+  healingSuggestions  HealingSuggestion[]
   // The structured step-table authoring format -- an alternative (or
   // complement) to given/when/then above. A TestCase can carry either,
   // both, or neither populated; the UI renders whichever has content. See
@@ -955,9 +958,65 @@ model TestResult {
 
   reverseEngineerJob ReverseEngineerJob?
   artifacts          TestResultArtifact[]
+  healingSuggestion  HealingSuggestion?
 
   @@index([testRunId])
   @@index([testCaseId])
+}
+
+// P6.5: suggest-only test self-healing -- classifies a failing TestResult
+// as likely-brittle (selector/locator/text drift, structural refactor) vs.
+// likely-real (behavior actually changed), and for brittle failures,
+// proposes a concrete fix as a diff-style suggestion. NEVER applied to the
+// repo automatically -- see ROADMAP.md's Phase 6.5 intro for why unsupervised
+// write access to someone's test source is a deliberately different, much
+// higher-risk feature than anything else this platform does. One row per
+// failing TestResult (only ever created for FAIL, not PASS/SKIP/FLAKY).
+model HealingSuggestion {
+  id           String     @id @default(cuid())
+  testResultId String     @unique
+  testResult   TestResult @relation(fields: [testResultId], references: [id])
+  testCaseId   String
+  testCase     TestCase   @relation(fields: [testCaseId], references: [id])
+  projectId    String
+  project      Project    @relation(fields: [projectId], references: [id])
+
+  classification          HealingClassification
+  classificationRationale String
+
+  // Only populated when classification is BRITTLE and the agent could
+  // confidently ground a fix in the actual diff -- a REAL_REGRESSION, or a
+  // brittle failure with no confident fix, leaves these null rather than
+  // guessing from the error message alone.
+  suggestedDiff       String?
+  suggestionRationale String?
+
+  status       HealingSuggestionStatus @default(PENDING)
+  reviewedById String?
+  reviewedBy   User?                   @relation("HealingSuggestionReviewedBy", fields: [reviewedById], references: [id])
+  reviewedAt   DateTime?
+
+  // P6.5-04: set when this test case's next real result (via normal CI
+  // ingestion, not a triggered re-run) comes back PASS -- closes the loop
+  // on "did this suggestion actually help" without needing repo access.
+  resolvedAt DateTime?
+
+  createdAt DateTime @default(now())
+
+  @@index([projectId, createdAt])
+  @@index([testCaseId])
+}
+
+enum HealingClassification {
+  BRITTLE
+  REAL_REGRESSION
+  UNCERTAIN
+}
+
+enum HealingSuggestionStatus {
+  PENDING
+  APPROVED
+  REJECTED
 }
 
 // Screenshot/video evidence captured while a front-end automated test was

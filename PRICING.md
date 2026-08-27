@@ -87,6 +87,7 @@ then converted to credits at $0.01/credit:
 | `reverseEngineerTestFile` | ~3,000 | ~1,500 | ~$0.032 | 6 |
 | `recommendTestPlansForDiff` | ~10,000 | ~800 | ~$0.042 | 8 |
 | `generateQaStrategyDraft` | ~2,000 | ~3,000 | ~$0.051 | 10 |
+| `classifyTestFailure` (Phase 6.5) | ~4,000 | ~600 | ~$0.021 | 7 |
 
 At 50 credits (Free tier), that's roughly 8 reverse-engineer calls or 25
 risk assessments per month before hitting the wall - enough to evaluate
