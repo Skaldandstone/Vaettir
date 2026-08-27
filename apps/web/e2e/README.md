@@ -34,6 +34,21 @@ spec implicitly an auth test. `auth.spec.ts` itself runs in a separate
 Playwright project with no stored session, since it's testing the sign-in
 flow.
 
+## Full loop: reporting real run results back into TCM
+
+`ci-integrations/playwright/vaettir-reporter.mjs` (built earlier for
+customer use) is a generic Playwright→Vaettir reporter - wiring it into
+this suite's own `playwright.config.ts` would let a real run of this
+suite report its own pass/fail results back into TCM's `TestRun`s via
+`testRuns.ingestJUnit`, closing the loop all the way (write the e2e
+tests → reverse-engineer them into cases → run them → see real results on
+the same cases). Not wired in yet - it needs each TCM test case's
+`TestCaseSource.externalTestId` to match the reporter's
+`<file>::<titlePath>` format, which the reverse-engineering pass didn't
+set that way, and this needs a real run to verify against, which needs
+the credentials above. Natural next step once someone can actually run
+this suite.
+
 ## What's covered
 
 13 spec files, ~75 scenarios, across every major surface built this
