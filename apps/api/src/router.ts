@@ -16,6 +16,7 @@ import { coverageRouter } from "./routers/coverage.js";
 import { healingSuggestionsRouter } from "./routers/healingSuggestions.js";
 import { adminRouter } from "./routers/admin.js";
 import { webhooksRouter } from "./routers/webhooks.js";
+import { manualExecutionRouter } from "./routers/manualExecution.js";
 
 export const appRouter = router({
   testCases: testCasesRouter,
@@ -35,6 +36,7 @@ export const appRouter = router({
   healingSuggestions: healingSuggestionsRouter,
   admin: adminRouter,
   webhooks: webhooksRouter,
+  manualExecution: manualExecutionRouter,
 });
 
 export type AppRouter = typeof appRouter;

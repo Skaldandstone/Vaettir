@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import { trpc, type RouterOutputs } from "@/lib/trpc";
 import { TestCaseTree, filterCasesByPath, collectKnownSuitePaths, UNASSIGNED } from "@/components/TestCaseTree";
 import { Drawer } from "@/components/Drawer";
@@ -104,8 +104,10 @@ function QuickAddRow({ projectId, suitePath, onAdded }: { projectId: string; sui
 
 export default function TestCasesPage() {
   const { projectId } = useParams<{ projectId: string }>();
+  const router = useRouter();
   const [project, setProject] = useState<RouterOutputs["project"]["byId"] | null>(null);
   const [readOnly, setReadOnly] = useState(false);
+  const [startingRun, setStartingRun] = useState(false);
   const [cases, setCases] = useState<RouterOutputs["testCases"]["list"]>([]);
   const [plans, setPlans] = useState<RouterOutputs["testPlans"]["list"]>([]);
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
@@ -258,6 +260,19 @@ export default function TestCasesPage() {
     }
   }
 
+  async function startManualRun() {
+    if (selected.size === 0) return;
+    setStartingRun(true);
+    try {
+      const { testRunId } = await trpc.manualExecution.start.mutate({ projectId, testCaseIds: [...selected] });
+      router.push(`/projects/${projectId}/test-runs/manual/${testRunId}`);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setStartingRun(false);
+    }
+  }
+
   return (
     <div>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
@@ -399,6 +414,9 @@ export default function TestCasesPage() {
             {!readOnly && selected.size > 0 && (
               <div className="panel" style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 10, marginBottom: 10, padding: 10 }}>
                 <strong>{selected.size} selected</strong>
+                <button className="btn-primary" onClick={startManualRun} disabled={startingRun}>
+                  {startingRun ? "Starting…" : "Run manually"}
+                </button>
                 <button className="btn-secondary" onClick={() => bulkReview("approve")} disabled={bulkBusy}>
                   Approve
                 </button>

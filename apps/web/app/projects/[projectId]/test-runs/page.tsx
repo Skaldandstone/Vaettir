@@ -378,7 +378,7 @@ export default function TestRunsPage() {
     <div style={{ maxWidth: 900 }}>
       <h1 style={{ marginBottom: 4 }}>Test Runs</h1>
       <p className="text-muted" style={{ marginBottom: 20 }}>
-        Results ingested from CI (JUnit XML). Most recent first.
+        Results ingested from CI (JUnit XML) or recorded through manual execution. Most recent first.
       </p>
 
       {loading && <p>Loading…</p>}
@@ -401,6 +401,7 @@ export default function TestRunsPage() {
               <th style={{ padding: "6px 8px", fontSize: 12 }}>Commit</th>
               <th style={{ padding: "6px 8px", fontSize: 12 }}>Results</th>
               <th style={{ padding: "6px 8px", fontSize: 12 }}>When</th>
+              <th style={{ padding: "6px 8px", fontSize: 12 }}></th>
             </tr>
           </thead>
           <tbody>
@@ -421,6 +422,13 @@ export default function TestRunsPage() {
                 <td style={{ padding: "6px 8px", fontSize: 13 }}>{r.resultCount}</td>
                 <td style={{ padding: "6px 8px", fontSize: 12, color: "var(--text-muted, #57606a)" }}>
                   {new Date(r.startedAt).toLocaleString()}
+                </td>
+                <td style={{ padding: "6px 8px", fontSize: 12 }}>
+                  {r.ciProvider === "manual" && r.status === "RUNNING" && (
+                    <a href={`/projects/${projectId}/test-runs/manual/${r.id}`} onClick={(e) => e.stopPropagation()}>
+                      Resume
+                    </a>
+                  )}
                 </td>
               </tr>
             ))}
