@@ -102,3 +102,30 @@ export async function requireProjectAccess(
   const membership = requireOrgRole(ctx, project.organizationId, minRole);
   return { project, membership };
 }
+
+// P13-01: staff auth gate. Deliberately independent of any Membership --
+// a customer OWNER in their own org must not get access here, and a Skald
+// & Stone staff member shouldn't need a Membership in every customer org
+// just to look one up. Gated on the user's real Clerk-verified email
+// (never client-suppliable), matched against a configured staff domain
+// (default skaldandstone.com) plus an optional explicit allowlist for
+// staff on a different domain.
+const STAFF_EMAIL_DOMAIN = (process.env.STAFF_EMAIL_DOMAIN ?? "skaldandstone.com").toLowerCase();
+const STAFF_EMAIL_ALLOWLIST = new Set(
+  (process.env.STAFF_EMAIL_ALLOWLIST ?? "")
+    .split(",")
+    .map((e) => e.trim().toLowerCase())
+    .filter(Boolean),
+);
+
+export function isStaffEmail(email: string): boolean {
+  const normalized = email.toLowerCase();
+  return normalized.endsWith(`@${STAFF_EMAIL_DOMAIN}`) || STAFF_EMAIL_ALLOWLIST.has(normalized);
+}
+
+export const staffProcedure = protectedProcedure.use(({ ctx, next }) => {
+  if (!isStaffEmail(ctx.user.email)) {
+    throw new TRPCError({ code: "FORBIDDEN", message: "Staff access required" });
+  }
+  return next({ ctx });
+});
