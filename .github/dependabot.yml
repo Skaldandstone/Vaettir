@@ -1,0 +1,26 @@
+version: 2
+updates:
+  # Root covers the whole pnpm workspace - Dependabot resolves the
+  # monorepo's package.jsons from here rather than needing one entry per
+  # package, matching how `pnpm install` itself works from the root.
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 10
+    groups:
+      # Security patches land as individual, reviewable PRs; routine
+      # version bumps within the same major get grouped so they don't
+      # flood the PR list with one-liner semver bumps.
+      minor-and-patch:
+        update-types: ["minor", "patch"]
+
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+
+  - package-ecosystem: "docker"
+    directory: "/"
+    schedule:
+      interval: "weekly"
