@@ -130,6 +130,62 @@ const PLAN_CATEGORIES = ["COMPLIANCE", "FUNCTIONAL", "QUALITY_STRATEGY", "RELEAS
 const FIELD_TYPES = ["string", "number", "array"] as const;
 type BuilderField = { key: string; type: (typeof FIELD_TYPES)[number] };
 
+// P3-10: starter field lists for the most common compliance/audit plan
+// shapes, so "custom" doesn't mean starting from a blank field builder.
+// Picking one just pre-fills the form below -- it's still editable before
+// creating, and still goes through the same createType mutation as a
+// from-scratch plan type.
+const PLAN_TYPE_TEMPLATES: {
+  label: string;
+  key: string;
+  name: string;
+  category: string;
+  description: string;
+  fields: BuilderField[];
+}[] = [
+  {
+    label: "Vendor security questionnaire",
+    key: "vendor-security-questionnaire",
+    name: "Vendor Security Questionnaire",
+    category: "COMPLIANCE",
+    description: "Risk assessment for a new third-party vendor before onboarding",
+    fields: [
+      { key: "vendorName", type: "string" },
+      { key: "dataAccessed", type: "array" },
+      { key: "riskScore", type: "number" },
+      { key: "reviewedBy", type: "string" },
+      { key: "followUpItems", type: "array" },
+    ],
+  },
+  {
+    label: "Internal audit checklist",
+    key: "internal-audit-checklist",
+    name: "Internal Audit Checklist",
+    category: "COMPLIANCE",
+    description: "Structured findings and remediation tracking for an internal control audit",
+    fields: [
+      { key: "auditArea", type: "string" },
+      { key: "findings", type: "array" },
+      { key: "severity", type: "string" },
+      { key: "remediationOwner", type: "string" },
+      { key: "dueDate", type: "string" },
+    ],
+  },
+  {
+    label: "Change management review",
+    key: "change-management-review",
+    name: "Change Management Review",
+    category: "COMPLIANCE",
+    description: "Sign-off record for a production change, required by most change-control controls",
+    fields: [
+      { key: "changeDescription", type: "string" },
+      { key: "approvedBy", type: "string" },
+      { key: "rollbackPlan", type: "string" },
+      { key: "riskLevel", type: "string" },
+    ],
+  },
+];
+
 // P3-09: the "no shoehorn" proof point -- an org admin builds a brand new
 // compliance (or any other) plan shape here, and it's immediately available
 // in the "New test plan" dropdown on every project with no code change.
@@ -165,6 +221,19 @@ function PlanTypesSection() {
     setCategory("COMPLIANCE");
     setDescription("");
     setFields([{ key: "", type: "string" }]);
+  }
+
+  function applyTemplate(templateKey: string) {
+    const template = PLAN_TYPE_TEMPLATES.find((t) => t.key === templateKey);
+    if (!template) return;
+    // Suffix the key if that template's already been created, since keys
+    // must be unique -- still editable before submitting either way.
+    const keyTaken = types.some((t) => t.key === template.key);
+    setKey(keyTaken ? `${template.key}-2` : template.key);
+    setName(template.name);
+    setCategory(template.category);
+    setDescription(template.description);
+    setFields(template.fields.map((f) => ({ ...f })));
   }
 
   async function create() {
@@ -240,6 +309,17 @@ function PlanTypesSection() {
 
       {formOpen && (
         <div className="panel" style={{ display: "grid", gap: 10, maxWidth: 480 }}>
+          <label>
+            Start from a template <span style={{ color: "var(--muted-dim)" }}>(optional - still editable below)</span>
+            <select defaultValue="" onChange={(e) => e.target.value && applyTemplate(e.target.value)} style={{ width: "100%" }}>
+              <option value="">Blank</option>
+              {PLAN_TYPE_TEMPLATES.map((t) => (
+                <option key={t.key} value={t.key}>
+                  {t.label}
+                </option>
+              ))}
+            </select>
+          </label>
           <label>
             Key <span style={{ color: "var(--muted-dim)" }}>(unique, e.g. "vendor-security-review")</span>
             <input value={key} onChange={(e) => setKey(e.target.value)} style={{ width: "100%" }} />
