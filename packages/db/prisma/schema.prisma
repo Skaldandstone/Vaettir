@@ -102,8 +102,9 @@ model User {
   // same target) -- see each model for the paired createdBy/updatedBy.
   createdTestCases TestCase[] @relation("TestCaseCreatedBy")
   updatedTestCases TestCase[] @relation("TestCaseUpdatedBy")
-  createdTestPlans TestPlan[] @relation("TestPlanCreatedBy")
-  updatedTestPlans TestPlan[] @relation("TestPlanUpdatedBy")
+  createdTestPlans  TestPlan[]        @relation("TestPlanCreatedBy")
+  updatedTestPlans  TestPlan[]        @relation("TestPlanUpdatedBy")
+  testPlanVersions  TestPlanVersion[]
   createdReleases  Release[]  @relation("ReleaseCreatedBy")
   updatedReleases  Release[]  @relation("ReleaseUpdatedBy")
   createdRiskFlags RiskFlag[] @relation("RiskFlagCreatedBy")
@@ -296,6 +297,7 @@ model TestPlan {
 
   acceptanceCriteria AcceptanceCriterion[]
   testCases          TestCase[]
+  versions           TestPlanVersion[]
 
   createdById String?
   createdBy   User?   @relation("TestPlanCreatedBy", fields: [createdById], references: [id])
@@ -304,6 +306,28 @@ model TestPlan {
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+}
+
+// P4-05: a full snapshot taken on every create/update, not just the
+// AuditLog's one-line summary (P3-06) -- a strategy evolving release to
+// release needs to see what the risk areas/entry criteria actually said at
+// a past point, not just that an update happened. versionNumber is
+// per-plan and sequential (1 at creation, incrementing on every update).
+model TestPlanVersion {
+  id            String         @id @default(cuid())
+  testPlanId    String
+  testPlan      TestPlan       @relation(fields: [testPlanId], references: [id])
+  versionNumber Int
+  name          String
+  description   String?
+  status        TestPlanStatus
+  customFields  Json
+  createdById   String?
+  createdBy     User?          @relation(fields: [createdById], references: [id])
+  createdAt     DateTime       @default(now())
+
+  @@unique([testPlanId, versionNumber])
+  @@index([testPlanId, versionNumber])
 }
 
 enum TestPlanStatus {

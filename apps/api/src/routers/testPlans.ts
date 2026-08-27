@@ -2,6 +2,7 @@ import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 import { router, protectedProcedure, requireProjectAccess } from "../trpc.js";
 import { recordAudit } from "../services/auditLog.js";
+import { snapshotTestPlanVersion } from "../services/testPlanVersion.js";
 
 const acceptanceCriterionOutput = z.object({
   id: z.string(),
@@ -189,6 +190,14 @@ export const testPlansRouter = router({
         action: "CREATE",
         summary: `Created test plan "${created.name}"`,
       });
+      await snapshotTestPlanVersion(ctx.prisma, {
+        testPlanId: created.id,
+        name: created.name,
+        description: created.description,
+        status: created.status,
+        customFields: created.customFields,
+        actorId: ctx.user.id,
+      });
       return created;
     }),
 
@@ -227,6 +236,14 @@ export const testPlansRouter = router({
         action: "UPDATE",
         summary: `Updated test plan "${updated.name}" (status: ${updated.status})`,
       });
+      await snapshotTestPlanVersion(ctx.prisma, {
+        testPlanId: updated.id,
+        name: updated.name,
+        description: updated.description,
+        status: updated.status,
+        customFields: updated.customFields,
+        actorId: ctx.user.id,
+      });
       return updated;
     }),
 
@@ -249,6 +266,43 @@ export const testPlansRouter = router({
         data: { releaseId: input.releaseId, updatedById: ctx.user.id },
         select: { id: true, releaseId: true },
       });
+    }),
+
+  // P4-05: full version history, most recent first -- each entry is a
+  // complete snapshot (not just the AuditLog's one-line summary) so "what
+  // did the risk areas actually say two releases ago" has a real answer.
+  history: protectedProcedure
+    .input(z.object({ testPlanId: z.string() }))
+    .output(
+      z.array(
+        z.object({
+          versionNumber: z.number(),
+          name: z.string(),
+          description: z.string().nullable(),
+          status: z.string(),
+          customFields: z.record(z.unknown()),
+          createdAt: z.date(),
+          createdBy: z.object({ id: z.string(), name: z.string().nullable(), email: z.string() }).nullable(),
+        }),
+      ),
+    )
+    .query(async ({ ctx, input }) => {
+      const plan = await ctx.prisma.testPlan.findUniqueOrThrow({ where: { id: input.testPlanId }, select: { projectId: true } });
+      await requireProjectAccess(ctx, plan.projectId);
+      const versions = await ctx.prisma.testPlanVersion.findMany({
+        where: { testPlanId: input.testPlanId },
+        include: { createdBy: { select: { id: true, name: true, email: true } } },
+        orderBy: { versionNumber: "desc" },
+      });
+      return versions.map((v) => ({
+        versionNumber: v.versionNumber,
+        name: v.name,
+        description: v.description,
+        status: v.status,
+        customFields: v.customFields as Record<string, unknown>,
+        createdAt: v.createdAt,
+        createdBy: v.createdBy,
+      }));
     }),
 
   // P4-04: the strategy picker's data source -- every QUALITY_STRATEGY-type

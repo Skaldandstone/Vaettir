@@ -179,6 +179,68 @@ function QaStrategyForm({
   );
 }
 
+// P4-05: full version history with a computed diff against the prior
+// version, since "an update happened" (the AuditLog) isn't the same
+// question as "what did the risk areas actually say two releases ago."
+// Diffing happens client-side against the full snapshots the API already
+// returns -- no need for the server to compute or store a diff.
+function VersionHistorySection({ testPlanId, refreshKey }: { testPlanId: string; refreshKey: number }) {
+  const [versions, setVersions] = useState<RouterOutputs["testPlans"]["history"]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    setLoading(true);
+    trpc.testPlans.history
+      .query({ testPlanId })
+      .then(setVersions)
+      .finally(() => setLoading(false));
+  }, [testPlanId, refreshKey]);
+
+  function changesFrom(version: RouterOutputs["testPlans"]["history"][number], index: number): string[] {
+    const prev = versions[index + 1]; // desc order -- the next array entry is the prior version
+    if (!prev) return ["Initial version"];
+    const changes: string[] = [];
+    if (version.name !== prev.name) changes.push(`name: "${prev.name}" → "${version.name}"`);
+    if (version.description !== prev.description) changes.push("description changed");
+    if (version.status !== prev.status) changes.push(`status: ${prev.status} → ${version.status}`);
+    const allKeys = new Set([...Object.keys(version.customFields), ...Object.keys(prev.customFields)]);
+    for (const k of allKeys) {
+      if (JSON.stringify(version.customFields[k]) !== JSON.stringify(prev.customFields[k])) {
+        changes.push(`${k} changed`);
+      }
+    }
+    return changes.length > 0 ? changes : ["No changes"];
+  }
+
+  return (
+    <div style={{ marginBottom: 24 }}>
+      <h2>History</h2>
+      {loading && <p>Loading…</p>}
+      {!loading && (
+        <ul style={{ listStyle: "none", padding: 0 }}>
+          {versions.map((v, i) => (
+            <li key={v.versionNumber} style={{ borderBottom: "1px solid var(--line)", padding: "8px 0" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
+                <strong>v{v.versionNumber}</strong>
+                <span className="text-muted" style={{ fontSize: 12 }}>
+                  {new Date(v.createdAt).toLocaleString()}
+                  {v.createdBy && ` by ${v.createdBy.name ?? v.createdBy.email}`}
+                </span>
+              </div>
+              <ul style={{ margin: "4px 0 0 16px", fontSize: 13, color: "var(--muted)" }}>
+                {changesFrom(v, i).map((c, j) => (
+                  <li key={j}>{c}</li>
+                ))}
+              </ul>
+            </li>
+          ))}
+          {versions.length === 0 && <p className="text-muted">No history yet.</p>}
+        </ul>
+      )}
+    </div>
+  );
+}
+
 // P4-04: turns a QUALITY_STRATEGY plan into a real coordination hub rather
 // than just a document. A strategy plan shows every concrete plan pointing
 // back at it (read-only here -- the link is set from the child plan's own
@@ -299,6 +361,7 @@ export function TestPlanDetailContent({
 
   const [newCriterion, setNewCriterion] = useState("");
   const [newCriterionRequirementId, setNewCriterionRequirementId] = useState("");
+  const [historyVersion, setHistoryVersion] = useState(0);
 
   function load() {
     trpc.testPlans.byId
@@ -324,6 +387,7 @@ export function TestPlanDetailContent({
     try {
       await trpc.testPlans.update.mutate({ id, name, description: description || undefined, status: status as never, customFields });
       setSaved(true);
+      setHistoryVersion((v) => v + 1);
       load();
       onChanged?.();
     } catch (e) {
@@ -400,6 +464,8 @@ export function TestPlanDetailContent({
       </div>
 
       <StrategyLinkSection plan={plan} projectId={plan.projectId} onChanged={load} />
+
+      <VersionHistorySection testPlanId={id} refreshKey={historyVersion} />
 
       <h2>Acceptance criteria</h2>
       <ul style={{ listStyle: "none", padding: 0 }}>
