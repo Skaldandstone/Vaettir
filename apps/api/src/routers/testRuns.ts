@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { TRPCError } from "@trpc/server";
 import { router, protectedProcedure, requireProjectAccess } from "../trpc.js";
 import { parseJUnitXml } from "../services/junitParse.js";
 
@@ -135,6 +136,7 @@ export const testRunsRouter = router({
     .output(
       z.object({
         id: z.string(),
+        projectId: z.string(),
         ciProvider: z.string(),
         ciRunUrl: z.string().nullable(),
         commitSha: z.string(),
@@ -145,6 +147,7 @@ export const testRunsRouter = router({
           z.object({
             id: z.string(),
             externalTestId: z.string().nullable(),
+            testCaseId: z.string().nullable(),
             testCaseTitle: z.string().nullable(),
             status: z.string(),
             durationMs: z.number().nullable(),
@@ -161,6 +164,7 @@ export const testRunsRouter = router({
       await requireProjectAccess(ctx, run.projectId);
       return {
         id: run.id,
+        projectId: run.projectId,
         ciProvider: run.ciProvider,
         ciRunUrl: run.ciRunUrl,
         commitSha: run.commitSha,
@@ -170,11 +174,60 @@ export const testRunsRouter = router({
         results: run.results.map((r) => ({
           id: r.id,
           externalTestId: r.externalTestId,
+          testCaseId: r.testCaseId,
           testCaseTitle: r.testCase?.title ?? null,
           status: r.status,
           durationMs: r.durationMs,
           errorMessage: r.errorMessage,
         })),
       };
+    }),
+
+  // P5-04: the manual half of result <-> TestCase matching -- P5-01's
+  // ingestion only auto-matches an exact TestCaseSource.externalTestId hit.
+  // Everything else lands here as "unmatched" until a human links it once.
+  // That link is remembered: if the target TestCase's source has no
+  // externalTestId yet, this sets it, so the *next* run of that same test
+  // auto-matches without anyone linking it again. Refuses to silently
+  // overwrite a source that's already mapped to a *different* external id --
+  // that would be quietly breaking whatever result stream already resolves
+  // through it.
+  linkResultToTestCase: protectedProcedure
+    .input(z.object({ testResultId: z.string(), testCaseId: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      const result = await ctx.prisma.testResult.findUniqueOrThrow({
+        where: { id: input.testResultId },
+        include: { testRun: { select: { projectId: true } } },
+      });
+      await requireProjectAccess(ctx, result.testRun.projectId, "EDITOR");
+
+      const testCase = await ctx.prisma.testCase.findUniqueOrThrow({
+        where: { id: input.testCaseId },
+        include: { source: true },
+      });
+      if (testCase.projectId !== result.testRun.projectId) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "That test case does not belong to this project" });
+      }
+
+      if (result.externalTestId && testCase.source) {
+        if (testCase.source.externalTestId && testCase.source.externalTestId !== result.externalTestId) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: `This test case is already linked to a different external test id ("${testCase.source.externalTestId}")`,
+          });
+        }
+        if (!testCase.source.externalTestId) {
+          await ctx.prisma.testCaseSource.update({
+            where: { id: testCase.source.id },
+            data: { externalTestId: result.externalTestId },
+          });
+        }
+      }
+
+      return ctx.prisma.testResult.update({
+        where: { id: input.testResultId },
+        data: { testCaseId: input.testCaseId },
+        select: { id: true, testCaseId: true },
+      });
     }),
 });

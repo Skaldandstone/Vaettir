@@ -19,16 +19,87 @@ const RESULT_COLORS: Record<string, string> = {
   FLAKY: "#9a6700",
 };
 
+// P5-04: the manual half of matching -- an unmatched result gets a picker
+// to link it to a real TestCase once. That link is remembered server-side
+// (it sets TestCaseSource.externalTestId when unset), so this picker is a
+// one-time cost per test, not a per-run chore.
+function LinkResultPicker({
+  testResultId,
+  projectId,
+  onLinked,
+}: {
+  testResultId: string;
+  projectId: string;
+  onLinked: () => void;
+}) {
+  const [picking, setPicking] = useState(false);
+  const [candidates, setCandidates] = useState<RouterOutputs["testCases"]["list"]>([]);
+  const [selected, setSelected] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  function openPicker() {
+    setPicking(true);
+    trpc.testCases.list.query({ projectId }).then(setCandidates);
+  }
+
+  async function link() {
+    if (!selected) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await trpc.testRuns.linkResultToTestCase.mutate({ testResultId, testCaseId: selected });
+      setPicking(false);
+      setSelected("");
+      onLinked();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (!picking) {
+    return (
+      <button className="btn-secondary" style={{ fontSize: 11 }} onClick={openPicker}>
+        Link to test case
+      </button>
+    );
+  }
+
+  return (
+    <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+      <select value={selected} onChange={(e) => setSelected(e.target.value)} style={{ fontSize: 11 }}>
+        <option value="">Pick a test case…</option>
+        {candidates.map((tc) => (
+          <option key={tc.id} value={tc.id}>
+            {tc.title}
+          </option>
+        ))}
+      </select>
+      <button className="btn-secondary" style={{ fontSize: 11 }} onClick={link} disabled={busy || !selected}>
+        Link
+      </button>
+      <button className="btn-secondary" style={{ fontSize: 11 }} onClick={() => setPicking(false)}>
+        Cancel
+      </button>
+      {error && <span style={{ color: "var(--ember)", fontSize: 11 }}>{error}</span>}
+    </div>
+  );
+}
+
 function TestRunDetail({ id }: { id: string }) {
   const [run, setRun] = useState<RouterOutputs["testRuns"]["byId"] | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
+  function load() {
     trpc.testRuns.byId
       .query({ id })
       .then(setRun)
       .catch((e) => setError(e instanceof Error ? e.message : String(e)));
-  }, [id]);
+  }
+
+  useEffect(load, [id]);
 
   if (error) return <p style={{ color: "var(--ember)" }}>{error}</p>;
   if (!run) return <p>Loading…</p>;
@@ -63,7 +134,12 @@ function TestRunDetail({ id }: { id: string }) {
                 {r.status}
               </td>
               <td style={{ padding: "6px 8px", fontSize: 13 }}>
-                {r.testCaseTitle ?? <span className="text-muted">{r.externalTestId ?? "(unknown)"} — unmatched</span>}
+                {r.testCaseTitle ?? (
+                  <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                    <span className="text-muted">{r.externalTestId ?? "(unknown)"} — unmatched</span>
+                    <LinkResultPicker testResultId={r.id} projectId={run.projectId} onLinked={load} />
+                  </div>
+                )}
               </td>
               <td style={{ padding: "6px 8px", fontSize: 12 }}>{r.durationMs !== null ? `${r.durationMs}ms` : "—"}</td>
               <td style={{ padding: "6px 8px", fontSize: 12, color: "var(--ember)" }}>{r.errorMessage ?? ""}</td>
