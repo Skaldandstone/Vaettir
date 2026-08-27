@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { router, protectedProcedure, requireProjectAccess } from "../trpc.js";
+import { computeStatusesByTestPlan } from "../services/acceptanceCriteria.js";
 
 const CRITERION_WEIGHT: Record<string, number> = { MET: 1, AT_RISK: 0.5, PENDING: 0.25, NOT_MET: 0 };
 const FLAG_PENALTY: Record<string, number> = { CRITICAL: 20, HIGH: 10, MEDIUM: 5, LOW: 2 };
@@ -80,17 +81,24 @@ export const releasesRouter = router({
         where: { projectId: input.projectId },
         orderBy: { createdAt: "desc" },
         include: {
-          testPlans: { include: { acceptanceCriteria: { select: { status: true } } } },
+          testPlans: { include: { acceptanceCriteria: { select: { testPlanId: true, status: true } } } },
           riskFlags: { where: { resolvedAt: null }, select: { severity: true } },
         },
       });
+      const allCriteria = releases.flatMap((r) => r.testPlans.flatMap((p) => p.acceptanceCriteria));
+      const computedByPlan = await computeStatusesByTestPlan(
+        ctx.prisma,
+        allCriteria.map((c) => c.testPlanId),
+      );
       return releases.map((r) => ({
         id: r.id,
         name: r.name,
         status: r.status,
         targetDate: r.targetDate,
         readiness: computeReadiness(
-          r.testPlans.flatMap((p) => p.acceptanceCriteria),
+          r.testPlans.flatMap((p) =>
+            p.acceptanceCriteria.map((c) => ({ status: computedByPlan.get(c.testPlanId) ?? c.status })),
+          ),
           r.riskFlags,
         ),
       }));
@@ -147,13 +155,20 @@ export const releasesRouter = router({
       await requireProjectAccess(ctx, release.projectId);
       const criteria = await ctx.prisma.acceptanceCriterion.findMany({
         where: { testPlan: { releaseId: input.releaseId } },
-        select: { status: true },
+        select: { testPlanId: true, status: true },
       });
+      const computedByPlan = await computeStatusesByTestPlan(
+        ctx.prisma,
+        criteria.map((c) => c.testPlanId),
+      );
       const openFlags = await ctx.prisma.riskFlag.findMany({
         where: { releaseId: input.releaseId, resolvedAt: null },
         select: { severity: true },
       });
-      return computeReadiness(criteria, openFlags);
+      return computeReadiness(
+        criteria.map((c) => ({ status: computedByPlan.get(c.testPlanId) ?? c.status })),
+        openFlags,
+      );
     }),
 
   listTestPlans: protectedProcedure
@@ -166,7 +181,7 @@ export const releasesRouter = router({
           status: z.string(),
           testPlanType: z.object({ id: z.string(), name: z.string() }),
           acceptanceCriteria: z.array(
-            z.object({ id: z.string(), description: z.string(), status: z.string() }),
+            z.object({ id: z.string(), description: z.string(), status: z.string(), autoComputed: z.boolean() }),
           ),
         }),
       ),
@@ -174,10 +189,26 @@ export const releasesRouter = router({
     .query(async ({ ctx, input }) => {
       const release = await ctx.prisma.release.findUniqueOrThrow({ where: { id: input.releaseId } });
       await requireProjectAccess(ctx, release.projectId);
-      return ctx.prisma.testPlan.findMany({
+      const plans = await ctx.prisma.testPlan.findMany({
         where: { releaseId: input.releaseId },
         include: { testPlanType: true, acceptanceCriteria: { orderBy: { createdAt: "asc" } } },
         orderBy: { updatedAt: "desc" },
+      });
+      const computedByPlan = await computeStatusesByTestPlan(
+        ctx.prisma,
+        plans.map((p) => p.id),
+      );
+      return plans.map((p) => {
+        const computed = computedByPlan.get(p.id) ?? null;
+        return {
+          ...p,
+          acceptanceCriteria: p.acceptanceCriteria.map((c) => ({
+            id: c.id,
+            description: c.description,
+            status: computed ?? c.status,
+            autoComputed: computed !== null,
+          })),
+        };
       });
     }),
 

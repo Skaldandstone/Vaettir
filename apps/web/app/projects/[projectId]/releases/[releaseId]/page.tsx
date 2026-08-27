@@ -140,19 +140,28 @@ export default function ReleaseReadinessPage() {
             </div>
             <ul style={{ listStyle: "none", padding: 0, marginTop: 6 }}>
               {p.acceptanceCriteria.map((c) => (
-                <li key={c.id} style={{ display: "flex", justifyContent: "space-between", gap: 8, padding: "4px 0" }}>
+                <li key={c.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, padding: "4px 0" }}>
                   <span>{c.description}</span>
-                  <select
-                    value={c.status}
-                    onChange={(e) => updateCriterionStatus(c.id, c.description, e.target.value)}
-                    style={{ fontSize: 12 }}
-                  >
-                    {CRITERION_STATUSES.map((s) => (
-                      <option key={s} value={s}>
-                        {s}
-                      </option>
-                    ))}
-                  </select>
+                  {c.autoComputed ? (
+                    <span
+                      title="Computed live from this plan's test case results -- not manually editable"
+                      style={{ fontSize: 12 }}
+                    >
+                      {c.status} <span className="text-muted">(live)</span>
+                    </span>
+                  ) : (
+                    <select
+                      value={c.status}
+                      onChange={(e) => updateCriterionStatus(c.id, c.description, e.target.value)}
+                      style={{ fontSize: 12 }}
+                    >
+                      {CRITERION_STATUSES.map((s) => (
+                        <option key={s} value={s}>
+                          {s}
+                        </option>
+                      ))}
+                    </select>
+                  )}
                 </li>
               ))}
               {p.acceptanceCriteria.length === 0 && (
