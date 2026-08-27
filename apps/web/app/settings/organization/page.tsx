@@ -126,6 +126,184 @@ function ApiKeysSection({ organizationId }: { organizationId: string }) {
 
 const cellStyle = { border: "1px solid var(--line)", padding: "6px 10px", textAlign: "left" as const };
 
+const PLAN_CATEGORIES = ["COMPLIANCE", "FUNCTIONAL", "QUALITY_STRATEGY", "RELEASE_READINESS", "CUSTOM"];
+const FIELD_TYPES = ["string", "number", "array"] as const;
+type BuilderField = { key: string; type: (typeof FIELD_TYPES)[number] };
+
+// P3-09: the "no shoehorn" proof point -- an org admin builds a brand new
+// compliance (or any other) plan shape here, and it's immediately available
+// in the "New test plan" dropdown on every project with no code change.
+// The field list below compiles into the same JSON Schema shape the
+// existing CustomFieldsForm renderer already reads for built-in types.
+function PlanTypesSection() {
+  const [types, setTypes] = useState<RouterOutputs["testPlans"]["types"]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  const [formOpen, setFormOpen] = useState(false);
+  const [key, setKey] = useState("");
+  const [name, setName] = useState("");
+  const [category, setCategory] = useState("COMPLIANCE");
+  const [description, setDescription] = useState("");
+  const [fields, setFields] = useState<BuilderField[]>([{ key: "", type: "string" }]);
+  const [creating, setCreating] = useState(false);
+
+  function load() {
+    setLoading(true);
+    trpc.testPlans.types
+      .query()
+      .then(setTypes)
+      .catch((e) => setError(e instanceof Error ? e.message : String(e)))
+      .finally(() => setLoading(false));
+  }
+
+  useEffect(load, []);
+
+  function resetForm() {
+    setKey("");
+    setName("");
+    setCategory("COMPLIANCE");
+    setDescription("");
+    setFields([{ key: "", type: "string" }]);
+  }
+
+  async function create() {
+    const cleanFields = fields.filter((f) => f.key.trim().length > 0);
+    if (!key.trim() || !name.trim() || cleanFields.length === 0) return;
+    setCreating(true);
+    setError(null);
+    try {
+      await trpc.testPlans.createType.mutate({
+        key: key.trim(),
+        name: name.trim(),
+        category: category as never,
+        description: description.trim() || undefined,
+        fields: cleanFields.map((f) => ({ key: f.key.trim(), type: f.type })),
+      });
+      resetForm();
+      setFormOpen(false);
+      load();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setCreating(false);
+    }
+  }
+
+  return (
+    <div style={{ marginTop: 32 }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+        <h2 style={{ marginBottom: 4 }}>Custom plan types</h2>
+        <button className="btn-secondary" onClick={() => setFormOpen((v) => !v)}>
+          {formOpen ? "Cancel" : "+ New plan type"}
+        </button>
+      </div>
+      <p style={{ color: "var(--muted)", fontSize: 13 }}>
+        Define a new test plan shape - a compliance acceptance form, an internal audit checklist, whatever your team
+        needs - by listing its fields below. It's usable from every project's "New test plan" picker immediately, no
+        code change or migration required.
+      </p>
+
+      {error && <p style={{ color: "var(--ember)" }}>{error}</p>}
+      {loading && <p>Loading…</p>}
+
+      {!loading && (
+        <table style={{ borderCollapse: "collapse", width: "100%", marginBottom: 16 }}>
+          <thead>
+            <tr>
+              <th style={cellStyle}>Name</th>
+              <th style={cellStyle}>Key</th>
+              <th style={cellStyle}>Category</th>
+              <th style={cellStyle}>Fields</th>
+              <th style={cellStyle}></th>
+            </tr>
+          </thead>
+          <tbody>
+            {types.map((t) => {
+              const schema = t.fieldSchema as { properties?: Record<string, unknown> } | null;
+              const fieldCount = schema?.properties ? Object.keys(schema.properties).length : 0;
+              return (
+                <tr key={t.id}>
+                  <td style={cellStyle}>{t.name}</td>
+                  <td style={cellStyle}>
+                    <code>{t.key}</code>
+                  </td>
+                  <td style={cellStyle}>{t.category}</td>
+                  <td style={cellStyle}>{fieldCount}</td>
+                  <td style={cellStyle}>{t.isBuiltIn && <span className="text-muted">built-in</span>}</td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      )}
+
+      {formOpen && (
+        <div className="panel" style={{ display: "grid", gap: 10, maxWidth: 480 }}>
+          <label>
+            Key <span style={{ color: "var(--muted-dim)" }}>(unique, e.g. "vendor-security-review")</span>
+            <input value={key} onChange={(e) => setKey(e.target.value)} style={{ width: "100%" }} />
+          </label>
+          <label>
+            Name
+            <input value={name} onChange={(e) => setName(e.target.value)} style={{ width: "100%" }} />
+          </label>
+          <label>
+            Category
+            <select value={category} onChange={(e) => setCategory(e.target.value)} style={{ width: "100%" }}>
+              {PLAN_CATEGORIES.map((c) => (
+                <option key={c} value={c}>
+                  {c}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label>
+            Description <span style={{ color: "var(--muted-dim)" }}>(optional)</span>
+            <input value={description} onChange={(e) => setDescription(e.target.value)} style={{ width: "100%" }} />
+          </label>
+
+          <div>
+            <div style={{ fontWeight: 600, marginBottom: 6 }}>Fields</div>
+            {fields.map((f, i) => (
+              <div key={i} style={{ display: "flex", gap: 8, marginBottom: 6 }}>
+                <input
+                  value={f.key}
+                  onChange={(e) => setFields(fields.map((ff, j) => (j === i ? { ...ff, key: e.target.value } : ff)))}
+                  placeholder="field name"
+                  style={{ flex: 1 }}
+                />
+                <select
+                  value={f.type}
+                  onChange={(e) =>
+                    setFields(fields.map((ff, j) => (j === i ? { ...ff, type: e.target.value as BuilderField["type"] } : ff)))
+                  }
+                >
+                  {FIELD_TYPES.map((t) => (
+                    <option key={t} value={t}>
+                      {t}
+                    </option>
+                  ))}
+                </select>
+                <button className="btn-secondary" onClick={() => setFields(fields.filter((_, j) => j !== i))} disabled={fields.length === 1}>
+                  Remove
+                </button>
+              </div>
+            ))}
+            <button className="btn-secondary" style={{ fontSize: 13 }} onClick={() => setFields([...fields, { key: "", type: "string" }])}>
+              + Add field
+            </button>
+          </div>
+
+          <button className="btn-primary" onClick={create} disabled={creating || !key.trim() || !name.trim()}>
+            {creating ? "Creating…" : "Create plan type"}
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function OrganizationSettingsPage() {
   const [orgId, setOrgId] = useState<string | null>(null);
   const [orgName, setOrgName] = useState("");
@@ -217,6 +395,7 @@ export default function OrganizationSettingsPage() {
       </div>
 
       {orgId && <ApiKeysSection organizationId={orgId} />}
+      <PlanTypesSection />
     </div>
   );
 }

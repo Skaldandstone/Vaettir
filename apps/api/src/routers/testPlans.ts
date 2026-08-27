@@ -37,8 +37,68 @@ export const testPlansRouter = router({
   // Not project-scoped: built-in + org-defined plan types are shared
   // reference data, not something a single project owns.
   types: protectedProcedure
-    .output(z.array(z.object({ id: z.string(), key: z.string(), name: z.string(), category: z.string() })))
-    .query(({ ctx }) => ctx.prisma.testPlanType.findMany()),
+    .output(
+      z.array(
+        z.object({
+          id: z.string(),
+          key: z.string(),
+          name: z.string(),
+          category: z.string(),
+          description: z.string().nullable(),
+          fieldSchema: z.unknown(),
+          isBuiltIn: z.boolean(),
+        }),
+      ),
+    )
+    .query(({ ctx }) => ctx.prisma.testPlanType.findMany({ orderBy: [{ isBuiltIn: "desc" }, { name: "asc" }] })),
+
+  // P3-09: the "add your own compliance form" flow -- an org admin builds a
+  // new plan shape (a field list, not a JSON Schema doc they hand-write) and
+  // it's immediately available to author TestPlans against, with zero code
+  // change or migration. `fields` is a small builder-friendly shape that
+  // gets compiled into the JSON Schema `TestPlanType.fieldSchema` already
+  // expected by the existing generic CustomFieldsForm renderer -- proving
+  // the render side and the authoring side both really are schema-driven,
+  // not just the render side. Not project-scoped for the same reason
+  // `types` isn't: this is shared reference data like ComplianceFramework,
+  // not something a single project owns.
+  createType: protectedProcedure
+    .input(
+      z.object({
+        key: z.string().min(1),
+        name: z.string().min(1),
+        category: z.enum(["FUNCTIONAL", "QUALITY_STRATEGY", "COMPLIANCE", "RELEASE_READINESS", "CUSTOM"]),
+        description: z.string().optional(),
+        fields: z
+          .array(
+            z.object({
+              key: z.string().min(1),
+              type: z.enum(["string", "number", "array"]),
+            }),
+          )
+          .min(1),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const existing = await ctx.prisma.testPlanType.findUnique({ where: { key: input.key } });
+      if (existing) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: `A plan type with key "${input.key}" already exists` });
+      }
+      const properties: Record<string, { type: string; items?: { type: string } }> = {};
+      for (const f of input.fields) {
+        properties[f.key] = f.type === "array" ? { type: "array", items: { type: "string" } } : { type: f.type };
+      }
+      return ctx.prisma.testPlanType.create({
+        data: {
+          key: input.key,
+          name: input.name,
+          category: input.category,
+          description: input.description,
+          fieldSchema: { type: "object", properties } as never,
+          isBuiltIn: false,
+        },
+      });
+    }),
 
   byId: protectedProcedure
     .input(z.object({ id: z.string() }))
