@@ -115,15 +115,24 @@ export const testPlansRouter = router({
           id: z.string(),
           key: z.string(),
           name: z.string(),
+          category: z.string(),
           fieldSchema: z.unknown(),
         }),
+        strategyId: z.string().nullable(),
+        strategyName: z.string().nullable(),
+        linkedPlans: z.array(z.object({ id: z.string(), name: z.string(), status: z.string() })),
         acceptanceCriteria: z.array(acceptanceCriterionOutput),
       }),
     )
     .query(async ({ ctx, input }) => {
       const plan = await ctx.prisma.testPlan.findUniqueOrThrow({
         where: { id: input.id },
-        include: { testPlanType: true, acceptanceCriteria: { orderBy: { createdAt: "asc" } } },
+        include: {
+          testPlanType: true,
+          acceptanceCriteria: { orderBy: { createdAt: "asc" } },
+          strategy: { select: { name: true } },
+          linkedPlans: { select: { id: true, name: true, status: true }, orderBy: { updatedAt: "desc" } },
+        },
       });
       await requireProjectAccess(ctx, plan.projectId);
       return {
@@ -138,8 +147,12 @@ export const testPlansRouter = router({
           id: plan.testPlanType.id,
           key: plan.testPlanType.key,
           name: plan.testPlanType.name,
+          category: plan.testPlanType.category,
           fieldSchema: plan.testPlanType.fieldSchema,
         },
+        strategyId: plan.strategyId,
+        strategyName: plan.strategy?.name ?? null,
+        linkedPlans: plan.linkedPlans,
         acceptanceCriteria: plan.acceptanceCriteria,
       };
     }),
@@ -235,6 +248,60 @@ export const testPlansRouter = router({
         where: { id: input.testPlanId },
         data: { releaseId: input.releaseId, updatedById: ctx.user.id },
         select: { id: true, releaseId: true },
+      });
+    }),
+
+  // P4-04: the strategy picker's data source -- every QUALITY_STRATEGY-type
+  // plan in the project a plan could link up to. Excludes the plan being
+  // edited itself (a strategy can't support itself) when `excludeId` is given.
+  strategiesInProject: protectedProcedure
+    .input(z.object({ projectId: z.string(), excludeId: z.string().optional() }))
+    .output(z.array(z.object({ id: z.string(), name: z.string() })))
+    .query(async ({ ctx, input }) => {
+      await requireProjectAccess(ctx, input.projectId);
+      return ctx.prisma.testPlan.findMany({
+        where: {
+          projectId: input.projectId,
+          testPlanType: { category: "QUALITY_STRATEGY" },
+          id: input.excludeId ? { not: input.excludeId } : undefined,
+        },
+        select: { id: true, name: true },
+        orderBy: { name: "asc" },
+      });
+    }),
+
+  // P4-04: lets a concrete plan (e.g. "regression plan for payments") point
+  // back at the strategy it exists to support, turning a strategy plan into
+  // a real coordination hub rather than just a document. Only a
+  // QUALITY_STRATEGY-category plan can be the target -- linking a plan to
+  // some other functional plan wouldn't mean anything here.
+  setStrategyLink: protectedProcedure
+    .input(z.object({ testPlanId: z.string(), strategyId: z.string().nullable() }))
+    .mutation(async ({ ctx, input }) => {
+      const plan = await ctx.prisma.testPlan.findUniqueOrThrow({
+        where: { id: input.testPlanId },
+        select: { projectId: true },
+      });
+      await requireProjectAccess(ctx, plan.projectId, "EDITOR");
+      if (input.strategyId) {
+        if (input.strategyId === input.testPlanId) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "A plan can't support itself as a strategy" });
+        }
+        const strategy = await ctx.prisma.testPlan.findUnique({
+          where: { id: input.strategyId },
+          include: { testPlanType: { select: { category: true } } },
+        });
+        if (!strategy || strategy.projectId !== plan.projectId) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "That strategy does not belong to this project" });
+        }
+        if (strategy.testPlanType.category !== "QUALITY_STRATEGY") {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "Only a QA strategy plan can be linked as a strategy" });
+        }
+      }
+      return ctx.prisma.testPlan.update({
+        where: { id: input.testPlanId },
+        data: { strategyId: input.strategyId, updatedById: ctx.user.id },
+        select: { id: true, strategyId: true },
       });
     }),
 

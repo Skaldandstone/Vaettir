@@ -179,6 +179,103 @@ function QaStrategyForm({
   );
 }
 
+// P4-04: turns a QUALITY_STRATEGY plan into a real coordination hub rather
+// than just a document. A strategy plan shows every concrete plan pointing
+// back at it (read-only here -- the link is set from the child plan's own
+// side); any other plan gets a picker to set/clear which strategy it
+// supports.
+function StrategyLinkSection({
+  plan,
+  projectId,
+  onChanged,
+}: {
+  plan: Plan;
+  projectId: string;
+  onChanged: () => void;
+}) {
+  const [candidates, setCandidates] = useState<RouterOutputs["testPlans"]["strategiesInProject"]>([]);
+  const [selected, setSelected] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  const isStrategy = plan.testPlanType.category === "QUALITY_STRATEGY";
+
+  useEffect(() => {
+    if (isStrategy) return;
+    trpc.testPlans.strategiesInProject.query({ projectId, excludeId: plan.id }).then(setCandidates);
+  }, [isStrategy, projectId, plan.id]);
+
+  async function link() {
+    if (!selected) return;
+    setSaving(true);
+    try {
+      await trpc.testPlans.setStrategyLink.mutate({ testPlanId: plan.id, strategyId: selected });
+      setSelected("");
+      onChanged();
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function unlink() {
+    setSaving(true);
+    try {
+      await trpc.testPlans.setStrategyLink.mutate({ testPlanId: plan.id, strategyId: null });
+      onChanged();
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  if (isStrategy) {
+    return (
+      <div style={{ marginBottom: 24 }}>
+        <h2>Plans supporting this strategy</h2>
+        <ul style={{ listStyle: "none", padding: 0 }}>
+          {plan.linkedPlans.map((p) => (
+            <li key={p.id} style={{ display: "flex", justifyContent: "space-between", padding: "6px 0", borderBottom: "1px solid var(--line)" }}>
+              <span>{p.name}</span>
+              <span className="text-muted" style={{ fontSize: 12 }}>{p.status}</span>
+            </li>
+          ))}
+          {plan.linkedPlans.length === 0 && (
+            <p className="text-muted">No plans link to this strategy yet - set it from a concrete plan's own page.</p>
+          )}
+        </ul>
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ marginBottom: 24 }}>
+      <h2>Supports strategy</h2>
+      {plan.strategyName ? (
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <span>{plan.strategyName}</span>
+          <button className="btn-secondary" style={{ fontSize: 12 }} onClick={unlink} disabled={saving}>
+            Unlink
+          </button>
+        </div>
+      ) : candidates.length === 0 ? (
+        <p className="text-muted">No QA strategy plans exist in this project yet.</p>
+      ) : (
+        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+          <select value={selected} onChange={(e) => setSelected(e.target.value)}>
+            <option value="">Pick a strategy…</option>
+            {candidates.map((c) => (
+              <option key={c.id} value={c.id}>
+                {c.name}
+              </option>
+            ))}
+          </select>
+          <button className="btn-secondary" style={{ fontSize: 12 }} onClick={link} disabled={saving || !selected}>
+            Link
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // Shared between the full detail page (/test-plans/[id], for deep links)
 // and the drawer opened from the list -- same pop-out-module split as
 // TestCaseDetailContent.
@@ -301,6 +398,8 @@ export function TestPlanDetailContent({
         </button>
         {saved && <p style={{ color: "var(--frost)" }}>Saved.</p>}
       </div>
+
+      <StrategyLinkSection plan={plan} projectId={plan.projectId} onChanged={load} />
 
       <h2>Acceptance criteria</h2>
       <ul style={{ listStyle: "none", padding: 0 }}>

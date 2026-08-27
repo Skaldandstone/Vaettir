@@ -285,6 +285,15 @@ model TestPlan {
   status       TestPlanStatus @default(DRAFT)
   customFields Json           @default("{}") // validated against testPlanType.fieldSchema
 
+  // P4-04: lets a QUALITY_STRATEGY-category plan act as a real coordination
+  // hub instead of just a document -- a concrete plan (e.g. "regression
+  // plan for payments") can point back at the strategy it exists to
+  // support. Self-relation rather than a separate join table since it's a
+  // simple one-parent-strategy-per-plan link, not a many-to-many.
+  strategyId  String?
+  strategy    TestPlan?  @relation("StrategyLink", fields: [strategyId], references: [id])
+  linkedPlans TestPlan[] @relation("StrategyLink")
+
   acceptanceCriteria AcceptanceCriterion[]
   testCases          TestCase[]
 
