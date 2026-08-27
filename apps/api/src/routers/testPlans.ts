@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
+import { generateQaStrategyDraft } from "@vaettir/ai-agent";
 import { router, protectedProcedure, requireProjectAccess } from "../trpc.js";
 import { recordAudit } from "../services/auditLog.js";
 import { snapshotTestPlanVersion } from "../services/testPlanVersion.js";
@@ -265,6 +266,46 @@ export const testPlansRouter = router({
         where: { id: input.testPlanId },
         data: { releaseId: input.releaseId, updatedById: ctx.user.id },
         select: { id: true, releaseId: true },
+      });
+    }),
+
+  // P4-02: drafts a starter QA strategy from a short user prompt plus a real
+  // summary of the project's existing test coverage (frameworks in use,
+  // test counts per type) -- not a from-scratch generic template. Returns
+  // the draft for review; it isn't saved as a TestPlan until the user
+  // explicitly creates one from it via the normal `create` mutation, same
+  // as reviewing an AI-reverse-engineered test case before it's approved.
+  generateStrategyDraft: protectedProcedure
+    .input(z.object({ projectId: z.string(), prompt: z.string().min(1) }))
+    .output(
+      z.object({
+        riskAreas: z.array(z.string()),
+        environments: z.array(z.string()),
+        entryCriteria: z.array(z.string()),
+        exitCriteria: z.array(z.string()),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      await requireProjectAccess(ctx, input.projectId, "EDITOR");
+      const project = await ctx.prisma.project.findUniqueOrThrow({ where: { id: input.projectId }, select: { name: true } });
+      const [testTypeGroups, frameworkGroups, totalTestCases] = await Promise.all([
+        ctx.prisma.testCase.groupBy({ by: ["testType"], where: { projectId: input.projectId }, _count: true }),
+        ctx.prisma.testCaseSource.groupBy({
+          by: ["frameworkFamily"],
+          where: { testCase: { projectId: input.projectId } },
+          _count: true,
+        }),
+        ctx.prisma.testCase.count({ where: { projectId: input.projectId } }),
+      ]);
+      const testTypeCounts = Object.fromEntries(testTypeGroups.map((g) => [g.testType, g._count]));
+      const frameworksInUse = frameworkGroups.map((g) => g.frameworkFamily);
+
+      return generateQaStrategyDraft({
+        projectName: project.name,
+        prompt: input.prompt,
+        frameworksInUse,
+        testTypeCounts,
+        totalTestCases,
       });
     }),
 
