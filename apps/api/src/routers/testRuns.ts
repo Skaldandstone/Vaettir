@@ -4,6 +4,7 @@ import { router, protectedProcedure, requireProjectAccess } from "../trpc.js";
 import { parseJUnitXml } from "../services/junitParse.js";
 import { recomputeFlaky } from "../services/flakyDetection.js";
 import { autoEnqueueUnmatchedResult } from "../services/continuousListening.js";
+import { buildArtifactKey, createUploadUrl, createViewUrl, canonicalUrl, keyFromCanonicalUrl } from "../services/artifactStorage.js";
 
 // P5-01: the actual data pipeline several other roadmap items (P4-03, P4-06,
 // P3-05, P3-07, P7-02) are blocked on -- they all need real TestResult rows
@@ -193,6 +194,7 @@ export const testRunsRouter = router({
             status: z.string(),
             durationMs: z.number().nullable(),
             errorMessage: z.string().nullable(),
+            artifacts: z.array(z.object({ id: z.string(), type: z.string() })),
           }),
         ),
       }),
@@ -200,7 +202,7 @@ export const testRunsRouter = router({
     .query(async ({ ctx, input }) => {
       const run = await ctx.prisma.testRun.findUniqueOrThrow({
         where: { id: input.id },
-        include: { results: { include: { testCase: { select: { title: true } } } } },
+        include: { results: { include: { testCase: { select: { title: true } }, artifacts: true } } },
       });
       await requireProjectAccess(ctx, run.projectId);
       return {
@@ -220,6 +222,7 @@ export const testRunsRouter = router({
           status: r.status,
           durationMs: r.durationMs,
           errorMessage: r.errorMessage,
+          artifacts: r.artifacts.map((a) => ({ id: a.id, type: a.type })),
         })),
       };
     }),
@@ -272,5 +275,57 @@ export const testRunsRouter = router({
       });
       await recomputeFlaky(ctx.prisma, input.testCaseId);
       return updated;
+    }),
+
+  // P5-15: the runner-side reporter (Playwright/Cypress/WebdriverIO) calls
+  // this once a test has actually failed -- never on a pass, and never
+  // uploading a rolling video buffer that a passing run just discards. The
+  // reporter never gets real S3 credentials: this returns a short-lived
+  // presigned PUT the reporter uses directly, and the DB row is created
+  // immediately with the eventual object's canonical (non-presigned) URL,
+  // matching how every other artifact record in this schema already works.
+  requestArtifactUpload: protectedProcedure
+    .input(z.object({ testResultId: z.string(), type: z.enum(["SCREENSHOT", "VIDEO"]), durationMs: z.number().optional() }))
+    .output(z.object({ artifactId: z.string(), uploadUrl: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      const result = await ctx.prisma.testResult.findUniqueOrThrow({
+        where: { id: input.testResultId },
+        include: { testRun: { select: { projectId: true } } },
+      });
+      await requireProjectAccess(ctx, result.testRun.projectId, "EDITOR");
+      if (result.status !== "FAIL") {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Artifacts are only accepted for a FAIL result" });
+      }
+
+      const key = buildArtifactKey(result.testRun.projectId, input.testResultId, input.type);
+      const [uploadUrl, artifact] = await Promise.all([
+        createUploadUrl(key, input.type),
+        ctx.prisma.testResultArtifact.create({
+          data: {
+            testResultId: input.testResultId,
+            type: input.type,
+            storageUrl: canonicalUrl(key),
+            durationMs: input.type === "VIDEO" ? input.durationMs : undefined,
+          },
+        }),
+      ]);
+
+      return { artifactId: artifact.id, uploadUrl };
+    }),
+
+  // The UI never resolves storageUrl directly (the bucket blocks all
+  // public access) -- it asks for a fresh short-lived signed GET each time
+  // an artifact is actually viewed.
+  getArtifactViewUrl: protectedProcedure
+    .input(z.object({ artifactId: z.string() }))
+    .output(z.object({ viewUrl: z.string() }))
+    .query(async ({ ctx, input }) => {
+      const artifact = await ctx.prisma.testResultArtifact.findUniqueOrThrow({
+        where: { id: input.artifactId },
+        include: { testResult: { include: { testRun: { select: { projectId: true } } } } },
+      });
+      await requireProjectAccess(ctx, artifact.testResult.testRun.projectId);
+      const viewUrl = await createViewUrl(keyFromCanonicalUrl(artifact.storageUrl));
+      return { viewUrl };
     }),
 });
