@@ -13,6 +13,9 @@ export default function MembersPage() {
   const [members, setMembers] = useState<RouterOutputs["organization"]["listMembers"]>([]);
   const [invitations, setInvitations] = useState<RouterOutputs["organization"]["listInvitations"]>([]);
   const [seatUsage, setSeatUsage] = useState<RouterOutputs["organization"]["seatUsage"] | null>(null);
+  const [planTiers, setPlanTiers] = useState<RouterOutputs["organization"]["listPlanTiers"]>([]);
+  const [changingPlan, setChangingPlan] = useState(false);
+  const [planError, setPlanError] = useState<string | null>(null);
   const [email, setEmail] = useState("");
   const [role, setRole] = useState("EDITOR");
   const [seatType, setSeatType] = useState<"FULL" | "READ_ONLY">("FULL");
@@ -42,10 +45,25 @@ export default function MembersPage() {
         setOrgId(org.id);
         setOrgName(org.name);
         await loadOrgData(org.id);
+        setPlanTiers(await trpc.organization.listPlanTiers.query());
       })
       .catch((e) => setError(String(e)))
       .finally(() => setLoading(false));
   }, []);
+
+  async function changePlan(planTierId: string) {
+    if (!orgId) return;
+    setChangingPlan(true);
+    setPlanError(null);
+    try {
+      await trpc.organization.changePlanTier.mutate({ organizationId: orgId, planTierId });
+      await loadOrgData(orgId);
+    } catch (e) {
+      setPlanError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setChangingPlan(false);
+    }
+  }
 
   async function submitInvite() {
     if (!orgId) return;
@@ -133,6 +151,22 @@ export default function MembersPage() {
               You're at your full-seat limit — adding one more requires upgrading to {seatUsage.nextTierNameForOneMoreFullSeat}.
             </p>
           )}
+          {planTiers.length > 0 && (
+            <div style={{ marginTop: 12, display: "flex", gap: 8, alignItems: "center" }}>
+              <label style={{ fontSize: 13 }}>
+                Plan:{" "}
+                <select value={seatUsage.planTierId} onChange={(e) => changePlan(e.target.value)} disabled={changingPlan}>
+                  {planTiers.map((t) => (
+                    <option key={t.id} value={t.id}>
+                      {t.name} {t.monthlyPricePerSeatCents !== null ? `- $${(t.monthlyPricePerSeatCents / 100).toFixed(0)}/seat/mo` : ""}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              {changingPlan && <span className="text-muted" style={{ fontSize: 12 }}>Saving…</span>}
+            </div>
+          )}
+          {planError && <p style={{ color: "var(--ember)", fontSize: 13, marginTop: 6 }}>{planError}</p>}
         </div>
       )}
 

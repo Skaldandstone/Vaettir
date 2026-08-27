@@ -490,6 +490,61 @@ export const organizationRouter = router({
       });
     }),
 
+  // Plan tiers, sorted for display in a picker (Free -> Team -> Business ->
+  // Corp). Public within an authenticated session -- pricing itself isn't
+  // sensitive, and a user picking a plan needs to see all of them, not just
+  // their org's current one.
+  listPlanTiers: protectedProcedure
+    .output(
+      z.array(
+        z.object({
+          id: z.string(),
+          key: z.string(),
+          name: z.string(),
+          sortOrder: z.number(),
+          minFullSeats: z.number(),
+          maxFullSeats: z.number().nullable(),
+          includedReadOnlySeats: z.number(),
+          maxReadOnlySeats: z.number().nullable(),
+          monthlyPricePerSeatCents: z.number().nullable(),
+          includedAiCreditsPerMonth: z.number(),
+        }),
+      ),
+    )
+    .query(({ ctx }) => ctx.prisma.planTier.findMany({ orderBy: { sortOrder: "asc" } })),
+
+  // P12-04: switching plans is validated against ACTUAL seated usage, not
+  // just accepted and left to silently misbehave -- a downgrade that would
+  // leave the org over the new tier's seat caps is refused, and the error
+  // says exactly how many of which seat type would need to go first, so an
+  // admin isn't left guessing why the change failed.
+  changePlanTier: protectedProcedure
+    .input(z.object({ organizationId: z.string(), planTierId: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      requireOrgRole(ctx, input.organizationId, "ADMIN");
+      const [targetTier, counts] = await Promise.all([
+        ctx.prisma.planTier.findUniqueOrThrow({ where: { id: input.planTierId } }),
+        getSeatCounts(ctx.prisma, input.organizationId),
+      ]);
+
+      const overflows: string[] = [];
+      if (targetTier.maxFullSeats !== null && counts.fullSeats > targetTier.maxFullSeats) {
+        overflows.push(`${counts.fullSeats - targetTier.maxFullSeats} full seat(s)`);
+      }
+      if (targetTier.maxReadOnlySeats !== null && counts.readOnlySeats > targetTier.maxReadOnlySeats) {
+        overflows.push(`${counts.readOnlySeats - targetTier.maxReadOnlySeats} read-only seat(s)`);
+      }
+      if (overflows.length > 0) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: `Can't switch to ${targetTier.name}: remove ${overflows.join(" and ")} first (currently ${counts.fullSeats} full / ${counts.readOnlySeats} read-only seated).`,
+        });
+      }
+
+      await ctx.prisma.organization.update({ where: { id: input.organizationId }, data: { planTierId: input.planTierId } });
+      return { planTierId: input.planTierId, planTierName: targetTier.name };
+    }),
+
   // P12-06: current seats used vs. included at this tier, plus which tier
   // one more full seat would actually require -- so an admin sees "you're
   // at 9/10, the next seat needs Team" BEFORE they hit the wall mid-invite
@@ -499,6 +554,7 @@ export const organizationRouter = router({
     .input(z.object({ organizationId: z.string() }))
     .output(
       z.object({
+        planTierId: z.string(),
         planTierName: z.string(),
         fullSeatsUsed: z.number(),
         fullSeatsIncluded: z.number().nullable(),
@@ -523,6 +579,7 @@ export const organizationRouter = router({
       }
 
       return {
+        planTierId: org.planTier.id,
         planTierName: org.planTier.name,
         fullSeatsUsed: counts.fullSeats,
         fullSeatsIncluded: org.planTier.maxFullSeats,
