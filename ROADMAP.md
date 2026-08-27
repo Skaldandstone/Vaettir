@@ -88,9 +88,9 @@ This is the platform's differentiator per your original brief: don't
 shoehorn compliance into generic test plans.
 
 ### Epic 3.1 - Framework & control management
-- **P3-01** (M) Compliance framework/control admin UI: browse seeded frameworks (SOC 2, HIPAA, PCI DSS, GDPR, ISO 27001), add custom frameworks/controls. `labels: area:web, compliance`
+- ✅ **P3-01** (M) Compliance framework/control admin UI: browse seeded frameworks (SOC 2, HIPAA, PCI DSS, GDPR, ISO 27001), add custom frameworks/controls. `labels: area:web, compliance`
 - **P3-02** (L) Import well-known control sets from structured sources (AICPA TSC for SOC 2, NIST CSF, etc.) rather than hand-seeding - build an importer, not just static seed data, since these get revised. `labels: area:api, compliance`
-- **P3-03** (M) Test case ↔ control mapping UI (many-to-many, already modeled via `TestCaseComplianceControl`) with coverage-per-control view: "which controls have zero mapped test cases." `labels: area:web, compliance`
+- ✅ **P3-03** (M) Test case ↔ control mapping UI (many-to-many, already modeled via `TestCaseComplianceControl`) with coverage-per-control view: "which controls have zero mapped test cases." `labels: area:web, compliance`
 - **P3-04** (S) Control coverage report export (PDF/CSV) for auditor handoff. `labels: area:web, compliance, type:feature`
 
 ### Epic 3.2 - Evidence & audit trail
