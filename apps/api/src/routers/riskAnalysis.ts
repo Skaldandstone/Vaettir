@@ -1,9 +1,9 @@
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
-import { fallbackRiskScoreFromPriority } from "@vaettir/core";
 import { recommendTestPlansForDiff } from "@vaettir/ai-agent";
 import { router, protectedProcedure, requireProjectAccess } from "../trpc.js";
 import { getChangedFiles, getDiffContent } from "../services/changeImpact.js";
+import { matchChangedFilesToTestCases } from "../services/changeMatch.js";
 import { getPathSeverityRules, severityForPath, parsePathSeverityRules } from "../services/prScanPolicy.js";
 
 const recommendationOutput = z.object({
@@ -63,25 +63,7 @@ export const riskAnalysisRouter = router({
       }
 
       const changedFiles = await getChangedFiles(repoUrl, input.baseRef, input.headRef);
-
-      const candidates = await ctx.prisma.testCase.findMany({
-        where: { projectId: input.projectId, source: { filePath: { in: changedFiles } } },
-        include: { source: { select: { filePath: true } } },
-      });
-
-      const matchedFiles = new Set(candidates.map((c) => c.source?.filePath).filter((f): f is string => !!f));
-      const coverageGaps = changedFiles.filter((f) => !matchedFiles.has(f));
-
-      const mustRun = candidates
-        .map((tc) => ({
-          testCaseId: tc.id,
-          title: tc.title,
-          matchReason: `Source file changed: ${tc.source?.filePath}`,
-          riskScore: tc.riskScore ?? fallbackRiskScoreFromPriority(tc.priority),
-          riskSeverity: tc.riskSeverity,
-          sourceFilePath: tc.source?.filePath ?? null,
-        }))
-        .sort((a, b) => b.riskScore - a.riskScore);
+      const { mustRun, coverageGaps } = await matchChangedFilesToTestCases(ctx.prisma, input.projectId, changedFiles);
 
       let riskFlagsCreated = 0;
       if (release) {
