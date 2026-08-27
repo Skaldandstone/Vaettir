@@ -112,6 +112,11 @@ for exact ticket status - the highlights:
 
 ## Getting started
 
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the full local-dev walkthrough
+(including a `docker-compose up -d postgres` if you don't already have a
+Postgres instance) and the conventions worth knowing before you dig in.
+Quick version:
+
 ```bash
 cp .env.example .env   # set DATABASE_URL, ANTHROPIC_API_KEY, and the Clerk keys below
 pnpm install
