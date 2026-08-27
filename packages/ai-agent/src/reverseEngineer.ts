@@ -4,7 +4,15 @@ import {
   ReverseEngineeredTestCaseSchema,
   type ReverseEngineerResult,
   detectFramework,
+  getFrameworkEvaluator,
 } from "@vaettir/core";
+import { registerJsTsEvaluators } from "./evaluators/jsTsEvaluator.js";
+
+// P5-11/P5-07: registers the native JS/TS evaluator once at module load.
+// Framework-family-specific evaluator modules each own their own
+// registration call like this one; adding P5-08/09/10 later is adding
+// another such call, not touching reverseEngineerTestFile itself.
+registerJsTsEvaluators();
 
 const AgentResponseSchema = z.object({ testCases: z.array(ReverseEngineeredTestCaseSchema) });
 
@@ -115,6 +123,37 @@ export interface ReverseEngineerInput {
   content: string;
 }
 
+// P5-11/P5-07: when a native evaluator is registered for the detected
+// framework and it successfully extracts test blocks, the model gets this
+// pre-parsed, per-test breakdown instead of the raw file -- cheaper (no
+// need to re-derive structure the parser already extracted), faster, and
+// more reliable for well-known frameworks than asking the model to mentally
+// parse describe/it nesting out of raw source itself. Falls straight back
+// to the raw-source prompt (unchanged from before this ticket) when there's
+// no evaluator for this family, or it returns null.
+function buildPromptContent(
+  filePath: string,
+  heuristicLabel: string,
+  heuristicFamily: import("@vaettir/core").FrameworkFamily,
+  content: string,
+): string {
+  const evaluator = getFrameworkEvaluator(heuristicFamily);
+  const extracted = evaluator?.extract(content, filePath);
+
+  if (!extracted) {
+    return `File path: ${filePath}\nHeuristically detected framework: ${heuristicLabel} (${heuristicFamily})\n\n---\n${content}\n---\n\nReverse-engineer this into BDD test cases.`;
+  }
+
+  const blocksText = extracted.testBlocks
+    .map(
+      (b, i) =>
+        `Test block ${i + 1}: "${b.title}"\n${b.assertions.length > 0 ? `Assertions found:\n${b.assertions.map((a) => `  - ${a}`).join("\n")}\n` : ""}Body:\n${b.bodySnippet}`,
+    )
+    .join("\n\n---\n\n");
+
+  return `File path: ${filePath}\nDetected framework: ${heuristicLabel} (${heuristicFamily})\n\nThe following test blocks were deterministically extracted from this file (do not re-derive structure -- it's already parsed; focus on phrasing each as a clear BDD test case):\n\n${blocksText}\n\nReverse-engineer these into BDD test cases, one per test block.`;
+}
+
 export async function reverseEngineerTestFile(
   input: ReverseEngineerInput,
 ): Promise<ReverseEngineerResult> {
@@ -129,7 +168,7 @@ export async function reverseEngineerTestFile(
     messages: [
       {
         role: "user",
-        content: `File path: ${input.filePath}\nHeuristically detected framework: ${heuristic.label} (${heuristic.family})\n\n---\n${input.content}\n---\n\nReverse-engineer this into BDD test cases.`,
+        content: buildPromptContent(input.filePath, heuristic.label, heuristic.family, input.content),
       },
     ],
   });
