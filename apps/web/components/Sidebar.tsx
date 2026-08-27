@@ -41,6 +41,7 @@ function ProjectSidebar({ projectId }: { projectId: string }) {
     { href: `/projects/${projectId}`, label: "Overview" },
     { href: `/projects/${projectId}/test-cases`, label: "Test Cases" },
     { href: `/projects/${projectId}/test-plans`, label: "Test Plans" },
+    { href: `/projects/${projectId}/test-runs`, label: "Test Runs" },
     { href: `/projects/${projectId}/requirements`, label: "Requirements" },
     { href: `/projects/${projectId}/compliance`, label: "Compliance" },
     { href: `/projects/${projectId}/audit-log`, label: "Audit Log" },

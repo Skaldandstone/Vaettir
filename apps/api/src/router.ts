@@ -11,6 +11,7 @@ import { searchRouter } from "./routers/search.js";
 import { apiKeysRouter } from "./routers/apiKeys.js";
 import { complianceRouter } from "./routers/compliance.js";
 import { auditLogRouter } from "./routers/auditLog.js";
+import { testRunsRouter } from "./routers/testRuns.js";
 
 export const appRouter = router({
   testCases: testCasesRouter,
@@ -25,6 +26,7 @@ export const appRouter = router({
   apiKeys: apiKeysRouter,
   compliance: complianceRouter,
   auditLog: auditLogRouter,
+  testRuns: testRunsRouter,
 });
 
 export type AppRouter = typeof appRouter;
