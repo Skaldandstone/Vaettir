@@ -277,6 +277,14 @@ model PlanTier {
   // "unset" -- unlike monthlyPricePerSeatCents this always has a value.
   includedAiCreditsPerMonth Int @default(0)
 
+  // P12-07: plumbing only, deliberately empty for now -- a plain list of
+  // feature-flag keys enabled at this tier, so a specific tier can gate a
+  // specific feature set once those are actually mapped, as data rather
+  // than a scattered `if (org.planTier.key === "business")` check wherever
+  // that feature lives. No flag currently reads this array; every feature
+  // built so far is available on every tier.
+  enabledFeatures String[] @default([])
+
   organizations Organization[]
 }
 

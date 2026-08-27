@@ -530,6 +530,7 @@ export const organizationRouter = router({
           maxReadOnlySeats: z.number().nullable(),
           monthlyPricePerSeatCents: z.number().nullable(),
           includedAiCreditsPerMonth: z.number(),
+          enabledFeatures: z.array(z.string()),
         }),
       ),
     )
