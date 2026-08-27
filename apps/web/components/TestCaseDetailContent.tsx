@@ -26,6 +26,101 @@ function DiffField({ label, before, after }: { label: string; before: string; af
   );
 }
 
+// P3-03: which compliance controls this specific case is evidence for.
+// Mapping a control here is what feeds the coverage view on the project's
+// /compliance page ("which controls have zero mapped test cases").
+function ComplianceControlsSection({ testCaseId, projectId }: { testCaseId: string; projectId: string }) {
+  const [mapped, setMapped] = useState<RouterOutputs["compliance"]["testCaseControls"] | null>(null);
+  const [frameworks, setFrameworks] = useState<RouterOutputs["compliance"]["listFrameworks"]>([]);
+  const [frameworkId, setFrameworkId] = useState("");
+  const [candidates, setCandidates] = useState<RouterOutputs["compliance"]["controlCoverage"]>([]);
+  const [controlId, setControlId] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  function load() {
+    trpc.compliance.testCaseControls.query({ testCaseId }).then(setMapped);
+  }
+  useEffect(load, [testCaseId]);
+  useEffect(() => {
+    trpc.compliance.listFrameworks.query().then((fw) => {
+      setFrameworks(fw);
+      if (!frameworkId && fw[0]) setFrameworkId(fw[0].id);
+    });
+  }, []);
+  useEffect(() => {
+    if (!frameworkId) return;
+    trpc.compliance.controlCoverage.query({ projectId, frameworkId }).then(setCandidates);
+  }, [frameworkId, projectId]);
+
+  async function addMapping() {
+    if (!controlId) return;
+    setBusy(true);
+    try {
+      await trpc.compliance.mapTestCase.mutate({ testCaseId, controlId });
+      setControlId("");
+      load();
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function removeMapping(id: string) {
+    setBusy(true);
+    try {
+      await trpc.compliance.unmapTestCase.mutate({ testCaseId, controlId: id });
+      load();
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (!mapped) return null;
+  const unmappedCandidates = candidates.filter((c) => !mapped.some((m) => m.id === c.id));
+
+  return (
+    <div style={{ border: "1px solid var(--line)", borderRadius: 8, padding: 12, marginBottom: 16 }}>
+      <strong>Compliance controls:</strong>
+      {mapped.length === 0 && <p className="text-muted" style={{ fontSize: 13, margin: "4px 0" }}>Not mapped to any control.</p>}
+      {mapped.length > 0 && (
+        <ul style={{ listStyle: "none", padding: 0, margin: "6px 0" }}>
+          {mapped.map((c) => (
+            <li key={c.id} style={{ display: "flex", justifyContent: "space-between", fontSize: 13, padding: "3px 0" }}>
+              <span>
+                {c.frameworkName}: <strong>{c.code}</strong> {c.title}
+              </span>
+              <button className="btn-secondary" style={{ fontSize: 11 }} onClick={() => removeMapping(c.id)} disabled={busy}>
+                Unmap
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+      {frameworks.length > 0 && (
+        <div style={{ display: "flex", gap: 6, marginTop: 6 }}>
+          <select value={frameworkId} onChange={(e) => setFrameworkId(e.target.value)} style={{ fontSize: 12 }}>
+            {frameworks.map((f) => (
+              <option key={f.id} value={f.id}>
+                {f.name}
+              </option>
+            ))}
+          </select>
+          <select value={controlId} onChange={(e) => setControlId(e.target.value)} style={{ fontSize: 12, flex: 1 }}>
+            <option value="">Map to a control…</option>
+            {unmappedCandidates.map((c) => (
+              <option key={c.id} value={c.id}>
+                {c.code} — {c.title}
+              </option>
+            ))}
+          </select>
+          <button className="btn-secondary" style={{ fontSize: 12 }} onClick={addMapping} disabled={busy || !controlId}>
+            Map
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // Shared between the full detail page (/test-cases/[id], for deep links and
 // bookmarking) and the drawer opened from the list -- see
 // STYLE_GUIDE-adjacent decision in TestCaseTree.tsx's commit: don't force a
@@ -136,6 +231,8 @@ export function TestCaseDetailContent({
           {tc.source.functionName && ` :: ${tc.source.functionName}`} ({tc.source.framework})
         </p>
       )}
+
+      <ComplianceControlsSection testCaseId={tc.id} projectId={projectId} />
 
       {tc.origin === "AI_REVERSE_ENGINEERED" && (
         <div
