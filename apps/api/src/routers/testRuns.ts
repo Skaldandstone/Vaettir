@@ -16,6 +16,13 @@ export const testRunsRouter = router({
   // Authenticated the same way as every other mutation -- a CI service
   // token (an ApiKey-backed User, see apps/api/src/trpc.ts) works here with
   // no separate auth path, since it's a real Membership like a human's.
+  // P11-08: startedAt/finishedAt are optional and default to "now" for the
+  // live-CI case (the vast majority of calls, where "when this arrived" and
+  // "when it ran" are close enough not to matter) -- but a historical
+  // backfill importing past execution history needs to set the REAL
+  // original timestamps, not the import date, or every trend chart,
+  // flaky-detection window, and mean-time-to-green calculation downstream
+  // would be silently wrong (every backfilled run timestamped "today").
   ingestJUnit: protectedProcedure
     .input(
       z.object({
@@ -25,6 +32,8 @@ export const testRunsRouter = router({
         commitSha: z.string().min(1),
         branch: z.string().min(1),
         junitXml: z.string().min(1),
+        startedAt: z.date().optional(),
+        finishedAt: z.date().optional(),
       }),
     )
     .output(
@@ -70,8 +79,8 @@ export const testRunsRouter = router({
           ciRunUrl: input.ciRunUrl,
           commitSha: input.commitSha,
           branch: input.branch,
-          startedAt: new Date(),
-          finishedAt: new Date(),
+          startedAt: input.startedAt ?? new Date(),
+          finishedAt: input.finishedAt ?? new Date(),
           status,
           results: {
             create: parsed.map((p) => ({
