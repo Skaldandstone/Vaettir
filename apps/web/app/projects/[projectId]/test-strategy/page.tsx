@@ -57,6 +57,9 @@ export default function TestStrategyPage() {
   const [result, setResult] = useState<RouterOutputs["riskAnalysis"]["recommendForChange"] | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  const [aiAnalyzing, setAiAnalyzing] = useState(false);
+  const [aiResult, setAiResult] = useState<RouterOutputs["riskAnalysis"]["recommendTestPlansForDiff"] | null>(null);
+
   const [runs, setRuns] = useState<RouterOutputs["riskAnalysis"]["listRuns"]>([]);
   const [bulkAssessing, setBulkAssessing] = useState(false);
   const [bulkResult, setBulkResult] = useState<RouterOutputs["testCases"]["assessProjectRisk"] | null>(null);
@@ -120,6 +123,25 @@ export default function TestStrategyPage() {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
       setAnalyzing(false);
+    }
+  }
+
+  async function analyzeWithAi() {
+    setAiAnalyzing(true);
+    setError(null);
+    setAiResult(null);
+    try {
+      const res = await trpc.riskAnalysis.recommendTestPlansForDiff.mutate({
+        projectId,
+        repoUrl: repoUrl || undefined,
+        baseRef,
+        headRef,
+      });
+      setAiResult(res);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setAiAnalyzing(false);
     }
   }
 
@@ -209,6 +231,9 @@ export default function TestStrategyPage() {
           <button onClick={analyze} disabled={analyzing || !headRef}>
             {analyzing ? "Diffing + analyzing…" : "Analyze change"}
           </button>
+          <button className="btn-secondary" onClick={analyzeWithAi} disabled={aiAnalyzing || !headRef} style={{ marginLeft: 8 }}>
+            {aiAnalyzing ? "Reading the diff…" : "Also check with AI"}
+          </button>
         </div>
 
         {error && <p style={{ color: "var(--ember)" }}>{error}</p>}
@@ -244,6 +269,42 @@ export default function TestStrategyPage() {
                   ))}
                 </ul>
               </>
+            )}
+          </div>
+        )}
+
+        {aiResult && (
+          <div style={{ marginTop: 16, borderTop: "1px solid var(--line)", paddingTop: 12 }}>
+            <h3>AI read of the diff</h3>
+            <p className="text-muted" style={{ fontSize: 13 }}>{aiResult.rationale}</p>
+            {aiResult.relevantTestPlans.length > 0 && (
+              <>
+                <div style={{ fontWeight: 600, fontSize: 13, marginTop: 8 }}>Relevant test plans</div>
+                <ul style={{ fontSize: 13 }}>
+                  {aiResult.relevantTestPlans.map((p) => (
+                    <li key={p.id}>
+                      <a href={`/projects/${projectId}/test-plans/${p.id}`}>{p.name}</a>
+                    </li>
+                  ))}
+                </ul>
+              </>
+            )}
+            {aiResult.suggestedNewTestCases.length > 0 && (
+              <>
+                <div style={{ fontWeight: 600, fontSize: 13, marginTop: 8, color: "var(--ember)" }}>
+                  Possible new coverage gaps
+                </div>
+                <ul style={{ fontSize: 13 }}>
+                  {aiResult.suggestedNewTestCases.map((s, i) => (
+                    <li key={i}>{s}</li>
+                  ))}
+                </ul>
+              </>
+            )}
+            {aiResult.relevantTestPlans.length === 0 && aiResult.suggestedNewTestCases.length === 0 && (
+              <p className="text-muted" style={{ fontSize: 13 }}>
+                No relevant existing plans and no obvious new coverage gaps identified.
+              </p>
             )}
           </div>
         )}

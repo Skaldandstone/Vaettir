@@ -1,8 +1,9 @@
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 import { fallbackRiskScoreFromPriority } from "@vaettir/core";
+import { recommendTestPlansForDiff } from "@vaettir/ai-agent";
 import { router, protectedProcedure, requireProjectAccess } from "../trpc.js";
-import { getChangedFiles } from "../services/changeImpact.js";
+import { getChangedFiles, getDiffContent } from "../services/changeImpact.js";
 
 const recommendationOutput = z.object({
   testCaseId: z.string(),
@@ -131,6 +132,51 @@ export const riskAnalysisRouter = router({
       });
 
       return { runId: run.id, changedFiles, mustRun, coverageGaps, riskFlagsCreated };
+    }),
+
+  // P6-04: goes beyond recommendForChange's file-path matching -- reads the
+  // actual diff content and asks the agent which of the project's EXISTING
+  // test plans the change is relevant to, and whether it looks like it
+  // introduces a gap (a new branch/edge case) beyond what any existing
+  // plan/case already covers. Kept as its own mutation rather than folded
+  // into recommendForChange: that one is free and deterministic (pure file-
+  // path matching), this one is a real LLM call, and bundling them would
+  // make the cheap, always-useful check pay the cost of the expensive,
+  // judgment-based one on every call.
+  recommendTestPlansForDiff: protectedProcedure
+    .input(z.object({ projectId: z.string(), repoUrl: z.string().optional(), baseRef: z.string().default("main"), headRef: z.string() }))
+    .output(
+      z.object({
+        relevantTestPlans: z.array(z.object({ id: z.string(), name: z.string() })),
+        rationale: z.string(),
+        suggestedNewTestCases: z.array(z.string()),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      await requireProjectAccess(ctx, input.projectId, "EDITOR");
+      const project = await ctx.prisma.project.findUniqueOrThrow({ where: { id: input.projectId } });
+      const repoUrl = input.repoUrl ?? project.repoUrl;
+      if (!repoUrl) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "No repo URL provided and the project has none configured" });
+      }
+
+      const [diffContent, testPlans] = await Promise.all([
+        getDiffContent(repoUrl, input.baseRef, input.headRef),
+        ctx.prisma.testPlan.findMany({ where: { projectId: input.projectId }, select: { id: true, name: true, description: true } }),
+      ]);
+
+      if (diffContent.trim().length === 0) {
+        return { relevantTestPlans: [], rationale: "No changes found between these two refs.", suggestedNewTestCases: [] };
+      }
+
+      const recommendation = await recommendTestPlansForDiff({ diffContent, testPlans });
+      const relevantTestPlans = testPlans.filter((p) => recommendation.relevantTestPlanIds.includes(p.id));
+
+      return {
+        relevantTestPlans: relevantTestPlans.map((p) => ({ id: p.id, name: p.name })),
+        rationale: recommendation.rationale,
+        suggestedNewTestCases: recommendation.suggestedNewTestCases,
+      };
     }),
 
   listRuns: protectedProcedure

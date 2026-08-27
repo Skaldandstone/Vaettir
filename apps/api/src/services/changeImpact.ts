@@ -72,3 +72,32 @@ export async function getChangedFiles(repoUrl: string, baseRef: string, headRef:
     await cleanup();
   }
 }
+
+// P6-04: the actual patch content (not just file names) -- what "AI-
+// assisted test plan recommendation" needs, since deciding whether a
+// change is behaviorally significant enough to warrant a new test case
+// requires reading what actually changed, not just which files did.
+// `--unified=3` keeps context tight since this text goes straight into an
+// LLM prompt; a hard character cap below guards against a huge PR blowing
+// past a reasonable prompt size rather than silently truncating mid-hunk
+// with no indication.
+const MAX_DIFF_CHARS = 40_000;
+
+export async function getDiffContent(repoUrl: string, baseRef: string, headRef: string): Promise<string> {
+  const { dir, cleanup } = await cloneFullRepo(repoUrl);
+  try {
+    const resolvedBase = await resolveRef(dir, baseRef);
+    const resolvedHead = await resolveRef(dir, headRef);
+    const { stdout } = await execFileAsync(
+      "git",
+      ["diff", "--unified=3", `${resolvedBase}...${resolvedHead}`],
+      { cwd: dir, maxBuffer: 10 * 1024 * 1024 },
+    );
+    if (stdout.length > MAX_DIFF_CHARS) {
+      return `${stdout.slice(0, MAX_DIFF_CHARS)}\n\n[... diff truncated at ${MAX_DIFF_CHARS} characters ...]`;
+    }
+    return stdout;
+  } finally {
+    await cleanup();
+  }
+}
