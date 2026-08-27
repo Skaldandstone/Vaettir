@@ -9,6 +9,7 @@ import {
 } from "@vaettir/core";
 import { router, protectedProcedure, requireOrgRole } from "../trpc.js";
 import type { PrismaClient } from "@vaettir/db";
+import { sendReadinessDigestForOrg } from "../jobs/readinessDigestScheduler.js";
 
 const INVITATION_EXPIRY_DAYS = 7;
 
@@ -92,13 +93,28 @@ export const organizationRouter = router({
         stepFieldLabels: z.record(z.string()),
         dataRetentionYears: z.number(),
         releaseGatePolicy: z.string(),
+        slackWebhookConfigured: z.boolean(),
+        digestEnabled: z.boolean(),
+        digestHourUtc: z.number().nullable(),
+        lastDigestSentAt: z.date().nullable(),
       }),
     )
     .query(async ({ ctx, input }) => {
       requireOrgRole(ctx, input.id);
       const org = await ctx.prisma.organization.findUniqueOrThrow({
         where: { id: input.id },
-        select: { id: true, name: true, slug: true, stepFieldLabels: true, dataRetentionYears: true, releaseGatePolicy: true },
+        select: {
+          id: true,
+          name: true,
+          slug: true,
+          stepFieldLabels: true,
+          dataRetentionYears: true,
+          releaseGatePolicy: true,
+          slackWebhookUrl: true,
+          digestEnabled: true,
+          digestHourUtc: true,
+          lastDigestSentAt: true,
+        },
       });
       const overrides = (org.stepFieldLabels as Partial<Record<StepFieldKey, string>> | null) ?? {};
       // Strip undefined entries -- Partial<...> allows them, but the output
@@ -114,6 +130,10 @@ export const organizationRouter = router({
         stepFieldLabels: resolveStepFieldLabels(overrides),
         dataRetentionYears: org.dataRetentionYears,
         releaseGatePolicy: org.releaseGatePolicy,
+        slackWebhookConfigured: org.slackWebhookUrl !== null,
+        digestEnabled: org.digestEnabled,
+        digestHourUtc: org.digestHourUtc,
+        lastDigestSentAt: org.lastDigestSentAt,
       };
     }),
 
@@ -150,6 +170,44 @@ export const organizationRouter = router({
         select: { releaseGatePolicy: true },
       });
       return org;
+    }),
+
+  // P7-09: the webhook URL is write-only from the client's perspective
+  // (byId only ever reports slackWebhookConfigured, a boolean) -- it's a
+  // bearer-token-like secret (anyone holding it can post to the channel),
+  // so it's never round-tripped back to every VIEWER who can load org
+  // settings. Passing an empty string clears it (and turns digestEnabled
+  // off, since an enabled digest with no destination doesn't mean anything).
+  updateDigestSettings: protectedProcedure
+    .input(
+      z.object({
+        organizationId: z.string(),
+        slackWebhookUrl: z.string().optional(),
+        digestEnabled: z.boolean(),
+        digestHourUtc: z.number().int().min(0).max(23).nullable(),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      requireOrgRole(ctx, input.organizationId, "ADMIN");
+      const data: { slackWebhookUrl?: string | null; digestEnabled: boolean; digestHourUtc: number | null } = {
+        digestEnabled: input.digestEnabled,
+        digestHourUtc: input.digestHourUtc,
+      };
+      if (input.slackWebhookUrl !== undefined) {
+        data.slackWebhookUrl = input.slackWebhookUrl.trim().length > 0 ? input.slackWebhookUrl.trim() : null;
+      }
+      if (data.slackWebhookUrl === null) data.digestEnabled = false;
+      await ctx.prisma.organization.update({ where: { id: input.organizationId }, data });
+    }),
+
+  // Fires a digest immediately -- both "test my webhook" during setup and
+  // the "pre-release summary" half of P7-09's ticket (send-on-demand
+  // rather than waiting for the daily schedule).
+  sendTestDigest: protectedProcedure
+    .input(z.object({ organizationId: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      requireOrgRole(ctx, input.organizationId, "ADMIN");
+      await sendReadinessDigestForOrg(input.organizationId);
     }),
 
   // Renames the display labels for TestCaseStep's four fields (see

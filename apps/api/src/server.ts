@@ -5,6 +5,7 @@ import { prisma } from "@vaettir/db";
 import { appRouter } from "./router.js";
 import { createContext } from "./trpc.js";
 import { startReverseEngineerJobPoller } from "./jobs/reverseEngineerWorker.js";
+import { startReadinessDigestScheduler } from "./jobs/readinessDigestScheduler.js";
 import { verifyWebhookSignature } from "./services/githubApp.js";
 import { handlePullRequestWebhook, type GithubPullRequestPayload } from "./services/githubWebhook.js";
 
@@ -88,6 +89,7 @@ server
   .then(() => {
     server.log.info(`vaettir API listening on :${port}`);
     startReverseEngineerJobPoller();
+    startReadinessDigestScheduler();
   })
   .catch((err) => {
     server.log.error(err);

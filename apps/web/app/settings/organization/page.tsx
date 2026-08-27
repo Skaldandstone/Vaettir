@@ -400,6 +400,17 @@ export default function OrganizationSettingsPage() {
   const [savingGatePolicy, setSavingGatePolicy] = useState(false);
   const [gatePolicySaved, setGatePolicySaved] = useState(false);
 
+  const [digestLoaded, setDigestLoaded] = useState(false);
+  const [slackWebhookConfigured, setSlackWebhookConfigured] = useState(false);
+  const [slackWebhookInput, setSlackWebhookInput] = useState("");
+  const [digestEnabled, setDigestEnabled] = useState(false);
+  const [digestHourUtc, setDigestHourUtc] = useState<number>(13);
+  const [lastDigestSentAt, setLastDigestSentAt] = useState<string | Date | null>(null);
+  const [savingDigest, setSavingDigest] = useState(false);
+  const [digestSaved, setDigestSaved] = useState(false);
+  const [sendingTestDigest, setSendingTestDigest] = useState(false);
+  const [testDigestResult, setTestDigestResult] = useState<string | null>(null);
+
   useEffect(() => {
     trpc.organization.mine
       .query()
@@ -412,6 +423,11 @@ export default function OrganizationSettingsPage() {
         setLabels(detail.stepFieldLabels as Labels);
         setDataRetentionYears(detail.dataRetentionYears);
         setReleaseGatePolicy(detail.releaseGatePolicy);
+        setSlackWebhookConfigured(detail.slackWebhookConfigured);
+        setDigestEnabled(detail.digestEnabled);
+        if (detail.digestHourUtc !== null) setDigestHourUtc(detail.digestHourUtc);
+        setLastDigestSentAt(detail.lastDigestSentAt);
+        setDigestLoaded(true);
       })
       .catch((e) => setError(String(e)));
   }, []);
@@ -448,6 +464,65 @@ export default function OrganizationSettingsPage() {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
       setSavingGatePolicy(false);
+    }
+  }
+
+  async function submitDigest() {
+    if (!orgId) return;
+    setSavingDigest(true);
+    setError(null);
+    setDigestSaved(false);
+    try {
+      await trpc.organization.updateDigestSettings.mutate({
+        organizationId: orgId,
+        slackWebhookUrl: slackWebhookInput.trim().length > 0 ? slackWebhookInput.trim() : undefined,
+        digestEnabled,
+        digestHourUtc,
+      });
+      if (slackWebhookInput.trim().length > 0) {
+        setSlackWebhookConfigured(true);
+        setSlackWebhookInput("");
+      }
+      setDigestSaved(true);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setSavingDigest(false);
+    }
+  }
+
+  async function clearSlackWebhook() {
+    if (!orgId) return;
+    setSavingDigest(true);
+    setError(null);
+    try {
+      await trpc.organization.updateDigestSettings.mutate({
+        organizationId: orgId,
+        slackWebhookUrl: "",
+        digestEnabled: false,
+        digestHourUtc,
+      });
+      setSlackWebhookConfigured(false);
+      setDigestEnabled(false);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setSavingDigest(false);
+    }
+  }
+
+  async function sendTestDigest() {
+    if (!orgId) return;
+    setSendingTestDigest(true);
+    setTestDigestResult(null);
+    try {
+      await trpc.organization.sendTestDigest.mutate({ organizationId: orgId });
+      setTestDigestResult("Sent.");
+      setLastDigestSentAt(new Date());
+    } catch (e) {
+      setTestDigestResult(e instanceof Error ? e.message : String(e));
+    } finally {
+      setSendingTestDigest(false);
     }
   }
 
@@ -563,6 +638,77 @@ export default function OrganizationSettingsPage() {
               {savingGatePolicy ? "Saving…" : "Save"}
             </button>
             {gatePolicySaved && <span style={{ color: "var(--frost)" }}>Saved.</span>}
+          </div>
+        </div>
+      )}
+
+      {digestLoaded && (
+        <div style={{ marginTop: 32 }}>
+          <h2>Release readiness digest</h2>
+          <p style={{ color: "var(--muted)", fontSize: 13 }}>
+            A daily summary of every project's release readiness, posted to a Slack channel via an{" "}
+            <a href="https://api.slack.com/messaging/webhooks" target="_blank" rel="noreferrer">
+              incoming webhook
+            </a>
+            . Also usable on demand as a pre-release summary via "Send now" below.
+          </p>
+          <div style={{ display: "grid", gap: 10, maxWidth: 480 }}>
+            <label>
+              Slack webhook URL{" "}
+              <span style={{ color: "var(--muted-dim)" }}>
+                {slackWebhookConfigured ? "(configured — enter a new URL to replace it)" : "(not configured)"}
+              </span>
+              <input
+                value={slackWebhookInput}
+                onChange={(e) => setSlackWebhookInput(e.target.value)}
+                placeholder="https://hooks.slack.com/services/…"
+                style={{ width: "100%" }}
+              />
+            </label>
+            {slackWebhookConfigured && (
+              <button className="btn-secondary" style={{ width: "fit-content", fontSize: 12 }} onClick={clearSlackWebhook} disabled={savingDigest}>
+                Remove webhook
+              </button>
+            )}
+            <label style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <input
+                type="checkbox"
+                checked={digestEnabled}
+                onChange={(e) => setDigestEnabled(e.target.checked)}
+                disabled={!slackWebhookConfigured && slackWebhookInput.trim().length === 0}
+              />
+              Send automatically every day
+            </label>
+            <label>
+              Send hour (UTC)
+              <input
+                type="number"
+                min={0}
+                max={23}
+                value={digestHourUtc}
+                onChange={(e) => setDigestHourUtc(Number(e.target.value))}
+                style={{ width: 80, marginLeft: 8 }}
+              />
+            </label>
+            <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+              <button className="btn-primary" onClick={submitDigest} disabled={savingDigest}>
+                {savingDigest ? "Saving…" : "Save"}
+              </button>
+              {digestSaved && <span style={{ color: "var(--frost)" }}>Saved.</span>}
+            </div>
+            {slackWebhookConfigured && (
+              <div style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 4 }}>
+                <button className="btn-secondary" onClick={sendTestDigest} disabled={sendingTestDigest}>
+                  {sendingTestDigest ? "Sending…" : "Send now"}
+                </button>
+                {testDigestResult && <span className="text-muted" style={{ fontSize: 12 }}>{testDigestResult}</span>}
+              </div>
+            )}
+            {lastDigestSentAt && (
+              <p className="text-muted" style={{ fontSize: 12, margin: 0 }}>
+                Last sent {new Date(lastDigestSentAt).toLocaleString()}
+              </p>
+            )}
           </div>
         </div>
       )}

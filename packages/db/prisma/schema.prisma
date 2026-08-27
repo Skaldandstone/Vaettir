@@ -41,6 +41,18 @@ model Organization {
   // suddenly start rejecting a status change they were relying on.
   releaseGatePolicy ReleaseGatePolicy @default(SOFT_WARNING)
 
+  // P7-09: readiness digest -- an incoming Slack webhook URL and an
+  // enable/hour toggle, kept minimal and org-scoped for this one purpose
+  // rather than building Phase 9's general integration-config framework
+  // (P9-00, queued, not started) early. digestHourUtc is a plain 0-23 UTC
+  // hour, not a per-org timezone -- picking one right now would be a
+  // half-built feature (stored but unused) since nothing else in the
+  // platform tracks org timezone yet.
+  slackWebhookUrl  String?
+  digestEnabled    Boolean   @default(false)
+  digestHourUtc    Int?
+  lastDigestSentAt DateTime?
+
   // Renames the display labels for TestCaseStep's four fields, e.g.
   // {"expectedActionOrData": "Backend Call"}. Keys are the field names in
   // TestCaseStep; any key not present falls back to
