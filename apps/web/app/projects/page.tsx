@@ -1,10 +1,12 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import { trpc, type RouterOutputs } from "../../lib/trpc";
 import { Modal } from "../../components/Modal";
 
 export default function ProjectsPage() {
+  const router = useRouter();
   const [orgId, setOrgId] = useState<string | null>(null);
   const [orgName, setOrgName] = useState("");
   const [projects, setProjects] = useState<RouterOutputs["project"]["list"]>([]);
@@ -32,14 +34,17 @@ export default function ProjectsPage() {
       .query()
       .then(async (orgs) => {
         const org = orgs[0];
-        if (!org) return;
+        if (!org) {
+          router.push("/onboarding");
+          return;
+        }
         setOrgId(org.id);
         setOrgName(org.name);
         await loadProjects(org.id);
       })
       .catch((e) => setError(String(e)))
       .finally(() => setLoading(false));
-  }, []);
+  }, [router]);
 
   async function submit() {
     if (!orgId) return;
@@ -98,7 +103,12 @@ export default function ProjectsPage() {
 
   if (loading) return <p>Loading…</p>;
   if (error) return <p style={{ color: "var(--ember)" }}>{error}</p>;
-  if (!orgId) return <p>You don't belong to an organization yet. Go to onboarding first.</p>;
+  if (!orgId)
+    return (
+      <p>
+        You don't belong to an organization yet. Redirecting to <a href="/onboarding">onboarding</a>…
+      </p>
+    );
 
   return (
     <div>

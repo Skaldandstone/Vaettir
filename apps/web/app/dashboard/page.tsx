@@ -1,10 +1,12 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import { trpc, type RouterOutputs } from "../../lib/trpc";
 import { ReadinessBadge } from "../../components/ReadinessBadge";
 
 export default function OrgDashboardPage() {
+  const router = useRouter();
   const [orgName, setOrgName] = useState("");
   const [overview, setOverview] = useState<RouterOutputs["releases"]["orgOverview"] | null>(null);
   const [loading, setLoading] = useState(true);
@@ -15,18 +17,26 @@ export default function OrgDashboardPage() {
       .query()
       .then(async (orgs) => {
         const org = orgs[0];
-        if (!org) return;
+        if (!org) {
+          router.push("/onboarding");
+          return;
+        }
         setOrgName(org.name);
         const result = await trpc.releases.orgOverview.query({ organizationId: org.id });
         setOverview(result);
       })
       .catch((e) => setError(e instanceof Error ? e.message : String(e)))
       .finally(() => setLoading(false));
-  }, []);
+  }, [router]);
 
   if (loading) return <p>Loading…</p>;
   if (error) return <p style={{ color: "var(--ember)" }}>{error}</p>;
-  if (!overview) return <p>You don&apos;t belong to an organization yet. Go to onboarding first.</p>;
+  if (!overview)
+    return (
+      <p>
+        You don&apos;t belong to an organization yet. Redirecting to <a href="/onboarding">onboarding</a>…
+      </p>
+    );
 
   const { projects, summary } = overview;
 

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import { trpc, type RouterOutputs } from "../../../lib/trpc";
 import { Modal } from "../../../components/Modal";
 
@@ -8,6 +9,7 @@ const ROLES = ["ADMIN", "EDITOR", "VIEWER", "COMPLIANCE_AUDITOR"];
 const EDIT_ROLES = ["OWNER", "ADMIN", "EDITOR", "VIEWER", "COMPLIANCE_AUDITOR"];
 
 export default function MembersPage() {
+  const router = useRouter();
   const [orgId, setOrgId] = useState<string | null>(null);
   const [orgName, setOrgName] = useState("");
   const [members, setMembers] = useState<RouterOutputs["organization"]["listMembers"]>([]);
@@ -41,7 +43,10 @@ export default function MembersPage() {
       .query()
       .then(async (orgs) => {
         const org = orgs[0];
-        if (!org) return;
+        if (!org) {
+          router.push("/onboarding");
+          return;
+        }
         setOrgId(org.id);
         setOrgName(org.name);
         await loadOrgData(org.id);
@@ -49,7 +54,7 @@ export default function MembersPage() {
       })
       .catch((e) => setError(String(e)))
       .finally(() => setLoading(false));
-  }, []);
+  }, [router]);
 
   async function changePlan(planTierId: string) {
     if (!orgId) return;
