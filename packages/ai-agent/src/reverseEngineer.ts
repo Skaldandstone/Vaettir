@@ -8,13 +8,14 @@ import {
 } from "@vaettir/core";
 import { registerJsTsEvaluators } from "./evaluators/jsTsEvaluator.js";
 import { registerPytestEvaluator } from "./evaluators/pytestEvaluator.js";
+import { registerJavaEvaluators } from "./evaluators/javaEvaluator.js";
 
-// P5-11/P5-07/P5-08/P5-10: registers every native evaluator once at module
-// load. Framework-family-specific evaluator modules each own their own
-// registration call like these; adding P5-09 later is adding another such
-// call, not touching reverseEngineerTestFile itself.
+// P5-11/P5-07/P5-08/P5-09/P5-10: registers every native evaluator once at
+// module load. Framework-family-specific evaluator modules each own their
+// own registration call like these -- Epic 5.2 is now fully plugged in.
 registerJsTsEvaluators();
 registerPytestEvaluator();
+registerJavaEvaluators();
 
 const AgentResponseSchema = z.object({ testCases: z.array(ReverseEngineeredTestCaseSchema) });
 
