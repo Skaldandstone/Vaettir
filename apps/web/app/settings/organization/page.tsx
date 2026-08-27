@@ -396,6 +396,10 @@ export default function OrganizationSettingsPage() {
   const [savingRetention, setSavingRetention] = useState(false);
   const [retentionSaved, setRetentionSaved] = useState(false);
 
+  const [releaseGatePolicy, setReleaseGatePolicy] = useState<string | null>(null);
+  const [savingGatePolicy, setSavingGatePolicy] = useState(false);
+  const [gatePolicySaved, setGatePolicySaved] = useState(false);
+
   useEffect(() => {
     trpc.organization.mine
       .query()
@@ -407,6 +411,7 @@ export default function OrganizationSettingsPage() {
         const detail = await trpc.organization.byId.query({ id: org.id });
         setLabels(detail.stepFieldLabels as Labels);
         setDataRetentionYears(detail.dataRetentionYears);
+        setReleaseGatePolicy(detail.releaseGatePolicy);
       })
       .catch((e) => setError(String(e)));
   }, []);
@@ -424,6 +429,25 @@ export default function OrganizationSettingsPage() {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
       setSavingRetention(false);
+    }
+  }
+
+  async function submitGatePolicy() {
+    if (!orgId || !releaseGatePolicy) return;
+    setSavingGatePolicy(true);
+    setError(null);
+    setGatePolicySaved(false);
+    try {
+      const updated = await trpc.organization.updateReleaseGatePolicy.mutate({
+        organizationId: orgId,
+        releaseGatePolicy: releaseGatePolicy as never,
+      });
+      setReleaseGatePolicy(updated.releaseGatePolicy);
+      setGatePolicySaved(true);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setSavingGatePolicy(false);
     }
   }
 
@@ -518,6 +542,27 @@ export default function OrganizationSettingsPage() {
               {savingRetention ? "Saving…" : "Save"}
             </button>
             {retentionSaved && <span style={{ color: "var(--frost)" }}>Saved.</span>}
+          </div>
+        </div>
+      )}
+
+      {releaseGatePolicy !== null && (
+        <div style={{ marginTop: 32 }}>
+          <h2>Release gates</h2>
+          <p style={{ color: "var(--muted)", fontSize: 13 }}>
+            What happens when someone tries to mark a release READY while an acceptance criterion is unmet or a
+            CRITICAL risk flag is still open. Soft warning surfaces the gap but lets them proceed; hard block refuses
+            the status change until it's resolved (enforced by the API, not just the UI).
+          </p>
+          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+            <select value={releaseGatePolicy} onChange={(e) => setReleaseGatePolicy(e.target.value)}>
+              <option value="SOFT_WARNING">Soft warning</option>
+              <option value="HARD_BLOCK">Hard block</option>
+            </select>
+            <button className="btn-primary" onClick={submitGatePolicy} disabled={savingGatePolicy}>
+              {savingGatePolicy ? "Saving…" : "Save"}
+            </button>
+            {gatePolicySaved && <span style={{ color: "var(--frost)" }}>Saved.</span>}
           </div>
         </div>
       )}

@@ -44,6 +44,23 @@ export default function ReleaseReadinessPage() {
   }, [projectId]);
 
   async function updateStatus(status: string) {
+    setError(null);
+    if (status === "READY") {
+      try {
+        const gate = await trpc.releases.checkGate.query({ releaseId });
+        if (!gate.passes && gate.policy === "HARD_BLOCK") {
+          alert(`This release can't be marked READY yet -- your organization requires these to pass first:\n\n${gate.reasons.join("\n")}`);
+          return;
+        }
+        if (!gate.passes) {
+          const proceed = confirm(`This release isn't fully ready:\n\n${gate.reasons.join("\n")}\n\nMark it READY anyway?`);
+          if (!proceed) return;
+        }
+      } catch {
+        // Gate check failing shouldn't block the whole status update flow --
+        // fall through and let the mutation itself be the source of truth.
+      }
+    }
     try {
       await trpc.releases.updateStatus.mutate({ id: releaseId, status: status as never });
       load();

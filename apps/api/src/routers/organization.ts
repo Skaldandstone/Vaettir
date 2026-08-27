@@ -91,13 +91,14 @@ export const organizationRouter = router({
         stepFieldLabelOverrides: z.record(z.string()),
         stepFieldLabels: z.record(z.string()),
         dataRetentionYears: z.number(),
+        releaseGatePolicy: z.string(),
       }),
     )
     .query(async ({ ctx, input }) => {
       requireOrgRole(ctx, input.id);
       const org = await ctx.prisma.organization.findUniqueOrThrow({
         where: { id: input.id },
-        select: { id: true, name: true, slug: true, stepFieldLabels: true, dataRetentionYears: true },
+        select: { id: true, name: true, slug: true, stepFieldLabels: true, dataRetentionYears: true, releaseGatePolicy: true },
       });
       const overrides = (org.stepFieldLabels as Partial<Record<StepFieldKey, string>> | null) ?? {};
       // Strip undefined entries -- Partial<...> allows them, but the output
@@ -112,6 +113,7 @@ export const organizationRouter = router({
         stepFieldLabelOverrides: definedOverrides,
         stepFieldLabels: resolveStepFieldLabels(overrides),
         dataRetentionYears: org.dataRetentionYears,
+        releaseGatePolicy: org.releaseGatePolicy,
       };
     }),
 
@@ -130,6 +132,22 @@ export const organizationRouter = router({
         where: { id: input.organizationId },
         data: { dataRetentionYears: input.dataRetentionYears },
         select: { dataRetentionYears: true },
+      });
+      return org;
+    }),
+
+  // P7-08: SOFT_WARNING (default) lets the readiness page surface unmet
+  // criteria/open CRITICAL flags without stopping anyone; HARD_BLOCK makes
+  // releases.updateStatus refuse the READY transition server-side, so it
+  // can't be bypassed by hitting the API directly either.
+  updateReleaseGatePolicy: protectedProcedure
+    .input(z.object({ organizationId: z.string(), releaseGatePolicy: z.enum(["SOFT_WARNING", "HARD_BLOCK"]) }))
+    .mutation(async ({ ctx, input }) => {
+      requireOrgRole(ctx, input.organizationId, "ADMIN");
+      const org = await ctx.prisma.organization.update({
+        where: { id: input.organizationId },
+        data: { releaseGatePolicy: input.releaseGatePolicy },
+        select: { releaseGatePolicy: true },
       });
       return org;
     }),

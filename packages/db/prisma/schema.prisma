@@ -33,6 +33,14 @@ model Organization {
   // compliance-heavy plans may configure this higher per P3-08.
   dataRetentionYears Int @default(5)
 
+  // P7-08: whether attempting to move a Release to READY with unmet
+  // acceptance criteria or an open CRITICAL risk flag is a HARD_BLOCK
+  // (server refuses the status change outright) or just a SOFT_WARNING
+  // (the UI surfaces the gap and lets the user proceed anyway). Defaults to
+  // the non-breaking option so existing orgs' release workflows don't
+  // suddenly start rejecting a status change they were relying on.
+  releaseGatePolicy ReleaseGatePolicy @default(SOFT_WARNING)
+
   // Renames the display labels for TestCaseStep's four fields, e.g.
   // {"expectedActionOrData": "Backend Call"}. Keys are the field names in
   // TestCaseStep; any key not present falls back to
@@ -962,6 +970,11 @@ enum ReleaseStatus {
   READY
   SHIPPED
   BLOCKED
+}
+
+enum ReleaseGatePolicy {
+  SOFT_WARNING
+  HARD_BLOCK
 }
 
 // P6-06: per-project configuration for recommendForChange's coverage-gap

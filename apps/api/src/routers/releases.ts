@@ -1,6 +1,8 @@
 import { z } from "zod";
+import { TRPCError } from "@trpc/server";
 import { router, protectedProcedure, requireProjectAccess } from "../trpc.js";
 import { computeStatusesByTestPlan } from "../services/acceptanceCriteria.js";
+import { evaluateReleaseGate } from "../services/releaseGate.js";
 
 const CRITERION_WEIGHT: Record<string, number> = { MET: 1, AT_RISK: 0.5, PENDING: 0.25, NOT_MET: 0 };
 const FLAG_PENALTY: Record<string, number> = { CRITICAL: 20, HIGH: 10, MEDIUM: 5, LOW: 2 };
@@ -139,12 +141,35 @@ export const releasesRouter = router({
       });
     }),
 
+  // P7-08: only entering READY is gated -- BLOCKED/SHIPPED/back to
+  // PLANNING or IN_TESTING are never held up by this check, since the
+  // gate's whole point is "don't call this release ready when it isn't."
   updateStatus: protectedProcedure
     .input(z.object({ id: z.string(), status: z.enum(["PLANNING", "IN_TESTING", "READY", "SHIPPED", "BLOCKED"]) }))
     .mutation(async ({ ctx, input }) => {
       const release = await ctx.prisma.release.findUniqueOrThrow({ where: { id: input.id } });
       await requireProjectAccess(ctx, release.projectId, "EDITOR");
+
+      if (input.status === "READY") {
+        const gate = await evaluateReleaseGate(ctx.prisma, input.id);
+        if (!gate.passes && gate.policy === "HARD_BLOCK") {
+          throw new TRPCError({
+            code: "PRECONDITION_FAILED",
+            message: `This organization requires release gates to pass before READY: ${gate.reasons.join("; ")}`,
+          });
+        }
+      }
+
       return ctx.prisma.release.update({ where: { id: input.id }, data: { status: input.status, updatedById: ctx.user.id } });
+    }),
+
+  checkGate: protectedProcedure
+    .input(z.object({ releaseId: z.string() }))
+    .output(z.object({ policy: z.string(), passes: z.boolean(), reasons: z.array(z.string()) }))
+    .query(async ({ ctx, input }) => {
+      const release = await ctx.prisma.release.findUniqueOrThrow({ where: { id: input.releaseId } });
+      await requireProjectAccess(ctx, release.projectId);
+      return evaluateReleaseGate(ctx.prisma, input.releaseId);
     }),
 
   readiness: protectedProcedure
