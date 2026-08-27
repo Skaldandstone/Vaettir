@@ -20,10 +20,10 @@ datasource db {
 // ---------------------------------------------------------------------------
 
 model Organization {
-  id        String    @id @default(cuid())
+  id        String   @id @default(cuid())
   name      String
-  slug      String    @unique
-  createdAt DateTime  @default(now())
+  slug      String   @unique
+  createdAt DateTime @default(now())
 
   planTierId String
   planTier   PlanTier @relation(fields: [planTierId], references: [id])
@@ -62,23 +62,23 @@ model Organization {
   // change or a migration.
   stepFieldLabels Json?
 
-  projects    Project[]
-  memberships Membership[]
-  invitations Invitation[]
+  projects             Project[]
+  memberships          Membership[]
+  invitations          Invitation[]
   aiCreditTransactions AiCreditTransaction[]
-  apiKeys     ApiKey[]
-  auditLogs   AuditLog[]
+  apiKeys              ApiKey[]
+  auditLogs            AuditLog[]
 }
 
 model Project {
-  id             String   @id @default(cuid())
+  id             String       @id @default(cuid())
   organizationId String
   organization   Organization @relation(fields: [organizationId], references: [id])
   name           String
   slug           String
   repoUrl        String?
-  defaultBranch  String   @default("main")
-  createdAt      DateTime @default(now())
+  defaultBranch  String       @default("main")
+  createdAt      DateTime     @default(now())
 
   // The commit SHA the most recent successful repo scan resolved `ref` to
   // (P2-05). When set, the next scan diffs from here to HEAD instead of
@@ -87,21 +87,21 @@ model Project {
   // Null until a project has been scanned at least once.
   lastScannedCommitSha String?
 
-  testPlans           TestPlan[]
-  testCases           TestCase[]
-  requirements        Requirement[]
-  releases            Release[]
-  testRuns            TestRun[]
-  coverageReports     CoverageReport[]
-  reverseEngineerJobs ReverseEngineerJob[]
-  testSelectionRuns   TestSelectionRun[]
-  auditLogs           AuditLog[]
+  testPlans                 TestPlan[]
+  testCases                 TestCase[]
+  requirements              Requirement[]
+  releases                  Release[]
+  testRuns                  TestRun[]
+  coverageReports           CoverageReport[]
+  reverseEngineerJobs       ReverseEngineerJob[]
+  testSelectionRuns         TestSelectionRun[]
+  auditLogs                 AuditLog[]
   customFrameworkHeuristics CustomFrameworkHeuristic[]
-  prScanPolicy        PrScanPolicy?
-  healingSuggestions  HealingSuggestion[]
-  complianceEvidence  ComplianceEvidence[]
-  complianceSignOffs  ComplianceSignOff[]
-  aiEditFeedback      AiEditFeedback[]
+  prScanPolicy              PrScanPolicy?
+  healingSuggestions        HealingSuggestion[]
+  complianceEvidence        ComplianceEvidence[]
+  complianceSignOffs        ComplianceSignOff[]
+  aiEditFeedback            AiEditFeedback[]
 
   @@unique([organizationId, slug])
 }
@@ -128,17 +128,17 @@ model User {
   // P1-07 audit columns: who created/last-updated each core record. Named
   // relations (Prisma requires it once a model has more than one FK to the
   // same target) -- see each model for the paired createdBy/updatedBy.
-  createdTestCases TestCase[] @relation("TestCaseCreatedBy")
-  updatedTestCases TestCase[] @relation("TestCaseUpdatedBy")
-  createdTestPlans  TestPlan[]        @relation("TestPlanCreatedBy")
-  updatedTestPlans  TestPlan[]        @relation("TestPlanUpdatedBy")
-  testPlanVersions  TestPlanVersion[]
-  customFrameworkHeuristics CustomFrameworkHeuristic[]
-  createdReleases  Release[]  @relation("ReleaseCreatedBy")
-  updatedReleases  Release[]  @relation("ReleaseUpdatedBy")
-  createdRiskFlags RiskFlag[] @relation("RiskFlagCreatedBy")
-  updatedRiskFlags RiskFlag[] @relation("RiskFlagUpdatedBy")
-  reviewedHealingSuggestions HealingSuggestion[] @relation("HealingSuggestionReviewedBy")
+  createdTestCases           TestCase[]                 @relation("TestCaseCreatedBy")
+  updatedTestCases           TestCase[]                 @relation("TestCaseUpdatedBy")
+  createdTestPlans           TestPlan[]                 @relation("TestPlanCreatedBy")
+  updatedTestPlans           TestPlan[]                 @relation("TestPlanUpdatedBy")
+  testPlanVersions           TestPlanVersion[]
+  customFrameworkHeuristics  CustomFrameworkHeuristic[]
+  createdReleases            Release[]                  @relation("ReleaseCreatedBy")
+  updatedReleases            Release[]                  @relation("ReleaseUpdatedBy")
+  createdRiskFlags           RiskFlag[]                 @relation("RiskFlagCreatedBy")
+  updatedRiskFlags           RiskFlag[]                 @relation("RiskFlagUpdatedBy")
+  reviewedHealingSuggestions HealingSuggestion[]        @relation("HealingSuggestionReviewedBy")
   recordedComplianceEvidence ComplianceEvidence[]
   signedComplianceSignOffs   ComplianceSignOff[]
   aiEditFeedback             AiEditFeedback[]
@@ -262,14 +262,14 @@ model ApiKey {
 // the tier boundaries as specified; cost fields are left null until pricing
 // is finalized -- this table is where that lands, not a code change.
 model PlanTier {
-  id                  String   @id @default(cuid())
-  key                 String   @unique // "free" | "team" | "business" | "corp"
-  name                String
-  sortOrder           Int
-  minFullSeats        Int // inclusive lower bound that qualifies for/requires this tier
-  maxFullSeats         Int? // inclusive upper bound; null = unlimited (top tier)
-  includedReadOnlySeats Int @default(0) // read-only seats bundled at this tier
-  maxReadOnlySeats      Int? // null = unlimited once on this tier
+  id                       String @id @default(cuid())
+  key                      String @unique // "free" | "team" | "business" | "corp"
+  name                     String
+  sortOrder                Int
+  minFullSeats             Int // inclusive lower bound that qualifies for/requires this tier
+  maxFullSeats             Int? // inclusive upper bound; null = unlimited (top tier)
+  includedReadOnlySeats    Int    @default(0) // read-only seats bundled at this tier
+  maxReadOnlySeats         Int? // null = unlimited once on this tier
   monthlyPricePerSeatCents Int? // null = not yet priced
 
   // AI credits granted to an org on this tier at the start of each calendar
@@ -295,9 +295,9 @@ model PlanTier {
 // auditable, and a support agent (Phase 13) can see exactly where credits
 // went rather than trusting a number that could have drifted from reality.
 model AiCreditTransaction {
-  id             String                   @id @default(cuid())
+  id             String                  @id @default(cuid())
   organizationId String
-  organization   Organization             @relation(fields: [organizationId], references: [id])
+  organization   Organization            @relation(fields: [organizationId], references: [id])
   type           AiCreditTransactionType
   // Positive for GRANT/TOPUP, negative for CONSUMPTION and a deduction
   // ADJUSTMENT -- signed so balance is always a plain sum, never a
@@ -307,7 +307,7 @@ model AiCreditTransaction {
   // services/aiCredits.ts) -- null for GRANT/TOPUP/ADJUSTMENT rows.
   operation      String?
   description    String?
-  createdAt      DateTime                 @default(now())
+  createdAt      DateTime                @default(now())
 
   @@index([organizationId, createdAt])
 }
@@ -336,14 +336,14 @@ enum TestPlanCategory {
 // carries in `TestPlan.customFields`. This is how new compliance forms or
 // bespoke internal QA templates get added without a code change.
 model TestPlanType {
-  id           String           @id @default(cuid())
-  key          String           @unique // e.g. "unit", "contract", "soc2-cc", "release-readiness"
-  name         String
-  category     TestPlanCategory
-  description  String?
-  fieldSchema  Json // JSON Schema for TestPlan.customFields
-  isBuiltIn    Boolean          @default(false)
-  createdAt    DateTime         @default(now())
+  id          String           @id @default(cuid())
+  key         String           @unique // e.g. "unit", "contract", "soc2-cc", "release-readiness"
+  name        String
+  category    TestPlanCategory
+  description String?
+  fieldSchema Json // JSON Schema for TestPlan.customFields
+  isBuiltIn   Boolean          @default(false)
+  createdAt   DateTime         @default(now())
 
   testPlans TestPlan[]
   testCases TestCase[]
@@ -432,14 +432,14 @@ model Requirement {
 }
 
 model AcceptanceCriterion {
-  id            String       @id @default(cuid())
+  id            String                    @id @default(cuid())
   testPlanId    String
-  testPlan      TestPlan     @relation(fields: [testPlanId], references: [id])
+  testPlan      TestPlan                  @relation(fields: [testPlanId], references: [id])
   requirementId String?
-  requirement   Requirement? @relation(fields: [requirementId], references: [id])
+  requirement   Requirement?              @relation(fields: [requirementId], references: [id])
   description   String
   status        AcceptanceCriterionStatus @default(PENDING)
-  createdAt     DateTime     @default(now())
+  createdAt     DateTime                  @default(now())
 }
 
 enum AcceptanceCriterionStatus {
@@ -489,14 +489,14 @@ model TestCase {
   testPlanTypeId String?
   testPlanType   TestPlanType? @relation(fields: [testPlanTypeId], references: [id])
 
-  title      String
-  background String? // BDD "Background:" (shared Given context), optional
-  given      String[] // Given steps
-  when       String[] // When steps
-  then       String[] // Then steps
-  tags       String[]
-  priority   TestCasePriority @default(MEDIUM)
-  testType   TestCaseType
+  title            String
+  background       String? // BDD "Background:" (shared Given context), optional
+  given            String[] // Given steps
+  when             String[] // When steps
+  then             String[] // Then steps
+  tags             String[]
+  priority         TestCasePriority @default(MEDIUM)
+  testType         TestCaseType
   automationStatus AutomationStatus @default(MANUAL)
 
   // Manual suite/folder assignment, independent of origin -- a "/"-delimited
@@ -561,17 +561,17 @@ model TestCase {
   isFlaky         Boolean   @default(false)
   flakyDetectedAt DateTime?
 
-  source              TestCaseSource?
-  complianceControls  TestCaseComplianceControl[]
-  results             TestResult[]
-  healingSuggestions  HealingSuggestion[]
-  complianceEvidence  ComplianceEvidence[]
-  aiEditFeedback      AiEditFeedback[]
+  source                   TestCaseSource?
+  complianceControls       TestCaseComplianceControl[]
+  results                  TestResult[]
+  healingSuggestions       HealingSuggestion[]
+  complianceEvidence       ComplianceEvidence[]
+  aiEditFeedback           AiEditFeedback[]
   // The structured step-table authoring format -- an alternative (or
   // complement) to given/when/then above. A TestCase can carry either,
   // both, or neither populated; the UI renders whichever has content. See
   // TestCaseStep for why this exists alongside BDD rather than replacing it.
-  steps               TestCaseStep[]
+  steps                    TestCaseStep[]
   selectionRecommendations TestSelectionRecommendation[]
 
   createdById String?
@@ -590,13 +590,13 @@ model TestCase {
 // actually recommended for a given build, matching the ReverseEngineerJob
 // pattern rather than being fire-and-forget.
 model TestSelectionRun {
-  id          String   @id @default(cuid())
-  projectId   String
-  project     Project  @relation(fields: [projectId], references: [id])
-  baseRef     String
-  headRef     String
+  id           String   @id @default(cuid())
+  projectId    String
+  project      Project  @relation(fields: [projectId], references: [id])
+  baseRef      String
+  headRef      String
   changedFiles String[]
-  createdAt   DateTime @default(now())
+  createdAt    DateTime @default(now())
 
   recommendations TestSelectionRecommendation[]
 }
@@ -641,10 +641,10 @@ model TestCaseStep {
   testCase   TestCase @relation(fields: [testCaseId], references: [id], onDelete: Cascade)
   order      Int
 
-  action                String // the trigger/action, e.g. "When the login button is pushed"
-  expectedActionOrData   String? // what should happen internally: an API call fires, with what data/payload
-  expectedResult         String? // the user-observable outcome, e.g. "The new page loads"
-  expectedResponse       String? // the technical/API response, e.g. "200 with { token, userId }"
+  action               String // the trigger/action, e.g. "When the login button is pushed"
+  expectedActionOrData String? // what should happen internally: an API call fires, with what data/payload
+  expectedResult       String? // the user-observable outcome, e.g. "The new page loads"
+  expectedResponse     String? // the technical/API response, e.g. "200 with { token, userId }"
 
   @@unique([testCaseId, order])
   @@index([testCaseId])
@@ -673,14 +673,14 @@ enum TestCaseReviewStatus {
 // platform can blend coverage/results from real test frameworks with the
 // human-readable BDD layer.
 model TestCaseSource {
-  id                 String   @id @default(cuid())
-  testCaseId         String   @unique
-  testCase           TestCase @relation(fields: [testCaseId], references: [id], onDelete: Cascade)
-  repoUrl            String?
-  filePath           String
-  functionName       String?
-  framework          String // "jest" | "pytest" | "junit5" | "cypress" | "playwright" | "postman" | "custom:<name>" ...
-  frameworkFamily    FrameworkFamily @default(CUSTOM)
+  id                  String          @id @default(cuid())
+  testCaseId          String          @unique
+  testCase            TestCase        @relation(fields: [testCaseId], references: [id], onDelete: Cascade)
+  repoUrl             String?
+  filePath            String
+  functionName        String?
+  framework           String // "jest" | "pytest" | "junit5" | "cypress" | "playwright" | "postman" | "custom:<name>" ...
+  frameworkFamily     FrameworkFamily @default(CUSTOM)
   lastSyncedCommitSha String?
   lastSyncedAt        DateTime?
 
@@ -733,7 +733,7 @@ enum FrameworkFamily {
 // a known framework already gets deterministic structure extraction, which
 // is strictly better than a learned-from-examples description.
 model CustomFrameworkHeuristic {
-  id          String @id @default(cuid())
+  id          String  @id @default(cuid())
   projectId   String
   project     Project @relation(fields: [projectId], references: [id])
   name        String // e.g. "Our internal e2e framework"
@@ -750,7 +750,7 @@ model CustomFrameworkHeuristic {
   usageCount Int    @default(0)
 
   createdById String?
-  createdBy   User?   @relation(fields: [createdById], references: [id])
+  createdBy   User?    @relation(fields: [createdById], references: [id])
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
@@ -760,20 +760,20 @@ model CustomFrameworkHeuristic {
 // A unit of work for the AI agent: "read this source and produce BDD test
 // cases." Tracks status so long repo scans can run async.
 model ReverseEngineerJob {
-  id        String   @id @default(cuid())
+  id        String  @id @default(cuid())
   projectId String
-  project   Project  @relation(fields: [projectId], references: [id])
+  project   Project @relation(fields: [projectId], references: [id])
 
-  inputType   ReverseEngineerInputType
-  inputRef    String // file path, repo+glob, or opaque paste id
+  inputType ReverseEngineerInputType
+  inputRef  String // file path, repo+glob, or opaque paste id
   // Raw source for PASTE/FILE_UPLOAD jobs -- the worker needs the actual
   // content to reverse-engineer, not just inputRef's path/label. REPO_SCAN
   // and CI_UNMATCHED_RESULT jobs source content differently (repo clone,
   // existing TestResult) once those pipelines exist, so this stays nullable.
-  content     String?
-  framework   String?
-  status      JobStatus @default(PENDING)
-  error       String?
+  content   String?
+  framework String?
+  status    JobStatus                @default(PENDING)
+  error     String?
 
   // Set when inputType = CI_UNMATCHED_RESULT: the specific TestResult that
   // triggered this job by arriving with no matching TestCaseSource. Lets the
@@ -810,12 +810,12 @@ enum JobStatus {
 // ---------------------------------------------------------------------------
 
 model ComplianceFramework {
-  id          String   @id @default(cuid())
-  key         String   @unique // "soc2", "hipaa", "pci-dss", "gdpr", "iso27001", "fda-21-cfr-part-11", custom keys allowed
+  id          String  @id @default(cuid())
+  key         String  @unique // "soc2", "hipaa", "pci-dss", "gdpr", "iso27001", "fda-21-cfr-part-11", custom keys allowed
   name        String
   version     String?
   description String?
-  isBuiltIn   Boolean  @default(false)
+  isBuiltIn   Boolean @default(false)
 
   controls ComplianceControl[]
 }
@@ -843,19 +843,19 @@ model ComplianceControl {
 // immutable means immutable, not "immutable until someone needs to fix a
 // typo." A wrong record gets superseded by a new one, never edited.
 model ComplianceEvidence {
-  id           String       @id @default(cuid())
+  id           String            @id @default(cuid())
   controlId    String
   control      ComplianceControl @relation(fields: [controlId], references: [id])
   testCaseId   String
-  testCase     TestCase     @relation(fields: [testCaseId], references: [id])
+  testCase     TestCase          @relation(fields: [testCaseId], references: [id])
   // Optional: a specific passing TestResult as the concrete proof (not
   // just "this test case generally covers it") -- nullable because
   // evidence can also be a manual attestation with no automated result
   // behind it (e.g. a documented manual review).
   testResultId String?
-  testResult   TestResult?  @relation(fields: [testResultId], references: [id])
+  testResult   TestResult?       @relation(fields: [testResultId], references: [id])
   projectId    String
-  project      Project      @relation(fields: [projectId], references: [id])
+  project      Project           @relation(fields: [projectId], references: [id])
   note         String?
 
   recordedAt   DateTime @default(now())
@@ -909,19 +909,19 @@ model TestCaseComplianceControl {
 // framework/control/mapping changes) rather than every mutation in the
 // app -- can widen later if a real audit needs more.
 model AuditLog {
-  id             String        @id @default(cuid())
+  id             String       @id @default(cuid())
   organizationId String
-  organization   Organization  @relation(fields: [organizationId], references: [id])
+  organization   Organization @relation(fields: [organizationId], references: [id])
   projectId      String?
-  project        Project?      @relation(fields: [projectId], references: [id])
+  project        Project?     @relation(fields: [projectId], references: [id])
   actorId        String
-  actor          User          @relation(fields: [actorId], references: [id])
+  actor          User         @relation(fields: [actorId], references: [id])
   entityType     String // "TestCase" | "TestPlan" | "ComplianceFramework" | "ComplianceControl" | "TestCaseComplianceControl"
   entityId       String
   action         AuditAction
   summary        String // human-readable one-liner for the log view, e.g. "Updated test case \"Checkout throws on empty cart\""
   metadata       Json? // optional structured detail, e.g. { before, after } for a field-level diff
-  createdAt      DateTime      @default(now())
+  createdAt      DateTime     @default(now())
 
   @@index([organizationId, createdAt])
   @@index([projectId, createdAt])
@@ -941,9 +941,9 @@ enum AuditAction {
 // ---------------------------------------------------------------------------
 
 model TestRun {
-  id         String   @id @default(cuid())
+  id         String        @id @default(cuid())
   projectId  String
-  project    Project  @relation(fields: [projectId], references: [id])
+  project    Project       @relation(fields: [projectId], references: [id])
   ciProvider String // "github-actions" | "circleci" | "jenkins" | ...
   ciRunUrl   String?
   commitSha  String
@@ -952,8 +952,8 @@ model TestRun {
   finishedAt DateTime?
   status     TestRunStatus @default(RUNNING)
 
-  results          TestResult[]
-  coverageReport   CoverageReport?
+  results        TestResult[]
+  coverageReport CoverageReport?
 }
 
 enum TestRunStatus {
@@ -969,11 +969,11 @@ enum TestRunStatus {
 // separate CI step from whatever posted the JUnit results) but linked to
 // the same run when the caller has one, so a run's page can show both.
 model CoverageReport {
-  id        String   @id @default(cuid())
+  id        String       @id @default(cuid())
   projectId String
-  project   Project  @relation(fields: [projectId], references: [id])
-  testRunId String?  @unique
-  testRun   TestRun? @relation(fields: [testRunId], references: [id])
+  project   Project      @relation(fields: [projectId], references: [id])
+  testRunId String?      @unique
+  testRun   TestRun?     @relation(fields: [testRunId], references: [id])
   commitSha String
   branch    String
   tool      CoverageTool
@@ -1014,20 +1014,20 @@ enum CoverageTool {
 }
 
 model TestResult {
-  id             String    @id @default(cuid())
-  testRunId      String
-  testRun        TestRun   @relation(fields: [testRunId], references: [id])
-  testCaseId     String?
-  testCase       TestCase? @relation(fields: [testCaseId], references: [id])
-  externalTestId String? // raw framework test id when not yet mapped to a TestCase
+  id               String           @id @default(cuid())
+  testRunId        String
+  testRun          TestRun          @relation(fields: [testRunId], references: [id])
+  testCaseId       String?
+  testCase         TestCase?        @relation(fields: [testCaseId], references: [id])
+  externalTestId   String? // raw framework test id when not yet mapped to a TestCase
   // File path as reported by the CI result (JUnit XML classname->file mapping,
   // etc). Needed to fetch source when this result is unmatched and gets
   // auto-enqueued for reverse-engineering (P5-14) -- without it we know a
   // test ran but not where to go read it.
   externalFilePath String?
-  status         TestResultStatus
-  durationMs     Int?
-  errorMessage   String?
+  status           TestResultStatus
+  durationMs       Int?
+  errorMessage     String?
 
   reverseEngineerJob ReverseEngineerJob?
   artifacts          TestResultArtifact[]
@@ -1129,12 +1129,12 @@ enum HealingSuggestionStatus {
 // runs without a display surface simply produce none; that's expected, not
 // an error state.
 model TestResultArtifact {
-  id           String               @id @default(cuid())
+  id           String                 @id @default(cuid())
   testResultId String
-  testResult   TestResult           @relation(fields: [testResultId], references: [id])
+  testResult   TestResult             @relation(fields: [testResultId], references: [id])
   type         TestResultArtifactType
   storageUrl   String
-  capturedAt   DateTime             @default(now())
+  capturedAt   DateTime               @default(now())
   durationMs   Int? // set for VIDEO; the trailing window captured before failure
 
   @@index([testResultId])
@@ -1157,9 +1157,9 @@ enum TestResultStatus {
 // ---------------------------------------------------------------------------
 
 model Release {
-  id         String   @id @default(cuid())
+  id         String        @id @default(cuid())
   projectId  String
-  project    Project  @relation(fields: [projectId], references: [id])
+  project    Project       @relation(fields: [projectId], references: [id])
   name       String
   targetDate DateTime?
   status     ReleaseStatus @default(PLANNING)
@@ -1199,8 +1199,8 @@ enum ReleaseGatePolicy {
 // lazily -- a project with no row yet gets this router's documented
 // defaults, not a required setup step before PR scanning works at all.
 model PrScanPolicy {
-  id        String @id @default(cuid())
-  projectId String @unique
+  id        String  @id @default(cuid())
+  projectId String  @unique
   project   Project @relation(fields: [projectId], references: [id])
 
   triggerBranches String[]          @default(["main"])
@@ -1223,23 +1223,23 @@ enum PrScanCommentMode {
 // A detected gap or risk feeding the release-readiness dashboard, e.g. from
 // PR scanning finding changed files with no mapped test coverage.
 model RiskFlag {
-  id               String    @id @default(cuid())
-  releaseId        String
-  release          Release   @relation(fields: [releaseId], references: [id])
-  severity         RiskSeverity
-  source           RiskSource
-  description      String
-  relatedFilePath  String?
-  relatedPrUrl     String?
+  id              String       @id @default(cuid())
+  releaseId       String
+  release         Release      @relation(fields: [releaseId], references: [id])
+  severity        RiskSeverity
+  source          RiskSource
+  description     String
+  relatedFilePath String?
+  relatedPrUrl    String?
 
   createdById String?
   createdBy   User?   @relation("RiskFlagCreatedBy", fields: [createdById], references: [id])
   updatedById String?
   updatedBy   User?   @relation("RiskFlagUpdatedBy", fields: [updatedById], references: [id])
 
-  createdAt        DateTime  @default(now())
-  updatedAt        DateTime  @updatedAt
-  resolvedAt       DateTime?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+  resolvedAt DateTime?
 }
 
 enum RiskSeverity {
