@@ -151,4 +151,56 @@ export const complianceRouter = router({
         take: 200,
       });
     }),
+
+  // P3-04: the auditor-handoff report -- unlike controlCoverage (a UI-
+  // friendly count), this names the actual mapped test cases and their
+  // current review status, since "evidence exists" isn't the same claim as
+  // "evidence exists and someone signed off on it." Returned as structured
+  // data; the client renders it to CSV (no server-side file generation
+  // needed for a report this shaped).
+  exportReport: protectedProcedure
+    .input(z.object({ projectId: z.string(), frameworkId: z.string() }))
+    .output(
+      z.object({
+        frameworkName: z.string(),
+        projectName: z.string(),
+        generatedAt: z.date(),
+        controls: z.array(
+          z.object({
+            code: z.string(),
+            title: z.string(),
+            description: z.string().nullable(),
+            mappedTestCases: z.array(z.object({ title: z.string(), reviewStatus: z.string() })),
+          }),
+        ),
+      }),
+    )
+    .query(async ({ ctx, input }) => {
+      await requireProjectAccess(ctx, input.projectId);
+      const [project, framework] = await Promise.all([
+        ctx.prisma.project.findUniqueOrThrow({ where: { id: input.projectId }, select: { name: true } }),
+        ctx.prisma.complianceFramework.findUniqueOrThrow({ where: { id: input.frameworkId } }),
+      ]);
+      const controls = await ctx.prisma.complianceControl.findMany({
+        where: { frameworkId: input.frameworkId },
+        include: {
+          testCases: {
+            where: { testCase: { projectId: input.projectId } },
+            include: { testCase: { select: { title: true, reviewStatus: true } } },
+          },
+        },
+        orderBy: { code: "asc" },
+      });
+      return {
+        frameworkName: framework.name,
+        projectName: project.name,
+        generatedAt: new Date(),
+        controls: controls.map((c) => ({
+          code: c.code,
+          title: c.title,
+          description: c.description,
+          mappedTestCases: c.testCases.map((m) => ({ title: m.testCase.title, reviewStatus: m.testCase.reviewStatus })),
+        })),
+      };
+    }),
 });

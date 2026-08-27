@@ -91,7 +91,7 @@ shoehorn compliance into generic test plans.
 - ✅ **P3-01** (M) Compliance framework/control admin UI: browse seeded frameworks (SOC 2, HIPAA, PCI DSS, GDPR, ISO 27001), add custom frameworks/controls. `labels: area:web, compliance`
 - **P3-02** (L) Import well-known control sets from structured sources (AICPA TSC for SOC 2, NIST CSF, etc.) rather than hand-seeding - build an importer, not just static seed data, since these get revised. `labels: area:api, compliance`
 - ✅ **P3-03** (M) Test case ↔ control mapping UI (many-to-many, already modeled via `TestCaseComplianceControl`) with coverage-per-control view: "which controls have zero mapped test cases." `labels: area:web, compliance`
-- **P3-04** (S) Control coverage report export (PDF/CSV) for auditor handoff. `labels: area:web, compliance, type:feature`
+- ✅ **P3-04** (S) Control coverage report export (PDF/CSV) for auditor handoff. `labels: area:web, compliance, type:feature` — shipped CSV export (`compliance.exportReport` + a client-side CSV button on the compliance page). Lists every control's mapped test cases with review status, and flags zero-mapped controls as gaps in a dedicated column. PDF was skipped: CSV is what most auditors actually want to import into their own tooling, and adding a PDF renderer is a real dependency for marginal benefit - can revisit if requested. Verified against live Kall data: mapped control correctly listed the test case + status, unmapped control came back with an empty array (the gap case).
 
 ### Epic 3.2 - Evidence & audit trail
 - **P3-05** (L) Evidence attachment model: link a `TestResult` (a passing execution) as evidence for a control, with immutable timestamped record. `labels: area:db, area:api, compliance`

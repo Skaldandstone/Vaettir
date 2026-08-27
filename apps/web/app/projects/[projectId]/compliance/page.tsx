@@ -5,6 +5,25 @@ import { useParams } from "next/navigation";
 import { trpc, type RouterOutputs } from "@/lib/trpc";
 import { Modal } from "@/components/Modal";
 
+// CSV field quoting: wrap in double quotes and escape embedded quotes
+// whenever the field contains a comma, quote, or newline -- the RFC 4180
+// rule every spreadsheet app expects.
+function csvField(value: string): string {
+  if (/[",\n]/.test(value)) return `"${value.replace(/"/g, '""')}"`;
+  return value;
+}
+
+function downloadCsv(filename: string, rows: string[][]) {
+  const csv = rows.map((row) => row.map(csvField).join(",")).join("\r\n");
+  const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
 function ControlRow({
   projectId,
   control,
@@ -178,6 +197,28 @@ export default function CompliancePage() {
     }
   }
 
+  const [exporting, setExporting] = useState(false);
+
+  async function exportCsv() {
+    if (!selectedFrameworkId) return;
+    setExporting(true);
+    setError(null);
+    try {
+      const report = await trpc.compliance.exportReport.query({ projectId, frameworkId: selectedFrameworkId });
+      const rows: string[][] = [["Control", "Title", "Description", "Mapped test cases", "Gap?"]];
+      for (const c of report.controls) {
+        const evidence = c.mappedTestCases.map((tc) => `${tc.title} [${tc.reviewStatus}]`).join("; ");
+        rows.push([c.code, c.title, c.description ?? "", evidence, c.mappedTestCases.length === 0 ? "YES" : ""]);
+      }
+      const safeName = report.frameworkName.replace(/[^a-z0-9]+/gi, "-").toLowerCase();
+      downloadCsv(`${safeName}-coverage-report.csv`, rows);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setExporting(false);
+    }
+  }
+
   const selectedFramework = frameworks.find((f) => f.id === selectedFrameworkId);
   const gapCount = controls.filter((c) => c.mappedTestCaseCount === 0).length;
 
@@ -217,9 +258,14 @@ export default function CompliancePage() {
         <div className="panel">
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
             <h2 style={{ marginTop: 0 }}>{selectedFramework.name}</h2>
-            <button className="btn-secondary" style={{ fontSize: 13 }} onClick={() => setControlModalOpen(true)}>
-              + Add control
-            </button>
+            <div style={{ display: "flex", gap: 8 }}>
+              <button className="btn-secondary" style={{ fontSize: 13 }} onClick={exportCsv} disabled={exporting || controls.length === 0}>
+                {exporting ? "Exporting…" : "Export CSV"}
+              </button>
+              <button className="btn-secondary" style={{ fontSize: 13 }} onClick={() => setControlModalOpen(true)}>
+                + Add control
+              </button>
+            </div>
           </div>
           {controls.length > 0 && (
             <p className="text-muted" style={{ fontSize: 13, marginTop: -8 }}>
