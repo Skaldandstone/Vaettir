@@ -338,6 +338,24 @@ whatever billing provider gets wired in.
 
 ---
 
+## Phase 13 - Internal Admin & Customer Service
+
+A staff-only surface for Skald & Stone team members - gated to
+`@skaldandstone.com` email addresses (or a configured staff allowlist), not
+any customer `OrgRole`/`Membership` - to look up accounts, help with support
+requests, and handle ownership-level actions that shouldn't live inside a
+customer-facing settings page. Distinct from `Phase 12`'s org-scoped admin
+UI: that's "an org admin managing their own org," this is "Skald & Stone
+staff managing across every org."
+
+- **P13-01** (M) Staff auth gate: a route tree (e.g. `/admin/**`) restricted to users whose Clerk email matches the configured staff domain/allowlist, checked independently of any `Membership` - a customer `OWNER` role in their own org must not grant access here. `labels: area:api, area:web, type:feature`
+- **P13-02** (M) Organization/customer lookup: search and view any organization (name, plan tier, seat usage, member list, creation date) without needing a `Membership` in it - the actual "find this customer" starting point every support request needs. `labels: area:web, area:api, type:feature`
+- **P13-03** (M) Support actions: the concrete things a support request actually needs done - view (not silently edit) a customer's data for troubleshooting, manually adjust plan tier/seat limits (ahead of `P12-05`'s real billing integration), resend a stuck invite, deactivate a member. `labels: area:api, area:web, type:feature`
+- **P13-04** (S) Admin action audit trail: every staff action taken through this surface writes its own audit record (reusing `AuditLog`'s shape from `P3-06`, but tagged distinctly from a customer's own activity) - "who at Skald & Stone touched this account and why" is a real accountability question independent of the customer's own audit log. `labels: area:api, compliance`
+- **P13-05** (M) Ownership actions: suspend/reactivate an organization, transfer/reassign an org owner, hard-delete a customer's data - the genuinely dangerous, infrequent actions, gated with real confirmation friction (not a one-click button) and always routed through `P13-04`'s audit trail. `labels: area:api, area:web, type:feature`
+
+---
+
 ## Suggested sequencing
 
 This is a lot of surface area; the phases aren't strictly sequential, but a
