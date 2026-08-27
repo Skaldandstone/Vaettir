@@ -19,6 +19,7 @@ import { webhooksRouter } from "./routers/webhooks.js";
 import { manualExecutionRouter } from "./routers/manualExecution.js";
 import { sharedStepGroupsRouter } from "./routers/sharedStepGroups.js";
 import { testCaseAttachmentsRouter } from "./routers/testCaseAttachments.js";
+import { exploratorySessionsRouter } from "./routers/exploratorySessions.js";
 
 export const appRouter = router({
   testCases: testCasesRouter,
@@ -41,6 +42,7 @@ export const appRouter = router({
   manualExecution: manualExecutionRouter,
   sharedStepGroups: sharedStepGroupsRouter,
   testCaseAttachments: testCaseAttachmentsRouter,
+  exploratorySessions: exploratorySessionsRouter,
 });
 
 export type AppRouter = typeof appRouter;

@@ -138,6 +138,7 @@ model Project {
   testPlans                 TestPlan[]
   testCases                 TestCase[]
   sharedStepGroups          SharedStepGroup[]
+  exploratorySessions       ExploratorySession[]
   requirements              Requirement[]
   releases                  Release[]
   testRuns                  TestRun[]
@@ -177,6 +178,7 @@ model User {
   testCaseVersions TestCaseVersion[]
   createdSharedStepGroups SharedStepGroup[]
   uploadedTestCaseAttachments TestCaseAttachment[]
+  exploratorySessions ExploratorySession[]
 
   // P1-07 audit columns: who created/last-updated each core record. Named
   // relations (Prisma requires it once a model has more than one FK to the
@@ -769,6 +771,51 @@ model SharedStepGroup {
   testCases TestCase[]
 
   @@index([projectId])
+}
+
+// 2026-08-27 competitor parity audit: session-based exploratory testing -
+// qTest and PractiTest both have this natively (charter + running notes,
+// convertible into a scripted test afterward). Deliberately NOT modeled
+// on TestRun/TestResult (P5-16's manual execution) - an exploratory
+// session has no predefined steps or pass/fail outcome to record against;
+// it's a charter plus a free-form, timestamped log of what the tester
+// found, which is a genuinely different shape of record.
+model ExploratorySession {
+  id        String                   @id @default(cuid())
+  projectId String
+  project   Project                  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  charter   String
+  status    ExploratorySessionStatus @default(IN_PROGRESS)
+  testerId  String
+  tester    User                     @relation(fields: [testerId], references: [id])
+  startedAt DateTime                 @default(now())
+  endedAt   DateTime?
+
+  notes ExploratorySessionNote[]
+
+  @@index([projectId, status])
+}
+
+enum ExploratorySessionStatus {
+  IN_PROGRESS
+  COMPLETED
+}
+
+model ExploratorySessionNote {
+  id        String             @id @default(cuid())
+  sessionId String
+  session   ExploratorySession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  text      String
+  // A finding is something worth following up on (a bug, a gap, a
+  // surprise) - distinct from a routine observation logged just to keep
+  // the session's narrative complete. Only findings feed the "convert to
+  // test case" summary (below), so the signal-to-noise of that summary
+  // depends on testers actually using this flag, not on every note being
+  // treated as equally important.
+  isFinding Boolean            @default(false)
+  createdAt DateTime           @default(now())
+
+  @@index([sessionId])
 }
 
 // 2026-08-27 competitor parity audit: a reference file attached to the
