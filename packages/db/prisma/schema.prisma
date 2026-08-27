@@ -71,6 +71,7 @@ model Project {
   requirements        Requirement[]
   releases            Release[]
   testRuns            TestRun[]
+  coverageReports     CoverageReport[]
   reverseEngineerJobs ReverseEngineerJob[]
   testSelectionRuns   TestSelectionRun[]
   auditLogs           AuditLog[]
@@ -782,7 +783,8 @@ model TestRun {
   finishedAt DateTime?
   status     TestRunStatus @default(RUNNING)
 
-  results TestResult[]
+  results          TestResult[]
+  coverageReport   CoverageReport?
 }
 
 enum TestRunStatus {
@@ -790,6 +792,56 @@ enum TestRunStatus {
   PASSED
   FAILED
   PARTIAL
+}
+
+// P5-06: coverage data ingestion, separate from pass/fail TestResults --
+// feeds the release-readiness coverage-gap logic in Phase 7. `testRunId`
+// is optional since a coverage report can be uploaded standalone (a
+// separate CI step from whatever posted the JUnit results) but linked to
+// the same run when the caller has one, so a run's page can show both.
+model CoverageReport {
+  id        String   @id @default(cuid())
+  projectId String
+  project   Project  @relation(fields: [projectId], references: [id])
+  testRunId String?  @unique
+  testRun   TestRun? @relation(fields: [testRunId], references: [id])
+  commitSha String
+  branch    String
+  tool      CoverageTool
+
+  linesCovered    Int
+  linesTotal      Int
+  branchesCovered Int?
+  branchesTotal   Int?
+
+  files     CoverageFileEntry[]
+  createdAt DateTime            @default(now())
+
+  @@index([projectId, createdAt])
+}
+
+// Per-file breakdown -- what the release-readiness coverage-gap check
+// (Phase 7) actually needs: not just "78% overall" but which specific
+// files are under-covered.
+model CoverageFileEntry {
+  id       String         @id @default(cuid())
+  reportId String
+  report   CoverageReport @relation(fields: [reportId], references: [id])
+
+  filePath        String
+  linesCovered    Int
+  linesTotal      Int
+  branchesCovered Int?
+  branchesTotal   Int?
+
+  @@index([reportId])
+  @@index([filePath])
+}
+
+enum CoverageTool {
+  ISTANBUL
+  COBERTURA
+  JACOCO
 }
 
 model TestResult {

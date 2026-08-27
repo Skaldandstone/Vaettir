@@ -12,6 +12,7 @@ import { apiKeysRouter } from "./routers/apiKeys.js";
 import { complianceRouter } from "./routers/compliance.js";
 import { auditLogRouter } from "./routers/auditLog.js";
 import { testRunsRouter } from "./routers/testRuns.js";
+import { coverageRouter } from "./routers/coverage.js";
 
 export const appRouter = router({
   testCases: testCasesRouter,
@@ -27,6 +28,7 @@ export const appRouter = router({
   compliance: complianceRouter,
   auditLog: auditLogRouter,
   testRuns: testRunsRouter,
+  coverage: coverageRouter,
 });
 
 export type AppRouter = typeof appRouter;

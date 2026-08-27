@@ -151,6 +151,65 @@ function TestRunDetail({ id }: { id: string }) {
   );
 }
 
+function coveragePct(covered: number, total: number): string {
+  if (total === 0) return "—";
+  return `${Math.round((covered / total) * 100)}%`;
+}
+
+// P5-06: a compact list of ingested coverage reports -- the deeper
+// coverage-gap dashboard (which files are under-covered against defined
+// thresholds) is Phase 7's job; this just makes the ingested data visible.
+function CoverageSection({ projectId }: { projectId: string }) {
+  const [reports, setReports] = useState<RouterOutputs["coverage"]["list"]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    trpc.coverage.list
+      .query({ projectId })
+      .then(setReports)
+      .finally(() => setLoading(false));
+  }, [projectId]);
+
+  if (loading || reports.length === 0) return null;
+
+  return (
+    <div style={{ marginTop: 32 }}>
+      <h2 style={{ marginBottom: 4 }}>Coverage</h2>
+      <p className="text-muted" style={{ fontSize: 13, marginBottom: 12 }}>
+        Ingested coverage reports (Istanbul/nyc, Cobertura, JaCoCo). Most recent first.
+      </p>
+      <table style={{ width: "100%", borderCollapse: "collapse" }}>
+        <thead>
+          <tr style={{ textAlign: "left", borderBottom: "1px solid var(--line)" }}>
+            <th style={{ padding: "6px 8px", fontSize: 12 }}>Tool</th>
+            <th style={{ padding: "6px 8px", fontSize: 12 }}>Branch</th>
+            <th style={{ padding: "6px 8px", fontSize: 12 }}>Commit</th>
+            <th style={{ padding: "6px 8px", fontSize: 12 }}>Line coverage</th>
+            <th style={{ padding: "6px 8px", fontSize: 12 }}>When</th>
+          </tr>
+        </thead>
+        <tbody>
+          {reports.map((r) => (
+            <tr key={r.id} style={{ borderBottom: "1px solid var(--line)" }}>
+              <td style={{ padding: "6px 8px", fontSize: 13 }}>{r.tool}</td>
+              <td style={{ padding: "6px 8px", fontSize: 13 }}>{r.branch}</td>
+              <td style={{ padding: "6px 8px", fontSize: 12 }}>
+                <code>{r.commitSha.slice(0, 10)}</code>
+              </td>
+              <td style={{ padding: "6px 8px", fontSize: 13 }}>
+                {coveragePct(r.linesCovered, r.linesTotal)} ({r.linesCovered}/{r.linesTotal})
+              </td>
+              <td style={{ padding: "6px 8px", fontSize: 12, color: "var(--text-muted, #57606a)" }}>
+                {new Date(r.createdAt).toLocaleString()}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 export default function TestRunsPage() {
   const { projectId } = useParams<{ projectId: string }>();
   const [runs, setRuns] = useState<RouterOutputs["testRuns"]["list"]>([]);
@@ -227,6 +286,8 @@ export default function TestRunsPage() {
       <Drawer open={openRunId !== null} onClose={() => setOpenRunId(null)}>
         {openRunId && <TestRunDetail id={openRunId} />}
       </Drawer>
+
+      <CoverageSection projectId={projectId} />
     </div>
   );
 }
