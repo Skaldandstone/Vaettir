@@ -6,6 +6,7 @@ import { Prisma } from "@vaettir/db";
 import { router, protectedProcedure, requireProjectAccess } from "../trpc.js";
 import { recordAudit } from "../services/auditLog.js";
 import { chargeAiCredits, InsufficientAiCreditsError } from "../services/aiCredits.js";
+import { parseTestCaseCsv } from "../services/testCaseCsvImport.js";
 
 const stepOutputSchema = z.object({
   order: z.number(),
@@ -431,6 +432,69 @@ export const testCasesRouter = router({
         summary: `Created test case "${created.title}"`,
       });
       return created;
+    }),
+
+  // P11-07: the generic catch-all importer for a spreadsheet-tracked suite
+  // with no first-class importer (PractiTest, TestLink, or just "we keep
+  // our cases in a spreadsheet"). Recognizes a fixed common header set
+  // (see testCaseCsvImport.ts) rather than a full field-mapping UI (P11-02,
+  // separate ticket) - a reasonable, immediately-usable middle ground.
+  // Origin: IMPORTED, same as the existing Gherkin/Postman importers -
+  // human-authored-elsewhere content skips the AI trust gate (lands
+  // APPROVED, not PENDING_REVIEW).
+  importCsv: protectedProcedure
+    .input(z.object({ projectId: z.string(), csvText: z.string().min(1), testPlanId: z.string().optional() }))
+    .output(
+      z.object({
+        createdCount: z.number(),
+        skipped: z.array(z.object({ rowNumber: z.number(), reason: z.string() })),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const { project } = await requireProjectAccess(ctx, input.projectId, "EDITOR");
+
+      let parsed;
+      try {
+        parsed = parseTestCaseCsv(input.csvText);
+      } catch (e) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: e instanceof Error ? e.message : String(e) });
+      }
+
+      const created = await ctx.prisma.$transaction(
+        parsed.cases.map((c) =>
+          ctx.prisma.testCase.create({
+            data: {
+              projectId: input.projectId,
+              testPlanId: input.testPlanId,
+              title: c.title,
+              given: c.given,
+              when: c.when,
+              then: c.then,
+              tags: c.tags,
+              testType: "FUNCTIONAL",
+              priority: c.priority,
+              origin: "IMPORTED",
+              createdById: ctx.user.id,
+              updatedById: ctx.user.id,
+            },
+            select: { id: true },
+          }),
+        ),
+      );
+
+      if (created.length > 0) {
+        await recordAudit(ctx.prisma, {
+          organizationId: project.organizationId,
+          projectId: input.projectId,
+          actorId: ctx.user.id,
+          entityType: "TestCase",
+          entityId: created[0]!.id,
+          action: "CREATE",
+          summary: `Imported ${created.length} test case(s) from CSV`,
+        });
+      }
+
+      return { createdCount: created.length, skipped: parsed.skipped };
     }),
 
   update: protectedProcedure

@@ -5,6 +5,7 @@ import { useParams } from "next/navigation";
 import { trpc, type RouterOutputs } from "@/lib/trpc";
 import { TestCaseTree, filterCasesByPath, collectKnownSuitePaths, UNASSIGNED } from "@/components/TestCaseTree";
 import { Drawer } from "@/components/Drawer";
+import { Modal } from "@/components/Modal";
 import { TestCaseDetailContent } from "@/components/TestCaseDetailContent";
 
 type Case = RouterOutputs["testCases"]["list"][number];
@@ -120,6 +121,12 @@ export default function TestCasesPage() {
   const [bulkMovePlanId, setBulkMovePlanId] = useState("");
   const [bulkTag, setBulkTag] = useState("");
 
+  const [importOpen, setImportOpen] = useState(false);
+  const [importCsvText, setImportCsvText] = useState("");
+  const [importing, setImporting] = useState(false);
+  const [importError, setImportError] = useState<string | null>(null);
+  const [importResult, setImportResult] = useState<{ createdCount: number; skipped: { rowNumber: number; reason: string }[] } | null>(null);
+
   function load() {
     setLoading(true);
     setError(null);
@@ -139,6 +146,23 @@ export default function TestCasesPage() {
 
   useEffect(load, [projectId]);
   useEffect(() => setSelected(new Set()), [selectedPath, search, typeFilter, reviewFilter, originFilter, showArchived]);
+
+  async function importCsv() {
+    if (!importCsvText.trim()) return;
+    setImporting(true);
+    setImportError(null);
+    setImportResult(null);
+    try {
+      const result = await trpc.testCases.importCsv.mutate({ projectId, csvText: importCsvText });
+      setImportResult(result);
+      setImportCsvText("");
+      load();
+    } catch (e) {
+      setImportError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setImporting(false);
+    }
+  }
 
   const pathFiltered = filterCasesByPath(cases, selectedPath);
   const visibleCases = useMemo(() => {
@@ -240,11 +264,58 @@ export default function TestCasesPage() {
             </p>
           )}
         </div>
-        <div style={{ display: "flex", gap: 16 }}>
+        <div style={{ display: "flex", gap: 16, alignItems: "center" }}>
           <a href={`/projects/${projectId}/test-cases/review`}>Review queue</a>
           <a href={`/projects/${projectId}/test-cases/new`}>Full editor</a>
+          <button className="btn-secondary" style={{ fontSize: 13 }} onClick={() => setImportOpen(true)}>
+            Import CSV
+          </button>
         </div>
       </div>
+
+      <Modal open={importOpen} onClose={() => setImportOpen(false)} title="Import test cases from CSV">
+        <div style={{ display: "grid", gap: 10 }}>
+          <p className="text-muted" style={{ fontSize: 13, margin: 0 }}>
+            Header row with <code>title</code>, <code>given</code>, <code>when</code>, <code>then</code>, and optionally{" "}
+            <code>priority</code>/<code>tags</code>. For multiple steps in one cell, separate them with <code>|</code>.
+          </p>
+          <textarea
+            value={importCsvText}
+            onChange={(e) => setImportCsvText(e.target.value)}
+            placeholder={'title,given,when,then,priority,tags\n"Login succeeds","a registered user","valid credentials submitted","dashboard is shown",HIGH,"auth|smoke"'}
+            rows={8}
+            style={{ width: "100%", fontFamily: "monospace", fontSize: 12 }}
+          />
+          <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+            <button className="btn-secondary" onClick={() => setImportOpen(false)}>
+              Close
+            </button>
+            <button className="btn-primary" onClick={importCsv} disabled={importing || !importCsvText.trim()}>
+              {importing ? "Importing…" : "Import"}
+            </button>
+          </div>
+          {importError && <p style={{ color: "var(--ember)" }}>{importError}</p>}
+          {importResult && (
+            <div className="panel">
+              <p style={{ margin: 0 }}>Imported {importResult.createdCount} test case(s).</p>
+              {importResult.skipped.length > 0 && (
+                <>
+                  <p className="text-muted" style={{ marginBottom: 4 }}>
+                    Skipped {importResult.skipped.length} row(s):
+                  </p>
+                  <ul style={{ margin: 0, paddingLeft: 18, fontSize: 12 }}>
+                    {importResult.skipped.map((s) => (
+                      <li key={s.rowNumber}>
+                        Row {s.rowNumber}: {s.reason}
+                      </li>
+                    ))}
+                  </ul>
+                </>
+              )}
+            </div>
+          )}
+        </div>
+      </Modal>
 
       {loading && <p>Loading…</p>}
       {error && <p style={{ color: "var(--ember)" }}>{error}</p>}
