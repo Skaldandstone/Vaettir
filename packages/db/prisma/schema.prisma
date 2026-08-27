@@ -137,6 +137,7 @@ model Project {
 
   testPlans                 TestPlan[]
   testCases                 TestCase[]
+  sharedStepGroups          SharedStepGroup[]
   requirements              Requirement[]
   releases                  Release[]
   testRuns                  TestRun[]
@@ -174,6 +175,7 @@ model User {
   reviewedTestCases TestCase[]   @relation("TestCaseReviewedBy")
   createdWebhookEndpoints WebhookEndpoint[]
   testCaseVersions TestCaseVersion[]
+  createdSharedStepGroups SharedStepGroup[]
 
   // P1-07 audit columns: who created/last-updated each core record. Named
   // relations (Prisma requires it once a model has more than one FK to the
@@ -625,6 +627,17 @@ model TestCase {
   selectionRecommendations TestSelectionRecommendation[]
   versions                 TestCaseVersion[]
 
+  // 2026-08-27 competitor parity audit: TestRail/qTest/Zephyr/Xray all let
+  // a step sequence be authored once and reused across many cases,
+  // updated in one place. When set, this case's own structured `steps`
+  // (above) are irrelevant - the resolved step list comes from the
+  // referenced group instead (see testCases.ts's byId/list). A case
+  // either owns its steps or defers to a shared group, never both, same
+  // "one or the other" simplicity as given/when/then vs. structured
+  // steps already has.
+  sharedStepGroupId String?
+  sharedStepGroup   SharedStepGroup? @relation(fields: [sharedStepGroupId], references: [id])
+
   createdById String?
   createdBy   User?   @relation("TestCaseCreatedBy", fields: [createdById], references: [id])
   updatedById String?
@@ -731,6 +744,29 @@ model TestCaseVersion {
 
   @@unique([testCaseId, versionNumber])
   @@index([testCaseId, versionNumber])
+}
+
+// A named, reusable structured-step sequence, editable in one place and
+// referenced by any number of TestCases in the same project (see
+// TestCase.sharedStepGroupId). `steps` is a JSON array of the same
+// {order, action, expectedActionOrData, expectedResult, expectedResponse}
+// shape TestCaseStep uses - a real relation table isn't needed here since
+// nothing ever queries into an individual shared step on its own.
+model SharedStepGroup {
+  id          String   @id @default(cuid())
+  projectId   String
+  project     Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  name        String
+  description String?
+  steps       Json
+  createdById String?
+  createdBy   User?    @relation(fields: [createdById], references: [id])
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  testCases TestCase[]
+
+  @@index([projectId])
 }
 
 enum TestCasePriority {

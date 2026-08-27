@@ -17,6 +17,7 @@ import { healingSuggestionsRouter } from "./routers/healingSuggestions.js";
 import { adminRouter } from "./routers/admin.js";
 import { webhooksRouter } from "./routers/webhooks.js";
 import { manualExecutionRouter } from "./routers/manualExecution.js";
+import { sharedStepGroupsRouter } from "./routers/sharedStepGroups.js";
 
 export const appRouter = router({
   testCases: testCasesRouter,
@@ -37,6 +38,7 @@ export const appRouter = router({
   admin: adminRouter,
   webhooks: webhooksRouter,
   manualExecution: manualExecutionRouter,
+  sharedStepGroups: sharedStepGroupsRouter,
 });
 
 export type AppRouter = typeof appRouter;

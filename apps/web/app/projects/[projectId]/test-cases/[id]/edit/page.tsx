@@ -45,12 +45,15 @@ export default function EditTestCasePage() {
           given: tc.given,
           when: tc.when,
           then: tc.then,
-          steps: tc.steps.map((s) => ({
-            action: s.action,
-            expectedActionOrData: s.expectedActionOrData ?? "",
-            expectedResult: s.expectedResult ?? "",
-            expectedResponse: s.expectedResponse ?? "",
-          })),
+          steps: tc.sharedStepGroupId
+            ? []
+            : tc.steps.map((s) => ({
+                action: s.action,
+                expectedActionOrData: s.expectedActionOrData ?? "",
+                expectedResult: s.expectedResult ?? "",
+                expectedResponse: s.expectedResponse ?? "",
+              })),
+          sharedStepGroupId: tc.sharedStepGroupId ?? "",
         }}
       />
     </div>

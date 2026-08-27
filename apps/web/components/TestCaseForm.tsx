@@ -43,6 +43,7 @@ interface TestCaseFormValue {
   when: string[];
   then: string[];
   steps: StepRow[];
+  sharedStepGroupId: string;
 }
 
 const EMPTY_STEP: StepRow = { action: "", expectedActionOrData: "", expectedResult: "", expectedResponse: "" };
@@ -60,6 +61,7 @@ function defaultValue(): TestCaseFormValue {
     when: [],
     then: [],
     steps: [],
+    sharedStepGroupId: "",
   };
 }
 
@@ -108,10 +110,14 @@ export default function TestCaseForm({ mode, projectId, testCaseId, initial, ste
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [knownSuitePaths, setKnownSuitePaths] = useState<string[]>([]);
+  const [sharedGroups, setSharedGroups] = useState<Awaited<ReturnType<typeof trpc.sharedStepGroups.list.query>>>([]);
 
   useEffect(() => {
     trpc.testCases.list.query({ projectId }).then((cases) => setKnownSuitePaths(collectKnownSuitePaths(cases)));
+    trpc.sharedStepGroups.list.query({ projectId }).then(setSharedGroups);
   }, [projectId]);
+
+  const selectedGroup = sharedGroups.find((g) => g.id === value.sharedStepGroupId);
 
   const labels = stepFieldLabels ?? {
     action: "Test Step",
@@ -135,14 +141,17 @@ export default function TestCaseForm({ mode, projectId, testCaseId, initial, ste
         given: value.given.filter((s) => s.trim()),
         when: value.when.filter((s) => s.trim()),
         then: value.then.filter((s) => s.trim()),
-        steps: value.steps
-          .filter((s) => s.action.trim())
-          .map((s) => ({
-            action: s.action,
-            expectedActionOrData: s.expectedActionOrData || null,
-            expectedResult: s.expectedResult || null,
-            expectedResponse: s.expectedResponse || null,
-          })),
+        steps: value.sharedStepGroupId
+          ? []
+          : value.steps
+              .filter((s) => s.action.trim())
+              .map((s) => ({
+                action: s.action,
+                expectedActionOrData: s.expectedActionOrData || null,
+                expectedResult: s.expectedResult || null,
+                expectedResponse: s.expectedResponse || null,
+              })),
+        sharedStepGroupId: value.sharedStepGroupId || null,
         tags: value.tags
           .split(",")
           .map((t) => t.trim())
@@ -240,7 +249,37 @@ export default function TestCaseForm({ mode, projectId, testCaseId, initial, ste
       <StringListEditor label="Then" items={value.then} onChange={(then) => setValue((v) => ({ ...v, then }))} />
 
       <h2>Structured steps</h2>
-      {value.steps.map((step, i) => (
+      {sharedGroups.length > 0 && (
+        <label style={{ display: "block", marginBottom: 10 }}>
+          Use a shared step library <span style={{ color: "var(--muted-dim)" }}>(optional - edited in one place, reused by any case)</span>
+          <select
+            value={value.sharedStepGroupId}
+            onChange={(e) => setValue((v) => ({ ...v, sharedStepGroupId: e.target.value }))}
+            style={{ display: "block", width: "100%" }}
+          >
+            <option value="">None - author steps for this case</option>
+            {sharedGroups.map((g) => (
+              <option key={g.id} value={g.id}>
+                {g.name} ({g.steps.length} steps)
+              </option>
+            ))}
+          </select>
+        </label>
+      )}
+      {selectedGroup && (
+        <div style={{ border: "1px solid var(--line)", borderRadius: 8, padding: 10, marginBottom: 10, background: "var(--panel-bg, transparent)" }}>
+          <p className="text-muted" style={{ fontSize: 12, margin: "0 0 6px" }}>
+            Steps come from &ldquo;{selectedGroup.name}&rdquo; - manage the content on the{" "}
+            <a href={`/projects/${projectId}/shared-steps`}>Shared step libraries</a> page.
+          </p>
+          <ol style={{ margin: 0, paddingLeft: 18, fontSize: 13 }}>
+            {selectedGroup.steps.map((s, i) => (
+              <li key={i}>{s.action}</li>
+            ))}
+          </ol>
+        </div>
+      )}
+      {!value.sharedStepGroupId && value.steps.map((step, i) => (
         <div key={i} style={{ border: "1px solid var(--line)", borderRadius: 8, padding: 12, marginBottom: 10 }}>
           <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6 }}>
             <strong>Step {i + 1}</strong>
@@ -283,9 +322,11 @@ export default function TestCaseForm({ mode, projectId, testCaseId, initial, ste
           </div>
         </div>
       ))}
-      <button type="button" onClick={() => setValue((v) => ({ ...v, steps: [...v.steps, { ...EMPTY_STEP }] }))}>
-        + Add step
-      </button>
+      {!value.sharedStepGroupId && (
+        <button type="button" onClick={() => setValue((v) => ({ ...v, steps: [...v.steps, { ...EMPTY_STEP }] }))}>
+          + Add step
+        </button>
+      )}
 
       <div style={{ marginTop: 24 }}>
         <button onClick={submit} disabled={saving || !value.title}>

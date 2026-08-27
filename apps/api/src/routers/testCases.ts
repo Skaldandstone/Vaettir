@@ -27,6 +27,10 @@ const testCaseContentSchema = z.object({
   when: z.array(z.string()).default([]),
   then: z.array(z.string()).default([]),
   steps: z.array(TestCaseStepInputSchema).default([]),
+  // 2026-08-27 competitor parity audit: when set, `steps` above is
+  // ignored - the case defers entirely to the referenced SharedStepGroup
+  // instead (see the schema comment on TestCase.sharedStepGroupId).
+  sharedStepGroupId: z.string().nullable().optional(),
   tags: z.array(z.string()).default([]),
   testType: z.string(),
   priority: z.enum(["CRITICAL", "HIGH", "MEDIUM", "LOW"]).default("MEDIUM"),
@@ -34,9 +38,9 @@ const testCaseContentSchema = z.object({
 });
 
 function requireAtLeastOneFormat(v: z.infer<typeof testCaseContentSchema>) {
-  return (v.given.length > 0 && v.when.length > 0 && v.then.length > 0) || v.steps.length > 0;
+  return (v.given.length > 0 && v.when.length > 0 && v.then.length > 0) || v.steps.length > 0 || Boolean(v.sharedStepGroupId);
 }
-const AT_LEAST_ONE_FORMAT_MESSAGE = "Provide either given/when/then or at least one structured step";
+const AT_LEAST_ONE_FORMAT_MESSAGE = "Provide given/when/then, at least one structured step, or a shared step library";
 
 export const testCasesRouter = router({
   list: protectedProcedure
@@ -126,6 +130,8 @@ export const testCasesRouter = router({
         when: z.array(z.string()),
         then: z.array(z.string()),
         steps: z.array(stepOutputSchema),
+        sharedStepGroupId: z.string().nullable(),
+        sharedStepGroupName: z.string().nullable(),
         stepFieldLabels: z.record(z.string()),
         tags: z.array(z.string()),
         testType: z.string(),
@@ -171,11 +177,31 @@ export const testCasesRouter = router({
         include: {
           source: true,
           steps: { orderBy: { order: "asc" } },
+          sharedStepGroup: true,
           project: { include: { organization: { select: { stepFieldLabels: true } } } },
           reviewedBy: { select: { name: true, email: true } },
         },
       });
       await requireProjectAccess(ctx, tc.projectId);
+      // A case linked to a shared step group defers entirely to its
+      // steps (see the schema comment on TestCase.sharedStepGroupId) -
+      // resolved live here, not duplicated onto the case, so an edit to
+      // the group is instantly reflected on every case that uses it.
+      const resolvedSteps = tc.sharedStepGroup
+        ? (tc.sharedStepGroup.steps as Array<{
+            order: number;
+            action: string;
+            expectedActionOrData: string | null;
+            expectedResult: string | null;
+            expectedResponse: string | null;
+          }>)
+        : tc.steps.map((s) => ({
+            order: s.order,
+            action: s.action,
+            expectedActionOrData: s.expectedActionOrData,
+            expectedResult: s.expectedResult,
+            expectedResponse: s.expectedResponse,
+          }));
       return {
         id: tc.id,
         title: tc.title,
@@ -183,13 +209,9 @@ export const testCasesRouter = router({
         given: tc.given,
         when: tc.when,
         then: tc.then,
-        steps: tc.steps.map((s) => ({
-          order: s.order,
-          action: s.action,
-          expectedActionOrData: s.expectedActionOrData,
-          expectedResult: s.expectedResult,
-          expectedResponse: s.expectedResponse,
-        })),
+        steps: resolvedSteps,
+        sharedStepGroupId: tc.sharedStepGroupId,
+        sharedStepGroupName: tc.sharedStepGroup?.name ?? null,
         stepFieldLabels: resolveStepFieldLabels(
           tc.project.organization.stepFieldLabels as Partial<Record<StepFieldKey, string>> | null,
         ),
@@ -444,15 +466,21 @@ export const testCasesRouter = router({
           suitePath: input.suitePath || undefined,
           createdById: ctx.user.id,
           updatedById: ctx.user.id,
-          steps: {
-            create: input.steps.map((s, i) => ({
-              order: i,
-              action: s.action,
-              expectedActionOrData: s.expectedActionOrData ?? undefined,
-              expectedResult: s.expectedResult ?? undefined,
-              expectedResponse: s.expectedResponse ?? undefined,
-            })),
-          },
+          sharedStepGroupId: input.sharedStepGroupId || undefined,
+          // A case linked to a shared group defers entirely to it - see
+          // the schema comment on sharedStepGroupId - so it owns no
+          // structured steps of its own.
+          steps: input.sharedStepGroupId
+            ? undefined
+            : {
+                create: input.steps.map((s, i) => ({
+                  order: i,
+                  action: s.action,
+                  expectedActionOrData: s.expectedActionOrData ?? undefined,
+                  expectedResult: s.expectedResult ?? undefined,
+                  expectedResponse: s.expectedResponse ?? undefined,
+                })),
+              },
         },
       });
       await recordAudit(ctx.prisma, {
@@ -630,15 +658,18 @@ export const testCasesRouter = router({
             // accidental no-op.
             suitePath: input.suitePath ? input.suitePath : null,
             updatedById: ctx.user.id,
-            steps: {
-              create: input.steps.map((s, i) => ({
-                order: i,
-                action: s.action,
-                expectedActionOrData: s.expectedActionOrData ?? undefined,
-                expectedResult: s.expectedResult ?? undefined,
-                expectedResponse: s.expectedResponse ?? undefined,
-              })),
-            },
+            sharedStepGroupId: input.sharedStepGroupId || null,
+            steps: input.sharedStepGroupId
+              ? undefined
+              : {
+                  create: input.steps.map((s, i) => ({
+                    order: i,
+                    action: s.action,
+                    expectedActionOrData: s.expectedActionOrData ?? undefined,
+                    expectedResult: s.expectedResult ?? undefined,
+                    expectedResponse: s.expectedResponse ?? undefined,
+                  })),
+                },
           },
         });
       });

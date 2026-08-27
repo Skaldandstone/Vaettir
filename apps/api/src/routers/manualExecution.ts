@@ -110,7 +110,7 @@ export const manualExecutionRouter = router({
       const [cases, results] = await Promise.all([
         ctx.prisma.testCase.findMany({
           where: { id: { in: run.manualTestCaseIds } },
-          include: { steps: { orderBy: { order: "asc" } } },
+          include: { steps: { orderBy: { order: "asc" } }, sharedStepGroup: true },
         }),
         ctx.prisma.testResult.findMany({
           where: { testRunId: run.id, testCaseId: { in: run.manualTestCaseIds } },
@@ -137,13 +137,23 @@ export const manualExecutionRouter = router({
               given: c.given,
               when: c.when,
               then: c.then,
-              steps: c.steps.map((s) => ({
-                order: s.order,
-                action: s.action,
-                expectedActionOrData: s.expectedActionOrData,
-                expectedResult: s.expectedResult,
-                expectedResponse: s.expectedResponse,
-              })),
+              // Same shared-step-group resolution as testCases.ts's byId -
+              // a case deferring to a group has no steps of its own.
+              steps: c.sharedStepGroup
+                ? (c.sharedStepGroup.steps as Array<{
+                    order: number;
+                    action: string;
+                    expectedActionOrData: string | null;
+                    expectedResult: string | null;
+                    expectedResponse: string | null;
+                  }>)
+                : c.steps.map((s) => ({
+                    order: s.order,
+                    action: s.action,
+                    expectedActionOrData: s.expectedActionOrData,
+                    expectedResult: s.expectedResult,
+                    expectedResponse: s.expectedResponse,
+                  })),
               currentResult: result ? { status: result.status, note: result.note } : null,
             };
           }),

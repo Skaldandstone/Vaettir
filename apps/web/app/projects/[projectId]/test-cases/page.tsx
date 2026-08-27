@@ -294,6 +294,7 @@ export default function TestCasesPage() {
         </div>
         <div style={{ display: "flex", gap: 16, alignItems: "center" }}>
           <a href={`/projects/${projectId}/test-cases/review`}>Review queue</a>
+          <a href={`/projects/${projectId}/shared-steps`}>Shared step libraries</a>
           <button className="btn-secondary" style={{ fontSize: 13 }} onClick={exportCsv}>
             Export CSV
           </button>
