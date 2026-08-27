@@ -124,6 +124,180 @@ function ApiKeysSection({ organizationId }: { organizationId: string }) {
   );
 }
 
+// P9-06: outbound webhooks. Deliberately separate from ApiKeysSection above
+// (inbound auth for CI callers) - this is the opposite direction, the
+// platform pushing events OUT to a URL the org controls.
+function WebhooksSection({ organizationId }: { organizationId: string }) {
+  const [eventTypes, setEventTypes] = useState<string[]>([]);
+  const [endpoints, setEndpoints] = useState<RouterOutputs["webhooks"]["list"]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [url, setUrl] = useState("");
+  const [selectedEvents, setSelectedEvents] = useState<string[]>([]);
+  const [creating, setCreating] = useState(false);
+  const [freshSecret, setFreshSecret] = useState<string | null>(null);
+  const [deliveriesFor, setDeliveriesFor] = useState<string | null>(null);
+  const [deliveries, setDeliveries] = useState<RouterOutputs["webhooks"]["listDeliveries"]>([]);
+  const [testingId, setTestingId] = useState<string | null>(null);
+
+  function load() {
+    setLoading(true);
+    Promise.all([trpc.webhooks.eventTypes.query(), trpc.webhooks.list.query({ organizationId })])
+      .then(([types, list]) => {
+        setEventTypes([...types]);
+        setEndpoints(list);
+      })
+      .catch((e) => setError(e instanceof Error ? e.message : String(e)))
+      .finally(() => setLoading(false));
+  }
+
+  useEffect(load, [organizationId]);
+
+  function toggleEvent(evt: string) {
+    setSelectedEvents((prev) => (prev.includes(evt) ? prev.filter((e) => e !== evt) : [...prev, evt]));
+  }
+
+  async function create() {
+    if (!url.trim() || selectedEvents.length === 0) return;
+    setCreating(true);
+    setError(null);
+    try {
+      const res = await trpc.webhooks.create.mutate({ organizationId, url: url.trim(), eventTypes: selectedEvents as never });
+      setFreshSecret(res.secret);
+      setUrl("");
+      setSelectedEvents([]);
+      load();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setCreating(false);
+    }
+  }
+
+  async function remove(id: string) {
+    if (!confirm("Delete this webhook? It will stop receiving events immediately.")) return;
+    await trpc.webhooks.delete.mutate({ id });
+    load();
+  }
+
+  async function sendTest(id: string) {
+    setTestingId(id);
+    setError(null);
+    try {
+      await trpc.webhooks.sendTest.mutate({ id });
+      await viewDeliveries(id);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setTestingId(null);
+    }
+  }
+
+  async function viewDeliveries(id: string) {
+    setDeliveriesFor(id);
+    const result = await trpc.webhooks.listDeliveries.query({ webhookEndpointId: id });
+    setDeliveries(result);
+  }
+
+  return (
+    <div style={{ marginTop: 32 }}>
+      <h2>Webhooks</h2>
+      <p style={{ color: "var(--muted)", fontSize: 13 }}>
+        Push real platform events (new risk flag, compliance sign-off, AI review-queue item) to a URL you control,
+        without polling. Each delivery is signed with the endpoint&apos;s secret via an <code>X-Vaettir-Signature</code>{" "}
+        header (<code>sha256=&lt;hmac hex&gt;</code>).
+      </p>
+
+      {freshSecret && (
+        <div className="panel" style={{ borderColor: "var(--frost)", marginBottom: 12 }}>
+          <p style={{ margin: 0 }}>
+            <strong>Copy this secret now — it won&apos;t be shown again:</strong>
+          </p>
+          <code style={{ display: "block", marginTop: 6, wordBreak: "break-all" }}>{freshSecret}</code>
+          <button className="btn-secondary" style={{ marginTop: 8 }} onClick={() => setFreshSecret(null)}>
+            Done
+          </button>
+        </div>
+      )}
+
+      {error && <p style={{ color: "var(--ember)" }}>{error}</p>}
+      {loading && <p>Loading…</p>}
+
+      {!loading && (
+        <table style={{ borderCollapse: "collapse", width: "100%", marginBottom: 16 }}>
+          <thead>
+            <tr>
+              <th style={cellStyle}>URL</th>
+              <th style={cellStyle}>Events</th>
+              <th style={cellStyle}>Status</th>
+              <th style={cellStyle}></th>
+            </tr>
+          </thead>
+          <tbody>
+            {endpoints.map((ep) => (
+              <tr key={ep.id} style={{ opacity: ep.enabled ? 1 : 0.5 }}>
+                <td style={cellStyle}>
+                  <code>{ep.url}</code>
+                </td>
+                <td style={cellStyle}>{ep.eventTypes.join(", ")}</td>
+                <td style={cellStyle}>{ep.enabled ? "enabled" : "disabled"}</td>
+                <td style={cellStyle}>
+                  <button onClick={() => sendTest(ep.id)} disabled={testingId === ep.id} style={{ marginRight: 6 }}>
+                    {testingId === ep.id ? "Sending…" : "Send test"}
+                  </button>
+                  <button onClick={() => viewDeliveries(ep.id)} style={{ marginRight: 6 }}>
+                    Deliveries
+                  </button>
+                  <button onClick={() => remove(ep.id)}>Delete</button>
+                </td>
+              </tr>
+            ))}
+            {endpoints.length === 0 && (
+              <tr>
+                <td colSpan={4} style={cellStyle} className="text-muted">
+                  No webhooks yet.
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      )}
+
+      {deliveriesFor && (
+        <div className="panel" style={{ marginBottom: 16 }}>
+          <h3 style={{ marginTop: 0 }}>Recent deliveries</h3>
+          {deliveries.length === 0 && <p>No deliveries yet.</p>}
+          <ul>
+            {deliveries.map((d) => (
+              <li key={d.id}>
+                {new Date(d.createdAt).toLocaleString()} — {d.eventType} —{" "}
+                {d.success ? `OK (${d.responseStatus})` : `FAILED${d.responseStatus ? ` (${d.responseStatus})` : ""}${d.error ? `: ${d.error}` : ""}`}
+              </li>
+            ))}
+          </ul>
+          <button className="btn-secondary" onClick={() => setDeliveriesFor(null)}>
+            Close
+          </button>
+        </div>
+      )}
+
+      <div style={{ display: "flex", flexDirection: "column", gap: 8, maxWidth: 480 }}>
+        <input value={url} onChange={(e) => setUrl(e.target.value)} placeholder="https://your-endpoint.example.com/webhook" />
+        <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
+          {eventTypes.map((evt) => (
+            <label key={evt} style={{ fontSize: 13 }}>
+              <input type="checkbox" checked={selectedEvents.includes(evt)} onChange={() => toggleEvent(evt)} /> {evt}
+            </label>
+          ))}
+        </div>
+        <button className="btn-primary" onClick={create} disabled={creating || !url.trim() || selectedEvents.length === 0}>
+          {creating ? "Creating…" : "+ New webhook"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 const cellStyle = { border: "1px solid var(--line)", padding: "6px 10px", textAlign: "left" as const };
 
 const PLAN_CATEGORIES = ["COMPLIANCE", "FUNCTIONAL", "QUALITY_STRATEGY", "RELEASE_READINESS", "CUSTOM"];
@@ -797,6 +971,7 @@ export default function OrganizationSettingsPage() {
 
       {orgId && <AiCreditsSection organizationId={orgId} />}
       {orgId && <ApiKeysSection organizationId={orgId} />}
+      {orgId && <WebhooksSection organizationId={orgId} />}
       <PlanTypesSection />
     </div>
   );

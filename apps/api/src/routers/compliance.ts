@@ -2,6 +2,7 @@ import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 import { router, protectedProcedure, requireProjectAccess } from "../trpc.js";
 import { recordAudit } from "../services/auditLog.js";
+import { dispatchWebhookEvent } from "../services/webhookDelivery.js";
 
 // P3-01/P3-03: ComplianceFramework/ComplianceControl are shared reference
 // data across every org (same pattern as TestPlanType, not project- or
@@ -418,6 +419,12 @@ export const complianceRouter = router({
         action: "CREATE",
         summary: `Signed off on a compliance control for ${input.period}`,
       });
+      void dispatchWebhookEvent(ctx.prisma, project.organizationId, "compliance.sign_off_recorded", {
+        projectId: input.projectId,
+        controlId: input.controlId,
+        period: input.period,
+        signedByEmail: signOff.signedBy.email,
+      }).catch(() => undefined);
       return {
         id: signOff.id,
         controlId: signOff.controlId,

@@ -68,6 +68,54 @@ model Organization {
   aiCreditTransactions AiCreditTransaction[]
   apiKeys              ApiKey[]
   auditLogs            AuditLog[]
+  webhookEndpoints     WebhookEndpoint[]
+}
+
+// P9-06: outbound webhooks -- lets an external system react to platform
+// events (a new risk flag, a review-queue item, a compliance sign-off)
+// without polling. Deliberately a flat per-org list rather than P9-00's
+// full integration-config framework (routing per project, field mapping) -
+// that's real scope for when a specific destination tool needs it; this is
+// the generic "give me a URL to POST to" version every specific integration
+// can build on later.
+model WebhookEndpoint {
+  id             String       @id @default(cuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  url            String
+  // HMAC signing secret, generated server-side and shown to the creator
+  // exactly once -- same "write-only from the client" reasoning as
+  // Organization.slackWebhookUrl, just inverted (here WE hold the secret
+  // and the receiver verifies us, rather than us holding theirs).
+  secret     String
+  eventTypes String[] // subset of WEBHOOK_EVENT_TYPES (services/webhookDelivery.ts) -- empty means subscribed to nothing until explicitly set
+  enabled    Boolean  @default(true)
+
+  createdById String
+  createdBy   User   @relation(fields: [createdById], references: [id])
+  createdAt   DateTime @default(now())
+
+  deliveries WebhookDelivery[]
+
+  @@index([organizationId])
+}
+
+// Delivery attempt log -- lets an org admin see "is this actually working"
+// (last N attempts, status codes, errors) rather than a webhook silently
+// failing forever with no visibility, the single biggest complaint about
+// outbound-webhook systems in general.
+model WebhookDelivery {
+  id                String          @id @default(cuid())
+  webhookEndpointId String
+  webhookEndpoint   WebhookEndpoint @relation(fields: [webhookEndpointId], references: [id], onDelete: Cascade)
+  eventType         String
+  payload           Json
+  success           Boolean
+  responseStatus    Int?
+  error             String?
+  createdAt         DateTime @default(now())
+
+  @@index([webhookEndpointId, createdAt])
 }
 
 model Project {
@@ -124,6 +172,7 @@ model User {
   memberships       Membership[]
   sentInvitations   Invitation[]
   reviewedTestCases TestCase[]   @relation("TestCaseReviewedBy")
+  createdWebhookEndpoints WebhookEndpoint[]
 
   // P1-07 audit columns: who created/last-updated each core record. Named
   // relations (Prisma requires it once a model has more than one FK to the

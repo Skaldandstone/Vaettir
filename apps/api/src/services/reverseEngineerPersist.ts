@@ -1,5 +1,6 @@
 import { Prisma, type PrismaClient } from "@vaettir/db";
 import type { ReverseEngineerResult } from "@vaettir/core";
+import { dispatchWebhookEvent } from "./webhookDelivery.js";
 
 // Shared by the synchronous agent.reverseEngineerFile mutation, the
 // background job worker (jobs/reverseEngineerWorker.ts), and P2-13's
@@ -43,7 +44,7 @@ export async function persistReverseEngineerResult(
   });
   const existingByFunctionName = new Map(existingSources.map((s) => [s.functionName, s]));
 
-  return Promise.all(
+  const persisted = await Promise.all(
     args.result.testCases.map((tc) => {
       const existing = existingByFunctionName.get(tc.sourceFunctionName ?? null);
 
@@ -114,4 +115,21 @@ export async function persistReverseEngineerResult(
       });
     }),
   );
+
+  // P9-06: one event per file (not per test case) - "N cases from this
+  // file need review" is the useful unit, not a notification storm for
+  // every individual case in a multi-case file.
+  if (isAi && persisted.length > 0) {
+    const project = await prisma.project.findUnique({ where: { id: args.projectId }, select: { organizationId: true } });
+    if (project) {
+      void dispatchWebhookEvent(prisma, project.organizationId, "test_case.review_requested", {
+        projectId: args.projectId,
+        filePath: args.filePath,
+        count: persisted.length,
+        testCaseIds: persisted.map((tc) => tc.id),
+      }).catch(() => undefined);
+    }
+  }
+
+  return persisted;
 }

@@ -6,6 +6,7 @@ import { getChangedFiles, getDiffContent } from "../services/changeImpact.js";
 import { matchChangedFilesToTestCases } from "../services/changeMatch.js";
 import { getPathSeverityRules, severityForPath, parsePathSeverityRules } from "../services/prScanPolicy.js";
 import { chargeAiCredits, InsufficientAiCreditsError } from "../services/aiCredits.js";
+import { dispatchWebhookEvent } from "../services/webhookDelivery.js";
 
 const recommendationOutput = z.object({
   testCaseId: z.string(),
@@ -99,6 +100,17 @@ export const riskAnalysisRouter = router({
             })),
           });
           riskFlagsCreated = newGaps.length;
+
+          // P9-06: fire-and-forget, matching P5-14's precedent for this
+          // exact shape - a webhook receiver being slow or dead shouldn't
+          // slow down the mutation that triggered it.
+          void dispatchWebhookEvent(ctx.prisma, project.organizationId, "risk_flag.created", {
+            projectId: input.projectId,
+            releaseId: release.id,
+            count: newGaps.length,
+            severity: newGaps.map((f) => severityForPath(f, pathSeverityRules)),
+            files: newGaps,
+          }).catch(() => undefined);
         }
       }
 
