@@ -7,6 +7,7 @@ import { router, protectedProcedure, requireProjectAccess } from "../trpc.js";
 import { recordAudit } from "../services/auditLog.js";
 import { chargeAiCredits, InsufficientAiCreditsError } from "../services/aiCredits.js";
 import { parseTestCaseCsv } from "../services/testCaseCsvImport.js";
+import { snapshotTestCaseVersion } from "../services/testCaseVersion.js";
 
 const stepOutputSchema = z.object({
   order: z.number(),
@@ -431,6 +432,25 @@ export const testCasesRouter = router({
         action: "CREATE",
         summary: `Created test case "${created.title}"`,
       });
+      await snapshotTestCaseVersion(ctx.prisma, {
+        testCaseId: created.id,
+        title: created.title,
+        background: created.background,
+        given: created.given,
+        when: created.when,
+        then: created.then,
+        steps: input.steps.map((s, i) => ({
+          order: i,
+          action: s.action,
+          expectedActionOrData: s.expectedActionOrData ?? null,
+          expectedResult: s.expectedResult ?? null,
+          expectedResponse: s.expectedResponse ?? null,
+        })),
+        tags: created.tags,
+        priority: created.priority,
+        testType: created.testType,
+        actorId: ctx.user.id,
+      });
       return created;
     }),
 
@@ -477,7 +497,6 @@ export const testCasesRouter = router({
               createdById: ctx.user.id,
               updatedById: ctx.user.id,
             },
-            select: { id: true },
           }),
         ),
       );
@@ -492,6 +511,23 @@ export const testCasesRouter = router({
           action: "CREATE",
           summary: `Imported ${created.length} test case(s) from CSV`,
         });
+        await Promise.all(
+          created.map((c) =>
+            snapshotTestCaseVersion(ctx.prisma, {
+              testCaseId: c.id,
+              title: c.title,
+              background: c.background,
+              given: c.given,
+              when: c.when,
+              then: c.then,
+              steps: [],
+              tags: c.tags,
+              priority: c.priority,
+              testType: c.testType,
+              actorId: ctx.user.id,
+            }),
+          ),
+        );
       }
 
       return { createdCount: created.length, skipped: parsed.skipped };
@@ -582,6 +618,25 @@ export const testCasesRouter = router({
         entityId: input.id,
         action: "UPDATE",
         summary: `Updated test case "${updated.title}"`,
+      });
+      await snapshotTestCaseVersion(ctx.prisma, {
+        testCaseId: updated.id,
+        title: updated.title,
+        background: updated.background,
+        given: updated.given,
+        when: updated.when,
+        then: updated.then,
+        steps: input.steps.map((s, i) => ({
+          order: i,
+          action: s.action,
+          expectedActionOrData: s.expectedActionOrData ?? null,
+          expectedResult: s.expectedResult ?? null,
+          expectedResponse: s.expectedResponse ?? null,
+        })),
+        tags: updated.tags,
+        priority: updated.priority,
+        testType: updated.testType,
+        actorId: ctx.user.id,
       });
       return updated;
     }),
@@ -765,6 +820,53 @@ export const testCasesRouter = router({
         afterThen: r.afterThen,
         editedAt: r.editedAt,
         editedByEmail: r.editedBy.email,
+      }));
+    }),
+
+  // Every full snapshot for a case, newest first - same shape/reasoning as
+  // testPlans.ts's history query, just for the case itself instead of the
+  // plan it belongs to.
+  history: protectedProcedure
+    .input(z.object({ testCaseId: z.string() }))
+    .output(
+      z.array(
+        z.object({
+          versionNumber: z.number(),
+          title: z.string(),
+          background: z.string().nullable(),
+          given: z.array(z.string()),
+          when: z.array(z.string()),
+          then: z.array(z.string()),
+          steps: z.array(stepOutputSchema),
+          tags: z.array(z.string()),
+          priority: z.string(),
+          testType: z.string(),
+          createdAt: z.date(),
+          createdBy: z.object({ id: z.string(), name: z.string().nullable(), email: z.string() }).nullable(),
+        }),
+      ),
+    )
+    .query(async ({ ctx, input }) => {
+      const testCase = await ctx.prisma.testCase.findUniqueOrThrow({ where: { id: input.testCaseId }, select: { projectId: true } });
+      await requireProjectAccess(ctx, testCase.projectId);
+      const versions = await ctx.prisma.testCaseVersion.findMany({
+        where: { testCaseId: input.testCaseId },
+        include: { createdBy: { select: { id: true, name: true, email: true } } },
+        orderBy: { versionNumber: "desc" },
+      });
+      return versions.map((v) => ({
+        versionNumber: v.versionNumber,
+        title: v.title,
+        background: v.background,
+        given: v.given,
+        when: v.when,
+        then: v.then,
+        steps: v.steps as never,
+        tags: v.tags,
+        priority: v.priority,
+        testType: v.testType,
+        createdAt: v.createdAt,
+        createdBy: v.createdBy,
       }));
     }),
 });

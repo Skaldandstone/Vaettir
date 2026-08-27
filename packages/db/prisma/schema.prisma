@@ -173,6 +173,7 @@ model User {
   sentInvitations   Invitation[]
   reviewedTestCases TestCase[]   @relation("TestCaseReviewedBy")
   createdWebhookEndpoints WebhookEndpoint[]
+  testCaseVersions TestCaseVersion[]
 
   // P1-07 audit columns: who created/last-updated each core record. Named
   // relations (Prisma requires it once a model has more than one FK to the
@@ -622,6 +623,7 @@ model TestCase {
   // TestCaseStep for why this exists alongside BDD rather than replacing it.
   steps                    TestCaseStep[]
   selectionRecommendations TestSelectionRecommendation[]
+  versions                 TestCaseVersion[]
 
   createdById String?
   createdBy   User?   @relation("TestCaseCreatedBy", fields: [createdById], references: [id])
@@ -697,6 +699,38 @@ model TestCaseStep {
 
   @@unique([testCaseId, order])
   @@index([testCaseId])
+}
+
+// P5-16-adjacent (2026-08-27 competitor parity audit): every competitor
+// researched versions the individual test case, not just the plan it
+// belongs to (P4-05's TestPlanVersion). A full snapshot, same reasoning
+// as TestPlanVersion - a one-line AuditLog summary answers "an edit
+// happened," not "what did the steps actually say two versions ago."
+// `steps` is a JSON snapshot (not a live relation) since the structured
+// steps themselves don't carry stable identity across an edit (see the
+// comment on testCases.ts's `update` mutation) - a version needs to
+// freeze exactly what existed, not point at rows that may since have
+// been replaced.
+model TestCaseVersion {
+  id            String           @id @default(cuid())
+  testCaseId    String
+  testCase      TestCase         @relation(fields: [testCaseId], references: [id], onDelete: Cascade)
+  versionNumber Int
+  title         String
+  background    String?
+  given         String[]
+  when          String[]
+  then          String[]
+  steps         Json
+  tags          String[]
+  priority      TestCasePriority
+  testType      TestCaseType
+  createdById   String?
+  createdBy     User?            @relation(fields: [createdById], references: [id])
+  createdAt     DateTime         @default(now())
+
+  @@unique([testCaseId, versionNumber])
+  @@index([testCaseId, versionNumber])
 }
 
 enum TestCasePriority {

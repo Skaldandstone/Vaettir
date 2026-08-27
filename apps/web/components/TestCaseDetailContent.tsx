@@ -131,6 +131,66 @@ function ComplianceControlsSection({
   );
 }
 
+// P5-16-adjacent (2026-08-27 competitor parity audit): every competitor
+// versions the individual test case, not just its parent plan (which
+// TestPlanDetailContent's VersionHistorySection already covers, P4-05).
+// Same pattern: full snapshots from the API, diff computed client-side.
+function TestCaseVersionHistorySection({ testCaseId }: { testCaseId: string }) {
+  const [versions, setVersions] = useState<RouterOutputs["testCases"]["history"]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    setLoading(true);
+    trpc.testCases.history
+      .query({ testCaseId })
+      .then(setVersions)
+      .finally(() => setLoading(false));
+  }, [testCaseId]);
+
+  function changesFrom(version: RouterOutputs["testCases"]["history"][number], index: number): string[] {
+    const prev = versions[index + 1];
+    if (!prev) return ["Initial version"];
+    const changes: string[] = [];
+    if (version.title !== prev.title) changes.push(`title: "${prev.title}" → "${version.title}"`);
+    if (JSON.stringify(version.given) !== JSON.stringify(prev.given)) changes.push("given changed");
+    if (JSON.stringify(version.when) !== JSON.stringify(prev.when)) changes.push("when changed");
+    if (JSON.stringify(version.then) !== JSON.stringify(prev.then)) changes.push("then changed");
+    if (JSON.stringify(version.steps) !== JSON.stringify(prev.steps)) changes.push("structured steps changed");
+    if (version.priority !== prev.priority) changes.push(`priority: ${prev.priority} → ${version.priority}`);
+    if (version.testType !== prev.testType) changes.push(`type: ${prev.testType} → ${version.testType}`);
+    if (JSON.stringify(version.tags) !== JSON.stringify(prev.tags)) changes.push("tags changed");
+    return changes.length > 0 ? changes : ["No changes"];
+  }
+
+  return (
+    <div style={{ border: "1px solid var(--line)", borderRadius: 8, padding: 12, marginBottom: 16 }}>
+      <strong>History</strong>
+      {loading && <p>Loading…</p>}
+      {!loading && (
+        <ul style={{ listStyle: "none", padding: 0, margin: "6px 0 0" }}>
+          {versions.map((v, i) => (
+            <li key={v.versionNumber} style={{ borderBottom: "1px solid var(--line)", padding: "6px 0" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
+                <strong style={{ fontSize: 13 }}>v{v.versionNumber}</strong>
+                <span className="text-muted" style={{ fontSize: 12 }}>
+                  {new Date(v.createdAt).toLocaleString()}
+                  {v.createdBy && ` by ${v.createdBy.name ?? v.createdBy.email}`}
+                </span>
+              </div>
+              <ul style={{ margin: "4px 0 0 16px", fontSize: 12, color: "var(--muted)" }}>
+                {changesFrom(v, i).map((c, j) => (
+                  <li key={j}>{c}</li>
+                ))}
+              </ul>
+            </li>
+          ))}
+          {versions.length === 0 && <p className="text-muted">No history yet.</p>}
+        </ul>
+      )}
+    </div>
+  );
+}
+
 // Shared between the full detail page (/test-cases/[id], for deep links and
 // bookmarking) and the drawer opened from the list -- see
 // STYLE_GUIDE-adjacent decision in TestCaseTree.tsx's commit: don't force a
@@ -247,6 +307,7 @@ export function TestCaseDetailContent({
       )}
 
       <ComplianceControlsSection testCaseId={tc.id} projectId={projectId} readOnly={readOnly} />
+      <TestCaseVersionHistorySection testCaseId={tc.id} />
 
       {tc.origin === "AI_REVERSE_ENGINEERED" && (
         <div
