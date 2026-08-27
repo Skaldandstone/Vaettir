@@ -197,5 +197,15 @@ trademarks) to be treated as settled for now.
 - No decision yet on whether the diacritic (`Vættir`) will cause problems in contexts
   that can't render it cleanly (some email clients, plain-text contexts, ASCII-only
   systems). Flag this if it comes up.
-- Logo has only been designed as an inline SVG within the page - no standalone
-  favicon/app-icon/social-card export has been produced yet.
+- ~~Logo has only been designed as an inline SVG within the page - no standalone
+  favicon/app-icon/social-card export has been produced yet.~~ Closed: the app
+  (`apps/web`) now ships `app/icon.svg` (browser-tab favicon), `app/apple-icon.tsx`
+  (180x180 apple-touch-icon, generated via `next/og`'s `ImageResponse`),
+  `app/opengraph-image.tsx` (1200x630 social card, same technique), and
+  `app/manifest.ts` (web app manifest referencing the icon routes) - all built
+  from the exact same rune mark and coordinates as `components/RuneMark.tsx`,
+  not a redrawn variant. The social card's wordmark uses a generic serif
+  fallback rather than fetching Fraunces at build time, to keep the Docker
+  build free of an external network dependency - vendor a local Fraunces
+  file and pass it to `ImageResponse`'s `fonts` option later if exact-face
+  fidelity is wanted.
