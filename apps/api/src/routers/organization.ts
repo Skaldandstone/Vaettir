@@ -4,6 +4,7 @@ import {
   DEFAULT_STEP_FIELD_LABELS,
   resolveStepFieldLabels,
   canAddSeat,
+  minimumTierForSeatCount,
   type StepFieldKey,
   type SeatType as CoreSeatType,
 } from "@vaettir/core";
@@ -487,6 +488,49 @@ export const organizationRouter = router({
         });
         return membership;
       });
+    }),
+
+  // P12-06: current seats used vs. included at this tier, plus which tier
+  // one more full seat would actually require -- so an admin sees "you're
+  // at 9/10, the next seat needs Team" BEFORE they hit the wall mid-invite
+  // (inviteMember's canAddSeat check still enforces this regardless; this
+  // is purely the "don't be surprised" visibility layer).
+  seatUsage: protectedProcedure
+    .input(z.object({ organizationId: z.string() }))
+    .output(
+      z.object({
+        planTierName: z.string(),
+        fullSeatsUsed: z.number(),
+        fullSeatsIncluded: z.number().nullable(),
+        readOnlySeatsUsed: z.number(),
+        readOnlySeatsIncluded: z.number(),
+        readOnlySeatsMax: z.number().nullable(),
+        nextTierNameForOneMoreFullSeat: z.string().nullable(),
+      }),
+    )
+    .query(async ({ ctx, input }) => {
+      requireOrgRole(ctx, input.organizationId);
+      const [org, counts, allTiers] = await Promise.all([
+        ctx.prisma.organization.findUniqueOrThrow({ where: { id: input.organizationId }, include: { planTier: true } }),
+        getSeatCounts(ctx.prisma, input.organizationId),
+        ctx.prisma.planTier.findMany(),
+      ]);
+
+      let nextTierNameForOneMoreFullSeat: string | null = null;
+      if (org.planTier.maxFullSeats !== null && counts.fullSeats >= org.planTier.maxFullSeats) {
+        const next = minimumTierForSeatCount(allTiers, counts.fullSeats + 1);
+        if (next.key !== org.planTier.key) nextTierNameForOneMoreFullSeat = allTiers.find((t) => t.key === next.key)!.name;
+      }
+
+      return {
+        planTierName: org.planTier.name,
+        fullSeatsUsed: counts.fullSeats,
+        fullSeatsIncluded: org.planTier.maxFullSeats,
+        readOnlySeatsUsed: counts.readOnlySeats,
+        readOnlySeatsIncluded: org.planTier.includedReadOnlySeats,
+        readOnlySeatsMax: org.planTier.maxReadOnlySeats,
+        nextTierNameForOneMoreFullSeat,
+      };
     }),
 
   // AI credit visibility: the running balance plus a recent-activity feed

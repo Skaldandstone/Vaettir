@@ -12,6 +12,7 @@ export default function MembersPage() {
   const [orgName, setOrgName] = useState("");
   const [members, setMembers] = useState<RouterOutputs["organization"]["listMembers"]>([]);
   const [invitations, setInvitations] = useState<RouterOutputs["organization"]["listInvitations"]>([]);
+  const [seatUsage, setSeatUsage] = useState<RouterOutputs["organization"]["seatUsage"] | null>(null);
   const [email, setEmail] = useState("");
   const [role, setRole] = useState("EDITOR");
   const [seatType, setSeatType] = useState<"FULL" | "READ_ONLY">("FULL");
@@ -22,12 +23,14 @@ export default function MembersPage() {
   const [inviteOpen, setInviteOpen] = useState(false);
 
   async function loadOrgData(organizationId: string) {
-    const [memberList, invitationList] = await Promise.all([
+    const [memberList, invitationList, usage] = await Promise.all([
       trpc.organization.listMembers.query({ organizationId }),
       trpc.organization.listInvitations.query({ organizationId }).catch(() => []), // ADMIN+ only; non-admins just won't see this
+      trpc.organization.seatUsage.query({ organizationId }),
     ]);
     setMembers(memberList);
     setInvitations(invitationList);
+    setSeatUsage(usage);
   }
 
   useEffect(() => {
@@ -101,6 +104,37 @@ export default function MembersPage() {
           + Invite someone
         </button>
       </div>
+
+      {seatUsage && (
+        <div className="panel" style={{ margin: "12px 0 20px" }}>
+          <div className="eyebrow">{seatUsage.planTierName} plan</div>
+          <div style={{ display: "flex", gap: 24, marginTop: 4 }}>
+            <div>
+              <strong>
+                {seatUsage.fullSeatsUsed}
+                {seatUsage.fullSeatsIncluded !== null ? `/${seatUsage.fullSeatsIncluded}` : ""}
+              </strong>{" "}
+              <span className="text-muted" style={{ fontSize: 12 }}>
+                full seats
+              </span>
+            </div>
+            <div>
+              <strong>
+                {seatUsage.readOnlySeatsUsed}
+                {seatUsage.readOnlySeatsMax !== null ? `/${seatUsage.readOnlySeatsMax}` : ""}
+              </strong>{" "}
+              <span className="text-muted" style={{ fontSize: 12 }}>
+                read-only seats ({seatUsage.readOnlySeatsIncluded} included)
+              </span>
+            </div>
+          </div>
+          {seatUsage.nextTierNameForOneMoreFullSeat && (
+            <p style={{ color: "var(--ember)", fontSize: 13, marginBottom: 0, marginTop: 8 }}>
+              You're at your full-seat limit — adding one more requires upgrading to {seatUsage.nextTierNameForOneMoreFullSeat}.
+            </p>
+          )}
+        </div>
+      )}
 
       <h2>Current members</h2>
       <table style={{ borderCollapse: "collapse", width: "100%", marginBottom: 24 }}>
