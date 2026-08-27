@@ -1,5 +1,6 @@
 import Fastify, { type FastifyInstance } from "fastify";
 import cors from "@fastify/cors";
+import rateLimit from "@fastify/rate-limit";
 import { fastifyTRPCPlugin } from "@trpc/server/adapters/fastify";
 import { prisma } from "@vaettir/db";
 import { appRouter } from "./router.js";
@@ -53,6 +54,15 @@ const server = Fastify({ logger: true, maxParamLength: 5000, bodyLimit: 15 * 102
 
 await server.register(cors, { origin: true });
 
+// P10-04: coarse per-IP flood protection at the HTTP layer, distinct from
+// (and a layer below) the AI reverse-engineering endpoint's existing
+// per-org business-logic limits (P2-09's 200 jobs/hour, P12-10's credit
+// metering) - this guards the whole server against raw request-flooding,
+// not just AI-call cost. Generous enough for a real browser session:
+// tRPC's httpBatchLink can fire several batched requests in quick
+// succession as a page mounts several queries at once.
+await server.register(rateLimit, { max: 300, timeWindow: "1 minute" });
+
 await server.register(fastifyTRPCPlugin, {
   prefix: "/trpc",
   trpcOptions: {
@@ -61,7 +71,7 @@ await server.register(fastifyTRPCPlugin, {
   },
 });
 
-server.get("/health", async () => ({ ok: true }));
+server.get("/health", { config: { rateLimit: false } }, async () => ({ ok: true }));
 await server.register(registerGithubWebhookRoute);
 
 // Mirrored under /api: the ALB/CloudFront path in front of this service
@@ -78,7 +88,7 @@ await server.register(
       prefix: "/trpc",
       trpcOptions: { router: appRouter, createContext },
     });
-    instance.get("/health", async () => ({ ok: true }));
+    instance.get("/health", { config: { rateLimit: false } }, async () => ({ ok: true }));
     await instance.register(registerGithubWebhookRoute);
   },
   { prefix: "/api" },
