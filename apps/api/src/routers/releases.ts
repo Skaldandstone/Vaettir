@@ -336,4 +336,96 @@ export const releasesRouter = router({
 
       return { projects: projectResults, summary };
     }),
+
+  // P7-07: releases have no direct FK to the TestRuns that ran during
+  // them, so a "release window" is defined here as (previous release's
+  // createdAt, this release's createdAt] on the same project -- every
+  // TestRun that started in that span counts toward that release's trend
+  // point. Computed over the project's FULL release history (not just the
+  // last N) so the oldest returned release's window still has a correct
+  // lower bound from the release before it, then trimmed to the last N for
+  // the response.
+  trend: protectedProcedure
+    .input(z.object({ projectId: z.string(), limit: z.number().int().min(1).max(50).default(10) }))
+    .output(
+      z.array(
+        z.object({
+          releaseId: z.string(),
+          name: z.string(),
+          createdAt: z.date(),
+          runCount: z.number(),
+          passRate: z.number().nullable(),
+          flakyCount: z.number(),
+          coveragePct: z.number().nullable(),
+          meanTimeToGreenMs: z.number().nullable(),
+        }),
+      ),
+    )
+    .query(async ({ ctx, input }) => {
+      await requireProjectAccess(ctx, input.projectId);
+
+      const allReleases = await ctx.prisma.release.findMany({
+        where: { projectId: input.projectId },
+        orderBy: { createdAt: "asc" },
+        select: { id: true, name: true, createdAt: true },
+      });
+      if (allReleases.length === 0) return [];
+
+      const runs = await ctx.prisma.testRun.findMany({
+        where: { projectId: input.projectId },
+        orderBy: { startedAt: "asc" },
+        select: {
+          startedAt: true,
+          status: true,
+          results: { select: { status: true } },
+          coverageReport: { select: { linesCovered: true, linesTotal: true } },
+        },
+      });
+
+      const trend = allReleases.map((release, i) => {
+        const windowStart = i === 0 ? new Date(0) : allReleases[i - 1]!.createdAt;
+        const windowRuns = runs.filter((r) => r.startedAt > windowStart && r.startedAt <= release.createdAt);
+
+        const allResults = windowRuns.flatMap((r) => r.results);
+        const passRate = allResults.length > 0 ? allResults.filter((r) => r.status === "PASS").length / allResults.length : null;
+        const flakyCount = allResults.filter((r) => r.status === "FLAKY").length;
+
+        const coverageRuns = windowRuns.filter((r) => r.coverageReport && r.coverageReport.linesTotal > 0);
+        const coveragePct =
+          coverageRuns.length > 0
+            ? (coverageRuns.reduce((sum, r) => sum + r.coverageReport!.linesCovered / r.coverageReport!.linesTotal, 0) /
+                coverageRuns.length) *
+              100
+            : null;
+
+        // Mean time-to-green: for each FAILED->...->PASSED streak in this
+        // window, the gap between when the failing streak started and when
+        // it resolved. A window with no failures (or no resolved failure)
+        // contributes nothing, not a zero -- there's nothing to measure.
+        let failStreakStart: Date | null = null;
+        const greenGapsMs: number[] = [];
+        for (const run of windowRuns) {
+          if (run.status === "FAILED") {
+            failStreakStart ??= run.startedAt;
+          } else if (run.status === "PASSED" && failStreakStart) {
+            greenGapsMs.push(run.startedAt.getTime() - failStreakStart.getTime());
+            failStreakStart = null;
+          }
+        }
+        const meanTimeToGreenMs = greenGapsMs.length > 0 ? greenGapsMs.reduce((a, b) => a + b, 0) / greenGapsMs.length : null;
+
+        return {
+          releaseId: release.id,
+          name: release.name,
+          createdAt: release.createdAt,
+          runCount: windowRuns.length,
+          passRate,
+          flakyCount,
+          coveragePct,
+          meanTimeToGreenMs,
+        };
+      });
+
+      return trend.slice(-input.limit);
+    }),
 });
