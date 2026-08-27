@@ -229,7 +229,7 @@ well a release adhered to that plan, actual results and readiness now).
 
 The mobile app is currently a read-only test-case list stub.
 
-- **P8-01** (M) Auth in mobile (shares Phase 1's auth, native login flow). `labels: area:mobile, type:feature`
+- ✅ **P8-01** (M) Auth in mobile (shares Phase 1's auth, native login flow). `labels: area:mobile, type:feature` — found already built during an overnight roadmap audit (never marked done): `apps/mobile/App.tsx` has a real Clerk Expo sign-in flow (`useSignIn`, `SignedIn`/`SignedOut`), and `lib/trpc.ts` wires the resulting session token into every tRPC call's `Authorization` header exactly like the web app does. Deliberately minimal UI and no sign-up flow - the code's own comment says as much ("enough to authenticate... a prettier UI and sign-up is Phase 8 work") - so this covers the ticket's literal scope (native login, shared Phase 1 auth) without claiming full mobile onboarding is done. Confirmed via code inspection and a clean `apps/mobile` typecheck, not a live device/emulator run tonight - no Android/iOS runtime available in this environment to click through it.
 - **P8-02** (M) Test case detail + BDD view in mobile (parity with web's detail page). `labels: area:mobile, type:feature`
 - **P8-03** (L) Release readiness dashboard, mobile-adapted view - the highest-value mobile use case is likely "check release status from your phone," not full authoring. `labels: area:mobile, type:feature`
 - **P8-04** (M) Push notifications for release-readiness state changes / compliance sign-off requests. `labels: area:mobile, type:feature`
