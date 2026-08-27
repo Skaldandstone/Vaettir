@@ -241,9 +241,39 @@ The mobile app is currently a read-only test-case list stub.
 
 ## Phase 9 - Integrations & Ecosystem
 
-- **P9-01** (M) Jira integration: link `Requirement`s to Jira issues bidirectionally, sync status. `labels: integration:jira, type:feature`
-- **P9-02** (M) Linear integration: same as above for teams using Linear for requirements (note: distinct from *using* Linear to track this platform's own build - this is the product feature). `labels: integration:linear, type:feature`
-- **P9-03** (S) Slack notifications: configurable events (new risk flag, review-queue item, sign-off request) → Slack channel. `labels: integration:slack, type:feature`
+`P9-01`/`P9-02`/`P9-03` below are the basic (link/sync/notify) versions.
+Queued per explicit request alongside Phase 7's dashboard work: these three
+should eventually grow into **native, deeply-customizable surfaces** in
+each tool, not just one-way notifications - a release readiness score,
+acceptance criteria, and open risk flags should be *visible and
+interactive* inside Slack/Jira/Linear themselves, not just linked back to
+Vaettir. Not started; captured here so the basic versions below get built
+with that end state in mind (e.g. don't hardcode a single fixed Slack
+message format if a Block Kit App Home is the eventual destination).
+
+- **P9-00** (L) Integration configuration framework: the shared per-org
+  layer every tool-specific integration below builds on - which events
+  route to which destination (channel/project/board), per-project
+  overrides, field/status mapping, and a connection-health view (last
+  successful sync, auth expiry). Building this before/alongside `P9-01`
+  through `P9-03` avoids three independent, incompatible config systems.
+  `labels: area:api, type:feature`
+- **P9-01** (M→L) Jira integration: link `Requirement`s to Jira issues
+  bidirectionally, sync status - then grow into a **Jira Forge app** that
+  renders a live readiness/coverage panel directly on the linked issue
+  (not just a link back to Vaettir), with customizable field mapping.
+  `labels: integration:jira, type:feature`
+- **P9-02** (M→L) Linear integration: same as above for teams using Linear
+  for requirements (note: distinct from *using* Linear to track this
+  platform's own build - this is the product feature) - then a Linear app
+  with a custom panel/view showing live readiness on the linked issue.
+  `labels: integration:linear, type:feature`
+- **P9-03** (S→L) Slack: starts as configurable event notifications (new
+  risk flag, review-queue item, sign-off request) → channel, then grows
+  into interactive Block Kit messages (approve/resolve a risk flag inline,
+  not just a link), a live-updating release readiness message per release,
+  slash commands (`/vaettir readiness <release>`), and an App Home tab
+  showing an org's release readiness across projects. `labels: integration:slack, type:feature`
 - **P9-04** (M) Datadog/PagerDuty linkage: connect a production incident to the test plan/case that should have caught it, closing the loop from incident → coverage gap → new test case. `labels: integration:datadog, integration:pagerduty, type:feature`
 - **P9-05** (L) Public API + API docs (OpenAPI/tRPC-to-OpenAPI) for orgs wanting to build their own integrations. `labels: area:api, type:feature`
 - **P9-06** (M) Webhook system (outbound) so external systems can react to platform events without polling. `labels: area:api, type:feature`
