@@ -641,6 +641,7 @@ model TestCase {
   sharedStepGroupId String?
   sharedStepGroup   SharedStepGroup? @relation(fields: [sharedStepGroupId], references: [id])
   attachments       TestCaseAttachment[]
+  dataset           TestCaseDataset?
 
   createdById String?
   createdBy   User?   @relation("TestCaseCreatedBy", fields: [createdById], references: [id])
@@ -816,6 +817,28 @@ model ExploratorySessionNote {
   createdAt DateTime           @default(now())
 
   @@index([sessionId])
+}
+
+// 2026-08-27 competitor parity audit: data-driven / parameterized testing
+// for the structured step-table format. Gherkin already gets this for
+// free via Scenario Outline + Examples (packages/core/gherkinImport.ts,
+// P2-13) - this is the equivalent for P1-10's other authoring format.
+// `<placeholder>` syntax matches Gherkin's own Examples-table convention
+// exactly, so the same mental model applies across both formats. One
+// dataset per case (@unique testCaseId) - a case's structured steps carry
+// the placeholders, and this is what fills them in per row; the case
+// itself is unaffected by which/how many rows exist.
+model TestCaseDataset {
+  id             String   @id @default(cuid())
+  testCaseId     String   @unique
+  testCase       TestCase @relation(fields: [testCaseId], references: [id], onDelete: Cascade)
+  parameterNames String[]
+  // Array of { name: string, values: Record<parameterName, value> } -
+  // a real relation table isn't worth it for something only ever read/
+  // written as a whole set, same reasoning as SharedStepGroup.steps.
+  rows      Json
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }
 
 // 2026-08-27 competitor parity audit: a reference file attached to the

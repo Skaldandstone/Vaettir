@@ -20,6 +20,7 @@ import { manualExecutionRouter } from "./routers/manualExecution.js";
 import { sharedStepGroupsRouter } from "./routers/sharedStepGroups.js";
 import { testCaseAttachmentsRouter } from "./routers/testCaseAttachments.js";
 import { exploratorySessionsRouter } from "./routers/exploratorySessions.js";
+import { testCaseDatasetsRouter } from "./routers/testCaseDatasets.js";
 
 export const appRouter = router({
   testCases: testCasesRouter,
@@ -43,6 +44,7 @@ export const appRouter = router({
   sharedStepGroups: sharedStepGroupsRouter,
   testCaseAttachments: testCaseAttachmentsRouter,
   exploratorySessions: exploratorySessionsRouter,
+  testCaseDatasets: testCaseDatasetsRouter,
 });
 
 export type AppRouter = typeof appRouter;

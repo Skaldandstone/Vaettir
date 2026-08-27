@@ -131,6 +131,162 @@ function ComplianceControlsSection({
   );
 }
 
+type DatasetRow = { name: string; values: Record<string, string> };
+
+// 2026-08-27 competitor parity audit: data-driven testing for the
+// structured step-table format (Gherkin already gets this via Scenario
+// Outline + Examples, P2-13). <placeholder> syntax matches Gherkin's own
+// Examples-table convention. Shows the expanded preview (real
+// substitution, not a display approximation) alongside a simple
+// parameter/row editor.
+function DatasetSection({ testCaseId, readOnly }: { testCaseId: string; readOnly?: boolean }) {
+  const [parameterNames, setParameterNames] = useState<string[]>([]);
+  const [rows, setRows] = useState<DatasetRow[]>([]);
+  const [preview, setPreview] = useState<RouterOutputs["testCaseDatasets"]["expandedPreview"]>([]);
+  const [editing, setEditing] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  function load() {
+    trpc.testCaseDatasets.get.query({ testCaseId }).then((d) => {
+      setParameterNames(d?.parameterNames ?? []);
+      setRows(d?.rows ?? []);
+    });
+    trpc.testCaseDatasets.expandedPreview.query({ testCaseId }).then(setPreview);
+  }
+  useEffect(load, [testCaseId]);
+
+  function addParameter() {
+    const name = prompt("Parameter name (used in steps as <name>)");
+    if (!name?.trim()) return;
+    setParameterNames((p) => [...p, name.trim()]);
+    setRows((rs) => rs.map((r) => ({ ...r, values: { ...r.values, [name.trim()]: "" } })));
+  }
+
+  function addRow() {
+    setRows((rs) => [...rs, { name: `Row ${rs.length + 1}`, values: Object.fromEntries(parameterNames.map((p) => [p, ""])) }]);
+  }
+
+  async function save() {
+    if (parameterNames.length === 0 || rows.length === 0) return;
+    setSaving(true);
+    setError(null);
+    try {
+      await trpc.testCaseDatasets.save.mutate({ testCaseId, parameterNames, rows });
+      setEditing(false);
+      load();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function removeDataset() {
+    if (!confirm("Remove this data set?")) return;
+    await trpc.testCaseDatasets.delete.mutate({ testCaseId });
+    load();
+  }
+
+  return (
+    <div style={{ border: "1px solid var(--line)", borderRadius: 8, padding: 12, marginBottom: 16 }}>
+      <div style={{ display: "flex", justifyContent: "space-between" }}>
+        <strong>Data set</strong>
+        {!readOnly && !editing && (
+          <button className="btn-secondary" style={{ fontSize: 12 }} onClick={() => setEditing(true)}>
+            {parameterNames.length > 0 ? "Edit" : "Add data set"}
+          </button>
+        )}
+      </div>
+      {error && <p style={{ color: "var(--ember)", fontSize: 12 }}>{error}</p>}
+
+      {!editing && preview.length > 0 && (
+        <div style={{ marginTop: 8 }}>
+          {preview.map((row, i) => (
+            <details key={i} style={{ fontSize: 13, marginBottom: 4 }}>
+              <summary>{row.rowName}</summary>
+              <div style={{ paddingLeft: 12 }}>
+                <div>
+                  <em>Given</em> {row.given.join("; ")}
+                </div>
+                <div>
+                  <em>When</em> {row.when.join("; ")}
+                </div>
+                <div>
+                  <em>Then</em> {row.then.join("; ")}
+                </div>
+              </div>
+            </details>
+          ))}
+          {!readOnly && (
+            <button className="btn-secondary" style={{ fontSize: 11, marginTop: 6 }} onClick={removeDataset}>
+              Remove data set
+            </button>
+          )}
+        </div>
+      )}
+      {!editing && preview.length === 0 && (
+        <p className="text-muted" style={{ fontSize: 13, margin: "4px 0" }}>
+          No data set. Use <code>&lt;paramName&gt;</code> in given/when/then steps, then add parameters and rows here.
+        </p>
+      )}
+
+      {editing && (
+        <div style={{ marginTop: 8 }}>
+          <div style={{ marginBottom: 6 }}>
+            {parameterNames.map((p) => (
+              <span key={p} className="text-muted" style={{ fontSize: 12, marginRight: 8 }}>
+                &lt;{p}&gt;
+              </span>
+            ))}
+            <button className="btn-secondary" style={{ fontSize: 11 }} onClick={addParameter}>
+              + Parameter
+            </button>
+          </div>
+          {rows.map((row, i) => (
+            <div key={i} style={{ border: "1px solid var(--line)", borderRadius: 6, padding: 8, marginBottom: 6 }}>
+              <input
+                value={row.name}
+                onChange={(e) => setRows((rs) => rs.map((r, j) => (j === i ? { ...r, name: e.target.value } : r)))}
+                style={{ fontWeight: 600, marginBottom: 4 }}
+              />
+              <button
+                style={{ float: "right", fontSize: 11 }}
+                onClick={() => setRows((rs) => rs.filter((_, j) => j !== i))}
+              >
+                Remove row
+              </button>
+              {parameterNames.map((p) => (
+                <div key={p} style={{ display: "flex", gap: 6, alignItems: "center", marginTop: 4 }}>
+                  <span style={{ fontSize: 12, width: 100 }}>{p}</span>
+                  <input
+                    value={row.values[p] ?? ""}
+                    onChange={(e) =>
+                      setRows((rs) => rs.map((r, j) => (j === i ? { ...r, values: { ...r.values, [p]: e.target.value } } : r)))
+                    }
+                    style={{ flex: 1 }}
+                  />
+                </div>
+              ))}
+            </div>
+          ))}
+          <button onClick={addRow} disabled={parameterNames.length === 0}>
+            + Row
+          </button>
+          <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+            <button className="btn-secondary" onClick={() => setEditing(false)}>
+              Cancel
+            </button>
+            <button className="btn-primary" onClick={save} disabled={saving || parameterNames.length === 0 || rows.length === 0}>
+              {saving ? "Saving…" : "Save"}
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // 2026-08-27 competitor parity audit: attachments on the test case's own
 // authoring record - a reference mockup, a log, a spec doc. Two-step
 // upload matching P5-15's proven pattern: get a presigned PUT, upload
@@ -390,6 +546,7 @@ export function TestCaseDetailContent({
 
       <ComplianceControlsSection testCaseId={tc.id} projectId={projectId} readOnly={readOnly} />
       <AttachmentsSection testCaseId={tc.id} readOnly={readOnly} />
+      <DatasetSection testCaseId={tc.id} readOnly={readOnly} />
       <TestCaseVersionHistorySection testCaseId={tc.id} />
 
       {tc.origin === "AI_REVERSE_ENGINEERED" && (
