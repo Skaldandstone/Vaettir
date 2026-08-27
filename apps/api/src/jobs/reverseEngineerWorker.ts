@@ -59,6 +59,33 @@ export async function runReverseEngineerJob(jobId: string): Promise<void> {
         framework: result.detectedFramework,
       },
     });
+
+    // P5-14: this job exists because a CI result arrived with no matching
+    // TestCaseSource -- on success, link the produced TestCase's source
+    // back to that result's externalTestId so the *next* run of the same
+    // test auto-matches (P5-01's exact-externalTestId lookup) instead of
+    // re-triggering this whole path. Only auto-links when the match is
+    // unambiguous: the produced case whose sourceFunctionName matches the
+    // reported test's name, or the sole case if the file only produced one.
+    // Multiple candidates with no name match falls back to manual linking
+    // (P5-04) rather than guessing which one the CI result actually meant.
+    if (job.inputType === "CI_UNMATCHED_RESULT" && job.triggeringResultId) {
+      const triggeringResult = await prisma.testResult.findUnique({ where: { id: job.triggeringResultId } });
+      const reportedName = triggeringResult?.externalTestId?.split("::").pop();
+      const match =
+        (reportedName && created.find((tc) => tc.source?.functionName === reportedName)) ||
+        (created.length === 1 ? created[0] : undefined);
+      if (match?.source && !match.source.externalTestId && triggeringResult) {
+        await prisma.testCaseSource.update({
+          where: { id: match.source.id },
+          data: { externalTestId: triggeringResult.externalTestId },
+        });
+        await prisma.testResult.update({
+          where: { id: triggeringResult.id },
+          data: { testCaseId: match.id },
+        });
+      }
+    }
   } catch (e) {
     await prisma.reverseEngineerJob.update({
       where: { id: job.id },

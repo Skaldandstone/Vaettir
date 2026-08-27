@@ -7,6 +7,13 @@ export interface ParsedJUnitCase {
   status: JUnitResultStatus;
   durationMs: number | null;
   errorMessage: string | null;
+  // The `file` attribute is a common (if not universal) JUnit XML extension
+  // -- pytest's --junitxml and Vitest's junit reporter both emit it, among
+  // others. Read only if actually present; never guessed/derived from
+  // `classname` (a Java-style dotted classname->path mapping is a real
+  // heuristic with real failure modes, not something worth guessing at
+  // silently for P5-14's auto-enqueue to then fetch the wrong file).
+  externalFilePath: string | null;
 }
 
 const parser = new XMLParser({ ignoreAttributes: false, attributeNamePrefix: "@_", textNodeName: "#text" });
@@ -60,11 +67,14 @@ export function parseJUnitXml(xml: string): ParsedJUnitCase[] {
       const timeAttr = tc["@_time"];
       const durationMs = timeAttr !== undefined && !Number.isNaN(Number(timeAttr)) ? Math.round(Number(timeAttr) * 1000) : null;
 
+      const fileAttr = tc["@_file"];
+
       results.push({
         externalTestId,
         status,
         durationMs,
         errorMessage: status === "FAIL" ? extractMessage(tc) : null,
+        externalFilePath: typeof fileAttr === "string" && fileAttr.length > 0 ? fileAttr : null,
       });
     }
   }

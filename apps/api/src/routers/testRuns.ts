@@ -3,6 +3,7 @@ import { TRPCError } from "@trpc/server";
 import { router, protectedProcedure, requireProjectAccess } from "../trpc.js";
 import { parseJUnitXml } from "../services/junitParse.js";
 import { recomputeFlaky } from "../services/flakyDetection.js";
+import { autoEnqueueUnmatchedResult } from "../services/continuousListening.js";
 
 // P5-01: the actual data pipeline several other roadmap items (P4-03, P4-06,
 // P3-05, P3-07, P7-02) are blocked on -- they all need real TestResult rows
@@ -74,6 +75,7 @@ export const testRunsRouter = router({
             create: parsed.map((p) => ({
               testCaseId: testCaseIdByExternalId.get(p.externalTestId) ?? null,
               externalTestId: p.externalTestId,
+              externalFilePath: p.externalFilePath,
               status: p.status,
               durationMs: p.durationMs,
               errorMessage: p.errorMessage,
@@ -90,6 +92,38 @@ export const testRunsRouter = router({
       // newly-alternating (or newly-stabilized) pattern would show up.
       const touchedTestCaseIds = [...new Set(sources.map((s) => s.testCaseId))];
       await Promise.all(touchedTestCaseIds.map((id) => recomputeFlaky(ctx.prisma, id)));
+
+      // P5-14: for every unmatched result that reported a file path, try to
+      // auto-enqueue a scoped reverse-engineer job rather than leaving it
+      // to only ever be manually linked (P5-04). Fire-and-forget, not
+      // awaited: autoEnqueueUnmatchedResult clones the repo per file, which
+      // can take real time, and the CI job that called ingestJUnit is
+      // blocked waiting on this HTTP response -- reporting results should
+      // never get slower because of a background enrichment step. Failures
+      // inside it never throw regardless, but .catch is here too as a
+      // second line of defense against an unhandled rejection.
+      const unmatchedWithFile = parsed.filter((p) => !testCaseIdByExternalId.has(p.externalTestId) && p.externalFilePath);
+      if (unmatchedWithFile.length > 0) {
+        void (async () => {
+          const createdResults = await ctx.prisma.testResult.findMany({
+            where: { testRunId: testRun.id, externalTestId: { in: unmatchedWithFile.map((p) => p.externalTestId) } },
+            select: { id: true, externalTestId: true },
+          });
+          const resultIdByExternalId = new Map(createdResults.map((r) => [r.externalTestId as string, r.id]));
+          await Promise.all(
+            unmatchedWithFile.map((p) => {
+              const testResultId = resultIdByExternalId.get(p.externalTestId);
+              if (!testResultId || !p.externalFilePath) return undefined;
+              return autoEnqueueUnmatchedResult(ctx.prisma, {
+                projectId: input.projectId,
+                testResultId,
+                externalFilePath: p.externalFilePath,
+                commitSha: input.commitSha,
+              });
+            }),
+          );
+        })().catch(() => undefined);
+      }
 
       return {
         testRunId: testRun.id,

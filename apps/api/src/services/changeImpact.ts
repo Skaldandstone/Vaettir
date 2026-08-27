@@ -33,6 +33,27 @@ export async function resolveRef(dir: string, ref: string): Promise<string> {
   }
 }
 
+// P5-14: fetches one file's content as of a specific commit -- what
+// continuousListening.ts needs to reverse-engineer a CI-reported test that
+// arrived with no matching TestCaseSource. Returns null (not a thrown
+// error) for any failure -- wrong/unreachable repo, commit not found,
+// file not present at that commit -- since the caller's response to any
+// of those is the same: fall back to manual linking rather than failing
+// the ingestion that triggered this.
+export async function fetchFileAtCommit(repoUrl: string, commitSha: string, filePath: string): Promise<string | null> {
+  try {
+    const { dir, cleanup } = await cloneFullRepo(repoUrl);
+    try {
+      const { stdout } = await execFileAsync("git", ["show", `${commitSha}:${filePath}`], { cwd: dir });
+      return stdout;
+    } finally {
+      await cleanup();
+    }
+  } catch {
+    return null;
+  }
+}
+
 // `base...head` (triple-dot) diffs against the merge-base rather than
 // head-to-head, matching what a PR/compare view shows: "what did this
 // branch actually change relative to where it forked from", not
