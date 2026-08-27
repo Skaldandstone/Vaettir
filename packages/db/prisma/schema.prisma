@@ -475,6 +475,15 @@ model TestCase {
   riskRationale  String?
   riskAssessedAt DateTime?
 
+  // P5-05: recomputed after every ingested TestRun that includes a result
+  // for this case (see detectFlaky in testRuns.ts) -- true when its recent
+  // results alternate PASS/FAIL on the same branch beyond a threshold.
+  // Deliberately NOT sticky: recomputed fresh each time rather than only
+  // ever flipped on, so a test that's stabilized clears its own flag
+  // instead of carrying a stale warning forever.
+  isFlaky         Boolean   @default(false)
+  flakyDetectedAt DateTime?
+
   source              TestCaseSource?
   complianceControls  TestCaseComplianceControl[]
   results             TestResult[]

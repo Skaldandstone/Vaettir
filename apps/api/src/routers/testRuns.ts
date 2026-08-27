@@ -2,6 +2,7 @@ import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 import { router, protectedProcedure, requireProjectAccess } from "../trpc.js";
 import { parseJUnitXml } from "../services/junitParse.js";
+import { recomputeFlaky } from "../services/flakyDetection.js";
 
 // P5-01: the actual data pipeline several other roadmap items (P4-03, P4-06,
 // P3-05, P3-07, P7-02) are blocked on -- they all need real TestResult rows
@@ -83,6 +84,12 @@ export const testRunsRouter = router({
       });
 
       const matchedCount = parsed.filter((p) => testCaseIdByExternalId.has(p.externalTestId)).length;
+
+      // P5-05: recompute flakiness for every matched test case this run
+      // touched -- fresh data just landed for it, so this is the moment a
+      // newly-alternating (or newly-stabilized) pattern would show up.
+      const touchedTestCaseIds = [...new Set(sources.map((s) => s.testCaseId))];
+      await Promise.all(touchedTestCaseIds.map((id) => recomputeFlaky(ctx.prisma, id)));
 
       return {
         testRunId: testRun.id,
@@ -224,10 +231,12 @@ export const testRunsRouter = router({
         }
       }
 
-      return ctx.prisma.testResult.update({
+      const updated = await ctx.prisma.testResult.update({
         where: { id: input.testResultId },
         data: { testCaseId: input.testCaseId },
         select: { id: true, testCaseId: true },
       });
+      await recomputeFlaky(ctx.prisma, input.testCaseId);
+      return updated;
     }),
 });

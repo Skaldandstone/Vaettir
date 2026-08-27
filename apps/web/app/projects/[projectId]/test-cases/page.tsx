@@ -387,6 +387,7 @@ export default function TestCasesPage() {
                       [{tc.testType}] {tc.origin === "AI_REVERSE_ENGINEERED" ? "🤖 AI-reversed" : ""}
                       {tc.reviewStatus === "PENDING_REVIEW" && " ⏳ pending review"}
                       {tc.reviewStatus === "REJECTED" && " ❌ rejected"}
+                      {tc.isFlaky && " 🎲 flaky"}
                       {tc.archived && " · archived"}
                     </small>
                     {selectedPath === UNASSIGNED && (

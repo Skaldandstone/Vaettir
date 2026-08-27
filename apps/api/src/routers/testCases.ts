@@ -51,6 +51,7 @@ export const testCasesRouter = router({
           sourceFilePath: z.string().nullable(),
           suitePath: z.string().nullable(),
           archived: z.boolean(),
+          isFlaky: z.boolean(),
         }),
       ),
     )
@@ -72,6 +73,7 @@ export const testCasesRouter = router({
         sourceFilePath: tc.source?.filePath ?? null,
         suitePath: tc.suitePath,
         archived: tc.archived,
+        isFlaky: tc.isFlaky,
       }));
     }),
 
@@ -103,6 +105,8 @@ export const testCasesRouter = router({
         riskScore: z.number().nullable(),
         riskRationale: z.string().nullable(),
         riskAssessedAt: z.date().nullable(),
+        isFlaky: z.boolean(),
+        flakyDetectedAt: z.date().nullable(),
         suitePath: z.string().nullable(),
         source: z
           .object({
@@ -167,6 +171,8 @@ export const testCasesRouter = router({
         riskScore: tc.riskScore,
         riskRationale: tc.riskRationale,
         riskAssessedAt: tc.riskAssessedAt,
+        isFlaky: tc.isFlaky,
+        flakyDetectedAt: tc.flakyDetectedAt,
         suitePath: tc.suitePath,
         source: tc.source
           ? { filePath: tc.source.filePath, functionName: tc.source.functionName, framework: tc.source.framework }
