@@ -12,15 +12,35 @@ const traverse = (typeof _traverse === "function" ? _traverse : (_traverse as { 
 const DESCRIBE_NAMES = new Set(["describe", "context", "suite"]);
 const TEST_NAMES = new Set(["it", "test", "specify"]);
 const ASSERTION_ROOT_NAMES = new Set(["expect", "assert"]);
+// Property names that modify a describe/test call rather than naming one --
+// `describe.only(...)`, `it.skip(...)`, `test.each([...])(...)` all still
+// mean "describe"/"test", not "only"/"skip"/"each".
+const MODIFIER_PROPS = new Set(["only", "skip", "each", "todo", "concurrent", "serial", "fixme", "step"]);
 
-function calleeName(node: CallExpression["callee"]): string | null {
-  // Matches `describe(...)`, `describe.only(...)`, `describe.skip(...)`,
-  // and TS/Mocha's `describe.each(...)(...)`-style curried forms all the
-  // same way -- only the innermost identifier name matters for
-  // classifying a call as a describe/test/assertion entry point.
-  if (node.type === "Identifier") return node.name;
-  if (node.type === "MemberExpression") return calleeName(node.object as CallExpression["callee"]);
-  if (node.type === "CallExpression") return calleeName(node.callee);
+// Collects every identifier name along a callee chain rather than picking
+// just one -- `describe.only(...)` and Playwright's `test.describe(...)`
+// are both `Identifier.Identifier` shapes, but the *meaningful* name is
+// the object in one case and the property in the other. Filtering out
+// known modifier names and checking DESCRIBE_NAMES before TEST_NAMES
+// resolves the ambiguity correctly for both: `describe.only` ->
+// ["describe"] (only filtered) -> describe; `test.describe` ->
+// ["test", "describe"] -> describe wins since it's checked first.
+function calleeIdentifiers(node: CallExpression["callee"]): string[] {
+  if (node.type === "Identifier") return [node.name];
+  if (node.type === "MemberExpression") {
+    const objectNames = calleeIdentifiers(node.object as CallExpression["callee"]);
+    const propName = node.property.type === "Identifier" ? node.property.name : null;
+    return propName ? [...objectNames, propName] : objectNames;
+  }
+  if (node.type === "CallExpression") return calleeIdentifiers(node.callee);
+  return [];
+}
+
+function classifyCallee(node: CallExpression["callee"]): "describe" | "test" | "assertion" | null {
+  const names = calleeIdentifiers(node).filter((n) => !MODIFIER_PROPS.has(n));
+  if (names.some((n) => DESCRIBE_NAMES.has(n))) return "describe";
+  if (names.some((n) => TEST_NAMES.has(n))) return "test";
+  if (names.some((n) => ASSERTION_ROOT_NAMES.has(n))) return "assertion";
   return null;
 }
 
@@ -38,8 +58,7 @@ function findAssertions(node: Node, source: string): string[] {
   traverse(node, {
     noScope: true,
     CallExpression(path) {
-      const name = calleeName(path.node.callee);
-      if (name && ASSERTION_ROOT_NAMES.has(name)) {
+      if (classifyCallee(path.node.callee) === "assertion") {
         const { start, end } = path.node;
         if (start !== null && end !== null) assertions.push(source.slice(start, end));
         // Without this, `expect(x).toBe(y)` also matches its own inner
@@ -57,21 +76,21 @@ function extractTestBlocks(ast: Node, source: string): ExtractedTestBlock[] {
   const describeStack: string[] = [];
 
   function visitCallExpression(node: CallExpression) {
-    const name = calleeName(node.callee);
+    const kind = classifyCallee(node.callee);
     const title = firstStringArg(node);
     const callbackArg = node.arguments.find(
       (a): a is import("@babel/types").ArrowFunctionExpression | import("@babel/types").FunctionExpression =>
         a.type === "ArrowFunctionExpression" || a.type === "FunctionExpression",
     );
 
-    if (name && DESCRIBE_NAMES.has(name) && title !== null && callbackArg) {
+    if (kind === "describe" && title !== null && callbackArg) {
       describeStack.push(title);
       traverseBody(callbackArg);
       describeStack.pop();
       return;
     }
 
-    if (name && TEST_NAMES.has(name) && title !== null && callbackArg) {
+    if (kind === "test" && title !== null && callbackArg) {
       const { start, end } = callbackArg;
       const bodySnippet = start !== null && end !== null ? source.slice(start, end) : "";
       blocks.push({
@@ -118,8 +137,16 @@ export function extractJsTsTestStructure(content: string): ExtractedTestStructur
   return { testBlocks };
 }
 
+// P5-10: Cypress and Playwright are both JS/TS and use the same
+// describe/it(.only/.skip)/test.describe structural shape this evaluator
+// already handles -- registered against the same extractor rather than a
+// separate parser. `cy.*`/`page.*` step calls aren't picked out as a
+// distinct "assertions" list (Cypress especially mixes actions and
+// `.should(...)` assertions in one chain, and Playwright already uses
+// `expect(...)` same as Jest/Vitest) -- bodySnippet already carries them
+// as part of the full test body source, which is what the agent reads.
 export function registerJsTsEvaluators(): void {
-  for (const family of ["JEST", "VITEST", "MOCHA"] as const) {
+  for (const family of ["JEST", "VITEST", "MOCHA", "CYPRESS", "PLAYWRIGHT"] as const) {
     registerFrameworkEvaluator({ family, extract: (content: string) => extractJsTsTestStructure(content) });
   }
 }
