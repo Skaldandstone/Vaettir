@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import type { CSSProperties } from "react";
+import type { CSSProperties, ChangeEvent } from "react";
 import { trpc, type RouterOutputs } from "@/lib/trpc";
 
 const cellStyle: CSSProperties = { border: "1px solid var(--line)", padding: "6px 10px", textAlign: "left" };
@@ -125,6 +125,88 @@ function ComplianceControlsSection({
           <button className="btn-secondary" style={{ fontSize: 12 }} onClick={addMapping} disabled={busy || !controlId}>
             Map
           </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// 2026-08-27 competitor parity audit: attachments on the test case's own
+// authoring record - a reference mockup, a log, a spec doc. Two-step
+// upload matching P5-15's proven pattern: get a presigned PUT, upload
+// bytes directly to S3 (never through this API server), then refresh -
+// the row is already recorded by the time requestUpload returns.
+function AttachmentsSection({ testCaseId, readOnly }: { testCaseId: string; readOnly?: boolean }) {
+  const [attachments, setAttachments] = useState<RouterOutputs["testCaseAttachments"]["list"]>([]);
+  const [uploading, setUploading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  function load() {
+    trpc.testCaseAttachments.list.query({ testCaseId }).then(setAttachments);
+  }
+  useEffect(load, [testCaseId]);
+
+  async function handleFile(e: ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+    setUploading(true);
+    setError(null);
+    try {
+      const { uploadUrl } = await trpc.testCaseAttachments.requestUpload.mutate({
+        testCaseId,
+        fileName: file.name,
+        contentType: file.type || "application/octet-stream",
+        sizeBytes: file.size,
+      });
+      const res = await fetch(uploadUrl, { method: "PUT", headers: { "content-type": file.type || "application/octet-stream" }, body: file });
+      if (!res.ok) throw new Error(`Upload failed (${res.status})`);
+      load();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setUploading(false);
+    }
+  }
+
+  async function view(id: string) {
+    const { viewUrl } = await trpc.testCaseAttachments.getViewUrl.query({ attachmentId: id });
+    window.open(viewUrl, "_blank");
+  }
+
+  async function remove(id: string) {
+    await trpc.testCaseAttachments.delete.mutate({ attachmentId: id });
+    load();
+  }
+
+  return (
+    <div style={{ border: "1px solid var(--line)", borderRadius: 8, padding: 12, marginBottom: 16 }}>
+      <strong>Attachments</strong>
+      {error && <p style={{ color: "var(--ember)", fontSize: 12 }}>{error}</p>}
+      <ul style={{ listStyle: "none", padding: 0, margin: "6px 0 0" }}>
+        {attachments.map((a) => (
+          <li key={a.id} style={{ display: "flex", justifyContent: "space-between", fontSize: 13, padding: "3px 0" }}>
+            <button onClick={() => view(a.id)} style={{ background: "none", border: "none", color: "var(--frost)", cursor: "pointer", padding: 0 }}>
+              {a.fileName}
+            </button>
+            <span>
+              <span className="text-muted" style={{ marginRight: 8 }}>
+                {(a.sizeBytes / 1024).toFixed(0)} KB
+              </span>
+              {!readOnly && (
+                <button className="btn-secondary" style={{ fontSize: 11 }} onClick={() => remove(a.id)}>
+                  Remove
+                </button>
+              )}
+            </span>
+          </li>
+        ))}
+        {attachments.length === 0 && <p className="text-muted" style={{ fontSize: 13, margin: "4px 0" }}>No attachments.</p>}
+      </ul>
+      {!readOnly && (
+        <div style={{ marginTop: 8 }}>
+          <input type="file" onChange={handleFile} disabled={uploading} />
+          {uploading && <span style={{ fontSize: 12 }}> Uploading…</span>}
         </div>
       )}
     </div>
@@ -307,6 +389,7 @@ export function TestCaseDetailContent({
       )}
 
       <ComplianceControlsSection testCaseId={tc.id} projectId={projectId} readOnly={readOnly} />
+      <AttachmentsSection testCaseId={tc.id} readOnly={readOnly} />
       <TestCaseVersionHistorySection testCaseId={tc.id} />
 
       {tc.origin === "AI_REVERSE_ENGINEERED" && (

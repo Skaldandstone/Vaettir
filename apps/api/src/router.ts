@@ -18,6 +18,7 @@ import { adminRouter } from "./routers/admin.js";
 import { webhooksRouter } from "./routers/webhooks.js";
 import { manualExecutionRouter } from "./routers/manualExecution.js";
 import { sharedStepGroupsRouter } from "./routers/sharedStepGroups.js";
+import { testCaseAttachmentsRouter } from "./routers/testCaseAttachments.js";
 
 export const appRouter = router({
   testCases: testCasesRouter,
@@ -39,6 +40,7 @@ export const appRouter = router({
   webhooks: webhooksRouter,
   manualExecution: manualExecutionRouter,
   sharedStepGroups: sharedStepGroupsRouter,
+  testCaseAttachments: testCaseAttachmentsRouter,
 });
 
 export type AppRouter = typeof appRouter;

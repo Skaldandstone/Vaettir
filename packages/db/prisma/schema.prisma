@@ -176,6 +176,7 @@ model User {
   createdWebhookEndpoints WebhookEndpoint[]
   testCaseVersions TestCaseVersion[]
   createdSharedStepGroups SharedStepGroup[]
+  uploadedTestCaseAttachments TestCaseAttachment[]
 
   // P1-07 audit columns: who created/last-updated each core record. Named
   // relations (Prisma requires it once a model has more than one FK to the
@@ -637,6 +638,7 @@ model TestCase {
   // steps already has.
   sharedStepGroupId String?
   sharedStepGroup   SharedStepGroup? @relation(fields: [sharedStepGroupId], references: [id])
+  attachments       TestCaseAttachment[]
 
   createdById String?
   createdBy   User?   @relation("TestCaseCreatedBy", fields: [createdById], references: [id])
@@ -767,6 +769,26 @@ model SharedStepGroup {
   testCases TestCase[]
 
   @@index([projectId])
+}
+
+// 2026-08-27 competitor parity audit: a reference file attached to the
+// test case's own authoring record (a mockup, a log, a spec doc) -
+// distinct from TestResultArtifact (P5-15), which captures evidence from
+// a specific FAILED execution, not the case's authoring content. Same
+// private-bucket, presigned-both-ways pattern.
+model TestCaseAttachment {
+  id           String   @id @default(cuid())
+  testCaseId   String
+  testCase     TestCase @relation(fields: [testCaseId], references: [id], onDelete: Cascade)
+  fileName     String
+  contentType  String
+  storageUrl   String
+  sizeBytes    Int
+  uploadedById String?
+  uploadedBy   User?    @relation(fields: [uploadedById], references: [id])
+  createdAt    DateTime @default(now())
+
+  @@index([testCaseId])
 }
 
 enum TestCasePriority {

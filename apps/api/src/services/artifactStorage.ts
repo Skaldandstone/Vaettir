@@ -34,6 +34,20 @@ export async function createUploadUrl(key: string, type: "SCREENSHOT" | "VIDEO")
   return getSignedUrl(getClient(), command, { expiresIn: 300 });
 }
 
+// 2026-08-27 competitor parity audit: attachments on a test case itself
+// (a reference mockup, a log file, a spec doc) - a real, arbitrary file
+// type/name, unlike P5-15's fixed SCREENSHOT/VIDEO shape, so this takes
+// the content type directly rather than deriving it from a closed enum.
+// Same bucket, same presigned-both-ways pattern.
+export function buildTestCaseAttachmentKey(projectId: string, testCaseId: string, fileName: string): string {
+  return `test-case-attachments/${projectId}/${testCaseId}/${randomUUID()}-${fileName}`;
+}
+
+export async function createGenericUploadUrl(key: string, contentType: string): Promise<string> {
+  const command = new PutObjectCommand({ Bucket: requireBucket(), Key: key, ContentType: contentType });
+  return getSignedUrl(getClient(), command, { expiresIn: 300 });
+}
+
 export async function createViewUrl(key: string): Promise<string> {
   const command = new GetObjectCommand({ Bucket: requireBucket(), Key: key });
   return getSignedUrl(getClient(), command, { expiresIn: 300 });
