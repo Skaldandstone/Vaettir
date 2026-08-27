@@ -134,4 +134,69 @@ export const staffRouter = router({
       });
       return { balance: balance._sum.amount ?? 0, transactions: rows };
     }),
+
+  // The tiers available to move an org between.
+  listPlanTiers: staffProcedure.query(async ({ ctx }) => {
+    return ctx.prisma.planTier.findMany({
+      orderBy: { sortOrder: "asc" },
+      select: { id: true, key: true, name: true, includedAiCreditsPerMonth: true },
+    });
+  }),
+
+  // ------------------------------------------------------------------ writes
+  // Bounded, reversible staff support actions. Each is attributed to the
+  // forwarded staff actor and audited at the Adminhelper layer; the finer
+  // admin-vs-support gate is enforced there before the call is made.
+
+  // Grant or deduct AI credits as a signed ledger ADJUSTMENT -- reversible by
+  // another entry, never a mutated balance. Positive tops up, negative claws back.
+  adjustCredits: staffProcedure
+    .input(
+      z.object({
+        organizationId: z.string(),
+        amount: z.number().int().refine((n) => n !== 0, "amount cannot be zero"),
+        reason: z.string().min(1).max(280),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const org = await ctx.prisma.organization.findUnique({ where: { id: input.organizationId }, select: { id: true } });
+      if (!org) throw new TRPCError({ code: "NOT_FOUND", message: "Organization not found" });
+      await ctx.prisma.aiCreditTransaction.create({
+        data: {
+          organizationId: input.organizationId,
+          type: "ADJUSTMENT",
+          amount: input.amount,
+          description: `[staff:${ctx.staff.actor}] ${input.reason}`,
+        },
+      });
+      const balance = await ctx.prisma.aiCreditTransaction.aggregate({
+        where: { organizationId: input.organizationId },
+        _sum: { amount: true },
+      });
+      return { balance: balance._sum.amount ?? 0 };
+    }),
+
+  // Move an org to a different plan tier (comps, downgrades, billing fixes).
+  setPlanTier: staffProcedure
+    .input(z.object({ organizationId: z.string(), planTierKey: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      const tier = await ctx.prisma.planTier.findUnique({ where: { key: input.planTierKey }, select: { id: true, key: true, name: true } });
+      if (!tier) throw new TRPCError({ code: "BAD_REQUEST", message: "Unknown plan tier" });
+      const org = await ctx.prisma.organization.findUnique({ where: { id: input.organizationId }, select: { id: true } });
+      if (!org) throw new TRPCError({ code: "NOT_FOUND", message: "Organization not found" });
+      await ctx.prisma.organization.update({ where: { id: input.organizationId }, data: { planTierId: tier.id } });
+      return { planTier: tier };
+    }),
+
+  // Revoke a (leaked/stale) service API key. Reversible only forward -- the
+  // safe direction for an incident.
+  revokeApiKey: staffProcedure
+    .input(z.object({ apiKeyId: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      const key = await ctx.prisma.apiKey.findUnique({ where: { id: input.apiKeyId }, select: { id: true, revokedAt: true } });
+      if (!key) throw new TRPCError({ code: "NOT_FOUND", message: "API key not found" });
+      if (key.revokedAt) return { revokedAt: key.revokedAt };
+      const updated = await ctx.prisma.apiKey.update({ where: { id: input.apiKeyId }, data: { revokedAt: new Date() } });
+      return { revokedAt: updated.revokedAt };
+    }),
 });
