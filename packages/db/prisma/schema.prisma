@@ -99,6 +99,8 @@ model Project {
   customFrameworkHeuristics CustomFrameworkHeuristic[]
   prScanPolicy        PrScanPolicy?
   healingSuggestions  HealingSuggestion[]
+  complianceEvidence  ComplianceEvidence[]
+  complianceSignOffs  ComplianceSignOff[]
 
   @@unique([organizationId, slug])
 }
@@ -136,6 +138,8 @@ model User {
   createdRiskFlags RiskFlag[] @relation("RiskFlagCreatedBy")
   updatedRiskFlags RiskFlag[] @relation("RiskFlagUpdatedBy")
   reviewedHealingSuggestions HealingSuggestion[] @relation("HealingSuggestionReviewedBy")
+  recordedComplianceEvidence ComplianceEvidence[]
+  signedComplianceSignOffs   ComplianceSignOff[]
 
   // P1-05: a service token is backed by its own real User row (the
   // "service user") so it flows through every existing requireOrgRole /
@@ -551,6 +555,7 @@ model TestCase {
   complianceControls  TestCaseComplianceControl[]
   results             TestResult[]
   healingSuggestions  HealingSuggestion[]
+  complianceEvidence  ComplianceEvidence[]
   // The structured step-table authoring format -- an alternative (or
   // complement) to given/when/then above. A TestCase can carry either,
   // both, or neither populated; the UI renders whichever has content. See
@@ -813,8 +818,65 @@ model ComplianceControl {
   description String?
 
   testCases TestCaseComplianceControl[]
+  evidence  ComplianceEvidence[]
+  signOffs  ComplianceSignOff[]
 
   @@unique([frameworkId, code])
+}
+
+// P3-05: "this test case is designed to verify this control" (the
+// TestCaseComplianceControl mapping above) is a structural claim. This is
+// the auditor-facing one: "this SPECIFIC execution actually passed, on
+// this date, as proof this control was operating." No update/delete
+// mutation exists anywhere in the API for this model on purpose --
+// immutable means immutable, not "immutable until someone needs to fix a
+// typo." A wrong record gets superseded by a new one, never edited.
+model ComplianceEvidence {
+  id           String       @id @default(cuid())
+  controlId    String
+  control      ComplianceControl @relation(fields: [controlId], references: [id])
+  testCaseId   String
+  testCase     TestCase     @relation(fields: [testCaseId], references: [id])
+  // Optional: a specific passing TestResult as the concrete proof (not
+  // just "this test case generally covers it") -- nullable because
+  // evidence can also be a manual attestation with no automated result
+  // behind it (e.g. a documented manual review).
+  testResultId String?
+  testResult   TestResult?  @relation(fields: [testResultId], references: [id])
+  projectId    String
+  project      Project      @relation(fields: [projectId], references: [id])
+  note         String?
+
+  recordedAt   DateTime @default(now())
+  recordedById String
+  recordedBy   User     @relation(fields: [recordedById], references: [id])
+
+  @@index([controlId, recordedAt])
+  @@index([projectId, recordedAt])
+}
+
+// P3-07: a ComplianceAuditor's formal, durable attestation that a control
+// was reviewed and is operating effectively for a given period/release --
+// distinct from evidence existing at all. Also immutable by design (no
+// update/delete mutation) -- a sign-off is a point-in-time legal-adjacent
+// record, not a status field to toggle.
+model ComplianceSignOff {
+  id        String            @id @default(cuid())
+  controlId String
+  control   ComplianceControl @relation(fields: [controlId], references: [id])
+  projectId String
+  project   Project           @relation(fields: [projectId], references: [id])
+  // Free text, not an enum -- an org's audit cadence might be "2026-Q3",
+  // a release name, or a fiscal period; there's no single universal shape.
+  period    String
+  statement String
+
+  signedById String
+  signedBy   User     @relation(fields: [signedById], references: [id])
+  signedAt   DateTime @default(now())
+
+  @@index([controlId, period])
+  @@index([projectId, signedAt])
 }
 
 model TestCaseComplianceControl {
@@ -959,6 +1021,7 @@ model TestResult {
   reverseEngineerJob ReverseEngineerJob?
   artifacts          TestResultArtifact[]
   healingSuggestion  HealingSuggestion?
+  complianceEvidence ComplianceEvidence[]
 
   @@index([testRunId])
   @@index([testCaseId])

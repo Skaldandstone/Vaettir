@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import { trpc, type RouterOutputs } from "@/lib/trpc";
 import { Modal } from "@/components/Modal";
+import { Drawer } from "@/components/Drawer";
 
 // CSV field quoting: wrap in double quotes and escape embedded quotes
 // whenever the field contains a comma, quote, or newline -- the RFC 4180
@@ -86,6 +87,151 @@ function parseControlsCsv(text: string): { code: string; title: string; descript
     }));
 }
 
+// P3-05/P3-07: evidence (a dated proof point) and sign-offs (a formal
+// ComplianceAuditor attestation) for one control, in a side drawer so the
+// control list stays visible. Both lists are append-only from this UI --
+// no edit/delete action exists, matching the backend's immutability.
+function ControlEvidenceDrawer({
+  projectId,
+  control,
+}: {
+  projectId: string;
+  control: RouterOutputs["compliance"]["controlCoverage"][number];
+}) {
+  const [evidence, setEvidence] = useState<RouterOutputs["compliance"]["listEvidence"]>([]);
+  const [signOffs, setSignOffs] = useState<RouterOutputs["compliance"]["listSignOffs"]>([]);
+  const [mappedCases, setMappedCases] = useState<RouterOutputs["compliance"]["mappedTestCases"]>([]);
+
+  const [evidenceTestCaseId, setEvidenceTestCaseId] = useState("");
+  const [evidenceNote, setEvidenceNote] = useState("");
+  const [recordingEvidence, setRecordingEvidence] = useState(false);
+
+  const [signOffPeriod, setSignOffPeriod] = useState("");
+  const [signOffStatement, setSignOffStatement] = useState("");
+  const [signingOff, setSigningOff] = useState(false);
+  const [signOffError, setSignOffError] = useState<string | null>(null);
+
+  function load() {
+    trpc.compliance.listEvidence.query({ projectId, controlId: control.id }).then(setEvidence);
+    trpc.compliance.listSignOffs.query({ projectId, controlId: control.id }).then(setSignOffs);
+    trpc.compliance.mappedTestCases.query({ projectId, controlId: control.id }).then(setMappedCases);
+  }
+
+  useEffect(load, [projectId, control.id]);
+
+  async function recordEvidence() {
+    if (!evidenceTestCaseId) return;
+    setRecordingEvidence(true);
+    try {
+      await trpc.compliance.recordEvidence.mutate({
+        projectId,
+        controlId: control.id,
+        testCaseId: evidenceTestCaseId,
+        note: evidenceNote || undefined,
+      });
+      setEvidenceNote("");
+      load();
+    } finally {
+      setRecordingEvidence(false);
+    }
+  }
+
+  async function signOff() {
+    if (!signOffPeriod.trim() || !signOffStatement.trim()) return;
+    setSigningOff(true);
+    setSignOffError(null);
+    try {
+      await trpc.compliance.signOffControl.mutate({ projectId, controlId: control.id, period: signOffPeriod.trim(), statement: signOffStatement.trim() });
+      setSignOffPeriod("");
+      setSignOffStatement("");
+      load();
+    } catch (e) {
+      setSignOffError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setSigningOff(false);
+    }
+  }
+
+  return (
+    <div>
+      <h2 style={{ marginBottom: 2 }}>
+        {control.code} {control.title}
+      </h2>
+      {control.description && <p className="text-muted" style={{ fontSize: 13 }}>{control.description}</p>}
+
+      <h3 style={{ marginBottom: 6 }}>Evidence</h3>
+      <ul style={{ listStyle: "none", padding: 0, marginBottom: 12 }}>
+        {evidence.map((e) => (
+          <li key={e.id} style={{ borderBottom: "1px solid var(--line)", padding: "6px 0", fontSize: 13 }}>
+            <strong>{e.testCaseTitle}</strong>{" "}
+            <span className="text-muted">— recorded {new Date(e.recordedAt).toLocaleDateString()} by {e.recordedByEmail}</span>
+            {e.note && <div className="text-muted">{e.note}</div>}
+          </li>
+        ))}
+        {evidence.length === 0 && <p className="text-muted" style={{ fontSize: 13 }}>No evidence recorded yet.</p>}
+      </ul>
+      <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 24 }}>
+        <select value={evidenceTestCaseId} onChange={(e) => setEvidenceTestCaseId(e.target.value)} style={{ fontSize: 12 }}>
+          <option value="">Pick a mapped test case…</option>
+          {mappedCases.map((tc) => (
+            <option key={tc.id} value={tc.id}>
+              {tc.title}
+            </option>
+          ))}
+        </select>
+        <input
+          value={evidenceNote}
+          onChange={(e) => setEvidenceNote(e.target.value)}
+          placeholder="Optional note"
+          style={{ fontSize: 12, flex: 1 }}
+        />
+        <button className="btn-secondary" style={{ fontSize: 12 }} onClick={recordEvidence} disabled={recordingEvidence || !evidenceTestCaseId}>
+          Record evidence
+        </button>
+      </div>
+      {mappedCases.length === 0 && (
+        <p className="text-muted" style={{ fontSize: 12, marginTop: -16, marginBottom: 24 }}>
+          Map a test case to this control first before recording evidence against it.
+        </p>
+      )}
+
+      <h3 style={{ marginBottom: 6 }}>Sign-offs</h3>
+      <ul style={{ listStyle: "none", padding: 0, marginBottom: 12 }}>
+        {signOffs.map((s) => (
+          <li key={s.id} style={{ borderBottom: "1px solid var(--line)", padding: "6px 0", fontSize: 13 }}>
+            <strong>{s.period}</strong>{" "}
+            <span className="text-muted">— signed {new Date(s.signedAt).toLocaleDateString()} by {s.signedByEmail}</span>
+            <div>{s.statement}</div>
+          </li>
+        ))}
+        {signOffs.length === 0 && <p className="text-muted" style={{ fontSize: 13 }}>No sign-offs yet.</p>}
+      </ul>
+      <div style={{ display: "grid", gap: 8, maxWidth: 420 }}>
+        <input value={signOffPeriod} onChange={(e) => setSignOffPeriod(e.target.value)} placeholder="Period (e.g. 2026-Q3)" style={{ fontSize: 12 }} />
+        <textarea
+          value={signOffStatement}
+          onChange={(e) => setSignOffStatement(e.target.value)}
+          placeholder="Attestation statement"
+          rows={3}
+          style={{ fontSize: 12 }}
+        />
+        <button
+          className="btn-primary"
+          style={{ fontSize: 12, width: "fit-content" }}
+          onClick={signOff}
+          disabled={signingOff || !signOffPeriod.trim() || !signOffStatement.trim()}
+        >
+          Sign off
+        </button>
+        <p className="text-muted" style={{ fontSize: 11, margin: 0 }}>
+          Requires the Compliance Auditor role (or an org Admin/Owner).
+        </p>
+        {signOffError && <p style={{ color: "var(--ember)", fontSize: 12 }}>{signOffError}</p>}
+      </div>
+    </div>
+  );
+}
+
 function ControlRow({
   projectId,
   control,
@@ -99,6 +245,7 @@ function ControlRow({
   const [candidates, setCandidates] = useState<RouterOutputs["compliance"]["unmappedTestCases"]>([]);
   const [selected, setSelected] = useState("");
   const [busy, setBusy] = useState(false);
+  const [drawerOpen, setDrawerOpen] = useState(false);
 
   function openPicker() {
     setPicking(true);
@@ -163,7 +310,13 @@ function ControlRow({
             + Map a test case
           </button>
         )}
+        <button className="btn-secondary" style={{ fontSize: 12 }} onClick={() => setDrawerOpen(true)}>
+          Evidence & sign-off
+        </button>
       </div>
+      <Drawer open={drawerOpen} onClose={() => setDrawerOpen(false)}>
+        <ControlEvidenceDrawer projectId={projectId} control={control} />
+      </Drawer>
     </li>
   );
 }
