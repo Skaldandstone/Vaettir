@@ -207,6 +207,19 @@ export default function CompliancePage() {
 
   useEffect(loadFrameworks, []);
 
+  // P12-09: retention is configured org-wide (Settings -> Organization),
+  // but the evidence/audit views it governs live at the project level --
+  // fetched here rather than assumed, since a project doesn't otherwise
+  // know its own org's id.
+  const [dataRetentionYears, setDataRetentionYears] = useState<number | null>(null);
+  useEffect(() => {
+    trpc.project.byId
+      .query({ id: projectId })
+      .then((p) => trpc.organization.byId.query({ id: p.organizationId }))
+      .then((org) => setDataRetentionYears(org.dataRetentionYears))
+      .catch(() => undefined);
+  }, [projectId]);
+
   function loadControls() {
     if (!selectedFrameworkId) {
       setControls([]);
@@ -322,6 +335,14 @@ export default function CompliancePage() {
       </div>
       <p className="text-muted" style={{ marginBottom: 20 }}>
         Which controls have test coverage in this project, and which don&apos;t yet.
+        {dataRetentionYears !== null && (
+          <>
+            {" "}
+            Evidence and audit-log data is retained for{" "}
+            <a href="/settings/organization">{dataRetentionYears} year{dataRetentionYears === 1 ? "" : "s"}</a> per this org&apos;s
+            configured policy.
+          </>
+        )}
       </p>
 
       {error && <p style={{ color: "var(--ember)" }}>{error}</p>}
