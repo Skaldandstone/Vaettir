@@ -76,6 +76,7 @@ model Project {
   testSelectionRuns   TestSelectionRun[]
   auditLogs           AuditLog[]
   customFrameworkHeuristics CustomFrameworkHeuristic[]
+  prScanPolicy        PrScanPolicy?
 
   @@unique([organizationId, slug])
 }
@@ -961,6 +962,37 @@ enum ReleaseStatus {
   READY
   SHIPPED
   BLOCKED
+}
+
+// P6-06: per-project configuration for recommendForChange's coverage-gap
+// detection (P6-03) -- which branches a scan should even consider (forward-
+// looking: real branch-triggered scanning needs P6-01's webhook, but the
+// policy a scan would consult already needs somewhere to live), path-based
+// severity weighting (a gap in a payments/auth path is not the same risk
+// as one in a docs folder), and whether a scan should post visibly
+// (comment mode) or just flag silently. One row per project, created
+// lazily -- a project with no row yet gets this router's documented
+// defaults, not a required setup step before PR scanning works at all.
+model PrScanPolicy {
+  id        String @id @default(cuid())
+  projectId String @unique
+  project   Project @relation(fields: [projectId], references: [id])
+
+  triggerBranches String[]          @default(["main"])
+  commentMode     PrScanCommentMode @default(COMMENT)
+
+  // [{ pattern: "apps/api/src/payments/**", severity: "CRITICAL" }, ...] --
+  // matched in array order, first match wins, so a project can layer a
+  // narrow override ahead of a broad catch-all.
+  pathSeverityRules Json @default("[]")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+enum PrScanCommentMode {
+  COMMENT
+  SILENT_FLAG_ONLY
 }
 
 // A detected gap or risk feeding the release-readiness dashboard, e.g. from

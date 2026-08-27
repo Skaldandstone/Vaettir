@@ -4,6 +4,7 @@ import { fallbackRiskScoreFromPriority } from "@vaettir/core";
 import { recommendTestPlansForDiff } from "@vaettir/ai-agent";
 import { router, protectedProcedure, requireProjectAccess } from "../trpc.js";
 import { getChangedFiles, getDiffContent } from "../services/changeImpact.js";
+import { getPathSeverityRules, severityForPath, parsePathSeverityRules } from "../services/prScanPolicy.js";
 
 const recommendationOutput = z.object({
   testCaseId: z.string(),
@@ -98,10 +99,14 @@ export const riskAnalysisRouter = router({
         );
         const newGaps = coverageGaps.filter((f) => !existingOpenGapFiles.has(f));
         if (newGaps.length > 0) {
+          // P6-06: a gap in a payments/auth path isn't the same risk as one
+          // in a docs folder -- severityForPath falls back to the pre-P6-06
+          // flat HIGH when the project has no configured rules.
+          const pathSeverityRules = await getPathSeverityRules(ctx.prisma, input.projectId);
           await ctx.prisma.riskFlag.createMany({
             data: newGaps.map((f) => ({
               releaseId: release!.id,
-              severity: "HIGH",
+              severity: severityForPath(f, pathSeverityRules),
               source: "PR_SCAN_COVERAGE_GAP",
               description: `${f} changed between ${input.baseRef} and ${input.headRef} but no tracked test case covers it.`,
               relatedFilePath: f,
@@ -177,6 +182,57 @@ export const riskAnalysisRouter = router({
         rationale: recommendation.rationale,
         suggestedNewTestCases: recommendation.suggestedNewTestCases,
       };
+    }),
+
+  // P6-06: reads the project's PR scan configuration, or the documented
+  // defaults if the project has never configured one -- there's no
+  // required setup step before scanning works, just an optional
+  // customization.
+  getPrScanPolicy: protectedProcedure
+    .input(z.object({ projectId: z.string() }))
+    .output(
+      z.object({
+        triggerBranches: z.array(z.string()),
+        commentMode: z.string(),
+        pathSeverityRules: z.array(z.object({ pattern: z.string(), severity: z.string() })),
+      }),
+    )
+    .query(async ({ ctx, input }) => {
+      await requireProjectAccess(ctx, input.projectId);
+      const policy = await ctx.prisma.prScanPolicy.findUnique({ where: { projectId: input.projectId } });
+      if (!policy) return { triggerBranches: ["main"], commentMode: "COMMENT", pathSeverityRules: [] };
+      return {
+        triggerBranches: policy.triggerBranches,
+        commentMode: policy.commentMode,
+        pathSeverityRules: parsePathSeverityRules(policy.pathSeverityRules),
+      };
+    }),
+
+  savePrScanPolicy: protectedProcedure
+    .input(
+      z.object({
+        projectId: z.string(),
+        triggerBranches: z.array(z.string()).min(1),
+        commentMode: z.enum(["COMMENT", "SILENT_FLAG_ONLY"]),
+        pathSeverityRules: z.array(z.object({ pattern: z.string().min(1), severity: z.enum(["CRITICAL", "HIGH", "MEDIUM", "LOW"]) })),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      await requireProjectAccess(ctx, input.projectId, "ADMIN");
+      await ctx.prisma.prScanPolicy.upsert({
+        where: { projectId: input.projectId },
+        create: {
+          projectId: input.projectId,
+          triggerBranches: input.triggerBranches,
+          commentMode: input.commentMode,
+          pathSeverityRules: input.pathSeverityRules,
+        },
+        update: {
+          triggerBranches: input.triggerBranches,
+          commentMode: input.commentMode,
+          pathSeverityRules: input.pathSeverityRules,
+        },
+      });
     }),
 
   listRuns: protectedProcedure

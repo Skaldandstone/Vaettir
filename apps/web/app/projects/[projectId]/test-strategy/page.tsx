@@ -47,6 +47,126 @@ function PastRunDetail({ id }: { id: string }) {
   );
 }
 
+// P6-06: which branches a scan should consider, path-based severity
+// weighting for coverage gaps, and comment vs. silent-flag-only mode.
+// Loads lazily-created defaults (main/COMMENT/no rules) for a project
+// that's never configured this -- there's no required setup step.
+function PrScanPolicySection({ projectId }: { projectId: string }) {
+  const [policy, setPolicy] = useState<RouterOutputs["riskAnalysis"]["getPrScanPolicy"] | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    trpc.riskAnalysis.getPrScanPolicy.query({ projectId }).then(setPolicy).catch(() => undefined);
+  }, [projectId]);
+
+  async function save() {
+    if (!policy) return;
+    setSaving(true);
+    setSaved(false);
+    setError(null);
+    try {
+      await trpc.riskAnalysis.savePrScanPolicy.mutate({
+        projectId,
+        triggerBranches: policy.triggerBranches,
+        commentMode: policy.commentMode as never,
+        pathSeverityRules: policy.pathSeverityRules.map((r) => ({ pattern: r.pattern, severity: r.severity as never })),
+      });
+      setSaved(true);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  if (!policy) return null;
+
+  return (
+    <div style={{ border: "1px solid var(--line)", borderRadius: 8, padding: 16, margin: "16px 0" }}>
+      <h2 style={{ marginTop: 0 }}>PR scan policy</h2>
+      <label>
+        Trigger branches <span className="text-muted" style={{ fontSize: 12 }}>(comma-separated)</span>
+        <input
+          value={policy.triggerBranches.join(", ")}
+          onChange={(e) => setPolicy({ ...policy, triggerBranches: e.target.value.split(",").map((s) => s.trim()).filter(Boolean) })}
+          style={{ width: "100%" }}
+        />
+      </label>
+      <label style={{ display: "block", marginTop: 8 }}>
+        Comment mode
+        <select
+          value={policy.commentMode}
+          onChange={(e) => setPolicy({ ...policy, commentMode: e.target.value })}
+          style={{ width: "100%" }}
+        >
+          <option value="COMMENT">Comment on the PR</option>
+          <option value="SILENT_FLAG_ONLY">Silent - flag only, no comment</option>
+        </select>
+      </label>
+
+      <div style={{ marginTop: 8 }}>
+        <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 4 }}>Path severity rules</div>
+        <p className="text-muted" style={{ fontSize: 12, marginTop: 0 }}>
+          A coverage gap in a matching path gets this severity instead of the default (HIGH). Checked in order,
+          first match wins.
+        </p>
+        {policy.pathSeverityRules.map((r, i) => (
+          <div key={i} style={{ display: "flex", gap: 6, marginBottom: 6 }}>
+            <input
+              value={r.pattern}
+              onChange={(e) =>
+                setPolicy({
+                  ...policy,
+                  pathSeverityRules: policy.pathSeverityRules.map((rr, j) => (j === i ? { ...rr, pattern: e.target.value } : rr)),
+                })
+              }
+              placeholder="e.g. apps/api/src/payments/**"
+              style={{ flex: 1 }}
+            />
+            <select
+              value={r.severity}
+              onChange={(e) =>
+                setPolicy({
+                  ...policy,
+                  pathSeverityRules: policy.pathSeverityRules.map((rr, j) => (j === i ? { ...rr, severity: e.target.value } : rr)),
+                })
+              }
+            >
+              <option value="CRITICAL">CRITICAL</option>
+              <option value="HIGH">HIGH</option>
+              <option value="MEDIUM">MEDIUM</option>
+              <option value="LOW">LOW</option>
+            </select>
+            <button
+              className="btn-secondary"
+              onClick={() => setPolicy({ ...policy, pathSeverityRules: policy.pathSeverityRules.filter((_, j) => j !== i) })}
+            >
+              Remove
+            </button>
+          </div>
+        ))}
+        <button
+          className="btn-secondary"
+          style={{ fontSize: 12 }}
+          onClick={() => setPolicy({ ...policy, pathSeverityRules: [...policy.pathSeverityRules, { pattern: "", severity: "HIGH" }] })}
+        >
+          + Add rule
+        </button>
+      </div>
+
+      <div style={{ marginTop: 12 }}>
+        <button onClick={save} disabled={saving}>
+          {saving ? "Saving…" : "Save policy"}
+        </button>
+        {saved && <span style={{ color: "var(--frost)", marginLeft: 8 }}>Saved.</span>}
+        {error && <span style={{ color: "var(--ember)", marginLeft: 8 }}>{error}</span>}
+      </div>
+    </div>
+  );
+}
+
 export default function TestStrategyPage() {
   const { projectId } = useParams<{ projectId: string }>();
   const [openRunId, setOpenRunId] = useState<string | null>(null);
@@ -309,6 +429,8 @@ export default function TestStrategyPage() {
           </div>
         )}
       </div>
+
+      <PrScanPolicySection projectId={projectId} />
 
       {releaseId && (
         <div style={{ border: "1px solid var(--line)", borderRadius: 8, padding: 16, margin: "16px 0" }}>
