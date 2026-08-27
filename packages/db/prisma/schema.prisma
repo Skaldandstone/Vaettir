@@ -46,6 +46,7 @@ model Organization {
   memberships Membership[]
   invitations Invitation[]
   apiKeys     ApiKey[]
+  auditLogs   AuditLog[]
 }
 
 model Project {
@@ -72,6 +73,7 @@ model Project {
   testRuns            TestRun[]
   reverseEngineerJobs ReverseEngineerJob[]
   testSelectionRuns   TestSelectionRun[]
+  auditLogs           AuditLog[]
 
   @@unique([organizationId, slug])
 }
@@ -113,6 +115,8 @@ model User {
   // API-key authz code path to keep in sync with the human one.
   apiKeyIdentity ApiKey?  @relation("ApiKeyServiceUser")
   createdApiKeys ApiKey[] @relation("ApiKeyCreatedBy")
+
+  auditLogs AuditLog[]
 }
 
 enum OrgRole {
@@ -681,6 +685,43 @@ model TestCaseComplianceControl {
   control    ComplianceControl @relation(fields: [controlId], references: [id])
 
   @@id([testCaseId, controlId])
+}
+
+// P3-06: who changed what test case/plan/control mapping, when. Most
+// compliance frameworks' own controls require this (change management),
+// so it's compliance infrastructure even though it isn't scoped to one
+// framework. Deliberately append-only from the API surface -- no update
+// or delete mutation is exposed, since an editable audit log defeats its
+// own purpose. Scoped for now to the mutations an auditor actually asks
+// about (test case CRUD + review decisions, test plan CRUD, compliance
+// framework/control/mapping changes) rather than every mutation in the
+// app -- can widen later if a real audit needs more.
+model AuditLog {
+  id             String        @id @default(cuid())
+  organizationId String
+  organization   Organization  @relation(fields: [organizationId], references: [id])
+  projectId      String?
+  project        Project?      @relation(fields: [projectId], references: [id])
+  actorId        String
+  actor          User          @relation(fields: [actorId], references: [id])
+  entityType     String // "TestCase" | "TestPlan" | "ComplianceFramework" | "ComplianceControl" | "TestCaseComplianceControl"
+  entityId       String
+  action         AuditAction
+  summary        String // human-readable one-liner for the log view, e.g. "Updated test case \"Checkout throws on empty cart\""
+  metadata       Json? // optional structured detail, e.g. { before, after } for a field-level diff
+  createdAt      DateTime      @default(now())
+
+  @@index([organizationId, createdAt])
+  @@index([projectId, createdAt])
+  @@index([entityType, entityId])
+}
+
+enum AuditAction {
+  CREATE
+  UPDATE
+  DELETE
+  MAP
+  UNMAP
 }
 
 // ---------------------------------------------------------------------------

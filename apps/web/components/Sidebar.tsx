@@ -43,6 +43,7 @@ function ProjectSidebar({ projectId }: { projectId: string }) {
     { href: `/projects/${projectId}/test-plans`, label: "Test Plans" },
     { href: `/projects/${projectId}/requirements`, label: "Requirements" },
     { href: `/projects/${projectId}/compliance`, label: "Compliance" },
+    { href: `/projects/${projectId}/audit-log`, label: "Audit Log" },
     { href: `/projects/${projectId}/reverse-engineer`, label: "Reverse Engineer" },
     { href: `/projects/${projectId}/test-strategy`, label: "Test Strategy" },
     { href: `/projects/${projectId}/releases`, label: "Release Readiness" },

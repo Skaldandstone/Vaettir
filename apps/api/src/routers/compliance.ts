@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 import { router, protectedProcedure, requireProjectAccess } from "../trpc.js";
+import { recordAudit } from "../services/auditLog.js";
 
 // P3-01/P3-03: ComplianceFramework/ComplianceControl are shared reference
 // data across every org (same pattern as TestPlanType, not project- or
@@ -118,22 +119,46 @@ export const complianceRouter = router({
   mapTestCase: protectedProcedure
     .input(z.object({ testCaseId: z.string(), controlId: z.string() }))
     .mutation(async ({ ctx, input }) => {
-      const tc = await ctx.prisma.testCase.findUniqueOrThrow({ where: { id: input.testCaseId }, select: { projectId: true } });
-      await requireProjectAccess(ctx, tc.projectId, "EDITOR");
+      const [tc, control] = await Promise.all([
+        ctx.prisma.testCase.findUniqueOrThrow({ where: { id: input.testCaseId }, select: { projectId: true, title: true } }),
+        ctx.prisma.complianceControl.findUniqueOrThrow({ where: { id: input.controlId } }),
+      ]);
+      const { project } = await requireProjectAccess(ctx, tc.projectId, "EDITOR");
       await ctx.prisma.testCaseComplianceControl.upsert({
         where: { testCaseId_controlId: { testCaseId: input.testCaseId, controlId: input.controlId } },
         create: { testCaseId: input.testCaseId, controlId: input.controlId },
         update: {},
+      });
+      await recordAudit(ctx.prisma, {
+        organizationId: project.organizationId,
+        projectId: tc.projectId,
+        actorId: ctx.user.id,
+        entityType: "TestCaseComplianceControl",
+        entityId: `${input.testCaseId}:${input.controlId}`,
+        action: "MAP",
+        summary: `Mapped test case "${tc.title}" to control "${control.code}"`,
       });
     }),
 
   unmapTestCase: protectedProcedure
     .input(z.object({ testCaseId: z.string(), controlId: z.string() }))
     .mutation(async ({ ctx, input }) => {
-      const tc = await ctx.prisma.testCase.findUniqueOrThrow({ where: { id: input.testCaseId }, select: { projectId: true } });
-      await requireProjectAccess(ctx, tc.projectId, "EDITOR");
+      const [tc, control] = await Promise.all([
+        ctx.prisma.testCase.findUniqueOrThrow({ where: { id: input.testCaseId }, select: { projectId: true, title: true } }),
+        ctx.prisma.complianceControl.findUniqueOrThrow({ where: { id: input.controlId } }),
+      ]);
+      const { project } = await requireProjectAccess(ctx, tc.projectId, "EDITOR");
       await ctx.prisma.testCaseComplianceControl.deleteMany({
         where: { testCaseId: input.testCaseId, controlId: input.controlId },
+      });
+      await recordAudit(ctx.prisma, {
+        organizationId: project.organizationId,
+        projectId: tc.projectId,
+        actorId: ctx.user.id,
+        entityType: "TestCaseComplianceControl",
+        entityId: `${input.testCaseId}:${input.controlId}`,
+        action: "UNMAP",
+        summary: `Unmapped test case "${tc.title}" from control "${control.code}"`,
       });
     }),
 

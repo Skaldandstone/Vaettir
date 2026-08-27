@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 import { router, protectedProcedure, requireProjectAccess } from "../trpc.js";
+import { recordAudit } from "../services/auditLog.js";
 
 const acceptanceCriterionOutput = z.object({
   id: z.string(),
@@ -94,8 +95,8 @@ export const testPlansRouter = router({
       }),
     )
     .mutation(async ({ ctx, input }) => {
-      await requireProjectAccess(ctx, input.projectId, "EDITOR");
-      return ctx.prisma.testPlan.create({
+      const { project } = await requireProjectAccess(ctx, input.projectId, "EDITOR");
+      const created = await ctx.prisma.testPlan.create({
         data: {
           projectId: input.projectId,
           testPlanTypeId: input.testPlanTypeId,
@@ -106,6 +107,16 @@ export const testPlansRouter = router({
           updatedById: ctx.user.id,
         },
       });
+      await recordAudit(ctx.prisma, {
+        organizationId: project.organizationId,
+        projectId: input.projectId,
+        actorId: ctx.user.id,
+        entityType: "TestPlan",
+        entityId: created.id,
+        action: "CREATE",
+        summary: `Created test plan "${created.name}"`,
+      });
+      return created;
     }),
 
   update: protectedProcedure
@@ -123,8 +134,8 @@ export const testPlansRouter = router({
         where: { id: input.id },
         select: { projectId: true },
       });
-      await requireProjectAccess(ctx, existing.projectId, "EDITOR");
-      return ctx.prisma.testPlan.update({
+      const { project } = await requireProjectAccess(ctx, existing.projectId, "EDITOR");
+      const updated = await ctx.prisma.testPlan.update({
         where: { id: input.id },
         data: {
           name: input.name,
@@ -134,6 +145,16 @@ export const testPlansRouter = router({
           updatedById: ctx.user.id,
         },
       });
+      await recordAudit(ctx.prisma, {
+        organizationId: project.organizationId,
+        projectId: existing.projectId,
+        actorId: ctx.user.id,
+        entityType: "TestPlan",
+        entityId: input.id,
+        action: "UPDATE",
+        summary: `Updated test plan "${updated.name}" (status: ${updated.status})`,
+      });
+      return updated;
     }),
 
   setRelease: protectedProcedure

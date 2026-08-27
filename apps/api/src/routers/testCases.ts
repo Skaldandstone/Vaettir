@@ -4,6 +4,7 @@ import { TestCaseStepInputSchema, resolveStepFieldLabels, type StepFieldKey } fr
 import { assessTestCaseRisk } from "@vaettir/ai-agent";
 import { Prisma } from "@vaettir/db";
 import { router, protectedProcedure, requireProjectAccess } from "../trpc.js";
+import { recordAudit } from "../services/auditLog.js";
 
 const stepOutputSchema = z.object({
   order: z.number(),
@@ -213,23 +214,45 @@ export const testCasesRouter = router({
   approve: protectedProcedure
     .input(z.object({ id: z.string(), note: z.string().optional() }))
     .mutation(async ({ ctx, input }) => {
-      const existing = await ctx.prisma.testCase.findUniqueOrThrow({ where: { id: input.id }, select: { projectId: true } });
-      await requireProjectAccess(ctx, existing.projectId, "EDITOR");
-      return ctx.prisma.testCase.update({
+      const existing = await ctx.prisma.testCase.findUniqueOrThrow({ where: { id: input.id }, select: { projectId: true, title: true } });
+      const { project } = await requireProjectAccess(ctx, existing.projectId, "EDITOR");
+      const updated = await ctx.prisma.testCase.update({
         where: { id: input.id },
         data: { reviewStatus: "APPROVED", reviewedById: ctx.user.id, reviewedAt: new Date(), reviewNote: input.note, updatedById: ctx.user.id },
       });
+      await recordAudit(ctx.prisma, {
+        organizationId: project.organizationId,
+        projectId: existing.projectId,
+        actorId: ctx.user.id,
+        entityType: "TestCase",
+        entityId: input.id,
+        action: "UPDATE",
+        summary: `Approved test case "${existing.title}"`,
+        metadata: input.note ? { note: input.note } : undefined,
+      });
+      return updated;
     }),
 
   reject: protectedProcedure
     .input(z.object({ id: z.string(), note: z.string().optional() }))
     .mutation(async ({ ctx, input }) => {
-      const existing = await ctx.prisma.testCase.findUniqueOrThrow({ where: { id: input.id }, select: { projectId: true } });
-      await requireProjectAccess(ctx, existing.projectId, "EDITOR");
-      return ctx.prisma.testCase.update({
+      const existing = await ctx.prisma.testCase.findUniqueOrThrow({ where: { id: input.id }, select: { projectId: true, title: true } });
+      const { project } = await requireProjectAccess(ctx, existing.projectId, "EDITOR");
+      const updated = await ctx.prisma.testCase.update({
         where: { id: input.id },
         data: { reviewStatus: "REJECTED", reviewedById: ctx.user.id, reviewedAt: new Date(), reviewNote: input.note, updatedById: ctx.user.id },
       });
+      await recordAudit(ctx.prisma, {
+        organizationId: project.organizationId,
+        projectId: existing.projectId,
+        actorId: ctx.user.id,
+        entityType: "TestCase",
+        entityId: input.id,
+        action: "UPDATE",
+        summary: `Rejected test case "${existing.title}"`,
+        metadata: input.note ? { note: input.note } : undefined,
+      });
+      return updated;
     }),
 
   assessRisk: protectedProcedure
@@ -321,7 +344,7 @@ export const testCasesRouter = router({
     .input(z.object({ projectId: z.string(), title: z.string().min(1), suitePath: z.string().optional() }))
     .output(z.object({ id: z.string() }))
     .mutation(async ({ ctx, input }) => {
-      await requireProjectAccess(ctx, input.projectId, "EDITOR");
+      const { project } = await requireProjectAccess(ctx, input.projectId, "EDITOR");
       const created = await ctx.prisma.testCase.create({
         data: {
           projectId: input.projectId,
@@ -333,6 +356,15 @@ export const testCasesRouter = router({
         },
         select: { id: true },
       });
+      await recordAudit(ctx.prisma, {
+        organizationId: project.organizationId,
+        projectId: input.projectId,
+        actorId: ctx.user.id,
+        entityType: "TestCase",
+        entityId: created.id,
+        action: "CREATE",
+        summary: `Created test case "${input.title}"`,
+      });
       return created;
     }),
 
@@ -341,8 +373,8 @@ export const testCasesRouter = router({
       message: AT_LEAST_ONE_FORMAT_MESSAGE,
     }))
     .mutation(async ({ ctx, input }) => {
-      await requireProjectAccess(ctx, input.projectId, "EDITOR");
-      return ctx.prisma.testCase.create({
+      const { project } = await requireProjectAccess(ctx, input.projectId, "EDITOR");
+      const created = await ctx.prisma.testCase.create({
         data: {
           projectId: input.projectId,
           testPlanId: input.testPlanId,
@@ -368,6 +400,16 @@ export const testCasesRouter = router({
           },
         },
       });
+      await recordAudit(ctx.prisma, {
+        organizationId: project.organizationId,
+        projectId: input.projectId,
+        actorId: ctx.user.id,
+        entityType: "TestCase",
+        entityId: created.id,
+        action: "CREATE",
+        summary: `Created test case "${created.title}"`,
+      });
+      return created;
     }),
 
   update: protectedProcedure
@@ -379,13 +421,13 @@ export const testCasesRouter = router({
         where: { id: input.id },
         select: { projectId: true },
       });
-      await requireProjectAccess(ctx, existing.projectId, "EDITOR");
+      const { project } = await requireProjectAccess(ctx, existing.projectId, "EDITOR");
 
       // Steps don't have stable client-side ids yet (the form just edits an
       // ordered list), so replace-all is simpler and correct here; revisit
       // if per-step history/comments ever need steps to persist identity
       // across an edit.
-      return ctx.prisma.$transaction(async (tx) => {
+      const updated = await ctx.prisma.$transaction(async (tx) => {
         await tx.testCaseStep.deleteMany({ where: { testCaseId: input.id } });
         return tx.testCase.update({
           where: { id: input.id },
@@ -418,6 +460,16 @@ export const testCasesRouter = router({
           },
         });
       });
+      await recordAudit(ctx.prisma, {
+        organizationId: project.organizationId,
+        projectId: existing.projectId,
+        actorId: ctx.user.id,
+        entityType: "TestCase",
+        entityId: input.id,
+        action: "UPDATE",
+        summary: `Updated test case "${updated.title}"`,
+      });
+      return updated;
     }),
 
   // Quick reassignment without opening the full edit form -- e.g. from the
@@ -437,8 +489,8 @@ export const testCasesRouter = router({
   delete: protectedProcedure
     .input(z.object({ id: z.string() }))
     .mutation(async ({ ctx, input }) => {
-      const existing = await ctx.prisma.testCase.findUniqueOrThrow({ where: { id: input.id }, select: { projectId: true } });
-      await requireProjectAccess(ctx, existing.projectId, "EDITOR");
+      const existing = await ctx.prisma.testCase.findUniqueOrThrow({ where: { id: input.id }, select: { projectId: true, title: true } });
+      const { project } = await requireProjectAccess(ctx, existing.projectId, "EDITOR");
       try {
         await ctx.prisma.testCase.delete({ where: { id: input.id } });
       } catch (e) {
@@ -450,6 +502,15 @@ export const testCasesRouter = router({
         }
         throw e;
       }
+      await recordAudit(ctx.prisma, {
+        organizationId: project.organizationId,
+        projectId: existing.projectId,
+        actorId: ctx.user.id,
+        entityType: "TestCase",
+        entityId: input.id,
+        action: "DELETE",
+        summary: `Deleted test case "${existing.title}"`,
+      });
     }),
 
   // Bulk select-and-act is the other half of the Qase-style ease-of-use
