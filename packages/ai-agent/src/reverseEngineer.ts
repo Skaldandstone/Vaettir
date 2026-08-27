@@ -124,6 +124,12 @@ function normalizeToolUseInput(rawInput: unknown): unknown {
 export interface ReverseEngineerInput {
   filePath: string;
   content: string;
+  // P5-12: a previously-inferred structural pattern for this project's
+  // custom framework (see customFrameworkHeuristic.ts), passed in by the
+  // caller when one exists. Only meaningful for CUSTOM-family files -- a
+  // known framework already gets deterministic structure extraction below,
+  // which doesn't need or use this.
+  customFrameworkHint?: string;
 }
 
 // P5-11/P5-07: when a native evaluator is registered for the detected
@@ -139,12 +145,16 @@ function buildPromptContent(
   heuristicLabel: string,
   heuristicFamily: import("@vaettir/core").FrameworkFamily,
   content: string,
+  customFrameworkHint?: string,
 ): string {
   const evaluator = getFrameworkEvaluator(heuristicFamily);
   const extracted = evaluator?.extract(content, filePath);
 
   if (!extracted) {
-    return `File path: ${filePath}\nHeuristically detected framework: ${heuristicLabel} (${heuristicFamily})\n\n---\n${content}\n---\n\nReverse-engineer this into BDD test cases.`;
+    const hintText = customFrameworkHint
+      ? `\nA structural pattern was previously learned for this project's custom framework:\n${customFrameworkHint}\n`
+      : "";
+    return `File path: ${filePath}\nHeuristically detected framework: ${heuristicLabel} (${heuristicFamily})\n${hintText}\n---\n${content}\n---\n\nReverse-engineer this into BDD test cases.`;
   }
 
   const blocksText = extracted.testBlocks
@@ -171,7 +181,7 @@ export async function reverseEngineerTestFile(
     messages: [
       {
         role: "user",
-        content: buildPromptContent(input.filePath, heuristic.label, heuristic.family, input.content),
+        content: buildPromptContent(input.filePath, heuristic.label, heuristic.family, input.content, input.customFrameworkHint),
       },
     ],
   });

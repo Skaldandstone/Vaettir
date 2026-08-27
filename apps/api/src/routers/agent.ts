@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
-import { reverseEngineerTestFile } from "@vaettir/ai-agent";
+import { reverseEngineerTestFile, inferCustomFrameworkHeuristic } from "@vaettir/ai-agent";
 import { gherkinToReverseEngineerResult, postmanCollectionToReverseEngineerResult } from "@vaettir/core";
 import { router, protectedProcedure, requireProjectAccess } from "../trpc.js";
 import { persistReverseEngineerResult } from "../services/reverseEngineerPersist.js";
@@ -8,6 +8,7 @@ import { kickReverseEngineerQueue } from "../jobs/reverseEngineerWorker.js";
 import { scanRepoForTestFiles, scanChangedTestFiles, hashFileContent } from "../services/repoScan.js";
 import { scanZipForTestFiles } from "../services/zipScan.js";
 import { assertReverseEngineerBudget, remainingReverseEngineerBudget } from "../services/rateLimit.js";
+import { getMostRecentHeuristic, recordHeuristicUsage } from "../services/customFrameworkHeuristic.js";
 
 export const agentRouter = router({
   // Reverse-engineers a pasted/uploaded test file into BDD test cases and
@@ -28,10 +29,20 @@ export const agentRouter = router({
       if (input.persist) {
         await requireProjectAccess(ctx, input.projectId, "EDITOR");
       }
+      const heuristic = await getMostRecentHeuristic(ctx.prisma, input.projectId);
       const result = await reverseEngineerTestFile({
         filePath: input.filePath,
         content: input.content,
+        customFrameworkHint: heuristic?.description,
       });
+      // The hint is only ever included in the prompt when the detected
+      // family is CUSTOM (see reverseEngineer.ts's buildPromptContent) --
+      // detectedFrameworkFamily coming back CUSTOM is what confirms this
+      // call actually leaned on it, not just that a heuristic happened to
+      // exist for the project.
+      if (heuristic && result.detectedFrameworkFamily === "CUSTOM") {
+        await recordHeuristicUsage(ctx.prisma, heuristic.id);
+      }
 
       if (!input.persist) return { result, created: [] };
 
@@ -255,6 +266,83 @@ export const agentRouter = router({
       void kickReverseEngineerQueue();
 
       return { scannedFileCount: files.length, queuedJobIds: jobs.map((j) => j.id), rateLimitedCount };
+    }),
+
+  // P5-12: step 1 of "teach the platform your framework" -- infers the
+  // reusable structural pattern from 2-3 example files but does NOT save
+  // it. Same review-before-commit shape as P4-02's strategy draft: the
+  // user reviews (and can edit) the inferred description before it's
+  // persisted and starts actually shaping future reverse-engineer calls.
+  inferCustomFrameworkHeuristic: protectedProcedure
+    .input(
+      z.object({
+        projectId: z.string(),
+        files: z.array(z.object({ filePath: z.string(), content: z.string().min(1) })).min(2).max(3),
+      }),
+    )
+    .output(z.object({ name: z.string(), description: z.string(), confidence: z.number() }))
+    .mutation(async ({ ctx, input }) => {
+      await requireProjectAccess(ctx, input.projectId, "EDITOR");
+      return inferCustomFrameworkHeuristic({ files: input.files });
+    }),
+
+  // Step 2: persists a (possibly user-edited) inferred heuristic. Kept as
+  // a separate mutation from the inference step rather than an
+  // auto-save -- the user might reject or rewrite the description before
+  // it starts being used.
+  saveCustomFrameworkHeuristic: protectedProcedure
+    .input(
+      z.object({
+        projectId: z.string(),
+        name: z.string().min(1),
+        description: z.string().min(1),
+        confidence: z.number().optional(),
+        exampleFilePaths: z.array(z.string()),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      await requireProjectAccess(ctx, input.projectId, "EDITOR");
+      return ctx.prisma.customFrameworkHeuristic.create({
+        data: {
+          projectId: input.projectId,
+          name: input.name,
+          description: input.description,
+          confidence: input.confidence,
+          exampleFilePaths: input.exampleFilePaths,
+          createdById: ctx.user.id,
+        },
+      });
+    }),
+
+  listCustomFrameworkHeuristics: protectedProcedure
+    .input(z.object({ projectId: z.string() }))
+    .output(
+      z.array(
+        z.object({
+          id: z.string(),
+          name: z.string(),
+          description: z.string(),
+          confidence: z.number().nullable(),
+          usageCount: z.number(),
+          exampleFilePaths: z.array(z.string()),
+          createdAt: z.date(),
+        }),
+      ),
+    )
+    .query(async ({ ctx, input }) => {
+      await requireProjectAccess(ctx, input.projectId);
+      return ctx.prisma.customFrameworkHeuristic.findMany({
+        where: { projectId: input.projectId },
+        orderBy: { createdAt: "desc" },
+      });
+    }),
+
+  deleteCustomFrameworkHeuristic: protectedProcedure
+    .input(z.object({ id: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      const heuristic = await ctx.prisma.customFrameworkHeuristic.findUniqueOrThrow({ where: { id: input.id } });
+      await requireProjectAccess(ctx, heuristic.projectId, "EDITOR");
+      await ctx.prisma.customFrameworkHeuristic.delete({ where: { id: input.id } });
     }),
 
   jobStatus: protectedProcedure

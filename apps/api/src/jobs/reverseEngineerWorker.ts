@@ -2,6 +2,7 @@ import { prisma } from "@vaettir/db";
 import { reverseEngineerTestFile } from "@vaettir/ai-agent";
 import { persistReverseEngineerResult } from "../services/reverseEngineerPersist.js";
 import { hashFileContent } from "../services/repoScan.js";
+import { getMostRecentHeuristic, recordHeuristicUsage } from "../services/customFrameworkHeuristic.js";
 
 // Single-instance, in-process poller -- no Redis/queue infra exists yet, and
 // running one API instance is the actual current deployment shape (see
@@ -43,7 +44,15 @@ export async function runReverseEngineerJob(jobId: string): Promise<void> {
     if (job.content === null) {
       throw new Error(`Job ${job.id} has no content to reverse-engineer (inputType ${job.inputType})`);
     }
-    const result = await reverseEngineerTestFile({ filePath: job.inputRef, content: job.content });
+    const heuristic = await getMostRecentHeuristic(prisma, job.projectId);
+    const result = await reverseEngineerTestFile({
+      filePath: job.inputRef,
+      content: job.content,
+      customFrameworkHint: heuristic?.description,
+    });
+    if (heuristic && result.detectedFrameworkFamily === "CUSTOM") {
+      await recordHeuristicUsage(prisma, heuristic.id);
+    }
     const created = await persistReverseEngineerResult(prisma, {
       projectId: job.projectId,
       filePath: job.inputRef,

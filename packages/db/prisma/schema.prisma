@@ -75,6 +75,7 @@ model Project {
   reverseEngineerJobs ReverseEngineerJob[]
   testSelectionRuns   TestSelectionRun[]
   auditLogs           AuditLog[]
+  customFrameworkHeuristics CustomFrameworkHeuristic[]
 
   @@unique([organizationId, slug])
 }
@@ -106,6 +107,7 @@ model User {
   createdTestPlans  TestPlan[]        @relation("TestPlanCreatedBy")
   updatedTestPlans  TestPlan[]        @relation("TestPlanUpdatedBy")
   testPlanVersions  TestPlanVersion[]
+  customFrameworkHeuristics CustomFrameworkHeuristic[]
   createdReleases  Release[]  @relation("ReleaseCreatedBy")
   updatedReleases  Release[]  @relation("ReleaseUpdatedBy")
   createdRiskFlags RiskFlag[] @relation("RiskFlagCreatedBy")
@@ -643,6 +645,39 @@ enum FrameworkFamily {
   PACT
   ROBOT_FRAMEWORK
   CUSTOM
+}
+
+// P5-12: "teach the platform your framework" -- a per-project, per-
+// framework structural pattern inferred once from a few example files
+// (how are test names decided? assertions? setup/teardown?) and reused as
+// context on every later reverse-engineer call for that framework, instead
+// of the agent inferring the same pattern from scratch on every file. Only
+// meaningful for frameworks with no native evaluator (P5-07/08/09/10) --
+// a known framework already gets deterministic structure extraction, which
+// is strictly better than a learned-from-examples description.
+model CustomFrameworkHeuristic {
+  id          String @id @default(cuid())
+  projectId   String
+  project     Project @relation(fields: [projectId], references: [id])
+  name        String // e.g. "Our internal e2e framework"
+  description String // the inferred pattern, in prose -- fed back to the agent as context on later files
+
+  exampleFilePaths String[] // labels of the files the pattern was learned from, for reference/audit only
+
+  // P5-13: confidence the inferred pattern actually generalizes (the
+  // agent's own self-rating at inference time, 0-1) and how many times
+  // it's actually been used since -- together, the signal for "graduate
+  // this into a real native evaluator" the UI prompts on past a threshold,
+  // rather than a heuristic nobody's actually leaned on yet.
+  confidence Float?
+  usageCount Int    @default(0)
+
+  createdById String?
+  createdBy   User?   @relation(fields: [createdById], references: [id])
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([projectId])
 }
 
 // A unit of work for the AI agent: "read this source and produce BDD test

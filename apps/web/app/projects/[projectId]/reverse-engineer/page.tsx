@@ -59,6 +59,22 @@ export default function ReverseEngineerPage() {
   const [importingPostman, setImportingPostman] = useState(false);
   const [postmanResult, setPostmanResult] = useState<RouterOutputs["agent"]["importPostmanCollection"] | null>(null);
 
+  // P5-12: "teach the platform your framework"
+  const [heuristics, setHeuristics] = useState<RouterOutputs["agent"]["listCustomFrameworkHeuristics"]>([]);
+  const [exampleFiles, setExampleFiles] = useState<{ filePath: string; content: string }[]>([
+    { filePath: "", content: "" },
+    { filePath: "", content: "" },
+  ]);
+  const [inferring, setInferring] = useState(false);
+  const [inferred, setInferred] = useState<RouterOutputs["agent"]["inferCustomFrameworkHeuristic"] | null>(null);
+  const [savingHeuristic, setSavingHeuristic] = useState(false);
+  const [heuristicError, setHeuristicError] = useState<string | null>(null);
+
+  function loadHeuristics() {
+    trpc.agent.listCustomFrameworkHeuristics.query({ projectId }).then(setHeuristics).catch(() => undefined);
+  }
+  useEffect(loadHeuristics, [projectId]);
+
   // Pre-fill the repo URL from the project itself so the user doesn't have
   // to go look it up on /projects again.
   useEffect(() => {
@@ -83,6 +99,53 @@ export default function ReverseEngineerPage() {
     const t = setInterval(loadJobs, 2000);
     return () => clearInterval(t);
   }, [jobs, projectId]);
+
+  async function inferHeuristic() {
+    const validFiles = exampleFiles.filter((f) => f.filePath.trim() && f.content.trim());
+    if (validFiles.length < 2) {
+      setHeuristicError("Provide at least 2 example files");
+      return;
+    }
+    setInferring(true);
+    setHeuristicError(null);
+    setInferred(null);
+    try {
+      const res = await trpc.agent.inferCustomFrameworkHeuristic.mutate({ projectId, files: validFiles });
+      setInferred(res);
+    } catch (e) {
+      setHeuristicError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setInferring(false);
+    }
+  }
+
+  async function saveHeuristic() {
+    if (!inferred) return;
+    setSavingHeuristic(true);
+    setHeuristicError(null);
+    try {
+      await trpc.agent.saveCustomFrameworkHeuristic.mutate({
+        projectId,
+        name: inferred.name,
+        description: inferred.description,
+        confidence: inferred.confidence,
+        exampleFilePaths: exampleFiles.filter((f) => f.filePath.trim()).map((f) => f.filePath),
+      });
+      setInferred(null);
+      setExampleFiles([{ filePath: "", content: "" }, { filePath: "", content: "" }]);
+      loadHeuristics();
+    } catch (e) {
+      setHeuristicError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setSavingHeuristic(false);
+    }
+  }
+
+  async function deleteHeuristic(id: string) {
+    if (!confirm("Delete this learned framework pattern? Future files won't get this hint anymore.")) return;
+    await trpc.agent.deleteCustomFrameworkHeuristic.mutate({ id });
+    loadHeuristics();
+  }
 
   async function submit() {
     setLoading(true);
@@ -371,6 +434,122 @@ export default function ReverseEngineerPage() {
             Imported {postmanResult.created.length} test case(s):{" "}
             {postmanResult.created.map((tc) => tc.title).join(", ")}
           </p>
+        )}
+      </div>
+
+      <h2>...or teach the platform a custom framework</h2>
+      <p style={{ color: "var(--muted)", margin: "0 0 8px" }}>
+        For a bespoke/internal framework with no built-in support: give 2-3 example test files and the agent infers
+        how test names, assertions, and setup/teardown are expressed in it. That pattern is then included as context
+        on every later reverse-engineer call for this project&apos;s files in that same framework, instead of
+        guessing from scratch each time.
+      </p>
+      <div style={{ display: "grid", gap: 8, maxWidth: 720 }}>
+        {exampleFiles.map((f, i) => (
+          <div key={i} style={{ border: "1px solid var(--line)", borderRadius: 8, padding: 10 }}>
+            <label>
+              File path
+              <input
+                value={f.filePath}
+                onChange={(e) =>
+                  setExampleFiles(exampleFiles.map((ff, j) => (j === i ? { ...ff, filePath: e.target.value } : ff)))
+                }
+                style={{ width: "100%" }}
+              />
+            </label>
+            <input
+              type="file"
+              onChange={async (e) => {
+                const file = e.target.files?.[0];
+                if (!file) return;
+                const text = await readFileAsText(file);
+                setExampleFiles(exampleFiles.map((ff, j) => (j === i ? { filePath: file.name, content: text } : ff)));
+                e.target.value = "";
+              }}
+            />
+            <textarea
+              value={f.content}
+              onChange={(e) =>
+                setExampleFiles(exampleFiles.map((ff, j) => (j === i ? { ...ff, content: e.target.value } : ff)))
+              }
+              rows={6}
+              style={{ width: "100%", fontFamily: "monospace", fontSize: 12 }}
+              placeholder="Paste an example test file..."
+            />
+          </div>
+        ))}
+        <div style={{ display: "flex", gap: 8 }}>
+          {exampleFiles.length < 3 && (
+            <button
+              className="btn-secondary"
+              onClick={() => setExampleFiles([...exampleFiles, { filePath: "", content: "" }])}
+            >
+              + Add a third example
+            </button>
+          )}
+          <button onClick={inferHeuristic} disabled={inferring}>
+            {inferring ? "Inferring…" : "Infer the pattern"}
+          </button>
+        </div>
+        {heuristicError && <p style={{ color: "var(--ember)" }}>{heuristicError}</p>}
+
+        {inferred && (
+          <div className="panel" style={{ display: "grid", gap: 8 }}>
+            <label>
+              Name
+              <input
+                value={inferred.name}
+                onChange={(e) => setInferred({ ...inferred, name: e.target.value })}
+                style={{ width: "100%" }}
+              />
+            </label>
+            <label>
+              Description <span className="text-muted" style={{ fontSize: 12 }}>(edit before saving if needed)</span>
+              <textarea
+                value={inferred.description}
+                onChange={(e) => setInferred({ ...inferred, description: e.target.value })}
+                rows={6}
+                style={{ width: "100%" }}
+              />
+            </label>
+            <p className="text-muted" style={{ fontSize: 12, margin: 0 }}>
+              Agent&apos;s own confidence: {(inferred.confidence * 100).toFixed(0)}%
+            </p>
+            <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+              <button className="btn-secondary" onClick={() => setInferred(null)}>
+                Discard
+              </button>
+              <button onClick={saveHeuristic} disabled={savingHeuristic}>
+                {savingHeuristic ? "Saving…" : "Save this pattern"}
+              </button>
+            </div>
+          </div>
+        )}
+
+        {heuristics.length > 0 && (
+          <div style={{ marginTop: 12 }}>
+            <div style={{ fontWeight: 600, marginBottom: 6 }}>Learned patterns for this project</div>
+            <ul style={{ listStyle: "none", padding: 0 }}>
+              {heuristics.map((h) => (
+                <li key={h.id} style={{ borderBottom: "1px solid var(--line)", padding: "8px 0" }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
+                    <strong>{h.name}</strong>
+                    <span className="text-muted" style={{ fontSize: 12 }}>
+                      used {h.usageCount} time{h.usageCount === 1 ? "" : "s"}
+                      {h.confidence !== null && ` · ${(h.confidence * 100).toFixed(0)}% confidence`}
+                      {h.usageCount >= 10 && (
+                        <span style={{ color: "var(--frost)" }}> · well-understood - consider a native evaluator</span>
+                      )}
+                    </span>
+                  </div>
+                  <p className="text-muted" style={{ fontSize: 13, whiteSpace: "pre-wrap" }}>{h.description}</p>
+                  <button className="btn-secondary" style={{ fontSize: 12 }} onClick={() => deleteHeuristic(h.id)}>
+                    Delete
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </div>
         )}
       </div>
 
