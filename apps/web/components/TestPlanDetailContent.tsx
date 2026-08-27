@@ -297,6 +297,72 @@ function VersionHistorySection({ testPlanId, refreshKey }: { testPlanId: string;
 // back at it (read-only here -- the link is set from the child plan's own
 // side); any other plan gets a picker to set/clear which strategy it
 // supports.
+// P4-06: a preview of the Phase 7 dashboard, scoped to one strategy. Exit
+// criteria are free text, so this deliberately doesn't try to auto-grade
+// each one MET/NOT_MET (the same problem P7-02 punts on) -- it surfaces
+// the real current signals a human needs to eyeball their own exit
+// criteria against.
+function StrategySignalsSection({ projectId }: { projectId: string }) {
+  const [signals, setSignals] = useState<RouterOutputs["testPlans"]["strategySignals"] | null>(null);
+
+  useEffect(() => {
+    trpc.testPlans.strategySignals.query({ projectId }).then(setSignals);
+  }, [projectId]);
+
+  if (!signals) return null;
+
+  const { passRate, latestCoverage, openRiskFlags, flakyTestCount } = signals;
+  const passPct = passRate.total > 0 ? Math.round((passRate.passed / passRate.total) * 100) : null;
+  const coveragePct =
+    latestCoverage && latestCoverage.linesTotal > 0
+      ? Math.round((latestCoverage.linesCovered / latestCoverage.linesTotal) * 100)
+      : null;
+  const totalOpenFlags = openRiskFlags.critical + openRiskFlags.high + openRiskFlags.medium + openRiskFlags.low;
+
+  return (
+    <div style={{ marginBottom: 24 }}>
+      <h2>Current signals</h2>
+      <p className="text-muted" style={{ fontSize: 13, marginTop: -4 }}>
+        Real project-wide data to check your exit criteria against - not an automatic verdict on any one criterion.
+      </p>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: 12 }}>
+        <div className="panel">
+          <div className="text-muted" style={{ fontSize: 12 }}>Recent pass rate</div>
+          <div style={{ fontSize: 20, fontWeight: 600 }}>{passPct !== null ? `${passPct}%` : "—"}</div>
+          <div className="text-muted" style={{ fontSize: 11 }}>
+            {passRate.total > 0
+              ? `${passRate.passed}/${passRate.total} of last ${passRate.total} results`
+              : "No test results yet"}
+          </div>
+        </div>
+        <div className="panel">
+          <div className="text-muted" style={{ fontSize: 12 }}>Latest coverage</div>
+          <div style={{ fontSize: 20, fontWeight: 600 }}>{coveragePct !== null ? `${coveragePct}%` : "—"}</div>
+          <div className="text-muted" style={{ fontSize: 11 }}>
+            {latestCoverage ? new Date(latestCoverage.createdAt).toLocaleDateString() : "No coverage reports yet"}
+          </div>
+        </div>
+        <div className="panel">
+          <div className="text-muted" style={{ fontSize: 12 }}>Open risk flags</div>
+          <div style={{ fontSize: 20, fontWeight: 600, color: totalOpenFlags > 0 ? "var(--ember)" : undefined }}>
+            {totalOpenFlags}
+          </div>
+          <div className="text-muted" style={{ fontSize: 11 }}>
+            {openRiskFlags.critical} critical, {openRiskFlags.high} high, {openRiskFlags.medium} medium, {openRiskFlags.low} low
+          </div>
+        </div>
+        <div className="panel">
+          <div className="text-muted" style={{ fontSize: 12 }}>Flaky tests</div>
+          <div style={{ fontSize: 20, fontWeight: 600, color: flakyTestCount > 0 ? "var(--ember)" : undefined }}>
+            {flakyTestCount}
+          </div>
+          <div className="text-muted" style={{ fontSize: 11 }}>Currently flagged (P5-05)</div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function StrategyLinkSection({
   plan,
   projectId,
@@ -513,6 +579,8 @@ export function TestPlanDetailContent({
         </button>
         {saved && <p style={{ color: "var(--frost)" }}>Saved.</p>}
       </div>
+
+      {plan.testPlanType.key === "qa-strategy" && <StrategySignalsSection projectId={plan.projectId} />}
 
       <StrategyLinkSection plan={plan} projectId={plan.projectId} onChanged={load} />
 

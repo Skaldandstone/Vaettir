@@ -410,6 +410,73 @@ export const testPlansRouter = router({
       return suggestions;
     }),
 
+  // P4-06: "live status of each strategy's exit criteria against current
+  // test/coverage data," scoped down to what's actually reliable to
+  // compute. Exit criteria are free text ("Zero open Sev1 risk flags",
+  // "95% of the E2E suite passing") -- auto-deriving a MET/NOT_MET verdict
+  // per criterion would mean parsing arbitrary prose into a checkable
+  // predicate, which is exactly the problem P7-02 (AcceptanceCriterion
+  // status) also punts on even with this same pipeline available. Instead
+  // this surfaces the real project-wide signals a human needs to eyeball
+  // their own exit criteria against: recent pass rate, latest coverage,
+  // open risk flags by severity, and how many tests are currently flaky.
+  // A genuine "preview of the Phase 7 dashboard, scoped to one strategy,"
+  // not a best-effort auto-grader.
+  strategySignals: protectedProcedure
+    .input(z.object({ projectId: z.string() }))
+    .output(
+      z.object({
+        passRate: z.object({ passed: z.number(), failed: z.number(), skipped: z.number(), total: z.number() }),
+        latestCoverage: z.object({ linesCovered: z.number(), linesTotal: z.number(), createdAt: z.date() }).nullable(),
+        openRiskFlags: z.object({ critical: z.number(), high: z.number(), medium: z.number(), low: z.number() }),
+        flakyTestCount: z.number(),
+      }),
+    )
+    .query(async ({ ctx, input }) => {
+      await requireProjectAccess(ctx, input.projectId);
+
+      const [recentResults, latestCoverage, openFlags, flakyTestCount] = await Promise.all([
+        ctx.prisma.testResult.findMany({
+          // testRun.projectId, not testCase.projectId -- an unmatched
+          // result (no linked TestCase yet, the common case right after
+          // P5-01 ingestion before P5-04/P5-14 catch up) still belongs to
+          // this project's pass-rate signal. Filtering on the TestCase
+          // relation would silently drop every unmatched result instead.
+          where: { testRun: { projectId: input.projectId } },
+          select: { status: true },
+          orderBy: { testRun: { startedAt: "desc" } },
+          take: 200,
+        }),
+        ctx.prisma.coverageReport.findFirst({
+          where: { projectId: input.projectId },
+          orderBy: { createdAt: "desc" },
+          select: { linesCovered: true, linesTotal: true, createdAt: true },
+        }),
+        ctx.prisma.riskFlag.findMany({
+          where: { release: { projectId: input.projectId }, resolvedAt: null },
+          select: { severity: true },
+        }),
+        ctx.prisma.testCase.count({ where: { projectId: input.projectId, isFlaky: true } }),
+      ]);
+
+      return {
+        passRate: {
+          passed: recentResults.filter((r) => r.status === "PASS").length,
+          failed: recentResults.filter((r) => r.status === "FAIL").length,
+          skipped: recentResults.filter((r) => r.status === "SKIP").length,
+          total: recentResults.length,
+        },
+        latestCoverage,
+        openRiskFlags: {
+          critical: openFlags.filter((f) => f.severity === "CRITICAL").length,
+          high: openFlags.filter((f) => f.severity === "HIGH").length,
+          medium: openFlags.filter((f) => f.severity === "MEDIUM").length,
+          low: openFlags.filter((f) => f.severity === "LOW").length,
+        },
+        flakyTestCount,
+      };
+    }),
+
   // P4-05: full version history, most recent first -- each entry is a
   // complete snapshot (not just the AuditLog's one-line summary) so "what
   // did the risk areas actually say two releases ago" has a real answer.
