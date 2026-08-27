@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
-import { router, protectedProcedure, requireProjectAccess } from "../trpc.js";
+import { router, protectedProcedure, requireProjectAccess, requireOrgRole } from "../trpc.js";
 import { computeStatusesByTestPlan } from "../services/acceptanceCriteria.js";
 import { evaluateReleaseGate } from "../services/releaseGate.js";
 
@@ -262,5 +262,78 @@ export const releasesRouter = router({
         where: { id: input.id },
         data: { resolvedAt: input.resolved ? new Date() : null, updatedById: ctx.user.id },
       });
+    }),
+
+  // P7-06: one row per project, showing its most recently active (not yet
+  // SHIPPED) release's readiness -- "useful once you have more than one
+  // team" means an org lead scanning this shouldn't have to click into
+  // every project individually to see which ones are in trouble. A project
+  // with no non-shipped release (nothing currently in flight) reports
+  // release: null rather than being omitted, so it's still visible as "all
+  // quiet" rather than silently missing from the list.
+  orgOverview: protectedProcedure
+    .input(z.object({ organizationId: z.string() }))
+    .output(
+      z.object({
+        projects: z.array(
+          z.object({
+            projectId: z.string(),
+            projectName: z.string(),
+            release: z
+              .object({ id: z.string(), name: z.string(), status: z.string(), readiness: readinessOutput })
+              .nullable(),
+          }),
+        ),
+        summary: z.object({ ready: z.number(), atRisk: z.number(), blocked: z.number(), noActiveRelease: z.number() }),
+      }),
+    )
+    .query(async ({ ctx, input }) => {
+      requireOrgRole(ctx, input.organizationId);
+      const projects = await ctx.prisma.project.findMany({
+        where: { organizationId: input.organizationId },
+        orderBy: { name: "asc" },
+      });
+
+      const projectResults = await Promise.all(
+        projects.map(async (p) => {
+          const release = await ctx.prisma.release.findFirst({
+            where: { projectId: p.id, status: { not: "SHIPPED" } },
+            orderBy: { createdAt: "desc" },
+            include: {
+              testPlans: { include: { acceptanceCriteria: { select: { testPlanId: true, status: true } } } },
+              riskFlags: { where: { resolvedAt: null }, select: { severity: true } },
+            },
+          });
+          if (!release) return { projectId: p.id, projectName: p.name, release: null };
+
+          const criteria = release.testPlans.flatMap((tp) => tp.acceptanceCriteria);
+          const computedByPlan = await computeStatusesByTestPlan(
+            ctx.prisma,
+            criteria.map((c) => c.testPlanId),
+          );
+          const readiness = computeReadiness(
+            criteria.map((c) => ({ status: computedByPlan.get(c.testPlanId) ?? c.status })),
+            release.riskFlags,
+          );
+          return {
+            projectId: p.id,
+            projectName: p.name,
+            release: { id: release.id, name: release.name, status: release.status, readiness },
+          };
+        }),
+      );
+
+      const summary = projectResults.reduce(
+        (acc, r) => {
+          if (!r.release) acc.noActiveRelease++;
+          else if (r.release.readiness.label === "READY") acc.ready++;
+          else if (r.release.readiness.label === "AT_RISK") acc.atRisk++;
+          else acc.blocked++;
+          return acc;
+        },
+        { ready: 0, atRisk: 0, blocked: 0, noActiveRelease: 0 },
+      );
+
+      return { projects: projectResults, summary };
     }),
 });

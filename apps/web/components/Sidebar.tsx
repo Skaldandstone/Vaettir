@@ -5,7 +5,10 @@ import { usePathname, useRouter } from "next/navigation";
 import { trpc, type RouterOutputs } from "../lib/trpc";
 import { GlobalSearch } from "./GlobalSearch";
 
-const ORG_LINKS = [{ href: "/projects", label: "Projects" }];
+const ORG_LINKS = [
+  { href: "/dashboard", label: "Dashboard" },
+  { href: "/projects", label: "Projects" },
+];
 const ORG_ADMIN_LINKS = [
   { href: "/settings/members", label: "Members" },
   { href: "/settings/organization", label: "Settings" },
