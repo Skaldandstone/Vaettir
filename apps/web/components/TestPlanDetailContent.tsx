@@ -132,10 +132,54 @@ function StringListField({
 // renderer -- this one earns a dedicated form because its four fields are
 // exactly the fields a QA lead is meant to sit down and actually think
 // through, not just fill in.
+// P4-03: rule-based suggestions (open risk flags, high-failure-rate test
+// cases, uncovered compliance controls) alongside the manual/AI-generated
+// (P4-02) paths -- these are facts the platform already has structured
+// data for, not an inference, so surfacing them is a lookup, not a click
+// into another LLM call.
+function SuggestRiskAreasButton({
+  projectId,
+  existing,
+  onAdd,
+}: {
+  projectId: string;
+  existing: string[];
+  onAdd: (areas: string[]) => void;
+}) {
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function suggest() {
+    setLoading(true);
+    setError(null);
+    try {
+      const suggestions = await trpc.testPlans.suggestRiskAreas.query({ projectId });
+      const newAreas = suggestions.map((s) => s.area).filter((a) => !existing.includes(a));
+      if (newAreas.length > 0) onAdd(newAreas);
+      else if (suggestions.length === 0) setError("No open risk flags, failing tests, or compliance gaps found to suggest from.");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <div style={{ marginTop: 4 }}>
+      <button className="btn-secondary" style={{ fontSize: 12 }} onClick={suggest} disabled={loading}>
+        {loading ? "Checking…" : "Suggest from existing data"}
+      </button>
+      {error && <span className="text-muted" style={{ fontSize: 12, marginLeft: 8 }}>{error}</span>}
+    </div>
+  );
+}
+
 function QaStrategyForm({
+  projectId,
   values,
   onChange,
 }: {
+  projectId: string;
   values: Record<string, unknown>;
   onChange: (values: Record<string, unknown>) => void;
 }) {
@@ -147,13 +191,20 @@ function QaStrategyForm({
 
   return (
     <div style={{ display: "grid", gap: 18 }}>
-      <StringListField
-        label="Risk areas"
-        hint="Parts of the product most likely to break, or most costly if they do."
-        placeholder="e.g. Checkout payment flow"
-        values={riskAreas}
-        onChange={(v) => onChange({ ...values, riskAreas: v })}
-      />
+      <div>
+        <StringListField
+          label="Risk areas"
+          hint="Parts of the product most likely to break, or most costly if they do."
+          placeholder="e.g. Checkout payment flow"
+          values={riskAreas}
+          onChange={(v) => onChange({ ...values, riskAreas: v })}
+        />
+        <SuggestRiskAreasButton
+          projectId={projectId}
+          existing={riskAreas}
+          onAdd={(areas) => onChange({ ...values, riskAreas: [...riskAreas, ...areas] })}
+        />
+      </div>
       <StringListField
         label="Environments"
         hint="Where this strategy's testing actually runs."
@@ -452,7 +503,7 @@ export function TestPlanDetailContent({
         </label>
 
         {plan.testPlanType.key === "qa-strategy" ? (
-          <QaStrategyForm values={customFields} onChange={setCustomFields} />
+          <QaStrategyForm projectId={plan.projectId} values={customFields} onChange={setCustomFields} />
         ) : (
           <CustomFieldsForm schema={plan.testPlanType.fieldSchema as FieldSchema} values={customFields} onChange={setCustomFields} />
         )}

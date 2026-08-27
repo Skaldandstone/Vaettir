@@ -309,6 +309,107 @@ export const testPlansRouter = router({
       });
     }),
 
+  // P4-03: rule-based risk-area suggestions, cross-referencing structured
+  // signals the platform already has instead of an LLM guessing from a
+  // prompt (that's P4-02) or a user typing risk areas from scratch. Three
+  // sources, each a real, checkable fact rather than an inference:
+  //   - open RiskFlags on the project's releases, most severe first
+  //   - test cases with a real recent failure rate (>=30% over at least 3
+  //     of their last 20 results) -- a genuine "this keeps breaking" signal
+  //   - compliance controls with zero mapped test cases in this project,
+  //     across every framework the project actually maps controls under
+  // Capped and ranked so this reads as a short, prioritized list, not a
+  // data dump.
+  suggestRiskAreas: protectedProcedure
+    .input(z.object({ projectId: z.string() }))
+    .output(
+      z.array(
+        z.object({
+          area: z.string(),
+          rationale: z.string(),
+          source: z.enum(["RISK_FLAG", "FAILURE_RATE", "COMPLIANCE_GAP"]),
+        }),
+      ),
+    )
+    .query(async ({ ctx, input }) => {
+      await requireProjectAccess(ctx, input.projectId);
+
+      const SEVERITY_WEIGHT: Record<string, number> = { CRITICAL: 3, HIGH: 2, MEDIUM: 1, LOW: 0 };
+      const suggestions: { area: string; rationale: string; source: "RISK_FLAG" | "FAILURE_RATE" | "COMPLIANCE_GAP" }[] = [];
+
+      const openFlags = await ctx.prisma.riskFlag.findMany({
+        where: { release: { projectId: input.projectId }, resolvedAt: null },
+        orderBy: { createdAt: "desc" },
+        take: 50,
+      });
+      openFlags.sort((a, b) => (SEVERITY_WEIGHT[b.severity] ?? 0) - (SEVERITY_WEIGHT[a.severity] ?? 0));
+      for (const f of openFlags.slice(0, 5)) {
+        suggestions.push({
+          area: f.relatedFilePath ?? f.description.slice(0, 80),
+          rationale: `Open ${f.severity} risk flag: ${f.description}`,
+          source: "RISK_FLAG",
+        });
+      }
+
+      const recentResults = await ctx.prisma.testResult.findMany({
+        where: { testCase: { projectId: input.projectId } },
+        include: { testCase: { select: { id: true, title: true } }, testRun: { select: { startedAt: true } } },
+        orderBy: { testRun: { startedAt: "desc" } },
+        take: 1000,
+      });
+      const byTestCase = new Map<string, { title: string; pass: number; fail: number }>();
+      for (const r of recentResults) {
+        if (!r.testCase || (r.status !== "PASS" && r.status !== "FAIL")) continue;
+        const entry = byTestCase.get(r.testCase.id) ?? { title: r.testCase.title, pass: 0, fail: 0 };
+        // Cap at each test case's most recent 20 results -- recentResults is
+        // already ordered newest-first, so once a case has 20 counted here
+        // any further (older) result for it is outside the lookback window.
+        if (entry.pass + entry.fail < 20) {
+          if (r.status === "PASS") entry.pass++;
+          else entry.fail++;
+        }
+        byTestCase.set(r.testCase.id, entry);
+      }
+      const failureRateFlags = [...byTestCase.entries()]
+        .map(([id, e]) => ({ id, title: e.title, total: e.pass + e.fail, failRate: e.fail / (e.pass + e.fail) }))
+        .filter((e) => e.total >= 3 && e.failRate >= 0.3)
+        .sort((a, b) => b.failRate - a.failRate)
+        .slice(0, 5);
+      for (const f of failureRateFlags) {
+        suggestions.push({
+          area: f.title,
+          rationale: `Failed ${Math.round(f.failRate * 100)}% of its last ${f.total} runs`,
+          source: "FAILURE_RATE",
+        });
+      }
+
+      const frameworksInUse = await ctx.prisma.testCaseComplianceControl.findMany({
+        where: { testCase: { projectId: input.projectId } },
+        select: { control: { select: { frameworkId: true } } },
+        distinct: ["controlId"],
+      });
+      const frameworkIds = [...new Set(frameworksInUse.map((f) => f.control.frameworkId))];
+      if (frameworkIds.length > 0) {
+        const controls = await ctx.prisma.complianceControl.findMany({
+          where: { frameworkId: { in: frameworkIds } },
+          include: {
+            framework: { select: { name: true } },
+            _count: { select: { testCases: { where: { testCase: { projectId: input.projectId } } } } },
+          },
+        });
+        const gaps = controls.filter((c) => c._count.testCases === 0).slice(0, 5);
+        for (const c of gaps) {
+          suggestions.push({
+            area: `${c.framework.name} - ${c.code}`,
+            rationale: `Compliance control "${c.title}" has no mapped test cases in this project`,
+            source: "COMPLIANCE_GAP",
+          });
+        }
+      }
+
+      return suggestions;
+    }),
+
   // P4-05: full version history, most recent first -- each entry is a
   // complete snapshot (not just the AuditLog's one-line summary) so "what
   // did the risk areas actually say two releases ago" has a real answer.
