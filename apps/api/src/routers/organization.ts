@@ -90,13 +90,14 @@ export const organizationRouter = router({
         slug: z.string(),
         stepFieldLabelOverrides: z.record(z.string()),
         stepFieldLabels: z.record(z.string()),
+        dataRetentionYears: z.number(),
       }),
     )
     .query(async ({ ctx, input }) => {
       requireOrgRole(ctx, input.id);
       const org = await ctx.prisma.organization.findUniqueOrThrow({
         where: { id: input.id },
-        select: { id: true, name: true, slug: true, stepFieldLabels: true },
+        select: { id: true, name: true, slug: true, stepFieldLabels: true, dataRetentionYears: true },
       });
       const overrides = (org.stepFieldLabels as Partial<Record<StepFieldKey, string>> | null) ?? {};
       // Strip undefined entries -- Partial<...> allows them, but the output
@@ -110,7 +111,27 @@ export const organizationRouter = router({
         slug: org.slug,
         stepFieldLabelOverrides: definedOverrides,
         stepFieldLabels: resolveStepFieldLabels(overrides),
+        dataRetentionYears: org.dataRetentionYears,
       };
+    }),
+
+  // P3-08: how long evidence/audit-log/test-result data is kept before it's
+  // eligible for deletion. This only sets the configured policy - the actual
+  // purge job (P12-08) doesn't exist yet, so changing this today has no
+  // immediate effect beyond recording the org's intent. Different compliance
+  // frameworks mandate different minimums (e.g. SOC 2 commonly expects
+  // multi-year retention), so a floor is enforced rather than letting an org
+  // configure something a real auditor would reject outright.
+  updateDataRetention: protectedProcedure
+    .input(z.object({ organizationId: z.string(), dataRetentionYears: z.number().int().min(1).max(20) }))
+    .mutation(async ({ ctx, input }) => {
+      requireOrgRole(ctx, input.organizationId, "ADMIN");
+      const org = await ctx.prisma.organization.update({
+        where: { id: input.organizationId },
+        data: { dataRetentionYears: input.dataRetentionYears },
+        select: { dataRetentionYears: true },
+      });
+      return org;
     }),
 
   // Renames the display labels for TestCaseStep's four fields (see

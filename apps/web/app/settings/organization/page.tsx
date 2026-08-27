@@ -392,6 +392,10 @@ export default function OrganizationSettingsPage() {
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
 
+  const [dataRetentionYears, setDataRetentionYears] = useState<number | null>(null);
+  const [savingRetention, setSavingRetention] = useState(false);
+  const [retentionSaved, setRetentionSaved] = useState(false);
+
   useEffect(() => {
     trpc.organization.mine
       .query()
@@ -402,9 +406,26 @@ export default function OrganizationSettingsPage() {
         setOrgName(org.name);
         const detail = await trpc.organization.byId.query({ id: org.id });
         setLabels(detail.stepFieldLabels as Labels);
+        setDataRetentionYears(detail.dataRetentionYears);
       })
       .catch((e) => setError(String(e)));
   }, []);
+
+  async function submitRetention() {
+    if (!orgId || dataRetentionYears === null) return;
+    setSavingRetention(true);
+    setError(null);
+    setRetentionSaved(false);
+    try {
+      const updated = await trpc.organization.updateDataRetention.mutate({ organizationId: orgId, dataRetentionYears });
+      setDataRetentionYears(updated.dataRetentionYears);
+      setRetentionSaved(true);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setSavingRetention(false);
+    }
+  }
 
   async function submit() {
     if (!orgId || !labels) return;
@@ -473,6 +494,33 @@ export default function OrganizationSettingsPage() {
         </button>
         {saved && <p style={{ color: "var(--frost)" }}>Saved.</p>}
       </div>
+
+      {dataRetentionYears !== null && (
+        <div style={{ marginTop: 32 }}>
+          <h2>Data retention</h2>
+          <p style={{ color: "var(--muted)", fontSize: 13 }}>
+            How long evidence, audit-log, and test-result data is kept before it's eligible for deletion. Different
+            compliance frameworks mandate different minimums - check what your framework requires before lowering
+            this. This sets the org's configured policy; there's no automated purge job yet, so nothing is actually
+            deleted as a result of this setting today.
+          </p>
+          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+            <input
+              type="number"
+              min={1}
+              max={20}
+              value={dataRetentionYears}
+              onChange={(e) => setDataRetentionYears(Number(e.target.value))}
+              style={{ width: 80 }}
+            />
+            <span className="text-muted">years</span>
+            <button className="btn-primary" onClick={submitRetention} disabled={savingRetention}>
+              {savingRetention ? "Saving…" : "Save"}
+            </button>
+            {retentionSaved && <span style={{ color: "var(--frost)" }}>Saved.</span>}
+          </div>
+        </div>
+      )}
 
       {orgId && <ApiKeysSection organizationId={orgId} />}
       <PlanTypesSection />
