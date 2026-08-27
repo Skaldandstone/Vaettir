@@ -1,0 +1,30 @@
+name: "Report test results to Vaettir"
+description: "Posts a JUnit XML results file to a Vaettir project as a TestRun"
+inputs:
+  api-url:
+    description: "Base URL of the Vaettir API (e.g. https://your-vaettir-api.example.com)"
+    required: true
+  api-key:
+    description: "Vaettir API key (create one under Organization Settings > API keys)"
+    required: true
+  project-id:
+    description: "Vaettir project id to report results against"
+    required: true
+  junit-path:
+    description: "Path to a JUnit XML results file"
+    required: true
+  ci-provider:
+    description: "Value recorded as the TestRun's ciProvider"
+    required: false
+    default: "github-actions"
+runs:
+  using: "composite"
+  steps:
+    - shell: bash
+      run: bash "${{ github.action_path }}/report.sh"
+      env:
+        INPUT_API_URL: ${{ inputs.api-url }}
+        INPUT_API_KEY: ${{ inputs.api-key }}
+        INPUT_PROJECT_ID: ${{ inputs.project-id }}
+        INPUT_JUNIT_PATH: ${{ inputs.junit-path }}
+        INPUT_CI_PROVIDER: ${{ inputs.ci-provider }}
