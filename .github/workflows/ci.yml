@@ -5,6 +5,14 @@ on:
     branches: [master]
   pull_request:
 
+# Cancels a run still going for the same branch when a newer push shows
+# up, so a fast burst of commits doesn't queue up several full Postgres +
+# pnpm-install + test runs in parallel for commits nobody cares about
+# anymore.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -26,12 +34,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Enable corepack
+        run: corepack enable
+
       - uses: actions/setup-node@v4
         with:
           node-version: 20
-
-      - name: Enable corepack
-        run: corepack enable
+          cache: pnpm
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
