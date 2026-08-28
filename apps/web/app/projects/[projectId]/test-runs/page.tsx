@@ -205,9 +205,17 @@ function TestRunDetail({ id }: { id: string }) {
 
   return (
     <div>
-      <h1 style={{ marginBottom: 2 }}>{run.ciProvider} run</h1>
+      <h1 style={{ marginBottom: 2 }}>{run.ciProvider === "manual" ? "Manual test run" : `${run.ciProvider} run`}</h1>
       <p className="text-muted" style={{ fontSize: 13 }}>
-        {run.branch} @ <code>{run.commitSha.slice(0, 12)}</code> — {new Date(run.startedAt).toLocaleString()}
+        {run.ciProvider === "manual" ? (
+          <>{run.startedByEmail ?? "Unknown tester"}</>
+        ) : (
+          <>
+            {run.branch} @ <code>{run.commitSha.slice(0, 12)}</code>
+          </>
+        )}
+        {" — "}
+        {new Date(run.startedAt).toLocaleString()}
         {run.ciRunUrl && (
           <>
             {" · "}
@@ -242,7 +250,9 @@ function TestRunDetail({ id }: { id: string }) {
                   )}
                 </td>
                 <td style={{ padding: "6px 8px", fontSize: 12 }}>{r.durationMs !== null ? `${r.durationMs}ms` : "—"}</td>
-                <td style={{ padding: "6px 8px", fontSize: 12, color: "var(--ember)" }}>{r.errorMessage ?? ""}</td>
+                <td style={{ padding: "6px 8px", fontSize: 12, color: r.errorMessage ? "var(--ember)" : "inherit" }}>
+                  {r.errorMessage ?? r.note ?? ""}
+                </td>
               </tr>
               {r.status === "FAIL" && r.testCaseId && (
                 <tr style={{ borderBottom: "1px solid var(--line)" }}>
@@ -415,10 +425,18 @@ export default function TestRunsPage() {
                   {r.status}
                 </td>
                 <td style={{ padding: "6px 8px", fontSize: 13 }}>{r.ciProvider}</td>
-                <td style={{ padding: "6px 8px", fontSize: 13 }}>{r.branch}</td>
-                <td style={{ padding: "6px 8px", fontSize: 12 }}>
-                  <code>{r.commitSha.slice(0, 10)}</code>
-                </td>
+                {r.ciProvider === "manual" ? (
+                  <td colSpan={2} style={{ padding: "6px 8px", fontSize: 13 }}>
+                    {r.startedByEmail ?? "Unknown tester"}
+                  </td>
+                ) : (
+                  <>
+                    <td style={{ padding: "6px 8px", fontSize: 13 }}>{r.branch}</td>
+                    <td style={{ padding: "6px 8px", fontSize: 12 }}>
+                      <code>{r.commitSha.slice(0, 10)}</code>
+                    </td>
+                  </>
+                )}
                 <td style={{ padding: "6px 8px", fontSize: 13 }}>{r.resultCount}</td>
                 <td style={{ padding: "6px 8px", fontSize: 12, color: "var(--text-muted, #57606a)" }}>
                   {new Date(r.startedAt).toLocaleString()}

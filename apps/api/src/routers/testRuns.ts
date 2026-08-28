@@ -173,6 +173,7 @@ export const testRunsRouter = router({
           status: z.string(),
           startedAt: z.date(),
           resultCount: z.number(),
+          startedByEmail: z.string().nullable(),
         }),
       ),
     )
@@ -180,7 +181,7 @@ export const testRunsRouter = router({
       await requireProjectAccess(ctx, input.projectId);
       const runs = await ctx.prisma.testRun.findMany({
         where: { projectId: input.projectId },
-        include: { _count: { select: { results: true } } },
+        include: { _count: { select: { results: true } }, startedBy: { select: { email: true } } },
         orderBy: { startedAt: "desc" },
         take: input.take,
       });
@@ -193,6 +194,7 @@ export const testRunsRouter = router({
         status: r.status,
         startedAt: r.startedAt,
         resultCount: r._count.results,
+        startedByEmail: r.startedBy?.email ?? null,
       }));
     }),
 
@@ -208,6 +210,7 @@ export const testRunsRouter = router({
         branch: z.string(),
         status: z.string(),
         startedAt: z.date(),
+        startedByEmail: z.string().nullable(),
         results: z.array(
           z.object({
             id: z.string(),
@@ -217,6 +220,7 @@ export const testRunsRouter = router({
             status: z.string(),
             durationMs: z.number().nullable(),
             errorMessage: z.string().nullable(),
+            note: z.string().nullable(),
             artifacts: z.array(z.object({ id: z.string(), type: z.string() })),
           }),
         ),
@@ -225,7 +229,10 @@ export const testRunsRouter = router({
     .query(async ({ ctx, input }) => {
       const run = await ctx.prisma.testRun.findUniqueOrThrow({
         where: { id: input.id },
-        include: { results: { include: { testCase: { select: { title: true } }, artifacts: true } } },
+        include: {
+          results: { include: { testCase: { select: { title: true } }, artifacts: true } },
+          startedBy: { select: { email: true } },
+        },
       });
       await requireProjectAccess(ctx, run.projectId);
       return {
@@ -237,6 +244,7 @@ export const testRunsRouter = router({
         branch: run.branch,
         status: run.status,
         startedAt: run.startedAt,
+        startedByEmail: run.startedBy?.email ?? null,
         results: run.results.map((r) => ({
           id: r.id,
           externalTestId: r.externalTestId,
@@ -245,6 +253,7 @@ export const testRunsRouter = router({
           status: r.status,
           durationMs: r.durationMs,
           errorMessage: r.errorMessage,
+          note: r.note,
           artifacts: r.artifacts.map((a) => ({ id: a.id, type: a.type })),
         })),
       };

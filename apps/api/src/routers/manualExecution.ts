@@ -34,7 +34,6 @@ export const manualExecutionRouter = router({
       z.object({
         projectId: z.string(),
         testCaseIds: z.array(z.string()).min(1),
-        name: z.string().optional(),
       }),
     )
     .output(z.object({ testRunId: z.string() }))
@@ -58,7 +57,7 @@ export const manualExecutionRouter = router({
           startedAt: new Date(),
           status: "RUNNING",
           manualTestCaseIds: input.testCaseIds,
-          ciRunUrl: input.name ? `manual:${input.name}` : undefined,
+          startedById: ctx.user.id,
         },
         select: { id: true },
       });

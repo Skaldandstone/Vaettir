@@ -179,6 +179,7 @@ model User {
   createdSharedStepGroups SharedStepGroup[]
   uploadedTestCaseAttachments TestCaseAttachment[]
   exploratorySessions ExploratorySession[]
+  startedTestRuns TestRun[]
 
   // P1-07 audit columns: who created/last-updated each core record. Named
   // relations (Prisma requires it once a model has more than one FK to the
@@ -1171,6 +1172,14 @@ model TestRun {
   // P7-02's acceptance-criteria computation). Empty for every CI-ingested
   // run; only meaningful alongside ciProvider = "manual".
   manualTestCaseIds String[] @default([])
+
+  // Who ran a manual run (P5-16) - a CI run's "who" is the pipeline
+  // itself, but a manual run's tester is real, useful information the
+  // detail view should show instead of the branch/commit fields, which
+  // are meaningless for a manual run (both hold the literal sentinel
+  // "manual", not real git data).
+  startedById String?
+  startedBy   User?   @relation(fields: [startedById], references: [id])
 
   results        TestResult[]
   coverageReport CoverageReport?
