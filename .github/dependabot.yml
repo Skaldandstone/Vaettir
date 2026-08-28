@@ -12,8 +12,23 @@ updates:
       # Security patches land as individual, reviewable PRs; routine
       # version bumps within the same major get grouped so they don't
       # flood the PR list with one-liner semver bumps.
+      #
+      # 2026-08-28: found for real that this silently bundled a genuinely
+      # breaking-scale jump as "minor" - @anthropic-ai/sdk 0.32->0.120 (88
+      # minor releases) and react-native 0.76->0.87 both landed in one
+      # "minor-and-patch" PR. Dependabot's minor/patch classification is
+      # raw semver (major digit only), but by npm convention a pre-1.0
+      # package's MIDDLE digit is its de facto breaking-change slot -
+      # Dependabot's grouping doesn't know that. Excluding these two
+      # specific 0.x packages (central to this app - the whole AI-agent
+      # package's SDK, and the mobile app's framework) rather than trying
+      # to predict every future 0.x dependency; they'll get their own
+      # individual, reviewable PRs instead.
       minor-and-patch:
         update-types: ["minor", "patch"]
+        exclude-patterns:
+          - "@anthropic-ai/sdk"
+          - "react-native"
 
   - package-ecosystem: "github-actions"
     directory: "/"
