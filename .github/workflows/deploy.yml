@@ -1,0 +1,110 @@
+name: deploy
+
+# Push-to-deploy for Vaettir's API + web services, using GitHub OIDC so no AWS
+# credentials are stored anywhere. Mirrors scripts/deploy-aws.sh: this account
+# can't use CodeConnections (SCP-denied), so CodeBuild sources from an S3 zip
+# of the committed tree rather than from GitHub directly.
+#
+# DORMANT until one-time setup is done (see ginnungagap infra/deploy/README.md):
+#   1. an OIDC deploy role exists in the Vaettir account (with s3:PutObject on
+#      the source bucket, plus CodeBuild + ECS deploy perms),
+#   2. the org SCP is relaxed to allow that role those actions,
+#   3. the repo variable AWS_DEPLOY_ROLE_ARN is set to the role ARN,
+#   4. the `push:` trigger below is uncommented.
+# Until then it only runs on manual dispatch and no-ops if the role var is
+# unset, so it can never turn CI red.
+
+on:
+  workflow_dispatch:
+    inputs:
+      target:
+        description: "Which service(s) to deploy"
+        type: choice
+        options: [both, api, web]
+        default: both
+  # Uncomment once AWS_DEPLOY_ROLE_ARN is set and the SCP allows the role:
+  # push:
+  #   branches: [main]
+
+permissions:
+  id-token: write
+  contents: read
+
+concurrency:
+  group: deploy-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  AWS_REGION: us-east-2
+  CLUSTER: vaettir-cluster
+  SOURCE_BUCKET: vaettir-build-source-094842496450
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - name: Guard — require the deploy role to be configured
+        run: |
+          if [ -z "${{ vars.AWS_DEPLOY_ROLE_ARN }}" ]; then
+            echo "AWS_DEPLOY_ROLE_ARN is not set — deploy is not wired up yet."
+            echo "See ginnungagap infra/deploy/README.md (Option B)."
+            exit 1
+          fi
+
+      - uses: actions/checkout@v4
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Package committed source and upload to S3
+        run: |
+          set -euo pipefail
+          ARCHIVE="$(mktemp -u).zip"
+          git archive --format=zip -o "$ARCHIVE" HEAD
+          aws s3 cp "$ARCHIVE" "s3://$SOURCE_BUCKET/vaettir-source.zip"
+          rm -f "$ARCHIVE"
+
+      - name: Build and roll each requested service
+        env:
+          TARGET: ${{ github.event.inputs.target || 'both' }}
+        run: |
+          set -euo pipefail
+
+          build_and_wait() {
+            local project=$1
+            echo "==> Starting CodeBuild: $project"
+            local id
+            id=$(aws codebuild start-build --project-name "$project" \
+                   --query 'build.id' --output text)
+            echo "    build id: $id"
+            while true; do
+              local s
+              s=$(aws codebuild batch-get-builds --ids "$id" \
+                    --query 'builds[0].buildStatus' --output text)
+              case "$s" in
+                SUCCEEDED) echo "    $project succeeded"; break ;;
+                FAILED|FAULT|STOPPED|TIMED_OUT) echo "    $project ended: $s"; exit 1 ;;
+                *) sleep 15 ;;
+              esac
+            done
+          }
+
+          roll() {
+            local svc=$1
+            echo "==> Forcing new ECS deployment: $svc"
+            aws ecs update-service --cluster "$CLUSTER" --service "$svc" \
+              --force-new-deployment \
+              --query 'service.[serviceName,status]' --output text
+          }
+
+          if [ "$TARGET" = "both" ] || [ "$TARGET" = "api" ]; then
+            build_and_wait vaettir-api-build
+            roll vaettir-api
+          fi
+          if [ "$TARGET" = "both" ] || [ "$TARGET" = "web" ]; then
+            build_and_wait vaettir-web-build
+            roll vaettir-web
+          fi

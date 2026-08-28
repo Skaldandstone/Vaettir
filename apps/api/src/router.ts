@@ -22,6 +22,7 @@ import { testCaseAttachmentsRouter } from "./routers/testCaseAttachments.js";
 import { exploratorySessionsRouter } from "./routers/exploratorySessions.js";
 import { testCaseDatasetsRouter } from "./routers/testCaseDatasets.js";
 import { importJobsRouter } from "./routers/importJobs.js";
+import { staffRouter } from "./routers/staff.js";
 
 export const appRouter = router({
   testCases: testCasesRouter,
@@ -47,6 +48,7 @@ export const appRouter = router({
   exploratorySessions: exploratorySessionsRouter,
   testCaseDatasets: testCaseDatasetsRouter,
   importJobs: importJobsRouter,
+  staff: staffRouter,
 });
 
 export type AppRouter = typeof appRouter;

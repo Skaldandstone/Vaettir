@@ -20,6 +20,23 @@ async function resolveApiKeyUser(rawKey: string) {
   return prisma.user.findUnique({ where: { id: apiKey.serviceUserId }, include: { memberships: true } });
 }
 
+// The staff plane is a SEPARATE identity from tenant users: cross-org support
+// access authorized by a single shared secret (STAFF_ADMIN_TOKEN), never an
+// OWNER membership grafted onto a customer's org. The Skald & Stone Adminhelper
+// Worker holds the token and forwards the Access-authenticated staff email as
+// X-Staff-Actor for the audit trail. When the env secret is unset the plane is
+// disabled outright.
+function resolveStaff(headers: CreateFastifyContextOptions["req"]["headers"]): { actor: string } | null {
+  const expected = process.env.STAFF_ADMIN_TOKEN;
+  const provided = headers["x-staff-token"];
+  if (!expected || typeof provided !== "string" || provided.length !== expected.length) return null;
+  let diff = 0;
+  for (let i = 0; i < expected.length; i++) diff |= provided.charCodeAt(i) ^ expected.charCodeAt(i);
+  if (diff !== 0) return null;
+  const actor = headers["x-staff-actor"];
+  return { actor: typeof actor === "string" && actor ? actor : "unknown" };
+}
+
 export async function createContext({ req }: CreateFastifyContextOptions) {
   const token = extractBearerToken(req.headers.authorization);
 
@@ -35,7 +52,7 @@ export async function createContext({ req }: CreateFastifyContextOptions) {
             : null,
         );
 
-  return { prisma, user };
+  return { prisma, user, staff: resolveStaff(req.headers) };
 }
 
 export type Context = Awaited<ReturnType<typeof createContext>>;
@@ -53,6 +70,18 @@ export const protectedProcedure = t.procedure.use(({ ctx, next }) => {
     throw new TRPCError({ code: "UNAUTHORIZED" });
   }
   return next({ ctx: { ...ctx, user: ctx.user } });
+});
+
+// Cross-org staff support access for the admin PORTAL (grok-adminhelper
+// Worker), which authenticates with X-Staff-Token and is not a Clerk user -
+// deliberately distinct from the Clerk-email-gated `staffProcedure` below,
+// which serves staff humans signed into the product itself. Calls are audited
+// at the Adminhelper layer via the forwarded X-Staff-Actor.
+export const staffTokenProcedure = t.procedure.use(({ ctx, next }) => {
+  if (!ctx.staff) {
+    throw new TRPCError({ code: "UNAUTHORIZED", message: "Staff access token required" });
+  }
+  return next({ ctx: { ...ctx, staff: ctx.staff } });
 });
 
 const ROLE_RANK: Record<OrgRole, number> = {
