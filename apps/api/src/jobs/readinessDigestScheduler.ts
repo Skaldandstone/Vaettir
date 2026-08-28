@@ -2,6 +2,7 @@ import * as Sentry from "@sentry/node";
 import { prisma } from "@vaettir/db";
 import { getOrgOverview } from "../services/orgReadiness.js";
 import { postSlackDigest } from "../services/readinessDigest.js";
+import { recordHeartbeat } from "../services/heartbeat.js";
 
 // P7-09: no queue/cron infra exists (see reverseEngineerWorker.ts's same
 // note) -- an in-process interval checks every org with digestEnabled at
@@ -9,7 +10,7 @@ import { postSlackDigest } from "../services/readinessDigest.js";
 // configured digestHourUtc and it hasn't already sent today. Coarse grain
 // is fine here: unlike the reverse-engineer queue, a digest a few minutes
 // late is a non-event.
-const CHECK_INTERVAL_MS = 15 * 60 * 1000;
+export const CHECK_INTERVAL_MS = 15 * 60 * 1000;
 let checkHandle: NodeJS.Timeout | undefined;
 
 function isSameUtcDay(a: Date, b: Date): boolean {
@@ -27,6 +28,7 @@ export async function sendReadinessDigestForOrg(organizationId: string): Promise
 }
 
 async function checkOnce(): Promise<void> {
+  recordHeartbeat("readinessDigestScheduler");
   const now = new Date();
   const candidates = await prisma.organization.findMany({
     where: { digestEnabled: true, slackWebhookUrl: { not: null }, digestHourUtc: now.getUTCHours() },

@@ -7,11 +7,42 @@ import { fastifyTRPCPlugin } from "@trpc/server/adapters/fastify";
 import { prisma } from "@vaettir/db";
 import { appRouter } from "./router.js";
 import { createContext } from "./trpc.js";
-import { startReverseEngineerJobPoller } from "./jobs/reverseEngineerWorker.js";
-import { startReadinessDigestScheduler } from "./jobs/readinessDigestScheduler.js";
-import { startAiCreditGrantScheduler } from "./jobs/aiCreditGrantScheduler.js";
+import { startReverseEngineerJobPoller, POLL_INTERVAL_MS as REVERSE_ENGINEER_POLL_MS } from "./jobs/reverseEngineerWorker.js";
+import { startReadinessDigestScheduler, CHECK_INTERVAL_MS as DIGEST_CHECK_MS } from "./jobs/readinessDigestScheduler.js";
+import { startAiCreditGrantScheduler, CHECK_INTERVAL_MS as CREDIT_GRANT_CHECK_MS } from "./jobs/aiCreditGrantScheduler.js";
 import { verifyWebhookSignature } from "./services/githubApp.js";
 import { handlePullRequestWebhook, type GithubPullRequestPayload } from "./services/githubWebhook.js";
+import { getHeartbeatStatuses } from "./services/heartbeat.js";
+
+// P10-07: expected poller intervals, keyed by the same names each poller
+// calls recordHeartbeat with - the one place server.ts needs to know
+// about all three, so /health/detailed can flag one that's gone quiet.
+const EXPECTED_POLLER_INTERVALS = {
+  reverseEngineerWorker: REVERSE_ENGINEER_POLL_MS,
+  readinessDigestScheduler: DIGEST_CHECK_MS,
+  aiCreditGrantScheduler: CREDIT_GRANT_CHECK_MS,
+};
+
+// Deliberately separate from the plain `/health` liveness probe the ALB/
+// ECS health check uses (never touch that one's contract - a transient DB
+// blip cycling the whole task on every health-check poll would be worse
+// than serving degraded for a moment). This is for an external uptime
+// monitor to point at instead: real DB connectivity plus whether each
+// in-process job poller has ticked recently. Always 200 with a body
+// reporting `healthy: false` rather than ever 5xx-ing on its own
+// dependency check - an uptime monitor should alert on the JSON payload,
+// not misread "the detailed check itself broke" as "the whole API is down."
+async function detailedHealthHandler() {
+  let dbOk = true;
+  try {
+    await prisma.$queryRaw`SELECT 1`;
+  } catch {
+    dbOk = false;
+  }
+  const pollers = getHeartbeatStatuses(EXPECTED_POLLER_INTERVALS);
+  const healthy = dbOk && pollers.every((p) => !p.stale);
+  return { healthy, db: { ok: dbOk }, pollers };
+}
 
 // P6-01: registered in its own encapsulation context so the raw-body content
 // type parser below applies ONLY to this route, not to tRPC's JSON bodies
@@ -95,6 +126,7 @@ await server.register(fastifyTRPCPlugin, {
 });
 
 server.get("/health", { config: { rateLimit: false } }, async () => ({ ok: true }));
+server.get("/health/detailed", { config: { rateLimit: false } }, async () => detailedHealthHandler());
 await server.register(registerGithubWebhookRoute);
 
 // Mirrored under /api: the ALB/CloudFront path in front of this service
@@ -112,6 +144,7 @@ await server.register(
       trpcOptions: { router: appRouter, createContext, onError: reportUnexpectedTrpcError },
     });
     instance.get("/health", { config: { rateLimit: false } }, async () => ({ ok: true }));
+    instance.get("/health/detailed", { config: { rateLimit: false } }, async () => detailedHealthHandler());
     await instance.register(registerGithubWebhookRoute);
   },
   { prefix: "/api" },

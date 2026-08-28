@@ -5,6 +5,7 @@ import { persistReverseEngineerResult } from "../services/reverseEngineerPersist
 import { hashFileContent } from "../services/repoScan.js";
 import { getMostRecentHeuristic, recordHeuristicUsage } from "../services/customFrameworkHeuristic.js";
 import { chargeAiCredits, InsufficientAiCreditsError } from "../services/aiCredits.js";
+import { recordHeartbeat } from "../services/heartbeat.js";
 
 // Single-instance, in-process poller -- no Redis/queue infra exists yet, and
 // running one API instance is the actual current deployment shape (see
@@ -13,7 +14,7 @@ import { chargeAiCredits, InsufficientAiCreditsError } from "../services/aiCredi
 // needs to scale beyond one API process, replace this file with a real
 // queue (BullMQ+Redis) -- the job model and runJob's logic don't change,
 // only how a job gets picked up.
-const POLL_INTERVAL_MS = 5000;
+export const POLL_INTERVAL_MS = 5000;
 // A job stuck RUNNING longer than this almost certainly means the process
 // that claimed it (this poller, or a one-off script calling runJob/kick
 // directly) died or was killed mid-call rather than the LLM call actually
@@ -112,6 +113,7 @@ export async function runReverseEngineerJob(jobId: string): Promise<void> {
 }
 
 async function pollOnce(): Promise<void> {
+  recordHeartbeat("reverseEngineerWorker");
   if (processing) return;
   processing = true;
   try {
