@@ -144,6 +144,7 @@ model Project {
   testRuns                  TestRun[]
   coverageReports           CoverageReport[]
   reverseEngineerJobs       ReverseEngineerJob[]
+  importJobs                ImportJob[]
   testSelectionRuns         TestSelectionRun[]
   auditLogs                 AuditLog[]
   customFrameworkHeuristics CustomFrameworkHeuristic[]
@@ -198,6 +199,7 @@ model User {
   recordedComplianceEvidence ComplianceEvidence[]
   signedComplianceSignOffs   ComplianceSignOff[]
   aiEditFeedback             AiEditFeedback[]
+  importJobs                 ImportJob[]
 
   // P1-05: a service token is backed by its own real User row (the
   // "service user") so it flows through every existing requireOrgRole /
@@ -1015,6 +1017,45 @@ enum JobStatus {
   RUNNING
   SUCCEEDED
   FAILED
+}
+
+// P11-01: the shared foundation every source-specific importer (CSV today;
+// TestRail/Zephyr/Xray/qTest later) plugs into, rather than each one
+// inventing its own ad-hoc result-tracking. `fieldMapping` is the
+// user-confirmed source-column -> TestCase-field mapping from P11-02's
+// preview step (never inferred again at commit time - what the user saw
+// and approved is exactly what ran). `externalIdColumn`/imported rows'
+// external ids aren't tracked per-row here (that's each TestCase's own
+// provenance, not the job's), but the mapping is kept so a future
+// `P11-11` re-run can reuse the same config for incremental sync.
+model ImportJob {
+  id        String  @id @default(cuid())
+  projectId String
+  project   Project @relation(fields: [projectId], references: [id])
+
+  source      ImportSource
+  sourceLabel String? // filename or other human-readable label for this run
+  fieldMapping Json // { targetField: sourceColumnHeader }, as confirmed in the preview step
+  testPlanId  String? // optional destination plan for imported cases
+
+  status       JobStatus @default(PENDING)
+  createdCount Int       @default(0)
+  skippedCount Int       @default(0)
+  errors       Json      @default("[]") // { rowNumber, reason }[]
+
+  createdById String?
+  createdBy   User?   @relation(fields: [createdById], references: [id])
+
+  createdAt   DateTime  @default(now())
+  completedAt DateTime?
+}
+
+enum ImportSource {
+  CSV
+  TESTRAIL
+  ZEPHYR
+  XRAY
+  QTEST
 }
 
 // ---------------------------------------------------------------------------
