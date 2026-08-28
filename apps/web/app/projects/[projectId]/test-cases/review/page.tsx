@@ -41,7 +41,9 @@ export default function ReviewQueuePage() {
 
   return (
     <div style={{ maxWidth: 720 }}>
-      <a href={`/projects/${projectId}/test-cases`}>&larr; Test cases</a>
+      <a className="btn-secondary" style={{ fontSize: 13 }} href={`/projects/${projectId}/test-cases`}>
+        &larr; Test cases
+      </a>
       <h1>Review queue</h1>
       <p style={{ color: "var(--muted)" }}>
         AI-reverse-engineered test cases awaiting approval, lowest confidence first.

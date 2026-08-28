@@ -9,7 +9,9 @@ export default function TestPlanDetailPage() {
   const params = useParams<{ projectId: string; id: string }>();
   return (
     <div style={{ maxWidth: 640 }}>
-      <a href={`/projects/${params.projectId}/test-plans`}>&larr; Test plans</a>
+      <a className="btn-secondary" style={{ fontSize: 13 }} href={`/projects/${params.projectId}/test-plans`}>
+        &larr; Test plans
+      </a>
       <TestPlanDetailContent id={params.id} />
     </div>
   );

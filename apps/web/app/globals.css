@@ -128,9 +128,17 @@ button:disabled {
 /* Bare, unclassed <button>s (most of the app's action buttons) get the
    primary treatment by default, so every page's buttons look consistent
    without per-page className changes. Opt into .btn-secondary explicitly
-   for a lower-emphasis action. */
+   for a lower-emphasis action.
+   .btn-secondary is included in this same base rule (not just its own
+   color/border overrides below) so it renders correctly on ANY element,
+   not just a <button> quietly borrowing the browser's own default button
+   padding/display - an <a className="btn-secondary"> (a real, growing
+   pattern: nav actions that navigate rather than trigger a mutation
+   read better as a styled button than plain underlined text) has no such
+   default to fall back on. */
 .btn,
 .btn-primary,
+.btn-secondary,
 button:not([class]) {
   display: inline-flex;
   align-items: center;
@@ -142,6 +150,8 @@ button:not([class]) {
   border: none;
   background: var(--frost);
   color: var(--ink);
+  text-decoration: none;
+  cursor: pointer;
   transition: background 0.25s ease, border-color 0.25s ease, color 0.25s ease;
 }
 .btn-secondary {

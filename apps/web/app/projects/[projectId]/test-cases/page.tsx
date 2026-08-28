@@ -292,14 +292,24 @@ export default function TestCasesPage() {
             </p>
           )}
         </div>
-        <div style={{ display: "flex", gap: 16, alignItems: "center" }}>
-          <a href={`/projects/${projectId}/test-cases/review`}>Review queue</a>
-          <a href={`/projects/${projectId}/shared-steps`}>Shared step libraries</a>
-          <a href={`/projects/${projectId}/exploratory`}>Exploratory testing</a>
+        <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+          <a className="btn-secondary" style={{ fontSize: 13 }} href={`/projects/${projectId}/test-cases/review`}>
+            Review queue
+          </a>
+          <a className="btn-secondary" style={{ fontSize: 13 }} href={`/projects/${projectId}/shared-steps`}>
+            Shared step libraries
+          </a>
+          <a className="btn-secondary" style={{ fontSize: 13 }} href={`/projects/${projectId}/exploratory`}>
+            Exploratory testing
+          </a>
           <button className="btn-secondary" style={{ fontSize: 13 }} onClick={exportCsv}>
             Export CSV
           </button>
-          {!readOnly && <a href={`/projects/${projectId}/test-cases/new`}>Full editor</a>}
+          {!readOnly && (
+            <a className="btn-secondary" style={{ fontSize: 13 }} href={`/projects/${projectId}/test-cases/new`}>
+              Full editor
+            </a>
+          )}
           {!readOnly && (
             <button className="btn-secondary" style={{ fontSize: 13 }} onClick={() => setImportOpen(true)}>
               Import CSV

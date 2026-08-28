@@ -436,7 +436,9 @@ export default function TestStrategyPage() {
         <div style={{ border: "1px solid var(--line)", borderRadius: 8, padding: 16, margin: "16px 0" }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
             <h2 style={{ marginTop: 0 }}>Risk flags on this release</h2>
-            <a href={`/projects/${projectId}/releases/${releaseId}`}>Full readiness view →</a>
+            <a className="btn-secondary" style={{ fontSize: 13 }} href={`/projects/${projectId}/releases/${releaseId}`}>
+              Full readiness view →
+            </a>
           </div>
           {riskFlags.length === 0 && <p style={{ color: "var(--muted)" }}>None yet.</p>}
           <ul style={{ listStyle: "none", padding: 0 }}>
