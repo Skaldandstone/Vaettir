@@ -6,6 +6,7 @@ import { trpc, type RouterOutputs } from "@/lib/trpc";
 import { ReadinessBadge } from "@/components/ReadinessBadge";
 import { buildHtmlSnapshot, buildMarkdownSnapshot } from "@/lib/snapshotExport";
 import { downloadFile } from "@/lib/download";
+import { isReadOnlySeat } from "@/lib/membership";
 
 const STATUSES = ["PLANNING", "IN_TESTING", "READY", "SHIPPED", "BLOCKED"] as const;
 const CRITERION_STATUSES = ["PENDING", "MET", "AT_RISK", "NOT_MET"] as const;
@@ -22,6 +23,15 @@ export default function ReleaseReadinessPage() {
   const [error, setError] = useState<string | null>(null);
   const [showResolved, setShowResolved] = useState(false);
   const [exporting, setExporting] = useState<"html" | "markdown" | null>(null);
+  const [readOnly, setReadOnly] = useState(false);
+
+  useEffect(() => {
+    trpc.project.byId
+      .query({ id: projectId })
+      .then((p) => trpc.organization.mine.query().then((orgs) => orgs.find((o) => o.id === p.organizationId)))
+      .then((org) => setReadOnly(isReadOnlySeat(org?.seatType)))
+      .catch(() => undefined);
+  }, [projectId]);
 
   async function exportSnapshot(format: "html" | "markdown") {
     setExporting(format);
@@ -156,13 +166,17 @@ export default function ReleaseReadinessPage() {
 
       <div className="panel" style={{ marginBottom: 20 }}>
         <div className="eyebrow">Status</div>
-        <select value={release.status} onChange={(e) => updateStatus(e.target.value)}>
-          {STATUSES.map((s) => (
-            <option key={s} value={s}>
-              {s}
-            </option>
-          ))}
-        </select>
+        {readOnly ? (
+          <p style={{ margin: 0 }}>{release.status}</p>
+        ) : (
+          <select value={release.status} onChange={(e) => updateStatus(e.target.value)}>
+            {STATUSES.map((s) => (
+              <option key={s} value={s}>
+                {s}
+              </option>
+            ))}
+          </select>
+        )}
       </div>
 
       <div className="panel" style={{ marginBottom: 20 }}>
@@ -181,9 +195,11 @@ export default function ReleaseReadinessPage() {
                   [{p.testPlanType.name}]
                 </span>
               </strong>
-              <button className="btn-secondary" onClick={() => detachPlan(p.id)} style={{ fontSize: 12 }}>
-                Detach
-              </button>
+              {!readOnly && (
+                <button className="btn-secondary" onClick={() => detachPlan(p.id)} style={{ fontSize: 12 }}>
+                  Detach
+                </button>
+              )}
             </div>
             <ul style={{ listStyle: "none", padding: 0, marginTop: 6 }}>
               {p.acceptanceCriteria.map((c) => (
@@ -196,6 +212,8 @@ export default function ReleaseReadinessPage() {
                     >
                       {c.status} <span className="text-muted">(live)</span>
                     </span>
+                  ) : readOnly ? (
+                    <span style={{ fontSize: 12 }}>{c.status}</span>
                   ) : (
                     <select
                       value={c.status}
@@ -221,19 +239,21 @@ export default function ReleaseReadinessPage() {
         ))}
         {testPlans.length === 0 && <p className="text-muted">No test plans attached to this release yet.</p>}
 
-        <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
-          <select value={attachPlanId} onChange={(e) => setAttachPlanId(e.target.value)} style={{ flex: 1 }}>
-            <option value="">Attach an existing test plan…</option>
-            {attachablePlans.map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.name}
-              </option>
-            ))}
-          </select>
-          <button onClick={attachPlan} disabled={!attachPlanId}>
-            Attach
-          </button>
-        </div>
+        {!readOnly && (
+          <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
+            <select value={attachPlanId} onChange={(e) => setAttachPlanId(e.target.value)} style={{ flex: 1 }}>
+              <option value="">Attach an existing test plan…</option>
+              {attachablePlans.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.name}
+                </option>
+              ))}
+            </select>
+            <button onClick={attachPlan} disabled={!attachPlanId}>
+              Attach
+            </button>
+          </div>
+        )}
       </div>
 
       <div className="panel">
@@ -264,9 +284,11 @@ export default function ReleaseReadinessPage() {
                 [{f.source}] {f.description}
                 {f.resolvedAt && <span style={{ color: "var(--frost)" }}> — resolved</span>}
               </div>
-              <button className="btn-secondary" onClick={() => toggleResolve(f.id, !f.resolvedAt)} style={{ fontSize: 12, whiteSpace: "nowrap" }}>
-                {f.resolvedAt ? "Reopen" : "Resolve"}
-              </button>
+              {!readOnly && (
+                <button className="btn-secondary" onClick={() => toggleResolve(f.id, !f.resolvedAt)} style={{ fontSize: 12, whiteSpace: "nowrap" }}>
+                  {f.resolvedAt ? "Reopen" : "Resolve"}
+                </button>
+              )}
             </li>
           ))}
           {visibleFlags.length === 0 && <p className="text-muted">None.</p>}
