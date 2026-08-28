@@ -12,8 +12,10 @@ export default function ProjectOverviewPage() {
   const [requirementCount, setRequirementCount] = useState<number | null>(null);
   const [pendingReviewCount, setPendingReviewCount] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [connectRepoUrl, setConnectRepoUrl] = useState("");
+  const [connecting, setConnecting] = useState(false);
 
-  useEffect(() => {
+  function load() {
     setError(null);
     Promise.all([
       trpc.project.byId.query({ id: projectId }),
@@ -30,7 +32,29 @@ export default function ProjectOverviewPage() {
         setPendingReviewCount(pending.length);
       })
       .catch((e) => setError(e instanceof Error ? e.message : String(e)));
-  }, [projectId]);
+  }
+
+  useEffect(load, [projectId]);
+
+  async function connectRepo() {
+    if (!project || !connectRepoUrl.trim()) return;
+    setConnecting(true);
+    setError(null);
+    try {
+      await trpc.project.update.mutate({
+        id: project.id,
+        name: project.name,
+        repoUrl: connectRepoUrl.trim(),
+        defaultBranch: project.defaultBranch,
+      });
+      setConnectRepoUrl("");
+      load();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setConnecting(false);
+    }
+  }
 
   if (error) return <p style={{ color: "var(--ember)" }}>{error}</p>;
   if (!project) return <p>Loading…</p>;
@@ -38,9 +62,30 @@ export default function ProjectOverviewPage() {
   return (
     <div>
       <h1 style={{ marginBottom: 2 }}>{project.name}</h1>
-      <p className="text-muted" style={{ marginBottom: 24 }}>
+      <p className="text-muted" style={{ marginBottom: project.repoUrl ? 24 : 8 }}>
         {project.repoUrl ?? "No repo connected"} {project.repoUrl && <>· branch {project.defaultBranch}</>}
       </p>
+
+      {!project.repoUrl && (
+        <div className="panel" style={{ marginBottom: 24, borderColor: "var(--frost)" }}>
+          <strong>Connect a GitHub repo</strong>
+          <p className="text-muted" style={{ fontSize: 13, margin: "4px 0 10px" }}>
+            Lets you scan the repo to reverse-engineer test cases, run PR scanning, and link test cases back to real
+            source files.
+          </p>
+          <div style={{ display: "flex", gap: 8 }}>
+            <input
+              value={connectRepoUrl}
+              onChange={(e) => setConnectRepoUrl(e.target.value)}
+              placeholder="https://github.com/org/repo"
+              style={{ flex: 1 }}
+            />
+            <button className="btn-primary" onClick={connectRepo} disabled={connecting || !connectRepoUrl.trim()}>
+              {connecting ? "Connecting…" : "Connect"}
+            </button>
+          </div>
+        </div>
+      )}
 
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: 16, marginBottom: 32 }}>
         <a href={`/projects/${projectId}/test-cases`} className="panel" style={{ display: "block" }}>
@@ -76,7 +121,8 @@ export default function ProjectOverviewPage() {
             </a>
           ) : (
             <p className="text-muted" style={{ fontSize: 13 }}>
-              Connect a repo on <a href="/projects">the projects page</a> and scan it, or author a test case manually.
+              Connect a repo above and scan it, or{" "}
+              <a href={`/projects/${projectId}/test-cases/new`}>author a test case manually</a>.
             </p>
           )}
         </div>
