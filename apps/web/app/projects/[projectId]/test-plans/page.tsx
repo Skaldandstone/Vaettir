@@ -19,15 +19,20 @@ function GenerateStrategyModal({
   onClose,
   projectId,
   qaStrategyTypeId,
+  projectRepo,
   onCreated,
 }: {
   open: boolean;
   onClose: () => void;
   projectId: string;
   qaStrategyTypeId: string | undefined;
+  projectRepo: { repoUrl: string | null; defaultBranch: string } | null;
   onCreated: () => void;
 }) {
   const [prompt, setPrompt] = useState("");
+  const [groundInBuild, setGroundInBuild] = useState(false);
+  const [baseRef, setBaseRef] = useState("");
+  const [headRef, setHeadRef] = useState("");
   const [generating, setGenerating] = useState(false);
   const [draft, setDraft] = useState<RouterOutputs["testPlans"]["generateStrategyDraft"] | null>(null);
   const [planName, setPlanName] = useState("");
@@ -46,7 +51,13 @@ function GenerateStrategyModal({
     setGenerating(true);
     setError(null);
     try {
-      const result = await trpc.testPlans.generateStrategyDraft.mutate({ projectId, prompt: prompt.trim() });
+      const result = await trpc.testPlans.generateStrategyDraft.mutate({
+        projectId,
+        prompt: prompt.trim(),
+        ...(groundInBuild && headRef.trim()
+          ? { baseRef: baseRef.trim() || undefined, headRef: headRef.trim() }
+          : {}),
+      });
       setDraft(result);
       setPlanName(prompt.trim().length > 60 ? `${prompt.trim().slice(0, 57)}…` : prompt.trim());
     } catch (e) {
@@ -61,11 +72,12 @@ function GenerateStrategyModal({
     setCreating(true);
     setError(null);
     try {
+      const { groundedInCommits: _groundedInCommits, ...customFields } = draft;
       await trpc.testPlans.create.mutate({
         projectId,
         testPlanTypeId: qaStrategyTypeId,
         name: planName.trim(),
-        customFields: draft,
+        customFields,
       });
       setPrompt("");
       setDraft(null);
@@ -95,11 +107,52 @@ function GenerateStrategyModal({
             style={{ width: "100%" }}
           />
         </label>
-        <button className="btn-secondary" onClick={generate} disabled={generating || !prompt.trim() || !qaStrategyTypeId}>
+        {projectRepo?.repoUrl && (
+          <div style={{ border: "1px solid var(--line)", borderRadius: 6, padding: 8 }}>
+            <label style={{ fontSize: 13 }}>
+              <input type="checkbox" checked={groundInBuild} onChange={(e) => setGroundInBuild(e.target.checked)} /> Ground in a
+              real build (the actual commits between two refs, e.g. "what's in this release")
+            </label>
+            {groundInBuild && (
+              <div style={{ display: "flex", gap: 8, marginTop: 6 }}>
+                <input
+                  value={baseRef}
+                  onChange={(e) => setBaseRef(e.target.value)}
+                  placeholder={`Base ref (default: ${projectRepo.defaultBranch})`}
+                  style={{ flex: 1, fontSize: 13 }}
+                />
+                <input
+                  value={headRef}
+                  onChange={(e) => setHeadRef(e.target.value)}
+                  placeholder="Head ref (tag, branch, or commit for this build)"
+                  style={{ flex: 1, fontSize: 13 }}
+                />
+              </div>
+            )}
+          </div>
+        )}
+        <button
+          className="btn-secondary"
+          onClick={generate}
+          disabled={generating || !prompt.trim() || !qaStrategyTypeId || (groundInBuild && !headRef.trim())}
+        >
           {generating ? "Generating…" : "Generate draft"}
         </button>
 
         {error && <p style={{ color: "var(--ember)" }}>{error}</p>}
+
+        {draft?.groundedInCommits && (
+          <details style={{ fontSize: 12 }}>
+            <summary>Grounded in {draft.groundedInCommits.length} real commit(s)</summary>
+            <ul style={{ margin: "4px 0 0 16px", padding: 0 }}>
+              {draft.groundedInCommits.map((c) => (
+                <li key={c.sha}>
+                  <code>{c.sha}</code> {c.subject}
+                </li>
+              ))}
+            </ul>
+          </details>
+        )}
 
         {draft && (
           <>
@@ -154,6 +207,7 @@ export default function TestPlansPage() {
   const [statusFilter, setStatusFilter] = useState("");
   const [generateOpen, setGenerateOpen] = useState(false);
   const [readOnly, setReadOnly] = useState(false);
+  const [projectRepo, setProjectRepo] = useState<{ repoUrl: string | null; defaultBranch: string } | null>(null);
 
   useEffect(() => {
     trpc.testPlans.types.query().then((t) => {
@@ -166,6 +220,7 @@ export default function TestPlansPage() {
     Promise.all([trpc.project.byId.query({ id: projectId }), trpc.organization.mine.query()]).then(([proj, orgs]) => {
       const org = orgs.find((o) => o.id === proj.organizationId);
       setReadOnly(isReadOnlySeat(org?.seatType));
+      setProjectRepo({ repoUrl: proj.repoUrl, defaultBranch: proj.defaultBranch });
     });
   }, [projectId]);
 
@@ -281,6 +336,7 @@ export default function TestPlansPage() {
         onClose={() => setGenerateOpen(false)}
         projectId={projectId}
         qaStrategyTypeId={types.find((t) => t.key === "qa-strategy")?.id}
+        projectRepo={projectRepo}
         onCreated={loadPlans}
       />
     </div>

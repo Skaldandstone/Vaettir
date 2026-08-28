@@ -61,13 +61,19 @@ const EMIT_STRATEGY_TOOL: Anthropic.Tool = {
 };
 
 const SYSTEM_PROMPT = `You are a senior QA lead drafting a STARTER test strategy for a project, to be reviewed and edited by a
-human before it's used for real. You are given a short prompt describing what's changing or shipping, plus a
-real summary of the project's existing test coverage (frameworks in use, how many tests exist per type).
+human before it's used for real. You are given a short prompt describing what's changing or shipping, a real
+summary of the project's existing test coverage (frameworks in use, how many tests exist per type), and
+optionally the REAL commit log of what's actually in this build/release (when the caller grounded generation in
+an actual git ref range rather than describing it by hand).
 
 Rules:
 - Ground riskAreas in the actual prompt and the project's real tooling/coverage summary you're given -- don't
   produce generic boilerplate ("test all critical paths") that could apply to any project. If the summary shows
   heavy Cypress/Playwright e2e coverage but no unit tests, say so in how you frame risk areas and environments.
+- When a real commit log is provided, treat it as the authoritative source of "what's actually shipping" -
+  ground risk areas in what the commits actually touched/describe, not just the free-text prompt. If the commit
+  log and the prompt seem to disagree (e.g. the prompt says "payments" but the commits are all about auth), note
+  that tension rather than silently picking one.
 - Each list should have 3-6 concrete, specific items. Short phrases, not paragraphs.
 - entryCriteria and exitCriteria should be genuinely checkable conditions ("Feature flag enabled in staging",
   "Zero open Sev1 defects"), not vague aspirations ("code is good quality").
@@ -81,6 +87,10 @@ export interface GenerateQaStrategyInput {
   frameworksInUse: string[];
   testTypeCounts: Record<string, number>;
   totalTestCases: number;
+  // Real "what's in this build" grounding (2026-08-28) - a formatted
+  // commit log (or equivalent) when generation was anchored to a real
+  // git ref range instead of relying purely on the free-text prompt.
+  changesSummary?: string;
 }
 
 export async function generateQaStrategyDraft(input: GenerateQaStrategyInput): Promise<QaStrategyDraft> {
@@ -104,7 +114,7 @@ Existing coverage by test type:
 ${coverageLines || "(no test cases yet)"}
 
 What's changing or shipping: ${input.prompt}
-
+${input.changesSummary ? `\nReal commit log for this build/release:\n${input.changesSummary}\n` : ""}
 Draft a starter QA strategy for this.`,
       },
     ],

@@ -5,6 +5,7 @@ import { router, protectedProcedure, requireProjectAccess } from "../trpc.js";
 import { recordAudit } from "../services/auditLog.js";
 import { snapshotTestPlanVersion } from "../services/testPlanVersion.js";
 import { chargeAiCredits, InsufficientAiCreditsError } from "../services/aiCredits.js";
+import { getCommitLog } from "../services/changeImpact.js";
 
 const acceptanceCriterionOutput = z.object({
   id: z.string(),
@@ -277,21 +278,56 @@ export const testPlansRouter = router({
   // explicitly creates one from it via the normal `create` mutation, same
   // as reviewing an AI-reverse-engineered test case before it's approved.
   generateStrategyDraft: protectedProcedure
-    .input(z.object({ projectId: z.string(), prompt: z.string().min(1) }))
+    .input(
+      z.object({
+        projectId: z.string(),
+        prompt: z.string().min(1),
+        // 2026-08-28: ground generation in a real build/release instead
+        // of relying purely on the free-text prompt - "PRs in a release"
+        // (in practice, the commit log between two refs; see
+        // getCommitLog's comment for why that's the git-host-agnostic
+        // equivalent of hitting a provider-specific PR API) or "a build"
+        // are both just a ref range. baseRef defaults to the project's
+        // own default branch when headRef is given but baseRef isn't.
+        baseRef: z.string().optional(),
+        headRef: z.string().optional(),
+      }),
+    )
     .output(
       z.object({
         riskAreas: z.array(z.string()),
         environments: z.array(z.string()),
         entryCriteria: z.array(z.string()),
         exitCriteria: z.array(z.string()),
+        // Surfaced back so the review UI can show exactly what real
+        // commits the draft was grounded in, not just trust it silently.
+        groundedInCommits: z.array(z.object({ sha: z.string(), subject: z.string() })).optional(),
       }),
     )
     .mutation(async ({ ctx, input }) => {
       await requireProjectAccess(ctx, input.projectId, "EDITOR");
       const project = await ctx.prisma.project.findUniqueOrThrow({
         where: { id: input.projectId },
-        select: { name: true, organizationId: true },
+        select: { name: true, organizationId: true, repoUrl: true, defaultBranch: true },
       });
+
+      let changesSummary: string | undefined;
+      let groundedInCommits: { sha: string; subject: string }[] | undefined;
+      if (input.headRef) {
+        if (!project.repoUrl) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "This project has no repo connected to ground generation in" });
+        }
+        const commits = await getCommitLog(project.repoUrl, input.baseRef ?? project.defaultBranch, input.headRef);
+        if (commits.length === 0) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: `No commits found between ${input.baseRef ?? project.defaultBranch} and ${input.headRef}`,
+          });
+        }
+        groundedInCommits = commits;
+        changesSummary = commits.map((c) => `- ${c.sha} ${c.subject}`).join("\n");
+      }
+
       try {
         await chargeAiCredits(ctx.prisma, project.organizationId, "generateQaStrategyDraft");
       } catch (e) {
@@ -312,13 +348,15 @@ export const testPlansRouter = router({
       const testTypeCounts = Object.fromEntries(testTypeGroups.map((g) => [g.testType, g._count]));
       const frameworksInUse = frameworkGroups.map((g) => g.frameworkFamily);
 
-      return generateQaStrategyDraft({
+      const draft = await generateQaStrategyDraft({
         projectName: project.name,
         prompt: input.prompt,
         frameworksInUse,
         testTypeCounts,
         totalTestCases,
+        changesSummary,
       });
+      return { ...draft, groundedInCommits };
     }),
 
   // P4-03: rule-based risk-area suggestions, cross-referencing structured

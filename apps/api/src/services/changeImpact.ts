@@ -73,6 +73,46 @@ export async function getChangedFiles(repoUrl: string, baseRef: string, headRef:
   }
 }
 
+// 2026-08-28: "what's actually shipping in this build/release" - a
+// direct, real-data-grounded alternative to a free-text prompt for QA
+// strategy generation (P4-02). A plain `git log` between two refs rather
+// than hitting a provider-specific PR API: for the common GitHub-flow
+// case (squash-merge on PR merge) each commit subject already IS the PR
+// title, and this works identically for any git host, not just GitHub -
+// no installation/API-token dependency the way P6-01's PR scanning has.
+// Capped at a reasonable count so an enormous range (e.g. base
+// accidentally left at the very first commit) doesn't blow past a
+// reasonable prompt size.
+const MAX_COMMITS = 200;
+
+export interface CommitLogEntry {
+  sha: string;
+  subject: string;
+}
+
+export async function getCommitLog(repoUrl: string, baseRef: string, headRef: string): Promise<CommitLogEntry[]> {
+  const { dir, cleanup } = await cloneFullRepo(repoUrl);
+  try {
+    const resolvedBase = await resolveRef(dir, baseRef);
+    const resolvedHead = await resolveRef(dir, headRef);
+    const { stdout } = await execFileAsync(
+      "git",
+      ["log", "--no-merges", `--max-count=${MAX_COMMITS}`, "--pretty=format:%h%x09%s", `${resolvedBase}..${resolvedHead}`],
+      { cwd: dir },
+    );
+    return stdout
+      .split("\n")
+      .map((line) => line.trim())
+      .filter(Boolean)
+      .map((line) => {
+        const [sha, ...rest] = line.split("\t");
+        return { sha: sha ?? "", subject: rest.join("\t") };
+      });
+  } finally {
+    await cleanup();
+  }
+}
+
 // P6-04: the actual patch content (not just file names) -- what "AI-
 // assisted test plan recommendation" needs, since deciding whether a
 // change is behaviorally significant enough to warrant a new test case
