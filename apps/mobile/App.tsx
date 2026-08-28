@@ -62,6 +62,7 @@ function TestCaseBrowser() {
   }, [getToken]);
 
   const [projectId, setProjectId] = useState("");
+  const [view, setView] = useState<"cases" | "releases">("cases");
   const [cases, setCases] = useState<Awaited<ReturnType<typeof trpc.testCases.list.query>>>([]);
   const [error, setError] = useState<string | null>(null);
   const [openCaseId, setOpenCaseId] = useState<string | null>(null);
@@ -115,20 +116,87 @@ function TestCaseBrowser() {
         value={projectId}
         onChangeText={setProjectId}
       />
+      <View style={{ flexDirection: "row", gap: 8, marginBottom: 12 }}>
+        <Button title="Test Cases" onPress={() => setView("cases")} disabled={view === "cases"} />
+        <Button title="Releases" onPress={() => setView("releases")} disabled={view === "releases"} />
+      </View>
       {error && <Text style={{ color: "crimson" }}>{error}</Text>}
-      {showingCached && !error && <Text style={styles.rowMeta}>Showing cached data - couldn&apos;t reach the server.</Text>}
-      <ScrollView>
-        {cases.map((tc) => (
-          <Pressable key={tc.id} style={styles.row} onPress={() => setOpenCaseId(tc.id)}>
-            <Text style={styles.rowTitle}>{tc.title}</Text>
-            <Text style={styles.rowMeta}>
-              {tc.testType} {tc.origin === "AI_REVERSE_ENGINEERED" ? "· AI-reversed" : ""}
-            </Text>
-          </Pressable>
-        ))}
-      </ScrollView>
+      {view === "cases" && (
+        <>
+          {showingCached && !error && <Text style={styles.rowMeta}>Showing cached data - couldn&apos;t reach the server.</Text>}
+          <ScrollView>
+            {cases.map((tc) => (
+              <Pressable key={tc.id} style={styles.row} onPress={() => setOpenCaseId(tc.id)}>
+                <Text style={styles.rowTitle}>{tc.title}</Text>
+                <Text style={styles.rowMeta}>
+                  {tc.testType} {tc.origin === "AI_REVERSE_ENGINEERED" ? "· AI-reversed" : ""}
+                </Text>
+              </Pressable>
+            ))}
+          </ScrollView>
+        </>
+      )}
+      {view === "releases" && <ReleaseReadinessList projectId={projectId} />}
       <TestCaseDetailModal id={openCaseId} onClose={() => setOpenCaseId(null)} onChanged={loadCases} />
     </SafeAreaView>
+  );
+}
+
+// P8-03: the highest-value mobile use case for release readiness is
+// "check status from your phone," not full authoring - a plain read-only
+// list, no status/criteria/risk-flag mutation anywhere here. Reuses
+// releases.list exactly as the web releases page's summary view does
+// (score/label/criteria counts/open risk flags in one call), so this can
+// never disagree with what the web dashboard shows for the same release.
+const READINESS_COLOR: Record<string, string> = { READY: "#2e7d32", AT_RISK: "#b8860b", BLOCKED: "#c62828" };
+
+function ReleaseReadinessList({ projectId }: { projectId: string }) {
+  const [releases, setReleases] = useState<Awaited<ReturnType<typeof trpc.releases.list.query>>>([]);
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    if (!projectId) return;
+    setLoading(true);
+    setError(null);
+    trpc.releases.list
+      .query({ projectId })
+      .then(setReleases)
+      .catch((e) => setError(e instanceof Error ? e.message : String(e)))
+      .finally(() => setLoading(false));
+  }, [projectId]);
+
+  if (loading) return <Text>Loading…</Text>;
+  if (error) return <Text style={{ color: "crimson" }}>{error}</Text>;
+
+  return (
+    <ScrollView>
+      {releases.map((r) => (
+        <View key={r.id} style={styles.row}>
+          <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
+            <Text style={styles.rowTitle}>{r.name}</Text>
+            <Text style={{ color: READINESS_COLOR[r.readiness.label] ?? "#666", fontWeight: "700" }}>
+              {r.readiness.score}/100 · {r.readiness.label}
+            </Text>
+          </View>
+          <Text style={styles.rowMeta}>
+            {r.status}
+            {r.targetDate && ` · target ${new Date(r.targetDate).toLocaleDateString()}`}
+          </Text>
+          <Text style={styles.rowMeta}>
+            {r.readiness.criteria.met} met · {r.readiness.criteria.atRisk} at risk · {r.readiness.criteria.notMet} not met ·{" "}
+            {r.readiness.criteria.pending} pending
+          </Text>
+          {r.readiness.riskFlags.openTotal > 0 && (
+            <Text style={[styles.rowMeta, { color: "#c62828" }]}>
+              {r.readiness.riskFlags.openTotal} open risk flag{r.readiness.riskFlags.openTotal === 1 ? "" : "s"}
+              {r.readiness.riskFlags.critical > 0 && ` (${r.readiness.riskFlags.critical} critical)`}
+            </Text>
+          )}
+        </View>
+      ))}
+      {releases.length === 0 && <Text style={styles.rowMeta}>No releases in this project yet.</Text>}
+    </ScrollView>
   );
 }
 
