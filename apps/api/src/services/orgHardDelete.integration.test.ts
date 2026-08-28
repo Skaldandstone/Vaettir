@@ -47,10 +47,10 @@ async function seedEverything() {
   await prisma.testPlanVersion.create({
     data: { testPlanId: testPlan.id, versionNumber: 1, name: "plan 1", status: "DRAFT", customFields: {}, createdById: owner.id },
   });
-  const acceptanceCriterion = await prisma.acceptanceCriterion.create({
+  await prisma.acceptanceCriterion.create({
     data: { testPlanId: testPlan.id, requirementId: requirement.id, description: "criterion 1" },
   });
-  const sharedStepGroup = await prisma.sharedStepGroup.create({ data: { projectId: project.id, name: "shared 1", steps: [], createdById: owner.id } });
+  await prisma.sharedStepGroup.create({ data: { projectId: project.id, name: "shared 1", steps: [], createdById: owner.id } });
 
   const testCase = await prisma.testCase.create({
     data: {
@@ -76,7 +76,7 @@ async function seedEverything() {
     data: { testCaseId: testCase.id, fileName: "f.png", contentType: "image/png", storageUrl: "s3://x", sizeBytes: 10, uploadedById: owner.id },
   });
 
-  const riskFlag = await prisma.riskFlag.create({
+  await prisma.riskFlag.create({
     data: { releaseId: release.id, severity: "MEDIUM", source: "MANUAL_FLAG", description: "risk 1", createdById: owner.id, updatedById: owner.id },
   });
 

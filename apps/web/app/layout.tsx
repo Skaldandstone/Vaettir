@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import Link from "next/link";
 import { ClerkProvider, SignedIn, SignedOut, SignInButton, SignUpButton, UserButton } from "@clerk/nextjs";
 import { RuneMark } from "../components/RuneMark";
 import { ThemeToggle } from "../components/ThemeToggle";
@@ -29,10 +30,10 @@ export default function RootLayout({ children }: { children: ReactNode }) {
         <body>
           <nav className="app-nav">
             <div className="app-nav-inner">
-              <a href="/" className="brand">
+              <Link href="/" className="brand">
                 <RuneMark />
                 vaettir
-              </a>
+              </Link>
               <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 12 }}>
                 <ThemeToggle />
                 <SignedOut>

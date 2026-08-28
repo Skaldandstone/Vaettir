@@ -10,7 +10,8 @@
     "generate": "prisma generate",
     "migrate": "prisma migrate dev",
     "studio": "prisma studio",
-    "seed": "tsx prisma/seed.ts"
+    "seed": "tsx prisma/seed.ts",
+    "lint": "eslint ."
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"

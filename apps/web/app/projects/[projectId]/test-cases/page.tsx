@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { trpc, type RouterOutputs } from "@/lib/trpc";
 import { TestCaseTree, filterCasesByPath, collectKnownSuitePaths, UNASSIGNED } from "@/components/TestCaseTree";
@@ -9,8 +10,6 @@ import { Modal } from "@/components/Modal";
 import { TestCaseDetailContent } from "@/components/TestCaseDetailContent";
 import { isReadOnlySeat } from "@/lib/membership";
 import { downloadCsv } from "@/lib/csv";
-
-type Case = RouterOutputs["testCases"]["list"][number];
 
 const TEST_TYPES = [
   "UNIT", "FUNCTIONAL", "CONTRACT", "INSTRUMENTATION", "SMOKE", "SANITY",
@@ -388,7 +387,7 @@ export default function TestCasesPage() {
             </>
           ) : (
             <p className="text-muted" style={{ fontSize: 13 }}>
-              Connect a repo on the <a href="/projects">project settings</a> page and scan it, or type a title below.
+              Connect a repo on the <Link href="/projects">project settings</Link> page and scan it, or type a title below.
             </p>
           )}
           <div style={{ marginTop: 12 }}>

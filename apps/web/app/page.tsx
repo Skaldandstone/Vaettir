@@ -1,3 +1,5 @@
+import Link from "next/link";
+
 export default function HomePage() {
   return (
     <div>
@@ -12,9 +14,9 @@ export default function HomePage() {
       </p>
 
       <div style={{ display: "flex", gap: 10, marginTop: 24 }}>
-        <a className="btn-primary" href="/projects">
+        <Link className="btn-primary" href="/projects">
           Go to projects
-        </a>
+        </Link>
       </div>
     </div>
   );

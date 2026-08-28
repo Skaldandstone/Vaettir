@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { trpc, type RouterOutputs } from "../lib/trpc";
 import { GlobalSearch } from "./GlobalSearch";
@@ -57,9 +58,9 @@ function ProjectSidebar({ projectId }: { projectId: string }) {
   return (
     <aside className="app-sidebar">
       <div className="sidebar-group">
-        <a href="/projects" className="sidebar-back">
+        <Link href="/projects" className="sidebar-back">
           &larr; All projects
-        </a>
+        </Link>
         <select
           className="sidebar-project-switcher"
           value={projectId}

@@ -36,7 +36,6 @@ export default function AdminOrgSearchPage() {
 
   useEffect(() => {
     load();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   if (forbidden) return <p>Staff access required. This account isn&apos;t recognized as Skald &amp; Stone staff.</p>;
