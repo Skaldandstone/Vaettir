@@ -6,6 +6,7 @@ import { trpc, type RouterOutputs } from "@/lib/trpc";
 import { Modal } from "@/components/Modal";
 import { Drawer } from "@/components/Drawer";
 import { downloadCsv } from "@/lib/csv";
+import { isReadOnlySeat } from "@/lib/membership";
 
 // P3-02: minimal RFC 4180 CSV parser (quoted fields, embedded commas,
 // escaped quotes as "") - the inverse of csvField/downloadCsv above.
@@ -76,9 +77,11 @@ function parseControlsCsv(text: string): { code: string; title: string; descript
 function ControlEvidenceDrawer({
   projectId,
   control,
+  readOnly = false,
 }: {
   projectId: string;
   control: RouterOutputs["compliance"]["controlCoverage"][number];
+  readOnly?: boolean;
 }) {
   const [evidence, setEvidence] = useState<RouterOutputs["compliance"]["listEvidence"]>([]);
   const [signOffs, setSignOffs] = useState<RouterOutputs["compliance"]["listSignOffs"]>([]);
@@ -152,29 +155,33 @@ function ControlEvidenceDrawer({
         ))}
         {evidence.length === 0 && <p className="text-muted" style={{ fontSize: 13 }}>No evidence recorded yet.</p>}
       </ul>
-      <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 24 }}>
-        <select value={evidenceTestCaseId} onChange={(e) => setEvidenceTestCaseId(e.target.value)} style={{ fontSize: 12 }}>
-          <option value="">Pick a mapped test case…</option>
-          {mappedCases.map((tc) => (
-            <option key={tc.id} value={tc.id}>
-              {tc.title}
-            </option>
-          ))}
-        </select>
-        <input
-          value={evidenceNote}
-          onChange={(e) => setEvidenceNote(e.target.value)}
-          placeholder="Optional note"
-          style={{ fontSize: 12, flex: 1 }}
-        />
-        <button className="btn-secondary" style={{ fontSize: 12 }} onClick={recordEvidence} disabled={recordingEvidence || !evidenceTestCaseId}>
-          Record evidence
-        </button>
-      </div>
-      {mappedCases.length === 0 && (
-        <p className="text-muted" style={{ fontSize: 12, marginTop: -16, marginBottom: 24 }}>
-          Map a test case to this control first before recording evidence against it.
-        </p>
+      {!readOnly && (
+        <>
+          <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 24 }}>
+            <select value={evidenceTestCaseId} onChange={(e) => setEvidenceTestCaseId(e.target.value)} style={{ fontSize: 12 }}>
+              <option value="">Pick a mapped test case…</option>
+              {mappedCases.map((tc) => (
+                <option key={tc.id} value={tc.id}>
+                  {tc.title}
+                </option>
+              ))}
+            </select>
+            <input
+              value={evidenceNote}
+              onChange={(e) => setEvidenceNote(e.target.value)}
+              placeholder="Optional note"
+              style={{ fontSize: 12, flex: 1 }}
+            />
+            <button className="btn-secondary" style={{ fontSize: 12 }} onClick={recordEvidence} disabled={recordingEvidence || !evidenceTestCaseId}>
+              Record evidence
+            </button>
+          </div>
+          {mappedCases.length === 0 && (
+            <p className="text-muted" style={{ fontSize: 12, marginTop: -16, marginBottom: 24 }}>
+              Map a test case to this control first before recording evidence against it.
+            </p>
+          )}
+        </>
       )}
 
       <h3 style={{ marginBottom: 6 }}>Sign-offs</h3>
@@ -188,28 +195,30 @@ function ControlEvidenceDrawer({
         ))}
         {signOffs.length === 0 && <p className="text-muted" style={{ fontSize: 13 }}>No sign-offs yet.</p>}
       </ul>
-      <div style={{ display: "grid", gap: 8, maxWidth: 420 }}>
-        <input value={signOffPeriod} onChange={(e) => setSignOffPeriod(e.target.value)} placeholder="Period (e.g. 2026-Q3)" style={{ fontSize: 12 }} />
-        <textarea
-          value={signOffStatement}
-          onChange={(e) => setSignOffStatement(e.target.value)}
-          placeholder="Attestation statement"
-          rows={3}
-          style={{ fontSize: 12 }}
-        />
-        <button
-          className="btn-primary"
-          style={{ fontSize: 12, width: "fit-content" }}
-          onClick={signOff}
-          disabled={signingOff || !signOffPeriod.trim() || !signOffStatement.trim()}
-        >
-          Sign off
-        </button>
-        <p className="text-muted" style={{ fontSize: 11, margin: 0 }}>
-          Requires the Compliance Auditor role (or an org Admin/Owner).
-        </p>
-        {signOffError && <p style={{ color: "var(--ember)", fontSize: 12 }}>{signOffError}</p>}
-      </div>
+      {!readOnly && (
+        <div style={{ display: "grid", gap: 8, maxWidth: 420 }}>
+          <input value={signOffPeriod} onChange={(e) => setSignOffPeriod(e.target.value)} placeholder="Period (e.g. 2026-Q3)" style={{ fontSize: 12 }} />
+          <textarea
+            value={signOffStatement}
+            onChange={(e) => setSignOffStatement(e.target.value)}
+            placeholder="Attestation statement"
+            rows={3}
+            style={{ fontSize: 12 }}
+          />
+          <button
+            className="btn-primary"
+            style={{ fontSize: 12, width: "fit-content" }}
+            onClick={signOff}
+            disabled={signingOff || !signOffPeriod.trim() || !signOffStatement.trim()}
+          >
+            Sign off
+          </button>
+          <p className="text-muted" style={{ fontSize: 11, margin: 0 }}>
+            Requires the Compliance Auditor role (or an org Admin/Owner).
+          </p>
+          {signOffError && <p style={{ color: "var(--ember)", fontSize: 12 }}>{signOffError}</p>}
+        </div>
+      )}
     </div>
   );
 }
@@ -218,10 +227,12 @@ function ControlRow({
   projectId,
   control,
   onChanged,
+  readOnly = false,
 }: {
   projectId: string;
   control: RouterOutputs["compliance"]["controlCoverage"][number];
   onChanged: () => void;
+  readOnly?: boolean;
 }) {
   const [picking, setPicking] = useState(false);
   const [candidates, setCandidates] = useState<RouterOutputs["compliance"]["unmappedTestCases"]>([]);
@@ -270,34 +281,35 @@ function ControlRow({
             {control.mappedTestCaseCount} mapped
           </span>
         )}
-        {picking ? (
-          <>
-            <select value={selected} onChange={(e) => setSelected(e.target.value)} style={{ fontSize: 12 }}>
-              <option value="">Pick a test case…</option>
-              {candidates.map((tc) => (
-                <option key={tc.id} value={tc.id}>
-                  {tc.title}
-                </option>
-              ))}
-            </select>
-            <button className="btn-secondary" style={{ fontSize: 12 }} onClick={map} disabled={busy || !selected}>
-              Map
+        {!readOnly &&
+          (picking ? (
+            <>
+              <select value={selected} onChange={(e) => setSelected(e.target.value)} style={{ fontSize: 12 }}>
+                <option value="">Pick a test case…</option>
+                {candidates.map((tc) => (
+                  <option key={tc.id} value={tc.id}>
+                    {tc.title}
+                  </option>
+                ))}
+              </select>
+              <button className="btn-secondary" style={{ fontSize: 12 }} onClick={map} disabled={busy || !selected}>
+                Map
+              </button>
+              <button className="btn-secondary" style={{ fontSize: 12 }} onClick={() => setPicking(false)}>
+                Cancel
+              </button>
+            </>
+          ) : (
+            <button className="btn-secondary" style={{ fontSize: 12 }} onClick={openPicker}>
+              + Map a test case
             </button>
-            <button className="btn-secondary" style={{ fontSize: 12 }} onClick={() => setPicking(false)}>
-              Cancel
-            </button>
-          </>
-        ) : (
-          <button className="btn-secondary" style={{ fontSize: 12 }} onClick={openPicker}>
-            + Map a test case
-          </button>
-        )}
+          ))}
         <button className="btn-secondary" style={{ fontSize: 12 }} onClick={() => setDrawerOpen(true)}>
           Evidence & sign-off
         </button>
       </div>
       <Drawer open={drawerOpen} onClose={() => setDrawerOpen(false)}>
-        <ControlEvidenceDrawer projectId={projectId} control={control} />
+        <ControlEvidenceDrawer projectId={projectId} control={control} readOnly={readOnly} />
       </Drawer>
     </li>
   );
@@ -327,6 +339,15 @@ export default function CompliancePage() {
   const [importCsvText, setImportCsvText] = useState("");
   const [importing, setImporting] = useState(false);
   const [importResult, setImportResult] = useState<{ createdCount: number; skippedCount: number } | null>(null);
+
+  const [readOnly, setReadOnly] = useState(false);
+  useEffect(() => {
+    trpc.project.byId
+      .query({ id: projectId })
+      .then((p) => trpc.organization.mine.query().then((orgs) => orgs.find((o) => o.id === p.organizationId)))
+      .then((org) => setReadOnly(isReadOnlySeat(org?.seatType)))
+      .catch(() => undefined);
+  }, [projectId]);
 
   function loadFrameworks() {
     setLoading(true);
@@ -464,9 +485,11 @@ export default function CompliancePage() {
     <div style={{ maxWidth: 800 }}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 4 }}>
         <h1 style={{ margin: 0 }}>Compliance</h1>
-        <button className="btn-primary" onClick={() => setFrameworkModalOpen(true)}>
-          + New framework
-        </button>
+        {!readOnly && (
+          <button className="btn-primary" onClick={() => setFrameworkModalOpen(true)}>
+            + New framework
+          </button>
+        )}
       </div>
       <p className="text-muted" style={{ marginBottom: 20 }}>
         Which controls have test coverage in this project, and which don&apos;t yet.
@@ -508,19 +531,23 @@ export default function CompliancePage() {
               <button className="btn-secondary" style={{ fontSize: 13 }} onClick={exportCsv} disabled={exporting || controls.length === 0}>
                 {exporting ? "Exporting…" : "Export CSV"}
               </button>
-              <button
-                className="btn-secondary"
-                style={{ fontSize: 13 }}
-                onClick={() => {
-                  setImportResult(null);
-                  setImportModalOpen(true);
-                }}
-              >
-                Import controls
-              </button>
-              <button className="btn-secondary" style={{ fontSize: 13 }} onClick={() => setControlModalOpen(true)}>
-                + Add control
-              </button>
+              {!readOnly && (
+                <>
+                  <button
+                    className="btn-secondary"
+                    style={{ fontSize: 13 }}
+                    onClick={() => {
+                      setImportResult(null);
+                      setImportModalOpen(true);
+                    }}
+                  >
+                    Import controls
+                  </button>
+                  <button className="btn-secondary" style={{ fontSize: 13 }} onClick={() => setControlModalOpen(true)}>
+                    + Add control
+                  </button>
+                </>
+              )}
             </div>
           </div>
           {controls.length > 0 && (
@@ -531,7 +558,7 @@ export default function CompliancePage() {
           )}
           <ul style={{ listStyle: "none", padding: 0 }}>
             {controls.map((c) => (
-              <ControlRow key={c.id} projectId={projectId} control={c} onChanged={loadControls} />
+              <ControlRow key={c.id} projectId={projectId} control={c} onChanged={loadControls} readOnly={readOnly} />
             ))}
             {controls.length === 0 && (
               <p className="text-muted">No controls on this framework yet — add one above.</p>

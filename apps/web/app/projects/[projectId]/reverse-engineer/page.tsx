@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import { trpc, type RouterOutputs } from "@/lib/trpc";
+import { isReadOnlySeat } from "@/lib/membership";
 
 const ACTIVE_JOB_STATUSES = new Set(["PENDING", "RUNNING"]);
 
@@ -124,6 +125,15 @@ export default function ReverseEngineerPage() {
   const [inferred, setInferred] = useState<RouterOutputs["agent"]["inferCustomFrameworkHeuristic"] | null>(null);
   const [savingHeuristic, setSavingHeuristic] = useState(false);
   const [heuristicError, setHeuristicError] = useState<string | null>(null);
+
+  const [readOnly, setReadOnly] = useState(false);
+  useEffect(() => {
+    trpc.project.byId
+      .query({ id: projectId })
+      .then((p) => trpc.organization.mine.query().then((orgs) => orgs.find((o) => o.id === p.organizationId)))
+      .then((org) => setReadOnly(isReadOnlySeat(org?.seatType)))
+      .catch(() => undefined);
+  }, [projectId]);
 
   function loadHeuristics() {
     trpc.agent.listCustomFrameworkHeuristics.query({ projectId }).then(setHeuristics).catch(() => undefined);
@@ -293,6 +303,14 @@ export default function ReverseEngineerPage() {
       <h1>Reverse-engineer a test into BDD</h1>
       <p>Paste an automated test file (any framework) and get back human-readable Given/When/Then test cases.</p>
 
+      {readOnly && (
+        <p className="text-muted" style={{ fontSize: 13 }}>
+          You have read-only access to this organization — reverse-engineering and importing is hidden.
+        </p>
+      )}
+
+      {!readOnly && (
+      <>
       <div
         style={{
           display: "grid",
@@ -607,6 +625,8 @@ export default function ReverseEngineerPage() {
           </div>
         )}
       </div>
+      </>
+      )}
 
       {error && <p style={{ color: "var(--ember)" }}>{error}</p>}
 
