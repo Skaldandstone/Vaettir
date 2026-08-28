@@ -1,5 +1,6 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { z } from "zod";
+import { traceAnthropicCall } from "./tracing.js";
 
 const MODEL = "claude-sonnet-5";
 
@@ -98,24 +99,26 @@ export interface GenerateTestCasesFromRequirementInput {
 export async function generateTestCasesFromRequirement(
   input: GenerateTestCasesFromRequirementInput,
 ): Promise<DraftTestCase[]> {
-  const message = await getClient().messages.create({
-    model: MODEL,
-    max_tokens: 2048,
-    system: SYSTEM_PROMPT,
-    tools: [EMIT_TOOL],
-    tool_choice: { type: "tool", name: "emit_draft_test_cases" },
-    messages: [
-      {
-        role: "user",
-        content: `Project: ${input.projectName}
+  const message = await traceAnthropicCall("generateTestCasesFromRequirement", MODEL, () =>
+    getClient().messages.create({
+      model: MODEL,
+      max_tokens: 2048,
+      system: SYSTEM_PROMPT,
+      tools: [EMIT_TOOL],
+      tool_choice: { type: "tool", name: "emit_draft_test_cases" },
+      messages: [
+        {
+          role: "user",
+          content: `Project: ${input.projectName}
 
 Requirement: ${input.requirementTitle}
 ${input.requirementDescription ? `\nDescription:\n${input.requirementDescription}` : ""}
 
 Draft BDD test cases covering this requirement.`,
-      },
-    ],
-  });
+        },
+      ],
+    }),
+  );
 
   const toolUse = message.content.find((block): block is Anthropic.ToolUseBlock => block.type === "tool_use");
   if (!toolUse) {

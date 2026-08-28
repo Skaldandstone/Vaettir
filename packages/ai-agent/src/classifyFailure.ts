@@ -1,4 +1,5 @@
 import Anthropic from "@anthropic-ai/sdk";
+import { traceAnthropicCall } from "./tracing.js";
 
 const MODEL = "claude-sonnet-5";
 
@@ -77,19 +78,21 @@ function truncate(content: string): string {
 }
 
 export async function classifyTestFailure(input: ClassifyFailureInput): Promise<FailureClassification> {
-  const message = await getClient().messages.create({
-    model: MODEL,
-    max_tokens: 2048,
-    system: SYSTEM_PROMPT,
-    tools: [CLASSIFY_FAILURE_TOOL],
-    tool_choice: { type: "tool", name: "emit_failure_classification" },
-    messages: [
-      {
-        role: "user",
-        content: `Test: ${input.testTitle}\nFile: ${input.filePath}\nError: ${input.errorMessage ?? "(no error message captured)"}\n\n--- Source at last PASS ---\n${truncate(input.sourceAtLastPass)}\n\n--- Source at this FAILURE ---\n${truncate(input.sourceAtFailure)}\n\nClassify this failure.`,
-      },
-    ],
-  });
+  const message = await traceAnthropicCall("classifyTestFailure", MODEL, () =>
+    getClient().messages.create({
+      model: MODEL,
+      max_tokens: 2048,
+      system: SYSTEM_PROMPT,
+      tools: [CLASSIFY_FAILURE_TOOL],
+      tool_choice: { type: "tool", name: "emit_failure_classification" },
+      messages: [
+        {
+          role: "user",
+          content: `Test: ${input.testTitle}\nFile: ${input.filePath}\nError: ${input.errorMessage ?? "(no error message captured)"}\n\n--- Source at last PASS ---\n${truncate(input.sourceAtLastPass)}\n\n--- Source at this FAILURE ---\n${truncate(input.sourceAtFailure)}\n\nClassify this failure.`,
+        },
+      ],
+    }),
+  );
 
   const toolUse = message.content.find((block): block is Anthropic.ToolUseBlock => block.type === "tool_use");
   if (!toolUse) {

@@ -1,5 +1,6 @@
 import { z } from "zod";
 import Anthropic from "@anthropic-ai/sdk";
+import { traceAnthropicCall } from "./tracing.js";
 
 const MODEL = "claude-sonnet-5";
 
@@ -68,19 +69,21 @@ export interface HeuristicInferenceInput {
 export async function inferCustomFrameworkHeuristic(input: HeuristicInferenceInput): Promise<InferredHeuristic> {
   const filesText = input.files.map((f) => `--- ${f.filePath} ---\n${f.content}`).join("\n\n");
 
-  const message = await getClient().messages.create({
-    model: MODEL,
-    max_tokens: 2048,
-    system: SYSTEM_PROMPT,
-    tools: [EMIT_HEURISTIC_TOOL],
-    tool_choice: { type: "tool", name: "emit_framework_heuristic" },
-    messages: [
-      {
-        role: "user",
-        content: `Here are ${input.files.length} example test files from the same custom framework:\n\n${filesText}\n\nInfer the reusable structural pattern.`,
-      },
-    ],
-  });
+  const message = await traceAnthropicCall("inferCustomFrameworkHeuristic", MODEL, () =>
+    getClient().messages.create({
+      model: MODEL,
+      max_tokens: 2048,
+      system: SYSTEM_PROMPT,
+      tools: [EMIT_HEURISTIC_TOOL],
+      tool_choice: { type: "tool", name: "emit_framework_heuristic" },
+      messages: [
+        {
+          role: "user",
+          content: `Here are ${input.files.length} example test files from the same custom framework:\n\n${filesText}\n\nInfer the reusable structural pattern.`,
+        },
+      ],
+    }),
+  );
 
   const toolUse = message.content.find((block): block is Anthropic.ToolUseBlock => block.type === "tool_use");
   if (!toolUse) {

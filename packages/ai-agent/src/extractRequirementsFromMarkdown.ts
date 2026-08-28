@@ -1,5 +1,6 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { z } from "zod";
+import { traceAnthropicCall } from "./tracing.js";
 
 const MODEL = "claude-sonnet-5";
 
@@ -72,19 +73,21 @@ Rules:
 - Always call the emit_draft_requirements tool. Do not respond in plain text.`;
 
 export async function extractRequirementsFromMarkdown(content: string, sourceLabel: string): Promise<DraftRequirement[]> {
-  const message = await getClient().messages.create({
-    model: MODEL,
-    max_tokens: 4096,
-    system: SYSTEM_PROMPT,
-    tools: [EMIT_TOOL],
-    tool_choice: { type: "tool", name: "emit_draft_requirements" },
-    messages: [
-      {
-        role: "user",
-        content: `Source document: ${sourceLabel}\n\n${content.slice(0, MAX_MARKDOWN_CHARS)}`,
-      },
-    ],
-  });
+  const message = await traceAnthropicCall("extractRequirementsFromMarkdown", MODEL, () =>
+    getClient().messages.create({
+      model: MODEL,
+      max_tokens: 4096,
+      system: SYSTEM_PROMPT,
+      tools: [EMIT_TOOL],
+      tool_choice: { type: "tool", name: "emit_draft_requirements" },
+      messages: [
+        {
+          role: "user",
+          content: `Source document: ${sourceLabel}\n\n${content.slice(0, MAX_MARKDOWN_CHARS)}`,
+        },
+      ],
+    }),
+  );
 
   const toolUse = message.content.find((block): block is Anthropic.ToolUseBlock => block.type === "tool_use");
   if (!toolUse) {

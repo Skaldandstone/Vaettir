@@ -1,5 +1,6 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { TestCaseRiskAssessmentSchema, RiskSeveritySchema, type TestCaseRiskAssessment } from "@vaettir/core";
+import { traceAnthropicCall } from "./tracing.js";
 
 const MODEL = "claude-sonnet-5";
 
@@ -64,19 +65,21 @@ export async function assessTestCaseRisk(input: AssessRiskInput): Promise<TestCa
     ...input.then.map((s) => `Then ${s}`),
   ].join("\n");
 
-  const message = await getClient().messages.create({
-    model: MODEL,
-    max_tokens: 1024,
-    system: SYSTEM_PROMPT,
-    tools: [EMIT_RISK_ASSESSMENT_TOOL],
-    tool_choice: { type: "tool", name: "emit_risk_assessment" },
-    messages: [
-      {
-        role: "user",
-        content: `Title: ${input.title}\nType: ${input.testType}${input.sourceFilePath ? `\nSource: ${input.sourceFilePath}` : ""}\n\n${bdd}\n\nAssess the risk of this test case.`,
-      },
-    ],
-  });
+  const message = await traceAnthropicCall("assessTestCaseRisk", MODEL, () =>
+    getClient().messages.create({
+      model: MODEL,
+      max_tokens: 1024,
+      system: SYSTEM_PROMPT,
+      tools: [EMIT_RISK_ASSESSMENT_TOOL],
+      tool_choice: { type: "tool", name: "emit_risk_assessment" },
+      messages: [
+        {
+          role: "user",
+          content: `Title: ${input.title}\nType: ${input.testType}${input.sourceFilePath ? `\nSource: ${input.sourceFilePath}` : ""}\n\n${bdd}\n\nAssess the risk of this test case.`,
+        },
+      ],
+    }),
+  );
 
   const toolUse = message.content.find((block): block is Anthropic.ToolUseBlock => block.type === "tool_use");
   if (!toolUse) {

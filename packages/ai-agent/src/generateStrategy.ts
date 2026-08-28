@@ -1,5 +1,6 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { z } from "zod";
+import { traceAnthropicCall } from "./tracing.js";
 
 const MODEL = "claude-sonnet-5";
 
@@ -98,16 +99,17 @@ export async function generateQaStrategyDraft(input: GenerateQaStrategyInput): P
     .map(([type, count]) => `- ${type}: ${count}`)
     .join("\n");
 
-  const message = await getClient().messages.create({
-    model: MODEL,
-    max_tokens: 1536,
-    system: SYSTEM_PROMPT,
-    tools: [EMIT_STRATEGY_TOOL],
-    tool_choice: { type: "tool", name: "emit_qa_strategy_draft" },
-    messages: [
-      {
-        role: "user",
-        content: `Project: ${input.projectName}
+  const message = await traceAnthropicCall("generateQaStrategyDraft", MODEL, () =>
+    getClient().messages.create({
+      model: MODEL,
+      max_tokens: 1536,
+      system: SYSTEM_PROMPT,
+      tools: [EMIT_STRATEGY_TOOL],
+      tool_choice: { type: "tool", name: "emit_qa_strategy_draft" },
+      messages: [
+        {
+          role: "user",
+          content: `Project: ${input.projectName}
 Total existing test cases: ${input.totalTestCases}
 Test frameworks in use: ${input.frameworksInUse.length > 0 ? input.frameworksInUse.join(", ") : "none detected yet"}
 Existing coverage by test type:
@@ -116,9 +118,10 @@ ${coverageLines || "(no test cases yet)"}
 What's changing or shipping: ${input.prompt}
 ${input.changesSummary ? `\nReal commit log for this build/release:\n${input.changesSummary}\n` : ""}
 Draft a starter QA strategy for this.`,
-      },
-    ],
-  });
+        },
+      ],
+    }),
+  );
 
   const toolUse = message.content.find((block): block is Anthropic.ToolUseBlock => block.type === "tool_use");
   if (!toolUse) {

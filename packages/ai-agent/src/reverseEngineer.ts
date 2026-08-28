@@ -9,6 +9,7 @@ import {
 import { registerJsTsEvaluators } from "./evaluators/jsTsEvaluator.js";
 import { registerPytestEvaluator } from "./evaluators/pytestEvaluator.js";
 import { registerJavaEvaluators } from "./evaluators/javaEvaluator.js";
+import { traceAnthropicCall } from "./tracing.js";
 
 // P5-11/P5-07/P5-08/P5-09/P5-10: registers every native evaluator once at
 // module load. Framework-family-specific evaluator modules each own their
@@ -172,19 +173,21 @@ export async function reverseEngineerTestFile(
 ): Promise<ReverseEngineerResult> {
   const heuristic = detectFramework(input.filePath, input.content);
 
-  const message = await getClient().messages.create({
-    model: MODEL,
-    max_tokens: 4096,
-    system: SYSTEM_PROMPT,
-    tools: [EMIT_TEST_CASES_TOOL],
-    tool_choice: { type: "tool", name: "emit_test_cases" },
-    messages: [
-      {
-        role: "user",
-        content: buildPromptContent(input.filePath, heuristic.label, heuristic.family, input.content, input.customFrameworkHint),
-      },
-    ],
-  });
+  const message = await traceAnthropicCall("reverseEngineerTestFile", MODEL, () =>
+    getClient().messages.create({
+      model: MODEL,
+      max_tokens: 4096,
+      system: SYSTEM_PROMPT,
+      tools: [EMIT_TEST_CASES_TOOL],
+      tool_choice: { type: "tool", name: "emit_test_cases" },
+      messages: [
+        {
+          role: "user",
+          content: buildPromptContent(input.filePath, heuristic.label, heuristic.family, input.content, input.customFrameworkHint),
+        },
+      ],
+    }),
+  );
 
   const toolUse = message.content.find(
     (block): block is Anthropic.ToolUseBlock => block.type === "tool_use",

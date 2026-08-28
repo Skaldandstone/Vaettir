@@ -1,5 +1,6 @@
 import { z } from "zod";
 import Anthropic from "@anthropic-ai/sdk";
+import { traceAnthropicCall } from "./tracing.js";
 
 const MODEL = "claude-sonnet-5";
 
@@ -73,19 +74,21 @@ export async function recommendTestPlansForDiff(input: RecommendTestPlansInput):
       ? input.testPlans.map((p) => `- id="${p.id}" name="${p.name}"${p.description ? `: ${p.description}` : ""}`).join("\n")
       : "(no existing test plans in this project)";
 
-  const message = await getClient().messages.create({
-    model: MODEL,
-    max_tokens: 2048,
-    system: SYSTEM_PROMPT,
-    tools: [EMIT_RECOMMENDATION_TOOL],
-    tool_choice: { type: "tool", name: "emit_test_plan_recommendation" },
-    messages: [
-      {
-        role: "user",
-        content: `Existing test plans in this project:\n${plansText}\n\nThe diff:\n\n${input.diffContent}\n\nWhich plans are relevant, and does this diff warrant new test cases?`,
-      },
-    ],
-  });
+  const message = await traceAnthropicCall("recommendTestPlansForDiff", MODEL, () =>
+    getClient().messages.create({
+      model: MODEL,
+      max_tokens: 2048,
+      system: SYSTEM_PROMPT,
+      tools: [EMIT_RECOMMENDATION_TOOL],
+      tool_choice: { type: "tool", name: "emit_test_plan_recommendation" },
+      messages: [
+        {
+          role: "user",
+          content: `Existing test plans in this project:\n${plansText}\n\nThe diff:\n\n${input.diffContent}\n\nWhich plans are relevant, and does this diff warrant new test cases?`,
+        },
+      ],
+    }),
+  );
 
   const toolUse = message.content.find((block): block is Anthropic.ToolUseBlock => block.type === "tool_use");
   if (!toolUse) {
