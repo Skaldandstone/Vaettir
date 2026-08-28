@@ -39,6 +39,17 @@ jobs:
       - name: Generate Prisma client
         run: pnpm db:generate
 
+      # P10-11: the new router integration test suite (trpc.integration.test.ts)
+      # hits a real Postgres connection and depends on the seeded PlanTier
+      # rows existing, same as local dev's actual DB already has from past
+      # `prisma migrate dev` runs -- CI's blank postgres service container
+      # needs both applied explicitly before `pnpm test` runs.
+      - name: Apply database migrations
+        run: pnpm --filter @vaettir/db exec prisma migrate deploy
+
+      - name: Seed reference data
+        run: pnpm --filter @vaettir/db run seed
+
       - name: Typecheck
         run: pnpm typecheck
 
