@@ -4,6 +4,8 @@ import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import { trpc, type RouterOutputs } from "@/lib/trpc";
 import { ReadinessBadge } from "@/components/ReadinessBadge";
+import { buildHtmlSnapshot, buildMarkdownSnapshot } from "@/lib/snapshotExport";
+import { downloadFile } from "@/lib/download";
 
 const STATUSES = ["PLANNING", "IN_TESTING", "READY", "SHIPPED", "BLOCKED"] as const;
 const CRITERION_STATUSES = ["PENDING", "MET", "AT_RISK", "NOT_MET"] as const;
@@ -19,6 +21,25 @@ export default function ReleaseReadinessPage() {
   const [attachPlanId, setAttachPlanId] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [showResolved, setShowResolved] = useState(false);
+  const [exporting, setExporting] = useState<"html" | "markdown" | null>(null);
+
+  async function exportSnapshot(format: "html" | "markdown") {
+    setExporting(format);
+    setError(null);
+    try {
+      const data = await trpc.releases.getSnapshot.query({ releaseId });
+      const safeName = data.release.name.replace(/[^a-z0-9]+/gi, "-").toLowerCase();
+      if (format === "html") {
+        downloadFile(`${safeName}-quality-snapshot.html`, buildHtmlSnapshot(data), "text/html");
+      } else {
+        downloadFile(`${safeName}-quality-snapshot.md`, buildMarkdownSnapshot(data), "text/markdown");
+      }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setExporting(null);
+    }
+  }
 
   function load() {
     setError(null);
@@ -119,10 +140,19 @@ export default function ReleaseReadinessPage() {
         <h1 style={{ margin: 0 }}>{release.name}</h1>
         <ReadinessBadge score={readiness.score} label={readiness.label} />
       </div>
-      <p className="text-muted" style={{ marginBottom: 20 }}>
+      <p className="text-muted" style={{ marginBottom: 12 }}>
         <a href={`/projects/${projectId}/test-strategy`}>← Test strategy</a>
         {release.targetDate && ` · target ${new Date(release.targetDate).toLocaleDateString()}`}
       </p>
+
+      <div style={{ display: "flex", gap: 8, marginBottom: 20 }}>
+        <button className="btn-secondary" style={{ fontSize: 13 }} onClick={() => exportSnapshot("html")} disabled={exporting !== null}>
+          {exporting === "html" ? "Exporting…" : "Export interactive HTML snapshot"}
+        </button>
+        <button className="btn-secondary" style={{ fontSize: 13 }} onClick={() => exportSnapshot("markdown")} disabled={exporting !== null}>
+          {exporting === "markdown" ? "Exporting…" : "Export Markdown snapshot"}
+        </button>
+      </div>
 
       <div className="panel" style={{ marginBottom: 20 }}>
         <div className="eyebrow">Status</div>

@@ -349,4 +349,147 @@ export const releasesRouter = router({
 
       return trend.slice(-input.limit);
     }),
+
+  // 2026-08-28 (direct user request): one call returning everything the
+  // release readiness page shows - readiness score, criteria, risk
+  // flags, and the project's trend series - so a snapshot export (HTML/
+  // Markdown, for pasting into Confluence/Notion/any wiki) renders from
+  // the exact same data the live dashboard does rather than a second,
+  // potentially-drifting code path. Reuses the same computation each of
+  // readiness/listTestPlans/listRiskFlags/trend already does; not a new
+  // formula.
+  getSnapshot: protectedProcedure
+    .input(z.object({ releaseId: z.string() }))
+    .output(
+      z.object({
+        release: z.object({ id: z.string(), name: z.string(), status: z.string(), targetDate: z.date().nullable(), projectId: z.string() }),
+        projectName: z.string(),
+        readiness: readinessOutput,
+        testPlans: z.array(
+          z.object({
+            id: z.string(),
+            name: z.string(),
+            status: z.string(),
+            testPlanType: z.object({ id: z.string(), name: z.string() }),
+            acceptanceCriteria: z.array(
+              z.object({ id: z.string(), description: z.string(), status: z.string(), autoComputed: z.boolean() }),
+            ),
+          }),
+        ),
+        riskFlags: z.array(riskFlagOutput),
+        trend: z.array(
+          z.object({
+            releaseId: z.string(),
+            name: z.string(),
+            createdAt: z.date(),
+            runCount: z.number(),
+            passRate: z.number().nullable(),
+            flakyCount: z.number(),
+            coveragePct: z.number().nullable(),
+            meanTimeToGreenMs: z.number().nullable(),
+          }),
+        ),
+        generatedAt: z.date(),
+      }),
+    )
+    .query(async ({ ctx, input }) => {
+      const release = await ctx.prisma.release.findUniqueOrThrow({ where: { id: input.releaseId } });
+      await requireProjectAccess(ctx, release.projectId);
+      const project = await ctx.prisma.project.findUniqueOrThrow({ where: { id: release.projectId }, select: { name: true } });
+
+      const [criteria, openFlags, plans, riskFlags, allReleases, runs] = await Promise.all([
+        ctx.prisma.acceptanceCriterion.findMany({
+          where: { testPlan: { releaseId: input.releaseId } },
+          select: { testPlanId: true, status: true },
+        }),
+        ctx.prisma.riskFlag.findMany({ where: { releaseId: input.releaseId, resolvedAt: null }, select: { severity: true } }),
+        ctx.prisma.testPlan.findMany({
+          where: { releaseId: input.releaseId },
+          include: { testPlanType: true, acceptanceCriteria: { orderBy: { createdAt: "asc" } } },
+          orderBy: { updatedAt: "desc" },
+        }),
+        ctx.prisma.riskFlag.findMany({
+          where: { releaseId: input.releaseId },
+          orderBy: [{ resolvedAt: "asc" }, { createdAt: "desc" }],
+        }),
+        ctx.prisma.release.findMany({
+          where: { projectId: release.projectId },
+          orderBy: { createdAt: "asc" },
+          select: { id: true, name: true, createdAt: true },
+        }),
+        ctx.prisma.testRun.findMany({
+          where: { projectId: release.projectId },
+          orderBy: { startedAt: "asc" },
+          select: {
+            startedAt: true,
+            status: true,
+            results: { select: { status: true } },
+            coverageReport: { select: { linesCovered: true, linesTotal: true } },
+          },
+        }),
+      ]);
+
+      const computedByPlan = await computeStatusesByTestPlan(ctx.prisma, [
+        ...criteria.map((c) => c.testPlanId),
+        ...plans.map((p) => p.id),
+      ]);
+
+      const readiness = computeReadiness(
+        criteria.map((c) => ({ status: computedByPlan.get(c.testPlanId) ?? c.status })),
+        openFlags,
+      );
+
+      const testPlans = plans.map((p) => {
+        const computed = computedByPlan.get(p.id) ?? null;
+        return {
+          id: p.id,
+          name: p.name,
+          status: p.status,
+          testPlanType: { id: p.testPlanType.id, name: p.testPlanType.name },
+          acceptanceCriteria: p.acceptanceCriteria.map((c) => ({
+            id: c.id,
+            description: c.description,
+            status: computed ?? c.status,
+            autoComputed: computed !== null,
+          })),
+        };
+      });
+
+      const trend = allReleases.map((r, i) => {
+        const windowStart = i === 0 ? new Date(0) : allReleases[i - 1]!.createdAt;
+        const windowRuns = runs.filter((run) => run.startedAt > windowStart && run.startedAt <= r.createdAt);
+        const allResults = windowRuns.flatMap((run) => run.results);
+        const passRate = allResults.length > 0 ? allResults.filter((res) => res.status === "PASS").length / allResults.length : null;
+        const flakyCount = allResults.filter((res) => res.status === "FLAKY").length;
+        const coverageRuns = windowRuns.filter((run) => run.coverageReport && run.coverageReport.linesTotal > 0);
+        const coveragePct =
+          coverageRuns.length > 0
+            ? (coverageRuns.reduce((sum, run) => sum + run.coverageReport!.linesCovered / run.coverageReport!.linesTotal, 0) /
+                coverageRuns.length) *
+              100
+            : null;
+        let failStreakStart: Date | null = null;
+        const greenGapsMs: number[] = [];
+        for (const run of windowRuns) {
+          if (run.status === "FAILED") {
+            failStreakStart ??= run.startedAt;
+          } else if (run.status === "PASSED" && failStreakStart) {
+            greenGapsMs.push(run.startedAt.getTime() - failStreakStart.getTime());
+            failStreakStart = null;
+          }
+        }
+        const meanTimeToGreenMs = greenGapsMs.length > 0 ? greenGapsMs.reduce((a, b) => a + b, 0) / greenGapsMs.length : null;
+        return { releaseId: r.id, name: r.name, createdAt: r.createdAt, runCount: windowRuns.length, passRate, flakyCount, coveragePct, meanTimeToGreenMs };
+      });
+
+      return {
+        release: { id: release.id, name: release.name, status: release.status, targetDate: release.targetDate, projectId: release.projectId },
+        projectName: project.name,
+        readiness,
+        testPlans,
+        riskFlags,
+        trend: trend.slice(-10),
+        generatedAt: new Date(),
+      };
+    }),
 });
