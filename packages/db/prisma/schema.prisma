@@ -62,6 +62,14 @@ model Organization {
   // change or a migration.
   stepFieldLabels Json?
 
+  // P13-05: Skald & Stone staff can suspend an org (e.g. a billing dispute,
+  // abuse investigation) without deleting anything - every requireOrgRole
+  // check rejects with FORBIDDEN while suspended, staffProcedure calls stay
+  // exempt so a suspension can actually be lifted. Reversible by design;
+  // the genuinely irreversible action is a separate hard-delete, not this.
+  suspendedAt     DateTime?
+  suspendedReason String?
+
   projects             Project[]
   memberships          Membership[]
   invitations          Invitation[]

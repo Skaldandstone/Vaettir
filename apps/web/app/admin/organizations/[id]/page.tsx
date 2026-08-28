@@ -22,6 +22,9 @@ export default function AdminOrganizationDetailPage() {
   const [busy, setBusy] = useState(false);
   const [lastInviteLink, setLastInviteLink] = useState<string | null>(null);
 
+  const [newOwnerMembershipId, setNewOwnerMembershipId] = useState("");
+  const [previousOwnerMembershipId, setPreviousOwnerMembershipId] = useState("");
+
   async function loadAll() {
     setLoading(true);
     setError(null);
@@ -90,6 +93,60 @@ export default function AdminOrganizationDetailPage() {
     }
   }
 
+  async function suspendOrg() {
+    const r = requireReason();
+    if (!r || !org) return;
+    if (!confirm(`Suspend "${org.name}"? Members will lose access to all project data until this is lifted.`)) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await trpc.admin.suspendOrganization.mutate({ organizationId, reason: r });
+      await loadAll();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function reactivateOrg() {
+    const r = requireReason();
+    if (!r) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await trpc.admin.reactivateOrganization.mutate({ organizationId, reason: r });
+      await loadAll();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function transferOwnership() {
+    const r = requireReason();
+    if (!r || !newOwnerMembershipId || !previousOwnerMembershipId) return;
+    if (!confirm("Transfer ownership? The previous owner will be demoted to Admin, not removed.")) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await trpc.admin.transferOwnership.mutate({
+        organizationId,
+        newOwnerMembershipId,
+        previousOwnerMembershipId,
+        reason: r,
+      });
+      setNewOwnerMembershipId("");
+      setPreviousOwnerMembershipId("");
+      await loadAll();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function deactivateMember(membershipId: string) {
     const r = requireReason();
     if (!r) return;
@@ -116,6 +173,13 @@ export default function AdminOrganizationDetailPage() {
       <p style={{ color: "var(--muted, #999)" }}>
         {org.slug} · created {new Date(org.createdAt).toLocaleDateString()} · retention {org.dataRetentionYears}y
       </p>
+
+      {org.suspendedAt && (
+        <p style={{ color: "var(--ember)", fontWeight: 600 }}>
+          SUSPENDED since {new Date(org.suspendedAt).toLocaleString()}
+          {org.suspendedReason && ` — ${org.suspendedReason}`}
+        </p>
+      )}
 
       {error && <p style={{ color: "var(--ember)" }}>{error}</p>}
 
@@ -199,6 +263,56 @@ export default function AdminOrganizationDetailPage() {
             Refreshed link: <code>{lastInviteLink}</code>
           </p>
         )}
+      </section>
+
+      <section style={{ margin: "20px 0" }}>
+        <h2>Ownership transfer</h2>
+        <p style={{ color: "var(--muted, #999)", fontSize: 13 }}>
+          The previous owner is demoted to Admin, not removed - this is a role swap, not a member removal.
+        </p>
+        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+          <select value={previousOwnerMembershipId} onChange={(e) => setPreviousOwnerMembershipId(e.target.value)}>
+            <option value="">Current owner…</option>
+            {org.members
+              .filter((m) => m.role === "OWNER")
+              .map((m) => (
+                <option key={m.membershipId} value={m.membershipId}>
+                  {m.email}
+                </option>
+              ))}
+          </select>
+          <span>→</span>
+          <select value={newOwnerMembershipId} onChange={(e) => setNewOwnerMembershipId(e.target.value)}>
+            <option value="">New owner…</option>
+            {org.members
+              .filter((m) => m.membershipId !== previousOwnerMembershipId)
+              .map((m) => (
+                <option key={m.membershipId} value={m.membershipId}>
+                  {m.email} ({m.role})
+                </option>
+              ))}
+          </select>
+          <button onClick={transferOwnership} disabled={busy || !newOwnerMembershipId || !previousOwnerMembershipId}>
+            Transfer
+          </button>
+        </div>
+      </section>
+
+      <section style={{ margin: "20px 0", border: "1px solid var(--ember)", borderRadius: 8, padding: 12 }}>
+        <h2 style={{ marginTop: 0, color: "var(--ember)" }}>Danger zone</h2>
+        {org.suspendedAt ? (
+          <button onClick={reactivateOrg} disabled={busy}>
+            Reactivate organization
+          </button>
+        ) : (
+          <button onClick={suspendOrg} disabled={busy} style={{ color: "var(--ember)" }}>
+            Suspend organization
+          </button>
+        )}
+        <p style={{ color: "var(--muted, #999)", fontSize: 13, marginTop: 8 }}>
+          Suspending blocks every member from project data (test cases, plans, releases, etc.) org-wide until
+          lifted. Reversible - nothing is deleted.
+        </p>
       </section>
 
       <section style={{ margin: "20px 0" }}>

@@ -80,6 +80,19 @@ export function requireOrgRole(
   return membership;
 }
 
+// P13-05: a suspended org's members are rejected here regardless of role -
+// even an OWNER can't work around a staff suspension through the customer-
+// facing surface. Deliberately a separate check from requireOrgRole rather
+// than folded into it, since staffProcedure's own admin mutations (the ONLY
+// way to actually lift a suspension) must stay reachable on a suspended org -
+// requireProjectAccess calls this, staffProcedure never does.
+export async function requireNotSuspended(db: typeof prisma, organizationId: string) {
+  const org = await db.organization.findUnique({ where: { id: organizationId }, select: { suspendedAt: true } });
+  if (org?.suspendedAt) {
+    throw new TRPCError({ code: "FORBIDDEN", message: "This organization has been suspended. Contact support." });
+  }
+}
+
 /**
  * Enforces that the current session user belongs to the organization that
  * owns `projectId`, at or above `minRole`. This is what makes org/project
@@ -100,6 +113,7 @@ export async function requireProjectAccess(
   }
 
   const membership = requireOrgRole(ctx, project.organizationId, minRole);
+  await requireNotSuspended(ctx.prisma, project.organizationId);
   return { project, membership };
 }
 

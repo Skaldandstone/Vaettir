@@ -92,6 +92,8 @@ export const adminRouter = router({
         planTierId: z.string(),
         planTierName: z.string(),
         dataRetentionYears: z.number(),
+        suspendedAt: z.date().nullable(),
+        suspendedReason: z.string().nullable(),
         members: z.array(
           z.object({
             membershipId: z.string(),
@@ -133,6 +135,8 @@ export const adminRouter = router({
         planTierId: org.planTierId,
         planTierName: org.planTier.name,
         dataRetentionYears: org.dataRetentionYears,
+        suspendedAt: org.suspendedAt,
+        suspendedReason: org.suspendedReason,
         members: org.memberships.map((m) => ({
           membershipId: m.id,
           userId: m.userId,
@@ -281,6 +285,93 @@ export const adminRouter = router({
         reason: input.reason,
       });
       return { allowed: check.allowed, reason: check.reason ?? null };
+    }),
+
+  // P13-05: reversible by design - the actual product-blocking effect
+  // lives in trpc.ts's requireProjectAccess (every project-scoped router
+  // rejects with FORBIDDEN while suspended), not a data change here.
+  // staffProcedure itself is never gated on suspension, so this remains
+  // reachable specifically so it can be lifted again.
+  suspendOrganization: staffProcedure
+    .input(z.object({ organizationId: z.string(), reason: z.string().min(1) }))
+    .mutation(async ({ ctx, input }) => {
+      const org = await ctx.prisma.organization.findUniqueOrThrow({ where: { id: input.organizationId } });
+      if (org.suspendedAt) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "This organization is already suspended" });
+      }
+      await ctx.prisma.organization.update({
+        where: { id: input.organizationId },
+        data: { suspendedAt: new Date(), suspendedReason: input.reason },
+      });
+      await recordStaffAction(ctx.prisma, {
+        organizationId: input.organizationId,
+        actorId: ctx.user.id,
+        entityType: "Organization",
+        entityId: input.organizationId,
+        summary: `Staff suspended organization "${org.name}"`,
+        reason: input.reason,
+      });
+      return { suspended: true };
+    }),
+
+  reactivateOrganization: staffProcedure
+    .input(z.object({ organizationId: z.string(), reason: z.string().min(1) }))
+    .mutation(async ({ ctx, input }) => {
+      const org = await ctx.prisma.organization.findUniqueOrThrow({ where: { id: input.organizationId } });
+      if (!org.suspendedAt) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "This organization is not suspended" });
+      }
+      await ctx.prisma.organization.update({
+        where: { id: input.organizationId },
+        data: { suspendedAt: null, suspendedReason: null },
+      });
+      await recordStaffAction(ctx.prisma, {
+        organizationId: input.organizationId,
+        actorId: ctx.user.id,
+        entityType: "Organization",
+        entityId: input.organizationId,
+        summary: `Staff reactivated organization "${org.name}" (was suspended: ${org.suspendedReason ?? "no reason recorded"})`,
+        reason: input.reason,
+      });
+      return { suspended: false };
+    }),
+
+  // P13-05: a real handoff, not just an addition - the target becomes
+  // OWNER, and the specified previous owner is demoted to ADMIN (still a
+  // full member, just no longer the org's Owner) rather than removed
+  // outright. Distinct from deactivateMember's "at least one Owner"
+  // guard: this is a same-organization role swap, so the org is never
+  // ownerless even mid-operation.
+  transferOwnership: staffProcedure
+    .input(z.object({ organizationId: z.string(), newOwnerMembershipId: z.string(), previousOwnerMembershipId: z.string(), reason: z.string().min(1) }))
+    .mutation(async ({ ctx, input }) => {
+      const [newOwner, previousOwner] = await Promise.all([
+        ctx.prisma.membership.findUniqueOrThrow({ where: { id: input.newOwnerMembershipId }, include: { user: true } }),
+        ctx.prisma.membership.findUniqueOrThrow({ where: { id: input.previousOwnerMembershipId }, include: { user: true } }),
+      ]);
+      if (newOwner.organizationId !== input.organizationId || previousOwner.organizationId !== input.organizationId) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Both members must belong to the target organization" });
+      }
+      if (previousOwner.role !== "OWNER") {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "The specified previous owner does not currently hold the Owner role" });
+      }
+      if (newOwner.id === previousOwner.id) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Cannot transfer ownership to the same member" });
+      }
+
+      await ctx.prisma.$transaction([
+        ctx.prisma.membership.update({ where: { id: newOwner.id }, data: { role: "OWNER", seatType: "FULL" } }),
+        ctx.prisma.membership.update({ where: { id: previousOwner.id }, data: { role: "ADMIN" } }),
+      ]);
+      await recordStaffAction(ctx.prisma, {
+        organizationId: input.organizationId,
+        actorId: ctx.user.id,
+        entityType: "Membership",
+        entityId: newOwner.id,
+        summary: `Staff transferred ownership from ${previousOwner.user.email} to ${newOwner.user.email}`,
+        reason: input.reason,
+      });
+      return { newOwnerEmail: newOwner.user.email };
     }),
 
   // P13-04: the admin action audit trail itself - every mutation above
