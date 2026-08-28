@@ -1,8 +1,15 @@
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
-import { generateTestCasesFromRequirement } from "@vaettir/ai-agent";
+import { generateTestCasesFromRequirement, extractRequirementsFromMarkdown } from "@vaettir/ai-agent";
 import { router, protectedProcedure, requireProjectAccess } from "../trpc.js";
 import { chargeAiCredits, InsufficientAiCreditsError } from "../services/aiCredits.js";
+import { scanRepoForRequirementDocs } from "../services/repoDocScan.js";
+
+const draftRequirementOutput = z.object({
+  title: z.string(),
+  description: z.string(),
+  sourceFile: z.string().nullable(),
+});
 
 export const requirementsRouter = router({
   list: protectedProcedure
@@ -126,5 +133,64 @@ export const requirementsRouter = router({
         requirementDescription: requirement.description,
         projectName: requirement.project.name,
       });
+    }),
+
+  // Draft-only, same review-before-save shape - nothing here creates a
+  // real Requirement until the caller reviews the drafts and explicitly
+  // picks which to keep via the normal `create` mutation above.
+  extractFromMarkdown: protectedProcedure
+    .input(z.object({ projectId: z.string(), fileName: z.string().min(1), markdownContent: z.string().min(1) }))
+    .output(z.array(draftRequirementOutput))
+    .mutation(async ({ ctx, input }) => {
+      const { project } = await requireProjectAccess(ctx, input.projectId, "EDITOR");
+      try {
+        await chargeAiCredits(ctx.prisma, project.organizationId, "extractRequirementsFromMarkdown");
+      } catch (e) {
+        if (e instanceof InsufficientAiCreditsError) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: e.message });
+        }
+        throw e;
+      }
+      const drafts = await extractRequirementsFromMarkdown(input.markdownContent, input.fileName);
+      return drafts.map((d) => ({ ...d, sourceFile: input.fileName }));
+    }),
+
+  // Scans the project's (or a caller-supplied) repo for likely
+  // requirements/spec docs (README + docs//spec//requirements-hinted
+  // paths, see repoDocScan.ts) and extracts drafts from each - one AI
+  // credit charge per document actually scanned, so a doc-light repo
+  // costs less than a doc-heavy one rather than a flat fee either way.
+  extractFromRepo: protectedProcedure
+    .input(z.object({ projectId: z.string(), repoUrl: z.string().optional(), ref: z.string().default("main") }))
+    .output(z.array(draftRequirementOutput))
+    .mutation(async ({ ctx, input }) => {
+      const { project } = await requireProjectAccess(ctx, input.projectId, "EDITOR");
+      const projectRow = await ctx.prisma.project.findUniqueOrThrow({ where: { id: input.projectId } });
+      const repoUrl = input.repoUrl ?? projectRow.repoUrl;
+      if (!repoUrl) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "No repo URL provided and the project has none configured" });
+      }
+
+      const docs = await scanRepoForRequirementDocs(repoUrl, input.ref);
+      if (docs.length === 0) {
+        return [];
+      }
+
+      const results: Array<{ title: string; description: string; sourceFile: string | null }> = [];
+      for (const doc of docs) {
+        try {
+          await chargeAiCredits(ctx.prisma, project.organizationId, "extractRequirementsFromMarkdown");
+        } catch (e) {
+          if (e instanceof InsufficientAiCreditsError) {
+            // Stop here, keep whatever was already extracted - a partial
+            // result is still useful, unlike failing the whole scan.
+            break;
+          }
+          throw e;
+        }
+        const drafts = await extractRequirementsFromMarkdown(doc.content, doc.relativePath);
+        results.push(...drafts.map((d) => ({ ...d, sourceFile: doc.relativePath })));
+      }
+      return results;
     }),
 });
