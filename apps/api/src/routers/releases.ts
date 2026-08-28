@@ -4,6 +4,9 @@ import { router, protectedProcedure, requireProjectAccess, requireOrgRole } from
 import { computeStatusesByTestPlan } from "../services/acceptanceCriteria.js";
 import { evaluateReleaseGate } from "../services/releaseGate.js";
 import { computeReadiness, getOrgOverview } from "../services/orgReadiness.js";
+import { chargeAiCredits, InsufficientAiCreditsError } from "../services/aiCredits.js";
+import { getCommitLog } from "../services/changeImpact.js";
+import { generateReleaseSummary } from "@vaettir/ai-agent";
 
 const readinessOutput = z.object({
   score: z.number(),
@@ -491,5 +494,85 @@ export const releasesRouter = router({
         trend: trend.slice(-10),
         generatedAt: new Date(),
       };
+    }),
+
+  // 2026-08-28 (speculative-planning pick, built same night): a
+  // stakeholder-readable narrative draft, not another number on the
+  // dashboard - reuses the exact same readiness computation getSnapshot
+  // does (so the summary can never disagree with the live page), plus
+  // real commit-log grounding (getCommitLog, the same git-host-agnostic
+  // "what's actually in this build" approach P4-09's QA strategy
+  // generation already established) when the caller anchors it in a real
+  // ref range instead of just the release name. Returns an unpersisted
+  // draft for review/edit, matching every other AI-generation feature in
+  // this codebase - nothing is saved or shared automatically.
+  generateSummaryDraft: protectedProcedure
+    .input(z.object({ releaseId: z.string(), baseRef: z.string().optional(), headRef: z.string().optional() }))
+    .output(
+      z.object({
+        overview: z.string(),
+        whatChanged: z.string(),
+        coverage: z.string(),
+        risks: z.string(),
+        recommendation: z.string(),
+        groundedInCommits: z.array(z.object({ sha: z.string(), subject: z.string() })).optional(),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const release = await ctx.prisma.release.findUniqueOrThrow({ where: { id: input.releaseId } });
+      const { project } = await requireProjectAccess(ctx, release.projectId, "EDITOR");
+      const projectFull = await ctx.prisma.project.findUniqueOrThrow({
+        where: { id: release.projectId },
+        select: { name: true, repoUrl: true, defaultBranch: true },
+      });
+
+      const [criteria, openFlags] = await Promise.all([
+        ctx.prisma.acceptanceCriterion.findMany({
+          where: { testPlan: { releaseId: input.releaseId } },
+          select: { testPlanId: true, status: true },
+        }),
+        ctx.prisma.riskFlag.findMany({
+          where: { releaseId: input.releaseId, resolvedAt: null },
+          select: { severity: true, source: true, description: true },
+        }),
+      ]);
+      const computedByPlan = await computeStatusesByTestPlan(ctx.prisma, criteria.map((c) => c.testPlanId));
+      const readiness = computeReadiness(
+        criteria.map((c) => ({ status: computedByPlan.get(c.testPlanId) ?? c.status })),
+        openFlags,
+      );
+
+      let changesSummary: string | undefined;
+      let groundedInCommits: { sha: string; subject: string }[] | undefined;
+      if (input.headRef) {
+        if (!projectFull.repoUrl) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "This project has no repo connected to ground the summary in" });
+        }
+        const commits = await getCommitLog(projectFull.repoUrl, input.baseRef ?? projectFull.defaultBranch, input.headRef);
+        groundedInCommits = commits;
+        changesSummary = commits.length > 0 ? commits.map((c) => `- ${c.sha} ${c.subject}`).join("\n") : undefined;
+      }
+
+      try {
+        await chargeAiCredits(ctx.prisma, project.organizationId, "generateReleaseSummary");
+      } catch (e) {
+        if (e instanceof InsufficientAiCreditsError) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: e.message });
+        }
+        throw e;
+      }
+
+      const draft = await generateReleaseSummary({
+        releaseName: release.name,
+        releaseStatus: release.status,
+        projectName: projectFull.name,
+        readinessScore: readiness.score,
+        readinessLabel: readiness.label,
+        criteria: readiness.criteria,
+        openRiskFlags: openFlags,
+        changesSummary,
+      });
+
+      return { ...draft, groundedInCommits };
     }),
 });

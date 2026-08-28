@@ -17,6 +17,7 @@ export const AI_OPERATION_COSTS = {
   classifyTestFailure: 7,
   generateTestCasesFromRequirement: 8,
   extractRequirementsFromMarkdown: 4,
+  generateReleaseSummary: 6,
 } as const;
 
 export type AiOperation = keyof typeof AI_OPERATION_COSTS;

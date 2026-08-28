@@ -7,9 +7,168 @@ import { ReadinessBadge } from "@/components/ReadinessBadge";
 import { buildHtmlSnapshot, buildMarkdownSnapshot } from "@/lib/snapshotExport";
 import { downloadFile } from "@/lib/download";
 import { isReadOnlySeat } from "@/lib/membership";
+import { Modal } from "@/components/Modal";
 
 const STATUSES = ["PLANNING", "IN_TESTING", "READY", "SHIPPED", "BLOCKED"] as const;
 const CRITERION_STATUSES = ["PENDING", "MET", "AT_RISK", "NOT_MET"] as const;
+
+// 2026-08-28: a stakeholder-readable narrative draft of this release's
+// readiness, generated from the exact same live readiness/risk-flag data
+// this page already shows -- review-before-share only, nothing here is
+// ever posted or emailed on its own. Grounding-in-a-real-build follows the
+// same pattern as GenerateStrategyModal (test-plans/page.tsx).
+function GenerateSummaryModal({
+  open,
+  onClose,
+  releaseId,
+  projectRepo,
+}: {
+  open: boolean;
+  onClose: () => void;
+  releaseId: string;
+  projectRepo: { repoUrl: string | null; defaultBranch: string } | null;
+}) {
+  const [groundInBuild, setGroundInBuild] = useState(false);
+  const [baseRef, setBaseRef] = useState("");
+  const [headRef, setHeadRef] = useState("");
+  const [generating, setGenerating] = useState(false);
+  const [draft, setDraft] = useState<RouterOutputs["releases"]["generateSummaryDraft"] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
+
+  async function generate() {
+    setGenerating(true);
+    setError(null);
+    setCopied(false);
+    try {
+      const result = await trpc.releases.generateSummaryDraft.mutate({
+        releaseId,
+        ...(groundInBuild && headRef.trim() ? { baseRef: baseRef.trim() || undefined, headRef: headRef.trim() } : {}),
+      });
+      setDraft(result);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setGenerating(false);
+    }
+  }
+
+  function copyToClipboard() {
+    if (!draft) return;
+    const text = [
+      `${SECTION_LABELS.overview}\n${draft.overview}`,
+      `${SECTION_LABELS.whatChanged}\n${draft.whatChanged}`,
+      `${SECTION_LABELS.coverage}\n${draft.coverage}`,
+      `${SECTION_LABELS.risks}\n${draft.risks}`,
+      `${SECTION_LABELS.recommendation}\n${draft.recommendation}`,
+    ].join("\n\n");
+    navigator.clipboard.writeText(text).then(() => setCopied(true));
+  }
+
+  function close() {
+    setDraft(null);
+    setError(null);
+    setCopied(false);
+    onClose();
+  }
+
+  return (
+    <Modal open={open} onClose={close} title="Generate a release summary">
+      <div style={{ display: "grid", gap: 10, minWidth: 460, maxWidth: 560 }}>
+        <p className="text-muted" style={{ fontSize: 13, marginTop: -4 }}>
+          A stakeholder-readable draft, grounded in this release's real readiness score, acceptance criteria, and
+          open risk flags. Review and edit before sharing -- nothing here is posted or sent automatically.
+        </p>
+        {projectRepo?.repoUrl && (
+          <div style={{ border: "1px solid var(--line)", borderRadius: 6, padding: 8 }}>
+            <label style={{ fontSize: 13 }}>
+              <input type="checkbox" checked={groundInBuild} onChange={(e) => setGroundInBuild(e.target.checked)} /> Ground
+              in a real build (the actual commits between two refs)
+            </label>
+            {groundInBuild && (
+              <div style={{ display: "flex", gap: 8, marginTop: 6 }}>
+                <input
+                  value={baseRef}
+                  onChange={(e) => setBaseRef(e.target.value)}
+                  placeholder={`Base ref (default: ${projectRepo.defaultBranch})`}
+                  style={{ flex: 1, fontSize: 13 }}
+                />
+                <input
+                  value={headRef}
+                  onChange={(e) => setHeadRef(e.target.value)}
+                  placeholder="Head ref (tag, branch, or commit for this build)"
+                  style={{ flex: 1, fontSize: 13 }}
+                />
+              </div>
+            )}
+          </div>
+        )}
+        <button
+          className="btn-secondary"
+          onClick={generate}
+          disabled={generating || (groundInBuild && !headRef.trim())}
+        >
+          {generating ? "Generating…" : draft ? "Regenerate" : "Generate summary"}
+        </button>
+
+        {error && <p style={{ color: "var(--ember)" }}>{error}</p>}
+
+        {draft?.groundedInCommits && (
+          <details style={{ fontSize: 12 }}>
+            <summary>Grounded in {draft.groundedInCommits.length} real commit(s)</summary>
+            <ul style={{ margin: "4px 0 0 16px", padding: 0 }}>
+              {draft.groundedInCommits.map((c) => (
+                <li key={c.sha}>
+                  <code>{c.sha}</code> {c.subject}
+                </li>
+              ))}
+            </ul>
+          </details>
+        )}
+
+        {draft && (
+          <>
+            {(
+              [
+                ["overview", SECTION_LABELS.overview],
+                ["whatChanged", SECTION_LABELS.whatChanged],
+                ["coverage", SECTION_LABELS.coverage],
+                ["risks", SECTION_LABELS.risks],
+                ["recommendation", SECTION_LABELS.recommendation],
+              ] as const
+            ).map(([key, label]) => (
+              <label key={key}>
+                {label}
+                <textarea
+                  value={draft[key]}
+                  onChange={(e) => setDraft({ ...draft, [key]: e.target.value })}
+                  rows={key === "overview" ? 2 : 3}
+                  style={{ width: "100%", fontSize: 13 }}
+                />
+              </label>
+            ))}
+            <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 8 }}>
+              <button className="btn-secondary" onClick={close}>
+                Close
+              </button>
+              <button className="btn-primary" onClick={copyToClipboard}>
+                {copied ? "Copied!" : "Copy to clipboard"}
+              </button>
+            </div>
+          </>
+        )}
+      </div>
+    </Modal>
+  );
+}
+
+const SECTION_LABELS = {
+  overview: "Overview",
+  whatChanged: "What changed",
+  coverage: "Coverage",
+  risks: "Risks",
+  recommendation: "Recommendation",
+} as const;
 
 export default function ReleaseReadinessPage() {
   const { projectId, releaseId } = useParams<{ projectId: string; releaseId: string }>();
@@ -24,11 +183,16 @@ export default function ReleaseReadinessPage() {
   const [showResolved, setShowResolved] = useState(false);
   const [exporting, setExporting] = useState<"html" | "markdown" | null>(null);
   const [readOnly, setReadOnly] = useState(false);
+  const [projectRepo, setProjectRepo] = useState<{ repoUrl: string | null; defaultBranch: string } | null>(null);
+  const [summaryModalOpen, setSummaryModalOpen] = useState(false);
 
   useEffect(() => {
     trpc.project.byId
       .query({ id: projectId })
-      .then((p) => trpc.organization.mine.query().then((orgs) => orgs.find((o) => o.id === p.organizationId)))
+      .then((p) => {
+        setProjectRepo({ repoUrl: p.repoUrl, defaultBranch: p.defaultBranch });
+        return trpc.organization.mine.query().then((orgs) => orgs.find((o) => o.id === p.organizationId));
+      })
       .then((org) => setReadOnly(isReadOnlySeat(org?.seatType)))
       .catch(() => undefined);
   }, [projectId]);
@@ -162,7 +326,17 @@ export default function ReleaseReadinessPage() {
         <button className="btn-secondary" style={{ fontSize: 13 }} onClick={() => exportSnapshot("markdown")} disabled={exporting !== null}>
           {exporting === "markdown" ? "Exporting…" : "Export Markdown snapshot"}
         </button>
+        <button className="btn-secondary" style={{ fontSize: 13 }} onClick={() => setSummaryModalOpen(true)}>
+          Generate release summary
+        </button>
       </div>
+
+      <GenerateSummaryModal
+        open={summaryModalOpen}
+        onClose={() => setSummaryModalOpen(false)}
+        releaseId={releaseId}
+        projectRepo={projectRepo}
+      />
 
       <div className="panel" style={{ marginBottom: 20 }}>
         <div className="eyebrow">Status</div>
