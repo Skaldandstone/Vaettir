@@ -328,7 +328,7 @@ export default function TestPlansPage() {
       </ul>
 
       <Drawer open={openPlanId !== null} onClose={() => setOpenPlanId(null)}>
-        {openPlanId && <TestPlanDetailContent id={openPlanId} onChanged={loadPlans} />}
+        {openPlanId && <TestPlanDetailContent id={openPlanId} onChanged={loadPlans} readOnly={readOnly} />}
       </Drawer>
 
       <GenerateStrategyModal

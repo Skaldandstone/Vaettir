@@ -367,10 +367,12 @@ function StrategyLinkSection({
   plan,
   projectId,
   onChanged,
+  readOnly = false,
 }: {
   plan: Plan;
   projectId: string;
   onChanged: () => void;
+  readOnly?: boolean;
 }) {
   const [candidates, setCandidates] = useState<RouterOutputs["testPlans"]["strategiesInProject"]>([]);
   const [selected, setSelected] = useState("");
@@ -430,10 +432,14 @@ function StrategyLinkSection({
       {plan.strategyName ? (
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
           <span>{plan.strategyName}</span>
-          <button className="btn-secondary" style={{ fontSize: 12 }} onClick={unlink} disabled={saving}>
-            Unlink
-          </button>
+          {!readOnly && (
+            <button className="btn-secondary" style={{ fontSize: 12 }} onClick={unlink} disabled={saving}>
+              Unlink
+            </button>
+          )}
         </div>
+      ) : readOnly ? (
+        <p className="text-muted">Not linked to a strategy.</p>
       ) : candidates.length === 0 ? (
         <p className="text-muted">No QA strategy plans exist in this project yet.</p>
       ) : (
@@ -461,9 +467,11 @@ function StrategyLinkSection({
 export function TestPlanDetailContent({
   id,
   onChanged,
+  readOnly = false,
 }: {
   id: string;
   onChanged?: () => void;
+  readOnly?: boolean;
 }) {
   const [plan, setPlan] = useState<Plan | null>(null);
   const [requirements, setRequirements] = useState<RouterOutputs["requirements"]["list"]>([]);
@@ -548,41 +556,50 @@ export function TestPlanDetailContent({
       <h1 style={{ marginBottom: 2 }}>{plan.name}</h1>
       <p style={{ color: "var(--muted)" }}>{plan.testPlanType.name} plan</p>
 
-      <div style={{ display: "grid", gap: 10, marginBottom: 24 }}>
-        <label>
-          Name
-          <input value={name} onChange={(e) => setName(e.target.value)} style={{ width: "100%" }} />
-        </label>
-        <label>
-          Description
-          <textarea value={description} onChange={(e) => setDescription(e.target.value)} style={{ width: "100%" }} rows={3} />
-        </label>
-        <label>
-          Status
-          <select value={status} onChange={(e) => setStatus(e.target.value)}>
-            {STATUSES.map((s) => (
-              <option key={s} value={s}>
-                {s}
-              </option>
-            ))}
-          </select>
-        </label>
+      {readOnly ? (
+        <div style={{ display: "grid", gap: 6, marginBottom: 24 }}>
+          {description && <p style={{ color: "var(--muted)" }}>{description}</p>}
+          <p className="text-muted" style={{ fontSize: 13 }}>
+            Status: {status} · You have read-only access to this organization — editing is hidden.
+          </p>
+        </div>
+      ) : (
+        <div style={{ display: "grid", gap: 10, marginBottom: 24 }}>
+          <label>
+            Name
+            <input value={name} onChange={(e) => setName(e.target.value)} style={{ width: "100%" }} />
+          </label>
+          <label>
+            Description
+            <textarea value={description} onChange={(e) => setDescription(e.target.value)} style={{ width: "100%" }} rows={3} />
+          </label>
+          <label>
+            Status
+            <select value={status} onChange={(e) => setStatus(e.target.value)}>
+              {STATUSES.map((s) => (
+                <option key={s} value={s}>
+                  {s}
+                </option>
+              ))}
+            </select>
+          </label>
 
-        {plan.testPlanType.key === "qa-strategy" ? (
-          <QaStrategyForm projectId={plan.projectId} values={customFields} onChange={setCustomFields} />
-        ) : (
-          <CustomFieldsForm schema={plan.testPlanType.fieldSchema as FieldSchema} values={customFields} onChange={setCustomFields} />
-        )}
+          {plan.testPlanType.key === "qa-strategy" ? (
+            <QaStrategyForm projectId={plan.projectId} values={customFields} onChange={setCustomFields} />
+          ) : (
+            <CustomFieldsForm schema={plan.testPlanType.fieldSchema as FieldSchema} values={customFields} onChange={setCustomFields} />
+          )}
 
-        <button onClick={save} disabled={saving || !name}>
-          {saving ? "Saving…" : "Save"}
-        </button>
-        {saved && <p style={{ color: "var(--frost)" }}>Saved.</p>}
-      </div>
+          <button onClick={save} disabled={saving || !name}>
+            {saving ? "Saving…" : "Save"}
+          </button>
+          {saved && <p style={{ color: "var(--frost)" }}>Saved.</p>}
+        </div>
+      )}
 
       {plan.testPlanType.key === "qa-strategy" && <StrategySignalsSection projectId={plan.projectId} />}
 
-      <StrategyLinkSection plan={plan} projectId={plan.projectId} onChanged={load} />
+      <StrategyLinkSection plan={plan} projectId={plan.projectId} onChanged={load} readOnly={readOnly} />
 
       <VersionHistorySection testPlanId={id} refreshKey={historyVersion} />
 
@@ -591,42 +608,50 @@ export function TestPlanDetailContent({
         {plan.acceptanceCriteria.map((c) => (
           <li key={c.id} style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 6 }}>
             <span style={{ flex: 1 }}>{c.description}</span>
-            <select
-              value={c.status}
-              onChange={(e) => updateCriterionStatus(c.id, c.description, c.requirementId, e.target.value)}
-            >
-              {CRITERION_STATUSES.map((s) => (
-                <option key={s} value={s}>
-                  {s}
-                </option>
-              ))}
-            </select>
-            <button onClick={() => removeCriterion(c.id)}>Remove</button>
+            {readOnly ? (
+              <span className="text-muted" style={{ fontSize: 12 }}>{c.status}</span>
+            ) : (
+              <>
+                <select
+                  value={c.status}
+                  onChange={(e) => updateCriterionStatus(c.id, c.description, c.requirementId, e.target.value)}
+                >
+                  {CRITERION_STATUSES.map((s) => (
+                    <option key={s} value={s}>
+                      {s}
+                    </option>
+                  ))}
+                </select>
+                <button onClick={() => removeCriterion(c.id)}>Remove</button>
+              </>
+            )}
           </li>
         ))}
         {plan.acceptanceCriteria.length === 0 && <p style={{ color: "var(--muted)" }}>No acceptance criteria yet.</p>}
       </ul>
 
-      <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
-        <input
-          value={newCriterion}
-          onChange={(e) => setNewCriterion(e.target.value)}
-          onKeyDown={(e) => e.key === "Enter" && addCriterion()}
-          placeholder="New acceptance criterion, press Enter…"
-          style={{ flex: 1 }}
-        />
-        <select value={newCriterionRequirementId} onChange={(e) => setNewCriterionRequirementId(e.target.value)}>
-          <option value="">(no linked requirement)</option>
-          {requirements.map((r) => (
-            <option key={r.id} value={r.id}>
-              {r.title}
-            </option>
-          ))}
-        </select>
-        <button onClick={addCriterion} disabled={!newCriterion}>
-          + Add
-        </button>
-      </div>
+      {!readOnly && (
+        <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
+          <input
+            value={newCriterion}
+            onChange={(e) => setNewCriterion(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && addCriterion()}
+            placeholder="New acceptance criterion, press Enter…"
+            style={{ flex: 1 }}
+          />
+          <select value={newCriterionRequirementId} onChange={(e) => setNewCriterionRequirementId(e.target.value)}>
+            <option value="">(no linked requirement)</option>
+            {requirements.map((r) => (
+              <option key={r.id} value={r.id}>
+                {r.title}
+              </option>
+            ))}
+          </select>
+          <button onClick={addCriterion} disabled={!newCriterion}>
+            + Add
+          </button>
+        </div>
+      )}
     </div>
   );
 }
