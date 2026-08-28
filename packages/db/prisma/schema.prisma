@@ -79,6 +79,31 @@ model Organization {
   webhookEndpoints     WebhookEndpoint[]
 }
 
+// P13-05: the permanent record that an org was hard-deleted - by whom,
+// when, why, and how much was removed. Deliberately NOT a relation to
+// Organization: by the time this row is written, the org it describes no
+// longer exists, and a live FK would either block the org's own deletion
+// (Restrict, the schema default) or get cascade-deleted right along with
+// it, destroying the one record whose entire purpose is to survive that.
+// organizationId/organizationName/organizationSlug are a plain snapshot,
+// not a foreign key.
+model OrganizationDeletionLog {
+  id               String   @id @default(cuid())
+  organizationId   String
+  organizationName String
+  organizationSlug String
+  deletedById      String
+  deletedBy        User     @relation(fields: [deletedById], references: [id])
+  reason           String
+  // Per-model row counts of everything removed, e.g. {"TestCase": 340,
+  // "TestRun": 12, ...} - the receipt proving what was actually deleted,
+  // not just that "a deletion happened."
+  rowCounts        Json
+  deletedAt        DateTime @default(now())
+
+  @@index([organizationId])
+}
+
 // P9-06: outbound webhooks -- lets an external system react to platform
 // events (a new risk flag, a review-queue item, a compliance sign-off)
 // without polling. Deliberately a flat per-org list rather than P9-00's
@@ -217,6 +242,7 @@ model User {
   createdApiKeys ApiKey[] @relation("ApiKeyCreatedBy")
 
   auditLogs AuditLog[]
+  orgDeletionsPerformed OrganizationDeletionLog[]
 }
 
 enum OrgRole {

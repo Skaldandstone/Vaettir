@@ -3,6 +3,7 @@ import { TRPCError } from "@trpc/server";
 import { canAddSeat, type SeatType as CoreSeatType } from "@vaettir/core";
 import { router, staffProcedure } from "../trpc.js";
 import { recordAudit } from "../services/auditLog.js";
+import { previewOrgHardDelete, hardDeleteOrganization } from "../services/orgHardDelete.js";
 
 // Phase 13: a staff-only surface for Skald & Stone team members to look up
 // accounts and handle support requests across every org - distinct from
@@ -372,6 +373,35 @@ export const adminRouter = router({
         reason: input.reason,
       });
       return { newOwnerEmail: newOwner.user.email };
+    }),
+
+  // P13-05: hard-delete, the genuinely irreversible half. Read-only -
+  // returns exactly what commitHardDeleteOrganization would remove, per
+  // model, so the confirmation UI shows real numbers before anything is
+  // destroyed. See services/orgHardDelete.ts for the full FK-order
+  // reasoning (queried directly from Postgres, not hand-traced) and why
+  // ComplianceFramework/ComplianceControl are deliberately never touched
+  // (shared platform-wide reference data, not owned by any one org).
+  previewOrgHardDelete: staffProcedure
+    .input(z.object({ organizationId: z.string() }))
+    .query(({ ctx, input }) => previewOrgHardDelete(ctx.prisma, input.organizationId)),
+
+  // Requires typing the org's exact slug as confirmation (not just a
+  // click) - the same "type to confirm" pattern GitHub/most platforms use
+  // for their own most destructive action, checked server-side so it
+  // can't be bypassed by hitting the API directly. Writes a permanent
+  // OrganizationDeletionLog row (NOT a normal AuditLog entry - see that
+  // model's own comment for why a live FK to the now-gone org wouldn't
+  // survive this) before returning, so "org X was hard-deleted, by whom,
+  // when, why, and exactly what was removed" is provable after the fact.
+  hardDeleteOrganization: staffProcedure
+    .input(z.object({ organizationId: z.string(), confirmSlug: z.string(), reason: z.string().min(1) }))
+    .mutation(async ({ ctx, input }) => {
+      const org = await ctx.prisma.organization.findUniqueOrThrow({ where: { id: input.organizationId } });
+      if (input.confirmSlug !== org.slug) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: `Confirmation text must exactly match the organization's slug ("${org.slug}")` });
+      }
+      return hardDeleteOrganization(ctx.prisma, input.organizationId, ctx.user.id, input.reason);
     }),
 
   // P13-04: the admin action audit trail itself - every mutation above

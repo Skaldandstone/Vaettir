@@ -25,6 +25,12 @@ export default function AdminOrganizationDetailPage() {
   const [newOwnerMembershipId, setNewOwnerMembershipId] = useState("");
   const [previousOwnerMembershipId, setPreviousOwnerMembershipId] = useState("");
 
+  const [deletePreview, setDeletePreview] = useState<RouterOutputs["admin"]["previewOrgHardDelete"] | null>(null);
+  const [previewingDelete, setPreviewingDelete] = useState(false);
+  const [confirmSlug, setConfirmSlug] = useState("");
+  const [deleting, setDeleting] = useState(false);
+  const [deleteResult, setDeleteResult] = useState<RouterOutputs["admin"]["hardDeleteOrganization"] | null>(null);
+
   async function loadAll() {
     setLoading(true);
     setError(null);
@@ -147,6 +153,39 @@ export default function AdminOrganizationDetailPage() {
     }
   }
 
+  async function previewDelete() {
+    setPreviewingDelete(true);
+    setError(null);
+    try {
+      const preview = await trpc.admin.previewOrgHardDelete.query({ organizationId });
+      setDeletePreview(preview);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setPreviewingDelete(false);
+    }
+  }
+
+  async function confirmHardDelete() {
+    const r = requireReason();
+    if (!r || !org || !deletePreview) return;
+    if (confirmSlug !== org.slug) {
+      setError(`Confirmation text must exactly match the organization's slug ("${org.slug}")`);
+      return;
+    }
+    if (!confirm(`This permanently deletes "${org.name}" and everything under it. This cannot be undone. Continue?`)) return;
+    setDeleting(true);
+    setError(null);
+    try {
+      const result = await trpc.admin.hardDeleteOrganization.mutate({ organizationId, confirmSlug, reason: r });
+      setDeleteResult(result);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setDeleting(false);
+    }
+  }
+
   async function deactivateMember(membershipId: string) {
     const r = requireReason();
     if (!r) return;
@@ -164,6 +203,31 @@ export default function AdminOrganizationDetailPage() {
   }
 
   if (forbidden) return <p>Staff access required. This account isn&apos;t recognized as Skald &amp; Stone staff.</p>;
+
+  if (deleteResult) {
+    return (
+      <div style={{ maxWidth: 800 }}>
+        <h1>Organization deleted</h1>
+        <p style={{ color: "var(--frost, #7cc)" }}>
+          Deletion record: <code>{deleteResult.deletionLogId}</code>
+        </p>
+        <h2>Rows removed</h2>
+        <ul>
+          {Object.entries(deleteResult.rowCounts)
+            .filter(([, count]) => count > 0)
+            .map(([model, count]) => (
+              <li key={model}>
+                {model}: {count}
+              </li>
+            ))}
+        </ul>
+        <a className="btn-secondary" href="/admin">
+          &larr; Back to search
+        </a>
+      </div>
+    );
+  }
+
   if (loading) return <p>Loading…</p>;
   if (!org) return <p style={{ color: "var(--ember)" }}>{error}</p>;
 
@@ -313,6 +377,58 @@ export default function AdminOrganizationDetailPage() {
           Suspending blocks every member from project data (test cases, plans, releases, etc.) org-wide until
           lifted. Reversible - nothing is deleted.
         </p>
+
+        <hr style={{ margin: "16px 0", borderColor: "var(--ember)" }} />
+
+        <h3 style={{ color: "var(--ember)" }}>Permanently delete this organization</h3>
+        <p style={{ color: "var(--muted, #999)", fontSize: 13 }}>
+          Deletes every project, test case, run, release, and every other record under this org. Cannot be
+          undone. A permanent record of what was removed, by whom, and why is kept independently of the org
+          itself.
+        </p>
+        {!deletePreview ? (
+          <button onClick={previewDelete} disabled={previewingDelete} style={{ color: "var(--ember)" }}>
+            {previewingDelete ? "Loading…" : "Preview what would be deleted"}
+          </button>
+        ) : (
+          <div style={{ display: "grid", gap: 8 }}>
+            <p>
+              <strong>{deletePreview.projectCount}</strong> project(s) and everything under them would be
+              permanently removed:
+            </p>
+            <ul style={{ fontSize: 13, columns: 2 }}>
+              {Object.entries(deletePreview.rowCounts)
+                .filter(([, count]) => count > 0)
+                .map(([model, count]) => (
+                  <li key={model}>
+                    {model}: {count}
+                  </li>
+                ))}
+            </ul>
+            <label>
+              Type the organization&apos;s slug (<code>{org.slug}</code>) to confirm
+              <input value={confirmSlug} onChange={(e) => setConfirmSlug(e.target.value)} style={{ width: "100%" }} />
+            </label>
+            <div style={{ display: "flex", gap: 8 }}>
+              <button
+                className="btn-secondary"
+                onClick={() => {
+                  setDeletePreview(null);
+                  setConfirmSlug("");
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={confirmHardDelete}
+                disabled={deleting || confirmSlug !== org.slug}
+                style={{ color: "var(--ember)" }}
+              >
+                {deleting ? "Deleting…" : "Permanently delete"}
+              </button>
+            </div>
+          </div>
+        )}
       </section>
 
       <section style={{ margin: "20px 0" }}>
