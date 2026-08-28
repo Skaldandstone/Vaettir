@@ -17,6 +17,7 @@ code alone.
 | `GITHUB_APP_ID` | `vaettir-api` | **Not deployed anywhere in production.** Real value exists in local `.env` only. Not secret-sensitive itself (a public numeric App ID), but the App won't function without it set alongside the two below. |
 | `GITHUB_APP_PRIVATE_KEY` | `vaettir-api` | **Not deployed anywhere in production.** Real PEM key exists in local `.env` only - genuinely sensitive, must go through Secrets Manager like the three above, never a plain task-def env var. |
 | `GITHUB_WEBHOOK_SECRET` | `vaettir-api` | **Not deployed anywhere in production.** Real value exists in local `.env` only. |
+| `SENTRY_DSN` | `vaettir-api`, `vaettir-web` | **Not deployed anywhere in production - no value exists anywhere yet.** `P10-05`'s Sentry wiring is real and verified, but there's no Sentry project/DSN to point it at. Not secret-sensitive (Sentry DSNs are meant to be public, e.g. shipped in the `NEXT_PUBLIC_SENTRY_DSN` browser bundle), but see `NEEDS_ATTENTION.md` for what's needed to activate it. |
 
 **Net finding**: every secret this codebase actually references is either
 correctly in Secrets Manager, or correctly plaintext because it's meant to

@@ -1,3 +1,4 @@
+import * as Sentry from "@sentry/node";
 import { prisma } from "@vaettir/db";
 import { grantMonthlyCreditsIfNeeded } from "../services/aiCredits.js";
 
@@ -12,7 +13,7 @@ let checkHandle: NodeJS.Timeout | undefined;
 async function checkOnce(): Promise<void> {
   const orgs = await prisma.organization.findMany({ select: { id: true } });
   for (const org of orgs) {
-    await grantMonthlyCreditsIfNeeded(prisma, org.id).catch(() => undefined);
+    await grantMonthlyCreditsIfNeeded(prisma, org.id).catch((e) => Sentry.captureException(e));
   }
 }
 

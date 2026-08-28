@@ -1,3 +1,4 @@
+import * as Sentry from "@sentry/node";
 import { prisma } from "@vaettir/db";
 import { reverseEngineerTestFile } from "@vaettir/ai-agent";
 import { persistReverseEngineerResult } from "../services/reverseEngineerPersist.js";
@@ -46,12 +47,7 @@ export async function runReverseEngineerJob(jobId: string): Promise<void> {
       throw new Error(`Job ${job.id} has no content to reverse-engineer (inputType ${job.inputType})`);
     }
     const project = await prisma.project.findUniqueOrThrow({ where: { id: job.projectId }, select: { organizationId: true } });
-    try {
-      await chargeAiCredits(prisma, project.organizationId, "reverseEngineerTestFile", `job ${job.id} (${job.inputRef})`);
-    } catch (e) {
-      if (e instanceof InsufficientAiCreditsError) throw new Error(e.message);
-      throw e;
-    }
+    await chargeAiCredits(prisma, project.organizationId, "reverseEngineerTestFile", `job ${job.id} (${job.inputRef})`);
     const heuristic = await getMostRecentHeuristic(prisma, job.projectId);
     const result = await reverseEngineerTestFile({
       filePath: job.inputRef,
@@ -104,6 +100,10 @@ export async function runReverseEngineerJob(jobId: string): Promise<void> {
       }
     }
   } catch (e) {
+    // Insufficient credits is an expected, user-actionable outcome (the org
+    // ran out, not a bug) -- everything else here (a bad LLM response, a DB
+    // failure, malformed job content) is worth alerting on.
+    if (!(e instanceof InsufficientAiCreditsError)) Sentry.captureException(e);
     await prisma.reverseEngineerJob.update({
       where: { id: job.id },
       data: { status: "FAILED", completedAt: new Date(), error: e instanceof Error ? e.message : String(e) },
@@ -136,9 +136,12 @@ async function pollOnce(): Promise<void> {
 // waiting up to POLL_INTERVAL_MS for the next tick. Errors are swallowed --
 // the next scheduled tick will retry, and the caller (a fire-and-forget
 // mutation) has no way to surface them anyway; a failure lands on the job
-// row itself via runReverseEngineerJob's catch.
+// row itself via runReverseEngineerJob's catch. A failure here means the
+// poll loop itself broke (e.g. the DB was unreachable), not a single job --
+// that's worth alerting on, so it's still reported to Sentry even though
+// it's not rethrown.
 export async function kickReverseEngineerQueue(): Promise<void> {
-  await pollOnce().catch(() => undefined);
+  await pollOnce().catch((e) => Sentry.captureException(e));
 }
 
 export function startReverseEngineerJobPoller(): void {

@@ -16,6 +16,7 @@
     "@clerk/backend": "^1.18.0",
     "@fastify/cors": "^10.0.0",
     "@fastify/rate-limit": "^11.2.0",
+    "@sentry/node": "^10.71.0",
     "@trpc/server": "^11.0.0-rc.502",
     "@vaettir/ai-agent": "workspace:*",
     "@vaettir/core": "workspace:*",

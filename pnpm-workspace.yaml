@@ -5,6 +5,7 @@ allowBuilds:
   '@clerk/shared': true
   '@prisma/client': true
   '@prisma/engines': true
+  '@sentry/cli': false
   browser-tabs-lock: true
   bufferutil: true
   core-js: true

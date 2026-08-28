@@ -1,4 +1,6 @@
-import Fastify, { type FastifyInstance } from "fastify";
+import "./instrument.js";
+import * as Sentry from "@sentry/node";
+import Fastify, { type FastifyError, type FastifyInstance } from "fastify";
 import cors from "@fastify/cors";
 import rateLimit from "@fastify/rate-limit";
 import { fastifyTRPCPlugin } from "@trpc/server/adapters/fastify";
@@ -52,6 +54,26 @@ async function registerGithubWebhookRoute(instance: FastifyInstance) {
 // single mutation input, well past the default.
 const server = Fastify({ logger: true, maxParamLength: 5000, bodyLimit: 15 * 1024 * 1024 });
 
+// P10-05: catches anything thrown by a raw (non-tRPC) route handler, e.g.
+// the GitHub webhook route below - tRPC procedure errors are reported
+// separately via trpcOptions.onError, since Fastify's error handler never
+// sees those (the tRPC adapter catches them itself).
+server.setErrorHandler((error: FastifyError, request, reply) => {
+  Sentry.captureException(error);
+  request.log.error(error);
+  reply.status(error.statusCode ?? 500).send({ error: error.message });
+});
+
+// Only INTERNAL_SERVER_ERROR is an actual bug worth alerting on - expected
+// client errors (UNAUTHORIZED/FORBIDDEN/BAD_REQUEST/NOT_FOUND/etc, thrown
+// deliberately throughout every router as normal control flow) would
+// otherwise flood Sentry with noise that isn't a real incident.
+function reportUnexpectedTrpcError({ error }: { error: { code: string; cause?: unknown } }) {
+  if (error.code === "INTERNAL_SERVER_ERROR") {
+    Sentry.captureException(error.cause ?? error);
+  }
+}
+
 await server.register(cors, { origin: true });
 
 // P10-04: coarse per-IP flood protection at the HTTP layer, distinct from
@@ -68,6 +90,7 @@ await server.register(fastifyTRPCPlugin, {
   trpcOptions: {
     router: appRouter,
     createContext,
+    onError: reportUnexpectedTrpcError,
   },
 });
 
@@ -86,7 +109,7 @@ await server.register(
   async (instance) => {
     await instance.register(fastifyTRPCPlugin, {
       prefix: "/trpc",
-      trpcOptions: { router: appRouter, createContext },
+      trpcOptions: { router: appRouter, createContext, onError: reportUnexpectedTrpcError },
     });
     instance.get("/health", { config: { rateLimit: false } }, async () => ({ ok: true }));
     await instance.register(registerGithubWebhookRoute);

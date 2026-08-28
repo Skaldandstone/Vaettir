@@ -1,3 +1,4 @@
+import * as Sentry from "@sentry/node";
 import { prisma } from "@vaettir/db";
 import { getOrgOverview } from "../services/orgReadiness.js";
 import { postSlackDigest } from "../services/readinessDigest.js";
@@ -35,10 +36,12 @@ async function checkOnce(): Promise<void> {
     if (org.lastDigestSentAt && isSameUtcDay(org.lastDigestSentAt, now)) continue;
     try {
       await sendReadinessDigestForOrg(org.id);
-    } catch {
+    } catch (e) {
       // Swallow -- a bad/revoked webhook shouldn't crash the shared
       // interval or block other orgs' digests; next check tick (still
-      // today, since lastDigestSentAt wasn't touched) will retry.
+      // today, since lastDigestSentAt wasn't touched) will retry. Still
+      // reported so a persistently-broken webhook doesn't go unnoticed.
+      Sentry.captureException(e);
     }
   }
 }
