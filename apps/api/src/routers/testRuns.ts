@@ -32,8 +32,14 @@ export const testRunsRouter = router({
         commitSha: z.string().min(1),
         branch: z.string().min(1),
         junitXml: z.string().min(1),
-        startedAt: z.date().optional(),
-        finishedAt: z.date().optional(),
+        // z.coerce.date() rather than z.date(): this API has no superjson
+        // transformer, so a Date sent over the wire (from a browser client
+        // JSON.stringify-ing it, or a curl-based CI script sending a plain
+        // ISO string) arrives here as a string, not a Date instance - plain
+        // z.date() rejected every real caller. Never exercised until the
+        // P11-08 backfill UI became the first caller to actually pass these.
+        startedAt: z.coerce.date().optional(),
+        finishedAt: z.coerce.date().optional(),
       }),
     )
     .output(
