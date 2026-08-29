@@ -62,7 +62,7 @@ function TestCaseBrowser() {
   }, [getToken]);
 
   const [projectId, setProjectId] = useState("");
-  const [view, setView] = useState<"cases" | "releases">("cases");
+  const [view, setView] = useState<"cases" | "releases" | "compliance">("cases");
   const [cases, setCases] = useState<Awaited<ReturnType<typeof trpc.testCases.list.query>>>([]);
   const [error, setError] = useState<string | null>(null);
   const [openCaseId, setOpenCaseId] = useState<string | null>(null);
@@ -119,6 +119,7 @@ function TestCaseBrowser() {
       <View style={{ flexDirection: "row", gap: 8, marginBottom: 12 }}>
         <Button title="Test Cases" onPress={() => setView("cases")} disabled={view === "cases"} />
         <Button title="Releases" onPress={() => setView("releases")} disabled={view === "releases"} />
+        <Button title="Compliance" onPress={() => setView("compliance")} disabled={view === "compliance"} />
       </View>
       {error && <Text style={{ color: "crimson" }}>{error}</Text>}
       {view === "cases" && (
@@ -137,6 +138,7 @@ function TestCaseBrowser() {
         </>
       )}
       {view === "releases" && <ReleaseReadinessList projectId={projectId} />}
+      {view === "compliance" && <ComplianceSignOffList projectId={projectId} />}
       <TestCaseDetailModal id={openCaseId} onClose={() => setOpenCaseId(null)} onChanged={loadCases} />
     </SafeAreaView>
   );
@@ -200,14 +202,177 @@ function ReleaseReadinessList({ projectId }: { projectId: string }) {
   );
 }
 
-// P8-02/P8-05: test case detail + BDD view in mobile, plus the AI
-// review-queue approval flow (parity with web's detail drawer's
-// Approve/Reject) - the mobile compliance sign-off flow (the ticket's
-// other half) needs a period + statement input, not just a tap, and isn't
-// attempted here; this covers what the roadmap itself calls out as the
-// clearer mobile-approvable action. Read-only-viewer-safe: buttons only
-// render when reviewStatus is actually PENDING_REVIEW, and the server
-// still enforces EDITOR+ regardless of what this UI shows.
+// P8-05 (compliance sign-off half): a real period + written-attestation
+// form, same shape as the web compliance page's sign-off panel and
+// calling the exact same signOffControl mutation - the server-side
+// COMPLIANCE_AUDITOR/ADMIN/OWNER role check (compliance.ts) is the real
+// gate regardless of what this screen shows, same as every other mobile
+// mutation. Framework picker -> per-framework control list (reusing
+// controlCoverage, so mapped-test-case counts can never disagree with
+// web) -> tap a control to see its real sign-off history and sign a new
+// one.
+function ComplianceSignOffList({ projectId }: { projectId: string }) {
+  const [frameworks, setFrameworks] = useState<Awaited<ReturnType<typeof trpc.compliance.listFrameworks.query>>>([]);
+  const [frameworkId, setFrameworkId] = useState<string | null>(null);
+  const [controls, setControls] = useState<Awaited<ReturnType<typeof trpc.compliance.controlCoverage.query>>>([]);
+  const [error, setError] = useState<string | null>(null);
+  const [openControl, setOpenControl] = useState<{ id: string; code: string; title: string } | null>(null);
+
+  useEffect(() => {
+    trpc.compliance.listFrameworks
+      .query()
+      .then((fw) => {
+        setFrameworks(fw);
+        setFrameworkId((prev) => prev ?? fw[0]?.id ?? null);
+      })
+      .catch((e) => setError(e instanceof Error ? e.message : String(e)));
+  }, []);
+
+  useEffect(() => {
+    if (!projectId || !frameworkId) {
+      setControls([]);
+      return;
+    }
+    trpc.compliance.controlCoverage
+      .query({ projectId, frameworkId })
+      .then(setControls)
+      .catch((e) => setError(e instanceof Error ? e.message : String(e)));
+  }, [projectId, frameworkId]);
+
+  if (error) return <Text style={{ color: "crimson" }}>{error}</Text>;
+
+  return (
+    <View style={{ flex: 1 }}>
+      <ScrollView horizontal style={{ marginBottom: 8 }} showsHorizontalScrollIndicator={false}>
+        <View style={{ flexDirection: "row", gap: 8 }}>
+          {frameworks.map((fw) => (
+            <Button
+              key={fw.id}
+              title={fw.name}
+              onPress={() => setFrameworkId(fw.id)}
+              disabled={fw.id === frameworkId}
+            />
+          ))}
+        </View>
+      </ScrollView>
+      <ScrollView>
+        {controls.map((c) => (
+          <Pressable key={c.id} style={styles.row} onPress={() => setOpenControl({ id: c.id, code: c.code, title: c.title })}>
+            <Text style={styles.rowTitle}>
+              {c.code} · {c.title}
+            </Text>
+            <Text style={styles.rowMeta}>{c.mappedTestCaseCount} test case(s) mapped</Text>
+          </Pressable>
+        ))}
+        {frameworkId && controls.length === 0 && <Text style={styles.rowMeta}>No controls in this framework yet.</Text>}
+        {!frameworkId && <Text style={styles.rowMeta}>No compliance frameworks configured yet.</Text>}
+      </ScrollView>
+      <SignOffModal projectId={projectId} control={openControl} onClose={() => setOpenControl(null)} />
+    </View>
+  );
+}
+
+function SignOffModal({
+  projectId,
+  control,
+  onClose,
+}: {
+  projectId: string;
+  control: { id: string; code: string; title: string } | null;
+  onClose: () => void;
+}) {
+  const [signOffs, setSignOffs] = useState<Awaited<ReturnType<typeof trpc.compliance.listSignOffs.query>>>([]);
+  const [period, setPeriod] = useState("");
+  const [statement, setStatement] = useState("");
+  const [signingOff, setSigningOff] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  function load() {
+    if (!control) {
+      setSignOffs([]);
+      return;
+    }
+    trpc.compliance.listSignOffs
+      .query({ projectId, controlId: control.id })
+      .then(setSignOffs)
+      .catch((e) => setError(e instanceof Error ? e.message : String(e)));
+  }
+
+  useEffect(load, [control?.id]);
+
+  async function signOff() {
+    if (!control || !period.trim() || !statement.trim()) return;
+    setSigningOff(true);
+    setError(null);
+    try {
+      await trpc.compliance.signOffControl.mutate({
+        projectId,
+        controlId: control.id,
+        period: period.trim(),
+        statement: statement.trim(),
+      });
+      setPeriod("");
+      setStatement("");
+      load();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setSigningOff(false);
+    }
+  }
+
+  return (
+    <Modal visible={control !== null} animationType="slide" onRequestClose={onClose}>
+      <SafeAreaView style={styles.container}>
+        <Button title="Close" onPress={onClose} />
+        {control && (
+          <ScrollView style={{ marginTop: 12 }}>
+            <Text style={styles.title}>{control.code}</Text>
+            <Text style={styles.rowMeta}>{control.title}</Text>
+
+            <View style={styles.bddSection}>
+              <Text style={styles.bddLabel}>Sign off on this control</Text>
+              <TextInput style={styles.input} placeholder="Period (e.g. 2026-Q3)" value={period} onChangeText={setPeriod} />
+              <TextInput
+                style={[styles.input, { minHeight: 80 }]}
+                placeholder="Attestation statement - what was reviewed and why it's operating effectively"
+                value={statement}
+                onChangeText={setStatement}
+                multiline
+              />
+              <Button
+                title={signingOff ? "Signing…" : "Sign off"}
+                onPress={signOff}
+                disabled={signingOff || !period.trim() || !statement.trim()}
+              />
+              {error && <Text style={{ color: "crimson" }}>{error}</Text>}
+            </View>
+
+            <View style={styles.bddSection}>
+              <Text style={styles.bddLabel}>Sign-off history</Text>
+              {signOffs.map((s) => (
+                <View key={s.id} style={{ marginBottom: 10 }}>
+                  <Text style={styles.rowTitle}>{s.period}</Text>
+                  <Text style={styles.bddLine}>{s.statement}</Text>
+                  <Text style={styles.rowMeta}>
+                    {s.signedByEmail} · {new Date(s.signedAt).toLocaleDateString()}
+                  </Text>
+                </View>
+              ))}
+              {signOffs.length === 0 && <Text style={styles.rowMeta}>No sign-offs recorded yet for this control.</Text>}
+            </View>
+          </ScrollView>
+        )}
+      </SafeAreaView>
+    </Modal>
+  );
+}
+
+// P8-02: test case detail + BDD view in mobile, plus the AI review-queue
+// approval flow (parity with web's detail drawer's Approve/Reject).
+// Read-only-viewer-safe: buttons only render when reviewStatus is
+// actually PENDING_REVIEW, and the server still enforces EDITOR+
+// regardless of what this UI shows.
 function TestCaseDetailModal({ id, onClose, onChanged }: { id: string | null; onClose: () => void; onChanged: () => void }) {
   const [detail, setDetail] = useState<Awaited<ReturnType<typeof trpc.testCases.byId.query>> | null>(null);
   const [error, setError] = useState<string | null>(null);
