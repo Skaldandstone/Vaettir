@@ -23,6 +23,8 @@ export default tseslint.config(
       "**/dist/**",
       "**/.next/**",
       "**/.expo/**",
+      "apps/mobile/android/**",
+      "apps/mobile/ios/**",
       "**/.turbo/**",
       "**/coverage/**",
       "packages/db/prisma/migrations/**",

@@ -156,7 +156,9 @@ export default function MembersPage() {
               You're at your full-seat limit — adding one more requires upgrading to {seatUsage.nextTierNameForOneMoreFullSeat}.
             </p>
           )}
-          {planTiers.length > 0 && (
+          <p className="text-muted">Pending invitations reserve {seatUsage.fullSeatsReserved} full and {seatUsage.readOnlySeatsReserved} read-only seats.</p>
+          {seatUsage.privateBeta && <p>Private beta: no charge, no self-service upgrades. Contact your beta support contact for allowance questions.</p>}
+          {!seatUsage.privateBeta && planTiers.length > 0 && (
             <div style={{ marginTop: 12, display: "flex", gap: 8, alignItems: "center" }}>
               <label style={{ fontSize: 13 }}>
                 Plan:{" "}

@@ -42,9 +42,8 @@ export const agentRouter = router({
       }),
     )
     .mutation(async ({ ctx, input }) => {
-      if (input.persist) {
-        await requireProjectAccess(ctx, input.projectId, "EDITOR");
-      }
+      // Preview still consumes organization credits and reads framework hints.
+      await requireProjectAccess(ctx, input.projectId, "EDITOR");
       const project = await ctx.prisma.project.findUniqueOrThrow({
         where: { id: input.projectId },
         select: { organizationId: true },

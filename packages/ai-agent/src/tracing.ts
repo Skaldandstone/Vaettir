@@ -20,6 +20,9 @@ export async function traceAnthropicCall<T extends { usage?: { input_tokens: num
     if (result.usage) {
       span.setAttribute("ai.input_tokens", result.usage.input_tokens);
       span.setAttribute("ai.output_tokens", result.usage.output_tokens);
+      // Never include prompts, source code, paths, or user identifiers.
+      console.info(JSON.stringify({ event: "ai_usage", operation, model,
+        inputTokens: result.usage.input_tokens, outputTokens: result.usage.output_tokens }));
     }
     return result;
   });

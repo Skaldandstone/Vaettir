@@ -1,6 +1,7 @@
 ﻿import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 import { router, staffTokenProcedure } from "../trpc.js";
+import { adjustAiCredits } from "../services/aiCredits.js";
 
 /**
  * Staff support console (cross-tenant). This is Vaettir's roadmap Phase 13
@@ -161,19 +162,7 @@ export const staffRouter = router({
     .mutation(async ({ ctx, input }) => {
       const org = await ctx.prisma.organization.findUnique({ where: { id: input.organizationId }, select: { id: true } });
       if (!org) throw new TRPCError({ code: "NOT_FOUND", message: "Organization not found" });
-      await ctx.prisma.aiCreditTransaction.create({
-        data: {
-          organizationId: input.organizationId,
-          type: "ADJUSTMENT",
-          amount: input.amount,
-          description: `[staff:${ctx.staff.actor}] ${input.reason}`,
-        },
-      });
-      const balance = await ctx.prisma.aiCreditTransaction.aggregate({
-        where: { organizationId: input.organizationId },
-        _sum: { amount: true },
-      });
-      return { balance: balance._sum.amount ?? 0 };
+      return adjustAiCredits(ctx.prisma, input.organizationId, input.amount, `[staff:${ctx.staff.actor}] ${input.reason}`);
     }),
 
   // Move an org to a different plan tier (comps, downgrades, billing fixes).

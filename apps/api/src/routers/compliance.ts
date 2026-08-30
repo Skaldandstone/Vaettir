@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
-import { router, protectedProcedure, requireProjectAccess } from "../trpc.js";
+import { router, protectedProcedure, staffProcedure, requireProjectAccess } from "../trpc.js";
 import { recordAudit } from "../services/auditLog.js";
 import { dispatchWebhookEvent } from "../services/webhookDelivery.js";
 
@@ -42,7 +42,7 @@ export const complianceRouter = router({
       }));
     }),
 
-  createFramework: protectedProcedure
+  createFramework: staffProcedure
     .input(z.object({ key: z.string().min(1), name: z.string().min(1), version: z.string().optional(), description: z.string().optional() }))
     .mutation(async ({ ctx, input }) => {
       const existing = await ctx.prisma.complianceFramework.findUnique({ where: { key: input.key } });
@@ -61,7 +61,7 @@ export const complianceRouter = router({
   // (and silently going stale on) the text of external published standards.
   // skipDuplicates means re-importing an updated file is safe to run again:
   // existing (frameworkId, code) rows are left alone, not overwritten.
-  importControls: protectedProcedure
+  importControls: staffProcedure
     .input(
       z.object({
         frameworkId: z.string(),
@@ -86,7 +86,7 @@ export const complianceRouter = router({
       return { createdCount: result.count, skippedCount: input.controls.length - result.count };
     }),
 
-  createControl: protectedProcedure
+  createControl: staffProcedure
     .input(z.object({ frameworkId: z.string(), code: z.string().min(1), title: z.string().min(1), description: z.string().optional() }))
     .mutation(async ({ ctx, input }) => {
       const existing = await ctx.prisma.complianceControl.findUnique({
@@ -393,7 +393,7 @@ export const complianceRouter = router({
     )
     .mutation(async ({ ctx, input }) => {
       const { membership } = await requireProjectAccess(ctx, input.projectId);
-      if (!["COMPLIANCE_AUDITOR", "ADMIN", "OWNER"].includes(membership.role)) {
+        if (membership.seatType === "READ_ONLY" || !["COMPLIANCE_AUDITOR", "ADMIN", "OWNER"].includes(membership.role)) {
         throw new TRPCError({
           code: "FORBIDDEN",
           message: "Only a Compliance Auditor (or an org Admin/Owner) can sign off on a control",

@@ -1,3 +1,4 @@
+import { redactTelemetryEvent } from "@vaettir/core";
 import * as Sentry from "@sentry/nextjs";
 
 // P10-05: browser-side counterpart to instrumentation.ts. Next.js loads
@@ -8,7 +9,10 @@ if (dsn) {
   Sentry.init({
     dsn,
     environment: process.env.NEXT_PUBLIC_SENTRY_ENVIRONMENT ?? process.env.NODE_ENV ?? "development",
-    tracesSampleRate: 0.1,
+    tracesSampleRate: 0,
+    sendDefaultPii: false,
+    beforeBreadcrumb: () => null,
+    beforeSend: redactTelemetryEvent,
   });
 }
 

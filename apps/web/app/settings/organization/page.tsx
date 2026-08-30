@@ -366,6 +366,8 @@ const PLAN_TYPE_TEMPLATES: {
 // The field list below compiles into the same JSON Schema shape the
 // existing CustomFieldsForm renderer already reads for built-in types.
 function PlanTypesSection() {
+  const [canManageCatalog, setCanManageCatalog] = useState(false);
+  useEffect(() => { trpc.beta.capabilities.query().then((result) => setCanManageCatalog(result.canManageSharedCatalog)).catch(() => undefined); }, []);
   const [types, setTypes] = useState<RouterOutputs["testPlans"]["types"]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -437,10 +439,11 @@ function PlanTypesSection() {
     <div style={{ marginTop: 32 }}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
         <h2 style={{ marginBottom: 4 }}>Custom plan types</h2>
-        <button className="btn-secondary" onClick={() => setFormOpen((v) => !v)}>
+        {canManageCatalog && <button className="btn-secondary" onClick={() => setFormOpen((v) => !v)}>
           {formOpen ? "Cancel" : "+ New plan type"}
-        </button>
+        </button>}
       </div>
+      {!canManageCatalog && <p className="text-muted">Shared catalog changes are staff-managed during private beta. Ask support for a new plan type.</p>}
       <p style={{ color: "var(--muted)", fontSize: 13 }}>
         Define a new test plan shape - a compliance acceptance form, an internal audit checklist, whatever your team
         needs - by listing its fields below. It's usable from every project's "New test plan" picker immediately, no

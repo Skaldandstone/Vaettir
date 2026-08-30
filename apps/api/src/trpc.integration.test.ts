@@ -77,6 +77,13 @@ afterAll(async () => {
 });
 
 describe("requireProjectAccess (real DB, real router)", () => {
+  it("preview-only AI calls cannot bypass project permissions or spend another tenant's credits", async () => {
+    for (const userId of [outsiderUserId, viewerUserId]) {
+      const caller = await callerFor(userId);
+      await expect(caller.agent.reverseEngineerFile({ projectId, filePath: "fixture.test.ts", content: "test('example', () => {})", persist: false })).rejects.toMatchObject({ code: "FORBIDDEN" });
+    }
+    expect(await prisma.aiCreditTransaction.count({ where: { organizationId: orgId } })).toBe(0);
+  });
   it("a user with no membership in the org is rejected with FORBIDDEN", async () => {
     const caller = await callerFor(outsiderUserId);
     await expect(caller.testCases.list({ projectId })).rejects.toMatchObject({ code: "FORBIDDEN" } satisfies Partial<TRPCError>);

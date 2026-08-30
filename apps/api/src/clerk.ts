@@ -35,21 +35,20 @@ export async function verifyClerkSessionToken(token: string): Promise<string | n
  * or a webhook to have already fired.
  */
 export async function getOrCreateLocalUser(clerkUserId: string): Promise<User> {
-  const existing = await prisma.user.findUnique({ where: { clerkUserId } });
-  if (existing) return existing;
-
   const clerkUser = await clerkClient.users.getUser(clerkUserId);
-  const primaryEmail = clerkUser.emailAddresses.find(
+  const primary = clerkUser.emailAddresses.find(
     (e) => e.id === clerkUser.primaryEmailAddressId,
-  )?.emailAddress;
-  if (!primaryEmail) {
-    throw new Error(`Clerk user ${clerkUserId} has no primary email address`);
+  );
+  if (!primary || primary.verification?.status !== "verified") {
+    throw new Error("Verify your primary email address before accessing Vaettir");
   }
-
-  return prisma.user.create({
-    data: {
+  const email = primary.emailAddress.trim().toLowerCase();
+  return prisma.user.upsert({
+    where: { clerkUserId },
+    update: { email },
+    create: {
       clerkUserId,
-      email: primaryEmail,
+      email,
       name: [clerkUser.firstName, clerkUser.lastName].filter(Boolean).join(" ") || null,
     },
   });

@@ -115,6 +115,18 @@ const BUILT_IN_COMPLIANCE_FRAMEWORKS = [
 // per-operation token estimates.
 const PLAN_TIERS = [
   {
+    key: "private-beta",
+    name: "Private beta",
+    sortOrder: 100,
+    isPublic: false,
+    minFullSeats: 1,
+    maxFullSeats: 5,
+    includedReadOnlySeats: 2,
+    maxReadOnlySeats: 2,
+    monthlyPricePerSeatCents: 0,
+    includedAiCreditsPerMonth: 500,
+  },
+  {
     key: "free",
     name: "Free",
     sortOrder: 0,

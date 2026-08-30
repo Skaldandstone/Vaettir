@@ -1,3 +1,4 @@
+import { redactTelemetryEvent } from "@vaettir/core";
 import * as Sentry from "@sentry/node";
 
 // P10-05: imported first (before any other module) in server.ts so
@@ -10,7 +11,10 @@ if (dsn) {
   Sentry.init({
     dsn,
     environment: process.env.SENTRY_ENVIRONMENT ?? process.env.NODE_ENV ?? "development",
-    tracesSampleRate: 0.1,
+    tracesSampleRate: 0,
+    sendDefaultPii: false,
+    beforeBreadcrumb: () => null,
+    beforeSend: redactTelemetryEvent,
     debug: process.env.SENTRY_DEBUG === "1",
   });
 

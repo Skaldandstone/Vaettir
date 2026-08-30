@@ -10,6 +10,7 @@ import { trpc } from "../../lib/trpc";
 export default function OnboardingPage() {
   const router = useRouter();
   const [checking, setChecking] = useState(true);
+  const [eligible, setEligible] = useState(false);
   const [organizationName, setOrganizationName] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -17,10 +18,12 @@ export default function OnboardingPage() {
   useEffect(() => {
     trpc.organization.mine
       .query()
-      .then((orgs) => {
+      .then(async (orgs) => {
         if (orgs.length > 0) {
           router.push("/projects");
         } else {
+          const eligibility = await trpc.beta.eligibility.query();
+          setEligible(eligibility.eligible);
           setChecking(false);
         }
       })
@@ -45,10 +48,22 @@ export default function OnboardingPage() {
 
   if (checking) return <p>Loading…</p>;
 
+  if (!eligible) return (
+    <div style={{ maxWidth: 520 }}>
+      <h1>Vaettir private beta</h1>
+      <p>Access is by invitation. Open your team invitation link while signed in with the invited email address.</p>
+      <p>Starting a new team? Ask your beta contact for an owner invitation.</p>
+      {error && <p role="alert">{error}</p>}
+      <button onClick={() => window.location.reload()}>Check invitation again</button>
+    </div>
+  );
+
   return (
     <div style={{ maxWidth: 360 }}>
       <h1>Create your organization</h1>
       <p>This is the workspace your projects, test cases, and teammates will live in.</p>
+      <p>Private beta includes 5 full seats, 2 read-only seats, and 500 AI credits per month at no charge. Unused credits do not roll over.</p>
+      <p>Use non-regulated project data only. Do not upload secrets or sensitive personal data. AI actions send the selected source code or text to Anthropic for processing.</p>
       <div style={{ display: "grid", gap: 8 }}>
         <label>
           Organization name

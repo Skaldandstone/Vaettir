@@ -45,6 +45,7 @@ export default function AdminOrgSearchPage() {
   return (
     <div style={{ maxWidth: 900 }}>
       <h1>Organizations</h1>
+      <p><Link href="/admin/beta">Manage private beta enrollment</Link></p>
       <p style={{ color: "var(--muted, #999)" }}>Internal staff lookup - not visible to customers.</p>
       <div style={{ display: "flex", gap: 8, margin: "12px 0" }}>
         <input

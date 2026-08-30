@@ -3,7 +3,9 @@ name: CI
 on:
   push:
     branches: [master]
+    paths-ignore: ['docs/**', '*.md', 'design/**']
   pull_request:
+    paths-ignore: ['docs/**', '*.md', 'design/**']
 
 # Cancels a run still going for the same branch when a newer push shows
 # up, so a fast burst of commits doesn't queue up several full Postgres +
@@ -22,7 +24,7 @@ jobs:
         env:
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: postgres
-          POSTGRES_DB: vaettir
+          POSTGRES_DB: vaettir_ci_test
         ports: ["5432:5432"]
         options: >-
           --health-cmd pg_isready
@@ -30,16 +32,23 @@ jobs:
           --health-timeout 5s
           --health-retries 5
     env:
-      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/vaettir?schema=public
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/vaettir_ci_test?schema=public
+      NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: pk_test_ZGV2LnZhZXR0aXIuZXhhbXBsZS5jb20k
+      NEXT_PUBLIC_API_URL: http://localhost:4000
     steps:
       - uses: actions/checkout@v4
 
-      - name: Enable corepack
-        run: corepack enable
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - uses: pnpm/action-setup@v4
+        with:
+          run_install: false
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: pnpm
 
       - name: Install dependencies
@@ -67,3 +76,8 @@ jobs:
 
       - name: Test
         run: pnpm test
+
+      # A syntactically valid, non-working test key above is compile-only.
+      # Authenticated release tests use real development-instance credentials.
+      - name: Production build
+        run: pnpm build
