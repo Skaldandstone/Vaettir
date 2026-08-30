@@ -1,4 +1,6 @@
 import { z } from "zod";
+import { lockOrganization, assertActiveOrganization } from "../services/organizationLock.js";
+import { usage } from "../services/seatManagement.js";
 import { TRPCError } from "@trpc/server";
 import { canAddSeat, type SeatType as CoreSeatType } from "@vaettir/core";
 import { router, staffProcedure } from "../trpc.js";
@@ -167,65 +169,36 @@ export const adminRouter = router({
   adjustPlanTier: staffProcedure
     .input(z.object({ organizationId: z.string(), planTierId: z.string(), reason: z.string().min(1) }))
     .mutation(async ({ ctx, input }) => {
-      const [org, targetTier] = await Promise.all([
-        ctx.prisma.organization.findUniqueOrThrow({
-          where: { id: input.organizationId },
-          include: { memberships: { select: { seatType: true } }, planTier: true },
-        }),
-        ctx.prisma.planTier.findUniqueOrThrow({ where: { id: input.planTierId } }),
-      ]);
-
-      const fullSeats = org.memberships.filter((m) => m.seatType === "FULL").length;
-      const readOnlySeats = org.memberships.filter((m) => m.seatType === "READ_ONLY").length;
-      const overflows: string[] = [];
-      if (targetTier.maxFullSeats !== null && fullSeats > targetTier.maxFullSeats) {
-        overflows.push(`${fullSeats - targetTier.maxFullSeats} full seat(s)`);
-      }
-      if (targetTier.maxReadOnlySeats !== null && readOnlySeats > targetTier.maxReadOnlySeats) {
-        overflows.push(`${readOnlySeats - targetTier.maxReadOnlySeats} read-only seat(s)`);
-      }
-      if (overflows.length > 0) {
-        throw new TRPCError({
-          code: "BAD_REQUEST",
-          message: `Can't switch to ${targetTier.name}: remove ${overflows.join(" and ")} first (currently ${fullSeats} full / ${readOnlySeats} read-only seated).`,
-        });
-      }
-
-      await ctx.prisma.organization.update({ where: { id: input.organizationId }, data: { planTierId: input.planTierId } });
-      await recordStaffAction(ctx.prisma, {
-        organizationId: input.organizationId,
-        actorId: ctx.user.id,
-        entityType: "PlanTier",
-        entityId: input.organizationId,
-        summary: `Staff switched plan from ${org.planTier.name} to ${targetTier.name}`,
-        reason: input.reason,
+      const result = await ctx.prisma.$transaction(async (tx) => {
+        await lockOrganization(tx, input.organizationId);
+        const tier = await tx.planTier.findUniqueOrThrow({ where: { id: input.planTierId } });
+        if (!tier.isPublic) throw new TRPCError({ code: "BAD_REQUEST", message: "Use beta enrollment to reserve a cohort slot before creating a beta organization." });
+        const counts = await usage(tx, input.organizationId);
+        if ((tier.maxFullSeats !== null && counts.fullSeats > tier.maxFullSeats) || (tier.maxReadOnlySeats !== null && counts.readOnlySeats > tier.maxReadOnlySeats)) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "Remove excess members and reserved invitations first." });
+        }
+        await tx.organization.update({ where: { id: input.organizationId }, data: { planTierId: tier.id } });
+        return { planTierId: tier.id, planTierName: tier.name };
       });
-      return { planTierId: targetTier.id, planTierName: targetTier.name };
+      await recordStaffAction(ctx.prisma, { organizationId: input.organizationId, actorId: ctx.user.id, entityType: "PlanTier", entityId: input.organizationId, summary: "Staff switched plan to " + result.planTierName, reason: input.reason });
+      return result;
     }),
 
-  // P13-03: "resend a stuck invite" - there's no real email dispatch built
-  // anywhere in this codebase yet (invitations are token-link based), so
-  // resending IS re-surfacing the existing link, not sending a new email.
-  // Refreshes the expiry so a genuinely stuck/expired invite becomes usable
-  // again without the customer having to re-invite from scratch.
+  // No email dispatch: refresh only an existing pending invitation, reserving its seat again.
   resendInvite: staffProcedure
     .input(z.object({ invitationId: z.string(), reason: z.string().min(1) }))
     .output(z.object({ token: z.string(), expiresAt: z.date() }))
     .mutation(async ({ ctx, input }) => {
-      const invitation = await ctx.prisma.invitation.findUniqueOrThrow({ where: { id: input.invitationId } });
-      const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
-      const updated = await ctx.prisma.invitation.update({
-        where: { id: input.invitationId },
-        data: { expiresAt, status: "PENDING" },
+      const target = await ctx.prisma.invitation.findUniqueOrThrow({ where: { id: input.invitationId } });
+      const updated = await ctx.prisma.$transaction(async (tx) => {
+        assertActiveOrganization(await lockOrganization(tx, target.organizationId));
+        const invitation = await tx.invitation.findUniqueOrThrow({ where: { id: target.id }, include: { organization: { include: { planTier: true } } } });
+        if (invitation.status !== "PENDING") throw new TRPCError({ code: "BAD_REQUEST", message: "Accepted or revoked invitations cannot be reused." });
+        const check = canAddSeat(invitation.organization.planTier, await usage(tx, target.organizationId, target.id), invitation.seatType);
+        if (!check.allowed) throw new TRPCError({ code: "BAD_REQUEST", message: check.reason });
+        return tx.invitation.update({ where: { id: target.id }, data: { expiresAt: new Date(Date.now() + 7 * 86400000) } });
       });
-      await recordStaffAction(ctx.prisma, {
-        organizationId: invitation.organizationId,
-        actorId: ctx.user.id,
-        entityType: "Invitation",
-        entityId: invitation.id,
-        summary: `Staff refreshed invite for ${invitation.email}`,
-        reason: input.reason,
-      });
+      await recordStaffAction(ctx.prisma, { organizationId: target.organizationId, actorId: ctx.user.id, entityType: "Invitation", entityId: target.id, summary: "Staff refreshed a pending invitation", reason: input.reason });
       return { token: updated.token, expiresAt: updated.expiresAt };
     }),
 

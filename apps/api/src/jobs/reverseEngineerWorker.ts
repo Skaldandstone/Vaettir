@@ -48,7 +48,7 @@ export async function runReverseEngineerJob(jobId: string): Promise<void> {
       throw new Error(`Job ${job.id} has no content to reverse-engineer (inputType ${job.inputType})`);
     }
     const project = await prisma.project.findUniqueOrThrow({ where: { id: job.projectId }, select: { organizationId: true } });
-    await chargeAiCredits(prisma, project.organizationId, "reverseEngineerTestFile", `job ${job.id} (${job.inputRef})`);
+    await chargeAiCredits(prisma, project.organizationId, "reverseEngineerTestFile", `job ${job.id} (${job.inputRef})`, `job:${job.id}:${job.startedAt?.toISOString()}`);
     const heuristic = await getMostRecentHeuristic(prisma, job.projectId);
     const result = await reverseEngineerTestFile({
       filePath: job.inputRef,

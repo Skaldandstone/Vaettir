@@ -1,10 +1,9 @@
-import { test, expect } from "@playwright/test";
+import { test, expect } from "./fixtures";
 
-// Assumes a project named "Kall" exists and is reachable by the signed-in
-// test user (it does in the real Vaettir org this suite runs against).
-async function gotoKallTestCases(page: import("@playwright/test").Page) {
+// Each test receives its own synthetic project and case data.
+async function gotoFixtureTestCases(page: import("@playwright/test").Page) {
   await page.goto("/projects");
-  await page.locator("li", { hasText: "Kall" }).getByRole("link", { name: "Kall" }).click();
+  await page.locator("li", { hasText: "Beta fixture" }).getByRole("link", { name: "Beta fixture" }).click();
   await page.getByRole("link", { name: /test cases/i }).click();
   await expect(page).toHaveURL(/\/test-cases$/);
 }
@@ -12,7 +11,7 @@ async function gotoKallTestCases(page: import("@playwright/test").Page) {
 test.describe("Test cases", () => {
   test("quick-add creates a case with just a title, via Enter", async ({ page }) => {
     const title = `E2E quick-add case ${Date.now()}`;
-    await gotoKallTestCases(page);
+    await gotoFixtureTestCases(page);
     const quickAdd = page.getByPlaceholder("+ Quick-add a case, press Enter…");
     await quickAdd.fill(title);
     await quickAdd.press("Enter");
@@ -21,7 +20,7 @@ test.describe("Test cases", () => {
 
   test("the full editor creates a case with BDD given/when/then", async ({ page }) => {
     const title = `E2E full-editor case ${Date.now()}`;
-    await gotoKallTestCases(page);
+    await gotoFixtureTestCases(page);
     await page.getByRole("link", { name: "Full editor" }).click();
     await page.getByLabel(/title/i).fill(title);
     await page.getByPlaceholder(/given/i).first().fill("a signed-in user");
@@ -32,13 +31,13 @@ test.describe("Test cases", () => {
   });
 
   test("searching filters the visible case list by title", async ({ page }) => {
-    await gotoKallTestCases(page);
+    await gotoFixtureTestCases(page);
     await page.getByPlaceholder("Search title or tags…").fill("submission preview");
     await expect(page.getByText("Preparing an immutable submission preview succeeds")).toBeVisible();
   });
 
   test("bulk-selecting cases and adding a tag applies it to all selected", async ({ page }) => {
-    await gotoKallTestCases(page);
+    await gotoFixtureTestCases(page);
     const tag = `e2e-${Date.now()}`;
     const checkboxes = page.locator('input[type="checkbox"]').and(page.locator(":visible"));
     await checkboxes.nth(1).check();
@@ -50,7 +49,7 @@ test.describe("Test cases", () => {
 
   test("archiving a selected case removes it from the default (non-archived) view", async ({ page }) => {
     const title = `E2E archive-me ${Date.now()}`;
-    await gotoKallTestCases(page);
+    await gotoFixtureTestCases(page);
     const quickAdd = page.getByPlaceholder("+ Quick-add a case, press Enter…");
     await quickAdd.fill(title);
     await quickAdd.press("Enter");
@@ -62,7 +61,7 @@ test.describe("Test cases", () => {
 
   test("checking 'show archived' brings archived cases back into view", async ({ page }) => {
     const title = `E2E archived-visibility ${Date.now()}`;
-    await gotoKallTestCases(page);
+    await gotoFixtureTestCases(page);
     const quickAdd = page.getByPlaceholder("+ Quick-add a case, press Enter…");
     await quickAdd.fill(title);
     await quickAdd.press("Enter");
@@ -76,7 +75,7 @@ test.describe("Test cases", () => {
   });
 
   test("importing a CSV creates the expected number of new cases and reports skipped rows", async ({ page }) => {
-    await gotoKallTestCases(page);
+    await gotoFixtureTestCases(page);
     await page.getByRole("button", { name: "Import CSV" }).click();
     const csv = [
       "title,given,when,then,priority,tags",
@@ -90,7 +89,7 @@ test.describe("Test cases", () => {
   });
 
   test("opening a test case shows its detail drawer with BDD content", async ({ page }) => {
-    await gotoKallTestCases(page);
+    await gotoFixtureTestCases(page);
     await page.getByText("A wrong password is rejected without creating a session").click();
     await expect(page.locator(".drawer-panel")).toBeVisible();
     await expect(page.locator(".drawer-panel")).toContainText(/given/i);

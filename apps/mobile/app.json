@@ -3,12 +3,16 @@
     "name": "Vaettir",
     "slug": "vaettir-mobile",
     "version": "0.1.0",
+    "scheme": "vaettir",
+    "icon": "./assets/icon.png",
     "orientation": "portrait",
-    "userInterfaceStyle": "automatic",
-    "ios": { "supportsTablet": true },
-    "android": {},
+    "platforms": ["android", "ios"],
+    "userInterfaceStyle": "dark",
+    "plugins": ["./plugins/with-monorepo-root", "expo-secure-store", ["expo-splash-screen", { "image": "./assets/splash.png", "imageWidth": 160, "backgroundColor": "#26211B" }]],
+    "ios": { "supportsTablet": true, "bundleIdentifier": "com.skaldandstone.vaettir", "buildNumber": "1", "infoPlist": { "ITSAppUsesNonExemptEncryption": false } },
+    "android": { "package": "com.skaldandstone.vaettir", "versionCode": 1, "adaptiveIcon": { "foregroundImage": "./assets/adaptive-icon.png", "backgroundColor": "#26211B" } },
     "extra": {
-      "apiUrl": "http://localhost:4000"
+      "apiUrl": "https://vaettir.skaldandstone.com/api"
     }
   }
 }

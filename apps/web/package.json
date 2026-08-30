@@ -6,7 +6,7 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc --noEmit && tsc -p tsconfig.e2e.json",
     "test:e2e": "playwright test",
     "lint": "eslint ."
   },
@@ -21,6 +21,8 @@
     "react-dom": "^18.3.0"
   },
   "devDependencies": {
+    "@clerk/testing": "2.2.31",
+    "@vaettir/db": "workspace:*",
     "@playwright/test": "^1.62.1",
     "@types/node": "^22.7.0",
     "@types/react": "^18.3.0",

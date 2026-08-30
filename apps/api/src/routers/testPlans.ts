@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 import { generateQaStrategyDraft } from "@vaettir/ai-agent";
-import { router, protectedProcedure, requireProjectAccess } from "../trpc.js";
+import { router, protectedProcedure, staffProcedure, requireProjectAccess } from "../trpc.js";
 import { recordAudit } from "../services/auditLog.js";
 import { snapshotTestPlanVersion } from "../services/testPlanVersion.js";
 import { chargeAiCredits, InsufficientAiCreditsError } from "../services/aiCredits.js";
@@ -66,7 +66,7 @@ export const testPlansRouter = router({
   // not just the render side. Not project-scoped for the same reason
   // `types` isn't: this is shared reference data like ComplianceFramework,
   // not something a single project owns.
-  createType: protectedProcedure
+  createType: staffProcedure
     .input(
       z.object({
         key: z.string().min(1),

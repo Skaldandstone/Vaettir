@@ -17,7 +17,7 @@ async function resolveApiKeyUser(rawKey: string) {
   if (!apiKey || apiKey.revokedAt) return null;
   // Best-effort last-used tracking; never let it block or fail the request.
   prisma.apiKey.update({ where: { id: apiKey.id }, data: { lastUsedAt: new Date() } }).catch(() => undefined);
-  return prisma.user.findUnique({ where: { id: apiKey.serviceUserId }, include: { memberships: true } });
+  return prisma.user.findUnique({ where: { id: apiKey.serviceUserId }, include: { memberships: { where: { organization: { suspendedAt: null } } } } });
 }
 
 // The staff plane is a SEPARATE identity from tenant users: cross-org support
@@ -47,7 +47,7 @@ export async function createContext({ req }: CreateFastifyContextOptions) {
       : await verifyClerkSessionToken(token).then((clerkUserId) =>
           clerkUserId
             ? getOrCreateLocalUser(clerkUserId).then((u) =>
-                prisma.user.findUniqueOrThrow({ where: { id: u.id }, include: { memberships: true } }),
+                prisma.user.findUniqueOrThrow({ where: { id: u.id }, include: { memberships: { where: { organization: { suspendedAt: null } } } } }),
               )
             : null,
         );
@@ -103,7 +103,7 @@ export function requireOrgRole(
   minRole: OrgRole = "VIEWER",
 ) {
   const membership = ctx.user.memberships.find((m) => m.organizationId === organizationId);
-  if (!membership || ROLE_RANK[membership.role] < ROLE_RANK[minRole]) {
+  if (!membership || ROLE_RANK[membership.role] < ROLE_RANK[minRole] || (membership.seatType === "READ_ONLY" && minRole !== "VIEWER")) {
     throw new TRPCError({ code: "FORBIDDEN", message: "Not a member of this organization" });
   }
   return membership;

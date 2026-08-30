@@ -1,4 +1,4 @@
-import { test, expect } from "@playwright/test";
+import { test, expect } from "./fixtures";
 
 async function gotoMembers(page: import("@playwright/test").Page) {
   await page.goto("/settings/members");
@@ -25,14 +25,12 @@ test.describe("Members, seats & plan", () => {
     await expect(page.getByText(/invite created/i)).toBeVisible();
   });
 
-  test("the plan dropdown lists all four tiers with real prices", async ({ page }) => {
+  test("private beta has no self-service paid upgrade path", async ({ page }) => {
     await gotoMembers(page);
     const planSelect = page.locator("select").filter({ hasText: /free|team|business|corp/i }).first();
-    await expect(planSelect).toBeVisible();
-    const optionTexts = await planSelect.locator("option").allTextContents();
-    expect(optionTexts.join(" ")).toMatch(/Free/);
-    expect(optionTexts.join(" ")).toMatch(/Team/);
-    expect(optionTexts.join(" ")).toMatch(/\$\d+\/seat\/mo/);
+    await expect(planSelect).toHaveCount(0);
+    await expect(page.getByText(/Private beta plan/i)).toBeVisible();
+    await expect(page.getByText(/500/)).toBeVisible();
   });
 
   test("revoking a pending invitation removes it from the list", async ({ page }) => {

@@ -1,0 +1,109 @@
+name: Private beta release validation
+
+on:
+  workflow_dispatch:
+    inputs:
+      live_ai:
+        description: "Approved paid AI acceptance run (test data only)"
+        type: boolean
+        default: false
+      android_compile:
+        description: "Compile Android on this release candidate (not device acceptance)"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: beta-release-validation
+  cancel-in-progress: false
+
+jobs:
+  browser:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    environment: private-beta-validation
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: vaettir_browser_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd pg_isready --health-interval 10s
+          --health-timeout 5s --health-retries 5
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/vaettir_browser_test?schema=public
+      NEXT_PUBLIC_API_URL: http://localhost:4000
+      PLAYWRIGHT_BASE_URL: http://localhost:3000
+      NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: ${{ secrets.CLERK_TEST_PUBLISHABLE_KEY }}
+      CLERK_SECRET_KEY: ${{ secrets.CLERK_TEST_SECRET_KEY }}
+      CLERK_TEST_EMAIL: ${{ secrets.CLERK_TEST_EMAIL }}
+      CLERK_TEST_PASSWORD: ${{ secrets.CLERK_TEST_PASSWORD }}
+      CLERK_TEST_USER_ID: ${{ secrets.CLERK_TEST_USER_ID }}
+      VAETTIR_LIVE_AI_TESTS: ${{ inputs.live_ai && '1' || '0' }}
+      ANTHROPIC_API_KEY: ${{ inputs.live_ai && secrets.ANTHROPIC_TEST_API_KEY || '' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: pnpm/action-setup@v4
+        with:
+          run_install: false
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm db:generate
+      - run: pnpm --filter @vaettir/db exec prisma migrate deploy
+      - run: pnpm --filter @vaettir/db run seed
+      - run: pnpm typecheck && pnpm lint && pnpm test && pnpm build
+      - run: pnpm --filter @vaettir/web exec playwright install --with-deps chromium
+      - name: Launch isolated API and web
+        run: |
+          pnpm --filter @vaettir/api start > /tmp/vaettir-api.log 2>&1 &
+          pnpm --filter @vaettir/web start > /tmp/vaettir-web.log 2>&1 &
+          for attempt in $(seq 1 60); do
+            if curl -fsS http://localhost:4000/health >/dev/null && curl -fsS http://localhost:3000/beta-guide >/dev/null; then exit 0; fi
+            sleep 1
+          done
+          exit 1
+      - run: pnpm --filter @vaettir/web test:e2e
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: browser-evidence-${{ github.sha }}
+          path: |
+            apps/web/playwright-report
+            apps/web/test-results
+          retention-days: 7
+
+  android:
+    if: inputs.android_compile
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    environment: private-beta-validation
+    env:
+      EXPO_PUBLIC_API_URL: https://vaettir.skaldandstone.com/api
+      # Compile-only, not a functioning account or distributable build.
+      EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY: pk_test_ZGV2LnZhZXR0aXIuZXhhbXBsZS5jb20k
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: pnpm/action-setup@v4
+        with:
+          run_install: false
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm db:generate && pnpm typecheck
+      - run: pnpm --filter @vaettir/mobile exec expo install --check
+      - run: pnpm --filter @vaettir/mobile exec expo prebuild --platform android --no-install
+      - name: Native release compilation, no distribution
+        working-directory: apps/mobile/android
+        run: ./gradlew :app:assembleRelease --no-daemon -PreactNativeArchitectures=arm64-v8a

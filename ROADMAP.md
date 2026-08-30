@@ -1,5 +1,7 @@
 # Vaettir Roadmap
 
+Release acceptance is tracked separately in the [private-beta readiness register](docs/private-beta/readiness-register.md). Feature completion below does not imply external-team readiness.
+
 This is the working backlog for the platform beyond the initial scaffold
 (see [README.md](README.md) for what's already built: core data model, AI
 reverse-engineering MVP, web/mobile/api scaffolding).

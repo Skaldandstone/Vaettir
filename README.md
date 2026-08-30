@@ -1,5 +1,7 @@
 # Vaettir
 
+Private beta is currently on HOLD pending release acceptance. See the [readiness register](docs/private-beta/readiness-register.md) for verified evidence, owners and blockers.
+
 A quality intelligence and test case management platform that blends every
 testing discipline - unit, functional, contract, instrumentation, smoke,
 sanity, regression, e2e, and more - into one system, with an AI agent that

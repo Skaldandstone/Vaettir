@@ -1,4 +1,4 @@
-import { test, expect } from "@playwright/test";
+import { test, expect } from "./fixtures";
 
 async function gotoOrgSettings(page: import("@playwright/test").Page) {
   await page.goto("/settings/organization");
@@ -53,14 +53,9 @@ test.describe("Organization settings", () => {
     await expect(page.getByText(/copy this now/i)).toBeVisible();
   });
 
-  test("a custom plan type can be created from the vendor-security-questionnaire template", async ({ page }) => {
+  test("shared catalog authoring is staff-managed during beta", async ({ page }) => {
     await gotoOrgSettings(page);
-    await page.getByRole("button", { name: "+ New plan type" }).click();
-    await page.getByLabel(/start from a template/i).selectOption({ label: "Vendor security questionnaire" });
-    const keyInput = page.getByLabel(/key/i).first();
-    const key = `e2e-vendor-security-${Date.now()}`;
-    await keyInput.fill(key);
-    await page.getByRole("button", { name: "Create plan type" }).click();
-    await expect(page.getByText(key)).toBeVisible();
+    await expect(page.getByText(/Shared catalog changes are staff-managed/)).toBeVisible();
+    await expect(page.getByRole("button", { name: "+ New plan type" })).toHaveCount(0);
   });
 });

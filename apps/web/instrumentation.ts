@@ -1,3 +1,4 @@
+import { redactTelemetryEvent } from "@vaettir/core";
 import * as Sentry from "@sentry/nextjs";
 
 // P10-05: Next's instrumentation hook, called once per runtime (nodejs and
@@ -12,7 +13,10 @@ export function register() {
     Sentry.init({
       dsn,
       environment: process.env.SENTRY_ENVIRONMENT ?? process.env.NODE_ENV ?? "development",
-      tracesSampleRate: 0.1,
+      tracesSampleRate: 0,
+    sendDefaultPii: false,
+    beforeBreadcrumb: () => null,
+    beforeSend: redactTelemetryEvent,
     });
   }
 }

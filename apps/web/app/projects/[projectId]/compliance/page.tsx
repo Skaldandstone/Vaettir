@@ -340,7 +340,9 @@ export default function CompliancePage() {
   const [importing, setImporting] = useState(false);
   const [importResult, setImportResult] = useState<{ createdCount: number; skippedCount: number } | null>(null);
 
-  const [readOnly, setReadOnly] = useState(false);
+  const [canManageCatalog, setCanManageCatalog] = useState(false);
+  useEffect(() => { trpc.beta.capabilities.query().then((result) => setCanManageCatalog(result.canManageSharedCatalog)).catch(() => undefined); }, []);
+  const [readOnly, setReadOnly] = useState(true);
   useEffect(() => {
     trpc.project.byId
       .query({ id: projectId })
@@ -485,7 +487,7 @@ export default function CompliancePage() {
     <div style={{ maxWidth: 800 }}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 4 }}>
         <h1 style={{ margin: 0 }}>Compliance</h1>
-        {!readOnly && (
+        {canManageCatalog && (
           <button className="btn-primary" onClick={() => setFrameworkModalOpen(true)}>
             + New framework
           </button>
@@ -531,7 +533,7 @@ export default function CompliancePage() {
               <button className="btn-secondary" style={{ fontSize: 13 }} onClick={exportCsv} disabled={exporting || controls.length === 0}>
                 {exporting ? "Exporting…" : "Export CSV"}
               </button>
-              {!readOnly && (
+              {canManageCatalog && (
                 <>
                   <button
                     className="btn-secondary"
@@ -561,7 +563,7 @@ export default function CompliancePage() {
               <ControlRow key={c.id} projectId={projectId} control={c} onChanged={loadControls} readOnly={readOnly} />
             ))}
             {controls.length === 0 && (
-              <p className="text-muted">No controls on this framework yet — add one above.</p>
+              <p className="text-muted">No controls on this framework yet. Ask support to add the reviewed reference controls.</p>
             )}
           </ul>
         </div>

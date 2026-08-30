@@ -1,0 +1,16 @@
+{
+  "cli": { "appVersionSource": "local" },
+  "build": {
+    "preview": {
+      "distribution": "internal",
+      "android": { "buildType": "apk" },
+      "env": { "EXPO_PUBLIC_API_URL": "https://vaettir.skaldandstone.com/api" }
+    },
+    "ios-testflight": {
+      "distribution": "store",
+      "autoIncrement": true,
+      "env": { "EXPO_PUBLIC_API_URL": "https://vaettir.skaldandstone.com/api" }
+    }
+  },
+  "submit": { "ios-testflight": {} }
+}

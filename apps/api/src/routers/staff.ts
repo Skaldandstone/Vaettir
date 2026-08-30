@@ -1,6 +1,9 @@
 ﻿import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 import { router, staffTokenProcedure } from "../trpc.js";
+import { adjustAiCredits } from "../services/aiCredits.js";
+import { lockOrganization } from "../services/organizationLock.js";
+import { usage } from "../services/seatManagement.js";
 
 /**
  * Staff support console (cross-tenant). This is Vaettir's roadmap Phase 13
@@ -161,32 +164,24 @@ export const staffRouter = router({
     .mutation(async ({ ctx, input }) => {
       const org = await ctx.prisma.organization.findUnique({ where: { id: input.organizationId }, select: { id: true } });
       if (!org) throw new TRPCError({ code: "NOT_FOUND", message: "Organization not found" });
-      await ctx.prisma.aiCreditTransaction.create({
-        data: {
-          organizationId: input.organizationId,
-          type: "ADJUSTMENT",
-          amount: input.amount,
-          description: `[staff:${ctx.staff.actor}] ${input.reason}`,
-        },
-      });
-      const balance = await ctx.prisma.aiCreditTransaction.aggregate({
-        where: { organizationId: input.organizationId },
-        _sum: { amount: true },
-      });
-      return { balance: balance._sum.amount ?? 0 };
+      return adjustAiCredits(ctx.prisma, input.organizationId, input.amount, `[staff:${ctx.staff.actor}] ${input.reason}`);
     }),
 
   // Move an org to a different plan tier (comps, downgrades, billing fixes).
   setPlanTier: staffTokenProcedure
     .input(z.object({ organizationId: z.string(), planTierKey: z.string() }))
-    .mutation(async ({ ctx, input }) => {
-      const tier = await ctx.prisma.planTier.findUnique({ where: { key: input.planTierKey }, select: { id: true, key: true, name: true } });
+    .mutation(({ ctx, input }) => ctx.prisma.$transaction(async (tx) => {
+      await lockOrganization(tx, input.organizationId);
+      const tier = await tx.planTier.findUnique({ where: { key: input.planTierKey } });
       if (!tier) throw new TRPCError({ code: "BAD_REQUEST", message: "Unknown plan tier" });
-      const org = await ctx.prisma.organization.findUnique({ where: { id: input.organizationId }, select: { id: true } });
-      if (!org) throw new TRPCError({ code: "NOT_FOUND", message: "Organization not found" });
-      await ctx.prisma.organization.update({ where: { id: input.organizationId }, data: { planTierId: tier.id } });
-      return { planTier: tier };
-    }),
+      if (!tier.isPublic) throw new TRPCError({ code: "BAD_REQUEST", message: "Use staff beta enrollment to reserve a cohort slot." });
+      const counts = await usage(tx, input.organizationId);
+      if ((tier.maxFullSeats !== null && counts.fullSeats > tier.maxFullSeats) || (tier.maxReadOnlySeats !== null && counts.readOnlySeats > tier.maxReadOnlySeats)) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Remove excess members and reserved invitations first." });
+      }
+      await tx.organization.update({ where: { id: input.organizationId }, data: { planTierId: tier.id } });
+      return { planTier: { id: tier.id, key: tier.key, name: tier.name } };
+    })),
 
   // Revoke a (leaked/stale) service API key. Reversible only forward -- the
   // safe direction for an incident.

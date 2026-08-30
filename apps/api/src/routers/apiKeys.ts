@@ -1,6 +1,10 @@
 import { z } from "zod";
 import { router, protectedProcedure, requireOrgRole } from "../trpc.js";
 import { generateApiKey } from "../services/apiKeyAuth.js";
+import { TRPCError } from "@trpc/server";
+import { canAddSeat } from "@vaettir/core";
+import { assertActiveOrganization, lockOrganization } from "../services/organizationLock.js";
+import { requireAdmin, usage } from "../services/seatManagement.js";
 
 const ROLES = z.enum(["VIEWER", "COMPLIANCE_AUDITOR", "EDITOR", "ADMIN"]);
 
@@ -39,6 +43,11 @@ export const apiKeysRouter = router({
       const { rawKey, hashedKey, keyPrefix } = generateApiKey();
 
       const created = await ctx.prisma.$transaction(async (tx) => {
+        assertActiveOrganization(await lockOrganization(tx, input.organizationId));
+        await requireAdmin(tx, input.organizationId, ctx.user.id);
+        const org = await tx.organization.findUniqueOrThrow({ where: { id: input.organizationId }, include: { planTier: true } });
+        const seats = canAddSeat(org.planTier, await usage(tx, input.organizationId), "FULL");
+        if (!seats.allowed) throw new TRPCError({ code: "BAD_REQUEST", message: "Service accounts use a full seat. " + seats.reason });
         const serviceUser = await tx.user.create({
           data: {
             clerkUserId: `apikey_${keyPrefix}_${Date.now()}`,
@@ -71,6 +80,11 @@ export const apiKeysRouter = router({
     .mutation(async ({ ctx, input }) => {
       const apiKey = await ctx.prisma.apiKey.findUniqueOrThrow({ where: { id: input.id } });
       requireOrgRole(ctx, apiKey.organizationId, "ADMIN");
-      await ctx.prisma.apiKey.update({ where: { id: input.id }, data: { revokedAt: new Date() } });
+      await ctx.prisma.$transaction(async (tx) => {
+        assertActiveOrganization(await lockOrganization(tx, apiKey.organizationId));
+        await requireAdmin(tx, apiKey.organizationId, ctx.user.id);
+        await tx.apiKey.update({ where: { id: input.id }, data: { revokedAt: new Date() } });
+        await tx.membership.deleteMany({ where: { organizationId: apiKey.organizationId, userId: apiKey.serviceUserId } });
+      });
     }),
 });

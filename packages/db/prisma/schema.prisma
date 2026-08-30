@@ -77,6 +77,21 @@ model Organization {
   apiKeys              ApiKey[]
   auditLogs            AuditLog[]
   webhookEndpoints     WebhookEndpoint[]
+  betaEnrollment       BetaEnrollment?
+}
+
+// Enrollment reserves a cohort slot before an owner creates an organization.
+// Retain the receipt after org deletion, but never allow it to be claimed again.
+model BetaEnrollment {
+  id             String   @id @default(cuid())
+  email          String   @unique
+  organizationId String?  @unique
+  organization   Organization? @relation(fields: [organizationId], references: [id], onDelete: SetNull)
+  createdBy      String
+  createdAt      DateTime @default(now())
+  claimedAt      DateTime?
+  revokedAt      DateTime?
+  reason         String
 }
 
 // P13-05: the permanent record that an org was hard-deleted - by whom,
@@ -358,6 +373,7 @@ model PlanTier {
   key                      String @unique // "free" | "team" | "business" | "corp"
   name                     String
   sortOrder                Int
+  isPublic                 Boolean @default(true)
   minFullSeats             Int // inclusive lower bound that qualifies for/requires this tier
   maxFullSeats             Int? // inclusive upper bound; null = unlimited (top tier)
   includedReadOnlySeats    Int    @default(0) // read-only seats bundled at this tier
@@ -400,8 +416,10 @@ model AiCreditTransaction {
   operation      String?
   description    String?
   createdAt      DateTime                @default(now())
+  idempotencyKey  String?
 
   @@index([organizationId, createdAt])
+  @@unique([organizationId, idempotencyKey])
 }
 
 enum AiCreditTransactionType {

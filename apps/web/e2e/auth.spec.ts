@@ -1,4 +1,4 @@
-import { test, expect } from "@playwright/test";
+import { test, expect } from "./fixtures";
 
 // Signed-out flows -- runs in the "signed-out" project (no stored
 // session), see playwright.config.ts.
