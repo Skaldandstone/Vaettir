@@ -4,6 +4,8 @@ Status: HOLD. Implementation is not permission to invite external teams.
 
 Owner of final go/no-go: James. Engineering owns implementation and evidence. The iOS tester owns physical-device acceptance. This register supplements the [roadmap](../../ROADMAP.md), not its feature-completion checkboxes.
 
+Parallel task ownership, isolated worktrees and the implementation checkpoint are recorded in [parallel handoff](parallel-handoff.md). This integration task alone reconciles the combined release evidence.
+
 ## Release identity
 
 Base: 9950b5ab9a029eb9c24585d0d47d36cf8d875c42.

@@ -2,6 +2,17 @@
 
 This is an implementation checkpoint, not a beta-ready release. The integration task owns the readiness register and final combined validation. Forked tasks must use their assigned isolated worktree, not the empty saved project folder or the canonical integration checkout.
 
+Checkpoint for all five worktrees: a6b5554ddd53cb0e3326264557c0931a00336f6f. Worktree root: C:/Users/James/Documents/vaettir-beta-worktrees. These are local branches; nothing has been pushed or deployed.
+
+| Task title | Task ID | Worktree / branch |
+|---|---|---|
+| Beta: integration and readiness | 01a0548c-0995-7c21-9634-fff5931643ac | C:/Users/James/Documents/Vaettir / codex/private-beta-readiness |
+| Beta: permissions and limits | 01a054fa-c9b9-78f3-80e2-9241673a60ae | permissions / codex/beta-permissions |
+| Beta: mobile delivery | 01a054fb-164c-73c3-972e-44ae1c1cee06 | mobile / codex/beta-mobile |
+| Beta: dependency security | 01a05504-36ed-7a83-8493-9c9d7f754fd5 | dependencies / codex/beta-dependencies |
+| Beta: browser and onboarding QA | 01a05509-a997-78f1-aaec-d2d43fa1666d | browser / codex/beta-browser |
+| Beta: operations and release evidence | 01a0550b-a91f-77c0-b21b-b49b7dd72518 | operations / codex/beta-operations |
+
 ## Shared rules
 
 - Preserve the canonical checkout's untracked NEEDS_ATTENTION.md and the older GitHub/Vaettir checkout's edits.
