@@ -4,7 +4,7 @@
     "build": {
       "dependsOn": ["^build"],
       "outputs": ["dist/**", ".next/**"],
-      "env": ["NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY", "NEXT_PUBLIC_API_URL", "NEXT_PUBLIC_SENTRY_DSN", "SENTRY_AUTH_TOKEN", "VAETTIR_LOCAL_BUILD"]
+      "env": ["NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY", "NEXT_PUBLIC_API_URL", "NEXT_PUBLIC_SENTRY_DSN", "SENTRY_AUTH_TOKEN", "VAETTIR_LOCAL_BUILD", "NEXT_PUBLIC_RELEASE_COMMIT", "VAETTIR_RELEASE_COMMIT"]
     },
     "dev": {
       "cache": false,

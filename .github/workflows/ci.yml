@@ -1,5 +1,8 @@
 name: CI
 
+permissions:
+  contents: read
+
 on:
   push:
     branches: [master]
@@ -18,6 +21,7 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
+    timeout-minutes: 25
     services:
       postgres:
         image: postgres:16
@@ -32,9 +36,15 @@ jobs:
           --health-timeout 5s
           --health-retries 5
     env:
-      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/vaettir_ci_test?schema=public
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/vaettir_ci_test?schema=public&connection_limit=5
       NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: pk_test_ZGV2LnZhZXR0aXIuZXhhbXBsZS5jb20k
       NEXT_PUBLIC_API_URL: http://localhost:4000
+      NEXT_PUBLIC_RELEASE_COMMIT: ${{ github.sha }}
+      VAETTIR_RELEASE_COMMIT: ${{ github.sha }}
+      NEXT_TELEMETRY_DISABLED: '1'
+      EXPO_NO_TELEMETRY: '1'
+      VAETTIR_LIVE_AI_TESTS: '0'
+      AWS_EC2_METADATA_DISABLED: 'true'
     steps:
       - uses: actions/checkout@v4
 
@@ -57,6 +67,12 @@ jobs:
       - name: Generate Prisma client
         run: pnpm db:generate
 
+      - name: Evidence and health contract tests
+        run: node --test scripts/tests/*.test.mjs
+
+      - name: Dependency consumer regressions, when integrated
+        run: node scripts/run-dependency-regressions.mjs
+
       # P10-11: the new router integration test suite (trpc.integration.test.ts)
       # hits a real Postgres connection and depends on the seeded PlanTier
       # rows existing, same as local dev's actual DB already has from past
@@ -75,9 +91,22 @@ jobs:
         run: pnpm lint
 
       - name: Test
-        run: pnpm test
+        run: pnpm test -- --maxWorkers=2
 
       # A syntactically valid, non-working test key above is compile-only.
       # Authenticated release tests use real development-instance credentials.
       - name: Production build
         run: pnpm build
+
+      - name: Verify Linux standalone output
+        run: |
+          test -f apps/web/.next/standalone/apps/web/server.js
+          test -d apps/web/.next/static
+          node scripts/write-build-evidence.mjs
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: build-identity-${{ github.sha }}
+          path: .local/build-evidence.json
+          include-hidden-files: true
+          retention-days: 7

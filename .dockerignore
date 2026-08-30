@@ -14,3 +14,17 @@ dist
 coverage
 .expo
 **/.expo
+.local
+**/.local
+**/.env
+**/.env.*
+**/.auth
+**/playwright-report
+**/test-results
+**/android
+**/ios
+**/*.keystore
+**/*.jks
+**/*.p12
+**/*.pem
+**/*.key
