@@ -1,6 +1,19 @@
 packages:
   - "apps/*"
   - "packages/*"
+# Reviewed consumer-specific security updates. See docs/private-beta/dependency-triage.md.
+# Keep Expo/React Native and Prisma major-version migrations separate.
+overrides:
+  '@expo/cli@0.22.28>tar': 7.5.21
+  'cacache@18.0.4>tar': 7.5.21
+  '@expo/plist@0.2.2>@xmldom/xmldom': 0.8.15
+  '@expo/metro-config@0.19.12>postcss': 8.5.26
+  'next@15.5.23>postcss': 8.5.26
+  'next@15.5.23>sharp': 0.35.4
+  '@expo/bunyan@4.0.1>uuid': 11.1.1
+  '@expo/rudder-sdk-node@1.1.1>uuid': 11.1.1
+  'jayson@4.3.0>uuid': 11.1.1
+  'xcode@3.0.1>uuid': 11.1.1
 allowBuilds:
   '@clerk/shared': true
   '@prisma/client': true
@@ -14,3 +27,6 @@ allowBuilds:
   sharp: true
   unrs-resolver: true
   utf-8-validate: true
+patchedDependencies:
+  '@expo/cli@0.22.28': patches/@expo__cli@0.22.28.patch
+  image-size@1.2.1: patches/image-size@1.2.1.patch

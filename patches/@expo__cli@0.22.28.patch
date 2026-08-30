@@ -1,0 +1,28 @@
+diff --git a/build/src/utils/npm.js b/build/src/utils/npm.js
+index b861322e982f936bd3267c507a56f48213cc3d16..e9ec93b9783c4dedc08ac9aad8bf0c693972baa5 100644
+--- a/build/src/utils/npm.js
++++ b/build/src/utils/npm.js
+@@ -60,7 +60,8 @@ function _stream() {
+     return data;
+ }
+ function _tar() {
+-    const data = /*#__PURE__*/ _interopRequireDefault(require("tar"));
++    // tar 7 exposes CommonJS named exports without an ESM default export.
++    const data = { default: require("tar") };
+     _tar = function() {
+         return data;
+     };
+diff --git a/build/src/utils/tar.js b/build/src/utils/tar.js
+index 8bf12d812646724089f6cd265b16093e8f518570..53f14325ce13485fbb3f87f4fde8d6fad40a2c57 100644
+--- a/build/src/utils/tar.js
++++ b/build/src/utils/tar.js
+@@ -14,7 +14,8 @@ function _spawnAsync() {
+     return data;
+ }
+ function _tar() {
+-    const data = /*#__PURE__*/ _interopRequireDefault(require("tar"));
++    // tar 7 exposes CommonJS named exports without an ESM default export.
++    const data = { default: require("tar") };
+     _tar = function() {
+         return data;
+     };
