@@ -80,7 +80,12 @@ async function seedEverything() {
     data: { releaseId: release.id, severity: "MEDIUM", source: "MANUAL_FLAG", description: "risk 1", createdById: owner.id, updatedById: owner.id },
   });
 
-  const control = await prisma.complianceControl.findFirstOrThrow({ where: { frameworkId: complianceFramework.id } });
+  // Reference seeding creates frameworks, but no controls. Own this fixture so
+  // a fresh CI database and an already populated database exercise the same test.
+  const control = await prisma.complianceControl.create({
+    data: { frameworkId: complianceFramework.id, code: RUN_ID, title: "Hard delete test control" },
+  });
+  seededControlId = control.id;
   await prisma.testCaseComplianceControl.create({ data: { testCaseId: testCase.id, controlId: control.id } });
   await prisma.complianceEvidence.create({ data: { controlId: control.id, testCaseId: testCase.id, projectId: project.id, recordedById: owner.id } });
   await prisma.complianceSignOff.create({ data: { controlId: control.id, projectId: project.id, period: "2026-Q1", statement: "signed", signedById: owner.id } });
@@ -163,6 +168,7 @@ afterAll(async () => {
     await prisma.organization.delete({ where: { id: orgId } }).catch(() => undefined);
   }
   if (deletionLogId) await prisma.organizationDeletionLog.deleteMany({ where: { id: deletionLogId } });
+  if (seededControlId) await prisma.complianceControl.deleteMany({ where: { id: seededControlId } });
 });
 
 describe("hardDeleteOrganization (real DB, every model populated)", () => {
