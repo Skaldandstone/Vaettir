@@ -1,0 +1,2 @@
+# pnpm verifies patch bytes against SHA-256 hashes in the lockfile.
+patches/*.patch text eol=lf

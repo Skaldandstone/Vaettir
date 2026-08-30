@@ -12,6 +12,7 @@
     "lint": "turbo run lint",
     "typecheck": "turbo run typecheck",
     "test": "turbo run test",
+    "test:dependencies": "node --test scripts/dependency-security.test.mjs",
     "db:generate": "pnpm --filter @vaettir/db generate",
     "db:migrate": "pnpm --filter @vaettir/db migrate",
     "db:studio": "pnpm --filter @vaettir/db studio"
