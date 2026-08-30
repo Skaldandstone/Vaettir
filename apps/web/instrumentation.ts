@@ -12,11 +12,12 @@ export function register() {
   if (process.env.NEXT_RUNTIME === "nodejs" || process.env.NEXT_RUNTIME === "edge") {
     Sentry.init({
       dsn,
+      release: process.env.NEXT_PUBLIC_RELEASE_COMMIT ? `vaettir@${process.env.NEXT_PUBLIC_RELEASE_COMMIT}` : undefined,
       environment: process.env.SENTRY_ENVIRONMENT ?? process.env.NODE_ENV ?? "development",
       tracesSampleRate: 0,
-    sendDefaultPii: false,
-    beforeBreadcrumb: () => null,
-    beforeSend: redactTelemetryEvent,
+      sendDefaultPii: false,
+      beforeBreadcrumb: () => null,
+      beforeSend: redactTelemetryEvent,
     });
   }
 }

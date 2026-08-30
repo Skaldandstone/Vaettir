@@ -11,6 +11,10 @@ on:
         description: "Compile Android on this release candidate (not device acceptance)"
         type: boolean
         default: false
+      container_compile:
+        description: "Build and smoke-test local Linux containers on this candidate (no push/deploy)"
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -20,7 +24,42 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  candidate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: vaettir_candidate_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd pg_isready --health-interval 10s
+          --health-timeout 5s --health-retries 5
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/vaettir_candidate_test?schema=public&connection_limit=5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: pnpm/action-setup@v4
+        with:
+          run_install: false
+      - name: Collect fresh candidate evidence, including dependency audit
+        run: node scripts/collect-release-evidence.mjs --web-build standalone
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: candidate-evidence-${{ github.sha }}
+          path: .local/readiness
+          include-hidden-files: true
+          retention-days: 7
+
   browser:
+    needs: candidate
     runs-on: ubuntu-latest
     timeout-minutes: 35
     environment: private-beta-validation
@@ -36,7 +75,7 @@ jobs:
           --health-cmd pg_isready --health-interval 10s
           --health-timeout 5s --health-retries 5
     env:
-      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/vaettir_browser_test?schema=public
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/vaettir_browser_test?schema=public&connection_limit=5
       NEXT_PUBLIC_API_URL: http://localhost:4000
       PLAYWRIGHT_BASE_URL: http://localhost:3000
       NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: ${{ secrets.CLERK_TEST_PUBLISHABLE_KEY }}
@@ -46,8 +85,18 @@ jobs:
       CLERK_TEST_USER_ID: ${{ secrets.CLERK_TEST_USER_ID }}
       VAETTIR_LIVE_AI_TESTS: ${{ inputs.live_ai && '1' || '0' }}
       ANTHROPIC_API_KEY: ${{ inputs.live_ai && secrets.ANTHROPIC_TEST_API_KEY || '' }}
+      NEXT_PUBLIC_RELEASE_COMMIT: ${{ github.sha }}
+      VAETTIR_RELEASE_COMMIT: ${{ github.sha }}
+      NEXT_TELEMETRY_DISABLED: '1'
+      EXPO_NO_TELEMETRY: '1'
+      AWS_EC2_METADATA_DISABLED: 'true'
     steps:
       - uses: actions/checkout@v4
+      - name: Require dedicated Clerk development-instance identity
+        run: |
+          test -n "$CLERK_TEST_EMAIL" && test -n "$CLERK_TEST_PASSWORD" && test -n "$CLERK_TEST_USER_ID"
+          case "$NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY" in pk_test_*) ;; *) exit 1 ;; esac
+          case "$CLERK_SECRET_KEY" in sk_test_*) ;; *) exit 1 ;; esac
       - uses: actions/setup-node@v4
         with:
           node-version: 22
@@ -58,7 +107,7 @@ jobs:
       - run: pnpm db:generate
       - run: pnpm --filter @vaettir/db exec prisma migrate deploy
       - run: pnpm --filter @vaettir/db run seed
-      - run: pnpm typecheck && pnpm lint && pnpm test && pnpm build
+      - run: pnpm typecheck && pnpm lint && pnpm test -- --maxWorkers=2 && pnpm build
       - run: pnpm --filter @vaettir/web exec playwright install --with-deps chromium
       - name: Launch isolated API and web
         run: |
@@ -69,6 +118,8 @@ jobs:
             sleep 1
           done
           exit 1
+      - name: Assert detailed health and candidate identity
+        run: node scripts/check-health.mjs --url http://localhost:4000/health/detailed --commit "$GITHUB_SHA"
       - run: pnpm --filter @vaettir/web test:e2e
       - uses: actions/upload-artifact@v4
         if: always()
@@ -80,6 +131,7 @@ jobs:
           retention-days: 7
 
   android:
+    needs: candidate
     if: inputs.android_compile
     runs-on: ubuntu-latest
     timeout-minutes: 45
@@ -107,3 +159,50 @@ jobs:
       - name: Native release compilation, no distribution
         working-directory: apps/mobile/android
         run: ./gradlew :app:assembleRelease --no-daemon -PreactNativeArchitectures=arm64-v8a
+
+  containers:
+    if: inputs.container_compile
+    needs: candidate
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: vaettir_containers_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd pg_isready --health-interval 10s
+          --health-timeout 5s --health-retries 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Build immutable local images without pushing
+        run: |
+          docker build -f Dockerfile.api --build-arg VAETTIR_RELEASE_COMMIT="$GITHUB_SHA" -t vaettir-api:"$GITHUB_SHA" .
+          docker build -f Dockerfile.web --build-arg VAETTIR_RELEASE_COMMIT="$GITHUB_SHA" --build-arg NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=pk_test_ZGV2LnZhZXR0aXIuZXhhbXBsZS5jb20k --build-arg NEXT_PUBLIC_API_URL=http://localhost:4001 -t vaettir-web:"$GITHUB_SHA" .
+      - name: Smoke-test container runtime and record image identity
+        run: |
+          mkdir -p .local/container-evidence
+          trap 'docker rm -f "vaettir-api-$GITHUB_RUN_ID" "vaettir-web-$GITHUB_RUN_ID" >/dev/null 2>&1 || true' EXIT
+          docker run -d --name "vaettir-api-$GITHUB_RUN_ID" --network host -e API_PORT=4001 -e DATABASE_URL=postgresql://postgres:postgres@localhost:5432/vaettir_containers_test -e AWS_EC2_METADATA_DISABLED=true vaettir-api:"$GITHUB_SHA"
+          docker run -d --name "vaettir-web-$GITHUB_RUN_ID" -p 3001:3000 vaettir-web:"$GITHUB_SHA"
+          for attempt in $(seq 1 90); do
+            if node scripts/check-health.mjs --url http://localhost:4001/health/detailed --commit "$GITHUB_SHA" > .local/container-evidence/health.json && curl -fsS http://localhost:3001/beta-guide >/dev/null; then
+              docker image inspect vaettir-api:"$GITHUB_SHA" vaettir-web:"$GITHUB_SHA" --format '{"imageId":{{json .Id}},"revision":{{json (index .Config.Labels "org.opencontainers.image.revision")}}}' > .local/container-evidence/images.jsonl
+              exit 0
+            fi
+            sleep 1
+          done
+          exit 1
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: container-evidence-${{ github.sha }}
+          path: .local/container-evidence
+          include-hidden-files: true
+          retention-days: 7

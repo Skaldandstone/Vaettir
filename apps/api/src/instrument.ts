@@ -10,12 +10,13 @@ const dsn = process.env.SENTRY_DSN;
 if (dsn) {
   Sentry.init({
     dsn,
+    release: process.env.VAETTIR_RELEASE_COMMIT ? `vaettir@${process.env.VAETTIR_RELEASE_COMMIT}` : undefined,
     environment: process.env.SENTRY_ENVIRONMENT ?? process.env.NODE_ENV ?? "development",
     tracesSampleRate: 0,
     sendDefaultPii: false,
     beforeBreadcrumb: () => null,
     beforeSend: redactTelemetryEvent,
-    debug: process.env.SENTRY_DEBUG === "1",
+    debug: false,
   });
 
   process.on("unhandledRejection", (reason) => Sentry.captureException(reason));

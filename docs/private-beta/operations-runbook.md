@@ -25,6 +25,32 @@ Apply the new additive migration and reference seed once through the approved da
 
 The beta migration is additive, but the old application lacks its admission enforcement. Rolling back to the old application can reopen external organization creation. Close external sign-up/access at the approved ingress/auth control before such a rollback, or roll forward to a known hardened revision. Never undo migrations by deleting ledger or enrollment records.
 
+The permissions lane also removes global uniqueness of TestCaseSource.externalTestId and scopes matching to a project. Once identical CI IDs exist in different projects, recreating the old unique constraint may fail. More importantly, old globally matching code is unsafe even if it starts against the database. A rollback target must contain this tenant-isolation fix and beta admission enforcement. Otherwise use a forward security fix or an approved access shutdown, not an old-image rollback described as safe.
+
+Both Dockerfiles now require a full VAETTIR_RELEASE_COMMIT build argument and label the resulting image with org.opencontainers.image.revision. The API exposes that configured commit in detailed health; web telemetry receives NEXT_PUBLIC_RELEASE_COMMIT at build time. Pass the exact checked-out SHA when building. Existing deployment scripts that omit the new argument will fail until their approved release invocation supplies it. These labels are operator-provided metadata, not a substitute for comparing the actual ECS image digest with the built image record.
+
+## Executable local and CI evidence
+
+Use an isolated clean worktree, with no .env files and a loopback database named vaettir_<lane>_test. The collector allows only the public schema and a bounded connection_limit option. It rejects tracked and untracked source changes, while preserving the unrelated untracked NEEDS_ATTENTION.md. It removes inherited AWS, Clerk, AI, Sentry and remote-cache configuration, disables EC2 credential discovery, uses compile-only auth, and forces fresh tests/builds. It never launches an authenticated browser or calls a paid model.
+
+PowerShell, from the release worktree:
+
+```powershell
+./scripts/collect-release-evidence.ps1 -DatabaseUrl 'postgresql://vaettir_ops@127.0.0.1:55447/vaettir_operations_test?schema=public&connection_limit=5' -WebBuild local-server
+```
+
+The cross-platform equivalent is node scripts/collect-release-evidence.mjs with DATABASE_URL set and --web-build standalone on Linux. Local-server is explicitly not standalone/container evidence. The manifest records commit, lockfile and migration checksums, tool versions, per-check exit status/timing and sanitized-log hashes. Audit findings or unavailable audit data leave security BLOCKED and return a nonzero exit. Dependency consumer regressions run when the dependency lane's test:dependencies script is present; absence is recorded, never counted as a pass.
+
+CI runs deterministic operations/health contract tests plus consumer regressions, bounded database tests and normal Linux standalone compilation. The manual release workflow adds the full candidate manifest and current dependency audit before authenticated browser checks. Optional native/container compilation remains release-only. The container job never pushes images or deploys; it checks the API body and commit, starts the compiled web guide, records local image IDs and removes only its exact job-named containers. GitHub account execution restrictions and required environment reviewers must still be resolved by James.
+
+Detailed-health verification, for a locally running candidate or an approved read-only HTTPS target:
+
+```powershell
+node scripts/check-health.mjs --url http://127.0.0.1:4000/health/detailed --commit <FULL_GIT_SHA>
+```
+
+The checker rejects credential/query-bearing URLs and remote plaintext HTTP. It requires healthy=true, db.ok=true, exactly one status for each expected worker, non-stale valid heartbeats and the matching full SHA. Its output contains only status codes, known worker names and release identity, never the arbitrary response payload. This proves one observation; it does not configure or prove alert delivery.
+
 ## Health and alert acceptance
 
 Use /api/health/detailed and assert healthy === true, db.ok === true and no stale worker heartbeat. HTTP 200 alone is insufficient. Current health response does not prove deployment identity; verify ECS image digest separately.
@@ -58,6 +84,8 @@ Therefore the conflicting historical notes cannot be resolved by assuming either
 3. Verify migration state, representative row counts, tenant boundaries, attachments references, append-only credit balance, invitations and one read-only application workflow. Log results without customer payloads.
 4. Record restore-complete time and elapsed duration. A local synthetic pg_dump restore only validates mechanics, not the production RDS recovery objective.
 5. James/engineering approve evidence and exact cleanup targets; remove paid disposable resources using the scoped approved procedure and record final status.
+
+For synthetic local restore mechanics only, stop local workers first and set DATABASE_URL plus RESTORE_DATABASE_URL to different loopback test databases on the same server. The target must end in _restore_test and must not already exist. Run node scripts/restore-local-evidence.mjs --postgres-bin 'C:/Program Files/PostgreSQL/17/bin'. This dumps the whole local source, restores to a newly created target, compares migration/plan/org/ledger counts and a synthetic probe value, and hashes the dump. It retains the exact source, target and dump for review rather than deleting them automatically. The manifest explicitly leaves productionRestoreVerified and sevenDayWindowVerified false regardless of elapsed time. The target is never connected to application workers.
 
 ## Rollback drill
 

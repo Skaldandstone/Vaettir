@@ -10,6 +10,11 @@ RUN apt-get update \
 RUN corepack enable
 WORKDIR /app
 
+ARG VAETTIR_RELEASE_COMMIT
+RUN node -e "if(!/^[a-f0-9]{40}$/.test(process.argv[1]))process.exit(1)" "$VAETTIR_RELEASE_COMMIT"
+LABEL org.opencontainers.image.revision=$VAETTIR_RELEASE_COMMIT
+ENV VAETTIR_RELEASE_COMMIT=$VAETTIR_RELEASE_COMMIT
+
 COPY . .
 RUN pnpm install --frozen-lockfile \
     && pnpm --filter @vaettir/db generate \

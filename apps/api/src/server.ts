@@ -41,7 +41,9 @@ async function detailedHealthHandler() {
   }
   const pollers = getHeartbeatStatuses(EXPECTED_POLLER_INTERVALS);
   const healthy = dbOk && pollers.every((p) => !p.stale);
-  return { healthy, db: { ok: dbOk }, pollers };
+  const configuredCommit = process.env.VAETTIR_RELEASE_COMMIT;
+  const commit = configuredCommit && /^[a-f0-9]{40}$/.test(configuredCommit) ? configuredCommit : null;
+  return { healthy, db: { ok: dbOk }, pollers, release: { commit } };
 }
 
 // P6-01: registered in its own encapsulation context so the raw-body content
