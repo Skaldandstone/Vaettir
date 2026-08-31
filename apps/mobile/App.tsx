@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { SafeAreaView, ScrollView, Text, TextInput, View, StyleSheet, Button, Modal, Pressable } from "react-native";
+import { SafeAreaView, ScrollView, Text, TextInput, View, StyleSheet, Button, Modal, Pressable, Alert } from "react-native";
 import { StatusBar } from "expo-status-bar";
 import { ClerkProvider, SignedIn, SignedOut, useAuth, useSignIn } from "@clerk/clerk-expo";
 import { tokenCache } from "@clerk/clerk-expo/token-cache";
@@ -110,6 +110,7 @@ function TestCaseBrowser() {
   return (
     <SafeAreaView style={styles.container}>
       <Text style={styles.title}>Vaettir</Text>
+      <Button title="About Vaettir and legal" onPress={() => Alert.alert("About Vaettir", "© 2026 Skald and Stone LLC\n\nOriginal studio work only. Customer content, third-party materials, and existing software licenses retain their own rights.")} />
       <TextInput
         style={styles.input}
         placeholder="Project ID"
@@ -507,6 +508,7 @@ function SignInScreen() {
   return (
     <SafeAreaView style={styles.container}>
       <Text style={styles.title}>Log in</Text>
+      <Text style={{ marginBottom: 16 }}>© 2026 Skald and Stone LLC</Text>
       <TextInput style={styles.input} placeholder="Email" value={email} onChangeText={setEmail} autoCapitalize="none" />
       <TextInput style={styles.input} placeholder="Password" value={password} onChangeText={setPassword} secureTextEntry />
       <Button title="Log in" onPress={onSubmit} />

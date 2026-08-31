@@ -56,6 +56,10 @@ export default function RootLayout({ children }: { children: ReactNode }) {
             <Sidebar />
             <main className="app-main">{children}</main>
           </div>
+          <footer style={{ padding: "20px 24px", borderTop: "1px solid var(--border)", fontSize: 14, lineHeight: 1.6 }}>
+            <p>© 2026 Skald and Stone LLC</p>
+            <details><summary style={{ cursor: "pointer", paddingBlock: 12 }}>About copyright</summary><p>Original Vaettir software and studio content. Customer content, third-party material, and existing software licenses retain their own rights.</p></details>
+          </footer>
         </body>
       </html>
     </ClerkProvider>
