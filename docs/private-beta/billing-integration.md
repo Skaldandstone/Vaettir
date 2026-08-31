@@ -38,7 +38,7 @@ Use the official restricted-key permission reference to approve only customer re
 
 ## Evidence and remaining acceptance
 
-Initial focused run: 51 tests passed (configuration plus real PostgreSQL billing/real SDK signature boundary). API methods are stubbed; no paid/external API traffic. All 41 migrations and reference seed applied to fresh `vaettir_stripe_test` on owned loopback PostgreSQL 17. Final exact-commit/full-workspace results belong in the readiness register and integration evidence, not this initial development result.
+Initial focused run: 51 tests passed (configuration plus real PostgreSQL billing/real SDK signature boundary). API methods are stubbed; no paid/external API traffic. All 41 migrations and reference seed applied to fresh `vaettir_stripe_test` on owned loopback PostgreSQL 17. The subsequent [exact-commit combined run](stripe-integration-evidence.md) at 5a851f1 passed 267 tests and full builds, with the two pre-existing high dependency advisories still blocking release.
 
 Tests cover authorization, stale membership, beta/service restrictions, environment/price/customer isolation, seat reservations, idempotent Checkout, privacy-safe errors, portal scope, duplicate and same-second delivery, concurrent leases, stale-worker fencing, receipt rollback/retry, invoice-vs-return authority, and old-cancellation/new-checkout safety. This proves local software behavior, not a real hosted Checkout, portal, webhook endpoint, restricted key, browser or device acceptance.
 

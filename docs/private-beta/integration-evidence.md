@@ -2,6 +2,8 @@
 
 Status: HOLD. Local implementation verification is not external-beta acceptance.
 
+Latest continuation: `5a851f188f5693fbcfa7ea6d1cffff59232848ac`. The [August 31 combined billing evidence](stripe-integration-evidence.md) records 267 tests, 41 fresh migrations, full builds, actual disabled-billing API health, both native JavaScript bundles and populated synthetic recovery. The sections below retain the earlier e9607e3 evidence as history, not the newest candidate.
+
 Tested source: `e9607e3166473b782155dafc5b06891c2967ad6c` on `codex/private-beta-readiness`. All five workstreams and both integration-review corrections are included. Later documentation-only commits do not replace this tested identity. Source-to-integration commit mapping is in [parallel handoff](parallel-handoff.md); acceptance decisions remain in the [readiness register](readiness-register.md).
 
 ## Isolation and reproducibility
