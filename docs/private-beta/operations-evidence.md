@@ -9,6 +9,8 @@ Status: implementation under local validation, not beta acceptance. Integration 
 - CI contract tests, deterministic dependency consumer test integration, bounded database-test workers, standalone artifact identity, and optional release-only Linux container runtime checks.
 - Docker build revision arguments/labels, API health release identity, web/API telemetry release tags, safer Docker context exclusions, bounded telemetry sanitizer and a real SDK transport scrubbing test.
 - Local synthetic dump/restore evidence script that refuses to overwrite a target and never claims production retention or recovery acceptance.
+- An actual first digest-scheduler check, process-local overlap protection and failure/retry tests. Heartbeats still mean attempted-loop liveness, not successful delivery; cross-process duplicate delivery is not solved.
+- Payload-free Fastify request/error logging with an actual in-process request/log test; HTTP error response semantics are unchanged.
 - Runbook updates, including unsafe rollback boundaries for beta admission and project-scoped CI IDs.
 
 ## Verification record

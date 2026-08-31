@@ -114,7 +114,7 @@ jobs:
           pnpm --filter @vaettir/api start > /tmp/vaettir-api.log 2>&1 &
           pnpm --filter @vaettir/web start > /tmp/vaettir-web.log 2>&1 &
           for attempt in $(seq 1 60); do
-            if curl -fsS http://localhost:4000/health >/dev/null && curl -fsS http://localhost:3000/beta-guide >/dev/null; then exit 0; fi
+            if node scripts/check-health.mjs --url http://localhost:4000/health/detailed --commit "$GITHUB_SHA" >/dev/null && curl -fsS http://localhost:3000/beta-guide >/dev/null; then exit 0; fi
             sleep 1
           done
           exit 1

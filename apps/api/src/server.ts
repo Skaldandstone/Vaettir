@@ -13,6 +13,7 @@ import { startAiCreditGrantScheduler, CHECK_INTERVAL_MS as CREDIT_GRANT_CHECK_MS
 import { verifyWebhookSignature } from "./services/githubApp.js";
 import { handlePullRequestWebhook, type GithubPullRequestPayload } from "./services/githubWebhook.js";
 import { getHeartbeatStatuses } from "./services/heartbeat.js";
+import { safeErrorLog, safeRequestLog } from "./services/logPrivacy.js";
 
 // P10-07: expected poller intervals, keyed by the same names each poller
 // calls recordHeartbeat with - the one place server.ts needs to know
@@ -85,7 +86,7 @@ async function registerGithubWebhookRoute(instance: FastifyInstance) {
 // bodyLimit raised from Fastify's 1MB default: P2-11's zip upload sends a
 // base64-encoded archive (up to 10MB raw, ~33% larger base64-encoded) as a
 // single mutation input, well past the default.
-const server = Fastify({ logger: true, maxParamLength: 5000, bodyLimit: 15 * 1024 * 1024 });
+const server = Fastify({ logger: { serializers: { req: safeRequestLog, err: safeErrorLog, res: (response) => ({ statusCode: response.statusCode }) } }, maxParamLength: 5000, bodyLimit: 15 * 1024 * 1024 });
 
 // P10-05: catches anything thrown by a raw (non-tRPC) route handler, e.g.
 // the GitHub webhook route below - tRPC procedure errors are reported
@@ -93,7 +94,7 @@ const server = Fastify({ logger: true, maxParamLength: 5000, bodyLimit: 15 * 102
 // sees those (the tRPC adapter catches them itself).
 server.setErrorHandler((error: FastifyError, request, reply) => {
   Sentry.captureException(error);
-  request.log.error(error);
+  request.log.error({ err: error }, "Unhandled API error");
   reply.status(error.statusCode ?? 500).send({ error: error.message });
 });
 
@@ -162,6 +163,6 @@ server
     startAiCreditGrantScheduler();
   })
   .catch((err) => {
-    server.log.error(err);
+    server.log.error({ err }, "API startup failed");
     process.exit(1);
   });
