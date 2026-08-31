@@ -1,24 +1,33 @@
 import "./lib/telemetry";
 import { useCallback, useEffect, useState } from "react";
-import { ActivityIndicator, AppState, KeyboardAvoidingView, Linking, Platform, SafeAreaView, ScrollView, Text as NativeText, TextInput, View, StyleSheet, Button, Modal, Pressable, type TextProps } from "react-native";
+import { ActivityIndicator, Alert, AppState, KeyboardAvoidingView, Linking, Platform, SafeAreaView, ScrollView, Text as NativeText, TextInput, View, StyleSheet, Button, Modal, Pressable, type TextProps } from "react-native";
 import { StatusBar } from "expo-status-bar";
-import { ClerkProvider, SignedIn, SignedOut, useAuth, useClerk, useSignIn } from "@clerk/clerk-expo";
+import { ClerkProvider, useAuth, useClerk, useSignIn } from "@clerk/clerk-expo";
 import { tokenCache } from "@clerk/clerk-expo/token-cache";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { trpc, setAuthTokenGetter, setSessionExpiredHandler } from "./lib/trpc";
 import { mobilePermissions } from "./lib/permissions";
+import { readableError, canRevealWorkspace } from "./lib/recovery";
 
 function Text(props: TextProps) { return <NativeText {...props} style={[{ color: "#eee7dc" }, props.style]} />; }
 const WEB_URL = "https://vaettir.skaldandstone.com";
 const CLERK_PUBLISHABLE_KEY = process.env.EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY;
+function openWeb(path = "") {
+  void Linking.openURL(`${WEB_URL}${path}`).catch(() => Alert.alert("Could not open browser", `Open ${WEB_URL}${path} in your browser to continue.`));
+}
 
 export default function App() {
   if (!CLERK_PUBLISHABLE_KEY) return <SafeAreaView style={styles.container}><Text>Vaettir is not configured. Install the latest beta build from your invitation.</Text></SafeAreaView>;
   return <ClerkProvider publishableKey={CLERK_PUBLISHABLE_KEY} tokenCache={tokenCache}>
     <StatusBar style="light" />
-    <SignedIn><SessionGate /></SignedIn>
-    <SignedOut><SignInScreen /></SignedOut>
+    <AuthScreens />
   </ClerkProvider>;
+}
+
+function AuthScreens() {
+  const { isLoaded, isSignedIn, userId } = useAuth();
+  if (!isLoaded) return <SafeAreaView style={styles.container}><ActivityIndicator accessibilityLabel="Loading sign-in" color="#9aaf89" /><Text>Connecting to sign-in. If this does not finish, check your connection and reopen Vaettir.</Text></SafeAreaView>;
+  return isSignedIn ? <SessionGate key={userId} /> : <SignInScreen />;
 }
 
 function SessionGate() {
@@ -30,22 +39,26 @@ function SessionGate() {
   const [sessionError, setSessionError] = useState<string | null>(null);
   useEffect(() => {
     let active = true;
+    const gate = { purged: false, foreground: AppState.currentState === "active", invalidated: false };
+    setReady(false); setExpired(false); setSessionError(null);
+    const reveal = () => { if (active) setReady(canRevealWorkspace(gate)); };
     setAuthTokenGetter(getToken);
-    setSessionExpiredHandler(() => { setExpired(true); setReady(false); });
+    setSessionExpiredHandler(() => { gate.invalidated = true; setExpired(true); setReady(false); });
     // Remove only Vaettir's obsolete case cache; never touch Clerk's tokens
     // or another app's storage. Do not render data until migration completes.
     AsyncStorage.getAllKeys().then((keys) => AsyncStorage.multiRemove(keys.filter((key) => key.startsWith("vaettir:cases:"))))
-      .then(() => { if (active) setReady(true); })
+      .then(() => { gate.purged = true; reveal(); })
       .catch(() => { if (active) setSessionError("Could not clear the old offline cache. Restart the app before continuing."); });
     const subscription = AppState.addEventListener("change", (state) => {
       // Hide project data in the task switcher and revalidate on return.
-      if (state !== "active") setReady(false);
-      else { setEpoch((n) => n + 1); if (active) setReady(true); }
+      gate.foreground = state === "active";
+      if (gate.foreground) setEpoch((n) => n + 1);
+      reveal();
     });
     return () => { active = false; subscription.remove(); setAuthTokenGetter(null); setSessionExpiredHandler(null); };
   }, [getToken, userId]);
   async function logout() {
-    setReady(false);
+    setReady(false); setExpired(true); setAuthTokenGetter(null);
     try { await signOut(); }
     catch { setExpired(true); setSessionError("Sign-out could not finish. Check your connection and try again."); }
   }
@@ -89,7 +102,7 @@ function Companion({ onSignOut }: { onSignOut: () => void }) {
     ]).then(([rows, seats, credits]) => {
       if (!active) return;
       setProjects(rows); setProjectId(rows[0]?.id ?? "");
-      setAllowance(`${seats.planTierName} · ${seats.fullSeatsUsed}/${seats.fullSeatsIncluded ?? "∞"} full seats · ${seats.readOnlySeatsUsed}/${seats.readOnlySeatsMax ?? "∞"} read-only · ${credits.balance}/${credits.includedPerMonth} AI credits${seats.privateBeta ? " this month, no rollover" : ""}`);
+      setAllowance(`${seats.planTierName} · ${seats.fullSeatsUsed}/${seats.fullSeatsIncluded ?? "∞"} full seats (${seats.fullSeatsReserved} invited) · ${seats.readOnlySeatsUsed}/${seats.readOnlySeatsMax ?? "∞"} read-only (${seats.readOnlySeatsReserved} invited) · ${credits.balance} AI credits available, ${credits.includedPerMonth}/month${seats.privateBeta ? ", no rollover or automatic overage" : ""}`);
     }).catch((e) => { if (active) setError(readableError(e)); })
       .finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
@@ -98,7 +111,7 @@ function Companion({ onSignOut }: { onSignOut: () => void }) {
   return <SafeAreaView style={styles.container}>
     <View style={styles.header}><View><Text style={styles.eyebrow}>PRIVATE BETA</Text><Text style={styles.title}>vaettir</Text></View><Button title="Sign out" onPress={onSignOut} color="#9aaf89" /></View>
     <ScrollView horizontal style={styles.selector} contentContainerStyle={{ gap: 8 }}>
-      {orgs.map((org) => <Pressable accessibilityRole="button" accessibilityState={{ selected: org.id === orgId }} key={org.id} style={[styles.chip, org.id === orgId && styles.selectedChip]} onPress={() => setOrgId(org.id)}><Text>{org.name}</Text></Pressable>)}
+      {orgs.map((org) => <Pressable accessibilityRole="button" accessibilityState={{ selected: org.id === orgId }} key={org.id} style={[styles.chip, org.id === orgId && styles.selectedChip]} onPress={() => { if (org.id === orgId) return; setProjectId(""); setProjects([]); setAllowance(null); setOrgId(org.id); }}><Text>{org.name}</Text></Pressable>)}
     </ScrollView>
     {allowance && <Text style={styles.rowMeta}>{allowance}</Text>}
     <ScrollView horizontal style={styles.selector} contentContainerStyle={{ gap: 8 }}>
@@ -106,23 +119,19 @@ function Companion({ onSignOut }: { onSignOut: () => void }) {
     </ScrollView>
     {loading && <ActivityIndicator color="#9aaf89" accessibilityLabel="Loading workspace" />}
     {error && <ErrorNotice message={error} retry={() => setRetry((n) => n + 1)} />}
-    {!loading && !error && orgs.length === 0 && <View style={styles.panel}><Text style={styles.rowTitle}>Your workspace starts with an invitation</Text><Text>Accept your invitation on the web with this account, then refresh here.</Text><Button title="Open Vaettir on the web" onPress={() => void Linking.openURL(WEB_URL)} /><Button title="Refresh workspace" onPress={() => setRetry((n) => n + 1)} /></View>}
+    {!loading && !error && orgs.length === 0 && <View style={styles.panel}><Text style={styles.rowTitle}>Your workspace starts with an invitation</Text><Text>Accept your invitation on the web with this account, then refresh here.</Text><Button title="Open Vaettir on the web" onPress={() => openWeb()} /></View>}
     {!loading && !error && orgId && projects.length === 0 && <Text>No projects yet. Create your first project on the web.</Text>}
-    {!error && projectId && <View key={projectId} style={{ flex: 1 }}>
+    {!loading && !error && projectId && <View key={`${orgId}:${projectId}`} style={{ flex: 1 }}>
       <View style={styles.tabs}>{(["cases", "releases", "compliance"] as const).map((tab) => <Pressable key={tab} accessibilityRole="button" accessibilityState={{ selected: view === tab }} style={[styles.chip, view === tab && styles.selectedChip]} onPress={() => setView(tab)}><Text>{tab === "cases" ? "Cases" : tab === "releases" ? "Releases" : "Compliance"}</Text></Pressable>)}</View>
       {view === "cases" && <CaseList projectId={projectId} canReview={permissions.canReview} />}
       {view === "releases" && <ReleaseReadinessList projectId={projectId} />}
       {view === "compliance" && <ComplianceSignOffList projectId={projectId} canSignOff={permissions.canSignOff} />}
     </View>}
-    <Pressable accessibilityRole="link" style={{ paddingVertical: 12 }} onPress={() => void Linking.openURL(`${WEB_URL}/beta-guide`)}><Text style={styles.rowMeta}>Beta guide, data policy, and support</Text></Pressable>
+    <Button title="Refresh workspace" disabled={loading} onPress={() => setRetry((n) => n + 1)} />
+    <Pressable accessibilityRole="link" style={{ paddingVertical: 12 }} onPress={() => openWeb("/beta-guide")}><Text style={styles.rowMeta}>Beta guide, data policy, and support</Text></Pressable>
   </SafeAreaView>;
 }
 
-function readableError(e: unknown) {
-  const message = e instanceof Error ? e.message : String(e);
-  if (/fetch|network|offline/i.test(message)) return "You are offline or Vaettir is unavailable. Reconnect and retry. No project data is stored offline.";
-  return message;
-}
 function ErrorNotice({ message, retry }: { message: string; retry: () => void }) {
   return <View style={styles.panel}><Text accessibilityRole="alert" style={{ color: "#dfb49b" }}>{message}</Text><Button title="Retry" onPress={retry} /></View>;
 }
@@ -197,7 +206,7 @@ function ReleaseReadinessList({ projectId }: { projectId: string }) {
             {r.readiness.criteria.pending} pending
           </Text>
           {r.readiness.riskFlags.openTotal > 0 && (
-            <Text style={[styles.rowMeta, { color: "#c62828" }]}>
+            <Text style={[styles.rowMeta, { color: "#f0a19a" }]}>
               {r.readiness.riskFlags.openTotal} open risk flag{r.readiness.riskFlags.openTotal === 1 ? "" : "s"}
               {r.readiness.riskFlags.critical > 0 && ` (${r.readiness.riskFlags.critical} critical)`}
             </Text>
@@ -205,6 +214,7 @@ function ReleaseReadinessList({ projectId }: { projectId: string }) {
         </View>
       ))}
       {releases.length === 0 && <Text style={styles.rowMeta}>No releases in this project yet.</Text>}
+      <Button title="Refresh releases" onPress={() => setRetry((n) => n + 1)} />
     </ScrollView>
   );
 }
@@ -264,7 +274,7 @@ function ComplianceSignOffList({ projectId, canSignOff }: { projectId: string; c
       </ScrollView>
       <ScrollView>
         {controls.map((c) => (
-          <Pressable key={c.id} style={styles.row} onPress={() => setOpenControl({ id: c.id, code: c.code, title: c.title })}>
+          <Pressable accessibilityRole="button" key={c.id} style={styles.row} onPress={() => setOpenControl({ id: c.id, code: c.code, title: c.title })}>
             <Text style={styles.rowTitle}>
               {c.code} · {c.title}
             </Text>
@@ -295,23 +305,24 @@ function SignOffModal({
   const [statement, setStatement] = useState("");
   const [signingOff, setSigningOff] = useState(false);
   const [error, setError] = useState<string | null>(null);
-
-  function load() {
-    if (!control) {
-      setSignOffs([]);
-      return;
-    }
-    setError(null); setSignOffs([]);
+  const [loading, setLoading] = useState(true);
+  const [retry, setRetry] = useState(0);
+  const [success, setSuccess] = useState(false);
+  const load = () => setRetry((n) => n + 1);
+  useEffect(() => {
+    let active = true;
+    setError(null); setSignOffs([]); setLoading(true);
+    if (!control) { setLoading(false); return; }
     trpc.compliance.listSignOffs
       .query({ projectId, controlId: control.id })
-      .then(setSignOffs)
-      .catch((e) => setError(e instanceof Error ? e.message : String(e)));
-  }
-
-  useEffect(load, [control?.id]);
+      .then((rows) => { if (active) setSignOffs(rows); })
+      .catch((e) => { if (active) setError(readableError(e)); })
+      .finally(() => { if (active) setLoading(false); });
+    return () => { active = false; };
+  }, [control?.id, projectId, retry]);
 
   async function signOff() {
-    if (!control || !period.trim() || !statement.trim()) return;
+    if (!canSignOff || signingOff || loading || !control || !period.trim() || !statement.trim()) return;
     setSigningOff(true);
     setError(null);
     try {
@@ -323,9 +334,10 @@ function SignOffModal({
       });
       setPeriod("");
       setStatement("");
+      setSuccess(true);
       load();
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      setError(`${readableError(e)} Refresh the history before submitting again; the sign-off may already have been recorded.`);
     } finally {
       setSigningOff(false);
     }
@@ -333,17 +345,19 @@ function SignOffModal({
 
   return (
     <Modal visible={control !== null} animationType="slide" onRequestClose={onClose}>
-      <SafeAreaView style={styles.container}>
-        <Button title="Close" onPress={onClose} />
+      <SafeAreaView style={styles.container}><KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={{ flex: 1 }}>
+        <Button title="Close" onPress={onClose} disabled={signingOff} />
         {control && (
-          <ScrollView style={{ marginTop: 12 }}>
+          <ScrollView style={{ marginTop: 12 }} keyboardShouldPersistTaps="handled">
             <Text style={styles.title}>{control.code}</Text>
             <Text style={styles.rowMeta}>{control.title}</Text>
 
-            {error && <ErrorNotice message={readableError(error)} retry={load} />}
-            {!error && canSignOff && <View style={styles.bddSection}>
+            {success && <Text accessibilityRole="alert">Sign-off recorded.</Text>}
+            {loading && <ActivityIndicator color="#9aaf89" accessibilityLabel="Loading sign-off history" />}
+            {error && <ErrorNotice message={error} retry={load} />}
+            {!error && !loading && canSignOff && <View style={styles.bddSection}>
               <Text style={styles.bddLabel}>Sign off on this control</Text>
-              <TextInput accessibilityLabel="Sign-off period" placeholderTextColor="#a9a196" style={styles.input} placeholder="Period (e.g. 2026-Q3)" value={period} onChangeText={setPeriod} />
+              <TextInput accessibilityLabel="Sign-off period" placeholderTextColor="#a9a196" style={styles.input} placeholder="Period (e.g. 2026-Q3)" value={period} onChangeText={setPeriod} editable={!signingOff} />
               <TextInput
                 style={[styles.input, { minHeight: 80 }]}
                 accessibilityLabel="Attestation statement"
@@ -352,13 +366,13 @@ function SignOffModal({
                 value={statement}
                 onChangeText={setStatement}
                 multiline
+                editable={!signingOff}
               />
               <Button
                 title={signingOff ? "Signing…" : "Sign off"}
                 onPress={signOff}
                 disabled={signingOff || !period.trim() || !statement.trim()}
               />
-              {error && <Text style={{ color: "#dfb49b" }}>{error}</Text>}
             </View>}
 
             <View style={styles.bddSection}>
@@ -372,11 +386,11 @@ function SignOffModal({
                   </Text>
                 </View>
               ))}
-              {signOffs.length === 0 && <Text style={styles.rowMeta}>No sign-offs recorded yet for this control.</Text>}
+              {!loading && !error && signOffs.length === 0 && <Text style={styles.rowMeta}>No sign-offs recorded yet for this control.</Text>}
             </View>
           </ScrollView>
         )}
-      </SafeAreaView>
+      </KeyboardAvoidingView></SafeAreaView>
     </Modal>
   );
 }
@@ -391,32 +405,30 @@ function TestCaseDetailModal({ id, canReview, onClose, onChanged }: { id: string
   const [error, setError] = useState<string | null>(null);
   const [reviewNote, setReviewNote] = useState("");
   const [reviewing, setReviewing] = useState(false);
-
-  function load() {
-    if (!id) {
-      setDetail(null);
-      return;
-    }
+  const [retry, setRetry] = useState(0);
+  const load = () => setRetry((n) => n + 1);
+  useEffect(() => {
+    let active = true;
     setError(null); setDetail(null);
+    if (!id) return;
     trpc.testCases.byId
       .query({ id })
-      .then(setDetail)
-      .catch((e) => setError(String(e)));
-  }
-
-  useEffect(load, [id]);
+      .then((row) => { if (active) setDetail(row); })
+      .catch((e) => { if (active) setError(readableError(e)); });
+    return () => { active = false; };
+  }, [id, retry]);
 
   async function review(decision: "approve" | "reject") {
-    if (!id) return;
+    if (!id || !canReview || reviewing || detail?.reviewStatus !== "PENDING_REVIEW") return;
     setReviewing(true);
     setError(null);
     try {
       await trpc.testCases[decision].mutate({ id, note: reviewNote || undefined });
       setReviewNote("");
-      load();
+      onClose();
       onChanged();
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      setError(`${readableError(e)} Refresh this case to check whether the review was saved before trying again.`);
     } finally {
       setReviewing(false);
     }
@@ -424,12 +436,12 @@ function TestCaseDetailModal({ id, canReview, onClose, onChanged }: { id: string
 
   return (
     <Modal visible={id !== null} animationType="slide" onRequestClose={onClose}>
-      <SafeAreaView style={styles.container}>
-        <Button title="Close" onPress={onClose} />
-        {error && <Text style={{ color: "crimson" }}>{error}</Text>}
+      <SafeAreaView style={styles.container}><KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={{ flex: 1 }}>
+        <Button title="Close" onPress={onClose} disabled={reviewing} />
+        {error && <ErrorNotice message={error} retry={load} />}
         {!error && !detail && <Text>Loading…</Text>}
         {!error && detail && (
-          <ScrollView style={{ marginTop: 12 }}>
+          <ScrollView style={{ marginTop: 12 }} keyboardShouldPersistTaps="handled">
             <Text style={styles.title}>{detail.title}</Text>
             <Text style={styles.rowMeta}>
               {detail.testType} · {detail.priority} · {detail.origin} · {detail.reviewStatus}
@@ -440,9 +452,12 @@ function TestCaseDetailModal({ id, canReview, onClose, onChanged }: { id: string
                 <Text style={styles.bddLabel}>Review</Text>
                 <TextInput
                   style={styles.input}
+                  accessibilityLabel="Review note"
+                  placeholderTextColor="#a9a196"
                   placeholder="Optional note"
                   value={reviewNote}
                   onChangeText={setReviewNote}
+                  editable={!reviewing}
                 />
                 <View style={{ flexDirection: "row", gap: 8 }}>
                   <Button title={reviewing ? "…" : "Approve"} onPress={() => review("approve")} disabled={reviewing} />
@@ -491,7 +506,7 @@ function TestCaseDetailModal({ id, canReview, onClose, onChanged }: { id: string
             {detail.tags.length > 0 && <Text style={styles.rowMeta}>Tags: {detail.tags.join(", ")}</Text>}
           </ScrollView>
         )}
-      </SafeAreaView>
+      </KeyboardAvoidingView></SafeAreaView>
     </Modal>
   );
 }
@@ -531,8 +546,8 @@ function SignInScreen() {
     </>}
     <Button title={busy ? "Signing in..." : mfa ? "Verify code" : "Sign in"} onPress={() => void onSubmit()} disabled={!isLoaded || busy || (mfa ? !code : !email || !password)} color="#9aaf89" />
     {error && <Text accessibilityRole="alert" style={{ color: "#dfb49b", marginTop: 12 }}>{error}</Text>}
-    {mfa && <Button title="Use a different account" onPress={() => { setMfa(false); setCode(""); }} />}
-    <Button title="Accept invitation or recover account on web" onPress={() => void Linking.openURL(WEB_URL)} />
+    {mfa && <Button title="Use a different account" disabled={busy} onPress={() => { setMfa(false); setCode(""); setPassword(""); setError(null); }} />}
+    <Button title="Accept invitation or recover account on web" onPress={() => openWeb()} />
     <Text style={styles.rowMeta}>Private beta. No offline project storage. Use non-regulated data only.</Text>
   </ScrollView></KeyboardAvoidingView></SafeAreaView>;
 }

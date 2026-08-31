@@ -3,11 +3,14 @@
   "build": {
     "preview": {
       "distribution": "internal",
+      "environment": "production",
+      "autoIncrement": true,
       "android": { "buildType": "apk" },
       "env": { "EXPO_PUBLIC_API_URL": "https://vaettir.skaldandstone.com/api" }
     },
     "ios-testflight": {
       "distribution": "store",
+      "environment": "production",
       "autoIncrement": true,
       "env": { "EXPO_PUBLIC_API_URL": "https://vaettir.skaldandstone.com/api" }
     }
