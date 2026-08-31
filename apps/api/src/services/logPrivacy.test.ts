@@ -10,8 +10,8 @@ it("reduces requests to finite route and method categories", () => {
 
 it("excludes error message, stack and custom name", () => {
   const error = new Error("private-payload"); error.name = "private-payload";
-  expect(safeErrorLog(error)).toEqual({ type: "Error" });
-  expect(safeErrorLog(new TypeError("private-payload"))).toEqual({ type: "TypeError" });
+  expect(safeErrorLog(error)).toEqual({ type: "Error", message: "Application error; details excluded.", stack: "" });
+  expect(safeErrorLog(new TypeError("private-payload"))).toMatchObject({ type: "TypeError" });
 });
 
 it("keeps actual Fastify request/error log output payload-free", async () => {

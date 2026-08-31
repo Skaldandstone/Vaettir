@@ -11,5 +11,5 @@ export function safeRequestLog(request: { method?: unknown; url?: unknown }) {
 
 export function safeErrorLog(error: unknown) {
   const name = error instanceof Error ? error.name : "Error";
-  return { type: ["Error", "TypeError", "RangeError", "ReferenceError", "SyntaxError", "URIError", "EvalError", "AggregateError"].includes(name) ? name : "Error" };
+  return { type: ["Error", "TypeError", "RangeError", "ReferenceError", "SyntaxError", "URIError", "EvalError", "AggregateError"].includes(name) ? name : "Error", message: "Application error; details excluded.", stack: "" };
 }
