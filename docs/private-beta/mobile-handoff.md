@@ -52,6 +52,45 @@ Use a reviewed/pinned EAS CLI version and capture it in the release record. EAS 
 
 Record release SHA, pnpm lockfile hash, Expo/React Native/CLI versions, API host, public-key instance (not secrets), package ID, version/build, architecture, signing certificate fingerprint, SHA-256 file hash, EAS build ID, restricted download location and tester. Never commit keystores, passwords, tokens, provisioning secrets or API secret keys.
 
+### Local compile evidence, August 30, 2026
+
+This is a mobile-lane checkpoint, not the final integrated release. The APK was compiled from clean source commit `c62c925c99fecc6026079faa975c5dc8a639b80c`, containing mobile implementation `25046d89926ac798b0e008b199ca42ed59ea7522` and complete dependency commit `5bca48355cb8215534b4c71fd5386329f356390d` cherry-picked as `74757f66016e4f5c195b54fc4d10174656dbcbab`. The lockfile SHA-256 is `aafda7439ea09d0c9598ead3e9e3adecd07cc9e54d46ec0e03c1d0643ee6341c`. Rebuild after integration; a cherry-pick changes the release identity.
+
+| Check | Observed result |
+|---|---|
+| Frozen dependency install | Passed with both pinned patches; no mobile dependency additions |
+| Dependency consumer regressions | 10 passed |
+| Mobile typecheck / lint / focused tests | Passed / passed / 12 passed |
+| Expo stack compatibility | Passed: Expo 52.0.49, RN 0.76.9, Expo CLI 0.22.28, React 18.3.1 |
+| Android prebuild and native release compilation | Passed; Gradle 8.10.2, JDK 21.0.12, Windows, arm64 C++ compilation |
+| Fresh Hermes exports | Passed: Android 1059 modules, iOS 1061 modules; not iOS native compilation |
+| Distribution preflight without approved environment | Correctly refuses missing production Clerk, Expo project and full release identity |
+| Physical device / authenticated visual / alerts | UNVERIFIED; no attached adb device or approved production/test identity used |
+
+Local artifact, relative to the mobile lane worktree: `apps/mobile/android/app/build/outputs/apk/release/app-release.apk` (63,972,673 bytes). SHA-256: `ee762d35152f9636bbf257645f77fc5c05a91a41f12957d4974935145b77bfb7`.
+
+`apksigner verify --verbose --print-certs` passed APK v2 signature verification and identified **CN=Android Debug**, certificate SHA-256 `fac61745dc0903786fb9ede62a962b399f7348f0bb6f899b8332667591033b9c`. This is deliberately NOT the approved release certificate. The embedded Clerk key is a nonfunctional compile-only test value. Do not distribute this artifact to the cohort or label it device-tested.
+
+`aapt` inspection confirmed package `com.skaldandstone.vaettir`, version 0.1.0/build 1, min SDK 24, target SDK 34, compile SDK 35, `allowBackup=false` and no external-storage, overlay or vibration permission. This invocation compiled expo-modules-core for arm64 only; transitive AARs also package other ABI libraries, so the APK's other advertised ABIs are NOT proven complete or supported. The eventual signed APK must use complete matching ABI sets and pass the device checklist. Public Play submission is not part of this private APK milestone.
+
+Execution logs remain local and ignored: `apps/mobile/.expo/android-final.log` and `apps/mobile/.expo/export-final.log`. Hermes outputs are under `apps/mobile/.expo/final-export`. No keystore, APK, native build tree or logs are committed. Node 24.19.0 and pnpm 11.23.0 were used. Existing Hermes-global, Gradle-deprecation and Android SDK XML-version warnings remain; successful compilation does not resolve runtime/device acceptance.
+
+Reproduce the compile-only build after frozen install and shared-package preparation above, from apps/mobile in PowerShell:
+
+```powershell
+$env:JAVA_HOME='C:/Program Files/Eclipse Adoptium/jdk-21.0.12.101-hotspot'
+$env:ANDROID_HOME='C:/Users/James/AppData/Local/Android/Sdk'
+$env:NODE_ENV='production'
+$env:EXPO_NO_TELEMETRY='1'
+$env:EXPO_PUBLIC_RELEASE_COMMIT=(git rev-parse HEAD)
+$env:EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY='pk_test_ZGV2LnZhZXR0aXIuZXhhbXBsZS5jb20k'
+pnpm exec expo prebuild --platform android --no-install
+Set-Location -LiteralPath android
+.\gradlew.bat :app:assembleRelease --no-daemon --max-workers=2 -PreactNativeArchitectures=arm64-v8a
+```
+
+For release CI and EAS, integration should supply `EXPO_PUBLIC_RELEASE_COMMIT` from the checked-out candidate SHA. Use the real approved production environment only after signing/distribution authorization; never convert this compile command into a beta handoff by merely renaming the APK.
+
 ## Android physical-device checklist
 
 For each row record device/model, OS, build, tester, timestamp, result and recording/screenshot reference:
