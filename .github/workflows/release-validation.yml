@@ -140,6 +140,8 @@ jobs:
       EXPO_PUBLIC_API_URL: https://vaettir.skaldandstone.com/api
       # Compile-only, not a functioning account or distributable build.
       EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY: pk_test_ZGV2LnZhZXR0aXIuZXhhbXBsZS5jb20k
+      EXPO_PUBLIC_RELEASE_COMMIT: ${{ github.sha }}
+      EXPO_NO_TELEMETRY: '1'
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -158,7 +160,7 @@ jobs:
       - run: pnpm --filter @vaettir/mobile exec expo prebuild --platform android --no-install
       - name: Native release compilation, no distribution
         working-directory: apps/mobile/android
-        run: ./gradlew :app:assembleRelease --no-daemon -PreactNativeArchitectures=arm64-v8a
+        run: ./gradlew :app:assembleRelease --no-daemon --max-workers=2 -PreactNativeArchitectures=arm64-v8a
 
   containers:
     if: inputs.container_compile

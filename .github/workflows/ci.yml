@@ -41,6 +41,7 @@ jobs:
       NEXT_PUBLIC_API_URL: http://localhost:4000
       NEXT_PUBLIC_RELEASE_COMMIT: ${{ github.sha }}
       VAETTIR_RELEASE_COMMIT: ${{ github.sha }}
+      EXPO_PUBLIC_RELEASE_COMMIT: ${{ github.sha }}
       NEXT_TELEMETRY_DISABLED: '1'
       EXPO_NO_TELEMETRY: '1'
       VAETTIR_LIVE_AI_TESTS: '0'
@@ -92,6 +93,11 @@ jobs:
 
       - name: Test
         run: pnpm test -- --maxWorkers=2
+
+      - name: Web permission and disposable-fixture contracts, no authentication
+        run: |
+          node --experimental-strip-types --test apps/web/lib/beta-ui.test.mjs
+          pnpm --filter @vaettir/web exec playwright test --config e2e/fixture.config.ts
 
       # A syntactically valid, non-working test key above is compile-only.
       # Authenticated release tests use real development-instance credentials.

@@ -20,12 +20,12 @@ export function localValidationEnvironment(source, databaseUrl, revision, varian
   if (!['standalone', 'local-server'].includes(variant)) throw new Error('Unknown web build variant.');
   const env = { ...source };
   for (const key of Object.keys(env)) {
-    if (/^(AWS_|ANTHROPIC_|CLERK_|NEXT_PUBLIC_CLERK_|EXPO_PUBLIC_CLERK_|SENTRY_|NEXT_PUBLIC_SENTRY_|EXPO_PUBLIC_SENTRY_|GITHUB_|GH_|TURBO_|VAETTIR_|NEXT_PUBLIC_API_URL$|EXPO_PUBLIC_API_URL$|DATABASE_URL$|NODE_OPTIONS$)/i.test(key)) delete env[key];
+    if (/^(AWS_|ANTHROPIC_|CLERK_|NEXT_PUBLIC_CLERK_|EXPO_|EAS_|SENTRY_|NEXT_PUBLIC_SENTRY_|GITHUB_|GH_|TURBO_|VAETTIR_|NEXT_PUBLIC_API_URL$|DATABASE_URL$|NODE_OPTIONS$)/i.test(key)) delete env[key];
   }
   return Object.assign(env, {
-    DATABASE_URL: databaseUrl, NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: COMPILE_KEY,
+    DATABASE_URL: databaseUrl, NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: COMPILE_KEY, EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY: COMPILE_KEY,
     NEXT_PUBLIC_API_URL: 'http://127.0.0.1:4000', EXPO_PUBLIC_API_URL: 'http://127.0.0.1:4000',
-    VAETTIR_RELEASE_COMMIT: revision, NEXT_PUBLIC_RELEASE_COMMIT: revision,
+    VAETTIR_RELEASE_COMMIT: revision, NEXT_PUBLIC_RELEASE_COMMIT: revision, EXPO_PUBLIC_RELEASE_COMMIT: revision,
     VAETTIR_LOCAL_BUILD: variant === 'local-server' ? '1' : '0', VAETTIR_LIVE_AI_TESTS: '0',
     AWS_EC2_METADATA_DISABLED: 'true', AWS_SHARED_CREDENTIALS_FILE: join(evidenceRoot, 'no-aws-credentials'),
     AWS_CONFIG_FILE: join(evidenceRoot, 'no-aws-config'),
@@ -64,6 +64,8 @@ export const releaseChecks = [
   ['typecheck', ['typecheck', '--force']],
   ['lint', ['lint', '--force']],
   ['tests', ['test', '--force', '--', '--maxWorkers=2']],
+  ['web-permission-tests', ['--filter', '@vaettir/web', 'exec', 'node', '--experimental-strip-types', '--test', 'lib/beta-ui.test.mjs']],
+  ['web-fixture-contracts', ['--filter', '@vaettir/web', 'exec', 'playwright', 'test', '--config', 'e2e/fixture.config.ts']],
   ['build', ['build', '--force']],
   ['expo-compatibility', ['--filter', '@vaettir/mobile', 'exec', 'expo', 'install', '--check']],
   ['browser-discovery', ['--filter', '@vaettir/web', 'exec', 'playwright', 'test', '--list']],

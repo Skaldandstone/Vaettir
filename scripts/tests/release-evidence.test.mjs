@@ -14,14 +14,17 @@ test('database guard accepts only explicit loopback test databases and safe quer
 test('isolated children do not inherit production, paid AI, remote cache or telemetry credentials', () => {
   const source = { PATH: 'bin', AWS_PROFILE: 'production', AWS_ACCESS_KEY_ID: 'secret', ANTHROPIC_API_KEY: 'secret',
     CLERK_SECRET_KEY: 'secret', SENTRY_DSN: 'secret', GITHUB_TOKEN: 'secret', TURBO_TOKEN: 'secret', NODE_OPTIONS: '--require malicious.js',
-    VAETTIR_LIVE_AI_TESTS: '1', NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: 'pk_live_secret' };
+    VAETTIR_LIVE_AI_TESTS: '1', NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: 'pk_live_secret',
+    EXPO_TOKEN: 'secret', EXPO_PROJECT_ID: 'production', EAS_BUILD: 'true', EXPO_PUBLIC_RELEASE_COMMIT: 'stale' };
   const env = localValidationEnvironment(source, databaseUrl, revision, 'standalone', '/evidence');
   assert.equal(env.VAETTIR_LOCAL_BUILD, '0');
   assert.equal(env.VAETTIR_LIVE_AI_TESTS, '0');
   assert.equal(env.AWS_EC2_METADATA_DISABLED, 'true');
   assert.equal(env.VAETTIR_RELEASE_COMMIT, revision);
+  assert.equal(env.EXPO_PUBLIC_RELEASE_COMMIT, revision);
+  assert.equal(env.EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY, env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY);
   assert.equal(env.PATH, 'bin');
-  for (const key of ['AWS_PROFILE','AWS_ACCESS_KEY_ID','ANTHROPIC_API_KEY','CLERK_SECRET_KEY','SENTRY_DSN','GITHUB_TOKEN','TURBO_TOKEN','NODE_OPTIONS']) assert.equal(env[key], undefined);
+  for (const key of ['AWS_PROFILE','AWS_ACCESS_KEY_ID','ANTHROPIC_API_KEY','CLERK_SECRET_KEY','SENTRY_DSN','GITHUB_TOKEN','TURBO_TOKEN','NODE_OPTIONS','EXPO_TOKEN','EXPO_PROJECT_ID','EAS_BUILD']) assert.equal(env[key], undefined);
   assert.equal(source.AWS_PROFILE, 'production');
 });
 test('tracked and untracked source changes fail, preserved attention note is permitted', () => {
@@ -32,6 +35,9 @@ test('tracked and untracked source changes fail, preserved attention note is per
 test('checks apply migrations before tests and force fresh compilation without running paid/browser acceptance', () => {
   const names = releaseChecks.map(([name]) => name);
   assert.ok(names.indexOf('migrate') < names.indexOf('tests'));
+  assert.ok(names.indexOf('seed') < names.indexOf('web-fixture-contracts'));
+  assert.ok(names.includes('web-permission-tests'));
+  assert.deepEqual(releaseChecks.find(([name]) => name === 'web-fixture-contracts')[1].slice(-2), ['--config', 'e2e/fixture.config.ts']);
   assert.ok(releaseChecks.find(([name]) => name === 'build')[1].includes('--force'));
   assert.deepEqual(releaseChecks.at(-1)[1].slice(-2), ['test', '--list']);
 });
