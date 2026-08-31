@@ -2,6 +2,18 @@
 
 Read-only GitHub inspection on 2026-08-30 returned ten open PRs, not the eleven in the earlier assessment. Each PR's non-lockfile diff was inspected individually. No PR was merged, updated or closed. This dependency lane is based on checkpoint a6b5554ddd53cb0e3326264557c0931a00336f6f; it is not the combined release candidate.
 
+## Current integration safety checkpoint, August 31
+
+**BLOCKED.** The historical lane results below do not establish current release acceptance. Latest full-suite source is `5a851f188f5693fbcfa7ea6d1cffff59232848ac` (267 tests, 41 fresh migrations and broader local checks in [full-suite evidence](stripe-integration-evidence.md)). Latest focused-tested source is `f80e0c4fefd1a5321ccd80ee90d75f174c27a3d1` (27 focused tests, build/typecheck/lint and loopback HTTP only). Do not reattribute the full suite or native exports to f80e0c4 or a subsequent docs-only commit.
+
+The [updated integration review](dependency-integration-review.md) links the exact manifest, probe and audit logs. Actual Metro buffer/file consumers reject malformed ICNS/JXL/HEIF bytes even with `.png` filenames under the unchanged patch. **Next 15.5.23 also vendors image-size outside that patched dependency.** Its ICNS and JXL probes exhaust a bounded 32 MB worker heap; a HEIF probe rejects normally. The bundled parser remains in the final web server trace and trusted metadata build path. API's single-stage Dockerfile also installs the full web/mobile workspace into its runtime stage; no Linux container was executed to validate deployed exposure.
+
+At f80e0c4, unused web optimizer/static-image imports are disabled, with an early empty/no-store 404 on the optimizer path. This closes those unused entry points locally, not the parser defect. First-attempt HTTP 500 evidence is retained alongside the successful follow-up. Both high advisories remain visible, with production audit exit 1, no suppression and no security exception. Independent vendored-parser/build-input review and a supported fix remain open.
+
+Root Node floor is now >=22.13; setup-node v7 is pinned, while CI application runtime remains Node 22. **ci.yml still has push-to-master and pull_request triggers, not manual-only execution.** Release-validation/deploy remain manual with existing holds; no workflow was dispatched. Linux/standalone/container, Node 22 runtime, hosted-v7 execution and exact-candidate native/signing/device gates remain UNVERIFIED. Focused local validation used Windows Node 24.19.0. No dependency-version/patch/lockfile change or install accompanied that focused pass.
+
+## Historical individual PR review
+
 | PR | Change | Disposition and required proof |
 |---|---|---|
 | [12](https://github.com/Skaldandstone/Vaettir/pull/12) | @fastify/cors 10 -> 11 | Hold major upgrade; review Fastify compatibility and credentialed/browser preflight tests |
@@ -17,7 +29,7 @@ Read-only GitHub inspection on 2026-08-30 returned ten open PRs, not the eleven 
 
 The remaining nine major/runtime PRs stay deferred individually for the proof in the table. None fixes the two remaining image-size advisories merely by being merged. Prisma CLI/client remain 5.22.0, Expo remains 52.0.49, React Native remains 0.76.9 and React remains 18.3.1. Mobile's package manifest and the Docker/CI runtime versions were not changed by this lane.
 
-## Audit result and release blocker
+## Historical dependency-lane audit and release blocker
 
 Baseline: 26 advisories, one critical, 18 high and seven moderate. After the changes below, both `pnpm audit --prod --json` and `pnpm audit --json` report **two high, zero critical, zero moderate** and exit 1. Both remaining findings are image-size 1.2.1. No ignored-advisory list, severity filtering, false patched version or automated acceptance was added. **Dependency gate remains BLOCKED pending independent review and combined-candidate validation.**
 
@@ -46,7 +58,7 @@ Regression coverage: all lengths 0-7 for each vulnerable family; truncated heade
 
 Other source references: [sharp/libvips advisory](https://github.com/advisories/GHSA-f88m-g3jw-g9cj), [sharp 0.35 changes](https://sharp.pixelplumbing.com/changelog/v0.35.0/), [fast-xml-parser changelog](https://github.com/NaturalIntelligence/fast-xml-parser/blob/master/CHANGELOG.md). No advisory is claimed universally exploitable or safe solely from its dependency label.
 
-## Validation evidence
+## Historical dependency-lane validation evidence
 
 Working directory: `C:/Users/James/Documents/vaettir-beta-worktrees/dependencies`. Local logs are under `.local/dependency-evidence/`; native exports are under `apps/mobile/.expo/dependency-export/`. Environment: Windows x64, Node 24.19.0, pnpm 11.23.0, PostgreSQL 17. CI's Node 22/Linux combination is not verified by these local results.
 
@@ -68,7 +80,9 @@ Working directory: `C:/Users/James/Documents/vaettir-beta-worktrees/dependencies
 
 The isolated database was created only for this lane. No production migrations, model calls, credentials/sign-in changes, deploys, account changes or PR mutations occurred. The initial failed unrestricted test run is retained, not relabeled a pass.
 
-## Integration, deployment and rollback
+## Integration, deployment and rollback requirements
+
+The original lane integration sequence below is historical guidance, not authorization to reinstall or rerun checks during the docs-only update. The combined 5a851f1 checkpoint already includes the permissions/mobile/schema integration. New focused f80e0c4 evidence and residual Next exposure are recorded above; target/release gates remain open.
 
 1. Integrate the manifest changes, pnpm-workspace.yaml, both patch files and `.gitattributes` together. Merge mobile manifest additions first, then run `pnpm install --no-frozen-lockfile` once on the combined candidate. Do not replace this lockfile with an older mobile lockfile or drop patch hashes. Re-run the frozen install and consumer suite afterward.
 2. Docker build contexts must copy `patches/` and pnpm-workspace.yaml before frozen installation. Linux sharp binaries must be installed for the target image, never copied from Windows. Operations owns Dockerfile edits and Linux evidence. No Node major upgrade is required by these fixes.
