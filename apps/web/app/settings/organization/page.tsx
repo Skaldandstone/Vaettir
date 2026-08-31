@@ -2,6 +2,8 @@
 
 import { useEffect, useState } from "react";
 import { trpc, type RouterOutputs } from "../../../lib/trpc";
+import { canAdministerOrganization } from "../../../lib/membership";
+import { RecoveryMessage } from "../../../components/RecoveryMessage";
 
 type Labels = { action: string; expectedActionOrData: string; expectedResult: string; expectedResponse: string };
 const API_KEY_ROLES = ["VIEWER", "COMPLIANCE_AUDITOR", "EDITOR", "ADMIN"];
@@ -579,8 +581,8 @@ function AiCreditsSection({ organizationId }: { organizationId: string }) {
     <div style={{ marginTop: 32 }}>
       <h2>AI credits</h2>
       <p style={{ color: "var(--muted)", fontSize: 13 }}>
-        Covers the real cost of AI-powered features (reverse-engineering, PR-scan recommendations, risk assessment,
-        strategy generation). Resets monthly per your plan tier; top-off purchases aren't available yet.
+        Credits are your allowance for AI-powered features, not a model-provider dollar spending ceiling.
+        Private-beta allowances reset each UTC calendar month without rollover. No automatic overage charges or top-off purchases.
       </p>
       <div className="panel" style={{ marginBottom: 12 }}>
         <div style={{ fontSize: 28, fontWeight: 700 }}>{status.balance}</div>
@@ -643,6 +645,8 @@ function RetentionDryRunSection({ organizationId }: { organizationId: string }) 
 }
 
 export default function OrganizationSettingsPage() {
+  const [canManage, setCanManage] = useState(false);
+  const [checked, setChecked] = useState(false);
   const [orgId, setOrgId] = useState<string | null>(null);
   const [orgName, setOrgName] = useState("");
   const [labels, setLabels] = useState<Labels | null>(null);
@@ -677,6 +681,7 @@ export default function OrganizationSettingsPage() {
         if (!org) return;
         setOrgId(org.id);
         setOrgName(org.name);
+        setCanManage(canAdministerOrganization(org));
         const detail = await trpc.organization.byId.query({ id: org.id });
         setLabels(detail.stepFieldLabels as Labels);
         setDataRetentionYears(detail.dataRetentionYears);
@@ -687,7 +692,8 @@ export default function OrganizationSettingsPage() {
         setLastDigestSentAt(detail.lastDigestSentAt);
         setDigestLoaded(true);
       })
-      .catch((e) => setError(String(e)));
+      .catch((e) => setError(e instanceof Error ? e.message : String(e)))
+      .finally(() => setChecked(true));
   }, []);
 
   async function submitRetention() {
@@ -800,8 +806,10 @@ export default function OrganizationSettingsPage() {
     }
   }
 
-  if (error) return <p style={{ color: "var(--ember)" }}>{error}</p>;
+  if (error) return <RecoveryMessage error={error} onRetry={() => window.location.reload()} />;
+  if (checked && !orgId) return <p>No team selected. <a href="/onboarding">Open onboarding</a>.</p>;
   if (!labels) return <p>Loading…</p>;
+  if (!canManage && orgId) return <div><h1>{orgName} settings</h1><p>Your team owner or admin manages these settings.</p><AiCreditsSection organizationId={orgId} /><a href="/settings/members">View seats and allowances</a></div>;
 
   return (
     <div style={{ maxWidth: 640 }}>

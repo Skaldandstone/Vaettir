@@ -88,6 +88,7 @@ function StringListEditor({
       {items.map((item, i) => (
         <div key={i} style={{ display: "flex", gap: 6, marginBottom: 4 }}>
           <input
+            aria-label={`${label} ${i + 1}`}
             value={item}
             onChange={(e) => onChange(items.map((v, j) => (j === i ? e.target.value : v)))}
             style={{ flex: 1 }}
@@ -98,7 +99,7 @@ function StringListEditor({
         </div>
       ))}
       <button type="button" onClick={() => onChange([...items, ""])}>
-        + Add {label.slice(0, -1) || label}
+        + Add {label}
       </button>
     </div>
   );

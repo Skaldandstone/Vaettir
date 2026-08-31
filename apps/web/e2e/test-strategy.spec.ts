@@ -18,18 +18,16 @@ test.describe("Test strategy", () => {
     await gotoFixtureTestStrategy(page);
     await page.getByLabel("Base ref").fill("main");
     await page.getByLabel(/head ref/i).fill("HEAD");
-    await page.getByRole("button", { name: /what should run|check/i }).click();
+    await page.getByRole("button", { name: "Analyze change", exact: true }).click();
     await expect(page.getByText(/coverage gap|must.run|no changes/i).first()).toBeVisible({ timeout: 30_000 });
   });
 
   test("selecting an existing release links to its readiness page", async ({ page }) => {
     await gotoFixtureTestStrategy(page);
-    const releaseSelect = page.getByRole("combobox").first();
-    const optionCount = await releaseSelect.locator("option").count();
-    if (optionCount > 1) {
-      await releaseSelect.selectOption({ index: 1 });
-      await expect(page.getByRole("link", { name: /view readiness/i })).toBeVisible();
-    }
+    const releaseSelect = page.locator("select").filter({ has: page.locator('option', { hasText: "v2.4 [BLOCKED]" }) });
+    await releaseSelect.selectOption({ label: "v2.4 [BLOCKED]" });
+    await page.getByRole("link", { name: /view readiness/i }).click();
+    await expect(page.getByRole("heading", { name: "v2.4", exact: true })).toBeVisible();
   });
 
   test("the PR scan policy section shows the project's configured trigger branches", async ({ page }) => {
@@ -39,7 +37,11 @@ test.describe("Test strategy", () => {
 
   test("adding a path-severity rule and saving the PR scan policy persists it", async ({ page }) => {
     await gotoFixtureTestStrategy(page);
+    await page.getByRole("button", { name: "+ Add rule", exact: true }).click();
     await page.getByPlaceholder(/apps\/api\/src\/payments/).fill("apps/web/src/lib/**");
-    await expect(page.getByPlaceholder(/apps\/api\/src\/payments/)).toHaveValue(/lib/);
+    await page.getByRole("button", { name: "Save policy", exact: true }).click();
+    await expect(page.getByText("Saved.", { exact: true })).toBeVisible();
+    await page.reload();
+    await expect(page.getByPlaceholder(/apps\/api\/src\/payments/)).toHaveValue("apps/web/src/lib/**");
   });
 });

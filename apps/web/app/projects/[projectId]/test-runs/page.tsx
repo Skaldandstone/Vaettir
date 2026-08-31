@@ -4,6 +4,8 @@ import { Fragment, useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import { trpc, type RouterOutputs } from "@/lib/trpc";
 import { Drawer } from "@/components/Drawer";
+import { useProjectPermissions } from "@/lib/use-project-permissions";
+import { RecoveryMessage } from "@/components/RecoveryMessage";
 
 const STATUS_COLORS: Record<string, string> = {
   PASSED: "#1a7f37",
@@ -98,7 +100,7 @@ const CLASSIFICATION_COLORS: Record<string, string> = {
 // Never touches the repo -- approving a suggestion just marks it reviewed
 // so it stops showing as needing attention; the suggested diff is right
 // here to copy, not applied anywhere automatically.
-function HealingSuggestionPanel({ testResultId }: { testResultId: string }) {
+function HealingSuggestionPanel({ testResultId, canEdit }: { testResultId: string; canEdit: boolean }) {
   const [suggestion, setSuggestion] = useState<RouterOutputs["healingSuggestions"]["byTestResult"]>(null);
   const [loading, setLoading] = useState(true);
   const [classifying, setClassifying] = useState(false);
@@ -108,6 +110,7 @@ function HealingSuggestionPanel({ testResultId }: { testResultId: string }) {
     trpc.healingSuggestions.byTestResult
       .query({ testResultId })
       .then(setSuggestion)
+      .catch((e) => setError(e instanceof Error ? e.message : String(e)))
       .finally(() => setLoading(false));
   }
 
@@ -141,9 +144,9 @@ function HealingSuggestionPanel({ testResultId }: { testResultId: string }) {
   if (!suggestion) {
     return (
       <div style={{ marginTop: 4 }}>
-        <button className="btn-secondary" style={{ fontSize: 11 }} onClick={classify} disabled={classifying}>
+        {canEdit && <button className="btn-secondary" style={{ fontSize: 11 }} onClick={classify} disabled={classifying}>
           {classifying ? "Classifying…" : "Classify failure"}
-        </button>
+        </button>}
         {error && <div style={{ color: "var(--ember)", fontSize: 11, marginTop: 4 }}>{error}</div>}
       </div>
     );
@@ -172,7 +175,7 @@ function HealingSuggestionPanel({ testResultId }: { testResultId: string }) {
           {suggestion.suggestionRationale && <p className="text-muted" style={{ margin: 0 }}>{suggestion.suggestionRationale}</p>}
         </>
       )}
-      {suggestion.status === "PENDING" && (
+      {canEdit && suggestion.status === "PENDING" && (
         <div style={{ display: "flex", gap: 6, marginTop: 6 }}>
           <button className="btn-secondary" style={{ fontSize: 11 }} onClick={() => review("APPROVED")}>
             Approve
@@ -187,7 +190,7 @@ function HealingSuggestionPanel({ testResultId }: { testResultId: string }) {
   );
 }
 
-function TestRunDetail({ id }: { id: string }) {
+function TestRunDetail({ id, canEdit }: { id: string; canEdit: boolean }) {
   const [run, setRun] = useState<RouterOutputs["testRuns"]["byId"] | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -245,7 +248,7 @@ function TestRunDetail({ id }: { id: string }) {
                   {r.testCaseTitle ?? (
                     <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
                       <span className="text-muted">{r.externalTestId ?? "(unknown)"} — unmatched</span>
-                      <LinkResultPicker testResultId={r.id} projectId={run.projectId} onLinked={load} />
+                      {canEdit && <LinkResultPicker testResultId={r.id} projectId={run.projectId} onLinked={load} />}
                     </div>
                   )}
                 </td>
@@ -257,7 +260,7 @@ function TestRunDetail({ id }: { id: string }) {
               {r.status === "FAIL" && r.testCaseId && (
                 <tr style={{ borderBottom: "1px solid var(--line)" }}>
                   <td colSpan={4} style={{ padding: "0 8px 8px" }}>
-                    <HealingSuggestionPanel testResultId={r.id} />
+                    <HealingSuggestionPanel testResultId={r.id} canEdit={canEdit} />
                   </td>
                 </tr>
               )}
@@ -367,6 +370,7 @@ function HealingSignalSection({ projectId }: { projectId: string }) {
 
 export default function TestRunsPage() {
   const { projectId } = useParams<{ projectId: string }>();
+  const { canEdit } = useProjectPermissions(projectId);
   const [runs, setRuns] = useState<RouterOutputs["testRuns"]["list"]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -392,7 +396,7 @@ export default function TestRunsPage() {
       </p>
 
       {loading && <p>Loading…</p>}
-      {error && <p style={{ color: "var(--ember)" }}>{error}</p>}
+      {error && <RecoveryMessage error={error} onRetry={load} />}
 
       {!loading && !error && runs.length === 0 && (
         <p className="text-muted">
@@ -442,7 +446,7 @@ export default function TestRunsPage() {
                   {new Date(r.startedAt).toLocaleString()}
                 </td>
                 <td style={{ padding: "6px 8px", fontSize: 12 }}>
-                  {r.ciProvider === "manual" && r.status === "RUNNING" && (
+                  {canEdit && r.ciProvider === "manual" && r.status === "RUNNING" && (
                     <a href={`/projects/${projectId}/test-runs/manual/${r.id}`} onClick={(e) => e.stopPropagation()}>
                       Resume
                     </a>
@@ -455,7 +459,7 @@ export default function TestRunsPage() {
       )}
 
       <Drawer open={openRunId !== null} onClose={() => setOpenRunId(null)}>
-        {openRunId && <TestRunDetail id={openRunId} />}
+        {openRunId && <TestRunDetail id={openRunId} canEdit={canEdit} />}
       </Drawer>
 
       <CoverageSection projectId={projectId} />

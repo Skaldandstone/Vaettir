@@ -6,7 +6,8 @@ import { trpc, type RouterOutputs } from "@/lib/trpc";
 import { Modal } from "@/components/Modal";
 import { Drawer } from "@/components/Drawer";
 import { downloadCsv } from "@/lib/csv";
-import { isReadOnlySeat } from "@/lib/membership";
+import { useProjectPermissions } from "@/lib/use-project-permissions";
+import { RecoveryMessage } from "@/components/RecoveryMessage";
 
 // P3-02: minimal RFC 4180 CSV parser (quoted fields, embedded commas,
 // escaped quotes as "") - the inverse of csvField/downloadCsv above.
@@ -78,10 +79,12 @@ function ControlEvidenceDrawer({
   projectId,
   control,
   readOnly = false,
+  canSignOff = false,
 }: {
   projectId: string;
   control: RouterOutputs["compliance"]["controlCoverage"][number];
   readOnly?: boolean;
+  canSignOff?: boolean;
 }) {
   const [evidence, setEvidence] = useState<RouterOutputs["compliance"]["listEvidence"]>([]);
   const [signOffs, setSignOffs] = useState<RouterOutputs["compliance"]["listSignOffs"]>([]);
@@ -95,11 +98,16 @@ function ControlEvidenceDrawer({
   const [signOffStatement, setSignOffStatement] = useState("");
   const [signingOff, setSigningOff] = useState(false);
   const [signOffError, setSignOffError] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   function load() {
-    trpc.compliance.listEvidence.query({ projectId, controlId: control.id }).then(setEvidence);
-    trpc.compliance.listSignOffs.query({ projectId, controlId: control.id }).then(setSignOffs);
-    trpc.compliance.mappedTestCases.query({ projectId, controlId: control.id }).then(setMappedCases);
+    setLoadError(null);
+    Promise.all([
+      trpc.compliance.listEvidence.query({ projectId, controlId: control.id }),
+      trpc.compliance.listSignOffs.query({ projectId, controlId: control.id }),
+      trpc.compliance.mappedTestCases.query({ projectId, controlId: control.id }),
+    ]).then(([items, signoffs, cases]) => { setEvidence(items); setSignOffs(signoffs); setMappedCases(cases); })
+      .catch((e) => { setEvidence([]); setSignOffs([]); setMappedCases([]); setLoadError(e instanceof Error ? e.message : String(e)); });
   }
 
   useEffect(load, [projectId, control.id]);
@@ -107,6 +115,7 @@ function ControlEvidenceDrawer({
   async function recordEvidence() {
     if (!evidenceTestCaseId) return;
     setRecordingEvidence(true);
+    setLoadError(null);
     try {
       await trpc.compliance.recordEvidence.mutate({
         projectId,
@@ -116,6 +125,8 @@ function ControlEvidenceDrawer({
       });
       setEvidenceNote("");
       load();
+    } catch (e) {
+      setLoadError(e instanceof Error ? e.message : String(e));
     } finally {
       setRecordingEvidence(false);
     }
@@ -143,6 +154,7 @@ function ControlEvidenceDrawer({
         {control.code} {control.title}
       </h2>
       {control.description && <p className="text-muted" style={{ fontSize: 13 }}>{control.description}</p>}
+      {loadError && <RecoveryMessage error={loadError} onRetry={load} />}
 
       <h3 style={{ marginBottom: 6 }}>Evidence</h3>
       <ul style={{ listStyle: "none", padding: 0, marginBottom: 12 }}>
@@ -195,7 +207,7 @@ function ControlEvidenceDrawer({
         ))}
         {signOffs.length === 0 && <p className="text-muted" style={{ fontSize: 13 }}>No sign-offs yet.</p>}
       </ul>
-      {!readOnly && (
+      {canSignOff && (
         <div style={{ display: "grid", gap: 8, maxWidth: 420 }}>
           <input value={signOffPeriod} onChange={(e) => setSignOffPeriod(e.target.value)} placeholder="Period (e.g. 2026-Q3)" style={{ fontSize: 12 }} />
           <textarea
@@ -228,11 +240,13 @@ function ControlRow({
   control,
   onChanged,
   readOnly = false,
+  canSignOff = false,
 }: {
   projectId: string;
   control: RouterOutputs["compliance"]["controlCoverage"][number];
   onChanged: () => void;
   readOnly?: boolean;
+  canSignOff?: boolean;
 }) {
   const [picking, setPicking] = useState(false);
   const [candidates, setCandidates] = useState<RouterOutputs["compliance"]["unmappedTestCases"]>([]);
@@ -309,7 +323,7 @@ function ControlRow({
         </button>
       </div>
       <Drawer open={drawerOpen} onClose={() => setDrawerOpen(false)}>
-        <ControlEvidenceDrawer projectId={projectId} control={control} readOnly={readOnly} />
+        <ControlEvidenceDrawer projectId={projectId} control={control} readOnly={readOnly} canSignOff={canSignOff} />
       </Drawer>
     </li>
   );
@@ -342,14 +356,8 @@ export default function CompliancePage() {
 
   const [canManageCatalog, setCanManageCatalog] = useState(false);
   useEffect(() => { trpc.beta.capabilities.query().then((result) => setCanManageCatalog(result.canManageSharedCatalog)).catch(() => undefined); }, []);
-  const [readOnly, setReadOnly] = useState(true);
-  useEffect(() => {
-    trpc.project.byId
-      .query({ id: projectId })
-      .then((p) => trpc.organization.mine.query().then((orgs) => orgs.find((o) => o.id === p.organizationId)))
-      .then((org) => setReadOnly(isReadOnlySeat(org?.seatType)))
-      .catch(() => undefined);
-  }, [projectId]);
+  const { canEdit, canSignOff } = useProjectPermissions(projectId);
+  const readOnly = !canEdit;
 
   function loadFrameworks() {
     setLoading(true);
@@ -560,7 +568,7 @@ export default function CompliancePage() {
           )}
           <ul style={{ listStyle: "none", padding: 0 }}>
             {controls.map((c) => (
-              <ControlRow key={c.id} projectId={projectId} control={c} onChanged={loadControls} readOnly={readOnly} />
+              <ControlRow key={c.id} projectId={projectId} control={c} onChanged={loadControls} readOnly={readOnly} canSignOff={canSignOff} />
             ))}
             {controls.length === 0 && (
               <p className="text-muted">No controls on this framework yet. Ask support to add the reviewed reference controls.</p>

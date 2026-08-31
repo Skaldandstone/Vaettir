@@ -6,7 +6,7 @@ import { trpc, type RouterOutputs } from "@/lib/trpc";
 import { Drawer } from "@/components/Drawer";
 import { Modal } from "@/components/Modal";
 import { TestPlanDetailContent } from "@/components/TestPlanDetailContent";
-import { isReadOnlySeat } from "@/lib/membership";
+import { canEditProject } from "@/lib/membership";
 
 const STATUSES = ["DRAFT", "ACTIVE", "IN_REVIEW", "APPROVED"];
 
@@ -206,7 +206,8 @@ export default function TestPlansPage() {
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
   const [generateOpen, setGenerateOpen] = useState(false);
-  const [readOnly, setReadOnly] = useState(false);
+  const [access, setAccess] = useState<{ projectId: string; canEdit: boolean }>();
+  const readOnly = access?.projectId !== projectId || !access.canEdit;
   const [projectRepo, setProjectRepo] = useState<{ repoUrl: string | null; defaultBranch: string } | null>(null);
 
   useEffect(() => {
@@ -219,9 +220,9 @@ export default function TestPlansPage() {
   useEffect(() => {
     Promise.all([trpc.project.byId.query({ id: projectId }), trpc.organization.mine.query()]).then(([proj, orgs]) => {
       const org = orgs.find((o) => o.id === proj.organizationId);
-      setReadOnly(isReadOnlySeat(org?.seatType));
+      setAccess({ projectId, canEdit: canEditProject(org) });
       setProjectRepo({ repoUrl: proj.repoUrl, defaultBranch: proj.defaultBranch });
-    });
+    }).catch(() => setAccess(undefined));
   }, [projectId]);
 
   function loadPlans() {

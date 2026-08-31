@@ -42,6 +42,11 @@ test.describe("Projects", () => {
   test("the project sidebar switcher lists other projects in the same org", async ({ page }) => {
     await page.goto("/projects");
     await page.locator("li", { hasText: "Beta fixture" }).getByRole("link", { name: "Beta fixture" }).click();
-    await expect(page.locator(".sidebar-project-switcher")).toContainText("Beta fixture");
+    const switcher = page.locator(".sidebar-project-switcher");
+    await expect(switcher.locator("option")).toHaveCount(2);
+    await switcher.selectOption({ label: "Automation fixture" });
+    await expect(page.getByRole("heading", { name: "Automation fixture", exact: true })).toBeVisible();
+    await page.getByRole("link", { name: "Test Cases", exact: true }).click();
+    await expect(page.getByText("A wrong password is rejected without creating a session", { exact: true })).toHaveCount(0);
   });
 });

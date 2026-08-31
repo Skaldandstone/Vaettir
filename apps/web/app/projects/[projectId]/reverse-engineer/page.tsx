@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import { trpc, type RouterOutputs } from "@/lib/trpc";
-import { isReadOnlySeat } from "@/lib/membership";
+import { canEditProject } from "@/lib/membership";
 
 const ACTIVE_JOB_STATUSES = new Set(["PENDING", "RUNNING"]);
 
@@ -126,12 +126,13 @@ export default function ReverseEngineerPage() {
   const [savingHeuristic, setSavingHeuristic] = useState(false);
   const [heuristicError, setHeuristicError] = useState<string | null>(null);
 
-  const [readOnly, setReadOnly] = useState(false);
+  const [access, setAccess] = useState<{ projectId: string; canEdit: boolean }>();
+  const readOnly = access?.projectId !== projectId || !access.canEdit;
   useEffect(() => {
     trpc.project.byId
       .query({ id: projectId })
       .then((p) => trpc.organization.mine.query().then((orgs) => orgs.find((o) => o.id === p.organizationId)))
-      .then((org) => setReadOnly(isReadOnlySeat(org?.seatType)))
+      .then((org) => setAccess({ projectId: projectId, canEdit: canEditProject(org) }))
       .catch(() => undefined);
   }, [projectId]);
 
@@ -628,7 +629,10 @@ export default function ReverseEngineerPage() {
       </>
       )}
 
-      {error && <p style={{ color: "var(--ember)" }}>{error}</p>}
+      {error && <div role="alert" style={{ color: "var(--ember)" }}>
+        <p>{error}</p>
+        <p>Check the source format, your connection and your team&apos;s AI credits. If an AI request timed out, check Recent jobs before trying again. A new AI attempt may consume credits; contact your beta support contact if the result is uncertain.</p>
+      </div>}
 
       {jobs.length > 0 && (
         <div style={{ marginTop: 24 }}>
