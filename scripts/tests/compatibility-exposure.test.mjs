@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { readFileSync, existsSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import test from 'node:test';
+import { runInNewContext } from 'node:vm';
 
 const root = new URL('../../', import.meta.url);
 const require = createRequire(new URL('package.json', root));
@@ -80,4 +81,55 @@ test('resolved web configuration disables unused Next image-processing entry poi
   assert.equal(config.images.unoptimized, true);
   assert.equal(config.images.disableStaticImages, true);
   // Runtime HTTP verification remains necessary. This is not a parser patch.
+});
+
+function middlewareHarness() {
+  const ts = require('typescript');
+  const compiled = ts.transpileModule(read('apps/web/middleware.ts'), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } });
+  const calls = [];
+  let publicPatterns;
+  const exports = {};
+  runInNewContext(compiled.outputText, { exports, require(name) {
+    if (name === 'next/server') return { NextResponse: Response };
+    assert.equal(name, '@clerk/nextjs/server');
+    return {
+      createRouteMatcher(patterns) {
+        publicPatterns = Array.from(patterns);
+        return req => publicPatterns.some(pattern => pattern.endsWith('(.*)') ? req.nextUrl.pathname.startsWith(pattern.slice(0, -4)) : req.nextUrl.pathname === pattern);
+      },
+      clerkMiddleware(handler) {
+        return async (req, event) => {
+          calls.push({ req, event });
+          await handler({ protect: async () => { throw new Error('auth denied'); } }, req);
+          return 'clerk-public-result';
+        };
+      },
+    };
+  } });
+  return { ...exports, calls, publicPatterns };
+}
+
+test('disabled optimizer responds before Clerk without reading untrusted URL data', async () => {
+  const harness = middlewareHarness();
+  const req = { nextUrl: { pathname: '/_next/image', get searchParams() { throw new Error('must not read supplied URL'); } } };
+  const response = await harness.default(req, {});
+  assert.equal(response.status, 404);
+  assert.equal(response.headers.get('Cache-Control'), 'no-store');
+  assert.equal(await response.text(), '');
+  assert.equal(harness.calls.length, 0);
+  assert.deepEqual(Array.from(harness.config.matcher), ['/((?!_next|.*\\..*).*)', '/(api|trpc)(.*)', '/__clerk/:path*', '/_next/image']);
+});
+
+test('all other routes keep their existing Clerk public/protected handling', async () => {
+  const harness = middlewareHarness();
+  assert.deepEqual(harness.publicPatterns, ['/', '/beta-guide', '/sign-in(.*)', '/sign-up(.*)']);
+  for (const route of ['/', '/beta-guide', '/sign-in', '/sign-up/verify']) {
+    const req = { nextUrl: { pathname: route } }, event = {};
+    assert.equal(await harness.default(req, event), 'clerk-public-result');
+    assert.equal(harness.calls.at(-1).req, req);
+    assert.equal(harness.calls.at(-1).event, event);
+  }
+  for (const route of ['/projects', '/settings/billing', '/admin', '/api/private', '/_next/image-other', '/__clerk/test']) {
+    await assert.rejects(harness.default({ nextUrl: { pathname: route } }, {}), /auth denied/);
+  }
 });
