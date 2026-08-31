@@ -8,7 +8,10 @@
     "android": "expo run:android",
     "ios": "expo run:ios",
     "typecheck": "tsc --noEmit",
-    "lint": "eslint ."
+    "lint": "eslint .",
+    "test": "node --experimental-strip-types --test scripts/*.test.cjs",
+    "eas-build-post-install": "pnpm --filter @vaettir/core build",
+    "check:release": "node scripts/release-config.cjs"
   },
   "dependencies": {
     "@babel/runtime": "7.29.7",
