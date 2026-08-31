@@ -51,7 +51,7 @@ export const organizationRouter = router({
     .query(({ ctx }) =>
       ctx.prisma.organization
         .findMany({
-          where: { suspendedAt: null, memberships: { some: { userId: ctx.user.id } } },
+          where: { id: { in: ctx.user.memberships.map((m) => m.organizationId) }, suspendedAt: null, memberships: { some: { userId: ctx.user.id } } },
           select: { id: true, name: true, slug: true },
         })
         .then((orgs) =>

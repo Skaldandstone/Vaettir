@@ -17,7 +17,7 @@ async function resolveApiKeyUser(rawKey: string) {
   if (!apiKey || apiKey.revokedAt) return null;
   // Best-effort last-used tracking; never let it block or fail the request.
   prisma.apiKey.update({ where: { id: apiKey.id }, data: { lastUsedAt: new Date() } }).catch(() => undefined);
-  return prisma.user.findUnique({ where: { id: apiKey.serviceUserId }, include: { memberships: { where: { organization: { suspendedAt: null } } } } });
+  return prisma.user.findUnique({ where: { id: apiKey.serviceUserId }, include: { memberships: { where: { organizationId: apiKey.organizationId, organization: { suspendedAt: null } } } } });
 }
 
 // The staff plane is a SEPARATE identity from tenant users: cross-org support

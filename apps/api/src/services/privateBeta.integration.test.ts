@@ -2,8 +2,8 @@ import { randomUUID } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { prisma } from "@vaettir/db";
 import { appRouter } from "../router.js";
-import { bootstrapBetaOrganization, enrollBetaOwner } from "./privateBeta.js";
-import { chargeAiCredits, getAiCreditBalance, grantMonthlyCreditsIfNeeded } from "./aiCredits.js";
+import { bootstrapBetaOrganization, enrollBetaOwner, revokeBetaEnrollment } from "./privateBeta.js";
+import { adjustAiCredits, chargeAiCredits, creditMonth, getAiCreditBalance, grantMonthlyCreditsIfNeeded } from "./aiCredits.js";
 import { acceptInvitation, inviteMember, updateMember } from "./seatManagement.js";
 
 const run = `beta-${randomUUID()}`;
@@ -61,6 +61,82 @@ describe.sequential("Private beta boundaries", () => {
     expect(outcomes.filter((result) => result.status === "rejected")).toHaveLength(3);
   });
 
+  it("rechecks claimed enrollment after waiting for a simultaneous claim", async () => {
+    const pending = await prisma.betaEnrollment.findFirstOrThrow({ where: { id: { in: enrollmentIds }, claimedAt: null } });
+    const invitee = await user("claim-race");
+    invitee.email = pending.email;
+    await prisma.user.update({ where: { id: invitee.id }, data: { email: invitee.email } });
+    let release!: () => void, locked!: () => void;
+    const ready = new Promise<void>((resolve) => { locked = resolve; });
+    const barrier = new Promise<void>((resolve) => { release = resolve; });
+    const blocker = prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT "id" FROM "User" WHERE "id" = ${invitee.id} FOR UPDATE`;
+      locked();
+      await barrier;
+    }, { timeout: 20000 });
+    const waitForLock = async (query: string) => {
+      await expect.poll(async () => (await prisma.$queryRaw<Array<{ count: bigint }>>`
+        SELECT COUNT(*) AS count FROM pg_stat_activity WHERE datname = current_database()
+        AND wait_event_type = 'Lock' AND query LIKE ${query}
+      `)[0].count > 0n, { timeout: 4000 }).toBe(true);
+    };
+    await ready;
+    let results: Promise<PromiseSettledResult<unknown>[]> | undefined;
+    try {
+      const claim = bootstrapBetaOrganization(prisma, invitee, "Claim race").then((org) => { orgIds.push(org.id); return org; });
+      // Claim holds the enrollment row and is now waiting on this test's user lock.
+      await waitForLock('SELECT "id" FROM "User" WHERE%');
+      const revoke = revokeBetaEnrollment(prisma, pending.id);
+      results = Promise.allSettled([claim, revoke]);
+      await waitForLock('SELECT "id" FROM "PlanTier" WHERE%');
+    } finally {
+      release();
+      await blocker;
+    }
+    const settled = await results!;
+    expect(settled[0].status).toBe("fulfilled");
+    expect(settled[1]).toMatchObject({ status: "rejected", reason: { code: "BAD_REQUEST" } });
+    const enrollment = await prisma.betaEnrollment.findUniqueOrThrow({ where: { id: pending.id } });
+    expect(enrollment.claimedAt).not.toBeNull();
+    expect(enrollment.revokedAt).toBeNull();
+  }, 30000);
+
+  it("does not admit a waiting claim after revocation wins, and releases exactly one cohort slot", async () => {
+    const pending = await prisma.betaEnrollment.findFirstOrThrow({ where: { id: { in: enrollmentIds }, claimedAt: null, revokedAt: null } });
+    const invitee = await user("revoke-race");
+    invitee.email = pending.email;
+    await prisma.user.update({ where: { id: invitee.id }, data: { email: invitee.email } });
+    let release!: () => void, locked!: () => void;
+    const ready = new Promise<void>((resolve) => { locked = resolve; });
+    const barrier = new Promise<void>((resolve) => { release = resolve; });
+    const blocker = prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT "id" FROM "BetaEnrollment" WHERE "id" = ${pending.id} FOR UPDATE`;
+      locked(); await barrier;
+    }, { timeout: 20000 });
+    const waitForLock = async (query: string) => {
+      await expect.poll(async () => (await prisma.$queryRaw<Array<{ count: bigint }>>`
+        SELECT COUNT(*) AS count FROM pg_stat_activity WHERE datname = current_database()
+        AND wait_event_type = 'Lock' AND query LIKE ${query}
+      `)[0].count > 0n, { timeout: 4000 }).toBe(true);
+    };
+    await ready;
+    let results: Promise<PromiseSettledResult<unknown>[]> | undefined;
+    try {
+      const revoke = revokeBetaEnrollment(prisma, pending.id);
+      await waitForLock('SELECT "id" FROM "BetaEnrollment" WHERE "id"%');
+      const claim = bootstrapBetaOrganization(prisma, invitee, "Must not exist").then((org) => { orgIds.push(org.id); return org; });
+      results = Promise.allSettled([revoke, claim]);
+      await waitForLock('SELECT "id" FROM "PlanTier" WHERE%');
+    } finally { release(); await blocker; }
+    const settled = await results!;
+    expect(settled[0].status).toBe("fulfilled");
+    expect(settled[1]).toMatchObject({ status: "rejected", reason: { code: "FORBIDDEN" } });
+    expect(await prisma.membership.count({ where: { userId: invitee.id } })).toBe(0);
+    const replacement = await enrollBetaOwner(prisma, `${run}-replacement@example.com`, "fixture", "replaces revoked reservation");
+    enrollmentIds.push(replacement.id);
+    expect(await prisma.betaEnrollment.count({ where: { revokedAt: null } })).toBe(3);
+  }, 30000);
+
   it("never double-grants or double-charges the same operation", async () => {
     await Promise.all(Array.from({ length: 8 }, () => grantMonthlyCreditsIfNeeded(prisma, orgId)));
     expect(await getAiCreditBalance(prisma, orgId)).toBe(500);
@@ -68,6 +144,13 @@ describe.sequential("Private beta boundaries", () => {
     await Promise.all(Array.from({ length: 8 }, () => chargeAiCredits(prisma, orgId, "generateQaStrategyDraft", "test", "same-operation")));
     expect(await getAiCreditBalance(prisma, orgId)).toBe(490);
     await expect(chargeAiCredits(prisma, orgId, "assessTestCaseRisk", "test", "same-operation")).rejects.toThrow("different operation");
+  });
+
+  it("uses the month idempotency key even if a transaction began before the month boundary", async () => {
+    const grant = await prisma.aiCreditTransaction.findFirstOrThrow({ where: { organizationId: orgId, type: "GRANT" } });
+    await prisma.aiCreditTransaction.update({ where: { id: grant.id }, data: { createdAt: new Date(creditMonth().getTime() - 1) } });
+    expect(await getAiCreditBalance(prisma, orgId)).toBe(490);
+    expect(await prisma.aiCreditTransaction.count({ where: { organizationId: orgId, type: "GRANT" } })).toBe(1);
   });
 
   it("expires old beta allowance without modifying historical rows", async () => {
@@ -85,6 +168,14 @@ describe.sequential("Private beta boundaries", () => {
     const calls = await Promise.allSettled(Array.from({ length: 12 }, (_, n) => chargeAiCredits(prisma, orgId, "reverseEngineerTestFile", "test", `race-${n}`)));
     expect(calls.filter((result) => result.status === "fulfilled")).toHaveLength(1);
     expect(await getAiCreditBalance(prisma, orgId)).toBe(0);
+  });
+
+  it("serializes audited staff adjustments without allowing concurrent overdrafts", async () => {
+    await adjustAiCredits(prisma, orgId, 10, "[staff:fixture] ten-credit top-up");
+    const results = await Promise.allSettled(Array.from({ length: 4 }, () => adjustAiCredits(prisma, orgId, -6, "[staff:fixture] bounded deduction")));
+    expect(results.filter((r) => r.status === "fulfilled")).toHaveLength(1);
+    expect(await getAiCreditBalance(prisma, orgId)).toBe(4);
+    expect(await prisma.aiCreditTransaction.count({ where: { organizationId: orgId, description: "[staff:fixture] bounded deduction" } })).toBe(1);
   });
 
   it("reserves only the remaining four full seats under concurrent invitations", async () => {

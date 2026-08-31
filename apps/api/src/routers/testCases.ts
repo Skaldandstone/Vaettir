@@ -8,6 +8,7 @@ import { recordAudit } from "../services/auditLog.js";
 import { chargeAiCredits, InsufficientAiCreditsError } from "../services/aiCredits.js";
 import { parseTestCaseCsv } from "../services/testCaseCsvImport.js";
 import { snapshotTestCaseVersion } from "../services/testCaseVersion.js";
+import { requireCaseReferences } from "../services/projectReferences.js";
 
 const stepOutputSchema = z.object({
   order: z.number(),
@@ -187,6 +188,7 @@ export const testCasesRouter = router({
       // steps (see the schema comment on TestCase.sharedStepGroupId) -
       // resolved live here, not duplicated onto the case, so an edit to
       // the group is instantly reflected on every case that uses it.
+      await requireCaseReferences(ctx.prisma, tc.projectId, tc);
       const resolvedSteps = tc.sharedStepGroup
         ? (tc.sharedStepGroup.steps as Array<{
             order: number;
@@ -451,6 +453,7 @@ export const testCasesRouter = router({
     }))
     .mutation(async ({ ctx, input }) => {
       const { project } = await requireProjectAccess(ctx, input.projectId, "EDITOR");
+      await requireCaseReferences(ctx.prisma, input.projectId, input);
       const created = await ctx.prisma.testCase.create({
         data: {
           projectId: input.projectId,
@@ -621,6 +624,7 @@ export const testCasesRouter = router({
       // if per-step history/comments ever need steps to persist identity
       // across an edit.
       const updated = await ctx.prisma.$transaction(async (tx) => {
+        await requireCaseReferences(tx, existing.projectId, input);
         if (shouldCaptureFeedback) {
           await tx.aiEditFeedback.create({
             data: {

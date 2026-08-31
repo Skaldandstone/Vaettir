@@ -31,6 +31,18 @@ function validateRole(role: OrgRole, seatType: SeatType) {
   }
 }
 
+export async function requireAnotherOwner(tx: Prisma.TransactionClient, member: { id: string; organizationId: string; role: OrgRole }) {
+  if (member.role === "OWNER" && await tx.membership.count({ where: { organizationId: member.organizationId, role: "OWNER", id: { not: member.id } } }) === 0) {
+    throw new TRPCError({ code: "BAD_REQUEST", message: "An organization must have at least one Owner" });
+  }
+}
+
+export async function requireHumanOwner(tx: Prisma.TransactionClient, userId: string) {
+  if (await tx.apiKey.findUnique({ where: { serviceUserId: userId }, select: { id: true } })) {
+    throw new TRPCError({ code: "BAD_REQUEST", message: "Service accounts cannot own an organization. Choose a human member." });
+  }
+}
+
 export async function inviteMember(db: PrismaClient, actorId: string, input: {
   organizationId: string; email: string; role: OrgRole; seatType: SeatType;
 }) {
@@ -61,9 +73,8 @@ export async function updateMember(db: PrismaClient, actorId: string, input: { m
     await requireAdmin(tx, target.organizationId, actorId);
     const member = await tx.membership.findUniqueOrThrow({ where: { id: input.membershipId }, include: { organization: { include: { planTier: true } } } });
     validateRole(input.role, input.seatType);
-    if (member.role === "OWNER" && input.role !== "OWNER" && await tx.membership.count({ where: { organizationId: target.organizationId, role: "OWNER" } }) <= 1) {
-      throw new TRPCError({ code: "BAD_REQUEST", message: "An organization must have at least one Owner" });
-    }
+    if (input.role === "OWNER") await requireHumanOwner(tx, member.userId);
+    if (input.role !== "OWNER") await requireAnotherOwner(tx, member);
     if (input.seatType !== member.seatType) {
       const check = canAddSeat(member.organization.planTier, await usage(tx, target.organizationId), input.seatType);
       if (!check.allowed) throw new TRPCError({ code: "BAD_REQUEST", message: check.reason });
@@ -78,9 +89,7 @@ export async function removeMember(db: PrismaClient, actorId: string, membership
     assertActiveOrganization(await lockOrganization(tx, target.organizationId));
     await requireAdmin(tx, target.organizationId, actorId);
     const member = await tx.membership.findUniqueOrThrow({ where: { id: membershipId } });
-    if (member.role === "OWNER" && await tx.membership.count({ where: { organizationId: target.organizationId, role: "OWNER" } }) <= 1) {
-      throw new TRPCError({ code: "BAD_REQUEST", message: "An organization must have at least one Owner" });
-    }
+    await requireAnotherOwner(tx, member);
     await tx.membership.delete({ where: { id: membershipId } });
   });
 }
@@ -112,6 +121,7 @@ export async function acceptInvitation(db: PrismaClient, user: { id: string; ema
       throw new TRPCError({ code: "BAD_REQUEST", message: "You are already a member of this organization" });
     }
     validateRole(invite.role, invite.seatType);
+    if (invite.role === "OWNER") await requireHumanOwner(tx, user.id);
     const check = canAddSeat(invite.organization.planTier, await usage(tx, invite.organizationId, invite.id), invite.seatType);
     if (!check.allowed) throw new TRPCError({ code: "BAD_REQUEST", message: check.reason });
     const membership = await tx.membership.create({ data: {

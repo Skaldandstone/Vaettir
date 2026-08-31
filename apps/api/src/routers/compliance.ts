@@ -3,16 +3,15 @@ import { TRPCError } from "@trpc/server";
 import { router, protectedProcedure, staffProcedure, requireProjectAccess } from "../trpc.js";
 import { recordAudit } from "../services/auditLog.js";
 import { dispatchWebhookEvent } from "../services/webhookDelivery.js";
+import { requireEvidenceReferences } from "../services/projectReferences.js";
 
 // P3-01/P3-03: ComplianceFramework/ComplianceControl are shared reference
 // data across every org (same pattern as TestPlanType, not project- or
 // org-scoped) -- seeded frameworks exist (SOC 2, HIPAA, PCI DSS, GDPR,
 // ISO 27001) but with zero controls under them until an org adds its own,
 // or adds an entirely custom framework (isBuiltIn: false marks the
-// difference in the UI). Any authenticated user can add a custom
-// framework/control -- same "don't shoehorn, no code change required"
-// reasoning as a custom TestPlanType, and isBuiltIn keeps the seeded set
-// visually distinct regardless of who adds what.
+// difference in the UI). Definitions are staff-managed during private beta
+// because this catalog is global, not private tenant content.
 export const complianceRouter = router({
   listFrameworks: protectedProcedure
     .output(
@@ -307,16 +306,19 @@ export const complianceRouter = router({
     )
     .mutation(async ({ ctx, input }) => {
       await requireProjectAccess(ctx, input.projectId, "EDITOR");
-      const evidence = await ctx.prisma.complianceEvidence.create({
-        data: {
-          projectId: input.projectId,
-          controlId: input.controlId,
-          testCaseId: input.testCaseId,
-          testResultId: input.testResultId,
-          note: input.note,
-          recordedById: ctx.user.id,
-        },
-        include: { recordedBy: { select: { email: true } } },
+      const evidence = await ctx.prisma.$transaction(async (tx) => {
+        await requireEvidenceReferences(tx, input);
+        return tx.complianceEvidence.create({
+          data: {
+            projectId: input.projectId,
+            controlId: input.controlId,
+            testCaseId: input.testCaseId,
+            testResultId: input.testResultId,
+            note: input.note,
+            recordedById: ctx.user.id,
+          },
+          include: { recordedBy: { select: { email: true } } },
+        });
       });
       await recordAudit(ctx.prisma, {
         organizationId: (await ctx.prisma.project.findUniqueOrThrow({ where: { id: input.projectId }, select: { organizationId: true } }))
@@ -357,7 +359,7 @@ export const complianceRouter = router({
     .query(async ({ ctx, input }) => {
       await requireProjectAccess(ctx, input.projectId);
       const rows = await ctx.prisma.complianceEvidence.findMany({
-        where: { projectId: input.projectId, controlId: input.controlId },
+        where: { projectId: input.projectId, controlId: input.controlId, testCase: { projectId: input.projectId } },
         include: { testCase: { select: { title: true } }, recordedBy: { select: { email: true } } },
         orderBy: { recordedAt: "desc" },
       });
@@ -393,7 +395,7 @@ export const complianceRouter = router({
     )
     .mutation(async ({ ctx, input }) => {
       const { membership } = await requireProjectAccess(ctx, input.projectId);
-        if (membership.seatType === "READ_ONLY" || !["COMPLIANCE_AUDITOR", "ADMIN", "OWNER"].includes(membership.role)) {
+      if (membership.seatType === "READ_ONLY" || !["COMPLIANCE_AUDITOR", "ADMIN", "OWNER"].includes(membership.role)) {
         throw new TRPCError({
           code: "FORBIDDEN",
           message: "Only a Compliance Auditor (or an org Admin/Owner) can sign off on a control",

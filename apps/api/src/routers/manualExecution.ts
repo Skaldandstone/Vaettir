@@ -4,6 +4,7 @@ import { router, protectedProcedure, requireProjectAccess } from "../trpc.js";
 import { recomputeFlaky } from "../services/flakyDetection.js";
 import { resolveHealingSuggestionsOnPass } from "../services/healingSuggestion.js";
 import { resolveStepFieldLabels } from "@vaettir/core";
+import { requireCaseReferences } from "../services/projectReferences.js";
 
 // Closes the single biggest gap found in the 2026-08-27 competitor parity
 // audit (see COMPETITIVE_ANALYSIS.md): every competitor researched
@@ -108,13 +109,14 @@ export const manualExecutionRouter = router({
 
       const [cases, results] = await Promise.all([
         ctx.prisma.testCase.findMany({
-          where: { id: { in: run.manualTestCaseIds } },
+          where: { id: { in: run.manualTestCaseIds }, projectId: run.projectId },
           include: { steps: { orderBy: { order: "asc" } }, sharedStepGroup: true },
         }),
         ctx.prisma.testResult.findMany({
           where: { testRunId: run.id, testCaseId: { in: run.manualTestCaseIds } },
         }),
       ]);
+      for (const testCase of cases) await requireCaseReferences(ctx.prisma, run.projectId, testCase);
       const casesById = new Map(cases.map((c) => [c.id, c]));
       const resultByCase = new Map(results.map((r) => [r.testCaseId as string, r]));
 
@@ -178,6 +180,9 @@ export const manualExecutionRouter = router({
 
       if (!run.manualTestCaseIds.includes(input.testCaseId)) {
         throw new TRPCError({ code: "BAD_REQUEST", message: "That test case isn't part of this run's planned scope" });
+      }
+      if (!await ctx.prisma.testCase.findFirst({ where: { id: input.testCaseId, projectId: run.projectId }, select: { id: true } })) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "That test case does not belong to this project" });
       }
 
       const existing = await ctx.prisma.testResult.findFirst({

@@ -5,6 +5,7 @@ import { TRPCError } from "@trpc/server";
 import { canAddSeat } from "@vaettir/core";
 import { assertActiveOrganization, lockOrganization } from "../services/organizationLock.js";
 import { requireAdmin, usage } from "../services/seatManagement.js";
+import { revokeApiKey } from "../services/revokeApiKey.js";
 
 const ROLES = z.enum(["VIEWER", "COMPLIANCE_AUDITOR", "EDITOR", "ADMIN"]);
 
@@ -80,11 +81,6 @@ export const apiKeysRouter = router({
     .mutation(async ({ ctx, input }) => {
       const apiKey = await ctx.prisma.apiKey.findUniqueOrThrow({ where: { id: input.id } });
       requireOrgRole(ctx, apiKey.organizationId, "ADMIN");
-      await ctx.prisma.$transaction(async (tx) => {
-        assertActiveOrganization(await lockOrganization(tx, apiKey.organizationId));
-        await requireAdmin(tx, apiKey.organizationId, ctx.user.id);
-        await tx.apiKey.update({ where: { id: input.id }, data: { revokedAt: new Date() } });
-        await tx.membership.deleteMany({ where: { organizationId: apiKey.organizationId, userId: apiKey.serviceUserId } });
-      });
+      await revokeApiKey(ctx.prisma, input.id, ctx.user.id);
     }),
 });

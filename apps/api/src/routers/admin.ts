@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { lockOrganization, assertActiveOrganization } from "../services/organizationLock.js";
-import { usage } from "../services/seatManagement.js";
+import { requireAnotherOwner, requireHumanOwner, usage } from "../services/seatManagement.js";
 import { TRPCError } from "@trpc/server";
 import { canAddSeat, type SeatType as CoreSeatType } from "@vaettir/core";
 import { router, staffProcedure } from "../trpc.js";
@@ -208,37 +208,26 @@ export const adminRouter = router({
   deactivateMember: staffProcedure
     .input(z.object({ membershipId: z.string(), reason: z.string().min(1) }))
     .mutation(async ({ ctx, input }) => {
-      const membership = await ctx.prisma.membership.findUniqueOrThrow({
-        where: { id: input.membershipId },
-        include: { user: true },
-      });
-
-      if (membership.role === "OWNER") {
-        const otherOwners = await ctx.prisma.membership.count({
-          where: { organizationId: membership.organizationId, role: "OWNER", id: { not: membership.id } },
+      const target = await ctx.prisma.membership.findUniqueOrThrow({ where: { id: input.membershipId } });
+      return ctx.prisma.$transaction(async (tx) => {
+        await lockOrganization(tx, target.organizationId);
+        const membership = await tx.membership.findUniqueOrThrow({ where: { id: target.id }, include: { user: true } });
+        await requireAnotherOwner(tx, membership);
+        await tx.membership.delete({ where: { id: membership.id } });
+        await recordStaffAction(tx, {
+          organizationId: membership.organizationId,
+          actorId: ctx.user.id,
+          entityType: "Membership",
+          entityId: membership.id,
+          summary: `Staff removed member ${membership.user.email}`,
+          reason: input.reason,
         });
-        if (otherOwners === 0) {
-          throw new TRPCError({ code: "BAD_REQUEST", message: "An organization must have at least one Owner" });
-        }
-      }
-
-      await ctx.prisma.membership.delete({ where: { id: input.membershipId } });
-      await recordStaffAction(ctx.prisma, {
-        organizationId: membership.organizationId,
-        actorId: ctx.user.id,
-        entityType: "Membership",
-        entityId: membership.id,
-        summary: `Staff removed member ${membership.user.email}`,
-        reason: input.reason,
+        return { removed: true };
       });
-      return { removed: true };
     }),
 
-  // P13-03 (seat-limit adjacent): a support-only escape hatch for the seat
-  // check every other invite path enforces - useful for e.g. temporarily
-  // letting an over-cap org (like Skald & Stone's own Free-tier overage)
-  // finish an in-progress invite while a real plan-tier fix is pending.
-  // Deliberately still records who/why via the same staff audit trail.
+  // Support diagnostics only: the legacy route name does not authorize an
+  // override. Pending invitations reserve capacity exactly as in write paths.
   overrideSeatCheck: staffProcedure
     .input(z.object({ organizationId: z.string(), seatType: z.enum(["FULL", "READ_ONLY"]), reason: z.string().min(1) }))
     .output(z.object({ allowed: z.boolean(), reason: z.string().nullable() }))
@@ -247,9 +236,7 @@ export const adminRouter = router({
         where: { id: input.organizationId },
         include: { planTier: true, memberships: { select: { seatType: true } } },
       });
-      const fullSeats = org.memberships.filter((m) => m.seatType === "FULL").length;
-      const readOnlySeats = org.memberships.filter((m) => m.seatType === "READ_ONLY").length;
-      const check = canAddSeat(org.planTier, { fullSeats, readOnlySeats }, input.seatType as CoreSeatType);
+      const check = canAddSeat(org.planTier, await usage(ctx.prisma, input.organizationId), input.seatType as CoreSeatType);
       await recordStaffAction(ctx.prisma, {
         organizationId: input.organizationId,
         actorId: ctx.user.id,
@@ -319,33 +306,44 @@ export const adminRouter = router({
   transferOwnership: staffProcedure
     .input(z.object({ organizationId: z.string(), newOwnerMembershipId: z.string(), previousOwnerMembershipId: z.string(), reason: z.string().min(1) }))
     .mutation(async ({ ctx, input }) => {
-      const [newOwner, previousOwner] = await Promise.all([
-        ctx.prisma.membership.findUniqueOrThrow({ where: { id: input.newOwnerMembershipId }, include: { user: true } }),
-        ctx.prisma.membership.findUniqueOrThrow({ where: { id: input.previousOwnerMembershipId }, include: { user: true } }),
-      ]);
-      if (newOwner.organizationId !== input.organizationId || previousOwner.organizationId !== input.organizationId) {
-        throw new TRPCError({ code: "BAD_REQUEST", message: "Both members must belong to the target organization" });
-      }
-      if (previousOwner.role !== "OWNER") {
-        throw new TRPCError({ code: "BAD_REQUEST", message: "The specified previous owner does not currently hold the Owner role" });
-      }
-      if (newOwner.id === previousOwner.id) {
-        throw new TRPCError({ code: "BAD_REQUEST", message: "Cannot transfer ownership to the same member" });
-      }
+      return ctx.prisma.$transaction(async (tx) => {
+        await lockOrganization(tx, input.organizationId);
+        const [newOwner, previousOwner] = await Promise.all([
+          tx.membership.findUniqueOrThrow({ where: { id: input.newOwnerMembershipId }, include: { user: true } }),
+          tx.membership.findUniqueOrThrow({ where: { id: input.previousOwnerMembershipId }, include: { user: true } }),
+        ]);
+        if (newOwner.organizationId !== input.organizationId || previousOwner.organizationId !== input.organizationId) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "Both members must belong to the target organization" });
+        }
+        if (previousOwner.role !== "OWNER") {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "The specified previous owner does not currently hold the Owner role" });
+        }
+        if (newOwner.id === previousOwner.id) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "Cannot transfer ownership to the same member" });
+        }
 
-      await ctx.prisma.$transaction([
-        ctx.prisma.membership.update({ where: { id: newOwner.id }, data: { role: "OWNER", seatType: "FULL" } }),
-        ctx.prisma.membership.update({ where: { id: previousOwner.id }, data: { role: "ADMIN" } }),
-      ]);
-      await recordStaffAction(ctx.prisma, {
-        organizationId: input.organizationId,
-        actorId: ctx.user.id,
-        entityType: "Membership",
-        entityId: newOwner.id,
-        summary: `Staff transferred ownership from ${previousOwner.user.email} to ${newOwner.user.email}`,
-        reason: input.reason,
+        await requireHumanOwner(tx, newOwner.userId);
+        const org = await tx.organization.findUniqueOrThrow({ where: { id: input.organizationId }, include: { planTier: true } });
+        const counts = await usage(tx, org.id);
+        for (const member of [newOwner, previousOwner]) {
+          if (member.seatType === "FULL") continue;
+          const check = canAddSeat(org.planTier, counts, "FULL");
+          if (!check.allowed) throw new TRPCError({ code: "BAD_REQUEST", message: check.reason });
+          counts.fullSeats++;
+          counts.readOnlySeats--;
+        }
+        await tx.membership.update({ where: { id: newOwner.id }, data: { role: "OWNER", seatType: "FULL" } });
+        await tx.membership.update({ where: { id: previousOwner.id }, data: { role: "ADMIN", seatType: "FULL" } });
+        await recordStaffAction(tx, {
+          organizationId: input.organizationId,
+          actorId: ctx.user.id,
+          entityType: "Membership",
+          entityId: newOwner.id,
+          summary: `Staff transferred ownership from ${previousOwner.user.email} to ${newOwner.user.email}`,
+          reason: input.reason,
+        });
+        return { newOwnerEmail: newOwner.user.email };
       });
-      return { newOwnerEmail: newOwner.user.email };
     }),
 
   // P13-05: hard-delete, the genuinely irreversible half. Read-only -
