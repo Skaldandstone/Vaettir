@@ -46,14 +46,18 @@ CI runs deterministic operations/health contract tests plus consumer regressions
 Detailed-health verification, for a locally running candidate or an approved read-only HTTPS target:
 
 ```powershell
-node scripts/check-health.mjs --url http://127.0.0.1:4000/health/detailed --commit <FULL_GIT_SHA>
+node scripts/check-health.mjs --url http://127.0.0.1:4000/health/detailed --commit <FULL_GIT_SHA> --record
 ```
 
 The checker rejects credential/query-bearing URLs and remote plaintext HTTP. It requires healthy=true, db.ok=true, exactly one status for each expected worker, non-stale valid heartbeats and the matching full SHA. Its output contains only status codes, known worker names and release identity, never the arbitrary response payload. This proves one observation; it does not configure or prove alert delivery.
 
+The optional --record flag writes a timestamped local health manifest. API request logging is reduced to method and finite route categories so tRPC query inputs, cookies, authorization, host/IP and bodies are not copied into the request logs. Error logs use a generic message and error type; Sentry retains the separately scrubbed stack. This does not establish that every existing application/job log call is safe, so production log sampling and all alert delivery still require live verification.
+
 ## Health and alert acceptance
 
 Use /api/health/detailed and assert healthy === true, db.ok === true and no stale worker heartbeat. HTTP 200 alone is insufficient. Current health response does not prove deployment identity; verify ECS image digest separately.
+
+Worker heartbeat timestamps denote loop liveness/attempt, not successful business work or webhook delivery. The digest scheduler performs an actual initial check on startup, catches startup/interval failures and prevents overlapping checks in the same process. Its lastDigestSentAt read/send/write sequence is not an atomic distributed delivery claim. Multiple replicas, a crash after send but before recording delivery, or a concurrent manual send can still duplicate digests. Verify deployment topology before enabling digests for beta; reliable multi-process delivery requires a separately reviewed claim/outbox design. Do not treat green heartbeats as proof of successful Slack delivery.
 
 Use existing approved monitoring where possible. Suggested beta alert conditions, to configure only with approved access:
 

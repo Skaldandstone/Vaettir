@@ -12,6 +12,7 @@ import { recordHeartbeat } from "../services/heartbeat.js";
 // late is a non-event.
 export const CHECK_INTERVAL_MS = 15 * 60 * 1000;
 let checkHandle: NodeJS.Timeout | undefined;
+let checkInFlight = false;
 
 function isSameUtcDay(a: Date, b: Date): boolean {
   return a.getUTCFullYear() === b.getUTCFullYear() && a.getUTCMonth() === b.getUTCMonth() && a.getUTCDate() === b.getUTCDate();
@@ -28,6 +29,7 @@ export async function sendReadinessDigestForOrg(organizationId: string): Promise
 }
 
 async function checkOnce(): Promise<void> {
+  // Loop-attempt liveness only, not successful DB access or webhook delivery.
   recordHeartbeat("readinessDigestScheduler");
   const now = new Date();
   const candidates = await prisma.organization.findMany({
@@ -48,8 +50,23 @@ async function checkOnce(): Promise<void> {
   }
 }
 
+async function runCheck(): Promise<void> {
+  if (checkInFlight) return;
+  checkInFlight = true;
+  try {
+    await checkOnce();
+  } catch (error) {
+    Sentry.captureException(error);
+  } finally {
+    checkInFlight = false;
+  }
+}
+
 export function startReadinessDigestScheduler(): void {
   if (checkHandle) return;
-  checkHandle = setInterval(() => void checkOnce(), CHECK_INTERVAL_MS);
+  checkHandle = setInterval(() => void runCheck(), CHECK_INTERVAL_MS);
   checkHandle.unref();
+  // Perform a real first check instead of appearing stale for 15 minutes.
+  // The guard is process-local; lastDigestSentAt is not a distributed claim.
+  void runCheck();
 }
