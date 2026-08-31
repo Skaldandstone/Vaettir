@@ -23,12 +23,14 @@ Pending, unexpired invitations reserve seats. Existing service accounts use full
 
 Shared framework/control/plan-type catalogs are global in the current schema. Staff manage their definitions during beta. Team-specific data must not be placed in those catalogs; existing definitions need review before external admission. Tenant mapping, evidence and sign-off remain project-scoped.
 
-Android is the primary companion. iOS compilation and physical-device acceptance are separate gates. Checkout, paid pricing, push, full mobile parity, enterprise SSO, vendor migrations and UI-framework refactors remain deferred.
+Android is the primary companion. iOS compilation and physical-device acceptance are separate gates. Live checkout, paid pricing, push, full mobile parity, enterprise SSO, vendor migrations and UI-framework refactors remain deferred. James separately authorized a disabled-by-default Stripe software slice on August 31. Its [isolated test-only scope](billing-integration.md) does not alter beta allowances or authorize paid rollout.
 
 ## Gates
 
 | Gate | Owner | Status | Evidence | Candidate/release | Blocker or next evidence |
 |---|---|---|---|---|---|
+| Product-isolated Stripe software slice | Engineering / James | Development tests passed; combined candidate pending | 51 focused config/PostgreSQL/signature tests; [billing contract](billing-integration.md) | Uncommitted integration, not e9607e3 | Connector reauthentication, owner catalog/policy/secret decisions, real sandbox and browser acceptance; live/production billing rejected in code |
+| Ownership and rights notices | Engineering / James | Adapted source, not visual/device/legal acceptance | Exact web footer and native About/signed-out notices adopted from notice-only older-checkout hunks; older checkout untouched | Uncommitted integration | Combined build, actual navigation, screenshots, device and owner review |
 | Dependency install, generated client, migrations, seed | Engineering | Passed locally | Frozen install, generated client, 40 fresh migrations, reference seed and status; [combined evidence](integration-evidence.md) | e9607e3 | Never run test migrations against production |
 | Typecheck, unit/integration tests, lint, production web/API build | Engineering | Passed locally | 216 tests across seven groups; seven typecheck tasks; lint with 34 warnings; five production-server build tasks | e9607e3 | Windows local-server compilation only; GitHub execution remains account-blocked |
 | Deterministic PR CI | Engineering / James | Configured, not remotely verified | .github/workflows/ci.yml | Manifest SHA / deployed N/A | James resolves billing restriction, no automatic spending increase |

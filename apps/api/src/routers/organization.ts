@@ -13,6 +13,7 @@ import { computeRetentionDryRun } from "../services/retentionAudit.js";
 import { bootstrapBetaOrganization } from "../services/privateBeta.js";
 
 import * as seats from "../services/seatManagement.js";
+import { effectiveSeatLimits } from "../services/billingSeats.js";
 
 async function getSeatCounts(prisma: PrismaClient, organizationId: string) {
   const [fullSeats, readOnlySeats] = await Promise.all([
@@ -403,6 +404,7 @@ export const organizationRouter = router({
         readOnlySeatsMax: z.number().nullable(),
         nextTierNameForOneMoreFullSeat: z.string().nullable(),
         privateBeta: z.boolean(),
+        billingManaged: z.boolean(),
         fullSeatsReserved: z.number(),
         readOnlySeatsReserved: z.number(),
       }),
@@ -418,7 +420,8 @@ export const organizationRouter = router({
       ]);
 
       let nextTierNameForOneMoreFullSeat: string | null = null;
-      if (org.planTier.isPublic && org.planTier.maxFullSeats !== null && counts.fullSeats >= org.planTier.maxFullSeats) {
+      const billingManaged = !!await ctx.prisma.stripeBillingAccount.findUnique({ where: { organizationId: org.id }, select: { id: true } });
+      if (!billingManaged && org.planTier.isPublic && org.planTier.maxFullSeats !== null && counts.fullSeats >= org.planTier.maxFullSeats) {
         const next = minimumTierForSeatCount(allTiers, counts.fullSeats + 1);
         if (next.key !== org.planTier.key) nextTierNameForOneMoreFullSeat = allTiers.find((t) => t.key === next.key)!.name;
       }
@@ -427,12 +430,13 @@ export const organizationRouter = router({
         planTierId: org.planTier.id,
         planTierName: org.planTier.name,
         fullSeatsUsed: counts.fullSeats,
-        fullSeatsIncluded: org.planTier.maxFullSeats,
+        fullSeatsIncluded: effectiveSeatLimits(org).maxFullSeats,
         readOnlySeatsUsed: counts.readOnlySeats,
         readOnlySeatsIncluded: org.planTier.includedReadOnlySeats,
         readOnlySeatsMax: org.planTier.maxReadOnlySeats,
         nextTierNameForOneMoreFullSeat,
         privateBeta: org.planTier.key === "private-beta",
+        billingManaged,
         fullSeatsReserved: pending.filter((i) => i.seatType === "FULL").length,
         readOnlySeatsReserved: pending.filter((i) => i.seatType === "READ_ONLY").length,
       };

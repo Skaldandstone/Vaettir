@@ -15,6 +15,7 @@ test('isolated children do not inherit production, paid AI, remote cache or tele
   const source = { PATH: 'bin', AWS_PROFILE: 'production', AWS_ACCESS_KEY_ID: 'secret', ANTHROPIC_API_KEY: 'secret',
     CLERK_SECRET_KEY: 'secret', SENTRY_DSN: 'secret', GITHUB_TOKEN: 'secret', TURBO_TOKEN: 'secret', NODE_OPTIONS: '--require malicious.js',
     VAETTIR_LIVE_AI_TESTS: '1', NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: 'pk_live_secret',
+    STRIPE_SECRET_KEY: 'secret', VAETTIR_STRIPE_KEY_FILE: 'protected-file', VAETTIR_BILLING_MODE: 'test',
     EXPO_TOKEN: 'secret', EXPO_PROJECT_ID: 'production', EAS_BUILD: 'true', EXPO_PUBLIC_RELEASE_COMMIT: 'stale' };
   const env = localValidationEnvironment(source, databaseUrl, revision, 'standalone', '/evidence');
   assert.equal(env.VAETTIR_LOCAL_BUILD, '0');
@@ -26,6 +27,9 @@ test('isolated children do not inherit production, paid AI, remote cache or tele
   assert.equal(env.PATH, 'bin');
   for (const key of ['AWS_PROFILE','AWS_ACCESS_KEY_ID','ANTHROPIC_API_KEY','CLERK_SECRET_KEY','SENTRY_DSN','GITHUB_TOKEN','TURBO_TOKEN','NODE_OPTIONS','EXPO_TOKEN','EXPO_PROJECT_ID','EAS_BUILD']) assert.equal(env[key], undefined);
   assert.equal(source.AWS_PROFILE, 'production');
+  assert.equal(env.STRIPE_SECRET_KEY, undefined);
+  assert.equal(env.VAETTIR_STRIPE_KEY_FILE, undefined);
+  assert.equal(env.VAETTIR_BILLING_MODE, undefined);
 });
 test('tracked and untracked source changes fail, preserved attention note is permitted', () => {
   assert.doesNotThrow(() => assertCleanStatus('?? NEEDS_ATTENTION.md\n'));
@@ -42,5 +46,5 @@ test('checks apply migrations before tests and force fresh compilation without r
   assert.deepEqual(releaseChecks.at(-1)[1].slice(-2), ['test', '--list']);
 });
 test('database credentials are excluded from output logs', () => {
-  assert.doesNotMatch(redactOutput(`failed: ${databaseUrl} sk_test_secret`, databaseUrl), /secret|postgresql/);
+  assert.doesNotMatch(redactOutput(`failed: ${databaseUrl} sk_test_secret rk_test_secret rk_live_secret whsec_secret`, databaseUrl), /secret|postgresql/);
 });

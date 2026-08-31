@@ -27,6 +27,10 @@ model Organization {
 
   planTierId String
   planTier   PlanTier @relation(fields: [planTierId], references: [id])
+  // Null preserves existing/internal and free private-beta seat behavior.
+  // Only verified Vaettir billing reconciliation sets a purchased seat cap.
+  billingFullSeats Int?
+  billingAccount StripeBillingAccount?
 
   // How long evidence/audit-log/test-result data is retained before it's
   // eligible for deletion. Defaults to the 5-year baseline; orgs on
@@ -78,6 +82,46 @@ model Organization {
   auditLogs            AuditLog[]
   webhookEndpoints     WebhookEndpoint[]
   betaEnrollment       BetaEnrollment?
+}
+
+// Product-owned customers are never shared with another Skald & Stone app.
+// Restrict deletion until billing has been reconciled; never silently orphan a subscription.
+model StripeBillingAccount {
+  id String @id @default(cuid())
+  organizationId String @unique
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  environment String
+  customerId String? @unique
+  customerStartedAt DateTime?
+  subscriptionId String? @unique
+  status String @default("none")
+  checkoutKey String? @unique
+  checkoutSessionId String? @unique
+  checkoutPriceId String?
+  checkoutSeats Int?
+  checkoutStartedAt DateTime?
+  entitledPlanKey String?
+  entitledFullSeats Int @default(0)
+  syncToken String?
+  syncUntil DateTime?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  createdBy String
+  reason String
+  events StripeBillingEvent[]
+}
+
+// Minimal duplicate receipt, not a copy of a financial/customer webhook payload.
+model StripeBillingEvent {
+  id String @id @default(cuid())
+  environment String
+  eventId String
+  eventType String
+  accountId String
+  account StripeBillingAccount @relation(fields: [accountId], references: [id], onDelete: Restrict)
+  outcome String
+  processedAt DateTime @default(now())
+  @@unique([environment, eventId])
 }
 
 // Enrollment reserves a cohort slot before an owner creates an organization.

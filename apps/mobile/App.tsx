@@ -12,6 +12,9 @@ import { readableError, canRevealWorkspace } from "./lib/recovery";
 function Text(props: TextProps) { return <NativeText {...props} style={[{ color: "#eee7dc" }, props.style]} />; }
 const WEB_URL = "https://vaettir.skaldandstone.com";
 const CLERK_PUBLISHABLE_KEY = process.env.EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY;
+function showLegalNotice() {
+  Alert.alert("About Vaettir", "© 2026 Skald and Stone LLC\n\nOriginal studio work only. Customer content, third-party materials, and existing software licenses retain their own rights.");
+}
 function openWeb(path = "") {
   void Linking.openURL(`${WEB_URL}${path}`).catch(() => Alert.alert("Could not open browser", `Open ${WEB_URL}${path} in your browser to continue.`));
 }
@@ -128,6 +131,7 @@ function Companion({ onSignOut }: { onSignOut: () => void }) {
       {view === "compliance" && <ComplianceSignOffList projectId={projectId} canSignOff={permissions.canSignOff} />}
     </View>}
     <Button title="Refresh workspace" disabled={loading} onPress={() => setRetry((n) => n + 1)} />
+    <Button title="About Vaettir and legal" onPress={showLegalNotice} />
     <Pressable accessibilityRole="link" style={{ paddingVertical: 12 }} onPress={() => openWeb("/beta-guide")}><Text style={styles.rowMeta}>Beta guide, data policy, and support</Text></Pressable>
   </SafeAreaView>;
 }
@@ -549,6 +553,8 @@ function SignInScreen() {
     {mfa && <Button title="Use a different account" disabled={busy} onPress={() => { setMfa(false); setCode(""); setPassword(""); setError(null); }} />}
     <Button title="Accept invitation or recover account on web" onPress={() => openWeb()} />
     <Text style={styles.rowMeta}>Private beta. No offline project storage. Use non-regulated data only.</Text>
+    <Text style={styles.rowMeta}>© 2026 Skald and Stone LLC</Text>
+    <Button title="About Vaettir and legal" onPress={showLegalNotice} />
   </ScrollView></KeyboardAvoidingView></SafeAreaView>;
 }
 

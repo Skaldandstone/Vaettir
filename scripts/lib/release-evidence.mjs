@@ -20,7 +20,7 @@ export function localValidationEnvironment(source, databaseUrl, revision, varian
   if (!['standalone', 'local-server'].includes(variant)) throw new Error('Unknown web build variant.');
   const env = { ...source };
   for (const key of Object.keys(env)) {
-    if (/^(AWS_|ANTHROPIC_|CLERK_|NEXT_PUBLIC_CLERK_|EXPO_|EAS_|SENTRY_|NEXT_PUBLIC_SENTRY_|GITHUB_|GH_|TURBO_|VAETTIR_|NEXT_PUBLIC_API_URL$|DATABASE_URL$|NODE_OPTIONS$)/i.test(key)) delete env[key];
+    if (/^(AWS_|ANTHROPIC_|STRIPE_|CLERK_|NEXT_PUBLIC_CLERK_|EXPO_|EAS_|SENTRY_|NEXT_PUBLIC_SENTRY_|GITHUB_|GH_|TURBO_|VAETTIR_|NEXT_PUBLIC_API_URL$|DATABASE_URL$|NODE_OPTIONS$)/i.test(key)) delete env[key];
   }
   return Object.assign(env, {
     DATABASE_URL: databaseUrl, NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: COMPILE_KEY, EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY: COMPILE_KEY,
@@ -74,5 +74,5 @@ export const releaseChecks = [
 export function redactOutput(text, databaseUrl) {
   return text.replaceAll(databaseUrl, '[isolated test database]')
     .replace(/postgres(?:ql)?:\/\/[^\s"']+/gi, '[database URL redacted]')
-    .replace(/(?:sk_(?:live|test)_|sk-ant-)[A-Za-z0-9_-]+/g, '[credential redacted]');
+    .replace(/(?:(?:sk|rk)_(?:live|test)_|whsec_|sk-ant-)[A-Za-z0-9_-]+/g, '[credential redacted]');
 }

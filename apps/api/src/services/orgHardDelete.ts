@@ -1,4 +1,6 @@
 import type { PrismaClient } from "@vaettir/db";
+import { lockOrganization } from "./organizationLock.js";
+import { requireUnmanagedBilling } from "./seatManagement.js";
 
 // P13-05: the genuinely destructive half of "ownership actions" -
 // deliberately built separately from suspend/reactivate/transfer (all
@@ -215,6 +217,8 @@ export async function hardDeleteOrganization(
   const scope = await scopeIds(prisma, organizationId);
 
   const rowCounts = await prisma.$transaction(async (tx) => {
+    await lockOrganization(tx, organizationId);
+    await requireUnmanagedBilling(tx, organizationId);
     const counts: Record<string, number> = {};
     const del = async (name: string, fn: () => Promise<{ count: number }>) => {
       counts[name] = (await fn()).count;

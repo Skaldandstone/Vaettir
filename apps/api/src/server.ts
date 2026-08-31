@@ -14,6 +14,7 @@ import { verifyWebhookSignature } from "./services/githubApp.js";
 import { handlePullRequestWebhook, type GithubPullRequestPayload } from "./services/githubWebhook.js";
 import { getHeartbeatStatuses } from "./services/heartbeat.js";
 import { safeErrorLog, safeRequestLog } from "./services/logPrivacy.js";
+import { stripeWebhookPlugin } from "./routes/stripeWebhook.js";
 
 // P10-07: expected poller intervals, keyed by the same names each poller
 // calls recordHeartbeat with - the one place server.ts needs to know
@@ -131,6 +132,7 @@ await server.register(fastifyTRPCPlugin, {
 server.get("/health", { config: { rateLimit: false } }, async () => ({ ok: true }));
 server.get("/health/detailed", { config: { rateLimit: false } }, async () => detailedHealthHandler());
 await server.register(registerGithubWebhookRoute);
+await server.register(stripeWebhookPlugin(prisma));
 
 // Mirrored under /api: the ALB/CloudFront path in front of this service
 // routes only /api/* here (the same domain also serves apps/web), so
@@ -149,6 +151,7 @@ await server.register(
     instance.get("/health", { config: { rateLimit: false } }, async () => ({ ok: true }));
     instance.get("/health/detailed", { config: { rateLimit: false } }, async () => detailedHealthHandler());
     await instance.register(registerGithubWebhookRoute);
+    await instance.register(stripeWebhookPlugin(prisma));
   },
   { prefix: "/api" },
 );

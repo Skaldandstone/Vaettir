@@ -24,9 +24,11 @@ import { testCaseDatasetsRouter } from "./routers/testCaseDatasets.js";
 import { importJobsRouter } from "./routers/importJobs.js";
 import { staffRouter } from "./routers/staff.js";
 import { betaRouter } from "./routers/beta.js";
+import { billingRouter } from "./routers/billing.js";
 
 export const appRouter = router({
   beta: betaRouter,
+  billing: billingRouter,
   testCases: testCasesRouter,
   testPlans: testPlansRouter,
   agent: agentRouter,

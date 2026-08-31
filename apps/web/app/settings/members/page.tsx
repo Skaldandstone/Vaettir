@@ -165,7 +165,8 @@ export default function MembersPage() {
           )}
           <p className="text-muted">Pending invitations reserve {seatUsage.fullSeatsReserved} full and {seatUsage.readOnlySeatsReserved} read-only seats.</p>
           {seatUsage.privateBeta && <p>Private beta: 500 AI credits per month, no rollover or automatic overage charges. No self-service upgrades. Contact your beta support contact for allowance questions.</p>}
-          {canManage && !seatUsage.privateBeta && planTiers.length > 0 && (
+          {seatUsage.billingManaged && <p>Seats and plan access are billing-managed. Contact billing support for changes.</p>}
+          {canManage && !seatUsage.privateBeta && !seatUsage.billingManaged && planTiers.length > 0 && (
             <div style={{ marginTop: 12, display: "flex", gap: 8, alignItems: "center" }}>
               <label style={{ fontSize: 13 }}>
                 Plan:{" "}

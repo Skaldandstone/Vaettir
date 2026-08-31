@@ -6,6 +6,7 @@ import { canAddSeat } from "@vaettir/core";
 import { assertActiveOrganization, lockOrganization } from "../services/organizationLock.js";
 import { requireAdmin, usage } from "../services/seatManagement.js";
 import { revokeApiKey } from "../services/revokeApiKey.js";
+import { effectiveSeatLimits } from "../services/billingSeats.js";
 
 const ROLES = z.enum(["VIEWER", "COMPLIANCE_AUDITOR", "EDITOR", "ADMIN"]);
 
@@ -47,7 +48,7 @@ export const apiKeysRouter = router({
         assertActiveOrganization(await lockOrganization(tx, input.organizationId));
         await requireAdmin(tx, input.organizationId, ctx.user.id);
         const org = await tx.organization.findUniqueOrThrow({ where: { id: input.organizationId }, include: { planTier: true } });
-        const seats = canAddSeat(org.planTier, await usage(tx, input.organizationId), "FULL");
+        const seats = canAddSeat(effectiveSeatLimits(org), await usage(tx, input.organizationId), "FULL");
         if (!seats.allowed) throw new TRPCError({ code: "BAD_REQUEST", message: "Service accounts use a full seat. " + seats.reason });
         const serviceUser = await tx.user.create({
           data: {

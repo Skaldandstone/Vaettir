@@ -3,7 +3,7 @@ import { z } from "zod";
 import { router, staffTokenProcedure } from "../trpc.js";
 import { adjustAiCredits } from "../services/aiCredits.js";
 import { lockOrganization } from "../services/organizationLock.js";
-import { usage } from "../services/seatManagement.js";
+import { requireUnmanagedBilling, usage } from "../services/seatManagement.js";
 import { revokeApiKey } from "../services/revokeApiKey.js";
 
 /**
@@ -174,6 +174,7 @@ export const staffRouter = router({
     .mutation(({ ctx, input }) => ctx.prisma.$transaction(async (tx) => {
       await lockOrganization(tx, input.organizationId);
       const tier = await tx.planTier.findUnique({ where: { key: input.planTierKey } });
+      await requireUnmanagedBilling(tx, input.organizationId);
       if (!tier) throw new TRPCError({ code: "BAD_REQUEST", message: "Unknown plan tier" });
       if (!tier.isPublic) throw new TRPCError({ code: "BAD_REQUEST", message: "Use staff beta enrollment to reserve a cohort slot." });
       const counts = await usage(tx, input.organizationId);

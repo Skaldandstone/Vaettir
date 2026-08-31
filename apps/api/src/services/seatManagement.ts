@@ -3,6 +3,14 @@ import type { Prisma, PrismaClient, OrgRole, SeatType } from "@vaettir/db";
 import { canAddSeat } from "@vaettir/core";
 import { assertActiveOrganization, lockOrganization } from "./organizationLock.js";
 import { PRIVATE_BETA_TIER } from "./privateBeta.js";
+import { effectiveSeatLimits } from "./billingSeats.js";
+
+// Caller holds the organization lock, including while checkout is pending.
+export async function requireUnmanagedBilling(tx: Prisma.TransactionClient, organizationId: string) {
+  if (await tx.stripeBillingAccount.findUnique({ where: { organizationId }, select: { id: true } })) {
+    throw new TRPCError({ code: "FORBIDDEN", message: "This organization's plan is billing-managed. Contact billing support to reconcile it." });
+  }
+}
 
 export async function requireAdmin(tx: Prisma.TransactionClient, organizationId: string, userId: string) {
   const member = await tx.membership.findUnique({ where: { organizationId_userId: { organizationId, userId } } });
@@ -58,7 +66,7 @@ export async function inviteMember(db: PrismaClient, actorId: string, input: {
       throw new TRPCError({ code: "BAD_REQUEST", message: "This person already has a pending invitation" });
     }
     const org = await tx.organization.findUniqueOrThrow({ where: { id: input.organizationId }, include: { planTier: true } });
-    const check = canAddSeat(org.planTier, await usage(tx, org.id), input.seatType);
+    const check = canAddSeat(effectiveSeatLimits(org), await usage(tx, org.id), input.seatType);
     if (!check.allowed) throw new TRPCError({ code: "BAD_REQUEST", message: `${check.reason}. Pending invitations reserve seats; revoke an unused invitation to free one.` });
     return tx.invitation.create({ data: {
       ...input, email, invitedById: actorId, expiresAt: new Date(Date.now() + 7 * 86400000),
@@ -76,7 +84,7 @@ export async function updateMember(db: PrismaClient, actorId: string, input: { m
     if (input.role === "OWNER") await requireHumanOwner(tx, member.userId);
     if (input.role !== "OWNER") await requireAnotherOwner(tx, member);
     if (input.seatType !== member.seatType) {
-      const check = canAddSeat(member.organization.planTier, await usage(tx, target.organizationId), input.seatType);
+      const check = canAddSeat(effectiveSeatLimits(member.organization), await usage(tx, target.organizationId), input.seatType);
       if (!check.allowed) throw new TRPCError({ code: "BAD_REQUEST", message: check.reason });
     }
     return tx.membership.update({ where: { id: input.membershipId }, data: { role: input.role, seatType: input.seatType } });
@@ -122,7 +130,7 @@ export async function acceptInvitation(db: PrismaClient, user: { id: string; ema
     }
     validateRole(invite.role, invite.seatType);
     if (invite.role === "OWNER") await requireHumanOwner(tx, user.id);
-    const check = canAddSeat(invite.organization.planTier, await usage(tx, invite.organizationId, invite.id), invite.seatType);
+    const check = canAddSeat(effectiveSeatLimits(invite.organization), await usage(tx, invite.organizationId, invite.id), invite.seatType);
     if (!check.allowed) throw new TRPCError({ code: "BAD_REQUEST", message: check.reason });
     const membership = await tx.membership.create({ data: {
       organizationId: invite.organizationId, userId: user.id, role: invite.role, seatType: invite.seatType,
@@ -136,6 +144,7 @@ export async function changePlanTier(db: PrismaClient, actorId: string, organiza
   return db.$transaction(async (tx) => {
     assertActiveOrganization(await lockOrganization(tx, organizationId));
     await requireAdmin(tx, organizationId, actorId);
+    await requireUnmanagedBilling(tx, organizationId);
     const org = await tx.organization.findUniqueOrThrow({ where: { id: organizationId }, include: { planTier: true } });
     const tier = await tx.planTier.findUniqueOrThrow({ where: { id: planTierId } });
     if (org.planTier.key === PRIVATE_BETA_TIER || !tier.isPublic) {

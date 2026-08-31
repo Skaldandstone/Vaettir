@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { lockOrganization, assertActiveOrganization } from "../services/organizationLock.js";
-import { requireAnotherOwner, requireHumanOwner, usage } from "../services/seatManagement.js";
+import { requireAnotherOwner, requireHumanOwner, requireUnmanagedBilling, usage } from "../services/seatManagement.js";
+import { effectiveSeatLimits } from "../services/billingSeats.js";
 import { TRPCError } from "@trpc/server";
 import { canAddSeat, type SeatType as CoreSeatType } from "@vaettir/core";
 import { router, staffProcedure } from "../trpc.js";
@@ -172,6 +173,7 @@ export const adminRouter = router({
       const result = await ctx.prisma.$transaction(async (tx) => {
         await lockOrganization(tx, input.organizationId);
         const tier = await tx.planTier.findUniqueOrThrow({ where: { id: input.planTierId } });
+        await requireUnmanagedBilling(tx, input.organizationId);
         if (!tier.isPublic) throw new TRPCError({ code: "BAD_REQUEST", message: "Use beta enrollment to reserve a cohort slot before creating a beta organization." });
         const counts = await usage(tx, input.organizationId);
         if ((tier.maxFullSeats !== null && counts.fullSeats > tier.maxFullSeats) || (tier.maxReadOnlySeats !== null && counts.readOnlySeats > tier.maxReadOnlySeats)) {
@@ -194,7 +196,7 @@ export const adminRouter = router({
         assertActiveOrganization(await lockOrganization(tx, target.organizationId));
         const invitation = await tx.invitation.findUniqueOrThrow({ where: { id: target.id }, include: { organization: { include: { planTier: true } } } });
         if (invitation.status !== "PENDING") throw new TRPCError({ code: "BAD_REQUEST", message: "Accepted or revoked invitations cannot be reused." });
-        const check = canAddSeat(invitation.organization.planTier, await usage(tx, target.organizationId, target.id), invitation.seatType);
+        const check = canAddSeat(effectiveSeatLimits(invitation.organization), await usage(tx, target.organizationId, target.id), invitation.seatType);
         if (!check.allowed) throw new TRPCError({ code: "BAD_REQUEST", message: check.reason });
         return tx.invitation.update({ where: { id: target.id }, data: { expiresAt: new Date(Date.now() + 7 * 86400000) } });
       });
@@ -236,7 +238,7 @@ export const adminRouter = router({
         where: { id: input.organizationId },
         include: { planTier: true, memberships: { select: { seatType: true } } },
       });
-      const check = canAddSeat(org.planTier, await usage(ctx.prisma, input.organizationId), input.seatType as CoreSeatType);
+      const check = canAddSeat(effectiveSeatLimits(org), await usage(ctx.prisma, input.organizationId), input.seatType as CoreSeatType);
       await recordStaffAction(ctx.prisma, {
         organizationId: input.organizationId,
         actorId: ctx.user.id,
@@ -327,7 +329,7 @@ export const adminRouter = router({
         const counts = await usage(tx, org.id);
         for (const member of [newOwner, previousOwner]) {
           if (member.seatType === "FULL") continue;
-          const check = canAddSeat(org.planTier, counts, "FULL");
+          const check = canAddSeat(effectiveSeatLimits(org), counts, "FULL");
           if (!check.allowed) throw new TRPCError({ code: "BAD_REQUEST", message: check.reason });
           counts.fullSeats++;
           counts.readOnlySeats--;
