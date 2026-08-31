@@ -45,6 +45,20 @@ Browser discovery lists 71 scenarios excluding paid @ai checks. Authenticated ex
 
 Operations additionally owns server.ts changes limited to sanitized logging and release identity in health responses, web instrumentation, Dockerfiles/.dockerignore and turbo release-tag environment declarations. API authentication/authorization semantics remain with permissions; dependency versions and package manifests/lockfile remain with dependency security. Local restore-mechanics evidence does not close the production retention or recovery-time gates. Docker/WSL are unavailable locally and AWS reauthentication remains unapproved.
 
-The permissions lane reports confirmed staff transfer capacity bypass, concurrent last-owner removal, staff API-key seat leakage, an enrollment claim/revoke race and cross-project case/result references in compliance.recordEvidence. Fixes and regression tests are in progress. Integration has not independently verified these findings or fixes; the affected readiness gates remain blocked until the fix commits and executable evidence are reviewed and rerun.
+## Integrated handoffs
+
+All five source lanes are now integrated locally. The original checkpoint findings above are historical, not current validation results. Exact combined validation belongs to the readiness register and candidate manifests, not the individual lane reports.
+
+| Lane | Source commits | Integration commits |
+|---|---|---|
+| Dependency security | 5bca483 | 35472eb |
+| Operations | 763b6f0, 3798c78, cb1776a, b1ba6b5; credit-scheduler correction 28c8d7f | af488b2, 458d0a8, 3114d3c, 9907fcb; aa59f6c |
+| Permissions | bd217aa, 26c8959 | fc516a8, 350d7a8 |
+| Mobile | 25046d8, c62c925, 799e05c | 9173809, 9774876, 348ed20 |
+| Browser/onboarding | c4bcf1e | 40b947d |
+
+The mobile lane's dependency cherry-pick 74757f6 was intentionally not replayed because the same source patch was already integrated. Follow-up integration e9607e3 supplies mobile release identity and includes the credential-free web permission/fixture contracts in automated checks. No lane should edit the canonical checkout or readiness register. Source branches and local evidence remain available for review.
+
+The combined dependency/operations/permissions snapshot 350d7a8 independently passed 108 API and 37 core tests, fresh 40 migrations, actual mapping-preservation SQL, typecheck, lint and production-server build. The newer full candidate e9607e3 then independently passed 216 tests across all seven test groups, 40 fresh migrations and preservation SQL, typecheck, lint, production-server builds, local API health and both mobile JavaScript exports. Both audits remained blocked on two visible high image-size advisories. See [combined evidence](integration-evidence.md) for exact manifests and remaining gates; lane artifacts are not silently promoted to final-candidate evidence.
 
 Read the readiness register and the lane-specific handoff documents before implementing. The approved cohort remains three teams, five full and two read-only seats per team, 500 non-rolling monthly credits, no automatic overage. Service-account memberships currently consume full seats. Global reference catalogs are staff-managed and require a legacy-content confidentiality audit before admission.
