@@ -3,7 +3,12 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const { releaseConfigErrors } = require("./release-config.cjs");
 const config = require("../app.json").expo;
-const env = { EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY: "pk_live_static_test_not_a_credential", EXPO_PROJECT_ID: "00000000-0000-4000-8000-000000000000" };
+const env = { EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY: "pk_live_static_test_not_a_credential", EXPO_PROJECT_ID: "00000000-0000-4000-8000-000000000000", EXPO_PUBLIC_RELEASE_COMMIT: "a".repeat(40) };
+test("release telemetry requires a full immutable commit identifier", () => {
+  for (const value of [undefined, "latest", "a".repeat(7), "../private-data"]) {
+    assert.match(releaseConfigErrors({ ...env, EXPO_PUBLIC_RELEASE_COMMIT: value }, config).join(), /full release commit/);
+  }
+});
 test("missing/test/secret keys cannot be mistaken for distribution configuration", () => {
   assert.ok(releaseConfigErrors({}, config).length >= 2);
   assert.match(releaseConfigErrors({ ...env, EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY: "pk_test_placeholder" }, config).join(), /production Clerk/);

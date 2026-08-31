@@ -2,6 +2,19 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const { readableError, canRevealWorkspace, containsExpiredSession } = require("../lib/recovery.ts");
+const { mobilePermissions } = require("../lib/permissions.ts");
+
+test("mobile mutation controls fail closed for read-only, absent and unknown membership", () => {
+  for (const role of ["OWNER", "ADMIN", "EDITOR", "COMPLIANCE_AUDITOR", "VIEWER", "UNKNOWN"]) {
+    assert.deepEqual(mobilePermissions({ role, seatType: "READ_ONLY" }), { canReview: false, canSignOff: false });
+    assert.deepEqual(mobilePermissions({ role, seatType: "UNKNOWN" }), { canReview: false, canSignOff: false });
+  }
+  assert.deepEqual(mobilePermissions(), { canReview: false, canSignOff: false });
+  assert.deepEqual(mobilePermissions({ role: "UNKNOWN", seatType: "FULL" }), { canReview: false, canSignOff: false });
+  assert.deepEqual(mobilePermissions({ role: "EDITOR", seatType: "FULL" }), { canReview: true, canSignOff: false });
+  assert.deepEqual(mobilePermissions({ role: "COMPLIANCE_AUDITOR", seatType: "FULL" }), { canReview: false, canSignOff: true });
+  for (const role of ["OWNER", "ADMIN"]) assert.deepEqual(mobilePermissions({ role, seatType: "FULL" }), { canReview: true, canSignOff: true });
+});
 
 test("foreground return cannot bypass cache purge or revive an invalid session", () => {
   assert.equal(canRevealWorkspace({ purged: false, foreground: true, invalidated: false }), false);
