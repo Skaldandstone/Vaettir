@@ -4,6 +4,7 @@ import { prisma, type OrgRole, type SeatType } from "@vaettir/db";
 import { appRouter } from "../router.js";
 import { createContext } from "../trpc.js";
 import { hardDeleteOrganization } from "./orgHardDelete.js";
+import { lockOrganization } from "./organizationLock.js";
 
 let orgId: string, ownerId: string, ownerMemberId: string, staffId: string;
 let users: string[];
@@ -103,7 +104,48 @@ describe("Staff capacity and ownership boundaries", () => {
     expect(await fullSeats()).toBe(1);
     const ctx = await createContext({ req: { headers: { authorization: `Bearer ${key.key}` } } } as never);
     await expect(appRouter.createCaller(ctx).organization.mine()).rejects.toMatchObject({ code: "UNAUTHORIZED" });
-    await expect(owner.apiKeys.revoke({ id: key.id })).resolves.toBeUndefined();
+    await expect(owner.apiKeys.revoke({ id: key.id })).resolves.toMatchObject({ revokedAt: results[0].revokedAt, seatCleanupPending: false, actionRequired: null });
+  });
+
+  it.each(["staff", "tenant"] as const)("%s revokes a legacy sole-owner key immediately and safely cleans its seat after transfer", async (path) => {
+    const owner = await caller(ownerId);
+    const key = await owner.apiKeys.create({ organizationId: orgId, name: "legacy sole owner", role: "ADMIN" });
+    const service = await prisma.apiKey.findUniqueOrThrow({ where: { id: key.id } });
+    const serviceMember = await prisma.membership.findUniqueOrThrow({ where: { organizationId_userId: { organizationId: orgId, userId: service.serviceUserId } } });
+    // Reproduce historical state that the current ownership writers reject.
+    await prisma.$transaction(async (tx) => {
+      await lockOrganization(tx, orgId);
+      await tx.membership.update({ where: { id: serviceMember.id }, data: { role: "OWNER" } });
+      await tx.membership.update({ where: { id: ownerMemberId }, data: { role: "ADMIN" } });
+    });
+    const freshTokenContext = () => createContext({ req: { headers: { authorization: `Bearer ${key.key}` } } } as never);
+    expect((await freshTokenContext()).user?.id).toBe(service.serviceUserId);
+    const tenant = await caller(ownerId), staff = await caller(staffId);
+    if (path === "staff") await staff.admin.suspendOrganization({ organizationId: orgId, reason: "incident containment fixture" });
+    const revoke = () => path === "staff" ? support().staff.revokeApiKey({ apiKeyId: key.id }) : tenant.apiKeys.revoke({ id: key.id });
+    const receipts = await Promise.all(Array.from({ length: 6 }, revoke));
+    const originalRevokedAt = receipts[0].revokedAt;
+    expect(new Set(receipts.map((r) => r.revokedAt.toISOString())).size).toBe(1);
+    for (const receipt of receipts) {
+      expect(receipt.seatCleanupPending).toBe(true);
+      expect(receipt.actionRequired).toContain("Credential revoked");
+      expect(receipt.actionRequired).toContain("transfer ownership to a human");
+    }
+    expect((await prisma.apiKey.findUniqueOrThrow({ where: { id: key.id } })).revokedAt).toEqual(originalRevokedAt);
+    expect((await prisma.membership.findUniqueOrThrow({ where: { id: serviceMember.id } })).role).toBe("OWNER");
+    expect(await fullSeats()).toBe(2);
+    const revokedContext = await freshTokenContext();
+    expect(revokedContext.user).toBeNull();
+    await expect(appRouter.createCaller(revokedContext).organization.mine()).rejects.toMatchObject({ code: "UNAUTHORIZED" });
+
+    await staff.admin.transferOwnership({ organizationId: orgId, previousOwnerMembershipId: serviceMember.id, newOwnerMembershipId: ownerMemberId, reason: "repair historical service ownership" });
+    const cleanup = await revoke();
+    expect(cleanup).toEqual({ revokedAt: originalRevokedAt, seatCleanupPending: false, actionRequired: null });
+    expect(await prisma.membership.findUnique({ where: { id: serviceMember.id } })).toBeNull();
+    expect((await prisma.membership.findUniqueOrThrow({ where: { id: ownerMemberId } })).role).toBe("OWNER");
+    expect(await fullSeats()).toBe(1);
+    expect((await prisma.apiKey.findUniqueOrThrow({ where: { id: key.id } })).revokedAt).toEqual(originalRevokedAt);
+    await expect(revoke()).resolves.toEqual(cleanup);
   });
 
   it("repairs historical revoked-key seats and works during suspension", async () => {

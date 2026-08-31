@@ -81,6 +81,8 @@ export const apiKeysRouter = router({
     .mutation(async ({ ctx, input }) => {
       const apiKey = await ctx.prisma.apiKey.findUniqueOrThrow({ where: { id: input.id } });
       requireOrgRole(ctx, apiKey.organizationId, "ADMIN");
-      await revokeApiKey(ctx.prisma, input.id, ctx.user.id);
+      // Additive receipt: callers that previously ignored the result still work.
+      // Surface retained-owner cleanup separately from successful revocation.
+      return revokeApiKey(ctx.prisma, input.id, ctx.user.id);
     }),
 });

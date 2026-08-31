@@ -1,9 +1,10 @@
 import { TRPCError } from "@trpc/server";
 import type { PrismaClient } from "@vaettir/db";
 import { assertActiveOrganization, lockOrganization } from "./organizationLock.js";
-import { requireAdmin, requireAnotherOwner } from "./seatManagement.js";
+import { requireAdmin } from "./seatManagement.js";
 
-// Both support and tenant revocation use the same lock and release the same seat.
+// Credential revocation is unconditional after authorization. Seat cleanup is
+// separate: retain a legacy sole-owner membership until a human takes ownership.
 // An absent actor means the caller has already passed staffTokenProcedure.
 export async function revokeApiKey(db: PrismaClient, apiKeyId: string, actorId?: string) {
   const target = await db.apiKey.findUnique({ where: { id: apiKeyId } });
@@ -16,11 +17,18 @@ export async function revokeApiKey(db: PrismaClient, apiKeyId: string, actorId?:
     }
     const key = await tx.apiKey.findUniqueOrThrow({ where: { id: apiKeyId } });
     const membership = await tx.membership.findUnique({ where: { organizationId_userId: { organizationId: org.id, userId: key.serviceUserId } } });
-    // Legacy service owners must be transferred before removing their membership.
-    if (membership) await requireAnotherOwner(tx, membership);
     const revokedAt = key.revokedAt ?? new Date();
     if (!key.revokedAt) await tx.apiKey.update({ where: { id: apiKeyId }, data: { revokedAt } });
-    if (membership) await tx.membership.delete({ where: { id: membership.id } });
-    return { revokedAt };
+    const seatCleanupPending = membership?.role === "OWNER" && await tx.membership.count({
+      where: { organizationId: org.id, role: "OWNER", id: { not: membership.id } },
+    }) === 0;
+    if (membership && !seatCleanupPending) await tx.membership.delete({ where: { id: membership.id } });
+    return {
+      revokedAt,
+      seatCleanupPending,
+      actionRequired: seatCleanupPending
+        ? "Credential revoked. Ask staff to transfer ownership to a human member, then revoke this key again to release its retained full seat."
+        : null,
+    };
   });
 }
