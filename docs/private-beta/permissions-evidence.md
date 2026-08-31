@@ -5,7 +5,7 @@ Date: 2026-08-30. Branch: codex/beta-permissions. Base checkpoint: a6b5554ddd53c
 ## Changes
 
 - Staff ownership transfer, staff member removal, tenant member changes and key revocation now share organization-row serialization. Transfers count live members and reserved invitations. Last-owner removal is rejected. Staff ownership changes and their audit receipts commit together.
-- Tenant and staff key revocation share an idempotent implementation that releases the service membership, including historical revoked-key rows that still hold seats. Service accounts cannot be newly promoted, transferred or enrolled as owners. A legacy service account that is already the only owner must be transferred to a human before its membership can be removed; audit live organizations for this condition before beta.
+- Tenant and staff key revocation share an idempotent implementation. Authorized revocation immediately disables the credential, even if the service account is the sole owner. Only membership/seat cleanup is deferred in that legacy case. Both routes return the original revokedAt plus additive seatCleanupPending and actionRequired fields. Transfer ownership to a human, then repeat revoke to release the retained seat without changing revokedAt. Service accounts cannot be newly promoted, transferred or enrolled as owners.
 - API keys are constrained to their issuing organization even if their backing user has another membership. Organization selection applies that effective scope.
 - Enrollment operations consistently lock Tier, then Enrollment, then User where applicable. Deterministic database-lock barriers prove both claim-wins and revoke-wins outcomes, no deadlock, and correct cohort slot replacement.
 - Monthly grants check both their UTC month idempotency key and bounded calendar interval. Explicit grant timestamps avoid transaction-start timestamps crossing a month boundary. Concurrent grants, charges and staff deductions cannot duplicate or overdraw the append-only ledger.
@@ -21,10 +21,16 @@ Environment: Windows, PostgreSQL 17 on 127.0.0.1:15443, Node 24.19.0, pnpm 11.23
 - Frozen dependency installation and Prisma client generation passed.
 - All 40 migrations and reference seed passed on a fresh database; migrate status reported up to date.
 - The migration verification script reconstructs the previous unique-index contract inside a disposable transaction, inserts an existing mapping, executes the actual new migration SQL, verifies the original row is unchanged, and accepts the same ID in a second project. All temporary DDL and fixture data roll back.
-- API regression suite: 90 tests across 15 files. Core suite: 35 tests across seven files. Both pass, with live model calls stubbed in worker tests.
+- API regression suite: 92 tests across 15 files. Core suite: 35 tests across seven files. Both pass, with live model calls stubbed in worker tests.
 - API typecheck, production compilation and lint pass. No new package or lockfile changes.
 
 Key regression files: staffCapacity.integration.test.ts, privateBeta.integration.test.ts, compoundTenantIsolation.integration.test.ts, externalTestMapping.integration.test.ts, and existing tenantIsolation.integration.test.ts. These exercise real PostgreSQL transactions and router callers. They do not prove live Clerk authentication, HTTP transport behavior, S3 transfers, browser/device acceptance or deployed database settings.
+
+### Focused revocation correction
+
+Independent review found that bd217aa incorrectly rejected revocation of a legacy sole-owner service key. This follow-up removes that credential-revocation blocker. The organization lock still serializes revocation, owner transfer and membership cleanup. Tests exercise both tenant and staff routes, concurrent repeated revocation, staff revocation during suspension, fresh revoked-token requests returning UNAUTHORIZED, retention of the last owner, and cleanup after human transfer with the original revocation timestamp preserved. The tenant route now returns an additive receipt instead of no payload; existing callers may continue ignoring it. The staff route preserves revokedAt and adds the same cleanup fields.
+
+The focused follow-up passed the 10 staff-capacity tests, the complete 92-test API suite, 35 core tests, all seven workspace typecheck tasks including web/mobile consumers, API build and API lint. No schema, migration, dependency or lockfile changes are part of this correction.
 
 Reproduce from the lane checkout with DATABASE_URL explicitly set to its isolated local database:
 
