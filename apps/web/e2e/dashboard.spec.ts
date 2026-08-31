@@ -9,8 +9,10 @@ test.describe("Org dashboard", () => {
 
   test("the summary counts (ready/at-risk/blocked/no-active-release) are all numeric", async ({ page }) => {
     await page.goto("/dashboard");
-    const stats = page.locator("div", { hasText: /ready|at risk|blocked|no active release/i });
-    await expect(stats.first()).toBeVisible();
+    for (const label of ["Ready", "At risk", "Blocked", "No active release"]) {
+      const panel = page.locator(".panel").filter({ has: page.getByText(label, { exact: true }) });
+      await expect(panel.locator("div").first()).toHaveText(/^\d+$/);
+    }
   });
 
   test("clicking the fixture project row navigates to its project overview", async ({ page }) => {

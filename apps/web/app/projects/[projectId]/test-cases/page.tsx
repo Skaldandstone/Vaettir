@@ -8,7 +8,7 @@ import { TestCaseTree, filterCasesByPath, collectKnownSuitePaths, UNASSIGNED } f
 import { Drawer } from "@/components/Drawer";
 import { Modal } from "@/components/Modal";
 import { TestCaseDetailContent } from "@/components/TestCaseDetailContent";
-import { isReadOnlySeat } from "@/lib/membership";
+import { canEditProject } from "@/lib/membership";
 import { downloadCsv } from "@/lib/csv";
 
 const TEST_TYPES = [
@@ -106,7 +106,8 @@ export default function TestCasesPage() {
   const { projectId } = useParams<{ projectId: string }>();
   const router = useRouter();
   const [project, setProject] = useState<RouterOutputs["project"]["byId"] | null>(null);
-  const [readOnly, setReadOnly] = useState(false);
+  const [access, setAccess] = useState<{ projectId: string; canEdit: boolean }>();
+  const readOnly = access?.projectId !== projectId || !access.canEdit;
   const [startingRun, setStartingRun] = useState(false);
   const [cases, setCases] = useState<RouterOutputs["testCases"]["list"]>([]);
   const [plans, setPlans] = useState<RouterOutputs["testPlans"]["list"]>([]);
@@ -132,6 +133,7 @@ export default function TestCasesPage() {
   const [importResult, setImportResult] = useState<{ createdCount: number; skipped: { rowNumber: number; reason: string }[] } | null>(null);
 
   function load() {
+    setAccess(undefined);
     setLoading(true);
     setError(null);
     Promise.all([
@@ -145,7 +147,7 @@ export default function TestCasesPage() {
         setCases(list);
         setPlans(planList);
         const org = orgs.find((o) => o.id === proj.organizationId);
-        setReadOnly(isReadOnlySeat(org?.seatType));
+        setAccess({ projectId, canEdit: canEditProject(org) });
       })
       .catch((e) => setError(e instanceof Error ? e.message : String(e)))
       .finally(() => setLoading(false));

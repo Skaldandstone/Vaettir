@@ -38,12 +38,14 @@ test.describe("Organization settings", () => {
     await page.getByRole("button", { name: "Save" }).nth(1).click();
   });
 
-  test("saving a Slack webhook URL enables the digest toggle and 'Send now' appears", async ({ page }) => {
+  test("a webhook can be configured without enabling scheduled delivery", async ({ page }) => {
     await gotoOrgSettings(page);
     await page.getByPlaceholder(/hooks\.slack\.com/).fill("https://hooks.slack.com/services/E2E/TEST/WEBHOOK");
-    await page.getByRole("checkbox", { name: /send automatically every day/i }).check();
+    await page.getByRole("checkbox", { name: /send automatically every day/i }).uncheck();
     await page.getByRole("button", { name: "Save" }).nth(2).click();
     await expect(page.getByRole("button", { name: "Send now" })).toBeVisible();
+    await page.reload();
+    await expect(page.getByRole("checkbox", { name: /send automatically every day/i })).not.toBeChecked();
   });
 
   test("a new API key can be created and shows its one-time secret", async ({ page }) => {

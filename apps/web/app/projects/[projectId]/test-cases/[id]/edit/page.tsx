@@ -4,9 +4,11 @@ import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import { trpc, type RouterOutputs } from "@/lib/trpc";
 import TestCaseForm from "@/components/TestCaseForm";
+import { useProjectPermissions } from "@/lib/use-project-permissions";
 
 export default function EditTestCasePage() {
   const params = useParams<{ projectId: string; id: string }>();
+  const { canEdit, loaded } = useProjectPermissions(params.projectId);
   const [tc, setTc] = useState<RouterOutputs["testCases"]["byId"] | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -18,6 +20,8 @@ export default function EditTestCasePage() {
   }, [params.id]);
 
   if (error) return <p style={{ color: "var(--ember)" }}>{error}</p>;
+  if (!loaded) return <p>Checking project access…</p>;
+  if (!canEdit) return <p>A full-seat editor, admin or owner is required to edit test cases.</p>;
   if (!tc) return <p>Loading…</p>;
 
   return (

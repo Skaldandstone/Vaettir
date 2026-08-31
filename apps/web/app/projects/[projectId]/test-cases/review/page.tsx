@@ -5,9 +5,11 @@ import { useParams } from "next/navigation";
 import { trpc, type RouterOutputs } from "@/lib/trpc";
 import { Drawer } from "@/components/Drawer";
 import { TestCaseDetailContent } from "@/components/TestCaseDetailContent";
+import { useProjectPermissions } from "@/lib/use-project-permissions";
 
 export default function ReviewQueuePage() {
   const { projectId } = useParams<{ projectId: string }>();
+  const { canEdit } = useProjectPermissions(projectId);
   const [queue, setQueue] = useState<RouterOutputs["testCases"]["pendingReview"]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -71,20 +73,20 @@ export default function ReviewQueuePage() {
               )}
             </div>
             {tc.sourceFilePath && <div style={{ color: "var(--muted-dim)", fontSize: 13 }}>{tc.sourceFilePath}</div>}
-            <div style={{ marginTop: 8 }}>
+            {canEdit && <div style={{ marginTop: 8 }}>
               <button onClick={() => decide(tc.id, "approve")} disabled={busyId === tc.id} style={{ marginRight: 8 }}>
                 Approve
               </button>
               <button onClick={() => decide(tc.id, "reject")} disabled={busyId === tc.id}>
                 Reject
               </button>
-            </div>
+            </div>}
           </li>
         ))}
       </ul>
 
       <Drawer open={openCaseId !== null} onClose={() => setOpenCaseId(null)}>
-        {openCaseId && <TestCaseDetailContent id={openCaseId} projectId={projectId} onChanged={load} />}
+        {openCaseId && <TestCaseDetailContent id={openCaseId} projectId={projectId} readOnly={!canEdit} onChanged={load} />}
       </Drawer>
     </div>
   );

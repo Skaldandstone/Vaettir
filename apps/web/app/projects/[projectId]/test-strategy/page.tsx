@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import { trpc, type RouterOutputs } from "@/lib/trpc";
 import { Drawer } from "@/components/Drawer";
+import { useProjectPermissions } from "@/lib/use-project-permissions";
 
 function PastRunDetail({ id }: { id: string }) {
   const [run, setRun] = useState<RouterOutputs["riskAnalysis"]["runById"] | null>(null);
@@ -52,6 +53,7 @@ function PastRunDetail({ id }: { id: string }) {
 // Loads lazily-created defaults (main/COMMENT/no rules) for a project
 // that's never configured this -- there's no required setup step.
 function PrScanPolicySection({ projectId }: { projectId: string }) {
+  const { canAdmin } = useProjectPermissions(projectId);
   const [policy, setPolicy] = useState<RouterOutputs["riskAnalysis"]["getPrScanPolicy"] | null>(null);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
@@ -84,7 +86,7 @@ function PrScanPolicySection({ projectId }: { projectId: string }) {
   if (!policy) return null;
 
   return (
-    <div style={{ border: "1px solid var(--line)", borderRadius: 8, padding: 16, margin: "16px 0" }}>
+    <fieldset disabled={!canAdmin} style={{ border: "1px solid var(--line)", borderRadius: 8, padding: 16, margin: "16px 0" }}>
       <h2 style={{ marginTop: 0 }}>PR scan policy</h2>
       <label>
         Trigger branches <span className="text-muted" style={{ fontSize: 12 }}>(comma-separated)</span>
@@ -163,12 +165,13 @@ function PrScanPolicySection({ projectId }: { projectId: string }) {
         {saved && <span style={{ color: "var(--frost)", marginLeft: 8 }}>Saved.</span>}
         {error && <span style={{ color: "var(--ember)", marginLeft: 8 }}>{error}</span>}
       </div>
-    </div>
+    </fieldset>
   );
 }
 
 export default function TestStrategyPage() {
   const { projectId } = useParams<{ projectId: string }>();
+  const { canEdit } = useProjectPermissions(projectId);
   const [openRunId, setOpenRunId] = useState<string | null>(null);
   const [repoUrl, setRepoUrl] = useState("");
   const [baseRef, setBaseRef] = useState("main");
@@ -292,7 +295,7 @@ export default function TestStrategyPage() {
         <p style={{ color: "var(--muted)", margin: "0 0 8px" }}>
           AI-assess severity/risk for every test case in this project that hasn&apos;t been assessed yet (up to 20 at a time).
         </p>
-        <button onClick={bulkAssess} disabled={bulkAssessing}>
+        <button onClick={bulkAssess} disabled={!canEdit || bulkAssessing}>
           {bulkAssessing ? "Assessing…" : "Assess unrated test cases"}
         </button>
         {bulkResult && (
@@ -343,15 +346,15 @@ export default function TestStrategyPage() {
                 placeholder="New release name"
                 style={{ flex: 1 }}
               />
-              <button onClick={createRelease} disabled={creatingRelease || !newReleaseName}>
+              <button onClick={createRelease} disabled={!canEdit || creatingRelease || !newReleaseName}>
                 + New release
               </button>
             </div>
           </label>
-          <button onClick={analyze} disabled={analyzing || !headRef}>
+          <button onClick={analyze} disabled={!canEdit || analyzing || !headRef}>
             {analyzing ? "Diffing + analyzing…" : "Analyze change"}
           </button>
-          <button className="btn-secondary" onClick={analyzeWithAi} disabled={aiAnalyzing || !headRef} style={{ marginLeft: 8 }}>
+          <button className="btn-secondary" onClick={analyzeWithAi} disabled={!canEdit || aiAnalyzing || !headRef} style={{ marginLeft: 8 }}>
             {aiAnalyzing ? "Reading the diff…" : "Also check with AI"}
           </button>
         </div>

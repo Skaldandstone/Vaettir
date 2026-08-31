@@ -3,10 +3,11 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { trpc } from "../../lib/trpc";
+import { RecoveryMessage } from "../../components/RecoveryMessage";
 
 // Clerk only knows the signed-in person, not our org/seat model. A brand
 // new user has zero Organizations until they create one (here) or accept
-// an invite (P12-02, not yet built).
+// an invitation. Eligibility is checked server-side before organization creation.
 export default function OnboardingPage() {
   const router = useRouter();
   const [checking, setChecking] = useState(true);
@@ -14,30 +15,38 @@ export default function OnboardingPage() {
   const [organizationName, setOrganizationName] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [attempt, setAttempt] = useState(0);
 
   useEffect(() => {
+    let active = true;
+    setChecking(true);
+    setError(null);
     trpc.organization.mine
       .query()
       .then(async (orgs) => {
+        if (!active) return;
         if (orgs.length > 0) {
           router.push("/projects");
         } else {
           const eligibility = await trpc.beta.eligibility.query();
+          if (!active) return;
           setEligible(eligibility.eligible);
           setChecking(false);
         }
       })
       .catch((e) => {
-        setError(String(e));
+        if (!active) return;
+        setError(e instanceof Error ? e.message : String(e));
         setChecking(false);
       });
-  }, [router]);
+    return () => { active = false; };
+  }, [router, attempt]);
 
   async function submit() {
     setLoading(true);
     setError(null);
     try {
-      await trpc.organization.bootstrap.mutate({ organizationName });
+      await trpc.organization.bootstrap.mutate({ organizationName: organizationName.trim() });
       router.push("/projects");
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -47,6 +56,7 @@ export default function OnboardingPage() {
   }
 
   if (checking) return <p>Loading…</p>;
+  if (error && !eligible) return <div><h1>Check your beta invitation</h1><RecoveryMessage error={error} onRetry={() => setAttempt((value) => value + 1)} /></div>;
 
   if (!eligible) return (
     <div style={{ maxWidth: 520 }}>
@@ -54,7 +64,8 @@ export default function OnboardingPage() {
       <p>Access is by invitation. Open your team invitation link while signed in with the invited email address.</p>
       <p>Starting a new team? Ask your beta contact for an owner invitation.</p>
       {error && <p role="alert">{error}</p>}
-      <button onClick={() => window.location.reload()}>Check invitation again</button>
+      <button onClick={() => setAttempt((value) => value + 1)}>Check invitation again</button>
+      <p><a href="/beta-guide">Read the beta onboarding guide</a></p>
     </div>
   );
 
@@ -69,14 +80,15 @@ export default function OnboardingPage() {
           Organization name
           <input
             value={organizationName}
+            maxLength={120}
             onChange={(e) => setOrganizationName(e.target.value)}
             style={{ width: "100%" }}
           />
         </label>
-        <button onClick={submit} disabled={loading || !organizationName}>
+        <button onClick={submit} disabled={loading || !organizationName.trim()}>
           {loading ? "Creating…" : "Create organization"}
         </button>
-        {error && <p style={{ color: "var(--ember)" }}>{error}</p>}
+        {error && <RecoveryMessage error={error} />}
       </div>
     </div>
   );

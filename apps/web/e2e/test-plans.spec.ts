@@ -3,7 +3,7 @@ import { test, expect } from "./fixtures";
 async function gotoFixtureTestPlans(page: import("@playwright/test").Page) {
   await page.goto("/projects");
   await page.locator("li", { hasText: "Beta fixture" }).getByRole("link", { name: "Beta fixture" }).click();
-  await page.getByRole("link", { name: /test plans/i }).click();
+  await page.getByRole("link", { name: "Test Plans", exact: true }).click();
   await expect(page.getByRole("heading", { name: "Test Plans" })).toBeVisible();
 }
 
@@ -27,18 +27,18 @@ test.describe("Test plans", () => {
     await expect(page.getByText(name)).toBeVisible();
   });
 
-  test("opening a plan navigates to its detail page", async ({ page }) => {
+  test("opening a plan displays its detail drawer", async ({ page }) => {
     const name = `E2E detail plan ${Date.now()}`;
     await gotoFixtureTestPlans(page);
     const input = page.getByPlaceholder("Plan name, press Enter…");
     await input.fill(name);
     await input.press("Enter");
     await page.getByText(name).click();
-    await expect(page).toHaveURL(/\/test-plans\/[^/]+$/);
-    await expect(page.getByText(name)).toBeVisible();
+    await expect(page.getByRole("dialog")).toBeVisible();
+    await expect(page.getByRole("dialog").getByText(name, { exact: true })).toBeVisible();
   });
 
-  test("a strategy draft can be requested from a one-line prompt", async ({ page }) => {
+  test("a strategy prompt can be edited without starting a paid request", async ({ page }) => {
     await gotoFixtureTestPlans(page);
     await page.getByPlaceholder(/payments checkout flow/i).fill("We're hardening the security & auth flow for v2.4");
     await expect(page.getByPlaceholder(/payments checkout flow/i)).toHaveValue(/security & auth/i);
@@ -49,7 +49,7 @@ test.describe("Requirements & acceptance criteria", () => {
   async function gotoFixtureRequirements(page: import("@playwright/test").Page) {
     await page.goto("/projects");
     await page.locator("li", { hasText: "Beta fixture" }).getByRole("link", { name: "Beta fixture" }).click();
-    await page.getByRole("link", { name: /requirements/i }).click();
+    await page.getByRole("link", { name: "Requirements", exact: true }).click();
     await expect(page.getByRole("heading", { name: "Requirements" })).toBeVisible();
   }
 

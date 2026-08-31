@@ -4,6 +4,8 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { trpc, type RouterOutputs } from "../../lib/trpc";
 import { Modal } from "../../components/Modal";
+import { RecoveryMessage } from "../../components/RecoveryMessage";
+import { canEditProject, canAdministerOrganization } from "../../lib/membership";
 
 export default function ProjectsPage() {
   const router = useRouter();
@@ -12,6 +14,11 @@ export default function ProjectsPage() {
   const [projects, setProjects] = useState<RouterOutputs["project"]["list"]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [organizations, setOrganizations] = useState<RouterOutputs["organization"]["mine"]>([]);
+  const [attempt, setAttempt] = useState(0);
+  const member = organizations.find((org) => org.id === orgId);
+  const canEdit = canEditProject(member);
+  const canDelete = canAdministerOrganization(member);
 
   const [createOpen, setCreateOpen] = useState(false);
   const [name, setName] = useState("");
@@ -30,9 +37,14 @@ export default function ProjectsPage() {
   }
 
   useEffect(() => {
+    let active = true;
+    setLoading(true);
+    setError(null);
     trpc.organization.mine
       .query()
       .then(async (orgs) => {
+        if (!active) return;
+        setOrganizations(orgs);
         const org = orgs[0];
         if (!org) {
           router.push("/onboarding");
@@ -40,14 +52,29 @@ export default function ProjectsPage() {
         }
         setOrgId(org.id);
         setOrgName(org.name);
-        await loadProjects(org.id);
+        const list = await trpc.project.list.query({ organizationId: org.id });
+        if (active) setProjects(list);
       })
-      .catch((e) => setError(String(e)))
-      .finally(() => setLoading(false));
-  }, [router]);
+      .catch((e) => { if (active) { setProjects([]); setOrganizations([]); setError(e instanceof Error ? e.message : String(e)); } })
+      .finally(() => { if (active) setLoading(false); });
+    return () => { active = false; };
+  }, [router, attempt]);
+
+  async function switchOrganization(id: string) {
+    setOrgId(id);
+    setOrgName(organizations.find((org) => org.id === id)?.name ?? "");
+    setProjects([]);
+    setCreateOpen(false);
+    setEditingId(null);
+    setLoading(true);
+    setError(null);
+    try { await loadProjects(id); }
+    catch (e) { setError(e instanceof Error ? e.message : String(e)); }
+    finally { setLoading(false); }
+  }
 
   async function submit() {
-    if (!orgId) return;
+    if (!orgId || !canEdit) return;
     setCreating(true);
     setError(null);
     try {
@@ -67,7 +94,8 @@ export default function ProjectsPage() {
     setEditingId(p.id);
     setEditName(p.name);
     setEditRepoUrl(p.repoUrl ?? "");
-    trpc.project.byId.query({ id: p.id }).then((full) => setEditDefaultBranch(full.defaultBranch));
+    trpc.project.byId.query({ id: p.id }).then((full) => setEditDefaultBranch(full.defaultBranch))
+      .catch((e) => setError(e instanceof Error ? e.message : String(e)));
   }
 
   async function saveEdit() {
@@ -102,7 +130,7 @@ export default function ProjectsPage() {
   }
 
   if (loading) return <p>Loading…</p>;
-  if (error) return <p style={{ color: "var(--ember)" }}>{error}</p>;
+  if (error && !createOpen && !editingId) return <RecoveryMessage error={error} onRetry={() => setAttempt((value) => value + 1)} />;
   if (!orgId)
     return (
       <p>
@@ -112,11 +140,14 @@ export default function ProjectsPage() {
 
   return (
     <div>
+      {organizations.length > 1 && <label>Organization <select value={orgId} onChange={(event) => void switchOrganization(event.target.value)}>
+        {organizations.map((org) => <option key={org.id} value={org.id}>{org.name}</option>)}
+      </select></label>}
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 20 }}>
         <h1 style={{ margin: 0 }}>{orgName} projects</h1>
-        <button className="btn-primary" onClick={() => setCreateOpen(true)}>
+        {canEdit && <button className="btn-primary" onClick={() => setCreateOpen(true)}>
           + New project
-        </button>
+        </button>}
       </div>
 
       <ul style={{ listStyle: "none", padding: 0 }}>
@@ -130,17 +161,17 @@ export default function ProjectsPage() {
               <a href={`/projects/${p.id}/test-cases`}>Test cases</a>
               <a href={`/projects/${p.id}/test-plans`}>Test plans</a>
               <a href={`/projects/${p.id}/requirements`}>Requirements</a>
-              <button className="btn-secondary" onClick={() => startEdit(p)}>
+              {canEdit && <button className="btn-secondary" onClick={() => startEdit(p)}>
                 Edit
-              </button>
-              <button className="btn-secondary" onClick={() => removeProject(p.id)}>
+              </button>}
+              {canDelete && <button className="btn-secondary" onClick={() => removeProject(p.id)}>
                 Delete
-              </button>
+              </button>}
             </div>
           </li>
         ))}
-        {projects.length === 0 && <p style={{ color: "var(--muted)" }}>No projects yet — create one above.</p>}
       </ul>
+      {projects.length === 0 && <p style={{ color: "var(--muted)" }}>{canEdit ? "No projects yet. Create your first project above." : "No projects yet. Ask your team owner or an editor to create one."}</p>}
 
       <Modal open={createOpen} onClose={() => setCreateOpen(false)} title="New project">
         <div style={{ display: "grid", gap: 10 }}>
@@ -160,7 +191,7 @@ export default function ProjectsPage() {
               {creating ? "Creating…" : "Create project"}
             </button>
           </div>
-          {error && <p style={{ color: "var(--ember)" }}>{error}</p>}
+          {error && <RecoveryMessage error={error} />}
         </div>
       </Modal>
 
@@ -186,7 +217,7 @@ export default function ProjectsPage() {
               {savingEdit ? "Saving…" : "Save"}
             </button>
           </div>
-          {error && <p style={{ color: "var(--ember)" }}>{error}</p>}
+          {error && <RecoveryMessage error={error} />}
         </div>
       </Modal>
     </div>

@@ -5,6 +5,7 @@ import type { ChangeEvent } from "react";
 import { useParams } from "next/navigation";
 import { trpc, type RouterOutputs } from "@/lib/trpc";
 import { Modal } from "@/components/Modal";
+import { useProjectPermissions } from "@/lib/use-project-permissions";
 
 // 2026-08-27 competitor parity audit: draft-and-review, same shape as
 // P4-02's strategy generation - nothing here creates a real TestCase
@@ -297,6 +298,7 @@ function ExtractFromRepoModal({
 
 export default function RequirementsPage() {
   const { projectId } = useParams<{ projectId: string }>();
+  const { canEdit } = useProjectPermissions(projectId);
   const [requirements, setRequirements] = useState<RouterOutputs["requirements"]["list"]>([]);
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
@@ -390,16 +392,16 @@ export default function RequirementsPage() {
     <div style={{ maxWidth: 640 }}>
       <h1>Requirements</h1>
 
-      <div style={{ display: "flex", gap: 8, margin: "8px 0 16px" }}>
+      {canEdit && <div style={{ display: "flex", gap: 8, margin: "8px 0 16px" }}>
         <button className="btn-secondary" onClick={() => setMarkdownModalOpen(true)}>
           Extract from markdown file
         </button>
         <button className="btn-secondary" onClick={() => setRepoModalOpen(true)} disabled={!repoUrl} title={repoUrl ?? "Connect a repo first"}>
           Extract from repo {repoUrl ? "" : "(no repo connected)"}
         </button>
-      </div>
+      </div>}
 
-      <div style={{ display: "grid", gap: 8, margin: "16px 0", maxWidth: 420 }}>
+      {canEdit && <div style={{ display: "grid", gap: 8, margin: "16px 0", maxWidth: 420 }}>
         <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Title" />
         <textarea
           value={description}
@@ -418,7 +420,7 @@ export default function RequirementsPage() {
           </button>
           {editingId && <button onClick={resetForm}>Cancel</button>}
         </div>
-      </div>
+      </div>}
 
       {loading && <p>Loading…</p>}
       {error && <p style={{ color: "var(--ember)" }}>{error}</p>}
@@ -438,13 +440,13 @@ export default function RequirementsPage() {
             <strong>{r.title}</strong> {r.externalRef && <span style={{ color: "var(--muted-dim)" }}>[{r.externalRef}]</span>}
             <div style={{ color: "var(--muted)", fontSize: 13 }}>{r.description}</div>
             <div style={{ fontSize: 12, color: "var(--muted-dim)" }}>{r.acceptanceCriteriaCount} linked acceptance criteria</div>
-            <button onClick={() => startEdit(r)} style={{ marginRight: 8 }}>
+            {canEdit && <><button onClick={() => startEdit(r)} style={{ marginRight: 8 }}>
               Edit
             </button>
             <button onClick={() => remove(r.id)} style={{ marginRight: 8 }}>
               Delete
             </button>
-            <button onClick={() => setGeneratingForId(r.id)}>Generate test cases with AI</button>
+            <button onClick={() => setGeneratingForId(r.id)}>Generate test cases with AI</button></>}
           </li>
         ))}
         {!loading && requirements.length === 0 && <p style={{ color: "var(--muted)" }}>No requirements yet.</p>}
@@ -453,7 +455,7 @@ export default function RequirementsPage() {
         )}
       </ul>
 
-      {generatingForId && (
+      {canEdit && generatingForId && (
         <GenerateTestCasesModal
           requirementId={generatingForId}
           projectId={projectId}
@@ -461,10 +463,10 @@ export default function RequirementsPage() {
           onCreated={load}
         />
       )}
-      {markdownModalOpen && (
+      {canEdit && markdownModalOpen && (
         <ExtractFromMarkdownModal projectId={projectId} onClose={() => setMarkdownModalOpen(false)} onCreated={load} />
       )}
-      {repoModalOpen && repoUrl && (
+      {canEdit && repoModalOpen && repoUrl && (
         <ExtractFromRepoModal projectId={projectId} repoUrl={repoUrl} onClose={() => setRepoModalOpen(false)} onCreated={load} />
       )}
     </div>

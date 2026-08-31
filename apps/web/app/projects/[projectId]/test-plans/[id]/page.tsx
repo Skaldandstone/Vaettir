@@ -4,19 +4,20 @@ import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import { TestPlanDetailContent } from "@/components/TestPlanDetailContent";
 import { trpc } from "@/lib/trpc";
-import { isReadOnlySeat } from "@/lib/membership";
+import { canEditProject } from "@/lib/membership";
 
 // Kept for deep links/bookmarks -- the primary way to view a plan from the
 // list itself is the drawer (see the test-plans list page), not this page.
 export default function TestPlanDetailPage() {
   const params = useParams<{ projectId: string; id: string }>();
-  const [readOnly, setReadOnly] = useState(false);
+  const [access, setAccess] = useState<{ projectId: string; canEdit: boolean }>();
+  const readOnly = access?.projectId !== params.projectId || !access.canEdit;
 
   useEffect(() => {
     Promise.all([trpc.project.byId.query({ id: params.projectId }), trpc.organization.mine.query()])
       .then(([proj, orgs]) => {
         const org = orgs.find((o) => o.id === proj.organizationId);
-        setReadOnly(isReadOnlySeat(org?.seatType));
+        setAccess({ projectId: params.projectId, canEdit: canEditProject(org) });
       })
       .catch(() => undefined);
   }, [params.projectId]);

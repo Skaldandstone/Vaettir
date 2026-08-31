@@ -10,8 +10,9 @@ async function gotoFixtureReleases(page: import("@playwright/test").Page) {
 test.describe("Release readiness", () => {
   test("the releases list shows the seeded v2.4 release with a readiness badge", async ({ page }) => {
     await gotoFixtureReleases(page);
-    await expect(page.getByText(/v2\.4/)).toBeVisible();
-    await expect(page.getByText(/\/100/)).toBeVisible();
+    const release = page.locator("li.panel").filter({ hasText: "v2.4" });
+    await expect(release).toBeVisible();
+    await expect(release).toContainText(/\/100/);
   });
 
   test("trend charts render when more than one release exists", async ({ page }) => {
@@ -30,21 +31,21 @@ test.describe("Release readiness", () => {
 
   test("opening the v2.4 release shows its acceptance criteria and their live status", async ({ page }) => {
     await gotoFixtureReleases(page);
-    await page.getByText(/v2\.4/).click();
+    await page.locator("li.panel").filter({ hasText: "v2.4" }).getByRole("link").click();
     await expect(page.getByRole("heading", { name: "Acceptance criteria" })).toBeVisible();
     await expect(page.getByText(/MET|NOT_MET|AT_RISK/).first()).toBeVisible();
   });
 
   test("the v2.4 release shows its open risk flag", async ({ page }) => {
     await gotoFixtureReleases(page);
-    await page.getByText(/v2\.4/).click();
+    await page.locator("li.panel").filter({ hasText: "v2.4" }).getByRole("link").click();
     await expect(page.getByRole("heading", { name: "Risk flags" })).toBeVisible();
     await expect(page.getByText(/totp\.ts/)).toBeVisible();
   });
 
   test("resolving an open risk flag moves it out of the default (unresolved) view", async ({ page }) => {
     await gotoFixtureReleases(page);
-    await page.getByText(/v2\.4/).click();
+    await page.locator("li.panel").filter({ hasText: "v2.4" }).getByRole("link").click();
     const flagRow = page.locator("li", { hasText: "connectorFallback.ts" });
     const resolveButton = flagRow.getByRole("button", { name: /resolve/i });
     await expect(resolveButton).toBeVisible();
@@ -52,9 +53,9 @@ test.describe("Release readiness", () => {
     await expect(flagRow).toHaveCount(0);
   });
 
-  test("attempting to mark a BLOCKED release READY surfaces a warning or is refused", async ({ page }) => {
+  test("hard-block policy refuses READY and preserves the blocked release status", async ({ page }) => {
     await gotoFixtureReleases(page);
-    await page.getByText(/v2\.4/).click();
+    await page.locator("li.panel").filter({ hasText: "v2.4" }).getByRole("link").click();
     const statusSelect = page.getByRole("combobox").filter({ has: page.locator('option[value="READY"]') });
     let refused = false;
     page.once("dialog", async (dialog) => { refused = /can't be marked READY/.test(dialog.message()); await dialog.accept(); });

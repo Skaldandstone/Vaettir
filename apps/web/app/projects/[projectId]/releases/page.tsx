@@ -6,9 +6,12 @@ import { trpc, type RouterOutputs } from "@/lib/trpc";
 import { Modal } from "@/components/Modal";
 import { ReadinessBadge } from "@/components/ReadinessBadge";
 import { TrendChart } from "@/components/TrendChart";
+import { useProjectPermissions } from "@/lib/use-project-permissions";
+import { RecoveryMessage } from "@/components/RecoveryMessage";
 
 export default function ReleasesPage() {
   const { projectId } = useParams<{ projectId: string }>();
+  const { canEdit } = useProjectPermissions(projectId);
   const [releases, setReleases] = useState<RouterOutputs["releases"]["list"]>([]);
   const [trend, setTrend] = useState<RouterOutputs["releases"]["trend"]>([]);
   const [loading, setLoading] = useState(true);
@@ -54,9 +57,9 @@ export default function ReleasesPage() {
     <div style={{ maxWidth: 800 }}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 4 }}>
         <h1 style={{ margin: 0 }}>Release readiness</h1>
-        <button className="btn-primary" onClick={() => setCreateOpen(true)}>
+        {canEdit && <button className="btn-primary" onClick={() => setCreateOpen(true)}>
           + New release
-        </button>
+        </button>}
       </div>
       <p className="text-muted" style={{ marginBottom: 20 }}>
         How well each release held up against its <a href={`/projects/${projectId}/test-strategy`}>test strategy</a>
@@ -64,7 +67,7 @@ export default function ReleasesPage() {
       </p>
 
       {loading && <p>Loading…</p>}
-      {error && <p style={{ color: "var(--ember)" }}>{error}</p>}
+      {error && <RecoveryMessage error={error} onRetry={load} />}
 
       {trend.length > 1 && (
         <div className="panel" style={{ marginBottom: 20, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20 }}>

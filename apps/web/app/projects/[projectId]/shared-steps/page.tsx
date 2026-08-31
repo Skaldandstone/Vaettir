@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import { trpc, type RouterOutputs } from "@/lib/trpc";
 import { Modal } from "@/components/Modal";
+import { useProjectPermissions } from "@/lib/use-project-permissions";
 
 interface StepRow {
   action: string;
@@ -57,6 +58,7 @@ function StepEditor({ steps, onChange }: { steps: StepRow[]; onChange: (steps: S
 
 export default function SharedStepsPage() {
   const { projectId } = useParams<{ projectId: string }>();
+  const { canEdit } = useProjectPermissions(projectId);
   const [groups, setGroups] = useState<RouterOutputs["sharedStepGroups"]["list"]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -146,9 +148,9 @@ export default function SharedStepsPage() {
     <div style={{ maxWidth: 700 }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
         <h1>Shared step libraries</h1>
-        <button className="btn-primary" onClick={openCreate}>
+        {canEdit && <button className="btn-primary" onClick={openCreate}>
           + New library
-        </button>
+        </button>}
       </div>
       <p className="text-muted" style={{ fontSize: 13 }}>
         A step sequence authored once and reused across any number of test cases - edit it here and every case using
@@ -169,16 +171,16 @@ export default function SharedStepsPage() {
                 </span>
                 {g.description && <p style={{ margin: "4px 0 0", fontSize: 13 }}>{g.description}</p>}
               </div>
-              <div style={{ display: "flex", gap: 6 }}>
+              {canEdit && <div style={{ display: "flex", gap: 6 }}>
                 <button onClick={() => openEdit(g)}>Edit</button>
                 <button onClick={() => remove(g.id)}>Delete</button>
-              </div>
+              </div>}
             </div>
           </div>
         ))}
       {!loading && groups.length === 0 && <p className="text-muted">No shared step libraries yet.</p>}
 
-      <Modal open={editorOpen} onClose={() => setEditorOpen(false)} title={editingId ? "Edit step library" : "New step library"}>
+      <Modal open={canEdit && editorOpen} onClose={() => setEditorOpen(false)} title={editingId ? "Edit step library" : "New step library"}>
         <div style={{ display: "grid", gap: 10 }}>
           <input placeholder="Name" value={name} onChange={(e) => setName(e.target.value)} />
           <input placeholder="Description (optional)" value={description} onChange={(e) => setDescription(e.target.value)} />

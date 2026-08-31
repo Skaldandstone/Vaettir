@@ -4,6 +4,8 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { trpc, type RouterOutputs } from "../../../lib/trpc";
 import { Modal } from "../../../components/Modal";
+import { canAdministerOrganization } from "../../../lib/membership";
+import { RecoveryMessage } from "../../../components/RecoveryMessage";
 
 const ROLES = ["ADMIN", "EDITOR", "VIEWER", "COMPLIANCE_AUDITOR"];
 const EDIT_ROLES = ["OWNER", "ADMIN", "EDITOR", "VIEWER", "COMPLIANCE_AUDITOR"];
@@ -26,6 +28,7 @@ export default function MembersPage() {
   const [inviting, setInviting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [inviteOpen, setInviteOpen] = useState(false);
+  const [canManage, setCanManage] = useState(false);
 
   async function loadOrgData(organizationId: string) {
     const [memberList, invitationList, usage] = await Promise.all([
@@ -49,6 +52,7 @@ export default function MembersPage() {
         }
         setOrgId(org.id);
         setOrgName(org.name);
+        setCanManage(canAdministerOrganization(org));
         await loadOrgData(org.id);
         setPlanTiers(await trpc.organization.listPlanTiers.query());
       })
@@ -89,8 +93,10 @@ export default function MembersPage() {
 
   async function revoke(invitationId: string) {
     if (!orgId) return;
-    await trpc.organization.revokeInvitation.mutate({ invitationId });
-    await loadOrgData(orgId);
+    try {
+      await trpc.organization.revokeInvitation.mutate({ invitationId });
+      await loadOrgData(orgId);
+    } catch (e) { setError(e instanceof Error ? e.message : String(e)); }
   }
 
   async function updateMember(membershipId: string, newRole: string, newSeatType: "FULL" | "READ_ONLY") {
@@ -116,17 +122,18 @@ export default function MembersPage() {
   }
 
   if (loading) return <p>Loading…</p>;
-  if (error) return <p style={{ color: "var(--ember)" }}>{error}</p>;
+  if (error && !orgId) return <RecoveryMessage error={error} onRetry={() => window.location.reload()} />;
   if (!orgId) return <p>You don't belong to an organization yet.</p>;
 
   return (
     <div style={{ maxWidth: 640 }}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
         <h1>{orgName} members</h1>
-        <button className="btn-primary" onClick={() => setInviteOpen(true)}>
+        {canManage && <button className="btn-primary" onClick={() => setInviteOpen(true)}>
           + Invite someone
-        </button>
+        </button>}
       </div>
+      {error && !inviteOpen && <RecoveryMessage error={error} onRetry={() => window.location.reload()} />}
 
       {seatUsage && (
         <div className="panel" style={{ margin: "12px 0 20px" }}>
@@ -157,8 +164,8 @@ export default function MembersPage() {
             </p>
           )}
           <p className="text-muted">Pending invitations reserve {seatUsage.fullSeatsReserved} full and {seatUsage.readOnlySeatsReserved} read-only seats.</p>
-          {seatUsage.privateBeta && <p>Private beta: no charge, no self-service upgrades. Contact your beta support contact for allowance questions.</p>}
-          {!seatUsage.privateBeta && planTiers.length > 0 && (
+          {seatUsage.privateBeta && <p>Private beta: 500 AI credits per month, no rollover or automatic overage charges. No self-service upgrades. Contact your beta support contact for allowance questions.</p>}
+          {canManage && !seatUsage.privateBeta && planTiers.length > 0 && (
             <div style={{ marginTop: 12, display: "flex", gap: 8, alignItems: "center" }}>
               <label style={{ fontSize: 13 }}>
                 Plan:{" "}
@@ -192,7 +199,8 @@ export default function MembersPage() {
             <tr key={m.id}>
               <td style={cellStyle}>{m.userName ? `${m.userName} (${m.userEmail})` : m.userEmail}</td>
               <td style={cellStyle}>
-                <select
+                {canManage ? <select
+                  aria-label={`Role for ${m.userEmail}`}
                   value={m.role}
                   onChange={(e) => updateMember(m.id, e.target.value, m.seatType as "FULL" | "READ_ONLY")}
                 >
@@ -201,20 +209,21 @@ export default function MembersPage() {
                       {r}
                     </option>
                   ))}
-                </select>
+                </select> : m.role}
               </td>
               <td style={cellStyle}>
-                <select
+                {canManage ? <select
+                  aria-label={`Seat for ${m.userEmail}`}
                   value={m.seatType}
                   onChange={(e) => updateMember(m.id, m.role, e.target.value as "FULL" | "READ_ONLY")}
                   disabled={m.role !== "VIEWER"}
                 >
                   <option value="FULL">Full</option>
                   <option value="READ_ONLY">Read-only</option>
-                </select>
+                </select> : m.seatType === "READ_ONLY" ? "Read-only" : "Full"}
               </td>
               <td style={cellStyle}>
-                <button onClick={() => removeMember(m.id)}>Remove</button>
+                {canManage && <button onClick={() => removeMember(m.id)}>Remove</button>}
               </td>
             </tr>
           ))}

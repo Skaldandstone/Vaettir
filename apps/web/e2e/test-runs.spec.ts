@@ -1,4 +1,5 @@
 import { test, expect } from "./fixtures";
+import { prisma } from "@vaettir/db";
 
 async function gotoFixtureTestRuns(page: import("@playwright/test").Page) {
   await page.goto("/projects");
@@ -17,53 +18,55 @@ test.describe("Test runs & self-healing", () => {
     await gotoFixtureTestRuns(page);
     await page.getByText("github-actions").first().click();
     await expect(page.locator(".drawer-panel")).toBeVisible();
-    await expect(page.locator(".drawer-panel").getByText(/PASS|FAIL/)).toBeVisible();
+    await expect(page.locator(".drawer-panel").getByRole("cell", { name: "PASS", exact: true })).toHaveCount(2);
+    await expect(page.locator(".drawer-panel").getByRole("cell", { name: "FAIL", exact: true })).toHaveCount(1);
   });
 
-  test("@ai classifying a failing result returns a classification and rationale", async ({ page }) => {
+  test("@ai classifying a failing result returns a classification and rationale", async ({ page, isolatedOrg }) => {
+    await prisma.healingSuggestion.deleteMany({ where: { project: { organizationId: isolatedOrg } } });
     await gotoFixtureTestRuns(page);
-    // The most recent run has a real seeded FAIL (the 2FA/TOTP case).
+    // Classification still requires approved model access and source linkage.
     await page.getByText("github-actions").first().click();
     const classifyButton = page.getByRole("button", { name: "Classify failure" }).first();
-    if (await classifyButton.isVisible().catch(() => false)) {
-      await classifyButton.click();
-      await expect(page.getByText(/BRITTLE|REAL REGRESSION|UNCERTAIN/i)).toBeVisible({ timeout: 30_000 });
-    }
+    await expect(classifyButton).toBeVisible();
+    await classifyButton.click();
+    await expect(page.locator(".drawer-panel").getByText(/^(BRITTLE|REAL REGRESSION|UNCERTAIN)$/)).toBeVisible({ timeout: 30_000 });
   });
 
-  test("approving a healing suggestion updates its status", async ({ page }) => {
+  test("approving a healing suggestion persists its reviewed status", async ({ page, isolatedOrg }) => {
     await gotoFixtureTestRuns(page);
     await page.getByText("github-actions").first().click();
     const approveButton = page.getByRole("button", { name: "Approve" }).first();
-    if (await approveButton.isVisible().catch(() => false)) {
-      await approveButton.click();
-      await expect(page.getByText(/approved/i).first()).toBeVisible();
-    }
+    await expect(approveButton).toBeVisible();
+    await approveButton.click();
+    await expect(page.locator(".drawer-panel").getByText("approved", { exact: true })).toBeVisible();
+    await expect.poll(async () => (await prisma.healingSuggestion.findFirstOrThrow({ where: { project: { organizationId: isolatedOrg } } })).status).toBe("APPROVED");
   });
 
   test("the failure classification signal section shows aggregate counts", async ({ page }) => {
     await gotoFixtureTestRuns(page);
     const signalHeading = page.getByRole("heading", { name: "Failure classification signal" });
-    if (await signalHeading.isVisible().catch(() => false)) {
-      await expect(page.getByText(/brittle/i)).toBeVisible();
-    }
+    await expect(signalHeading).toBeVisible();
+    await expect(page.getByText("1 brittle · 0 real regressions · 0 uncertain · 0 resolved (of 1 classified)")).toBeVisible();
   });
 
   test("coverage reports section renders when coverage has been ingested", async ({ page }) => {
     await gotoFixtureTestRuns(page);
     const coverageHeading = page.getByRole("heading", { name: "Coverage" });
-    await expect(coverageHeading.or(page.getByRole("heading", { name: "Test Runs" }))).toBeVisible();
+    await expect(coverageHeading).toBeVisible();
+    await expect(page.getByRole("cell", { name: "ISTANBUL", exact: true })).toBeVisible();
+    await expect(page.getByRole("cell", { name: "80% (8/10)", exact: true })).toBeVisible();
   });
 
-  test("linking an unmatched result to a real test case removes it from the unmatched state", async ({ page }) => {
+  test("linking an unmatched result persists the selected case", async ({ page, isolatedOrg }) => {
     await gotoFixtureTestRuns(page);
     await page.getByText("github-actions").first().click();
     const linkButton = page.getByRole("button", { name: "Link to test case" }).first();
-    if (await linkButton.isVisible().catch(() => false)) {
-      await linkButton.click();
-      await page.getByRole("combobox").last().selectOption({ index: 1 });
-      await page.getByRole("button", { name: "Link", exact: true }).click();
-      await expect(linkButton).not.toBeVisible();
-    }
+    await expect(linkButton).toBeVisible();
+    await linkButton.click();
+    const selected = await page.locator(".drawer-panel").getByRole("combobox").selectOption({ label: "A one-time code is required" });
+    await page.getByRole("button", { name: "Link", exact: true }).click();
+    await expect(page.locator(".drawer-panel").getByText(/unmatched-fixture/)).toHaveCount(0);
+    await expect.poll(async () => (await prisma.testResult.findFirstOrThrow({ where: { externalTestId: "unmatched-fixture", testRun: { project: { organizationId: isolatedOrg } } } })).testCaseId).toBe(selected[0]);
   });
 });

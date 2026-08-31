@@ -6,7 +6,7 @@ import { trpc, type RouterOutputs } from "@/lib/trpc";
 import { ReadinessBadge } from "@/components/ReadinessBadge";
 import { buildHtmlSnapshot, buildMarkdownSnapshot } from "@/lib/snapshotExport";
 import { downloadFile } from "@/lib/download";
-import { isReadOnlySeat } from "@/lib/membership";
+import { canEditProject } from "@/lib/membership";
 import { Modal } from "@/components/Modal";
 
 const STATUSES = ["PLANNING", "IN_TESTING", "READY", "SHIPPED", "BLOCKED"] as const;
@@ -182,7 +182,8 @@ export default function ReleaseReadinessPage() {
   const [error, setError] = useState<string | null>(null);
   const [showResolved, setShowResolved] = useState(false);
   const [exporting, setExporting] = useState<"html" | "markdown" | null>(null);
-  const [readOnly, setReadOnly] = useState(false);
+  const [access, setAccess] = useState<{ projectId: string; canEdit: boolean }>();
+  const readOnly = access?.projectId !== projectId || !access.canEdit;
   const [projectRepo, setProjectRepo] = useState<{ repoUrl: string | null; defaultBranch: string } | null>(null);
   const [summaryModalOpen, setSummaryModalOpen] = useState(false);
 
@@ -193,7 +194,7 @@ export default function ReleaseReadinessPage() {
         setProjectRepo({ repoUrl: p.repoUrl, defaultBranch: p.defaultBranch });
         return trpc.organization.mine.query().then((orgs) => orgs.find((o) => o.id === p.organizationId));
       })
-      .then((org) => setReadOnly(isReadOnlySeat(org?.seatType)))
+      .then((org) => setAccess({ projectId: projectId, canEdit: canEditProject(org) }))
       .catch(() => undefined);
   }, [projectId]);
 

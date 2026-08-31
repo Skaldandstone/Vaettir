@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import { trpc, type RouterOutputs } from "@/lib/trpc";
+import { useProjectPermissions } from "@/lib/use-project-permissions";
 
 const TARGET_FIELDS = ["title", "given", "when", "then", "priority", "tags"] as const;
 type TargetField = (typeof TARGET_FIELDS)[number];
@@ -203,6 +204,7 @@ function BackfillSection({ projectId, defaultBranch }: { projectId: string; defa
 
 export default function ImportPage() {
   const { projectId } = useParams<{ projectId: string }>();
+  const { canEdit, loaded } = useProjectPermissions(projectId);
 
   const [fileName, setFileName] = useState("");
   const [csvText, setCsvText] = useState("");
@@ -302,9 +304,10 @@ export default function ImportPage() {
         created, then confirm. Nothing is written until you commit.
       </p>
 
-      <BackfillSection projectId={projectId} defaultBranch={defaultBranch} />
+      {!canEdit && <p>{loaded ? "A full-seat Owner, Admin or Editor can import cases and CI results. Ask your team owner for access." : "Checking project access…"}</p>}
+      {canEdit && <BackfillSection projectId={projectId} defaultBranch={defaultBranch} />}
 
-      {!preview && (
+      {canEdit && !preview && (
         <div style={{ margin: "16px 0" }}>
           <input
             type="file"
@@ -320,7 +323,7 @@ export default function ImportPage() {
 
       {loadingPreview && !preview && <p className="text-muted">Reading CSV…</p>}
 
-      {preview && (
+      {canEdit && preview && (
         <div className="panel" style={{ marginBottom: 20 }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
             <h2 style={{ marginTop: 0 }}>Map columns — {fileName}</h2>
