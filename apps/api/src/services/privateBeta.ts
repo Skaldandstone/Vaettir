@@ -35,6 +35,8 @@ export async function enrollBetaOwner(db: PrismaClient, email: string, actor: st
 export async function revokeBetaEnrollment(db: PrismaClient, id: string) {
   return db.$transaction(async (tx) => {
     await tx.$queryRaw`SELECT "id" FROM "PlanTier" WHERE "key" = ${PRIVATE_BETA_TIER} FOR UPDATE`;
+    // Claiming locks this row too. Read claimedAt only after obtaining that lock.
+    await tx.$queryRaw`SELECT "id" FROM "BetaEnrollment" WHERE "id" = ${id} FOR UPDATE`;
     const enrollment = await tx.betaEnrollment.findUniqueOrThrow({ where: { id } });
     if (enrollment.claimedAt) {
       throw new TRPCError({ code: "BAD_REQUEST", message: "Claimed enrollments cannot be revoked. Suspend the organization through support instead." });
@@ -45,6 +47,9 @@ export async function revokeBetaEnrollment(db: PrismaClient, id: string) {
 
 export async function bootstrapBetaOrganization(db: PrismaClient, user: Pick<User, "id" | "email">, name: string) {
   return db.$transaction(async (tx) => {
+    // Match enrollment/revocation lock order. Organization creation takes a
+    // foreign-key lock on this tier, so locking enrollment first can deadlock.
+    await tx.$queryRaw`SELECT "id" FROM "PlanTier" WHERE "key" = ${PRIVATE_BETA_TIER} FOR UPDATE`;
     const email = normalizeBetaEmail(user.email);
     await tx.$queryRaw`SELECT "id" FROM "BetaEnrollment" WHERE "email" = ${email} FOR UPDATE`;
     const enrollment = await tx.betaEnrollment.findUnique({ where: { email } });
@@ -54,6 +59,9 @@ export async function bootstrapBetaOrganization(db: PrismaClient, user: Pick<Use
     // Lock the user as well: simultaneous enrollment and invite acceptance
     // must not incorrectly create another workspace for an existing member.
     await tx.$queryRaw`SELECT "id" FROM "User" WHERE "id" = ${user.id} FOR UPDATE`;
+    if (await tx.apiKey.findUnique({ where: { serviceUserId: user.id }, select: { id: true } })) {
+      throw new TRPCError({ code: "FORBIDDEN", message: "Sign in with a human account to accept a beta owner enrollment" });
+    }
     if (await tx.membership.count({ where: { userId: user.id } })) {
       throw new TRPCError({ code: "BAD_REQUEST", message: "User already belongs to an organization" });
     }

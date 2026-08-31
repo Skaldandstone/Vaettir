@@ -1,6 +1,7 @@
 import type { PrismaClient } from "@vaettir/db";
 import { fetchFileAtCommit } from "./changeImpact.js";
 import { kickReverseEngineerQueue } from "../jobs/reverseEngineerWorker.js";
+import { lockMappingProject, validateTriggeringResult } from "./externalTestMapping.js";
 
 // P5-14: turns reverse-engineering from something someone has to remember
 // to run into a standing guarantee. Called from ingestJUnit for every
@@ -20,6 +21,8 @@ export async function autoEnqueueUnmatchedResult(
   prisma: PrismaClient,
   args: { projectId: string; testResultId: string; externalFilePath: string; commitSha: string },
 ): Promise<void> {
+  const result = await validateTriggeringResult(prisma, args.projectId, args.testResultId);
+  if (result.testCaseId) return;
   const project = await prisma.project.findUnique({ where: { id: args.projectId }, select: { repoUrl: true } });
   if (!project?.repoUrl) return;
 
@@ -29,14 +32,19 @@ export async function autoEnqueueUnmatchedResult(
   const content = await fetchFileAtCommit(project.repoUrl, args.commitSha, args.externalFilePath);
   if (!content) return;
 
-  await prisma.reverseEngineerJob.create({
-    data: {
-      projectId: args.projectId,
-      inputType: "CI_UNMATCHED_RESULT",
-      inputRef: args.externalFilePath,
-      content,
-      triggeringResultId: args.testResultId,
-    },
+  await prisma.$transaction(async (tx) => {
+    await lockMappingProject(tx, args.projectId);
+    const current = await validateTriggeringResult(tx, args.projectId, args.testResultId);
+    if (current.testCaseId || await tx.reverseEngineerJob.findUnique({ where: { triggeringResultId: args.testResultId } })) return;
+    await tx.reverseEngineerJob.create({
+      data: {
+        projectId: args.projectId,
+        inputType: "CI_UNMATCHED_RESULT",
+        inputRef: args.externalFilePath,
+        content,
+        triggeringResultId: args.testResultId,
+      },
+    });
   });
   void kickReverseEngineerQueue();
 }

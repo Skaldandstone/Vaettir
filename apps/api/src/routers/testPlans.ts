@@ -5,6 +5,7 @@ import { router, protectedProcedure, staffProcedure, requireProjectAccess } from
 import { recordAudit } from "../services/auditLog.js";
 import { snapshotTestPlanVersion } from "../services/testPlanVersion.js";
 import { chargeAiCredits, InsufficientAiCreditsError } from "../services/aiCredits.js";
+import { requireProjectRequirement } from "../services/projectReferences.js";
 import { getCommitLog } from "../services/changeImpact.js";
 
 const acceptanceCriterionOutput = z.object({
@@ -633,6 +634,7 @@ export const testPlansRouter = router({
         select: { projectId: true },
       });
       await requireProjectAccess(ctx, plan.projectId, "EDITOR");
+      await requireProjectRequirement(ctx.prisma, plan.projectId, input.requirementId);
       return ctx.prisma.acceptanceCriterion.create({
         data: {
           testPlanId: input.testPlanId,
@@ -658,6 +660,7 @@ export const testPlansRouter = router({
         include: { testPlan: { select: { projectId: true } } },
       });
       await requireProjectAccess(ctx, criterion.testPlan.projectId, "EDITOR");
+      await requireProjectRequirement(ctx.prisma, criterion.testPlan.projectId, input.requirementId);
       return ctx.prisma.acceptanceCriterion.update({
         where: { id: input.id },
         data: { description: input.description, status: input.status, requirementId: input.requirementId },

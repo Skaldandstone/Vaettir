@@ -35,7 +35,10 @@ async function grantLocked(tx: Prisma.TransactionClient, organizationId: string,
   const monthStart = creditMonth(now);
   const grantKey = `grant:${monthStart.toISOString().slice(0, 7)}`;
   const granted = await tx.aiCreditTransaction.findFirst({
-    where: { organizationId, type: "GRANT", createdAt: { gte: monthStart } },
+    where: { organizationId, type: "GRANT", OR: [
+      { idempotencyKey: grantKey },
+      { createdAt: { gte: monthStart, lt: new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1)) } },
+    ] },
   });
   if (granted) return;
   if (org.planTier.key === PRIVATE_BETA_TIER) {
@@ -43,12 +46,13 @@ async function grantLocked(tx: Prisma.TransactionClient, organizationId: string,
     if (carried !== 0) await tx.aiCreditTransaction.create({ data: {
       organizationId, type: "ADJUSTMENT", amount: -carried,
       idempotencyKey: `expiry:${monthStart.toISOString().slice(0, 7)}`,
+      createdAt: now,
       description: "Private beta monthly reset: unused allowance does not roll over.",
     } });
   }
   if (org.planTier.includedAiCreditsPerMonth > 0) await tx.aiCreditTransaction.create({ data: {
     organizationId, type: "GRANT", amount: org.planTier.includedAiCreditsPerMonth,
-    idempotencyKey: grantKey, description: `Monthly grant, ${org.planTier.key} tier`,
+    idempotencyKey: grantKey, createdAt: now, description: `Monthly grant, ${org.planTier.key} tier`,
   } });
 }
 

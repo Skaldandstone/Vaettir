@@ -4,6 +4,7 @@ import { router, staffTokenProcedure } from "../trpc.js";
 import { adjustAiCredits } from "../services/aiCredits.js";
 import { lockOrganization } from "../services/organizationLock.js";
 import { usage } from "../services/seatManagement.js";
+import { revokeApiKey } from "../services/revokeApiKey.js";
 
 /**
  * Staff support console (cross-tenant). This is Vaettir's roadmap Phase 13
@@ -187,11 +188,5 @@ export const staffRouter = router({
   // safe direction for an incident.
   revokeApiKey: staffTokenProcedure
     .input(z.object({ apiKeyId: z.string() }))
-    .mutation(async ({ ctx, input }) => {
-      const key = await ctx.prisma.apiKey.findUnique({ where: { id: input.apiKeyId }, select: { id: true, revokedAt: true } });
-      if (!key) throw new TRPCError({ code: "NOT_FOUND", message: "API key not found" });
-      if (key.revokedAt) return { revokedAt: key.revokedAt };
-      const updated = await ctx.prisma.apiKey.update({ where: { id: input.apiKeyId }, data: { revokedAt: new Date() } });
-      return { revokedAt: updated.revokedAt };
-    }),
+    .mutation(({ ctx, input }) => revokeApiKey(ctx.prisma, input.apiKeyId)),
 });
