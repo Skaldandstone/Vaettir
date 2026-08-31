@@ -42,9 +42,11 @@ jobs:
       DATABASE_URL: postgresql://postgres:postgres@localhost:5432/vaettir_candidate_test?schema=public&connection_limit=5
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      # v7 action runtime needs runner >=2.327.1; application runtime stays 22.
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
-          node-version: 22
+          node-version: '>=22.13 <23'
+          package-manager-cache: false
       - uses: pnpm/action-setup@v4
         with:
           run_install: false
@@ -97,9 +99,10 @@ jobs:
           test -n "$CLERK_TEST_EMAIL" && test -n "$CLERK_TEST_PASSWORD" && test -n "$CLERK_TEST_USER_ID"
           case "$NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY" in pk_test_*) ;; *) exit 1 ;; esac
           case "$CLERK_SECRET_KEY" in sk_test_*) ;; *) exit 1 ;; esac
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
-          node-version: 22
+          node-version: '>=22.13 <23'
+          package-manager-cache: false
       - uses: pnpm/action-setup@v4
         with:
           run_install: false
@@ -144,9 +147,10 @@ jobs:
       EXPO_NO_TELEMETRY: '1'
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
-          node-version: 22
+          node-version: '>=22.13 <23'
+          package-manager-cache: false
       - uses: pnpm/action-setup@v4
         with:
           run_install: false
@@ -180,9 +184,10 @@ jobs:
           --health-timeout 5s --health-retries 5
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
-          node-version: 22
+          node-version: '>=22.13 <23'
+          package-manager-cache: false
       - name: Build immutable local images without pushing
         run: |
           docker build -f Dockerfile.api --build-arg VAETTIR_RELEASE_COMMIT="$GITHUB_SHA" -t vaettir-api:"$GITHUB_SHA" .

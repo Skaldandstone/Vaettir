@@ -3,6 +3,10 @@ import { withSentryConfig } from "@sentry/nextjs";
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   transpilePackages: ["@vaettir/core"],
+  // Next also vendors image-size, outside pnpm's patched Metro dependency.
+  // Keep these unused entry points off until that parser is independently fixed
+  // and reviewed. This does not remove the bundled parser or approve an exception.
+  images: { unoptimized: true, disableStaticImages: true },
   // Traces and copies only the node_modules this app actually needs into
   // .next/standalone -- the production Docker image runs that instead of
   // shipping the whole monorepo's node_modules tree.

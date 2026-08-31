@@ -4,7 +4,7 @@
   "version": "0.1.0",
   "packageManager": "pnpm@11.23.0",
   "engines": {
-    "node": ">=22"
+    "node": ">=22.13"
   },
   "scripts": {
     "dev": "turbo run dev",
@@ -12,7 +12,7 @@
     "lint": "turbo run lint",
     "typecheck": "turbo run typecheck",
     "test": "turbo run test",
-    "test:dependencies": "node --test scripts/dependency-security.test.mjs",
+    "test:dependencies": "node --test scripts/dependency-security.test.mjs scripts/tests/compatibility-exposure.test.mjs",
     "db:generate": "pnpm --filter @vaettir/db generate",
     "db:migrate": "pnpm --filter @vaettir/db migrate",
     "db:studio": "pnpm --filter @vaettir/db studio"

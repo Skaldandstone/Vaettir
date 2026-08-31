@@ -28,3 +28,15 @@ coverage
 **/*.p12
 **/*.pem
 **/*.key
+# Local release/signing artifacts are not API/web build inputs. Git-ignored
+# files can still enter a local Docker context unless explicitly excluded.
+apps/mobile/build
+**/.gradle
+**/*.apk
+**/*.aab
+**/*.apks
+**/*.ipa
+**/*.mobileprovision
+**/*.p8
+apps/mobile/credentials.json
+NEEDS_ATTENTION.md

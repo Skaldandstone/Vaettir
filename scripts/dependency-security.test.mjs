@@ -122,6 +122,8 @@ const jxlPrefix = Buffer.concat([sizedBox("JXL ", Buffer.from([13, 10, 135, 10])
 const heifPrefix = sizedBox("ftyp", Buffer.concat([Buffer.from("heic"), Buffer.alloc(4), Buffer.from("heicmif1")]));
 
 test("every locked image-size consumer selects the pinned patched copy", async () => {
+  // This does not cover parsers vendored inside Next. The web config contract
+  // disables unused entry points, but its bundled parser still needs review.
   const lockfile = await readFile(new URL("../pnpm-lock.yaml", import.meta.url), "utf8");
   const entries = lockfile.split("\n").filter(line => /^ {6}image-size:/.test(line));
   assert.equal(entries.length, 1, "Review newly introduced image-size consumers");
@@ -198,3 +200,49 @@ test("image-size preserves supported ICNS, JXL and HEIF dimension paths", async 
   const png = await next("sharp")({ create: { width: 10, height: 6, channels: 4, background: "#26211b" } }).png().toBuffer();
   assert.deepEqual(imageSize(png), { width: 10, height: 6, type: "png" });
 });
+
+test("actual Metro buffer and file asset paths reach patched parsers despite a png filename", async () => temporary(async (directory) => {
+  const metro = imageConsumer();
+  const assetsPath = metro.resolve("metro/src/Assets.js");
+  const icns = Buffer.alloc(16);
+  icns.write("icns"); icns.writeUInt32BE(16, 4); icns.write("icp4", 8);
+  const malformed = [icns, Buffer.concat([jxlPrefix, box("jxlp", 0)]), Buffer.concat([heifPrefix, box("meta", 0)])];
+  const goodIcon = Buffer.from(icns); goodIcon.writeUInt32BE(8, 12);
+  const files = [];
+  for (let index = 0; index < malformed.length; index++) {
+    const file = path.join(directory, `hostile-${index}.png`);
+    await writeFile(file, malformed[index]); files.push(file);
+  }
+  const positive = path.join(directory, "valid-metadata.png"); await writeFile(positive, goodIcon);
+  await new Promise((resolve, reject) => {
+    const worker = new Worker(`
+      const { parentPort, workerData } = require('node:worker_threads');
+      const { readFileSync } = require('node:fs');
+      const assets = require(workerData.assetsPath);
+      (async () => {
+        const rejected = [];
+        for (const file of workerData.files) {
+          let bufferRejected = false, fileRejected = false;
+          try { assets.getAssetSize('png', readFileSync(file), file); } catch { bufferRejected = true; }
+          try { await assets.getAssetData(file, 'fixture.png', [], null, '/assets'); } catch { fileRejected = true; }
+          rejected.push([bufferRejected, fileRejected]);
+        }
+        const validBuffer = assets.getAssetSize('png', readFileSync(workerData.positive), workerData.positive);
+        const validFile = await assets.getAssetData(workerData.positive, 'fixture.png', [], null, '/assets');
+        parentPort.postMessage({ rejected, validBuffer, validFile: { width: validFile.width, height: validFile.height } });
+      })().catch(error => { throw error; });
+    `, { eval: true, workerData: { assetsPath, files, positive }, resourceLimits: { maxOldGenerationSizeMb: 64 } });
+    const timer = setTimeout(() => { void worker.terminate(); reject(new Error("Metro asset parser did not terminate")); }, 3000);
+    worker.once("error", error => { clearTimeout(timer); reject(error); });
+    worker.once("message", result => {
+      clearTimeout(timer);
+      try {
+        assert.deepEqual(result.rejected, malformed.map(() => [true, true]));
+        // ICNS dimensions through a .png name prove content-based dispatch.
+        assert.deepEqual(result.validBuffer, { width: 16, height: 16 });
+        assert.deepEqual(result.validFile, { width: 16, height: 16 });
+        resolve();
+      } catch (error) { reject(error); }
+    });
+  });
+}));
