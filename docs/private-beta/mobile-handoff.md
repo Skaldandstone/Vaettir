@@ -13,6 +13,8 @@ The native Gradle entry adapter resolves the entry file to an absolute path befo
 
 The app's react-native.config.js also retains Expo's own expo.modules.ExpoModulesPackage Android import. Expo 52's in-memory dependency-config loader loses pnpm's realpath and otherwise falls back to an invalid expo.core import. Regenerate native projects after changing this configuration; do not hand-edit generated PackageList.java.
 
+On Windows, the native config plugin puts expo-modules-core's CMake staging directory at apps/mobile/.expo/cxx. This avoids pnpm's deep path exceeding CMake/Ninja object-path limits. Do not move generated files by hand or disable OS security to build. The compile-only arm64 Android release build passed with this configuration; it is not a signed beta acceptance result.
+
 Build the shared core package before native bundling. The EAS post-install hook now does this on clean cloud checkouts. For local typecheck, generate Prisma and build core, db and ai-agent first (or use the repository's topological typecheck workflow). Missing generated declarations are not mobile source errors.
 
 Mobile recovery changes include: purge completion is required after foreground return, old-session responses cannot expire a new session, workspace switching clears the old selection immediately, explicit refresh controls, bounded network wait, readable authentication/access/offline errors, sign-off history loading/error states, and case-review/sign-off recovery that asks the user to reload before resubmitting an uncertain mutation. No paid AI request is automatically retried. Android app backup is disabled and unused external-storage, overlay and vibration permissions are blocked. Keyboard avoidance and accessibility labels cover the companion forms; actual device acceptance remains open.
@@ -23,6 +25,7 @@ Run focused tests from the repository root with pnpm --filter @vaettir/mobile te
 
 - Confirm the intended production Clerk publishable key and corresponding live backend instance. EXPO_PUBLIC values are embedded publicly in the app; never put secret keys there.
 - Set EXPO_PROJECT_ID to the approved Expo project's UUID. app.config.js supplies extra.eas.projectId without inventing or creating an account/project. Preview and TestFlight profiles both use the production EAS environment.
+- Set EXPO_PUBLIC_RELEASE_COMMIT to the exact clean release checkout's full Git SHA. Mobile Sentry uses this immutable identifier, consistent with web/API release records. The shared core sanitizer remains authoritative; no new user, request, source or breadcrumb payload is added. An absent DSN disables reporting and actual alert delivery remains unverified.
 - Link the approved Expo project and store credentials using Expo's protected credential manager or an approved encrypted local signing store. Back up the Android signing key; an upgrade must use the same certificate.
 - Preview profile creates an APK. Disable unauthenticated access to internal builds in Expo project settings before distributing. Internal links are otherwise accessible to anyone who has the URL. [Expo internal distribution](https://docs.expo.dev/build/internal-distribution/).
 - Confirm available build quota/cost with James before cloud builds. No paid capacity was enabled by this implementation.

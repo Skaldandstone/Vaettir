@@ -5,6 +5,7 @@ const path = require("node:path");
 const PRODUCTION_API = "https://vaettir.skaldandstone.com/api";
 function releaseConfigErrors(env, config) {
   const errors = [];
+  if (!/^[a-f0-9]{40}$/i.test(env.EXPO_PUBLIC_RELEASE_COMMIT ?? "")) errors.push("Set EXPO_PUBLIC_RELEASE_COMMIT to the exact full release commit SHA.");
   if (!/^pk_live_[A-Za-z0-9_-]+$/.test(env.EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY ?? "")) errors.push("Set the approved production Clerk publishable key (pk_live_). Never use a secret key.");
   if ((env.EXPO_PUBLIC_API_URL ?? config.extra?.apiUrl) !== PRODUCTION_API) errors.push("Beta distribution must use the approved production HTTPS API endpoint.");
   if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(env.EXPO_PROJECT_ID ?? config.extra?.eas?.projectId ?? "")) errors.push("Set EXPO_PROJECT_ID to the approved Expo project's UUID.");
