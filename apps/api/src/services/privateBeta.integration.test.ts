@@ -54,6 +54,29 @@ describe.sequential("Private beta boundaries", () => {
     await expect((await caller(owner.id)).organization.changePlanTier({ organizationId: orgId, planTierId: tiers[0].id })).rejects.toMatchObject({ code: "FORBIDDEN" });
   });
 
+  it("lets the Studio service reserve an alpha owner slot idempotently", async () => {
+    const studio = appRouter.createCaller({ prisma, user: null, staff: { actor: "invitation-review" } });
+    const email = `${run}-studio@example.com`;
+    const requestId = randomUUID();
+    const first = await studio.beta.enrollFromStudio({ email, requestId });
+    enrollmentIds.push(first.id);
+    const retried = await studio.beta.enrollFromStudio({ email, requestId });
+    expect(retried.id).toBe(first.id);
+    expect(first.email).toBe(email);
+    const stored = await prisma.betaEnrollment.findUniqueOrThrow({ where: { id: first.id } });
+    expect(stored.createdBy).toBe("studio:invitation-review");
+    expect(stored.reason).toBe(`Studio access request ${requestId}`);
+
+    const anonymous = appRouter.createCaller({ prisma, user: null, staff: null });
+    await expect(anonymous.beta.enrollFromStudio({ email: `${run}-denied@example.com`, requestId: randomUUID() }))
+      .rejects.toMatchObject({ code: "UNAUTHORIZED" });
+    await expect(studio.beta.revokeFromStudio({ enrollmentId: first.id, requestId: randomUUID() }))
+      .rejects.toMatchObject({ code: "NOT_FOUND" });
+    const revoked = await studio.beta.revokeFromStudio({ enrollmentId: first.id, requestId });
+    expect(revoked.revokedAt).not.toBeNull();
+    await prisma.betaEnrollment.delete({ where: { id: first.id } });
+  });
+
   it("serializes cohort reservations at three teams", async () => {
     const outcomes = await Promise.allSettled(Array.from({ length: 5 }, (_, n) => enrollBetaOwner(prisma, `${run}-invite${n}@example.com`, "test-staff", run)));
     for (const result of outcomes) if (result.status === "fulfilled") enrollmentIds.push(result.value.id);
