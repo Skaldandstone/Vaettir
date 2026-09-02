@@ -52,17 +52,21 @@ The Expo CLI compatibility patch adapts both tar consumers and must accompany th
 Working directory: C:/Users/James/Documents/Vaettir.
 Logs: .local/readiness/dependencies-35472eb/.
 
-| Check | Result | Log |
-|---|---|---|
-| pnpm install --frozen-lockfile | Passed | install.log |
-| pnpm test:dependencies | Ten passed, including integrity, supported metadata and 53 bounded malformed vectors | consumer-tests.log |
-| API vitest xmlDependency.test.ts, maxWorkers 2 | Six passed | xml-tests.log |
-| pnpm typecheck | Seven tasks passed, zero cache hits | typecheck.log |
-| pnpm audit --prod --json | Exit 1: two high, zero critical/moderate/low | audit-production.json |
+| Check                                          | Result                                                                               | Log                   |
+| ---------------------------------------------- | ------------------------------------------------------------------------------------ | --------------------- |
+| pnpm install --frozen-lockfile                 | Passed                                                                               | install.log           |
+| pnpm test:dependencies                         | Ten passed, including integrity, supported metadata and 53 bounded malformed vectors | consumer-tests.log    |
+| API vitest xmlDependency.test.ts, maxWorkers 2 | Six passed                                                                           | xml-tests.log         |
+| pnpm typecheck                                 | Seven tasks passed, zero cache hits                                                  | typecheck.log         |
+| pnpm audit --prod --json                       | Exit 1: two high, zero critical/moderate/low                                         | audit-production.json |
 
 These are targeted checks on the integration code commit, not a complete release-candidate manifest. The dependency lane's broader local builds/test logs are separately documented in [dependency triage](dependency-triage.md); they are not silently promoted to combined-candidate evidence.
 
 ## Remaining gates and integration requirements
+
+### Current working-tree security recheck
+
+The hosted-sandbox continuation did not change dependency manifests, the lockfile, installed modules or either pinned patch. `pnpm test:dependencies` passed all 18 current consumer/configuration tests, including patch hashes, actual Metro buffer/file entry points, Next optimizer disablement and CI-trigger holds. `pnpm audit --prod --json` still exits 1 with exactly GHSA-w3rx-r6r6-pgpr and GHSA-5p2g-fcmc-qvqq at high severity, with zero critical/moderate/low findings. The isolated scratch parser candidate was not installed or adopted, and these results do not waive either advisory. The Next vendored parser, build trace, Linux/container and native gates below remain open.
 
 - The permissions schema/mobile reconciliation and full candidate validation are recorded at 5a851f1. Later f80e0c4 has only the focused evidence above; repeat the appropriate exact-candidate checks before release, not by reassigning historical results.
 - Resolve the separate Next vendored-parser finding and residual metadata/server-image exposure through independent security review and a supported fix. Keep both advisories visible; entry-point mitigation is not parser acceptance.

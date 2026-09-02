@@ -37,8 +37,12 @@ const BUILT_IN_TEST_PLAN_TYPES = [
     key: "instrumentation",
     name: "Instrumentation",
     category: TestPlanCategory.FUNCTIONAL,
-    description: "On-device/platform instrumentation tests (e.g. Android Espresso).",
-    fieldSchema: { type: "object", properties: { platform: { type: "string" } } },
+    description:
+      "On-device/platform instrumentation tests (e.g. Android Espresso).",
+    fieldSchema: {
+      type: "object",
+      properties: { platform: { type: "string" } },
+    },
   },
   {
     key: "smoke",
@@ -84,7 +88,8 @@ const BUILT_IN_TEST_PLAN_TYPES = [
     key: "qa-strategy",
     name: "QA Strategy",
     category: TestPlanCategory.QUALITY_STRATEGY,
-    description: "Holistic strategy plan: scope, risk areas, environments, tooling, staffing.",
+    description:
+      "Holistic strategy plan: scope, risk areas, environments, tooling, staffing.",
     fieldSchema: {
       type: "object",
       properties: {
@@ -105,10 +110,10 @@ const BUILT_IN_COMPLIANCE_FRAMEWORKS = [
   { key: "iso27001", name: "ISO/IEC 27001", version: "2022" },
 ] as const;
 
-// Seat-based pricing tiers. PROPOSED pricing pending James's sign-off (see
-// PRICING.md for the full reasoning and competitive comps) -- filled in
-// here so the platform has real, usable numbers rather than blocking on a
-// decision at 3am, but these are a recommendation, not a final call.
+// Seat-based pricing tiers. James approved the USD figures for isolated
+// Stripe sandbox validation only (see PRICING.md). They are not approved for
+// live charging, public sales copy or launch; the billing runtime hard-blocks
+// live keys and objects.
 // includedAiCreditsPerMonth sizes to each operation's real LLM cost (see
 // services/aiCredits.ts's AI_OPERATION_COSTS) plus a margin -- 1 credit
 // costs Vaettir ~$0.01 of underlying Claude API spend at the assumed

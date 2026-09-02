@@ -1,8 +1,8 @@
 "use client";
 
-import { useEffect } from "react";
-import { createPortal } from "react-dom";
+import { useId } from "react";
 import type { ReactNode } from "react";
+import { DialogFrame } from "./ui/DialogFrame";
 
 // The shared "pop-out module" pattern: quick, focused actions (create X,
 // invite someone) that don't need a full page navigation and a round trip
@@ -13,35 +13,38 @@ export function Modal({
   onClose,
   title,
   children,
+  dismissible = true,
 }: {
   open: boolean;
   onClose: () => void;
   title: string;
   children: ReactNode;
+  dismissible?: boolean;
 }) {
-  useEffect(() => {
-    if (!open) return;
-    function onKey(e: KeyboardEvent) {
-      if (e.key === "Escape") onClose();
-    }
-    document.addEventListener("keydown", onKey);
-    return () => document.removeEventListener("keydown", onKey);
-  }, [open, onClose]);
-
-  if (!open || typeof document === "undefined") return null;
-
-  return createPortal(
-    <div className="modal-backdrop" onClick={onClose}>
-      <div className="modal-panel" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true">
-        <div className="modal-header">
-          <h2 style={{ margin: 0 }}>{title}</h2>
-          <button className="btn-secondary modal-close" onClick={onClose} type="button" aria-label="Close">
-            ✕
-          </button>
-        </div>
-        {children}
+  const titleId = useId();
+  return (
+    <DialogFrame
+      open={open}
+      onClose={onClose}
+      className="modal-panel"
+      labelledBy={titleId}
+      dismissible={dismissible}
+    >
+      <div className="modal-header">
+        <h2 id={titleId} style={{ margin: 0 }}>
+          {title}
+        </h2>
+        <button
+          className="btn-secondary modal-close"
+          onClick={onClose}
+          type="button"
+          aria-label="Close"
+          disabled={!dismissible}
+        >
+          ✕
+        </button>
       </div>
-    </div>,
-    document.body,
+      {children}
+    </DialogFrame>
   );
 }

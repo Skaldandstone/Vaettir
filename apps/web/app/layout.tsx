@@ -1,6 +1,13 @@
 import type { ReactNode } from "react";
 import Link from "next/link";
-import { ClerkProvider, SignedIn, SignedOut, SignInButton, SignUpButton, UserButton } from "@clerk/nextjs";
+import {
+  ClerkProvider,
+  SignedIn,
+  SignedOut,
+  SignInButton,
+  SignUpButton,
+  UserButton,
+} from "@clerk/nextjs";
 import { RuneMark } from "../components/RuneMark";
 import { ThemeToggle } from "../components/ThemeToggle";
 import { Sidebar } from "../components/Sidebar";
@@ -16,25 +23,34 @@ export default function RootLayout({ children }: { children: ReactNode }) {
     <ClerkProvider
       appearance={{
         variables: {
-          colorPrimary: "#8fa37a",
-          colorBackground: "#2e2820",
-          colorText: "#f3ecdf",
-          colorInputBackground: "#26211b",
-          colorInputText: "#f3ecdf",
-          borderRadius: "3px",
+          colorPrimary: "var(--frost)",
+          colorBackground: "var(--panel)",
+          colorText: "var(--fg)",
+          colorTextSecondary: "var(--muted)",
+          colorTextOnPrimaryBackground: "var(--on-accent)",
+          colorInputBackground: "var(--panel)",
+          colorInputText: "var(--fg)",
+          colorDanger: "var(--ember)",
+          borderRadius: "6px",
           fontFamily: "Inter, sans-serif",
         },
       }}
     >
       <html lang="en">
         <body>
+          <a className="skip-link" href="#main-content">
+            Skip to content
+          </a>
           <nav className="app-nav">
             <div className="app-nav-inner">
               <Link href="/" className="brand">
                 <RuneMark />
                 vaettir
               </Link>
-              <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 12 }}>
+              <span className="nav-product-label">
+                Quality intelligence <span>Private beta</span>
+              </span>
+              <div className="nav-account-actions">
                 <ThemeToggle />
                 <SignedOut>
                   <div style={{ display: "flex", gap: 8 }}>
@@ -54,11 +70,22 @@ export default function RootLayout({ children }: { children: ReactNode }) {
           </nav>
           <div className="app-shell">
             <Sidebar />
-            <main className="app-main">{children}</main>
+            <main id="main-content" className="app-main" tabIndex={-1}>
+              {children}
+            </main>
           </div>
-          <footer style={{ padding: "20px 24px", borderTop: "1px solid var(--border)", fontSize: 14, lineHeight: 1.6 }}>
+          <footer className="app-footer">
             <p>© 2026 Skald and Stone LLC</p>
-            <details><summary style={{ cursor: "pointer", paddingBlock: 12 }}>About copyright</summary><p>Original Vaettir software and studio content. Customer content, third-party material, and existing software licenses retain their own rights.</p></details>
+            <details>
+              <summary style={{ cursor: "pointer", paddingBlock: 12 }}>
+                About copyright
+              </summary>
+              <p>
+                Original Vaettir software and studio content. Customer content,
+                third-party material, and existing software licenses retain
+                their own rights.
+              </p>
+            </details>
           </footer>
         </body>
       </html>

@@ -1,10 +1,11 @@
 # Pricing & AI credits
 
-Status: **proposed, awaiting sign-off.** The numbers below are live in the
-seed data and enforced by the code (real per-seat prices, real AI credit
-grants/metering), so the platform is usable today -- but the actual price
-points are a business decision, not an engineering one, and this doc exists
-so James can review and adjust them without re-deriving the reasoning.
+Status: **approved for private Stripe sandbox validation only.** James approved
+the Team / Business / Corp USD 39 / 59 / 89 per full seat per month figures so
+engineering can validate the exact test catalog and hosted Checkout. This is
+not approval for live charging, public pricing, launch, tax collection or an
+automatic overage. The free private beta remains unchanged. The numbers are in
+seed data and enforced by the sandbox gate, but live mode remains hard-blocked.
 
 ## Why per-seat + credits, not one or the other
 
@@ -22,12 +23,12 @@ for both kinds of customer.
 
 ## Seat tiers (`PlanTier`, seeded in `packages/db/prisma/seed.ts`)
 
-| Tier | Full seats | Read-only seats | Price/seat/mo | AI credits/mo |
-|------|-----------|------------------|---------------|----------------|
-| Free | 1-3 | 0 | $0 | 50 |
-| Team | 4-50 | 10 included, 10 max | $39 | 500 |
-| Business | 51-75 | 10 included, unlimited | $59 | 2,000 |
-| Corp | 76+ | 10 included, unlimited | $89 (list; expect negotiated) | 10,000 |
+| Tier     | Full seats | Read-only seats        | Price/seat/mo                 | AI credits/mo |
+| -------- | ---------- | ---------------------- | ----------------------------- | ------------- |
+| Free     | 1-3        | 0                      | $0                            | 50            |
+| Team     | 4-50       | 10 included, 10 max    | $39                           | 500           |
+| Business | 51-75      | 10 included, unlimited | $59                           | 2,000         |
+| Corp     | 76+        | 10 included, unlimited | $89 (list; expect negotiated) | 10,000        |
 
 Seat boundaries themselves were already decided before this session (see
 `ROADMAP.md`'s Phase 12 intro) - only the dollar amounts and AI credit
@@ -46,7 +47,8 @@ Corp-tier deals get individually negotiated (this is normal for a 76+-seat
 enterprise buyer and matches how every comp above actually sells at that
 size).
 
-**Open questions for James:**
+**Still open before any live or public use:**
+
 - Annual discount? (Common: ~15-20% off for annual prepay.) Not modeled yet.
 - Should Free tier require a credit card / expire, or stay open-ended as a
   PLG funnel? Currently open-ended (no `Organization` field enforces
@@ -69,7 +71,7 @@ tokens** (this is an assumption to verify against your actual Anthropic
 account pricing/tier before treating margin numbers below as exact).
 1 credit is sized to **~$0.01 of underlying model spend**, so credit costs
 below already carry meaningful margin room even before considering the
-credit's *sale* price.
+credit's _sale_ price.
 
 ### Per-operation costs (`AI_OPERATION_COSTS` in `services/aiCredits.ts`)
 
@@ -80,14 +82,14 @@ overnight. Each figure is a single-shot token estimate for that operation
 type, roughly doubled for headroom (retries, longer-than-typical input),
 then converted to credits at $0.01/credit:
 
-| Operation | Est. input tokens | Est. output tokens | Raw cost | Credits charged |
-|---|---|---|---|---|
-| `assessTestCaseRisk` | ~800 | ~300 | ~$0.007 | 2 |
-| `inferCustomFrameworkHeuristic` | ~2,000 | ~500 | ~$0.014 | 3 |
-| `reverseEngineerTestFile` | ~3,000 | ~1,500 | ~$0.032 | 6 |
-| `recommendTestPlansForDiff` | ~10,000 | ~800 | ~$0.042 | 8 |
-| `generateQaStrategyDraft` | ~2,000 | ~3,000 | ~$0.051 | 10 |
-| `classifyTestFailure` (Phase 6.5) | ~4,000 | ~600 | ~$0.021 | 7 |
+| Operation                         | Est. input tokens | Est. output tokens | Raw cost | Credits charged |
+| --------------------------------- | ----------------- | ------------------ | -------- | --------------- |
+| `assessTestCaseRisk`              | ~800              | ~300               | ~$0.007  | 2               |
+| `inferCustomFrameworkHeuristic`   | ~2,000            | ~500               | ~$0.014  | 3               |
+| `reverseEngineerTestFile`         | ~3,000            | ~1,500             | ~$0.032  | 6               |
+| `recommendTestPlansForDiff`       | ~10,000           | ~800               | ~$0.042  | 8               |
+| `generateQaStrategyDraft`         | ~2,000            | ~3,000             | ~$0.051  | 10              |
+| `classifyTestFailure` (Phase 6.5) | ~4,000            | ~600               | ~$0.021  | 7               |
 
 At 50 credits (Free tier), that's roughly 8 reverse-engineer calls or 25
 risk assessments per month before hitting the wall - enough to evaluate
@@ -99,6 +101,7 @@ up for heavier repo-scanning workloads.
 ### What's live vs. not
 
 **Live and enforced today:**
+
 - Every AI-agent call site in the API (`reverseEngineerFile`, `submitJob`
   → the worker's actual LLM call, `scanRepo`/`uploadZip` → same worker
   path, `inferCustomFrameworkHeuristic`, `assessTestCaseRisk` single and
@@ -112,6 +115,7 @@ up for heavier repo-scanning workloads.
   Organization → "AI credits").
 
 **Not built - needs a decision before it can be:**
+
 - **Buying top-off credits.** There's no `TOPUP` transaction path wired to
   anything, because there's no payment provider integrated yet (`P12-05`,
   blocked on this same kind of pricing decision plus a Stripe-vs-alternative

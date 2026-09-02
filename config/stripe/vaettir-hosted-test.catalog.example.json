@@ -1,0 +1,36 @@
+{
+  "schemaVersion": 1,
+  "product": "vaettir",
+  "deploymentEnvironment": "aws-development",
+  "awsAccountId": "734702670689",
+  "awsRegion": "us-east-2",
+  "sandbox": "vaettir-sandbox-replace-me",
+  "environment": "sandbox-vaettir-replace-me",
+  "accountId": "acct_REPLACE_WITH_VAETTIR_SANDBOX",
+  "databaseName": "vaettir_sandbox_replace_me_test",
+  "returnOrigin": "https://vaettir-sandbox.skaldandstone.com",
+  "portalConfiguration": "bpc_REPLACE_WITH_VAETTIR_SANDBOX",
+  "offers": [
+    {
+      "planKey": "team",
+      "priceId": "price_REPLACE_TEAM",
+      "productId": "prod_REPLACE_TEAM",
+      "currency": "usd",
+      "amountCents": 3900
+    },
+    {
+      "planKey": "business",
+      "priceId": "price_REPLACE_BUSINESS",
+      "productId": "prod_REPLACE_BUSINESS",
+      "currency": "usd",
+      "amountCents": 5900
+    },
+    {
+      "planKey": "corp",
+      "priceId": "price_REPLACE_CORP",
+      "productId": "prod_REPLACE_CORP",
+      "currency": "usd",
+      "amountCents": 8900
+    }
+  ]
+}

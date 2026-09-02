@@ -14,19 +14,19 @@ Relative to the validation checkout, the collector manifest is:
 
 All 18 command-log hashes were independently recomputed and matched. All 41 migration hashes are recorded. The collector deliberately exits 1 with `LOCAL_CHECKS_PASSED_SECURITY_BLOCKED` because audit findings remain visible.
 
-| Check | Actual result |
-|---|---|
-| Frozen install, Prisma generation | Passed; Stripe 22.6.0 is the only new locked package, existing dependency patches unchanged |
-| Fresh schema and reference data | All 41 migrations, seed and migration status passed on `vaettir_permissions_stripe_candidate_test`, loopback PostgreSQL 17, pool five |
-| Typecheck | Seven tasks passed |
-| Lint | Six tasks passed, 34 existing warnings, zero errors; direct operations lint passed |
-| Core / API / mobile tests | 37 / 164 / 12 passed |
-| Web permission / isolated fixture contracts | 30 / 5 passed; no authenticated browser session |
-| Operations / dependency-consumer tests | 9 / 10 passed |
-| Total tests | 267, including 51 new billing configuration/PostgreSQL/signature tests; no double counting |
-| Production web/API/shared build | Five tasks passed; Turbo 122.825 seconds, collector wall time approximately 138 seconds; Windows local-server compilation only |
-| Expo compatibility / browser discovery | Passed; 87 browser tests discovered, not executed |
-| Production dependency audit | Two high image-size findings, zero critical/moderate/low; release gate remains blocked |
+| Check                                       | Actual result                                                                                                                         |
+| ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| Frozen install, Prisma generation           | Passed; Stripe 22.6.0 is the only new locked package, existing dependency patches unchanged                                           |
+| Fresh schema and reference data             | All 41 migrations, seed and migration status passed on `vaettir_permissions_stripe_candidate_test`, loopback PostgreSQL 17, pool five |
+| Typecheck                                   | Seven tasks passed                                                                                                                    |
+| Lint                                        | Six tasks passed, 34 existing warnings, zero errors; direct operations lint passed                                                    |
+| Core / API / mobile tests                   | 37 / 164 / 12 passed                                                                                                                  |
+| Web permission / isolated fixture contracts | 30 / 5 passed; no authenticated browser session                                                                                       |
+| Operations / dependency-consumer tests      | 9 / 10 passed                                                                                                                         |
+| Total tests                                 | 267, including 51 new billing configuration/PostgreSQL/signature tests; no double counting                                            |
+| Production web/API/shared build             | Five tasks passed; Turbo 122.825 seconds, collector wall time approximately 138 seconds; Windows local-server compilation only        |
+| Expo compatibility / browser discovery      | Passed; 87 browser tests discovered, not executed                                                                                     |
+| Production dependency audit                 | Two high image-size findings, zero critical/moderate/low; release gate remains blocked                                                |
 
 Actual API-method calls in billing tests are stubbed; the real Stripe SDK verifies webhook signatures against synthetic signed bytes. Tests are not evidence of a real Stripe Checkout, portal or account configuration. [Billing contract and owner decisions](billing-integration.md) record the precise limitations, default-disabled runtime, tax status and secret configuration.
 
@@ -59,6 +59,14 @@ The dump hash was independently checked against its manifest. A deliberate retry
 This is synthetic local recovery mechanics, not RDS/PITR, production load, a seven-day recoverability window or the production four-hour restore objective. All source/target databases and dumps remain on disk. The owned PostgreSQL cluster on port 55439 was stopped after a query confirmed no other client connections. No data was deleted.
 
 ## Remaining software and owner gates
+
+### Hosted sandbox continuation on the integration working tree
+
+The current uncommitted integration working tree adds a separately named, default-disabled `hosted-test` runtime. It accepts only the AWS development account `734702670689` in `us-east-2`, an exact versioned gate, an exact protected Vaettir catalog, a dedicated non-loopback `vaettir_sandbox_*_test` PostgreSQL database, an approved private HTTPS origin and mounted restricted test key plus webhook signing secret. It verifies the current provider account, all three expanded monthly Price/Product objects and the exact portal configuration before any provider mutation. Live key/object patterns, raw secret variables, foreign product/environment/sandbox metadata and mismatched account/origin/database values fail closed. The sandbox-only amounts are USD 39 / 59 / 89 per full seat/month; free beta, live mode, public launch and automatic tax remain unchanged.
+
+All 41 migrations and the reference seed passed against the newly created local `vaettir_hosted_gate_20260831_test` database. The combined configuration/provider/PostgreSQL billing slice passed 79 tests; one POSIX permission check was skipped on Windows. Provider methods were stubbed and the checkout mutation guard was exercised, so this is local code evidence only. API typecheck passed. `pnpm test:dependencies` passed 18 tests. `pnpm audit --prod --json` still exits 1 with exactly two high image-size advisories and no critical, moderate or low findings. No parser candidate, package, lockfile, installed dependency, advisory suppression or security exception was added. No Stripe, AWS or customer-data mutation occurred.
+
+The implementation and infrastructure contract are in [billing integration](billing-integration.md), the protected [catalog template](../../config/stripe/vaettir-hosted-test.catalog.example.json) and [hosted-test handoff](stripe-hosted-test-handoff.md). This focused result is not attributed to `5a851f1`, and it is not a new immutable release candidate until committed and rerun at that exact identity.
 
 Two high image-size advisories remain visible with a reviewed local mitigation and passing consumer regressions. Linux Node 22/PostgreSQL 16, standalone/container/native targets and build-machine exposure still need verification. Do not upgrade to image-size 2.0.2 as a presumed fix; prior triage found both advisories still apply there.
 

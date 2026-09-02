@@ -1,5 +1,18 @@
 # Vaettir - Brand & Style Guide
 
+## Application UI direction, August 31, 2026
+
+James requested a distinct B2B product interface rather than the decorative styles of the other studio products. The web application now uses a graphite navigation rail, light neutral working canvas, compact sans-serif hierarchy, and restrained green action color. This application-specific direction supersedes the marketing color, heading, grain, and control treatments below **inside `apps/web` only**. The lowercase wordmark and canonical five-line rune are unchanged; the serif remains in the brand mark rather than operational headings. Marketing reference material and mobile are not restyled by this change.
+
+- Default application theme: light, with a matching graphite dark theme. Previously stored `warm` preferences resolve to light; stored dark preferences remain dark. Theme persistence is optional if storage is blocked.
+- Working surfaces: white/light or graphite/dark panels, subtle one-pixel borders, five-to-seven-pixel control/panel corners, compact readable rows, explicit focus outlines, and text labels accompanying status colors.
+- Semantic colors: green for passing/ready, amber for risk/pending, red for blocked/failed, violet for AI suggestions, neutral for not evaluated. Brand accents are not a substitute for semantic status.
+- Layout: persistent desktop navigation; horizontally scrollable navigation on narrow screens; local scrolling inside wide tables rather than expanding the page. Display counts come from their actual source, not fabricated health signals.
+- Shared implementation: `components/ui/Workspace.tsx`, `app/globals.css`. Page headings, metric cards, status pills, functional icons and empty states are reused by the example workspace and connected screens.
+- The root example workspace is explicitly synthetic. Its cases, execution outcomes, AI review actions and release gates do not read or write customer data. Real projects and the organization dashboard retain their authenticated APIs and permission controls. It is not a sign-off bypass or live release-health claim.
+
+See [B2B interface implementation and review](docs/private-beta/b2b-interface.md) for the slice delivered and verification boundaries. The rest of this document remains the historical marketing identity reference, not an instruction to restore grain/serif headings throughout the B2B app.
+
 Reference implementation: `vaettir-landing.html` (single-file HTML/CSS/JS prototype).
 Everything below is extracted directly from that file - treat it as the source of truth
 if the two ever drift.

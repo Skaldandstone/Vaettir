@@ -2,35 +2,42 @@
 
 import { useEffect, useState } from "react";
 
-type Theme = "warm" | "dark";
+type Theme = "light" | "dark";
 const STORAGE_KEY = "vaettir-theme";
 
 export function ThemeToggle() {
-  // "warm" is the default theme per STYLE_GUIDE.md #2 -- it should load
-  // first on every page unless the user has an explicit stored preference.
-  const [theme, setTheme] = useState<Theme>("warm");
+  const [theme, setTheme] = useState<Theme>("light");
 
   useEffect(() => {
-    const stored = localStorage.getItem(STORAGE_KEY) as Theme | null;
-    if (stored === "warm" || stored === "dark") {
-      setTheme(stored);
-      document.documentElement.setAttribute("data-theme", stored);
+    try {
+      const stored = localStorage.getItem(STORAGE_KEY);
+      const preferred = stored === "dark" ? "dark" : "light";
+      setTheme(preferred);
+      document.documentElement.setAttribute("data-theme", preferred);
+    } catch {
+      /* Storage is optional. The default remains usable. */
     }
   }, []);
 
   function toggle() {
-    const next: Theme = theme === "warm" ? "dark" : "warm";
+    const next: Theme = theme === "light" ? "dark" : "light";
     setTheme(next);
     document.documentElement.setAttribute("data-theme", next);
-    localStorage.setItem(STORAGE_KEY, next);
+    try {
+      localStorage.setItem(STORAGE_KEY, next);
+    } catch {
+      /* Theme still works for this session. */
+    }
   }
 
   return (
-    <button className="theme-toggle" onClick={toggle} type="button" aria-label="Switch theme">
-      {/* The dot intentionally shows the accent color of the theme you'd
-          switch AWAY from, not the active one -- a deliberate piece of
-          misdirection from STYLE_GUIDE.md #5, not a bug. */}
-      <span className="theme-dot" style={{ background: theme === "warm" ? "var(--ember)" : "var(--frost)" }} />
+    <button
+      className="theme-toggle"
+      onClick={toggle}
+      type="button"
+      aria-label="Switch theme"
+    >
+      <span className="theme-dot" style={{ background: "var(--frost)" }} />
       <span>{theme}</span>
     </button>
   );
