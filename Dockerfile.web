@@ -7,10 +7,13 @@ WORKDIR /app
 # only affect the running container, long after this is already baked in).
 ARG NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY
 ARG NEXT_PUBLIC_API_URL
+# Public by design (Sentry DSNs ship in the browser bundle). Empty => Sentry stays inert.
+ARG NEXT_PUBLIC_SENTRY_DSN
 ARG VAETTIR_RELEASE_COMMIT
 RUN node -e "if(!/^[a-f0-9]{40}$/.test(process.argv[1]))process.exit(1)" "$VAETTIR_RELEASE_COMMIT"
 ENV NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=$NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY \
     NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL \
+    NEXT_PUBLIC_SENTRY_DSN=$NEXT_PUBLIC_SENTRY_DSN \
     NEXT_PUBLIC_RELEASE_COMMIT=$VAETTIR_RELEASE_COMMIT
 
 COPY . .

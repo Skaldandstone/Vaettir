@@ -267,7 +267,27 @@ of an error, so my own cleanup check missed it at the time) - worth
 knowing that a `TestPlan` delete orphans its cases rather than erroring,
 in case that surprises you elsewhere.
 
-## P10-05 Sentry error tracking - built, needs a real DSN to activate
+## P10-05 Sentry error tracking - RESOLVED, deployed and wired in the rebuilt account
+
+**Update 2026-09-02**: the Sentry org now exists - `skald-and-stone`
+(https://skald-and-stone.sentry.io), projects `vaettir-api` and `vaettir-web`,
+one "Default" DSN each. Both DSNs are public by design (they ship in the
+browser bundle) and are fine to keep in docs, CodeBuild env, and plaintext
+task-def env - they do NOT belong in Secrets Manager.
+
+```
+# vaettir-api  (runtime env var on the api task definition)
+SENTRY_DSN=https://9c1e97fef2553b0ee97c47e00af207c2@o4512015786377216.ingest.us.sentry.io/4512015882125312
+# vaettir-web  (Docker build arg -> inlined by next build; ALSO set SENTRY_DSN
+#               on the web task definition for the server-side instrumentation.ts)
+NEXT_PUBLIC_SENTRY_DSN=https://0900927eda606fa6c9e5e33c0ed10e0c@o4512015786377216.ingest.us.sentry.io/4512015882452992
+SENTRY_DSN=https://0900927eda606fa6c9e5e33c0ed10e0c@o4512015786377216.ingest.us.sentry.io/4512015882452992
+```
+
+Done locally the same day: both values in the root `.env`, `Dockerfile.web`
+now accepts/inlines `NEXT_PUBLIC_SENTRY_DSN`, and the api DSN was proven
+end-to-end with a real `captureMessage` from this machine (issue
+`VAETTIR-API-1`, environment `dsn-smoke-test`, resolved afterwards).
 
 Full `@sentry/node` (api) and `@sentry/nextjs` (web) wiring is in and
 verified for real: an actual `INTERNAL_SERVER_ERROR` thrown through a live
@@ -280,23 +300,31 @@ are. Job-poller failures (reverse-engineer queue, readiness digest,
 AI credit grants) are also captured now, since those run unattended with
 no other visibility.
 
-**Entirely inert until a real Sentry project exists** - there's no Sentry
-account/org for this codebase yet. To activate:
-1. Create a (free-tier is fine to start) Sentry project at sentry.io -
-   one for `vaettir-api`, one for `vaettir-web` (or share one project,
-   your call).
-2. Push `SENTRY_DSN` (api) and `SENTRY_DSN`/`NEXT_PUBLIC_SENTRY_DSN`
-   (web, same value) to AWS Secrets Manager alongside the existing three,
-   add them to both ECS task definitions, redeploy. Same shape as the
-   GitHub App secrets gap above - didn't push this myself, since that's a
-   production infra mutation needing your sign-off, not a code change.
-3. Optional, not required for error capture to work: `SENTRY_AUTH_TOKEN`/
-   `SENTRY_ORG`/`SENTRY_PROJECT` as CodeBuild-time env vars would let
-   `withSentryConfig` upload real source maps on `vaettir-web-build`, so
-   stack traces in Sentry show your actual TypeScript instead of minified
-   bundle output. Skipped tonight since it needs the Sentry org/project
-   to exist first - genuinely optional, errors are still fully captured
-   without it, just with minified traces.
+**Update 2026-09-02, later the same day**: the full AWS rebuild (ECS
+cluster, CodeBuild projects, ALB, CloudFront, everything - see
+`docs/AWS_DEPLOYMENT.md`) is done and both `SENTRY_DSN` (api and web task
+definitions) and `NEXT_PUBLIC_SENTRY_DSN` (web CodeBuild project build arg)
+are wired exactly as planned above. The app is live end-to-end at
+`https://d35bt2repnvk6t.cloudfront.net` (api healthy, web healthy, both
+confirmed through the real ALB/CloudFront path) - not yet re-verified with
+a deliberate production 500 to confirm an issue actually lands in Sentry
+under environment `production`, but the exact same wiring pattern was
+already proven once against the old account, so this is low-risk, just
+not re-checked.
+
+`vaettir.skaldandstone.com` itself is not live yet - not an AWS problem,
+a DNS one: the `skaldandstone.com` Cloudflare zone can't be migrated into
+the Cloudflare account connected to this session until **September 6**
+(James's own timeline). An ACM cert for the domain is requested and
+pending DNS validation in the meantime
+(`arn:aws:acm:us-east-1:051722405355:certificate/073eacad-6d20-4d69-ac48-cdd6c156816f`).
+
+**Still optional, not done**: `SENTRY_AUTH_TOKEN`/`SENTRY_ORG=skald-and-stone`/
+`SENTRY_PROJECT=vaettir-web` as CodeBuild env vars so `withSentryConfig`
+uploads source maps and stack traces show TypeScript instead of minified
+bundles. Needs an org auth token created in Sentry first
+(https://skald-and-stone.sentry.io/settings/auth-tokens/) - that one IS
+a secret and should go through Secrets Manager / CodeBuild secret env.
 
 ## Staff-plane branch — RESOLVED (merged + deployed by documents-c4, with your explicit go-ahead)
 
