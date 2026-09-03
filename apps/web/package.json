@@ -12,7 +12,7 @@
   },
   "dependencies": {
     "@clerk/nextjs": "^6.9.0",
-    "@sentry/nextjs": "^10.71.0",
+    "@sentry/nextjs": "^10.72.0",
     "@trpc/client": "^11.0.0-rc.502",
     "@trpc/server": "^11.0.0-rc.502",
     "@vaettir/core": "workspace:*",
