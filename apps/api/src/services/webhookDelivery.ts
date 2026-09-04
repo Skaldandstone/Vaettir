@@ -1,5 +1,6 @@
 import { createHmac, randomBytes } from "node:crypto";
 import type { PrismaClient } from "@vaettir/db";
+import { assertPublicHttpUrl } from "./urlGuard.js";
 
 // P9-06: the concrete, already-real events wired up today. Deliberately a
 // fixed literal list, not an open string - every emitter call site is
@@ -46,6 +47,10 @@ export async function dispatchWebhookEvent(
       let responseStatus: number | null = null;
       let error: string | null = null;
       try {
+        // Re-checked here, not just at creation time: DNS can change (or be
+        // rebound) between when an admin saved this URL and when it's
+        // actually fetched.
+        await assertPublicHttpUrl(endpoint.url);
         const controller = new AbortController();
         const timeout = setTimeout(() => controller.abort(), 5000);
         const res = await fetch(endpoint.url, {
