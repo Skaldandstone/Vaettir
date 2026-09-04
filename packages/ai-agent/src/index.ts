@@ -7,3 +7,4 @@ export * from "./classifyFailure.js";
 export * from "./generateTestCasesFromRequirement.js";
 export * from "./extractRequirementsFromMarkdown.js";
 export * from "./generateReleaseSummary.js";
+export * from "./reviewTestCaseQuality.js";

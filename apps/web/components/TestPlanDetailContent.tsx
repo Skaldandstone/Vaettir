@@ -464,6 +464,116 @@ function StrategyLinkSection({
 // Shared between the full detail page (/test-plans/[id], for deep links)
 // and the drawer opened from the list -- same pop-out-module split as
 // TestCaseDetailContent.
+// 2026-09-02: Vaettir generates and reverse-engineers test cases, but had
+// no way to critique existing ones -- this scans every case already in
+// the plan for vague titles, unclear steps, missing expected results, and
+// near-duplicate coverage between cases. Diagnostic only: it never edits a
+// case itself, same "draft/flag, human decides" shape as every other AI
+// feature here -- there's nothing to "accept," just findings to act on
+// manually (or ignore).
+function TestCaseQualityReviewSection({ testPlanId, projectId }: { testPlanId: string; projectId: string }) {
+  const [caseCount, setCaseCount] = useState<number | null>(null);
+  const [caseTitles, setCaseTitles] = useState<Record<string, string>>({});
+  const [reviewing, setReviewing] = useState(false);
+  const [result, setResult] = useState<RouterOutputs["testCases"]["reviewPlanQuality"] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    trpc.testCases.listForPlan
+      .query({ testPlanId })
+      .then((cases) => {
+        setCaseCount(cases.length);
+        setCaseTitles(Object.fromEntries(cases.map((c) => [c.id, c.title])));
+      })
+      .catch(() => setCaseCount(null));
+  }, [testPlanId]);
+
+  async function review() {
+    setReviewing(true);
+    setError(null);
+    try {
+      const r = await trpc.testCases.reviewPlanQuality.mutate({ testPlanId });
+      setResult(r);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setReviewing(false);
+    }
+  }
+
+  if (caseCount === 0) return null;
+
+  return (
+    <div style={{ marginBottom: 24 }}>
+      <h2>Test case quality</h2>
+      <p className="text-muted" style={{ fontSize: 13, marginTop: -8 }}>
+        AI scan for vague titles, unclear steps, missing expected results, and near-duplicate coverage across
+        this plan's {caseCount ?? "…"} test case{caseCount === 1 ? "" : "s"}. Diagnostic only -- nothing is edited
+        automatically.
+      </p>
+      <button className="btn-secondary" onClick={review} disabled={reviewing || caseCount === null}>
+        {reviewing ? "Reviewing…" : result ? "Review again" : "Review test case quality"}
+      </button>
+      {error && <p style={{ color: "var(--ember)" }}>{error}</p>}
+      {result && (
+        <div style={{ marginTop: 12 }}>
+          {result.truncated && (
+            <p className="text-muted" style={{ fontSize: 12 }}>
+              Only the first {result.reviewedCount} cases were reviewed -- this plan has more than that.
+            </p>
+          )}
+          {result.issues.length === 0 && result.duplicateGroups.length === 0 && (
+            <p style={{ color: "var(--frost)" }}>No quality issues or duplicate coverage found.</p>
+          )}
+          {result.issues.length > 0 && (
+            <>
+              <h3 style={{ fontSize: 14, marginBottom: 6 }}>Issues</h3>
+              <ul style={{ listStyle: "none", padding: 0 }}>
+                {result.issues.map((issue, i) => (
+                  <li key={i} style={{ borderBottom: "1px solid var(--line)", padding: "8px 0" }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
+                      <a href={`/projects/${projectId}/test-cases/${issue.testCaseId}`} style={{ fontWeight: 600 }}>
+                        {caseTitles[issue.testCaseId] ?? issue.testCaseId}
+                      </a>
+                      <span className="text-muted" style={{ fontSize: 11, whiteSpace: "nowrap" }}>
+                        {issue.issueType.replace(/_/g, " ").toLowerCase()}
+                      </span>
+                    </div>
+                    <p style={{ margin: "4px 0", fontSize: 13 }}>{issue.description}</p>
+                    <p className="text-muted" style={{ margin: 0, fontSize: 13 }}>
+                      Suggestion: {issue.suggestion}
+                    </p>
+                  </li>
+                ))}
+              </ul>
+            </>
+          )}
+          {result.duplicateGroups.length > 0 && (
+            <>
+              <h3 style={{ fontSize: 14, marginTop: 16, marginBottom: 6 }}>Possible duplicate coverage</h3>
+              <ul style={{ listStyle: "none", padding: 0 }}>
+                {result.duplicateGroups.map((group, i) => (
+                  <li key={i} style={{ borderBottom: "1px solid var(--line)", padding: "8px 0" }}>
+                    <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                      {group.testCaseIds.map((id, j) => (
+                        <span key={id}>
+                          {j > 0 && <span className="text-muted"> · </span>}
+                          <a href={`/projects/${projectId}/test-cases/${id}`}>{caseTitles[id] ?? id}</a>
+                        </span>
+                      ))}
+                    </div>
+                    <p className="text-muted" style={{ margin: "4px 0 0", fontSize: 13 }}>{group.reason}</p>
+                  </li>
+                ))}
+              </ul>
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function TestPlanDetailContent({
   id,
   onChanged,
@@ -602,6 +712,8 @@ export function TestPlanDetailContent({
       <StrategyLinkSection plan={plan} projectId={plan.projectId} onChanged={load} readOnly={readOnly} />
 
       <VersionHistorySection testPlanId={id} refreshKey={historyVersion} />
+
+      <TestCaseQualityReviewSection testPlanId={id} projectId={plan.projectId} />
 
       <h2>Acceptance criteria</h2>
       <ul style={{ listStyle: "none", padding: 0 }}>

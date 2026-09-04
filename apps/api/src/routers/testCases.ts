@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 import { TestCaseStepInputSchema, resolveStepFieldLabels, type StepFieldKey } from "@vaettir/core";
-import { assessTestCaseRisk } from "@vaettir/ai-agent";
+import { assessTestCaseRisk, reviewTestCaseQuality, type TestCaseForReview } from "@vaettir/ai-agent";
 import { Prisma } from "@vaettir/db";
 import { router, protectedProcedure, requireProjectAccess } from "../trpc.js";
 import { recordAudit } from "../services/auditLog.js";
@@ -408,6 +408,97 @@ export const testCasesRouter = router({
         }
       }
       return { assessedCount, failedCount };
+    }),
+
+  // 2026-09-02: no procedure anywhere queried TestCase scoped to a
+  // testPlanId before this - list() is project-wide only. Needed as its
+  // own query (not just inlined into reviewPlanQuality below) since the
+  // test plan detail page needs the case list to know whether there's
+  // anything to review at all before offering the button.
+  listForPlan: protectedProcedure
+    .input(z.object({ testPlanId: z.string() }))
+    .output(z.array(z.object({ id: z.string(), title: z.string() })))
+    .query(async ({ ctx, input }) => {
+      const plan = await ctx.prisma.testPlan.findUniqueOrThrow({ where: { id: input.testPlanId }, select: { projectId: true } });
+      await requireProjectAccess(ctx, plan.projectId);
+      const cases = await ctx.prisma.testCase.findMany({
+        where: { testPlanId: input.testPlanId, archived: false },
+        select: { id: true, title: true },
+        orderBy: { createdAt: "asc" },
+      });
+      return cases;
+    }),
+
+  // Scans every (non-archived) case in a plan in a single AI call rather
+  // than per-case, since the point is spotting patterns *across* cases
+  // (near-duplicate coverage) that a one-case-at-a-time pass could never
+  // see - unlike assessProjectRisk above, this can't be a sequential loop.
+  // Capped at 30 cases per call: keeps the prompt a reasonable size and
+  // caps the cost of one click: a plan with more than 30 needs more than
+  // one pass, surfaced via `truncated` rather than silently only
+  // reviewing the first page with no indication anything was skipped.
+  reviewPlanQuality: protectedProcedure
+    .input(z.object({ testPlanId: z.string() }))
+    .output(
+      z.object({
+        issues: z.array(
+          z.object({ testCaseId: z.string(), issueType: z.string(), description: z.string(), suggestion: z.string() }),
+        ),
+        duplicateGroups: z.array(z.object({ testCaseIds: z.array(z.string()), reason: z.string() })),
+        reviewedCount: z.number(),
+        truncated: z.boolean(),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const plan = await ctx.prisma.testPlan.findUniqueOrThrow({ where: { id: input.testPlanId }, select: { projectId: true } });
+      const { project } = await requireProjectAccess(ctx, plan.projectId, "EDITOR");
+
+      const REVIEW_LIMIT = 30;
+      const allCases = await ctx.prisma.testCase.findMany({
+        where: { testPlanId: input.testPlanId, archived: false },
+        include: { steps: { orderBy: { order: "asc" } }, sharedStepGroup: true },
+        orderBy: { createdAt: "asc" },
+        take: REVIEW_LIMIT + 1,
+      });
+      const truncated = allCases.length > REVIEW_LIMIT;
+      const cases = allCases.slice(0, REVIEW_LIMIT);
+      if (cases.length === 0) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "This test plan has no test cases to review." });
+      }
+
+      try {
+        await chargeAiCredits(ctx.prisma, project.organizationId, "reviewTestCaseQuality");
+      } catch (e) {
+        if (e instanceof InsufficientAiCreditsError) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: e.message });
+        }
+        throw e;
+      }
+
+      const forReview: TestCaseForReview[] = cases.map((tc) => ({
+        id: tc.id,
+        title: tc.title,
+        given: tc.given,
+        when: tc.when,
+        then: tc.then,
+        steps: tc.sharedStepGroup
+          ? (tc.sharedStepGroup.steps as Array<{ action: string; expectedResult: string | null }>)
+          : tc.steps.map((s) => ({ action: s.action, expectedResult: s.expectedResult })),
+      }));
+
+      const review = await reviewTestCaseQuality(forReview);
+      const validIds = new Set(cases.map((c) => c.id));
+      return {
+        // The AI is instructed to only use real ids, but it's cheap
+        // insurance to drop anything it invented rather than let a bogus
+        // id reach the UI and fail to link anywhere.
+        issues: review.issues.filter((i) => validIds.has(i.testCaseId)),
+        duplicateGroups: review.duplicateGroups
+          .map((g) => ({ ...g, testCaseIds: g.testCaseIds.filter((id) => validIds.has(id)) }))
+          .filter((g) => g.testCaseIds.length >= 2),
+        reviewedCount: cases.length,
+        truncated,
+      };
     }),
 
   // TestRail/Qase both let you type a title and hit Enter to capture a test
