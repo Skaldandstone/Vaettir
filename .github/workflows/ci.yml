@@ -5,6 +5,9 @@ on:
     branches: [master]
   pull_request:
 
+permissions:
+  contents: read
+
 # Cancels a run still going for the same branch when a newer push shows
 # up, so a fast burst of commits doesn't queue up several full Postgres +
 # pnpm-install + test runs in parallel for commits nobody cares about

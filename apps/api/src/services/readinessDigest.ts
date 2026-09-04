@@ -1,4 +1,5 @@
 import type { OrgOverview } from "./orgReadiness.js";
+import { assertPublicHttpUrl } from "./urlGuard.js";
 
 const LABEL_EMOJI: Record<string, string> = { READY: "🟢", AT_RISK: "🟡", BLOCKED: "🔴" };
 
@@ -51,7 +52,10 @@ export function buildDigestFallbackText(orgName: string, overview: OrgOverview):
 }
 
 export async function postSlackDigest(webhookUrl: string, orgName: string, overview: OrgOverview): Promise<void> {
-  const res = await fetch(webhookUrl, {
+  // Re-checked here, not just when the URL was saved: DNS can change (or be
+  // rebound) between then and this scheduled send.
+  const url = await assertPublicHttpUrl(webhookUrl);
+  const res = await fetch(url, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({

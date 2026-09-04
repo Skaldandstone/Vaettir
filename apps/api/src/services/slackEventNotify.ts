@@ -1,5 +1,6 @@
 import type { PrismaClient } from "@vaettir/db";
 import type { WebhookEventType } from "./webhookDelivery.js";
+import { assertPublicHttpUrl } from "./urlGuard.js";
 
 // P9-03: the first "configurable event notifications" slice named in
 // ROADMAP.md - reuses the exact same webhook URL P7-09's digest already
@@ -75,7 +76,10 @@ function buildReviewRequestedBlocks(data: ReviewRequestedData): { text: string; 
 }
 
 async function postToSlack(webhookUrl: string, message: { text: string; blocks: unknown[] }): Promise<void> {
-  const res = await fetch(webhookUrl, {
+  // Re-checked here, not just when the URL was saved (updateDigestSettings):
+  // DNS can change (or be rebound) between then and this event firing.
+  const url = await assertPublicHttpUrl(webhookUrl);
+  const res = await fetch(url, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(message),

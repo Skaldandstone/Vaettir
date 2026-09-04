@@ -14,6 +14,7 @@ import { sendReadinessDigestForOrg } from "../jobs/readinessDigestScheduler.js";
 import { getAiCreditBalance } from "../services/aiCredits.js";
 import { computeRetentionDryRun } from "../services/retentionAudit.js";
 import { WEBHOOK_EVENT_TYPES } from "../services/webhookDelivery.js";
+import { assertPublicHttpUrl, UnsafeUrlError } from "../services/urlGuard.js";
 
 const INVITATION_EXPIRY_DAYS = 7;
 
@@ -212,7 +213,18 @@ export const organizationRouter = router({
         digestHourUtc: input.digestHourUtc,
       };
       if (input.slackWebhookUrl !== undefined) {
-        data.slackWebhookUrl = input.slackWebhookUrl.trim().length > 0 ? input.slackWebhookUrl.trim() : null;
+        const trimmed = input.slackWebhookUrl.trim();
+        if (trimmed.length > 0) {
+          try {
+            await assertPublicHttpUrl(trimmed);
+          } catch (err) {
+            if (err instanceof UnsafeUrlError) {
+              throw new TRPCError({ code: "BAD_REQUEST", message: err.message });
+            }
+            throw err;
+          }
+        }
+        data.slackWebhookUrl = trimmed.length > 0 ? trimmed : null;
       }
       if (data.slackWebhookUrl === null) data.digestEnabled = false;
       await ctx.prisma.organization.update({ where: { id: input.organizationId }, data });

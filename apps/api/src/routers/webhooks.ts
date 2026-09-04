@@ -2,6 +2,7 @@ import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 import { router, protectedProcedure, requireOrgRole } from "../trpc.js";
 import { WEBHOOK_EVENT_TYPES, generateWebhookSecret, dispatchWebhookEvent } from "../services/webhookDelivery.js";
+import { assertPublicHttpUrl, UnsafeUrlError } from "../services/urlGuard.js";
 
 const eventTypeEnum = z.enum(WEBHOOK_EVENT_TYPES);
 
@@ -39,6 +40,14 @@ export const webhooksRouter = router({
     .output(z.object({ id: z.string(), secret: z.string() }))
     .mutation(async ({ ctx, input }) => {
       requireOrgRole(ctx, input.organizationId, "ADMIN");
+      try {
+        await assertPublicHttpUrl(input.url);
+      } catch (err) {
+        if (err instanceof UnsafeUrlError) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: err.message });
+        }
+        throw err;
+      }
       const secret = generateWebhookSecret();
       const endpoint = await ctx.prisma.webhookEndpoint.create({
         data: {
