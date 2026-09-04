@@ -4,6 +4,7 @@ import { canAddSeat, type SeatType as CoreSeatType } from "@vaettir/core";
 import { router, staffProcedure } from "../trpc.js";
 import { recordAudit } from "../services/auditLog.js";
 import { previewOrgHardDelete, hardDeleteOrganization } from "../services/orgHardDelete.js";
+import { computeRepoHealthSnapshot } from "../services/repoHealthSnapshot.js";
 
 // Phase 13: a staff-only surface for Skald & Stone team members to look up
 // accounts and handle support requests across every org - distinct from
@@ -439,4 +440,30 @@ export const adminRouter = router({
         createdAt: e.createdAt,
       }));
     }),
+
+  // Lightweight, on-demand-only replacement for the standalone
+  // quality_dashboard CLI (ported from the rescued Skaldandstone/
+  // test-case-management-platform repo, now retired): GitHub Actions job
+  // pass-rate/flakiness plus a git-churn risk footprint for ANY repo,
+  // without that repo needing to be a Vaettir customer with onboarded
+  // test-case data. Deliberately not persisted -- no snapshot table, no
+  // schedule -- staff runs it and reads the numbers, same as the CLI.
+  repoHealthSnapshot: staffProcedure
+    .input(
+      z.object({
+        repo: z.string().regex(/^[\w.-]+\/[\w.-]+$/, "repo must be \"owner/name\""),
+        workflowFile: z.string().default("ci.yml"),
+        runs: z.number().int().min(1).max(100).default(50),
+        sinceDays: z.number().int().min(1).max(365).default(90),
+        topN: z.number().int().min(1).max(50).default(15),
+      }),
+    )
+    .query(({ input }) =>
+      computeRepoHealthSnapshot(input.repo, {
+        workflowFile: input.workflowFile,
+        runs: input.runs,
+        sinceDays: input.sinceDays,
+        topN: input.topN,
+      }),
+    ),
 });
