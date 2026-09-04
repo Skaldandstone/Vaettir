@@ -1,6 +1,7 @@
 import { Prisma, type PrismaClient } from "@vaettir/db";
 import type { ReverseEngineerResult } from "@vaettir/core";
 import { dispatchWebhookEvent } from "./webhookDelivery.js";
+import { notifySlackEvent } from "./slackEventNotify.js";
 
 // Shared by the synchronous agent.reverseEngineerFile mutation, the
 // background job worker (jobs/reverseEngineerWorker.ts), and P2-13's
@@ -120,13 +121,18 @@ export async function persistReverseEngineerResult(
   // file need review" is the useful unit, not a notification storm for
   // every individual case in a multi-case file.
   if (isAi && persisted.length > 0) {
-    const project = await prisma.project.findUnique({ where: { id: args.projectId }, select: { organizationId: true } });
+    const project = await prisma.project.findUnique({ where: { id: args.projectId }, select: { organizationId: true, name: true } });
     if (project) {
       void dispatchWebhookEvent(prisma, project.organizationId, "test_case.review_requested", {
         projectId: args.projectId,
         filePath: args.filePath,
         count: persisted.length,
         testCaseIds: persisted.map((tc) => tc.id),
+      }).catch(() => undefined);
+      void notifySlackEvent(prisma, project.organizationId, "test_case.review_requested", {
+        projectName: project.name,
+        filePath: args.filePath,
+        count: persisted.length,
       }).catch(() => undefined);
     }
   }

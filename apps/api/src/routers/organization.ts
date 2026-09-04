@@ -13,6 +13,7 @@ import type { PrismaClient } from "@vaettir/db";
 import { sendReadinessDigestForOrg } from "../jobs/readinessDigestScheduler.js";
 import { getAiCreditBalance } from "../services/aiCredits.js";
 import { computeRetentionDryRun } from "../services/retentionAudit.js";
+import { WEBHOOK_EVENT_TYPES } from "../services/webhookDelivery.js";
 
 const INVITATION_EXPIRY_DAYS = 7;
 
@@ -111,6 +112,7 @@ export const organizationRouter = router({
         digestEnabled: z.boolean(),
         digestHourUtc: z.number().nullable(),
         lastDigestSentAt: z.date().nullable(),
+        slackEventTypes: z.array(z.string()),
       }),
     )
     .query(async ({ ctx, input }) => {
@@ -128,6 +130,7 @@ export const organizationRouter = router({
           digestEnabled: true,
           digestHourUtc: true,
           lastDigestSentAt: true,
+          slackEventTypes: true,
         },
       });
       const overrides = (org.stepFieldLabels as Partial<Record<StepFieldKey, string>> | null) ?? {};
@@ -148,6 +151,7 @@ export const organizationRouter = router({
         digestEnabled: org.digestEnabled,
         digestHourUtc: org.digestHourUtc,
         lastDigestSentAt: org.lastDigestSentAt,
+        slackEventTypes: org.slackEventTypes,
       };
     }),
 
@@ -217,6 +221,23 @@ export const organizationRouter = router({
   // Fires a digest immediately -- both "test my webhook" during setup and
   // the "pre-release summary" half of P7-09's ticket (send-on-demand
   // rather than waiting for the daily schedule).
+  // P9-03: which of WEBHOOK_EVENT_TYPES should also post to the same Slack
+  // webhook the digest above uses, in real time as they happen - a second,
+  // independent subscriber of the exact same events P9-06's outbound
+  // webhook system already dispatches, not a replacement for it. Doesn't
+  // require slackWebhookUrl to already be set (an org can pick event types
+  // ahead of adding a webhook; nothing sends until both exist), matching
+  // notifySlackEvent's own no-op-when-unconfigured guard.
+  updateSlackEventTypes: protectedProcedure
+    .input(z.object({ organizationId: z.string(), eventTypes: z.array(z.enum(WEBHOOK_EVENT_TYPES)) }))
+    .mutation(async ({ ctx, input }) => {
+      requireOrgRole(ctx, input.organizationId, "ADMIN");
+      await ctx.prisma.organization.update({
+        where: { id: input.organizationId },
+        data: { slackEventTypes: input.eventTypes },
+      });
+    }),
+
   sendTestDigest: protectedProcedure
     .input(z.object({ organizationId: z.string() }))
     .mutation(async ({ ctx, input }) => {

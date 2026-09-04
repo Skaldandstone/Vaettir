@@ -3,6 +3,7 @@ import { TRPCError } from "@trpc/server";
 import { router, protectedProcedure, requireProjectAccess } from "../trpc.js";
 import { recordAudit } from "../services/auditLog.js";
 import { dispatchWebhookEvent } from "../services/webhookDelivery.js";
+import { notifySlackEvent } from "../services/slackEventNotify.js";
 
 // P3-01/P3-03: ComplianceFramework/ComplianceControl are shared reference
 // data across every org (same pattern as TestPlanType, not project- or
@@ -409,7 +410,8 @@ export const complianceRouter = router({
         },
         include: { signedBy: { select: { email: true } } },
       });
-      const project = await ctx.prisma.project.findUniqueOrThrow({ where: { id: input.projectId }, select: { organizationId: true } });
+      const project = await ctx.prisma.project.findUniqueOrThrow({ where: { id: input.projectId }, select: { organizationId: true, name: true } });
+      const control = await ctx.prisma.complianceControl.findUnique({ where: { id: input.controlId }, select: { title: true } });
       await recordAudit(ctx.prisma, {
         organizationId: project.organizationId,
         projectId: input.projectId,
@@ -422,6 +424,12 @@ export const complianceRouter = router({
       void dispatchWebhookEvent(ctx.prisma, project.organizationId, "compliance.sign_off_recorded", {
         projectId: input.projectId,
         controlId: input.controlId,
+        period: input.period,
+        signedByEmail: signOff.signedBy.email,
+      }).catch(() => undefined);
+      void notifySlackEvent(ctx.prisma, project.organizationId, "compliance.sign_off_recorded", {
+        projectName: project.name,
+        controlName: control?.title ?? input.controlId,
         period: input.period,
         signedByEmail: signOff.signedBy.email,
       }).catch(() => undefined);

@@ -7,6 +7,7 @@ import { matchChangedFilesToTestCases } from "../services/changeMatch.js";
 import { getPathSeverityRules, severityForPath, parsePathSeverityRules } from "../services/prScanPolicy.js";
 import { chargeAiCredits, InsufficientAiCreditsError } from "../services/aiCredits.js";
 import { dispatchWebhookEvent } from "../services/webhookDelivery.js";
+import { notifySlackEvent } from "../services/slackEventNotify.js";
 
 const recommendationOutput = z.object({
   testCaseId: z.string(),
@@ -56,7 +57,7 @@ export const riskAnalysisRouter = router({
         throw new TRPCError({ code: "BAD_REQUEST", message: "No repo URL provided and the project has none configured" });
       }
 
-      let release: { id: string; projectId: string } | null = null;
+      let release: { id: string; projectId: string; name: string } | null = null;
       if (input.releaseId) {
         release = await ctx.prisma.release.findUniqueOrThrow({ where: { id: input.releaseId } });
         if (release.projectId !== input.projectId) {
@@ -110,6 +111,12 @@ export const riskAnalysisRouter = router({
             count: newGaps.length,
             severity: newGaps.map((f) => severityForPath(f, pathSeverityRules)),
             files: newGaps,
+          }).catch(() => undefined);
+          void notifySlackEvent(ctx.prisma, project.organizationId, "risk_flag.created", {
+            projectName: project.name,
+            releaseName: release.name,
+            count: newGaps.length,
+            files: newGaps.map((f) => ({ filePath: f, severity: severityForPath(f, pathSeverityRules) })),
           }).catch(() => undefined);
         }
       }

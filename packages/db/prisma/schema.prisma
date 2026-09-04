@@ -53,6 +53,14 @@ model Organization {
   digestHourUtc    Int?
   lastDigestSentAt DateTime?
 
+  // P9-03: real-time event notifications to the same Slack webhook the
+  // digest above already uses - one shared destination, not a second
+  // "which channel" config, since Slack incoming webhooks are already
+  // bound to one channel at creation on Slack's own side. Subset of
+  // WEBHOOK_EVENT_TYPES (services/webhookDelivery.ts); empty means
+  // subscribed to nothing, same convention as WebhookEndpoint.eventTypes.
+  slackEventTypes String[] @default([])
+
   // Renames the display labels for TestCaseStep's four fields, e.g.
   // {"expectedActionOrData": "Backend Call"}. Keys are the field names in
   // TestCaseStep; any key not present falls back to

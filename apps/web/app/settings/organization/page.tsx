@@ -127,6 +127,79 @@ function ApiKeysSection({ organizationId }: { organizationId: string }) {
 // P9-06: outbound webhooks. Deliberately separate from ApiKeysSection above
 // (inbound auth for CI callers) - this is the opposite direction, the
 // platform pushing events OUT to a URL the org controls.
+// P9-03: which real-time events also post to the same Slack webhook the
+// digest section above configures. A second, independent subscriber of
+// the exact events WebhooksSection's generic webhooks already fire from -
+// not a replacement for it, and no separate "channel" concept, since a
+// Slack incoming webhook is already bound to one channel on Slack's side.
+function SlackEventNotificationsSection({ organizationId }: { organizationId: string }) {
+  const [eventTypes, setEventTypes] = useState<string[]>([]);
+  const [selected, setSelected] = useState<string[]>([]);
+  const [webhookConfigured, setWebhookConfigured] = useState(false);
+  const [loaded, setLoaded] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  function load() {
+    Promise.all([trpc.webhooks.eventTypes.query(), trpc.organization.byId.query({ id: organizationId })])
+      .then(([types, org]) => {
+        setEventTypes([...types]);
+        setSelected(org.slackEventTypes);
+        setWebhookConfigured(org.slackWebhookConfigured);
+        setLoaded(true);
+      })
+      .catch((e) => setError(e instanceof Error ? e.message : String(e)));
+  }
+
+  useEffect(load, [organizationId]);
+
+  function toggle(evt: string) {
+    setSelected((prev) => (prev.includes(evt) ? prev.filter((e) => e !== evt) : [...prev, evt]));
+  }
+
+  async function save() {
+    setSaving(true);
+    setError(null);
+    setSaved(false);
+    try {
+      await trpc.organization.updateSlackEventTypes.mutate({ organizationId, eventTypes: selected as never });
+      setSaved(true);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  if (!loaded) return null;
+
+  return (
+    <div style={{ marginTop: 32 }}>
+      <h2>Slack event notifications</h2>
+      <p style={{ color: "var(--muted)", fontSize: 13 }}>
+        Post real-time events to the same Slack webhook the readiness digest above uses, as they happen -
+        separate from the once-a-day digest.
+        {!webhookConfigured && " Configure a Slack webhook URL above first; nothing sends until one is set."}
+      </p>
+      <div style={{ display: "grid", gap: 6, maxWidth: 480 }}>
+        {eventTypes.map((evt) => (
+          <label key={evt} style={{ fontSize: 13 }}>
+            <input type="checkbox" checked={selected.includes(evt)} onChange={() => toggle(evt)} /> {evt}
+          </label>
+        ))}
+        <div style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 6 }}>
+          <button className="btn-primary" onClick={save} disabled={saving}>
+            {saving ? "Saving…" : "Save"}
+          </button>
+          {saved && <span style={{ color: "var(--frost)" }}>Saved.</span>}
+        </div>
+        {error && <p style={{ color: "var(--ember)" }}>{error}</p>}
+      </div>
+    </div>
+  );
+}
+
 function WebhooksSection({ organizationId }: { organizationId: string }) {
   const [eventTypes, setEventTypes] = useState<string[]>([]);
   const [endpoints, setEndpoints] = useState<RouterOutputs["webhooks"]["list"]>([]);
@@ -969,6 +1042,7 @@ export default function OrganizationSettingsPage() {
         </div>
       )}
 
+      {orgId && <SlackEventNotificationsSection organizationId={orgId} />}
       {orgId && <AiCreditsSection organizationId={orgId} />}
       {orgId && <ApiKeysSection organizationId={orgId} />}
       {orgId && <WebhooksSection organizationId={orgId} />}
