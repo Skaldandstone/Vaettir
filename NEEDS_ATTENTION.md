@@ -374,18 +374,20 @@ a new `vaettir-api` task-def revision, then `./scripts/deploy-aws.sh api`
 under an authenticated `vaettir-toolkit` SSO session. None of that is
 something I'm going to do from an unattended trigger.
 
-## P10-07 uptime alerting — endpoint built, nothing points at it yet
+## P10-07 uptime alerting — RESOLVED
 
-`GET /health/detailed` (and `/api/health/detailed`) now exists and reports
-real DB connectivity plus whether each background job poller is actually
-ticking - see ROADMAP.md for detail. It's a real, useful endpoint today
-if you curl it, but nothing external is watching it yet. To close the
-loop: point a free-tier uptime monitor (UptimeRobot, Better Uptime, etc.)
-or a CloudWatch alarm at `https://vaettir.skaldandstone.com/api/health/detailed`
-and alert when `healthy` is `false` for more than ~15-20 minutes (to
-absorb `readinessDigestScheduler`'s known post-deploy stale window - see
-ROADMAP.md). Didn't set this up myself since it's a new external
-account/CloudWatch resource, not a code change.
+**Update 2026-09-02**: a real Sentry uptime monitor now polls
+`https://vaettir.skaldandstone.com/api/health/detailed` every 5 minutes
+(`skald-and-stone` org, `vaettir-api` project, monitor id `10245987`,
+https://skald-and-stone.sentry.io/monitors/10245987/) and confirmed
+`uptimeStatus: "ok"` on its first real check. A failing check creates a
+Sentry issue, which org members get notified on the same way as every
+other error this app now reports (`P10-05`). Not yet tuned specifically
+for `readinessDigestScheduler`'s known ~15-minute post-deploy stale
+window (see ROADMAP.md `P10-07`) - the monitor alerts on the endpoint's
+HTTP status/response, not on parsing the `healthy` field's reason, so a
+deploy could in principle trip a false-positive alert during that window.
+Worth revisiting if that turns out to be noisy in practice.
 
 ## Low-priority / FYI
 
