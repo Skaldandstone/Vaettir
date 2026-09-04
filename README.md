@@ -138,6 +138,16 @@ You'll need:
   against the same API
 - Optional: `GITHUB_APP_ID`/`GITHUB_APP_PRIVATE_KEY`/`GITHUB_WEBHOOK_SECRET`
   for the PR-scanning GitHub App (only needed if you're testing that path)
+- Optional: `STAFF_GITHUB_TOKEN` for the staff-only Repo Health Snapshot
+  admin tool (`/admin/repo-health`) - a plain PAT with `repo` +
+  `actions:read`, not used anywhere else
+
+`pnpm dev` (root) picks up the root `.env` automatically. If you instead
+start `apps/api`'s dev server directly (e.g. `tsx watch src/server.ts`
+from inside `apps/api`, bypassing `pnpm dev`), nothing auto-loads the root
+`.env` for you - pass it explicitly, e.g.
+`node --env-file=../../.env node_modules/.bin/tsx watch src/server.ts`,
+or you'll hit `Environment variable not found: DATABASE_URL`.
 
 - API: http://localhost:4000 (health check at `/health`, tRPC at `/trpc`)
 - Web: http://localhost:3000 (sign up, then you'll land on `/onboarding` to
