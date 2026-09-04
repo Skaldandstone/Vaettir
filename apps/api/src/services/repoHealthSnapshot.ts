@@ -227,10 +227,14 @@ async function findTestFiles(dir: string): Promise<TestFile[]> {
   }
 
   const files: TestFile[] = [];
-  for (const relativePath of paths) {
+  for (const rawPath of paths) {
+    // node:fs/promises glob returns OS-native separators (backslashes on
+    // Windows) -- normalize to match git's own forward-slash paths, since
+    // matchedTest is displayed alongside those.
+    const relativePath = rawPath.replace(/\\/g, "/");
     try {
-      const content = await readFile(join(dir, relativePath), "utf-8");
-      const fileName = relativePath.split(/[/\\]/).pop() ?? relativePath;
+      const content = await readFile(join(dir, rawPath), "utf-8");
+      const fileName = relativePath.split("/").pop() ?? relativePath;
       files.push({ relativePath, stem: moduleName(relativePath), fileName, content });
     } catch {
       // unreadable file (binary, permissions, race with deletion) -- skip
