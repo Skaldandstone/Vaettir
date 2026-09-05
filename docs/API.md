@@ -115,3 +115,27 @@ across the whole router - genuinely invasive, not attempted here. This
 document is the practical, immediately-usable version: how to actually
 call the API today, verified against a real running server, not a
 speculative spec for tooling that doesn't exist yet.
+
+**A real attempt was made and reverted (2026-09-04)**, worth knowing before
+trying again: `trpc-to-openapi` (the actively-maintained fork of the
+abandoned `trpc-openapi`) is otherwise a good fit - `.meta({ openapi: {...}
+})` per procedure, a real `generateOpenApiDocument()`, adapters for every
+major HTTP framework - and its zod-v3-compatible major version
+(`trpc-to-openapi@2.4.0` + `zod-openapi@4.2.4`; the current `3.x` line
+requires zod v4's internal schema representation, which our zod 3.25.x
+`import { z } from "zod"` usage across the whole codebase doesn't satisfy)
+does correctly generate a real OpenAPI document against our actual router.
+The blocker is downstream of that: **its Fastify adapter
+(`fastifyTRPCOpenApiPlugin`) crashes with `RangeError: Maximum call stack
+size exceeded` in `Reply.get`** on a real request against our exact stack
+(Fastify 5.12.1) - confirmed reproducible, and confirmed to be Fastify-
+adapter-specific, not a deeper library bug: the same router, same
+generated document, and the same request dispatched through
+`createOpenApiHttpHandler` (their plain `node:http` adapter) works
+correctly with no recursion. A real fix exists in principle - bridge
+Fastify's raw `request.raw`/`reply.raw` into the `node:http` handler by
+hand, bypassing the buggy `Reply` decoration entirely - but that's a
+routing change to the production HTTP server with its own real risk
+(catch-all route ordering against the existing `/trpc`, `/health`, and
+webhook routes), not something to push through unattended. If revisiting
+this: start from the `node:http` handler bridge, not the Fastify plugin.
