@@ -81,7 +81,10 @@ export function parseGherkin(content: string): { featureTitle: string; scenarios
       continue;
     }
 
-    const featureMatch = /^Feature:\s*(.*)$/.exec(line);
+    // No \s* before the capture: it overlapped with (.*) on the same
+    // whitespace, a polynomial-ReDoS shape CodeQL flagged. The capture is
+    // already .trim()'d below, so the separator doesn't need its own match.
+    const featureMatch = /^Feature:(.*)$/.exec(line);
     if (featureMatch) {
       featureTitle = (featureMatch[1] ?? "").trim() || featureTitle;
       pendingTags = [];
@@ -95,7 +98,8 @@ export function parseGherkin(content: string): { featureTitle: string; scenarios
       continue;
     }
 
-    const scenarioMatch = /^Scenario(?: Outline)?:\s*(.*)$/.exec(line);
+    // Same ReDoS shape as Feature: above - no \s* before the capture.
+    const scenarioMatch = /^Scenario(?: Outline)?:(.*)$/.exec(line);
     if (scenarioMatch) {
       pushCurrentScenario();
       section = "scenario";
@@ -126,10 +130,14 @@ export function parseGherkin(content: string): { featureTitle: string; scenarios
       continue;
     }
 
-    const stepMatch = /^(Given|When|Then|And|But)\s+(.*)$/.exec(line);
+    // A single \s, not \s+, before (.*): \s+ overlapped with the capture on
+    // the same whitespace, the same polynomial-ReDoS shape as Feature/Scenario
+    // above. .trim() below recovers the "keyword plus multiple spaces" case
+    // \s+ used to absorb outright.
+    const stepMatch = /^(Given|When|Then|And|But)\s(.*)$/.exec(line);
     if (stepMatch) {
       const rawKeyword = stepMatch[1];
-      const text = stepMatch[2];
+      const text = stepMatch[2]?.trim();
       if (!rawKeyword || text === undefined) continue;
       const explicit = rawKeyword.toLowerCase() as "given" | "when" | "then" | "and" | "but";
       const target = section === "background" ? { lastKeyword: undefined as StepKeyword | undefined } : current;

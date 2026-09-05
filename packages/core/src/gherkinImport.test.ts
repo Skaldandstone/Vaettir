@@ -97,6 +97,28 @@ Feature: Discounts
       ["200", "SAVE10", "180"],
     ]);
   });
+
+  it("still trims a keyword line with multiple internal spaces", () => {
+    const { featureTitle, scenarios } = parseGherkin(`
+Feature:    Extra spaces
+  Scenario:    Also extra spaces
+    Given    a condition with leading spaces
+`);
+    expect(featureTitle).toBe("Extra spaces");
+    expect(scenarios[0]!.title).toBe("Also extra spaces");
+    expect(scenarios[0]!.given).toEqual(["a condition with leading spaces"]);
+  });
+
+  it("does not hang on adversarial input (ReDoS regression)", () => {
+    // Feature:/Scenario:/step lines used to have \s*(.*) or \s+(.*), where
+    // the whitespace-matcher and the capture overlapped on the same
+    // characters - a polynomial-ReDoS shape CodeQL flagged. A line with a
+    // long run of spaces after the keyword is the adversarial case.
+    const adversarial = `Feature:${" ".repeat(5000)}x`;
+    const start = performance.now();
+    parseGherkin(adversarial);
+    expect(performance.now() - start).toBeLessThan(200);
+  });
 });
 
 describe("gherkinToReverseEngineerResult", () => {
