@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import { trpc, type RouterOutputs } from "@/lib/trpc";
 
-const TARGET_FIELDS = ["title", "given", "when", "then", "priority", "tags"] as const;
+const TARGET_FIELDS = ["title", "given", "when", "then", "priority", "tags", "externalId"] as const;
 type TargetField = (typeof TARGET_FIELDS)[number];
 
 const FIELD_LABELS: Record<TargetField, string> = {
@@ -14,6 +14,7 @@ const FIELD_LABELS: Record<TargetField, string> = {
   then: "Then (expected result)",
   priority: "Priority",
   tags: "Tags",
+  externalId: "External ID (for re-import)",
 };
 
 function readFileAsText(file: File): Promise<string> {
@@ -340,6 +341,9 @@ export default function ImportPage() {
           </div>
           <p className="text-muted" style={{ fontSize: 13 }}>
             {preview.rowCount} data row(s) found. &quot;Title&quot; is required; leave any other field unmapped to skip it.
+            Map &quot;External ID&quot; to a column with a stable per-row id (e.g. a legacy tool&apos;s own case id) to
+            make this import re-runnable - committing the same file again later updates matching rows in place
+            instead of creating duplicates.
           </p>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, maxWidth: 500 }}>
             {TARGET_FIELDS.map((field) => (
@@ -372,6 +376,7 @@ export default function ImportPage() {
                     <th style={{ textAlign: "left" }}>Then</th>
                     <th style={{ textAlign: "left" }}>Priority</th>
                     <th style={{ textAlign: "left" }}>Tags</th>
+                    {mapping.externalId && <th style={{ textAlign: "left" }}>External ID</th>}
                   </tr>
                 </thead>
                 <tbody>
@@ -384,6 +389,7 @@ export default function ImportPage() {
                       <td>{r.then.join(" | ")}</td>
                       <td>{r.priority}</td>
                       <td>{r.tags.join(", ")}</td>
+                      {mapping.externalId && <td>{r.externalId ?? ""}</td>}
                     </tr>
                   ))}
                 </tbody>
@@ -405,6 +411,7 @@ export default function ImportPage() {
       {committed && (
         <p style={{ color: "var(--frost)" }}>
           Imported {committed.createdCount} test case(s)
+          {committed.updatedCount > 0 && `, updated ${committed.updatedCount} existing case(s)`}
           {committed.skipped.length > 0 && `, skipped ${committed.skipped.length} row(s)`}.
         </p>
       )}
@@ -418,6 +425,7 @@ export default function ImportPage() {
             {jobs.map((j) => (
               <li key={j.id} style={{ borderBottom: "1px solid var(--line)", padding: "6px 0", fontSize: 13 }}>
                 <strong>{j.status}</strong> — {j.source} {j.sourceLabel && `(${j.sourceLabel})`} — {j.createdCount} created
+                {j.updatedCount > 0 && `, ${j.updatedCount} updated`}
                 {j.skippedCount > 0 && `, ${j.skippedCount} skipped`}
                 <span className="text-muted"> · {j.createdByName ?? "unknown"} · {new Date(j.createdAt).toLocaleString()}</span>
               </li>

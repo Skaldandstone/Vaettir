@@ -6,7 +6,11 @@
 // mutation for that, which takes the user-confirmed mapping, never the
 // suggestion.
 
-export const TARGET_FIELDS = ["title", "given", "when", "then", "priority", "tags"] as const;
+// P11-11: "externalId" is optional and never auto-created (skipped in
+// preview until the user maps it deliberately) - mapping it turns a plain
+// one-shot import into a re-runnable one: the commit step matches each row
+// back to a TestCase it created before by this id instead of duplicating.
+export const TARGET_FIELDS = ["title", "given", "when", "then", "priority", "tags", "externalId"] as const;
 export type TargetField = (typeof TARGET_FIELDS)[number];
 
 const HEADER_ALIASES: Record<TargetField, string[]> = {
@@ -16,6 +20,7 @@ const HEADER_ALIASES: Record<TargetField, string[]> = {
   then: ["then", "expected", "expected result", "expected results"],
   priority: ["priority", "severity"],
   tags: ["tags", "labels", "categories"],
+  externalId: [],
 };
 
 const VALID_PRIORITIES = new Set(["CRITICAL", "HIGH", "MEDIUM", "LOW"]);
@@ -99,6 +104,7 @@ export interface MappedRow {
   then: string[];
   priority: "CRITICAL" | "HIGH" | "MEDIUM" | "LOW";
   tags: string[];
+  externalId?: string;
 }
 
 export interface MapCsvResult {
@@ -125,6 +131,7 @@ export function mapCsvRows(text: string, mapping: Partial<Record<TargetField, st
     then: colIndex("then"),
     priority: colIndex("priority"),
     tags: colIndex("tags"),
+    externalId: colIndex("externalId"),
   };
   if (idx.title === -1) {
     throw new Error('The "title" field must be mapped to a CSV column');
@@ -147,8 +154,9 @@ export function mapCsvRows(text: string, mapping: Partial<Record<TargetField, st
     const rawPriority = (idx.priority >= 0 ? r[idx.priority] : "")?.trim().toUpperCase();
     const priority = (VALID_PRIORITIES.has(rawPriority ?? "") ? rawPriority : "MEDIUM") as MappedRow["priority"];
     const tags = idx.tags >= 0 ? splitMultiValue(r[idx.tags]) : [];
+    const externalId = idx.externalId >= 0 ? (r[idx.externalId] ?? "").trim() || undefined : undefined;
 
-    mapped.push({ rowNumber, title, given, when, then, priority, tags });
+    mapped.push({ rowNumber, title, given, when, then, priority, tags, externalId });
   });
 
   return { rows: mapped, skipped };

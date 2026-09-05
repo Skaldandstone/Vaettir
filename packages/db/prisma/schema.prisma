@@ -1092,6 +1092,10 @@ model ImportJob {
 
   status       JobStatus @default(PENDING)
   createdCount Int       @default(0)
+  // P11-11: rows matched to a TestCase this same source already created
+  // (by external id) and updated in place instead of duplicated - only
+  // ever nonzero when the mapping includes an external-id column.
+  updatedCount Int       @default(0)
   skippedCount Int       @default(0)
   errors       Json      @default("[]") // { rowNumber, reason }[]
 

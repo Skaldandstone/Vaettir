@@ -104,4 +104,25 @@ describe("importJobs (real DB, real router)", () => {
       c.importJobs.commitCsv({ projectId, csvText: CSV, mapping: { given: "Preconditions" } as never }),
     ).rejects.toThrow();
   });
+
+  // P11-11: mapping an external-id column makes an import re-runnable -
+  // committing an updated CSV with the same ids should update the matching
+  // TestCase in place, not create a duplicate alongside it.
+  it("commitCsv with an externalId mapping updates a matching row in place on re-import", async () => {
+    const c = await caller();
+    const mapping = { title: "Title", then: "Then", externalId: "Id" };
+    const v1 = `Id,Title,Then\nEXT-1,Original title,Original then\n`;
+    const commit1 = await c.importJobs.commitCsv({ projectId, csvText: v1, mapping, sourceLabel: "resync-v1.csv" });
+    expect(commit1.createdCount).toBe(1);
+    expect(commit1.updatedCount).toBe(0);
+
+    const v2 = `Id,Title,Then\nEXT-1,Updated title,Original then\n`;
+    const commit2 = await c.importJobs.commitCsv({ projectId, csvText: v2, mapping, sourceLabel: "resync-v2.csv" });
+    expect(commit2.createdCount).toBe(0);
+    expect(commit2.updatedCount).toBe(1);
+
+    const matching = await prisma.testCase.findMany({ where: { projectId, title: { in: ["Original title", "Updated title"] } } });
+    expect(matching).toHaveLength(1);
+    expect(matching[0]?.title).toBe("Updated title");
+  });
 });
