@@ -703,4 +703,168 @@ export const organizationRouter = router({
         recent,
       };
     }),
+
+  // P10-01: how long since this org last completed a full access review -
+  // the UI's cue for whether one is overdue. null means never reviewed.
+  accessReviewStatus: protectedProcedure
+    .input(z.object({ organizationId: z.string() }))
+    .output(z.object({ lastReviewedAt: z.date().nullable(), daysSinceLastReview: z.number().nullable() }))
+    .query(async ({ ctx, input }) => {
+      requireOrgRole(ctx, input.organizationId, "ADMIN");
+      const last = await ctx.prisma.accessReview.findFirst({
+        where: { organizationId: input.organizationId },
+        orderBy: { performedAt: "desc" },
+        select: { performedAt: true },
+      });
+      if (!last) return { lastReviewedAt: null, daysSinceLastReview: null };
+      const daysSinceLastReview = Math.floor((Date.now() - last.performedAt.getTime()) / (1000 * 60 * 60 * 24));
+      return { lastReviewedAt: last.performedAt, daysSinceLastReview };
+    }),
+
+  listAccessReviews: protectedProcedure
+    .input(z.object({ organizationId: z.string() }))
+    .output(
+      z.array(
+        z.object({
+          id: z.string(),
+          period: z.string(),
+          performedAt: z.date(),
+          performedByEmail: z.string(),
+          confirmedCount: z.number(),
+          revokedCount: z.number(),
+        }),
+      ),
+    )
+    .query(async ({ ctx, input }) => {
+      requireOrgRole(ctx, input.organizationId, "ADMIN");
+      const reviews = await ctx.prisma.accessReview.findMany({
+        where: { organizationId: input.organizationId },
+        include: { performedBy: { select: { email: true } }, entries: { select: { decision: true } } },
+        orderBy: { performedAt: "desc" },
+      });
+      return reviews.map((r) => ({
+        id: r.id,
+        period: r.period,
+        performedAt: r.performedAt,
+        performedByEmail: r.performedBy.email,
+        confirmedCount: r.entries.filter((e) => e.decision === "CONFIRMED").length,
+        revokedCount: r.entries.filter((e) => e.decision === "REVOKED").length,
+      }));
+    }),
+
+  getAccessReviewDetail: protectedProcedure
+    .input(z.object({ id: z.string() }))
+    .output(
+      z.object({
+        id: z.string(),
+        period: z.string(),
+        performedAt: z.date(),
+        performedByEmail: z.string(),
+        entries: z.array(
+          z.object({
+            userEmail: z.string(),
+            role: z.string(),
+            seatType: z.string(),
+            decision: z.string(),
+            note: z.string().nullable(),
+          }),
+        ),
+      }),
+    )
+    .query(async ({ ctx, input }) => {
+      const review = await ctx.prisma.accessReview.findUniqueOrThrow({
+        where: { id: input.id },
+        include: { performedBy: { select: { email: true } }, entries: true },
+      });
+      requireOrgRole(ctx, review.organizationId, "ADMIN");
+      return {
+        id: review.id,
+        period: review.period,
+        performedAt: review.performedAt,
+        performedByEmail: review.performedBy.email,
+        entries: review.entries.map((e) => ({
+          userEmail: e.userEmail,
+          role: e.role,
+          seatType: e.seatType,
+          decision: e.decision,
+          note: e.note,
+        })),
+      };
+    }),
+
+  // A review must cover every current member in one pass (no partial/drip
+  // review) so each completed AccessReview row is genuinely "we reviewed
+  // everyone's access on this date," which is what a SOC 2 auditor actually
+  // wants to see - not an open-ended queue that might never finish.
+  // REVOKED decisions take effect immediately (the member is removed), same
+  // rule as removeMember/updateMember: can't revoke every Owner at once.
+  submitAccessReview: protectedProcedure
+    .input(
+      z.object({
+        organizationId: z.string(),
+        period: z.string().min(1),
+        decisions: z
+          .array(
+            z.object({
+              membershipId: z.string(),
+              decision: z.enum(["CONFIRMED", "REVOKED"]),
+              note: z.string().optional(),
+            }),
+          )
+          .min(1),
+      }),
+    )
+    .output(z.object({ id: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      requireOrgRole(ctx, input.organizationId, "ADMIN");
+
+      const memberships = await ctx.prisma.membership.findMany({
+        where: { organizationId: input.organizationId },
+        include: { user: { select: { email: true } } },
+      });
+      const byId = new Map(memberships.map((m) => [m.id, m]));
+      const decisionIds = new Set(input.decisions.map((d) => d.membershipId));
+      if (decisionIds.size !== input.decisions.length || decisionIds.size !== memberships.length || memberships.some((m) => !decisionIds.has(m.id))) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "A review must cover every current member exactly once, with no omissions or duplicates",
+        });
+      }
+
+      const revokedIds = input.decisions.filter((d) => d.decision === "REVOKED").map((d) => d.membershipId);
+      const remainingOwners = memberships.filter((m) => m.role === "OWNER" && !revokedIds.includes(m.id)).length;
+      if (memberships.some((m) => m.role === "OWNER") && remainingOwners === 0) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "An organization must have at least one Owner - can't revoke every Owner in the same review",
+        });
+      }
+
+      const review = await ctx.prisma.accessReview.create({
+        data: {
+          organizationId: input.organizationId,
+          period: input.period,
+          performedById: ctx.user.id,
+          entries: {
+            create: input.decisions.map((d) => {
+              const m = byId.get(d.membershipId)!;
+              return {
+                userId: m.userId,
+                userEmail: m.user.email,
+                role: m.role,
+                seatType: m.seatType,
+                decision: d.decision,
+                note: d.note,
+              };
+            }),
+          },
+        },
+      });
+
+      if (revokedIds.length > 0) {
+        await ctx.prisma.membership.deleteMany({ where: { id: { in: revokedIds } } });
+      }
+
+      return { id: review.id };
+    }),
 });

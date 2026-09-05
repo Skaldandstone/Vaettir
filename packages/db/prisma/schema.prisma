@@ -85,6 +85,7 @@ model Organization {
   apiKeys              ApiKey[]
   auditLogs            AuditLog[]
   webhookEndpoints     WebhookEndpoint[]
+  accessReviews        AccessReview[]
 }
 
 // P13-05: the permanent record that an org was hard-deleted - by whom,
@@ -257,6 +258,9 @@ model User {
   signOffRequestsReceived ComplianceSignOffRequest[] @relation("SignOffRequestsReceived")
   signOffRequestsSent     ComplianceSignOffRequest[] @relation("SignOffRequestsSent")
   pushTokens              PushToken[]
+
+  // P10-01
+  performedAccessReviews AccessReview[]
 }
 
 enum OrgRole {
@@ -1239,6 +1243,49 @@ model PushToken {
   createdAt DateTime @default(now())
 
   @@index([userId])
+}
+
+// P10-01: a SOC 2 auditor wants proof that org access is periodically
+// reviewed, not just that RBAC exists - one row per completed review round.
+// Deliberately requires covering every current member in one go (enforced
+// in the router, not here) rather than allowing a partial/drip review, so
+// each row is genuinely "we reviewed everyone's access on this date."
+model AccessReview {
+  id             String       @id @default(cuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  period         String
+  performedById  String
+  performedBy    User         @relation(fields: [performedById], references: [id])
+  performedAt    DateTime     @default(now())
+
+  entries AccessReviewEntry[]
+
+  @@index([organizationId, performedAt])
+}
+
+enum AccessReviewDecision {
+  CONFIRMED
+  REVOKED
+}
+
+// Snapshot fields (not a Membership FK) - a member confirmed or revoked
+// today may have their Membership changed or removed entirely tomorrow
+// (a REVOKED decision does exactly that immediately), and this row must
+// stay an accurate historical record of what was actually reviewed and
+// decided regardless of what happens to the membership afterward.
+model AccessReviewEntry {
+  id             String               @id @default(cuid())
+  accessReviewId String
+  accessReview   AccessReview         @relation(fields: [accessReviewId], references: [id], onDelete: Cascade)
+  userId         String
+  userEmail      String
+  role           OrgRole
+  seatType       SeatType
+  decision       AccessReviewDecision
+  note           String?
+
+  @@index([accessReviewId])
 }
 
 model TestCaseComplianceControl {
