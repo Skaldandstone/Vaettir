@@ -4,6 +4,7 @@ import { ClerkProvider, SignedIn, SignedOut, SignInButton, SignUpButton, UserBut
 import { RuneMark } from "../components/RuneMark";
 import { ThemeToggle } from "../components/ThemeToggle";
 import { Sidebar } from "../components/Sidebar";
+import { TRPCReactProvider } from "../lib/trpcReact";
 import "./globals.css";
 
 export const metadata = {
@@ -28,6 +29,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
     >
       <html lang="en">
         <body>
+        <TRPCReactProvider>
           <nav className="app-nav">
             <div className="app-nav-inner">
               <Link href="/" className="brand">
@@ -60,6 +62,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
             <p>© 2026 Skald and Stone LLC</p>
             <details><summary style={{ cursor: "pointer", paddingBlock: 12 }}>About copyright</summary><p>Original Vaettir software and studio content. Customer content, third-party material, and existing software licenses retain their own rights.</p></details>
           </footer>
+        </TRPCReactProvider>
         </body>
       </html>
     </ClerkProvider>

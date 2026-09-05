@@ -36,7 +36,10 @@ async function waitForClerk(timeoutMs = 5000): Promise<Window["Clerk"]> {
   return window.Clerk;
 }
 
-async function getAuthHeaders(): Promise<Record<string, string>> {
+// Exported so lib/trpcReact.tsx's react-query client (P1-15) can share the
+// exact same Clerk-token/race-condition handling instead of a second,
+// possibly-drifting copy.
+export async function getAuthHeaders(): Promise<Record<string, string>> {
   if (typeof window === "undefined") return {};
   const clerk = await waitForClerk();
   if (clerk && !clerk.loaded) {

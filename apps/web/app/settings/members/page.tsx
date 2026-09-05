@@ -2,121 +2,94 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { trpc, type RouterOutputs } from "../../../lib/trpc";
+import { trpcReact } from "../../../lib/trpcReact";
 import { Modal } from "../../../components/Modal";
 
 const ROLES = ["ADMIN", "EDITOR", "VIEWER", "COMPLIANCE_AUDITOR"];
 const EDIT_ROLES = ["OWNER", "ADMIN", "EDITOR", "VIEWER", "COMPLIANCE_AUDITOR"];
 
+// P1-15: the first page migrated off the manual useState/useEffect fetch
+// pattern every other page still uses, onto @trpc/react-query hooks - real
+// caching/invalidation instead of each mutation hand-calling a loadOrgData()
+// refetch-everything function. Kept deliberately close to the original
+// page's exact behavior (same loading/error UX, same "refetch org data
+// broadly after any mutation" approach) so this is a faithful proof of the
+// pattern, not a redesign - see ROADMAP.md's P1-15 entry for what's left.
 export default function MembersPage() {
   const router = useRouter();
-  const [orgId, setOrgId] = useState<string | null>(null);
-  const [orgName, setOrgName] = useState("");
-  const [members, setMembers] = useState<RouterOutputs["organization"]["listMembers"]>([]);
-  const [invitations, setInvitations] = useState<RouterOutputs["organization"]["listInvitations"]>([]);
-  const [seatUsage, setSeatUsage] = useState<RouterOutputs["organization"]["seatUsage"] | null>(null);
-  const [planTiers, setPlanTiers] = useState<RouterOutputs["organization"]["listPlanTiers"]>([]);
-  const [changingPlan, setChangingPlan] = useState(false);
-  const [planError, setPlanError] = useState<string | null>(null);
+  const utils = trpcReact.useUtils();
+
+  const orgsQuery = trpcReact.organization.mine.useQuery();
+  const orgId = orgsQuery.data?.[0]?.id;
+  const orgName = orgsQuery.data?.[0]?.name ?? "";
+
+  const membersQuery = trpcReact.organization.listMembers.useQuery({ organizationId: orgId! }, { enabled: !!orgId });
+  // ADMIN+ only; non-admins just won't see this - same as the original's .catch(() => []).
+  const invitationsQuery = trpcReact.organization.listInvitations.useQuery({ organizationId: orgId! }, { enabled: !!orgId, retry: false });
+  const seatUsageQuery = trpcReact.organization.seatUsage.useQuery({ organizationId: orgId! }, { enabled: !!orgId });
+  const planTiersQuery = trpcReact.organization.listPlanTiers.useQuery(undefined, { enabled: !!orgId });
+
+  const members = membersQuery.data ?? [];
+  const invitations = invitationsQuery.data ?? [];
+  const seatUsage = seatUsageQuery.data ?? null;
+  const planTiers = planTiersQuery.data ?? [];
+
   const [email, setEmail] = useState("");
   const [role, setRole] = useState("EDITOR");
   const [seatType, setSeatType] = useState<"FULL" | "READ_ONLY">("FULL");
   const [inviteLink, setInviteLink] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [inviting, setInviting] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [inviteError, setInviteError] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
   const [inviteOpen, setInviteOpen] = useState(false);
 
-  async function loadOrgData(organizationId: string) {
-    const [memberList, invitationList, usage] = await Promise.all([
-      trpc.organization.listMembers.query({ organizationId }),
-      trpc.organization.listInvitations.query({ organizationId }).catch(() => []), // ADMIN+ only; non-admins just won't see this
-      trpc.organization.seatUsage.query({ organizationId }),
-    ]);
-    setMembers(memberList);
-    setInvitations(invitationList);
-    setSeatUsage(usage);
-  }
-
   useEffect(() => {
-    trpc.organization.mine
-      .query()
-      .then(async (orgs) => {
-        const org = orgs[0];
-        if (!org) {
-          router.push("/onboarding");
-          return;
-        }
-        setOrgId(org.id);
-        setOrgName(org.name);
-        await loadOrgData(org.id);
-        setPlanTiers(await trpc.organization.listPlanTiers.query());
-      })
-      .catch((e) => setError(String(e)))
-      .finally(() => setLoading(false));
-  }, [router]);
+    if (orgsQuery.data && orgsQuery.data.length === 0) router.push("/onboarding");
+  }, [orgsQuery.data, router]);
 
-  async function changePlan(planTierId: string) {
-    if (!orgId) return;
-    setChangingPlan(true);
-    setPlanError(null);
-    try {
-      await trpc.organization.changePlanTier.mutate({ organizationId: orgId, planTierId });
-      await loadOrgData(orgId);
-    } catch (e) {
-      setPlanError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setChangingPlan(false);
-    }
+  function invalidateOrgData() {
+    return utils.organization.invalidate();
   }
 
-  async function submitInvite() {
-    if (!orgId) return;
-    setInviting(true);
-    setError(null);
-    setInviteLink(null);
-    try {
-      const result = await trpc.organization.inviteMember.mutate({ organizationId: orgId, email, role: role as never, seatType });
+  const changePlanMutation = trpcReact.organization.changePlanTier.useMutation({
+    onSuccess: () => invalidateOrgData(),
+  });
+  const inviteMutation = trpcReact.organization.inviteMember.useMutation({
+    onSuccess: (result) => {
       setInviteLink(`${window.location.origin}/invite/${result.token}`);
       setEmail("");
-      await loadOrgData(orgId);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setInviting(false);
-    }
+      void invalidateOrgData();
+    },
+    onError: (e) => setInviteError(e.message),
+  });
+  const revokeMutation = trpcReact.organization.revokeInvitation.useMutation({
+    onSuccess: () => invalidateOrgData(),
+  });
+  const updateMemberMutation = trpcReact.organization.updateMember.useMutation({
+    onSuccess: () => invalidateOrgData(),
+    onError: (e) => setActionError(e.message),
+  });
+  const removeMemberMutation = trpcReact.organization.removeMember.useMutation({
+    onSuccess: () => invalidateOrgData(),
+    onError: (e) => setActionError(e.message),
+  });
+
+  function submitInvite() {
+    if (!orgId) return;
+    setInviteError(null);
+    setInviteLink(null);
+    inviteMutation.mutate({ organizationId: orgId, email, role: role as never, seatType });
   }
 
-  async function revoke(invitationId: string) {
-    if (!orgId) return;
-    await trpc.organization.revokeInvitation.mutate({ invitationId });
-    await loadOrgData(orgId);
+  function updateMember(membershipId: string, newRole: string, newSeatType: "FULL" | "READ_ONLY") {
+    setActionError(null);
+    updateMemberMutation.mutate({ membershipId, role: newRole as never, seatType: newSeatType });
   }
 
-  async function updateMember(membershipId: string, newRole: string, newSeatType: "FULL" | "READ_ONLY") {
-    if (!orgId) return;
-    setError(null);
-    try {
-      await trpc.organization.updateMember.mutate({ membershipId, role: newRole as never, seatType: newSeatType });
-      await loadOrgData(orgId);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-    }
-  }
-
-  async function removeMember(membershipId: string) {
-    if (!orgId) return;
-    setError(null);
-    try {
-      await trpc.organization.removeMember.mutate({ membershipId });
-      await loadOrgData(orgId);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-    }
-  }
+  const loading = orgsQuery.isLoading || (!!orgId && (membersQuery.isLoading || seatUsageQuery.isLoading));
+  const pageError = orgsQuery.error?.message ?? membersQuery.error?.message ?? seatUsageQuery.error?.message ?? null;
 
   if (loading) return <p>Loading…</p>;
-  if (error) return <p style={{ color: "var(--ember)" }}>{error}</p>;
+  if (pageError) return <p style={{ color: "var(--ember)" }}>{pageError}</p>;
   if (!orgId) return <p>You don't belong to an organization yet.</p>;
 
   return (
@@ -160,7 +133,11 @@ export default function MembersPage() {
             <div style={{ marginTop: 12, display: "flex", gap: 8, alignItems: "center" }}>
               <label style={{ fontSize: 13 }}>
                 Plan:{" "}
-                <select value={seatUsage.planTierId} onChange={(e) => changePlan(e.target.value)} disabled={changingPlan}>
+                <select
+                  value={seatUsage.planTierId}
+                  onChange={(e) => changePlanMutation.mutate({ organizationId: orgId, planTierId: e.target.value })}
+                  disabled={changePlanMutation.isPending}
+                >
                   {planTiers.map((t) => (
                     <option key={t.id} value={t.id}>
                       {t.name} {t.monthlyPricePerSeatCents !== null ? `- $${(t.monthlyPricePerSeatCents / 100).toFixed(0)}/seat/mo` : ""}
@@ -168,14 +145,17 @@ export default function MembersPage() {
                   ))}
                 </select>
               </label>
-              {changingPlan && <span className="text-muted" style={{ fontSize: 12 }}>Saving…</span>}
+              {changePlanMutation.isPending && <span className="text-muted" style={{ fontSize: 12 }}>Saving…</span>}
             </div>
           )}
-          {planError && <p style={{ color: "var(--ember)", fontSize: 13, marginTop: 6 }}>{planError}</p>}
+          {changePlanMutation.error && (
+            <p style={{ color: "var(--ember)", fontSize: 13, marginTop: 6 }}>{changePlanMutation.error.message}</p>
+          )}
         </div>
       )}
 
       <h2>Current members</h2>
+      {actionError && <p style={{ color: "var(--ember)" }}>{actionError}</p>}
       <table style={{ borderCollapse: "collapse", width: "100%", marginBottom: 24 }}>
         <thead>
           <tr>
@@ -212,7 +192,14 @@ export default function MembersPage() {
                 </select>
               </td>
               <td style={cellStyle}>
-                <button onClick={() => removeMember(m.id)}>Remove</button>
+                <button
+                  onClick={() => {
+                    setActionError(null);
+                    removeMemberMutation.mutate({ membershipId: m.id });
+                  }}
+                >
+                  Remove
+                </button>
               </td>
             </tr>
           ))}
@@ -254,8 +241,8 @@ export default function MembersPage() {
             <button className="btn-secondary" onClick={() => setInviteOpen(false)}>
               Close
             </button>
-            <button className="btn-primary" onClick={submitInvite} disabled={inviting || !email}>
-              {inviting ? "Sending…" : "Send invite"}
+            <button className="btn-primary" onClick={submitInvite} disabled={inviteMutation.isPending || !email}>
+              {inviteMutation.isPending ? "Sending…" : "Send invite"}
             </button>
           </div>
 
@@ -265,7 +252,7 @@ export default function MembersPage() {
               <code>{inviteLink}</code>
             </p>
           )}
-          {error && <p style={{ color: "var(--ember)" }}>{error}</p>}
+          {inviteError && <p style={{ color: "var(--ember)" }}>{inviteError}</p>}
         </div>
       </Modal>
 
@@ -276,7 +263,7 @@ export default function MembersPage() {
             {invitations.map((inv) => (
               <li key={inv.id}>
                 {inv.email} — {inv.role} ({inv.seatType})
-                <button onClick={() => revoke(inv.id)} style={{ marginLeft: 8 }}>
+                <button onClick={() => revokeMutation.mutate({ invitationId: inv.id })} style={{ marginLeft: 8 }}>
                   Revoke
                 </button>
               </li>
