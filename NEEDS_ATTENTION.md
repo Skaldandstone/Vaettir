@@ -238,6 +238,7 @@ if you want to see it.
   1. Are these seat prices and credit grants right, or do they need adjusting before any customer sees them? (Full reasoning and comps in PRICING.md.)
   2. Top-off credit pricing (proposed: ~$0.02/credit in packs) isn't wired to anything yet since there's no payment provider -- needs your Stripe-vs-alternative decision (this is the same `P12-05` blocker that was already on the roadmap).
   3. What should happen to a paying org that exhausts its monthly AI credits -- hard stop until next month (what's built today) or metered overage billing?
+- **P6-07 GitLab MR webhook is built and verified, but two real values are missing.** `GITLAB_WEBHOOK_SECRET` (a shared secret you make up yourself and paste into GitLab's own "add webhook" form for each project) and `GITLAB_ACCESS_TOKEN` (a real personal/project access token with API scope, from whichever GitLab instance/project you want this against) - neither exists anywhere in this environment, so the webhook route will 401 every real delivery and comment-posting stays permanently in its "missing token" no-op path until both are set. Same shape as the GitHub App secrets gap above - didn't fabricate either value myself.
 
 ## Demo data seeded in the live Kall project
 

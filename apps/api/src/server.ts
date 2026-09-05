@@ -12,6 +12,8 @@ import { startReadinessDigestScheduler, CHECK_INTERVAL_MS as DIGEST_CHECK_MS } f
 import { startAiCreditGrantScheduler, CHECK_INTERVAL_MS as CREDIT_GRANT_CHECK_MS } from "./jobs/aiCreditGrantScheduler.js";
 import { verifyWebhookSignature } from "./services/githubApp.js";
 import { handlePullRequestWebhook, type GithubPullRequestPayload } from "./services/githubWebhook.js";
+import { verifyGitlabToken } from "./services/gitlabApi.js";
+import { handleMergeRequestWebhook, type GitlabMergeRequestPayload } from "./services/gitlabWebhook.js";
 import { getHeartbeatStatuses } from "./services/heartbeat.js";
 
 // P10-07: expected poller intervals, keyed by the same names each poller
@@ -74,6 +76,29 @@ async function registerGithubWebhookRoute(instance: FastifyInstance) {
   });
 }
 
+// P6-07: GitLab's project webhooks don't sign the body at all - they send
+// one static shared-secret token in a plain header (X-Gitlab-Token),
+// checked as a direct string compare (see gitlabApi.ts's verifyGitlabToken)
+// rather than an HMAC over exact raw bytes, so there's no need for the raw-
+// body content-type parser registerGithubWebhookRoute above needs.
+async function registerGitlabWebhookRoute(instance: FastifyInstance) {
+  instance.post("/webhooks/gitlab", async (req, reply) => {
+    const secret = process.env.GITLAB_WEBHOOK_SECRET ?? "";
+    const token = req.headers["x-gitlab-token"] as string | undefined;
+    if (!verifyGitlabToken(token, secret)) {
+      return reply.code(401).send({ error: "invalid token" });
+    }
+
+    const payload = req.body as GitlabMergeRequestPayload;
+    if (payload.object_kind !== "merge_request") {
+      return reply.send({ handled: false, reason: `ignored object_kind: ${payload.object_kind}` });
+    }
+
+    const result = await handleMergeRequestWebhook(prisma, payload);
+    return reply.send(result);
+  });
+}
+
 // tRPC's httpBatchLink joins every query fired in the same tick into one
 // path segment of comma-joined procedure names (e.g.
 // "project.byId,releases.byId,releases.readiness,..."), which routinely
@@ -128,6 +153,7 @@ await server.register(fastifyTRPCPlugin, {
 server.get("/health", { config: { rateLimit: false } }, async () => ({ ok: true }));
 server.get("/health/detailed", { config: { rateLimit: false } }, async () => detailedHealthHandler());
 await server.register(registerGithubWebhookRoute);
+await server.register(registerGitlabWebhookRoute);
 
 // Mirrored under /api: the ALB/CloudFront path in front of this service
 // routes only /api/* here (the same domain also serves apps/web), so
@@ -146,6 +172,7 @@ await server.register(
     instance.get("/health", { config: { rateLimit: false } }, async () => ({ ok: true }));
     instance.get("/health/detailed", { config: { rateLimit: false } }, async () => detailedHealthHandler());
     await instance.register(registerGithubWebhookRoute);
+    await instance.register(registerGitlabWebhookRoute);
   },
   { prefix: "/api" },
 );
