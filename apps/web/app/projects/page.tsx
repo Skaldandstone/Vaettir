@@ -2,107 +2,90 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { trpc, type RouterOutputs } from "../../lib/trpc";
+import { trpcReact } from "../../lib/trpcReact";
 import { Modal } from "../../components/Modal";
 
+// P1-15
 export default function ProjectsPage() {
   const router = useRouter();
-  const [orgId, setOrgId] = useState<string | null>(null);
-  const [orgName, setOrgName] = useState("");
-  const [projects, setProjects] = useState<RouterOutputs["project"]["list"]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const utils = trpcReact.useUtils();
+
+  const orgsQuery = trpcReact.organization.mine.useQuery();
+  const orgId = orgsQuery.data?.[0]?.id;
+  const orgName = orgsQuery.data?.[0]?.name ?? "";
+
+  const projectsQuery = trpcReact.project.list.useQuery({ organizationId: orgId! }, { enabled: !!orgId });
+  const projects = projectsQuery.data ?? [];
 
   const [createOpen, setCreateOpen] = useState(false);
   const [name, setName] = useState("");
   const [repoUrl, setRepoUrl] = useState("");
-  const [creating, setCreating] = useState(false);
+  const [createError, setCreateError] = useState<string | null>(null);
 
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editName, setEditName] = useState("");
   const [editRepoUrl, setEditRepoUrl] = useState("");
   const [editDefaultBranch, setEditDefaultBranch] = useState("main");
-  const [savingEdit, setSavingEdit] = useState(false);
-
-  async function loadProjects(organizationId: string) {
-    const list = await trpc.project.list.query({ organizationId });
-    setProjects(list);
-  }
+  const [editError, setEditError] = useState<string | null>(null);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
 
   useEffect(() => {
-    trpc.organization.mine
-      .query()
-      .then(async (orgs) => {
-        const org = orgs[0];
-        if (!org) {
-          router.push("/onboarding");
-          return;
-        }
-        setOrgId(org.id);
-        setOrgName(org.name);
-        await loadProjects(org.id);
-      })
-      .catch((e) => setError(String(e)))
-      .finally(() => setLoading(false));
-  }, [router]);
+    if (orgsQuery.data && orgsQuery.data.length === 0) router.push("/onboarding");
+  }, [orgsQuery.data, router]);
 
-  async function submit() {
-    if (!orgId) return;
-    setCreating(true);
-    setError(null);
-    try {
-      await trpc.project.create.mutate({ organizationId: orgId, name, repoUrl: repoUrl || undefined });
+  const createMutation = trpcReact.project.create.useMutation({
+    onSuccess: () => {
       setName("");
       setRepoUrl("");
       setCreateOpen(false);
-      await loadProjects(orgId);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setCreating(false);
-    }
+      void utils.project.list.invalidate();
+    },
+    onError: (e) => setCreateError(e.message),
+  });
+
+  const updateMutation = trpcReact.project.update.useMutation({
+    onSuccess: () => {
+      setEditingId(null);
+      void utils.project.list.invalidate();
+    },
+    onError: (e) => setEditError(e.message),
+  });
+
+  const deleteMutation = trpcReact.project.delete.useMutation({
+    onSuccess: () => void utils.project.list.invalidate(),
+    onError: (e) => setDeleteError(e.message),
+  });
+
+  function submit() {
+    if (!orgId) return;
+    setCreateError(null);
+    createMutation.mutate({ organizationId: orgId, name, repoUrl: repoUrl || undefined });
   }
 
-  function startEdit(p: { id: string; name: string; repoUrl: string | null }) {
+  async function startEdit(p: { id: string; name: string; repoUrl: string | null }) {
     setEditingId(p.id);
     setEditName(p.name);
     setEditRepoUrl(p.repoUrl ?? "");
-    trpc.project.byId.query({ id: p.id }).then((full) => setEditDefaultBranch(full.defaultBranch));
+    const full = await utils.project.byId.fetch({ id: p.id });
+    setEditDefaultBranch(full.defaultBranch);
   }
 
-  async function saveEdit() {
-    if (!editingId || !orgId) return;
-    setSavingEdit(true);
-    setError(null);
-    try {
-      await trpc.project.update.mutate({
-        id: editingId,
-        name: editName,
-        repoUrl: editRepoUrl || undefined,
-        defaultBranch: editDefaultBranch,
-      });
-      setEditingId(null);
-      await loadProjects(orgId);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setSavingEdit(false);
-    }
+  function saveEdit() {
+    if (!editingId) return;
+    setEditError(null);
+    updateMutation.mutate({ id: editingId, name: editName, repoUrl: editRepoUrl || undefined, defaultBranch: editDefaultBranch });
   }
 
-  async function removeProject(id: string) {
-    if (!orgId) return;
-    setError(null);
-    try {
-      await trpc.project.delete.mutate({ id });
-      await loadProjects(orgId);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-    }
+  function removeProject(id: string) {
+    setDeleteError(null);
+    deleteMutation.mutate({ id });
   }
+
+  const loading = orgsQuery.isLoading || (!!orgId && projectsQuery.isLoading);
+  const pageError = orgsQuery.error?.message ?? projectsQuery.error?.message ?? null;
 
   if (loading) return <p>Loading…</p>;
-  if (error) return <p style={{ color: "var(--ember)" }}>{error}</p>;
+  if (pageError) return <p style={{ color: "var(--ember)" }}>{pageError}</p>;
   if (!orgId)
     return (
       <p>
@@ -119,6 +102,8 @@ export default function ProjectsPage() {
         </button>
       </div>
 
+      {deleteError && <p style={{ color: "var(--ember)" }}>{deleteError}</p>}
+
       <ul style={{ listStyle: "none", padding: 0 }}>
         {projects.map((p) => (
           <li key={p.id} style={{ marginBottom: 12, borderBottom: "1px solid var(--line)", paddingBottom: 10 }}>
@@ -130,7 +115,7 @@ export default function ProjectsPage() {
               <a href={`/projects/${p.id}/test-cases`}>Test cases</a>
               <a href={`/projects/${p.id}/test-plans`}>Test plans</a>
               <a href={`/projects/${p.id}/requirements`}>Requirements</a>
-              <button className="btn-secondary" onClick={() => startEdit(p)}>
+              <button className="btn-secondary" onClick={() => void startEdit(p)}>
                 Edit
               </button>
               <button className="btn-secondary" onClick={() => removeProject(p.id)}>
@@ -156,11 +141,11 @@ export default function ProjectsPage() {
             <button className="btn-secondary" onClick={() => setCreateOpen(false)}>
               Cancel
             </button>
-            <button className="btn-primary" onClick={submit} disabled={creating || !name}>
-              {creating ? "Creating…" : "Create project"}
+            <button className="btn-primary" onClick={submit} disabled={createMutation.isPending || !name}>
+              {createMutation.isPending ? "Creating…" : "Create project"}
             </button>
           </div>
-          {error && <p style={{ color: "var(--ember)" }}>{error}</p>}
+          {createError && <p style={{ color: "var(--ember)" }}>{createError}</p>}
         </div>
       </Modal>
 
@@ -182,11 +167,11 @@ export default function ProjectsPage() {
             <button className="btn-secondary" onClick={() => setEditingId(null)}>
               Cancel
             </button>
-            <button className="btn-primary" onClick={saveEdit} disabled={savingEdit || !editName}>
-              {savingEdit ? "Saving…" : "Save"}
+            <button className="btn-primary" onClick={saveEdit} disabled={updateMutation.isPending || !editName}>
+              {updateMutation.isPending ? "Saving…" : "Save"}
             </button>
           </div>
-          {error && <p style={{ color: "var(--ember)" }}>{error}</p>}
+          {editError && <p style={{ color: "var(--ember)" }}>{editError}</p>}
         </div>
       </Modal>
     </div>
