@@ -157,7 +157,7 @@ const STAFF_EMAIL_DOMAIN = (process.env.STAFF_EMAIL_DOMAIN ?? "skaldandstone.com
 const STAFF_EMAIL_ALLOWLIST = new Set(
   (process.env.STAFF_EMAIL_ALLOWLIST ?? "")
     .split(",")
-    .map((e) => e.trim().toLowerCase())
+    .map((e: string) => e.trim().toLowerCase())
     .filter(Boolean),
 );
 

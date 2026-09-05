@@ -4,6 +4,9 @@ import { router, protectedProcedure, requireProjectAccess } from "../trpc.js";
 import { recordAudit } from "../services/auditLog.js";
 import { dispatchWebhookEvent } from "../services/webhookDelivery.js";
 import { notifySlackEvent } from "../services/slackEventNotify.js";
+import { sendPushToUser } from "../services/pushNotify.js";
+
+const SIGN_OFF_ROLES = ["COMPLIANCE_AUDITOR", "ADMIN", "OWNER"];
 
 // P3-01/P3-03: ComplianceFramework/ComplianceControl are shared reference
 // data across every org (same pattern as TestPlanType, not project- or
@@ -394,7 +397,7 @@ export const complianceRouter = router({
     )
     .mutation(async ({ ctx, input }) => {
       const { membership } = await requireProjectAccess(ctx, input.projectId);
-      if (!["COMPLIANCE_AUDITOR", "ADMIN", "OWNER"].includes(membership.role)) {
+      if (!SIGN_OFF_ROLES.includes(membership.role)) {
         throw new TRPCError({
           code: "FORBIDDEN",
           message: "Only a Compliance Auditor (or an org Admin/Owner) can sign off on a control",
@@ -433,6 +436,21 @@ export const complianceRouter = router({
         period: input.period,
         signedByEmail: signOff.signedBy.email,
       }).catch(() => undefined);
+      // P8-04: auto-fulfill an open request for THIS signer, on THIS
+      // control+period - a sign-off that happens unprompted (no matching
+      // request) is fine and just leaves no request to fulfill; a request
+      // that predates this exact match is left open (it asked someone else,
+      // or a different period). findFirst + single update (not updateMany)
+      // since fulfilledSignOffId is unique - two open duplicate requests
+      // can't both be stamped with the same sign-off id.
+      const openRequest = await ctx.prisma.complianceSignOffRequest.findFirst({
+        where: { controlId: input.controlId, projectId: input.projectId, period: input.period, requestedForId: ctx.user.id, fulfilledAt: null },
+      });
+      if (openRequest) {
+        await ctx.prisma.complianceSignOffRequest
+          .update({ where: { id: openRequest.id }, data: { fulfilledAt: new Date(), fulfilledSignOffId: signOff.id } })
+          .catch(() => undefined);
+      }
       return {
         id: signOff.id,
         controlId: signOff.controlId,
@@ -469,6 +487,91 @@ export const complianceRouter = router({
         statement: r.statement,
         signedAt: r.signedAt,
         signedByEmail: r.signedBy.email,
+      }));
+    }),
+
+  // P8-04: the ask itself, independent of whether/when it's ever fulfilled -
+  // see the schema comment on ComplianceSignOffRequest for why this is its
+  // own model rather than a status field. Only someone who could sign off
+  // themselves can ask someone else to (same SIGN_OFF_ROLES gate as
+  // signOffControl), and only of another member who could also actually
+  // fulfill it - requesting from a VIEWER would create a request nobody can
+  // ever satisfy.
+  requestSignOff: protectedProcedure
+    .input(z.object({ projectId: z.string(), controlId: z.string(), period: z.string().min(1), requestedForUserId: z.string() }))
+    .output(z.object({ id: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      const { membership, project } = await requireProjectAccess(ctx, input.projectId);
+      if (!SIGN_OFF_ROLES.includes(membership.role)) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Only a Compliance Auditor (or an org Admin/Owner) can request a sign-off" });
+      }
+      const projectFull = await ctx.prisma.project.findUniqueOrThrow({ where: { id: input.projectId }, select: { name: true } });
+      const targetMembership = await ctx.prisma.membership.findFirst({
+        where: { organizationId: project.organizationId, userId: input.requestedForUserId },
+      });
+      if (!targetMembership || !SIGN_OFF_ROLES.includes(targetMembership.role)) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "That member can't sign off on controls (needs Compliance Auditor, Admin, or Owner)" });
+      }
+
+      const request = await ctx.prisma.complianceSignOffRequest.create({
+        data: {
+          controlId: input.controlId,
+          projectId: input.projectId,
+          period: input.period,
+          requestedForId: input.requestedForUserId,
+          requestedById: ctx.user.id,
+        },
+      });
+
+      const control = await ctx.prisma.complianceControl.findUnique({ where: { id: input.controlId }, select: { title: true } });
+      void sendPushToUser(ctx.prisma, input.requestedForUserId, {
+        title: "Compliance sign-off requested",
+        body: `${projectFull.name}: ${control?.title ?? "a control"} for ${input.period}`,
+        data: { type: "compliance.sign_off_requested", projectId: input.projectId, controlId: input.controlId, period: input.period },
+      }).catch(() => undefined);
+
+      return { id: request.id };
+    }),
+
+  // Scoped to the CALLER's own pending asks, not project-scoped - this is
+  // "what do I owe" from the signer's point of view (the mobile app's
+  // primary use case), not an admin view of a project's requests.
+  myPendingSignOffRequests: protectedProcedure
+    .output(
+      z.array(
+        z.object({
+          id: z.string(),
+          projectId: z.string(),
+          projectName: z.string(),
+          controlId: z.string(),
+          controlCode: z.string(),
+          controlTitle: z.string(),
+          period: z.string(),
+          requestedAt: z.date(),
+          requestedByEmail: z.string(),
+        }),
+      ),
+    )
+    .query(async ({ ctx }) => {
+      const requests = await ctx.prisma.complianceSignOffRequest.findMany({
+        where: { requestedForId: ctx.user.id, fulfilledAt: null },
+        include: {
+          project: { select: { name: true } },
+          control: { select: { code: true, title: true } },
+          requestedBy: { select: { email: true } },
+        },
+        orderBy: { requestedAt: "desc" },
+      });
+      return requests.map((r) => ({
+        id: r.id,
+        projectId: r.projectId,
+        projectName: r.project.name,
+        controlId: r.controlId,
+        controlCode: r.control.code,
+        controlTitle: r.control.title,
+        period: r.period,
+        requestedAt: r.requestedAt,
+        requestedByEmail: r.requestedBy.email,
       }));
     }),
 });

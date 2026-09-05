@@ -96,6 +96,43 @@ function ControlEvidenceDrawer({
   const [signingOff, setSigningOff] = useState(false);
   const [signOffError, setSignOffError] = useState<string | null>(null);
 
+  const [members, setMembers] = useState<RouterOutputs["organization"]["listMembers"]>([]);
+  const [requestForUserId, setRequestForUserId] = useState("");
+  const [requestPeriod, setRequestPeriod] = useState("");
+  const [requesting, setRequesting] = useState(false);
+  const [requestError, setRequestError] = useState<string | null>(null);
+  const [requestSent, setRequestSent] = useState(false);
+
+  useEffect(() => {
+    trpc.project.byId
+      .query({ id: projectId })
+      .then((p) => trpc.organization.listMembers.query({ organizationId: p.organizationId }))
+      .then((m) => setMembers(m.filter((x) => ["COMPLIANCE_AUDITOR", "ADMIN", "OWNER"].includes(x.role))))
+      .catch(() => undefined);
+  }, [projectId]);
+
+  async function requestSignOff() {
+    if (!requestForUserId || !requestPeriod.trim()) return;
+    setRequesting(true);
+    setRequestError(null);
+    setRequestSent(false);
+    try {
+      await trpc.compliance.requestSignOff.mutate({
+        projectId,
+        controlId: control.id,
+        period: requestPeriod.trim(),
+        requestedForUserId: requestForUserId,
+      });
+      setRequestForUserId("");
+      setRequestSent(true);
+      setRequestPeriod("");
+    } catch (e) {
+      setRequestError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setRequesting(false);
+    }
+  }
+
   function load() {
     trpc.compliance.listEvidence.query({ projectId, controlId: control.id }).then(setEvidence);
     trpc.compliance.listSignOffs.query({ projectId, controlId: control.id }).then(setSignOffs);
@@ -218,6 +255,42 @@ function ControlEvidenceDrawer({
           </p>
           {signOffError && <p style={{ color: "var(--ember)", fontSize: 12 }}>{signOffError}</p>}
         </div>
+      )}
+
+      {!readOnly && (
+        <>
+          <h3 style={{ marginTop: 24, marginBottom: 6 }}>Request a sign-off</h3>
+          <p className="text-muted" style={{ fontSize: 12, marginTop: -4 }}>
+            Ask another Compliance Auditor (or Admin/Owner) to sign off - they get a push notification on the mobile
+            app, and it's automatically marked done the moment they actually sign off for this same period.
+          </p>
+          <div style={{ display: "flex", gap: 8, alignItems: "center", maxWidth: 480 }}>
+            <select value={requestForUserId} onChange={(e) => setRequestForUserId(e.target.value)} style={{ fontSize: 12, flex: 1 }}>
+              <option value="">Request from…</option>
+              {members.map((m) => (
+                <option key={m.userId} value={m.userId}>
+                  {m.userName ?? m.userEmail} ({m.role})
+                </option>
+              ))}
+            </select>
+            <input
+              value={requestPeriod}
+              onChange={(e) => setRequestPeriod(e.target.value)}
+              placeholder="Period (e.g. 2026-Q3)"
+              style={{ fontSize: 12, width: 140 }}
+            />
+            <button
+              className="btn-secondary"
+              style={{ fontSize: 12 }}
+              onClick={requestSignOff}
+              disabled={requesting || !requestForUserId || !requestPeriod.trim()}
+            >
+              {requesting ? "Sending…" : "Request"}
+            </button>
+          </div>
+          {requestSent && <p style={{ color: "var(--frost)", fontSize: 12 }}>Request sent.</p>}
+          {requestError && <p style={{ color: "var(--ember)", fontSize: 12 }}>{requestError}</p>}
+        </>
       )}
     </div>
   );

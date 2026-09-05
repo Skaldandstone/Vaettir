@@ -284,6 +284,7 @@ export const organizationRouter = router({
       z.array(
         z.object({
           id: z.string(),
+          userId: z.string(),
           role: z.string(),
           seatType: z.string(),
           userEmail: z.string(),
@@ -300,6 +301,7 @@ export const organizationRouter = router({
       });
       return memberships.map((m) => ({
         id: m.id,
+        userId: m.userId,
         role: m.role,
         seatType: m.seatType,
         userEmail: m.user.email,

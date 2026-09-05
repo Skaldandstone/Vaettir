@@ -193,6 +193,7 @@ model Project {
   healingSuggestions        HealingSuggestion[]
   complianceEvidence        ComplianceEvidence[]
   complianceSignOffs        ComplianceSignOff[]
+  complianceSignOffRequests ComplianceSignOffRequest[]
   aiEditFeedback            AiEditFeedback[]
 
   @@unique([organizationId, slug])
@@ -251,6 +252,11 @@ model User {
 
   auditLogs AuditLog[]
   orgDeletionsPerformed OrganizationDeletionLog[]
+
+  // P8-04
+  signOffRequestsReceived ComplianceSignOffRequest[] @relation("SignOffRequestsReceived")
+  signOffRequestsSent     ComplianceSignOffRequest[] @relation("SignOffRequestsSent")
+  pushTokens              PushToken[]
 }
 
 enum OrgRole {
@@ -1126,6 +1132,7 @@ model ComplianceControl {
   testCases TestCaseComplianceControl[]
   evidence  ComplianceEvidence[]
   signOffs  ComplianceSignOff[]
+  signOffRequests ComplianceSignOffRequest[]
 
   @@unique([frameworkId, code])
 }
@@ -1181,8 +1188,57 @@ model ComplianceSignOff {
   signedBy   User     @relation(fields: [signedById], references: [id])
   signedAt   DateTime @default(now())
 
+  fulfilledRequest ComplianceSignOffRequest?
+
   @@index([controlId, period])
   @@index([projectId, signedAt])
+}
+
+// P8-04: unlike ComplianceSignOff (which only exists once someone has
+// actually signed), this models the "please sign off on this" ask itself -
+// no such concept existed before. Deliberately its own model rather than a
+// status field on ComplianceSignOff, since a request can exist with no
+// sign-off yet (fulfilledSignOffId null) and a sign-off can happen with no
+// request at all (someone just signs off unprompted, same as today) -
+// these are two independent, only-sometimes-linked events.
+model ComplianceSignOffRequest {
+  id        String            @id @default(cuid())
+  controlId String
+  control   ComplianceControl @relation(fields: [controlId], references: [id])
+  projectId String
+  project   Project           @relation(fields: [projectId], references: [id])
+  period    String
+
+  requestedForId String
+  requestedFor   User   @relation("SignOffRequestsReceived", fields: [requestedForId], references: [id])
+  requestedById  String
+  requestedBy    User   @relation("SignOffRequestsSent", fields: [requestedById], references: [id])
+  requestedAt    DateTime @default(now())
+
+  // Set when a matching signOffControl call (same control+project+period+
+  // signer) lands after this request was created - see the auto-fulfill
+  // logic in routers/compliance.ts's signOffControl. Never set retroactively
+  // for a sign-off that predates the request.
+  fulfilledAt        DateTime?
+  fulfilledSignOffId String?             @unique
+  fulfilledSignOff   ComplianceSignOff? @relation(fields: [fulfilledSignOffId], references: [id])
+
+  @@index([projectId])
+  @@index([requestedForId, fulfilledAt])
+}
+
+// P8-04: one row per device a user has registered for push. A user can have
+// several (phone + tablet); token is the unique identity, not userId, since
+// re-registering the same physical device just upserts in place.
+model PushToken {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  token     String   @unique
+  platform  String?
+  createdAt DateTime @default(now())
+
+  @@index([userId])
 }
 
 model TestCaseComplianceControl {

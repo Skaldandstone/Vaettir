@@ -1,10 +1,39 @@
 import { useEffect, useState } from "react";
-import { SafeAreaView, ScrollView, Text, TextInput, View, StyleSheet, Button, Modal, Pressable, Alert } from "react-native";
+import { SafeAreaView, ScrollView, Text, TextInput, View, StyleSheet, Button, Modal, Pressable, Alert, Platform } from "react-native";
 import { StatusBar } from "expo-status-bar";
+import Constants from "expo-constants";
+import * as Notifications from "expo-notifications";
 import { ClerkProvider, SignedIn, SignedOut, useAuth, useSignIn } from "@clerk/clerk-expo";
 import { tokenCache } from "@clerk/clerk-expo/token-cache";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { trpc, setAuthTokenGetter } from "./lib/trpc";
+
+// P8-04: registers this device for push once signed in. Wrapped so a
+// missing EAS project (extra.eas.projectId in app.json - not configured
+// yet, since no EAS project has been created for this app) fails
+// gracefully with a console warning rather than crashing the whole app -
+// same "real code, honestly inert without a real external resource"
+// shape as the API side's GITLAB_ACCESS_TOKEN gap.
+async function registerForPushNotifications(): Promise<void> {
+  try {
+    const { status: existing } = await Notifications.getPermissionsAsync();
+    let status = existing;
+    if (status !== "granted") {
+      const result = await Notifications.requestPermissionsAsync();
+      status = result.status;
+    }
+    if (status !== "granted") return;
+
+    const projectId = Constants.expoConfig?.extra?.eas?.projectId;
+    const { data: token } = await Notifications.getExpoPushTokenAsync(projectId ? { projectId } : undefined);
+    await trpc.user.registerPushToken.mutate({
+      token,
+      platform: Platform.OS === "ios" ? "ios" : Platform.OS === "android" ? "android" : undefined,
+    });
+  } catch (e) {
+    console.warn("Push registration skipped:", e instanceof Error ? e.message : String(e));
+  }
+}
 
 // P8-06: offline-friendly read caching. A spotty connection shouldn't
 // blank the test case list to nothing - show the last-known-good data
@@ -60,6 +89,10 @@ function TestCaseBrowser() {
     setAuthTokenGetter(getToken);
     return () => setAuthTokenGetter(null);
   }, [getToken]);
+
+  useEffect(() => {
+    void registerForPushNotifications();
+  }, []);
 
   const [projectId, setProjectId] = useState("");
   const [view, setView] = useState<"cases" | "releases" | "compliance">("cases");
@@ -218,6 +251,15 @@ function ComplianceSignOffList({ projectId }: { projectId: string }) {
   const [controls, setControls] = useState<Awaited<ReturnType<typeof trpc.compliance.controlCoverage.query>>>([]);
   const [error, setError] = useState<string | null>(null);
   const [openControl, setOpenControl] = useState<{ id: string; code: string; title: string } | null>(null);
+  const [pendingRequests, setPendingRequests] = useState<Awaited<ReturnType<typeof trpc.compliance.myPendingSignOffRequests.query>>>([]);
+
+  function loadPendingRequests() {
+    trpc.compliance.myPendingSignOffRequests
+      .query()
+      .then((all) => setPendingRequests(all.filter((r) => r.projectId === projectId)))
+      .catch(() => undefined);
+  }
+  useEffect(loadPendingRequests, [projectId]);
 
   useEffect(() => {
     trpc.compliance.listFrameworks
@@ -244,6 +286,18 @@ function ComplianceSignOffList({ projectId }: { projectId: string }) {
 
   return (
     <View style={{ flex: 1 }}>
+      {pendingRequests.length > 0 && (
+        <View style={styles.requestBanner}>
+          <Text style={styles.requestBannerTitle}>Requested from you</Text>
+          {pendingRequests.map((r) => (
+            <Pressable key={r.id} onPress={() => setOpenControl({ id: r.controlId, code: r.controlCode, title: r.controlTitle })}>
+              <Text style={styles.requestBannerItem}>
+                {r.controlCode} · {r.controlTitle} ({r.period}) — asked by {r.requestedByEmail}
+              </Text>
+            </Pressable>
+          ))}
+        </View>
+      )}
       <ScrollView horizontal style={{ marginBottom: 8 }} showsHorizontalScrollIndicator={false}>
         <View style={{ flexDirection: "row", gap: 8 }}>
           {frameworks.map((fw) => (
@@ -268,7 +322,12 @@ function ComplianceSignOffList({ projectId }: { projectId: string }) {
         {frameworkId && controls.length === 0 && <Text style={styles.rowMeta}>No controls in this framework yet.</Text>}
         {!frameworkId && <Text style={styles.rowMeta}>No compliance frameworks configured yet.</Text>}
       </ScrollView>
-      <SignOffModal projectId={projectId} control={openControl} onClose={() => setOpenControl(null)} />
+      <SignOffModal
+        projectId={projectId}
+        control={openControl}
+        onClose={() => setOpenControl(null)}
+        onSignedOff={loadPendingRequests}
+      />
     </View>
   );
 }
@@ -277,10 +336,12 @@ function SignOffModal({
   projectId,
   control,
   onClose,
+  onSignedOff,
 }: {
   projectId: string;
   control: { id: string; code: string; title: string } | null;
   onClose: () => void;
+  onSignedOff?: () => void;
 }) {
   const [signOffs, setSignOffs] = useState<Awaited<ReturnType<typeof trpc.compliance.listSignOffs.query>>>([]);
   const [period, setPeriod] = useState("");
@@ -315,6 +376,7 @@ function SignOffModal({
       setPeriod("");
       setStatement("");
       load();
+      onSignedOff?.();
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -527,4 +589,7 @@ const styles = StyleSheet.create({
   bddSection: { marginTop: 16 },
   bddLabel: { fontSize: 12, fontWeight: "700", color: "#888", marginTop: 10, textTransform: "uppercase" },
   bddLine: { fontSize: 14, marginTop: 2 },
+  requestBanner: { backgroundColor: "#fff8e1", borderRadius: 8, padding: 10, marginBottom: 10 },
+  requestBannerTitle: { fontSize: 12, fontWeight: "700", color: "#8a6d00", textTransform: "uppercase", marginBottom: 4 },
+  requestBannerItem: { fontSize: 13, color: "#5c4a00", marginTop: 4 },
 });
