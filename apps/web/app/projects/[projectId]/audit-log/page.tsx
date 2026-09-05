@@ -1,8 +1,8 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useParams } from "next/navigation";
-import { trpc, type RouterOutputs } from "@/lib/trpc";
+import { trpcReact } from "@/lib/trpcReact";
 
 const ENTITY_TYPES = ["TestCase", "TestPlan", "TestCaseComplianceControl"];
 
@@ -18,24 +18,15 @@ function formatTimestamp(d: Date | string): string {
   return new Date(d).toLocaleString();
 }
 
+// P1-15
 export default function AuditLogPage() {
   const { projectId } = useParams<{ projectId: string }>();
-  const [entries, setEntries] = useState<RouterOutputs["auditLog"]["list"]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
   const [entityType, setEntityType] = useState<string | undefined>(undefined);
 
-  function load() {
-    setLoading(true);
-    setError(null);
-    trpc.auditLog.list
-      .query({ projectId, entityType })
-      .then(setEntries)
-      .catch((e) => setError(e instanceof Error ? e.message : String(e)))
-      .finally(() => setLoading(false));
-  }
-
-  useEffect(load, [projectId, entityType]);
+  const entriesQuery = trpcReact.auditLog.list.useQuery({ projectId, entityType });
+  const entries = entriesQuery.data ?? [];
+  const loading = entriesQuery.isLoading;
+  const error = entriesQuery.error?.message ?? null;
 
   return (
     <div style={{ maxWidth: 900 }}>
