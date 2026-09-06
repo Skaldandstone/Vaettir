@@ -1,9 +1,10 @@
 import type { ReactNode } from "react";
 import Link from "next/link";
-import { ClerkProvider, SignedIn, SignedOut, SignInButton, SignUpButton, UserButton } from "@clerk/nextjs";
+import { ClerkProvider } from "@clerk/nextjs";
 import { RuneMark } from "../components/RuneMark";
 import { ThemeToggle } from "../components/ThemeToggle";
 import { Sidebar } from "../components/Sidebar";
+import { NavAuth } from "../components/NavAuth";
 import { TRPCReactProvider } from "../lib/trpcReact";
 import "./globals.css";
 
@@ -37,19 +38,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
               </Link>
               <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 12 }}>
                 <ThemeToggle />
-                <SignedOut>
-                  <div style={{ display: "flex", gap: 8 }}>
-                    <SignInButton>
-                      <button className="btn-primary">Sign in</button>
-                    </SignInButton>
-                    <SignUpButton>
-                      <button className="btn-secondary">Sign up</button>
-                    </SignUpButton>
-                  </div>
-                </SignedOut>
-                <SignedIn>
-                  <UserButton />
-                </SignedIn>
+                <NavAuth />
               </div>
             </div>
           </nav>
