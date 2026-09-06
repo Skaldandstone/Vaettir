@@ -1,8 +1,8 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import Link from "next/link";
-import { trpc, type RouterOutputs } from "../../lib/trpc";
+import { trpcReact } from "../../lib/trpcReact";
 
 // P13-01/P13-02: staff-only surface, gated server-side by the API's
 // staffProcedure (Clerk email against STAFF_EMAIL_DOMAIN), not by any
@@ -10,37 +10,18 @@ import { trpc, type RouterOutputs } from "../../lib/trpc";
 // gets a FORBIDDEN error from the query below - there's no separate
 // client-side route guard, since the server-side gate is the real one and
 // duplicating it here would just be a second place to keep in sync.
+// P1-15
 export default function AdminOrgSearchPage() {
   const [query, setQuery] = useState("");
-  const [orgs, setOrgs] = useState<RouterOutputs["admin"]["listOrganizations"]>([]);
-  const [loading, setLoading] = useState(true);
-  const [forbidden, setForbidden] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [submittedQuery, setSubmittedQuery] = useState<string | undefined>(undefined);
 
-  async function load(q?: string) {
-    setLoading(true);
-    setError(null);
-    try {
-      const result = await trpc.admin.listOrganizations.query({ query: q || undefined });
-      setOrgs(result);
-    } catch (e) {
-      if (e instanceof Error && e.message.includes("Staff access required")) {
-        setForbidden(true);
-      } else {
-        setError(e instanceof Error ? e.message : String(e));
-      }
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  useEffect(() => {
-    load();
-  }, []);
+  const orgsQuery = trpcReact.admin.listOrganizations.useQuery({ query: submittedQuery });
+  const orgs = orgsQuery.data ?? [];
+  const forbidden = orgsQuery.error?.message.includes("Staff access required") ?? false;
 
   if (forbidden) return <p>Staff access required. This account isn&apos;t recognized as Skald &amp; Stone staff.</p>;
-  if (loading) return <p>Loading…</p>;
-  if (error) return <p style={{ color: "var(--ember)" }}>{error}</p>;
+  if (orgsQuery.isLoading) return <p>Loading…</p>;
+  if (orgsQuery.error) return <p style={{ color: "var(--ember)" }}>{orgsQuery.error.message}</p>;
 
   return (
     <div style={{ maxWidth: 900 }}>
@@ -53,11 +34,11 @@ export default function AdminOrgSearchPage() {
         <input
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          onKeyDown={(e) => e.key === "Enter" && load(query)}
+          onKeyDown={(e) => e.key === "Enter" && setSubmittedQuery(query || undefined)}
           placeholder="Search by name or slug…"
           style={{ flex: 1 }}
         />
-        <button onClick={() => load(query)}>Search</button>
+        <button onClick={() => setSubmittedQuery(query || undefined)}>Search</button>
       </div>
       <table style={{ width: "100%", borderCollapse: "collapse" }}>
         <thead>

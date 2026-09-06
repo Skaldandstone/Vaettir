@@ -4,8 +4,11 @@ import { useState, type ReactNode } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { createTRPCReact } from "@trpc/react-query";
 import { httpBatchLink } from "@trpc/client";
+import type { inferRouterOutputs } from "@trpc/server";
 import type { AppRouter } from "@vaettir/api/src/router";
 import { getAuthHeaders } from "./trpc";
+
+export type RouterOutputs = inferRouterOutputs<AppRouter>;
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000";
 

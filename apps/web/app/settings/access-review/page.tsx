@@ -2,54 +2,42 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { trpc, type RouterOutputs } from "../../../lib/trpc";
+import { trpcReact, type RouterOutputs } from "../../../lib/trpcReact";
 
 type Decision = "CONFIRMED" | "REVOKED";
 
+// P1-15
 export default function AccessReviewPage() {
   const router = useRouter();
-  const [orgId, setOrgId] = useState<string | null>(null);
-  const [orgName, setOrgName] = useState("");
-  const [members, setMembers] = useState<RouterOutputs["organization"]["listMembers"]>([]);
-  const [status, setStatus] = useState<RouterOutputs["organization"]["accessReviewStatus"] | null>(null);
-  const [reviews, setReviews] = useState<RouterOutputs["organization"]["listAccessReviews"]>([]);
+  const utils = trpcReact.useUtils();
+
+  const orgsQuery = trpcReact.organization.mine.useQuery();
+  const orgId = orgsQuery.data?.[0]?.id;
+  const orgName = orgsQuery.data?.[0]?.name ?? "";
+
+  const membersQuery = trpcReact.organization.listMembers.useQuery({ organizationId: orgId! }, { enabled: !!orgId });
+  const statusQuery = trpcReact.organization.accessReviewStatus.useQuery({ organizationId: orgId! }, { enabled: !!orgId });
+  const reviewsQuery = trpcReact.organization.listAccessReviews.useQuery({ organizationId: orgId! }, { enabled: !!orgId });
+
+  const members = membersQuery.data ?? [];
+  const status = statusQuery.data ?? null;
+  const reviews = reviewsQuery.data ?? [];
+
   const [expanded, setExpanded] = useState<Record<string, RouterOutputs["organization"]["getAccessReviewDetail"] | undefined>>({});
   const [period, setPeriod] = useState("");
   const [decisions, setDecisions] = useState<Record<string, { decision: Decision; note: string }>>({});
-  const [submitting, setSubmitting] = useState(false);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [submitted, setSubmitted] = useState(false);
 
-  async function loadReviewData(organizationId: string) {
-    const [memberList, reviewStatus, reviewList] = await Promise.all([
-      trpc.organization.listMembers.query({ organizationId }),
-      trpc.organization.accessReviewStatus.query({ organizationId }),
-      trpc.organization.listAccessReviews.query({ organizationId }),
-    ]);
-    setMembers(memberList);
-    setStatus(reviewStatus);
-    setReviews(reviewList);
-    setDecisions(Object.fromEntries(memberList.map((m) => [m.id, { decision: "CONFIRMED" as Decision, note: "" }])));
-  }
+  useEffect(() => {
+    if (orgsQuery.data && orgsQuery.data.length === 0) router.push("/onboarding");
+  }, [orgsQuery.data, router]);
 
   useEffect(() => {
-    trpc.organization.mine
-      .query()
-      .then(async (orgs) => {
-        const org = orgs[0];
-        if (!org) {
-          router.push("/onboarding");
-          return;
-        }
-        setOrgId(org.id);
-        setOrgName(org.name);
-        await loadReviewData(org.id);
-      })
-      .catch((e) => setError(e instanceof Error ? e.message : String(e)))
-      .finally(() => setLoading(false));
-  }, [router]);
+    if (membersQuery.data) {
+      setDecisions(Object.fromEntries(membersQuery.data.map((m) => [m.id, { decision: "CONFIRMED" as Decision, note: "" }])));
+    }
+  }, [membersQuery.data]);
 
   function setDecision(membershipId: string, decision: Decision) {
     setDecisions((prev) => ({
@@ -65,29 +53,28 @@ export default function AccessReviewPage() {
     }));
   }
 
-  async function submitReview() {
-    if (!orgId) return;
-    setSubmitting(true);
-    setSubmitError(null);
-    setSubmitted(false);
-    try {
-      await trpc.organization.submitAccessReview.mutate({
-        organizationId: orgId,
-        period,
-        decisions: members.map((m) => ({
-          membershipId: m.id,
-          decision: decisions[m.id]?.decision ?? "CONFIRMED",
-          note: decisions[m.id]?.note?.trim() || undefined,
-        })),
-      });
+  const submitMutation = trpcReact.organization.submitAccessReview.useMutation({
+    onSuccess: () => {
       setSubmitted(true);
       setPeriod("");
-      await loadReviewData(orgId);
-    } catch (e) {
-      setSubmitError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setSubmitting(false);
-    }
+      void utils.organization.invalidate();
+    },
+    onError: (e) => setSubmitError(e.message),
+  });
+
+  function submitReview() {
+    if (!orgId) return;
+    setSubmitError(null);
+    setSubmitted(false);
+    submitMutation.mutate({
+      organizationId: orgId,
+      period,
+      decisions: members.map((m) => ({
+        membershipId: m.id,
+        decision: decisions[m.id]?.decision ?? "CONFIRMED",
+        note: decisions[m.id]?.note?.trim() || undefined,
+      })),
+    });
   }
 
   async function toggleExpand(id: string) {
@@ -95,12 +82,15 @@ export default function AccessReviewPage() {
       setExpanded((prev) => ({ ...prev, [id]: undefined }));
       return;
     }
-    const detail = await trpc.organization.getAccessReviewDetail.query({ id });
+    const detail = await utils.organization.getAccessReviewDetail.fetch({ id });
     setExpanded((prev) => ({ ...prev, [id]: detail }));
   }
 
+  const loading = orgsQuery.isLoading || (!!orgId && (membersQuery.isLoading || statusQuery.isLoading || reviewsQuery.isLoading));
+  const pageError = orgsQuery.error?.message ?? membersQuery.error?.message ?? null;
+
   if (loading) return <p>Loading…</p>;
-  if (error) return <p style={{ color: "var(--ember)" }}>{error}</p>;
+  if (pageError) return <p style={{ color: "var(--ember)" }}>{pageError}</p>;
   if (!orgId) return <p>You don't belong to an organization yet.</p>;
 
   const revokedCount = Object.values(decisions).filter((d) => d.decision === "REVOKED").length;
@@ -177,8 +167,8 @@ export default function AccessReviewPage() {
           placeholder="Period (e.g. 2026-Q3)"
           style={{ fontSize: 13, width: 160 }}
         />
-        <button className="btn-primary" onClick={submitReview} disabled={submitting || !period.trim()}>
-          {submitting ? "Submitting…" : "Submit review"}
+        <button className="btn-primary" onClick={submitReview} disabled={submitMutation.isPending || !period.trim()}>
+          {submitMutation.isPending ? "Submitting…" : "Submit review"}
         </button>
       </div>
       {submitted && <p style={{ color: "var(--frost)", fontSize: 13 }}>Review recorded.</p>}

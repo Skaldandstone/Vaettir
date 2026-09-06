@@ -1,60 +1,49 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useParams } from "next/navigation";
-import { trpc, type RouterOutputs } from "@/lib/trpc";
+import { trpcReact } from "@/lib/trpcReact";
 
+// P1-15
 export default function ProjectOverviewPage() {
   const { projectId } = useParams<{ projectId: string }>();
-  const [project, setProject] = useState<RouterOutputs["project"]["byId"] | null>(null);
-  const [testCaseCount, setTestCaseCount] = useState<number | null>(null);
-  const [testPlanCount, setTestPlanCount] = useState<number | null>(null);
-  const [requirementCount, setRequirementCount] = useState<number | null>(null);
-  const [pendingReviewCount, setPendingReviewCount] = useState<number | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const utils = trpcReact.useUtils();
+
+  const projectQuery = trpcReact.project.byId.useQuery({ id: projectId });
+  const testCasesQuery = trpcReact.testCases.list.useQuery({ projectId });
+  const testPlansQuery = trpcReact.testPlans.list.useQuery({ projectId });
+  const requirementsQuery = trpcReact.requirements.list.useQuery({ projectId });
+  const pendingReviewQuery = trpcReact.testCases.pendingReview.useQuery({ projectId });
+
   const [connectRepoUrl, setConnectRepoUrl] = useState("");
-  const [connecting, setConnecting] = useState(false);
+  const [connectError, setConnectError] = useState<string | null>(null);
 
-  function load() {
-    setError(null);
-    Promise.all([
-      trpc.project.byId.query({ id: projectId }),
-      trpc.testCases.list.query({ projectId }),
-      trpc.testPlans.list.query({ projectId }),
-      trpc.requirements.list.query({ projectId }),
-      trpc.testCases.pendingReview.query({ projectId }),
-    ])
-      .then(([proj, cases, plans, reqs, pending]) => {
-        setProject(proj);
-        setTestCaseCount(cases.length);
-        setTestPlanCount(plans.length);
-        setRequirementCount(reqs.length);
-        setPendingReviewCount(pending.length);
-      })
-      .catch((e) => setError(e instanceof Error ? e.message : String(e)));
-  }
-
-  useEffect(load, [projectId]);
-
-  async function connectRepo() {
-    if (!project || !connectRepoUrl.trim()) return;
-    setConnecting(true);
-    setError(null);
-    try {
-      await trpc.project.update.mutate({
-        id: project.id,
-        name: project.name,
-        repoUrl: connectRepoUrl.trim(),
-        defaultBranch: project.defaultBranch,
-      });
+  const connectMutation = trpcReact.project.update.useMutation({
+    onSuccess: () => {
       setConnectRepoUrl("");
-      load();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setConnecting(false);
-    }
+      void utils.project.byId.invalidate({ id: projectId });
+    },
+    onError: (e) => setConnectError(e.message),
+  });
+
+  function connectRepo() {
+    const project = projectQuery.data;
+    if (!project || !connectRepoUrl.trim()) return;
+    setConnectError(null);
+    connectMutation.mutate({
+      id: project.id,
+      name: project.name,
+      repoUrl: connectRepoUrl.trim(),
+      defaultBranch: project.defaultBranch,
+    });
   }
+
+  const project = projectQuery.data;
+  const testCaseCount = testCasesQuery.data?.length ?? null;
+  const testPlanCount = testPlansQuery.data?.length ?? null;
+  const requirementCount = requirementsQuery.data?.length ?? null;
+  const pendingReviewCount = pendingReviewQuery.data?.length ?? null;
+  const error = connectError ?? projectQuery.error?.message ?? testCasesQuery.error?.message ?? null;
 
   if (error) return <p style={{ color: "var(--ember)" }}>{error}</p>;
   if (!project) return <p>Loading…</p>;
@@ -80,8 +69,8 @@ export default function ProjectOverviewPage() {
               placeholder="https://github.com/org/repo"
               style={{ flex: 1 }}
             />
-            <button className="btn-primary" onClick={connectRepo} disabled={connecting || !connectRepoUrl.trim()}>
-              {connecting ? "Connecting…" : "Connect"}
+            <button className="btn-primary" onClick={connectRepo} disabled={connectMutation.isPending || !connectRepoUrl.trim()}>
+              {connectMutation.isPending ? "Connecting…" : "Connect"}
             </button>
           </div>
         </div>

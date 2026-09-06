@@ -1,54 +1,44 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useParams } from "next/navigation";
-import { trpc, type RouterOutputs } from "@/lib/trpc";
+import { trpcReact } from "@/lib/trpcReact";
 import { Modal } from "@/components/Modal";
 import { ReadinessBadge } from "@/components/ReadinessBadge";
 import { TrendChart } from "@/components/TrendChart";
 
+// P1-15
 export default function ReleasesPage() {
   const { projectId } = useParams<{ projectId: string }>();
-  const [releases, setReleases] = useState<RouterOutputs["releases"]["list"]>([]);
-  const [trend, setTrend] = useState<RouterOutputs["releases"]["trend"]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const utils = trpcReact.useUtils();
+
+  const releasesQuery = trpcReact.releases.list.useQuery({ projectId });
+  const trendQuery = trpcReact.releases.trend.useQuery({ projectId });
+  const releases = releasesQuery.data ?? [];
+  const trend = trendQuery.data ?? [];
 
   const [createOpen, setCreateOpen] = useState(false);
   const [name, setName] = useState("");
-  const [creating, setCreating] = useState(false);
+  const [createError, setCreateError] = useState<string | null>(null);
 
-  function load() {
-    setLoading(true);
-    setError(null);
-    trpc.releases.list
-      .query({ projectId })
-      .then(setReleases)
-      .catch((e) => setError(e instanceof Error ? e.message : String(e)))
-      .finally(() => setLoading(false));
-  }
-
-  useEffect(load, [projectId]);
-
-  useEffect(() => {
-    trpc.releases.trend.query({ projectId }).then(setTrend).catch(() => undefined);
-  }, [projectId]);
-
-  async function submit() {
-    if (!name.trim()) return;
-    setCreating(true);
-    setError(null);
-    try {
-      await trpc.releases.create.mutate({ projectId, name: name.trim() });
+  const createMutation = trpcReact.releases.create.useMutation({
+    onSuccess: () => {
       setName("");
       setCreateOpen(false);
-      load();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setCreating(false);
-    }
+      void utils.releases.list.invalidate({ projectId });
+      void utils.releases.trend.invalidate({ projectId });
+    },
+    onError: (e) => setCreateError(e.message),
+  });
+
+  function submit() {
+    if (!name.trim()) return;
+    setCreateError(null);
+    createMutation.mutate({ projectId, name: name.trim() });
   }
+
+  const loading = releasesQuery.isLoading;
+  const error = createError ?? releasesQuery.error?.message ?? null;
 
   return (
     <div style={{ maxWidth: 800 }}>
@@ -150,8 +140,8 @@ export default function ReleasesPage() {
             <button className="btn-secondary" onClick={() => setCreateOpen(false)}>
               Cancel
             </button>
-            <button className="btn-primary" onClick={submit} disabled={creating || !name.trim()}>
-              {creating ? "Creating…" : "Create release"}
+            <button className="btn-primary" onClick={submit} disabled={createMutation.isPending || !name.trim()}>
+              {createMutation.isPending ? "Creating…" : "Create release"}
             </button>
           </div>
           {error && <p style={{ color: "var(--ember)" }}>{error}</p>}

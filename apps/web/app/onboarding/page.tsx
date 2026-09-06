@@ -2,48 +2,35 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { trpc } from "../../lib/trpc";
+import { trpcReact } from "../../lib/trpcReact";
 
 // Clerk only knows the signed-in person, not our org/seat model. A brand
 // new user has zero Organizations until they create one (here) or accept
 // an invite (P12-02, not yet built).
+// P1-15
 export default function OnboardingPage() {
   const router = useRouter();
-  const [checking, setChecking] = useState(true);
+  const orgsQuery = trpcReact.organization.mine.useQuery();
   const [organizationName, setOrganizationName] = useState("");
-  const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    trpc.organization.mine
-      .query()
-      .then((orgs) => {
-        if (orgs.length > 0) {
-          router.push("/projects");
-        } else {
-          setChecking(false);
-        }
-      })
-      .catch((e) => {
-        setError(String(e));
-        setChecking(false);
-      });
-  }, [router]);
+    if (orgsQuery.data && orgsQuery.data.length > 0) router.push("/projects");
+  }, [orgsQuery.data, router]);
 
-  async function submit() {
-    setLoading(true);
+  const bootstrapMutation = trpcReact.organization.bootstrap.useMutation({
+    onSuccess: () => router.push("/projects"),
+    onError: (e) => setError(e.message),
+  });
+
+  function submit() {
     setError(null);
-    try {
-      await trpc.organization.bootstrap.mutate({ organizationName });
-      router.push("/projects");
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setLoading(false);
-    }
+    bootstrapMutation.mutate({ organizationName });
   }
 
+  const checking = orgsQuery.isLoading || Boolean(orgsQuery.data && orgsQuery.data.length > 0);
   if (checking) return <p>Loading…</p>;
+  if (orgsQuery.error) return <p style={{ color: "var(--ember)" }}>{orgsQuery.error.message}</p>;
 
   return (
     <div style={{ maxWidth: 360 }}>
@@ -58,8 +45,8 @@ export default function OnboardingPage() {
             style={{ width: "100%" }}
           />
         </label>
-        <button onClick={submit} disabled={loading || !organizationName}>
-          {loading ? "Creating…" : "Create organization"}
+        <button onClick={submit} disabled={bootstrapMutation.isPending || !organizationName}>
+          {bootstrapMutation.isPending ? "Creating…" : "Create organization"}
         </button>
         {error && <p style={{ color: "var(--ember)" }}>{error}</p>}
       </div>

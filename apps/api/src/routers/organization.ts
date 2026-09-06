@@ -50,6 +50,11 @@ export const organizationRouter = router({
   // memberships.
   bootstrap: protectedProcedure
     .input(z.object({ organizationName: z.string().min(1) }))
+    // .output() bounds the inferred type instead of letting it flow straight
+    // from Prisma's Organization model -- same TS2589 fix `mine` below
+    // already needed, tripped here once a react-query `useMutation` wrapper
+    // (P1-15) tried to fully resolve the unbounded type.
+    .output(z.object({ id: z.string(), name: z.string(), slug: z.string() }))
     .mutation(async ({ ctx, input }) => {
       if (ctx.user.memberships.length > 0) {
         throw new TRPCError({ code: "BAD_REQUEST", message: "User already belongs to an organization" });

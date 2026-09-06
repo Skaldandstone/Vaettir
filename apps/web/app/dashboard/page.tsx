@@ -1,33 +1,26 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { trpc, type RouterOutputs } from "../../lib/trpc";
+import { trpcReact } from "../../lib/trpcReact";
 import { ReadinessBadge } from "../../components/ReadinessBadge";
 
+// P1-15
 export default function OrgDashboardPage() {
   const router = useRouter();
-  const [orgName, setOrgName] = useState("");
-  const [overview, setOverview] = useState<RouterOutputs["releases"]["orgOverview"] | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const orgsQuery = trpcReact.organization.mine.useQuery();
+  const orgId = orgsQuery.data?.[0]?.id;
+  const orgName = orgsQuery.data?.[0]?.name ?? "";
+
+  const overviewQuery = trpcReact.releases.orgOverview.useQuery({ organizationId: orgId! }, { enabled: !!orgId });
 
   useEffect(() => {
-    trpc.organization.mine
-      .query()
-      .then(async (orgs) => {
-        const org = orgs[0];
-        if (!org) {
-          router.push("/onboarding");
-          return;
-        }
-        setOrgName(org.name);
-        const result = await trpc.releases.orgOverview.query({ organizationId: org.id });
-        setOverview(result);
-      })
-      .catch((e) => setError(e instanceof Error ? e.message : String(e)))
-      .finally(() => setLoading(false));
-  }, [router]);
+    if (orgsQuery.data && orgsQuery.data.length === 0) router.push("/onboarding");
+  }, [orgsQuery.data, router]);
+
+  const loading = orgsQuery.isLoading || (!!orgId && overviewQuery.isLoading);
+  const error = orgsQuery.error?.message ?? overviewQuery.error?.message ?? null;
+  const overview = overviewQuery.data;
 
   if (loading) return <p>Loading…</p>;
   if (error) return <p style={{ color: "var(--ember)" }}>{error}</p>;

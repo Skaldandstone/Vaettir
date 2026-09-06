@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { trpc, type RouterOutputs } from "../../../lib/trpc";
+import { trpcReact, type RouterOutputs } from "../../../lib/trpcReact";
 
 type Snapshot = RouterOutputs["admin"]["repoHealthSnapshot"];
 
@@ -11,7 +11,11 @@ type Snapshot = RouterOutputs["admin"]["repoHealthSnapshot"];
 // repo, not just a Vaettir customer with onboarded test-case data. No
 // persistence here by design (see admin.ts's repoHealthSnapshot comment) -
 // this page just runs the query and shows what came back.
+// P1-15: "Run" stays an imperative one-shot fetch (utils.<>.fetch()) rather
+// than a rendered useQuery - this is a manually-triggered action, not data
+// the page should keep live/cached across renders.
 export default function RepoHealthSnapshotPage() {
+  const utils = trpcReact.useUtils();
   const [repo, setRepo] = useState("");
   const [workflowFile, setWorkflowFile] = useState("ci.yml");
   const [snapshot, setSnapshot] = useState<Snapshot | null>(null);
@@ -25,7 +29,7 @@ export default function RepoHealthSnapshotPage() {
     setError(null);
     setSnapshot(null);
     try {
-      const result = await trpc.admin.repoHealthSnapshot.query({ repo: repo.trim(), workflowFile: workflowFile.trim() || "ci.yml" });
+      const result = await utils.admin.repoHealthSnapshot.fetch({ repo: repo.trim(), workflowFile: workflowFile.trim() || "ci.yml" });
       setSnapshot(result);
     } catch (e) {
       if (e instanceof Error && e.message.includes("Staff access required")) {

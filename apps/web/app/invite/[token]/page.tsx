@@ -1,37 +1,30 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useParams, useRouter } from "next/navigation";
-import { trpc, type RouterOutputs } from "../../../lib/trpc";
+import { trpcReact } from "../../../lib/trpcReact";
 
+// P1-15
 export default function AcceptInvitePage() {
   const params = useParams<{ token: string }>();
   const router = useRouter();
-  const [preview, setPreview] = useState<RouterOutputs["organization"]["previewInvitation"] | null>(null);
-  const [accepting, setAccepting] = useState(false);
+  const previewQuery = trpcReact.organization.previewInvitation.useQuery({ token: params.token });
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    trpc.organization.previewInvitation
-      .query({ token: params.token })
-      .then(setPreview)
-      .catch((e) => setError(e instanceof Error ? e.message : String(e)));
-  }, [params.token]);
+  const acceptMutation = trpcReact.organization.acceptInvitation.useMutation({
+    onSuccess: () => router.push("/projects"),
+    onError: (e) => setError(e.message),
+  });
 
-  async function accept() {
-    setAccepting(true);
+  function accept() {
     setError(null);
-    try {
-      await trpc.organization.acceptInvitation.mutate({ token: params.token });
-      router.push("/projects");
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setAccepting(false);
-    }
+    acceptMutation.mutate({ token: params.token });
   }
 
-  if (error) return <p style={{ color: "var(--ember)" }}>{error}</p>;
+  const preview = previewQuery.data;
+  const combinedError = error ?? previewQuery.error?.message ?? null;
+
+  if (combinedError) return <p style={{ color: "var(--ember)" }}>{combinedError}</p>;
   if (!preview) return <p>Loading…</p>;
 
   if (preview.status !== "PENDING") {
@@ -50,8 +43,8 @@ export default function AcceptInvitePage() {
       <p>
         You've been invited as <strong>{preview.role}</strong> ({preview.seatType.toLowerCase()} seat).
       </p>
-      <button onClick={accept} disabled={accepting}>
-        {accepting ? "Joining…" : "Accept invitation"}
+      <button onClick={accept} disabled={acceptMutation.isPending}>
+        {acceptMutation.isPending ? "Joining…" : "Accept invitation"}
       </button>
     </div>
   );
