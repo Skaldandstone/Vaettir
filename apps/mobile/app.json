@@ -2,12 +2,14 @@
   "expo": {
     "name": "Vaettir",
     "slug": "vaettir-mobile",
+    "owner": "skald-and-stone",
     "version": "0.1.0",
     "orientation": "portrait",
     "userInterfaceStyle": "automatic",
     "ios": { "supportsTablet": true },
     "android": {},
     "extra": {
+      "eas": { "projectId": "4136a4dc-c9cc-4f70-8b4a-4604ba3336be" },
       "apiUrl": "http://localhost:4000"
     }
   }
