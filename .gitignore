@@ -15,3 +15,9 @@ prisma/migrations/dev/
 apps/web/e2e/.auth/
 apps/web/playwright-report/
 apps/web/test-results/
+/.local/
+/apps/mobile/android/
+/apps/mobile/ios/
+*.jks
+*.keystore
+credentials.json
