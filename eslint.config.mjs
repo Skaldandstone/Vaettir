@@ -16,6 +16,19 @@ import path from "node:path";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const compat = new FlatCompat({ baseDirectory: __dirname });
 
+const nextConfigs = compat.extends("next/core-web-vitals", "next/typescript").map((config) => {
+  const { plugins = {}, ...configWithoutPlugins } = config;
+  const nextPlugins = Object.fromEntries(
+    Object.entries(plugins).filter(([name]) => name !== "@typescript-eslint"),
+  );
+
+  return {
+    ...configWithoutPlugins,
+    ...(Object.keys(nextPlugins).length > 0 ? { plugins: nextPlugins } : {}),
+    files: ["apps/web/**/*.{ts,tsx}"],
+  };
+});
+
 export default tseslint.config(
   {
     ignores: [
@@ -53,10 +66,10 @@ export default tseslint.config(
   },
   // apps/web: layer Next.js's own rules (React hooks, image/link usage,
   // core web vitals) on top of the shared TS baseline above.
-  ...compat.extends("next/core-web-vitals", "next/typescript").map((c) => ({
-    ...c,
-    files: ["apps/web/**/*.{ts,tsx}"],
-  })),
+  // `typescript-eslint` already registers this plugin above. Newer versions
+  // reject a second registration emitted by eslint-config-next's legacy
+  // compatibility layer, even when it resolves to the same plugin object.
+  ...nextConfigs,
   {
     files: ["apps/web/**/*.{ts,tsx}"],
     languageOptions: { globals: { ...globals.browser, ...globals.node } },
