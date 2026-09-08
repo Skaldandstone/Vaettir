@@ -11,6 +11,23 @@ See [ROADMAP.md](ROADMAP.md) for the full, ticket-by-ticket build status
 (what's shipped, what's partially built, what's deliberately deferred and
 why) and [PRICING.md](PRICING.md) for the seat/AI-credit pricing model.
 
+## Browse the repository
+
+| Looking for | Start here |
+| --- | --- |
+| Product status and remaining work | [Roadmap](ROADMAP.md) |
+| Brand, palette and UI direction | [Style guide](STYLE_GUIDE.md) and [landing-page design reference](design/vaettir-landing.html) |
+| Web, API and mobile source | [Applications](apps/) |
+| Shared domain, data and agent code | [Packages](packages/) |
+| CI integrations | [Integration guide](ci-integrations/README.md) |
+| Local setup | [Contribution guide](CONTRIBUTING.md) |
+| Preserved quality-intelligence project | [Legacy README](legacy/quality-intelligence/README.md) |
+| Demo recording | [Demo video](Demo%20video/README.md), no approved recording selected |
+
+The `design/` reference and `STYLE_GUIDE.md` are the existing design source locations. No separate concept-art collection is needed for this application. Keep runtime assets beside their consuming application and avoid copying design sources into temporary output folders.
+
+`legacy/quality-intelligence/` preserves the earlier project's source and strategy material. It is historical reference, not a second canonical checkout. Local readiness evidence and assistant history belong in ignored `.local/`; signing keys and generated native mobile projects must not be staged as part of a cleanup.
+
 ## Why
 
 Most test case tools force everything into one shape (usually "manual test

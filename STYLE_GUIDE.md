@@ -1,6 +1,6 @@
 # Vaettir - Brand & Style Guide
 
-Reference implementation: `vaettir-landing.html` (single-file HTML/CSS/JS prototype).
+Reference implementation: [design/vaettir-landing.html](design/vaettir-landing.html) (single-file HTML/CSS/JS prototype).
 Everything below is extracted directly from that file - treat it as the source of truth
 if the two ever drift.
 
