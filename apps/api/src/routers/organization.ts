@@ -9,12 +9,13 @@ import {
   type SeatType as CoreSeatType,
 } from "@vaettir/core";
 import { router, protectedProcedure, requireOrgRole } from "../trpc.js";
-import type { PrismaClient } from "@vaettir/db";
+import type { Prisma, PrismaClient } from "@vaettir/db";
 import { sendReadinessDigestForOrg } from "../jobs/readinessDigestScheduler.js";
 import { getAiCreditBalance } from "../services/aiCredits.js";
 import { computeRetentionDryRun } from "../services/retentionAudit.js";
 import { WEBHOOK_EVENT_TYPES } from "../services/webhookDelivery.js";
 import { assertPublicHttpUrl, UnsafeUrlError } from "../services/urlGuard.js";
+import { bootstrapBetaOrganization, PRIVATE_BETA_TIER } from "../services/privateBeta.js";
 
 const INVITATION_EXPIRY_DAYS = 7;
 
@@ -26,21 +27,54 @@ async function getSeatCounts(prisma: PrismaClient, organizationId: string) {
   return { fullSeats, readOnlySeats };
 }
 
+async function lockActiveOrganization(tx: Prisma.TransactionClient, organizationId: string) {
+  const rows = await tx.$queryRaw<Array<{ id: string; suspendedAt: Date | null }>>`
+    SELECT "id", "suspendedAt" FROM "Organization" WHERE "id" = ${organizationId} FOR UPDATE
+  `;
+  if (!rows[0]) throw new TRPCError({ code: "NOT_FOUND", message: "Organization not found" });
+  if (rows[0].suspendedAt) {
+    throw new TRPCError({ code: "FORBIDDEN", message: "This organization is suspended. Contact support." });
+  }
+}
+
+async function requireTransactionAdmin(tx: Prisma.TransactionClient, organizationId: string, userId: string) {
+  const membership = await tx.membership.findUnique({
+    where: { organizationId_userId: { organizationId, userId } },
+  });
+  if (!membership || !["OWNER", "ADMIN"].includes(membership.role) || membership.seatType === "READ_ONLY") {
+    throw new TRPCError({ code: "FORBIDDEN", message: "Organization admin access required" });
+  }
+}
+
+async function getReservedSeatCounts(
+  tx: Prisma.TransactionClient,
+  organizationId: string,
+  excludeInvitationId?: string,
+) {
+  const [members, pending] = await Promise.all([
+    tx.membership.findMany({ where: { organizationId }, select: { seatType: true } }),
+    tx.invitation.findMany({
+      where: {
+        organizationId,
+        status: "PENDING",
+        expiresAt: { gt: new Date() },
+        ...(excludeInvitationId ? { id: { not: excludeInvitationId } } : {}),
+      },
+      select: { seatType: true },
+    }),
+  ]);
+  return {
+    fullSeats: [...members, ...pending].filter((seat) => seat.seatType === "FULL").length,
+    readOnlySeats: [...members, ...pending].filter((seat) => seat.seatType === "READ_ONLY").length,
+  };
+}
+
 const stepFieldLabelsInputSchema = z.object(
   Object.fromEntries(Object.keys(DEFAULT_STEP_FIELD_LABELS).map((k) => [k, z.string().min(1).optional()])) as Record<
     StepFieldKey,
     z.ZodOptional<z.ZodString>
   >,
 );
-
-function slugify(name: string): string {
-  return (
-    name
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, "-")
-      .replace(/(^-|-$)/g, "") || "org"
-  );
-}
 
 export const organizationRouter = router({
   // Clerk only knows about the signed-in person, not our org/seat model.
@@ -49,36 +83,13 @@ export const organizationRouter = router({
   // onboarding step calls this the first time someone signs in with no
   // memberships.
   bootstrap: protectedProcedure
-    .input(z.object({ organizationName: z.string().min(1) }))
+    .input(z.object({ organizationName: z.string().trim().min(1).max(120) }))
     // .output() bounds the inferred type instead of letting it flow straight
     // from Prisma's Organization model -- same TS2589 fix `mine` below
     // already needed, tripped here once a react-query `useMutation` wrapper
     // (P1-15) tried to fully resolve the unbounded type.
     .output(z.object({ id: z.string(), name: z.string(), slug: z.string() }))
-    .mutation(async ({ ctx, input }) => {
-      if (ctx.user.memberships.length > 0) {
-        throw new TRPCError({ code: "BAD_REQUEST", message: "User already belongs to an organization" });
-      }
-
-      const freeTier = await ctx.prisma.planTier.findUniqueOrThrow({ where: { key: "free" } });
-
-      const baseSlug = slugify(input.organizationName);
-      let slug = baseSlug;
-      let suffix = 1;
-      while (await ctx.prisma.organization.findUnique({ where: { slug } })) {
-        slug = `${baseSlug}-${++suffix}`;
-      }
-
-      return ctx.prisma.$transaction(async (tx) => {
-        const organization = await tx.organization.create({
-          data: { name: input.organizationName, slug, planTierId: freeTier.id },
-        });
-        await tx.membership.create({
-          data: { organizationId: organization.id, userId: ctx.user.id, role: "OWNER", seatType: "FULL" },
-        });
-        return organization;
-      });
-    }),
+    .mutation(({ ctx, input }) => bootstrapBetaOrganization(ctx.prisma, ctx.user, input.organizationName)),
 
   // .output() bounds the inferred type instead of letting it flow straight
   // from Prisma's Organization model -- see testCases.ts's byId for why
@@ -351,39 +362,54 @@ export const organizationRouter = router({
     .output(z.object({ id: z.string(), token: z.string(), expiresAt: z.date() }))
     .mutation(async ({ ctx, input }) => {
       requireOrgRole(ctx, input.organizationId, "ADMIN");
+      return ctx.prisma.$transaction(async (tx) => {
+        await lockActiveOrganization(tx, input.organizationId);
+        await requireTransactionAdmin(tx, input.organizationId, ctx.user.id);
+        if (input.seatType === "READ_ONLY" && input.role !== "VIEWER") {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "Read-only seats can only hold the Viewer role" });
+        }
 
-      if (input.seatType === "READ_ONLY" && input.role !== "VIEWER") {
-        throw new TRPCError({ code: "BAD_REQUEST", message: "Read-only seats can only hold the Viewer role" });
-      }
+        const email = input.email.trim().toLowerCase();
+        const [org, existingMember, existingInvitation] = await Promise.all([
+          tx.organization.findUniqueOrThrow({ where: { id: input.organizationId }, include: { planTier: true } }),
+          tx.membership.findFirst({
+            where: { organizationId: input.organizationId, user: { email: { equals: email, mode: "insensitive" } } },
+          }),
+          tx.invitation.findFirst({
+            where: {
+              organizationId: input.organizationId,
+              email: { equals: email, mode: "insensitive" },
+              status: "PENDING",
+              expiresAt: { gt: new Date() },
+            },
+          }),
+        ]);
+        if (existingMember) throw new TRPCError({ code: "BAD_REQUEST", message: "This person is already a member" });
+        if (existingInvitation) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "This person already has a pending invitation" });
+        }
 
-      const org = await ctx.prisma.organization.findUniqueOrThrow({
-        where: { id: input.organizationId },
-        include: { planTier: true },
-      });
-      const counts = await getSeatCounts(ctx.prisma, input.organizationId);
-      const check = canAddSeat(org.planTier, counts, input.seatType as CoreSeatType);
-      if (!check.allowed) {
-        throw new TRPCError({ code: "BAD_REQUEST", message: check.reason ?? "Seat limit reached" });
-      }
+        const counts = await getReservedSeatCounts(tx, input.organizationId);
+        const check = canAddSeat(org.planTier, counts, input.seatType as CoreSeatType);
+        if (!check.allowed) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: `${check.reason ?? "Seat limit reached"}. Pending invitations reserve seats; revoke an unused invitation to free one.`,
+          });
+        }
 
-      const existingMember = await ctx.prisma.membership.findFirst({
-        where: { organizationId: input.organizationId, user: { email: input.email } },
-      });
-      if (existingMember) {
-        throw new TRPCError({ code: "BAD_REQUEST", message: "This person is already a member" });
-      }
-
-      const expiresAt = new Date(Date.now() + INVITATION_EXPIRY_DAYS * 24 * 60 * 60 * 1000);
-      return ctx.prisma.invitation.create({
-        data: {
-          organizationId: input.organizationId,
-          email: input.email,
-          role: input.role,
-          seatType: input.seatType,
-          invitedById: ctx.user.id,
-          expiresAt,
-        },
-        select: { id: true, token: true, expiresAt: true },
+        const expiresAt = new Date(Date.now() + INVITATION_EXPIRY_DAYS * 24 * 60 * 60 * 1000);
+        return tx.invitation.create({
+          data: {
+            organizationId: input.organizationId,
+            email,
+            role: input.role,
+            seatType: input.seatType,
+            invitedById: ctx.user.id,
+            expiresAt,
+          },
+          select: { id: true, token: true, expiresAt: true },
+        });
       });
     }),
 
@@ -400,35 +426,39 @@ export const organizationRouter = router({
       }),
     )
     .mutation(async ({ ctx, input }) => {
-      const membership = await ctx.prisma.membership.findUniqueOrThrow({
-        where: { id: input.membershipId },
-        include: { organization: { include: { planTier: true } } },
-      });
-      requireOrgRole(ctx, membership.organizationId, "ADMIN");
-
-      if (input.seatType === "READ_ONLY" && input.role !== "VIEWER") {
-        throw new TRPCError({ code: "BAD_REQUEST", message: "Read-only seats can only hold the Viewer role" });
-      }
-      if (membership.role === "OWNER" && input.role !== "OWNER") {
-        const otherOwners = await ctx.prisma.membership.count({
-          where: { organizationId: membership.organizationId, role: "OWNER", id: { not: membership.id } },
+      const target = await ctx.prisma.membership.findUniqueOrThrow({ where: { id: input.membershipId } });
+      requireOrgRole(ctx, target.organizationId, "ADMIN");
+      return ctx.prisma.$transaction(async (tx) => {
+        await lockActiveOrganization(tx, target.organizationId);
+        await requireTransactionAdmin(tx, target.organizationId, ctx.user.id);
+        const membership = await tx.membership.findUniqueOrThrow({
+          where: { id: input.membershipId },
+          include: { organization: { include: { planTier: true } } },
         });
-        if (otherOwners === 0) {
-          throw new TRPCError({ code: "BAD_REQUEST", message: "An organization must have at least one Owner" });
+        if (input.seatType === "READ_ONLY" && input.role !== "VIEWER") {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "Read-only seats can only hold the Viewer role" });
         }
-      }
-
-      if (input.seatType === "FULL" && membership.seatType === "READ_ONLY") {
-        const counts = await getSeatCounts(ctx.prisma, membership.organizationId);
-        const check = canAddSeat(membership.organization.planTier, counts, "FULL" as CoreSeatType);
-        if (!check.allowed) {
-          throw new TRPCError({ code: "BAD_REQUEST", message: check.reason ?? "Seat limit reached" });
+        if (membership.role === "OWNER" && input.role !== "OWNER") {
+          const otherOwners = await tx.membership.count({
+            where: { organizationId: membership.organizationId, role: "OWNER", id: { not: membership.id } },
+          });
+          if (otherOwners === 0) {
+            throw new TRPCError({ code: "BAD_REQUEST", message: "An organization must have at least one Owner" });
+          }
         }
-      }
 
-      return ctx.prisma.membership.update({
-        where: { id: input.membershipId },
-        data: { role: input.role, seatType: input.seatType },
+        if (input.seatType !== membership.seatType) {
+          const counts = await getReservedSeatCounts(tx, membership.organizationId);
+          const check = canAddSeat(membership.organization.planTier, counts, input.seatType as CoreSeatType);
+          if (!check.allowed) {
+            throw new TRPCError({ code: "BAD_REQUEST", message: check.reason ?? "Seat limit reached" });
+          }
+        }
+
+        return tx.membership.update({
+          where: { id: input.membershipId },
+          data: { role: input.role, seatType: input.seatType },
+        });
       });
     }),
 
@@ -491,41 +521,33 @@ export const organizationRouter = router({
   acceptInvitation: protectedProcedure
     .input(z.object({ token: z.string() }))
     .mutation(async ({ ctx, input }) => {
-      const invitation = await ctx.prisma.invitation.findUniqueOrThrow({
-        where: { token: input.token },
-        include: { organization: { include: { planTier: true } } },
-      });
-
-      if (invitation.status !== "PENDING") {
-        throw new TRPCError({ code: "BAD_REQUEST", message: `This invitation is ${invitation.status.toLowerCase()}` });
-      }
-      if (invitation.expiresAt < new Date()) {
-        throw new TRPCError({ code: "BAD_REQUEST", message: "This invitation has expired" });
-      }
-      if (invitation.email.toLowerCase() !== ctx.user.email.toLowerCase()) {
-        throw new TRPCError({
-          code: "FORBIDDEN",
-          message: `This invitation was sent to ${invitation.email}, not your account's email`,
-        });
-      }
-
-      const existingMembership = await ctx.prisma.membership.findUnique({
-        where: { organizationId_userId: { organizationId: invitation.organizationId, userId: ctx.user.id } },
-      });
-      if (existingMembership) {
-        throw new TRPCError({ code: "BAD_REQUEST", message: "You're already a member of this organization" });
-      }
-
-      const counts = await getSeatCounts(ctx.prisma, invitation.organizationId);
-      const check = canAddSeat(invitation.organization.planTier, counts, invitation.seatType as CoreSeatType);
-      if (!check.allowed) {
-        throw new TRPCError({
-          code: "BAD_REQUEST",
-          message: `${check.reason ?? "Seat limit reached"} -- ask an admin to free up a seat or upgrade the plan`,
-        });
-      }
-
+      const target = await ctx.prisma.invitation.findUniqueOrThrow({ where: { token: input.token } });
       return ctx.prisma.$transaction(async (tx) => {
+        await lockActiveOrganization(tx, target.organizationId);
+        await tx.$queryRaw`SELECT "id" FROM "User" WHERE "id" = ${ctx.user.id} FOR UPDATE`;
+        const invitation = await tx.invitation.findUniqueOrThrow({
+          where: { token: input.token },
+          include: { organization: { include: { planTier: true } } },
+        });
+        if (invitation.status !== "PENDING" || invitation.expiresAt <= new Date()) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "This invitation is expired or no longer pending" });
+        }
+        if (invitation.email.toLowerCase() !== ctx.user.email.toLowerCase()) {
+          throw new TRPCError({
+            code: "FORBIDDEN",
+            message: "Sign in with the email address this invitation was sent to",
+          });
+        }
+        if (await tx.membership.findUnique({
+          where: { organizationId_userId: { organizationId: invitation.organizationId, userId: ctx.user.id } },
+        })) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "You're already a member of this organization" });
+        }
+        const counts = await getReservedSeatCounts(tx, invitation.organizationId, invitation.id);
+        const check = canAddSeat(invitation.organization.planTier, counts, invitation.seatType as CoreSeatType);
+        if (!check.allowed) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: check.reason ?? "Seat limit reached" });
+        }
         const membership = await tx.membership.create({
           data: {
             organizationId: invitation.organizationId,
@@ -585,7 +607,7 @@ export const organizationRouter = router({
         }),
       ),
     )
-    .query(({ ctx }) => ctx.prisma.planTier.findMany({ orderBy: { sortOrder: "asc" } })),
+    .query(({ ctx }) => ctx.prisma.planTier.findMany({ where: { isPublic: true }, orderBy: { sortOrder: "asc" } })),
 
   // P12-04: switching plans is validated against ACTUAL seated usage, not
   // just accepted and left to silently misbehave -- a downgrade that would
@@ -596,27 +618,42 @@ export const organizationRouter = router({
     .input(z.object({ organizationId: z.string(), planTierId: z.string() }))
     .mutation(async ({ ctx, input }) => {
       requireOrgRole(ctx, input.organizationId, "ADMIN");
-      const [targetTier, counts] = await Promise.all([
-        ctx.prisma.planTier.findUniqueOrThrow({ where: { id: input.planTierId } }),
-        getSeatCounts(ctx.prisma, input.organizationId),
-      ]);
+      return ctx.prisma.$transaction(async (tx) => {
+        await lockActiveOrganization(tx, input.organizationId);
+        await requireTransactionAdmin(tx, input.organizationId, ctx.user.id);
+        const [organization, targetTier, counts] = await Promise.all([
+          tx.organization.findUniqueOrThrow({
+            where: { id: input.organizationId },
+            include: { planTier: { select: { key: true } } },
+          }),
+          tx.planTier.findUniqueOrThrow({ where: { id: input.planTierId } }),
+          getReservedSeatCounts(tx, input.organizationId),
+        ]);
 
-      const overflows: string[] = [];
-      if (targetTier.maxFullSeats !== null && counts.fullSeats > targetTier.maxFullSeats) {
-        overflows.push(`${counts.fullSeats - targetTier.maxFullSeats} full seat(s)`);
-      }
-      if (targetTier.maxReadOnlySeats !== null && counts.readOnlySeats > targetTier.maxReadOnlySeats) {
-        overflows.push(`${counts.readOnlySeats - targetTier.maxReadOnlySeats} read-only seat(s)`);
-      }
-      if (overflows.length > 0) {
-        throw new TRPCError({
-          code: "BAD_REQUEST",
-          message: `Can't switch to ${targetTier.name}: remove ${overflows.join(" and ")} first (currently ${counts.fullSeats} full / ${counts.readOnlySeats} read-only seated).`,
-        });
-      }
+        if (organization.planTier.key === PRIVATE_BETA_TIER || !targetTier.isPublic) {
+          throw new TRPCError({
+            code: "FORBIDDEN",
+            message: "Private-beta plan changes are managed by staff",
+          });
+        }
 
-      await ctx.prisma.organization.update({ where: { id: input.organizationId }, data: { planTierId: input.planTierId } });
-      return { planTierId: input.planTierId, planTierName: targetTier.name };
+        const overflows: string[] = [];
+        if (targetTier.maxFullSeats !== null && counts.fullSeats > targetTier.maxFullSeats) {
+          overflows.push(`${counts.fullSeats - targetTier.maxFullSeats} full seat(s)`);
+        }
+        if (targetTier.maxReadOnlySeats !== null && counts.readOnlySeats > targetTier.maxReadOnlySeats) {
+          overflows.push(`${counts.readOnlySeats - targetTier.maxReadOnlySeats} read-only seat(s)`);
+        }
+        if (overflows.length > 0) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: `Can't switch to ${targetTier.name}: remove ${overflows.join(" and ")} first (currently ${counts.fullSeats} full / ${counts.readOnlySeats} read-only reserved).`,
+          });
+        }
+
+        await tx.organization.update({ where: { id: input.organizationId }, data: { planTierId: input.planTierId } });
+        return { planTierId: input.planTierId, planTierName: targetTier.name };
+      });
     }),
 
   // P12-06: current seats used vs. included at this tier, plus which tier
@@ -636,6 +673,7 @@ export const organizationRouter = router({
         readOnlySeatsIncluded: z.number(),
         readOnlySeatsMax: z.number().nullable(),
         nextTierNameForOneMoreFullSeat: z.string().nullable(),
+        privateBeta: z.boolean(),
       }),
     )
     .query(async ({ ctx, input }) => {
@@ -643,11 +681,12 @@ export const organizationRouter = router({
       const [org, counts, allTiers] = await Promise.all([
         ctx.prisma.organization.findUniqueOrThrow({ where: { id: input.organizationId }, include: { planTier: true } }),
         getSeatCounts(ctx.prisma, input.organizationId),
-        ctx.prisma.planTier.findMany(),
+        ctx.prisma.planTier.findMany({ where: { isPublic: true } }),
       ]);
 
       let nextTierNameForOneMoreFullSeat: string | null = null;
-      if (org.planTier.maxFullSeats !== null && counts.fullSeats >= org.planTier.maxFullSeats) {
+      const privateBeta = org.planTier.key === PRIVATE_BETA_TIER;
+      if (!privateBeta && org.planTier.maxFullSeats !== null && counts.fullSeats >= org.planTier.maxFullSeats) {
         const next = minimumTierForSeatCount(allTiers, counts.fullSeats + 1);
         if (next.key !== org.planTier.key) nextTierNameForOneMoreFullSeat = allTiers.find((t) => t.key === next.key)!.name;
       }
@@ -661,6 +700,7 @@ export const organizationRouter = router({
         readOnlySeatsIncluded: org.planTier.includedReadOnlySeats,
         readOnlySeatsMax: org.planTier.maxReadOnlySeats,
         nextTierNameForOneMoreFullSeat,
+        privateBeta,
       };
     }),
 
