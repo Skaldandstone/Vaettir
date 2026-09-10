@@ -1,9 +1,9 @@
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 import { router, protectedProcedure, requireProjectAccess } from "../trpc.js";
-import { recordAudit } from "../services/auditLog.js";
-import { snapshotTestCaseVersion } from "../services/testCaseVersion.js";
 import { inspectCsv, mapCsvRows, TARGET_FIELDS, type TargetField } from "../services/csvFieldMapping.js";
+import { commitImportedTestCases } from "../services/importCommit.js";
+import { parseXrayExport } from "../services/xrayImport.js";
 
 const fieldMappingSchema = z.record(z.enum(TARGET_FIELDS), z.string()).refine((m) => Boolean(m.title), {
   message: 'The "title" field must be mapped to a CSV column',
@@ -14,6 +14,36 @@ const fieldMappingSchema = z.record(z.enum(TARGET_FIELDS), z.string()).refine((m
 // column mapping before anything real happens. `commit` is the only
 // mutation that actually creates TestCases, and only after receiving back
 // the exact mapping the user reviewed in preview.
+const xrayPreviewRow = z.object({
+  rowNumber: z.number(),
+  key: z.string(),
+  title: z.string(),
+  testType: z.string(),
+  priority: z.enum(["CRITICAL", "HIGH", "MEDIUM", "LOW"]),
+  tags: z.array(z.string()),
+  suitePath: z.string().nullable(),
+  given: z.array(z.string()),
+  when: z.array(z.string()),
+  then: z.array(z.string()),
+  stepCount: z.number(),
+});
+
+function toXrayPreviewRow(c: ReturnType<typeof parseXrayExport>["cases"][number]): z.infer<typeof xrayPreviewRow> {
+  return {
+    rowNumber: c.rowNumber,
+    key: c.key,
+    title: c.title,
+    testType: c.testType,
+    priority: c.priority,
+    tags: c.tags,
+    suitePath: c.suitePath,
+    given: c.given,
+    when: c.when,
+    then: c.then,
+    stepCount: c.steps.length,
+  };
+}
+
 export const importJobsRouter = router({
   previewCsv: protectedProcedure
     .input(z.object({ projectId: z.string(), csvText: z.string().min(1) }))
@@ -115,130 +145,103 @@ export const importJobsRouter = router({
       // P11-11: when the mapping includes an external-id column, re-running
       // this same import (e.g. a re-exported spreadsheet during a phased
       // migration) updates the matching TestCase in place instead of
-      // duplicating it - the same update-vs-create split
-      // reverseEngineerPersist.ts already uses for a re-scanned source
-      // file, just keyed by a CSV row id instead of a file/function name.
-      // Keys are namespaced per-project (TestCaseSource.externalTestId is
-      // globally unique, but a spreadsheet's own row ids like "TC-001" are
-      // only ever meant to be unique within one project's own source file).
-      const keyFor = (raw: string) => `csv:${input.projectId}:${raw}`;
-      const rowsWithExternalId = mapped.rows.filter((r): r is typeof r & { externalId: string } => Boolean(r.externalId));
-      const existingSources =
-        rowsWithExternalId.length > 0
-          ? await ctx.prisma.testCaseSource.findMany({
-              where: { externalTestId: { in: rowsWithExternalId.map((r) => keyFor(r.externalId)) } },
-            })
-          : [];
-      const sourceByKey = new Map(existingSources.map((s) => [s.externalTestId!, s]));
-
-      const updateRowNumbers = new Set(
-        rowsWithExternalId.filter((r) => sourceByKey.has(keyFor(r.externalId))).map((r) => r.rowNumber),
-      );
-      const toUpdate = mapped.rows.filter((r) => updateRowNumbers.has(r.rowNumber));
-      const toCreate = mapped.rows.filter((r) => !updateRowNumbers.has(r.rowNumber));
-
-      const updated = await ctx.prisma.$transaction(
-        toUpdate.map((r) => {
-          const source = sourceByKey.get(keyFor(r.externalId!))!;
-          return ctx.prisma.testCase.update({
-            where: { id: source.testCaseId },
-            data: {
-              title: r.title,
-              given: r.given,
-              when: r.when,
-              then: r.then,
-              tags: r.tags,
-              priority: r.priority,
-              updatedById: ctx.user.id,
-              source: { update: { lastSyncedAt: new Date() } },
-            },
-          });
-        }),
-      );
-
-      const created = await ctx.prisma.$transaction(
-        toCreate.map((r) =>
-          ctx.prisma.testCase.create({
-            data: {
-              projectId: input.projectId,
-              testPlanId: input.testPlanId,
-              title: r.title,
-              given: r.given,
-              when: r.when,
-              then: r.then,
-              tags: r.tags,
-              testType: "FUNCTIONAL",
-              priority: r.priority,
-              origin: "IMPORTED",
-              createdById: ctx.user.id,
-              updatedById: ctx.user.id,
-              ...(r.externalId
-                ? {
-                    source: {
-                      create: {
-                        filePath: input.sourceLabel ?? "csv-import",
-                        framework: "csv",
-                        frameworkFamily: "CUSTOM",
-                        externalTestId: keyFor(r.externalId),
-                        lastSyncedAt: new Date(),
-                      },
-                    },
-                  }
-                : {}),
-            },
-          }),
-        ),
-      );
-
-      await Promise.all(
-        [...created, ...updated].map((c) =>
-          snapshotTestCaseVersion(ctx.prisma, {
-            testCaseId: c.id,
-            title: c.title,
-            background: null,
-            given: c.given,
-            when: c.when,
-            then: c.then,
-            steps: [],
-            tags: c.tags,
-            priority: c.priority,
-            testType: c.testType,
-            actorId: ctx.user.id,
-          }),
-        ),
-      );
-
-      const importJob = await ctx.prisma.importJob.create({
-        data: {
-          projectId: input.projectId,
-          source: "CSV",
-          sourceLabel: input.sourceLabel,
-          fieldMapping: input.mapping,
-          testPlanId: input.testPlanId,
-          status: mapped.skipped.length > 0 && created.length === 0 && updated.length === 0 ? "FAILED" : "SUCCEEDED",
-          createdCount: created.length,
-          updatedCount: updated.length,
-          skippedCount: mapped.skipped.length,
-          errors: mapped.skipped,
-          createdById: ctx.user.id,
-          completedAt: new Date(),
-        },
+      // duplicating it - see commitImportedTestCases (shared with the Xray
+      // importer since P11-05) for the create-vs-update split.
+      return commitImportedTestCases(ctx.prisma, {
+        projectId: input.projectId,
+        organizationId: project.organizationId,
+        actorId: ctx.user.id,
+        rows: mapped.rows,
+        skipped: mapped.skipped,
+        source: "CSV",
+        sourceLabel: input.sourceLabel,
+        fieldMapping: input.mapping,
+        keyPrefix: "csv",
+        framework: "csv",
+        testPlanId: input.testPlanId,
       });
+    }),
 
-      if (created.length + updated.length > 0) {
-        const first = created[0] ?? updated[0]!;
-        await recordAudit(ctx.prisma, {
-          organizationId: project.organizationId,
-          projectId: input.projectId,
-          actorId: ctx.user.id,
-          entityType: "TestCase",
-          entityId: first.id,
-          action: created.length > 0 ? "CREATE" : "UPDATE",
-          summary: `Imported ${created.length} new and updated ${updated.length} existing test case(s) from ${input.sourceLabel ?? "CSV"} (job ${importJob.id})`,
-        });
+  // P11-05: Xray (Jira) - a Jira CSV issue export of Test issues or Xray's
+  // JSON test export, pasted/uploaded as a file. No column mapping step:
+  // the columns are Xray's own, so the preview shows exactly what commit
+  // will write and the user's only choices are "which plan" and "go".
+  previewXray: protectedProcedure
+    .input(z.object({ projectId: z.string(), content: z.string().min(1) }))
+    .output(
+      z.object({
+        format: z.enum(["jira-csv", "xray-json"]),
+        caseCount: z.number(),
+        previewRows: z.array(xrayPreviewRow),
+        skipped: z.array(z.object({ rowNumber: z.number(), reason: z.string() })),
+      }),
+    )
+    .query(async ({ ctx, input }) => {
+      await requireProjectAccess(ctx, input.projectId);
+      let parsed;
+      try {
+        parsed = parseXrayExport(input.content);
+      } catch (e) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: e instanceof Error ? e.message : String(e) });
       }
+      return {
+        format: parsed.format,
+        caseCount: parsed.cases.length,
+        previewRows: parsed.cases.slice(0, 20).map(toXrayPreviewRow),
+        skipped: parsed.skipped,
+      };
+    }),
 
-      return { importJobId: importJob.id, createdCount: created.length, updatedCount: updated.length, skipped: mapped.skipped };
+  commitXray: protectedProcedure
+    .input(
+      z.object({
+        projectId: z.string(),
+        content: z.string().min(1),
+        testPlanId: z.string().optional(),
+        sourceLabel: z.string().optional(),
+      }),
+    )
+    .output(
+      z.object({
+        importJobId: z.string(),
+        createdCount: z.number(),
+        updatedCount: z.number(),
+        skipped: z.array(z.object({ rowNumber: z.number(), reason: z.string() })),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const { project } = await requireProjectAccess(ctx, input.projectId, "EDITOR");
+      let parsed;
+      try {
+        parsed = parseXrayExport(input.content);
+      } catch (e) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: e instanceof Error ? e.message : String(e) });
+      }
+      return commitImportedTestCases(ctx.prisma, {
+        projectId: input.projectId,
+        organizationId: project.organizationId,
+        actorId: ctx.user.id,
+        rows: parsed.cases.map((c) => ({
+          rowNumber: c.rowNumber,
+          title: c.title,
+          background: c.background,
+          given: c.given,
+          when: c.when,
+          then: c.then,
+          priority: c.priority,
+          tags: c.tags,
+          suitePath: c.suitePath,
+          externalId: c.key,
+          steps: c.steps,
+        })),
+        skipped: parsed.skipped,
+        source: "XRAY",
+        sourceLabel: input.sourceLabel,
+        fieldMapping: { format: parsed.format },
+        keyPrefix: "xray",
+        framework: "xray",
+        testPlanId: input.testPlanId,
+      });
     }),
 
   list: protectedProcedure

@@ -203,6 +203,144 @@ function BackfillSection({ projectId, defaultBranch }: { projectId: string; defa
   );
 }
 
+// P11-05: Xray (Jira) export importer - a Jira CSV issue export of Test
+// issues or Xray's JSON test export. No column mapping: Xray's columns are
+// fixed, so the preview IS what commit writes.
+function XrayImportSection({ projectId, onCommitted }: { projectId: string; onCommitted: () => void }) {
+  const utils = trpcReact.useUtils();
+  const commitMutation = trpcReact.importJobs.commitXray.useMutation();
+  const [fileName, setFileName] = useState("");
+  const [content, setContent] = useState("");
+  const [preview, setPreview] = useState<RouterOutputs["importJobs"]["previewXray"] | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [result, setResult] = useState<RouterOutputs["importJobs"]["commitXray"] | null>(null);
+
+  async function loadFile(file: File) {
+    setError(null);
+    setResult(null);
+    setFileName(file.name);
+    const text = await readFileAsText(file);
+    setContent(text);
+    setLoading(true);
+    try {
+      setPreview(await utils.importJobs.previewXray.fetch({ projectId, content: text }));
+    } catch (e) {
+      setPreview(null);
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function commit() {
+    if (!preview) return;
+    setError(null);
+    try {
+      const res = await commitMutation.mutateAsync({ projectId, content, sourceLabel: fileName || undefined });
+      setResult(res);
+      setPreview(null);
+      setContent("");
+      setFileName("");
+      onCommitted();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  }
+
+  return (
+    <div className="panel" style={{ marginBottom: 20 }}>
+      <h2 style={{ marginTop: 0 }}>Import from Xray (Jira)</h2>
+      <p className="text-muted" style={{ fontSize: 13 }}>
+        Export your Test issues from Jira (search by JQL, e.g. <code>issuetype = Test</code>, then Export → CSV with all
+        fields) or use Xray&apos;s JSON test export, and choose the file here. Manual test steps become structured steps,
+        Cucumber tests parse as Gherkin (outlines expand per Examples row), the Jira issue key becomes the re-import id,
+        and the Test Repository path becomes the suite path. Re-importing a newer export updates cases in place.
+      </p>
+      {!preview && (
+        <input
+          type="file"
+          accept=".csv,.json,text/csv,application/json"
+          onChange={(e) => {
+            const file = e.target.files?.[0];
+            if (file) void loadFile(file);
+            e.target.value = "";
+          }}
+        />
+      )}
+      {loading && <p className="text-muted">Reading export…</p>}
+      {preview && (
+        <div>
+          <p className="text-muted" style={{ fontSize: 13 }}>
+            {fileName} · detected {preview.format === "jira-csv" ? "Jira CSV export" : "Xray JSON export"} · {preview.caseCount} test
+            case(s) will be imported{preview.skipped.length > 0 && `, ${preview.skipped.length} row(s) skipped`}.
+          </p>
+          <div style={{ overflowX: "auto" }}>
+            <table style={{ width: "100%", fontSize: 12, borderCollapse: "collapse" }}>
+              <thead>
+                <tr>
+                  <th style={{ textAlign: "left" }}>Key</th>
+                  <th style={{ textAlign: "left" }}>Title</th>
+                  <th style={{ textAlign: "left" }}>Type</th>
+                  <th style={{ textAlign: "left" }}>Priority</th>
+                  <th style={{ textAlign: "left" }}>Steps</th>
+                  <th style={{ textAlign: "left" }}>Suite</th>
+                  <th style={{ textAlign: "left" }}>Tags</th>
+                </tr>
+              </thead>
+              <tbody>
+                {preview.previewRows.map((r, i) => (
+                  <tr key={`${r.key}-${i}`} style={{ borderTop: "1px solid var(--line)" }}>
+                    <td className="text-muted">{r.key}</td>
+                    <td>{r.title}</td>
+                    <td>{r.testType}</td>
+                    <td>{r.priority}</td>
+                    <td>{r.stepCount > 0 ? `${r.stepCount} structured` : `${r.given.length + r.when.length + r.then.length} BDD`}</td>
+                    <td>{r.suitePath ?? ""}</td>
+                    <td>{r.tags.join(", ")}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          {preview.caseCount > preview.previewRows.length && (
+            <p className="text-muted" style={{ fontSize: 12 }}>Showing the first {preview.previewRows.length} of {preview.caseCount}.</p>
+          )}
+          {preview.skipped.length > 0 && (
+            <p className="text-muted" style={{ fontSize: 12 }}>
+              Skipped: {preview.skipped.slice(0, 5).map((s) => `row ${s.rowNumber} (${s.reason})`).join("; ")}
+              {preview.skipped.length > 5 && ` and ${preview.skipped.length - 5} more`}
+            </p>
+          )}
+          <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
+            <button onClick={commit} disabled={commitMutation.isPending || preview.caseCount === 0}>
+              {commitMutation.isPending ? "Importing…" : `Import ${preview.caseCount} test case(s)`}
+            </button>
+            <button
+              className="btn-secondary"
+              onClick={() => {
+                setPreview(null);
+                setContent("");
+                setFileName("");
+              }}
+            >
+              Choose a different file
+            </button>
+          </div>
+        </div>
+      )}
+      {result && (
+        <p style={{ color: "var(--frost)" }}>
+          Imported {result.createdCount} test case(s)
+          {result.updatedCount > 0 && `, updated ${result.updatedCount} existing`}
+          {result.skipped.length > 0 && `, skipped ${result.skipped.length} row(s)`}.
+        </p>
+      )}
+      {error && <p style={{ color: "var(--ember)" }}>{error}</p>}
+    </div>
+  );
+}
+
 // P1-15: the two preview procedures are queries in tRPC terms but are called
 // on demand against transient textarea/file content, so they stay imperative
 // (utils.<>.fetch) rather than becoming rendered useQuery hooks.
@@ -297,6 +435,8 @@ export default function ImportPage() {
         Upload a CSV of any shape - map its columns to Vaettir&apos;s fields below, preview exactly what will be
         created, then confirm. Nothing is written until you commit.
       </p>
+
+      <XrayImportSection projectId={projectId} onCommitted={() => void utils.importJobs.list.invalidate({ projectId })} />
 
       <BackfillSection projectId={projectId} defaultBranch={defaultBranch} />
 
