@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { trpcReact, type RouterOutputs } from "@/lib/trpcReact";
+import { isReadOnlySeat } from "@/lib/membership";
 
 type Labels = { action: string; expectedActionOrData: string; expectedResult: string; expectedResponse: string };
 const API_KEY_ROLES = ["VIEWER", "COMPLIANCE_AUDITOR", "EDITOR", "ADMIN"];
@@ -707,6 +708,11 @@ function RetentionDryRunSection({ organizationId }: { organizationId: string }) 
 export default function OrganizationSettingsPage() {
   const orgsQuery = trpcReact.organization.mine.useQuery();
   const firstOrg = orgsQuery.data?.[0] ?? null;
+  // P12-03: a READ_ONLY seat gets a view-only page. Every mutation here
+  // already requires ADMIN+ server-side, so this is the product-experience
+  // half (no forms that can only fail), same whole-page shape as the
+  // reverse-engineer page's gate.
+  const readOnly = isReadOnlySeat(firstOrg?.seatType);
   const orgId = firstOrg?.id ?? null;
   const orgName = firstOrg?.name ?? "";
   const detailQuery = trpcReact.organization.byId.useQuery({ id: orgId ?? "" }, { enabled: orgId !== null });
@@ -865,6 +871,18 @@ export default function OrganizationSettingsPage() {
   }
 
   if (error ?? loadError) return <p style={{ color: "var(--ember)" }}>{error ?? loadError}</p>;
+  if (readOnly && orgId) {
+    return (
+      <div style={{ maxWidth: 640 }}>
+        <h1>{orgName} settings</h1>
+        <p className="text-muted" style={{ fontSize: 13 }}>
+          You have read-only access to this organization — its settings are managed by an Owner or Admin. Your
+          plan and AI credit usage are shown below.
+        </p>
+        <AiCreditsSection organizationId={orgId} />
+      </div>
+    );
+  }
   if (!labels) return <p>Loading…</p>;
 
   return (
