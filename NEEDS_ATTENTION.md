@@ -5,6 +5,53 @@ late evening). Anything that needed a decision only James can make got
 skipped and logged here instead of blocking. Delete/clear this file once
 reviewed.
 
+## 2026-09-10 — production incident recovered, everything deployed, decisions below
+
+**What happened.** Production DB auth had been failing since 2026-09-09
+08:07 UTC: `vaettir-postgres` uses an RDS-*managed* master password, which
+AWS rotates every 7 days, and the composed `vaettir/database-url` secret
+doesn't follow it. Fixed (secret re-synced, `db.ok: true`), then the
+first API deploy of `main` failed on a migration that conflicted with one
+applied from the old codex branches; recovered with your go-ahead (rolled
+back, one nullable column added, marked applied). Both services are now
+on `main` (as of `da2ccb2`, deployed at 007e435 + later commits pending),
+health ok, no new production Sentry issues.
+
+**It will happen again ~2026-09-16** unless you pick one of the two
+permanent fixes in `docs/AWS_DEPLOYMENT.md` (stop using an RDS-managed
+password, or have the API compose the URL from the managed secret).
+Until then: `node scripts/sync-db-secret.mjs --apply` + force a new
+`vaettir-api` deployment when `/api/health` reports `db.ok: false`.
+
+**Shipped today** (all on `main`, all deployed except the last three
+commits after 007e435 - mobile push routing and the Sentry gate need no
+deploy to matter): P1-15 react-query migration complete (every page +
+component, old client deleted); P12-12 real token usage recorded per AI
+call (charging unchanged); P8-04 release-readiness change notifications
+(snapshots + 5-minute sweep + webhook/Slack/push, mobile tap routing);
+P12-03 read-only seat gate on org settings; Sentry no longer receives
+local dev runs.
+
+**Decisions only you can make**
+- RDS password rotation fix (above) - needed before 09-16.
+- Public plan tiers: production `PlanTier` has only `private-beta`.
+  Beta org creation works (it uses that tier by design). What's missing is
+  the free/team/business/corp rows, so the public plan picker
+  (`organization.listPlanTiers`) is empty and `changePlanTier` has
+  nothing to move an org to. Seed them when pricing is final (PRICING.md).
+- Exact token-based charging and P2-09 file chunking wait on the same
+  pricing call; real usage data is now accumulating in
+  `AiCreditTransaction.inputTokens/outputTokens`.
+- Sentry housekeeping: `VAETTIR-API-2..6` and `-9` were this workstation
+  (now prevented at the source), `-7`/`-8` were the crash-looping tasks
+  during the incident. All safe to resolve; I didn't touch your Sentry.
+- Everything else open on the roadmap needs external credentials or
+  accounts (GitLab token, EAS project, Slack app, Jira/Linear, payment
+  provider, Clerk Enterprise for SSO).
+
+**Stale items below**: "CI's Lint step is currently a no-op" is no longer
+true - every package has a real `eslint .` script and CI runs it.
+
 ## 12 open Dependabot PRs — none merged, need your review
 
 `P10-03`'s Dependabot config fired its first real run overnight. 11 of
