@@ -8,6 +8,33 @@ import { tokenCache } from "@clerk/clerk-expo/token-cache";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { trpc, setAuthTokenGetter } from "./lib/trpc";
 
+// P8-04: pushes that arrive while the app is in the foreground should
+// still be shown (Expo's default is to swallow them) - a readiness flip
+// you're looking at the app for is exactly the one you want to see.
+Notifications.setNotificationHandler({
+  handleNotification: async () => ({ shouldShowAlert: true, shouldPlaySound: false, shouldSetBadge: false }),
+});
+
+// P8-04: the payloads the API attaches to its pushes (see pushNotify.ts
+// call sites in routers/compliance.ts and services/releaseReadiness.ts).
+// Only the fields the app routes on - unknown types are ignored, not
+// crashed on, so an older app build survives a newer server.
+interface PushData {
+  type?: string;
+  projectId?: string;
+}
+
+function viewForPush(data: PushData | undefined): "releases" | "compliance" | null {
+  switch (data?.type) {
+    case "release.readiness_changed":
+      return "releases";
+    case "compliance.sign_off_requested":
+      return "compliance";
+    default:
+      return null;
+  }
+}
+
 // P8-04: registers this device for push once signed in. Wrapped so a
 // missing EAS project (extra.eas.projectId in app.json - not configured
 // yet, since no EAS project has been created for this app) fails
@@ -96,6 +123,25 @@ function TestCaseBrowser() {
 
   const [projectId, setProjectId] = useState("");
   const [view, setView] = useState<"cases" | "releases" | "compliance">("cases");
+
+  // P8-04: tapping a push lands on the thing it was about - the release
+  // readiness tab for a readiness change, the compliance tab for a sign-off
+  // request - and switches to that push's project. Covers both a tap while
+  // the app is running and the tap that cold-started it
+  // (getLastNotificationResponseAsync), which the listener alone misses.
+  useEffect(() => {
+    function route(response: Notifications.NotificationResponse | null) {
+      if (!response) return;
+      const data = response.notification.request.content.data as PushData | undefined;
+      const target = viewForPush(data);
+      if (!target) return;
+      if (data?.projectId) setProjectId(data.projectId);
+      setView(target);
+    }
+    const subscription = Notifications.addNotificationResponseReceivedListener(route);
+    void Notifications.getLastNotificationResponseAsync().then(route).catch(() => undefined);
+    return () => subscription.remove();
+  }, []);
   const [cases, setCases] = useState<Awaited<ReturnType<typeof trpc.testCases.list.query>>>([]);
   const [error, setError] = useState<string | null>(null);
   const [openCaseId, setOpenCaseId] = useState<string | null>(null);
