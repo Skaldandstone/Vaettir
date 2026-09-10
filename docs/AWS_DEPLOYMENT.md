@@ -68,10 +68,33 @@ cert on the ALB itself. Worth calling out:
 `vaettir/database-url` is a **static** composed connection string
 (`postgresql://vaettir_admin:<password>@...postgres?sslmode=require`),
 built once from the RDS-managed secret's password at setup time - Prisma
-wants one URL. This will go stale if the RDS-managed password is ever
-rotated (no rotation schedule is currently configured) - if you ever add
-rotation, this secret needs to be regenerated to match. Connects to the
-default `postgres` database (no dedicated database name was created).
+wants one URL. Connects to the default `postgres` database (no dedicated
+database name was created).
+
+**It goes stale every 7 days.** The earlier note here ("no rotation
+schedule is currently configured") was wrong: `vaettir-postgres` uses an
+RDS-*managed* master password, and RDS rotates managed passwords
+automatically every 7 days whether or not a Secrets Manager rotation
+schedule is configured. First bitten 2026-09-09 08:07 UTC - production DB
+auth failed for ~28 hours until noticed (health reported `db.ok: false`,
+every API request 500'd) because the composed URL still carried the
+previous password. Recovery, and the thing to run whenever `db.ok` goes
+false again (next expected drift is ~2026-09-16):
+
+```bash
+node scripts/sync-db-secret.mjs            # dry run - reports passwordDiffered
+node scripts/sync-db-secret.mjs --apply    # rewrites vaettir/database-url
+aws ecs update-service --cluster vaettir-cluster --service vaettir-api --force-new-deployment --region us-east-2 --profile vaettir-toolkit
+```
+
+The script never prints a secret value. The proper fix is one of: (a)
+`aws rds modify-db-instance --db-instance-identifier vaettir-postgres
+--rotate-master-user-password false`-equivalent - i.e. stop using an
+RDS-managed password and set a static master password stored only in
+`vaettir/database-url`; or (b) have the API compose `DATABASE_URL` at
+startup from the managed secret's `username`/`password` fields instead of
+reading a pre-composed URL. Both change production auth configuration, so
+neither has been done without an explicit go-ahead.
 
 Local Docker isn't installed on the machine this was built from - CodeBuild
 builds images from an uploaded source zip instead of a local
@@ -103,5 +126,5 @@ Needs `vaettir-toolkit` active (`aws login --region us-east-2 --profile vaettir-
 - **Sentry DSNs are set** (`vaettir-api`/`vaettir-web` projects under the `skald-and-stone` Sentry org) but source-map upload isn't configured - see `NEEDS_ATTENTION.md` P10-05 for the optional `SENTRY_AUTH_TOKEN` step.
 - **Backup retention is capped at 1 day** - was an enforced free-tier limit on the old account; not re-verified whether the same restriction applies here.
 - **Single-AZ** - a deliberate cost choice, not re-evaluated.
-- **Secrets are static, not auto-rotated** - see the `vaettir/database-url` note above.
+- **The RDS master password auto-rotates every 7 days and the composed `vaettir/database-url` does not follow it** - see the note above for the recovery script and the two candidate permanent fixes. Until one is chosen, expect a DB-auth outage roughly weekly unless `scripts/sync-db-secret.mjs --apply` + an API redeploy is run after each rotation.
 - **`STAFF_ADMIN_TOKEN` (staff-plane bearer token, from the P13-01/staff-plane work) was not recreated** - it didn't exist in the local `.env` at rebuild time, so the Adminhelper Cloudflare Worker integration is not functional against this rebuilt account until a new token is generated and pushed to Secrets Manager + the `vaettir-api` task definition.
