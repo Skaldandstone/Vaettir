@@ -2,18 +2,14 @@
 
 import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
-import { trpc, type RouterOutputs } from "@/lib/trpc";
+import { trpcReact, type RouterOutputs } from "@/lib/trpcReact";
 import { Drawer } from "@/components/Drawer";
 
 function PastRunDetail({ id }: { id: string }) {
-  const [run, setRun] = useState<RouterOutputs["riskAnalysis"]["runById"] | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const runQuery = trpcReact.riskAnalysis.runById.useQuery({ id });
+  const run = runQuery.data;
 
-  useEffect(() => {
-    trpc.riskAnalysis.runById.query({ id }).then(setRun).catch((e) => setError(String(e)));
-  }, [id]);
-
-  if (error) return <p style={{ color: "var(--ember)" }}>{error}</p>;
+  if (runQuery.error) return <p style={{ color: "var(--ember)" }}>{runQuery.error.message}</p>;
   if (!run) return <p>Loading…</p>;
 
   return (
@@ -52,33 +48,32 @@ function PastRunDetail({ id }: { id: string }) {
 // Loads lazily-created defaults (main/COMMENT/no rules) for a project
 // that's never configured this -- there's no required setup step.
 function PrScanPolicySection({ projectId }: { projectId: string }) {
+  const policyQuery = trpcReact.riskAnalysis.getPrScanPolicy.useQuery({ projectId });
+  // The form edits a local copy seeded from the query (the original page's
+  // setPolicy-on-load); the server copy stays the cached query.
   const [policy, setPolicy] = useState<RouterOutputs["riskAnalysis"]["getPrScanPolicy"] | null>(null);
-  const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    trpc.riskAnalysis.getPrScanPolicy.query({ projectId }).then(setPolicy).catch(() => undefined);
-  }, [projectId]);
+    if (policyQuery.data && !policy) setPolicy(policyQuery.data);
+  }, [policyQuery.data, policy]);
 
-  async function save() {
+  const saveMutation = trpcReact.riskAnalysis.savePrScanPolicy.useMutation({
+    onSuccess: () => setSaved(true),
+    onError: (e) => setError(e.message),
+  });
+
+  function save() {
     if (!policy) return;
-    setSaving(true);
     setSaved(false);
     setError(null);
-    try {
-      await trpc.riskAnalysis.savePrScanPolicy.mutate({
-        projectId,
-        triggerBranches: policy.triggerBranches,
-        commentMode: policy.commentMode as never,
-        pathSeverityRules: policy.pathSeverityRules.map((r) => ({ pattern: r.pattern, severity: r.severity as never })),
-      });
-      setSaved(true);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setSaving(false);
-    }
+    saveMutation.mutate({
+      projectId,
+      triggerBranches: policy.triggerBranches,
+      commentMode: policy.commentMode as never,
+      pathSeverityRules: policy.pathSeverityRules.map((r) => ({ pattern: r.pattern, severity: r.severity as never })),
+    });
   }
 
   if (!policy) return null;
@@ -157,8 +152,8 @@ function PrScanPolicySection({ projectId }: { projectId: string }) {
       </div>
 
       <div style={{ marginTop: 12 }}>
-        <button onClick={save} disabled={saving}>
-          {saving ? "Saving…" : "Save policy"}
+        <button onClick={save} disabled={saveMutation.isPending}>
+          {saveMutation.isPending ? "Saving…" : "Save policy"}
         </button>
         {saved && <span style={{ color: "var(--frost)", marginLeft: 8 }}>Saved.</span>}
         {error && <span style={{ color: "var(--ember)", marginLeft: 8 }}>{error}</span>}
@@ -167,69 +162,53 @@ function PrScanPolicySection({ projectId }: { projectId: string }) {
   );
 }
 
+// P1-15
 export default function TestStrategyPage() {
   const { projectId } = useParams<{ projectId: string }>();
+  const utils = trpcReact.useUtils();
   const [openRunId, setOpenRunId] = useState<string | null>(null);
   const [repoUrl, setRepoUrl] = useState("");
   const [baseRef, setBaseRef] = useState("main");
   const [headRef, setHeadRef] = useState("");
-  const [analyzing, setAnalyzing] = useState(false);
   const [result, setResult] = useState<RouterOutputs["riskAnalysis"]["recommendForChange"] | null>(null);
   const [error, setError] = useState<string | null>(null);
-
-  const [aiAnalyzing, setAiAnalyzing] = useState(false);
   const [aiResult, setAiResult] = useState<RouterOutputs["riskAnalysis"]["recommendTestPlansForDiff"] | null>(null);
-
-  const [runs, setRuns] = useState<RouterOutputs["riskAnalysis"]["listRuns"]>([]);
-  const [bulkAssessing, setBulkAssessing] = useState(false);
   const [bulkResult, setBulkResult] = useState<RouterOutputs["testCases"]["assessProjectRisk"] | null>(null);
-
-  const [releases, setReleases] = useState<RouterOutputs["releases"]["list"]>([]);
   const [releaseId, setReleaseId] = useState("");
   const [newReleaseName, setNewReleaseName] = useState("");
-  const [creatingRelease, setCreatingRelease] = useState(false);
-  const [riskFlags, setRiskFlags] = useState<RouterOutputs["releases"]["listRiskFlags"]>([]);
 
-  function loadRuns() {
-    trpc.riskAnalysis.listRuns.query({ projectId }).then(setRuns).catch(() => undefined);
-  }
-  function loadReleases() {
-    trpc.releases.list.query({ projectId }).then(setReleases).catch(() => undefined);
-  }
-  useEffect(loadRuns, [projectId]);
-  useEffect(loadReleases, [projectId]);
+  const runsQuery = trpcReact.riskAnalysis.listRuns.useQuery({ projectId });
+  const releasesQuery = trpcReact.releases.list.useQuery({ projectId });
+  const riskFlagsQuery = trpcReact.releases.listRiskFlags.useQuery({ releaseId }, { enabled: !!releaseId });
+  const runs = runsQuery.data ?? [];
+  const releases = releasesQuery.data ?? [];
+  const riskFlags = releaseId ? (riskFlagsQuery.data ?? []) : [];
 
-  function loadRiskFlags() {
-    if (!releaseId) {
-      setRiskFlags([]);
-      return;
-    }
-    trpc.releases.listRiskFlags.query({ releaseId }).then(setRiskFlags).catch(() => undefined);
-  }
-  useEffect(loadRiskFlags, [releaseId]);
+  // One-shot analysis/AI actions keep their results in local state (the
+  // original page did the same); only the lists they change get invalidated.
+  const createReleaseMutation = trpcReact.releases.create.useMutation();
+  const analyzeMutation = trpcReact.riskAnalysis.recommendForChange.useMutation();
+  const aiMutation = trpcReact.riskAnalysis.recommendTestPlansForDiff.useMutation();
+  const bulkMutation = trpcReact.testCases.assessProjectRisk.useMutation();
 
   async function createRelease() {
     if (!newReleaseName) return;
-    setCreatingRelease(true);
     setError(null);
     try {
-      const r = await trpc.releases.create.mutate({ projectId, name: newReleaseName });
+      const r = await createReleaseMutation.mutateAsync({ projectId, name: newReleaseName });
       setNewReleaseName("");
-      loadReleases();
+      void utils.releases.list.invalidate({ projectId });
       setReleaseId(r.id);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setCreatingRelease(false);
     }
   }
 
   async function analyze() {
-    setAnalyzing(true);
     setError(null);
     setResult(null);
     try {
-      const res = await trpc.riskAnalysis.recommendForChange.mutate({
+      const res = await analyzeMutation.mutateAsync({
         projectId,
         repoUrl: repoUrl || undefined,
         baseRef,
@@ -237,21 +216,18 @@ export default function TestStrategyPage() {
         releaseId: releaseId || undefined,
       });
       setResult(res);
-      loadRuns();
-      loadRiskFlags();
+      void utils.riskAnalysis.listRuns.invalidate({ projectId });
+      if (releaseId) void utils.releases.listRiskFlags.invalidate({ releaseId });
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setAnalyzing(false);
     }
   }
 
   async function analyzeWithAi() {
-    setAiAnalyzing(true);
     setError(null);
     setAiResult(null);
     try {
-      const res = await trpc.riskAnalysis.recommendTestPlansForDiff.mutate({
+      const res = await aiMutation.mutateAsync({
         projectId,
         repoUrl: repoUrl || undefined,
         baseRef,
@@ -260,24 +236,24 @@ export default function TestStrategyPage() {
       setAiResult(res);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setAiAnalyzing(false);
     }
   }
 
   async function bulkAssess() {
-    setBulkAssessing(true);
     setError(null);
     setBulkResult(null);
     try {
-      const res = await trpc.testCases.assessProjectRisk.mutate({ projectId });
+      const res = await bulkMutation.mutateAsync({ projectId });
       setBulkResult(res);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setBulkAssessing(false);
     }
   }
+
+  const analyzing = analyzeMutation.isPending;
+  const aiAnalyzing = aiMutation.isPending;
+  const bulkAssessing = bulkMutation.isPending;
+  const creatingRelease = createReleaseMutation.isPending;
 
   return (
     <div style={{ maxWidth: 800 }}>

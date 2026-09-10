@@ -1,12 +1,11 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useParams } from "next/navigation";
-import { trpc, type RouterOutputs } from "@/lib/trpc";
+import { trpcReact, useReadOnlySeat, type RouterOutputs } from "@/lib/trpcReact";
 import { ReadinessBadge } from "@/components/ReadinessBadge";
 import { buildHtmlSnapshot, buildMarkdownSnapshot } from "@/lib/snapshotExport";
 import { downloadFile } from "@/lib/download";
-import { isReadOnlySeat } from "@/lib/membership";
 import { Modal } from "@/components/Modal";
 
 const STATUSES = ["PLANNING", "IN_TESTING", "READY", "SHIPPED", "BLOCKED"] as const;
@@ -31,25 +30,22 @@ function GenerateSummaryModal({
   const [groundInBuild, setGroundInBuild] = useState(false);
   const [baseRef, setBaseRef] = useState("");
   const [headRef, setHeadRef] = useState("");
-  const [generating, setGenerating] = useState(false);
   const [draft, setDraft] = useState<RouterOutputs["releases"]["generateSummaryDraft"] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  const generateMutation = trpcReact.releases.generateSummaryDraft.useMutation();
 
   async function generate() {
-    setGenerating(true);
     setError(null);
     setCopied(false);
     try {
-      const result = await trpc.releases.generateSummaryDraft.mutate({
+      const result = await generateMutation.mutateAsync({
         releaseId,
         ...(groundInBuild && headRef.trim() ? { baseRef: baseRef.trim() || undefined, headRef: headRef.trim() } : {}),
       });
       setDraft(result);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setGenerating(false);
     }
   }
 
@@ -71,6 +67,8 @@ function GenerateSummaryModal({
     setCopied(false);
     onClose();
   }
+
+  const generating = generateMutation.isPending;
 
   return (
     <Modal open={open} onClose={close} title="Generate a release summary">
@@ -170,38 +168,50 @@ const SECTION_LABELS = {
   recommendation: "Recommendation",
 } as const;
 
+// P1-15
 export default function ReleaseReadinessPage() {
   const { projectId, releaseId } = useParams<{ projectId: string; releaseId: string }>();
+  const utils = trpcReact.useUtils();
+  const readOnly = useReadOnlySeat(projectId);
 
-  const [release, setRelease] = useState<RouterOutputs["releases"]["byId"] | null>(null);
-  const [readiness, setReadiness] = useState<RouterOutputs["releases"]["readiness"] | null>(null);
-  const [testPlans, setTestPlans] = useState<RouterOutputs["releases"]["listTestPlans"]>([]);
-  const [riskFlags, setRiskFlags] = useState<RouterOutputs["releases"]["listRiskFlags"]>([]);
-  const [allPlans, setAllPlans] = useState<RouterOutputs["testPlans"]["list"]>([]);
+  const projectQuery = trpcReact.project.byId.useQuery({ id: projectId });
+  const releaseQuery = trpcReact.releases.byId.useQuery({ id: releaseId });
+  const readinessQuery = trpcReact.releases.readiness.useQuery({ releaseId });
+  const testPlansQuery = trpcReact.releases.listTestPlans.useQuery({ releaseId });
+  const riskFlagsQuery = trpcReact.releases.listRiskFlags.useQuery({ releaseId });
+  const allPlansQuery = trpcReact.testPlans.list.useQuery({ projectId });
+
+  const projectRepo = projectQuery.data ? { repoUrl: projectQuery.data.repoUrl, defaultBranch: projectQuery.data.defaultBranch } : null;
+  const release = releaseQuery.data;
+  const readiness = readinessQuery.data;
+  const testPlans = testPlansQuery.data ?? [];
+  const riskFlags = riskFlagsQuery.data ?? [];
+  const allPlans = allPlansQuery.data ?? [];
+
   const [attachPlanId, setAttachPlanId] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [showResolved, setShowResolved] = useState(false);
   const [exporting, setExporting] = useState<"html" | "markdown" | null>(null);
-  const [readOnly, setReadOnly] = useState(false);
-  const [projectRepo, setProjectRepo] = useState<{ repoUrl: string | null; defaultBranch: string } | null>(null);
   const [summaryModalOpen, setSummaryModalOpen] = useState(false);
 
-  useEffect(() => {
-    trpc.project.byId
-      .query({ id: projectId })
-      .then((p) => {
-        setProjectRepo({ repoUrl: p.repoUrl, defaultBranch: p.defaultBranch });
-        return trpc.organization.mine.query().then((orgs) => orgs.find((o) => o.id === p.organizationId));
-      })
-      .then((org) => setReadOnly(isReadOnlySeat(org?.seatType)))
-      .catch(() => undefined);
-  }, [projectId]);
+  // Everything the original load() refetched: every releases.* query for this
+  // release plus the attachable-plans list (attach/detach changes releaseId
+  // on a plan).
+  function reload() {
+    void utils.releases.invalidate();
+    void utils.testPlans.list.invalidate({ projectId });
+  }
+
+  const updateStatusMutation = trpcReact.releases.updateStatus.useMutation();
+  const updateCriterionMutation = trpcReact.testPlans.updateAcceptanceCriterion.useMutation();
+  const setReleaseMutation = trpcReact.testPlans.setRelease.useMutation();
+  const resolveRiskFlagMutation = trpcReact.releases.resolveRiskFlag.useMutation();
 
   async function exportSnapshot(format: "html" | "markdown") {
     setExporting(format);
     setError(null);
     try {
-      const data = await trpc.releases.getSnapshot.query({ releaseId });
+      const data = await utils.releases.getSnapshot.fetch({ releaseId });
       const safeName = data.release.name.replace(/[^a-z0-9]+/gi, "-").toLowerCase();
       if (format === "html") {
         downloadFile(`${safeName}-quality-snapshot.html`, buildHtmlSnapshot(data), "text/html");
@@ -215,34 +225,11 @@ export default function ReleaseReadinessPage() {
     }
   }
 
-  function load() {
-    setError(null);
-    Promise.all([
-      trpc.releases.byId.query({ id: releaseId }),
-      trpc.releases.readiness.query({ releaseId }),
-      trpc.releases.listTestPlans.query({ releaseId }),
-      trpc.releases.listRiskFlags.query({ releaseId }),
-    ])
-      .then(([r, rd, plans, flags]) => {
-        setRelease(r);
-        setReadiness(rd);
-        setTestPlans(plans);
-        setRiskFlags(flags);
-      })
-      .catch((e) => setError(e instanceof Error ? e.message : String(e)));
-  }
-
-  useEffect(load, [releaseId]);
-
-  useEffect(() => {
-    trpc.testPlans.list.query({ projectId }).then(setAllPlans).catch(() => undefined);
-  }, [projectId]);
-
   async function updateStatus(status: string) {
     setError(null);
     if (status === "READY") {
       try {
-        const gate = await trpc.releases.checkGate.query({ releaseId });
+        const gate = await utils.releases.checkGate.fetch({ releaseId });
         if (!gate.passes && gate.policy === "HARD_BLOCK") {
           alert(`This release can't be marked READY yet -- your organization requires these to pass first:\n\n${gate.reasons.join("\n")}`);
           return;
@@ -257,8 +244,8 @@ export default function ReleaseReadinessPage() {
       }
     }
     try {
-      await trpc.releases.updateStatus.mutate({ id: releaseId, status: status as never });
-      load();
+      await updateStatusMutation.mutateAsync({ id: releaseId, status: status as never });
+      reload();
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     }
@@ -266,8 +253,8 @@ export default function ReleaseReadinessPage() {
 
   async function updateCriterionStatus(id: string, description: string, status: string) {
     try {
-      await trpc.testPlans.updateAcceptanceCriterion.mutate({ id, description, status: status as never });
-      load();
+      await updateCriterionMutation.mutateAsync({ id, description, status: status as never });
+      reload();
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     }
@@ -276,9 +263,9 @@ export default function ReleaseReadinessPage() {
   async function attachPlan() {
     if (!attachPlanId) return;
     try {
-      await trpc.testPlans.setRelease.mutate({ testPlanId: attachPlanId, releaseId });
+      await setReleaseMutation.mutateAsync({ testPlanId: attachPlanId, releaseId });
       setAttachPlanId("");
-      load();
+      reload();
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     }
@@ -286,8 +273,8 @@ export default function ReleaseReadinessPage() {
 
   async function detachPlan(testPlanId: string) {
     try {
-      await trpc.testPlans.setRelease.mutate({ testPlanId, releaseId: null });
-      load();
+      await setReleaseMutation.mutateAsync({ testPlanId, releaseId: null });
+      reload();
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     }
@@ -295,14 +282,15 @@ export default function ReleaseReadinessPage() {
 
   async function toggleResolve(id: string, resolved: boolean) {
     try {
-      await trpc.releases.resolveRiskFlag.mutate({ id, resolved });
-      load();
+      await resolveRiskFlagMutation.mutateAsync({ id, resolved });
+      reload();
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     }
   }
 
-  if (error) return <p style={{ color: "var(--ember)" }}>{error}</p>;
+  const pageError = error ?? releaseQuery.error?.message ?? readinessQuery.error?.message ?? testPlansQuery.error?.message ?? riskFlagsQuery.error?.message ?? null;
+  if (pageError) return <p style={{ color: "var(--ember)" }}>{pageError}</p>;
   if (!release || !readiness) return <p>Loading…</p>;
 
   const attachablePlans = allPlans.filter((p) => p.releaseId !== releaseId);

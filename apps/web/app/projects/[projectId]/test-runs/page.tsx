@@ -1,8 +1,8 @@
 "use client";
 
-import { Fragment, useEffect, useState } from "react";
+import { Fragment, useState } from "react";
 import { useParams } from "next/navigation";
-import { trpc, type RouterOutputs } from "@/lib/trpc";
+import { trpcReact } from "@/lib/trpcReact";
 import { Drawer } from "@/components/Drawer";
 
 const STATUS_COLORS: Record<string, string> = {
@@ -33,35 +33,29 @@ function LinkResultPicker({
   onLinked: () => void;
 }) {
   const [picking, setPicking] = useState(false);
-  const [candidates, setCandidates] = useState<RouterOutputs["testCases"]["list"]>([]);
+  const candidatesQuery = trpcReact.testCases.list.useQuery({ projectId }, { enabled: picking });
+  const candidates = candidatesQuery.data ?? [];
   const [selected, setSelected] = useState("");
-  const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  function openPicker() {
-    setPicking(true);
-    trpc.testCases.list.query({ projectId }).then(setCandidates);
-  }
-
-  async function link() {
-    if (!selected) return;
-    setBusy(true);
-    setError(null);
-    try {
-      await trpc.testRuns.linkResultToTestCase.mutate({ testResultId, testCaseId: selected });
+  const linkMutation = trpcReact.testRuns.linkResultToTestCase.useMutation({
+    onSuccess: () => {
       setPicking(false);
       setSelected("");
       onLinked();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setBusy(false);
-    }
+    },
+    onError: (e) => setError(e.message),
+  });
+
+  function link() {
+    if (!selected) return;
+    setError(null);
+    linkMutation.mutate({ testResultId, testCaseId: selected });
   }
 
   if (!picking) {
     return (
-      <button className="btn-secondary" style={{ fontSize: 11 }} onClick={openPicker}>
+      <button className="btn-secondary" style={{ fontSize: 11 }} onClick={() => setPicking(true)}>
         Link to test case
       </button>
     );
@@ -77,7 +71,7 @@ function LinkResultPicker({
           </option>
         ))}
       </select>
-      <button className="btn-secondary" style={{ fontSize: 11 }} onClick={link} disabled={busy || !selected}>
+      <button className="btn-secondary" style={{ fontSize: 11 }} onClick={link} disabled={linkMutation.isPending || !selected}>
         Link
       </button>
       <button className="btn-secondary" style={{ fontSize: 11 }} onClick={() => setPicking(false)}>
@@ -99,50 +93,43 @@ const CLASSIFICATION_COLORS: Record<string, string> = {
 // so it stops showing as needing attention; the suggested diff is right
 // here to copy, not applied anywhere automatically.
 function HealingSuggestionPanel({ testResultId }: { testResultId: string }) {
-  const [suggestion, setSuggestion] = useState<RouterOutputs["healingSuggestions"]["byTestResult"]>(null);
-  const [loading, setLoading] = useState(true);
-  const [classifying, setClassifying] = useState(false);
+  const utils = trpcReact.useUtils();
+  const suggestionQuery = trpcReact.healingSuggestions.byTestResult.useQuery({ testResultId });
+  const suggestion = suggestionQuery.data ?? null;
   const [error, setError] = useState<string | null>(null);
 
-  function load() {
-    trpc.healingSuggestions.byTestResult
-      .query({ testResultId })
-      .then(setSuggestion)
-      .finally(() => setLoading(false));
-  }
-
-  useEffect(load, [testResultId]);
-
-  async function classify() {
-    setClassifying(true);
-    setError(null);
-    try {
-      const result = await trpc.healingSuggestions.classify.mutate({ testResultId });
-      if (result.ok) setSuggestion(result.suggestion);
+  // Both mutations return the fresh suggestion row, so write it straight into
+  // the query cache (what the original page did with setSuggestion) rather
+  // than refetching.
+  const classifyMutation = trpcReact.healingSuggestions.classify.useMutation({
+    onSuccess: (result) => {
+      if (result.ok) utils.healingSuggestions.byTestResult.setData({ testResultId }, result.suggestion);
       else setError(result.reason);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setClassifying(false);
-    }
+    },
+    onError: (e) => setError(e.message),
+  });
+  const reviewMutation = trpcReact.healingSuggestions.review.useMutation({
+    onSuccess: (updated) => utils.healingSuggestions.byTestResult.setData({ testResultId }, updated),
+    onError: (e) => setError(e.message),
+  });
+
+  function classify() {
+    setError(null);
+    classifyMutation.mutate({ testResultId });
   }
 
-  async function review(status: "APPROVED" | "REJECTED") {
+  function review(status: "APPROVED" | "REJECTED") {
     if (!suggestion) return;
-    try {
-      setSuggestion(await trpc.healingSuggestions.review.mutate({ id: suggestion.id, status }));
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-    }
+    reviewMutation.mutate({ id: suggestion.id, status });
   }
 
-  if (loading) return null;
+  if (suggestionQuery.isLoading) return null;
 
   if (!suggestion) {
     return (
       <div style={{ marginTop: 4 }}>
-        <button className="btn-secondary" style={{ fontSize: 11 }} onClick={classify} disabled={classifying}>
-          {classifying ? "Classifying…" : "Classify failure"}
+        <button className="btn-secondary" style={{ fontSize: 11 }} onClick={classify} disabled={classifyMutation.isPending}>
+          {classifyMutation.isPending ? "Classifying…" : "Classify failure"}
         </button>
         {error && <div style={{ color: "var(--ember)", fontSize: 11, marginTop: 4 }}>{error}</div>}
       </div>
@@ -188,20 +175,14 @@ function HealingSuggestionPanel({ testResultId }: { testResultId: string }) {
 }
 
 function TestRunDetail({ id }: { id: string }) {
-  const [run, setRun] = useState<RouterOutputs["testRuns"]["byId"] | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const utils = trpcReact.useUtils();
+  const runQuery = trpcReact.testRuns.byId.useQuery({ id });
+  const run = runQuery.data;
 
-  function load() {
-    trpc.testRuns.byId
-      .query({ id })
-      .then(setRun)
-      .catch((e) => setError(e instanceof Error ? e.message : String(e)));
-  }
-
-  useEffect(load, [id]);
-
-  if (error) return <p style={{ color: "var(--ember)" }}>{error}</p>;
+  if (runQuery.error) return <p style={{ color: "var(--ember)" }}>{runQuery.error.message}</p>;
   if (!run) return <p>Loading…</p>;
+
+  const reload = () => void utils.testRuns.byId.invalidate({ id });
 
   return (
     <div>
@@ -245,7 +226,7 @@ function TestRunDetail({ id }: { id: string }) {
                   {r.testCaseTitle ?? (
                     <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
                       <span className="text-muted">{r.externalTestId ?? "(unknown)"} — unmatched</span>
-                      <LinkResultPicker testResultId={r.id} projectId={run.projectId} onLinked={load} />
+                      <LinkResultPicker testResultId={r.id} projectId={run.projectId} onLinked={reload} />
                     </div>
                   )}
                 </td>
@@ -278,17 +259,10 @@ function coveragePct(covered: number, total: number): string {
 // coverage-gap dashboard (which files are under-covered against defined
 // thresholds) is Phase 7's job; this just makes the ingested data visible.
 function CoverageSection({ projectId }: { projectId: string }) {
-  const [reports, setReports] = useState<RouterOutputs["coverage"]["list"]>([]);
-  const [loading, setLoading] = useState(true);
+  const reportsQuery = trpcReact.coverage.list.useQuery({ projectId });
+  const reports = reportsQuery.data ?? [];
 
-  useEffect(() => {
-    trpc.coverage.list
-      .query({ projectId })
-      .then(setReports)
-      .finally(() => setLoading(false));
-  }, [projectId]);
-
-  if (loading || reports.length === 0) return null;
+  if (reportsQuery.isLoading || reports.length === 0) return null;
 
   return (
     <div style={{ marginTop: 32 }}>
@@ -332,11 +306,8 @@ function CoverageSection({ projectId }: { projectId: string }) {
 // specific test keeps generating brittle-failure suggestions, that's a
 // signal the test itself needs attention, not the app.
 function HealingSignalSection({ projectId }: { projectId: string }) {
-  const [signal, setSignal] = useState<RouterOutputs["healingSuggestions"]["aggregateSignal"] | null>(null);
-
-  useEffect(() => {
-    trpc.healingSuggestions.aggregateSignal.query({ projectId }).then(setSignal).catch(() => undefined);
-  }, [projectId]);
+  const signalQuery = trpcReact.healingSuggestions.aggregateSignal.useQuery({ projectId });
+  const signal = signalQuery.data;
 
   if (!signal || signal.totalCount === 0) return null;
 
@@ -365,24 +336,14 @@ function HealingSignalSection({ projectId }: { projectId: string }) {
   );
 }
 
+// P1-15
 export default function TestRunsPage() {
   const { projectId } = useParams<{ projectId: string }>();
-  const [runs, setRuns] = useState<RouterOutputs["testRuns"]["list"]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const runsQuery = trpcReact.testRuns.list.useQuery({ projectId });
+  const runs = runsQuery.data ?? [];
+  const loading = runsQuery.isLoading;
+  const error = runsQuery.error?.message ?? null;
   const [openRunId, setOpenRunId] = useState<string | null>(null);
-
-  function load() {
-    setLoading(true);
-    setError(null);
-    trpc.testRuns.list
-      .query({ projectId })
-      .then(setRuns)
-      .catch((e) => setError(e instanceof Error ? e.message : String(e)))
-      .finally(() => setLoading(false));
-  }
-
-  useEffect(load, [projectId]);
 
   return (
     <div style={{ maxWidth: 900 }}>
