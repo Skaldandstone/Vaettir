@@ -1,14 +1,19 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { trpc, type RouterOutputs } from "../../../lib/trpc";
+import { trpcReact, type RouterOutputs } from "@/lib/trpcReact";
 
 type Labels = { action: string; expectedActionOrData: string; expectedResult: string; expectedResponse: string };
 const API_KEY_ROLES = ["VIEWER", "COMPLIANCE_AUDITOR", "EDITOR", "ADMIN"];
 
 function ApiKeysSection({ organizationId }: { organizationId: string }) {
-  const [keys, setKeys] = useState<RouterOutputs["apiKeys"]["list"]>([]);
-  const [loading, setLoading] = useState(true);
+  const utils = trpcReact.useUtils();
+  const keysQuery = trpcReact.apiKeys.list.useQuery({ organizationId });
+  const keys = keysQuery.data ?? [];
+  const loading = keysQuery.isPending;
+  const loadError = keysQuery.error?.message ?? null;
+  const createMutation = trpcReact.apiKeys.create.useMutation();
+  const revokeMutation = trpcReact.apiKeys.revoke.useMutation();
   const [error, setError] = useState<string | null>(null);
   const [name, setName] = useState("");
   const [role, setRole] = useState("EDITOR");
@@ -16,22 +21,15 @@ function ApiKeysSection({ organizationId }: { organizationId: string }) {
   const [freshKey, setFreshKey] = useState<string | null>(null);
 
   function load() {
-    setLoading(true);
-    trpc.apiKeys.list
-      .query({ organizationId })
-      .then(setKeys)
-      .catch((e) => setError(e instanceof Error ? e.message : String(e)))
-      .finally(() => setLoading(false));
+    void utils.apiKeys.list.invalidate({ organizationId });
   }
-
-  useEffect(load, [organizationId]);
 
   async function create() {
     if (!name.trim()) return;
     setCreating(true);
     setError(null);
     try {
-      const res = await trpc.apiKeys.create.mutate({ organizationId, name: name.trim(), role: role as never });
+      const res = await createMutation.mutateAsync({ organizationId, name: name.trim(), role: role as never });
       setFreshKey(res.key);
       setName("");
       load();
@@ -44,7 +42,7 @@ function ApiKeysSection({ organizationId }: { organizationId: string }) {
 
   async function revoke(id: string) {
     if (!confirm("Revoke this key? Anything using it will stop working immediately.")) return;
-    await trpc.apiKeys.revoke.mutate({ id });
+    await revokeMutation.mutateAsync({ id });
     load();
   }
 
@@ -68,7 +66,7 @@ function ApiKeysSection({ organizationId }: { organizationId: string }) {
         </div>
       )}
 
-      {error && <p style={{ color: "var(--ember)" }}>{error}</p>}
+      {(error ?? loadError) && <p style={{ color: "var(--ember)" }}>{error ?? loadError}</p>}
       {loading && <p>Loading…</p>}
 
       {!loading && (
@@ -133,26 +131,27 @@ function ApiKeysSection({ organizationId }: { organizationId: string }) {
 // not a replacement for it, and no separate "channel" concept, since a
 // Slack incoming webhook is already bound to one channel on Slack's side.
 function SlackEventNotificationsSection({ organizationId }: { organizationId: string }) {
-  const [eventTypes, setEventTypes] = useState<string[]>([]);
+  const eventTypesQuery = trpcReact.webhooks.eventTypes.useQuery();
+  const orgQuery = trpcReact.organization.byId.useQuery({ id: organizationId });
+  const updateMutation = trpcReact.organization.updateSlackEventTypes.useMutation();
+  const eventTypes = eventTypesQuery.data ?? [];
+  const webhookConfigured = orgQuery.data?.slackWebhookConfigured ?? false;
   const [selected, setSelected] = useState<string[]>([]);
-  const [webhookConfigured, setWebhookConfigured] = useState(false);
   const [loaded, setLoaded] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  function load() {
-    Promise.all([trpc.webhooks.eventTypes.query(), trpc.organization.byId.query({ id: organizationId })])
-      .then(([types, org]) => {
-        setEventTypes([...types]);
-        setSelected(org.slackEventTypes);
-        setWebhookConfigured(org.slackWebhookConfigured);
-        setLoaded(true);
-      })
-      .catch((e) => setError(e instanceof Error ? e.message : String(e)));
-  }
+  // Seed the editable selection once from the org row; later refetches must
+  // not clobber unsaved checkbox changes.
+  const orgSlackEventTypes = orgQuery.data?.slackEventTypes;
+  useEffect(() => {
+    if (loaded || !orgSlackEventTypes || eventTypesQuery.data === undefined) return;
+    setSelected(orgSlackEventTypes);
+    setLoaded(true);
+  }, [loaded, orgSlackEventTypes, eventTypesQuery.data]);
 
-  useEffect(load, [organizationId]);
+  const loadError = eventTypesQuery.error?.message ?? orgQuery.error?.message ?? null;
 
   function toggle(evt: string) {
     setSelected((prev) => (prev.includes(evt) ? prev.filter((e) => e !== evt) : [...prev, evt]));
@@ -163,7 +162,7 @@ function SlackEventNotificationsSection({ organizationId }: { organizationId: st
     setError(null);
     setSaved(false);
     try {
-      await trpc.organization.updateSlackEventTypes.mutate({ organizationId, eventTypes: selected as never });
+      await updateMutation.mutateAsync({ organizationId, eventTypes: selected as never });
       setSaved(true);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -172,6 +171,7 @@ function SlackEventNotificationsSection({ organizationId }: { organizationId: st
     }
   }
 
+  if (loadError) return <p style={{ color: "var(--ember)" }}>{loadError}</p>;
   if (!loaded) return null;
 
   return (
@@ -201,9 +201,16 @@ function SlackEventNotificationsSection({ organizationId }: { organizationId: st
 }
 
 function WebhooksSection({ organizationId }: { organizationId: string }) {
-  const [eventTypes, setEventTypes] = useState<string[]>([]);
-  const [endpoints, setEndpoints] = useState<RouterOutputs["webhooks"]["list"]>([]);
-  const [loading, setLoading] = useState(true);
+  const utils = trpcReact.useUtils();
+  const eventTypesQuery = trpcReact.webhooks.eventTypes.useQuery();
+  const listQuery = trpcReact.webhooks.list.useQuery({ organizationId });
+  const eventTypes = eventTypesQuery.data ?? [];
+  const endpoints = listQuery.data ?? [];
+  const loading = eventTypesQuery.isPending || listQuery.isPending;
+  const loadError = eventTypesQuery.error?.message ?? listQuery.error?.message ?? null;
+  const createMutation = trpcReact.webhooks.create.useMutation();
+  const deleteMutation = trpcReact.webhooks.delete.useMutation();
+  const sendTestMutation = trpcReact.webhooks.sendTest.useMutation();
   const [error, setError] = useState<string | null>(null);
   const [url, setUrl] = useState("");
   const [selectedEvents, setSelectedEvents] = useState<string[]>([]);
@@ -214,17 +221,8 @@ function WebhooksSection({ organizationId }: { organizationId: string }) {
   const [testingId, setTestingId] = useState<string | null>(null);
 
   function load() {
-    setLoading(true);
-    Promise.all([trpc.webhooks.eventTypes.query(), trpc.webhooks.list.query({ organizationId })])
-      .then(([types, list]) => {
-        setEventTypes([...types]);
-        setEndpoints(list);
-      })
-      .catch((e) => setError(e instanceof Error ? e.message : String(e)))
-      .finally(() => setLoading(false));
+    void utils.webhooks.list.invalidate({ organizationId });
   }
-
-  useEffect(load, [organizationId]);
 
   function toggleEvent(evt: string) {
     setSelectedEvents((prev) => (prev.includes(evt) ? prev.filter((e) => e !== evt) : [...prev, evt]));
@@ -235,7 +233,7 @@ function WebhooksSection({ organizationId }: { organizationId: string }) {
     setCreating(true);
     setError(null);
     try {
-      const res = await trpc.webhooks.create.mutate({ organizationId, url: url.trim(), eventTypes: selectedEvents as never });
+      const res = await createMutation.mutateAsync({ organizationId, url: url.trim(), eventTypes: selectedEvents as never });
       setFreshSecret(res.secret);
       setUrl("");
       setSelectedEvents([]);
@@ -249,7 +247,7 @@ function WebhooksSection({ organizationId }: { organizationId: string }) {
 
   async function remove(id: string) {
     if (!confirm("Delete this webhook? It will stop receiving events immediately.")) return;
-    await trpc.webhooks.delete.mutate({ id });
+    await deleteMutation.mutateAsync({ id });
     load();
   }
 
@@ -257,7 +255,7 @@ function WebhooksSection({ organizationId }: { organizationId: string }) {
     setTestingId(id);
     setError(null);
     try {
-      await trpc.webhooks.sendTest.mutate({ id });
+      await sendTestMutation.mutateAsync({ id });
       await viewDeliveries(id);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -268,7 +266,7 @@ function WebhooksSection({ organizationId }: { organizationId: string }) {
 
   async function viewDeliveries(id: string) {
     setDeliveriesFor(id);
-    const result = await trpc.webhooks.listDeliveries.query({ webhookEndpointId: id });
+    const result = await utils.webhooks.listDeliveries.fetch({ webhookEndpointId: id });
     setDeliveries(result);
   }
 
@@ -293,7 +291,7 @@ function WebhooksSection({ organizationId }: { organizationId: string }) {
         </div>
       )}
 
-      {error && <p style={{ color: "var(--ember)" }}>{error}</p>}
+      {(error ?? loadError) && <p style={{ color: "var(--ember)" }}>{error ?? loadError}</p>}
       {loading && <p>Loading…</p>}
 
       {!loading && (
@@ -439,8 +437,12 @@ const PLAN_TYPE_TEMPLATES: {
 // The field list below compiles into the same JSON Schema shape the
 // existing CustomFieldsForm renderer already reads for built-in types.
 function PlanTypesSection() {
-  const [types, setTypes] = useState<RouterOutputs["testPlans"]["types"]>([]);
-  const [loading, setLoading] = useState(true);
+  const utils = trpcReact.useUtils();
+  const typesQuery = trpcReact.testPlans.types.useQuery();
+  const types = typesQuery.data ?? [];
+  const loading = typesQuery.isPending;
+  const loadError = typesQuery.error?.message ?? null;
+  const createTypeMutation = trpcReact.testPlans.createType.useMutation();
   const [error, setError] = useState<string | null>(null);
 
   const [formOpen, setFormOpen] = useState(false);
@@ -452,15 +454,8 @@ function PlanTypesSection() {
   const [creating, setCreating] = useState(false);
 
   function load() {
-    setLoading(true);
-    trpc.testPlans.types
-      .query()
-      .then(setTypes)
-      .catch((e) => setError(e instanceof Error ? e.message : String(e)))
-      .finally(() => setLoading(false));
+    void utils.testPlans.types.invalidate();
   }
-
-  useEffect(load, []);
 
   function resetForm() {
     setKey("");
@@ -489,7 +484,7 @@ function PlanTypesSection() {
     setCreating(true);
     setError(null);
     try {
-      await trpc.testPlans.createType.mutate({
+      await createTypeMutation.mutateAsync({
         key: key.trim(),
         name: name.trim(),
         category: category as never,
@@ -520,7 +515,7 @@ function PlanTypesSection() {
         code change or migration required.
       </p>
 
-      {error && <p style={{ color: "var(--ember)" }}>{error}</p>}
+      {(error ?? loadError) && <p style={{ color: "var(--ember)" }}>{error ?? loadError}</p>}
       {loading && <p>Loading…</p>}
 
       {!loading && (
@@ -632,15 +627,9 @@ function PlanTypesSection() {
 }
 
 function AiCreditsSection({ organizationId }: { organizationId: string }) {
-  const [status, setStatus] = useState<RouterOutputs["organization"]["aiCreditStatus"] | null>(null);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    trpc.organization.aiCreditStatus
-      .query({ organizationId })
-      .then(setStatus)
-      .catch((e) => setError(e instanceof Error ? e.message : String(e)));
-  }, [organizationId]);
+  const statusQuery = trpcReact.organization.aiCreditStatus.useQuery({ organizationId });
+  const status = statusQuery.data ?? null;
+  const error = statusQuery.error?.message ?? null;
 
   if (error) return <p style={{ color: "var(--ember)" }}>{error}</p>;
   if (!status) return null;
@@ -688,15 +677,9 @@ function AiCreditsSection({ organizationId }: { organizationId: string }) {
 }
 
 function RetentionDryRunSection({ organizationId }: { organizationId: string }) {
-  const [result, setResult] = useState<RouterOutputs["organization"]["retentionDryRun"] | null>(null);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    trpc.organization.retentionDryRun
-      .query({ organizationId })
-      .then(setResult)
-      .catch((e) => setError(e instanceof Error ? e.message : String(e)));
-  }, [organizationId]);
+  const dryRunQuery = trpcReact.organization.retentionDryRun.useQuery({ organizationId }, { retry: false });
+  const result = dryRunQuery.data ?? null;
+  const error = dryRunQuery.error;
 
   if (error) return null; // non-admins can't call this -- fail silently rather than showing an error on a page they can still use
   if (!result) return null;
@@ -712,9 +695,21 @@ function RetentionDryRunSection({ organizationId }: { organizationId: string }) 
   );
 }
 
+// P1-15: organization.mine + byId are react-query hooks; the many editable
+// fields are seeded from the detail row exactly once (guarded by
+// digestLoaded) so background refetches never overwrite unsaved edits.
 export default function OrganizationSettingsPage() {
-  const [orgId, setOrgId] = useState<string | null>(null);
-  const [orgName, setOrgName] = useState("");
+  const orgsQuery = trpcReact.organization.mine.useQuery();
+  const firstOrg = orgsQuery.data?.[0] ?? null;
+  const orgId = firstOrg?.id ?? null;
+  const orgName = firstOrg?.name ?? "";
+  const detailQuery = trpcReact.organization.byId.useQuery({ id: orgId ?? "" }, { enabled: orgId !== null });
+  const detail = detailQuery.data;
+  const updateDataRetentionMutation = trpcReact.organization.updateDataRetention.useMutation();
+  const updateReleaseGatePolicyMutation = trpcReact.organization.updateReleaseGatePolicy.useMutation();
+  const updateDigestSettingsMutation = trpcReact.organization.updateDigestSettings.useMutation();
+  const sendTestDigestMutation = trpcReact.organization.sendTestDigest.useMutation();
+  const updateStepFieldLabelsMutation = trpcReact.organization.updateStepFieldLabels.useMutation();
   const [labels, setLabels] = useState<Labels | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -740,25 +735,18 @@ export default function OrganizationSettingsPage() {
   const [testDigestResult, setTestDigestResult] = useState<string | null>(null);
 
   useEffect(() => {
-    trpc.organization.mine
-      .query()
-      .then(async (orgs) => {
-        const org = orgs[0];
-        if (!org) return;
-        setOrgId(org.id);
-        setOrgName(org.name);
-        const detail = await trpc.organization.byId.query({ id: org.id });
-        setLabels(detail.stepFieldLabels as Labels);
-        setDataRetentionYears(detail.dataRetentionYears);
-        setReleaseGatePolicy(detail.releaseGatePolicy);
-        setSlackWebhookConfigured(detail.slackWebhookConfigured);
-        setDigestEnabled(detail.digestEnabled);
-        if (detail.digestHourUtc !== null) setDigestHourUtc(detail.digestHourUtc);
-        setLastDigestSentAt(detail.lastDigestSentAt);
-        setDigestLoaded(true);
-      })
-      .catch((e) => setError(String(e)));
-  }, []);
+    if (digestLoaded || !detail) return;
+    setLabels(detail.stepFieldLabels as Labels);
+    setDataRetentionYears(detail.dataRetentionYears);
+    setReleaseGatePolicy(detail.releaseGatePolicy);
+    setSlackWebhookConfigured(detail.slackWebhookConfigured);
+    setDigestEnabled(detail.digestEnabled);
+    if (detail.digestHourUtc !== null) setDigestHourUtc(detail.digestHourUtc);
+    setLastDigestSentAt(detail.lastDigestSentAt);
+    setDigestLoaded(true);
+  }, [digestLoaded, detail]);
+
+  const loadError = orgsQuery.error?.message ?? detailQuery.error?.message ?? null;
 
   async function submitRetention() {
     if (!orgId || dataRetentionYears === null) return;
@@ -766,7 +754,7 @@ export default function OrganizationSettingsPage() {
     setError(null);
     setRetentionSaved(false);
     try {
-      const updated = await trpc.organization.updateDataRetention.mutate({ organizationId: orgId, dataRetentionYears });
+      const updated = await updateDataRetentionMutation.mutateAsync({ organizationId: orgId, dataRetentionYears });
       setDataRetentionYears(updated.dataRetentionYears);
       setRetentionSaved(true);
     } catch (e) {
@@ -782,7 +770,7 @@ export default function OrganizationSettingsPage() {
     setError(null);
     setGatePolicySaved(false);
     try {
-      const updated = await trpc.organization.updateReleaseGatePolicy.mutate({
+      const updated = await updateReleaseGatePolicyMutation.mutateAsync({
         organizationId: orgId,
         releaseGatePolicy: releaseGatePolicy as never,
       });
@@ -801,7 +789,7 @@ export default function OrganizationSettingsPage() {
     setError(null);
     setDigestSaved(false);
     try {
-      await trpc.organization.updateDigestSettings.mutate({
+      await updateDigestSettingsMutation.mutateAsync({
         organizationId: orgId,
         slackWebhookUrl: slackWebhookInput.trim().length > 0 ? slackWebhookInput.trim() : undefined,
         digestEnabled,
@@ -824,7 +812,7 @@ export default function OrganizationSettingsPage() {
     setSavingDigest(true);
     setError(null);
     try {
-      await trpc.organization.updateDigestSettings.mutate({
+      await updateDigestSettingsMutation.mutateAsync({
         organizationId: orgId,
         slackWebhookUrl: "",
         digestEnabled: false,
@@ -844,7 +832,7 @@ export default function OrganizationSettingsPage() {
     setSendingTestDigest(true);
     setTestDigestResult(null);
     try {
-      await trpc.organization.sendTestDigest.mutate({ organizationId: orgId });
+      await sendTestDigestMutation.mutateAsync({ organizationId: orgId });
       setTestDigestResult("Sent.");
       setLastDigestSentAt(new Date());
     } catch (e) {
@@ -860,7 +848,7 @@ export default function OrganizationSettingsPage() {
     setError(null);
     setSaved(false);
     try {
-      const resolved = await trpc.organization.updateStepFieldLabels.mutate({ organizationId: orgId, labels });
+      const resolved = await updateStepFieldLabelsMutation.mutateAsync({ organizationId: orgId, labels });
       setLabels(resolved as Labels);
       setSaved(true);
     } catch (e) {
@@ -870,7 +858,7 @@ export default function OrganizationSettingsPage() {
     }
   }
 
-  if (error) return <p style={{ color: "var(--ember)" }}>{error}</p>;
+  if (error ?? loadError) return <p style={{ color: "var(--ember)" }}>{error ?? loadError}</p>;
   if (!labels) return <p>Loading…</p>;
 
   return (

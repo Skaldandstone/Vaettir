@@ -1,23 +1,43 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useParams } from "next/navigation";
-import { trpc, type RouterOutputs } from "../../../../lib/trpc";
+import { trpcReact, type RouterOutputs } from "@/lib/trpcReact";
 
-type OrgDetail = RouterOutputs["admin"]["getOrganization"];
-
+// P1-15: the three reads are react-query hooks (retry: false so a
+// "Staff access required" rejection surfaces immediately instead of after
+// the default retry backoff); every staff action still awaits a full
+// refetch via loadAll() so the page never shows stale org state after a
+// mutation. The plan-tier select derives from the org row unless the
+// staff member has picked something else, which replaces the old
+// "reset newPlanTierId on every load" behavior without an effect.
 export default function AdminOrganizationDetailPage() {
   const params = useParams<{ id: string }>();
   const organizationId = params.id;
+  const utils = trpcReact.useUtils();
 
-  const [org, setOrg] = useState<OrgDetail | null>(null);
-  const [planTiers, setPlanTiers] = useState<RouterOutputs["admin"]["listPlanTiers"]>([]);
-  const [logEntries, setLogEntries] = useState<RouterOutputs["admin"]["staffActionLog"]>([]);
-  const [loading, setLoading] = useState(true);
-  const [forbidden, setForbidden] = useState(false);
+  const orgQuery = trpcReact.admin.getOrganization.useQuery({ organizationId }, { retry: false });
+  const tiersQuery = trpcReact.admin.listPlanTiers.useQuery(undefined, { retry: false });
+  const logQuery = trpcReact.admin.staffActionLog.useQuery({ organizationId }, { retry: false });
+  const org = orgQuery.data ?? null;
+  const planTiers = tiersQuery.data ?? [];
+  const logEntries = logQuery.data ?? [];
+  const loading = orgQuery.isPending || tiersQuery.isPending || logQuery.isPending;
+  const loadErrorMessage = orgQuery.error?.message ?? tiersQuery.error?.message ?? logQuery.error?.message ?? null;
+  const forbidden = loadErrorMessage?.includes("Staff access required") ?? false;
   const [error, setError] = useState<string | null>(null);
 
-  const [newPlanTierId, setNewPlanTierId] = useState("");
+  const adjustPlanTierMutation = trpcReact.admin.adjustPlanTier.useMutation();
+  const resendInviteMutation = trpcReact.admin.resendInvite.useMutation();
+  const suspendMutation = trpcReact.admin.suspendOrganization.useMutation();
+  const reactivateMutation = trpcReact.admin.reactivateOrganization.useMutation();
+  const transferOwnershipMutation = trpcReact.admin.transferOwnership.useMutation();
+  const hardDeleteMutation = trpcReact.admin.hardDeleteOrganization.useMutation();
+  const deactivateMemberMutation = trpcReact.admin.deactivateMember.useMutation();
+
+  const [planTierOverride, setPlanTierOverride] = useState<string | null>(null);
+  const newPlanTierId = planTierOverride ?? org?.planTierId ?? "";
+  const setNewPlanTierId = setPlanTierOverride;
   const [reason, setReason] = useState("");
   const [busy, setBusy] = useState(false);
   const [lastInviteLink, setLastInviteLink] = useState<string | null>(null);
@@ -32,33 +52,13 @@ export default function AdminOrganizationDetailPage() {
   const [deleteResult, setDeleteResult] = useState<RouterOutputs["admin"]["hardDeleteOrganization"] | null>(null);
 
   async function loadAll() {
-    setLoading(true);
-    setError(null);
-    try {
-      const [orgResult, tiers, log] = await Promise.all([
-        trpc.admin.getOrganization.query({ organizationId }),
-        trpc.admin.listPlanTiers.query(),
-        trpc.admin.staffActionLog.query({ organizationId }),
-      ]);
-      setOrg(orgResult);
-      setPlanTiers(tiers);
-      setLogEntries(log);
-      setNewPlanTierId(orgResult.planTierId);
-    } catch (e) {
-      if (e instanceof Error && e.message.includes("Staff access required")) {
-        setForbidden(true);
-      } else {
-        setError(e instanceof Error ? e.message : String(e));
-      }
-    } finally {
-      setLoading(false);
-    }
+    setPlanTierOverride(null);
+    await Promise.all([
+      utils.admin.getOrganization.invalidate({ organizationId }),
+      utils.admin.listPlanTiers.invalidate(),
+      utils.admin.staffActionLog.invalidate({ organizationId }),
+    ]);
   }
-
-  useEffect(() => {
-    loadAll();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [organizationId]);
 
   function requireReason(): string | null {
     if (!reason.trim()) {
@@ -74,7 +74,7 @@ export default function AdminOrganizationDetailPage() {
     setBusy(true);
     setError(null);
     try {
-      await trpc.admin.adjustPlanTier.mutate({ organizationId, planTierId: newPlanTierId, reason: r });
+      await adjustPlanTierMutation.mutateAsync({ organizationId, planTierId: newPlanTierId, reason: r });
       await loadAll();
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -89,7 +89,7 @@ export default function AdminOrganizationDetailPage() {
     setBusy(true);
     setError(null);
     try {
-      const result = await trpc.admin.resendInvite.mutate({ invitationId, reason: r });
+      const result = await resendInviteMutation.mutateAsync({ invitationId, reason: r });
       setLastInviteLink(`${window.location.origin}/invite/${result.token}`);
       await loadAll();
     } catch (e) {
@@ -106,7 +106,7 @@ export default function AdminOrganizationDetailPage() {
     setBusy(true);
     setError(null);
     try {
-      await trpc.admin.suspendOrganization.mutate({ organizationId, reason: r });
+      await suspendMutation.mutateAsync({ organizationId, reason: r });
       await loadAll();
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -121,7 +121,7 @@ export default function AdminOrganizationDetailPage() {
     setBusy(true);
     setError(null);
     try {
-      await trpc.admin.reactivateOrganization.mutate({ organizationId, reason: r });
+      await reactivateMutation.mutateAsync({ organizationId, reason: r });
       await loadAll();
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -137,7 +137,7 @@ export default function AdminOrganizationDetailPage() {
     setBusy(true);
     setError(null);
     try {
-      await trpc.admin.transferOwnership.mutate({
+      await transferOwnershipMutation.mutateAsync({
         organizationId,
         newOwnerMembershipId,
         previousOwnerMembershipId,
@@ -157,7 +157,7 @@ export default function AdminOrganizationDetailPage() {
     setPreviewingDelete(true);
     setError(null);
     try {
-      const preview = await trpc.admin.previewOrgHardDelete.query({ organizationId });
+      const preview = await utils.admin.previewOrgHardDelete.fetch({ organizationId });
       setDeletePreview(preview);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -177,7 +177,7 @@ export default function AdminOrganizationDetailPage() {
     setDeleting(true);
     setError(null);
     try {
-      const result = await trpc.admin.hardDeleteOrganization.mutate({ organizationId, confirmSlug, reason: r });
+      const result = await hardDeleteMutation.mutateAsync({ organizationId, confirmSlug, reason: r });
       setDeleteResult(result);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -193,7 +193,7 @@ export default function AdminOrganizationDetailPage() {
     setBusy(true);
     setError(null);
     try {
-      await trpc.admin.deactivateMember.mutate({ membershipId, reason: r });
+      await deactivateMemberMutation.mutateAsync({ membershipId, reason: r });
       await loadAll();
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -229,7 +229,7 @@ export default function AdminOrganizationDetailPage() {
   }
 
   if (loading) return <p>Loading…</p>;
-  if (!org) return <p style={{ color: "var(--ember)" }}>{error}</p>;
+  if (!org) return <p style={{ color: "var(--ember)" }}>{error ?? loadErrorMessage}</p>;
 
   return (
     <div style={{ maxWidth: 800 }}>
