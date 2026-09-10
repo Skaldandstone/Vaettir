@@ -114,6 +114,24 @@ export async function notifyReadinessChanged(prisma: PrismaClient, event: Readin
   }
 }
 
+// Fire-and-forget refresh for the mutations that can move readiness
+// (risk flag create/resolve, acceptance-criterion edits, plan attach/
+// detach, test-result ingestion). The 5-minute sweep remains the safety
+// net; these make a label change notify within seconds of the action
+// that caused it instead of "sometime in the next five minutes". Never
+// awaited by the mutation - a notification hiccup must not fail the edit.
+export function refreshReleaseReadiness(prisma: PrismaClient, releaseId: string | null | undefined): void {
+  if (!releaseId) return;
+  void recordReadinessSnapshot(prisma, releaseId).catch((e) => Sentry.captureException(e));
+}
+
+export function refreshProjectReadiness(prisma: PrismaClient, projectId: string): void {
+  void prisma.release
+    .findMany({ where: { projectId, status: { not: "SHIPPED" } }, select: { id: true } })
+    .then((releases) => Promise.all(releases.map((r) => recordReadinessSnapshot(prisma, r.id))))
+    .catch((e) => Sentry.captureException(e));
+}
+
 export interface RecordReadinessResult {
   transition: ReadinessTransition;
   readiness: Readiness;

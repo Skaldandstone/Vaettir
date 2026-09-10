@@ -7,6 +7,7 @@ import { randomUUID } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { prisma } from "@vaettir/db";
 import { recordReadinessSnapshot } from "./releaseReadiness.js";
+import { appRouter } from "../router.js";
 
 const RUN = `readiness-change-${randomUUID()}`;
 let orgId: string;
@@ -145,6 +146,33 @@ describe("recordReadinessSnapshot (real DB)", () => {
     const deliveries = await prisma.webhookDelivery.findMany({ where: { webhookEndpoint: { organizationId: orgId } } });
     expect(deliveries).toHaveLength(1);
     expect(deliveries[0]!.success).toBe(true);
+  });
+
+  it("fires within seconds of a mutation through the real router, not just the sweep", async () => {
+    calls.length = 0;
+    const user = await prisma.user.findUniqueOrThrow({ where: { id: userId }, include: { memberships: true } });
+    const caller = appRouter.createCaller({ prisma, user, staff: null });
+    const criterion = await prisma.acceptanceCriterion.findFirstOrThrow({ where: { testPlanId } });
+    // Currently BLOCKED (critical flag open). Flip one MET criterion to
+    // NOT_MET: still BLOCKED (critical flag) - a score-only move, silent.
+    await caller.testPlans.updateAcceptanceCriterion({ id: criterion.id, description: criterion.description, status: "NOT_MET" });
+    // Then resolve the flags through the router: BLOCKED -> AT_RISK (50) fires.
+    const flags = await prisma.riskFlag.findMany({ where: { releaseId, resolvedAt: null } });
+    for (const f of flags) await caller.releases.resolveRiskFlag({ id: f.id, resolved: true });
+    const deadline = Date.now() + 5000;
+    while (Date.now() < deadline && !calls.some((c) => c.url.startsWith("https://exp.host/"))) {
+      await new Promise((r) => setTimeout(r, 50));
+    }
+    const latest = await prisma.releaseReadinessSnapshot.findFirstOrThrow({ where: { releaseId }, orderBy: { computedAt: "desc" } });
+    expect(latest).toMatchObject({ label: "AT_RISK", score: 50, previousLabel: "BLOCKED" });
+    expect(calls.map((c) => c.url).filter((u) => u.startsWith("https://exp.host/"))).toHaveLength(1);
+    // Restore for the next test: criterion back to MET (READY, fires; wait
+    // for it), then re-open the flags without notifying so the next test
+    // starts from BLOCKED exactly as before this one ran.
+    await caller.testPlans.updateAcceptanceCriterion({ id: criterion.id, description: criterion.description, status: "MET" });
+    await new Promise((r) => setTimeout(r, 750));
+    await prisma.riskFlag.updateMany({ where: { releaseId }, data: { resolvedAt: null } });
+    await recordReadinessSnapshot(prisma, releaseId, { notify: false });
   });
 
   it("notifies again on the way back up, and stays quiet once stable", async () => {

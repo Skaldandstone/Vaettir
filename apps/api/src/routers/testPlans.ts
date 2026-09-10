@@ -4,6 +4,7 @@ import { generateQaStrategyDraft } from "@vaettir/ai-agent";
 import { router, protectedProcedure, requireProjectAccess } from "../trpc.js";
 import { recordAudit } from "../services/auditLog.js";
 import { snapshotTestPlanVersion } from "../services/testPlanVersion.js";
+import { refreshReleaseReadiness } from "../services/releaseReadiness.js";
 import { chargeAiCredits, InsufficientAiCreditsError, meterAiCall } from "../services/aiCredits.js";
 import { getCommitLog } from "../services/changeImpact.js";
 
@@ -258,7 +259,7 @@ export const testPlansRouter = router({
     .mutation(async ({ ctx, input }) => {
       const plan = await ctx.prisma.testPlan.findUniqueOrThrow({
         where: { id: input.testPlanId },
-        select: { projectId: true },
+        select: { projectId: true, releaseId: true },
       });
       await requireProjectAccess(ctx, plan.projectId, "EDITOR");
       if (input.releaseId) {
@@ -267,11 +268,16 @@ export const testPlansRouter = router({
           throw new TRPCError({ code: "BAD_REQUEST", message: "That release does not belong to this project" });
         }
       }
-      return ctx.prisma.testPlan.update({
+      const updated = await ctx.prisma.testPlan.update({
         where: { id: input.testPlanId },
         data: { releaseId: input.releaseId, updatedById: ctx.user.id },
         select: { id: true, releaseId: true },
       });
+      // Both sides move: the release that lost the plan's criteria and the
+      // one that gained them.
+      refreshReleaseReadiness(ctx.prisma, plan.releaseId);
+      refreshReleaseReadiness(ctx.prisma, input.releaseId);
+      return updated;
     }),
 
   // P4-02: drafts a starter QA strategy from a short user prompt plus a real
@@ -633,16 +639,18 @@ export const testPlansRouter = router({
     .mutation(async ({ ctx, input }) => {
       const plan = await ctx.prisma.testPlan.findUniqueOrThrow({
         where: { id: input.testPlanId },
-        select: { projectId: true },
+        select: { projectId: true, releaseId: true },
       });
       await requireProjectAccess(ctx, plan.projectId, "EDITOR");
-      return ctx.prisma.acceptanceCriterion.create({
+      const created = await ctx.prisma.acceptanceCriterion.create({
         data: {
           testPlanId: input.testPlanId,
           description: input.description,
           requirementId: input.requirementId,
         },
       });
+      refreshReleaseReadiness(ctx.prisma, plan.releaseId);
+      return created;
     }),
 
   updateAcceptanceCriterion: protectedProcedure
@@ -658,13 +666,15 @@ export const testPlansRouter = router({
     .mutation(async ({ ctx, input }) => {
       const criterion = await ctx.prisma.acceptanceCriterion.findUniqueOrThrow({
         where: { id: input.id },
-        include: { testPlan: { select: { projectId: true } } },
+        include: { testPlan: { select: { projectId: true, releaseId: true } } },
       });
       await requireProjectAccess(ctx, criterion.testPlan.projectId, "EDITOR");
-      return ctx.prisma.acceptanceCriterion.update({
+      const updated = await ctx.prisma.acceptanceCriterion.update({
         where: { id: input.id },
         data: { description: input.description, status: input.status, requirementId: input.requirementId },
       });
+      refreshReleaseReadiness(ctx.prisma, criterion.testPlan.releaseId);
+      return updated;
     }),
 
   deleteAcceptanceCriterion: protectedProcedure
@@ -672,9 +682,10 @@ export const testPlansRouter = router({
     .mutation(async ({ ctx, input }) => {
       const criterion = await ctx.prisma.acceptanceCriterion.findUniqueOrThrow({
         where: { id: input.id },
-        include: { testPlan: { select: { projectId: true } } },
+        include: { testPlan: { select: { projectId: true, releaseId: true } } },
       });
       await requireProjectAccess(ctx, criterion.testPlan.projectId, "EDITOR");
       await ctx.prisma.acceptanceCriterion.delete({ where: { id: input.id } });
+      refreshReleaseReadiness(ctx.prisma, criterion.testPlan.releaseId);
     }),
 });

@@ -4,6 +4,7 @@ import { router, protectedProcedure, requireProjectAccess } from "../trpc.js";
 import { parseJUnitXml } from "../services/junitParse.js";
 import { recomputeFlaky } from "../services/flakyDetection.js";
 import { autoEnqueueUnmatchedResult } from "../services/continuousListening.js";
+import { refreshProjectReadiness } from "../services/releaseReadiness.js";
 import { resolveHealingSuggestionsOnPass } from "../services/healingSuggestion.js";
 import { buildArtifactKey, createUploadUrl, createViewUrl, canonicalUrl, keyFromCanonicalUrl } from "../services/artifactStorage.js";
 
@@ -122,6 +123,10 @@ export const testRunsRouter = router({
         ),
       ];
       await Promise.all(passedTestCaseIds.map((id) => resolveHealingSuggestionsOnPass(ctx.prisma, id)));
+      // P8-04: auto-computed acceptance criteria follow test results, so a
+      // run can flip a release's readiness - recompute every active release
+      // of the project now rather than waiting for the 5-minute sweep.
+      refreshProjectReadiness(ctx.prisma, input.projectId);
 
       // P5-14: for every unmatched result that reported a file path, try to
       // auto-enqueue a scoped reverse-engineer job rather than leaving it

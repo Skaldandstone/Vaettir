@@ -5,6 +5,7 @@ import { router, protectedProcedure, requireProjectAccess } from "../trpc.js";
 import { getChangedFiles, getDiffContent } from "../services/changeImpact.js";
 import { matchChangedFilesToTestCases } from "../services/changeMatch.js";
 import { getPathSeverityRules, severityForPath, parsePathSeverityRules } from "../services/prScanPolicy.js";
+import { refreshReleaseReadiness } from "../services/releaseReadiness.js";
 import { chargeAiCredits, InsufficientAiCreditsError, meterAiCall } from "../services/aiCredits.js";
 import { dispatchWebhookEvent } from "../services/webhookDelivery.js";
 import { notifySlackEvent } from "../services/slackEventNotify.js";
@@ -101,6 +102,7 @@ export const riskAnalysisRouter = router({
             })),
           });
           riskFlagsCreated = newGaps.length;
+          refreshReleaseReadiness(ctx.prisma, release.id);
 
           // P9-06: fire-and-forget, matching P5-14's precedent for this
           // exact shape - a webhook receiver being slow or dead shouldn't

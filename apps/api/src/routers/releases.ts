@@ -4,7 +4,7 @@ import { router, protectedProcedure, requireProjectAccess, requireOrgRole } from
 import { computeStatusesByTestPlan } from "../services/acceptanceCriteria.js";
 import { evaluateReleaseGate } from "../services/releaseGate.js";
 import { computeReadiness, getOrgOverview } from "../services/orgReadiness.js";
-import { computeReleaseReadiness } from "../services/releaseReadiness.js";
+import { computeReleaseReadiness, refreshReleaseReadiness } from "../services/releaseReadiness.js";
 import { chargeAiCredits, InsufficientAiCreditsError, meterAiCall } from "../services/aiCredits.js";
 import { getCommitLog } from "../services/changeImpact.js";
 import { generateReleaseSummary } from "@vaettir/ai-agent";
@@ -244,10 +244,12 @@ export const releasesRouter = router({
         include: { release: { select: { projectId: true } } },
       });
       await requireProjectAccess(ctx, flag.release.projectId, "EDITOR");
-      return ctx.prisma.riskFlag.update({
+      const updated = await ctx.prisma.riskFlag.update({
         where: { id: input.id },
         data: { resolvedAt: input.resolved ? new Date() : null, updatedById: ctx.user.id },
       });
+      refreshReleaseReadiness(ctx.prisma, flag.releaseId);
+      return updated;
     }),
 
   // P7-06: one row per project, showing its most recently active (not yet
