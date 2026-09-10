@@ -1,9 +1,8 @@
 "use client";
 
-import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { trpc, type RouterOutputs } from "../lib/trpc";
+import { trpcReact } from "@/lib/trpcReact";
 import { GlobalSearch } from "./GlobalSearch";
 
 const ORG_LINKS = [
@@ -28,19 +27,17 @@ function projectIdFromPath(pathname: string): string | null {
 
 function ProjectSidebar({ projectId }: { projectId: string }) {
   const router = useRouter();
-  const [projects, setProjects] = useState<RouterOutputs["project"]["list"]>([]);
-  const [currentName, setCurrentName] = useState("");
-
-  useEffect(() => {
-    trpc.project.byId
-      .query({ id: projectId })
-      .then(async (p) => {
-        setCurrentName(p.name);
-        const list = await trpc.project.list.query({ organizationId: p.organizationId });
-        setProjects(list);
-      })
-      .catch(() => undefined);
-  }, [projectId]);
+  // P1-15: project.byId is shared with every page under /projects/[id] via
+  // the react-query cache, so the sidebar no longer issues its own copy of
+  // that request on every navigation.
+  const projectQuery = trpcReact.project.byId.useQuery({ id: projectId });
+  const organizationId = projectQuery.data?.organizationId;
+  const listQuery = trpcReact.project.list.useQuery(
+    { organizationId: organizationId ?? "" },
+    { enabled: organizationId !== undefined },
+  );
+  const projects = listQuery.data ?? [];
+  const currentName = projectQuery.data?.name ?? "";
 
   const links = [
     { href: `/projects/${projectId}`, label: "Overview" },

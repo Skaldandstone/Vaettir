@@ -1,33 +1,31 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { trpc, type RouterOutputs } from "../lib/trpc";
+import { keepPreviousData } from "@tanstack/react-query";
+import { trpcReact } from "@/lib/trpcReact";
 
-type Results = RouterOutputs["search"]["search"];
-
+// P1-15: the 250ms debounce lives in a tiny state hook; the search itself
+// is a useQuery keyed on the debounced text (so typing back to a previous
+// query hits the cache), with keepPreviousData so the panel keeps showing
+// the last results while the next keystroke's query is in flight - same as
+// the old "leave results until the new response lands" behavior.
 export function GlobalSearch({ projectId }: { projectId: string }) {
   const [query, setQuery] = useState("");
-  const [results, setResults] = useState<Results | null>(null);
+  const [debounced, setDebounced] = useState("");
   const [open, setOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const q = query.trim();
-    if (!q) {
-      setResults(null);
-      return;
-    }
-    const t = setTimeout(() => {
-      trpc.search.search
-        .query({ projectId, query: q })
-        .then((r) => {
-          setResults(r);
-          setOpen(true);
-        })
-        .catch(() => undefined);
-    }, 250);
+    const t = setTimeout(() => setDebounced(q), q ? 250 : 0);
     return () => clearTimeout(t);
-  }, [query, projectId]);
+  }, [query]);
+
+  const searchQuery = trpcReact.search.search.useQuery(
+    { projectId, query: debounced },
+    { enabled: debounced.length > 0, placeholderData: keepPreviousData, retry: false },
+  );
+  const results = debounced.length > 0 ? (searchQuery.data ?? null) : null;
 
   useEffect(() => {
     function onClickAway(e: MouseEvent) {
@@ -51,7 +49,10 @@ export function GlobalSearch({ projectId }: { projectId: string }) {
     <div ref={containerRef} style={{ position: "relative" }}>
       <input
         value={query}
-        onChange={(e) => setQuery(e.target.value)}
+        onChange={(e) => {
+          setQuery(e.target.value);
+          if (e.target.value.trim()) setOpen(true);
+        }}
         onFocus={() => query.trim() && setOpen(true)}
         placeholder="Search this project…"
         style={{ width: "100%" }}

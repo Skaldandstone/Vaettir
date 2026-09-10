@@ -1,8 +1,8 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { trpc } from "@/lib/trpc";
+import { trpcReact } from "@/lib/trpcReact";
 import { collectKnownSuitePaths } from "@/components/TestCaseTree";
 
 const TEST_TYPES = [
@@ -109,13 +109,15 @@ export default function TestCaseForm({ mode, projectId, testCaseId, initial, ste
   const [value, setValue] = useState<TestCaseFormValue>({ ...defaultValue(), ...initial });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [knownSuitePaths, setKnownSuitePaths] = useState<string[]>([]);
-  const [sharedGroups, setSharedGroups] = useState<Awaited<ReturnType<typeof trpc.sharedStepGroups.list.query>>>([]);
-
-  useEffect(() => {
-    trpc.testCases.list.query({ projectId }).then((cases) => setKnownSuitePaths(collectKnownSuitePaths(cases)));
-    trpc.sharedStepGroups.list.query({ projectId }).then(setSharedGroups);
-  }, [projectId]);
+  // P1-15: both reads share the cache with the test-cases list page and the
+  // shared-steps page, so opening the form right after either is free.
+  const utils = trpcReact.useUtils();
+  const casesQuery = trpcReact.testCases.list.useQuery({ projectId });
+  const knownSuitePaths = useMemo(() => (casesQuery.data ? collectKnownSuitePaths(casesQuery.data) : []), [casesQuery.data]);
+  const sharedGroupsQuery = trpcReact.sharedStepGroups.list.useQuery({ projectId });
+  const sharedGroups = sharedGroupsQuery.data ?? [];
+  const createMutation = trpcReact.testCases.create.useMutation();
+  const updateMutation = trpcReact.testCases.update.useMutation();
 
   const selectedGroup = sharedGroups.find((g) => g.id === value.sharedStepGroupId);
 
@@ -163,9 +165,13 @@ export default function TestCaseForm({ mode, projectId, testCaseId, initial, ste
 
       const result =
         mode === "create"
-          ? await trpc.testCases.create.mutate({ ...payload, projectId })
-          : await trpc.testCases.update.mutate({ ...payload, id: testCaseId! });
+          ? await createMutation.mutateAsync({ ...payload, projectId })
+          : await updateMutation.mutateAsync({ ...payload, id: testCaseId! });
 
+      // The detail page + list read from the cache; make sure they see the
+      // saved row rather than the pre-edit copy.
+      void utils.testCases.list.invalidate({ projectId });
+      if (mode === "edit") void utils.testCases.byId.invalidate({ id: testCaseId! });
       router.push(`/projects/${projectId}/test-cases/${result.id}`);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
