@@ -3,12 +3,11 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
-import { trpc, type RouterOutputs } from "@/lib/trpc";
+import { trpcReact, useReadOnlySeat } from "@/lib/trpcReact";
 import { TestCaseTree, filterCasesByPath, collectKnownSuitePaths, UNASSIGNED } from "@/components/TestCaseTree";
 import { Drawer } from "@/components/Drawer";
 import { Modal } from "@/components/Modal";
 import { TestCaseDetailContent } from "@/components/TestCaseDetailContent";
-import { isReadOnlySeat } from "@/lib/membership";
 import { downloadCsv } from "@/lib/csv";
 
 const TEST_TYPES = [
@@ -29,18 +28,14 @@ function AssignSuiteControl({
   onAssigned: () => void;
 }) {
   const [value, setValue] = useState("");
-  const [saving, setSaving] = useState(false);
+  const setSuiteMutation = trpcReact.testCases.setSuite.useMutation({ onSuccess: onAssigned });
 
-  async function assign() {
+  function assign() {
     if (!value.trim()) return;
-    setSaving(true);
-    try {
-      await trpc.testCases.setSuite.mutate({ id: caseId, suitePath: value.trim() });
-      onAssigned();
-    } finally {
-      setSaving(false);
-    }
+    setSuiteMutation.mutate({ id: caseId, suitePath: value.trim() });
   }
+
+  const saving = setSuiteMutation.isPending;
 
   return (
     <span style={{ display: "inline-flex", gap: 4, marginLeft: 8 }}>
@@ -70,23 +65,23 @@ function AssignSuiteControl({
 // path now, not the only one.
 function QuickAddRow({ projectId, suitePath, onAdded }: { projectId: string; suitePath: string | null; onAdded: () => void }) {
   const [title, setTitle] = useState("");
-  const [saving, setSaving] = useState(false);
-
-  async function submit() {
-    if (!title.trim()) return;
-    setSaving(true);
-    try {
-      await trpc.testCases.quickCreate.mutate({
-        projectId,
-        title: title.trim(),
-        suitePath: suitePath && suitePath !== UNASSIGNED ? suitePath : undefined,
-      });
+  const quickCreateMutation = trpcReact.testCases.quickCreate.useMutation({
+    onSuccess: () => {
       setTitle("");
       onAdded();
-    } finally {
-      setSaving(false);
-    }
+    },
+  });
+
+  function submit() {
+    if (!title.trim()) return;
+    quickCreateMutation.mutate({
+      projectId,
+      title: title.trim(),
+      suitePath: suitePath && suitePath !== UNASSIGNED ? suitePath : undefined,
+    });
   }
+
+  const saving = quickCreateMutation.isPending;
 
   return (
     <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
@@ -102,17 +97,22 @@ function QuickAddRow({ projectId, suitePath, onAdded }: { projectId: string; sui
   );
 }
 
+// P1-15
 export default function TestCasesPage() {
   const { projectId } = useParams<{ projectId: string }>();
   const router = useRouter();
-  const [project, setProject] = useState<RouterOutputs["project"]["byId"] | null>(null);
-  const [readOnly, setReadOnly] = useState(false);
-  const [startingRun, setStartingRun] = useState(false);
-  const [cases, setCases] = useState<RouterOutputs["testCases"]["list"]>([]);
-  const [plans, setPlans] = useState<RouterOutputs["testPlans"]["list"]>([]);
+  const utils = trpcReact.useUtils();
+  const readOnly = useReadOnlySeat(projectId);
+
+  const projectQuery = trpcReact.project.byId.useQuery({ id: projectId });
+  const casesQuery = trpcReact.testCases.list.useQuery({ projectId, includeArchived: true });
+  const plansQuery = trpcReact.testPlans.list.useQuery({ projectId });
+  const project = projectQuery.data ?? null;
+  const cases = casesQuery.data ?? [];
+  const plans = plansQuery.data ?? [];
+
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
   const [openCaseId, setOpenCaseId] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   const [search, setSearch] = useState("");
@@ -127,47 +127,36 @@ export default function TestCasesPage() {
 
   const [importOpen, setImportOpen] = useState(false);
   const [importCsvText, setImportCsvText] = useState("");
-  const [importing, setImporting] = useState(false);
   const [importError, setImportError] = useState<string | null>(null);
   const [importResult, setImportResult] = useState<{ createdCount: number; skipped: { rowNumber: number; reason: string }[] } | null>(null);
 
-  function load() {
-    setLoading(true);
-    setError(null);
-    Promise.all([
-      trpc.project.byId.query({ id: projectId }),
-      trpc.testCases.list.query({ projectId, includeArchived: true }),
-      trpc.testPlans.list.query({ projectId }),
-      trpc.organization.mine.query(),
-    ])
-      .then(([proj, list, planList, orgs]) => {
-        setProject(proj);
-        setCases(list);
-        setPlans(planList);
-        const org = orgs.find((o) => o.id === proj.organizationId);
-        setReadOnly(isReadOnlySeat(org?.seatType));
-      })
-      .catch((e) => setError(e instanceof Error ? e.message : String(e)))
-      .finally(() => setLoading(false));
+  // What the original load() refetched after every mutation.
+  function reload() {
+    void utils.testCases.list.invalidate({ projectId, includeArchived: true });
+    void utils.testPlans.list.invalidate({ projectId });
   }
 
-  useEffect(load, [projectId]);
   useEffect(() => setSelected(new Set()), [selectedPath, search, typeFilter, reviewFilter, originFilter, showArchived]);
+
+  const importMutation = trpcReact.testCases.importCsv.useMutation();
+  const bulkReviewMutation = trpcReact.testCases.bulkReview.useMutation();
+  const bulkDeleteMutation = trpcReact.testCases.bulkDelete.useMutation();
+  const bulkArchiveMutation = trpcReact.testCases.bulkArchive.useMutation();
+  const bulkMoveMutation = trpcReact.testCases.bulkSetTestPlan.useMutation();
+  const bulkTagMutation = trpcReact.testCases.bulkAddTags.useMutation();
+  const startRunMutation = trpcReact.manualExecution.start.useMutation();
 
   async function importCsv() {
     if (!importCsvText.trim()) return;
-    setImporting(true);
     setImportError(null);
     setImportResult(null);
     try {
-      const result = await trpc.testCases.importCsv.mutate({ projectId, csvText: importCsvText });
+      const result = await importMutation.mutateAsync({ projectId, csvText: importCsvText });
       setImportResult(result);
       setImportCsvText("");
-      load();
+      reload();
     } catch (e) {
       setImportError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setImporting(false);
     }
   }
 
@@ -202,9 +191,9 @@ export default function TestCasesPage() {
   async function bulkReview(decision: "approve" | "reject") {
     setBulkBusy(true);
     try {
-      await trpc.testCases.bulkReview.mutate({ projectId, ids: [...selected], decision });
+      await bulkReviewMutation.mutateAsync({ projectId, ids: [...selected], decision });
       setSelected(new Set());
-      load();
+      reload();
     } finally {
       setBulkBusy(false);
     }
@@ -214,9 +203,9 @@ export default function TestCasesPage() {
     if (!confirm(`Delete ${selected.size} test case(s)? This can't be undone.`)) return;
     setBulkBusy(true);
     try {
-      const res = await trpc.testCases.bulkDelete.mutate({ projectId, ids: [...selected] });
+      const res = await bulkDeleteMutation.mutateAsync({ projectId, ids: [...selected] });
       setSelected(new Set());
-      load();
+      reload();
       if (res.blockedCount > 0) {
         alert(`${res.deletedCount} deleted, ${res.blockedCount} couldn't be deleted (linked to compliance controls or risk analysis results).`);
       }
@@ -228,9 +217,9 @@ export default function TestCasesPage() {
   async function bulkArchive(archived: boolean) {
     setBulkBusy(true);
     try {
-      await trpc.testCases.bulkArchive.mutate({ projectId, ids: [...selected], archived });
+      await bulkArchiveMutation.mutateAsync({ projectId, ids: [...selected], archived });
       setSelected(new Set());
-      load();
+      reload();
     } finally {
       setBulkBusy(false);
     }
@@ -239,10 +228,10 @@ export default function TestCasesPage() {
   async function bulkMove() {
     setBulkBusy(true);
     try {
-      await trpc.testCases.bulkSetTestPlan.mutate({ projectId, ids: [...selected], testPlanId: bulkMovePlanId || null });
+      await bulkMoveMutation.mutateAsync({ projectId, ids: [...selected], testPlanId: bulkMovePlanId || null });
       setBulkMovePlanId("");
       setSelected(new Set());
-      load();
+      reload();
     } finally {
       setBulkBusy(false);
     }
@@ -252,16 +241,16 @@ export default function TestCasesPage() {
     if (!bulkTag.trim()) return;
     setBulkBusy(true);
     try {
-      await trpc.testCases.bulkAddTags.mutate({ projectId, ids: [...selected], tags: [bulkTag.trim()] });
+      await bulkTagMutation.mutateAsync({ projectId, ids: [...selected], tags: [bulkTag.trim()] });
       setBulkTag("");
-      load();
+      reload();
     } finally {
       setBulkBusy(false);
     }
   }
 
   async function exportCsv() {
-    const rows = await trpc.testCases.exportCsv.query({ projectId });
+    const rows = await utils.testCases.exportCsv.fetch({ projectId });
     const header = ["title", "given", "when", "then", "priority", "tags"];
     const body = rows.map((r) => [r.title, r.given.join("|"), r.when.join("|"), r.then.join("|"), r.priority, r.tags.join("|")]);
     downloadCsv(`${project?.name ?? "test-cases"}.csv`, [header, ...body]);
@@ -269,16 +258,17 @@ export default function TestCasesPage() {
 
   async function startManualRun() {
     if (selected.size === 0) return;
-    setStartingRun(true);
     try {
-      const { testRunId } = await trpc.manualExecution.start.mutate({ projectId, testCaseIds: [...selected] });
+      const { testRunId } = await startRunMutation.mutateAsync({ projectId, testCaseIds: [...selected] });
       router.push(`/projects/${projectId}/test-runs/manual/${testRunId}`);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setStartingRun(false);
     }
   }
+
+  const startingRun = startRunMutation.isPending;
+  const loading = projectQuery.isLoading || casesQuery.isLoading || plansQuery.isLoading;
+  const pageError = error ?? projectQuery.error?.message ?? casesQuery.error?.message ?? plansQuery.error?.message ?? null;
 
   return (
     <div>
@@ -340,8 +330,8 @@ export default function TestCasesPage() {
             <button className="btn-secondary" onClick={() => setImportOpen(false)}>
               Close
             </button>
-            <button className="btn-primary" onClick={importCsv} disabled={importing || !importCsvText.trim()}>
-              {importing ? "Importing…" : "Import"}
+            <button className="btn-primary" onClick={importCsv} disabled={importMutation.isPending || !importCsvText.trim()}>
+              {importMutation.isPending ? "Importing…" : "Import"}
             </button>
           </div>
           {importError && <p style={{ color: "var(--ember)" }}>{importError}</p>}
@@ -368,9 +358,9 @@ export default function TestCasesPage() {
       </Modal>
 
       {loading && <p>Loading…</p>}
-      {error && <p style={{ color: "var(--ember)" }}>{error}</p>}
+      {pageError && <p style={{ color: "var(--ember)" }}>{pageError}</p>}
 
-      {!loading && !error && cases.length === 0 && (
+      {!loading && !pageError && cases.length === 0 && (
         <div className="panel">
           <p style={{ marginBottom: project?.repoUrl ? 12 : 0 }}>No test cases tracked for this project yet.</p>
           {project?.repoUrl ? (
@@ -391,16 +381,16 @@ export default function TestCasesPage() {
             </p>
           )}
           <div style={{ marginTop: 12 }}>
-            <QuickAddRow projectId={projectId} suitePath={null} onAdded={load} />
+            <QuickAddRow projectId={projectId} suitePath={null} onAdded={reload} />
           </div>
         </div>
       )}
 
-      {!loading && !error && cases.length > 0 && (
+      {!loading && !pageError && cases.length > 0 && (
         <div className="test-case-layout">
           <TestCaseTree cases={cases} selectedPath={selectedPath} onSelect={setSelectedPath} />
           <div className="test-case-list">
-            <QuickAddRow projectId={projectId} suitePath={selectedPath} onAdded={load} />
+            <QuickAddRow projectId={projectId} suitePath={selectedPath} onAdded={reload} />
 
             <div style={{ display: "flex", gap: 8, marginBottom: 10, flexWrap: "wrap" }}>
               <input
@@ -517,7 +507,7 @@ export default function TestCasesPage() {
                       {tc.archived && " · archived"}
                     </small>
                     {selectedPath === UNASSIGNED && (
-                      <AssignSuiteControl caseId={tc.id} knownPaths={knownPaths} onAssigned={load} />
+                      <AssignSuiteControl caseId={tc.id} knownPaths={knownPaths} onAssigned={reload} />
                     )}
                   </div>
                 </li>
@@ -529,7 +519,7 @@ export default function TestCasesPage() {
       )}
 
       <Drawer open={openCaseId !== null} onClose={() => setOpenCaseId(null)}>
-        {openCaseId && <TestCaseDetailContent id={openCaseId} projectId={projectId} onChanged={load} readOnly={readOnly} />}
+        {openCaseId && <TestCaseDetailContent id={openCaseId} projectId={projectId} onChanged={reload} readOnly={readOnly} />}
       </Drawer>
     </div>
   );

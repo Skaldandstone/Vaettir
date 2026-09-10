@@ -2,11 +2,10 @@
 
 import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
-import { trpc, type RouterOutputs } from "@/lib/trpc";
+import { trpcReact, useReadOnlySeat, type RouterOutputs } from "@/lib/trpcReact";
 import { Modal } from "@/components/Modal";
 import { Drawer } from "@/components/Drawer";
 import { downloadCsv } from "@/lib/csv";
-import { isReadOnlySeat } from "@/lib/membership";
 
 // P3-02: minimal RFC 4180 CSV parser (quoted fields, embedded commas,
 // escaped quotes as "") - the inverse of csvField/downloadCsv above.
@@ -83,96 +82,82 @@ function ControlEvidenceDrawer({
   control: RouterOutputs["compliance"]["controlCoverage"][number];
   readOnly?: boolean;
 }) {
-  const [evidence, setEvidence] = useState<RouterOutputs["compliance"]["listEvidence"]>([]);
-  const [signOffs, setSignOffs] = useState<RouterOutputs["compliance"]["listSignOffs"]>([]);
-  const [mappedCases, setMappedCases] = useState<RouterOutputs["compliance"]["mappedTestCases"]>([]);
+  const utils = trpcReact.useUtils();
+  const scope = { projectId, controlId: control.id };
+  const evidenceQuery = trpcReact.compliance.listEvidence.useQuery(scope);
+  const signOffsQuery = trpcReact.compliance.listSignOffs.useQuery(scope);
+  const mappedQuery = trpcReact.compliance.mappedTestCases.useQuery(scope);
+  const evidence = evidenceQuery.data ?? [];
+  const signOffs = signOffsQuery.data ?? [];
+  const mappedCases = mappedQuery.data ?? [];
+
+  const projectQuery = trpcReact.project.byId.useQuery({ id: projectId });
+  const organizationId = projectQuery.data?.organizationId;
+  const membersQuery = trpcReact.organization.listMembers.useQuery({ organizationId: organizationId! }, { enabled: !!organizationId });
+  const members = (membersQuery.data ?? []).filter((x) => ["COMPLIANCE_AUDITOR", "ADMIN", "OWNER"].includes(x.role));
 
   const [evidenceTestCaseId, setEvidenceTestCaseId] = useState("");
   const [evidenceNote, setEvidenceNote] = useState("");
-  const [recordingEvidence, setRecordingEvidence] = useState(false);
 
   const [signOffPeriod, setSignOffPeriod] = useState("");
   const [signOffStatement, setSignOffStatement] = useState("");
-  const [signingOff, setSigningOff] = useState(false);
   const [signOffError, setSignOffError] = useState<string | null>(null);
 
-  const [members, setMembers] = useState<RouterOutputs["organization"]["listMembers"]>([]);
   const [requestForUserId, setRequestForUserId] = useState("");
   const [requestPeriod, setRequestPeriod] = useState("");
-  const [requesting, setRequesting] = useState(false);
   const [requestError, setRequestError] = useState<string | null>(null);
   const [requestSent, setRequestSent] = useState(false);
 
-  useEffect(() => {
-    trpc.project.byId
-      .query({ id: projectId })
-      .then((p) => trpc.organization.listMembers.query({ organizationId: p.organizationId }))
-      .then((m) => setMembers(m.filter((x) => ["COMPLIANCE_AUDITOR", "ADMIN", "OWNER"].includes(x.role))))
-      .catch(() => undefined);
-  }, [projectId]);
+  function reload() {
+    void utils.compliance.listEvidence.invalidate(scope);
+    void utils.compliance.listSignOffs.invalidate(scope);
+    void utils.compliance.mappedTestCases.invalidate(scope);
+  }
 
-  async function requestSignOff() {
-    if (!requestForUserId || !requestPeriod.trim()) return;
-    setRequesting(true);
-    setRequestError(null);
-    setRequestSent(false);
-    try {
-      await trpc.compliance.requestSignOff.mutate({
-        projectId,
-        controlId: control.id,
-        period: requestPeriod.trim(),
-        requestedForUserId: requestForUserId,
-      });
+  const requestMutation = trpcReact.compliance.requestSignOff.useMutation({
+    onSuccess: () => {
       setRequestForUserId("");
       setRequestSent(true);
       setRequestPeriod("");
-    } catch (e) {
-      setRequestError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setRequesting(false);
-    }
-  }
-
-  function load() {
-    trpc.compliance.listEvidence.query({ projectId, controlId: control.id }).then(setEvidence);
-    trpc.compliance.listSignOffs.query({ projectId, controlId: control.id }).then(setSignOffs);
-    trpc.compliance.mappedTestCases.query({ projectId, controlId: control.id }).then(setMappedCases);
-  }
-
-  useEffect(load, [projectId, control.id]);
-
-  async function recordEvidence() {
-    if (!evidenceTestCaseId) return;
-    setRecordingEvidence(true);
-    try {
-      await trpc.compliance.recordEvidence.mutate({
-        projectId,
-        controlId: control.id,
-        testCaseId: evidenceTestCaseId,
-        note: evidenceNote || undefined,
-      });
+    },
+    onError: (e) => setRequestError(e.message),
+  });
+  const evidenceMutation = trpcReact.compliance.recordEvidence.useMutation({
+    onSuccess: () => {
       setEvidenceNote("");
-      load();
-    } finally {
-      setRecordingEvidence(false);
-    }
-  }
-
-  async function signOff() {
-    if (!signOffPeriod.trim() || !signOffStatement.trim()) return;
-    setSigningOff(true);
-    setSignOffError(null);
-    try {
-      await trpc.compliance.signOffControl.mutate({ projectId, controlId: control.id, period: signOffPeriod.trim(), statement: signOffStatement.trim() });
+      reload();
+    },
+  });
+  const signOffMutation = trpcReact.compliance.signOffControl.useMutation({
+    onSuccess: () => {
       setSignOffPeriod("");
       setSignOffStatement("");
-      load();
-    } catch (e) {
-      setSignOffError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setSigningOff(false);
-    }
+      reload();
+    },
+    onError: (e) => setSignOffError(e.message),
+  });
+
+  function requestSignOff() {
+    if (!requestForUserId || !requestPeriod.trim()) return;
+    setRequestError(null);
+    setRequestSent(false);
+    requestMutation.mutate({ projectId, controlId: control.id, period: requestPeriod.trim(), requestedForUserId: requestForUserId });
   }
+
+  function recordEvidence() {
+    if (!evidenceTestCaseId) return;
+    evidenceMutation.mutate({ projectId, controlId: control.id, testCaseId: evidenceTestCaseId, note: evidenceNote || undefined });
+  }
+
+  function signOff() {
+    if (!signOffPeriod.trim() || !signOffStatement.trim()) return;
+    setSignOffError(null);
+    signOffMutation.mutate({ projectId, controlId: control.id, period: signOffPeriod.trim(), statement: signOffStatement.trim() });
+  }
+
+  const recordingEvidence = evidenceMutation.isPending;
+  const signingOff = signOffMutation.isPending;
+  const requesting = requestMutation.isPending;
 
   return (
     <div>
@@ -308,28 +293,25 @@ function ControlRow({
   readOnly?: boolean;
 }) {
   const [picking, setPicking] = useState(false);
-  const [candidates, setCandidates] = useState<RouterOutputs["compliance"]["unmappedTestCases"]>([]);
+  const candidatesQuery = trpcReact.compliance.unmappedTestCases.useQuery({ projectId, controlId: control.id }, { enabled: picking });
+  const candidates = candidatesQuery.data ?? [];
   const [selected, setSelected] = useState("");
-  const [busy, setBusy] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
 
-  function openPicker() {
-    setPicking(true);
-    trpc.compliance.unmappedTestCases.query({ projectId, controlId: control.id }).then(setCandidates);
-  }
-
-  async function map() {
-    if (!selected) return;
-    setBusy(true);
-    try {
-      await trpc.compliance.mapTestCase.mutate({ testCaseId: selected, controlId: control.id });
+  const mapMutation = trpcReact.compliance.mapTestCase.useMutation({
+    onSuccess: () => {
       setPicking(false);
       setSelected("");
       onChanged();
-    } finally {
-      setBusy(false);
-    }
+    },
+  });
+
+  function map() {
+    if (!selected) return;
+    mapMutation.mutate({ testCaseId: selected, controlId: control.id });
   }
+
+  const busy = mapMutation.isPending;
 
   return (
     <li
@@ -373,7 +355,7 @@ function ControlRow({
               </button>
             </>
           ) : (
-            <button className="btn-secondary" style={{ fontSize: 12 }} onClick={openPicker}>
+            <button className="btn-secondary" style={{ fontSize: 12 }} onClick={() => setPicking(true)}>
               + Map a test case
             </button>
           ))}
@@ -388,83 +370,67 @@ function ControlRow({
   );
 }
 
+// P1-15
 export default function CompliancePage() {
   const { projectId } = useParams<{ projectId: string }>();
-  const [frameworks, setFrameworks] = useState<RouterOutputs["compliance"]["listFrameworks"]>([]);
+  const utils = trpcReact.useUtils();
+  const readOnly = useReadOnlySeat(projectId);
+
+  const frameworksQuery = trpcReact.compliance.listFrameworks.useQuery();
+  const frameworks = frameworksQuery.data ?? [];
   const [selectedFrameworkId, setSelectedFrameworkId] = useState<string | null>(null);
-  const [controls, setControls] = useState<RouterOutputs["compliance"]["controlCoverage"]>([]);
-  const [loading, setLoading] = useState(true);
+  useEffect(() => {
+    if (!selectedFrameworkId && frameworks[0]) setSelectedFrameworkId(frameworks[0].id);
+  }, [frameworks, selectedFrameworkId]);
+
+  const controlsQuery = trpcReact.compliance.controlCoverage.useQuery(
+    { projectId, frameworkId: selectedFrameworkId! },
+    { enabled: !!selectedFrameworkId },
+  );
+  const controls = selectedFrameworkId ? (controlsQuery.data ?? []) : [];
+
+  // P12-09: retention is configured org-wide (Settings -> Organization),
+  // but the evidence/audit views it governs live at the project level --
+  // fetched here rather than assumed, since a project doesn't otherwise
+  // know its own org's id.
+  const projectQuery = trpcReact.project.byId.useQuery({ id: projectId });
+  const organizationId = projectQuery.data?.organizationId;
+  const orgQuery = trpcReact.organization.byId.useQuery({ id: organizationId! }, { enabled: !!organizationId });
+  const dataRetentionYears = orgQuery.data?.dataRetentionYears ?? null;
+
   const [error, setError] = useState<string | null>(null);
 
   const [frameworkModalOpen, setFrameworkModalOpen] = useState(false);
   const [newKey, setNewKey] = useState("");
   const [newName, setNewName] = useState("");
   const [newVersion, setNewVersion] = useState("");
-  const [savingFramework, setSavingFramework] = useState(false);
 
   const [controlModalOpen, setControlModalOpen] = useState(false);
   const [newCode, setNewCode] = useState("");
   const [newTitle, setNewTitle] = useState("");
   const [newDescription, setNewDescription] = useState("");
-  const [savingControl, setSavingControl] = useState(false);
 
   const [importModalOpen, setImportModalOpen] = useState(false);
   const [importCsvText, setImportCsvText] = useState("");
-  const [importing, setImporting] = useState(false);
   const [importResult, setImportResult] = useState<{ createdCount: number; skippedCount: number } | null>(null);
+  const [exporting, setExporting] = useState(false);
 
-  const [readOnly, setReadOnly] = useState(false);
-  useEffect(() => {
-    trpc.project.byId
-      .query({ id: projectId })
-      .then((p) => trpc.organization.mine.query().then((orgs) => orgs.find((o) => o.id === p.organizationId)))
-      .then((org) => setReadOnly(isReadOnlySeat(org?.seatType)))
-      .catch(() => undefined);
-  }, [projectId]);
-
-  function loadFrameworks() {
-    setLoading(true);
-    trpc.compliance.listFrameworks
-      .query()
-      .then((fw) => {
-        setFrameworks(fw);
-        if (!selectedFrameworkId && fw[0]) setSelectedFrameworkId(fw[0].id);
-      })
-      .catch((e) => setError(e instanceof Error ? e.message : String(e)))
-      .finally(() => setLoading(false));
+  function reloadFrameworks() {
+    void utils.compliance.listFrameworks.invalidate();
+  }
+  function reloadControls() {
+    void utils.compliance.controlCoverage.invalidate();
   }
 
-  useEffect(loadFrameworks, []);
-
-  // P12-09: retention is configured org-wide (Settings -> Organization),
-  // but the evidence/audit views it governs live at the project level --
-  // fetched here rather than assumed, since a project doesn't otherwise
-  // know its own org's id.
-  const [dataRetentionYears, setDataRetentionYears] = useState<number | null>(null);
-  useEffect(() => {
-    trpc.project.byId
-      .query({ id: projectId })
-      .then((p) => trpc.organization.byId.query({ id: p.organizationId }))
-      .then((org) => setDataRetentionYears(org.dataRetentionYears))
-      .catch(() => undefined);
-  }, [projectId]);
-
-  function loadControls() {
-    if (!selectedFrameworkId) {
-      setControls([]);
-      return;
-    }
-    trpc.compliance.controlCoverage.query({ projectId, frameworkId: selectedFrameworkId }).then(setControls);
-  }
-
-  useEffect(loadControls, [projectId, selectedFrameworkId]);
+  const createFrameworkMutation = trpcReact.compliance.createFramework.useMutation();
+  const createControlMutation = trpcReact.compliance.createControl.useMutation();
+  const importControlsMutation = trpcReact.compliance.importControls.useMutation();
 
   async function createFramework() {
     if (!newKey.trim() || !newName.trim()) return;
-    setSavingFramework(true);
     setError(null);
     try {
-      const fw = await trpc.compliance.createFramework.mutate({
+      const fw = await createFrameworkMutation.mutateAsync({
         key: newKey.trim(),
         name: newName.trim(),
         version: newVersion.trim() || undefined,
@@ -473,21 +439,18 @@ export default function CompliancePage() {
       setNewName("");
       setNewVersion("");
       setFrameworkModalOpen(false);
-      loadFrameworks();
+      reloadFrameworks();
       setSelectedFrameworkId(fw.id);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setSavingFramework(false);
     }
   }
 
   async function createControl() {
     if (!selectedFrameworkId || !newCode.trim() || !newTitle.trim()) return;
-    setSavingControl(true);
     setError(null);
     try {
-      await trpc.compliance.createControl.mutate({
+      await createControlMutation.mutateAsync({
         frameworkId: selectedFrameworkId,
         code: newCode.trim(),
         title: newTitle.trim(),
@@ -497,46 +460,39 @@ export default function CompliancePage() {
       setNewTitle("");
       setNewDescription("");
       setControlModalOpen(false);
-      loadFrameworks();
-      loadControls();
+      reloadFrameworks();
+      reloadControls();
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setSavingControl(false);
     }
   }
 
   async function importControls() {
     if (!selectedFrameworkId) return;
-    setImporting(true);
     setError(null);
     setImportResult(null);
     try {
-      const controls = parseControlsCsv(importCsvText);
-      if (controls.length === 0) {
+      const parsed = parseControlsCsv(importCsvText);
+      if (parsed.length === 0) {
         setError('No rows found - check the CSV has a header row with "code" and "title" columns.');
         return;
       }
-      const result = await trpc.compliance.importControls.mutate({ frameworkId: selectedFrameworkId, controls });
+      const result = await importControlsMutation.mutateAsync({ frameworkId: selectedFrameworkId, controls: parsed });
       setImportResult(result);
       setImportCsvText("");
-      loadFrameworks();
-      loadControls();
+      reloadFrameworks();
+      reloadControls();
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setImporting(false);
     }
   }
-
-  const [exporting, setExporting] = useState(false);
 
   async function exportCsv() {
     if (!selectedFrameworkId) return;
     setExporting(true);
     setError(null);
     try {
-      const report = await trpc.compliance.exportReport.query({ projectId, frameworkId: selectedFrameworkId });
+      const report = await utils.compliance.exportReport.fetch({ projectId, frameworkId: selectedFrameworkId });
       const rows: string[][] = [["Control", "Title", "Description", "Mapped test cases", "Gap?"]];
       for (const c of report.controls) {
         const evidence = c.mappedTestCases.map((tc) => `${tc.title} [${tc.reviewStatus}]`).join("; ");
@@ -550,6 +506,12 @@ export default function CompliancePage() {
       setExporting(false);
     }
   }
+
+  const loading = frameworksQuery.isLoading;
+  const pageError = error ?? frameworksQuery.error?.message ?? null;
+  const savingFramework = createFrameworkMutation.isPending;
+  const savingControl = createControlMutation.isPending;
+  const importing = importControlsMutation.isPending;
 
   const selectedFramework = frameworks.find((f) => f.id === selectedFrameworkId);
   const gapCount = controls.filter((c) => c.mappedTestCaseCount === 0).length;
@@ -576,7 +538,7 @@ export default function CompliancePage() {
         )}
       </p>
 
-      {error && <p style={{ color: "var(--ember)" }}>{error}</p>}
+      {pageError && <p style={{ color: "var(--ember)" }}>{pageError}</p>}
       {loading && <p>Loading…</p>}
 
       {!loading && frameworks.length > 0 && (
@@ -631,7 +593,7 @@ export default function CompliancePage() {
           )}
           <ul style={{ listStyle: "none", padding: 0 }}>
             {controls.map((c) => (
-              <ControlRow key={c.id} projectId={projectId} control={c} onChanged={loadControls} readOnly={readOnly} />
+              <ControlRow key={c.id} projectId={projectId} control={c} onChanged={reloadControls} readOnly={readOnly} />
             ))}
             {controls.length === 0 && (
               <p className="text-muted">No controls on this framework yet — add one above.</p>
