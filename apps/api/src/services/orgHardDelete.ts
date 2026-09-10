@@ -88,6 +88,7 @@ export async function previewOrgHardDelete(prisma: PrismaClient, organizationId:
     healingSuggestion,
     importJob,
     prScanPolicy,
+    releaseReadinessSnapshot,
     riskFlag,
     acceptanceCriterion,
     testCaseAttachment,
@@ -127,6 +128,7 @@ export async function previewOrgHardDelete(prisma: PrismaClient, organizationId:
     prisma.healingSuggestion.count({ where: { projectId: { in: scope.projectIds } } }),
     prisma.importJob.count({ where: { projectId: { in: scope.projectIds } } }),
     prisma.prScanPolicy.count({ where: { projectId: { in: scope.projectIds } } }),
+    prisma.releaseReadinessSnapshot.count({ where: { releaseId: { in: scope.releaseIds } } }),
     prisma.riskFlag.count({ where: { releaseId: { in: scope.releaseIds } } }),
     prisma.acceptanceCriterion.count({ where: { testPlanId: { in: scope.testPlanIds } } }),
     prisma.testCaseAttachment.count({ where: { testCaseId: { in: scope.testCaseIds } } }),
@@ -173,6 +175,7 @@ export async function previewOrgHardDelete(prisma: PrismaClient, organizationId:
       HealingSuggestion: healingSuggestion,
       ImportJob: importJob,
       PrScanPolicy: prScanPolicy,
+      ReleaseReadinessSnapshot: releaseReadinessSnapshot,
       RiskFlag: riskFlag,
       AcceptanceCriterion: acceptanceCriterion,
       TestCaseAttachment: testCaseAttachment,
@@ -240,6 +243,9 @@ export async function hardDeleteOrganization(
     await del("HealingSuggestion", () => tx.healingSuggestion.deleteMany({ where: { projectId: { in: scope.projectIds } } }));
     await del("ImportJob", () => tx.importJob.deleteMany({ where: { projectId: { in: scope.projectIds } } }));
     await del("PrScanPolicy", () => tx.prScanPolicy.deleteMany({ where: { projectId: { in: scope.projectIds } } }));
+    await del("ReleaseReadinessSnapshot", () =>
+      tx.releaseReadinessSnapshot.deleteMany({ where: { releaseId: { in: scope.releaseIds } } }),
+    );
     await del("RiskFlag", () => tx.riskFlag.deleteMany({ where: { releaseId: { in: scope.releaseIds } } }));
     await del("AcceptanceCriterion", () => tx.acceptanceCriterion.deleteMany({ where: { testPlanId: { in: scope.testPlanIds } } }));
     await del("TestCaseAttachment", () => tx.testCaseAttachment.deleteMany({ where: { testCaseId: { in: scope.testCaseIds } } }));

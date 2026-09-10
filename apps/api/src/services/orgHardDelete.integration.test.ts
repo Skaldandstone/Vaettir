@@ -76,6 +76,9 @@ async function seedEverything() {
     data: { testCaseId: testCase.id, fileName: "f.png", contentType: "image/png", storageUrl: "s3://x", sizeBytes: 10, uploadedById: owner.id },
   });
 
+  await prisma.releaseReadinessSnapshot.create({
+    data: { releaseId: release.id, score: 100, label: "READY", criteriaMet: 0, criteriaTotal: 0, openRiskFlags: 0 },
+  });
   await prisma.riskFlag.create({
     data: { releaseId: release.id, severity: "MEDIUM", source: "MANUAL_FLAG", description: "risk 1", createdById: owner.id, updatedById: owner.id },
   });
@@ -180,7 +183,7 @@ describe("hardDeleteOrganization (real DB, every model populated)", () => {
     for (const model of [
       "AiCreditTransaction", "ApiKey", "AuditLog", "Invitation", "Membership",
       "AiEditFeedback", "ComplianceEvidence", "ComplianceSignOff", "CustomFrameworkHeuristic",
-      "HealingSuggestion", "ImportJob", "PrScanPolicy", "RiskFlag", "AcceptanceCriterion",
+      "HealingSuggestion", "ImportJob", "PrScanPolicy", "ReleaseReadinessSnapshot", "RiskFlag", "AcceptanceCriterion",
       "TestCaseAttachment", "TestCaseComplianceControl", "TestCaseDataset", "TestCaseSource",
       "TestCaseStep", "TestCaseVersion", "ReverseEngineerJob", "TestResultArtifact", "TestResult",
       "TestSelectionRecommendation", "TestCase", "TestPlanVersion", "TestPlan", "Release",

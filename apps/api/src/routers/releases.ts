@@ -4,6 +4,7 @@ import { router, protectedProcedure, requireProjectAccess, requireOrgRole } from
 import { computeStatusesByTestPlan } from "../services/acceptanceCriteria.js";
 import { evaluateReleaseGate } from "../services/releaseGate.js";
 import { computeReadiness, getOrgOverview } from "../services/orgReadiness.js";
+import { computeReleaseReadiness } from "../services/releaseReadiness.js";
 import { chargeAiCredits, InsufficientAiCreditsError, meterAiCall } from "../services/aiCredits.js";
 import { getCommitLog } from "../services/changeImpact.js";
 import { generateReleaseSummary } from "@vaettir/ai-agent";
@@ -147,22 +148,38 @@ export const releasesRouter = router({
     .query(async ({ ctx, input }) => {
       const release = await ctx.prisma.release.findUniqueOrThrow({ where: { id: input.releaseId } });
       await requireProjectAccess(ctx, release.projectId);
-      const criteria = await ctx.prisma.acceptanceCriterion.findMany({
-        where: { testPlan: { releaseId: input.releaseId } },
-        select: { testPlanId: true, status: true },
+      // P8-04: one shared implementation with the snapshot/notify service,
+      // so what the page shows and what a "readiness changed" notification
+      // says can never disagree.
+      return computeReleaseReadiness(ctx.prisma, input.releaseId);
+    }),
+
+  // P8-04: the persisted readiness history behind change notifications -
+  // one row per score/label move, newest first, baseline included.
+  readinessHistory: protectedProcedure
+    .input(z.object({ releaseId: z.string(), limit: z.number().int().min(1).max(200).default(50) }))
+    .output(
+      z.array(
+        z.object({
+          id: z.string(),
+          score: z.number(),
+          label: z.string(),
+          previousLabel: z.string().nullable(),
+          criteriaMet: z.number(),
+          criteriaTotal: z.number(),
+          openRiskFlags: z.number(),
+          computedAt: z.date(),
+        }),
+      ),
+    )
+    .query(async ({ ctx, input }) => {
+      const release = await ctx.prisma.release.findUniqueOrThrow({ where: { id: input.releaseId } });
+      await requireProjectAccess(ctx, release.projectId);
+      return ctx.prisma.releaseReadinessSnapshot.findMany({
+        where: { releaseId: input.releaseId },
+        orderBy: { computedAt: "desc" },
+        take: input.limit,
       });
-      const computedByPlan = await computeStatusesByTestPlan(
-        ctx.prisma,
-        criteria.map((c) => c.testPlanId),
-      );
-      const openFlags = await ctx.prisma.riskFlag.findMany({
-        where: { releaseId: input.releaseId, resolvedAt: null },
-        select: { severity: true },
-      });
-      return computeReadiness(
-        criteria.map((c) => ({ status: computedByPlan.get(c.testPlanId) ?? c.status })),
-        openFlags,
-      );
     }),
 
   listTestPlans: protectedProcedure

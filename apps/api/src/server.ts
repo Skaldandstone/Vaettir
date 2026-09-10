@@ -10,6 +10,7 @@ import { createContext } from "./trpc.js";
 import { startReverseEngineerJobPoller, POLL_INTERVAL_MS as REVERSE_ENGINEER_POLL_MS } from "./jobs/reverseEngineerWorker.js";
 import { startReadinessDigestScheduler, CHECK_INTERVAL_MS as DIGEST_CHECK_MS } from "./jobs/readinessDigestScheduler.js";
 import { startAiCreditGrantScheduler, CHECK_INTERVAL_MS as CREDIT_GRANT_CHECK_MS } from "./jobs/aiCreditGrantScheduler.js";
+import { startReadinessChangeScheduler, CHECK_INTERVAL_MS as READINESS_CHANGE_CHECK_MS } from "./jobs/readinessChangeScheduler.js";
 import { verifyWebhookSignature } from "./services/githubApp.js";
 import { handlePullRequestWebhook, type GithubPullRequestPayload } from "./services/githubWebhook.js";
 import { verifyGitlabToken } from "./services/gitlabApi.js";
@@ -18,11 +19,12 @@ import { getHeartbeatStatuses } from "./services/heartbeat.js";
 
 // P10-07: expected poller intervals, keyed by the same names each poller
 // calls recordHeartbeat with - the one place server.ts needs to know
-// about all three, so /health/detailed can flag one that's gone quiet.
+// about all four, so /health/detailed can flag one that's gone quiet.
 const EXPECTED_POLLER_INTERVALS = {
   reverseEngineerWorker: REVERSE_ENGINEER_POLL_MS,
   readinessDigestScheduler: DIGEST_CHECK_MS,
   aiCreditGrantScheduler: CREDIT_GRANT_CHECK_MS,
+  readinessChangeScheduler: READINESS_CHANGE_CHECK_MS,
 };
 
 // Deliberately separate from the plain `/health` liveness probe the ALB/
@@ -185,6 +187,7 @@ server
     startReverseEngineerJobPoller();
     startReadinessDigestScheduler();
     startAiCreditGrantScheduler();
+    startReadinessChangeScheduler();
   })
   .catch((err) => {
     server.log.error(err);

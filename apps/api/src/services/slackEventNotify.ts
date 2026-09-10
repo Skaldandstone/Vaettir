@@ -32,6 +32,17 @@ interface ReviewRequestedData {
   count: number;
 }
 
+interface ReadinessChangedData {
+  projectName: string;
+  releaseName: string;
+  previousLabel: string;
+  label: string;
+  previousScore: number;
+  score: number;
+}
+
+const READINESS_EMOJI: Record<string, string> = { READY: "🟢", AT_RISK: "🟡", BLOCKED: "🔴" };
+
 const SEVERITY_EMOJI: Record<string, string> = { CRITICAL: "🔴", HIGH: "🟠", MEDIUM: "🟡", LOW: "⚪" };
 
 function buildRiskFlagBlocks(data: RiskFlagCreatedData): { text: string; blocks: unknown[] } {
@@ -75,6 +86,21 @@ function buildReviewRequestedBlocks(data: ReviewRequestedData): { text: string; 
   };
 }
 
+function buildReadinessChangedBlocks(data: ReadinessChangedData): { text: string; blocks: unknown[] } {
+  const arrow = `${READINESS_EMOJI[data.previousLabel] ?? "⚪"} ${data.previousLabel} → ${READINESS_EMOJI[data.label] ?? "⚪"} ${data.label}`;
+  const text = `${data.projectName} — ${data.releaseName}: ${data.previousLabel} → ${data.label} (score ${data.previousScore} → ${data.score})`;
+  return {
+    text,
+    blocks: [
+      { type: "header", text: { type: "plain_text", text: "Release readiness changed", emoji: true } },
+      {
+        type: "section",
+        text: { type: "mrkdwn", text: `*${data.projectName}* — ${data.releaseName}\n${arrow}  (score ${data.previousScore} → ${data.score})` },
+      },
+    ],
+  };
+}
+
 async function postToSlack(webhookUrl: string, message: { text: string; blocks: unknown[] }): Promise<void> {
   // Re-checked here, not just when the URL was saved (updateDigestSettings):
   // DNS can change (or be rebound) between then and this event firing.
@@ -93,7 +119,7 @@ export async function notifySlackEvent(
   prisma: PrismaClient,
   organizationId: string,
   eventType: WebhookEventType,
-  data: RiskFlagCreatedData | ComplianceSignOffData | ReviewRequestedData,
+  data: RiskFlagCreatedData | ComplianceSignOffData | ReviewRequestedData | ReadinessChangedData,
 ): Promise<void> {
   const org = await prisma.organization.findUnique({
     where: { id: organizationId },
@@ -106,7 +132,9 @@ export async function notifySlackEvent(
       ? buildRiskFlagBlocks(data as RiskFlagCreatedData)
       : eventType === "compliance.sign_off_recorded"
         ? buildSignOffBlocks(data as ComplianceSignOffData)
-        : buildReviewRequestedBlocks(data as ReviewRequestedData);
+        : eventType === "release.readiness_changed"
+          ? buildReadinessChangedBlocks(data as ReadinessChangedData)
+          : buildReviewRequestedBlocks(data as ReviewRequestedData);
 
   await postToSlack(org.slackWebhookUrl, message);
 }

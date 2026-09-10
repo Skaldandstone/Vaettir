@@ -179,6 +179,7 @@ export default function ReleaseReadinessPage() {
   const readinessQuery = trpcReact.releases.readiness.useQuery({ releaseId });
   const testPlansQuery = trpcReact.releases.listTestPlans.useQuery({ releaseId });
   const riskFlagsQuery = trpcReact.releases.listRiskFlags.useQuery({ releaseId });
+  const historyQuery = trpcReact.releases.readinessHistory.useQuery({ releaseId, limit: 20 });
   const allPlansQuery = trpcReact.testPlans.list.useQuery({ projectId });
 
   const projectRepo = projectQuery.data ? { repoUrl: projectQuery.data.repoUrl, defaultBranch: projectQuery.data.defaultBranch } : null;
@@ -419,6 +420,33 @@ export default function ReleaseReadinessPage() {
       </div>
 
       <div className="panel">
+      <div className="panel" style={{ marginBottom: 20 }}>
+        <h2 style={{ marginTop: 0 }}>Readiness history</h2>
+        <p className="text-muted" style={{ fontSize: 13, marginTop: -8 }}>
+          Checked every five minutes. A change in the READY / AT RISK / BLOCKED label notifies subscribed webhooks,
+          Slack, and mobile devices; score-only moves are recorded here without a notification.
+        </p>
+        {(historyQuery.data ?? []).length === 0 ? (
+          <p className="text-muted" style={{ fontSize: 13 }}>No snapshots yet - the first one lands within five minutes of a release being created.</p>
+        ) : (
+          <ul style={{ listStyle: "none", padding: 0, margin: 0, fontSize: 13 }}>
+            {(historyQuery.data ?? []).map((snap) => (
+              <li key={snap.id} style={{ display: "flex", gap: 12, padding: "4px 0", borderBottom: "1px solid var(--line)" }}>
+                <span className="text-muted" style={{ minWidth: 160 }}>{new Date(snap.computedAt).toLocaleString()}</span>
+                <span style={{ minWidth: 140 }}>
+                  {snap.previousLabel && snap.previousLabel !== snap.label ? `${snap.previousLabel} → ` : ""}
+                  <strong>{snap.label}</strong>
+                </span>
+                <span>score {snap.score}</span>
+                <span className="text-muted">
+                  {snap.criteriaMet}/{snap.criteriaTotal} criteria met · {snap.openRiskFlags} open flag(s)
+                </span>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
           <h2 style={{ marginTop: 0 }}>Risk flags</h2>
           <label className="text-muted" style={{ fontSize: 12 }}>

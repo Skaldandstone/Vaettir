@@ -10,6 +10,9 @@ export const WEBHOOK_EVENT_TYPES = [
   "risk_flag.created",
   "compliance.sign_off_recorded",
   "test_case.review_requested",
+  // P8-04: fired by services/releaseReadiness.ts when a release's computed
+  // readiness label (READY / AT_RISK / BLOCKED) changes.
+  "release.readiness_changed",
 ] as const;
 export type WebhookEventType = (typeof WEBHOOK_EVENT_TYPES)[number];
 

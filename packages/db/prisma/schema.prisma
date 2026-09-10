@@ -1622,6 +1622,7 @@ model Release {
 
   testPlans TestPlan[]
   riskFlags RiskFlag[]
+  readinessSnapshots ReleaseReadinessSnapshot[]
 
   createdById String?
   createdBy   User?   @relation("ReleaseCreatedBy", fields: [createdById], references: [id])
@@ -1630,6 +1631,28 @@ model Release {
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+}
+
+// P8-04: readiness has always been computed live and never stored, so
+// "readiness changed" had nothing to compare against. One row is written
+// whenever a release's computed score or label differs from its previous
+// snapshot (services/releaseReadiness.ts, swept every 5 minutes by
+// jobs/readinessChangeScheduler.ts); a label change is what triggers the
+// webhook/Slack/push notifications. Snapshot fields, not FKs - the row is
+// what readiness *was*, and must survive later criteria/flag edits.
+model ReleaseReadinessSnapshot {
+  id            String  @id @default(cuid())
+  releaseId     String
+  release       Release @relation(fields: [releaseId], references: [id], onDelete: Cascade)
+  score         Int
+  label         String // READY | AT_RISK | BLOCKED (computeReadiness's label)
+  previousLabel String? // null on the baseline row
+  criteriaMet   Int
+  criteriaTotal Int
+  openRiskFlags Int
+  computedAt    DateTime @default(now())
+
+  @@index([releaseId, computedAt])
 }
 
 enum ReleaseStatus {
