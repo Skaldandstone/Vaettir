@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { trpc, type RouterOutputs } from "@/lib/trpc";
+import { useState } from "react";
+import { trpcReact, type RouterOutputs } from "@/lib/trpcReact";
 
 type Plan = RouterOutputs["testPlans"]["byId"];
 type FieldSchema = { type?: string; properties?: Record<string, { type?: string; items?: { type?: string } }> };
@@ -146,6 +146,7 @@ function SuggestRiskAreasButton({
   existing: string[];
   onAdd: (areas: string[]) => void;
 }) {
+  const utils = trpcReact.useUtils();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -153,7 +154,7 @@ function SuggestRiskAreasButton({
     setLoading(true);
     setError(null);
     try {
-      const suggestions = await trpc.testPlans.suggestRiskAreas.query({ projectId });
+      const suggestions = await utils.testPlans.suggestRiskAreas.fetch({ projectId });
       const newAreas = suggestions.map((s) => s.area).filter((a) => !existing.includes(a));
       if (newAreas.length > 0) onAdd(newAreas);
       else if (suggestions.length === 0) setError("No open risk flags, failing tests, or compliance gaps found to suggest from.");
@@ -235,17 +236,10 @@ function QaStrategyForm({
 // question as "what did the risk areas actually say two releases ago."
 // Diffing happens client-side against the full snapshots the API already
 // returns -- no need for the server to compute or store a diff.
-function VersionHistorySection({ testPlanId, refreshKey }: { testPlanId: string; refreshKey: number }) {
-  const [versions, setVersions] = useState<RouterOutputs["testPlans"]["history"]>([]);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    setLoading(true);
-    trpc.testPlans.history
-      .query({ testPlanId })
-      .then(setVersions)
-      .finally(() => setLoading(false));
-  }, [testPlanId, refreshKey]);
+function VersionHistorySection({ testPlanId }: { testPlanId: string }) {
+  const historyQuery = trpcReact.testPlans.history.useQuery({ testPlanId });
+  const versions = historyQuery.data ?? [];
+  const loading = historyQuery.isPending;
 
   function changesFrom(version: RouterOutputs["testPlans"]["history"][number], index: number): string[] {
     const prev = versions[index + 1]; // desc order -- the next array entry is the prior version
@@ -303,11 +297,8 @@ function VersionHistorySection({ testPlanId, refreshKey }: { testPlanId: string;
 // the real current signals a human needs to eyeball their own exit
 // criteria against.
 function StrategySignalsSection({ projectId }: { projectId: string }) {
-  const [signals, setSignals] = useState<RouterOutputs["testPlans"]["strategySignals"] | null>(null);
-
-  useEffect(() => {
-    trpc.testPlans.strategySignals.query({ projectId }).then(setSignals);
-  }, [projectId]);
+  const signalsQuery = trpcReact.testPlans.strategySignals.useQuery({ projectId });
+  const signals = signalsQuery.data ?? null;
 
   if (!signals) return null;
 
@@ -374,22 +365,23 @@ function StrategyLinkSection({
   onChanged: () => void;
   readOnly?: boolean;
 }) {
-  const [candidates, setCandidates] = useState<RouterOutputs["testPlans"]["strategiesInProject"]>([]);
   const [selected, setSelected] = useState("");
   const [saving, setSaving] = useState(false);
 
   const isStrategy = plan.testPlanType.category === "QUALITY_STRATEGY";
 
-  useEffect(() => {
-    if (isStrategy) return;
-    trpc.testPlans.strategiesInProject.query({ projectId, excludeId: plan.id }).then(setCandidates);
-  }, [isStrategy, projectId, plan.id]);
+  const candidatesQuery = trpcReact.testPlans.strategiesInProject.useQuery(
+    { projectId, excludeId: plan.id },
+    { enabled: !isStrategy },
+  );
+  const candidates = candidatesQuery.data ?? [];
+  const setLinkMutation = trpcReact.testPlans.setStrategyLink.useMutation();
 
   async function link() {
     if (!selected) return;
     setSaving(true);
     try {
-      await trpc.testPlans.setStrategyLink.mutate({ testPlanId: plan.id, strategyId: selected });
+      await setLinkMutation.mutateAsync({ testPlanId: plan.id, strategyId: selected });
       setSelected("");
       onChanged();
     } finally {
@@ -400,7 +392,7 @@ function StrategyLinkSection({
   async function unlink() {
     setSaving(true);
     try {
-      await trpc.testPlans.setStrategyLink.mutate({ testPlanId: plan.id, strategyId: null });
+      await setLinkMutation.mutateAsync({ testPlanId: plan.id, strategyId: null });
       onChanged();
     } finally {
       setSaving(false);
@@ -472,27 +464,19 @@ function StrategyLinkSection({
 // feature here -- there's nothing to "accept," just findings to act on
 // manually (or ignore).
 function TestCaseQualityReviewSection({ testPlanId, projectId }: { testPlanId: string; projectId: string }) {
-  const [caseCount, setCaseCount] = useState<number | null>(null);
-  const [caseTitles, setCaseTitles] = useState<Record<string, string>>({});
+  const casesQuery = trpcReact.testCases.listForPlan.useQuery({ testPlanId });
+  const caseCount = casesQuery.data ? casesQuery.data.length : null;
+  const caseTitles: Record<string, string> = Object.fromEntries((casesQuery.data ?? []).map((c) => [c.id, c.title]));
+  const reviewMutation = trpcReact.testCases.reviewPlanQuality.useMutation();
   const [reviewing, setReviewing] = useState(false);
   const [result, setResult] = useState<RouterOutputs["testCases"]["reviewPlanQuality"] | null>(null);
   const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    trpc.testCases.listForPlan
-      .query({ testPlanId })
-      .then((cases) => {
-        setCaseCount(cases.length);
-        setCaseTitles(Object.fromEntries(cases.map((c) => [c.id, c.title])));
-      })
-      .catch(() => setCaseCount(null));
-  }, [testPlanId]);
 
   async function review() {
     setReviewing(true);
     setError(null);
     try {
-      const r = await trpc.testCases.reviewPlanQuality.mutate({ testPlanId });
+      const r = await reviewMutation.mutateAsync({ testPlanId });
       setResult(r);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -583,46 +567,55 @@ export function TestPlanDetailContent({
   onChanged?: () => void;
   readOnly?: boolean;
 }) {
-  const [plan, setPlan] = useState<Plan | null>(null);
-  const [requirements, setRequirements] = useState<RouterOutputs["requirements"]["list"]>([]);
+  // P1-15: plan + requirements are queries (requirements dependent on the
+  // plan's projectId). The editable header fields live in a local draft
+  // layered over the plan row: untouched fields always show the latest
+  // server value, edited ones keep the user's text until save clears the
+  // draft - so a refetch after adding a criterion no longer wipes an
+  // in-progress name/description edit the way the old load() reseed did.
+  const utils = trpcReact.useUtils();
+  const planQuery = trpcReact.testPlans.byId.useQuery({ id });
+  const plan: Plan | null = planQuery.data ?? null;
+  const requirementsQuery = trpcReact.requirements.list.useQuery(
+    { projectId: plan?.projectId ?? "" },
+    { enabled: plan !== null },
+  );
+  const requirements = requirementsQuery.data ?? [];
+  const updateMutation = trpcReact.testPlans.update.useMutation();
+  const addCriterionMutation = trpcReact.testPlans.addAcceptanceCriterion.useMutation();
+  const updateCriterionMutation = trpcReact.testPlans.updateAcceptanceCriterion.useMutation();
+  const deleteCriterionMutation = trpcReact.testPlans.deleteAcceptanceCriterion.useMutation();
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const [name, setName] = useState("");
-  const [description, setDescription] = useState("");
-  const [status, setStatus] = useState("DRAFT");
-  const [customFields, setCustomFields] = useState<Record<string, unknown>>({});
+  type Draft = { name?: string; description?: string; status?: string; customFields?: Record<string, unknown> };
+  const [draft, setDraft] = useState<Draft>({});
+  const name = draft.name ?? plan?.name ?? "";
+  const description = draft.description ?? plan?.description ?? "";
+  const status = draft.status ?? plan?.status ?? "DRAFT";
+  const customFields = draft.customFields ?? plan?.customFields ?? {};
+  const setName = (v: string) => setDraft((d) => ({ ...d, name: v }));
+  const setDescription = (v: string) => setDraft((d) => ({ ...d, description: v }));
+  const setStatus = (v: string) => setDraft((d) => ({ ...d, status: v }));
+  const setCustomFields = (v: Record<string, unknown>) => setDraft((d) => ({ ...d, customFields: v }));
 
   const [newCriterion, setNewCriterion] = useState("");
   const [newCriterionRequirementId, setNewCriterionRequirementId] = useState("");
-  const [historyVersion, setHistoryVersion] = useState(0);
 
   function load() {
-    trpc.testPlans.byId
-      .query({ id })
-      .then((p) => {
-        setPlan(p);
-        setName(p.name);
-        setDescription(p.description ?? "");
-        setStatus(p.status);
-        setCustomFields(p.customFields);
-        return trpc.requirements.list.query({ projectId: p.projectId });
-      })
-      .then(setRequirements)
-      .catch((e) => setError(e instanceof Error ? e.message : String(e)));
+    void utils.testPlans.byId.invalidate({ id });
+    void utils.testPlans.history.invalidate({ testPlanId: id });
   }
-
-  useEffect(load, [id]);
 
   async function save() {
     setSaving(true);
     setError(null);
     setSaved(false);
     try {
-      await trpc.testPlans.update.mutate({ id, name, description: description || undefined, status: status as never, customFields });
+      await updateMutation.mutateAsync({ id, name, description: description || undefined, status: status as never, customFields });
       setSaved(true);
-      setHistoryVersion((v) => v + 1);
+      setDraft({});
       load();
       onChanged?.();
     } catch (e) {
@@ -635,7 +628,7 @@ export function TestPlanDetailContent({
   async function addCriterion() {
     if (!newCriterion) return;
     try {
-      await trpc.testPlans.addAcceptanceCriterion.mutate({
+      await addCriterionMutation.mutateAsync({
         testPlanId: id,
         description: newCriterion,
         requirementId: newCriterionRequirementId || undefined,
@@ -649,16 +642,17 @@ export function TestPlanDetailContent({
   }
 
   async function updateCriterionStatus(criterionId: string, description: string, requirementId: string | null, statusValue: string) {
-    await trpc.testPlans.updateAcceptanceCriterion.mutate({ id: criterionId, description, status: statusValue as never, requirementId });
+    await updateCriterionMutation.mutateAsync({ id: criterionId, description, status: statusValue as never, requirementId });
     load();
   }
 
   async function removeCriterion(criterionId: string) {
-    await trpc.testPlans.deleteAcceptanceCriterion.mutate({ id: criterionId });
+    await deleteCriterionMutation.mutateAsync({ id: criterionId });
     load();
   }
 
-  if (error) return <p style={{ color: "var(--ember)" }}>{error}</p>;
+  const loadError = planQuery.error?.message ?? requirementsQuery.error?.message ?? null;
+  if (error ?? loadError) return <p style={{ color: "var(--ember)" }}>{error ?? loadError}</p>;
   if (!plan) return <p>Loading…</p>;
 
   return (
@@ -711,7 +705,7 @@ export function TestPlanDetailContent({
 
       <StrategyLinkSection plan={plan} projectId={plan.projectId} onChanged={load} readOnly={readOnly} />
 
-      <VersionHistorySection testPlanId={id} refreshKey={historyVersion} />
+      <VersionHistorySection testPlanId={id} />
 
       <TestCaseQualityReviewSection testPlanId={id} projectId={plan.projectId} />
 

@@ -1,8 +1,8 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import type { CSSProperties, ChangeEvent } from "react";
-import { trpc, type RouterOutputs } from "@/lib/trpc";
+import { trpcReact, type RouterOutputs } from "@/lib/trpcReact";
 
 const cellStyle: CSSProperties = { border: "1px solid var(--line)", padding: "6px 10px", textAlign: "left" };
 
@@ -38,33 +38,35 @@ function ComplianceControlsSection({
   projectId: string;
   readOnly?: boolean;
 }) {
-  const [mapped, setMapped] = useState<RouterOutputs["compliance"]["testCaseControls"] | null>(null);
-  const [frameworks, setFrameworks] = useState<RouterOutputs["compliance"]["listFrameworks"]>([]);
-  const [frameworkId, setFrameworkId] = useState("");
-  const [candidates, setCandidates] = useState<RouterOutputs["compliance"]["controlCoverage"]>([]);
+  // P1-15: the framework select defaults to the first framework until the
+  // user picks one (derived, not seeded via an effect); candidates are a
+  // dependent query on the chosen framework.
+  const utils = trpcReact.useUtils();
+  const mappedQuery = trpcReact.compliance.testCaseControls.useQuery({ testCaseId });
+  const mapped = mappedQuery.data ?? null;
+  const frameworksQuery = trpcReact.compliance.listFrameworks.useQuery();
+  const frameworks = frameworksQuery.data ?? [];
+  const [chosenFrameworkId, setFrameworkId] = useState("");
+  const frameworkId = chosenFrameworkId || frameworks[0]?.id || "";
+  const candidatesQuery = trpcReact.compliance.controlCoverage.useQuery(
+    { projectId, frameworkId },
+    { enabled: frameworkId.length > 0 },
+  );
+  const candidates = candidatesQuery.data ?? [];
+  const mapMutation = trpcReact.compliance.mapTestCase.useMutation();
+  const unmapMutation = trpcReact.compliance.unmapTestCase.useMutation();
   const [controlId, setControlId] = useState("");
   const [busy, setBusy] = useState(false);
 
   function load() {
-    trpc.compliance.testCaseControls.query({ testCaseId }).then(setMapped);
+    void utils.compliance.testCaseControls.invalidate({ testCaseId });
   }
-  useEffect(load, [testCaseId]);
-  useEffect(() => {
-    trpc.compliance.listFrameworks.query().then((fw) => {
-      setFrameworks(fw);
-      if (!frameworkId && fw[0]) setFrameworkId(fw[0].id);
-    });
-  }, []);
-  useEffect(() => {
-    if (!frameworkId) return;
-    trpc.compliance.controlCoverage.query({ projectId, frameworkId }).then(setCandidates);
-  }, [frameworkId, projectId]);
 
   async function addMapping() {
     if (!controlId) return;
     setBusy(true);
     try {
-      await trpc.compliance.mapTestCase.mutate({ testCaseId, controlId });
+      await mapMutation.mutateAsync({ testCaseId, controlId });
       setControlId("");
       load();
     } finally {
@@ -75,7 +77,7 @@ function ComplianceControlsSection({
   async function removeMapping(id: string) {
     setBusy(true);
     try {
-      await trpc.compliance.unmapTestCase.mutate({ testCaseId, controlId: id });
+      await unmapMutation.mutateAsync({ testCaseId, controlId: id });
       load();
     } finally {
       setBusy(false);
@@ -139,22 +141,48 @@ type DatasetRow = { name: string; values: Record<string, string> };
 // Examples-table convention. Shows the expanded preview (real
 // substitution, not a display approximation) alongside a simple
 // parameter/row editor.
+// P1-15: the saved data set and its expanded preview are queries; edits
+// accumulate in a local draft that starts as a copy of the saved row the
+// first time an updater runs, so a background refetch never overwrites
+// in-progress edits and cancelling the editor drops the draft.
 function DatasetSection({ testCaseId, readOnly }: { testCaseId: string; readOnly?: boolean }) {
-  const [parameterNames, setParameterNames] = useState<string[]>([]);
-  const [rows, setRows] = useState<DatasetRow[]>([]);
-  const [preview, setPreview] = useState<RouterOutputs["testCaseDatasets"]["expandedPreview"]>([]);
-  const [editing, setEditing] = useState(false);
+  const utils = trpcReact.useUtils();
+  const datasetQuery = trpcReact.testCaseDatasets.get.useQuery({ testCaseId });
+  const previewQuery = trpcReact.testCaseDatasets.expandedPreview.useQuery({ testCaseId });
+  const preview = previewQuery.data ?? [];
+  const saveMutation = trpcReact.testCaseDatasets.save.useMutation();
+  const deleteMutation = trpcReact.testCaseDatasets.delete.useMutation();
+  const savedParameterNames = datasetQuery.data?.parameterNames ?? [];
+  const savedRows = datasetQuery.data?.rows ?? [];
+  const [draft, setDraft] = useState<{ parameterNames: string[]; rows: DatasetRow[] } | null>(null);
+  const parameterNames = draft?.parameterNames ?? savedParameterNames;
+  const rows = draft?.rows ?? savedRows;
+  const [editingState, setEditingState] = useState(false);
+  const editing = editingState;
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  function load() {
-    trpc.testCaseDatasets.get.query({ testCaseId }).then((d) => {
-      setParameterNames(d?.parameterNames ?? []);
-      setRows(d?.rows ?? []);
-    });
-    trpc.testCaseDatasets.expandedPreview.query({ testCaseId }).then(setPreview);
+  function setEditing(next: boolean) {
+    if (!next) setDraft(null);
+    setEditingState(next);
   }
-  useEffect(load, [testCaseId]);
+  function setParameterNames(update: (prev: string[]) => string[]) {
+    setDraft((d) => {
+      const base = d ?? { parameterNames: savedParameterNames, rows: savedRows };
+      return { ...base, parameterNames: update(base.parameterNames) };
+    });
+  }
+  function setRows(update: (prev: DatasetRow[]) => DatasetRow[]) {
+    setDraft((d) => {
+      const base = d ?? { parameterNames: savedParameterNames, rows: savedRows };
+      return { ...base, rows: update(base.rows) };
+    });
+  }
+
+  function load() {
+    void utils.testCaseDatasets.get.invalidate({ testCaseId });
+    void utils.testCaseDatasets.expandedPreview.invalidate({ testCaseId });
+  }
 
   function addParameter() {
     const name = prompt("Parameter name (used in steps as <name>)");
@@ -172,7 +200,7 @@ function DatasetSection({ testCaseId, readOnly }: { testCaseId: string; readOnly
     setSaving(true);
     setError(null);
     try {
-      await trpc.testCaseDatasets.save.mutate({ testCaseId, parameterNames, rows });
+      await saveMutation.mutateAsync({ testCaseId, parameterNames, rows });
       setEditing(false);
       load();
     } catch (e) {
@@ -184,7 +212,7 @@ function DatasetSection({ testCaseId, readOnly }: { testCaseId: string; readOnly
 
   async function removeDataset() {
     if (!confirm("Remove this data set?")) return;
-    await trpc.testCaseDatasets.delete.mutate({ testCaseId });
+    await deleteMutation.mutateAsync({ testCaseId });
     load();
   }
 
@@ -293,14 +321,17 @@ function DatasetSection({ testCaseId, readOnly }: { testCaseId: string; readOnly
 // bytes directly to S3 (never through this API server), then refresh -
 // the row is already recorded by the time requestUpload returns.
 function AttachmentsSection({ testCaseId, readOnly }: { testCaseId: string; readOnly?: boolean }) {
-  const [attachments, setAttachments] = useState<RouterOutputs["testCaseAttachments"]["list"]>([]);
+  const utils = trpcReact.useUtils();
+  const attachmentsQuery = trpcReact.testCaseAttachments.list.useQuery({ testCaseId });
+  const attachments = attachmentsQuery.data ?? [];
+  const requestUploadMutation = trpcReact.testCaseAttachments.requestUpload.useMutation();
+  const deleteMutation = trpcReact.testCaseAttachments.delete.useMutation();
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   function load() {
-    trpc.testCaseAttachments.list.query({ testCaseId }).then(setAttachments);
+    void utils.testCaseAttachments.list.invalidate({ testCaseId });
   }
-  useEffect(load, [testCaseId]);
 
   async function handleFile(e: ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
@@ -309,7 +340,7 @@ function AttachmentsSection({ testCaseId, readOnly }: { testCaseId: string; read
     setUploading(true);
     setError(null);
     try {
-      const { uploadUrl } = await trpc.testCaseAttachments.requestUpload.mutate({
+      const { uploadUrl } = await requestUploadMutation.mutateAsync({
         testCaseId,
         fileName: file.name,
         contentType: file.type || "application/octet-stream",
@@ -326,12 +357,12 @@ function AttachmentsSection({ testCaseId, readOnly }: { testCaseId: string; read
   }
 
   async function view(id: string) {
-    const { viewUrl } = await trpc.testCaseAttachments.getViewUrl.query({ attachmentId: id });
+    const { viewUrl } = await utils.testCaseAttachments.getViewUrl.fetch({ attachmentId: id });
     window.open(viewUrl, "_blank");
   }
 
   async function remove(id: string) {
-    await trpc.testCaseAttachments.delete.mutate({ attachmentId: id });
+    await deleteMutation.mutateAsync({ attachmentId: id });
     load();
   }
 
@@ -374,16 +405,9 @@ function AttachmentsSection({ testCaseId, readOnly }: { testCaseId: string; read
 // TestPlanDetailContent's VersionHistorySection already covers, P4-05).
 // Same pattern: full snapshots from the API, diff computed client-side.
 function TestCaseVersionHistorySection({ testCaseId }: { testCaseId: string }) {
-  const [versions, setVersions] = useState<RouterOutputs["testCases"]["history"]>([]);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    setLoading(true);
-    trpc.testCases.history
-      .query({ testCaseId })
-      .then(setVersions)
-      .finally(() => setLoading(false));
-  }, [testCaseId]);
+  const historyQuery = trpcReact.testCases.history.useQuery({ testCaseId });
+  const versions = historyQuery.data ?? [];
+  const loading = historyQuery.isPending;
 
   function changesFrom(version: RouterOutputs["testCases"]["history"][number], index: number): string[] {
     const prev = versions[index + 1];
@@ -448,7 +472,12 @@ export function TestCaseDetailContent({
   onChanged?: () => void;
   readOnly?: boolean;
 }) {
-  const [tc, setTc] = useState<RouterOutputs["testCases"]["byId"] | null>(null);
+  const utils = trpcReact.useUtils();
+  const tcQuery = trpcReact.testCases.byId.useQuery({ id });
+  const tc = tcQuery.data ?? null;
+  const approveMutation = trpcReact.testCases.approve.useMutation();
+  const rejectMutation = trpcReact.testCases.reject.useMutation();
+  const assessRiskMutation = trpcReact.testCases.assessRisk.useMutation();
   const [error, setError] = useState<string | null>(null);
   const [reviewNote, setReviewNote] = useState("");
   const [reviewing, setReviewing] = useState(false);
@@ -456,19 +485,15 @@ export function TestCaseDetailContent({
   const [showDiff, setShowDiff] = useState(false);
 
   function load() {
-    trpc.testCases.byId
-      .query({ id })
-      .then(setTc)
-      .catch((e) => setError(String(e)));
+    void utils.testCases.byId.invalidate({ id });
+    void utils.testCases.history.invalidate({ testCaseId: id });
   }
-
-  useEffect(load, [id]);
 
   async function review(decision: "approve" | "reject") {
     setReviewing(true);
     setError(null);
     try {
-      await trpc.testCases[decision].mutate({ id, note: reviewNote || undefined });
+      await (decision === "approve" ? approveMutation : rejectMutation).mutateAsync({ id, note: reviewNote || undefined });
       setReviewNote("");
       load();
       onChanged?.();
@@ -483,7 +508,7 @@ export function TestCaseDetailContent({
     setAssessingRisk(true);
     setError(null);
     try {
-      await trpc.testCases.assessRisk.mutate({ id });
+      await assessRiskMutation.mutateAsync({ id });
       load();
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -492,7 +517,7 @@ export function TestCaseDetailContent({
     }
   }
 
-  if (error) return <p style={{ color: "var(--ember)" }}>{error}</p>;
+  if (error ?? tcQuery.error) return <p style={{ color: "var(--ember)" }}>{error ?? String(tcQuery.error)}</p>;
   if (!tc) return <p>Loading…</p>;
 
   return (

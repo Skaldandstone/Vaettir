@@ -1,14 +1,12 @@
-import { createTRPCProxyClient, httpBatchLink } from "@trpc/client";
-import type { inferRouterOutputs } from "@trpc/server";
-import type { AppRouter } from "@vaettir/api/src/router";
-
-const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000";
-
-// This client is a module-level singleton used from client components
-// outside any hook context, so it reads the session token off the global
-// `window.Clerk` instance (set once <ClerkProvider> has loaded) rather than
-// `useAuth()`. `getToken()` is async, which httpBatchLink's `headers()`
-// supports directly.
+// P1-15 (completed 2026-09-10): the module-level `createTRPCProxyClient`
+// singleton that used to live here is gone - every page and component now
+// goes through lib/trpcReact.tsx's react-query client. What remains is the
+// one piece both clients always shared: the Clerk-token header resolver.
+//
+// It runs outside any hook context (httpBatchLink's `headers()` callback),
+// so it reads the session token off the global `window.Clerk` instance
+// (set once <ClerkProvider> has loaded) rather than `useAuth()`.
+// `getToken()` is async, which httpBatchLink's `headers()` supports directly.
 //
 // `window.Clerk` itself can exist before Clerk has actually finished
 // loading -- `.session` stays undefined until `.load()` resolves. A page
@@ -36,9 +34,7 @@ async function waitForClerk(timeoutMs = 5000): Promise<Window["Clerk"]> {
   return window.Clerk;
 }
 
-// Exported so lib/trpcReact.tsx's react-query client (P1-15) can share the
-// exact same Clerk-token/race-condition handling instead of a second,
-// possibly-drifting copy.
+// Consumed by lib/trpcReact.tsx's httpBatchLink.
 export async function getAuthHeaders(): Promise<Record<string, string>> {
   if (typeof window === "undefined") return {};
   const clerk = await waitForClerk();
@@ -48,9 +44,3 @@ export async function getAuthHeaders(): Promise<Record<string, string>> {
   const token = await clerk?.session?.getToken();
   return token ? { authorization: `Bearer ${token}` } : {};
 }
-
-export const trpc = createTRPCProxyClient<AppRouter>({
-  links: [httpBatchLink({ url: `${API_URL}/trpc`, headers: getAuthHeaders })],
-});
-
-export type RouterOutputs = inferRouterOutputs<AppRouter>;
