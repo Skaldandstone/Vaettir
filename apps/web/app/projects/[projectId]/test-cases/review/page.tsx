@@ -1,43 +1,33 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useParams } from "next/navigation";
-import { trpc, type RouterOutputs } from "@/lib/trpc";
+import { trpcReact } from "@/lib/trpcReact";
 import { Drawer } from "@/components/Drawer";
 import { TestCaseDetailContent } from "@/components/TestCaseDetailContent";
 
+// P1-15
 export default function ReviewQueuePage() {
   const { projectId } = useParams<{ projectId: string }>();
-  const [queue, setQueue] = useState<RouterOutputs["testCases"]["pendingReview"]>([]);
-  const [loading, setLoading] = useState(false);
+  const utils = trpcReact.useUtils();
+  const queueQuery = trpcReact.testCases.pendingReview.useQuery({ projectId });
+  const queue = queueQuery.data ?? [];
   const [error, setError] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [openCaseId, setOpenCaseId] = useState<string | null>(null);
 
-  function load() {
-    setLoading(true);
-    setError(null);
-    trpc.testCases.pendingReview
-      .query({ projectId })
-      .then(setQueue)
-      .catch((e) => setError(String(e)))
-      .finally(() => setLoading(false));
-  }
+  const invalidate = () => utils.testCases.pendingReview.invalidate({ projectId });
+  const approveMutation = trpcReact.testCases.approve.useMutation({ onSuccess: invalidate, onError: (e) => setError(e.message), onSettled: () => setBusyId(null) });
+  const rejectMutation = trpcReact.testCases.reject.useMutation({ onSuccess: invalidate, onError: (e) => setError(e.message), onSettled: () => setBusyId(null) });
 
-  useEffect(load, [projectId]);
-
-  async function decide(id: string, decision: "approve" | "reject") {
+  function decide(id: string, decision: "approve" | "reject") {
     setBusyId(id);
     setError(null);
-    try {
-      await trpc.testCases[decision].mutate({ id });
-      load();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setBusyId(null);
-    }
+    (decision === "approve" ? approveMutation : rejectMutation).mutate({ id });
   }
+
+  const loading = queueQuery.isLoading;
+  const pageError = error ?? queueQuery.error?.message ?? null;
 
   return (
     <div style={{ maxWidth: 720 }}>
@@ -49,7 +39,7 @@ export default function ReviewQueuePage() {
         AI-reverse-engineered test cases awaiting approval, lowest confidence first.
       </p>
       {loading && <p>Loading…</p>}
-      {error && <p style={{ color: "var(--ember)" }}>{error}</p>}
+      {pageError && <p style={{ color: "var(--ember)" }}>{pageError}</p>}
       {!loading && queue.length === 0 && <p style={{ color: "var(--muted)" }}>Nothing pending review.</p>}
       <ul style={{ listStyle: "none", padding: 0 }}>
         {queue.map((tc) => (
@@ -84,7 +74,7 @@ export default function ReviewQueuePage() {
       </ul>
 
       <Drawer open={openCaseId !== null} onClose={() => setOpenCaseId(null)}>
-        {openCaseId && <TestCaseDetailContent id={openCaseId} projectId={projectId} onChanged={load} />}
+        {openCaseId && <TestCaseDetailContent id={openCaseId} projectId={projectId} onChanged={() => void invalidate()} />}
       </Drawer>
     </div>
   );

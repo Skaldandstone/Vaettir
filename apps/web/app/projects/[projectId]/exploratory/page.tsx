@@ -1,34 +1,27 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useParams, useRouter } from "next/navigation";
-import { trpc, type RouterOutputs } from "@/lib/trpc";
+import { trpcReact } from "@/lib/trpcReact";
 
+// P1-15
 export default function ExploratorySessionsPage() {
   const { projectId } = useParams<{ projectId: string }>();
   const router = useRouter();
-  const [sessions, setSessions] = useState<RouterOutputs["exploratorySessions"]["list"]>([]);
+  const sessionsQuery = trpcReact.exploratorySessions.list.useQuery({ projectId });
+  const sessions = sessionsQuery.data ?? [];
   const [charter, setCharter] = useState("");
-  const [starting, setStarting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  function load() {
-    trpc.exploratorySessions.list.query({ projectId }).then(setSessions);
-  }
-  useEffect(load, [projectId]);
+  const startMutation = trpcReact.exploratorySessions.start.useMutation({
+    onSuccess: ({ sessionId }) => router.push(`/projects/${projectId}/exploratory/${sessionId}`),
+    onError: (e) => setError(e.message),
+  });
 
-  async function start() {
+  function start() {
     if (!charter.trim()) return;
-    setStarting(true);
     setError(null);
-    try {
-      const { sessionId } = await trpc.exploratorySessions.start.mutate({ projectId, charter: charter.trim() });
-      router.push(`/projects/${projectId}/exploratory/${sessionId}`);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setStarting(false);
-    }
+    startMutation.mutate({ projectId, charter: charter.trim() });
   }
 
   return (
@@ -46,8 +39,8 @@ export default function ExploratorySessionsPage() {
           placeholder='Charter, e.g. "Explore checkout with an expired discount code"'
           style={{ flex: 1 }}
         />
-        <button className="btn-primary" onClick={start} disabled={starting || !charter.trim()}>
-          {starting ? "Starting…" : "Start session"}
+        <button className="btn-primary" onClick={start} disabled={startMutation.isPending || !charter.trim()}>
+          {startMutation.isPending ? "Starting…" : "Start session"}
         </button>
       </div>
       {error && <p style={{ color: "var(--ember)" }}>{error}</p>}
@@ -70,7 +63,7 @@ export default function ExploratorySessionsPage() {
           </div>
         </a>
       ))}
-      {sessions.length === 0 && <p className="text-muted">No exploratory sessions yet.</p>}
+      {sessionsQuery.isSuccess && sessions.length === 0 && <p className="text-muted">No exploratory sessions yet.</p>}
     </div>
   );
 }

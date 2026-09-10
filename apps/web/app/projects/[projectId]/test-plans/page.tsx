@@ -2,11 +2,10 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useParams } from "next/navigation";
-import { trpc, type RouterOutputs } from "@/lib/trpc";
+import { trpcReact, useReadOnlySeat, type RouterOutputs } from "@/lib/trpcReact";
 import { Drawer } from "@/components/Drawer";
 import { Modal } from "@/components/Modal";
 import { TestPlanDetailContent } from "@/components/TestPlanDetailContent";
-import { isReadOnlySeat } from "@/lib/membership";
 
 const STATUSES = ["DRAFT", "ACTIVE", "IN_REVIEW", "APPROVED"];
 
@@ -33,11 +32,14 @@ function GenerateStrategyModal({
   const [groundInBuild, setGroundInBuild] = useState(false);
   const [baseRef, setBaseRef] = useState("");
   const [headRef, setHeadRef] = useState("");
-  const [generating, setGenerating] = useState(false);
   const [draft, setDraft] = useState<RouterOutputs["testPlans"]["generateStrategyDraft"] | null>(null);
   const [planName, setPlanName] = useState("");
-  const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // P1-15: mutateAsync keeps the original sequential generate -> edit -> create
+  // flow; these are one-shot AI/create actions, not cached data.
+  const generateMutation = trpcReact.testPlans.generateStrategyDraft.useMutation();
+  const createMutation = trpcReact.testPlans.create.useMutation();
 
   function linesToArray(text: string): string[] {
     return text
@@ -48,10 +50,9 @@ function GenerateStrategyModal({
 
   async function generate() {
     if (!prompt.trim()) return;
-    setGenerating(true);
     setError(null);
     try {
-      const result = await trpc.testPlans.generateStrategyDraft.mutate({
+      const result = await generateMutation.mutateAsync({
         projectId,
         prompt: prompt.trim(),
         ...(groundInBuild && headRef.trim()
@@ -62,18 +63,15 @@ function GenerateStrategyModal({
       setPlanName(prompt.trim().length > 60 ? `${prompt.trim().slice(0, 57)}…` : prompt.trim());
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setGenerating(false);
     }
   }
 
   async function createFromDraft() {
     if (!draft || !qaStrategyTypeId || !planName.trim()) return;
-    setCreating(true);
     setError(null);
     try {
       const { groundedInCommits: _groundedInCommits, ...customFields } = draft;
-      await trpc.testPlans.create.mutate({
+      await createMutation.mutateAsync({
         projectId,
         testPlanTypeId: qaStrategyTypeId,
         name: planName.trim(),
@@ -86,10 +84,11 @@ function GenerateStrategyModal({
       onCreated();
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setCreating(false);
     }
   }
+
+  const generating = generateMutation.isPending;
+  const creating = createMutation.isPending;
 
   return (
     <Modal open={open} onClose={onClose} title="Generate a QA strategy draft">
@@ -193,48 +192,39 @@ function GenerateStrategyModal({
   );
 }
 
+// P1-15
 export default function TestPlansPage() {
   const { projectId } = useParams<{ projectId: string }>();
-  const [plans, setPlans] = useState<RouterOutputs["testPlans"]["list"]>([]);
-  const [types, setTypes] = useState<RouterOutputs["testPlans"]["types"]>([]);
+  const utils = trpcReact.useUtils();
+  const readOnly = useReadOnlySeat(projectId);
+  const projectQuery = trpcReact.project.byId.useQuery({ id: projectId });
+  const typesQuery = trpcReact.testPlans.types.useQuery();
+  const plansQuery = trpcReact.testPlans.list.useQuery({ projectId });
+  const plans = plansQuery.data ?? [];
+  const types = typesQuery.data ?? [];
+  const projectRepo = projectQuery.data ? { repoUrl: projectQuery.data.repoUrl, defaultBranch: projectQuery.data.defaultBranch } : null;
+
   const [name, setName] = useState("");
   const [testPlanTypeId, setTestPlanTypeId] = useState("");
-  const [loading, setLoading] = useState(false);
-  const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [openPlanId, setOpenPlanId] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
   const [generateOpen, setGenerateOpen] = useState(false);
-  const [readOnly, setReadOnly] = useState(false);
-  const [projectRepo, setProjectRepo] = useState<{ repoUrl: string | null; defaultBranch: string } | null>(null);
 
   useEffect(() => {
-    trpc.testPlans.types.query().then((t) => {
-      setTypes(t);
-      if (t[0]) setTestPlanTypeId(t[0].id);
-    });
-  }, []);
+    if (!testPlanTypeId && types[0]) setTestPlanTypeId(types[0].id);
+  }, [types, testPlanTypeId]);
 
-  useEffect(() => {
-    Promise.all([trpc.project.byId.query({ id: projectId }), trpc.organization.mine.query()]).then(([proj, orgs]) => {
-      const org = orgs.find((o) => o.id === proj.organizationId);
-      setReadOnly(isReadOnlySeat(org?.seatType));
-      setProjectRepo({ repoUrl: proj.repoUrl, defaultBranch: proj.defaultBranch });
-    });
-  }, [projectId]);
+  const invalidatePlans = () => void utils.testPlans.list.invalidate({ projectId });
 
-  function loadPlans() {
-    setLoading(true);
-    setError(null);
-    trpc.testPlans.list
-      .query({ projectId })
-      .then(setPlans)
-      .catch((e) => setError(String(e)))
-      .finally(() => setLoading(false));
-  }
-
-  useEffect(loadPlans, [projectId]);
+  const createMutation = trpcReact.testPlans.create.useMutation({
+    onSuccess: () => {
+      setName("");
+      invalidatePlans();
+    },
+    onError: (e) => setError(e.message),
+  });
 
   const visiblePlans = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -243,20 +233,14 @@ export default function TestPlansPage() {
     );
   }, [plans, search, statusFilter]);
 
-  async function submit() {
+  function submit() {
     if (!testPlanTypeId || !name.trim()) return;
-    setCreating(true);
     setError(null);
-    try {
-      await trpc.testPlans.create.mutate({ projectId, testPlanTypeId, name: name.trim() });
-      setName("");
-      loadPlans();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setCreating(false);
-    }
+    createMutation.mutate({ projectId, testPlanTypeId, name: name.trim() });
   }
+
+  const loading = plansQuery.isLoading;
+  const pageError = error ?? plansQuery.error?.message ?? null;
 
   return (
     <div>
@@ -282,8 +266,8 @@ export default function TestPlansPage() {
           onKeyDown={(e) => e.key === "Enter" && submit()}
           placeholder="Plan name, press Enter…"
         />
-        <button onClick={submit} disabled={creating || !name.trim()}>
-          {creating ? "Creating…" : "+ New test plan"}
+        <button onClick={submit} disabled={createMutation.isPending || !name.trim()}>
+          {createMutation.isPending ? "Creating…" : "+ New test plan"}
         </button>
         <button className="btn-secondary" onClick={() => setGenerateOpen(true)}>
           Generate strategy with AI
@@ -292,7 +276,7 @@ export default function TestPlansPage() {
       )}
 
       {loading && <p>Loading…</p>}
-      {error && <p style={{ color: "var(--ember)" }}>{error}</p>}
+      {pageError && <p style={{ color: "var(--ember)" }}>{pageError}</p>}
 
       {plans.length > 0 && (
         <div style={{ display: "flex", gap: 8, marginBottom: 10 }}>
@@ -328,7 +312,7 @@ export default function TestPlansPage() {
       </ul>
 
       <Drawer open={openPlanId !== null} onClose={() => setOpenPlanId(null)}>
-        {openPlanId && <TestPlanDetailContent id={openPlanId} onChanged={loadPlans} readOnly={readOnly} />}
+        {openPlanId && <TestPlanDetailContent id={openPlanId} onChanged={invalidatePlans} readOnly={readOnly} />}
       </Drawer>
 
       <GenerateStrategyModal
@@ -337,7 +321,7 @@ export default function TestPlansPage() {
         projectId={projectId}
         qaStrategyTypeId={types.find((t) => t.key === "qa-strategy")?.id}
         projectRepo={projectRepo}
-        onCreated={loadPlans}
+        onCreated={invalidatePlans}
       />
     </div>
   );

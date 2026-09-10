@@ -171,6 +171,9 @@ export const testPlansRouter = router({
         customFields: z.record(z.unknown()).default({}),
       }),
     )
+    // .output() bounds the inferred type (TS2589 under react-query's
+    // useMutation wrapper, P1-15) - no caller reads beyond the id.
+    .output(z.object({ id: z.string(), name: z.string() }))
     .mutation(async ({ ctx, input }) => {
       const { project } = await requireProjectAccess(ctx, input.projectId, "EDITOR");
       const created = await ctx.prisma.testPlan.create({

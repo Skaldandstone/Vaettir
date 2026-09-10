@@ -1,8 +1,8 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useParams, useRouter } from "next/navigation";
-import { trpc, type RouterOutputs } from "@/lib/trpc";
+import { trpcReact, type RouterOutputs } from "@/lib/trpcReact";
 
 type ExecutionCase = RouterOutputs["manualExecution"]["getForExecution"]["cases"][number];
 
@@ -106,40 +106,29 @@ function CaseRow({
   );
 }
 
+// P1-15
 export default function ManualExecutionPage() {
   const { projectId, testRunId } = useParams<{ projectId: string; testRunId: string }>();
   const router = useRouter();
-  const [data, setData] = useState<RouterOutputs["manualExecution"]["getForExecution"] | null>(null);
+  const utils = trpcReact.useUtils();
+  const dataQuery = trpcReact.manualExecution.getForExecution.useQuery({ testRunId });
   const [error, setError] = useState<string | null>(null);
-  const [completing, setCompleting] = useState(false);
 
-  function load() {
-    trpc.manualExecution.getForExecution
-      .query({ testRunId })
-      .then(setData)
-      .catch((e) => setError(e instanceof Error ? e.message : String(e)));
-  }
-
-  useEffect(load, [testRunId]);
+  const recordMutation = trpcReact.manualExecution.recordResult.useMutation();
+  const completeMutation = trpcReact.manualExecution.complete.useMutation({
+    onSuccess: () => router.push(`/projects/${projectId}/test-runs`),
+    onError: (e) => setError(e.message),
+  });
 
   async function handleRecord(caseId: string, status: "PASS" | "FAIL" | "BLOCKED" | "SKIP", note: string) {
-    await trpc.manualExecution.recordResult.mutate({ testRunId, testCaseId: caseId, status, note: note || undefined });
-    load();
+    await recordMutation.mutateAsync({ testRunId, testCaseId: caseId, status, note: note || undefined });
+    await utils.manualExecution.getForExecution.invalidate({ testRunId });
   }
 
-  async function complete() {
-    setCompleting(true);
-    try {
-      await trpc.manualExecution.complete.mutate({ testRunId });
-      router.push(`/projects/${projectId}/test-runs`);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setCompleting(false);
-    }
-  }
+  const data = dataQuery.data;
+  const pageError = error ?? dataQuery.error?.message ?? null;
 
-  if (error) return <p style={{ color: "var(--ember)" }}>{error}</p>;
+  if (pageError) return <p style={{ color: "var(--ember)" }}>{pageError}</p>;
   if (!data) return <p>Loading…</p>;
 
   const recordedCount = data.cases.filter((c) => c.currentResult).length;
@@ -148,8 +137,8 @@ export default function ManualExecutionPage() {
     <div style={{ maxWidth: 800 }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
         <h1>Manual test run</h1>
-        <button className="btn-primary" onClick={complete} disabled={completing}>
-          {completing ? "Completing…" : "Complete run"}
+        <button className="btn-primary" onClick={() => completeMutation.mutate({ testRunId })} disabled={completeMutation.isPending}>
+          {completeMutation.isPending ? "Completing…" : "Complete run"}
         </button>
       </div>
       <p className="text-muted" style={{ fontSize: 13 }}>

@@ -1,8 +1,8 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useParams } from "next/navigation";
-import { trpc, type RouterOutputs } from "@/lib/trpc";
+import { trpcReact, type RouterOutputs } from "@/lib/trpcReact";
 import { Modal } from "@/components/Modal";
 
 interface StepRow {
@@ -55,10 +55,13 @@ function StepEditor({ steps, onChange }: { steps: StepRow[]; onChange: (steps: S
   );
 }
 
+// P1-15
 export default function SharedStepsPage() {
   const { projectId } = useParams<{ projectId: string }>();
-  const [groups, setGroups] = useState<RouterOutputs["sharedStepGroups"]["list"]>([]);
-  const [loading, setLoading] = useState(true);
+  const utils = trpcReact.useUtils();
+  const groupsQuery = trpcReact.sharedStepGroups.list.useQuery({ projectId });
+  const groups = groupsQuery.data ?? [];
+  const loading = groupsQuery.isLoading;
   const [error, setError] = useState<string | null>(null);
 
   const [editorOpen, setEditorOpen] = useState(false);
@@ -66,17 +69,16 @@ export default function SharedStepsPage() {
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [steps, setSteps] = useState<StepRow[]>([{ ...EMPTY_STEP }]);
-  const [saving, setSaving] = useState(false);
 
-  function load() {
-    setLoading(true);
-    trpc.sharedStepGroups.list
-      .query({ projectId })
-      .then(setGroups)
-      .catch((e) => setError(e instanceof Error ? e.message : String(e)))
-      .finally(() => setLoading(false));
-  }
-  useEffect(load, [projectId]);
+  const invalidate = () => utils.sharedStepGroups.list.invalidate({ projectId });
+  const onSaved = () => {
+    setEditorOpen(false);
+    void invalidate();
+  };
+  const createMutation = trpcReact.sharedStepGroups.create.useMutation({ onSuccess: onSaved, onError: (e) => setError(e.message) });
+  const updateMutation = trpcReact.sharedStepGroups.update.useMutation({ onSuccess: onSaved, onError: (e) => setError(e.message) });
+  const deleteMutation = trpcReact.sharedStepGroups.delete.useMutation({ onSuccess: () => void invalidate(), onError: (e) => setError(e.message) });
+  const saving = createMutation.isPending || updateMutation.isPending;
 
   function openCreate() {
     setEditingId(null);
@@ -101,45 +103,29 @@ export default function SharedStepsPage() {
     setEditorOpen(true);
   }
 
-  async function save() {
+  function save() {
     if (!name.trim()) return;
     const cleanSteps = steps.filter((s) => s.action.trim());
     if (cleanSteps.length === 0) return;
-    setSaving(true);
     setError(null);
-    try {
-      const payload = {
-        name: name.trim(),
-        description: description.trim() || undefined,
-        steps: cleanSteps.map((s) => ({
-          action: s.action,
-          expectedActionOrData: s.expectedActionOrData || undefined,
-          expectedResult: s.expectedResult || undefined,
-          expectedResponse: s.expectedResponse || undefined,
-        })),
-      };
-      if (editingId) {
-        await trpc.sharedStepGroups.update.mutate({ id: editingId, ...payload });
-      } else {
-        await trpc.sharedStepGroups.create.mutate({ projectId, ...payload });
-      }
-      setEditorOpen(false);
-      load();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setSaving(false);
-    }
+    const payload = {
+      name: name.trim(),
+      description: description.trim() || undefined,
+      steps: cleanSteps.map((s) => ({
+        action: s.action,
+        expectedActionOrData: s.expectedActionOrData || undefined,
+        expectedResult: s.expectedResult || undefined,
+        expectedResponse: s.expectedResponse || undefined,
+      })),
+    };
+    if (editingId) updateMutation.mutate({ id: editingId, ...payload });
+    else createMutation.mutate({ projectId, ...payload });
   }
 
-  async function remove(id: string) {
+  function remove(id: string) {
     if (!confirm("Delete this shared step library?")) return;
-    try {
-      await trpc.sharedStepGroups.delete.mutate({ id });
-      load();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-    }
+    setError(null);
+    deleteMutation.mutate({ id });
   }
 
   return (
@@ -155,7 +141,7 @@ export default function SharedStepsPage() {
         it updates instantly.
       </p>
 
-      {error && <p style={{ color: "var(--ember)" }}>{error}</p>}
+      {(error ?? groupsQuery.error?.message) && <p style={{ color: "var(--ember)" }}>{error ?? groupsQuery.error?.message}</p>}
       {loading && <p>Loading…</p>}
 
       {!loading &&

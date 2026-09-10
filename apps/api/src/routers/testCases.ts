@@ -274,8 +274,12 @@ export const testCasesRouter = router({
       return cases.map((c) => ({ id: c.id, title: c.title, confidence: c.confidence, sourceFilePath: c.source?.filePath ?? null }));
     }),
 
+  // .output() bounds the inferred type (TS2589 once react-query's useMutation
+  // wrapper resolves it - same fix as organization.bootstrap); no caller
+  // reads anything beyond the id from the returned row.
   approve: protectedProcedure
     .input(z.object({ id: z.string(), note: z.string().optional() }))
+    .output(z.object({ id: z.string(), reviewStatus: z.string() }))
     .mutation(async ({ ctx, input }) => {
       const existing = await ctx.prisma.testCase.findUniqueOrThrow({ where: { id: input.id }, select: { projectId: true, title: true } });
       const { project } = await requireProjectAccess(ctx, existing.projectId, "EDITOR");
@@ -298,6 +302,7 @@ export const testCasesRouter = router({
 
   reject: protectedProcedure
     .input(z.object({ id: z.string(), note: z.string().optional() }))
+    .output(z.object({ id: z.string(), reviewStatus: z.string() }))
     .mutation(async ({ ctx, input }) => {
       const existing = await ctx.prisma.testCase.findUniqueOrThrow({ where: { id: input.id }, select: { projectId: true, title: true } });
       const { project } = await requireProjectAccess(ctx, existing.projectId, "EDITOR");
