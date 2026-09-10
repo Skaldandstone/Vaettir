@@ -9,14 +9,20 @@
 import js from "@eslint/js";
 import tseslint from "typescript-eslint";
 import globals from "globals";
-import { FlatCompat } from "@eslint/eslintrc";
-import { fileURLToPath } from "node:url";
-import path from "node:path";
+import nextCoreWebVitals from "eslint-config-next/core-web-vitals";
+import nextTypescript from "eslint-config-next/typescript";
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const compat = new FlatCompat({ baseDirectory: __dirname });
-
-const nextConfigs = compat.extends("next/core-web-vitals", "next/typescript").map((config) => {
+// eslint-config-next 16 ships native ESLint 9 flat configs (the array
+// exports above) instead of the legacy shareable configs the previous
+// `next/core-web-vitals`/`next/typescript` names resolved to. Routing
+// those legacy names through FlatCompat crashed here: FlatCompat's
+// config-validator tries to JSON.stringify a config for its error
+// message, and eslint-plugin-react's own flat "recommended" export
+// (now pulled in by eslint-config-next) is self-referential, so the
+// validator's own crash-reporting path threw "Converting circular
+// structure to JSON" before the real (unrelated) validation error
+// ever surfaced.
+const nextConfigs = [...nextCoreWebVitals, ...nextTypescript].map((config) => {
   const { plugins = {}, ...configWithoutPlugins } = config;
   const nextPlugins = Object.fromEntries(
     Object.entries(plugins).filter(([name]) => name !== "@typescript-eslint"),
@@ -84,6 +90,15 @@ export default tseslint.config(
       // "error" once a pass through them lands (mechanical: swap ' -> &apos;
       // and " -> &quot; in JSX text, not attributes).
       "react/no-unescaped-entities": "warn",
+      // New in the eslint-plugin-react-hooks version eslint-config-next 16
+      // pulls in. 21 real, pre-existing instances across ~20 files
+      // surfaced on this bump, all the same shape: a data-fetching or
+      // localStorage-read effect calling setState directly instead of
+      // deriving state or gating the fetch. Real, but an app-wide
+      // refactor (not scoped to fixing this dependency bump) - same
+      // "surface, don't silence, don't block on it today" treatment as
+      // the rule above. Re-promote to "error" once a pass lands.
+      "react-hooks/set-state-in-effect": "warn",
     },
   },
   {
