@@ -61,7 +61,7 @@ afterAll(async () => {
   }
 });
 
-describe.sequential("private-beta and Studio enrollment boundaries", () => {
+describe("private-beta and Studio enrollment boundaries", () => {
   it("requires an enrollment, hides the tier, and prevents owner plan bypass", async () => {
     const outsider = await createUser("outsider");
     await expect((await callerFor(outsider.id)).organization.bootstrap({ organizationName: "Uninvited" }))
