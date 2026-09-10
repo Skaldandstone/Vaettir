@@ -2,8 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
-import { trpc, type RouterOutputs } from "@/lib/trpc";
-import { isReadOnlySeat } from "@/lib/membership";
+import { trpcReact, useReadOnlySeat, type RouterOutputs } from "@/lib/trpcReact";
 
 const ACTIVE_JOB_STATUSES = new Set(["PENDING", "RUNNING"]);
 
@@ -12,11 +11,8 @@ const ACTIVE_JOB_STATUSES = new Set(["PENDING", "RUNNING"]);
 // whether the prompt needs adjusting; nothing here automates that
 // judgment call, it just makes the before/after visible in one place.
 function AiEditFeedbackSection({ projectId }: { projectId: string }) {
-  const [feedback, setFeedback] = useState<RouterOutputs["testCases"]["listAiEditFeedback"]>([]);
-
-  useEffect(() => {
-    trpc.testCases.listAiEditFeedback.query({ projectId }).then(setFeedback).catch(() => undefined);
-  }, [projectId]);
+  const feedbackQuery = trpcReact.testCases.listAiEditFeedback.useQuery({ projectId });
+  const feedback = feedbackQuery.data ?? [];
 
   if (feedback.length === 0) return null;
 
@@ -85,8 +81,10 @@ function readFileAsBase64(file: File): Promise<string> {
   });
 }
 
+// P1-15
 export default function ReverseEngineerPage() {
   const { projectId } = useParams<{ projectId: string }>();
+  const utils = trpcReact.useUtils();
   const [filePath, setFilePath] = useState("src/example.test.ts");
   const [content, setContent] = useState("");
   const [persist, setPersist] = useState(true);
@@ -94,7 +92,6 @@ export default function ReverseEngineerPage() {
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<RouterOutputs["agent"]["reverseEngineerFile"] | null>(null);
 
-  const [jobs, setJobs] = useState<RouterOutputs["agent"]["listJobs"]>([]);
   const [submittingJob, setSubmittingJob] = useState(false);
 
   const [repoUrl, setRepoUrl] = useState("");
@@ -116,7 +113,8 @@ export default function ReverseEngineerPage() {
   const [postmanResult, setPostmanResult] = useState<RouterOutputs["agent"]["importPostmanCollection"] | null>(null);
 
   // P5-12: "teach the platform your framework"
-  const [heuristics, setHeuristics] = useState<RouterOutputs["agent"]["listCustomFrameworkHeuristics"]>([]);
+  const heuristicsQuery = trpcReact.agent.listCustomFrameworkHeuristics.useQuery({ projectId });
+  const heuristics = heuristicsQuery.data ?? [];
   const [exampleFiles, setExampleFiles] = useState<{ filePath: string; content: string }[]>([
     { filePath: "", content: "" },
     { filePath: "", content: "" },
@@ -126,44 +124,41 @@ export default function ReverseEngineerPage() {
   const [savingHeuristic, setSavingHeuristic] = useState(false);
   const [heuristicError, setHeuristicError] = useState<string | null>(null);
 
-  const [readOnly, setReadOnly] = useState(false);
-  useEffect(() => {
-    trpc.project.byId
-      .query({ id: projectId })
-      .then((p) => trpc.organization.mine.query().then((orgs) => orgs.find((o) => o.id === p.organizationId)))
-      .then((org) => setReadOnly(isReadOnlySeat(org?.seatType)))
-      .catch(() => undefined);
-  }, [projectId]);
+  const readOnly = useReadOnlySeat(projectId);
 
   function loadHeuristics() {
-    trpc.agent.listCustomFrameworkHeuristics.query({ projectId }).then(setHeuristics).catch(() => undefined);
+    void utils.agent.listCustomFrameworkHeuristics.invalidate({ projectId });
   }
-  useEffect(loadHeuristics, [projectId]);
 
   // Pre-fill the repo URL from the project itself so the user doesn't have
   // to go look it up on /projects again.
+  const projectQuery = trpcReact.project.byId.useQuery({ id: projectId });
+  const projectRepoUrl = projectQuery.data?.repoUrl ?? null;
   useEffect(() => {
-    trpc.project.byId
-      .query({ id: projectId })
-      .then((p) => {
-        if (p.repoUrl) setRepoUrl(p.repoUrl);
-      })
-      .catch(() => undefined);
-  }, [projectId]);
-
-  function loadJobs() {
-    trpc.agent.listJobs.query({ projectId }).then(setJobs).catch(() => undefined);
-  }
-
-  useEffect(loadJobs, [projectId]);
+    if (projectRepoUrl) setRepoUrl(projectRepoUrl);
+  }, [projectRepoUrl]);
 
   // Poll while any job is PENDING/RUNNING so status updates without a
   // manual refresh; stops polling once nothing's in flight.
-  useEffect(() => {
-    if (!jobs.some((j) => ACTIVE_JOB_STATUSES.has(j.status))) return;
-    const t = setInterval(loadJobs, 2000);
-    return () => clearInterval(t);
-  }, [jobs, projectId]);
+  const jobsQuery = trpcReact.agent.listJobs.useQuery(
+    { projectId },
+    { refetchInterval: (q) => (q.state.data?.some((j) => ACTIVE_JOB_STATUSES.has(j.status)) ? 2000 : false) },
+  );
+  const jobs = jobsQuery.data ?? [];
+
+  function loadJobs() {
+    void utils.agent.listJobs.invalidate({ projectId });
+  }
+
+  const inferMutation = trpcReact.agent.inferCustomFrameworkHeuristic.useMutation();
+  const saveHeuristicMutation = trpcReact.agent.saveCustomFrameworkHeuristic.useMutation();
+  const deleteHeuristicMutation = trpcReact.agent.deleteCustomFrameworkHeuristic.useMutation();
+  const reverseEngineerMutation = trpcReact.agent.reverseEngineerFile.useMutation();
+  const submitJobMutation = trpcReact.agent.submitJob.useMutation();
+  const importGherkinMutation = trpcReact.agent.importGherkin.useMutation();
+  const importPostmanMutation = trpcReact.agent.importPostmanCollection.useMutation();
+  const uploadZipMutation = trpcReact.agent.uploadZip.useMutation();
+  const scanRepoMutation = trpcReact.agent.scanRepo.useMutation();
 
   async function inferHeuristic() {
     const validFiles = exampleFiles.filter((f) => f.filePath.trim() && f.content.trim());
@@ -175,7 +170,7 @@ export default function ReverseEngineerPage() {
     setHeuristicError(null);
     setInferred(null);
     try {
-      const res = await trpc.agent.inferCustomFrameworkHeuristic.mutate({ projectId, files: validFiles });
+      const res = await inferMutation.mutateAsync({ projectId, files: validFiles });
       setInferred(res);
     } catch (e) {
       setHeuristicError(e instanceof Error ? e.message : String(e));
@@ -189,7 +184,7 @@ export default function ReverseEngineerPage() {
     setSavingHeuristic(true);
     setHeuristicError(null);
     try {
-      await trpc.agent.saveCustomFrameworkHeuristic.mutate({
+      await saveHeuristicMutation.mutateAsync({
         projectId,
         name: inferred.name,
         description: inferred.description,
@@ -208,7 +203,7 @@ export default function ReverseEngineerPage() {
 
   async function deleteHeuristic(id: string) {
     if (!confirm("Delete this learned framework pattern? Future files won't get this hint anymore.")) return;
-    await trpc.agent.deleteCustomFrameworkHeuristic.mutate({ id });
+    await deleteHeuristicMutation.mutateAsync({ id });
     loadHeuristics();
   }
 
@@ -217,7 +212,7 @@ export default function ReverseEngineerPage() {
     setError(null);
     setResult(null);
     try {
-      const res = await trpc.agent.reverseEngineerFile.mutate({ projectId, filePath, content, persist });
+      const res = await reverseEngineerMutation.mutateAsync({ projectId, filePath, content, persist });
       setResult(res);
     } catch (e) {
       setError(String(e));
@@ -230,7 +225,7 @@ export default function ReverseEngineerPage() {
     setSubmittingJob(true);
     setError(null);
     try {
-      await trpc.agent.submitJob.mutate({ projectId, filePath, content });
+      await submitJobMutation.mutateAsync({ projectId, filePath, content });
       loadJobs();
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -244,7 +239,7 @@ export default function ReverseEngineerPage() {
     setError(null);
     setGherkinResult(null);
     try {
-      const res = await trpc.agent.importGherkin.mutate({ projectId, filePath: gherkinPath, content: gherkinContent });
+      const res = await importGherkinMutation.mutateAsync({ projectId, filePath: gherkinPath, content: gherkinContent });
       setGherkinResult(res);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -258,7 +253,7 @@ export default function ReverseEngineerPage() {
     setError(null);
     setPostmanResult(null);
     try {
-      const res = await trpc.agent.importPostmanCollection.mutate({ projectId, filePath: postmanPath, content: postmanContent });
+      const res = await importPostmanMutation.mutateAsync({ projectId, filePath: postmanPath, content: postmanContent });
       setPostmanResult(res);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -273,7 +268,7 @@ export default function ReverseEngineerPage() {
     setZipResult(null);
     try {
       const zipBase64 = await readFileAsBase64(file);
-      const res = await trpc.agent.uploadZip.mutate({ projectId, zipBase64 });
+      const res = await uploadZipMutation.mutateAsync({ projectId, zipBase64 });
       setZipResult(res);
       loadJobs();
     } catch (e) {
@@ -288,7 +283,7 @@ export default function ReverseEngineerPage() {
     setError(null);
     setScanResult(null);
     try {
-      const res = await trpc.agent.scanRepo.mutate({ projectId, repoUrl: repoUrl || undefined, ref: repoRef });
+      const res = await scanRepoMutation.mutateAsync({ projectId, repoUrl: repoUrl || undefined, ref: repoRef });
       setScanResult(res);
       loadJobs();
     } catch (e) {

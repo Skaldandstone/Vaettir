@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
-import { trpc, type RouterOutputs } from "@/lib/trpc";
+import { trpcReact, type RouterOutputs } from "@/lib/trpcReact";
 
 const TARGET_FIELDS = ["title", "given", "when", "then", "priority", "tags", "externalId"] as const;
 type TargetField = (typeof TARGET_FIELDS)[number];
@@ -50,6 +50,7 @@ function BackfillSection({ projectId, defaultBranch }: { projectId: string; defa
   const [files, setFiles] = useState<BackfillFile[]>([]);
   const [running, setRunning] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const ingestMutation = trpcReact.testRuns.ingestJUnit.useMutation();
 
   useEffect(() => setBranch(defaultBranch), [defaultBranch]);
 
@@ -84,7 +85,7 @@ function BackfillSection({ projectId, defaultBranch }: { projectId: string; defa
       updateFile(i, { status: "importing" });
       try {
         const startedAt = new Date(`${f.date}T12:00:00Z`);
-        const result = await trpc.testRuns.ingestJUnit.mutate({
+        const result = await ingestMutation.mutateAsync({
           projectId,
           ciProvider: ciProvider.trim() || "backfill",
           commitSha: f.commitSha.trim() || `backfill-${i}`,
@@ -202,8 +203,12 @@ function BackfillSection({ projectId, defaultBranch }: { projectId: string; defa
   );
 }
 
+// P1-15: the two preview procedures are queries in tRPC terms but are called
+// on demand against transient textarea/file content, so they stay imperative
+// (utils.<>.fetch) rather than becoming rendered useQuery hooks.
 export default function ImportPage() {
   const { projectId } = useParams<{ projectId: string }>();
+  const utils = trpcReact.useUtils();
 
   const [fileName, setFileName] = useState("");
   const [csvText, setCsvText] = useState("");
@@ -212,24 +217,15 @@ export default function ImportPage() {
   const [previewRows, setPreviewRows] = useState<RouterOutputs["importJobs"]["previewWithMapping"]["previewRows"]>([]);
   const [previewSkipped, setPreviewSkipped] = useState<RouterOutputs["importJobs"]["previewWithMapping"]["previewSkipped"]>([]);
   const [loadingPreview, setLoadingPreview] = useState(false);
-  const [committing, setCommitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [committed, setCommitted] = useState<RouterOutputs["importJobs"]["commitCsv"] | null>(null);
 
-  const [jobs, setJobs] = useState<RouterOutputs["importJobs"]["list"]>([]);
-  const [defaultBranch, setDefaultBranch] = useState("main");
+  const jobsQuery = trpcReact.importJobs.list.useQuery({ projectId });
+  const jobs = jobsQuery.data ?? [];
+  const projectQuery = trpcReact.project.byId.useQuery({ id: projectId });
+  const defaultBranch = projectQuery.data?.defaultBranch ?? "main";
 
-  function loadJobs() {
-    trpc.importJobs.list.query({ projectId }).then(setJobs).catch(() => undefined);
-  }
-  useEffect(loadJobs, [projectId]);
-
-  useEffect(() => {
-    trpc.project.byId
-      .query({ id: projectId })
-      .then((p) => setDefaultBranch(p.defaultBranch))
-      .catch(() => undefined);
-  }, [projectId]);
+  const commitMutation = trpcReact.importJobs.commitCsv.useMutation();
 
   async function loadFile(file: File) {
     setError(null);
@@ -239,7 +235,7 @@ export default function ImportPage() {
     setCsvText(text);
     setLoadingPreview(true);
     try {
-      const res = await trpc.importJobs.previewCsv.query({ projectId, csvText: text });
+      const res = await utils.importJobs.previewCsv.fetch({ projectId, csvText: text });
       setPreview(res);
       setMapping(res.suggestedMapping as Partial<Record<TargetField, string>>);
       setPreviewRows(res.previewRows);
@@ -262,7 +258,7 @@ export default function ImportPage() {
     setLoadingPreview(true);
     setError(null);
     try {
-      const res = await trpc.importJobs.previewWithMapping.query({ projectId, csvText, mapping: next as Record<TargetField, string> });
+      const res = await utils.importJobs.previewWithMapping.fetch({ projectId, csvText, mapping: next as Record<TargetField, string> });
       setPreviewRows(res.previewRows);
       setPreviewSkipped(res.previewSkipped);
     } catch (e) {
@@ -274,10 +270,9 @@ export default function ImportPage() {
 
   async function commit() {
     if (!mapping.title) return;
-    setCommitting(true);
     setError(null);
     try {
-      const res = await trpc.importJobs.commitCsv.mutate({
+      const res = await commitMutation.mutateAsync({
         projectId,
         csvText,
         mapping: mapping as Record<TargetField, string>,
@@ -287,13 +282,13 @@ export default function ImportPage() {
       setPreview(null);
       setCsvText("");
       setFileName("");
-      loadJobs();
+      void utils.importJobs.list.invalidate({ projectId });
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setCommitting(false);
     }
   }
+
+  const committing = commitMutation.isPending;
 
   return (
     <div style={{ maxWidth: 900 }}>

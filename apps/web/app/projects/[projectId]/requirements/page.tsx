@@ -3,12 +3,17 @@
 import { useEffect, useMemo, useState } from "react";
 import type { ChangeEvent } from "react";
 import { useParams } from "next/navigation";
-import { trpc, type RouterOutputs } from "@/lib/trpc";
+import { trpcReact, type RouterOutputs } from "@/lib/trpcReact";
 import { Modal } from "@/components/Modal";
 
 // 2026-08-27 competitor parity audit: draft-and-review, same shape as
 // P4-02's strategy generation - nothing here creates a real TestCase
 // until the user explicitly picks which drafts to keep.
+//
+// P1-15: the draft generation fires on mount, which is a mutation in tRPC
+// terms (it costs an AI call) - so it goes through utils.client (the
+// vanilla client behind the react-query layer) rather than a rendered
+// hook, keeping the effect deps to the requirement id.
 function GenerateTestCasesModal({
   requirementId,
   projectId,
@@ -20,6 +25,8 @@ function GenerateTestCasesModal({
   onClose: () => void;
   onCreated: () => void;
 }) {
+  const utils = trpcReact.useUtils();
+  const createCase = trpcReact.testCases.create.useMutation();
   const [drafts, setDrafts] = useState<RouterOutputs["requirements"]["generateTestCases"] | null>(null);
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [generating, setGenerating] = useState(true);
@@ -27,7 +34,7 @@ function GenerateTestCasesModal({
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    trpc.requirements.generateTestCases
+    utils.client.requirements.generateTestCases
       .mutate({ requirementId })
       .then((result) => {
         setDrafts(result);
@@ -35,7 +42,7 @@ function GenerateTestCasesModal({
       })
       .catch((e) => setError(e instanceof Error ? e.message : String(e)))
       .finally(() => setGenerating(false));
-  }, [requirementId]);
+  }, [requirementId, utils]);
 
   function toggle(i: number) {
     setSelected((prev) => {
@@ -53,7 +60,7 @@ function GenerateTestCasesModal({
     try {
       for (const i of selected) {
         const d = drafts[i]!;
-        await trpc.testCases.create.mutate({
+        await createCase.mutateAsync({
           projectId,
           title: d.title,
           given: d.given,
@@ -63,6 +70,7 @@ function GenerateTestCasesModal({
           priority: d.priority as "CRITICAL" | "HIGH" | "MEDIUM" | "LOW",
         });
       }
+      void utils.testCases.list.invalidate();
       onCreated();
       onClose();
     } catch (e) {
@@ -133,6 +141,7 @@ function DraftRequirementReview({
   onClose: () => void;
   onCreated: () => void;
 }) {
+  const createRequirement = trpcReact.requirements.create.useMutation();
   const [selected, setSelected] = useState<Set<number>>(new Set(drafts.map((_, i) => i)));
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -152,7 +161,7 @@ function DraftRequirementReview({
     try {
       for (const i of selected) {
         const d = drafts[i]!;
-        await trpc.requirements.create.mutate({
+        await createRequirement.mutateAsync({
           projectId,
           title: d.title,
           description: d.sourceFile ? `${d.description}\n\n(extracted from ${d.sourceFile})` : d.description,
@@ -204,11 +213,12 @@ function DraftRequirementReview({
 // real AI call and swaps into the same review list every extraction path
 // uses.
 function ExtractFromMarkdownModal({ projectId, onClose, onCreated }: { projectId: string; onClose: () => void; onCreated: () => void }) {
+  const extractMutation = trpcReact.requirements.extractFromMarkdown.useMutation();
   const [fileName, setFileName] = useState("requirements.md");
   const [content, setContent] = useState("");
   const [drafts, setDrafts] = useState<DraftRequirement[] | null>(null);
-  const [extracting, setExtracting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const extracting = extractMutation.isPending;
 
   async function handleFile(e: ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
@@ -219,15 +229,12 @@ function ExtractFromMarkdownModal({ projectId, onClose, onCreated }: { projectId
 
   async function extract() {
     if (!content.trim()) return;
-    setExtracting(true);
     setError(null);
     try {
-      const result = await trpc.requirements.extractFromMarkdown.mutate({ projectId, fileName, markdownContent: content });
+      const result = await extractMutation.mutateAsync({ projectId, fileName, markdownContent: content });
       setDrafts(result);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setExtracting(false);
     }
   }
 
@@ -274,17 +281,18 @@ function ExtractFromRepoModal({
   onClose: () => void;
   onCreated: () => void;
 }) {
+  const utils = trpcReact.useUtils();
   const [drafts, setDrafts] = useState<DraftRequirement[] | null>(null);
   const [scanning, setScanning] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    trpc.requirements.extractFromRepo
+    utils.client.requirements.extractFromRepo
       .mutate({ projectId, repoUrl })
       .then(setDrafts)
       .catch((e) => setError(e instanceof Error ? e.message : String(e)))
       .finally(() => setScanning(false));
-  }, [projectId, repoUrl]);
+  }, [projectId, repoUrl, utils]);
 
   return (
     <Modal open onClose={onClose} title={`Extract requirements from ${repoUrl}`}>
@@ -295,36 +303,34 @@ function ExtractFromRepoModal({
   );
 }
 
+// P1-15
 export default function RequirementsPage() {
   const { projectId } = useParams<{ projectId: string }>();
-  const [requirements, setRequirements] = useState<RouterOutputs["requirements"]["list"]>([]);
+  const utils = trpcReact.useUtils();
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [externalRef, setExternalRef] = useState("");
   const [editingId, setEditingId] = useState<string | null>(null);
-  const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [generatingForId, setGeneratingForId] = useState<string | null>(null);
-  const [repoUrl, setRepoUrl] = useState<string | null>(null);
   const [markdownModalOpen, setMarkdownModalOpen] = useState(false);
   const [repoModalOpen, setRepoModalOpen] = useState(false);
 
-  function load() {
-    setLoading(true);
-    setError(null);
-    trpc.requirements.list
-      .query({ projectId })
-      .then(setRequirements)
-      .catch((e) => setError(String(e)))
-      .finally(() => setLoading(false));
-  }
+  const listQuery = trpcReact.requirements.list.useQuery({ projectId });
+  const requirements = listQuery.data ?? [];
+  const loading = listQuery.isPending;
+  const projectQuery = trpcReact.project.byId.useQuery({ id: projectId });
+  const repoUrl = projectQuery.data?.repoUrl ?? null;
 
-  useEffect(load, [projectId]);
-  useEffect(() => {
-    trpc.project.byId.query({ id: projectId }).then((p) => setRepoUrl(p.repoUrl));
-  }, [projectId]);
+  const updateMutation = trpcReact.requirements.update.useMutation();
+  const createMutation = trpcReact.requirements.create.useMutation();
+  const deleteMutation = trpcReact.requirements.delete.useMutation();
+
+  function reload() {
+    void utils.requirements.list.invalidate({ projectId });
+  }
 
   function resetForm() {
     setTitle("");
@@ -346,14 +352,14 @@ export default function RequirementsPage() {
     setError(null);
     try {
       if (editingId) {
-        await trpc.requirements.update.mutate({
+        await updateMutation.mutateAsync({
           id: editingId,
           title,
           description: description || undefined,
           externalRef: externalRef || undefined,
         });
       } else {
-        await trpc.requirements.create.mutate({
+        await createMutation.mutateAsync({
           projectId,
           title,
           description: description || undefined,
@@ -361,7 +367,7 @@ export default function RequirementsPage() {
         });
       }
       resetForm();
-      load();
+      reload();
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -370,9 +376,9 @@ export default function RequirementsPage() {
   }
 
   async function remove(id: string) {
-    await trpc.requirements.delete.mutate({ id });
+    await deleteMutation.mutateAsync({ id });
     if (editingId === id) resetForm();
-    load();
+    reload();
   }
 
   const visibleRequirements = useMemo(() => {
@@ -385,6 +391,8 @@ export default function RequirementsPage() {
         r.externalRef?.toLowerCase().includes(q),
     );
   }, [requirements, search]);
+
+  const displayError = error ?? (listQuery.error ? String(listQuery.error.message) : null);
 
   return (
     <div style={{ maxWidth: 640 }}>
@@ -421,7 +429,7 @@ export default function RequirementsPage() {
       </div>
 
       {loading && <p>Loading…</p>}
-      {error && <p style={{ color: "var(--ember)" }}>{error}</p>}
+      {displayError && <p style={{ color: "var(--ember)" }}>{displayError}</p>}
 
       {requirements.length > 0 && (
         <input
@@ -458,14 +466,14 @@ export default function RequirementsPage() {
           requirementId={generatingForId}
           projectId={projectId}
           onClose={() => setGeneratingForId(null)}
-          onCreated={load}
+          onCreated={reload}
         />
       )}
       {markdownModalOpen && (
-        <ExtractFromMarkdownModal projectId={projectId} onClose={() => setMarkdownModalOpen(false)} onCreated={load} />
+        <ExtractFromMarkdownModal projectId={projectId} onClose={() => setMarkdownModalOpen(false)} onCreated={reload} />
       )}
       {repoModalOpen && repoUrl && (
-        <ExtractFromRepoModal projectId={projectId} repoUrl={repoUrl} onClose={() => setRepoModalOpen(false)} onCreated={load} />
+        <ExtractFromRepoModal projectId={projectId} repoUrl={repoUrl} onClose={() => setRepoModalOpen(false)} onCreated={reload} />
       )}
     </div>
   );
