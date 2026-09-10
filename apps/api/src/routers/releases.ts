@@ -4,7 +4,7 @@ import { router, protectedProcedure, requireProjectAccess, requireOrgRole } from
 import { computeStatusesByTestPlan } from "../services/acceptanceCriteria.js";
 import { evaluateReleaseGate } from "../services/releaseGate.js";
 import { computeReadiness, getOrgOverview } from "../services/orgReadiness.js";
-import { chargeAiCredits, InsufficientAiCreditsError } from "../services/aiCredits.js";
+import { chargeAiCredits, InsufficientAiCreditsError, meterAiCall } from "../services/aiCredits.js";
 import { getCommitLog } from "../services/changeImpact.js";
 import { generateReleaseSummary } from "@vaettir/ai-agent";
 
@@ -553,25 +553,25 @@ export const releasesRouter = router({
         changesSummary = commits.length > 0 ? commits.map((c) => `- ${c.sha} ${c.subject}`).join("\n") : undefined;
       }
 
-      try {
-        await chargeAiCredits(ctx.prisma, project.organizationId, "generateReleaseSummary");
-      } catch (e) {
+      const charge = await chargeAiCredits(ctx.prisma, project.organizationId, "generateReleaseSummary").catch((e: unknown) => {
         if (e instanceof InsufficientAiCreditsError) {
           throw new TRPCError({ code: "BAD_REQUEST", message: e.message });
         }
         throw e;
-      }
-
-      const draft = await generateReleaseSummary({
-        releaseName: release.name,
-        releaseStatus: release.status,
-        projectName: projectFull.name,
-        readinessScore: readiness.score,
-        readinessLabel: readiness.label,
-        criteria: readiness.criteria,
-        openRiskFlags: openFlags,
-        changesSummary,
       });
+
+      const draft = await meterAiCall(ctx.prisma, charge, () =>
+        generateReleaseSummary({
+          releaseName: release.name,
+          releaseStatus: release.status,
+          projectName: projectFull.name,
+          readinessScore: readiness.score,
+          readinessLabel: readiness.label,
+          criteria: readiness.criteria,
+          openRiskFlags: openFlags,
+          changesSummary,
+        }),
+      );
 
       return { ...draft, groundedInCommits };
     }),

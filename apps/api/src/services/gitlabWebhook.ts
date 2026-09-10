@@ -3,7 +3,7 @@ import { recommendTestPlansForDiff } from "@vaettir/ai-agent";
 import { getChangedFiles, getDiffContent } from "./changeImpact.js";
 import { matchChangedFilesToTestCases } from "./changeMatch.js";
 import { postMergeRequestNote } from "./gitlabApi.js";
-import { chargeAiCredits } from "./aiCredits.js";
+import { chargeAiCredits, meterAiCall } from "./aiCredits.js";
 
 // P6-07: the GitLab equivalent of P6-01/P6-05's GitHub PR webhook +
 // comment bot. This is deliberately adapter work, not a parallel
@@ -112,8 +112,8 @@ export async function handleMergeRequestWebhook(
         select: { id: true, name: true, description: true },
       });
       if (testPlans.length > 0) {
-        await chargeAiCredits(prisma, project.organizationId, "recommendTestPlansForDiff", `GitLab webhook MR !${payload.object_attributes.iid}`);
-        const recommendation = await recommendTestPlansForDiff({ diffContent, testPlans });
+        const charge = await chargeAiCredits(prisma, project.organizationId, "recommendTestPlansForDiff", `GitLab webhook MR !${payload.object_attributes.iid}`);
+        const recommendation = await meterAiCall(prisma, charge, () => recommendTestPlansForDiff({ diffContent, testPlans }));
         const relevantNames = testPlans.filter((p) => recommendation.relevantTestPlanIds.includes(p.id)).map((p) => p.name);
         aiSection = [
           "",

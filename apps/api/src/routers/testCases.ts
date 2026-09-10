@@ -5,7 +5,7 @@ import { assessTestCaseRisk, reviewTestCaseQuality, type TestCaseForReview } fro
 import { Prisma } from "@vaettir/db";
 import { router, protectedProcedure, requireProjectAccess } from "../trpc.js";
 import { recordAudit } from "../services/auditLog.js";
-import { chargeAiCredits, InsufficientAiCreditsError } from "../services/aiCredits.js";
+import { chargeAiCredits, InsufficientAiCreditsError, meterAiCall } from "../services/aiCredits.js";
 import { parseTestCaseCsv } from "../services/testCaseCsvImport.js";
 import { snapshotTestCaseVersion } from "../services/testCaseVersion.js";
 
@@ -333,23 +333,23 @@ export const testCasesRouter = router({
       });
       const { project } = await requireProjectAccess(ctx, tc.projectId, "EDITOR");
 
-      try {
-        await chargeAiCredits(ctx.prisma, project.organizationId, "assessTestCaseRisk");
-      } catch (e) {
+      const charge = await chargeAiCredits(ctx.prisma, project.organizationId, "assessTestCaseRisk").catch((e: unknown) => {
         if (e instanceof InsufficientAiCreditsError) {
           throw new TRPCError({ code: "BAD_REQUEST", message: e.message });
         }
         throw e;
-      }
-
-      const assessment = await assessTestCaseRisk({
-        title: tc.title,
-        given: tc.given,
-        when: tc.when,
-        then: tc.then,
-        testType: tc.testType,
-        sourceFilePath: tc.source?.filePath,
       });
+
+      const assessment = await meterAiCall(ctx.prisma, charge, () =>
+        assessTestCaseRisk({
+          title: tc.title,
+          given: tc.given,
+          when: tc.when,
+          then: tc.then,
+          testType: tc.testType,
+          sourceFilePath: tc.source?.filePath,
+        }),
+      );
 
       const updated = await ctx.prisma.testCase.update({
         where: { id: input.id },
@@ -387,15 +387,17 @@ export const testCasesRouter = router({
           // Charge (and stop the batch, not just this case) the moment
           // credits run out -- partial progress on the batch is kept
           // rather than the whole mutation failing outright.
-          await chargeAiCredits(ctx.prisma, project.organizationId, "assessTestCaseRisk");
-          const assessment = await assessTestCaseRisk({
-            title: tc.title,
-            given: tc.given,
-            when: tc.when,
-            then: tc.then,
-            testType: tc.testType,
-            sourceFilePath: tc.source?.filePath,
-          });
+          const charge = await chargeAiCredits(ctx.prisma, project.organizationId, "assessTestCaseRisk");
+          const assessment = await meterAiCall(ctx.prisma, charge, () =>
+            assessTestCaseRisk({
+              title: tc.title,
+              given: tc.given,
+              when: tc.when,
+              then: tc.then,
+              testType: tc.testType,
+              sourceFilePath: tc.source?.filePath,
+            }),
+          );
           await ctx.prisma.testCase.update({
             where: { id: tc.id },
             data: {
@@ -471,14 +473,12 @@ export const testCasesRouter = router({
         throw new TRPCError({ code: "BAD_REQUEST", message: "This test plan has no test cases to review." });
       }
 
-      try {
-        await chargeAiCredits(ctx.prisma, project.organizationId, "reviewTestCaseQuality");
-      } catch (e) {
+      const charge = await chargeAiCredits(ctx.prisma, project.organizationId, "reviewTestCaseQuality").catch((e: unknown) => {
         if (e instanceof InsufficientAiCreditsError) {
           throw new TRPCError({ code: "BAD_REQUEST", message: e.message });
         }
         throw e;
-      }
+      });
 
       const forReview: TestCaseForReview[] = cases.map((tc) => ({
         id: tc.id,
@@ -491,7 +491,7 @@ export const testCasesRouter = router({
           : tc.steps.map((s) => ({ action: s.action, expectedResult: s.expectedResult })),
       }));
 
-      const review = await reviewTestCaseQuality(forReview);
+      const review = await meterAiCall(ctx.prisma, charge, () => reviewTestCaseQuality(forReview));
       const validIds = new Set(cases.map((c) => c.id));
       return {
         // The AI is instructed to only use real ids, but it's cheap

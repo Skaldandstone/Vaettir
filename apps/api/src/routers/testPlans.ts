@@ -4,7 +4,7 @@ import { generateQaStrategyDraft } from "@vaettir/ai-agent";
 import { router, protectedProcedure, requireProjectAccess } from "../trpc.js";
 import { recordAudit } from "../services/auditLog.js";
 import { snapshotTestPlanVersion } from "../services/testPlanVersion.js";
-import { chargeAiCredits, InsufficientAiCreditsError } from "../services/aiCredits.js";
+import { chargeAiCredits, InsufficientAiCreditsError, meterAiCall } from "../services/aiCredits.js";
 import { getCommitLog } from "../services/changeImpact.js";
 
 const acceptanceCriterionOutput = z.object({
@@ -331,14 +331,12 @@ export const testPlansRouter = router({
         changesSummary = commits.map((c) => `- ${c.sha} ${c.subject}`).join("\n");
       }
 
-      try {
-        await chargeAiCredits(ctx.prisma, project.organizationId, "generateQaStrategyDraft");
-      } catch (e) {
+      const charge = await chargeAiCredits(ctx.prisma, project.organizationId, "generateQaStrategyDraft").catch((e: unknown) => {
         if (e instanceof InsufficientAiCreditsError) {
           throw new TRPCError({ code: "BAD_REQUEST", message: e.message });
         }
         throw e;
-      }
+      });
       const [testTypeGroups, frameworkGroups, totalTestCases] = await Promise.all([
         ctx.prisma.testCase.groupBy({ by: ["testType"], where: { projectId: input.projectId }, _count: true }),
         ctx.prisma.testCaseSource.groupBy({
@@ -351,14 +349,16 @@ export const testPlansRouter = router({
       const testTypeCounts = Object.fromEntries(testTypeGroups.map((g) => [g.testType, g._count]));
       const frameworksInUse = frameworkGroups.map((g) => g.frameworkFamily);
 
-      const draft = await generateQaStrategyDraft({
-        projectName: project.name,
-        prompt: input.prompt,
-        frameworksInUse,
-        testTypeCounts,
-        totalTestCases,
-        changesSummary,
-      });
+      const draft = await meterAiCall(ctx.prisma, charge, () =>
+        generateQaStrategyDraft({
+          projectName: project.name,
+          prompt: input.prompt,
+          frameworksInUse,
+          testTypeCounts,
+          totalTestCases,
+          changesSummary,
+        }),
+      );
       return { ...draft, groundedInCommits };
     }),
 

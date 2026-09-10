@@ -4,7 +4,7 @@ import { reverseEngineerTestFile } from "@vaettir/ai-agent";
 import { persistReverseEngineerResult } from "../services/reverseEngineerPersist.js";
 import { hashFileContent } from "../services/repoScan.js";
 import { getMostRecentHeuristic, recordHeuristicUsage } from "../services/customFrameworkHeuristic.js";
-import { chargeAiCredits, InsufficientAiCreditsError } from "../services/aiCredits.js";
+import { chargeAiCredits, InsufficientAiCreditsError, meterAiCall } from "../services/aiCredits.js";
 import { recordHeartbeat } from "../services/heartbeat.js";
 
 // Single-instance, in-process poller -- no Redis/queue infra exists yet, and
@@ -47,14 +47,17 @@ export async function runReverseEngineerJob(jobId: string): Promise<void> {
     if (job.content === null) {
       throw new Error(`Job ${job.id} has no content to reverse-engineer (inputType ${job.inputType})`);
     }
+    const content = job.content;
     const project = await prisma.project.findUniqueOrThrow({ where: { id: job.projectId }, select: { organizationId: true } });
-    await chargeAiCredits(prisma, project.organizationId, "reverseEngineerTestFile", `job ${job.id} (${job.inputRef})`);
+    const charge = await chargeAiCredits(prisma, project.organizationId, "reverseEngineerTestFile", `job ${job.id} (${job.inputRef})`);
     const heuristic = await getMostRecentHeuristic(prisma, job.projectId);
-    const result = await reverseEngineerTestFile({
-      filePath: job.inputRef,
-      content: job.content,
-      customFrameworkHint: heuristic?.description,
-    });
+    const result = await meterAiCall(prisma, charge, () =>
+      reverseEngineerTestFile({
+        filePath: job.inputRef,
+        content,
+        customFrameworkHint: heuristic?.description,
+      }),
+    );
     if (heuristic && result.detectedFrameworkFamily === "CUSTOM") {
       await recordHeuristicUsage(prisma, heuristic.id);
     }

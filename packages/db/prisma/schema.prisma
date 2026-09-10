@@ -435,6 +435,16 @@ model AiCreditTransaction {
   // services/aiCredits.ts) -- null for GRANT/TOPUP/ADJUSTMENT rows.
   operation      String?
   description    String?
+  // P12-12: what the operation actually cost upstream, filled in after the
+  // AI call completes (the flat `amount` above is still charged before it
+  // runs). Null on GRANT/TOPUP/ADJUSTMENT rows and on CONSUMPTION rows
+  // whose AI call failed or predates metering. Recorded only - nothing
+  // reads these to change what's charged; that's the pricing decision
+  // this data exists to inform.
+  inputTokens    Int?
+  outputTokens   Int?
+  aiCalls        Int?
+  model          String?
   createdAt      DateTime                @default(now())
 
   @@index([organizationId, createdAt])

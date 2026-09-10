@@ -722,6 +722,11 @@ export const organizationRouter = router({
             amount: z.number(),
             operation: z.string().nullable(),
             description: z.string().nullable(),
+            // P12-12: real upstream usage, recorded per CONSUMPTION row.
+            inputTokens: z.number().nullable(),
+            outputTokens: z.number().nullable(),
+            aiCalls: z.number().nullable(),
+            model: z.string().nullable(),
             createdAt: z.date(),
           }),
         ),

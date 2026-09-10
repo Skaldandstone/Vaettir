@@ -2,7 +2,7 @@ import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 import { generateTestCasesFromRequirement, extractRequirementsFromMarkdown } from "@vaettir/ai-agent";
 import { router, protectedProcedure, requireProjectAccess } from "../trpc.js";
-import { chargeAiCredits, InsufficientAiCreditsError } from "../services/aiCredits.js";
+import { chargeAiCredits, InsufficientAiCreditsError, meterAiCall, type AiCharge } from "../services/aiCredits.js";
 import { scanRepoForRequirementDocs } from "../services/repoDocScan.js";
 
 const draftRequirementOutput = z.object({
@@ -119,20 +119,20 @@ export const requirementsRouter = router({
       });
       await requireProjectAccess(ctx, requirement.projectId, "EDITOR");
 
-      try {
-        await chargeAiCredits(ctx.prisma, requirement.project.organizationId, "generateTestCasesFromRequirement");
-      } catch (e) {
+      const charge = await chargeAiCredits(ctx.prisma, requirement.project.organizationId, "generateTestCasesFromRequirement").catch((e: unknown) => {
         if (e instanceof InsufficientAiCreditsError) {
           throw new TRPCError({ code: "BAD_REQUEST", message: e.message });
         }
         throw e;
-      }
-
-      return generateTestCasesFromRequirement({
-        requirementTitle: requirement.title,
-        requirementDescription: requirement.description,
-        projectName: requirement.project.name,
       });
+
+      return meterAiCall(ctx.prisma, charge, () =>
+        generateTestCasesFromRequirement({
+          requirementTitle: requirement.title,
+          requirementDescription: requirement.description,
+          projectName: requirement.project.name,
+        }),
+      );
     }),
 
   // Draft-only, same review-before-save shape - nothing here creates a
@@ -143,15 +143,13 @@ export const requirementsRouter = router({
     .output(z.array(draftRequirementOutput))
     .mutation(async ({ ctx, input }) => {
       const { project } = await requireProjectAccess(ctx, input.projectId, "EDITOR");
-      try {
-        await chargeAiCredits(ctx.prisma, project.organizationId, "extractRequirementsFromMarkdown");
-      } catch (e) {
+      const charge = await chargeAiCredits(ctx.prisma, project.organizationId, "extractRequirementsFromMarkdown").catch((e: unknown) => {
         if (e instanceof InsufficientAiCreditsError) {
           throw new TRPCError({ code: "BAD_REQUEST", message: e.message });
         }
         throw e;
-      }
-      const drafts = await extractRequirementsFromMarkdown(input.markdownContent, input.fileName);
+      });
+      const drafts = await meterAiCall(ctx.prisma, charge, () => extractRequirementsFromMarkdown(input.markdownContent, input.fileName));
       return drafts.map((d) => ({ ...d, sourceFile: input.fileName }));
     }),
 
@@ -178,8 +176,9 @@ export const requirementsRouter = router({
 
       const results: Array<{ title: string; description: string; sourceFile: string | null }> = [];
       for (const doc of docs) {
+        let charge: AiCharge;
         try {
-          await chargeAiCredits(ctx.prisma, project.organizationId, "extractRequirementsFromMarkdown");
+          charge = await chargeAiCredits(ctx.prisma, project.organizationId, "extractRequirementsFromMarkdown");
         } catch (e) {
           if (e instanceof InsufficientAiCreditsError) {
             // Stop here, keep whatever was already extracted - a partial
@@ -188,7 +187,7 @@ export const requirementsRouter = router({
           }
           throw e;
         }
-        const drafts = await extractRequirementsFromMarkdown(doc.content, doc.relativePath);
+        const drafts = await meterAiCall(ctx.prisma, charge, () => extractRequirementsFromMarkdown(doc.content, doc.relativePath));
         results.push(...drafts.map((d) => ({ ...d, sourceFile: doc.relativePath })));
       }
       return results;

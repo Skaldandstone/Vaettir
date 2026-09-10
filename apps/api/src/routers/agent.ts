@@ -9,15 +9,15 @@ import { scanRepoForTestFiles, scanChangedTestFiles, hashFileContent } from "../
 import { scanZipForTestFiles } from "../services/zipScan.js";
 import { assertReverseEngineerBudget, remainingReverseEngineerBudget } from "../services/rateLimit.js";
 import { getMostRecentHeuristic, recordHeuristicUsage } from "../services/customFrameworkHeuristic.js";
-import { chargeAiCredits, InsufficientAiCreditsError } from "../services/aiCredits.js";
+import { chargeAiCredits, InsufficientAiCreditsError, meterAiCall, type AiCharge } from "../services/aiCredits.js";
 
 async function chargeOrThrow(
   prisma: Parameters<typeof chargeAiCredits>[0],
   organizationId: string,
   operation: Parameters<typeof chargeAiCredits>[2],
-): Promise<void> {
+): Promise<AiCharge> {
   try {
-    await chargeAiCredits(prisma, organizationId, operation);
+    return await chargeAiCredits(prisma, organizationId, operation);
   } catch (e) {
     if (e instanceof InsufficientAiCreditsError) {
       throw new TRPCError({ code: "BAD_REQUEST", message: e.message });
@@ -49,13 +49,15 @@ export const agentRouter = router({
         where: { id: input.projectId },
         select: { organizationId: true },
       });
-      await chargeOrThrow(ctx.prisma, project.organizationId, "reverseEngineerTestFile");
+      const charge = await chargeOrThrow(ctx.prisma, project.organizationId, "reverseEngineerTestFile");
       const heuristic = await getMostRecentHeuristic(ctx.prisma, input.projectId);
-      const result = await reverseEngineerTestFile({
-        filePath: input.filePath,
-        content: input.content,
-        customFrameworkHint: heuristic?.description,
-      });
+      const result = await meterAiCall(ctx.prisma, charge, () =>
+        reverseEngineerTestFile({
+          filePath: input.filePath,
+          content: input.content,
+          customFrameworkHint: heuristic?.description,
+        }),
+      );
       // The hint is only ever included in the prompt when the detected
       // family is CUSTOM (see reverseEngineer.ts's buildPromptContent) --
       // detectedFrameworkFamily coming back CUSTOM is what confirms this
@@ -304,8 +306,8 @@ export const agentRouter = router({
     .output(z.object({ name: z.string(), description: z.string(), confidence: z.number() }))
     .mutation(async ({ ctx, input }) => {
       const { project } = await requireProjectAccess(ctx, input.projectId, "EDITOR");
-      await chargeOrThrow(ctx.prisma, project.organizationId, "inferCustomFrameworkHeuristic");
-      return inferCustomFrameworkHeuristic({ files: input.files });
+      const charge = await chargeOrThrow(ctx.prisma, project.organizationId, "inferCustomFrameworkHeuristic");
+      return meterAiCall(ctx.prisma, charge, () => inferCustomFrameworkHeuristic({ files: input.files }));
     }),
 
   // Step 2: persists a (possibly user-edited) inferred heuristic. Kept as

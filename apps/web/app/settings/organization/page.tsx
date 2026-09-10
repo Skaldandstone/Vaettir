@@ -655,6 +655,7 @@ function AiCreditsSection({ organizationId }: { organizationId: string }) {
               <th style={cellStyle}>Type</th>
               <th style={cellStyle}>Operation</th>
               <th style={cellStyle}>Amount</th>
+              <th style={cellStyle}>Actual tokens</th>
             </tr>
           </thead>
           <tbody>
@@ -666,6 +667,11 @@ function AiCreditsSection({ organizationId }: { organizationId: string }) {
                 <td style={{ ...cellStyle, color: t.amount < 0 ? "var(--ember)" : "var(--frost)" }}>
                   {t.amount > 0 ? "+" : ""}
                   {t.amount}
+                </td>
+                <td style={cellStyle} className="text-muted" title={t.model ?? undefined}>
+                  {t.inputTokens !== null && t.outputTokens !== null
+                    ? `${t.inputTokens.toLocaleString()} in / ${t.outputTokens.toLocaleString()} out`
+                    : "—"}
                 </td>
               </tr>
             ))}

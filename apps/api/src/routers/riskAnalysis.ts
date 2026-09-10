@@ -5,7 +5,7 @@ import { router, protectedProcedure, requireProjectAccess } from "../trpc.js";
 import { getChangedFiles, getDiffContent } from "../services/changeImpact.js";
 import { matchChangedFilesToTestCases } from "../services/changeMatch.js";
 import { getPathSeverityRules, severityForPath, parsePathSeverityRules } from "../services/prScanPolicy.js";
-import { chargeAiCredits, InsufficientAiCreditsError } from "../services/aiCredits.js";
+import { chargeAiCredits, InsufficientAiCreditsError, meterAiCall } from "../services/aiCredits.js";
 import { dispatchWebhookEvent } from "../services/webhookDelivery.js";
 import { notifySlackEvent } from "../services/slackEventNotify.js";
 
@@ -176,16 +176,14 @@ export const riskAnalysisRouter = router({
         return { relevantTestPlans: [], rationale: "No changes found between these two refs.", suggestedNewTestCases: [] };
       }
 
-      try {
-        await chargeAiCredits(ctx.prisma, project.organizationId, "recommendTestPlansForDiff");
-      } catch (e) {
+      const charge = await chargeAiCredits(ctx.prisma, project.organizationId, "recommendTestPlansForDiff").catch((e: unknown) => {
         if (e instanceof InsufficientAiCreditsError) {
           throw new TRPCError({ code: "BAD_REQUEST", message: e.message });
         }
         throw e;
-      }
+      });
 
-      const recommendation = await recommendTestPlansForDiff({ diffContent, testPlans });
+      const recommendation = await meterAiCall(ctx.prisma, charge, () => recommendTestPlansForDiff({ diffContent, testPlans }));
       const relevantTestPlans = testPlans.filter((p) => recommendation.relevantTestPlanIds.includes(p.id));
 
       return {

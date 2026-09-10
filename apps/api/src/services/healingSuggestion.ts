@@ -1,7 +1,7 @@
 import type { HealingSuggestion, PrismaClient } from "@vaettir/db";
 import { classifyTestFailure } from "@vaettir/ai-agent";
 import { fetchFileAtCommit } from "./changeImpact.js";
-import { chargeAiCredits } from "./aiCredits.js";
+import { chargeAiCredits, meterAiCall } from "./aiCredits.js";
 
 export type ClassifyResult =
   | { ok: true; suggestion: HealingSuggestion }
@@ -57,16 +57,19 @@ export async function classifyAndSuggestHealing(prisma: PrismaClient, testResult
     return { ok: false, reason: "Could not fetch the test source at one or both commits" };
   }
 
-  const project = failingResult.testCase.project;
-  await chargeAiCredits(prisma, project.organizationId, "classifyTestFailure", `TestResult ${testResultId}`);
+  const testCase = failingResult.testCase;
+  const project = testCase.project;
+  const charge = await chargeAiCredits(prisma, project.organizationId, "classifyTestFailure", `TestResult ${testResultId}`);
 
-  const result = await classifyTestFailure({
-    testTitle: failingResult.testCase.title,
-    errorMessage: failingResult.errorMessage,
-    filePath,
-    sourceAtLastPass,
-    sourceAtFailure,
-  });
+  const result = await meterAiCall(prisma, charge, () =>
+    classifyTestFailure({
+      testTitle: testCase.title,
+      errorMessage: failingResult.errorMessage,
+      filePath,
+      sourceAtLastPass,
+      sourceAtFailure,
+    }),
+  );
 
   const suggestion = await prisma.healingSuggestion.create({
     data: {

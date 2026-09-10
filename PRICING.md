@@ -73,10 +73,11 @@ credit's *sale* price.
 
 ### Per-operation costs (`AI_OPERATION_COSTS` in `services/aiCredits.ts`)
 
-Flat cost per call, not exact token metering - none of `@vaettir/ai-agent`'s
-functions currently return token usage from the API response, so exact
-metering is a follow-up (flagged below), not something guessed at
-overnight. Each figure is a single-shot token estimate for that operation
+Flat cost per call, not exact token metering. **Since 2026-09-10 (P12-12)
+the real token usage of every call is recorded** on its `AiCreditTransaction`
+row (`inputTokens`/`outputTokens`/`aiCalls`/`model`, visible in the org
+settings "AI credits" table) - but it is recorded only; what's *charged* is
+still the flat figure below until that data has been reviewed. Each figure is a single-shot token estimate for that operation
 type, roughly doubled for headroom (retries, longer-than-typical input),
 then converted to credits at $0.01/credit:
 
@@ -122,12 +123,21 @@ up for heavier repo-scanning workloads.
     ~$0.02 each (2x the assumed raw cost), in packs - e.g. 500 credits for
     $10, 2,000 for $35 (~12% pack discount), 10,000 for $150 (~25% pack
     discount). Needs sign-off alongside everything else here.
-- **Exact token-based metering.** Every `@vaettir/ai-agent` function would
-  need to return `usage.input_tokens`/`usage.output_tokens` from the
-  Anthropic response, and `chargeAiCredits` would charge the real amount
-  (rounded up) instead of a flat per-operation figure. Worth doing once
-  real usage data shows whether the flat estimates above are over- or
-  under-charging in practice - not blocking to ship without.
+- **Exact token-based charging.** The measurement half is done (P12-12,
+  2026-09-10): every CONSUMPTION row now carries the real
+  `inputTokens`/`outputTokens` its call consumed, captured inside the
+  ai-agent package's tracing seam (`captureAiUsage`) and stamped by
+  `meterAiCall` in `services/aiCredits.ts`, so no function's return type
+  changed. Still open, deliberately: switching `chargeAiCredits` from the
+  flat figures above to the real amount (rounded up). That's a pricing
+  decision to make against the recorded data - e.g. `SELECT operation,
+  avg("inputTokens"), avg("outputTokens"), count(*) FROM
+  "AiCreditTransaction" WHERE "aiCalls" IS NOT NULL GROUP BY operation` -
+  once enough real calls have accumulated to show whether the estimates
+  over- or under-charge. Note the charge still happens *before* the call,
+  so exact charging would also need a charge-then-reconcile step (or a
+  post-call charge with a reserve), which is the same architecture point
+  `P2-09`'s chunking is waiting on.
 - **What happens at zero balance for a paid (non-Free) org** beyond "the
   call is refused." Today a Team/Business/Corp org that exhausts its
   monthly credits just can't run AI features until next month's grant (or

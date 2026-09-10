@@ -1,9 +1,12 @@
 import type { PrismaClient } from "@vaettir/db";
+import { captureAiUsage } from "@vaettir/ai-agent";
 
-// Flat per-operation costs rather than exact token metering: none of the
-// ai-agent package's functions currently return token usage from the
-// Anthropic response, and plumbing that through every call site is a
-// larger follow-up (see PRICING.md). Each cost below is a conservative
+// Flat per-operation costs rather than exact token metering. As of P12-12
+// the real token usage of every call IS recorded on the CONSUMPTION row
+// (see meterAiCall below) - but it is recorded only, not charged: switching
+// what's charged from these estimates to actual tokens is a pricing
+// decision to make once that data has accumulated (see PRICING.md).
+// Each cost below is a conservative
 // (roughly 2x headroom over a single-shot estimate, to absorb retries and
 // longer-than-typical inputs) credits-per-call figure, sized so 1 credit
 // ~= $0.01 of underlying Claude API spend -- see PRICING.md for the actual
@@ -53,20 +56,54 @@ export async function getAiCreditBalance(prisma: PrismaClient, organizationId: s
 // far lower than the complexity of serializing every AI call per org.
 // Throws InsufficientAiCreditsError (not a generic Error) so callers can
 // surface a specific, actionable message rather than a generic failure.
+export interface AiCharge {
+  transactionId: string;
+}
+
 export async function chargeAiCredits(
   prisma: PrismaClient,
   organizationId: string,
   operation: AiOperation,
   description?: string,
-): Promise<void> {
+): Promise<AiCharge> {
   const cost = AI_OPERATION_COSTS[operation];
   const balance = await getAiCreditBalance(prisma, organizationId);
   if (balance < cost) {
     throw new InsufficientAiCreditsError(operation, cost, balance);
   }
-  await prisma.aiCreditTransaction.create({
+  const tx = await prisma.aiCreditTransaction.create({
     data: { organizationId, type: "CONSUMPTION", amount: -cost, operation, description },
+    select: { id: true },
   });
+  return { transactionId: tx.id };
+}
+
+// P12-12: runs the AI call that a chargeAiCredits() row paid for, and
+// stamps the row with what it really cost upstream (tokens, request
+// count, model) once it completes. The stamp is best-effort and happens
+// after the result is in hand: a failed usage write must never turn a
+// successful AI call into a failed request, so it is caught and reported
+// rather than thrown. If the AI call itself throws, nothing is stamped -
+// the row keeps its flat charge with null usage, which is exactly the
+// "charged but failed" signal the pricing review will want to see.
+export async function meterAiCall<T>(prisma: PrismaClient, charge: AiCharge, fn: () => Promise<T>): Promise<T> {
+  const { result, usage } = await captureAiUsage(fn);
+  if (usage.calls > 0) {
+    try {
+      await prisma.aiCreditTransaction.update({
+        where: { id: charge.transactionId },
+        data: {
+          inputTokens: usage.inputTokens,
+          outputTokens: usage.outputTokens,
+          aiCalls: usage.calls,
+          model: usage.model,
+        },
+      });
+    } catch (e) {
+      console.error(`[aiCredits] failed to record token usage on ${charge.transactionId}:`, e);
+    }
+  }
+  return result;
 }
 
 // Monthly grant, idempotent per calendar month: checks for a GRANT
