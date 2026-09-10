@@ -142,7 +142,7 @@ function TestCaseBrowser() {
 
   return (
     <SafeAreaView style={styles.container}>
-      <Text style={styles.title}>Vaettir</Text>
+      <Text style={styles.title}>Vaettir™</Text>
       <Button title="About Vaettir and legal" onPress={() => Alert.alert("About Vaettir", "© 2026 Skald and Stone LLC\n\nOriginal studio work only. Customer content, third-party materials, and existing software licenses retain their own rights.")} />
       <TextInput
         style={styles.input}

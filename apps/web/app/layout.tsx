@@ -9,7 +9,7 @@ import { TRPCReactProvider } from "../lib/trpcReact";
 import "./globals.css";
 
 export const metadata = {
-  title: "vaettir",
+  title: "Vaettir™",
   description: "Every place has its guardians. So does your codebase.",
 };
 
@@ -34,7 +34,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
             <div className="app-nav-inner">
               <Link href="/" className="brand">
                 <RuneMark />
-                vaettir
+                Vaettir™
               </Link>
               <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 12 }}>
                 <ThemeToggle />
