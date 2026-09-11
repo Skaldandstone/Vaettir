@@ -4,6 +4,31 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { trpcReact } from "@/lib/trpcReact";
 import { GlobalSearch } from "./GlobalSearch";
+import { Icon, type IconName } from "./ui/Workspace";
+import { isNavigationActive } from "../lib/usability";
+
+// Ported 2026-09-11 from codex/private-beta-readiness: functional icons per
+// link, exact matching for the overview links so "/projects/x" isn't
+// active on every sub-page, aria-current, and the workspace header.
+const LINK_ICONS: Record<string, IconName> = {
+  Dashboard: "grid",
+  Projects: "folder",
+  Members: "people",
+  "Access Review": "check",
+  Settings: "settings",
+  "Example workspace": "grid",
+  Overview: "grid",
+  "Test Cases": "cases",
+  "Test Plans": "book",
+  "Test Runs": "check",
+  Requirements: "cases",
+  Compliance: "check",
+  "Audit Log": "clock",
+  "Reverse Engineer": "spark",
+  Import: "folder",
+  "Test Strategy": "branch",
+  "Release Readiness": "release",
+};
 
 const ORG_LINKS = [
   { href: "/dashboard", label: "Dashboard" },
@@ -61,6 +86,7 @@ function ProjectSidebar({ projectId }: { projectId: string }) {
         </Link>
         <select
           className="sidebar-project-switcher"
+          aria-label="Switch project"
           value={projectId}
           onChange={(e) => router.push(`/projects/${e.target.value}`)}
         >
@@ -78,7 +104,7 @@ function ProjectSidebar({ projectId }: { projectId: string }) {
       <div className="sidebar-group">
         <div className="eyebrow sidebar-group-label">Project</div>
         {links.map((link) => (
-          <SidebarLink key={link.href} href={link.href} label={link.label} />
+          <SidebarLink key={link.href} href={link.href} label={link.label} exact={link.label === "Overview"} />
         ))}
       </div>
       <div className="sidebar-group">
@@ -91,13 +117,14 @@ function ProjectSidebar({ projectId }: { projectId: string }) {
   );
 }
 
-function SidebarLink({ href, label }: { href: string; label: string }) {
+function SidebarLink({ href, label, exact = false }: { href: string; label: string; exact?: boolean }) {
   const pathname = usePathname();
-  const active = pathname === href || pathname.startsWith(href + "/");
+  const active = isNavigationActive(pathname, href, exact);
   return (
-    <a href={href} className={`sidebar-link${active ? " active" : ""}`}>
+    <Link href={href} aria-current={active ? "page" : undefined} className={`sidebar-link${active ? " active" : ""}`}>
+      <Icon name={LINK_ICONS[label] ?? "folder"} size={17} />
       {label}
-    </a>
+    </Link>
   );
 }
 
@@ -108,14 +135,28 @@ export function Sidebar() {
   // /projects itself (the list/switcher's own destination) is org-level,
   // not a specific project -- only /projects/<id>/... enters project scope.
   if (projectId) {
-    return <ProjectSidebar projectId={projectId} />;
+    return <ProjectSidebar key={projectId} projectId={projectId} />;
   }
 
   return (
     <aside className="app-sidebar">
+      <div className="sidebar-workspace">
+        <span className="workspace-monogram">v</span>
+        <div>
+          <strong>Quality workspace</strong>
+          <small>vaettir private beta</small>
+        </div>
+      </div>
+      <div className="sidebar-group">
+        <div className="eyebrow sidebar-group-label">Workspace</div>
+        <SidebarLink href="/" label="Example workspace" exact />
+        {ORG_LINKS.map((link) => (
+          <SidebarLink key={link.href} href={link.href} label={link.label} />
+        ))}
+      </div>
       <div className="sidebar-group">
         <div className="eyebrow sidebar-group-label">Organization</div>
-        {[...ORG_LINKS, ...ORG_ADMIN_LINKS].map((link) => (
+        {ORG_ADMIN_LINKS.map((link) => (
           <SidebarLink key={link.href} href={link.href} label={link.label} />
         ))}
       </div>

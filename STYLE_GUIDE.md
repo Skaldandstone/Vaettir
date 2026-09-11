@@ -209,3 +209,16 @@ trademarks) to be treated as settled for now.
   build free of an external network dependency - vendor a local Fraunces
   file and pass it to `ImageResponse`'s `fonts` option later if exact-face
   fidelity is wanted.
+
+## Application UI direction, August 31, 2026
+
+James requested a distinct B2B product interface (delivered on the Codex branch `codex/private-beta-readiness`, 2026-08-31; ported to `main` 2026-09-11) rather than the decorative styles of the other studio products. The web application now uses a graphite navigation rail, light neutral working canvas, compact sans-serif hierarchy, and restrained green action color. This application-specific direction supersedes the marketing color, heading, grain, and control treatments below **inside `apps/web` only**. The lowercase wordmark and canonical five-line rune are unchanged; the serif remains in the brand mark rather than operational headings. Marketing reference material and mobile are not restyled by this change.
+
+- Default application theme: light, with a matching graphite dark theme. Previously stored `warm` preferences resolve to light; stored dark preferences remain dark. Theme persistence is optional if storage is blocked.
+- Working surfaces: white/light or graphite/dark panels, subtle one-pixel borders, five-to-seven-pixel control/panel corners, compact readable rows, explicit focus outlines, and text labels accompanying status colors.
+- Semantic colors: green for passing/ready, amber for risk/pending, red for blocked/failed, violet for AI suggestions, neutral for not evaluated. Brand accents are not a substitute for semantic status.
+- Layout: persistent desktop navigation; horizontally scrollable navigation on narrow screens; local scrolling inside wide tables rather than expanding the page. Display counts come from their actual source, not fabricated health signals.
+- Shared implementation: `components/ui/Workspace.tsx`, `app/globals.css`. Page headings, metric cards, status pills, functional icons and empty states are reused by the example workspace and connected screens.
+- The root example workspace is explicitly synthetic. Its cases, execution outcomes, AI review actions and release gates do not read or write customer data. Real projects and the organization dashboard retain their authenticated APIs and permission controls. It is not a sign-off bypass or live release-health claim.
+
+The rest of this document remains the historical marketing identity reference, not an instruction to restore grain/serif headings throughout the B2B app.

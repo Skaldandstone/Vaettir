@@ -13,44 +13,67 @@ export const metadata = {
   description: "Every place has its guardians. So does your codebase.",
 };
 
+// Ported 2026-09-11 from codex/private-beta-readiness (the B2B interface
+// direction in STYLE_GUIDE.md, "Application UI direction"): light default
+// theme with a graphite dark theme, Clerk styled from the same tokens, a
+// skip link, and the product label in the nav. NavAuth (Clerk v7) and the
+// react-query provider are main's and stay.
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (
     <ClerkProvider
       appearance={{
         variables: {
-          colorPrimary: "#8fa37a",
-          colorBackground: "#2e2820",
-          colorForeground: "#f3ecdf",
-          colorInputForeground: "#f3ecdf",
-          borderRadius: "3px",
+          colorPrimary: "var(--frost)",
+          colorBackground: "var(--panel)",
+          colorForeground: "var(--fg)",
+          colorMutedForeground: "var(--muted)",
+          colorPrimaryForeground: "var(--on-accent)",
+          colorInput: "var(--panel)",
+          colorInputForeground: "var(--fg)",
+          colorDanger: "var(--ember)",
+          borderRadius: "6px",
           fontFamily: "Inter, sans-serif",
         },
       }}
     >
       <html lang="en">
         <body>
-        <TRPCReactProvider>
-          <nav className="app-nav">
-            <div className="app-nav-inner">
-              <Link href="/" className="brand">
-                <RuneMark />
-                Vaettir™
-              </Link>
-              <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 12 }}>
-                <ThemeToggle />
-                <NavAuth />
+          <TRPCReactProvider>
+            <a className="skip-link" href="#main-content">
+              Skip to content
+            </a>
+            <nav className="app-nav">
+              <div className="app-nav-inner">
+                <Link href="/" className="brand">
+                  <RuneMark />
+                  Vaettir™
+                </Link>
+                <span className="nav-product-label">
+                  Quality intelligence <span>Private beta</span>
+                </span>
+                <div className="nav-account-actions">
+                  <ThemeToggle />
+                  <NavAuth />
+                </div>
               </div>
+            </nav>
+            <div className="app-shell">
+              <Sidebar />
+              <main id="main-content" className="app-main" tabIndex={-1}>
+                {children}
+              </main>
             </div>
-          </nav>
-          <div className="app-shell">
-            <Sidebar />
-            <main className="app-main">{children}</main>
-          </div>
-          <footer style={{ padding: "20px 24px", borderTop: "1px solid var(--border)", fontSize: 14, lineHeight: 1.6 }}>
-            <p>© 2026 Skald and Stone LLC</p>
-            <details><summary style={{ cursor: "pointer", paddingBlock: 12 }}>About copyright</summary><p>Original Vaettir software and studio content. Customer content, third-party material, and existing software licenses retain their own rights.</p></details>
-          </footer>
-        </TRPCReactProvider>
+            <footer className="app-footer">
+              <p>© 2026 Skald and Stone LLC</p>
+              <details>
+                <summary style={{ cursor: "pointer", paddingBlock: 12 }}>About copyright</summary>
+                <p>
+                  Original Vaettir software and studio content. Customer content, third-party material, and existing
+                  software licenses retain their own rights.
+                </p>
+              </details>
+            </footer>
+          </TRPCReactProvider>
         </body>
       </html>
     </ClerkProvider>

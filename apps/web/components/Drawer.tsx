@@ -1,8 +1,7 @@
 "use client";
 
-import { useEffect } from "react";
-import { createPortal } from "react-dom";
 import type { ReactNode } from "react";
+import { DialogFrame } from "./ui/DialogFrame";
 
 // The other half of the "pop-out module, not a page hop" pattern (see
 // Modal.tsx) -- a slide-over panel from the right edge for viewing/lightly
@@ -11,27 +10,33 @@ import type { ReactNode } from "react";
 // opens a side panel, not a full page navigation. Use Modal for short,
 // single-purpose forms (create X); use Drawer for "look at / triage this
 // existing thing while keeping the list visible."
-export function Drawer({ open, onClose, children }: { open: boolean; onClose: () => void; children: ReactNode }) {
-  useEffect(() => {
-    if (!open) return;
-    function onKey(e: KeyboardEvent) {
-      if (e.key === "Escape") onClose();
-    }
-    document.addEventListener("keydown", onKey);
-    return () => document.removeEventListener("keydown", onKey);
-  }, [open, onClose]);
-
-  if (!open || typeof document === "undefined") return null;
-
-  return createPortal(
-    <div className="drawer-backdrop" onClick={onClose}>
-      <div className="drawer-panel" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true">
-        <button className="btn-secondary drawer-close" onClick={onClose} type="button" aria-label="Close">
-          ✕
-        </button>
-        {children}
-      </div>
-    </div>,
-    document.body,
+export function Drawer({
+  open,
+  onClose,
+  children,
+  title = "Details",
+}: {
+  open: boolean;
+  onClose: () => void;
+  children: ReactNode;
+  title?: string;
+}) {
+  return (
+    <DialogFrame
+      open={open}
+      onClose={onClose}
+      className="drawer-panel"
+      label={title}
+    >
+      <button
+        className="btn-secondary drawer-close"
+        onClick={onClose}
+        type="button"
+        aria-label="Close"
+      >
+        ✕
+      </button>
+      {children}
+    </DialogFrame>
   );
 }
