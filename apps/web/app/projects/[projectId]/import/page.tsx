@@ -203,18 +203,92 @@ function BackfillSection({ projectId, defaultBranch }: { projectId: string; defa
   );
 }
 
-// P11-05: Xray (Jira) export importer - a Jira CSV issue export of Test
-// issues or Xray's JSON test export. No column mapping: Xray's columns are
-// fixed, so the preview IS what commit writes.
+// P11-05 / P11-03: file-based importers for tools with a fixed export
+// shape (Xray's Jira CSV/JSON export, TestRail's XML export). No column
+// mapping step: the columns are the tool's own, so the preview IS what
+// commit writes. One component, parameterized by the preview/commit pair.
+type FilePreview = {
+  format: string;
+  caseCount: number;
+  previewRows: RouterOutputs["importJobs"]["previewXray"]["previewRows"];
+  skipped: { rowNumber: number; reason: string }[];
+};
+type FileCommitResult = RouterOutputs["importJobs"]["commitXray"];
+
 function XrayImportSection({ projectId, onCommitted }: { projectId: string; onCommitted: () => void }) {
   const utils = trpcReact.useUtils();
   const commitMutation = trpcReact.importJobs.commitXray.useMutation();
+  return (
+    <FileImportSection
+      title="Import from Xray (Jira)"
+      description={
+        <>
+          Export your Test issues from Jira (search by JQL, e.g. <code>issuetype = Test</code>, then Export → CSV with all
+          fields) or use Xray&apos;s JSON test export, and choose the file here. Manual test steps become structured steps,
+          Cucumber tests parse as Gherkin (outlines expand per Examples row), the Jira issue key becomes the re-import id,
+          and the Test Repository path becomes the suite path. Re-importing a newer export updates cases in place.
+        </>
+      }
+      accept=".csv,.json,text/csv,application/json"
+      formatLabel={(f) => (f === "jira-csv" ? "Jira CSV export" : "Xray JSON export")}
+      doPreview={(content) => utils.importJobs.previewXray.fetch({ projectId, content })}
+      doCommit={(content, fileName) => commitMutation.mutateAsync({ projectId, content, sourceLabel: fileName || undefined })}
+      committing={commitMutation.isPending}
+      onCommitted={onCommitted}
+    />
+  );
+}
+
+function TestRailImportSection({ projectId, onCommitted }: { projectId: string; onCommitted: () => void }) {
+  const utils = trpcReact.useUtils();
+  const commitMutation = trpcReact.importJobs.commitTestRail.useMutation();
+  return (
+    <FileImportSection
+      title="Import from TestRail"
+      description={
+        <>
+          In TestRail open the suite, then Test Cases → Export → XML, and choose the file here. Sections become the suite
+          path, separated steps become structured steps, text-template steps split one per numbered line, exploratory
+          sessions map mission → steps and goals → expected results, references become tags, and the case id (C123)
+          becomes the re-import id so a newer export updates cases in place. Runs and results are not in the XML export -
+          send those through the JUnit ingestion instead.
+        </>
+      }
+      accept=".xml,text/xml,application/xml"
+      formatLabel={() => "TestRail XML export"}
+      doPreview={(content) => utils.importJobs.previewTestRail.fetch({ projectId, content })}
+      doCommit={(content, fileName) => commitMutation.mutateAsync({ projectId, content, sourceLabel: fileName || undefined })}
+      committing={commitMutation.isPending}
+      onCommitted={onCommitted}
+    />
+  );
+}
+
+function FileImportSection({
+  title,
+  description,
+  accept,
+  formatLabel,
+  doPreview,
+  doCommit,
+  committing,
+  onCommitted,
+}: {
+  title: string;
+  description: React.ReactNode;
+  accept: string;
+  formatLabel: (format: string) => string;
+  doPreview: (content: string) => Promise<FilePreview>;
+  doCommit: (content: string, fileName: string) => Promise<FileCommitResult>;
+  committing: boolean;
+  onCommitted: () => void;
+}) {
   const [fileName, setFileName] = useState("");
   const [content, setContent] = useState("");
-  const [preview, setPreview] = useState<RouterOutputs["importJobs"]["previewXray"] | null>(null);
+  const [preview, setPreview] = useState<FilePreview | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [result, setResult] = useState<RouterOutputs["importJobs"]["commitXray"] | null>(null);
+  const [result, setResult] = useState<FileCommitResult | null>(null);
 
   async function loadFile(file: File) {
     setError(null);
@@ -224,7 +298,7 @@ function XrayImportSection({ projectId, onCommitted }: { projectId: string; onCo
     setContent(text);
     setLoading(true);
     try {
-      setPreview(await utils.importJobs.previewXray.fetch({ projectId, content: text }));
+      setPreview(await doPreview(text));
     } catch (e) {
       setPreview(null);
       setError(e instanceof Error ? e.message : String(e));
@@ -237,7 +311,7 @@ function XrayImportSection({ projectId, onCommitted }: { projectId: string; onCo
     if (!preview) return;
     setError(null);
     try {
-      const res = await commitMutation.mutateAsync({ projectId, content, sourceLabel: fileName || undefined });
+      const res = await doCommit(content, fileName);
       setResult(res);
       setPreview(null);
       setContent("");
@@ -250,17 +324,14 @@ function XrayImportSection({ projectId, onCommitted }: { projectId: string; onCo
 
   return (
     <div className="panel" style={{ marginBottom: 20 }}>
-      <h2 style={{ marginTop: 0 }}>Import from Xray (Jira)</h2>
+      <h2 style={{ marginTop: 0 }}>{title}</h2>
       <p className="text-muted" style={{ fontSize: 13 }}>
-        Export your Test issues from Jira (search by JQL, e.g. <code>issuetype = Test</code>, then Export → CSV with all
-        fields) or use Xray&apos;s JSON test export, and choose the file here. Manual test steps become structured steps,
-        Cucumber tests parse as Gherkin (outlines expand per Examples row), the Jira issue key becomes the re-import id,
-        and the Test Repository path becomes the suite path. Re-importing a newer export updates cases in place.
+        {description}
       </p>
       {!preview && (
         <input
           type="file"
-          accept=".csv,.json,text/csv,application/json"
+          accept={accept}
           onChange={(e) => {
             const file = e.target.files?.[0];
             if (file) void loadFile(file);
@@ -272,7 +343,7 @@ function XrayImportSection({ projectId, onCommitted }: { projectId: string; onCo
       {preview && (
         <div>
           <p className="text-muted" style={{ fontSize: 13 }}>
-            {fileName} · detected {preview.format === "jira-csv" ? "Jira CSV export" : "Xray JSON export"} · {preview.caseCount} test
+            {fileName} · detected {formatLabel(preview.format)} · {preview.caseCount} test
             case(s) will be imported{preview.skipped.length > 0 && `, ${preview.skipped.length} row(s) skipped`}.
           </p>
           <div style={{ overflowX: "auto" }}>
@@ -313,8 +384,8 @@ function XrayImportSection({ projectId, onCommitted }: { projectId: string; onCo
             </p>
           )}
           <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
-            <button onClick={commit} disabled={commitMutation.isPending || preview.caseCount === 0}>
-              {commitMutation.isPending ? "Importing…" : `Import ${preview.caseCount} test case(s)`}
+            <button onClick={commit} disabled={committing || preview.caseCount === 0}>
+              {committing ? "Importing…" : `Import ${preview.caseCount} test case(s)`}
             </button>
             <button
               className="btn-secondary"
@@ -437,6 +508,7 @@ export default function ImportPage() {
       </p>
 
       <XrayImportSection projectId={projectId} onCommitted={() => void utils.importJobs.list.invalidate({ projectId })} />
+      <TestRailImportSection projectId={projectId} onCommitted={() => void utils.importJobs.list.invalidate({ projectId })} />
 
       <BackfillSection projectId={projectId} defaultBranch={defaultBranch} />
 

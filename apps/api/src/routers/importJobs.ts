@@ -4,6 +4,7 @@ import { router, protectedProcedure, requireProjectAccess } from "../trpc.js";
 import { inspectCsv, mapCsvRows, TARGET_FIELDS, type TargetField } from "../services/csvFieldMapping.js";
 import { commitImportedTestCases } from "../services/importCommit.js";
 import { parseXrayExport } from "../services/xrayImport.js";
+import { parseTestRailXml } from "../services/testrailImport.js";
 
 const fieldMappingSchema = z.record(z.enum(TARGET_FIELDS), z.string()).refine((m) => Boolean(m.title), {
   message: 'The "title" field must be mapped to a CSV column',
@@ -14,7 +15,7 @@ const fieldMappingSchema = z.record(z.enum(TARGET_FIELDS), z.string()).refine((m
 // column mapping before anything real happens. `commit` is the only
 // mutation that actually creates TestCases, and only after receiving back
 // the exact mapping the user reviewed in preview.
-const xrayPreviewRow = z.object({
+const filePreviewRow = z.object({
   rowNumber: z.number(),
   key: z.string(),
   title: z.string(),
@@ -28,7 +29,7 @@ const xrayPreviewRow = z.object({
   stepCount: z.number(),
 });
 
-function toXrayPreviewRow(c: ReturnType<typeof parseXrayExport>["cases"][number]): z.infer<typeof xrayPreviewRow> {
+function toFilePreviewRow(c: ReturnType<typeof parseXrayExport>["cases"][number]): z.infer<typeof filePreviewRow> {
   return {
     rowNumber: c.rowNumber,
     key: c.key,
@@ -172,7 +173,7 @@ export const importJobsRouter = router({
       z.object({
         format: z.enum(["jira-csv", "xray-json"]),
         caseCount: z.number(),
-        previewRows: z.array(xrayPreviewRow),
+        previewRows: z.array(filePreviewRow),
         skipped: z.array(z.object({ rowNumber: z.number(), reason: z.string() })),
       }),
     )
@@ -187,7 +188,7 @@ export const importJobsRouter = router({
       return {
         format: parsed.format,
         caseCount: parsed.cases.length,
-        previewRows: parsed.cases.slice(0, 20).map(toXrayPreviewRow),
+        previewRows: parsed.cases.slice(0, 20).map(toFilePreviewRow),
         skipped: parsed.skipped,
       };
     }),
@@ -240,6 +241,91 @@ export const importJobsRouter = router({
         fieldMapping: { format: parsed.format },
         keyPrefix: "xray",
         framework: "xray",
+        testPlanId: input.testPlanId,
+      });
+    }),
+
+  // P11-03 (file-based slice): TestRail's "Export to XML" of a suite -
+  // sections become the suite path, separated steps become structured
+  // steps, text-template steps split per numbered line, exploratory
+  // sessions map mission/goals. Same no-mapping preview → commit shape as
+  // Xray. Runs/results are the REST-API half of the ticket, still open.
+  previewTestRail: protectedProcedure
+    .input(z.object({ projectId: z.string(), content: z.string().min(1) }))
+    .output(
+      z.object({
+        format: z.literal("testrail-xml"),
+        suiteName: z.string().nullable(),
+        caseCount: z.number(),
+        previewRows: z.array(filePreviewRow),
+        skipped: z.array(z.object({ rowNumber: z.number(), reason: z.string() })),
+      }),
+    )
+    .query(async ({ ctx, input }) => {
+      await requireProjectAccess(ctx, input.projectId);
+      let parsed;
+      try {
+        parsed = parseTestRailXml(input.content);
+      } catch (e) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: e instanceof Error ? e.message : String(e) });
+      }
+      return {
+        format: parsed.format,
+        suiteName: parsed.suiteName,
+        caseCount: parsed.cases.length,
+        previewRows: parsed.cases.slice(0, 20).map(toFilePreviewRow),
+        skipped: parsed.skipped,
+      };
+    }),
+
+  commitTestRail: protectedProcedure
+    .input(
+      z.object({
+        projectId: z.string(),
+        content: z.string().min(1),
+        testPlanId: z.string().optional(),
+        sourceLabel: z.string().optional(),
+      }),
+    )
+    .output(
+      z.object({
+        importJobId: z.string(),
+        createdCount: z.number(),
+        updatedCount: z.number(),
+        skipped: z.array(z.object({ rowNumber: z.number(), reason: z.string() })),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const { project } = await requireProjectAccess(ctx, input.projectId, "EDITOR");
+      let parsed;
+      try {
+        parsed = parseTestRailXml(input.content);
+      } catch (e) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: e instanceof Error ? e.message : String(e) });
+      }
+      return commitImportedTestCases(ctx.prisma, {
+        projectId: input.projectId,
+        organizationId: project.organizationId,
+        actorId: ctx.user.id,
+        rows: parsed.cases.map((c) => ({
+          rowNumber: c.rowNumber,
+          title: c.title,
+          background: c.background,
+          given: c.given,
+          when: c.when,
+          then: c.then,
+          priority: c.priority,
+          tags: c.tags,
+          suitePath: c.suitePath,
+          externalId: c.key,
+          steps: c.steps,
+        })),
+        skipped: parsed.skipped,
+        source: "TESTRAIL",
+        sourceLabel: input.sourceLabel,
+        fieldMapping: { format: parsed.format, suiteName: parsed.suiteName ?? "" },
+        keyPrefix: "testrail",
+        framework: "testrail",
         testPlanId: input.testPlanId,
       });
     }),
