@@ -4,6 +4,7 @@ import { generateTestCasesFromRequirement, extractRequirementsFromMarkdown } fro
 import { router, protectedProcedure, requireProjectAccess } from "../trpc.js";
 import { chargeAiCredits, InsufficientAiCreditsError, meterAiCall, type AiCharge } from "../services/aiCredits.js";
 import { scanRepoForRequirementDocs } from "../services/repoDocScan.js";
+import { fetchLinearIssue, getOrgLinearApiKey, LinearApiError, LinearNotConfiguredError } from "../services/linearApi.js";
 
 const draftRequirementOutput = z.object({
   title: z.string(),
@@ -22,6 +23,9 @@ export const requirementsRouter = router({
           description: z.string().nullable(),
           externalRef: z.string().nullable(),
           acceptanceCriteriaCount: z.number(),
+          linearIssueId: z.string().nullable(),
+          linearStatusName: z.string().nullable(),
+          linearSyncedAt: z.date().nullable(),
         }),
       ),
     )
@@ -38,6 +42,9 @@ export const requirementsRouter = router({
         description: r.description,
         externalRef: r.externalRef,
         acceptanceCriteriaCount: r._count.acceptanceCriteria,
+        linearIssueId: r.linearIssueId,
+        linearStatusName: r.linearStatusName,
+        linearSyncedAt: r.linearSyncedAt,
       }));
     }),
 
@@ -93,6 +100,86 @@ export const requirementsRouter = router({
       await requireProjectAccess(ctx, existing.projectId, "EDITOR");
       await ctx.prisma.requirement.delete({ where: { id: input.id } });
     }),
+
+  // P9-02: validates the Linear issue actually exists (and this org's API
+  // key can see it) before storing the link - a typo'd identifier fails
+  // loudly here rather than silently never syncing. Pulls the issue's
+  // current status immediately so a newly-linked requirement doesn't sit
+  // with a blank status until the next webhook/manual sync.
+  linkLinearIssue: protectedProcedure
+    .input(z.object({ requirementId: z.string(), linearIssueId: z.string().min(1) }))
+    .mutation(async ({ ctx, input }) => {
+      const existing = await ctx.prisma.requirement.findUniqueOrThrow({
+        where: { id: input.requirementId },
+        include: { project: { select: { id: true, organizationId: true } } },
+      });
+      await requireProjectAccess(ctx, existing.project.id, "EDITOR");
+
+      let apiKey: string;
+      try {
+        apiKey = await getOrgLinearApiKey(ctx.prisma, existing.project.organizationId);
+      } catch (e) {
+        if (e instanceof LinearNotConfiguredError) throw new TRPCError({ code: "PRECONDITION_FAILED", message: e.message });
+        throw e;
+      }
+
+      let issue;
+      try {
+        issue = await fetchLinearIssue(apiKey, input.linearIssueId.trim());
+      } catch (e) {
+        if (e instanceof LinearApiError) throw new TRPCError({ code: "BAD_REQUEST", message: e.message });
+        throw e;
+      }
+
+      return ctx.prisma.requirement.update({
+        where: { id: input.requirementId },
+        data: { linearIssueId: issue.identifier, linearStatusName: issue.stateName, linearSyncedAt: new Date() },
+      });
+    }),
+
+  unlinkLinearIssue: protectedProcedure.input(z.object({ requirementId: z.string() })).mutation(async ({ ctx, input }) => {
+    const existing = await ctx.prisma.requirement.findUniqueOrThrow({ where: { id: input.requirementId }, select: { projectId: true } });
+    await requireProjectAccess(ctx, existing.projectId, "EDITOR");
+    return ctx.prisma.requirement.update({
+      where: { id: input.requirementId },
+      data: { linearIssueId: null, linearStatusName: null, linearSyncedAt: null },
+    });
+  }),
+
+  // Manual re-pull, for "I don't want to wait for the webhook" or for an
+  // org that hasn't configured one yet - the same underlying fetch the
+  // inbound webhook path effectively short-circuits when it's live.
+  syncLinearStatus: protectedProcedure.input(z.object({ requirementId: z.string() })).mutation(async ({ ctx, input }) => {
+    const existing = await ctx.prisma.requirement.findUniqueOrThrow({
+      where: { id: input.requirementId },
+      include: { project: { select: { id: true, organizationId: true } } },
+    });
+    await requireProjectAccess(ctx, existing.project.id, "EDITOR");
+    if (!existing.linearIssueId) {
+      throw new TRPCError({ code: "BAD_REQUEST", message: "This requirement isn't linked to a Linear issue yet." });
+    }
+
+    let apiKey: string;
+    try {
+      apiKey = await getOrgLinearApiKey(ctx.prisma, existing.project.organizationId);
+    } catch (e) {
+      if (e instanceof LinearNotConfiguredError) throw new TRPCError({ code: "PRECONDITION_FAILED", message: e.message });
+      throw e;
+    }
+
+    let issue;
+    try {
+      issue = await fetchLinearIssue(apiKey, existing.linearIssueId);
+    } catch (e) {
+      if (e instanceof LinearApiError) throw new TRPCError({ code: "BAD_REQUEST", message: e.message });
+      throw e;
+    }
+
+    return ctx.prisma.requirement.update({
+      where: { id: input.requirementId },
+      data: { linearStatusName: issue.stateName, linearSyncedAt: new Date() },
+    });
+  }),
 
   // 2026-08-27 competitor parity audit: draft-only, same review-before-save
   // shape as every other AI feature (P2-06, P4-02, P5-12) - nothing here

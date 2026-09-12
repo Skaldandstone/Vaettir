@@ -21,6 +21,8 @@ import { handleStripeWebhookEvent } from "./services/stripeBilling.js";
 import { exchangeGooglePlayCode } from "./services/productionSignalOAuth.js";
 import { encryptToken } from "./services/tokenEncryption.js";
 import { verifyPagerDutySignature, handlePagerDutyWebhook, type PagerDutyWebhookPayload } from "./services/pagerdutyWebhook.js";
+import { verifyLinearSignature, type LinearWebhookPayload } from "./services/linearApi.js";
+import { handleLinearWebhook } from "./services/linearWebhook.js";
 
 // P10-07: expected poller intervals, keyed by the same names each poller
 // calls recordHeartbeat with - the one place server.ts needs to know
@@ -163,6 +165,39 @@ async function registerPagerDutyWebhookRoute(instance: FastifyInstance) {
   });
 }
 
+// P9-02: routed per-org via a path param, not a shared secret+payload-
+// match like PagerDuty's route above - Linear's webhook payload carries
+// nothing that identifies which Vaettir org it belongs to, and (unlike
+// PagerDuty/GitHub/Stripe, where Vaettir has one shared platform-level
+// credential) each customer org configures its own Linear webhook, with
+// its own signing secret, pointed at its own URL - the same per-org-URL
+// shape Organization.slackWebhookUrl already uses. Always 200 even when
+// unhandled or the org has no secret configured, matching every other
+// webhook route's "don't confuse the provider's retry/alerting" posture.
+async function registerLinearWebhookRoute(instance: FastifyInstance) {
+  instance.addContentTypeParser("application/json", { parseAs: "buffer" }, (_req, body, done) => {
+    done(null, body);
+  });
+
+  instance.post<{ Params: { organizationId: string } }>("/webhooks/linear/:organizationId", async (req, reply) => {
+    const org = await prisma.organization.findUnique({
+      where: { id: req.params.organizationId },
+      select: { id: true, linearWebhookSecret: true },
+    });
+    if (!org?.linearWebhookSecret) return reply.send({ handled: false, reason: "Linear integration not configured for this organization" });
+
+    const rawBody = req.body as Buffer;
+    const signature = req.headers["linear-signature"] as string | undefined;
+    if (!verifyLinearSignature(rawBody, signature, org.linearWebhookSecret)) {
+      return reply.code(401).send({ error: "invalid signature" });
+    }
+
+    const payload = JSON.parse(rawBody.toString("utf8")) as LinearWebhookPayload;
+    const result = await handleLinearWebhook(prisma, org.id, payload);
+    return reply.send(result);
+  });
+}
+
 // SSE-180: the one genuinely new kind of route in this codebase - a
 // browser-facing OAuth redirect target, not a tRPC mutation and not a
 // server-to-server webhook. GOOGLE_PLAY only; Apple has no equivalent
@@ -288,6 +323,7 @@ await server.register(registerGitlabWebhookRoute);
 await server.register(registerStripeWebhookRoute);
 await server.register(registerProductionSignalOAuthRoute);
 await server.register(registerPagerDutyWebhookRoute);
+await server.register(registerLinearWebhookRoute);
 
 // Mirrored under /api: the ALB/CloudFront path in front of this service
 // routes only /api/* here (the same domain also serves apps/web), so
@@ -310,6 +346,7 @@ await server.register(
     await instance.register(registerStripeWebhookRoute);
     await instance.register(registerProductionSignalOAuthRoute);
     await instance.register(registerPagerDutyWebhookRoute);
+    await instance.register(registerLinearWebhookRoute);
   },
   { prefix: "/api" },
 );

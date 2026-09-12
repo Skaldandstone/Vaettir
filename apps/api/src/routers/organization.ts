@@ -17,6 +17,7 @@ import { WEBHOOK_EVENT_TYPES } from "../services/webhookDelivery.js";
 import { assertPublicHttpUrl, UnsafeUrlError } from "../services/urlGuard.js";
 import { bootstrapBetaOrganization, PRIVATE_BETA_TIER } from "../services/privateBeta.js";
 import { createBillingCheckoutSession, createBillingPortalSession as createStripePortalSession, createCreditTopupCheckoutSession, CREDIT_TOPUP_PACKS, type CreditTopupPackKey, syncBillingSeatQuantity, BillingNotConfiguredError } from "../services/stripeBilling.js";
+import { encryptToken, TokenEncryptionNotConfiguredError } from "../services/tokenEncryption.js";
 
 const INVITATION_EXPIRY_DAYS = 7;
 
@@ -131,6 +132,8 @@ export const organizationRouter = router({
         digestHourUtc: z.number().nullable(),
         lastDigestSentAt: z.date().nullable(),
         slackEventTypes: z.array(z.string()),
+        linearApiKeyConfigured: z.boolean(),
+        linearWebhookConfigured: z.boolean(),
       }),
     )
     .query(async ({ ctx, input }) => {
@@ -149,6 +152,8 @@ export const organizationRouter = router({
           digestHourUtc: true,
           lastDigestSentAt: true,
           slackEventTypes: true,
+          linearEncryptedApiKey: true,
+          linearWebhookSecret: true,
         },
       });
       const overrides = (org.stepFieldLabels as Partial<Record<StepFieldKey, string>> | null) ?? {};
@@ -170,6 +175,8 @@ export const organizationRouter = router({
         digestHourUtc: org.digestHourUtc,
         lastDigestSentAt: org.lastDigestSentAt,
         slackEventTypes: org.slackEventTypes,
+        linearApiKeyConfigured: org.linearEncryptedApiKey !== null,
+        linearWebhookConfigured: org.linearWebhookSecret !== null,
       };
     }),
 
@@ -264,6 +271,54 @@ export const organizationRouter = router({
       await ctx.prisma.organization.update({
         where: { id: input.organizationId },
         data: { slackEventTypes: input.eventTypes },
+      });
+    }),
+
+  // P9-02: the personal API key that authenticates every Linear GraphQL
+  // call this integration makes - encrypted at rest (services/
+  // tokenEncryption.ts), same posture as SSE-180's stored third-party
+  // tokens, and never round-tripped back to the client (byId only ever
+  // reports linearApiKeyConfigured, matching how the Slack webhook URL
+  // above is handled). Passing an empty string clears it.
+  updateLinearApiKey: protectedProcedure
+    .input(z.object({ organizationId: z.string(), apiKey: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      requireOrgRole(ctx, input.organizationId, "ADMIN");
+      const trimmed = input.apiKey.trim();
+      if (!trimmed) {
+        await ctx.prisma.organization.update({
+          where: { id: input.organizationId },
+          data: { linearEncryptedApiKey: null, linearApiKeyIv: null, linearApiKeyAuthTag: null },
+        });
+        return;
+      }
+      let encrypted;
+      try {
+        encrypted = encryptToken(trimmed);
+      } catch (e) {
+        if (e instanceof TokenEncryptionNotConfiguredError) {
+          throw new TRPCError({ code: "PRECONDITION_FAILED", message: e.message });
+        }
+        throw e;
+      }
+      await ctx.prisma.organization.update({
+        where: { id: input.organizationId },
+        data: { linearEncryptedApiKey: encrypted.ciphertext, linearApiKeyIv: encrypted.iv, linearApiKeyAuthTag: encrypted.authTag },
+      });
+    }),
+
+  // The signing secret Linear generates when the org creates its own
+  // webhook (pointed at /webhooks/linear/:organizationId) - lower
+  // sensitivity than a bearer credential, so stored plain like
+  // slackWebhookUrl rather than encrypted.
+  updateLinearWebhookSecret: protectedProcedure
+    .input(z.object({ organizationId: z.string(), webhookSecret: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      requireOrgRole(ctx, input.organizationId, "ADMIN");
+      const trimmed = input.webhookSecret.trim();
+      await ctx.prisma.organization.update({
+        where: { id: input.organizationId },
+        data: { linearWebhookSecret: trimmed.length > 0 ? trimmed : null },
       });
     }),
 

@@ -201,6 +201,84 @@ function SlackEventNotificationsSection({ organizationId }: { organizationId: st
   );
 }
 
+// P9-02: the org-level half of Linear integration (an API key + a webhook
+// signing secret); the per-requirement link/sync controls live on the
+// requirements list itself, next to each requirement's externalRef.
+function LinearIntegrationSection({ organizationId }: { organizationId: string }) {
+  const utils = trpcReact.useUtils();
+  const orgQuery = trpcReact.organization.byId.useQuery({ id: organizationId });
+  const [apiKey, setApiKey] = useState("");
+  const [webhookSecret, setWebhookSecret] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const apiKeyMutation = trpcReact.organization.updateLinearApiKey.useMutation();
+  const webhookSecretMutation = trpcReact.organization.updateLinearWebhookSecret.useMutation();
+
+  function reload() {
+    void utils.organization.byId.invalidate({ id: organizationId });
+  }
+
+  async function saveApiKey() {
+    setError(null);
+    try {
+      await apiKeyMutation.mutateAsync({ organizationId, apiKey });
+      setApiKey("");
+      reload();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  }
+
+  async function saveWebhookSecret() {
+    setError(null);
+    try {
+      await webhookSecretMutation.mutateAsync({ organizationId, webhookSecret });
+      setWebhookSecret("");
+      reload();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  }
+
+  const org = orgQuery.data;
+  if (!org) return null;
+
+  return (
+    <div className="panel" style={{ marginTop: 24 }}>
+      <h2 style={{ marginTop: 0 }}>Linear integration</h2>
+      <p className="text-muted" style={{ fontSize: 13 }}>
+        Link requirements to Linear issues and pull their status back automatically. Create a personal API key in
+        Linear (Settings → Security & access → Personal API keys), and, for real-time sync, a webhook in Linear
+        pointed at this deployment&apos;s <code>/webhooks/linear/{organizationId}</code> with its own signing secret.
+      </p>
+      <div style={{ display: "grid", gap: 12, maxWidth: 480 }}>
+        <div>
+          <label style={{ fontSize: 13 }}>
+            API key {org.linearApiKeyConfigured && <span style={{ color: "var(--frost)" }}>(configured)</span>}
+          </label>
+          <div style={{ display: "flex", gap: 8 }}>
+            <input type="password" value={apiKey} onChange={(e) => setApiKey(e.target.value)} style={{ flex: 1 }} />
+            <button className="btn-secondary" onClick={saveApiKey} disabled={apiKeyMutation.isPending}>
+              {apiKeyMutation.isPending ? "Saving…" : "Save"}
+            </button>
+          </div>
+        </div>
+        <div>
+          <label style={{ fontSize: 13 }}>
+            Webhook signing secret {org.linearWebhookConfigured && <span style={{ color: "var(--frost)" }}>(configured)</span>}
+          </label>
+          <div style={{ display: "flex", gap: 8 }}>
+            <input type="password" value={webhookSecret} onChange={(e) => setWebhookSecret(e.target.value)} style={{ flex: 1 }} />
+            <button className="btn-secondary" onClick={saveWebhookSecret} disabled={webhookSecretMutation.isPending}>
+              {webhookSecretMutation.isPending ? "Saving…" : "Save"}
+            </button>
+          </div>
+        </div>
+      </div>
+      {error && <p style={{ color: "var(--ember)", fontSize: 13 }}>{error}</p>}
+    </div>
+  );
+}
+
 function WebhooksSection({ organizationId }: { organizationId: string }) {
   const utils = trpcReact.useUtils();
   const eventTypesQuery = trpcReact.webhooks.eventTypes.useQuery();
@@ -1058,6 +1136,7 @@ export default function OrganizationSettingsPage() {
       {orgId && <AiCreditsSection organizationId={orgId} />}
       {orgId && <ApiKeysSection organizationId={orgId} />}
       {orgId && <WebhooksSection organizationId={orgId} />}
+      {orgId && <LinearIntegrationSection organizationId={orgId} />}
       <PlanTypesSection />
     </div>
   );

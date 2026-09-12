@@ -86,6 +86,23 @@ model Organization {
   suspendedAt     DateTime?
   suspendedReason String?
 
+  // P9-02: Linear integration (requirement linking + status sync). One
+  // Linear workspace per org (matches how one Slack webhook already routes
+  // per-org above) - the personal API key is encrypted at rest the same
+  // way SSE-180's ProductionSignalConnection stores third-party tokens
+  // (services/tokenEncryption.ts), since this is the second feature in
+  // this codebase to hold a customer's own third-party credential.
+  // linearWebhookSecret is lower-sensitivity (a webhook signing secret,
+  // not a bearer credential that grants read/write access on its own) and
+  // stored plain, same posture as Organization.slackWebhookUrl above -
+  // each org gets its own inbound URL (/webhooks/linear/:organizationId)
+  // rather than one shared global secret, since Vaettir is multi-tenant
+  // and Linear's webhook model has no per-tenant routing field to key off.
+  linearEncryptedApiKey String?
+  linearApiKeyIv        String?
+  linearApiKeyAuthTag   String?
+  linearWebhookSecret   String?
+
   projects             Project[]
   memberships          Membership[]
   invitations          Invitation[]
@@ -593,6 +610,16 @@ model Requirement {
   description String?
   externalRef String? // e.g. Jira key, Linear issue id, doc URL
   createdAt   DateTime @default(now())
+
+  // P9-02: unambiguous, Linear-specific fields rather than overloading the
+  // generic externalRef above - a bare "ABC-123" could be a Jira key OR a
+  // Linear identifier, and sync code needs to know which without guessing.
+  // linearStatusName/linearSyncedAt are set by either a real-time inbound
+  // webhook or a manual pull (organization.syncLinearRequirement) - null
+  // until the first successful sync.
+  linearIssueId    String? // Linear's human-facing identifier, e.g. "ENG-123"
+  linearStatusName String?
+  linearSyncedAt   DateTime?
 
   acceptanceCriteria AcceptanceCriterion[]
 }

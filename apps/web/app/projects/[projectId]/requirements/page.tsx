@@ -208,6 +208,83 @@ function DraftRequirementReview({
   );
 }
 
+// P9-02: per-requirement Linear link/sync control. The org-level API key
+// and webhook secret are configured once on the org settings page - this
+// just needs the Linear issue's own identifier.
+function LinearLinkControl({
+  requirement,
+  onChanged,
+}: {
+  requirement: { id: string; linearIssueId: string | null; linearStatusName: string | null; linearSyncedAt: string | Date | null };
+  onChanged: () => void;
+}) {
+  const [issueId, setIssueId] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const linkMutation = trpcReact.requirements.linkLinearIssue.useMutation();
+  const unlinkMutation = trpcReact.requirements.unlinkLinearIssue.useMutation();
+  const syncMutation = trpcReact.requirements.syncLinearStatus.useMutation();
+
+  async function link() {
+    if (!issueId.trim()) return;
+    setError(null);
+    try {
+      await linkMutation.mutateAsync({ requirementId: requirement.id, linearIssueId: issueId.trim() });
+      setIssueId("");
+      onChanged();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  }
+
+  async function unlink() {
+    await unlinkMutation.mutateAsync({ requirementId: requirement.id });
+    onChanged();
+  }
+
+  async function sync() {
+    setError(null);
+    try {
+      await syncMutation.mutateAsync({ requirementId: requirement.id });
+      onChanged();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  }
+
+  if (requirement.linearIssueId) {
+    return (
+      <div style={{ fontSize: 12, marginTop: 4 }}>
+        <span className="text-muted">
+          Linear {requirement.linearIssueId}
+          {requirement.linearStatusName && <> · {requirement.linearStatusName}</>}
+        </span>{" "}
+        <button style={{ fontSize: 11 }} onClick={sync} disabled={syncMutation.isPending}>
+          {syncMutation.isPending ? "Syncing…" : "Sync"}
+        </button>{" "}
+        <button className="btn-secondary" style={{ fontSize: 11 }} onClick={unlink}>
+          Unlink
+        </button>
+        {error && <span style={{ color: "var(--ember)" }}> {error}</span>}
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ display: "flex", gap: 6, marginTop: 4 }}>
+      <input
+        value={issueId}
+        onChange={(e) => setIssueId(e.target.value)}
+        placeholder="Linear issue, e.g. ENG-123"
+        style={{ fontSize: 12, width: 160 }}
+      />
+      <button style={{ fontSize: 11 }} onClick={link} disabled={linkMutation.isPending || !issueId.trim()}>
+        {linkMutation.isPending ? "Linking…" : "Link"}
+      </button>
+      {error && <span style={{ color: "var(--ember)", fontSize: 12 }}>{error}</span>}
+    </div>
+  );
+}
+
 // 2026-08-28: paste/upload a markdown spec doc, extract candidate
 // requirements from it. Two-step: paste content, then Extract fires the
 // real AI call and swaps into the same review list every extraction path
@@ -446,7 +523,8 @@ export default function RequirementsPage() {
             <strong>{r.title}</strong> {r.externalRef && <span style={{ color: "var(--muted-dim)" }}>[{r.externalRef}]</span>}
             <div style={{ color: "var(--muted)", fontSize: 13 }}>{r.description}</div>
             <div style={{ fontSize: 12, color: "var(--muted-dim)" }}>{r.acceptanceCriteriaCount} linked acceptance criteria</div>
-            <button onClick={() => startEdit(r)} style={{ marginRight: 8 }}>
+            <LinearLinkControl requirement={r} onChanged={reload} />
+            <button onClick={() => startEdit(r)} style={{ marginRight: 8, marginTop: 6 }}>
               Edit
             </button>
             <button onClick={() => remove(r.id)} style={{ marginRight: 8 }}>
