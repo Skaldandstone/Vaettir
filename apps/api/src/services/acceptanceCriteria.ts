@@ -1,5 +1,28 @@
 import type { AcceptanceCriterionStatus, PrismaClient, TestResultStatus } from "@vaettir/db";
 
+// Shared by computeTestPlanAcceptanceStatus below and
+// requirementTestSummary.ts's ticket-panel summary - both need "what was
+// this test case's most recent result," and both must agree on what
+// "most recent" means (ordered by the run's startedAt, not the result
+// row's own id/createdAt, since results can be ingested out of order).
+export async function getLatestResultByTestCase(
+  prisma: PrismaClient,
+  testCaseIds: string[],
+): Promise<Map<string, { status: TestResultStatus; startedAt: Date }>> {
+  if (testCaseIds.length === 0) return new Map();
+  const results = await prisma.testResult.findMany({
+    where: { testCaseId: { in: testCaseIds } },
+    select: { testCaseId: true, status: true, testRun: { select: { startedAt: true } } },
+    orderBy: { testRun: { startedAt: "desc" } },
+  });
+  const latestByCase = new Map<string, { status: TestResultStatus; startedAt: Date }>();
+  for (const r of results) {
+    if (!r.testCaseId || latestByCase.has(r.testCaseId)) continue;
+    latestByCase.set(r.testCaseId, { status: r.status, startedAt: r.testRun.startedAt });
+  }
+  return latestByCase;
+}
+
 // P7-02: a criterion's scope is every TestCase attached to its TestPlan --
 // the same plan a QA lead builds when defining what "done" means for a
 // release. Computed live on every read rather than persisted/cron'd: a
@@ -20,19 +43,12 @@ export async function computeTestPlanAcceptanceStatus(
   const testCases = await prisma.testCase.findMany({ where: { testPlanId }, select: { id: true } });
   if (testCases.length === 0) return null;
 
-  const results = await prisma.testResult.findMany({
-    where: { testCaseId: { in: testCases.map((c) => c.id) } },
-    select: { testCaseId: true, status: true },
-    orderBy: { testRun: { startedAt: "desc" } },
-  });
+  const latestByCase = await getLatestResultByTestCase(
+    prisma,
+    testCases.map((c) => c.id),
+  );
 
-  const latestByCase = new Map<string, TestResultStatus>();
-  for (const r of results) {
-    if (!r.testCaseId || latestByCase.has(r.testCaseId)) continue;
-    latestByCase.set(r.testCaseId, r.status);
-  }
-
-  const latestStatuses = testCases.map((c) => latestByCase.get(c.id) ?? null);
+  const latestStatuses = testCases.map((c) => latestByCase.get(c.id)?.status ?? null);
   if (latestStatuses.some((s) => s === "FAIL")) return "NOT_MET";
   if (latestStatuses.some((s) => s === null || s === "FLAKY" || s === "SKIP")) return "AT_RISK";
   return "MET";

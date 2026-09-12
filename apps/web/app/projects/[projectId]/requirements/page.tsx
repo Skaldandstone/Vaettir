@@ -360,6 +360,67 @@ function JiraLinkControl({
   );
 }
 
+// Direct request: make the Jira/Linear side of this integration genuinely
+// informative, not just a status-name sync - a shareable link renders a
+// rich Open Graph preview when pasted into a Jira or Linear issue (see
+// apps/web/app/share/requirements/[token]/page.tsx), no app installation
+// required. Opt-in only: nothing is generated until this button is
+// clicked.
+function ShareLinkControl({ requirement, onChanged }: { requirement: { id: string; shareToken: string | null }; onChanged: () => void }) {
+  const [copied, setCopied] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const createMutation = trpcReact.requirements.createShareLink.useMutation();
+  const revokeMutation = trpcReact.requirements.revokeShareLink.useMutation();
+
+  async function create() {
+    setError(null);
+    try {
+      await createMutation.mutateAsync({ requirementId: requirement.id });
+      onChanged();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  }
+
+  async function revoke() {
+    if (!confirm("Revoke this share link? Anywhere it was pasted will stop showing live test status.")) return;
+    await revokeMutation.mutateAsync({ requirementId: requirement.id });
+    onChanged();
+  }
+
+  function copyLink() {
+    if (!requirement.shareToken || typeof window === "undefined") return;
+    const url = `${window.location.origin}/share/requirements/${requirement.shareToken}`;
+    void navigator.clipboard.writeText(url).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    });
+  }
+
+  if (requirement.shareToken) {
+    return (
+      <div style={{ fontSize: 12, marginTop: 4 }}>
+        <button style={{ fontSize: 11 }} onClick={copyLink}>
+          {copied ? "Copied!" : "Copy share link"}
+        </button>{" "}
+        <button className="btn-secondary" style={{ fontSize: 11 }} onClick={revoke}>
+          Revoke
+        </button>
+        {error && <span style={{ color: "var(--ember)" }}> {error}</span>}
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ marginTop: 4 }}>
+      <button style={{ fontSize: 11 }} onClick={create} disabled={createMutation.isPending}>
+        {createMutation.isPending ? "Generating…" : "Share test status"}
+      </button>
+      {error && <span style={{ color: "var(--ember)", fontSize: 12 }}> {error}</span>}
+    </div>
+  );
+}
+
 // 2026-08-28: paste/upload a markdown spec doc, extract candidate
 // requirements from it. Two-step: paste content, then Extract fires the
 // real AI call and swaps into the same review list every extraction path
@@ -600,6 +661,7 @@ export default function RequirementsPage() {
             <div style={{ fontSize: 12, color: "var(--muted-dim)" }}>{r.acceptanceCriteriaCount} linked acceptance criteria</div>
             <LinearLinkControl requirement={r} onChanged={reload} />
             <JiraLinkControl requirement={r} onChanged={reload} />
+            <ShareLinkControl requirement={r} onChanged={reload} />
             <button onClick={() => startEdit(r)} style={{ marginRight: 8, marginTop: 6 }}>
               Edit
             </button>

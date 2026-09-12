@@ -1,11 +1,30 @@
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 import { generateTestCasesFromRequirement, extractRequirementsFromMarkdown } from "@vaettir/ai-agent";
-import { router, protectedProcedure, requireProjectAccess } from "../trpc.js";
+import { randomBytes } from "node:crypto";
+import { router, protectedProcedure, publicProcedure, requireProjectAccess } from "../trpc.js";
 import { chargeAiCredits, InsufficientAiCreditsError, meterAiCall, type AiCharge } from "../services/aiCredits.js";
 import { scanRepoForRequirementDocs } from "../services/repoDocScan.js";
 import { fetchLinearIssue, getOrgLinearApiKey, LinearApiError, LinearNotConfiguredError } from "../services/linearApi.js";
 import { fetchJiraIssue, getOrgJiraConnection, JiraApiError, JiraNotConfiguredError } from "../services/jiraApi.js";
+import { computeRequirementTestSummary } from "../services/requirementTestSummary.js";
+
+const testSummaryOutput = z.object({
+  requirementId: z.string(),
+  requirementTitle: z.string(),
+  requirementDescription: z.string().nullable(),
+  acceptanceCriteria: z.object({ total: z.number(), met: z.number(), pending: z.number(), notMet: z.number(), atRisk: z.number() }),
+  testCases: z.object({
+    total: z.number(),
+    passing: z.number(),
+    failing: z.number(),
+    neverRun: z.number(),
+    other: z.number(),
+    pendingReview: z.number(),
+  }),
+  failingTestCases: z.array(z.object({ id: z.string(), title: z.string(), lastRunAt: z.string().nullable() })),
+  openRiskFlags: z.array(z.object({ id: z.string(), severity: z.string(), description: z.string() })),
+});
 
 const draftRequirementOutput = z.object({
   title: z.string(),
@@ -30,6 +49,7 @@ export const requirementsRouter = router({
           jiraIssueKey: z.string().nullable(),
           jiraStatusName: z.string().nullable(),
           jiraSyncedAt: z.date().nullable(),
+          shareToken: z.string().nullable(),
         }),
       ),
     )
@@ -52,6 +72,7 @@ export const requirementsRouter = router({
         jiraIssueKey: r.jiraIssueKey,
         jiraStatusName: r.jiraStatusName,
         jiraSyncedAt: r.jiraSyncedAt,
+        shareToken: r.shareToken,
       }));
     }),
 
@@ -261,6 +282,55 @@ export const requirementsRouter = router({
       data: { jiraStatusName: issue.statusName, jiraSyncedAt: new Date() },
     });
   }),
+
+  // The in-app view of the same summary the public share link renders -
+  // acceptance criteria rollup, pass/fail/never-run counts, the actual
+  // failing test titles, and open risk flags for the project. Requires a
+  // real session (unlike getSharedSummary below), so this is what backs
+  // the requirements page's own "Test status" panel.
+  getTestSummary: protectedProcedure
+    .input(z.object({ requirementId: z.string() }))
+    .output(testSummaryOutput)
+    .query(async ({ ctx, input }) => {
+      const requirement = await ctx.prisma.requirement.findUniqueOrThrow({ where: { id: input.requirementId }, select: { projectId: true } });
+      await requireProjectAccess(ctx, requirement.projectId);
+      return computeRequirementTestSummary(ctx.prisma, input.requirementId);
+    }),
+
+  // Opt-in only - nothing is exposed publicly until a human explicitly
+  // generates a link. The token is the entire access control for
+  // getSharedSummary below (there's no way to authenticate a Jira/Linear
+  // unfurl bot as a real Vaettir session), so it's a fresh random 32-byte
+  // value every time - regenerating invalidates whatever was pasted
+  // anywhere before.
+  createShareLink: protectedProcedure.input(z.object({ requirementId: z.string() })).mutation(async ({ ctx, input }) => {
+    const existing = await ctx.prisma.requirement.findUniqueOrThrow({ where: { id: input.requirementId }, select: { projectId: true } });
+    await requireProjectAccess(ctx, existing.projectId, "EDITOR");
+    const shareToken = randomBytes(24).toString("base64url");
+    await ctx.prisma.requirement.update({ where: { id: input.requirementId }, data: { shareToken } });
+    return { shareToken };
+  }),
+
+  revokeShareLink: protectedProcedure.input(z.object({ requirementId: z.string() })).mutation(async ({ ctx, input }) => {
+    const existing = await ctx.prisma.requirement.findUniqueOrThrow({ where: { id: input.requirementId }, select: { projectId: true } });
+    await requireProjectAccess(ctx, existing.projectId, "EDITOR");
+    await ctx.prisma.requirement.update({ where: { id: input.requirementId }, data: { shareToken: null } });
+  }),
+
+  // Public by design (see the schema comment on Requirement.shareToken) -
+  // the unguessable token itself is the access control, not a session.
+  // Deliberately returns only aggregate counts and test/risk-flag titles,
+  // never given/when/then step content or acceptance-criterion text - a
+  // link preview is meant for status at a glance, not to leak a project's
+  // full test detail to whoever else can see the ticket it's pasted into.
+  getSharedSummary: publicProcedure
+    .input(z.object({ shareToken: z.string().min(1) }))
+    .output(testSummaryOutput.nullable())
+    .query(async ({ ctx, input }) => {
+      const requirement = await ctx.prisma.requirement.findUnique({ where: { shareToken: input.shareToken }, select: { id: true } });
+      if (!requirement) return null;
+      return computeRequirementTestSummary(ctx.prisma, requirement.id);
+    }),
 
   // 2026-08-27 competitor parity audit: draft-only, same review-before-save
   // shape as every other AI feature (P2-06, P4-02, P5-12) - nothing here

@@ -135,6 +135,12 @@ function SidebarLink({ href, label, exact = false }: { href: string; label: stri
 
 export function Sidebar() {
   const pathname = usePathname();
+
+  // /share is a public, unauthenticated preview surface (see middleware.ts) -
+  // an org-scoped sidebar would either render nothing useful or attempt
+  // authed tRPC calls that fail for a visitor with no session at all.
+  if (pathname.startsWith("/share")) return null;
+
   const projectId = projectIdFromPath(pathname);
 
   // /projects itself (the list/switcher's own destination) is org-level,

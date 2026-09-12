@@ -665,6 +665,21 @@ model Requirement {
   jiraStatusName String?
   jiraSyncedAt   DateTime?
 
+  // Direct request: make the Jira/Linear side of this integration
+  // genuinely informative about test status, not just a status-name sync -
+  // Zephyr's and TestRail's own ticket panels were named as the bar to
+  // clear (a bare "N test cases linked" link, no pass/fail, no risk
+  // context). A real Jira Forge app or Linear app-panel both need their
+  // own developer-account registration to ever run live (same category of
+  // gap as EAS/Apple/Google elsewhere) - what's genuinely deployable today
+  // with zero external app registration is a public link-preview
+  // ("unfurl"): Jira Smart Links and Linear's own link previews both
+  // render a rich Open Graph preview for any URL pasted into an issue,
+  // no app install required. shareToken is opt-in (null until a human
+  // explicitly generates one) and unguessable - nothing is exposed
+  // publicly by default, and generating a new one invalidates the old.
+  shareToken String? @unique
+
   acceptanceCriteria AcceptanceCriterion[]
 }
 
