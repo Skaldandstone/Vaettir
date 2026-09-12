@@ -80,6 +80,7 @@ export const projectRouter = router({
         slug: z.string(),
         repoUrl: z.string().nullable(),
         defaultBranch: z.string(),
+        pagerdutyServiceId: z.string().nullable(),
       }),
     )
     .query(async ({ ctx, input }) => {
@@ -95,6 +96,11 @@ export const projectRouter = router({
         name: z.string().min(1),
         repoUrl: z.string().optional(),
         defaultBranch: z.string().min(1),
+        // P9-04: undefined = leave unchanged; "" (or whitespace) explicitly
+        // clears it to null, never to an empty string - this column is
+        // @unique, and two projects both storing "" would collide on the
+        // very first project that ever clears it.
+        pagerdutyServiceId: z.string().optional(),
       }),
     )
     .output(z.object({ id: z.string(), name: z.string(), slug: z.string() }))
@@ -104,11 +110,23 @@ export const projectRouter = router({
         select: { organizationId: true },
       });
       requireOrgRole(ctx, existing.organizationId, "EDITOR");
-      return ctx.prisma.project.update({
-        where: { id: input.id },
-        data: { name: input.name, repoUrl: input.repoUrl, defaultBranch: input.defaultBranch },
-        select: { id: true, name: true, slug: true },
-      });
+      try {
+        return await ctx.prisma.project.update({
+          where: { id: input.id },
+          data: {
+            name: input.name,
+            repoUrl: input.repoUrl,
+            defaultBranch: input.defaultBranch,
+            pagerdutyServiceId: input.pagerdutyServiceId === undefined ? undefined : input.pagerdutyServiceId.trim() || null,
+          },
+          select: { id: true, name: true, slug: true },
+        });
+      } catch (e) {
+        if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2002") {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "Another project is already configured with that PagerDuty service ID." });
+        }
+        throw e;
+      }
     }),
 
   // Deliberately ADMIN+ (not EDITOR, which can create). Every child relation

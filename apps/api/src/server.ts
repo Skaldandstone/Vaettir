@@ -20,6 +20,7 @@ import { getStripeRuntime } from "./services/stripeConfig.js";
 import { handleStripeWebhookEvent } from "./services/stripeBilling.js";
 import { exchangeGooglePlayCode } from "./services/productionSignalOAuth.js";
 import { encryptToken } from "./services/tokenEncryption.js";
+import { verifyPagerDutySignature, handlePagerDutyWebhook, type PagerDutyWebhookPayload } from "./services/pagerdutyWebhook.js";
 
 // P10-07: expected poller intervals, keyed by the same names each poller
 // calls recordHeartbeat with - the one place server.ts needs to know
@@ -131,6 +132,33 @@ async function registerStripeWebhookRoute(instance: FastifyInstance) {
     }
 
     const result = await handleStripeWebhookEvent(prisma, event);
+    return reply.send(result);
+  });
+}
+
+// P9-04: same raw-body-preserving pattern as registerGithubWebhookRoute -
+// PagerDuty's HMAC signature needs the exact bytes it signed, which
+// Fastify's default JSON parser would re-serialize and break. Always 200
+// (even when unhandled) - PagerDuty's own webhook delivery retry/alerting
+// shouldn't be confused by a deployment that simply hasn't configured this
+// service, or by an event type this pass doesn't act on.
+async function registerPagerDutyWebhookRoute(instance: FastifyInstance) {
+  instance.addContentTypeParser("application/json", { parseAs: "buffer" }, (_req, body, done) => {
+    done(null, body);
+  });
+
+  instance.post("/webhooks/pagerduty", async (req, reply) => {
+    const secret = process.env.PAGERDUTY_WEBHOOK_SECRET;
+    if (!secret) return reply.send({ handled: false, reason: "PagerDuty integration not configured on this deployment" });
+
+    const rawBody = req.body as Buffer;
+    const signature = req.headers["x-pagerduty-signature"] as string | undefined;
+    if (!verifyPagerDutySignature(rawBody, signature, secret)) {
+      return reply.code(401).send({ error: "invalid signature" });
+    }
+
+    const payload = JSON.parse(rawBody.toString("utf8")) as PagerDutyWebhookPayload;
+    const result = await handlePagerDutyWebhook(prisma, payload);
     return reply.send(result);
   });
 }
@@ -259,6 +287,7 @@ await server.register(registerGithubWebhookRoute);
 await server.register(registerGitlabWebhookRoute);
 await server.register(registerStripeWebhookRoute);
 await server.register(registerProductionSignalOAuthRoute);
+await server.register(registerPagerDutyWebhookRoute);
 
 // Mirrored under /api: the ALB/CloudFront path in front of this service
 // routes only /api/* here (the same domain also serves apps/web), so
@@ -280,6 +309,7 @@ await server.register(
     await instance.register(registerGitlabWebhookRoute);
     await instance.register(registerStripeWebhookRoute);
     await instance.register(registerProductionSignalOAuthRoute);
+    await instance.register(registerPagerDutyWebhookRoute);
   },
   { prefix: "/api" },
 );

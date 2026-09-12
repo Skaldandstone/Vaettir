@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import { trpcReact } from "@/lib/trpcReact";
 
@@ -37,6 +37,41 @@ export default function ProjectOverviewPage() {
       defaultBranch: project.defaultBranch,
     });
   }
+
+  // P9-04: routes an inbound PagerDuty incident.triggered webhook to this
+  // project - see server.ts's /webhooks/pagerduty and services/
+  // pagerdutyWebhook.ts. Configuring it here is what makes that routing
+  // possible at all; PagerDuty's own webhook payload carries a service id
+  // and nothing else Vaettir-specific to match against.
+  const [pagerdutyServiceId, setPagerdutyServiceId] = useState("");
+  const [pagerdutyError, setPagerdutyError] = useState<string | null>(null);
+  const pagerdutyMutation = trpcReact.project.update.useMutation({
+    onSuccess: () => {
+      setPagerdutyServiceId("");
+      void utils.project.byId.invalidate({ id: projectId });
+    },
+    onError: (e) => setPagerdutyError(e.message),
+  });
+
+  function savePagerdutyServiceId() {
+    const project = projectQuery.data;
+    if (!project) return;
+    setPagerdutyError(null);
+    pagerdutyMutation.mutate({
+      id: project.id,
+      name: project.name,
+      defaultBranch: project.defaultBranch,
+      pagerdutyServiceId,
+    });
+  }
+
+  // Seeds the input from the real saved value once it loads, so an
+  // untouched Save can't accidentally clear an already-configured id -
+  // clearing only happens if the user actually empties the field on
+  // purpose.
+  useEffect(() => {
+    if (projectQuery.data) setPagerdutyServiceId(projectQuery.data.pagerdutyServiceId ?? "");
+  }, [projectQuery.data]);
 
   const project = projectQuery.data;
   const testCaseCount = testCasesQuery.data?.length ?? null;
@@ -75,6 +110,27 @@ export default function ProjectOverviewPage() {
           </div>
         </div>
       )}
+
+      <div className="panel" style={{ marginBottom: 24 }}>
+        <strong>PagerDuty incident linkage</strong>
+        <p className="text-muted" style={{ fontSize: 13, margin: "4px 0 10px" }}>
+          {project.pagerdutyServiceId
+            ? `Connected to PagerDuty service ${project.pagerdutyServiceId}. A triggered incident on that service creates a risk flag on this project's most recently shipped release.`
+            : "Paste this project's PagerDuty Service ID to have a triggered incident automatically create a risk flag on the most recently shipped release."}
+        </p>
+        <div style={{ display: "flex", gap: 8 }}>
+          <input
+            value={pagerdutyServiceId}
+            onChange={(e) => setPagerdutyServiceId(e.target.value)}
+            placeholder="PXXXXXX"
+            style={{ flex: 1 }}
+          />
+          <button className="btn-secondary" onClick={savePagerdutyServiceId} disabled={pagerdutyMutation.isPending}>
+            {pagerdutyMutation.isPending ? "Saving…" : project.pagerdutyServiceId ? "Update" : "Connect"}
+          </button>
+        </div>
+        {pagerdutyError && <p style={{ color: "var(--ember)", fontSize: 13, marginTop: 6 }}>{pagerdutyError}</p>}
+      </div>
 
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: 16, marginBottom: 32 }}>
         <a href={`/projects/${projectId}/test-cases`} className="panel" style={{ display: "block" }}>

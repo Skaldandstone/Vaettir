@@ -202,6 +202,14 @@ model Project {
   // Null until a project has been scanned at least once.
   lastScannedCommitSha String?
 
+  // P9-04: routes an inbound PagerDuty incident.triggered webhook to this
+  // project - PagerDuty's webhook payload has no natural Vaettir-specific
+  // field to route by, so this mirrors how `repoUrl` already routes GitHub/
+  // GitLab webhooks: a value the customer looks up on the third-party side
+  // (their PagerDuty Service's id) and pastes in here. Unique since one
+  // PagerDuty service should only ever feed incidents into one project.
+  pagerdutyServiceId String? @unique
+
   testPlans                   TestPlan[]
   testCases                   TestCase[]
   sharedStepGroups            SharedStepGroup[]
@@ -1760,6 +1768,7 @@ enum RiskSource {
   FLAKY_TEST
   MANUAL_FLAG
   MISSING_COMPLIANCE_CONTROL
+  PRODUCTION_INCIDENT
 }
 
 // ---------------------------------------------------------------------------
