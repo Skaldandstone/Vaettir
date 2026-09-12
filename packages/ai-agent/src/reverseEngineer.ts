@@ -141,51 +141,60 @@ export interface ReverseEngineerInput {
 // parse describe/it nesting out of raw source itself. Falls straight back
 // to the raw-source prompt (unchanged from before this ticket) when there's
 // no evaluator for this family, or it returns null.
-function buildPromptContent(
+function buildRawSourcePrompt(
   filePath: string,
   heuristicLabel: string,
   heuristicFamily: import("@vaettir/core").FrameworkFamily,
   content: string,
   customFrameworkHint?: string,
 ): string {
-  const evaluator = getFrameworkEvaluator(heuristicFamily);
-  const extracted = evaluator?.extract(content, filePath);
+  const hintText = customFrameworkHint
+    ? `\nA structural pattern was previously learned for this project's custom framework:\n${customFrameworkHint}\n`
+    : "";
+  return `File path: ${filePath}\nHeuristically detected framework: ${heuristicLabel} (${heuristicFamily})\n${hintText}\n---\n${content}\n---\n\nReverse-engineer this into BDD test cases.`;
+}
 
-  if (!extracted) {
-    const hintText = customFrameworkHint
-      ? `\nA structural pattern was previously learned for this project's custom framework:\n${customFrameworkHint}\n`
-      : "";
-    return `File path: ${filePath}\nHeuristically detected framework: ${heuristicLabel} (${heuristicFamily})\n${hintText}\n---\n${content}\n---\n\nReverse-engineer this into BDD test cases.`;
-  }
-
-  const blocksText = extracted.testBlocks
+function buildBlocksPrompt(
+  filePath: string,
+  heuristicLabel: string,
+  heuristicFamily: import("@vaettir/core").FrameworkFamily,
+  blocks: import("@vaettir/core").ExtractedTestBlock[],
+  chunkNote: string,
+): string {
+  const blocksText = blocks
     .map(
       (b, i) =>
         `Test block ${i + 1}: "${b.title}"\n${b.assertions.length > 0 ? `Assertions found:\n${b.assertions.map((a) => `  - ${a}`).join("\n")}\n` : ""}Body:\n${b.bodySnippet}`,
     )
     .join("\n\n---\n\n");
 
-  return `File path: ${filePath}\nDetected framework: ${heuristicLabel} (${heuristicFamily})\n\nThe following test blocks were deterministically extracted from this file (do not re-derive structure -- it's already parsed; focus on phrasing each as a clear BDD test case):\n\n${blocksText}\n\nReverse-engineer these into BDD test cases, one per test block.`;
+  return `File path: ${filePath}\nDetected framework: ${heuristicLabel} (${heuristicFamily})${chunkNote}\n\nThe following test blocks were deterministically extracted from this file (do not re-derive structure -- it's already parsed; focus on phrasing each as a clear BDD test case):\n\n${blocksText}\n\nReverse-engineer these into BDD test cases, one per test block.`;
 }
 
-export async function reverseEngineerTestFile(
-  input: ReverseEngineerInput,
-): Promise<ReverseEngineerResult> {
-  const heuristic = detectFramework(input.filePath, input.content);
+// P2-09: a file whose evaluator-extracted block count is large enough to
+// risk an unreliable/truncated single response gets split into batches of
+// this many blocks, each its own Anthropic call. This is the "natural
+// chunking unit" ROADMAP.md's P2-09 note identified -- test blocks, not
+// raw byte offsets, since a byte-boundary split could sever a block mid-body.
+// Only usable when a native evaluator actually extracted blocks (P5-07/08/09);
+// a raw-source-only framework has no safe unit to split on and is not chunked.
+const MAX_BLOCKS_PER_CALL = 15;
 
-  const message = await traceAnthropicCall("reverseEngineerTestFile", MODEL, () =>
+function chunkBlocks<T>(items: T[], size: number): T[][] {
+  const chunks: T[][] = [];
+  for (let i = 0; i < items.length; i += size) chunks.push(items.slice(i, i + size));
+  return chunks;
+}
+
+async function callAgent(operation: string, promptContent: string): Promise<import("@vaettir/core").ReverseEngineeredTestCase[]> {
+  const message = await traceAnthropicCall(operation, MODEL, () =>
     getClient().messages.create({
       model: MODEL,
       max_tokens: 4096,
       system: SYSTEM_PROMPT,
       tools: [EMIT_TEST_CASES_TOOL],
       tool_choice: { type: "tool", name: "emit_test_cases" },
-      messages: [
-        {
-          role: "user",
-          content: buildPromptContent(input.filePath, heuristic.label, heuristic.family, input.content, input.customFrameworkHint),
-        },
-      ],
+      messages: [{ role: "user", content: promptContent }],
     }),
   );
 
@@ -195,6 +204,16 @@ export async function reverseEngineerTestFile(
   if (!toolUse) {
     throw new Error("Agent did not return a tool_use block");
   }
+  const { testCases } = AgentResponseSchema.parse(normalizeToolUseInput(toolUse.input));
+  return testCases;
+}
+
+export async function reverseEngineerTestFile(
+  input: ReverseEngineerInput,
+): Promise<ReverseEngineerResult> {
+  const heuristic = detectFramework(input.filePath, input.content);
+  const evaluator = getFrameworkEvaluator(heuristic.family);
+  const extracted = evaluator?.extract(input.content, input.filePath);
 
   // detectedFramework/detectedFrameworkFamily used to be part of what we
   // asked the model to emit, but that was unreliable in practice: the model
@@ -205,7 +224,30 @@ export async function reverseEngineerTestFile(
   // heuristics -- there's no reason to ask the LLM to guess something we
   // can derive precisely, so the heuristic result is the source of truth
   // here, not the model's output.
-  const { testCases } = AgentResponseSchema.parse(normalizeToolUseInput(toolUse.input));
+  let testCases: import("@vaettir/core").ReverseEngineeredTestCase[];
+
+  if (extracted && extracted.testBlocks.length > MAX_BLOCKS_PER_CALL) {
+    // P2-09: chunked path. Each batch is its own real Anthropic call, traced
+    // under the same operation name -- captureAiUsage's AsyncLocalStorage
+    // scope (tracing.ts) sums all of them into one usage total for whichever
+    // caller wrapped this whole function call, so billing sees one real
+    // aggregate cost across N requests, not N separate charges.
+    const batches = chunkBlocks(extracted.testBlocks, MAX_BLOCKS_PER_CALL);
+    testCases = [];
+    for (let i = 0; i < batches.length; i += 1) {
+      const batch = batches[i]!;
+      const chunkNote = ` (batch ${i + 1} of ${batches.length}, blocks ${i * MAX_BLOCKS_PER_CALL + 1}-${i * MAX_BLOCKS_PER_CALL + batch.length} of ${extracted.testBlocks.length})`;
+      const prompt = buildBlocksPrompt(input.filePath, heuristic.label, heuristic.family, batch, chunkNote);
+      const batchCases = await callAgent("reverseEngineerTestFile", prompt);
+      testCases.push(...batchCases);
+    }
+  } else {
+    const prompt = extracted
+      ? buildBlocksPrompt(input.filePath, heuristic.label, heuristic.family, extracted.testBlocks, "")
+      : buildRawSourcePrompt(input.filePath, heuristic.label, heuristic.family, input.content, input.customFrameworkHint);
+    testCases = await callAgent("reverseEngineerTestFile", prompt);
+  }
+
   const result: ReverseEngineerResult = {
     detectedFramework: heuristic.label,
     detectedFrameworkFamily: heuristic.family,

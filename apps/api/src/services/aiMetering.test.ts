@@ -58,9 +58,17 @@ describe("captureAiUsage", () => {
   });
 });
 
-function fakePrisma() {
-  const update = vi.fn().mockResolvedValue({});
-  return { prisma: { aiCreditTransaction: { update } } as unknown as PrismaClient, update };
+// amount is negative (the flat pre-charge, a CONSUMPTION deduction) --
+// matches the real row shape meterAiCall reads back via `select` to compute
+// the reconciliation adjustment.
+function fakePrisma(row: { organizationId?: string; amount?: number; operation?: string | null } = {}) {
+  const update = vi.fn().mockResolvedValue({
+    organizationId: row.organizationId ?? "org_1",
+    amount: row.amount ?? -6,
+    operation: row.operation ?? "reverseEngineerTestFile",
+  });
+  const create = vi.fn().mockResolvedValue({});
+  return { prisma: { aiCreditTransaction: { update, create } } as unknown as PrismaClient, update, create };
 }
 
 describe("meterAiCall", () => {
@@ -76,11 +84,47 @@ describe("meterAiCall", () => {
     expect(update).toHaveBeenCalledWith({
       where: { id: "tx_1" },
       data: { inputTokens: 1200, outputTokens: 340, aiCalls: 1, model: "claude-x" },
+      select: { organizationId: true, amount: true, operation: true },
     });
   });
 
+  it("refunds the difference (positive ADJUSTMENT) when real usage cost less than the flat pre-charge", async () => {
+    // flat pre-charge 6 credits; real usage here is tiny -- well under 6.
+    const { prisma, create } = fakePrisma({ amount: -6 });
+    await meterAiCall(prisma, charge, async () => {
+      await fakeAnthropicCall(100, 20); // ~0.03 + 0.03 = 0.06 -> ceil to 1 credit
+      return "ok";
+    });
+    expect(create).toHaveBeenCalledWith({
+      data: expect.objectContaining({ organizationId: "org_1", type: "ADJUSTMENT", amount: 5, operation: "reverseEngineerTestFile" }),
+    });
+  });
+
+  it("charges more (negative ADJUSTMENT) when real usage cost exceeded the flat pre-charge", async () => {
+    // flat pre-charge 2 credits; 10,000 input tokens at 0.0003 credits/token
+    // = exactly 3 credits real cost -- more than the flat pre-charge.
+    const { prisma, create } = fakePrisma({ amount: -2, operation: "assessTestCaseRisk" });
+    await meterAiCall(prisma, charge, async () => {
+      await fakeAnthropicCall(10_000, 0);
+      return "ok";
+    });
+    expect(create).toHaveBeenCalledWith({
+      data: expect.objectContaining({ type: "ADJUSTMENT", amount: -1, operation: "assessTestCaseRisk" }),
+    });
+  });
+
+  it("writes no adjustment when the real cost exactly matches the flat pre-charge", async () => {
+    // 1 credit flat; a tiny real call also rounds up to exactly 1 credit.
+    const { prisma, create } = fakePrisma({ amount: -1 });
+    await meterAiCall(prisma, charge, async () => {
+      await fakeAnthropicCall(1, 1);
+      return "ok";
+    });
+    expect(create).not.toHaveBeenCalled();
+  });
+
   it("leaves the row untouched when the AI call throws", async () => {
-    const { prisma, update } = fakePrisma();
+    const { prisma, update, create } = fakePrisma();
     await expect(
       meterAiCall(prisma, charge, async () => {
         await fakeAnthropicCall(1, 1);
@@ -88,6 +132,7 @@ describe("meterAiCall", () => {
       }),
     ).rejects.toThrow("upstream failure");
     expect(update).not.toHaveBeenCalled();
+    expect(create).not.toHaveBeenCalled();
   });
 
   it("skips the write when no Anthropic request ran", async () => {
@@ -102,6 +147,19 @@ describe("meterAiCall", () => {
     const errorSpy = vi.spyOn(console, "error").mockImplementation(() => undefined);
     const out = await meterAiCall(prisma, charge, async () => {
       await fakeAnthropicCall(1, 1);
+      return "still fine";
+    });
+    expect(out).toBe("still fine");
+    expect(errorSpy).toHaveBeenCalled();
+    errorSpy.mockRestore();
+  });
+
+  it("never turns a successful AI call into a failure if the adjustment write fails", async () => {
+    const { prisma, create } = fakePrisma({ amount: -6 });
+    (create as ReturnType<typeof vi.fn>).mockRejectedValue(new Error("db down"));
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const out = await meterAiCall(prisma, charge, async () => {
+      await fakeAnthropicCall(100, 20);
       return "still fine";
     });
     expect(out).toBe("still fine");

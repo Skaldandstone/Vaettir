@@ -1,16 +1,23 @@
 import type { PrismaClient } from "@vaettir/db";
 import { captureAiUsage } from "@vaettir/ai-agent";
 
-// Flat per-operation costs rather than exact token metering. As of P12-12
-// the real token usage of every call IS recorded on the CONSUMPTION row
-// (see meterAiCall below) - but it is recorded only, not charged: switching
-// what's charged from these estimates to actual tokens is a pricing
-// decision to make once that data has accumulated (see PRICING.md).
-// Each cost below is a conservative
-// (roughly 2x headroom over a single-shot estimate, to absorb retries and
-// longer-than-typical inputs) credits-per-call figure, sized so 1 credit
-// ~= $0.01 of underlying Claude API spend -- see PRICING.md for the actual
-// token/cost math behind each number.
+// Flat per-operation costs, charged up front as a pre-authorization: the
+// balance has to be checked and something charged before the AI call runs
+// (its real cost isn't known yet), so this stays the affordability gate.
+// As of this pass (P2-09/P12-12), the flat charge is reconciled to the
+// call's REAL metered cost afterward via an ADJUSTMENT transaction (see
+// meterAiCall below) -- so what an org's balance actually reflects is real
+// usage, not the flat estimate. The conversion rate is a guestimate pending
+// a real pricing audit (see PRICING.md's "1 credit ~= $0.01" section and the
+// $3/M-input, $15/M-output assumed Claude Sonnet-class rate it documents) -
+// intentionally not exact yet, per the explicit go-ahead to wire this now
+// and audit the real numbers once usage data has accumulated.
+// Each flat cost below is a conservative (roughly 2x headroom over a
+// single-shot estimate, to absorb retries and longer-than-typical inputs)
+// credits-per-call figure, sized so 1 credit ~= $0.01 of underlying Claude
+// API spend -- see PRICING.md for the actual token/cost math behind each
+// number. These now function as the pre-charge/affordability floor, not the
+// final charge.
 export const AI_OPERATION_COSTS = {
   reverseEngineerTestFile: 6,
   inferCustomFrameworkHeuristic: 3,
@@ -78,19 +85,46 @@ export async function chargeAiCredits(
   return { transactionId: tx.id };
 }
 
-// P12-12: runs the AI call that a chargeAiCredits() row paid for, and
-// stamps the row with what it really cost upstream (tokens, request
-// count, model) once it completes. The stamp is best-effort and happens
-// after the result is in hand: a failed usage write must never turn a
-// successful AI call into a failed request, so it is caught and reported
-// rather than thrown. If the AI call itself throws, nothing is stamped -
-// the row keeps its flat charge with null usage, which is exactly the
-// "charged but failed" signal the pricing review will want to see.
+// Guestimate conversion from real token usage to credits, matching
+// PRICING.md's assumed Claude Sonnet-class rate ($3/M input tokens, $15/M
+// output tokens) at $0.01/credit. Explicitly a guestimate pending a real
+// pricing audit once usage data has accumulated -- not exact per-model
+// pricing, and not adjusted per the `model` field actually charged.
+const CREDITS_PER_INPUT_TOKEN = 3 / 1_000_000 / 0.01;
+const CREDITS_PER_OUTPUT_TOKEN = 15 / 1_000_000 / 0.01;
+
+// Rounds up: undercharging every call by a fraction of a credit compounds
+// over volume in the org's favor and ours against; overcharging by at most
+// one credit per call does not. Rounded to 6 decimal places before ceiling
+// -- 0.0003/0.0015 aren't exactly representable in binary floating point, so
+// a "should be exactly 3.0" result can land at 3.0000000000000004 and get
+// ceiling'd to 4, silently overcharging by a full credit on otherwise-exact
+// inputs. A real, reproducible bug caught while writing this function's own
+// tests, not a theoretical one.
+function realCostCredits(usage: { inputTokens: number; outputTokens: number }): number {
+  const raw = usage.inputTokens * CREDITS_PER_INPUT_TOKEN + usage.outputTokens * CREDITS_PER_OUTPUT_TOKEN;
+  return Math.ceil(Math.round(raw * 1_000_000) / 1_000_000);
+}
+
+// Runs the AI call that a chargeAiCredits() row pre-authorized, stamps the
+// row with what it really cost upstream (tokens, request count, model), and
+// reconciles the flat pre-charge to that real cost via a separate
+// ADJUSTMENT transaction -- a refund (positive amount) when the real cost
+// came in under the flat estimate, an extra deduction (negative amount)
+// when it ran over. This is what makes the org's actual balance track real
+// usage instead of the flat per-operation guess, per P12-12's own note that
+// the flat charge was "recorded only" pending this exact reconciliation.
+// Both the stamp and the adjustment are best-effort and happen after the
+// result is in hand: a failed usage write or adjustment must never turn a
+// successful AI call into a failed request, so both are caught and reported
+// rather than thrown. If the AI call itself throws, nothing is stamped or
+// adjusted -- the row keeps its flat charge with null usage, which is
+// exactly the "charged but failed" signal the pricing review wants to see.
 export async function meterAiCall<T>(prisma: PrismaClient, charge: AiCharge, fn: () => Promise<T>): Promise<T> {
   const { result, usage } = await captureAiUsage(fn);
   if (usage.calls > 0) {
     try {
-      await prisma.aiCreditTransaction.update({
+      const row = await prisma.aiCreditTransaction.update({
         where: { id: charge.transactionId },
         data: {
           inputTokens: usage.inputTokens,
@@ -98,9 +132,24 @@ export async function meterAiCall<T>(prisma: PrismaClient, charge: AiCharge, fn:
           aiCalls: usage.calls,
           model: usage.model,
         },
+        select: { organizationId: true, amount: true, operation: true },
       });
+      const flatCharge = -row.amount; // row.amount is negative (a CONSUMPTION deduction)
+      const realCost = realCostCredits(usage);
+      const adjustment = flatCharge - realCost; // positive = refund, negative = extra charge
+      if (adjustment !== 0) {
+        await prisma.aiCreditTransaction.create({
+          data: {
+            organizationId: row.organizationId,
+            type: "ADJUSTMENT",
+            amount: adjustment,
+            operation: row.operation,
+            description: `Reconciling flat charge (${flatCharge}) to real usage cost (${realCost}) for ${row.operation}`,
+          },
+        });
+      }
     } catch (e) {
-      console.error(`[aiCredits] failed to record token usage on ${charge.transactionId}:`, e);
+      console.error(`[aiCredits] failed to record/reconcile token usage on ${charge.transactionId}:`, e);
     }
   }
   return result;

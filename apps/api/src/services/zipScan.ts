@@ -10,7 +10,10 @@ import { hashFileContent, type ScannedTestFile } from "./repoScan.js";
 // (P2-05's equivalent) -- every upload is effectively a "first scan" of
 // whatever's in the archive.
 const MAX_FILES = 25;
-const MAX_FILE_BYTES = 100 * 1024;
+// P2-09: see repoScan.ts's identical comment -- reverseEngineerTestFile now
+// chunks large files by evaluator-extracted test block, so this only guards
+// against a pathological single entry, not an ordinary large real file.
+const MAX_FILE_BYTES = 2 * 1024 * 1024;
 const MAX_ZIP_BYTES = 10 * 1024 * 1024;
 
 const IGNORED_DIRS = new Set(["node_modules", ".git", "dist", "build", ".next", ".turbo", "vendor", "venv", ".venv"]);

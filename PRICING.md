@@ -73,13 +73,24 @@ credit's *sale* price.
 
 ### Per-operation costs (`AI_OPERATION_COSTS` in `services/aiCredits.ts`)
 
-Flat cost per call, not exact token metering. **Since 2026-09-10 (P12-12)
-the real token usage of every call is recorded** on its `AiCreditTransaction`
-row (`inputTokens`/`outputTokens`/`aiCalls`/`model`, visible in the org
-settings "AI credits" table) - but it is recorded only; what's *charged* is
-still the flat figure below until that data has been reviewed. Each figure is a single-shot token estimate for that operation
-type, roughly doubled for headroom (retries, longer-than-typical input),
-then converted to credits at $0.01/credit:
+The flat figures below are charged up front, as a pre-authorization: the
+org's balance has to be checked and something charged before the AI call
+runs, since its real cost isn't known yet. **As of 2026-09-12 that flat
+charge is reconciled to the call's real metered cost afterward** via a
+separate `ADJUSTMENT` transaction (`meterAiCall` in `services/aiCredits.ts`)
+- a refund when the real cost came in under the flat estimate, an extra
+charge when it ran over - so an org's actual balance now tracks real usage,
+not the flat guess. The real-usage conversion rate itself
+(`CREDITS_PER_INPUT_TOKEN`/`CREDITS_PER_OUTPUT_TOKEN` in that same file) is
+the same $3/M-input, $15/M-output, $0.01/credit assumption this document
+already documents above - explicitly a guestimate, wired now on direct
+instruction to get real usage-based billing running rather than wait for a
+full pricing audit, with the expectation that the real audit happens once
+real usage data has accumulated (the `inputTokens`/`outputTokens`/`aiCalls`/
+`model` columns this recorded since P12-12 are exactly the data that audit
+needs). Each flat pre-charge figure below is a single-shot token estimate
+for that operation type, roughly doubled for headroom (retries,
+longer-than-typical input), then converted to credits at $0.01/credit:
 
 | Operation | Est. input tokens | Est. output tokens | Raw cost | Credits charged |
 |---|---|---|---|---|

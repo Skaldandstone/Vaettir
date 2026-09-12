@@ -33,7 +33,12 @@ export function assertScannableRepoUrl(repoUrl: string): void {
 
 const IGNORED_DIRS = new Set(["node_modules", ".git", "dist", "build", ".next", ".turbo", "vendor", "venv", ".venv"]);
 const MAX_FILES = 25;
-const MAX_FILE_BYTES = 100 * 1024;
+// P2-09: this used to be the sole guard against an oversized file blowing up
+// a single LLM call -- now reverseEngineerTestFile itself chunks large files
+// by evaluator-extracted test block, so this only needs to guard against a
+// genuinely pathological file (a generated fixture/snapshot masquerading as
+// a test file, per the comment below), not ordinary "large but real" files.
+const MAX_FILE_BYTES = 2 * 1024 * 1024;
 
 export interface ScannedTestFile {
   relativePath: string;
