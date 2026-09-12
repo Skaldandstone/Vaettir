@@ -6,6 +6,7 @@ import { commitImportedTestCases } from "../services/importCommit.js";
 import { parseXrayExport } from "../services/xrayImport.js";
 import { parseTestRailXml } from "../services/testrailImport.js";
 import { scanQTestProject } from "../services/qtestImport.js";
+import { scanZephyrProject } from "../services/zephyrImport.js";
 
 const fieldMappingSchema = z.record(z.enum(TARGET_FIELDS), z.string()).refine((m) => Boolean(m.title), {
   message: 'The "title" field must be mapped to a CSV column',
@@ -413,6 +414,89 @@ export const importJobsRouter = router({
         fieldMapping: { format: "qtest-api", qtestProjectId: String(input.qtestProjectId) },
         keyPrefix: "qtest",
         framework: "qtest",
+        testPlanId: input.testPlanId,
+      });
+    }),
+
+  // P11-04: Zephyr Scale Cloud, same live-REST-API shape as qTest above -
+  // a fixed API host, so the connection input is just a personal API
+  // token + project key, no instance URL and no SSRF guard needed. Never
+  // persisted, same one-shot-input reasoning as qTest's connection.
+  previewZephyr: protectedProcedure
+    .input(z.object({ projectId: z.string(), apiToken: z.string().min(1), zephyrProjectKey: z.string().min(1) }))
+    .output(
+      z.object({
+        format: z.literal("zephyr-api"),
+        caseCount: z.number(),
+        previewRows: z.array(filePreviewRow),
+        skipped: z.array(z.object({ rowNumber: z.number(), reason: z.string() })),
+      }),
+    )
+    .query(async ({ ctx, input }) => {
+      await requireProjectAccess(ctx, input.projectId);
+      let scan;
+      try {
+        scan = await scanZephyrProject({ apiToken: input.apiToken }, input.zephyrProjectKey);
+      } catch (e) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: e instanceof Error ? e.message : String(e) });
+      }
+      return {
+        format: "zephyr-api" as const,
+        caseCount: scan.cases.length,
+        previewRows: scan.cases.slice(0, 20).map(toFilePreviewRow),
+        skipped: scan.skipped,
+      };
+    }),
+
+  commitZephyr: protectedProcedure
+    .input(
+      z.object({
+        projectId: z.string(),
+        apiToken: z.string().min(1),
+        zephyrProjectKey: z.string().min(1),
+        testPlanId: z.string().optional(),
+        sourceLabel: z.string().optional(),
+      }),
+    )
+    .output(
+      z.object({
+        importJobId: z.string(),
+        createdCount: z.number(),
+        updatedCount: z.number(),
+        skipped: z.array(z.object({ rowNumber: z.number(), reason: z.string() })),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const { project } = await requireProjectAccess(ctx, input.projectId, "EDITOR");
+      let scan;
+      try {
+        scan = await scanZephyrProject({ apiToken: input.apiToken }, input.zephyrProjectKey);
+      } catch (e) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: e instanceof Error ? e.message : String(e) });
+      }
+      return commitImportedTestCases(ctx.prisma, {
+        projectId: input.projectId,
+        organizationId: project.organizationId,
+        actorId: ctx.user.id,
+        rows: scan.cases.map((c) => ({
+          rowNumber: c.rowNumber,
+          title: c.title,
+          background: c.background,
+          given: c.given,
+          when: c.when,
+          then: c.then,
+          priority: c.priority,
+          tags: c.tags,
+          suitePath: c.suitePath,
+          externalId: c.key,
+          steps: c.steps,
+        })),
+        skipped: scan.skipped,
+        source: "ZEPHYR",
+        sourceLabel: input.sourceLabel,
+        fieldMapping: { format: "zephyr-api", zephyrProjectKey: input.zephyrProjectKey },
+        keyPrefix: "zephyr",
+        framework: "zephyr",
         testPlanId: input.testPlanId,
       });
     }),

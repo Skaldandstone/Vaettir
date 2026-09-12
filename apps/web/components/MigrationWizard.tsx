@@ -16,7 +16,7 @@ import { trpcReact, type RouterOutputs } from "@/lib/trpcReact";
 // report, with a "start over" at every step. No new backend logic - this is
 // purely the orchestration layer the ticket asked for.
 
-type Source = "csv" | "testrail" | "xray" | "qtest";
+type Source = "csv" | "testrail" | "xray" | "qtest" | "zephyr";
 type Step = "source" | "upload" | "review" | "done";
 
 const TARGET_FIELDS = ["title", "given", "when", "then", "priority", "tags", "externalId"] as const;
@@ -50,6 +50,11 @@ const SOURCE_INFO: Record<Source, { label: string; blurb: string; accept: string
   qtest: {
     label: "qTest",
     blurb: "Connect directly with your qTest instance URL and a personal API token - no file needed.",
+    accept: "",
+  },
+  zephyr: {
+    label: "Zephyr Scale",
+    blurb: "Connect directly with a Zephyr Scale Cloud personal API token and your Jira project key - no file needed.",
     accept: "",
   },
 };
@@ -101,10 +106,16 @@ export function MigrationWizard({ projectId, onCommitted }: { projectId: string;
   const [qtestApiToken, setQtestApiToken] = useState("");
   const [qtestProjectId, setQtestProjectId] = useState("");
 
+  // Zephyr Scale-only connection state - same one-shot-input reasoning as
+  // qTest's, but no instance URL (Zephyr Scale Cloud's API host is fixed).
+  const [zephyrApiToken, setZephyrApiToken] = useState("");
+  const [zephyrProjectKey, setZephyrProjectKey] = useState("");
+
   const commitCsvMutation = trpcReact.importJobs.commitCsv.useMutation();
   const commitXrayMutation = trpcReact.importJobs.commitXray.useMutation();
   const commitTestRailMutation = trpcReact.importJobs.commitTestRail.useMutation();
   const commitQTestMutation = trpcReact.importJobs.commitQTest.useMutation();
+  const commitZephyrMutation = trpcReact.importJobs.commitZephyr.useMutation();
 
   function reset() {
     setStep("source");
@@ -121,6 +132,8 @@ export function MigrationWizard({ projectId, onCommitted }: { projectId: string;
     setQtestBaseUrl("");
     setQtestApiToken("");
     setQtestProjectId("");
+    setZephyrApiToken("");
+    setZephyrProjectKey("");
   }
 
   function chooseSource(s: Source) {
@@ -199,6 +212,31 @@ export function MigrationWizard({ projectId, onCommitted }: { projectId: string;
     }
   }
 
+  async function connectZephyr() {
+    if (!zephyrApiToken.trim() || !zephyrProjectKey.trim()) return;
+    setError(null);
+    setLoading(true);
+    try {
+      const res = await utils.importJobs.previewZephyr.fetch({
+        projectId,
+        apiToken: zephyrApiToken.trim(),
+        zephyrProjectKey: zephyrProjectKey.trim(),
+      });
+      setFilePreview({
+        format: res.format,
+        formatLabel: "Zephyr Scale project",
+        caseCount: res.caseCount,
+        previewRows: res.previewRows,
+        skipped: res.skipped,
+      });
+      setStep("review");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setLoading(false);
+    }
+  }
+
   async function updateMapping(field: TargetField, column: string) {
     const next = { ...mapping, [field]: column || undefined };
     setMapping(next);
@@ -240,7 +278,7 @@ export function MigrationWizard({ projectId, onCommitted }: { projectId: string;
         res = await commitXrayMutation.mutateAsync({ projectId, content: rawContent, sourceLabel: fileName || undefined });
       } else if (source === "testrail") {
         res = await commitTestRailMutation.mutateAsync({ projectId, content: rawContent, sourceLabel: fileName || undefined });
-      } else {
+      } else if (source === "qtest") {
         const parsedProjectId = Number(qtestProjectId);
         if (!Number.isFinite(parsedProjectId)) return;
         res = await commitQTestMutation.mutateAsync({
@@ -249,6 +287,13 @@ export function MigrationWizard({ projectId, onCommitted }: { projectId: string;
           apiToken: qtestApiToken.trim(),
           qtestProjectId: parsedProjectId,
           sourceLabel: `qTest project ${qtestProjectId}`,
+        });
+      } else {
+        res = await commitZephyrMutation.mutateAsync({
+          projectId,
+          apiToken: zephyrApiToken.trim(),
+          zephyrProjectKey: zephyrProjectKey.trim(),
+          sourceLabel: `Zephyr project ${zephyrProjectKey}`,
         });
       }
       setResult(res);
@@ -260,7 +305,11 @@ export function MigrationWizard({ projectId, onCommitted }: { projectId: string;
   }
 
   const committing =
-    commitCsvMutation.isPending || commitXrayMutation.isPending || commitTestRailMutation.isPending || commitQTestMutation.isPending;
+    commitCsvMutation.isPending ||
+    commitXrayMutation.isPending ||
+    commitTestRailMutation.isPending ||
+    commitQTestMutation.isPending ||
+    commitZephyrMutation.isPending;
   const stepNumber = { source: 1, upload: 2, review: 3, done: 4 }[step];
   const totalSteps = 4;
 
@@ -283,7 +332,7 @@ export function MigrationWizard({ projectId, onCommitted }: { projectId: string;
           <p className="text-muted" style={{ fontSize: 13 }}>
             Where is your test case data coming from?
           </p>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 12, maxWidth: 620 }}>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12, maxWidth: 720 }}>
             {(Object.keys(SOURCE_INFO) as Source[]).map((s) => (
               <button
                 key={s}
@@ -307,7 +356,7 @@ export function MigrationWizard({ projectId, onCommitted }: { projectId: string;
         </>
       )}
 
-      {step === "upload" && source && source !== "qtest" && (
+      {step === "upload" && source && source !== "qtest" && source !== "zephyr" && (
         <>
           <p className="text-muted" style={{ fontSize: 13 }}>
             {SOURCE_INFO[source].blurb}
@@ -360,6 +409,39 @@ export function MigrationWizard({ projectId, onCommitted }: { projectId: string;
           <button
             onClick={connectQTest}
             disabled={loading || !qtestBaseUrl.trim() || !qtestApiToken.trim() || !qtestProjectId.trim()}
+            style={{ marginTop: 4 }}
+          >
+            {loading ? "Connecting…" : "Connect and scan"}
+          </button>
+        </div>
+      )}
+
+      {step === "upload" && source === "zephyr" && (
+        <div style={{ display: "grid", gap: 8, maxWidth: 420 }}>
+          <p className="text-muted" style={{ fontSize: 13 }}>
+            {SOURCE_INFO.zephyr.blurb} Nothing is stored beyond this one import - the token isn&apos;t saved.
+          </p>
+          <label style={{ fontSize: 13 }}>
+            API token
+            <input
+              type="password"
+              value={zephyrApiToken}
+              onChange={(e) => setZephyrApiToken(e.target.value)}
+              style={{ width: "100%" }}
+            />
+          </label>
+          <label style={{ fontSize: 13 }}>
+            Jira project key
+            <input
+              value={zephyrProjectKey}
+              onChange={(e) => setZephyrProjectKey(e.target.value)}
+              placeholder="PROJ"
+              style={{ width: "100%" }}
+            />
+          </label>
+          <button
+            onClick={connectZephyr}
+            disabled={loading || !zephyrApiToken.trim() || !zephyrProjectKey.trim()}
             style={{ marginTop: 4 }}
           >
             {loading ? "Connecting…" : "Connect and scan"}
@@ -460,7 +542,10 @@ export function MigrationWizard({ projectId, onCommitted }: { projectId: string;
 
       {step === "review" && filePreview && source !== "csv" && (
         <div>
-          <h3 style={{ marginTop: 0 }}>Ready to import — {source === "qtest" ? `qTest project ${qtestProjectId}` : fileName}</h3>
+          <h3 style={{ marginTop: 0 }}>
+            Ready to import —{" "}
+            {source === "qtest" ? `qTest project ${qtestProjectId}` : source === "zephyr" ? `Zephyr project ${zephyrProjectKey}` : fileName}
+          </h3>
           <p className="text-muted" style={{ fontSize: 13 }}>
             Detected {filePreview.formatLabel} · {filePreview.caseCount} test case(s) will be imported
             {filePreview.skipped.length > 0 && `, ${filePreview.skipped.length} row(s) skipped`}. Nothing is written
@@ -505,7 +590,7 @@ export function MigrationWizard({ projectId, onCommitted }: { projectId: string;
           )}
           <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
             <button className="btn-secondary" onClick={() => setStep("upload")}>
-              {source === "qtest" ? "Change connection" : "Choose a different file"}
+              {source === "qtest" || source === "zephyr" ? "Change connection" : "Choose a different file"}
             </button>
             <button onClick={commit} disabled={committing || filePreview.caseCount === 0}>
               {committing ? "Importing…" : `Import ${filePreview.caseCount} test case(s)`}
