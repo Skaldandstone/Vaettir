@@ -23,6 +23,8 @@ import { encryptToken } from "./services/tokenEncryption.js";
 import { verifyPagerDutySignature, handlePagerDutyWebhook, type PagerDutyWebhookPayload } from "./services/pagerdutyWebhook.js";
 import { verifyLinearSignature, type LinearWebhookPayload } from "./services/linearApi.js";
 import { handleLinearWebhook } from "./services/linearWebhook.js";
+import { verifyJiraWebhookSecret, type JiraWebhookPayload } from "./services/jiraApi.js";
+import { handleJiraWebhook } from "./services/jiraWebhook.js";
 
 // P10-07: expected poller intervals, keyed by the same names each poller
 // calls recordHeartbeat with - the one place server.ts needs to know
@@ -198,6 +200,36 @@ async function registerLinearWebhookRoute(instance: FastifyInstance) {
   });
 }
 
+// P9-01: same per-org-URL routing as the Linear webhook route above, but
+// checked against a plain shared secret (a custom header value the
+// customer's own Jira Automation rule sends) rather than a computed
+// signature - Jira Cloud has no equivalent to Linear's/GitHub's/
+// PagerDuty's built-in signed webhooks for a plain REST-API integration,
+// see jiraApi.ts's file comment. No raw-body content-type parser needed
+// here (nothing here computes an HMAC over exact bytes - a plain header
+// compare works the same on the parsed body Fastify's default parser
+// already produces, matching GitLab's own webhook route).
+async function registerJiraWebhookRoute(instance: FastifyInstance) {
+  instance.post<{ Params: { organizationId: string }; Body: JiraWebhookPayload }>(
+    "/webhooks/jira/:organizationId",
+    async (req, reply) => {
+      const org = await prisma.organization.findUnique({
+        where: { id: req.params.organizationId },
+        select: { id: true, jiraWebhookSecret: true },
+      });
+      if (!org?.jiraWebhookSecret) return reply.send({ handled: false, reason: "Jira integration not configured for this organization" });
+
+      const secretHeader = req.headers["x-vaettir-jira-secret"] as string | undefined;
+      if (!verifyJiraWebhookSecret(secretHeader, org.jiraWebhookSecret)) {
+        return reply.code(401).send({ error: "invalid or missing X-Vaettir-Jira-Secret header" });
+      }
+
+      const result = await handleJiraWebhook(prisma, org.id, req.body);
+      return reply.send(result);
+    },
+  );
+}
+
 // SSE-180: the one genuinely new kind of route in this codebase - a
 // browser-facing OAuth redirect target, not a tRPC mutation and not a
 // server-to-server webhook. GOOGLE_PLAY only; Apple has no equivalent
@@ -324,6 +356,7 @@ await server.register(registerStripeWebhookRoute);
 await server.register(registerProductionSignalOAuthRoute);
 await server.register(registerPagerDutyWebhookRoute);
 await server.register(registerLinearWebhookRoute);
+await server.register(registerJiraWebhookRoute);
 
 // Mirrored under /api: the ALB/CloudFront path in front of this service
 // routes only /api/* here (the same domain also serves apps/web), so
@@ -347,6 +380,7 @@ await server.register(
     await instance.register(registerProductionSignalOAuthRoute);
     await instance.register(registerPagerDutyWebhookRoute);
     await instance.register(registerLinearWebhookRoute);
+    await instance.register(registerJiraWebhookRoute);
   },
   { prefix: "/api" },
 );

@@ -5,6 +5,7 @@ import { router, protectedProcedure, requireProjectAccess } from "../trpc.js";
 import { chargeAiCredits, InsufficientAiCreditsError, meterAiCall, type AiCharge } from "../services/aiCredits.js";
 import { scanRepoForRequirementDocs } from "../services/repoDocScan.js";
 import { fetchLinearIssue, getOrgLinearApiKey, LinearApiError, LinearNotConfiguredError } from "../services/linearApi.js";
+import { fetchJiraIssue, getOrgJiraConnection, JiraApiError, JiraNotConfiguredError } from "../services/jiraApi.js";
 
 const draftRequirementOutput = z.object({
   title: z.string(),
@@ -26,6 +27,9 @@ export const requirementsRouter = router({
           linearIssueId: z.string().nullable(),
           linearStatusName: z.string().nullable(),
           linearSyncedAt: z.date().nullable(),
+          jiraIssueKey: z.string().nullable(),
+          jiraStatusName: z.string().nullable(),
+          jiraSyncedAt: z.date().nullable(),
         }),
       ),
     )
@@ -45,6 +49,9 @@ export const requirementsRouter = router({
         linearIssueId: r.linearIssueId,
         linearStatusName: r.linearStatusName,
         linearSyncedAt: r.linearSyncedAt,
+        jiraIssueKey: r.jiraIssueKey,
+        jiraStatusName: r.jiraStatusName,
+        jiraSyncedAt: r.jiraSyncedAt,
       }));
     }),
 
@@ -178,6 +185,80 @@ export const requirementsRouter = router({
     return ctx.prisma.requirement.update({
       where: { id: input.requirementId },
       data: { linearStatusName: issue.stateName, linearSyncedAt: new Date() },
+    });
+  }),
+
+  // P9-01: same three-mutation shape as Linear's above, against Jira's
+  // Basic-auth REST API instead.
+  linkJiraIssue: protectedProcedure
+    .input(z.object({ requirementId: z.string(), jiraIssueKey: z.string().min(1) }))
+    .mutation(async ({ ctx, input }) => {
+      const existing = await ctx.prisma.requirement.findUniqueOrThrow({
+        where: { id: input.requirementId },
+        include: { project: { select: { id: true, organizationId: true } } },
+      });
+      await requireProjectAccess(ctx, existing.project.id, "EDITOR");
+
+      let conn;
+      try {
+        conn = await getOrgJiraConnection(ctx.prisma, existing.project.organizationId);
+      } catch (e) {
+        if (e instanceof JiraNotConfiguredError) throw new TRPCError({ code: "PRECONDITION_FAILED", message: e.message });
+        throw e;
+      }
+
+      let issue;
+      try {
+        issue = await fetchJiraIssue(conn, input.jiraIssueKey.trim());
+      } catch (e) {
+        if (e instanceof JiraApiError) throw new TRPCError({ code: "BAD_REQUEST", message: e.message });
+        throw e;
+      }
+
+      return ctx.prisma.requirement.update({
+        where: { id: input.requirementId },
+        data: { jiraIssueKey: issue.key, jiraStatusName: issue.statusName, jiraSyncedAt: new Date() },
+      });
+    }),
+
+  unlinkJiraIssue: protectedProcedure.input(z.object({ requirementId: z.string() })).mutation(async ({ ctx, input }) => {
+    const existing = await ctx.prisma.requirement.findUniqueOrThrow({ where: { id: input.requirementId }, select: { projectId: true } });
+    await requireProjectAccess(ctx, existing.projectId, "EDITOR");
+    return ctx.prisma.requirement.update({
+      where: { id: input.requirementId },
+      data: { jiraIssueKey: null, jiraStatusName: null, jiraSyncedAt: null },
+    });
+  }),
+
+  syncJiraStatus: protectedProcedure.input(z.object({ requirementId: z.string() })).mutation(async ({ ctx, input }) => {
+    const existing = await ctx.prisma.requirement.findUniqueOrThrow({
+      where: { id: input.requirementId },
+      include: { project: { select: { id: true, organizationId: true } } },
+    });
+    await requireProjectAccess(ctx, existing.project.id, "EDITOR");
+    if (!existing.jiraIssueKey) {
+      throw new TRPCError({ code: "BAD_REQUEST", message: "This requirement isn't linked to a Jira issue yet." });
+    }
+
+    let conn;
+    try {
+      conn = await getOrgJiraConnection(ctx.prisma, existing.project.organizationId);
+    } catch (e) {
+      if (e instanceof JiraNotConfiguredError) throw new TRPCError({ code: "PRECONDITION_FAILED", message: e.message });
+      throw e;
+    }
+
+    let issue;
+    try {
+      issue = await fetchJiraIssue(conn, existing.jiraIssueKey);
+    } catch (e) {
+      if (e instanceof JiraApiError) throw new TRPCError({ code: "BAD_REQUEST", message: e.message });
+      throw e;
+    }
+
+    return ctx.prisma.requirement.update({
+      where: { id: input.requirementId },
+      data: { jiraStatusName: issue.statusName, jiraSyncedAt: new Date() },
     });
   }),
 

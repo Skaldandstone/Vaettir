@@ -285,6 +285,81 @@ function LinearLinkControl({
   );
 }
 
+// P9-01: same shape as LinearLinkControl above, against Jira instead.
+function JiraLinkControl({
+  requirement,
+  onChanged,
+}: {
+  requirement: { id: string; jiraIssueKey: string | null; jiraStatusName: string | null; jiraSyncedAt: string | Date | null };
+  onChanged: () => void;
+}) {
+  const [issueKey, setIssueKey] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const linkMutation = trpcReact.requirements.linkJiraIssue.useMutation();
+  const unlinkMutation = trpcReact.requirements.unlinkJiraIssue.useMutation();
+  const syncMutation = trpcReact.requirements.syncJiraStatus.useMutation();
+
+  async function link() {
+    if (!issueKey.trim()) return;
+    setError(null);
+    try {
+      await linkMutation.mutateAsync({ requirementId: requirement.id, jiraIssueKey: issueKey.trim() });
+      setIssueKey("");
+      onChanged();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  }
+
+  async function unlink() {
+    await unlinkMutation.mutateAsync({ requirementId: requirement.id });
+    onChanged();
+  }
+
+  async function sync() {
+    setError(null);
+    try {
+      await syncMutation.mutateAsync({ requirementId: requirement.id });
+      onChanged();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  }
+
+  if (requirement.jiraIssueKey) {
+    return (
+      <div style={{ fontSize: 12, marginTop: 4 }}>
+        <span className="text-muted">
+          Jira {requirement.jiraIssueKey}
+          {requirement.jiraStatusName && <> · {requirement.jiraStatusName}</>}
+        </span>{" "}
+        <button style={{ fontSize: 11 }} onClick={sync} disabled={syncMutation.isPending}>
+          {syncMutation.isPending ? "Syncing…" : "Sync"}
+        </button>{" "}
+        <button className="btn-secondary" style={{ fontSize: 11 }} onClick={unlink}>
+          Unlink
+        </button>
+        {error && <span style={{ color: "var(--ember)" }}> {error}</span>}
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ display: "flex", gap: 6, marginTop: 4 }}>
+      <input
+        value={issueKey}
+        onChange={(e) => setIssueKey(e.target.value)}
+        placeholder="Jira issue, e.g. PROJ-123"
+        style={{ fontSize: 12, width: 160 }}
+      />
+      <button style={{ fontSize: 11 }} onClick={link} disabled={linkMutation.isPending || !issueKey.trim()}>
+        {linkMutation.isPending ? "Linking…" : "Link"}
+      </button>
+      {error && <span style={{ color: "var(--ember)", fontSize: 12 }}>{error}</span>}
+    </div>
+  );
+}
+
 // 2026-08-28: paste/upload a markdown spec doc, extract candidate
 // requirements from it. Two-step: paste content, then Extract fires the
 // real AI call and swaps into the same review list every extraction path
@@ -524,6 +599,7 @@ export default function RequirementsPage() {
             <div style={{ color: "var(--muted)", fontSize: 13 }}>{r.description}</div>
             <div style={{ fontSize: 12, color: "var(--muted-dim)" }}>{r.acceptanceCriteriaCount} linked acceptance criteria</div>
             <LinearLinkControl requirement={r} onChanged={reload} />
+            <JiraLinkControl requirement={r} onChanged={reload} />
             <button onClick={() => startEdit(r)} style={{ marginRight: 8, marginTop: 6 }}>
               Edit
             </button>

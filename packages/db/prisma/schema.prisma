@@ -103,6 +103,23 @@ model Organization {
   linearApiKeyAuthTag   String?
   linearWebhookSecret   String?
 
+  // P9-01: Jira integration - same shape as P9-02's Linear one above (a
+  // per-org third-party credential, encrypted; a per-org inbound webhook
+  // secret, plain), but two real differences from Jira Cloud's own auth
+  // model: Basic auth needs an email alongside the API token (not just the
+  // token alone), and Jira Cloud has no built-in signed-webhook mechanism
+  // for a non-Connect-app integration - real-time sync relies on a
+  // customer's own Jira Automation rule ("Send web request" with a custom
+  // header) carrying a plain shared secret, not a computed HMAC signature,
+  // so jiraWebhookSecret is checked the same way GitLab's own plain-token
+  // webhook already is (services/gitlabApi.ts's verifyGitlabToken).
+  jiraBaseUrl           String? // e.g. https://acme.atlassian.net
+  jiraEmail             String?
+  jiraEncryptedApiToken String?
+  jiraApiTokenIv        String?
+  jiraApiTokenAuthTag   String?
+  jiraWebhookSecret     String?
+
   projects             Project[]
   memberships          Membership[]
   invitations          Invitation[]
@@ -620,6 +637,12 @@ model Requirement {
   linearIssueId    String? // Linear's human-facing identifier, e.g. "ENG-123"
   linearStatusName String?
   linearSyncedAt   DateTime?
+
+  // P9-01: same shape, for Jira - a separate field rather than reusing
+  // linearIssueId/externalRef, for the same disambiguation reason.
+  jiraIssueKey   String? // e.g. "PROJ-123"
+  jiraStatusName String?
+  jiraSyncedAt   DateTime?
 
   acceptanceCriteria AcceptanceCriterion[]
 }

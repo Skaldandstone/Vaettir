@@ -279,6 +279,99 @@ function LinearIntegrationSection({ organizationId }: { organizationId: string }
   );
 }
 
+// P9-01: Jira's connection is three fields (base URL, email, API token)
+// saved together - see organization.ts's updateJiraConnection for why a
+// partial update isn't supported this pass. Real-time sync has no
+// signature to verify, just a shared secret the customer's own Jira
+// Automation rule sends in a custom header - the UI spells out the exact
+// payload shape they need to configure, since there's no fixed Jira
+// webhook envelope to point at.
+function JiraIntegrationSection({ organizationId }: { organizationId: string }) {
+  const utils = trpcReact.useUtils();
+  const orgQuery = trpcReact.organization.byId.useQuery({ id: organizationId });
+  const [baseUrl, setBaseUrl] = useState("");
+  const [email, setEmail] = useState("");
+  const [apiToken, setApiToken] = useState("");
+  const [webhookSecret, setWebhookSecret] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const connectionMutation = trpcReact.organization.updateJiraConnection.useMutation();
+  const webhookSecretMutation = trpcReact.organization.updateJiraWebhookSecret.useMutation();
+
+  function reload() {
+    void utils.organization.byId.invalidate({ id: organizationId });
+  }
+
+  async function saveConnection() {
+    setError(null);
+    try {
+      await connectionMutation.mutateAsync({ organizationId, baseUrl, email, apiToken });
+      setBaseUrl("");
+      setEmail("");
+      setApiToken("");
+      reload();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  }
+
+  async function saveWebhookSecret() {
+    setError(null);
+    try {
+      await webhookSecretMutation.mutateAsync({ organizationId, webhookSecret });
+      setWebhookSecret("");
+      reload();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  }
+
+  const org = orgQuery.data;
+  if (!org) return null;
+
+  return (
+    <div className="panel" style={{ marginTop: 24 }}>
+      <h2 style={{ marginTop: 0 }}>Jira integration</h2>
+      <p className="text-muted" style={{ fontSize: 13 }}>
+        Link requirements to Jira issues and pull their status back. Create an API token in your Atlassian account
+        (id.atlassian.com → Security → API tokens) and enter it below with your Jira site URL and account email.
+      </p>
+      <div style={{ display: "grid", gap: 12, maxWidth: 480 }}>
+        <div>
+          <label style={{ fontSize: 13 }}>
+            Connection {org.jiraConfigured && <span style={{ color: "var(--frost)" }}>(configured{org.jiraBaseUrl ? `: ${org.jiraBaseUrl}` : ""})</span>}
+          </label>
+          <div style={{ display: "grid", gap: 6 }}>
+            <input value={baseUrl} onChange={(e) => setBaseUrl(e.target.value)} placeholder="https://acme.atlassian.net" />
+            <input value={email} onChange={(e) => setEmail(e.target.value)} placeholder={org.jiraEmail ?? "you@company.com"} />
+            <input type="password" value={apiToken} onChange={(e) => setApiToken(e.target.value)} placeholder="API token" />
+            <button className="btn-secondary" onClick={saveConnection} disabled={connectionMutation.isPending} style={{ justifySelf: "start" }}>
+              {connectionMutation.isPending ? "Saving…" : "Save connection"}
+            </button>
+          </div>
+        </div>
+        <div>
+          <label style={{ fontSize: 13 }}>
+            Webhook shared secret {org.jiraWebhookConfigured && <span style={{ color: "var(--frost)" }}>(configured)</span>}
+          </label>
+          <p className="text-muted" style={{ fontSize: 12, margin: "2px 0 6px" }}>
+            For real-time sync, add a Jira Automation rule (When: issue transitions → Then: Send web request) posting
+            to <code>/webhooks/jira/{organizationId}</code> with header <code>X-Vaettir-Jira-Secret</code> set to this
+            value, and a JSON body of{" "}
+            <code>{`{"issueKey": "{{issue.key}}", "status": "{{issue.status.name}}"}`}</code>.
+          </p>
+          <div style={{ display: "flex", gap: 8 }}>
+            <input type="password" value={webhookSecret} onChange={(e) => setWebhookSecret(e.target.value)} style={{ flex: 1 }} />
+            <button className="btn-secondary" onClick={saveWebhookSecret} disabled={webhookSecretMutation.isPending}>
+              {webhookSecretMutation.isPending ? "Saving…" : "Save"}
+            </button>
+          </div>
+        </div>
+      </div>
+      {error && <p style={{ color: "var(--ember)", fontSize: 13 }}>{error}</p>}
+    </div>
+  );
+}
+
 function WebhooksSection({ organizationId }: { organizationId: string }) {
   const utils = trpcReact.useUtils();
   const eventTypesQuery = trpcReact.webhooks.eventTypes.useQuery();
@@ -1137,6 +1230,7 @@ export default function OrganizationSettingsPage() {
       {orgId && <ApiKeysSection organizationId={orgId} />}
       {orgId && <WebhooksSection organizationId={orgId} />}
       {orgId && <LinearIntegrationSection organizationId={orgId} />}
+      {orgId && <JiraIntegrationSection organizationId={orgId} />}
       <PlanTypesSection />
     </div>
   );

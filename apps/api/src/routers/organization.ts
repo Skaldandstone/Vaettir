@@ -134,6 +134,10 @@ export const organizationRouter = router({
         slackEventTypes: z.array(z.string()),
         linearApiKeyConfigured: z.boolean(),
         linearWebhookConfigured: z.boolean(),
+        jiraConfigured: z.boolean(),
+        jiraWebhookConfigured: z.boolean(),
+        jiraBaseUrl: z.string().nullable(),
+        jiraEmail: z.string().nullable(),
       }),
     )
     .query(async ({ ctx, input }) => {
@@ -154,6 +158,10 @@ export const organizationRouter = router({
           slackEventTypes: true,
           linearEncryptedApiKey: true,
           linearWebhookSecret: true,
+          jiraBaseUrl: true,
+          jiraEmail: true,
+          jiraEncryptedApiToken: true,
+          jiraWebhookSecret: true,
         },
       });
       const overrides = (org.stepFieldLabels as Partial<Record<StepFieldKey, string>> | null) ?? {};
@@ -177,6 +185,10 @@ export const organizationRouter = router({
         slackEventTypes: org.slackEventTypes,
         linearApiKeyConfigured: org.linearEncryptedApiKey !== null,
         linearWebhookConfigured: org.linearWebhookSecret !== null,
+        jiraConfigured: org.jiraEncryptedApiToken !== null,
+        jiraWebhookConfigured: org.jiraWebhookSecret !== null,
+        jiraBaseUrl: org.jiraBaseUrl,
+        jiraEmail: org.jiraEmail,
       };
     }),
 
@@ -319,6 +331,61 @@ export const organizationRouter = router({
       await ctx.prisma.organization.update({
         where: { id: input.organizationId },
         data: { linearWebhookSecret: trimmed.length > 0 ? trimmed : null },
+      });
+    }),
+
+  // P9-01: Jira's connection is three fields together (base URL + email +
+  // API token, Basic auth needs all three) rather than Linear's single
+  // key, so this sets or clears them as one atomic unit - a partial update
+  // (e.g. changing the email but not re-entering the token) isn't
+  // supported in this pass, matching how little the connection changes in
+  // practice once set up.
+  updateJiraConnection: protectedProcedure
+    .input(z.object({ organizationId: z.string(), baseUrl: z.string(), email: z.string(), apiToken: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      requireOrgRole(ctx, input.organizationId, "ADMIN");
+      const baseUrl = input.baseUrl.trim();
+      const email = input.email.trim();
+      const apiToken = input.apiToken.trim();
+      if (!baseUrl && !email && !apiToken) {
+        await ctx.prisma.organization.update({
+          where: { id: input.organizationId },
+          data: { jiraBaseUrl: null, jiraEmail: null, jiraEncryptedApiToken: null, jiraApiTokenIv: null, jiraApiTokenAuthTag: null },
+        });
+        return;
+      }
+      if (!baseUrl || !email || !apiToken) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Base URL, email, and API token are all required together." });
+      }
+      let encrypted;
+      try {
+        encrypted = encryptToken(apiToken);
+      } catch (e) {
+        if (e instanceof TokenEncryptionNotConfiguredError) {
+          throw new TRPCError({ code: "PRECONDITION_FAILED", message: e.message });
+        }
+        throw e;
+      }
+      await ctx.prisma.organization.update({
+        where: { id: input.organizationId },
+        data: {
+          jiraBaseUrl: baseUrl,
+          jiraEmail: email,
+          jiraEncryptedApiToken: encrypted.ciphertext,
+          jiraApiTokenIv: encrypted.iv,
+          jiraApiTokenAuthTag: encrypted.authTag,
+        },
+      });
+    }),
+
+  updateJiraWebhookSecret: protectedProcedure
+    .input(z.object({ organizationId: z.string(), webhookSecret: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      requireOrgRole(ctx, input.organizationId, "ADMIN");
+      const trimmed = input.webhookSecret.trim();
+      await ctx.prisma.organization.update({
+        where: { id: input.organizationId },
+        data: { jiraWebhookSecret: trimmed.length > 0 ? trimmed : null },
       });
     }),
 
