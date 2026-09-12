@@ -26,6 +26,7 @@ import { staffRouter } from "./routers/staff.js";
 import { userRouter } from "./routers/user.js";
 import { betaRouter } from "./routers/beta.js";
 import { liveAppGenerationRouter } from "./routers/liveAppGeneration.js";
+import { productionSignalsRouter } from "./routers/productionSignals.js";
 
 export const appRouter = router({
   beta: betaRouter,
@@ -55,6 +56,7 @@ export const appRouter = router({
   staff: staffRouter,
   user: userRouter,
   liveAppGeneration: liveAppGenerationRouter,
+  productionSignals: productionSignalsRouter,
 });
 
 export type AppRouter = typeof appRouter;

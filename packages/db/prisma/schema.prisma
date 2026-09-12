@@ -154,12 +154,12 @@ model WebhookEndpoint {
   // exactly once -- same "write-only from the client" reasoning as
   // Organization.slackWebhookUrl, just inverted (here WE hold the secret
   // and the receiver verifies us, rather than us holding theirs).
-  secret     String
-  eventTypes String[] // subset of WEBHOOK_EVENT_TYPES (services/webhookDelivery.ts) -- empty means subscribed to nothing until explicitly set
-  enabled    Boolean  @default(true)
+  secret         String
+  eventTypes     String[] // subset of WEBHOOK_EVENT_TYPES (services/webhookDelivery.ts) -- empty means subscribed to nothing until explicitly set
+  enabled        Boolean      @default(true)
 
   createdById String
-  createdBy   User   @relation(fields: [createdById], references: [id])
+  createdBy   User     @relation(fields: [createdById], references: [id])
   createdAt   DateTime @default(now())
 
   deliveries WebhookDelivery[]
@@ -180,7 +180,7 @@ model WebhookDelivery {
   success           Boolean
   responseStatus    Int?
   error             String?
-  createdAt         DateTime @default(now())
+  createdAt         DateTime        @default(now())
 
   @@index([webhookEndpointId, createdAt])
 }
@@ -202,25 +202,27 @@ model Project {
   // Null until a project has been scanned at least once.
   lastScannedCommitSha String?
 
-  testPlans                 TestPlan[]
-  testCases                 TestCase[]
-  sharedStepGroups          SharedStepGroup[]
-  exploratorySessions       ExploratorySession[]
-  requirements              Requirement[]
-  releases                  Release[]
-  testRuns                  TestRun[]
-  coverageReports           CoverageReport[]
-  reverseEngineerJobs       ReverseEngineerJob[]
-  importJobs                ImportJob[]
-  testSelectionRuns         TestSelectionRun[]
-  auditLogs                 AuditLog[]
-  customFrameworkHeuristics CustomFrameworkHeuristic[]
-  prScanPolicy              PrScanPolicy?
-  healingSuggestions        HealingSuggestion[]
-  complianceEvidence        ComplianceEvidence[]
-  complianceSignOffs        ComplianceSignOff[]
-  complianceSignOffRequests ComplianceSignOffRequest[]
-  aiEditFeedback            AiEditFeedback[]
+  testPlans                   TestPlan[]
+  testCases                   TestCase[]
+  sharedStepGroups            SharedStepGroup[]
+  exploratorySessions         ExploratorySession[]
+  requirements                Requirement[]
+  releases                    Release[]
+  testRuns                    TestRun[]
+  coverageReports             CoverageReport[]
+  reverseEngineerJobs         ReverseEngineerJob[]
+  importJobs                  ImportJob[]
+  testSelectionRuns           TestSelectionRun[]
+  auditLogs                   AuditLog[]
+  customFrameworkHeuristics   CustomFrameworkHeuristic[]
+  prScanPolicy                PrScanPolicy?
+  healingSuggestions          HealingSuggestion[]
+  complianceEvidence          ComplianceEvidence[]
+  complianceSignOffs          ComplianceSignOff[]
+  complianceSignOffRequests   ComplianceSignOffRequest[]
+  aiEditFeedback              AiEditFeedback[]
+  productionSignalConnections ProductionSignalConnection[]
+  productionSignals           ProductionSignal[]
 
   @@unique([organizationId, slug])
 }
@@ -240,15 +242,15 @@ model User {
   name        String?
   createdAt   DateTime @default(now())
 
-  memberships       Membership[]
-  sentInvitations   Invitation[]
-  reviewedTestCases TestCase[]   @relation("TestCaseReviewedBy")
-  createdWebhookEndpoints WebhookEndpoint[]
-  testCaseVersions TestCaseVersion[]
-  createdSharedStepGroups SharedStepGroup[]
+  memberships                 Membership[]
+  sentInvitations             Invitation[]
+  reviewedTestCases           TestCase[]           @relation("TestCaseReviewedBy")
+  createdWebhookEndpoints     WebhookEndpoint[]
+  testCaseVersions            TestCaseVersion[]
+  createdSharedStepGroups     SharedStepGroup[]
   uploadedTestCaseAttachments TestCaseAttachment[]
-  exploratorySessions ExploratorySession[]
-  startedTestRuns TestRun[]
+  exploratorySessions         ExploratorySession[]
+  startedTestRuns             TestRun[]
 
   // P1-07 audit columns: who created/last-updated each core record. Named
   // relations (Prisma requires it once a model has more than one FK to the
@@ -276,7 +278,7 @@ model User {
   apiKeyIdentity ApiKey?  @relation("ApiKeyServiceUser")
   createdApiKeys ApiKey[] @relation("ApiKeyCreatedBy")
 
-  auditLogs AuditLog[]
+  auditLogs             AuditLog[]
   orgDeletionsPerformed OrganizationDeletionLog[]
 
   // P8-04
@@ -286,6 +288,9 @@ model User {
 
   // P10-01
   performedAccessReviews AccessReview[]
+
+  // SSE-180
+  connectedProductionSignalConnections ProductionSignalConnection[]
 }
 
 enum OrgRole {
@@ -397,14 +402,14 @@ model ApiKey {
 // the tier boundaries as specified; cost fields are left null until pricing
 // is finalized -- this table is where that lands, not a code change.
 model PlanTier {
-  id                       String @id @default(cuid())
-  key                      String @unique // "free" | "team" | "business" | "corp"
+  id                       String  @id @default(cuid())
+  key                      String  @unique // "free" | "team" | "business" | "corp"
   name                     String
   sortOrder                Int
   isPublic                 Boolean @default(true)
   minFullSeats             Int // inclusive lower bound that qualifies for/requires this tier
   maxFullSeats             Int? // inclusive upper bound; null = unlimited (top tier)
-  includedReadOnlySeats    Int    @default(0) // read-only seats bundled at this tier
+  includedReadOnlySeats    Int     @default(0) // read-only seats bundled at this tier
   maxReadOnlySeats         Int? // null = unlimited once on this tier
   monthlyPricePerSeatCents Int? // null = not yet priced
 
@@ -737,7 +742,7 @@ model TestCase {
   // "one or the other" simplicity as given/when/then vs. structured
   // steps already has.
   sharedStepGroupId String?
-  sharedStepGroup   SharedStepGroup? @relation(fields: [sharedStepGroupId], references: [id])
+  sharedStepGroup   SharedStepGroup?     @relation(fields: [sharedStepGroupId], references: [id])
   attachments       TestCaseAttachment[]
   dataset           TestCaseDataset?
 
@@ -934,9 +939,9 @@ model TestCaseDataset {
   // Array of { name: string, values: Record<parameterName, value> } -
   // a real relation table isn't worth it for something only ever read/
   // written as a whole set, same reasoning as SharedStepGroup.steps.
-  rows      Json
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  rows           Json
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
 }
 
 // 2026-08-27 competitor parity audit: a reference file attached to the
@@ -1134,10 +1139,10 @@ model ImportJob {
   projectId String
   project   Project @relation(fields: [projectId], references: [id])
 
-  source      ImportSource
-  sourceLabel String? // filename or other human-readable label for this run
+  source       ImportSource
+  sourceLabel  String? // filename or other human-readable label for this run
   fieldMapping Json // { targetField: sourceColumnHeader }, as confirmed in the preview step
-  testPlanId  String? // optional destination plan for imported cases
+  testPlanId   String? // optional destination plan for imported cases
 
   status       JobStatus @default(PENDING)
   createdCount Int       @default(0)
@@ -1186,9 +1191,9 @@ model ComplianceControl {
   title       String
   description String?
 
-  testCases TestCaseComplianceControl[]
-  evidence  ComplianceEvidence[]
-  signOffs  ComplianceSignOff[]
+  testCases       TestCaseComplianceControl[]
+  evidence        ComplianceEvidence[]
+  signOffs        ComplianceSignOff[]
   signOffRequests ComplianceSignOffRequest[]
 
   @@unique([frameworkId, code])
@@ -1267,9 +1272,9 @@ model ComplianceSignOffRequest {
   period    String
 
   requestedForId String
-  requestedFor   User   @relation("SignOffRequestsReceived", fields: [requestedForId], references: [id])
+  requestedFor   User     @relation("SignOffRequestsReceived", fields: [requestedForId], references: [id])
   requestedById  String
-  requestedBy    User   @relation("SignOffRequestsSent", fields: [requestedById], references: [id])
+  requestedBy    User     @relation("SignOffRequestsSent", fields: [requestedById], references: [id])
   requestedAt    DateTime @default(now())
 
   // Set when a matching signOffControl call (same control+project+period+
@@ -1277,7 +1282,7 @@ model ComplianceSignOffRequest {
   // logic in routers/compliance.ts's signOffControl. Never set retroactively
   // for a sign-off that predates the request.
   fulfilledAt        DateTime?
-  fulfilledSignOffId String?             @unique
+  fulfilledSignOffId String?            @unique
   fulfilledSignOff   ComplianceSignOff? @relation(fields: [fulfilledSignOffId], references: [id])
 
   @@index([projectId])
@@ -1641,8 +1646,8 @@ model Release {
   targetDate DateTime?
   status     ReleaseStatus @default(PLANNING)
 
-  testPlans TestPlan[]
-  riskFlags RiskFlag[]
+  testPlans          TestPlan[]
+  riskFlags          RiskFlag[]
   readinessSnapshots ReleaseReadinessSnapshot[]
 
   createdById String?
@@ -1662,9 +1667,9 @@ model Release {
 // webhook/Slack/push notifications. Snapshot fields, not FKs - the row is
 // what readiness *was*, and must survive later criteria/flag edits.
 model ReleaseReadinessSnapshot {
-  id            String  @id @default(cuid())
+  id            String   @id @default(cuid())
   releaseId     String
-  release       Release @relation(fields: [releaseId], references: [id], onDelete: Cascade)
+  release       Release  @relation(fields: [releaseId], references: [id], onDelete: Cascade)
   score         Int
   label         String // READY | AT_RISK | BLOCKED (computeReadiness's label)
   previousLabel String? // null on the baseline row
@@ -1755,4 +1760,119 @@ enum RiskSource {
   FLAKY_TEST
   MANUAL_FLAG
   MISSING_COMPLIANCE_CONTROL
+}
+
+// ---------------------------------------------------------------------------
+// SSE-180: production-signal linkage
+// ---------------------------------------------------------------------------
+// A per-project OAuth-style connection to a customer's own app-store
+// account (Apple App Store Connect / Google Play Console), so crash reports
+// and store reviews can feed test-gap detection without a manual upload.
+// Deliberately NOT modeled on P2-02's GitHub App pattern (one shared,
+// platform-level App credential + a bare repoUrl string, secrets in env
+// vars only, nothing per-customer in the DB) - a store-connected grant is
+// inherently per-customer, so this is the first feature in this codebase
+// that stores a third-party bearer/refresh token at all. Every token column
+// is ciphertext (see services/tokenEncryption.ts's AES-256-GCM helper) -
+// nothing here is ever stored, logged, or returned through the API in
+// plaintext.
+enum ProductionSignalProvider {
+  APPLE_APP_STORE
+  GOOGLE_PLAY
+}
+
+enum ProductionSignalConnectionStatus {
+  PENDING // authorize URL issued, callback not yet completed
+  CONNECTED
+  ERROR // last refresh/sync attempt failed; lastSyncError has the reason
+  DISCONNECTED
+}
+
+model ProductionSignalConnection {
+  id        String                           @id @default(cuid())
+  projectId String
+  project   Project                          @relation(fields: [projectId], references: [id])
+  provider  ProductionSignalProvider
+  status    ProductionSignalConnectionStatus @default(PENDING)
+
+  // CSRF guard for the OAuth redirect/callback round trip: generated at
+  // connect-start, checked on callback, cleared once CONNECTED (or once the
+  // attempt fails) so it can never be replayed.
+  oauthState String? @unique
+
+  // A single AES-256-GCM ciphertext of a JSON payload, plus the iv/authTag
+  // needed to decrypt it (GCM requires both, and each is tied to exactly
+  // one ciphertext - encrypting two independent secrets under one shared
+  // iv/authTag pair would silently corrupt whichever one isn't re-derived
+  // first, a real bug caught before it shipped). One encrypted blob per
+  // connection rather than one column per token, since the payload shape
+  // differs by provider:
+  //   GOOGLE_PLAY:     {"accessToken": "...", "refreshToken": "..."}
+  //   APPLE_APP_STORE: {"privateKeyPem": "..."}
+  //   (Apple has no per-user OAuth redirect flow at all - access is granted
+  //   via an API key the account holder generates themselves in App Store
+  //   Connect and enters directly, then used to mint short-lived signed
+  //   JWTs per request, the same JWT-signing shape this codebase's own
+  //   GitHub App integration already uses in services/githubApp.ts.)
+  // Null until a real callback/credential-entry completes.
+  encryptedCredentials String?
+  credentialsIv        String?
+  credentialsAuthTag   String?
+
+  // APPLE_APP_STORE only: the Issuer ID and Key ID that pair with the
+  // encrypted private key above to mint a valid JWT. Not secret on their
+  // own (Apple's own docs show them in plaintext in the dashboard UI), but
+  // meaningless without the encrypted key, so left unencrypted for the
+  // (real) operational need to display "connected as Issuer ABC / Key XYZ"
+  // without a decrypt round-trip.
+  appleIssuerId String?
+  appleKeyId    String?
+
+  scope             String? // GOOGLE_PLAY only: space-delimited OAuth scopes actually granted
+  externalAccountId String? // the connected Apple/Google account, for display only - never a token
+
+  connectedByUserId String?
+  connectedByUser   User?     @relation(fields: [connectedByUserId], references: [id])
+  connectedAt       DateTime?
+  lastSyncedAt      DateTime?
+  lastSyncError     String?
+  createdAt         DateTime  @default(now())
+
+  signals ProductionSignal[]
+
+  @@unique([projectId, provider])
+}
+
+enum ProductionSignalType {
+  CRASH_REPORT
+  STORE_REVIEW
+}
+
+model ProductionSignal {
+  id           String                     @id @default(cuid())
+  connectionId String
+  connection   ProductionSignalConnection @relation(fields: [connectionId], references: [id])
+  projectId    String
+  project      Project                    @relation(fields: [projectId], references: [id])
+  type         ProductionSignalType
+  externalId   String // the provider's own id for this crash group/review, used to dedupe on re-sync
+
+  // PII-minimized by design, pending real legal review (see SSE-180's
+  // ROADMAP.md entry): a short, redacted summary only - never a raw crash
+  // stack trace or the full review text verbatim, and never a reviewer's
+  // name, email, or device identifier. Built to a defensible
+  // privacy-engineering baseline; James should confirm with real counsel
+  // before this goes live for a real customer.
+  summary    String
+  occurredAt DateTime
+  createdAt  DateTime @default(now())
+
+  // Set once at ingest time from Organization.dataRetentionYears (P3-08) -
+  // not recomputed later, matching how P12-08's retention job already
+  // treats every other data type. A later retention-policy change applies
+  // only to newly-ingested signals.
+  expiresAt DateTime
+
+  @@unique([connectionId, externalId])
+  @@index([projectId, occurredAt])
 }

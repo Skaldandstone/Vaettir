@@ -18,6 +18,8 @@ import { handleMergeRequestWebhook, type GitlabMergeRequestPayload } from "./ser
 import { getHeartbeatStatuses } from "./services/heartbeat.js";
 import { getStripeRuntime } from "./services/stripeConfig.js";
 import { handleStripeWebhookEvent } from "./services/stripeBilling.js";
+import { exchangeGooglePlayCode } from "./services/productionSignalOAuth.js";
+import { encryptToken } from "./services/tokenEncryption.js";
 
 // P10-07: expected poller intervals, keyed by the same names each poller
 // calls recordHeartbeat with - the one place server.ts needs to know
@@ -133,6 +135,73 @@ async function registerStripeWebhookRoute(instance: FastifyInstance) {
   });
 }
 
+// SSE-180: the one genuinely new kind of route in this codebase - a
+// browser-facing OAuth redirect target, not a tRPC mutation and not a
+// server-to-server webhook. GOOGLE_PLAY only; Apple has no equivalent
+// redirect flow (see productionSignalOAuth.ts's file comment). The
+// connection row is looked up purely by its one-time `state` value (the
+// CSRF guard every OAuth flow needs) rather than requiring an authenticated
+// session on this route - Google's redirect back to our own domain isn't
+// guaranteed to carry the original browser's Clerk session cookie, and
+// possession of the exact state value this server generated and handed out
+// moments earlier during startGooglePlayConnect is the actual security
+// boundary here. Always responds 200 (even on failure) with enough
+// information to show the customer what happened, redirecting into the web
+// app when WEB_APP_URL is configured for this deployment.
+async function registerProductionSignalOAuthRoute(instance: FastifyInstance) {
+  instance.get<{ Querystring: { code?: string; state?: string; error?: string } }>(
+    "/oauth/production-signals/google-play/callback",
+    async (req, reply) => {
+      const { code, state, error } = req.query;
+      const webAppUrl = process.env.WEB_APP_URL;
+
+      function finish(projectId: string | null, status: "connected" | "error", message?: string) {
+        if (webAppUrl && projectId) {
+          const target = new URL(`/projects/${projectId}/production-signals`, webAppUrl);
+          target.searchParams.set("googlePlay", status);
+          if (message) target.searchParams.set("message", message);
+          return reply.redirect(target.toString());
+        }
+        return reply.send({ status, message });
+      }
+
+      if (error) return finish(null, "error", error);
+      if (!code || !state) return reply.code(400).send({ error: "missing code or state" });
+
+      const connection = await prisma.productionSignalConnection.findUnique({ where: { oauthState: state } });
+      if (!connection || connection.provider !== "GOOGLE_PLAY") {
+        return reply.code(400).send({ error: "unknown or expired connection state" });
+      }
+
+      try {
+        const tokens = await exchangeGooglePlayCode(code);
+        const encrypted = encryptToken(JSON.stringify({ accessToken: tokens.accessToken, refreshToken: tokens.refreshToken }));
+        await prisma.productionSignalConnection.update({
+          where: { id: connection.id },
+          data: {
+            status: "CONNECTED",
+            encryptedCredentials: encrypted.ciphertext,
+            credentialsIv: encrypted.iv,
+            credentialsAuthTag: encrypted.authTag,
+            scope: tokens.scope,
+            oauthState: null, // one-time use - never valid again after this callback
+            connectedAt: new Date(),
+            lastSyncError: null,
+          },
+        });
+        return finish(connection.projectId, "connected");
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        await prisma.productionSignalConnection.update({
+          where: { id: connection.id },
+          data: { status: "ERROR", oauthState: null, lastSyncError: message },
+        });
+        return finish(connection.projectId, "error", message);
+      }
+    },
+  );
+}
+
 // tRPC's httpBatchLink joins every query fired in the same tick into one
 // path segment of comma-joined procedure names (e.g.
 // "project.byId,releases.byId,releases.readiness,..."), which routinely
@@ -189,6 +258,7 @@ server.get("/health/detailed", { config: { rateLimit: false } }, async () => det
 await server.register(registerGithubWebhookRoute);
 await server.register(registerGitlabWebhookRoute);
 await server.register(registerStripeWebhookRoute);
+await server.register(registerProductionSignalOAuthRoute);
 
 // Mirrored under /api: the ALB/CloudFront path in front of this service
 // routes only /api/* here (the same domain also serves apps/web), so
@@ -209,6 +279,7 @@ await server.register(
     await instance.register(registerGithubWebhookRoute);
     await instance.register(registerGitlabWebhookRoute);
     await instance.register(registerStripeWebhookRoute);
+    await instance.register(registerProductionSignalOAuthRoute);
   },
   { prefix: "/api" },
 );

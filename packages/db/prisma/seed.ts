@@ -161,6 +161,15 @@ const PLAN_TIERS = [
     maxReadOnlySeats: null,
     monthlyPricePerSeatCents: 5900,
     includedAiCreditsPerMonth: 2000,
+    // SSE-180: gated here rather than Team/Free given its heavier
+    // integration lift (per-customer app-store OAuth), per direct
+    // instruction ("gate behind a specific pricing tier - yes").
+    // Kept as a literal string, not an import from @vaettir/core, since
+    // packages/db has no dependency on core (and core depends on db-shaped
+    // types already) - see core/src/featureFlags.ts's
+    // FEATURE_PRODUCTION_SIGNAL_LINKAGE for the single source of truth this
+    // must keep matching.
+    enabledFeatures: ["production-signal-linkage"] as string[],
   },
   {
     key: "corp",
@@ -173,6 +182,12 @@ const PLAN_TIERS = [
     maxReadOnlySeats: null,
     monthlyPricePerSeatCents: 8900,
     includedAiCreditsPerMonth: 10000,
+    // Kept as a literal string, not an import from @vaettir/core, since
+    // packages/db has no dependency on core (and core depends on db-shaped
+    // types already) - see core/src/featureFlags.ts's
+    // FEATURE_PRODUCTION_SIGNAL_LINKAGE for the single source of truth this
+    // must keep matching.
+    enabledFeatures: ["production-signal-linkage"] as string[],
   },
 ] as const;
 
