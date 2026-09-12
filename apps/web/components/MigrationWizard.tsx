@@ -16,7 +16,7 @@ import { trpcReact, type RouterOutputs } from "@/lib/trpcReact";
 // report, with a "start over" at every step. No new backend logic - this is
 // purely the orchestration layer the ticket asked for.
 
-type Source = "csv" | "testrail" | "xray";
+type Source = "csv" | "testrail" | "xray" | "qtest";
 type Step = "source" | "upload" | "review" | "done";
 
 const TARGET_FIELDS = ["title", "given", "when", "then", "priority", "tags", "externalId"] as const;
@@ -46,6 +46,11 @@ const SOURCE_INFO: Record<Source, { label: string; blurb: string; accept: string
     label: "Xray (Jira)",
     blurb: "A Jira Test-issue CSV export (JQL: issuetype = Test), or Xray's own JSON test export.",
     accept: ".csv,.json,text/csv,application/json",
+  },
+  qtest: {
+    label: "qTest",
+    blurb: "Connect directly with your qTest instance URL and a personal API token - no file needed.",
+    accept: "",
   },
 };
 
@@ -88,9 +93,18 @@ export function MigrationWizard({ projectId, onCommitted }: { projectId: string;
     skipped: { rowNumber: number; reason: string }[];
   } | null>(null);
 
+  // qTest-only connection state - a live API, not a file, so there's no
+  // rawContent to hold; the connection details are re-sent to commitQTest
+  // directly rather than persisted anywhere (see importJobs.ts's own note
+  // on why this stays a one-shot input, not a stored credential).
+  const [qtestBaseUrl, setQtestBaseUrl] = useState("");
+  const [qtestApiToken, setQtestApiToken] = useState("");
+  const [qtestProjectId, setQtestProjectId] = useState("");
+
   const commitCsvMutation = trpcReact.importJobs.commitCsv.useMutation();
   const commitXrayMutation = trpcReact.importJobs.commitXray.useMutation();
   const commitTestRailMutation = trpcReact.importJobs.commitTestRail.useMutation();
+  const commitQTestMutation = trpcReact.importJobs.commitQTest.useMutation();
 
   function reset() {
     setStep("source");
@@ -104,6 +118,9 @@ export function MigrationWizard({ projectId, onCommitted }: { projectId: string;
     setCsvPreviewSkipped([]);
     setFilePreview(null);
     setResult(null);
+    setQtestBaseUrl("");
+    setQtestApiToken("");
+    setQtestProjectId("");
   }
 
   function chooseSource(s: Source) {
@@ -155,6 +172,33 @@ export function MigrationWizard({ projectId, onCommitted }: { projectId: string;
     }
   }
 
+  async function connectQTest() {
+    const parsedProjectId = Number(qtestProjectId);
+    if (!qtestBaseUrl.trim() || !qtestApiToken.trim() || !Number.isFinite(parsedProjectId)) return;
+    setError(null);
+    setLoading(true);
+    try {
+      const res = await utils.importJobs.previewQTest.fetch({
+        projectId,
+        baseUrl: qtestBaseUrl.trim(),
+        apiToken: qtestApiToken.trim(),
+        qtestProjectId: parsedProjectId,
+      });
+      setFilePreview({
+        format: res.format,
+        formatLabel: "qTest project",
+        caseCount: res.caseCount,
+        previewRows: res.previewRows,
+        skipped: res.skipped,
+      });
+      setStep("review");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setLoading(false);
+    }
+  }
+
   async function updateMapping(field: TargetField, column: string) {
     const next = { ...mapping, [field]: column || undefined };
     setMapping(next);
@@ -194,8 +238,18 @@ export function MigrationWizard({ projectId, onCommitted }: { projectId: string;
         });
       } else if (source === "xray") {
         res = await commitXrayMutation.mutateAsync({ projectId, content: rawContent, sourceLabel: fileName || undefined });
-      } else {
+      } else if (source === "testrail") {
         res = await commitTestRailMutation.mutateAsync({ projectId, content: rawContent, sourceLabel: fileName || undefined });
+      } else {
+        const parsedProjectId = Number(qtestProjectId);
+        if (!Number.isFinite(parsedProjectId)) return;
+        res = await commitQTestMutation.mutateAsync({
+          projectId,
+          baseUrl: qtestBaseUrl.trim(),
+          apiToken: qtestApiToken.trim(),
+          qtestProjectId: parsedProjectId,
+          sourceLabel: `qTest project ${qtestProjectId}`,
+        });
       }
       setResult(res);
       setStep("done");
@@ -205,9 +259,10 @@ export function MigrationWizard({ projectId, onCommitted }: { projectId: string;
     }
   }
 
-  const committing = commitCsvMutation.isPending || commitXrayMutation.isPending || commitTestRailMutation.isPending;
-  const stepNumber = { source: 1, upload: 2, review: source === "csv" ? 3 : 3, done: 4 }[step];
-  const totalSteps = source === "csv" ? 4 : 4;
+  const committing =
+    commitCsvMutation.isPending || commitXrayMutation.isPending || commitTestRailMutation.isPending || commitQTestMutation.isPending;
+  const stepNumber = { source: 1, upload: 2, review: 3, done: 4 }[step];
+  const totalSteps = 4;
 
   return (
     <div className="panel" style={{ marginBottom: 20 }}>
@@ -228,7 +283,7 @@ export function MigrationWizard({ projectId, onCommitted }: { projectId: string;
           <p className="text-muted" style={{ fontSize: 13 }}>
             Where is your test case data coming from?
           </p>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12, maxWidth: 720 }}>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 12, maxWidth: 620 }}>
             {(Object.keys(SOURCE_INFO) as Source[]).map((s) => (
               <button
                 key={s}
@@ -252,7 +307,7 @@ export function MigrationWizard({ projectId, onCommitted }: { projectId: string;
         </>
       )}
 
-      {step === "upload" && source && (
+      {step === "upload" && source && source !== "qtest" && (
         <>
           <p className="text-muted" style={{ fontSize: 13 }}>
             {SOURCE_INFO[source].blurb}
@@ -268,6 +323,48 @@ export function MigrationWizard({ projectId, onCommitted }: { projectId: string;
           />
           {loading && <p className="text-muted">Reading export…</p>}
         </>
+      )}
+
+      {step === "upload" && source === "qtest" && (
+        <div style={{ display: "grid", gap: 8, maxWidth: 420 }}>
+          <p className="text-muted" style={{ fontSize: 13 }}>
+            {SOURCE_INFO.qtest.blurb} Nothing is stored beyond this one import - the token isn&apos;t saved.
+          </p>
+          <label style={{ fontSize: 13 }}>
+            qTest instance URL
+            <input
+              value={qtestBaseUrl}
+              onChange={(e) => setQtestBaseUrl(e.target.value)}
+              placeholder="https://yourcompany.qtestnet.com"
+              style={{ width: "100%" }}
+            />
+          </label>
+          <label style={{ fontSize: 13 }}>
+            API token
+            <input
+              type="password"
+              value={qtestApiToken}
+              onChange={(e) => setQtestApiToken(e.target.value)}
+              style={{ width: "100%" }}
+            />
+          </label>
+          <label style={{ fontSize: 13 }}>
+            qTest project ID
+            <input
+              value={qtestProjectId}
+              onChange={(e) => setQtestProjectId(e.target.value)}
+              placeholder="12345"
+              style={{ width: "100%" }}
+            />
+          </label>
+          <button
+            onClick={connectQTest}
+            disabled={loading || !qtestBaseUrl.trim() || !qtestApiToken.trim() || !qtestProjectId.trim()}
+            style={{ marginTop: 4 }}
+          >
+            {loading ? "Connecting…" : "Connect and scan"}
+          </button>
+        </div>
       )}
 
       {step === "upload" && source === "csv" && csvPreview && (
@@ -363,7 +460,7 @@ export function MigrationWizard({ projectId, onCommitted }: { projectId: string;
 
       {step === "review" && filePreview && source !== "csv" && (
         <div>
-          <h3 style={{ marginTop: 0 }}>Ready to import — {fileName}</h3>
+          <h3 style={{ marginTop: 0 }}>Ready to import — {source === "qtest" ? `qTest project ${qtestProjectId}` : fileName}</h3>
           <p className="text-muted" style={{ fontSize: 13 }}>
             Detected {filePreview.formatLabel} · {filePreview.caseCount} test case(s) will be imported
             {filePreview.skipped.length > 0 && `, ${filePreview.skipped.length} row(s) skipped`}. Nothing is written
@@ -408,7 +505,7 @@ export function MigrationWizard({ projectId, onCommitted }: { projectId: string;
           )}
           <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
             <button className="btn-secondary" onClick={() => setStep("upload")}>
-              Choose a different file
+              {source === "qtest" ? "Change connection" : "Choose a different file"}
             </button>
             <button onClick={commit} disabled={committing || filePreview.caseCount === 0}>
               {committing ? "Importing…" : `Import ${filePreview.caseCount} test case(s)`}

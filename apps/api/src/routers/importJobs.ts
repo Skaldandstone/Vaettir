@@ -5,6 +5,7 @@ import { inspectCsv, mapCsvRows, TARGET_FIELDS, type TargetField } from "../serv
 import { commitImportedTestCases } from "../services/importCommit.js";
 import { parseXrayExport } from "../services/xrayImport.js";
 import { parseTestRailXml } from "../services/testrailImport.js";
+import { scanQTestProject } from "../services/qtestImport.js";
 
 const fieldMappingSchema = z.record(z.enum(TARGET_FIELDS), z.string()).refine((m) => Boolean(m.title), {
   message: 'The "title" field must be mapped to a CSV column',
@@ -326,6 +327,92 @@ export const importJobsRouter = router({
         fieldMapping: { format: parsed.format, suiteName: parsed.suiteName ?? "" },
         keyPrefix: "testrail",
         framework: "testrail",
+        testPlanId: input.testPlanId,
+      });
+    }),
+
+  // P11-06: qTest, unlike TestRail's/Xray's file-export halves, is a live
+  // REST-API importer - the connection (baseUrl + apiToken) is a one-shot
+  // mutation input, used only for this one fetch and never persisted
+  // anywhere (no new stored-credential model, since this is a synchronous
+  // import operation, not a recurring sync). Never logged: the token isn't
+  // included in fieldMapping/ImportJob or anywhere else that's stored.
+  previewQTest: protectedProcedure
+    .input(z.object({ projectId: z.string(), baseUrl: z.string().min(1), apiToken: z.string().min(1), qtestProjectId: z.number() }))
+    .output(
+      z.object({
+        format: z.literal("qtest-api"),
+        caseCount: z.number(),
+        previewRows: z.array(filePreviewRow),
+        skipped: z.array(z.object({ rowNumber: z.number(), reason: z.string() })),
+      }),
+    )
+    .query(async ({ ctx, input }) => {
+      await requireProjectAccess(ctx, input.projectId);
+      let scan;
+      try {
+        scan = await scanQTestProject({ baseUrl: input.baseUrl, apiToken: input.apiToken }, input.qtestProjectId);
+      } catch (e) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: e instanceof Error ? e.message : String(e) });
+      }
+      return {
+        format: "qtest-api" as const,
+        caseCount: scan.cases.length,
+        previewRows: scan.cases.slice(0, 20).map(toFilePreviewRow),
+        skipped: scan.skipped,
+      };
+    }),
+
+  commitQTest: protectedProcedure
+    .input(
+      z.object({
+        projectId: z.string(),
+        baseUrl: z.string().min(1),
+        apiToken: z.string().min(1),
+        qtestProjectId: z.number(),
+        testPlanId: z.string().optional(),
+        sourceLabel: z.string().optional(),
+      }),
+    )
+    .output(
+      z.object({
+        importJobId: z.string(),
+        createdCount: z.number(),
+        updatedCount: z.number(),
+        skipped: z.array(z.object({ rowNumber: z.number(), reason: z.string() })),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const { project } = await requireProjectAccess(ctx, input.projectId, "EDITOR");
+      let scan;
+      try {
+        scan = await scanQTestProject({ baseUrl: input.baseUrl, apiToken: input.apiToken }, input.qtestProjectId);
+      } catch (e) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: e instanceof Error ? e.message : String(e) });
+      }
+      return commitImportedTestCases(ctx.prisma, {
+        projectId: input.projectId,
+        organizationId: project.organizationId,
+        actorId: ctx.user.id,
+        rows: scan.cases.map((c) => ({
+          rowNumber: c.rowNumber,
+          title: c.title,
+          background: c.background,
+          given: c.given,
+          when: c.when,
+          then: c.then,
+          priority: c.priority,
+          tags: c.tags,
+          suitePath: c.suitePath,
+          externalId: c.key,
+          steps: c.steps,
+        })),
+        skipped: scan.skipped,
+        source: "QTEST",
+        sourceLabel: input.sourceLabel,
+        fieldMapping: { format: "qtest-api", qtestProjectId: String(input.qtestProjectId) },
+        keyPrefix: "qtest",
+        framework: "qtest",
         testPlanId: input.testPlanId,
       });
     }),

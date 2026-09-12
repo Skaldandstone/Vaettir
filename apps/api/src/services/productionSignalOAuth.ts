@@ -161,7 +161,7 @@ function derEcdsaSignatureToJose(der: Buffer, componentLengthBytes: number): Buf
   function readInteger(): Buffer {
     if (der[offset] !== 0x02) throw new Error("Malformed ECDSA DER signature (expected INTEGER).");
     offset += 1;
-    let len = der[offset] as number;
+    const len = der[offset] as number;
     offset += 1;
     let bytes = der.subarray(offset, offset + len);
     offset += len;
