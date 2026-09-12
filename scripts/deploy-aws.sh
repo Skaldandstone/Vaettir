@@ -20,12 +20,18 @@
 #   ./scripts/deploy-aws.sh          # rebuild + redeploy both api and web
 #   ./scripts/deploy-aws.sh api      # only api
 #   ./scripts/deploy-aws.sh web      # only web
+#
+# P10-09: set VAETTIR_DEPLOY_ENV=staging to target the staging stack once it
+# exists (see docs/STAGING_ENVIRONMENT.md) instead of production. Defaults
+# to production ("") for every existing call site - this is purely additive,
+# no behavior change for anyone not setting the env var.
 
 set -euo pipefail
 
 PROFILE=vaettir-toolkit
 REGION=us-east-2
-BUCKET=vaettir-build-source-051722405355
+ENV_SUFFIX="${VAETTIR_DEPLOY_ENV:+-$VAETTIR_DEPLOY_ENV}"
+BUCKET="vaettir-build-source-051722405355${ENV_SUFFIX}"
 TARGET="${1:-both}"
 
 cd "$(dirname "$0")/.."
@@ -68,20 +74,20 @@ wait_for_build() {
 redeploy() {
   local name=$1
   echo "==> Forcing new ECS deployment for $name"
-  aws ecs update-service --cluster vaettir-cluster --service "$name" --force-new-deployment \
+  aws ecs update-service --cluster "vaettir-cluster${ENV_SUFFIX}" --service "$name" --force-new-deployment \
     --profile "$PROFILE" --region "$REGION" --query "service.[serviceName,status]" --output text
 }
 
 if [[ "$TARGET" == "both" || "$TARGET" == "api" ]]; then
-  api_build=$(start_build vaettir-api-build)
+  api_build=$(start_build "vaettir-api-build${ENV_SUFFIX}")
   wait_for_build "$api_build"
-  redeploy vaettir-api
+  redeploy "vaettir-api${ENV_SUFFIX}"
 fi
 
 if [[ "$TARGET" == "both" || "$TARGET" == "web" ]]; then
-  web_build=$(start_build vaettir-web-build)
+  web_build=$(start_build "vaettir-web-build${ENV_SUFFIX}")
   wait_for_build "$web_build"
-  redeploy vaettir-web
+  redeploy "vaettir-web${ENV_SUFFIX}"
 fi
 
 echo "==> Done. Verify: curl https://d35bt2repnvk6t.cloudfront.net/api/health"
