@@ -172,3 +172,28 @@ export const staffProcedure = protectedProcedure.use(({ ctx, next }) => {
   }
   return next({ ctx });
 });
+
+// SSE-181 (live-app test generation): a real gap deliberately kept
+// narrower than staffProcedure above. Server-side browser automation
+// against an arbitrary caller-supplied URL is a genuinely new, unproven
+// capability - it goes through the same SSRF-hardened URL guard every
+// other server-side URL fetch in this codebase uses (services/urlGuard.ts),
+// but "the guard held" isn't the same bar as "this is ready for every
+// staff member to use against arbitrary targets." Scoped to a specific
+// allowlist (defaulting to just James) rather than the whole staff domain,
+// on direct instruction, until this has real usage behind it. Widening
+// this to staffProcedure (or further) is a deliberate later decision, not
+// a default to relax toward.
+const LIVE_APP_SCAN_ALLOWLIST = new Set(
+  (process.env.LIVE_APP_SCAN_ALLOWLIST ?? "james@skaldandstone.com")
+    .split(",")
+    .map((e: string) => e.trim().toLowerCase())
+    .filter(Boolean),
+);
+
+export const liveAppScanProcedure = protectedProcedure.use(({ ctx, next }) => {
+  if (!LIVE_APP_SCAN_ALLOWLIST.has(ctx.user.email.toLowerCase())) {
+    throw new TRPCError({ code: "FORBIDDEN", message: "This feature is limited to a small allowlist while it's new and unproven." });
+  }
+  return next({ ctx });
+});

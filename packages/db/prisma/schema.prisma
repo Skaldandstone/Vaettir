@@ -970,6 +970,12 @@ enum TestCaseOrigin {
   AUTHORED
   AI_REVERSE_ENGINEERED
   IMPORTED
+  // SSE-181: generated from a live-app crawl rather than existing source
+  // code - kept distinct from AI_REVERSE_ENGINEERED per the reverse-
+  // engineering PRD's own "future integrations must keep source
+  // provenance" requirement, since a reviewer should be able to tell "this
+  // case has no prior test to compare against" from origin alone.
+  AI_LIVE_APP_GENERATED
 }
 
 enum TestCaseReviewStatus {

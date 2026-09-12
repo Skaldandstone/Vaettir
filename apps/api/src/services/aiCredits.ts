@@ -29,6 +29,13 @@ export const AI_OPERATION_COSTS = {
   extractRequirementsFromMarkdown: 4,
   generateReleaseSummary: 6,
   reviewTestCaseQuality: 12,
+  // SSE-181: a genuine temp/guestimate cost, higher than any text-only
+  // operation above - this is the only AI_OPERATION_COSTS entry that also
+  // pays for real browser/crawl compute (a headless Chromium launch +
+  // navigation across up to 5 pages), not just an LLM call. No real cost
+  // data exists yet for that crawl compute; revisit once this has real
+  // usage, same as every other flat figure here.
+  generateTestCasesFromLiveApp: 15,
 } as const;
 
 export type AiOperation = keyof typeof AI_OPERATION_COSTS;

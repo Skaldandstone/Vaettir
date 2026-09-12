@@ -8,4 +8,5 @@ export * from "./generateTestCasesFromRequirement.js";
 export * from "./extractRequirementsFromMarkdown.js";
 export * from "./generateReleaseSummary.js";
 export * from "./reviewTestCaseQuality.js";
+export * from "./generateTestCasesFromLiveApp.js";
 export { captureAiUsage, type AiUsage } from "./tracing.js";

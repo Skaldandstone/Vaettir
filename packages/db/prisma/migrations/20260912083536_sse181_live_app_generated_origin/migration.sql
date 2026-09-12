@@ -1,0 +1,2 @@
+-- AlterEnum
+ALTER TYPE "TestCaseOrigin" ADD VALUE 'AI_LIVE_APP_GENERATED';
