@@ -293,6 +293,13 @@ hr,
 .brand:hover {
   text-decoration: none;
 }
+.tm {
+  font-size: 0.55em;
+  font-weight: 400;
+  vertical-align: super;
+  line-height: 0;
+  margin-left: 0.05em;
+}
 
 .theme-toggle {
   display: flex;

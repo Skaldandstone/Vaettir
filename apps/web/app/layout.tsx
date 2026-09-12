@@ -46,7 +46,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
               <div className="app-nav-inner">
                 <Link href="/" className="brand">
                   <RuneMark />
-                  Vaettir™
+                  Vaettir<span className="tm">™</span>
                 </Link>
                 <span className="nav-product-label">
                   Quality intelligence <span>Private beta</span>
