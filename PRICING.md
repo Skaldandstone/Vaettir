@@ -123,15 +123,17 @@ up for heavier repo-scanning workloads.
 - Org admins can see their balance and recent activity (Settings →
   Organization → "AI credits").
 
-**Not built - needs a decision before it can be:**
-- **Buying top-off credits.** There's no `TOPUP` transaction path wired to
-  anything, because there's no payment provider integrated yet (`P12-05`,
-  blocked on this same kind of pricing decision plus a Stripe-vs-alternative
-  call). Once that lands, `TOPUP` just needs a Stripe webhook handler that
-  creates the ledger row - the ledger/balance side is already correct and
-  ready for it.
-  - **Proposed top-off pricing** (for when it's built): sell credits at
-    ~$0.02 each (2x the assumed raw cost), in packs - e.g. 500 credits for
+**Built 2026-09-12, sandbox/test mode only:**
+- **Buying top-off credits.** Wired on the same direct instruction as
+  P12-05/P12-12 - get it running with the proposed pricing now rather than
+  wait for sign-off. `organization.createCreditTopup` starts a one-time
+  Stripe Checkout session at the exact pack pricing proposed below; the
+  webhook handler creates the real `TOPUP` ledger row once Stripe confirms
+  payment. See `ROADMAP.md`'s P12-11 entry for the implementation detail.
+  Not yet exercised against a real Stripe sandbox account (needs a real
+  test-mode API key, same gap as P12-05).
+  - **Top-off pricing** (still a guestimate, not confirmed): sell credits at
+    ~$0.02 each (2x the assumed raw cost), in packs - 500 credits for
     $10, 2,000 for $35 (~12% pack discount), 10,000 for $150 (~25% pack
     discount). Needs sign-off alongside everything else here.
 - **Exact token-based charging.** The measurement half is done (P12-12,

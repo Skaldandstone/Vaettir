@@ -16,6 +16,8 @@ import { handlePullRequestWebhook, type GithubPullRequestPayload } from "./servi
 import { verifyGitlabToken } from "./services/gitlabApi.js";
 import { handleMergeRequestWebhook, type GitlabMergeRequestPayload } from "./services/gitlabWebhook.js";
 import { getHeartbeatStatuses } from "./services/heartbeat.js";
+import { getStripeRuntime } from "./services/stripeConfig.js";
+import { handleStripeWebhookEvent } from "./services/stripeBilling.js";
 
 // P10-07: expected poller intervals, keyed by the same names each poller
 // calls recordHeartbeat with - the one place server.ts needs to know
@@ -101,6 +103,36 @@ async function registerGitlabWebhookRoute(instance: FastifyInstance) {
   });
 }
 
+// P12-05: same raw-body-preserving pattern as registerGithubWebhookRoute --
+// stripe.webhooks.constructEvent needs the exact bytes Stripe signed, which
+// Fastify's default JSON parser would re-serialize and break. A no-op route
+// (200, handled: false) when billing isn't configured on this deployment at
+// all, rather than 404/500 -- Stripe's own webhook-delivery retry/alerting
+// shouldn't be confused by a deployment that simply never enabled billing.
+async function registerStripeWebhookRoute(instance: FastifyInstance) {
+  instance.addContentTypeParser("application/json", { parseAs: "buffer" }, (_req, body, done) => {
+    done(null, body);
+  });
+
+  instance.post("/webhooks/stripe", async (req, reply) => {
+    const runtime = getStripeRuntime();
+    if (!runtime) return reply.send({ handled: false, reason: "billing not configured" });
+
+    const signature = req.headers["stripe-signature"] as string | undefined;
+    if (!signature) return reply.code(400).send({ error: "missing stripe-signature header" });
+
+    let event;
+    try {
+      event = runtime.stripe.webhooks.constructEvent(req.body as Buffer, signature, runtime.webhookSecret);
+    } catch (err) {
+      return reply.code(400).send({ error: `invalid signature: ${err instanceof Error ? err.message : String(err)}` });
+    }
+
+    const result = await handleStripeWebhookEvent(prisma, event);
+    return reply.send(result);
+  });
+}
+
 // tRPC's httpBatchLink joins every query fired in the same tick into one
 // path segment of comma-joined procedure names (e.g.
 // "project.byId,releases.byId,releases.readiness,..."), which routinely
@@ -156,6 +188,7 @@ server.get("/health", { config: { rateLimit: false } }, async () => ({ ok: true 
 server.get("/health/detailed", { config: { rateLimit: false } }, async () => detailedHealthHandler());
 await server.register(registerGithubWebhookRoute);
 await server.register(registerGitlabWebhookRoute);
+await server.register(registerStripeWebhookRoute);
 
 // Mirrored under /api: the ALB/CloudFront path in front of this service
 // routes only /api/* here (the same domain also serves apps/web), so
@@ -175,6 +208,7 @@ await server.register(
     instance.get("/health/detailed", { config: { rateLimit: false } }, async () => detailedHealthHandler());
     await instance.register(registerGithubWebhookRoute);
     await instance.register(registerGitlabWebhookRoute);
+    await instance.register(registerStripeWebhookRoute);
   },
   { prefix: "/api" },
 );

@@ -37,6 +37,7 @@ const ORG_LINKS = [
 const ORG_ADMIN_LINKS = [
   { href: "/settings/members", label: "Members" },
   { href: "/settings/access-review", label: "Access Review" },
+  { href: "/settings/billing", label: "Billing" },
   { href: "/settings/organization", label: "Settings" },
 ];
 

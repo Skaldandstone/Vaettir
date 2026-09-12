@@ -61,6 +61,14 @@ model Organization {
   // subscribed to nothing, same convention as WebhookEndpoint.eventTypes.
   slackEventTypes String[] @default([])
 
+  // P12-05: Stripe subscription billing. Both null until the org actually
+  // completes a real Stripe Checkout session (createBillingCheckout) --
+  // Free-tier orgs, and any org that never subscribed, have neither. Test
+  // mode only for now (see stripeConfig.ts) -- these IDs are real Stripe
+  // object IDs either way, just never live-mode ones in this pass.
+  stripeCustomerId     String?
+  stripeSubscriptionId String?
+
   // Renames the display labels for TestCaseStep's four fields, e.g.
   // {"expectedActionOrData": "Backend Call"}. Keys are the field names in
   // TestCaseStep; any key not present falls back to
@@ -399,6 +407,13 @@ model PlanTier {
   includedReadOnlySeats    Int    @default(0) // read-only seats bundled at this tier
   maxReadOnlySeats         Int? // null = unlimited once on this tier
   monthlyPricePerSeatCents Int? // null = not yet priced
+
+  // P12-05: the Stripe Price object (test mode) an org subscribes to for
+  // this tier's per-seat charge. Null on Free (nothing to subscribe to) and
+  // on any paid tier until a real Stripe test-mode price has actually been
+  // created for it -- createBillingCheckout refuses a tier with no price
+  // rather than guessing one.
+  stripePriceId String?
 
   // AI credits granted to an org on this tier at the start of each calendar
   // month (see AiCreditTransaction) -- covers the real, variable LLM cost

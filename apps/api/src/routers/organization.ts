@@ -16,6 +16,7 @@ import { computeRetentionDryRun } from "../services/retentionAudit.js";
 import { WEBHOOK_EVENT_TYPES } from "../services/webhookDelivery.js";
 import { assertPublicHttpUrl, UnsafeUrlError } from "../services/urlGuard.js";
 import { bootstrapBetaOrganization, PRIVATE_BETA_TIER } from "../services/privateBeta.js";
+import { createBillingCheckoutSession, createBillingPortalSession as createStripePortalSession, createCreditTopupCheckoutSession, CREDIT_TOPUP_PACKS, type CreditTopupPackKey, syncBillingSeatQuantity, BillingNotConfiguredError } from "../services/stripeBilling.js";
 
 const INVITATION_EXPIRY_DAYS = 7;
 
@@ -459,6 +460,9 @@ export const organizationRouter = router({
           where: { id: input.membershipId },
           data: { role: input.role, seatType: input.seatType },
         });
+      }).then((updated) => {
+        void syncBillingSeatQuantity(ctx.prisma, updated.organizationId).catch(() => undefined);
+        return updated;
       });
     }),
 
@@ -478,6 +482,7 @@ export const organizationRouter = router({
       }
 
       await ctx.prisma.membership.delete({ where: { id: input.membershipId } });
+      void syncBillingSeatQuantity(ctx.prisma, membership.organizationId).catch(() => undefined);
     }),
 
   revokeInvitation: protectedProcedure
@@ -560,6 +565,13 @@ export const organizationRouter = router({
           where: { id: invitation.id },
           data: { status: "ACCEPTED", acceptedAt: new Date() },
         });
+        return { membership, organizationId: invitation.organizationId };
+      }).then(({ membership, organizationId }) => {
+        // P12-05: fire-and-forget, matching P5-14/P9-06's precedent -- a
+        // transient Stripe API failure here should never fail the invite
+        // acceptance itself, and this is a no-op when billing isn't
+        // configured or the org has no active subscription.
+        void syncBillingSeatQuantity(ctx.prisma, organizationId).catch(() => undefined);
         return membership;
       });
     }),
@@ -654,6 +666,64 @@ export const organizationRouter = router({
         await tx.organization.update({ where: { id: input.organizationId }, data: { planTierId: input.planTierId } });
         return { planTierId: input.planTierId, planTierName: targetTier.name };
       });
+    }),
+
+  // P12-05: starts a real Stripe Checkout session (test mode) subscribing
+  // this org to a paid tier. Deliberately does NOT change planTierId here --
+  // that only happens once Stripe confirms via the checkout.session.completed
+  // webhook, so an abandoned checkout never leaves the org "on" a plan it
+  // never actually paid for. ADMIN-gated, same rank the other billing-
+  // affecting mutations on this router already require.
+  createBillingCheckout: protectedProcedure
+    .input(z.object({ organizationId: z.string(), planTierId: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      requireOrgRole(ctx, input.organizationId, "ADMIN");
+      try {
+        return await createBillingCheckoutSession(ctx.prisma, input.organizationId, input.planTierId);
+      } catch (err) {
+        if (err instanceof BillingNotConfiguredError) {
+          throw new TRPCError({ code: "PRECONDITION_FAILED", message: err.message });
+        }
+        throw err;
+      }
+    }),
+
+  // The Stripe-hosted billing portal (payment method, invoices, cancel) for
+  // an org that already has a real subscription on file.
+  createBillingPortalSession: protectedProcedure
+    .input(z.object({ organizationId: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      requireOrgRole(ctx, input.organizationId, "ADMIN");
+      try {
+        return await createStripePortalSession(ctx.prisma, input.organizationId);
+      } catch (err) {
+        if (err instanceof BillingNotConfiguredError) {
+          throw new TRPCError({ code: "PRECONDITION_FAILED", message: err.message });
+        }
+        throw err;
+      }
+    }),
+
+  // P12-11: a one-time Checkout Session for a fixed AI-credit pack (see
+  // CREDIT_TOPUP_PACKS). The ledger row itself is only created once Stripe
+  // confirms via the checkout.session.completed webhook, same
+  // never-trust-the-client-side-redirect principle as the subscription
+  // checkout above.
+  createCreditTopup: protectedProcedure
+    .input(z.object({ organizationId: z.string(), packKey: z.enum(Object.keys(CREDIT_TOPUP_PACKS) as [string, ...string[]]) }))
+    .mutation(async ({ ctx, input }) => {
+      requireOrgRole(ctx, input.organizationId, "ADMIN");
+      try {
+        // z.enum(Object.keys(...)) validates this is a real pack key at
+        // runtime, but its static type widens to plain `string` -- the cast
+        // is safe because the schema itself is built from the same const.
+        return await createCreditTopupCheckoutSession(ctx.prisma, input.organizationId, input.packKey as CreditTopupPackKey);
+      } catch (err) {
+        if (err instanceof BillingNotConfiguredError) {
+          throw new TRPCError({ code: "PRECONDITION_FAILED", message: err.message });
+        }
+        throw err;
+      }
     }),
 
   // P12-06: current seats used vs. included at this tier, plus which tier
