@@ -1,0 +1,435 @@
+"use client";
+
+import { useState } from "react";
+import { trpcReact, type RouterOutputs } from "@/lib/trpcReact";
+
+// P11-10: "Migration assistant" wizard. Every backend piece this orchestrates
+// already existed and worked (P11-01/02's CSV mapping+preview, P11-03's
+// TestRail XML importer, P11-05's Xray/Jira importer, P11-09's diff/summary
+// shape) - what was actually missing, per the ticket's own wording, was "one
+// guided flow rather than disconnected tools." Before this, the import page
+// stacked three always-visible, independently-operated panels (Xray,
+// TestRail, a separate CSV mapping section) that assumed the user already
+// knew which importer applied to their export. This makes the same three
+// backends into one step machine: pick a source -> upload -> (CSV only) map
+// columns -> review the exact scope preview -> commit -> see the diff
+// report, with a "start over" at every step. No new backend logic - this is
+// purely the orchestration layer the ticket asked for.
+
+type Source = "csv" | "testrail" | "xray";
+type Step = "source" | "upload" | "review" | "done";
+
+const TARGET_FIELDS = ["title", "given", "when", "then", "priority", "tags", "externalId"] as const;
+type TargetField = (typeof TARGET_FIELDS)[number];
+const FIELD_LABELS: Record<TargetField, string> = {
+  title: "Title",
+  given: "Given (preconditions)",
+  when: "When (steps)",
+  then: "Then (expected result)",
+  priority: "Priority",
+  tags: "Tags",
+  externalId: "External ID (for re-import)",
+};
+
+const SOURCE_INFO: Record<Source, { label: string; blurb: string; accept: string }> = {
+  csv: {
+    label: "Generic CSV",
+    blurb: "Any spreadsheet export - you'll map its columns to Vaettir's fields in the next step.",
+    accept: ".csv",
+  },
+  testrail: {
+    label: "TestRail",
+    blurb: "TestRail → open the suite → Test Cases → Export → XML.",
+    accept: ".xml,text/xml,application/xml",
+  },
+  xray: {
+    label: "Xray (Jira)",
+    blurb: "A Jira Test-issue CSV export (JQL: issuetype = Test), or Xray's own JSON test export.",
+    accept: ".csv,.json,text/csv,application/json",
+  },
+};
+
+function readFileAsText(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result as string);
+    reader.onerror = () => reject(reader.error ?? new Error("Failed to read file"));
+    reader.readAsText(file);
+  });
+}
+
+type FilePreviewRow = RouterOutputs["importJobs"]["previewXray"]["previewRows"][number];
+type FileCommitResult = RouterOutputs["importJobs"]["commitXray"];
+type CsvPreview = RouterOutputs["importJobs"]["previewCsv"];
+type CsvMappedPreviewRow = RouterOutputs["importJobs"]["previewWithMapping"]["previewRows"][number];
+
+export function MigrationWizard({ projectId, onCommitted }: { projectId: string; onCommitted: () => void }) {
+  const utils = trpcReact.useUtils();
+  const [step, setStep] = useState<Step>("source");
+  const [source, setSource] = useState<Source | null>(null);
+  const [fileName, setFileName] = useState("");
+  const [rawContent, setRawContent] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [result, setResult] = useState<FileCommitResult | null>(null);
+
+  // CSV-only mapping state
+  const [csvPreview, setCsvPreview] = useState<CsvPreview | null>(null);
+  const [mapping, setMapping] = useState<Partial<Record<TargetField, string>>>({});
+  const [csvPreviewRows, setCsvPreviewRows] = useState<CsvMappedPreviewRow[]>([]);
+  const [csvPreviewSkipped, setCsvPreviewSkipped] = useState<{ rowNumber: number; reason: string }[]>([]);
+
+  // TestRail/Xray preview state
+  const [filePreview, setFilePreview] = useState<{
+    format: string;
+    formatLabel: string;
+    caseCount: number;
+    previewRows: FilePreviewRow[];
+    skipped: { rowNumber: number; reason: string }[];
+  } | null>(null);
+
+  const commitCsvMutation = trpcReact.importJobs.commitCsv.useMutation();
+  const commitXrayMutation = trpcReact.importJobs.commitXray.useMutation();
+  const commitTestRailMutation = trpcReact.importJobs.commitTestRail.useMutation();
+
+  function reset() {
+    setStep("source");
+    setSource(null);
+    setFileName("");
+    setRawContent("");
+    setError(null);
+    setCsvPreview(null);
+    setMapping({});
+    setCsvPreviewRows([]);
+    setCsvPreviewSkipped([]);
+    setFilePreview(null);
+    setResult(null);
+  }
+
+  function chooseSource(s: Source) {
+    setSource(s);
+    setStep("upload");
+    setError(null);
+  }
+
+  async function loadFile(file: File) {
+    if (!source) return;
+    setError(null);
+    setFileName(file.name);
+    const text = await readFileAsText(file);
+    setRawContent(text);
+    setLoading(true);
+    try {
+      if (source === "csv") {
+        const res = await utils.importJobs.previewCsv.fetch({ projectId, csvText: text });
+        setCsvPreview(res);
+        const suggested = res.suggestedMapping as Partial<Record<TargetField, string>>;
+        setMapping(suggested);
+        setCsvPreviewRows(res.previewRows);
+        setCsvPreviewSkipped(res.previewSkipped);
+      } else if (source === "xray") {
+        const res = await utils.importJobs.previewXray.fetch({ projectId, content: text });
+        setFilePreview({
+          format: res.format,
+          formatLabel: res.format === "jira-csv" ? "Jira CSV export" : "Xray JSON export",
+          caseCount: res.caseCount,
+          previewRows: res.previewRows,
+          skipped: res.skipped,
+        });
+        setStep("review");
+      } else {
+        const res = await utils.importJobs.previewTestRail.fetch({ projectId, content: text });
+        setFilePreview({
+          format: res.format,
+          formatLabel: "TestRail XML export",
+          caseCount: res.caseCount,
+          previewRows: res.previewRows,
+          skipped: res.skipped,
+        });
+        setStep("review");
+      }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function updateMapping(field: TargetField, column: string) {
+    const next = { ...mapping, [field]: column || undefined };
+    setMapping(next);
+    if (!next.title) {
+      setCsvPreviewRows([]);
+      setCsvPreviewSkipped([]);
+      return;
+    }
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await utils.importJobs.previewWithMapping.fetch({
+        projectId,
+        csvText: rawContent,
+        mapping: next as Record<TargetField, string>,
+      });
+      setCsvPreviewRows(res.previewRows);
+      setCsvPreviewSkipped(res.previewSkipped);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function commit() {
+    setError(null);
+    try {
+      let res: FileCommitResult;
+      if (source === "csv") {
+        if (!mapping.title) return;
+        res = await commitCsvMutation.mutateAsync({
+          projectId,
+          csvText: rawContent,
+          mapping: mapping as Record<TargetField, string>,
+          sourceLabel: fileName || undefined,
+        });
+      } else if (source === "xray") {
+        res = await commitXrayMutation.mutateAsync({ projectId, content: rawContent, sourceLabel: fileName || undefined });
+      } else {
+        res = await commitTestRailMutation.mutateAsync({ projectId, content: rawContent, sourceLabel: fileName || undefined });
+      }
+      setResult(res);
+      setStep("done");
+      onCommitted();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  }
+
+  const committing = commitCsvMutation.isPending || commitXrayMutation.isPending || commitTestRailMutation.isPending;
+  const stepNumber = { source: 1, upload: 2, review: source === "csv" ? 3 : 3, done: 4 }[step];
+  const totalSteps = source === "csv" ? 4 : 4;
+
+  return (
+    <div className="panel" style={{ marginBottom: 20 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
+        <h2 style={{ marginTop: 0 }}>Migration assistant</h2>
+        {step !== "source" && (
+          <button className="btn-secondary" style={{ fontSize: 12 }} onClick={reset}>
+            Start over
+          </button>
+        )}
+      </div>
+      <p className="text-muted" style={{ fontSize: 12, marginTop: -4 }}>
+        Step {stepNumber} of {totalSteps}
+      </p>
+
+      {step === "source" && (
+        <>
+          <p className="text-muted" style={{ fontSize: 13 }}>
+            Where is your test case data coming from?
+          </p>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12, maxWidth: 720 }}>
+            {(Object.keys(SOURCE_INFO) as Source[]).map((s) => (
+              <button
+                key={s}
+                onClick={() => chooseSource(s)}
+                style={{
+                  textAlign: "left",
+                  border: "1px solid var(--line)",
+                  borderRadius: 8,
+                  padding: 12,
+                  background: "transparent",
+                  cursor: "pointer",
+                }}
+              >
+                <div style={{ fontWeight: 600, marginBottom: 4 }}>{SOURCE_INFO[s].label}</div>
+                <div className="text-muted" style={{ fontSize: 12 }}>
+                  {SOURCE_INFO[s].blurb}
+                </div>
+              </button>
+            ))}
+          </div>
+        </>
+      )}
+
+      {step === "upload" && source && (
+        <>
+          <p className="text-muted" style={{ fontSize: 13 }}>
+            {SOURCE_INFO[source].blurb}
+          </p>
+          <input
+            type="file"
+            accept={SOURCE_INFO[source].accept}
+            onChange={(e) => {
+              const file = e.target.files?.[0];
+              if (file) void loadFile(file);
+              e.target.value = "";
+            }}
+          />
+          {loading && <p className="text-muted">Reading export…</p>}
+        </>
+      )}
+
+      {step === "upload" && source === "csv" && csvPreview && (
+        <div style={{ marginTop: 16 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
+            <h3 style={{ margin: 0 }}>Map columns — {fileName}</h3>
+          </div>
+          <p className="text-muted" style={{ fontSize: 13 }}>
+            {csvPreview.rowCount} data row(s) found. &quot;Title&quot; is required; leave any other field unmapped to
+            skip it. Map &quot;External ID&quot; to a column with a stable per-row id to make this import re-runnable.
+          </p>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, maxWidth: 500 }}>
+            {TARGET_FIELDS.map((field) => (
+              <label key={field} style={{ fontSize: 13 }}>
+                {FIELD_LABELS[field]}
+                {field === "title" && <span style={{ color: "var(--ember)" }}> *</span>}
+                <select value={mapping[field] ?? ""} onChange={(e) => void updateMapping(field, e.target.value)} style={{ width: "100%" }}>
+                  <option value="">— not mapped —</option>
+                  {csvPreview.headers.map((h) => (
+                    <option key={h} value={h}>
+                      {h}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            ))}
+          </div>
+
+          <h4 style={{ marginTop: 16 }}>Preview (first {csvPreviewRows.length} row(s))</h4>
+          {!mapping.title && <p style={{ color: "var(--ember)" }}>Map a column to Title to see a preview.</p>}
+          {csvPreviewRows.length > 0 && (
+            <div style={{ overflowX: "auto" }}>
+              <table style={{ width: "100%", fontSize: 12, borderCollapse: "collapse" }}>
+                <thead>
+                  <tr>
+                    <th style={{ textAlign: "left" }}>Row</th>
+                    <th style={{ textAlign: "left" }}>Title</th>
+                    <th style={{ textAlign: "left" }}>Given</th>
+                    <th style={{ textAlign: "left" }}>When</th>
+                    <th style={{ textAlign: "left" }}>Then</th>
+                    <th style={{ textAlign: "left" }}>Priority</th>
+                    <th style={{ textAlign: "left" }}>Tags</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {csvPreviewRows.map((r) => (
+                    <tr key={r.rowNumber} style={{ borderTop: "1px solid var(--line)" }}>
+                      <td className="text-muted">{r.rowNumber}</td>
+                      <td>{r.title}</td>
+                      <td>{r.given.join(" | ")}</td>
+                      <td>{r.when.join(" | ")}</td>
+                      <td>{r.then.join(" | ")}</td>
+                      <td>{r.priority}</td>
+                      <td>{r.tags.join(", ")}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+          {csvPreviewSkipped.length > 0 && (
+            <p className="text-muted" style={{ fontSize: 12 }}>
+              {csvPreviewSkipped.length} row(s) would be skipped (missing title), e.g. row {csvPreviewSkipped[0]!.rowNumber}.
+            </p>
+          )}
+
+          <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
+            <button onClick={() => setStep("review")} disabled={!mapping.title}>
+              Review scope
+            </button>
+          </div>
+        </div>
+      )}
+
+      {step === "review" && source === "csv" && (
+        <div>
+          <h3 style={{ marginTop: 0 }}>Ready to import — {fileName}</h3>
+          <p className="text-muted" style={{ fontSize: 13 }}>
+            {csvPreviewRows.length} row(s) shown of {csvPreview?.rowCount ?? 0} total will be created
+            {csvPreviewSkipped.length > 0 && `, ${csvPreviewSkipped.length} row(s) skipped (missing title)`}. Nothing is
+            written until you confirm.
+          </p>
+          <div style={{ display: "flex", gap: 8 }}>
+            <button className="btn-secondary" onClick={() => setStep("upload")}>
+              Back to mapping
+            </button>
+            <button onClick={commit} disabled={committing}>
+              {committing ? "Importing…" : `Import ${csvPreview?.rowCount ?? 0} row(s)`}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {step === "review" && filePreview && source !== "csv" && (
+        <div>
+          <h3 style={{ marginTop: 0 }}>Ready to import — {fileName}</h3>
+          <p className="text-muted" style={{ fontSize: 13 }}>
+            Detected {filePreview.formatLabel} · {filePreview.caseCount} test case(s) will be imported
+            {filePreview.skipped.length > 0 && `, ${filePreview.skipped.length} row(s) skipped`}. Nothing is written
+            until you confirm.
+          </p>
+          <div style={{ overflowX: "auto" }}>
+            <table style={{ width: "100%", fontSize: 12, borderCollapse: "collapse" }}>
+              <thead>
+                <tr>
+                  <th style={{ textAlign: "left" }}>Key</th>
+                  <th style={{ textAlign: "left" }}>Title</th>
+                  <th style={{ textAlign: "left" }}>Type</th>
+                  <th style={{ textAlign: "left" }}>Priority</th>
+                  <th style={{ textAlign: "left" }}>Suite</th>
+                  <th style={{ textAlign: "left" }}>Tags</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filePreview.previewRows.map((r, i) => (
+                  <tr key={`${r.key}-${i}`} style={{ borderTop: "1px solid var(--line)" }}>
+                    <td className="text-muted">{r.key}</td>
+                    <td>{r.title}</td>
+                    <td>{r.testType}</td>
+                    <td>{r.priority}</td>
+                    <td>{r.suitePath ?? ""}</td>
+                    <td>{r.tags.join(", ")}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          {filePreview.caseCount > filePreview.previewRows.length && (
+            <p className="text-muted" style={{ fontSize: 12 }}>
+              Showing the first {filePreview.previewRows.length} of {filePreview.caseCount}.
+            </p>
+          )}
+          {filePreview.skipped.length > 0 && (
+            <p className="text-muted" style={{ fontSize: 12 }}>
+              Skipped: {filePreview.skipped.slice(0, 5).map((s) => `row ${s.rowNumber} (${s.reason})`).join("; ")}
+              {filePreview.skipped.length > 5 && ` and ${filePreview.skipped.length - 5} more`}
+            </p>
+          )}
+          <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
+            <button className="btn-secondary" onClick={() => setStep("upload")}>
+              Choose a different file
+            </button>
+            <button onClick={commit} disabled={committing || filePreview.caseCount === 0}>
+              {committing ? "Importing…" : `Import ${filePreview.caseCount} test case(s)`}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {step === "done" && result && (
+        <div>
+          <h3 style={{ marginTop: 0, color: "var(--frost)" }}>Import complete</h3>
+          <p>
+            Imported {result.createdCount} test case(s)
+            {result.updatedCount > 0 && `, updated ${result.updatedCount} existing case(s)`}
+            {result.skipped.length > 0 && `, skipped ${result.skipped.length} row(s)`}.
+          </p>
+          <button onClick={reset}>Import another</button>
+        </div>
+      )}
+
+      {error && <p style={{ color: "var(--ember)" }}>{error}</p>}
+    </div>
+  );
+}
