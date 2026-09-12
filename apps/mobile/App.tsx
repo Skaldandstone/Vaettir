@@ -188,7 +188,7 @@ function TestCaseBrowser() {
 
   return (
     <SafeAreaView style={styles.container}>
-      <Text style={styles.title}>Vaettir™</Text>
+      <Text style={styles.title}>Vaettir<Text style={styles.tm}>™</Text></Text>
       <Button title="About Vaettir and legal" onPress={() => Alert.alert("About Vaettir", "© 2026 Skald and Stone LLC\n\nOriginal studio work only. Customer content, third-party materials, and existing software licenses retain their own rights.")} />
       <TextInput
         style={styles.input}
@@ -628,6 +628,7 @@ function SignInScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1, paddingTop: 60, paddingHorizontal: 16 },
   title: { fontSize: 24, fontWeight: "700", marginBottom: 12 },
+  tm: { fontSize: 12, fontWeight: "400", top: -6 },
   input: { borderWidth: 1, borderColor: "#ccc", borderRadius: 8, padding: 10, marginBottom: 12 },
   row: { paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: "#eee" },
   rowTitle: { fontSize: 16, fontWeight: "600" },
