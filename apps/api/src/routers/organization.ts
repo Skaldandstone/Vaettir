@@ -138,6 +138,7 @@ export const organizationRouter = router({
         jiraWebhookConfigured: z.boolean(),
         jiraBaseUrl: z.string().nullable(),
         jiraEmail: z.string().nullable(),
+        datadogWebhookConfigured: z.boolean(),
       }),
     )
     .query(async ({ ctx, input }) => {
@@ -162,6 +163,7 @@ export const organizationRouter = router({
           jiraEmail: true,
           jiraEncryptedApiToken: true,
           jiraWebhookSecret: true,
+          datadogWebhookSecret: true,
         },
       });
       const overrides = (org.stepFieldLabels as Partial<Record<StepFieldKey, string>> | null) ?? {};
@@ -189,6 +191,7 @@ export const organizationRouter = router({
         jiraWebhookConfigured: org.jiraWebhookSecret !== null,
         jiraBaseUrl: org.jiraBaseUrl,
         jiraEmail: org.jiraEmail,
+        datadogWebhookConfigured: org.datadogWebhookSecret !== null,
       };
     }),
 
@@ -386,6 +389,19 @@ export const organizationRouter = router({
       await ctx.prisma.organization.update({
         where: { id: input.organizationId },
         data: { jiraWebhookSecret: trimmed.length > 0 ? trimmed : null },
+      });
+    }),
+
+  // P9-04 (Datadog half): a plain shared secret, same posture as Jira's
+  // above - Datadog's webhook integration has no built-in request signing.
+  updateDatadogWebhookSecret: protectedProcedure
+    .input(z.object({ organizationId: z.string(), webhookSecret: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      requireOrgRole(ctx, input.organizationId, "ADMIN");
+      const trimmed = input.webhookSecret.trim();
+      await ctx.prisma.organization.update({
+        where: { id: input.organizationId },
+        data: { datadogWebhookSecret: trimmed.length > 0 ? trimmed : null },
       });
     }),
 

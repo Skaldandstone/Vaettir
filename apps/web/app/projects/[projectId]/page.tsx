@@ -73,6 +73,36 @@ export default function ProjectOverviewPage() {
     if (projectQuery.data) setPagerdutyServiceId(projectQuery.data.pagerdutyServiceId ?? "");
   }, [projectQuery.data]);
 
+  // P9-04 (Datadog half): the tag value this project's Datadog monitors
+  // should carry (vaettir_project:<this value>) - see server.ts's
+  // /webhooks/datadog and the org settings page for the webhook secret +
+  // full payload template this pairs with.
+  const [datadogProjectTag, setDatadogProjectTag] = useState("");
+  const [datadogError, setDatadogError] = useState<string | null>(null);
+  const datadogMutation = trpcReact.project.update.useMutation({
+    onSuccess: () => {
+      setDatadogProjectTag("");
+      void utils.project.byId.invalidate({ id: projectId });
+    },
+    onError: (e) => setDatadogError(e.message),
+  });
+
+  function saveDatadogProjectTag() {
+    const project = projectQuery.data;
+    if (!project) return;
+    setDatadogError(null);
+    datadogMutation.mutate({
+      id: project.id,
+      name: project.name,
+      defaultBranch: project.defaultBranch,
+      datadogProjectTag,
+    });
+  }
+
+  useEffect(() => {
+    if (projectQuery.data) setDatadogProjectTag(projectQuery.data.datadogProjectTag ?? "");
+  }, [projectQuery.data]);
+
   const project = projectQuery.data;
   const testCaseCount = testCasesQuery.data?.length ?? null;
   const testPlanCount = testPlansQuery.data?.length ?? null;
@@ -130,6 +160,27 @@ export default function ProjectOverviewPage() {
           </button>
         </div>
         {pagerdutyError && <p style={{ color: "var(--ember)", fontSize: 13, marginTop: 6 }}>{pagerdutyError}</p>}
+      </div>
+
+      <div className="panel" style={{ marginBottom: 24 }}>
+        <strong>Datadog incident linkage</strong>
+        <p className="text-muted" style={{ fontSize: 13, margin: "4px 0 10px" }}>
+          {project.datadogProjectTag
+            ? `Tag Datadog monitors with vaettir_project:${project.datadogProjectTag} to have a triggered alert automatically create a risk flag on this project's most recently shipped release.`
+            : "Choose a tag value, then tag this project's Datadog monitors with vaettir_project:<that value> to have a triggered alert automatically create a risk flag."}
+        </p>
+        <div style={{ display: "flex", gap: 8 }}>
+          <input
+            value={datadogProjectTag}
+            onChange={(e) => setDatadogProjectTag(e.target.value)}
+            placeholder="e.g. checkout-service"
+            style={{ flex: 1 }}
+          />
+          <button className="btn-secondary" onClick={saveDatadogProjectTag} disabled={datadogMutation.isPending}>
+            {datadogMutation.isPending ? "Saving…" : project.datadogProjectTag ? "Update" : "Save"}
+          </button>
+        </div>
+        {datadogError && <p style={{ color: "var(--ember)", fontSize: 13, marginTop: 6 }}>{datadogError}</p>}
       </div>
 
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: 16, marginBottom: 32 }}>

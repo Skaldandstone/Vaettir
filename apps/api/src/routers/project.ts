@@ -81,6 +81,7 @@ export const projectRouter = router({
         repoUrl: z.string().nullable(),
         defaultBranch: z.string(),
         pagerdutyServiceId: z.string().nullable(),
+        datadogProjectTag: z.string().nullable(),
       }),
     )
     .query(async ({ ctx, input }) => {
@@ -101,6 +102,9 @@ export const projectRouter = router({
         // @unique, and two projects both storing "" would collide on the
         // very first project that ever clears it.
         pagerdutyServiceId: z.string().optional(),
+        // Same undefined/""-clears-to-null convention; unique per-org only
+        // (see the schema comment on Project.datadogProjectTag).
+        datadogProjectTag: z.string().optional(),
       }),
     )
     .output(z.object({ id: z.string(), name: z.string(), slug: z.string() }))
@@ -118,12 +122,16 @@ export const projectRouter = router({
             repoUrl: input.repoUrl,
             defaultBranch: input.defaultBranch,
             pagerdutyServiceId: input.pagerdutyServiceId === undefined ? undefined : input.pagerdutyServiceId.trim() || null,
+            datadogProjectTag: input.datadogProjectTag === undefined ? undefined : input.datadogProjectTag.trim() || null,
           },
           select: { id: true, name: true, slug: true },
         });
       } catch (e) {
         if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2002") {
-          throw new TRPCError({ code: "BAD_REQUEST", message: "Another project is already configured with that PagerDuty service ID." });
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "Another project is already configured with that PagerDuty service ID or Datadog project tag.",
+          });
         }
         throw e;
       }

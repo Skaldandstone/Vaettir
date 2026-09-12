@@ -279,6 +279,61 @@ function LinearIntegrationSection({ organizationId }: { organizationId: string }
   );
 }
 
+// P9-04 (Datadog half): org-level webhook secret only - the routing value
+// (a project's chosen Datadog tag) is set per-project on the project
+// overview page, next to PagerDuty's own service-id field, since a
+// Datadog alert routes to a project the same way a PagerDuty incident
+// does, not to a requirement the way Jira/Linear do.
+function DatadogIntegrationSection({ organizationId }: { organizationId: string }) {
+  const utils = trpcReact.useUtils();
+  const orgQuery = trpcReact.organization.byId.useQuery({ id: organizationId });
+  const [webhookSecret, setWebhookSecret] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const webhookSecretMutation = trpcReact.organization.updateDatadogWebhookSecret.useMutation();
+
+  async function saveWebhookSecret() {
+    setError(null);
+    try {
+      await webhookSecretMutation.mutateAsync({ organizationId, webhookSecret });
+      setWebhookSecret("");
+      void utils.organization.byId.invalidate({ id: organizationId });
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  }
+
+  const org = orgQuery.data;
+  if (!org) return null;
+
+  return (
+    <div className="panel" style={{ marginTop: 24 }}>
+      <h2 style={{ marginTop: 0 }}>Datadog integration</h2>
+      <p className="text-muted" style={{ fontSize: 13 }}>
+        Closes the loop from a real production alert to a coverage gap - a triggered monitor creates a risk flag on
+        the tagged project&apos;s most recently shipped release. On each monitor you want connected, add the tag{" "}
+        <code>vaettir_project:&lt;a value you choose&gt;</code>, then set that same value on the project&apos;s
+        overview page. In the monitor&apos;s notification, add <code>@webhook-vaettir</code> and configure that
+        webhook integration (Integrations → Webhooks) with URL{" "}
+        <code>/webhooks/datadog/{organizationId}</code>, a custom header{" "}
+        <code>X-Vaettir-Datadog-Secret</code> set to the secret below, and this JSON payload:{" "}
+        <code>{`{"transition": "$ALERT_TRANSITION", "priority": "$ALERT_PRIORITY", "title": "$ALERT_TITLE", "projectTag": "$TAGS[vaettir_project]"}`}</code>.
+      </p>
+      <div style={{ display: "flex", gap: 8, maxWidth: 480 }}>
+        <input type="password" value={webhookSecret} onChange={(e) => setWebhookSecret(e.target.value)} style={{ flex: 1 }} />
+        <button className="btn-secondary" onClick={saveWebhookSecret} disabled={webhookSecretMutation.isPending}>
+          {webhookSecretMutation.isPending ? "Saving…" : org.datadogWebhookConfigured ? "Update" : "Save"}
+        </button>
+      </div>
+      {org.datadogWebhookConfigured && (
+        <p className="text-muted" style={{ fontSize: 12, marginTop: 6 }}>
+          A secret is configured.
+        </p>
+      )}
+      {error && <p style={{ color: "var(--ember)", fontSize: 13 }}>{error}</p>}
+    </div>
+  );
+}
+
 // P9-01: Jira's connection is three fields (base URL, email, API token)
 // saved together - see organization.ts's updateJiraConnection for why a
 // partial update isn't supported this pass. Real-time sync has no
@@ -1231,6 +1286,7 @@ export default function OrganizationSettingsPage() {
       {orgId && <WebhooksSection organizationId={orgId} />}
       {orgId && <LinearIntegrationSection organizationId={orgId} />}
       {orgId && <JiraIntegrationSection organizationId={orgId} />}
+      {orgId && <DatadogIntegrationSection organizationId={orgId} />}
       <PlanTypesSection />
     </div>
   );

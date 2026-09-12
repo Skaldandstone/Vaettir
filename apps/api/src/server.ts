@@ -25,6 +25,7 @@ import { verifyLinearSignature, type LinearWebhookPayload } from "./services/lin
 import { handleLinearWebhook } from "./services/linearWebhook.js";
 import { verifyJiraWebhookSecret, type JiraWebhookPayload } from "./services/jiraApi.js";
 import { handleJiraWebhook } from "./services/jiraWebhook.js";
+import { verifyDatadogWebhookSecret, handleDatadogWebhook, type DatadogWebhookPayload } from "./services/datadogWebhook.js";
 
 // P10-07: expected poller intervals, keyed by the same names each poller
 // calls recordHeartbeat with - the one place server.ts needs to know
@@ -230,6 +231,33 @@ async function registerJiraWebhookRoute(instance: FastifyInstance) {
   );
 }
 
+// P9-04 (Datadog half): same per-org-URL-plus-plain-shared-secret shape as
+// the Jira route above, for the same reason - Datadog has no built-in
+// request signing for a generic webhook integration, and a monitor's
+// customer-chosen project tag is only unique within one org's own choices,
+// not platform-wide (unlike PagerDuty's real service id, which gets its
+// own single shared route further below).
+async function registerDatadogWebhookRoute(instance: FastifyInstance) {
+  instance.post<{ Params: { organizationId: string }; Body: DatadogWebhookPayload }>(
+    "/webhooks/datadog/:organizationId",
+    async (req, reply) => {
+      const org = await prisma.organization.findUnique({
+        where: { id: req.params.organizationId },
+        select: { id: true, datadogWebhookSecret: true },
+      });
+      if (!org?.datadogWebhookSecret) return reply.send({ handled: false, reason: "Datadog integration not configured for this organization" });
+
+      const secretHeader = req.headers["x-vaettir-datadog-secret"] as string | undefined;
+      if (!verifyDatadogWebhookSecret(secretHeader, org.datadogWebhookSecret)) {
+        return reply.code(401).send({ error: "invalid or missing X-Vaettir-Datadog-Secret header" });
+      }
+
+      const result = await handleDatadogWebhook(prisma, org.id, req.body);
+      return reply.send(result);
+    },
+  );
+}
+
 // SSE-180: the one genuinely new kind of route in this codebase - a
 // browser-facing OAuth redirect target, not a tRPC mutation and not a
 // server-to-server webhook. GOOGLE_PLAY only; Apple has no equivalent
@@ -357,6 +385,7 @@ await server.register(registerProductionSignalOAuthRoute);
 await server.register(registerPagerDutyWebhookRoute);
 await server.register(registerLinearWebhookRoute);
 await server.register(registerJiraWebhookRoute);
+await server.register(registerDatadogWebhookRoute);
 
 // Mirrored under /api: the ALB/CloudFront path in front of this service
 // routes only /api/* here (the same domain also serves apps/web), so
@@ -381,6 +410,7 @@ await server.register(
     await instance.register(registerPagerDutyWebhookRoute);
     await instance.register(registerLinearWebhookRoute);
     await instance.register(registerJiraWebhookRoute);
+    await instance.register(registerDatadogWebhookRoute);
   },
   { prefix: "/api" },
 );

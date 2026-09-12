@@ -120,6 +120,15 @@ model Organization {
   jiraApiTokenAuthTag   String?
   jiraWebhookSecret     String?
 
+  // P9-04 (Datadog half): a monitor alert closing the loop to a coverage
+  // gap, same production-incident shape as PagerDuty's half of this
+  // ticket - not a per-Requirement link like Jira/Linear above. Datadog's
+  // webhook integration genuinely supports custom HTTP headers (confirmed
+  // against Datadog's own docs), so this is a plain shared secret exactly
+  // like jiraWebhookSecret, not a computed signature - Datadog has no
+  // built-in HMAC signing for a generic webhook integration either.
+  datadogWebhookSecret String?
+
   projects             Project[]
   memberships          Membership[]
   invitations          Invitation[]
@@ -244,6 +253,17 @@ model Project {
   // PagerDuty service should only ever feed incidents into one project.
   pagerdutyServiceId String? @unique
 
+  // P9-04 (Datadog half): unlike PagerDuty's service id (a real,
+  // platform-wide-unique third-party id, safe to route on alone), Datadog
+  // has no such fixed field for a monitor - so this is a customer-chosen
+  // tag *value* (e.g. tagging a monitor `vaettir_project:<this value>`,
+  // sent back in the webhook payload via Datadog's own `$TAGS[key]`
+  // template variable). Two different customers could easily pick the
+  // same tag value, so this is unique per-organization, not globally, and
+  // the inbound route is org-scoped (/webhooks/datadog/:organizationId)
+  // rather than PagerDuty's single shared route.
+  datadogProjectTag String?
+
   testPlans                   TestPlan[]
   testCases                   TestCase[]
   sharedStepGroups            SharedStepGroup[]
@@ -267,6 +287,7 @@ model Project {
   productionSignals           ProductionSignal[]
 
   @@unique([organizationId, slug])
+  @@unique([organizationId, datadogProjectTag])
 }
 
 // ---------------------------------------------------------------------------
