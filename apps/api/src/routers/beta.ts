@@ -11,10 +11,23 @@ import {
 export const betaRouter = router({
   capabilities: protectedProcedure.query(({ ctx }) => ({ canManageEnrollments: isStaffEmail(ctx.user.email) })),
   eligibility: protectedProcedure.query(async ({ ctx }) => {
+    const email = normalizeBetaEmail(ctx.user.email);
     const enrollment = await ctx.prisma.betaEnrollment.findUnique({
-      where: { email: normalizeBetaEmail(ctx.user.email) },
+      where: { email },
     });
-    return { eligible: Boolean(enrollment && !enrollment.revokedAt && !enrollment.claimedAt) };
+    const status: "NOT_ENROLLED" | "REVOKED" | "CLAIMED" | "ELIGIBLE" = !enrollment
+      ? "NOT_ENROLLED"
+      : enrollment.revokedAt
+        ? "REVOKED"
+        : enrollment.claimedAt
+          ? "CLAIMED"
+          : "ELIGIBLE";
+    return {
+      email,
+      status,
+      eligible: status === "ELIGIBLE",
+      canManageEnrollments: isStaffEmail(ctx.user.email),
+    };
   }),
   list: staffProcedure.query(async ({ ctx }) => ({
     limit: BETA_TEAM_LIMIT,

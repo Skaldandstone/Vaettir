@@ -188,6 +188,7 @@ export function Sidebar() {
   // authed tRPC calls that fail for a visitor with no session at all.
   if (
     pathname.startsWith("/share") ||
+    pathname.startsWith("/beta-guide") ||
     pathname.startsWith("/sign-in") ||
     pathname.startsWith("/sign-up") ||
     pathname.startsWith("/onboarding")
