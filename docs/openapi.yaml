@@ -1,0 +1,310 @@
+openapi: 3.0.3
+info:
+  title: Vaettir API (external integrations)
+  version: "1.0.0"
+  description: |
+    Hand-authored to describe the API exactly as it really works today -
+    see docs/API.md for the prose version this mirrors. This intentionally
+    covers only the five procedures docs/API.md already names as worth
+    calling from outside the web app, not all ~200 procedures on the
+    router (that's real, invasive per-procedure `.meta({ openapi })`
+    annotation work, tracked as open in docs/API.md).
+
+    Why hand-authored instead of generated: a real attempt was made with
+    `trpc-to-openapi` (2026-09-04, see docs/API.md's "What's still open"
+    section) - it generates a correct document, but its Fastify adapter
+    crashes with a stack overflow on this server's real Fastify version,
+    and the fix is a routing change to the production HTTP server with its
+    own real risk, not something to push through unattended. This file
+    describes the same five endpoints by hand instead, verified against
+    docs/API.md's own real, tested request/response examples - zero
+    runtime risk, since it changes no server code at all.
+
+    Every path below is a real tRPC procedure, not a conventional REST
+    resource - see the two path patterns and the shared response envelope
+    documented once here rather than repeated on every operation.
+  contact:
+    url: https://vaettir.skaldandstone.com
+
+servers:
+  - url: https://vaettir.skaldandstone.com/api
+    description: Production
+
+components:
+  securitySchemes:
+    apiKey:
+      type: http
+      scheme: bearer
+      bearerFormat: "vt_..."
+      description: |
+        Create one under Organization Settings -> API keys (or via the
+        `apiKeys.create` procedure). A key's role gates what it can do the
+        same way a human session's role does - use at least EDITOR for a
+        CI-reporting key, VIEWER is enough for read-only calls.
+  schemas:
+    TrpcError:
+      type: object
+      description: The real error body a failed call returns (verified against a running server).
+      properties:
+        error:
+          type: object
+          properties:
+            message:
+              type: string
+              example: "UNAUTHORIZED"
+            code:
+              type: integer
+              example: -32001
+            data:
+              type: object
+              properties:
+                code:
+                  type: string
+                  example: "UNAUTHORIZED"
+                httpStatus:
+                  type: integer
+                  example: 401
+  responses:
+    Unauthorized:
+      description: Missing or invalid API key.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/TrpcError"
+
+security:
+  - apiKey: []
+
+paths:
+  /trpc/project.list:
+    get:
+      operationId: listProjects
+      summary: List an organization's projects
+      description: |
+        A tRPC query - called as GET with the input JSON-encoded into the
+        `input` query parameter, per docs/API.md's "Calling a query (GET)"
+        section. Requires at least VIEWER on the organization.
+      parameters:
+        - name: input
+          in: query
+          required: true
+          description: 'URL-encoded JSON, e.g. `{"organizationId":"org_..."}`'
+          schema:
+            type: string
+      responses:
+        "200":
+          description: The organization's projects, wrapped in `result.data`.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  result:
+                    type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            id: { type: string }
+                            name: { type: string }
+                            slug: { type: string }
+                            repoUrl: { type: string, nullable: true }
+                            createdAt: { type: string, format: date-time }
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /trpc/testCases.list:
+    get:
+      operationId: listTestCases
+      summary: List a project's test cases
+      parameters:
+        - name: input
+          in: query
+          required: true
+          description: 'URL-encoded JSON, e.g. `{"projectId":"...","includeArchived":false}`'
+          schema:
+            type: string
+      responses:
+        "200":
+          description: The project's test cases, wrapped in `result.data`.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  result:
+                    type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            id: { type: string }
+                            title: { type: string }
+                            testType: { type: string }
+                            priority: { type: string }
+                            tags: { type: array, items: { type: string } }
+                            origin: { type: string, description: "AUTHORED | IMPORTED | AI_REVERSE_ENGINEERED | AI_LIVE_APP_GENERATED" }
+                            reviewStatus: { type: string, description: "APPROVED | PENDING_REVIEW | REJECTED" }
+                            sourceFilePath: { type: string, nullable: true }
+                            suitePath: { type: string, nullable: true }
+                            archived: { type: boolean }
+                            isFlaky: { type: boolean }
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /trpc/testCases.byId:
+    get:
+      operationId: getTestCase
+      summary: Get one test case, with full BDD/structured-step content
+      parameters:
+        - name: input
+          in: query
+          required: true
+          description: 'URL-encoded JSON, e.g. `{"id":"..."}`'
+          schema:
+            type: string
+      responses:
+        "200":
+          description: The test case, wrapped in `result.data`.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  result:
+                    type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          id: { type: string }
+                          title: { type: string }
+                          background: { type: string, nullable: true }
+                          given: { type: array, items: { type: string } }
+                          when: { type: array, items: { type: string } }
+                          then: { type: array, items: { type: string } }
+                          steps:
+                            type: array
+                            items:
+                              type: object
+                              properties:
+                                order: { type: integer }
+                                action: { type: string }
+                                expectedActionOrData: { type: string, nullable: true }
+                                expectedResult: { type: string, nullable: true }
+                                expectedResponse: { type: string, nullable: true }
+                          tags: { type: array, items: { type: string } }
+                          testType: { type: string }
+                          priority: { type: string }
+                          origin: { type: string }
+                          reviewStatus: { type: string }
+                          isFlaky: { type: boolean }
+                          suitePath: { type: string, nullable: true }
+                          source:
+                            type: object
+                            nullable: true
+                            properties:
+                              filePath: { type: string }
+                              functionName: { type: string, nullable: true }
+                              framework: { type: string }
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          description: No test case with that id.
+
+  /trpc/testRuns.ingestJUnit:
+    post:
+      operationId: ingestJUnitResults
+      summary: Post a JUnit XML test run report from CI
+      description: |
+        A tRPC mutation - called as POST with the input as plain JSON, no
+        wrapper (docs/API.md's "Calling a mutation (POST)" section). See
+        ci-integrations/README.md for ready-made scripts (GitHub Actions,
+        CircleCI, Jenkins) that already call this exact endpoint - reuse
+        those rather than reimplementing the request shape. Requires at
+        least EDITOR on the project.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [projectId, ciProvider, commitSha, branch, junitXml]
+              properties:
+                projectId: { type: string }
+                ciProvider: { type: string, example: "github-actions" }
+                ciRunUrl: { type: string }
+                commitSha: { type: string }
+                branch: { type: string }
+                junitXml: { type: string, description: "The raw JUnit XML report content." }
+                startedAt: { type: string, format: date-time, description: "For backfilling historical runs; omit to use the ingest time." }
+                finishedAt: { type: string, format: date-time }
+      responses:
+        "200":
+          description: Ingest summary, wrapped in `result.data`.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  result:
+                    type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          testRunId: { type: string }
+                          totalResults: { type: integer }
+                          passCount: { type: integer }
+                          failCount: { type: integer }
+                          skipCount: { type: integer }
+                          matchedCount: { type: integer, description: "Results matched to an existing TestCase by externalTestId." }
+                          unmatchedCount: { type: integer, description: "Results with no matching TestCase yet - see P5-04 for manual linking." }
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /trpc/coverage.ingest:
+    post:
+      operationId: ingestCoverage
+      summary: Post a coverage report (Istanbul/nyc, Cobertura, or JaCoCo)
+      description: Requires at least EDITOR on the project.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [projectId, commitSha, branch, tool, reportContent]
+              properties:
+                projectId: { type: string }
+                testRunId: { type: string, description: "Optional - links this coverage report to a specific ingested test run." }
+                commitSha: { type: string }
+                branch: { type: string }
+                tool: { type: string, enum: [ISTANBUL, COBERTURA, JACOCO] }
+                reportContent: { type: string, description: "The raw report content (coverage-final.json for Istanbul, the XML for Cobertura/JaCoCo)." }
+      responses:
+        "200":
+          description: Coverage summary, wrapped in `result.data`.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  result:
+                    type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          coverageReportId: { type: string }
+                          linesCovered: { type: integer }
+                          linesTotal: { type: integer }
+                          branchesCovered: { type: integer, nullable: true }
+                          branchesTotal: { type: integer, nullable: true }
+                          fileCount: { type: integer }
+        "401":
+          $ref: "#/components/responses/Unauthorized"

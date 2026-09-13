@@ -107,14 +107,23 @@ client-side optimization, not a server requirement - every example above
 is a plain, unbatched call, which is simpler and is exactly what external
 integrations should use.
 
+## Machine-readable spec
+
+[`docs/openapi.yaml`](openapi.yaml) - also served live at `/openapi.yaml`
+(and `/api/openapi.yaml`) - is a hand-authored OpenAPI 3.0.3 document
+covering exactly the five procedures named above. Hand-authored rather
+than generated, and deliberately scoped to just these five rather than
+all ~200 procedures on the router - see "What's still open" below for
+why both of those are true. Validated with a real, independent linter
+(`@redocly/cli`), not just checked as valid YAML.
+
 ## What's still open
 
-A real, generated OpenAPI spec (so external tools can auto-generate a
-client, get inline docs, etc.) is real, per-procedure annotation work
-across the whole router - genuinely invasive, not attempted here. This
-document is the practical, immediately-usable version: how to actually
-call the API today, verified against a real running server, not a
-speculative spec for tooling that doesn't exist yet.
+A real, generated OpenAPI spec covering the whole router (so a tool can
+auto-generate a client, get inline docs, etc. for every procedure, not
+just the five named above) is real, per-procedure `.meta({ openapi })`
+annotation work across all ~200 procedures - genuinely invasive, not
+attempted here.
 
 **A real attempt was made and reverted (2026-09-04)**, worth knowing before
 trying again: `trpc-to-openapi` (the actively-maintained fork of the

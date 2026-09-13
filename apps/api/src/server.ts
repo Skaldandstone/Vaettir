@@ -1,4 +1,7 @@
 import "./instrument.js";
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import { dirname, join } from "node:path";
 import * as Sentry from "@sentry/node";
 import Fastify, { type FastifyError, type FastifyInstance } from "fastify";
 import cors from "@fastify/cors";
@@ -378,6 +381,24 @@ await server.register(fastifyTRPCPlugin, {
 
 server.get("/health", { config: { rateLimit: false } }, async () => ({ ok: true }));
 server.get("/health/detailed", { config: { rateLimit: false } }, async () => detailedHealthHandler());
+
+// P9-05: serves the hand-authored OpenAPI spec (docs/openapi.yaml) as a
+// plain static file - deliberately not @fastify/static (a new dependency
+// and plugin registration for exactly one file is more machinery than
+// this needs) and deliberately not the buggy trpc-to-openapi Fastify
+// adapter docs/API.md's own "What's still open" section documents in
+// detail. Read fresh on every request rather than cached at startup: this
+// file changes rarely and a stale spec being served after an edit is a
+// worse failure mode than one extra small file read per request.
+const OPENAPI_SPEC_PATH = join(dirname(fileURLToPath(import.meta.url)), "../../../docs/openapi.yaml");
+server.get("/openapi.yaml", { config: { rateLimit: false } }, async (_req, reply) => {
+  try {
+    const content = readFileSync(OPENAPI_SPEC_PATH, "utf8");
+    return reply.type("application/yaml").send(content);
+  } catch {
+    return reply.code(404).send({ error: "openapi.yaml not found" });
+  }
+});
 await server.register(registerGithubWebhookRoute);
 await server.register(registerGitlabWebhookRoute);
 await server.register(registerStripeWebhookRoute);
@@ -403,6 +424,14 @@ await server.register(
     });
     instance.get("/health", { config: { rateLimit: false } }, async () => ({ ok: true }));
     instance.get("/health/detailed", { config: { rateLimit: false } }, async () => detailedHealthHandler());
+    instance.get("/openapi.yaml", { config: { rateLimit: false } }, async (_req, reply) => {
+      try {
+        const content = readFileSync(OPENAPI_SPEC_PATH, "utf8");
+        return reply.type("application/yaml").send(content);
+      } catch {
+        return reply.code(404).send({ error: "openapi.yaml not found" });
+      }
+    });
     await instance.register(registerGithubWebhookRoute);
     await instance.register(registerGitlabWebhookRoute);
     await instance.register(registerStripeWebhookRoute);
