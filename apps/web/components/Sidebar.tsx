@@ -15,6 +15,7 @@ const LINK_ICONS: Record<string, IconName> = {
   Projects: "folder",
   Members: "people",
   "Access Review": "check",
+  Integrations: "branch",
   Settings: "settings",
   "Example workspace": "grid",
   Overview: "grid",
@@ -40,6 +41,7 @@ const ORG_ADMIN_LINKS = [
   { href: "/settings/members", label: "Members" },
   { href: "/settings/access-review", label: "Access Review" },
   { href: "/settings/billing", label: "Billing" },
+  { href: "/settings/integrations", label: "Integrations" },
   { href: "/settings/organization", label: "Settings" },
 ];
 

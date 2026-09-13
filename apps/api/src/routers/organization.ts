@@ -18,6 +18,7 @@ import { assertPublicHttpUrl, UnsafeUrlError } from "../services/urlGuard.js";
 import { bootstrapBetaOrganization, PRIVATE_BETA_TIER } from "../services/privateBeta.js";
 import { createBillingCheckoutSession, createBillingPortalSession as createStripePortalSession, createCreditTopupCheckoutSession, CREDIT_TOPUP_PACKS, type CreditTopupPackKey, syncBillingSeatQuantity, BillingNotConfiguredError } from "../services/stripeBilling.js";
 import { encryptToken, TokenEncryptionNotConfiguredError } from "../services/tokenEncryption.js";
+import { computeIntegrationsHealth } from "../services/integrationsHealth.js";
 
 const INVITATION_EXPIRY_DAYS = 7;
 
@@ -403,6 +404,49 @@ export const organizationRouter = router({
         where: { id: input.organizationId },
         data: { datadogWebhookSecret: trimmed.length > 0 ? trimmed : null },
       });
+    }),
+
+  // P9-00: the "connection-health view" this ticket calls for - one place
+  // to see every integration's real state, rather than clicking through
+  // six separate settings sections to piece it together. Read-only
+  // aggregation across each integration's own existing storage, not a new
+  // config layer - see integrationsHealth.ts's own comment on why the
+  // generic-config-framework half of this ticket isn't attempted here.
+  integrationsHealth: protectedProcedure
+    .input(z.object({ organizationId: z.string() }))
+    .output(
+      z.object({
+        slack: z.object({
+          configured: z.boolean(),
+          digestEnabled: z.boolean(),
+          eventTypesSubscribed: z.number(),
+          lastDigestSentAt: z.string().nullable(),
+        }),
+        webhooks: z.object({
+          endpointCount: z.number(),
+          enabledCount: z.number(),
+          lastDeliveryAt: z.string().nullable(),
+          lastDeliverySuccess: z.boolean().nullable(),
+        }),
+        jira: z.object({
+          configured: z.boolean(),
+          webhookConfigured: z.boolean(),
+          linkedRequirementCount: z.number(),
+          lastSyncedAt: z.string().nullable(),
+        }),
+        linear: z.object({
+          configured: z.boolean(),
+          webhookConfigured: z.boolean(),
+          linkedRequirementCount: z.number(),
+          lastSyncedAt: z.string().nullable(),
+        }),
+        pagerduty: z.object({ projectsConfigured: z.number() }),
+        datadog: z.object({ projectsConfigured: z.number(), webhookConfigured: z.boolean() }),
+      }),
+    )
+    .query(({ ctx, input }) => {
+      requireOrgRole(ctx, input.organizationId);
+      return computeIntegrationsHealth(ctx.prisma, input.organizationId);
     }),
 
   sendTestDigest: protectedProcedure
