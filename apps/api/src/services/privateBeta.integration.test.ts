@@ -64,10 +64,22 @@ afterAll(async () => {
 describe("private-beta and Studio enrollment boundaries", () => {
   it("requires an enrollment, hides the tier, and prevents owner plan bypass", async () => {
     const outsider = await createUser("outsider");
-    await expect((await callerFor(outsider.id)).organization.bootstrap({ organizationName: "Uninvited" }))
+    const outsiderCaller = await callerFor(outsider.id);
+    expect(await outsiderCaller.beta.eligibility()).toMatchObject({
+      email: outsider.email,
+      status: "NOT_ENROLLED",
+      eligible: false,
+      canManageEnrollments: false,
+    });
+    await expect(outsiderCaller.organization.bootstrap({ organizationName: "Uninvited" }))
       .rejects.toMatchObject({ code: "FORBIDDEN" });
 
     const owner = await callerFor(ownerId);
+    expect(await owner.beta.eligibility()).toMatchObject({
+      email: ownerEmail,
+      status: "CLAIMED",
+      eligible: false,
+    });
     const publicTiers = await owner.organization.listPlanTiers();
     expect(publicTiers.some((tier) => tier.key === "private-beta")).toBe(false);
     await expect(owner.organization.changePlanTier({ organizationId, planTierId: publicTiers[0].id }))
@@ -128,9 +140,35 @@ describe("private-beta and Studio enrollment boundaries", () => {
     const enrollment = await studioCaller().beta.enrollFromStudio({ email: user.email, requestId });
     enrollmentIds.push(enrollment.id);
     await studioCaller().beta.revokeFromStudio({ enrollmentId: enrollment.id, requestId });
+    expect(await (await callerFor(user.id)).beta.eligibility()).toMatchObject({
+      email: user.email,
+      status: "REVOKED",
+      eligible: false,
+    });
     await expect(bootstrapBetaOrganization(prisma, user, "Must not exist"))
       .rejects.toMatchObject({ code: "FORBIDDEN" });
     expect(await prisma.membership.count({ where: { userId: user.id } })).toBe(0);
+  });
+
+  it("reports an unclaimed reservation and staff self-service capability separately", async () => {
+    const eligibleUser = await createUser("eligible");
+    const enrollment = await enrollBetaOwner(prisma, eligibleUser.email, "test-staff", run);
+    enrollmentIds.push(enrollment.id);
+    expect(await (await callerFor(eligibleUser.id)).beta.eligibility()).toMatchObject({
+      email: eligibleUser.email,
+      status: "ELIGIBLE",
+      eligible: true,
+      canManageEnrollments: false,
+    });
+    await prisma.betaEnrollment.update({ where: { id: enrollment.id }, data: { revokedAt: new Date() } });
+
+    const staff = await createUser("staff", `${run}@skaldandstone.com`);
+    expect(await (await callerFor(staff.id)).beta.eligibility()).toMatchObject({
+      email: staff.email,
+      status: "NOT_ENROLLED",
+      eligible: false,
+      canManageEnrollments: true,
+    });
   });
 
   it("serializes reservations at the three-team limit", async () => {
