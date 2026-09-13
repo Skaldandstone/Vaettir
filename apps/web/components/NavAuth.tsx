@@ -15,7 +15,7 @@ export function NavAuth() {
 
   if (!isSignedIn) {
     return (
-      <div style={{ display: "flex", gap: 8 }}>
+      <div className="nav-auth-actions">
         <SignInButton>
           <button className="btn-primary">Sign in</button>
         </SignInButton>

@@ -1,9 +1,11 @@
 "use client";
 
 import { useEffect } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { trpcReact } from "../../lib/trpcReact";
 import { ReadinessBadge } from "../../components/ReadinessBadge";
+import { EmptyState, Icon, MetricCard, PageHeading } from "../../components/ui/Workspace";
 
 // P1-15
 export default function OrgDashboardPage() {
@@ -22,83 +24,92 @@ export default function OrgDashboardPage() {
   const error = orgsQuery.error?.message ?? overviewQuery.error?.message ?? null;
   const overview = overviewQuery.data;
 
-  if (loading) return <p>Loading…</p>;
-  if (error) return <p style={{ color: "var(--ember)" }}>{error}</p>;
+  if (loading)
+    return (
+      <div className="workspace-loading" role="status">
+        <span className="loading-indicator" aria-hidden="true" />
+        <p>Loading release readiness…</p>
+      </div>
+    );
+  if (error)
+    return (
+      <div className="workspace-alert workspace-alert-error" role="alert">
+        <Icon name="alert" />
+        <div><strong>Readiness could not be loaded</strong><p>{error}</p></div>
+      </div>
+    );
   if (!overview)
     return (
-      <p>
-        You don&apos;t belong to an organization yet. Redirecting to <a href="/onboarding">onboarding</a>…
-      </p>
+      <div className="workspace-loading" role="status">
+        <p>Preparing your workspace. If you are not redirected, continue to <Link href="/onboarding">onboarding</Link>.</p>
+      </div>
     );
 
   const { projects, summary } = overview;
 
   return (
-    <div style={{ maxWidth: 900 }}>
-      <h1 style={{ marginBottom: 4 }}>{orgName} readiness</h1>
-      <p className="text-muted" style={{ marginBottom: 20 }}>
-        Every project&apos;s most recent in-flight release, at a glance.
-      </p>
+    <div className="quality-workspace">
+      <PageHeading
+        eyebrow={`WORKSPACE / ${orgName.toUpperCase()}`}
+        title="Release readiness"
+        description="The latest in-flight release across every project, with blockers kept visible."
+        actions={<Link className="btn-primary" href="/projects">View projects <Icon name="arrow" size={16} /></Link>}
+      />
 
-      <div style={{ display: "flex", gap: 16, marginBottom: 24 }}>
-        <SummaryStat label="Ready" value={summary.ready} color="var(--frost)" />
-        <SummaryStat label="At risk" value={summary.atRisk} color="var(--ember)" />
-        <SummaryStat label="Blocked" value={summary.blocked} color="var(--ember)" />
-        <SummaryStat label="No active release" value={summary.noActiveRelease} color="var(--muted)" />
+      <div className="metric-grid">
+        <MetricCard icon="check" label="Ready" value={summary.ready} note="Clear to release" tone="success" />
+        <MetricCard icon="alert" label="At risk" value={summary.atRisk} note="Needs attention" tone="warning" />
+        <MetricCard icon="alert" label="Blocked" value={summary.blocked} note="Cannot release" tone="danger" />
+        <MetricCard icon="release" label="No active release" value={summary.noActiveRelease} note="No decision pending" />
       </div>
 
-      <div className="panel">
-        <table style={{ borderCollapse: "collapse", width: "100%" }}>
+      {projects.length === 0 ? (
+        <section className="workspace-panel">
+          <EmptyState title="No projects yet" action={<Link className="btn-primary" href="/projects">Create a project</Link>}>
+            Add a project to start connecting cases, execution evidence, and release decisions.
+          </EmptyState>
+        </section>
+      ) : (
+        <section className="workspace-panel readiness-table" aria-labelledby="readiness-table-title">
+          <div className="panel-heading readiness-table-heading">
+            <div><h2 id="readiness-table-title">Project readiness</h2><p className="panel-description">Most recent in-flight releases</p></div>
+            <span className="quiet-label">{projects.length} {projects.length === 1 ? "project" : "projects"}</span>
+          </div>
+          <div className="table-scroll">
+          <table className="workspace-table">
+            <caption className="sr-only">Current release readiness by project</caption>
           <thead>
             <tr>
-              <th style={cellStyle}>Project</th>
-              <th style={cellStyle}>Release</th>
-              <th style={cellStyle}>Status</th>
-              <th style={cellStyle}>Readiness</th>
+              <th scope="col">Project</th>
+              <th scope="col">Release</th>
+              <th scope="col">Status</th>
+              <th scope="col">Readiness</th>
             </tr>
           </thead>
           <tbody>
             {projects.map((p) => (
               <tr key={p.projectId}>
-                <td style={cellStyle}>
-                  <a href={`/projects/${p.projectId}`}>{p.projectName}</a>
+                <td>
+                  <Link className="project-name-link" href={`/projects/${p.projectId}`}><Icon name="folder" size={16} />{p.projectName}</Link>
                 </td>
-                <td style={cellStyle}>
+                <td>
                   {p.release ? (
-                    <a href={`/projects/${p.projectId}/releases/${p.release.id}`}>{p.release.name}</a>
+                    <Link href={`/projects/${p.projectId}/releases/${p.release.id}`}>{p.release.name}</Link>
                   ) : (
                     <span className="text-muted">no in-flight release</span>
                   )}
                 </td>
-                <td style={cellStyle}>{p.release?.status ?? "—"}</td>
-                <td style={cellStyle}>
+                <td>{p.release?.status ?? "—"}</td>
+                <td>
                   {p.release ? <ReadinessBadge score={p.release.readiness.score} label={p.release.readiness.label} /> : "—"}
                 </td>
               </tr>
             ))}
-            {projects.length === 0 && (
-              <tr>
-                <td colSpan={4} style={cellStyle} className="text-muted">
-                  No projects yet.
-                </td>
-              </tr>
-            )}
           </tbody>
         </table>
-      </div>
+          </div>
+        </section>
+      )}
     </div>
   );
 }
-
-function SummaryStat({ label, value, color }: { label: string; value: number; color: string }) {
-  return (
-    <div className="panel" style={{ flex: 1, textAlign: "center" }}>
-      <div style={{ fontSize: 28, fontWeight: 700, color }}>{value}</div>
-      <div className="text-muted" style={{ fontSize: 12 }}>
-        {label}
-      </div>
-    </div>
-  );
-}
-
-const cellStyle = { border: "1px solid var(--line)", padding: "6px 10px", textAlign: "left" as const };

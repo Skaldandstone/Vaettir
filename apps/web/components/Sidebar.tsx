@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
+import { useState, type ReactNode } from "react";
 import { trpcReact } from "@/lib/trpcReact";
 import { GlobalSearch } from "./GlobalSearch";
 import { Icon, type IconName } from "./ui/Workspace";
@@ -55,6 +56,50 @@ function projectIdFromPath(pathname: string): string | null {
   return match?.[1] ?? null;
 }
 
+function SidebarFrame({
+  label,
+  detail,
+  children,
+}: {
+  label: string;
+  detail: string;
+  children: ReactNode;
+}) {
+  const [mobileOpen, setMobileOpen] = useState(false);
+
+  return (
+    <aside className={`app-sidebar${mobileOpen ? " mobile-open" : ""}`}>
+      <button
+        className="sidebar-mobile-toggle"
+        type="button"
+        aria-expanded={mobileOpen}
+        aria-controls="workspace-navigation"
+        onClick={() => setMobileOpen((open) => !open)}
+      >
+        <span className="sidebar-mobile-identity">
+          <Icon name="grid" size={17} />
+          <span>
+            <strong>{label}</strong>
+            <small>{detail}</small>
+          </span>
+        </span>
+        <span className="sidebar-mobile-action" aria-hidden="true">
+          {mobileOpen ? "Close" : "Menu"}
+        </span>
+      </button>
+      <div
+        className="sidebar-content"
+        id="workspace-navigation"
+        onClick={(event) => {
+          if ((event.target as HTMLElement).closest("a")) setMobileOpen(false);
+        }}
+      >
+        {children}
+      </div>
+    </aside>
+  );
+}
+
 function ProjectSidebar({ projectId }: { projectId: string }) {
   const router = useRouter();
   // P1-15: project.byId is shared with every page under /projects/[id] via
@@ -86,7 +131,7 @@ function ProjectSidebar({ projectId }: { projectId: string }) {
   ];
 
   return (
-    <aside className="app-sidebar">
+    <SidebarFrame label={currentName || "Project workspace"} detail="Project navigation">
       <div className="sidebar-group">
         <Link href="/projects" className="sidebar-back">
           &larr; All projects
@@ -120,7 +165,7 @@ function ProjectSidebar({ projectId }: { projectId: string }) {
           <SidebarLink key={link.href} href={link.href} label={link.label} />
         ))}
       </div>
-    </aside>
+    </SidebarFrame>
   );
 }
 
@@ -141,7 +186,12 @@ export function Sidebar() {
   // /share is a public, unauthenticated preview surface (see middleware.ts) -
   // an org-scoped sidebar would either render nothing useful or attempt
   // authed tRPC calls that fail for a visitor with no session at all.
-  if (pathname.startsWith("/share")) return null;
+  if (
+    pathname.startsWith("/share") ||
+    pathname.startsWith("/sign-in") ||
+    pathname.startsWith("/sign-up") ||
+    pathname.startsWith("/onboarding")
+  ) return null;
 
   const projectId = projectIdFromPath(pathname);
 
@@ -152,7 +202,7 @@ export function Sidebar() {
   }
 
   return (
-    <aside className="app-sidebar">
+    <SidebarFrame label="Quality workspace" detail="Private beta">
       <div className="sidebar-workspace">
         <span className="workspace-monogram">v</span>
         <div>
@@ -173,6 +223,6 @@ export function Sidebar() {
           <SidebarLink key={link.href} href={link.href} label={link.label} />
         ))}
       </div>
-    </aside>
+    </SidebarFrame>
   );
 }

@@ -6,7 +6,10 @@ const nextConfig = {
   // Traces and copies only the node_modules this app actually needs into
   // .next/standalone -- the production Docker image runs that instead of
   // shipping the whole monorepo's node_modules tree.
-  output: "standalone",
+  // Windows developer shells commonly cannot create pnpm's standalone
+  // symlinks. Local validation may opt out without changing the default
+  // artifact produced by CI and Docker builds.
+  output: process.env.VAETTIR_LOCAL_BUILD === "1" ? undefined : "standalone",
 };
 
 // P10-05: withSentryConfig also uploads source maps on build, which needs
