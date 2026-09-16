@@ -65,21 +65,28 @@ cert on the ALB itself. Worth calling out:
 | CodeBuild projects | `vaettir-api-build` (`Dockerfile.api`, `BUILD_GENERAL1_SMALL`), `vaettir-web-build` (`Dockerfile.web`, env vars `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY`/`NEXT_PUBLIC_API_URL`/`NEXT_PUBLIC_SENTRY_DSN` baked in on the project, `VAETTIR_RELEASE_COMMIT` overridden per-build by `deploy-aws.sh`, `BUILD_GENERAL1_MEDIUM`) - both source from S3 with an inline buildspec (`docker build` + `docker push`, `privilegedMode: true`), `aws/codebuild/standard:7.0`. **`vaettir-web-build` needs the MEDIUM tier, not SMALL** - a real deploy after this rebuild failed with `next build` getting SIGKILL'd (OOM) on `BUILD_GENERAL1_SMALL`'s 3GB; bumped to `BUILD_GENERAL1_MEDIUM` (7GB) and it passed clean. Worth knowing if `codebuild update-project --environment` is ever used to change one setting: it replaces the whole `environment` object, so a naive update that omits `environmentVariables` silently wipes them - confirmed happening once here, caught immediately and re-applied alongside the compute-tier change in the same call. |
 | Security groups | `vaettir-alb-sg` (80 from internet) → `vaettir-web-tasks-sg` (3000 from ALB) and `vaettir-api-tasks-sg` (8000 from web tasks *and* from `vaettir-alb-sg` directly) → `vaettir-rds-sg` (5432 from API tasks) |
 
-`vaettir/database-url` is a **static** composed connection string
-(`postgresql://vaettir_admin:<password>@...postgres?sslmode=require`),
-built once from the RDS-managed secret's password at setup time - Prisma
-wants one URL. Connects to the default `postgres` database (no dedicated
-database name was created).
+**Fixed 2026-09-16 (permanent fix b, code side): the API now composes
+`DATABASE_URL` at process startup** from the RDS-managed secret's live
+`username`/`password` fields (`apps/api/src/resolveDatabaseUrl.ts`,
+imported first in `server.ts`, before `@vaettir/db`'s `PrismaClient` is
+constructed) instead of reading a static pre-composed URL. Every fresh
+process start - a deploy, a task replacement, ECS cycling an unhealthy
+task - now always picks up a working password; there is nothing left to
+manually re-sync going forward. It's inert (no-op) if `DATABASE_URL` is
+already set, so local dev via `.env` is unaffected.
 
-**It goes stale every 7 days.** The earlier note here ("no rotation
-schedule is currently configured") was wrong: `vaettir-postgres` uses an
-RDS-*managed* master password, and RDS rotates managed passwords
-automatically every 7 days whether or not a Secrets Manager rotation
-schedule is configured. First bitten 2026-09-09 08:07 UTC - production DB
-auth failed for ~28 hours until noticed (health reported `db.ok: false`,
-every API request 500'd) because the composed URL still carried the
-previous password. Recovery, and the thing to run whenever `db.ok` goes
-false again (next expected drift is ~2026-09-16):
+**Old problem this replaces**, kept here for context: `vaettir/database-url`
+used to be a **static** composed connection string
+(`postgresql://vaettir_admin:<password>@...postgres?sslmode=require`),
+built once from the RDS-managed secret's password at setup time. RDS
+rotates that managed master password automatically every 7 days whether or
+not a Secrets Manager rotation schedule is configured, and the static
+secret never followed it - first bitten 2026-09-09 08:07 UTC (production DB
+auth failed for ~28 hours until noticed), then again 2026-09-16 (predicted
+in `NEEDS_ATTENTION.md`, confirmed by a `daily-sentry-triage` scan finding
+`VAETTIR-API-7` climbing again). The old recovery script
+(`scripts/sync-db-secret.mjs`) still works as a manual fallback if the new
+code path is ever unavailable (e.g. before the IAM grant below is deployed):
 
 ```bash
 node scripts/sync-db-secret.mjs            # dry run - reports passwordDiffered
@@ -87,14 +94,31 @@ node scripts/sync-db-secret.mjs --apply    # rewrites vaettir/database-url
 aws ecs update-service --cluster vaettir-cluster --service vaettir-api --force-new-deployment --region us-east-2 --profile vaettir-toolkit
 ```
 
-The script never prints a secret value. The proper fix is one of: (a)
-`aws rds modify-db-instance --db-instance-identifier vaettir-postgres
---rotate-master-user-password false`-equivalent - i.e. stop using an
-RDS-managed password and set a static master password stored only in
-`vaettir/database-url`; or (b) have the API compose `DATABASE_URL` at
-startup from the managed secret's `username`/`password` fields instead of
-reading a pre-composed URL. Both change production auth configuration, so
-neither has been done without an explicit go-ahead.
+**Deployment steps still needed for the new code path to actually run in
+production** (infra changes, not pushed automatically - needs an
+authenticated `vaettir-toolkit` SSO session and your go-ahead):
+
+1. Grant `vaettir-api-task-role` (not the execution role - this is a
+   runtime read from application code, not an ECS-injected env var)
+   `secretsmanager:GetSecretValue` scoped to the RDS-managed secret ARN
+   (`rds!db-dba51c29-3609-42ea-918d-93601192db7d`), e.g.:
+   ```bash
+   aws iam put-role-policy --role-name vaettir-api-task-role \
+     --policy-name VaettirManagedDbSecretRead \
+     --policy-document '{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"secretsmanager:GetSecretValue","Resource":"arn:aws:secretsmanager:us-east-2:051722405355:secret:rds!db-dba51c29-3609-42ea-918d-93601192db7d-*"}]}' \
+     --region us-east-2 --profile vaettir-toolkit
+   ```
+2. Add three plain (non-secret) env vars to the `vaettir-api` task
+   definition: `DB_SECRET_ID=rds!db-dba51c29-3609-42ea-918d-93601192db7d`,
+   `DB_HOST=vaettir-postgres.cx6smo0e03mv.us-east-2.rds.amazonaws.com`,
+   and optionally `DB_PORT`/`DB_NAME`/`DB_SSLMODE` if they ever need to
+   differ from the defaults (`5432`/`postgres`/`require`).
+3. Remove the `DATABASE_URL` secret entry from the task definition (the
+   code only composes its own URL when `DATABASE_URL` isn't already set,
+   so leaving the old secret wired in would silently keep using the old,
+   staleness-prone path) and redeploy `vaettir-api`.
+4. Once confirmed stable across a rotation cycle, `vaettir/database-url`
+   and `scripts/sync-db-secret.mjs` can be retired.
 
 Local Docker isn't installed on the machine this was built from - CodeBuild
 builds images from an uploaded source zip instead of a local
