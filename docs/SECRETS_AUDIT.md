@@ -9,7 +9,7 @@ code alone.
 
 | Secret | Used by | Where it lives in production |
 |---|---|---|
-| `DATABASE_URL` | `vaettir-api` | AWS Secrets Manager (`vaettir/database-url`) ✅ |
+| `DATABASE_URL` | `vaettir-api` | **2026-09-16: composed at process startup** from the RDS-managed secret (`rds!db-dba51c29-...`) via `vaettir-api-task-role`, instead of read from a static secret - see `docs/AWS_DEPLOYMENT.md` for the deployment steps still needed (IAM grant + task-def env vars) before this is live in production. `vaettir/database-url` remains as a manual fallback (`scripts/sync-db-secret.mjs`) until then. |
 | `ANTHROPIC_API_KEY` | `vaettir-api` | AWS Secrets Manager (`vaettir/anthropic-api-key`) ✅ |
 | `CLERK_SECRET_KEY` | `vaettir-api`, `vaettir-web` | AWS Secrets Manager (`vaettir/clerk-secret-key`) ✅ |
 | `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` | `vaettir-web` (build time) | Plaintext in the `vaettir-web-build` CodeBuild project - **correct as-is**, this is a publishable key, meant to ship in the client bundle |

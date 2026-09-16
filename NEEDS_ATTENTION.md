@@ -1,5 +1,42 @@
 # Needs James's attention
 
+## 2026-09-16 — VAETTIR-API-7 recurred exactly as predicted; permanent fix (b) built, not yet deployed
+
+The 7-day RDS-managed-password rotation broke production DB auth again
+today, right on schedule (see the 2026-09-10 entry below - "It will happen
+again ~2026-09-16"). Caught by a new `daily-sentry-triage` scheduled task
+(28k+ `PrismaClientKnownRequestError` events on `VAETTIR-API-7` since
+2026-09-09), which correctly flagged it as needing infra/credential
+judgment rather than attempting a fix itself.
+
+You picked permanent fix (b): have the API compose `DATABASE_URL` at
+startup from the managed secret, rather than (a) switching to a static
+master password. Built on branch `fix/database-url-from-managed-secret`
+(off `origin/main`, not `master`/the currently-active
+`codex/production-ui-pass-20260913` branch - didn't touch that branch's
+in-progress work): new `apps/api/src/resolveDatabaseUrl.ts`, imported
+first in `server.ts` (before `@vaettir/db`'s `PrismaClient` construction),
+`@aws-sdk/client-secrets-manager` added to `apps/api`, lockfile updated,
+typecheck/build/unit tests all pass (191 passed, same pre-existing 16
+integration-test files still fail identically with or without this change
+- they need a live local Postgres via `docker-compose up`, not something
+available in this session). Docs updated: `docs/AWS_DEPLOYMENT.md`,
+`docs/SECRETS_AUDIT.md`, `.env.example`.
+
+**Not done, and won't be from an unattended context**: the actual AWS
+mutations to make this live - granting `vaettir-api-task-role`
+`secretsmanager:GetSecretValue` on the RDS-managed secret, adding
+`DB_SECRET_ID`/`DB_HOST` to the `vaettir-api` task definition, and
+redeploying. Exact commands are in `docs/AWS_DEPLOYMENT.md`'s "Deployment
+steps still needed" section. Until that's done, production keeps running
+on the old static-secret path - if `db.ok` goes false again before then,
+`node scripts/sync-db-secret.mjs --apply` + force-redeploy is still the
+right immediate recovery, same as before.
+
+A PR is open from `fix/database-url-from-managed-secret` for the code
+change; not merged.
+
+
 Running log kept during the overnight autonomous session (started ~2026-08-27
 late evening). Anything that needed a decision only James can make got
 skipped and logged here instead of blocking. Delete/clear this file once
