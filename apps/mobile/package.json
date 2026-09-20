@@ -2,7 +2,7 @@
   "name": "@vaettir/mobile",
   "private": true,
   "version": "0.1.0",
-  "main": "node_modules/expo/AppEntry.js",
+  "main": "index.js",
   "scripts": {
     "start": "expo start",
     "android": "expo start --android",
@@ -13,6 +13,7 @@
     "update:development": "eas update --channel development"
   },
   "dependencies": {
+    "@babel/runtime": "^7.29.7",
     "@clerk/clerk-expo": "^2.9.0",
     "@react-native-async-storage/async-storage": "^3.1.1",
     "@trpc/client": "^11.0.0-rc.502",
