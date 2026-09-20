@@ -3,13 +3,19 @@
 // apps/mobile/app.config.js:
 //
 // - Sentry (P10-05, mobile half). The DSN is public by design (it can
-//   only *send* events to one project), so it travels as a plain
-//   EXPO_PUBLIC_SENTRY_DSN build-time env var (set per EAS build
-//   profile in eas.json) and lands in `extra.sentryDsn`, which App.tsx
+//   only *send* events to one project), so it lives directly in
+//   app.json's `extra.sentryDsn` - the one value both `eas build` (which
+//   evaluates this file with EAS build-profile env applied) and
+//   `eas update` (OTA; it never sees `eas.json` `env`, only whatever
+//   `extra` already resolved to when the update manifest was generated)
+//   end up shipping. EXPO_PUBLIC_SENTRY_DSN (set per EAS build profile
+//   in eas.json, or exported locally) still overrides it for local/dev
+//   builds. The result lands in `extra.sentryDsn`, which lib/sentry.ts
 //   reads through expo-constants. It is deliberately NOT read via
-//   process.env inside App.tsx: EXPO_PUBLIC_* inlining is a Metro
+//   process.env inside lib/sentry.ts: EXPO_PUBLIC_* inlining is a Metro
 //   feature and this keeps a single resolution point that `expo config`
-//   can print. No DSN -> Sentry stays fully disabled (App.tsx gates on it).
+//   can print. No DSN -> Sentry stays fully disabled (lib/sentry.ts gates
+//   on it).
 //
 // - The `@sentry/react-native/expo` config plugin wires the native
 //   sourcemap/debug-file upload steps into the generated Xcode/Gradle
@@ -22,11 +28,15 @@
 module.exports = ({ config }) => {
   const sentryDsn = process.env.EXPO_PUBLIC_SENTRY_DSN || config.extra?.sentryDsn;
 
-  if (!sentryDsn && process.env.EAS_BUILD === "true") {
-    // Not fatal: an internal/dev build without error reporting is still a
-    // valid build. Loud enough to notice in the EAS build log, though.
+  if (!sentryDsn) {
+    // Not fatal: a build/update without error reporting is still valid.
+    // Loud enough to notice in the EAS build log (or a local `expo config`/
+    // `expo start`), though - this covers both the `eas build` path (no
+    // EXPO_PUBLIC_SENTRY_DSN env and no app.json `extra.sentryDsn`) and the
+    // `eas update` / OTA path, which never reads `eas.json` build-profile
+    // `env` at all and depends entirely on `config.extra?.sentryDsn`.
     console.warn(
-      "[app.config.js] EXPO_PUBLIC_SENTRY_DSN is not set - Sentry error reporting will be disabled in this build.",
+      "[app.config.js] No Sentry DSN (checked EXPO_PUBLIC_SENTRY_DSN and app.json extra.sentryDsn) - Sentry error reporting will be disabled.",
     );
   }
 

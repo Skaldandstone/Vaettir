@@ -114,9 +114,14 @@ function App() {
   );
 }
 
-// Sentry.wrap adds the React error boundary + touch-event tracking
-// (breadcrumbs are dropped by lib/sentry.ts, so the latter is inert) and
-// reports render errors that would otherwise only surface as a red box.
+// Sentry.wrap adds touch-event tracking + profiler/feedback-widget wiring
+// (breadcrumbs are dropped by lib/sentry.ts, so the touch tracking is
+// inert) - in @sentry/react-native 6.10.0 it does NOT add a React error
+// boundary. Render errors still reach Sentry: React Native routes an
+// uncaught render throw to the global `ErrorUtils` handler, which the SDK
+// reports as a fatal, same as any other unhandled JS exception. There is
+// no fallback UI without an explicit Sentry.ErrorBoundary, which isn't
+// added here.
 export default Sentry.wrap(App);
 
 // Wires the tRPC client's token source to Clerk's session once signed in --

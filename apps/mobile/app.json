@@ -11,6 +11,7 @@
     "android": {},
     "extra": {
       "apiUrl": "http://localhost:4000",
+      "sentryDsn": "https://bd8e2e703ebdc8734f31fe88f57140b3@o4512015786377216.ingest.us.sentry.io/4512115816857600",
       "eas": {
         "projectId": "4136a4dc-c9cc-4f70-8b4a-4604ba3336be"
       }

@@ -32,6 +32,15 @@ const debugOptIn = process.env.EXPO_PUBLIC_SENTRY_DEBUG === "1";
 export function scrubEvent<T extends Sentry.Event>(event: T): T {
   delete event.user;
   delete event.breadcrumbs;
+  // Future-proofing: the JS ExpoContext integration sets
+  // `contexts.device.name` to the user-assigned device name (e.g. "James's
+  // iPhone") whenever `expo-device` is present, regardless of
+  // `sendDefaultPii`. `expo-device` isn't installed today, so this is
+  // dormant, but strip it here so adding that dependency later can't
+  // silently leak a name through this event path.
+  if (event.contexts?.device) {
+    delete event.contexts.device.name;
+  }
   if (event.request) {
     // A URL may carry a Clerk ticket, a shareable test-status link token
     // or a query string - the method plus the route on the transaction

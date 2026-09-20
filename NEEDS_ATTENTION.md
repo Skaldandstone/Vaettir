@@ -353,7 +353,7 @@ of an error, so my own cleanup check missed it at the time) - worth
 knowing that a `TestPlan` delete orphans its cases rather than erroring,
 in case that surprises you elsewhere.
 
-## P10-05 Sentry error tracking - RESOLVED, deployed and wired in the rebuilt account
+## P10-05 Sentry error tracking - RESOLVED for api/web, deployed and wired in the rebuilt account (mobile pending device proof - see below)
 
 **Update 2026-09-02**: the Sentry org now exists - `skald-and-stone`
 (https://skald-and-stone.sentry.io), projects `vaettir-api` and `vaettir-web`,
@@ -369,15 +369,6 @@ SENTRY_DSN=https://9c1e97fef2553b0ee97c47e00af207c2@o4512015786377216.ingest.us.
 NEXT_PUBLIC_SENTRY_DSN=https://0900927eda606fa6c9e5e33c0ed10e0c@o4512015786377216.ingest.us.sentry.io/4512015882452992
 SENTRY_DSN=https://0900927eda606fa6c9e5e33c0ed10e0c@o4512015786377216.ingest.us.sentry.io/4512015882452992
 ```
-
-**Mobile (2026-09-19)**: the third half. `@sentry/react-native` is wired
-in `apps/mobile` (PR `feat/mobile-sentry-error-tracking`, project
-`vaettir-mobile`, DSN in `apps/mobile/eas.json` per profile - public like
-the other two). Privacy-narrowed (no PII/breadcrumbs/replay/tracing, URLs
-scrubbed) and silent in `__DEV__`. Not yet proven on a device: it is a
-native change, so `development`/`preview` need an `eas build` before any
-event can land; sourcemap upload stays off until a `SENTRY_AUTH_TOKEN` EAS
-secret exists (`apps/mobile/README.md`, "Error tracking").
 
 Done locally the same day: both values in the root `.env`, `Dockerfile.web`
 now accepts/inlines `NEXT_PUBLIC_SENTRY_DSN`, and the api DSN was proven
@@ -420,6 +411,21 @@ uploads source maps and stack traces show TypeScript instead of minified
 bundles. Needs an org auth token created in Sentry first
 (https://skald-and-stone.sentry.io/settings/auth-tokens/) - that one IS
 a secret and should go through Secrets Manager / CodeBuild secret env.
+
+**Mobile (2026-09-19) - the third half, separate open item, NOT yet proven.**
+`@sentry/react-native` is wired in `apps/mobile` (PR
+`feat/mobile-sentry-error-tracking`, project `vaettir-mobile`). The public
+DSN lives in `apps/mobile/app.json` `extra.sentryDsn` so both `eas build`
+and `eas update` (OTA) resolve it - `eas.json` build-profile `env` alone
+was not enough, since `eas update` never reads it and would have silently
+shipped with Sentry disabled after the first OTA push. Privacy-narrowed
+(no PII/breadcrumbs/replay/tracing, URLs scrubbed) and silent in
+`__DEV__`. Not yet proven on a device: it is a native change, so
+`development`/`preview` need an `eas build` before any event can land;
+sourcemap upload stays off until a `SENTRY_AUTH_TOKEN` EAS secret exists
+(`apps/mobile/README.md`, "Error tracking"). Treat this as unresolved
+until a real event from a built app is confirmed in the `vaettir-mobile`
+Sentry project.
 
 ## Staff-plane branch — RESOLVED (merged + deployed by documents-c4, with your explicit go-ahead)
 
