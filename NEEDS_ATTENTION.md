@@ -370,6 +370,15 @@ NEXT_PUBLIC_SENTRY_DSN=https://0900927eda606fa6c9e5e33c0ed10e0c@o451201578637721
 SENTRY_DSN=https://0900927eda606fa6c9e5e33c0ed10e0c@o4512015786377216.ingest.us.sentry.io/4512015882452992
 ```
 
+**Mobile (2026-09-19)**: the third half. `@sentry/react-native` is wired
+in `apps/mobile` (PR `feat/mobile-sentry-error-tracking`, project
+`vaettir-mobile`, DSN in `apps/mobile/eas.json` per profile - public like
+the other two). Privacy-narrowed (no PII/breadcrumbs/replay/tracing, URLs
+scrubbed) and silent in `__DEV__`. Not yet proven on a device: it is a
+native change, so `development`/`preview` need an `eas build` before any
+event can land; sourcemap upload stays off until a `SENTRY_AUTH_TOKEN` EAS
+secret exists (`apps/mobile/README.md`, "Error tracking").
+
 Done locally the same day: both values in the root `.env`, `Dockerfile.web`
 now accepts/inlines `NEXT_PUBLIC_SENTRY_DSN`, and the api DSN was proven
 end-to-end with a real `captureMessage` from this machine (issue

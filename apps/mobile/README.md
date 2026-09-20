@@ -64,3 +64,49 @@ Also note: this app is currently pinned to Expo SDK 52 (`expo: ~52.0.0`)
 while Kall/Wispling/Savortome are on SDK 57 -- see the open Expo SDK
 upgrade tracked separately (SSE-178) before assuming parity with those
 apps' native tooling.
+
+## Error tracking (Sentry)
+
+P10-05, mobile half. `@sentry/react-native` reports to the `vaettir-mobile`
+project in the `skald-and-stone` org (api and web have their own projects -
+see `NEEDS_ATTENTION.md`). Wiring:
+
+- `app.config.js` resolves `EXPO_PUBLIC_SENTRY_DSN` -> `extra.sentryDsn` and
+  adds the `@sentry/react-native/expo` config plugin. The DSN is public by
+  design (it can only *send* events to one project), so it lives in
+  `eas.json` per build profile, not in a secrets store.
+- `lib/sentry.ts` initialises the SDK; `App.tsx` calls it first and exports
+  `Sentry.wrap(App)`. `environment` is the EAS Update channel
+  (`Updates.channel`: `development` / `preview`), falling back to `__DEV__`.
+- **No DSN, or a `__DEV__` bundle, means Sentry is disabled** - a dev client
+  or `expo start` session never reports. To verify capture from a dev
+  bundle, run with `EXPO_PUBLIC_SENTRY_DEBUG=1` (mobile counterpart of the
+  API's `SENTRY_DEBUG=1`); that also turns on the SDK's own console logging.
+- Privacy: `sendDefaultPii: false`, `tracesSampleRate: 0`, no session
+  replay, `maxBreadcrumbs: 0`, and `beforeSend` drops `user`, breadcrumbs
+  and any request URL (a URL can carry a Clerk ticket or a shareable
+  test-status link token). Same stance as Kall's `sentry-shared.ts`.
+
+Adding the SDK is a native change (config plugin + native module), so it
+crosses the fingerprint boundary: **existing `development`/`preview` builds
+must be rebuilt** before an OTA update can carry this code.
+
+### Sourcemap upload (not enabled yet)
+
+The config plugin wires sentry-cli into the generated Xcode/Gradle build,
+which needs `SENTRY_AUTH_TOKEN` (a real secret). Until that exists,
+`eas.json` sets `SENTRY_DISABLE_AUTO_UPLOAD=true` on every profile so a
+build succeeds without it; stack traces will be minified but still
+grouped correctly. To turn upload on:
+
+1. Create an org auth token in Sentry with `project:releases` +
+   `org:read` (Settings -> Auth Tokens), scoped to `vaettir-mobile`.
+2. `eas env:create --scope project --name SENTRY_AUTH_TOKEN --value <token>`
+   `--visibility secret --environment preview` (repeat per environment).
+   Never put it in `eas.json`, `app.config.js`, `.env`, or git.
+3. Remove `SENTRY_DISABLE_AUTO_UPLOAD` from the profile's `env` in `eas.json`
+   (or set it to `false`) and rebuild. `metro.config.js` already uses
+   `getSentryExpoConfig`, so bundles carry the Debug IDs uploads need.
+
+Check what a build will see with `npx expo config --type public` (prints
+`extra.sentryDsn` and the resolved `plugins`).
