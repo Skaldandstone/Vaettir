@@ -39,6 +39,18 @@ a store update, so treat crossing the fingerprint boundary as a real cost:
   it never needs a build at all -- that's a Play Console / App Store
   Connect edit, independent of the app binary.
 
+## Bundling inside the pnpm workspace
+
+`package.json` points `main` at a local `index.js` rather than Expo's default
+`node_modules/expo/AppEntry.js`. Under pnpm the real path of `AppEntry.js` is
+inside the virtual store (`node_modules/.pnpm/expo@.../`), so its
+`import App from '../../App'` cannot reach this package's `App.tsx`; `index.js`
+registers the root component from here instead. `@babel/runtime` is also a
+direct dependency because Metro's transformed output requires its helpers from
+this package and pnpm does not hoist it. Both are required for `expo start`
+and `expo export` to work from `apps/mobile`; keep them if you change the
+entry or dependencies.
+
 ## Not yet configured
 
 This app has no `android.package` or `ios.bundleIdentifier` set in
