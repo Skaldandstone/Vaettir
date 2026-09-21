@@ -7,6 +7,13 @@ import { ClerkProvider, SignedIn, SignedOut, useAuth, useSignIn } from "@clerk/c
 import { tokenCache } from "@clerk/clerk-expo/token-cache";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { trpc, setAuthTokenGetter } from "./lib/trpc";
+import * as Sentry from "@sentry/react-native";
+import { initSentry } from "./lib/sentry";
+
+// P10-05: error reporting. Runs before anything else in this module so
+// the notification handler / Clerk / tRPC setup below is already covered.
+// Fully inert without a DSN (see lib/sentry.ts and app.config.js).
+initSentry();
 
 // P8-04: pushes that arrive while the app is in the foreground should
 // still be shown (Expo's default is to swallow them) - a readiness flip
@@ -90,7 +97,7 @@ async function writeCachedCases(projectId: string, cases: Awaited<ReturnType<typ
 
 const CLERK_PUBLISHABLE_KEY = process.env.EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY;
 
-export default function App() {
+function App() {
   if (!CLERK_PUBLISHABLE_KEY) {
     throw new Error("EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY is not set");
   }
@@ -106,6 +113,16 @@ export default function App() {
     </ClerkProvider>
   );
 }
+
+// Sentry.wrap adds touch-event tracking + profiler/feedback-widget wiring
+// (breadcrumbs are dropped by lib/sentry.ts, so the touch tracking is
+// inert) - in @sentry/react-native 6.10.0 it does NOT add a React error
+// boundary. Render errors still reach Sentry: React Native routes an
+// uncaught render throw to the global `ErrorUtils` handler, which the SDK
+// reports as a fatal, same as any other unhandled JS exception. There is
+// no fallback UI without an explicit Sentry.ErrorBoundary, which isn't
+// added here.
+export default Sentry.wrap(App);
 
 // Wires the tRPC client's token source to Clerk's session once signed in --
 // see lib/trpc.ts for why this can't just call useAuth() itself.
