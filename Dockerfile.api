@@ -25,4 +25,15 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
 # Migrations run here, on every container start, rather than as a separate
 # step -- RDS isn't reachable from outside the VPC, so the running task is
 # the only thing that ever has network access to it.
-CMD ["sh", "-c", "pnpm --filter @vaettir/db exec prisma migrate deploy && node apps/api/dist/server.js"]
+#
+# DATABASE_URL is composed first and exported into the shell, then handed
+# to both steps below. This is deliberate, not redundant with
+# resolveDatabaseUrl.ts's own in-process logic: that logic runs inside
+# server.js's own Node process, which starts *after* `prisma migrate
+# deploy` here already needs a working DATABASE_URL - composing it only in
+# server.js left the migration step with none at all once the static
+# vaettir/database-url secret was retired (a real bug caught in production
+# on the first deploy attempt of the RDS-managed-secret fix, P1012 instead
+# of the P1000 this was meant to fix). See resolveDatabaseUrl.ts and
+# printDatabaseUrl.ts.
+CMD ["sh", "-c", "export DATABASE_URL=$(node apps/api/dist/printDatabaseUrl.js) && pnpm --filter @vaettir/db exec prisma migrate deploy && node apps/api/dist/server.js"]
