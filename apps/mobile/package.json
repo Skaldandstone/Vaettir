@@ -19,7 +19,7 @@
     "@sentry/react-native": "~6.10.0",
     "@trpc/client": "^11.0.0-rc.502",
     "@vaettir/core": "workspace:*",
-    "expo": "~52.0.0",
+    "expo": "~57.0.24",
     "expo-constants": "~17.0.0",
     "expo-notifications": "~0.29.0",
     "expo-secure-store": "~14.0.0",
