@@ -1,5 +1,7 @@
 import * as Sentry from "@sentry/nextjs";
 
+import { sharedSentryOptions } from "./lib/sentry-shared";
+
 // P10-05: browser-side counterpart to instrumentation.ts. Next.js loads
 // this automatically before any client code runs (no next.config wiring
 // needed). Inert when the DSN isn't set at build time.
@@ -10,9 +12,9 @@ const dsn = process.env.NEXT_PUBLIC_SENTRY_DSN;
 const sentryWanted = process.env.NODE_ENV === "production" || Boolean(process.env.NEXT_PUBLIC_SENTRY_ENVIRONMENT);
 if (dsn && sentryWanted) {
   Sentry.init({
+    ...sharedSentryOptions,
     dsn,
     environment: process.env.NEXT_PUBLIC_SENTRY_ENVIRONMENT ?? process.env.NODE_ENV ?? "development",
-    tracesSampleRate: 0.1,
   });
 }
 
