@@ -5,9 +5,22 @@
 // experience, not just a permission check - edit/create affordances
 // shouldn't be visible to click in the first place.
 //
-// READ_ONLY seats can only hold the VIEWER role (enforced server-side in
-// inviteMember/updateMember), so checking seatType alone is sufficient -
-// there's no READ_ONLY+EDITOR combination to also handle.
+// Seat-only callers fail closed while membership is unknown. New write
+// controls should also use the role-aware predicates below.
 export function isReadOnlySeat(seatType: string | undefined): boolean {
-  return seatType === "READ_ONLY";
+  return seatType !== "FULL";
+}
+
+type Membership = { role: string; seatType: string } | null | undefined;
+
+export function canEditProject(member: Membership): boolean {
+  return member?.seatType === "FULL" && ["OWNER", "ADMIN", "EDITOR"].includes(member.role);
+}
+
+export function canAdministerOrganization(member: Membership): boolean {
+  return member?.seatType === "FULL" && ["OWNER", "ADMIN"].includes(member.role);
+}
+
+export function canSignOffCompliance(member: Membership): boolean {
+  return member?.seatType === "FULL" && ["OWNER", "ADMIN", "COMPLIANCE_AUDITOR"].includes(member.role);
 }

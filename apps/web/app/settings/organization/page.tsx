@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { trpcReact, type RouterOutputs } from "@/lib/trpcReact";
-import { isReadOnlySeat } from "@/lib/membership";
+import { canAdministerOrganization } from "@/lib/membership";
 
 type Labels = { action: string; expectedActionOrData: string; expectedResult: string; expectedResponse: string };
 const API_KEY_ROLES = ["VIEWER", "COMPLIANCE_AUDITOR", "EDITOR", "ADMIN"];
@@ -938,7 +938,7 @@ export default function OrganizationSettingsPage() {
   // already requires ADMIN+ server-side, so this is the product-experience
   // half (no forms that can only fail), same whole-page shape as the
   // reverse-engineer page's gate.
-  const readOnly = isReadOnlySeat(firstOrg?.seatType);
+  const readOnly = !canAdministerOrganization(firstOrg);
   const orgId = firstOrg?.id ?? null;
   const orgName = firstOrg?.name ?? "";
   const detailQuery = trpcReact.organization.byId.useQuery({ id: orgId ?? "" }, { enabled: orgId !== null });

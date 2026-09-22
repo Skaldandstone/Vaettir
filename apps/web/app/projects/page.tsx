@@ -7,6 +7,7 @@ import { trpcReact } from "../../lib/trpcReact";
 import { Modal } from "../../components/Modal";
 import { ConfirmAction } from "../../components/ConfirmAction";
 import { EmptyState, Icon, PageHeading } from "../../components/ui/Workspace";
+import { canAdministerOrganization, canEditProject } from "../../lib/membership";
 
 // P1-15
 export default function ProjectsPage() {
@@ -16,6 +17,9 @@ export default function ProjectsPage() {
   const orgsQuery = trpcReact.organization.mine.useQuery();
   const orgId = orgsQuery.data?.[0]?.id;
   const orgName = orgsQuery.data?.[0]?.name ?? "";
+  const membership = orgsQuery.data?.[0];
+  const canEdit = canEditProject(membership);
+  const canDelete = canAdministerOrganization(membership);
 
   const projectsQuery = trpcReact.project.list.useQuery({ organizationId: orgId! }, { enabled: !!orgId });
   const projects = projectsQuery.data ?? [];
@@ -64,12 +68,13 @@ export default function ProjectsPage() {
   });
 
   function submit() {
-    if (!orgId) return;
+    if (!orgId || !canEdit) return;
     setCreateError(null);
     createMutation.mutate({ organizationId: orgId, name, repoUrl: repoUrl || undefined });
   }
 
   async function startEdit(p: { id: string; name: string; repoUrl: string | null }) {
+    if (!canEdit) return;
     setEditingId(p.id);
     setEditName(p.name);
     setEditRepoUrl(p.repoUrl ?? "");
@@ -78,13 +83,13 @@ export default function ProjectsPage() {
   }
 
   function saveEdit() {
-    if (!editingId) return;
+    if (!editingId || !canEdit) return;
     setEditError(null);
     updateMutation.mutate({ id: editingId, name: editName, repoUrl: editRepoUrl || undefined, defaultBranch: editDefaultBranch });
   }
 
   function removeProject() {
-    if (!deleteTarget) return;
+    if (!deleteTarget || !canDelete) return;
     setDeleteError(null);
     deleteMutation.mutate({ id: deleteTarget.id });
   }
@@ -124,11 +129,11 @@ export default function ProjectsPage() {
         eyebrow={`WORKSPACE / ${orgName.toUpperCase()}`}
         title="Projects"
         description="Move from test design to release evidence in one traceable workspace."
-        actions={
+        actions={canEdit ? (
           <button className="btn-primary" onClick={() => setCreateOpen(true)}>
             <Icon name="folder" size={16} /> New project
           </button>
-        }
+        ) : undefined}
       />
 
       {deleteError && (
@@ -156,29 +161,37 @@ export default function ProjectsPage() {
               <Link href={`/projects/${p.id}/test-plans`}>Test plans</Link>
               <Link href={`/projects/${p.id}/requirements`}>Requirements</Link>
             </nav>
-            <div className="project-card-admin">
-              <button className="btn-secondary" onClick={() => void startEdit(p)}>
-                Edit
-              </button>
-              <button className="btn-secondary" onClick={() => setDeleteTarget({ id: p.id, name: p.name })}>
-                Delete
-              </button>
-            </div>
+            {(canEdit || canDelete) && (
+              <div className="project-card-admin">
+                {canEdit && (
+                  <button className="btn-secondary" onClick={() => void startEdit(p)}>
+                    Edit
+                  </button>
+                )}
+                {canDelete && (
+                  <button className="btn-secondary" onClick={() => setDeleteTarget({ id: p.id, name: p.name })}>
+                    Delete
+                  </button>
+                )}
+              </div>
+            )}
           </li>
         ))}
       </ul>
       {projects.length === 0 && (
         <section className="workspace-panel">
           <EmptyState
-            title="Create your first project"
-            action={<button className="btn-primary" onClick={() => setCreateOpen(true)}>New project</button>}
+            title={canEdit ? "Create your first project" : "No projects are available yet"}
+            action={canEdit ? <button className="btn-primary" onClick={() => setCreateOpen(true)}>New project</button> : undefined}
           >
-            Projects keep cases, CI evidence, reviews, and release decisions connected.
+            {canEdit
+              ? "Projects keep cases, CI evidence, reviews, and release decisions connected."
+              : "An organization owner, admin, or editor can create the first project."}
           </EmptyState>
         </section>
       )}
 
-      <Modal open={createOpen} onClose={() => setCreateOpen(false)} title="New project">
+      <Modal open={canEdit && createOpen} onClose={() => setCreateOpen(false)} title="New project">
         <div className="form-stack">
           <label>
             Project name
@@ -200,7 +213,7 @@ export default function ProjectsPage() {
         </div>
       </Modal>
 
-      <Modal open={editingId !== null} onClose={() => setEditingId(null)} title="Edit project">
+      <Modal open={canEdit && editingId !== null} onClose={() => setEditingId(null)} title="Edit project">
         <div className="form-stack">
           <label>
             Project name
@@ -226,7 +239,7 @@ export default function ProjectsPage() {
         </div>
       </Modal>
 
-      {deleteTarget && (
+      {canDelete && deleteTarget && (
         <ConfirmAction
           title={`Delete ${deleteTarget.name}?`}
           requiredText={deleteTarget.name}

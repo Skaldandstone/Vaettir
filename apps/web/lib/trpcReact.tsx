@@ -7,7 +7,7 @@ import { httpBatchLink } from "@trpc/client";
 import type { inferRouterOutputs } from "@trpc/server";
 import type { AppRouter } from "@vaettir/api/src/router";
 import { getAuthHeaders } from "./trpc";
-import { isReadOnlySeat } from "./membership";
+import { canEditProject } from "./membership";
 
 export type RouterOutputs = inferRouterOutputs<AppRouter>;
 
@@ -24,13 +24,12 @@ export const trpcReact: ReturnType<typeof createTRPCReact<AppRouter>> = createTR
 
 // P12-03 read-only seat gating, as a hook. Six project pages used to repeat
 // the same project.byId + organization.mine lookup in a useEffect; now they
-// share one cached pair of queries. Resolves to false while loading (same as
-// the original pages' initial useState(false)).
+// share one cached pair of queries. Unknown/loading membership fails closed.
 export function useReadOnlySeat(projectId: string): boolean {
   const projectQuery = trpcReact.project.byId.useQuery({ id: projectId });
   const orgsQuery = trpcReact.organization.mine.useQuery();
   const org = orgsQuery.data?.find((o) => o.id === projectQuery.data?.organizationId);
-  return isReadOnlySeat(org?.seatType);
+  return !canEditProject(org);
 }
 
 export function TRPCReactProvider({ children }: { children: ReactNode }) {

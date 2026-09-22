@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { trpcReact } from "../../../lib/trpcReact";
 import { Modal } from "../../../components/Modal";
+import { canAdministerOrganization } from "../../../lib/membership";
 
 const ROLES = ["ADMIN", "EDITOR", "VIEWER", "COMPLIANCE_AUDITOR"];
 const EDIT_ROLES = ["OWNER", "ADMIN", "EDITOR", "VIEWER", "COMPLIANCE_AUDITOR"];
@@ -22,10 +23,14 @@ export default function MembersPage() {
   const orgsQuery = trpcReact.organization.mine.useQuery();
   const orgId = orgsQuery.data?.[0]?.id;
   const orgName = orgsQuery.data?.[0]?.name ?? "";
+  const canManage = canAdministerOrganization(orgsQuery.data?.[0]);
 
   const membersQuery = trpcReact.organization.listMembers.useQuery({ organizationId: orgId! }, { enabled: !!orgId });
   // ADMIN+ only; non-admins just won't see this - same as the original's .catch(() => []).
-  const invitationsQuery = trpcReact.organization.listInvitations.useQuery({ organizationId: orgId! }, { enabled: !!orgId, retry: false });
+  const invitationsQuery = trpcReact.organization.listInvitations.useQuery(
+    { organizationId: orgId! },
+    { enabled: !!orgId && canManage, retry: false },
+  );
   const seatUsageQuery = trpcReact.organization.seatUsage.useQuery({ organizationId: orgId! }, { enabled: !!orgId });
   const planTiersQuery = trpcReact.organization.listPlanTiers.useQuery(undefined, { enabled: !!orgId });
 
@@ -74,13 +79,14 @@ export default function MembersPage() {
   });
 
   function submitInvite() {
-    if (!orgId) return;
+    if (!orgId || !canManage) return;
     setInviteError(null);
     setInviteLink(null);
     inviteMutation.mutate({ organizationId: orgId, email, role: role as never, seatType });
   }
 
   function updateMember(membershipId: string, newRole: string, newSeatType: "FULL" | "READ_ONLY") {
+    if (!canManage) return;
     setActionError(null);
     updateMemberMutation.mutate({ membershipId, role: newRole as never, seatType: newSeatType });
   }
@@ -96,9 +102,11 @@ export default function MembersPage() {
     <div style={{ maxWidth: 640 }}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
         <h1>{orgName} members</h1>
-        <button className="btn-primary" onClick={() => setInviteOpen(true)}>
-          + Invite someone
-        </button>
+        {canManage && (
+          <button className="btn-primary" onClick={() => setInviteOpen(true)}>
+            + Invite someone
+          </button>
+        )}
       </div>
 
       {seatUsage && (
@@ -129,7 +137,7 @@ export default function MembersPage() {
               You're at your full-seat limit — adding one more requires upgrading to {seatUsage.nextTierNameForOneMoreFullSeat}.
             </p>
           )}
-          {planTiers.length > 0 && (
+          {canManage && planTiers.length > 0 && (
             <div style={{ marginTop: 12, display: "flex", gap: 8, alignItems: "center" }}>
               <label style={{ fontSize: 13 }}>
                 Plan:{" "}
@@ -170,6 +178,7 @@ export default function MembersPage() {
             <tr key={m.id}>
               <td style={cellStyle}>{m.userName ? `${m.userName} (${m.userEmail})` : m.userEmail}</td>
               <td style={cellStyle}>
+                {canManage ? (
                 <select
                   value={m.role}
                   onChange={(e) => updateMember(m.id, e.target.value, m.seatType as "FULL" | "READ_ONLY")}
@@ -180,8 +189,10 @@ export default function MembersPage() {
                     </option>
                   ))}
                 </select>
+                ) : m.role}
               </td>
               <td style={cellStyle}>
+                {canManage ? (
                 <select
                   value={m.seatType}
                   onChange={(e) => updateMember(m.id, m.role, e.target.value as "FULL" | "READ_ONLY")}
@@ -190,23 +201,24 @@ export default function MembersPage() {
                   <option value="FULL">Full</option>
                   <option value="READ_ONLY">Read-only</option>
                 </select>
+                ) : m.seatType === "READ_ONLY" ? "Read-only" : "Full"}
               </td>
               <td style={cellStyle}>
-                <button
+                {canManage && <button
                   onClick={() => {
                     setActionError(null);
                     removeMemberMutation.mutate({ membershipId: m.id });
                   }}
                 >
                   Remove
-                </button>
+                </button>}
               </td>
             </tr>
           ))}
         </tbody>
       </table>
 
-      <Modal open={inviteOpen} onClose={() => setInviteOpen(false)} title="Invite someone">
+      <Modal open={canManage && inviteOpen} onClose={() => setInviteOpen(false)} title="Invite someone">
         <div style={{ display: "grid", gap: 10 }}>
           <label>
             Email
@@ -256,14 +268,14 @@ export default function MembersPage() {
         </div>
       </Modal>
 
-      {invitations.length > 0 && (
+      {canManage && invitations.length > 0 && (
         <>
           <h2>Pending invitations</h2>
           <ul>
             {invitations.map((inv) => (
               <li key={inv.id}>
                 {inv.email} — {inv.role} ({inv.seatType})
-                <button onClick={() => revokeMutation.mutate({ invitationId: inv.id })} style={{ marginLeft: 8 }}>
+                <button onClick={() => canManage && revokeMutation.mutate({ invitationId: inv.id })} style={{ marginLeft: 8 }}>
                   Revoke
                 </button>
               </li>

@@ -1,5 +1,6 @@
 import { test as setup } from "@playwright/test";
 import path from "node:path";
+import { assertTestEnvironment } from "./test-environment";
 
 // This setup project is a dependency of the authenticated project only. That
 // keeps signed-out checks credential-free while authenticated checks still
@@ -7,6 +8,7 @@ import path from "node:path";
 const authFile = path.join(__dirname, ".auth", "user.json");
 
 setup("authenticate", async ({ page }) => {
+  assertTestEnvironment();
   const email = process.env.CLERK_TEST_EMAIL;
   const password = process.env.CLERK_TEST_PASSWORD;
   if (!email || !password) {
