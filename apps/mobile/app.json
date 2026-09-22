@@ -6,9 +6,14 @@
     "orientation": "portrait",
     "userInterfaceStyle": "automatic",
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "bundleIdentifier": "com.skaldandstone.vaettir",
+      "buildNumber": "1"
     },
-    "android": {},
+    "android": {
+      "package": "com.skaldandstone.vaettir",
+      "versionCode": 1
+    },
     "extra": {
       "apiUrl": "http://localhost:4000",
       "sentryDsn": "https://bd8e2e703ebdc8734f31fe88f57140b3@o4512015786377216.ingest.us.sentry.io/4512115816857600",

@@ -9,6 +9,7 @@
       "distribution": "internal",
       "channel": "development",
       "env": {
+        "EXPO_PUBLIC_API_URL": "https://d35bt2repnvk6t.cloudfront.net/api",
         "EXPO_PUBLIC_SENTRY_DSN": "https://bd8e2e703ebdc8734f31fe88f57140b3@o4512015786377216.ingest.us.sentry.io/4512115816857600",
         "SENTRY_DISABLE_AUTO_UPLOAD": "true"
       }
@@ -17,14 +18,20 @@
       "distribution": "internal",
       "channel": "preview",
       "env": {
+        "EXPO_PUBLIC_API_URL": "https://d35bt2repnvk6t.cloudfront.net/api",
         "EXPO_PUBLIC_SENTRY_DSN": "https://bd8e2e703ebdc8734f31fe88f57140b3@o4512015786377216.ingest.us.sentry.io/4512115816857600",
         "SENTRY_DISABLE_AUTO_UPLOAD": "true"
       },
       "android": {
         "buildType": "apk"
-      },
-      "ios": {
-        "simulator": true
+      }
+    },
+    "production": {
+      "channel": "production",
+      "env": {
+        "EXPO_PUBLIC_API_URL": "https://d35bt2repnvk6t.cloudfront.net/api",
+        "EXPO_PUBLIC_SENTRY_DSN": "https://bd8e2e703ebdc8734f31fe88f57140b3@o4512015786377216.ingest.us.sentry.io/4512115816857600",
+        "SENTRY_DISABLE_AUTO_UPLOAD": "true"
       }
     }
   }
