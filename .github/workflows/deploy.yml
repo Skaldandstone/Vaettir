@@ -37,7 +37,7 @@ concurrency:
 env:
   AWS_REGION: us-east-2
   CLUSTER: vaettir-cluster
-  SOURCE_BUCKET: vaettir-build-source-094842496450
+  SOURCE_BUCKET: vaettir-build-source-051722405355
 
 jobs:
   deploy:
@@ -78,6 +78,7 @@ jobs:
             echo "==> Starting CodeBuild: $project"
             local id
             id=$(aws codebuild start-build --project-name "$project" \
+                   --environment-variables-override "name=VAETTIR_RELEASE_COMMIT,value=$GITHUB_SHA,type=PLAINTEXT" \
                    --query 'build.id' --output text)
             echo "    build id: $id"
             while true; do
@@ -94,10 +95,8 @@ jobs:
 
           roll() {
             local svc=$1
-            echo "==> Forcing new ECS deployment: $svc"
-            aws ecs update-service --cluster "$CLUSTER" --service "$svc" \
-              --force-new-deployment \
-              --query 'service.[serviceName,status]' --output text
+            echo "==> Registering immutable ECS release: $svc"
+            ./scripts/pin-ecs-release.sh "$svc" "$GITHUB_SHA" "$CLUSTER"
           }
 
           if [ "$TARGET" = "both" ] || [ "$TARGET" = "api" ]; then

@@ -30,6 +30,7 @@ import { handleLinearWebhook } from "./services/linearWebhook.js";
 import { verifyJiraWebhookSecret, type JiraWebhookPayload } from "./services/jiraApi.js";
 import { handleJiraWebhook } from "./services/jiraWebhook.js";
 import { verifyDatadogWebhookSecret, handleDatadogWebhook, type DatadogWebhookPayload } from "./services/datadogWebhook.js";
+import { getReleaseIdentity } from "./releaseIdentity.js";
 
 // P10-07: expected poller intervals, keyed by the same names each poller
 // calls recordHeartbeat with - the one place server.ts needs to know
@@ -59,7 +60,7 @@ async function detailedHealthHandler() {
   }
   const pollers = getHeartbeatStatuses(EXPECTED_POLLER_INTERVALS);
   const healthy = dbOk && pollers.every((p) => !p.stale);
-  return { healthy, db: { ok: dbOk }, pollers };
+  return { healthy, db: { ok: dbOk }, pollers, release: getReleaseIdentity() };
 }
 
 // P6-01: registered in its own encapsulation context so the raw-body content

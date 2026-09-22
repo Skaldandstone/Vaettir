@@ -12,6 +12,7 @@
     "lint": "turbo run lint",
     "typecheck": "turbo run typecheck",
     "test": "turbo run test",
+    "test:operations": "node --test scripts/private-beta-service-window.test.mjs scripts/render-ecs-task-definition.test.mjs",
     "db:generate": "pnpm --filter @vaettir/db generate",
     "db:migrate": "pnpm --filter @vaettir/db migrate",
     "db:studio": "pnpm --filter @vaettir/db studio"

@@ -71,23 +71,23 @@ wait_for_build() {
   done
 }
 
-redeploy() {
+deploy_immutable() {
   local name=$1
-  echo "==> Forcing new ECS deployment for $name"
-  aws ecs update-service --cluster "vaettir-cluster${ENV_SUFFIX}" --service "$name" --force-new-deployment \
-    --profile "$PROFILE" --region "$REGION" --query "service.[serviceName,status]" --output text
+  echo "==> Pinning $name to the image digest built for $RELEASE_COMMIT"
+  AWS_PROFILE="$PROFILE" AWS_REGION="$REGION" ./scripts/pin-ecs-release.sh \
+    "$name" "$RELEASE_COMMIT" "vaettir-cluster${ENV_SUFFIX}"
 }
 
 if [[ "$TARGET" == "both" || "$TARGET" == "api" ]]; then
   api_build=$(start_build "vaettir-api-build${ENV_SUFFIX}")
   wait_for_build "$api_build"
-  redeploy "vaettir-api${ENV_SUFFIX}"
+  deploy_immutable "vaettir-api${ENV_SUFFIX}"
 fi
 
 if [[ "$TARGET" == "both" || "$TARGET" == "web" ]]; then
   web_build=$(start_build "vaettir-web-build${ENV_SUFFIX}")
   wait_for_build "$web_build"
-  redeploy "vaettir-web${ENV_SUFFIX}"
+  deploy_immutable "vaettir-web${ENV_SUFFIX}"
 fi
 
 echo "==> Done. Verify: curl https://d35bt2repnvk6t.cloudfront.net/api/health"

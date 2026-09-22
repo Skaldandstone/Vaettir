@@ -141,7 +141,7 @@ are one command:
 ./scripts/deploy-aws.sh web      # only web
 ```
 
-Needs `vaettir-toolkit` active (`aws login --region us-east-2 --profile vaettir-toolkit` if expired). It packages the committed tree with `git archive` (no `.git`, no `node_modules`, respects `.gitignore` - uncommitted local changes are not deployed), uploads to S3, starts the CodeBuild project(s) with the current `git rev-parse HEAD` passed through as `VAETTIR_RELEASE_COMMIT`, waits for them, then forces a new ECS deployment.
+Needs `vaettir-toolkit` active (`aws login --region us-east-2 --profile vaettir-toolkit` if expired). It packages the committed tree with `git archive` (no `.git`, no `node_modules`, respects `.gitignore` - uncommitted local changes are not deployed), uploads to S3, starts the CodeBuild project(s) with the current `git rev-parse HEAD` passed through as `VAETTIR_RELEASE_COMMIT`, waits for them, resolves the resulting ECR image digest, registers a task-definition revision pinned to that digest with commit/digest identity in the environment, and waits for the ECS service to stabilize.
 
 ## Known gaps / next steps
 
