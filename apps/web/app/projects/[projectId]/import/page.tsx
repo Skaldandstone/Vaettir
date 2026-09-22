@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import { trpcReact, type RouterOutputs } from "@/lib/trpcReact";
 import { MigrationWizard } from "@/components/MigrationWizard";
+import { useProjectPermissions } from "@/lib/use-project-permissions";
 
 function readFileAsText(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -197,6 +198,7 @@ function BackfillSection({ projectId, defaultBranch }: { projectId: string; defa
 // Import history list stay their own concerns here.
 export default function ImportPage() {
   const { projectId } = useParams<{ projectId: string }>();
+  const { canEdit, loaded } = useProjectPermissions(projectId);
   const utils = trpcReact.useUtils();
 
   const jobsQuery = trpcReact.importJobs.list.useQuery({ projectId });
@@ -212,9 +214,11 @@ export default function ImportPage() {
         until you commit.
       </p>
 
-      <MigrationWizard projectId={projectId} onCommitted={() => void utils.importJobs.list.invalidate({ projectId })} />
-
-      <BackfillSection projectId={projectId} defaultBranch={defaultBranch} />
+      {!canEdit && (
+        <p>{loaded ? "A full-seat Owner, Admin, or Editor can import cases and CI results." : "Checking project access…"}</p>
+      )}
+      {canEdit && <MigrationWizard projectId={projectId} onCommitted={() => void utils.importJobs.list.invalidate({ projectId })} />}
+      {canEdit && <BackfillSection projectId={projectId} defaultBranch={defaultBranch} />}
 
       {jobs.length > 0 && (
         <div style={{ marginTop: 24 }}>

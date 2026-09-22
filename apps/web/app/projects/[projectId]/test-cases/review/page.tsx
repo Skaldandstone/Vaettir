@@ -5,10 +5,12 @@ import { useParams } from "next/navigation";
 import { trpcReact } from "@/lib/trpcReact";
 import { Drawer } from "@/components/Drawer";
 import { TestCaseDetailContent } from "@/components/TestCaseDetailContent";
+import { useProjectPermissions } from "@/lib/use-project-permissions";
 
 // P1-15
 export default function ReviewQueuePage() {
   const { projectId } = useParams<{ projectId: string }>();
+  const { canEdit } = useProjectPermissions(projectId);
   const utils = trpcReact.useUtils();
   const queueQuery = trpcReact.testCases.pendingReview.useQuery({ projectId });
   const queue = queueQuery.data ?? [];
@@ -21,6 +23,7 @@ export default function ReviewQueuePage() {
   const rejectMutation = trpcReact.testCases.reject.useMutation({ onSuccess: invalidate, onError: (e) => setError(e.message), onSettled: () => setBusyId(null) });
 
   function decide(id: string, decision: "approve" | "reject") {
+    if (!canEdit) return;
     setBusyId(id);
     setError(null);
     (decision === "approve" ? approveMutation : rejectMutation).mutate({ id });
@@ -61,20 +64,20 @@ export default function ReviewQueuePage() {
               )}
             </div>
             {tc.sourceFilePath && <div style={{ color: "var(--muted-dim)", fontSize: 13 }}>{tc.sourceFilePath}</div>}
-            <div style={{ marginTop: 8 }}>
+            {canEdit && <div style={{ marginTop: 8 }}>
               <button onClick={() => decide(tc.id, "approve")} disabled={busyId === tc.id} style={{ marginRight: 8 }}>
                 Approve
               </button>
               <button onClick={() => decide(tc.id, "reject")} disabled={busyId === tc.id}>
                 Reject
               </button>
-            </div>
+            </div>}
           </li>
         ))}
       </ul>
 
       <Drawer open={openCaseId !== null} onClose={() => setOpenCaseId(null)}>
-        {openCaseId && <TestCaseDetailContent id={openCaseId} projectId={projectId} onChanged={() => void invalidate()} />}
+        {openCaseId && <TestCaseDetailContent id={openCaseId} projectId={projectId} readOnly={!canEdit} onChanged={() => void invalidate()} />}
       </Drawer>
     </div>
   );

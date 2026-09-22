@@ -1,8 +1,8 @@
-import { test, expect } from "@playwright/test";
+import { test, expect } from "./fixtures";
 
 async function gotoKallTestPlans(page: import("@playwright/test").Page) {
   await page.goto("/projects");
-  await page.locator("li", { hasText: "Kall" }).getByRole("link", { name: "Kall" }).click();
+  await page.locator("li", { hasText: "Beta fixture" }).getByRole("link", { name: "Beta fixture" }).click();
   await page.getByRole("link", { name: /test plans/i }).click();
   await expect(page.getByRole("heading", { name: "Test Plans" })).toBeVisible();
 }
@@ -48,7 +48,7 @@ test.describe("Test plans", () => {
 test.describe("Requirements & acceptance criteria", () => {
   async function gotoKallRequirements(page: import("@playwright/test").Page) {
     await page.goto("/projects");
-    await page.locator("li", { hasText: "Kall" }).getByRole("link", { name: "Kall" }).click();
+    await page.locator("li", { hasText: "Beta fixture" }).getByRole("link", { name: "Beta fixture" }).click();
     await page.getByRole("link", { name: /requirements/i }).click();
     await expect(page.getByRole("heading", { name: "Requirements" })).toBeVisible();
   }

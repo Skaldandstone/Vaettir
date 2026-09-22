@@ -4,6 +4,7 @@ import { Fragment, useState } from "react";
 import { useParams } from "next/navigation";
 import { trpcReact } from "@/lib/trpcReact";
 import { Drawer } from "@/components/Drawer";
+import { useProjectPermissions } from "@/lib/use-project-permissions";
 
 const STATUS_COLORS: Record<string, string> = {
   PASSED: "#1a7f37",
@@ -92,7 +93,7 @@ const CLASSIFICATION_COLORS: Record<string, string> = {
 // Never touches the repo -- approving a suggestion just marks it reviewed
 // so it stops showing as needing attention; the suggested diff is right
 // here to copy, not applied anywhere automatically.
-function HealingSuggestionPanel({ testResultId }: { testResultId: string }) {
+function HealingSuggestionPanel({ testResultId, canEdit }: { testResultId: string; canEdit: boolean }) {
   const utils = trpcReact.useUtils();
   const suggestionQuery = trpcReact.healingSuggestions.byTestResult.useQuery({ testResultId });
   const suggestion = suggestionQuery.data ?? null;
@@ -128,9 +129,9 @@ function HealingSuggestionPanel({ testResultId }: { testResultId: string }) {
   if (!suggestion) {
     return (
       <div style={{ marginTop: 4 }}>
-        <button className="btn-secondary" style={{ fontSize: 11 }} onClick={classify} disabled={classifyMutation.isPending}>
+        {canEdit && <button className="btn-secondary" style={{ fontSize: 11 }} onClick={classify} disabled={classifyMutation.isPending}>
           {classifyMutation.isPending ? "Classifying…" : "Classify failure"}
-        </button>
+        </button>}
         {error && <div style={{ color: "var(--ember)", fontSize: 11, marginTop: 4 }}>{error}</div>}
       </div>
     );
@@ -159,7 +160,7 @@ function HealingSuggestionPanel({ testResultId }: { testResultId: string }) {
           {suggestion.suggestionRationale && <p className="text-muted" style={{ margin: 0 }}>{suggestion.suggestionRationale}</p>}
         </>
       )}
-      {suggestion.status === "PENDING" && (
+      {canEdit && suggestion.status === "PENDING" && (
         <div style={{ display: "flex", gap: 6, marginTop: 6 }}>
           <button className="btn-secondary" style={{ fontSize: 11 }} onClick={() => review("APPROVED")}>
             Approve
@@ -174,7 +175,7 @@ function HealingSuggestionPanel({ testResultId }: { testResultId: string }) {
   );
 }
 
-function TestRunDetail({ id }: { id: string }) {
+function TestRunDetail({ id, canEdit }: { id: string; canEdit: boolean }) {
   const utils = trpcReact.useUtils();
   const runQuery = trpcReact.testRuns.byId.useQuery({ id });
   const run = runQuery.data;
@@ -226,7 +227,7 @@ function TestRunDetail({ id }: { id: string }) {
                   {r.testCaseTitle ?? (
                     <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
                       <span className="text-muted">{r.externalTestId ?? "(unknown)"} — unmatched</span>
-                      <LinkResultPicker testResultId={r.id} projectId={run.projectId} onLinked={reload} />
+                      {canEdit && <LinkResultPicker testResultId={r.id} projectId={run.projectId} onLinked={reload} />}
                     </div>
                   )}
                 </td>
@@ -238,7 +239,7 @@ function TestRunDetail({ id }: { id: string }) {
               {r.status === "FAIL" && r.testCaseId && (
                 <tr style={{ borderBottom: "1px solid var(--line)" }}>
                   <td colSpan={4} style={{ padding: "0 8px 8px" }}>
-                    <HealingSuggestionPanel testResultId={r.id} />
+                    <HealingSuggestionPanel testResultId={r.id} canEdit={canEdit} />
                   </td>
                 </tr>
               )}
@@ -339,6 +340,7 @@ function HealingSignalSection({ projectId }: { projectId: string }) {
 // P1-15
 export default function TestRunsPage() {
   const { projectId } = useParams<{ projectId: string }>();
+  const { canEdit } = useProjectPermissions(projectId);
   const runsQuery = trpcReact.testRuns.list.useQuery({ projectId });
   const runs = runsQuery.data ?? [];
   const loading = runsQuery.isLoading;
@@ -403,7 +405,7 @@ export default function TestRunsPage() {
                   {new Date(r.startedAt).toLocaleString()}
                 </td>
                 <td style={{ padding: "6px 8px", fontSize: 12 }}>
-                  {r.ciProvider === "manual" && r.status === "RUNNING" && (
+                  {canEdit && r.ciProvider === "manual" && r.status === "RUNNING" && (
                     <a href={`/projects/${projectId}/test-runs/manual/${r.id}`} onClick={(e) => e.stopPropagation()}>
                       Resume
                     </a>
@@ -416,7 +418,7 @@ export default function TestRunsPage() {
       )}
 
       <Drawer open={openRunId !== null} onClose={() => setOpenRunId(null)}>
-        {openRunId && <TestRunDetail id={openRunId} />}
+        {openRunId && <TestRunDetail id={openRunId} canEdit={canEdit} />}
       </Drawer>
 
       <CoverageSection projectId={projectId} />

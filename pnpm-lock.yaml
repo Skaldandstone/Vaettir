@@ -221,6 +221,9 @@ importers:
       '@vaettir/api':
         specifier: workspace:*
         version: link:../api
+      '@vaettir/db':
+        specifier: workspace:*
+        version: link:../../packages/db
       typescript:
         specifier: ^5.6.0
         version: 5.9.3

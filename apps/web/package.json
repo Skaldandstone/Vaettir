@@ -9,6 +9,7 @@
     "typecheck": "tsc --noEmit",
     "test": "node --experimental-strip-types --test lib/beta-ui.test.mjs",
     "test:e2e": "playwright test",
+    "test:fixtures": "playwright test --config=e2e/fixture.config.ts",
     "lint": "eslint ."
   },
   "dependencies": {
@@ -29,6 +30,7 @@
     "@types/react": "^18.3.0",
     "@types/react-dom": "^18.3.0",
     "@vaettir/api": "workspace:*",
+    "@vaettir/db": "workspace:*",
     "typescript": "^5.6.0"
   }
 }

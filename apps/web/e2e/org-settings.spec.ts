@@ -1,4 +1,4 @@
-import { test, expect } from "@playwright/test";
+import { test, expect } from "./fixtures";
 
 async function gotoOrgSettings(page: import("@playwright/test").Page) {
   await page.goto("/settings/organization");

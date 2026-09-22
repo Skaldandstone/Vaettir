@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import { trpcReact, type RouterOutputs } from "@/lib/trpcReact";
 import { Drawer } from "@/components/Drawer";
+import { useProjectPermissions } from "@/lib/use-project-permissions";
 
 function PastRunDetail({ id }: { id: string }) {
   const runQuery = trpcReact.riskAnalysis.runById.useQuery({ id });
@@ -165,6 +166,7 @@ function PrScanPolicySection({ projectId }: { projectId: string }) {
 // P1-15
 export default function TestStrategyPage() {
   const { projectId } = useParams<{ projectId: string }>();
+  const { canEdit } = useProjectPermissions(projectId);
   const utils = trpcReact.useUtils();
   const [openRunId, setOpenRunId] = useState<string | null>(null);
   const [repoUrl, setRepoUrl] = useState("");
@@ -192,7 +194,7 @@ export default function TestStrategyPage() {
   const bulkMutation = trpcReact.testCases.assessProjectRisk.useMutation();
 
   async function createRelease() {
-    if (!newReleaseName) return;
+    if (!canEdit || !newReleaseName) return;
     setError(null);
     try {
       const r = await createReleaseMutation.mutateAsync({ projectId, name: newReleaseName });
@@ -205,6 +207,7 @@ export default function TestStrategyPage() {
   }
 
   async function analyze() {
+    if (!canEdit) return;
     setError(null);
     setResult(null);
     try {
@@ -224,6 +227,7 @@ export default function TestStrategyPage() {
   }
 
   async function analyzeWithAi() {
+    if (!canEdit) return;
     setError(null);
     setAiResult(null);
     try {
@@ -240,6 +244,7 @@ export default function TestStrategyPage() {
   }
 
   async function bulkAssess() {
+    if (!canEdit) return;
     setError(null);
     setBulkResult(null);
     try {
@@ -268,7 +273,7 @@ export default function TestStrategyPage() {
         <p style={{ color: "var(--muted)", margin: "0 0 8px" }}>
           AI-assess severity/risk for every test case in this project that hasn&apos;t been assessed yet (up to 20 at a time).
         </p>
-        <button onClick={bulkAssess} disabled={bulkAssessing}>
+        <button onClick={bulkAssess} disabled={!canEdit || bulkAssessing}>
           {bulkAssessing ? "Assessing…" : "Assess unrated test cases"}
         </button>
         {bulkResult && (
@@ -319,15 +324,15 @@ export default function TestStrategyPage() {
                 placeholder="New release name"
                 style={{ flex: 1 }}
               />
-              <button onClick={createRelease} disabled={creatingRelease || !newReleaseName}>
+              <button onClick={createRelease} disabled={!canEdit || creatingRelease || !newReleaseName}>
                 + New release
               </button>
             </div>
           </label>
-          <button onClick={analyze} disabled={analyzing || !headRef}>
+          <button onClick={analyze} disabled={!canEdit || analyzing || !headRef}>
             {analyzing ? "Diffing + analyzing…" : "Analyze change"}
           </button>
-          <button className="btn-secondary" onClick={analyzeWithAi} disabled={aiAnalyzing || !headRef} style={{ marginLeft: 8 }}>
+          <button className="btn-secondary" onClick={analyzeWithAi} disabled={!canEdit || aiAnalyzing || !headRef} style={{ marginLeft: 8 }}>
             {aiAnalyzing ? "Reading the diff…" : "Also check with AI"}
           </button>
         </div>

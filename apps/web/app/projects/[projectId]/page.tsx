@@ -3,10 +3,12 @@
 import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import { trpcReact } from "@/lib/trpcReact";
+import { useProjectPermissions } from "@/lib/use-project-permissions";
 
 // P1-15
 export default function ProjectOverviewPage() {
   const { projectId } = useParams<{ projectId: string }>();
+  const { canEdit } = useProjectPermissions(projectId);
   const utils = trpcReact.useUtils();
 
   const projectQuery = trpcReact.project.byId.useQuery({ id: projectId });
@@ -28,7 +30,7 @@ export default function ProjectOverviewPage() {
 
   function connectRepo() {
     const project = projectQuery.data;
-    if (!project || !connectRepoUrl.trim()) return;
+    if (!canEdit || !project || !connectRepoUrl.trim()) return;
     setConnectError(null);
     connectMutation.mutate({
       id: project.id,
@@ -120,7 +122,7 @@ export default function ProjectOverviewPage() {
         {project.repoUrl ?? "No repo connected"} {project.repoUrl && <>· branch {project.defaultBranch}</>}
       </p>
 
-      {!project.repoUrl && (
+      {canEdit && !project.repoUrl && (
         <div className="panel" style={{ marginBottom: 24, borderColor: "var(--frost)" }}>
           <strong>Connect a GitHub repo</strong>
           <p className="text-muted" style={{ fontSize: 13, margin: "4px 0 10px" }}>
@@ -211,7 +213,9 @@ export default function ProjectOverviewPage() {
       {testCaseCount === 0 && (
         <div className="panel">
           <p style={{ marginBottom: project.repoUrl ? 12 : 0 }}>No test cases tracked yet.</p>
-          {project.repoUrl ? (
+          {!canEdit ? (
+            <p className="text-muted">Ask your team owner or an editor to add test cases.</p>
+          ) : project.repoUrl ? (
             <a className="btn-primary" href={`/projects/${projectId}/reverse-engineer`}>
               Scan {project.repoUrl}
             </a>

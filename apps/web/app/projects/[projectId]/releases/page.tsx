@@ -6,10 +6,12 @@ import { trpcReact } from "@/lib/trpcReact";
 import { Modal } from "@/components/Modal";
 import { ReadinessBadge } from "@/components/ReadinessBadge";
 import { TrendChart } from "@/components/TrendChart";
+import { useProjectPermissions } from "@/lib/use-project-permissions";
 
 // P1-15
 export default function ReleasesPage() {
   const { projectId } = useParams<{ projectId: string }>();
+  const { canEdit } = useProjectPermissions(projectId);
   const utils = trpcReact.useUtils();
 
   const releasesQuery = trpcReact.releases.list.useQuery({ projectId });
@@ -32,7 +34,7 @@ export default function ReleasesPage() {
   });
 
   function submit() {
-    if (!name.trim()) return;
+    if (!canEdit || !name.trim()) return;
     setCreateError(null);
     createMutation.mutate({ projectId, name: name.trim() });
   }
@@ -44,9 +46,9 @@ export default function ReleasesPage() {
     <div style={{ maxWidth: 800 }}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 4 }}>
         <h1 style={{ margin: 0 }}>Release readiness</h1>
-        <button className="btn-primary" onClick={() => setCreateOpen(true)}>
+        {canEdit && <button className="btn-primary" onClick={() => setCreateOpen(true)}>
           + New release
-        </button>
+        </button>}
       </div>
       <p className="text-muted" style={{ marginBottom: 20 }}>
         How well each release held up against its <a href={`/projects/${projectId}/test-strategy`}>test strategy</a>
@@ -130,7 +132,7 @@ export default function ReleasesPage() {
         )}
       </ul>
 
-      <Modal open={createOpen} onClose={() => setCreateOpen(false)} title="New release">
+      <Modal open={canEdit && createOpen} onClose={() => setCreateOpen(false)} title="New release">
         <div style={{ display: "grid", gap: 10 }}>
           <label>
             Release name

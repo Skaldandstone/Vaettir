@@ -2,7 +2,8 @@
 
 import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
-import { trpcReact, useReadOnlySeat, type RouterOutputs } from "@/lib/trpcReact";
+import { trpcReact, type RouterOutputs } from "@/lib/trpcReact";
+import { useProjectPermissions } from "@/lib/use-project-permissions";
 import { Modal } from "@/components/Modal";
 import { Drawer } from "@/components/Drawer";
 import { downloadCsv } from "@/lib/csv";
@@ -77,10 +78,12 @@ function ControlEvidenceDrawer({
   projectId,
   control,
   readOnly = false,
+  canSignOff = false,
 }: {
   projectId: string;
   control: RouterOutputs["compliance"]["controlCoverage"][number];
   readOnly?: boolean;
+  canSignOff?: boolean;
 }) {
   const utils = trpcReact.useUtils();
   const scope = { projectId, controlId: control.id };
@@ -217,7 +220,7 @@ function ControlEvidenceDrawer({
         ))}
         {signOffs.length === 0 && <p className="text-muted" style={{ fontSize: 13 }}>No sign-offs yet.</p>}
       </ul>
-      {!readOnly && (
+      {canSignOff && (
         <div style={{ display: "grid", gap: 8, maxWidth: 420 }}>
           <input value={signOffPeriod} onChange={(e) => setSignOffPeriod(e.target.value)} placeholder="Period (e.g. 2026-Q3)" style={{ fontSize: 12 }} />
           <textarea
@@ -286,11 +289,13 @@ function ControlRow({
   control,
   onChanged,
   readOnly = false,
+  canSignOff = false,
 }: {
   projectId: string;
   control: RouterOutputs["compliance"]["controlCoverage"][number];
   onChanged: () => void;
   readOnly?: boolean;
+  canSignOff?: boolean;
 }) {
   const [picking, setPicking] = useState(false);
   const candidatesQuery = trpcReact.compliance.unmappedTestCases.useQuery({ projectId, controlId: control.id }, { enabled: picking });
@@ -364,7 +369,7 @@ function ControlRow({
         </button>
       </div>
       <Drawer open={drawerOpen} onClose={() => setDrawerOpen(false)}>
-        <ControlEvidenceDrawer projectId={projectId} control={control} readOnly={readOnly} />
+        <ControlEvidenceDrawer projectId={projectId} control={control} readOnly={readOnly} canSignOff={canSignOff} />
       </Drawer>
     </li>
   );
@@ -374,7 +379,8 @@ function ControlRow({
 export default function CompliancePage() {
   const { projectId } = useParams<{ projectId: string }>();
   const utils = trpcReact.useUtils();
-  const readOnly = useReadOnlySeat(projectId);
+  const { canEdit, canSignOff } = useProjectPermissions(projectId);
+  const readOnly = !canEdit;
 
   const frameworksQuery = trpcReact.compliance.listFrameworks.useQuery();
   const frameworks = frameworksQuery.data ?? [];
@@ -593,7 +599,7 @@ export default function CompliancePage() {
           )}
           <ul style={{ listStyle: "none", padding: 0 }}>
             {controls.map((c) => (
-              <ControlRow key={c.id} projectId={projectId} control={c} onChanged={reloadControls} readOnly={readOnly} />
+              <ControlRow key={c.id} projectId={projectId} control={c} onChanged={reloadControls} readOnly={readOnly} canSignOff={canSignOff} />
             ))}
             {controls.length === 0 && (
               <p className="text-muted">No controls on this framework yet — add one above.</p>
