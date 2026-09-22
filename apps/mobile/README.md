@@ -55,12 +55,18 @@ entry or dependencies.
 ## Build identity and release endpoints
 
 Android and iOS use the shared native identity `com.skaldandstone.vaettir`.
+Committed icon, adaptive-icon, and splash assets use the same dark umber and
+muted-sage visual system as the web workspace. Android backup is disabled so
+Clerk tokens and local app state are not copied into device backups, and unused
+legacy storage/overlay permissions are explicitly blocked.
 The `preview` profile creates a restricted-distribution Android APK and a
 physical-device iOS build; `production` is the store/TestFlight candidate
 profile. Both profiles fail configuration early unless their API endpoint is
-HTTPS. The current candidate endpoint is the deployed CloudFront `/api`
-origin. Local `expo start` still defaults to `http://localhost:4000`, and can
-be pointed elsewhere with `EXPO_PUBLIC_API_URL`.
+HTTPS and `EXPO_PUBLIC_RELEASE_COMMIT` is the exact 40-character candidate
+commit. The current candidate endpoint is the deployed CloudFront `/api`
+origin. The same commit identifier is attached to sanitized Sentry events.
+Local `expo start` still defaults to `http://localhost:4000`, and can be
+pointed elsewhere with `EXPO_PUBLIC_API_URL`.
 
 Store submission profiles and credentials remain intentionally unconfigured.
 Creating them requires the Apple/Google owner accounts and is not proven by
