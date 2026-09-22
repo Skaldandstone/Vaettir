@@ -1112,7 +1112,11 @@ model TestCaseSource {
   // "CartTest::test_empty_checkout_throws"). Once set, incoming TestResults
   // match to this TestCase by exact id instead of fuzzy file/function
   // matching -- this is what P5-04/P5-14's CI listener key off of.
-  externalTestId String? @unique
+  externalTestId String?
+
+  // CI names repeat across projects. Writers serialize mapping changes on
+  // the owning Project row; project-scoped lookup rejects ambiguity.
+  @@index([externalTestId])
 
   @@index([framework])
 }
@@ -1134,7 +1138,20 @@ enum FrameworkFamily {
   APPIUM
   MAESTRO
   XCUITEST
+  XCTEST
+  SWIFT_TESTING
   ESPRESSO
+  COMPOSE_UI
+  UI_AUTOMATOR
+  ROBOLECTRIC
+  DETOX
+  FLUTTER_TEST
+  NUNIT
+  XUNIT_DOTNET
+  MSTEST
+  UNITY_TEST
+  UNREAL_AUTOMATION
+  GODOT_TEST
   POSTMAN
   PACT
   ROBOT_FRAMEWORK

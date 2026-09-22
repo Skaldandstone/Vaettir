@@ -3,7 +3,9 @@ import { XMLParser } from "fast-xml-parser";
 export type JUnitResultStatus = "PASS" | "FAIL" | "SKIP";
 
 export interface ParsedJUnitCase {
-  externalTestId: string; // "<classname>::<name>", matching TestCaseSource.externalTestId's documented shape
+  // Stable generated tests report "VAE-<TestCase.id>" in their name. Legacy
+  // and third-party reports keep the conventional "<classname>::<name>" key.
+  externalTestId: string;
   status: JUnitResultStatus;
   durationMs: number | null;
   errorMessage: string | null;
@@ -44,6 +46,19 @@ function extractMessage(node: Record<string, unknown>): string | null {
   return "Test failed";
 }
 
+function extractStableId(testCase: Record<string, unknown>, classname: string, name: string): string | null {
+  const inline = `${classname} ${name}`.match(/\bVAE-[A-Za-z0-9_-]+\b/)?.[0];
+  if (inline) return inline;
+  const properties = testCase.properties as Record<string, unknown> | undefined;
+  const entries = asArray(properties?.property as Record<string, unknown> | Record<string, unknown>[] | undefined);
+  for (const property of entries) {
+    if (String(property["@_name"] ?? "").toLowerCase() !== "vaettir_id") continue;
+    const value = String(property["@_value"] ?? property["#text"] ?? "").trim();
+    if (/^VAE-[A-Za-z0-9_-]+$/.test(value)) return value;
+  }
+  return null;
+}
+
 export function parseJUnitXml(xml: string): ParsedJUnitCase[] {
   const doc = parser.parse(xml) as Record<string, unknown>;
   const root = (doc.testsuites ?? doc.testsuite) as Record<string, unknown> | undefined;
@@ -58,7 +73,8 @@ export function parseJUnitXml(xml: string): ParsedJUnitCase[] {
       const classname = String(tc["@_classname"] ?? "").trim();
       const name = String(tc["@_name"] ?? "").trim();
       if (!name) continue;
-      const externalTestId = classname ? `${classname}::${name}` : name;
+      const stableId = extractStableId(tc, classname, name);
+      const externalTestId = stableId ?? (classname ? `${classname}::${name}` : name);
 
       let status: JUnitResultStatus = "PASS";
       if (tc.failure !== undefined || tc.error !== undefined) status = "FAIL";

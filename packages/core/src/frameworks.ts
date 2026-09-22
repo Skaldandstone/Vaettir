@@ -17,7 +17,20 @@ export type FrameworkFamily =
   | "APPIUM"
   | "MAESTRO"
   | "XCUITEST"
+  | "XCTEST"
+  | "SWIFT_TESTING"
   | "ESPRESSO"
+  | "COMPOSE_UI"
+  | "UI_AUTOMATOR"
+  | "ROBOLECTRIC"
+  | "DETOX"
+  | "FLUTTER_TEST"
+  | "NUNIT"
+  | "XUNIT_DOTNET"
+  | "MSTEST"
+  | "UNITY_TEST"
+  | "UNREAL_AUTOMATION"
+  | "GODOT_TEST"
   | "POSTMAN"
   | "PACT"
   | "ROBOT_FRAMEWORK"
@@ -41,13 +54,91 @@ export const KNOWN_FRAMEWORKS: FrameworkSignature[] = [
     family: "XCUITEST",
     label: "XCUITest",
     filePatterns: [/Tests?\.swift$/],
-    contentSignals: [/import\s+XCTest/, /XCUIApplication\s*\(/, /\bfunc\s+test\w*\s*\(/],
+    contentSignals: [/XCUIApplication\s*\(/, /\bXCUIElement\b/, /\bXCUIDevice\b/],
+  },
+  {
+    family: "SWIFT_TESTING",
+    label: "Swift Testing",
+    filePatterns: [/Tests?\.swift$/],
+    contentSignals: [/import\s+Testing\b/, /@Test\b/, /#(?:expect|require)\s*\(/],
+  },
+  {
+    family: "XCTEST",
+    label: "XCTest",
+    filePatterns: [/Tests?\.swift$/],
+    contentSignals: [/import\s+XCTest\b/, /:\s*XCTestCase\b/, /\bXCTAssert\w*\s*\(/],
+  },
+  {
+    family: "COMPOSE_UI",
+    label: "Jetpack Compose UI Test",
+    filePatterns: [/Test\.(?:kt|java)$/],
+    contentSignals: [/androidx\.compose\.ui\.test/, /create(?:Android)?ComposeRule\s*\(/, /onNodeWith(?:Tag|Text)\s*\(/],
+  },
+  {
+    family: "UI_AUTOMATOR",
+    label: "Android UI Automator",
+    filePatterns: [/Test\.(?:kt|java)$/],
+    contentSignals: [/androidx\.test\.uiautomator/, /UiDevice\.getInstance\s*\(/, /BySelector\b/],
+  },
+  {
+    family: "ROBOLECTRIC",
+    label: "Robolectric",
+    filePatterns: [/Test\.(?:kt|java)$/],
+    contentSignals: [/org\.robolectric/, /@RunWith\s*\(RobolectricTestRunner/, /Robolectric\.buildActivity/],
   },
   {
     family: "ESPRESSO",
     label: "Espresso",
     filePatterns: [/Test\.(?:kt|java)$/],
     contentSignals: [/androidx\.test\.espresso/, /\bonView\s*\(/, /Espresso\.onView\s*\(/],
+  },
+  {
+    family: "DETOX",
+    label: "Detox",
+    filePatterns: [/\.e2e\.(?:t|j)sx?$/, /\.detox\.(?:t|j)sx?$/],
+    contentSignals: [/from ["']detox["']/, /\bdevice\.launchApp\s*\(/, /\belement\s*\(by\./],
+  },
+  {
+    family: "FLUTTER_TEST",
+    label: "Flutter test / integration_test",
+    filePatterns: [/_test\.dart$/],
+    contentSignals: [/package:flutter_test\/flutter_test\.dart/, /package:integration_test\/integration_test\.dart/, /\btestWidgets\s*\(/],
+  },
+  {
+    family: "UNITY_TEST",
+    label: "Unity Test Framework",
+    filePatterns: [/(?:Tests?|Editor)\/.*Tests?\.cs$/i, /Tests?\.cs$/],
+    contentSignals: [/UnityEngine\.TestTools/, /\[UnityTest\]/, /\bIEnumerator\s+\w+\s*\(/],
+  },
+  {
+    family: "NUNIT",
+    label: "NUnit",
+    filePatterns: [/Tests?\.cs$/],
+    contentSignals: [/NUnit\.Framework/, /\[(?:Test|TestCase|TestFixture)\b/],
+  },
+  {
+    family: "XUNIT_DOTNET",
+    label: "xUnit.net",
+    filePatterns: [/Tests?\.cs$/],
+    contentSignals: [/using\s+Xunit\s*;/, /\[(?:Fact|Theory)\b/],
+  },
+  {
+    family: "MSTEST",
+    label: "MSTest",
+    filePatterns: [/Tests?\.cs$/],
+    contentSignals: [/Microsoft\.VisualStudio\.TestTools\.UnitTesting/, /\[TestMethod\b/],
+  },
+  {
+    family: "UNREAL_AUTOMATION",
+    label: "Unreal Automation Test",
+    filePatterns: [/(?:Test|Spec).*\.(?:cpp|h)$/i],
+    contentSignals: [/IMPLEMENT_(?:SIMPLE|COMPLEX)_AUTOMATION_TEST/, /BEGIN_DEFINE_SPEC\s*\(/, /IMPLEMENT_CUSTOM_SIMPLE_AUTOMATION_TEST/],
+  },
+  {
+    family: "GODOT_TEST",
+    label: "Godot GdUnit4 / GUT",
+    filePatterns: [/(?:^|[\\/])test_.*\.gd$/i, /_test\.gd$/i],
+    contentSignals: [/extends\s+(?:GdUnitTestSuite|GutTest)/, /\bfunc\s+test_\w+\s*\(/],
   },
   {
     family: "JEST",
@@ -147,7 +238,7 @@ export const KNOWN_FRAMEWORKS: FrameworkSignature[] = [
 // detectFramework, which needs file+content together and is used per-file
 // once content is already in hand -- this only needs a path, so the repo
 // walker can filter file listings before reading any content.
-const GENERIC_TEST_FILE_PATTERNS = [/\.test\.[tj]sx?$/, /\.spec\.[tj]sx?$/, /^test_.*\.py$/, /_test\.py$/, /_test\.go$/, /Test\.(?:java|kt)$/, /Tests?\.swift$/, /(?:^|[\\/])\.maestro[\\/].*\.ya?ml$/i, /_spec\.rb$/];
+const GENERIC_TEST_FILE_PATTERNS = [/\.test\.[tj]sx?$/, /\.spec\.[tj]sx?$/, /\.e2e\.[tj]sx?$/, /^test_.*\.py$/, /_test\.py$/, /_test\.go$/, /_test\.dart$/, /Test\.(?:java|kt)$/, /Tests?\.swift$/, /Tests?\.cs$/, /(?:Test|Spec).*\.(?:cpp|h)$/i, /(?:^|[\\/])test_.*\.gd$/i, /_test\.gd$/i, /(?:^|[\\/])\.maestro[\\/].*\.ya?ml$/i, /_spec\.rb$/];
 
 export function isLikelyTestFile(filePath: string): boolean {
   return (

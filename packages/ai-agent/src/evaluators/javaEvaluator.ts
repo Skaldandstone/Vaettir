@@ -111,7 +111,7 @@ export function extractJavaTestStructure(content: string): ExtractedTestStructur
 }
 
 export function registerJavaEvaluators(): void {
-  for (const family of ["JUNIT", "TESTNG", "ESPRESSO"] as const) {
+  for (const family of ["JUNIT", "TESTNG", "ESPRESSO", "COMPOSE_UI", "UI_AUTOMATOR", "ROBOLECTRIC"] as const) {
     registerFrameworkEvaluator({ family, extract: (content: string) => extractJavaTestStructure(content) });
   }
 }

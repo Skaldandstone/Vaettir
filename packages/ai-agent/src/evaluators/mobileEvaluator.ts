@@ -79,10 +79,38 @@ export function extractMaestroStructure(
   };
 }
 
+export function extractSwiftTestingStructure(
+  content: string,
+): ExtractedTestStructure | null {
+  const testBlocks: ExtractedTestBlock[] = [];
+  const testPattern = /@Test(?:\s*\(\s*["']([^"']+)["'][^)]*\))?[^\n]*\n\s*(?:mutating\s+)?func\s+(\w+)\s*\([^)]*\)[^{]*\{/g;
+  for (const match of content.matchAll(testPattern)) {
+    const openBrace = (match.index ?? 0) + match[0].lastIndexOf("{");
+    const bodyEnd = findBalancedBody(content, openBrace);
+    if (bodyEnd === null) continue;
+    const bodySnippet = content.slice(openBrace + 1, bodyEnd - 1).trim();
+    const assertions = [...bodySnippet.matchAll(/#(?:expect|require)\s*\([^\n]*/g)].map((item) => item[0]);
+    testBlocks.push({
+      title: match[1] ?? match[2]!,
+      assertions,
+      bodySnippet,
+    });
+  }
+  return testBlocks.length > 0 ? { testBlocks } : null;
+}
+
 export function registerMobileEvaluators(): void {
   registerFrameworkEvaluator({
     family: "XCUITEST",
     extract: (content) => extractXcuiTestStructure(content),
+  });
+  registerFrameworkEvaluator({
+    family: "XCTEST",
+    extract: (content) => extractXcuiTestStructure(content),
+  });
+  registerFrameworkEvaluator({
+    family: "SWIFT_TESTING",
+    extract: (content) => extractSwiftTestingStructure(content),
   });
   registerFrameworkEvaluator({
     family: "MAESTRO",

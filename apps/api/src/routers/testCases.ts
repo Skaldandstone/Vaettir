@@ -413,6 +413,7 @@ export const testCasesRouter = router({
       return meterAiCall(ctx.prisma, charge, () =>
         generateAutomationDraft({
           framework: input.framework,
+          automationId: `VAE-${tc.id}`,
           projectName: tc.project.name,
           title: tc.title,
           background: tc.background,

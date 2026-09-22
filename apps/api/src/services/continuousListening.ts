@@ -1,6 +1,7 @@
 import type { PrismaClient } from "@vaettir/db";
 import { fetchFileAtCommit } from "./changeImpact.js";
 import { kickReverseEngineerQueue } from "../jobs/reverseEngineerWorker.js";
+import { validateTriggeringResult } from "./externalTestMapping.js";
 
 // P5-14: turns reverse-engineering from something someone has to remember
 // to run into a standing guarantee. Called from ingestJUnit for every
@@ -20,6 +21,7 @@ export async function autoEnqueueUnmatchedResult(
   prisma: PrismaClient,
   args: { projectId: string; testResultId: string; externalFilePath: string; commitSha: string },
 ): Promise<void> {
+  await prisma.$transaction((tx) => validateTriggeringResult(tx, args.projectId, args.testResultId));
   const project = await prisma.project.findUnique({ where: { id: args.projectId }, select: { repoUrl: true } });
   if (!project?.repoUrl) return;
 

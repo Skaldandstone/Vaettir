@@ -26,13 +26,43 @@ function DiffField({ label, before, after }: { label: string; before: string; af
   );
 }
 
-type AutomationFramework = "MAESTRO" | "XCUITEST" | "ESPRESSO" | "MOCHA_CHAI";
+type AutomationFramework =
+  | "MAESTRO" | "PLAYWRIGHT" | "CYPRESS" | "JEST_VITEST" | "MOCHA_CHAI"
+  | "XCUITEST" | "XCTEST" | "SWIFT_TESTING"
+  | "ESPRESSO" | "COMPOSE_UI" | "UI_AUTOMATOR" | "ROBOLECTRIC"
+  | "APPIUM_WEBDRIVERIO" | "DETOX" | "FLUTTER_INTEGRATION_TEST"
+  | "PYTEST" | "JUNIT5" | "TESTNG" | "NUNIT" | "XUNIT_DOTNET" | "MSTEST"
+  | "POSTMAN" | "PACT" | "REST_ASSURED"
+  | "UNITY_TEST_FRAMEWORK" | "UNREAL_AUTOMATION" | "GODOT_GDUNIT4";
 
 const AUTOMATION_FRAMEWORKS: Array<{ value: AutomationFramework; label: string }> = [
   { value: "MAESTRO", label: "Maestro" },
+  { value: "APPIUM_WEBDRIVERIO", label: "Appium + WebdriverIO" },
+  { value: "DETOX", label: "Detox" },
+  { value: "FLUTTER_INTEGRATION_TEST", label: "Flutter integration_test" },
   { value: "XCUITEST", label: "XCUITest" },
+  { value: "XCTEST", label: "XCTest" },
+  { value: "SWIFT_TESTING", label: "Swift Testing" },
   { value: "ESPRESSO", label: "Espresso" },
+  { value: "COMPOSE_UI", label: "Jetpack Compose UI" },
+  { value: "UI_AUTOMATOR", label: "UI Automator" },
+  { value: "ROBOLECTRIC", label: "Robolectric" },
+  { value: "PLAYWRIGHT", label: "Playwright" },
+  { value: "CYPRESS", label: "Cypress" },
+  { value: "JEST_VITEST", label: "Jest / Vitest" },
   { value: "MOCHA_CHAI", label: "Mocha + Chai" },
+  { value: "PYTEST", label: "pytest" },
+  { value: "JUNIT5", label: "JUnit 5" },
+  { value: "TESTNG", label: "TestNG" },
+  { value: "NUNIT", label: "NUnit" },
+  { value: "XUNIT_DOTNET", label: "xUnit.net" },
+  { value: "MSTEST", label: "MSTest" },
+  { value: "POSTMAN", label: "Postman" },
+  { value: "PACT", label: "Pact" },
+  { value: "REST_ASSURED", label: "REST Assured" },
+  { value: "UNITY_TEST_FRAMEWORK", label: "Unity Test Framework" },
+  { value: "UNREAL_AUTOMATION", label: "Unreal Automation" },
+  { value: "GODOT_GDUNIT4", label: "Godot GdUnit4" },
 ];
 
 function AutomationDraftSection({ testCaseId }: { testCaseId: string }) {
@@ -121,6 +151,7 @@ function AutomationDraftSection({ testCaseId }: { testCaseId: string }) {
       {error && <p style={{ color: "var(--ember)" }}>{error}</p>}
       {draft && (
         <div style={{ borderTop: "1px solid var(--line)", marginTop: 14, paddingTop: 14 }}>
+          <p style={{ fontSize: 13 }}><strong>Stable ID:</strong> <code>{draft.automationId}</code></p>
           <div style={{ display: "flex", justifyContent: "space-between", gap: 8, alignItems: "center" }}>
             <strong>{draft.fileName}</strong>
             <div style={{ display: "flex", gap: 6 }}>

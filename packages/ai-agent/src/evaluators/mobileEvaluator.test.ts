@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   extractMaestroStructure,
+  extractSwiftTestingStructure,
   extractXcuiTestStructure,
 } from "./mobileEvaluator.js";
 
@@ -41,5 +42,17 @@ describe("mobile automation extraction", () => {
     ]);
     expect(result?.testBlocks[0]?.assertions[0]).toContain("XCTAssertTrue");
     expect(result?.testBlocks[1]?.assertions[0]).toContain("XCTAssertEqual");
+  });
+
+  it("extracts Swift Testing display names and expectations", () => {
+    const result = extractSwiftTestingStructure(`
+      import Testing
+      @Test("Loads the dashboard")
+      func loadsDashboard() {
+        #expect(true)
+      }
+    `);
+    expect(result?.testBlocks[0]?.title).toBe("Loads the dashboard");
+    expect(result?.testBlocks[0]?.assertions[0]).toContain("#expect");
   });
 });

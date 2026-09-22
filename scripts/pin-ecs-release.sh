@@ -28,7 +28,14 @@ node scripts/render-ecs-task-definition.mjs \
   --commit "$RELEASE_COMMIT" \
   --digest "$IMAGE_DIGEST"
 
-NEW_TASK=$(aws ecs register-task-definition --cli-input-json "file://$OUTPUT" --region "$REGION" --query 'taskDefinition.taskDefinitionArn' --output text)
+# Git Bash supplies POSIX /tmp paths, while the installed AWS CLI is a
+# native Windows executable and cannot open those paths. Translate only at
+# that process boundary; Linux/macOS continue using the mktemp path as-is.
+AWS_OUTPUT=$OUTPUT
+if command -v cygpath >/dev/null 2>&1; then
+  AWS_OUTPUT=$(cygpath -w "$OUTPUT")
+fi
+NEW_TASK=$(aws ecs register-task-definition --cli-input-json "file://$AWS_OUTPUT" --region "$REGION" --query 'taskDefinition.taskDefinitionArn' --output text)
 aws ecs update-service --cluster "$CLUSTER" --service "$SERVICE" --task-definition "$NEW_TASK" --region "$REGION" --query 'service.[serviceName,taskDefinition,status]' --output text
 aws ecs wait services-stable --cluster "$CLUSTER" --services "$SERVICE" --region "$REGION"
 

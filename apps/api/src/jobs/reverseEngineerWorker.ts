@@ -6,6 +6,7 @@ import { hashFileContent } from "../services/repoScan.js";
 import { getMostRecentHeuristic, recordHeuristicUsage } from "../services/customFrameworkHeuristic.js";
 import { chargeAiCredits, InsufficientAiCreditsError, meterAiCall } from "../services/aiCredits.js";
 import { recordHeartbeat } from "../services/heartbeat.js";
+import { linkExternalTestResult, validateTriggeringResult } from "../services/externalTestMapping.js";
 
 // Single-instance, in-process poller -- no Redis/queue infra exists yet, and
 // running one API instance is the actual current deployment shape (see
@@ -47,6 +48,10 @@ export async function runReverseEngineerJob(jobId: string): Promise<void> {
     if (job.content === null) {
       throw new Error(`Job ${job.id} has no content to reverse-engineer (inputType ${job.inputType})`);
     }
+    if (job.inputType === "CI_UNMATCHED_RESULT" && !job.triggeringResultId) throw new Error("CI job has no triggering result");
+    const triggeringResult = job.triggeringResultId
+      ? await validateTriggeringResult(prisma, job.projectId, job.triggeringResultId)
+      : null;
     const content = job.content;
     const project = await prisma.project.findUniqueOrThrow({ where: { id: job.projectId }, select: { organizationId: true } });
     const charge = await chargeAiCredits(prisma, project.organizationId, "reverseEngineerTestFile", `job ${job.id} (${job.inputRef})`);
@@ -70,8 +75,6 @@ export async function runReverseEngineerJob(jobId: string): Promise<void> {
     await prisma.reverseEngineerJob.update({
       where: { id: job.id },
       data: {
-        status: "SUCCEEDED",
-        completedAt: new Date(),
         resultTestCaseIds: created.map((tc) => tc.id),
         framework: result.detectedFramework,
       },
@@ -87,22 +90,23 @@ export async function runReverseEngineerJob(jobId: string): Promise<void> {
     // Multiple candidates with no name match falls back to manual linking
     // (P5-04) rather than guessing which one the CI result actually meant.
     if (job.inputType === "CI_UNMATCHED_RESULT" && job.triggeringResultId) {
-      const triggeringResult = await prisma.testResult.findUnique({ where: { id: job.triggeringResultId } });
       const reportedName = triggeringResult?.externalTestId?.split("::").pop();
-      const match =
-        (reportedName && created.find((tc) => tc.source?.functionName === reportedName)) ||
-        (created.length === 1 ? created[0] : undefined);
-      if (match?.source && !match.source.externalTestId && triggeringResult) {
-        await prisma.testCaseSource.update({
-          where: { id: match.source.id },
-          data: { externalTestId: triggeringResult.externalTestId },
-        });
-        await prisma.testResult.update({
-          where: { id: triggeringResult.id },
-          data: { testCaseId: match.id },
+      const namedMatches = reportedName ? created.filter((tc) => tc.source?.functionName === reportedName) : [];
+      if (namedMatches.length > 1) throw new Error("Generated cases ambiguously match the CI result; manual review is required");
+      const match = namedMatches[0] ?? (created.length === 1 ? created[0] : undefined);
+      if (match?.source && triggeringResult) {
+        await linkExternalTestResult(prisma, {
+          projectId: job.projectId,
+          testResultId: triggeringResult.id,
+          testCaseId: match.id,
+          jobId: job.id,
         });
       }
     }
+    await prisma.reverseEngineerJob.update({
+      where: { id: job.id },
+      data: { status: "SUCCEEDED", completedAt: new Date() },
+    });
   } catch (e) {
     // Insufficient credits is an expected, user-actionable outcome (the org
     // ran out, not a bug) -- everything else here (a bad LLM response, a DB

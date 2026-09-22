@@ -7,6 +7,7 @@ import { autoEnqueueUnmatchedResult } from "../services/continuousListening.js";
 import { refreshProjectReadiness } from "../services/releaseReadiness.js";
 import { resolveHealingSuggestionsOnPass } from "../services/healingSuggestion.js";
 import { buildArtifactKey, createUploadUrl, createViewUrl, canonicalUrl, keyFromCanonicalUrl } from "../services/artifactStorage.js";
+import { linkExternalTestResult, lockMappingProject, projectMappings } from "../services/externalTestMapping.js";
 
 // P5-01: the actual data pipeline several other roadmap items (P4-03, P4-06,
 // P3-05, P3-07, P7-02) are blocked on -- they all need real TestResult rows
@@ -65,42 +66,40 @@ export const testRunsRouter = router({
       // unmatched results for manual linking, is P5-04's job, not this
       // ticket's -- this endpoint's job is getting real results into the
       // system at all.
-      const sources = await ctx.prisma.testCaseSource.findMany({
-        where: { externalTestId: { in: parsed.map((p) => p.externalTestId) } },
-        select: { externalTestId: true, testCaseId: true },
-      });
-      const testCaseIdByExternalId = new Map(sources.map((s) => [s.externalTestId as string, s.testCaseId]));
-
-      const status = parsed.some((p) => p.status === "FAIL")
-        ? "FAILED"
-        : parsed.every((p) => p.status === "SKIP")
-          ? "PARTIAL"
-          : parsed.some((p) => p.status === "SKIP")
+      const { testCaseIdByExternalId, testRun } = await ctx.prisma.$transaction(async (tx) => {
+        await lockMappingProject(tx, input.projectId);
+        const { mapping: testCaseIdByExternalId } = await projectMappings(tx, input.projectId, parsed.map((p) => p.externalTestId));
+        const status = parsed.some((p) => p.status === "FAIL")
+          ? "FAILED"
+          : parsed.every((p) => p.status === "SKIP")
             ? "PARTIAL"
-            : "PASSED";
-
-      const testRun = await ctx.prisma.testRun.create({
-        data: {
-          projectId: input.projectId,
-          ciProvider: input.ciProvider,
-          ciRunUrl: input.ciRunUrl,
-          commitSha: input.commitSha,
-          branch: input.branch,
-          startedAt: input.startedAt ?? new Date(),
-          finishedAt: input.finishedAt ?? new Date(),
-          status,
-          results: {
-            create: parsed.map((p) => ({
-              testCaseId: testCaseIdByExternalId.get(p.externalTestId) ?? null,
-              externalTestId: p.externalTestId,
-              externalFilePath: p.externalFilePath,
-              status: p.status,
-              durationMs: p.durationMs,
-              errorMessage: p.errorMessage,
-            })),
+            : parsed.some((p) => p.status === "SKIP")
+              ? "PARTIAL"
+              : "PASSED";
+        const testRun = await tx.testRun.create({
+          data: {
+            projectId: input.projectId,
+            ciProvider: input.ciProvider,
+            ciRunUrl: input.ciRunUrl,
+            commitSha: input.commitSha,
+            branch: input.branch,
+            startedAt: input.startedAt ?? new Date(),
+            finishedAt: input.finishedAt ?? new Date(),
+            status,
+            results: {
+              create: parsed.map((p) => ({
+                testCaseId: testCaseIdByExternalId.get(p.externalTestId) ?? null,
+                externalTestId: p.externalTestId,
+                externalFilePath: p.externalFilePath,
+                status: p.status,
+                durationMs: p.durationMs,
+                errorMessage: p.errorMessage,
+              })),
+            },
           },
-        },
-        select: { id: true },
+          select: { id: true },
+        });
+        return { testCaseIdByExternalId, testRun };
       });
 
       const matchedCount = parsed.filter((p) => testCaseIdByExternalId.has(p.externalTestId)).length;
@@ -108,7 +107,7 @@ export const testRunsRouter = router({
       // P5-05: recompute flakiness for every matched test case this run
       // touched -- fresh data just landed for it, so this is the moment a
       // newly-alternating (or newly-stabilized) pattern would show up.
-      const touchedTestCaseIds = [...new Set(sources.map((s) => s.testCaseId))];
+      const touchedTestCaseIds = [...new Set(testCaseIdByExternalId.values())];
       await Promise.all(touchedTestCaseIds.map((id) => recomputeFlaky(ctx.prisma, id)));
 
       // P6.5-04: a matched test case that just came back PASS closes out
@@ -241,7 +240,7 @@ export const testRunsRouter = router({
       const run = await ctx.prisma.testRun.findUniqueOrThrow({
         where: { id: input.id },
         include: {
-          results: { include: { testCase: { select: { title: true } }, artifacts: true } },
+          results: { include: { testCase: { select: { title: true, projectId: true } }, artifacts: true } },
           startedBy: { select: { email: true } },
         },
       });
@@ -259,8 +258,8 @@ export const testRunsRouter = router({
         results: run.results.map((r) => ({
           id: r.id,
           externalTestId: r.externalTestId,
-          testCaseId: r.testCaseId,
-          testCaseTitle: r.testCase?.title ?? null,
+          testCaseId: r.testCase?.projectId === run.projectId ? r.testCaseId : null,
+          testCaseTitle: r.testCase?.projectId === run.projectId ? r.testCase.title : null,
           status: r.status,
           durationMs: r.durationMs,
           errorMessage: r.errorMessage,
@@ -288,34 +287,7 @@ export const testRunsRouter = router({
       });
       await requireProjectAccess(ctx, result.testRun.projectId, "EDITOR");
 
-      const testCase = await ctx.prisma.testCase.findUniqueOrThrow({
-        where: { id: input.testCaseId },
-        include: { source: true },
-      });
-      if (testCase.projectId !== result.testRun.projectId) {
-        throw new TRPCError({ code: "BAD_REQUEST", message: "That test case does not belong to this project" });
-      }
-
-      if (result.externalTestId && testCase.source) {
-        if (testCase.source.externalTestId && testCase.source.externalTestId !== result.externalTestId) {
-          throw new TRPCError({
-            code: "BAD_REQUEST",
-            message: `This test case is already linked to a different external test id ("${testCase.source.externalTestId}")`,
-          });
-        }
-        if (!testCase.source.externalTestId) {
-          await ctx.prisma.testCaseSource.update({
-            where: { id: testCase.source.id },
-            data: { externalTestId: result.externalTestId },
-          });
-        }
-      }
-
-      const updated = await ctx.prisma.testResult.update({
-        where: { id: input.testResultId },
-        data: { testCaseId: input.testCaseId },
-        select: { id: true, testCaseId: true },
-      });
+      const updated = await linkExternalTestResult(ctx.prisma, { ...input, projectId: result.testRun.projectId });
       await recomputeFlaky(ctx.prisma, input.testCaseId);
       return updated;
     }),
