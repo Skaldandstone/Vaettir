@@ -27,12 +27,14 @@ pnpm --filter @vaettir/web exec playwright install chromium
 pnpm --filter @vaettir/web test:e2e
 ```
 
-`global-setup.ts` signs in once via the real Clerk email/password form and
-saves the session (`e2e/.auth/user.json`, gitignored) for every other spec
-to reuse - signing in inside each test would be slow and would make every
-spec implicitly an auth test. `auth.spec.ts` itself runs in a separate
-Playwright project with no stored session, since it's testing the sign-in
-flow.
+The `auth-setup` Playwright project signs in once via the real Clerk
+email/password form and saves the session (`e2e/.auth/user.json`, gitignored)
+for the authenticated project to reuse. The signed-out project does not
+depend on it, so credential-free auth-shell checks can run independently:
+
+```bash
+pnpm --filter @vaettir/web exec playwright test --project=signed-out
+```
 
 ## Full loop: reporting real run results back into TCM
 
