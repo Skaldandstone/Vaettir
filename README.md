@@ -65,13 +65,20 @@ for exact ticket status - the highlights:
   requirements/acceptance criteria, bulk operations, global search.
 - **AI reverse-engineering at scale** - paste/upload/repo-scan/zip-upload a
   test file (known frameworks get native structural parsing via
-  `@vaettir/core`'s evaluators - Jest/Vitest/Mocha/Cypress/Playwright,
-  pytest, JUnit/TestNG; unknown ones fall back to AI-assisted reading, with
+  `@vaettir/core`'s evaluators - Jest/Vitest/Mocha/Chai/Cypress/Playwright,
+  pytest, JUnit/TestNG, Maestro, XCUITest, and Espresso; unknown ones fall back to AI-assisted reading, with
   a "teach it your custom framework" heuristic loop), get back readable
   Given/When/Then test cases linked to their source. Gherkin (`.feature`)
   and Postman collection imports are plain parsers, not LLM calls. A prompt
   regression suite (`packages/ai-agent/scripts/promptRegression.ts`) guards
   against system-prompt regressions.
+- **Automation source drafting** - turn a reviewed test case into a
+  review-only Maestro, XCUITest, Espresso, or Mocha + Chai source file from
+  the case detail screen. The user can provide known app IDs, selectors,
+  resource IDs, and helpers; missing integration details stay visible as
+  TODOs. Vaettir supports copy/download but never writes the draft into the
+  customer's repository or represents it as compiled or executed. See
+  [`docs/AUTOMATION_FRAMEWORKS.md`](docs/AUTOMATION_FRAMEWORKS.md).
 - **Compliance** - `ComplianceFramework`/`ComplianceControl` (SOC 2, HIPAA,
   PCI DSS, GDPR, ISO 27001 seeded, plus custom frameworks/controls),
   test-case-to-control mapping, an immutable evidence ledger

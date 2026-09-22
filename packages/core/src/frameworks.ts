@@ -15,6 +15,9 @@ export type FrameworkFamily =
   | "PLAYWRIGHT"
   | "SELENIUM"
   | "APPIUM"
+  | "MAESTRO"
+  | "XCUITEST"
+  | "ESPRESSO"
   | "POSTMAN"
   | "PACT"
   | "ROBOT_FRAMEWORK"
@@ -29,6 +32,24 @@ export interface FrameworkSignature {
 
 export const KNOWN_FRAMEWORKS: FrameworkSignature[] = [
   {
+    family: "MAESTRO",
+    label: "Maestro",
+    filePatterns: [/(?:^|[\\/])\.maestro[\\/].*\.ya?ml$/i, /maestro.*\.ya?ml$/i],
+    contentSignals: [/^appId:\s*\S+/m, /^\s*-\s+(?:launchApp|tapOn|assertVisible|assertNotVisible|inputText):/m],
+  },
+  {
+    family: "XCUITEST",
+    label: "XCUITest",
+    filePatterns: [/Tests?\.swift$/],
+    contentSignals: [/import\s+XCTest/, /XCUIApplication\s*\(/, /\bfunc\s+test\w*\s*\(/],
+  },
+  {
+    family: "ESPRESSO",
+    label: "Espresso",
+    filePatterns: [/Test\.(?:kt|java)$/],
+    contentSignals: [/androidx\.test\.espresso/, /\bonView\s*\(/, /Espresso\.onView\s*\(/],
+  },
+  {
     family: "JEST",
     label: "Jest",
     filePatterns: [/\.test\.(t|j)sx?$/, /\.spec\.(t|j)sx?$/],
@@ -42,9 +63,9 @@ export const KNOWN_FRAMEWORKS: FrameworkSignature[] = [
   },
   {
     family: "MOCHA",
-    label: "Mocha",
+    label: "Mocha / Chai",
     filePatterns: [/\.spec\.js$/, /\.test\.js$/],
-    contentSignals: [/require\(["']mocha["']\)/, /\bdescribe\(.*function/],
+    contentSignals: [/require\(["']mocha["']\)/, /\bdescribe\(.*function/, /(?:from\s+|require\()["']chai["']/],
   },
   {
     family: "PYTEST",
@@ -126,7 +147,7 @@ export const KNOWN_FRAMEWORKS: FrameworkSignature[] = [
 // detectFramework, which needs file+content together and is used per-file
 // once content is already in hand -- this only needs a path, so the repo
 // walker can filter file listings before reading any content.
-const GENERIC_TEST_FILE_PATTERNS = [/\.test\.[tj]sx?$/, /\.spec\.[tj]sx?$/, /^test_.*\.py$/, /_test\.py$/, /_test\.go$/, /Test\.java$/, /_spec\.rb$/];
+const GENERIC_TEST_FILE_PATTERNS = [/\.test\.[tj]sx?$/, /\.spec\.[tj]sx?$/, /^test_.*\.py$/, /_test\.py$/, /_test\.go$/, /Test\.(?:java|kt)$/, /Tests?\.swift$/, /(?:^|[\\/])\.maestro[\\/].*\.ya?ml$/i, /_spec\.rb$/];
 
 export function isLikelyTestFile(filePath: string): boolean {
   return (

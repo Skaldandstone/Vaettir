@@ -15,7 +15,7 @@ const TEST_ANNOTATION_RE = /@Test\b[^\n]*/g;
 const DISPLAY_NAME_RE = /@DisplayName\(\s*"([^"]*)"\s*\)/;
 const METHOD_NAME_RE = /(\w+)\s*\([^)]*\)\s*(?:throws\s+[\w.,\s]+)?\s*\{/;
 const CLASS_NAME_RE = /\bclass\s+(\w+)/;
-const ASSERTION_START_RE = /\b(?:assert\w+|fail)\s*\(/g;
+const ASSERTION_START_RE = /\b(?:assert\w+|fail|check)\s*\(/g;
 
 // Walks forward from `openBraceIndex` (which must point at a `{`) counting
 // depth until it returns to zero, returning the index just past the
@@ -111,7 +111,7 @@ export function extractJavaTestStructure(content: string): ExtractedTestStructur
 }
 
 export function registerJavaEvaluators(): void {
-  for (const family of ["JUNIT", "TESTNG"] as const) {
+  for (const family of ["JUNIT", "TESTNG", "ESPRESSO"] as const) {
     registerFrameworkEvaluator({ family, extract: (content: string) => extractJavaTestStructure(content) });
   }
 }

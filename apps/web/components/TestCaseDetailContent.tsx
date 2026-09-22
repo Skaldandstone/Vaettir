@@ -26,6 +26,137 @@ function DiffField({ label, before, after }: { label: string; before: string; af
   );
 }
 
+type AutomationFramework = "MAESTRO" | "XCUITEST" | "ESPRESSO" | "MOCHA_CHAI";
+
+const AUTOMATION_FRAMEWORKS: Array<{ value: AutomationFramework; label: string }> = [
+  { value: "MAESTRO", label: "Maestro" },
+  { value: "XCUITEST", label: "XCUITest" },
+  { value: "ESPRESSO", label: "Espresso" },
+  { value: "MOCHA_CHAI", label: "Mocha + Chai" },
+];
+
+function AutomationDraftSection({ testCaseId }: { testCaseId: string }) {
+  const [framework, setFramework] = useState<AutomationFramework>("MAESTRO");
+  const [projectContext, setProjectContext] = useState("");
+  const [draft, setDraft] = useState<RouterOutputs["testCases"]["generateAutomationDraft"] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
+  const generateMutation = trpcReact.testCases.generateAutomationDraft.useMutation();
+
+  async function generate() {
+    setError(null);
+    setCopied(false);
+    try {
+      const nextDraft = await generateMutation.mutateAsync({
+        id: testCaseId,
+        framework,
+        projectContext: projectContext.trim() || undefined,
+      });
+      setDraft(nextDraft);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause));
+    }
+  }
+
+  async function copyDraft() {
+    if (!draft) return;
+    try {
+      await navigator.clipboard.writeText(draft.code);
+      setCopied(true);
+    } catch {
+      setError("The browser could not copy the draft. Select the source and copy it manually.");
+    }
+  }
+
+  function downloadDraft() {
+    if (!draft) return;
+    const blob = new Blob([draft.code], { type: "text/plain;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = draft.fileName.replace(/[\\/:*?"<>|]/g, "-");
+    anchor.click();
+    URL.revokeObjectURL(url);
+  }
+
+  return (
+    <section style={{ border: "1px solid var(--line)", borderRadius: 8, padding: 12, marginBottom: 16 }}>
+      <strong>Automation draft</strong>
+      <p className="text-muted" style={{ fontSize: 13, margin: "5px 0 12px" }}>
+        Turn this reviewed case into framework-specific source. Vaettir returns a draft for human review and never
+        writes to your repository or claims that the source was executed.
+      </p>
+      <div style={{ display: "grid", gap: 10 }}>
+        <label>
+          <span className="eyebrow" style={{ display: "block", marginBottom: 4 }}>Framework</span>
+          <select
+            value={framework}
+            onChange={(event) => setFramework(event.target.value as AutomationFramework)}
+            style={{ width: "100%" }}
+          >
+            {AUTOMATION_FRAMEWORKS.map((option) => (
+              <option key={option.value} value={option.value}>{option.label}</option>
+            ))}
+          </select>
+        </label>
+        <label>
+          <span className="eyebrow" style={{ display: "block", marginBottom: 4 }}>Project context (optional)</span>
+          <textarea
+            value={projectContext}
+            onChange={(event) => setProjectContext(event.target.value)}
+            maxLength={12_000}
+            rows={4}
+            placeholder="Add known app IDs, accessibility identifiers, resource IDs, routes, or existing test helpers. Missing details remain explicit TODOs."
+            style={{ width: "100%", resize: "vertical" }}
+          />
+        </label>
+        <div>
+          <button onClick={generate} disabled={generateMutation.isPending}>
+            {generateMutation.isPending ? "Generating…" : "Generate review draft"}
+          </button>
+          <span className="text-muted" style={{ fontSize: 12, marginLeft: 8 }}>Uses 10 AI credits</span>
+        </div>
+      </div>
+
+      {error && <p style={{ color: "var(--ember)" }}>{error}</p>}
+      {draft && (
+        <div style={{ borderTop: "1px solid var(--line)", marginTop: 14, paddingTop: 14 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", gap: 8, alignItems: "center" }}>
+            <strong>{draft.fileName}</strong>
+            <div style={{ display: "flex", gap: 6 }}>
+              <button className="btn-secondary" onClick={copyDraft}>{copied ? "Copied" : "Copy"}</button>
+              <button className="btn-secondary" onClick={downloadDraft}>Download</button>
+            </div>
+          </div>
+          <pre style={{ overflowX: "auto", background: "var(--panel-2)", border: "1px solid var(--line)", borderRadius: 6, padding: 12, whiteSpace: "pre", fontSize: 12 }}>
+            <code>{draft.code}</code>
+          </pre>
+          <p style={{ fontSize: 13 }}>{draft.explanation}</p>
+          {draft.assumptions.length > 0 && (
+            <div>
+              <strong style={{ fontSize: 13 }}>Assumptions and TODOs</strong>
+              <ul style={{ marginTop: 4 }}>
+                {draft.assumptions.map((assumption, index) => <li key={index}>{assumption}</li>)}
+              </ul>
+            </div>
+          )}
+          {draft.requiredDependencies.length > 0 && (
+            <p style={{ fontSize: 13 }}><strong>Dependencies:</strong> {draft.requiredDependencies.join(", ")}</p>
+          )}
+          {draft.validationCommands.length > 0 && (
+            <div>
+              <strong style={{ fontSize: 13 }}>Suggested local validation</strong>
+              <ul style={{ marginTop: 4 }}>
+                {draft.validationCommands.map((command, index) => <li key={index}><code>{command}</code></li>)}
+              </ul>
+            </div>
+          )}
+        </div>
+      )}
+    </section>
+  );
+}
+
 // P3-03: which compliance controls this specific case is evidence for.
 // Mapping a control here is what feeds the coverage view on the project's
 // /compliance page ("which controls have zero mapped test cases").
@@ -569,6 +700,7 @@ export function TestCaseDetailContent({
         </p>
       )}
 
+      {!readOnly && <AutomationDraftSection testCaseId={tc.id} />}
       <ComplianceControlsSection testCaseId={tc.id} projectId={projectId} readOnly={readOnly} />
       <AttachmentsSection testCaseId={tc.id} readOnly={readOnly} />
       <DatasetSection testCaseId={tc.id} readOnly={readOnly} />

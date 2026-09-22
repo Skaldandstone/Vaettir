@@ -1,7 +1,14 @@
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 import { TestCaseStepInputSchema, resolveStepFieldLabels, type StepFieldKey } from "@vaettir/core";
-import { assessTestCaseRisk, reviewTestCaseQuality, type TestCaseForReview } from "@vaettir/ai-agent";
+import {
+  assessTestCaseRisk,
+  AutomationDraftSchema,
+  AutomationFrameworkSchema,
+  generateAutomationDraft,
+  reviewTestCaseQuality,
+  type TestCaseForReview,
+} from "@vaettir/ai-agent";
 import { Prisma } from "@vaettir/db";
 import { router, protectedProcedure, requireProjectAccess } from "../trpc.js";
 import { recordAudit } from "../services/auditLog.js";
@@ -362,6 +369,61 @@ export const testCasesRouter = router({
         },
       });
       return { riskSeverity: updated.riskSeverity, riskScore: updated.riskScore, riskRationale: updated.riskRationale };
+    }),
+
+  generateAutomationDraft: protectedProcedure
+    .input(
+      z.object({
+        id: z.string(),
+        framework: AutomationFrameworkSchema,
+        projectContext: z.string().trim().max(12_000).optional(),
+      }),
+    )
+    .output(AutomationDraftSchema)
+    .mutation(async ({ ctx, input }) => {
+      const tc = await ctx.prisma.testCase.findUniqueOrThrow({
+        where: { id: input.id },
+        include: {
+          source: { select: { filePath: true } },
+          steps: { orderBy: { order: "asc" } },
+          sharedStepGroup: true,
+          project: { select: { id: true, name: true, organizationId: true } },
+        },
+      });
+      await requireProjectAccess(ctx, tc.projectId, "EDITOR");
+      const charge = await chargeAiCredits(
+        ctx.prisma,
+        tc.project.organizationId,
+        "generateAutomationDraft",
+        `${input.framework} draft for TestCase ${tc.id}`,
+      ).catch((error: unknown) => {
+        if (error instanceof InsufficientAiCreditsError) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: error.message });
+        }
+        throw error;
+      });
+      const sharedSteps = tc.sharedStepGroup
+        ? (tc.sharedStepGroup.steps as Array<{
+            action: string;
+            expectedActionOrData?: string | null;
+            expectedResult?: string | null;
+            expectedResponse?: string | null;
+          }>)
+        : tc.steps;
+      return meterAiCall(ctx.prisma, charge, () =>
+        generateAutomationDraft({
+          framework: input.framework,
+          projectName: tc.project.name,
+          title: tc.title,
+          background: tc.background,
+          given: tc.given,
+          when: tc.when,
+          then: tc.then,
+          structuredSteps: sharedSteps,
+          sourceFilePath: tc.source?.filePath,
+          projectContext: input.projectContext,
+        }),
+      );
     }),
 
   // Assesses every not-yet-assessed case in a project, sequentially (not

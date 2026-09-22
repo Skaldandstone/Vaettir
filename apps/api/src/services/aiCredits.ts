@@ -36,6 +36,7 @@ export const AI_OPERATION_COSTS = {
   // data exists yet for that crawl compute; revisit once this has real
   // usage, same as every other flat figure here.
   generateTestCasesFromLiveApp: 15,
+  generateAutomationDraft: 10,
 } as const;
 
 export type AiOperation = keyof typeof AI_OPERATION_COSTS;
