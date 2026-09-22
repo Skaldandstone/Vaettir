@@ -531,6 +531,7 @@ export function TestCaseDetailContent({
         <strong>Origin:</strong> {tc.origin}
         {tc.confidence != null && ` (confidence ${(tc.confidence * 100).toFixed(0)}%)`}
       </p>
+      <p><a href={`/projects/${projectId}/test-cases/${tc.id}/unreal`}>Unreal playtest (technical preview)</a></p>
 
       <div style={{ border: "1px solid var(--line)", borderRadius: 8, padding: 12, marginBottom: 16 }}>
         <strong>Risk assessment:</strong>{" "}

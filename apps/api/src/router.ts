@@ -27,6 +27,7 @@ import { userRouter } from "./routers/user.js";
 import { betaRouter } from "./routers/beta.js";
 import { liveAppGenerationRouter } from "./routers/liveAppGeneration.js";
 import { productionSignalsRouter } from "./routers/productionSignals.js";
+import { unrealPlaytestsRouter } from "./routers/unrealPlaytests.js";
 
 export const appRouter = router({
   beta: betaRouter,
@@ -57,6 +58,7 @@ export const appRouter = router({
   user: userRouter,
   liveAppGeneration: liveAppGenerationRouter,
   productionSignals: productionSignalsRouter,
+  unrealPlaytests: unrealPlaytestsRouter,
 });
 
 export type AppRouter = typeof appRouter;
