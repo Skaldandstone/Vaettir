@@ -8,6 +8,7 @@ import { Modal } from "../../components/Modal";
 import { ConfirmAction } from "../../components/ConfirmAction";
 import { EmptyState, Icon, PageHeading } from "../../components/ui/Workspace";
 import { canAdministerOrganization, canEditProject } from "../../lib/membership";
+import { RecoveryMessage } from "../../components/RecoveryMessage";
 
 // P1-15
 export default function ProjectsPage() {
@@ -97,6 +98,11 @@ export default function ProjectsPage() {
   const loading = orgsQuery.isLoading || (!!orgId && projectsQuery.isLoading);
   const pageError = orgsQuery.error?.message ?? projectsQuery.error?.message ?? null;
 
+  function retryPageLoad() {
+    void orgsQuery.refetch();
+    if (orgId) void projectsQuery.refetch();
+  }
+
   if (loading)
     return (
       <div className="workspace-loading" role="status">
@@ -104,16 +110,7 @@ export default function ProjectsPage() {
         <p>Loading your projects…</p>
       </div>
     );
-  if (pageError)
-    return (
-      <div className="workspace-alert workspace-alert-error" role="alert">
-        <Icon name="alert" />
-        <div>
-          <strong>Projects could not be loaded</strong>
-          <p>{pageError}</p>
-        </div>
-      </div>
-    );
+  if (pageError) return <RecoveryMessage error={pageError} onRetry={retryPageLoad} />;
   if (!orgId)
     return (
       <div className="workspace-loading" role="status">

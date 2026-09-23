@@ -3,6 +3,7 @@ import type { CreateFastifyContextOptions } from "@trpc/server/adapters/fastify"
 import { prisma, type OrgRole } from "@vaettir/db";
 import { verifyClerkSessionToken, getOrCreateLocalUser } from "./clerk.js";
 import { hashApiKey, looksLikeApiKey } from "./services/apiKeyAuth.js";
+import { publicTrpcErrorShape } from "./publicErrors.js";
 
 function extractBearerToken(authHeader: string | undefined): string | null {
   if (!authHeader?.startsWith("Bearer ")) return null;
@@ -57,7 +58,11 @@ export async function createContext({ req }: CreateFastifyContextOptions) {
 
 export type Context = Awaited<ReturnType<typeof createContext>>;
 
-const t = initTRPC.context<Context>().create();
+const t = initTRPC.context<Context>().create({
+  errorFormatter({ shape, error }) {
+    return publicTrpcErrorShape(error.code, shape);
+  },
+});
 
 export const router = t.router;
 export const publicProcedure = t.procedure;

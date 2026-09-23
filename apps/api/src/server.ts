@@ -31,6 +31,7 @@ import { verifyJiraWebhookSecret, type JiraWebhookPayload } from "./services/jir
 import { handleJiraWebhook } from "./services/jiraWebhook.js";
 import { verifyDatadogWebhookSecret, handleDatadogWebhook, type DatadogWebhookPayload } from "./services/datadogWebhook.js";
 import { getReleaseIdentity } from "./releaseIdentity.js";
+import { publicHttpErrorMessage } from "./publicErrors.js";
 
 // P10-07: expected poller intervals, keyed by the same names each poller
 // calls recordHeartbeat with - the one place server.ts needs to know
@@ -348,7 +349,8 @@ const server = Fastify({ logger: true, maxParamLength: 5000, bodyLimit: 15 * 102
 server.setErrorHandler((error: FastifyError, request, reply) => {
   Sentry.captureException(error);
   request.log.error(error);
-  reply.status(error.statusCode ?? 500).send({ error: error.message });
+  const statusCode = error.statusCode ?? 500;
+  reply.status(statusCode).send({ error: publicHttpErrorMessage(statusCode, error.message) });
 });
 
 // Only INTERNAL_SERVER_ERROR is an actual bug worth alerting on - expected
