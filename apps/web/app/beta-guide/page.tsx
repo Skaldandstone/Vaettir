@@ -5,21 +5,28 @@ export default function BetaGuidePage() {
   return (
     <div className="guide-workspace">
       <header className="guide-hero">
-        <p className="workspace-breadcrumb">VAETTIR PRIVATE BETA</p>
-        <h1>Get into the right workspace without guesswork.</h1>
-        <p>Owner reservations and teammate invitations are different on purpose. Choose the path that matches how your team invited you.</p>
+        <p className="workspace-breadcrumb">VAETTIR DEMO ACCESS</p>
+        <h1>Explore freely without exposing protected workspaces.</h1>
+        <p>Anyone can create an account and use the sales demo. Customer data and advanced capabilities stay behind explicit workspace access.</p>
         <div className="guide-actions">
-          <Link className="btn-primary" href="/sign-in">Sign in</Link>
+          <Link className="btn-primary" href="/sign-up">Create demo account</Link>
+          <Link className="btn-secondary" href="/sign-in">Sign in</Link>
           <Link className="btn-secondary" href="/">Back to Vaettir</Link>
         </div>
       </header>
 
       <section className="guide-grid" aria-label="Beta access paths">
         <article className="workspace-panel guide-card">
+          <span className="onboarding-icon"><Icon name="book" size={22} /></span>
+          <p className="eyebrow accent">Sales demo</p>
+          <h2>Explore without a workspace</h2>
+          <p>Sign up with Google or email to review the guided Vaettir example. Demo accounts cannot retrieve customer data, create organizations, run AI actions, configure integrations, or administer seats.</p>
+        </article>
+        <article className="workspace-panel guide-card">
           <span className="onboarding-icon"><Icon name="people" size={22} /></span>
           <p className="eyebrow accent">Workspace owner</p>
           <h2>Create a new workspace</h2>
-          <p>A Vaettir staff member must first reserve the exact email address you will use to sign in. After access is verified, onboarding asks you to name the organization.</p>
+          <p>Full workspace creation is reserved for the explicitly approved owner account. Access is checked server-side before onboarding can create an organization.</p>
         </article>
         <article className="workspace-panel guide-card">
           <span className="onboarding-icon"><Icon name="arrow" size={22} /></span>

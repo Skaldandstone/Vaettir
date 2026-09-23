@@ -146,24 +146,31 @@ export async function requireProjectAccess(
   return { project, membership };
 }
 
-// P13-01: staff auth gate. Deliberately independent of any Membership --
+// P13-01: owner/staff auth gate. Deliberately independent of any Membership --
 // a customer OWNER in their own org must not get access here, and a Skald
 // & Stone staff member shouldn't need a Membership in every customer org
 // just to look one up. Gated on the user's real Clerk-verified email
-// (never client-suppliable), matched against a configured staff domain
-// (default skaldandstone.com) plus an optional explicit allowlist for
-// staff on a different domain.
-const STAFF_EMAIL_DOMAIN = (process.env.STAFF_EMAIL_DOMAIN ?? "skaldandstone.com").toLowerCase();
-const STAFF_EMAIL_ALLOWLIST = new Set(
-  (process.env.STAFF_EMAIL_ALLOWLIST ?? "")
-    .split(",")
-    .map((e: string) => e.trim().toLowerCase())
-    .filter(Boolean),
-);
+// (never client-suppliable), matched against an exact allowlist. A domain
+// match is intentionally insufficient: public sign-up means another address
+// at the company domain must not silently inherit cross-organization access.
+// Keep the old STAFF_EMAIL_ALLOWLIST name as a deployment-compatible fallback,
+// but the default and preferred variable grant only James full product access.
+const DEFAULT_FULL_ACCESS_EMAIL = "james@skaldandstone.com";
+
+function fullAccessEmailAllowlist() {
+  const configured = process.env.FULL_ACCESS_EMAIL_ALLOWLIST?.trim()
+    || process.env.STAFF_EMAIL_ALLOWLIST?.trim()
+    || DEFAULT_FULL_ACCESS_EMAIL;
+  return new Set(
+    configured
+      .split(",")
+      .map((e: string) => e.trim().toLowerCase())
+      .filter(Boolean),
+  );
+}
 
 export function isStaffEmail(email: string): boolean {
-  const normalized = email.toLowerCase();
-  return normalized.endsWith(`@${STAFF_EMAIL_DOMAIN}`) || STAFF_EMAIL_ALLOWLIST.has(normalized);
+  return fullAccessEmailAllowlist().has(email.trim().toLowerCase());
 }
 
 export const staffProcedure = protectedProcedure.use(({ ctx, next }) => {

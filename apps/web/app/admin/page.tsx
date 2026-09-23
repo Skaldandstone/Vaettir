@@ -5,7 +5,7 @@ import Link from "next/link";
 import { trpcReact } from "../../lib/trpcReact";
 
 // P13-01/P13-02: staff-only surface, gated server-side by the API's
-// staffProcedure (Clerk email against STAFF_EMAIL_DOMAIN), not by any
+// staffProcedure (Clerk email against the exact full-access allowlist), not by any
 // customer Membership/OrgRole. A non-staff user hitting this page just
 // gets a FORBIDDEN error from the query below - there's no separate
 // client-side route guard, since the server-side gate is the real one and

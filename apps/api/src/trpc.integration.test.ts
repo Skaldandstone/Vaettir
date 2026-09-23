@@ -119,9 +119,21 @@ describe("staffProcedure (real DB, real router)", () => {
     await expect(caller.admin.listOrganizations({ query: "" })).rejects.toMatchObject({ code: "FORBIDDEN" });
   });
 
-  it("admits a real @skaldandstone.com staff email", async () => {
+  it("rejects another Skald and Stone email that is not explicitly allowlisted", async () => {
     const caller = await callerFor(staffUserId);
-    await expect(caller.admin.listOrganizations({ query: "" })).resolves.toBeDefined();
+    await expect(caller.admin.listOrganizations({ query: "" })).rejects.toMatchObject({ code: "FORBIDDEN" });
+  });
+
+  it("admits only an explicitly allowlisted owner email", async () => {
+    const previous = process.env.FULL_ACCESS_EMAIL_ALLOWLIST;
+    process.env.FULL_ACCESS_EMAIL_ALLOWLIST = `${RUN_ID}-staff@skaldandstone.com`;
+    const caller = await callerFor(staffUserId);
+    try {
+      await expect(caller.admin.listOrganizations({ query: "" })).resolves.toBeDefined();
+    } finally {
+      if (previous === undefined) delete process.env.FULL_ACCESS_EMAIL_ALLOWLIST;
+      else process.env.FULL_ACCESS_EMAIL_ALLOWLIST = previous;
+    }
   });
 
   it("a customer OWNER role does NOT grant staff access", async () => {

@@ -12,7 +12,7 @@ export default function SignInPage() {
       </section>
       <div className="auth-form">
         <SignIn />
-        <p className="auth-help">Access is limited to invited private-beta teams. Contact your workspace administrator if you need an invitation.</p>
+        <p className="auth-help">Anyone can sign in to the sales demo. Protected workspaces and advanced features require explicit access.</p>
       </div>
     </div>
   );

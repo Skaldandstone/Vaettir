@@ -33,10 +33,10 @@ test.describe("Authentication", () => {
     await expect(page.getByText(/incorrect|invalid/i).first()).toBeVisible({ timeout: 10_000 });
   });
 
-  test("public sign-up is visibly restricted during private beta", async ({ page }) => {
+  test("public sign-up offers account creation for the sales demo", async ({ page }) => {
     await page.goto("/sign-up");
     await expect(page).toHaveURL(/sign-up/);
-    await expect(page.getByRole("heading", { name: "Access restricted" })).toBeVisible();
-    await expect(page.getByText("Sign ups are currently disabled.", { exact: false })).toBeVisible();
+    await expect(page.getByText("VAETTIR / SALES DEMO")).toBeVisible();
+    await expect(page.getByText("Signing up opens the sales demo.", { exact: false })).toBeVisible();
   });
 });

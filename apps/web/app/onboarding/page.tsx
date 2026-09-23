@@ -58,10 +58,10 @@ function AccessPanel({
         }
       : {
           icon: "people" as const,
-          title: canManageEnrollments ? "Reserve your staff workspace" : "You need a beta invitation",
+          title: canManageEnrollments ? "Reserve your owner workspace" : "Your demo account is ready",
           body: canManageEnrollments
-            ? "This is an approved staff account, but it does not have a private-beta owner reservation yet. Reserve one before creating the workspace."
-            : "Workspace owners need a staff-approved beta reservation. Teammates join with the unique membership link sent by their workspace owner.",
+            ? "This is the approved full-access owner account. Reserve the private workspace before creating it."
+            : "You can explore Vaettir's sales demo now. Customer workspaces, AI actions, integrations, imports, and administrative controls require explicit access.",
         };
 
   return (
@@ -76,6 +76,11 @@ function AccessPanel({
         <button className="btn-primary onboarding-primary-action" type="button" onClick={onEnroll} disabled={enrolling}>
           {enrolling ? "Reserving access…" : "Reserve beta workspace"}
         </button>
+      )}
+      {status === "NOT_ENROLLED" && !canManageEnrollments && (
+        <Link className="btn-primary onboarding-primary-action" href="/">
+          Explore the sales demo
+        </Link>
       )}
       {error && <p className="text-error onboarding-action-error" role="alert">{error}</p>}
       <div className="onboarding-paths">
@@ -149,9 +154,9 @@ export default function OnboardingPage() {
   return (
     <div className="auth-workspace onboarding-workspace">
       <section className="auth-introduction">
-        <p className="workspace-breadcrumb">PRIVATE BETA / GET STARTED</p>
-        <h1>Start with the right access, then build your quality workspace.</h1>
-        <p>Vaettir keeps every team isolated. Your invitation determines whether you create a workspace or join one that already exists.</p>
+        <p className="workspace-breadcrumb">DEMO ACCESS / GET STARTED</p>
+        <h1>Explore safely, then unlock the workspace your team needs.</h1>
+        <p>Every account can use the sales demo. Vaettir keeps customer workspaces isolated and unlocks protected capabilities only after explicit access is granted.</p>
         <OnboardingSteps status={status} />
         <aside className="onboarding-safety-note">
           <Icon name="alert" size={17} />
