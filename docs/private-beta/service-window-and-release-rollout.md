@@ -8,14 +8,9 @@ Run `pnpm test:operations` to reject drift between the times, expressions, publi
 
 For a read-only live comparison, save the six `aws scheduler get-schedule` responses as a JSON array and run `node scripts/private-beta-service-window.mjs --actual <path>`. The command exits nonzero and names every missing or mismatched field.
 
-The September 22 production inspection found the live schedules at 09:00 through 00:00 while the Studio sleep page already advertises 08:00 through 01:00. No AWS schedule or Studio deployment was changed in this local implementation. The Studio canonical checkout also contained unrelated active edits, so it was deliberately not modified. The reviewed rollout must:
+The September 22 production inspection found the live schedules at 09:00 through 00:00 while the Studio sleep page already advertised 08:00 through 01:00. At 23:10 through 23:11 Pacific on September 22, all six production schedules in `cost-audit-restop` were updated to the canonical expressions. A fresh read through `private-beta-service-window.mjs --actual -` reported an exact match. The rollout also compared every schedule before and after and confirmed that its target, role, payload, retry policy, flexible-window setting, enabled state, timezone, and action-after-completion were unchanged. See `service-window-rollout-2026-09-22.md` for the provider evidence.
 
-1. update all six schedules in the `cost-audit-restop` group from the rendered contract;
-2. confirm each schedule retained its existing target, role, payload, flexible-window setting, and enabled state;
-3. update the Studio sleep-page implementation to consume or mechanically verify the same canonical values rather than retaining an independent literal;
-4. probe the branded sleep page before 08:00, during the awake window, and after 01:00 Pacific.
-
-Until those steps are completed, the source contract is ready but the live service-window gate remains blocked.
+The AWS schedule drift is closed. The remaining cross-repository acceptance work is to make the Studio sleep-page implementation consume or mechanically verify the same canonical values and to probe the branded sleep page before 08:00, during the awake window, and after 01:00 Pacific. Those UI probes are not implied by the Scheduler result.
 
 ## Immutable release identity
 
