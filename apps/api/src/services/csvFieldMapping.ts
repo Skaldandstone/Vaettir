@@ -10,17 +10,73 @@
 // preview until the user maps it deliberately) - mapping it turns a plain
 // one-shot import into a re-runnable one: the commit step matches each row
 // back to a TestCase it created before by this id instead of duplicating.
-export const TARGET_FIELDS = ["title", "given", "when", "then", "priority", "tags", "externalId"] as const;
+export const TARGET_FIELDS = [
+  "title",
+  "given",
+  "when",
+  "then",
+  "priority",
+  "tags",
+  "externalId",
+] as const;
 export type TargetField = (typeof TARGET_FIELDS)[number];
 
 const HEADER_ALIASES: Record<TargetField, string[]> = {
-  title: ["title", "name", "test case", "test title", "summary"],
-  given: ["given", "precondition", "preconditions", "setup"],
-  when: ["when", "action", "actions", "steps"],
-  then: ["then", "expected", "expected result", "expected results"],
+  title: [
+    "title",
+    "name",
+    "test case",
+    "testcase",
+    "test title",
+    "test scenario",
+    "summary",
+    "scenario description",
+    "scenario description/test case",
+    "test case description",
+  ],
+  given: [
+    "given",
+    "precondition",
+    "preconditions",
+    "pre-condition",
+    "pre-conditions",
+    "setup",
+  ],
+  when: [
+    "when",
+    "action",
+    "actions",
+    "step",
+    "steps",
+    "test step",
+    "test steps",
+    "procedure",
+  ],
+  then: [
+    "then",
+    "expected",
+    "expected result",
+    "expected results",
+    "expected outcome",
+  ],
   priority: ["priority", "severity"],
-  tags: ["tags", "labels", "categories"],
-  externalId: [],
+  tags: [
+    "tags",
+    "labels",
+    "categories",
+    "module",
+    "test module/scenario",
+    "test module/scenerio",
+  ],
+  externalId: [
+    "id",
+    "test id",
+    "test case id",
+    "testcase id",
+    "tc id",
+    "key",
+    "qid",
+  ],
 };
 
 const VALID_PRIORITIES = new Set(["CRITICAL", "HIGH", "MEDIUM", "LOW"]);
@@ -71,9 +127,24 @@ function splitCsvRows(text: string): string[][] {
 function splitMultiValue(cell: string | undefined): string[] {
   if (!cell) return [];
   return cell
-    .split("|")
-    .map((s) => s.trim())
+    .replace(/([.!?])(\d+[.)])\s*/g, "$1\n$2 ")
+    .split(/\||\r?\n/)
+    .map((s) => s.trim().replace(/^\d+[.)]\s*/, ""))
     .filter(Boolean);
+}
+
+export function suggestCsvMapping(
+  headers: string[],
+): Partial<Record<TargetField, string>> {
+  const lowerHeaders = headers.map((h) => h.trim().toLowerCase());
+  const suggestedMapping: Partial<Record<TargetField, string>> = {};
+  for (const field of TARGET_FIELDS) {
+    const alias = HEADER_ALIASES[field].find((candidate) =>
+      lowerHeaders.includes(candidate),
+    );
+    if (alias) suggestedMapping[field] = headers[lowerHeaders.indexOf(alias)];
+  }
+  return suggestedMapping;
 }
 
 export interface CsvHeaders {
@@ -85,13 +156,7 @@ export interface CsvHeaders {
 export function inspectCsv(text: string): CsvHeaders {
   const rows = splitCsvRows(text);
   const headers = (rows[0] ?? []).map((h) => h.trim());
-  const lowerHeaders = headers.map((h) => h.toLowerCase());
-
-  const suggestedMapping: Partial<Record<TargetField, string>> = {};
-  for (const field of TARGET_FIELDS) {
-    const alias = HEADER_ALIASES[field].find((a) => lowerHeaders.includes(a));
-    if (alias) suggestedMapping[field] = headers[lowerHeaders.indexOf(alias)];
-  }
+  const suggestedMapping = suggestCsvMapping(headers);
 
   return { headers, suggestedMapping, rowCount: Math.max(0, rows.length - 1) };
 }
@@ -116,7 +181,11 @@ export interface MapCsvResult {
 // every data row. Used both for the preview (a small slice, `limit`) and
 // the real commit (no limit) so the two can never disagree about what a
 // given mapping produces.
-export function mapCsvRows(text: string, mapping: Partial<Record<TargetField, string>>, limit?: number): MapCsvResult {
+export function mapCsvRows(
+  text: string,
+  mapping: Partial<Record<TargetField, string>>,
+  limit?: number,
+): MapCsvResult {
   const rows = splitCsvRows(text);
   if (rows.length < 2) return { rows: [], skipped: [] };
   const header = rows[0] ?? [];
@@ -151,12 +220,28 @@ export function mapCsvRows(text: string, mapping: Partial<Record<TargetField, st
     const given = idx.given >= 0 ? splitMultiValue(r[idx.given]) : [];
     const when = idx.when >= 0 ? splitMultiValue(r[idx.when]) : [];
     const then = idx.then >= 0 ? splitMultiValue(r[idx.then]) : [];
-    const rawPriority = (idx.priority >= 0 ? r[idx.priority] : "")?.trim().toUpperCase();
-    const priority = (VALID_PRIORITIES.has(rawPriority ?? "") ? rawPriority : "MEDIUM") as MappedRow["priority"];
+    const rawPriority = (idx.priority >= 0 ? r[idx.priority] : "")
+      ?.trim()
+      .toUpperCase();
+    const priority = (
+      VALID_PRIORITIES.has(rawPriority ?? "") ? rawPriority : "MEDIUM"
+    ) as MappedRow["priority"];
     const tags = idx.tags >= 0 ? splitMultiValue(r[idx.tags]) : [];
-    const externalId = idx.externalId >= 0 ? (r[idx.externalId] ?? "").trim() || undefined : undefined;
+    const externalId =
+      idx.externalId >= 0
+        ? (r[idx.externalId] ?? "").trim() || undefined
+        : undefined;
 
-    mapped.push({ rowNumber, title, given, when, then, priority, tags, externalId });
+    mapped.push({
+      rowNumber,
+      title,
+      given,
+      when,
+      then,
+      priority,
+      tags,
+      externalId,
+    });
   });
 
   return { rows: mapped, skipped };

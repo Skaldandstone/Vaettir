@@ -4,16 +4,31 @@ import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { trpcReact, useReadOnlySeat } from "@/lib/trpcReact";
-import { TestCaseTree, filterCasesByPath, collectKnownSuitePaths, UNASSIGNED } from "@/components/TestCaseTree";
+import {
+  TestCaseTree,
+  filterCasesByPath,
+  collectKnownSuitePaths,
+  UNASSIGNED,
+} from "@/components/TestCaseTree";
 import { Drawer } from "@/components/Drawer";
-import { Modal } from "@/components/Modal";
 import { TestCaseDetailContent } from "@/components/TestCaseDetailContent";
 import { downloadCsv } from "@/lib/csv";
 
 const TEST_TYPES = [
-  "UNIT", "FUNCTIONAL", "CONTRACT", "INSTRUMENTATION", "SMOKE", "SANITY",
-  "REGRESSION", "E2E", "PERFORMANCE", "SECURITY", "ACCESSIBILITY",
-  "EXPLORATORY", "COMPLIANCE", "OTHER",
+  "UNIT",
+  "FUNCTIONAL",
+  "CONTRACT",
+  "INSTRUMENTATION",
+  "SMOKE",
+  "SANITY",
+  "REGRESSION",
+  "E2E",
+  "PERFORMANCE",
+  "SECURITY",
+  "ACCESSIBILITY",
+  "EXPLORATORY",
+  "COMPLIANCE",
+  "OTHER",
 ];
 const REVIEW_STATUSES = ["APPROVED", "PENDING_REVIEW", "REJECTED"];
 const ORIGINS = ["AUTHORED", "AI_REVERSE_ENGINEERED", "IMPORTED"];
@@ -28,7 +43,9 @@ function AssignSuiteControl({
   onAssigned: () => void;
 }) {
   const [value, setValue] = useState("");
-  const setSuiteMutation = trpcReact.testCases.setSuite.useMutation({ onSuccess: onAssigned });
+  const setSuiteMutation = trpcReact.testCases.setSuite.useMutation({
+    onSuccess: onAssigned,
+  });
 
   function assign() {
     if (!value.trim()) return;
@@ -46,7 +63,12 @@ function AssignSuiteControl({
         placeholder="assign to suite…"
         style={{ fontSize: 12, padding: "3px 6px", width: 160 }}
       />
-      <button className="btn-secondary" style={{ padding: "3px 8px", fontSize: 12 }} onClick={assign} disabled={saving || !value.trim()}>
+      <button
+        className="btn-secondary"
+        style={{ padding: "3px 8px", fontSize: 12 }}
+        onClick={assign}
+        disabled={saving || !value.trim()}
+      >
         {saving ? "…" : "Assign"}
       </button>
       <datalist id="known-suite-paths">
@@ -63,7 +85,15 @@ function AssignSuiteControl({
 // mirrors that: the full "+ New test case" form is still there for anyone
 // who wants to fill in given/when/then up front, but it's the secondary
 // path now, not the only one.
-function QuickAddRow({ projectId, suitePath, onAdded }: { projectId: string; suitePath: string | null; onAdded: () => void }) {
+function QuickAddRow({
+  projectId,
+  suitePath,
+  onAdded,
+}: {
+  projectId: string;
+  suitePath: string | null;
+  onAdded: () => void;
+}) {
   const [title, setTitle] = useState("");
   const quickCreateMutation = trpcReact.testCases.quickCreate.useMutation({
     onSuccess: () => {
@@ -89,7 +119,11 @@ function QuickAddRow({ projectId, suitePath, onAdded }: { projectId: string; sui
         value={title}
         onChange={(e) => setTitle(e.target.value)}
         onKeyDown={(e) => e.key === "Enter" && submit()}
-        placeholder={suitePath && suitePath !== UNASSIGNED ? `+ Quick-add a case in ${suitePath}…` : "+ Quick-add a case, press Enter…"}
+        placeholder={
+          suitePath && suitePath !== UNASSIGNED
+            ? `+ Quick-add a case in ${suitePath}…`
+            : "+ Quick-add a case, press Enter…"
+        }
         style={{ flex: 1 }}
         disabled={saving}
       />
@@ -105,7 +139,10 @@ export default function TestCasesPage() {
   const readOnly = useReadOnlySeat(projectId);
 
   const projectQuery = trpcReact.project.byId.useQuery({ id: projectId });
-  const casesQuery = trpcReact.testCases.list.useQuery({ projectId, includeArchived: true });
+  const casesQuery = trpcReact.testCases.list.useQuery({
+    projectId,
+    includeArchived: true,
+  });
   const plansQuery = trpcReact.testPlans.list.useQuery({ projectId });
   const project = projectQuery.data ?? null;
   const cases = casesQuery.data ?? [];
@@ -125,20 +162,24 @@ export default function TestCasesPage() {
   const [bulkMovePlanId, setBulkMovePlanId] = useState("");
   const [bulkTag, setBulkTag] = useState("");
 
-  const [importOpen, setImportOpen] = useState(false);
-  const [importCsvText, setImportCsvText] = useState("");
-  const [importError, setImportError] = useState<string | null>(null);
-  const [importResult, setImportResult] = useState<{ createdCount: number; skipped: { rowNumber: number; reason: string }[] } | null>(null);
-
   // What the original load() refetched after every mutation.
   function reload() {
     void utils.testCases.list.invalidate({ projectId, includeArchived: true });
     void utils.testPlans.list.invalidate({ projectId });
   }
 
-  useEffect(() => setSelected(new Set()), [selectedPath, search, typeFilter, reviewFilter, originFilter, showArchived]);
+  useEffect(
+    () => setSelected(new Set()),
+    [
+      selectedPath,
+      search,
+      typeFilter,
+      reviewFilter,
+      originFilter,
+      showArchived,
+    ],
+  );
 
-  const importMutation = trpcReact.testCases.importCsv.useMutation();
   const bulkReviewMutation = trpcReact.testCases.bulkReview.useMutation();
   const bulkDeleteMutation = trpcReact.testCases.bulkDelete.useMutation();
   const bulkArchiveMutation = trpcReact.testCases.bulkArchive.useMutation();
@@ -146,32 +187,27 @@ export default function TestCasesPage() {
   const bulkTagMutation = trpcReact.testCases.bulkAddTags.useMutation();
   const startRunMutation = trpcReact.manualExecution.start.useMutation();
 
-  async function importCsv() {
-    if (!importCsvText.trim()) return;
-    setImportError(null);
-    setImportResult(null);
-    try {
-      const result = await importMutation.mutateAsync({ projectId, csvText: importCsvText });
-      setImportResult(result);
-      setImportCsvText("");
-      reload();
-    } catch (e) {
-      setImportError(e instanceof Error ? e.message : String(e));
-    }
-  }
-
   const pathFiltered = filterCasesByPath(cases, selectedPath);
   const visibleCases = useMemo(() => {
     const q = search.trim().toLowerCase();
     return pathFiltered.filter(
       (tc) =>
         (showArchived || !tc.archived) &&
-        (!q || tc.title.toLowerCase().includes(q) || tc.tags.some((t) => t.toLowerCase().includes(q))) &&
+        (!q ||
+          tc.title.toLowerCase().includes(q) ||
+          tc.tags.some((t) => t.toLowerCase().includes(q))) &&
         (!typeFilter || tc.testType === typeFilter) &&
         (!reviewFilter || tc.reviewStatus === reviewFilter) &&
         (!originFilter || tc.origin === originFilter),
     );
-  }, [pathFiltered, search, typeFilter, reviewFilter, originFilter, showArchived]);
+  }, [
+    pathFiltered,
+    search,
+    typeFilter,
+    reviewFilter,
+    originFilter,
+    showArchived,
+  ]);
 
   const knownPaths = collectKnownSuitePaths(cases);
 
@@ -185,13 +221,21 @@ export default function TestCasesPage() {
   }
 
   function toggleAllVisible() {
-    setSelected((s) => (s.size === visibleCases.length ? new Set() : new Set(visibleCases.map((tc) => tc.id))));
+    setSelected((s) =>
+      s.size === visibleCases.length
+        ? new Set()
+        : new Set(visibleCases.map((tc) => tc.id)),
+    );
   }
 
   async function bulkReview(decision: "approve" | "reject") {
     setBulkBusy(true);
     try {
-      await bulkReviewMutation.mutateAsync({ projectId, ids: [...selected], decision });
+      await bulkReviewMutation.mutateAsync({
+        projectId,
+        ids: [...selected],
+        decision,
+      });
       setSelected(new Set());
       reload();
     } finally {
@@ -200,14 +244,20 @@ export default function TestCasesPage() {
   }
 
   async function bulkDelete() {
-    if (!confirm(`Delete ${selected.size} test case(s)? This can't be undone.`)) return;
+    if (!confirm(`Delete ${selected.size} test case(s)? This can't be undone.`))
+      return;
     setBulkBusy(true);
     try {
-      const res = await bulkDeleteMutation.mutateAsync({ projectId, ids: [...selected] });
+      const res = await bulkDeleteMutation.mutateAsync({
+        projectId,
+        ids: [...selected],
+      });
       setSelected(new Set());
       reload();
       if (res.blockedCount > 0) {
-        alert(`${res.deletedCount} deleted, ${res.blockedCount} couldn't be deleted (linked to compliance controls or risk analysis results).`);
+        alert(
+          `${res.deletedCount} deleted, ${res.blockedCount} couldn't be deleted (linked to compliance controls or risk analysis results).`,
+        );
       }
     } finally {
       setBulkBusy(false);
@@ -217,7 +267,11 @@ export default function TestCasesPage() {
   async function bulkArchive(archived: boolean) {
     setBulkBusy(true);
     try {
-      await bulkArchiveMutation.mutateAsync({ projectId, ids: [...selected], archived });
+      await bulkArchiveMutation.mutateAsync({
+        projectId,
+        ids: [...selected],
+        archived,
+      });
       setSelected(new Set());
       reload();
     } finally {
@@ -228,7 +282,11 @@ export default function TestCasesPage() {
   async function bulkMove() {
     setBulkBusy(true);
     try {
-      await bulkMoveMutation.mutateAsync({ projectId, ids: [...selected], testPlanId: bulkMovePlanId || null });
+      await bulkMoveMutation.mutateAsync({
+        projectId,
+        ids: [...selected],
+        testPlanId: bulkMovePlanId || null,
+      });
       setBulkMovePlanId("");
       setSelected(new Set());
       reload();
@@ -241,7 +299,11 @@ export default function TestCasesPage() {
     if (!bulkTag.trim()) return;
     setBulkBusy(true);
     try {
-      await bulkTagMutation.mutateAsync({ projectId, ids: [...selected], tags: [bulkTag.trim()] });
+      await bulkTagMutation.mutateAsync({
+        projectId,
+        ids: [...selected],
+        tags: [bulkTag.trim()],
+      });
       setBulkTag("");
       reload();
     } finally {
@@ -252,14 +314,24 @@ export default function TestCasesPage() {
   async function exportCsv() {
     const rows = await utils.testCases.exportCsv.fetch({ projectId });
     const header = ["title", "given", "when", "then", "priority", "tags"];
-    const body = rows.map((r) => [r.title, r.given.join("|"), r.when.join("|"), r.then.join("|"), r.priority, r.tags.join("|")]);
+    const body = rows.map((r) => [
+      r.title,
+      r.given.join("|"),
+      r.when.join("|"),
+      r.then.join("|"),
+      r.priority,
+      r.tags.join("|"),
+    ]);
     downloadCsv(`${project?.name ?? "test-cases"}.csv`, [header, ...body]);
   }
 
   async function startManualRun() {
     if (selected.size === 0) return;
     try {
-      const { testRunId } = await startRunMutation.mutateAsync({ projectId, testCaseIds: [...selected] });
+      const { testRunId } = await startRunMutation.mutateAsync({
+        projectId,
+        testCaseIds: [...selected],
+      });
       router.push(`/projects/${projectId}/test-runs/manual/${testRunId}`);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -267,188 +339,284 @@ export default function TestCasesPage() {
   }
 
   const startingRun = startRunMutation.isPending;
-  const loading = projectQuery.isLoading || casesQuery.isLoading || plansQuery.isLoading;
-  const pageError = error ?? projectQuery.error?.message ?? casesQuery.error?.message ?? plansQuery.error?.message ?? null;
+  const loading =
+    projectQuery.isLoading || casesQuery.isLoading || plansQuery.isLoading;
+  const pageError =
+    error ??
+    projectQuery.error?.message ??
+    casesQuery.error?.message ??
+    plansQuery.error?.message ??
+    null;
 
   return (
     <div>
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+        }}
+      >
         <div>
-          <h1 style={{ marginBottom: 2 }}>{project ? `${project.name} — Test Cases` : "Test Cases"}</h1>
+          <h1 style={{ marginBottom: 2 }}>
+            {project ? `${project.name} — Test Cases` : "Test Cases"}
+          </h1>
           {project && (
             <p className="text-muted" style={{ margin: 0, fontSize: 13 }}>
               {project.repoUrl ?? "No repo connected"}
             </p>
           )}
         </div>
-        <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-          <a className="btn-secondary" style={{ fontSize: 13 }} href={`/projects/${projectId}/test-cases/review`}>
+        <div
+          style={{
+            display: "flex",
+            gap: 8,
+            alignItems: "center",
+            flexWrap: "wrap",
+          }}
+        >
+          <a
+            className="btn-secondary"
+            style={{ fontSize: 13 }}
+            href={`/projects/${projectId}/test-cases/review`}
+          >
             Review queue
           </a>
-          <a className="btn-secondary" style={{ fontSize: 13 }} href={`/projects/${projectId}/shared-steps`}>
+          <a
+            className="btn-secondary"
+            style={{ fontSize: 13 }}
+            href={`/projects/${projectId}/shared-steps`}
+          >
             Shared step libraries
           </a>
-          <a className="btn-secondary" style={{ fontSize: 13 }} href={`/projects/${projectId}/exploratory`}>
+          <a
+            className="btn-secondary"
+            style={{ fontSize: 13 }}
+            href={`/projects/${projectId}/exploratory`}
+          >
             Exploratory testing
           </a>
-          <button className="btn-secondary" style={{ fontSize: 13 }} onClick={exportCsv}>
+          <button
+            className="btn-secondary"
+            style={{ fontSize: 13 }}
+            onClick={exportCsv}
+          >
             Export CSV
           </button>
           {!readOnly && (
-            <a className="btn-secondary" style={{ fontSize: 13 }} href={`/projects/${projectId}/test-cases/new`}>
+            <a
+              className="btn-secondary"
+              style={{ fontSize: 13 }}
+              href={`/projects/${projectId}/test-cases/new`}
+            >
               Full editor
             </a>
           )}
           {!readOnly && (
-            <button className="btn-secondary" style={{ fontSize: 13 }} onClick={() => setImportOpen(true)}>
-              Import CSV
-            </button>
+            <Link
+              className="btn-primary"
+              style={{ fontSize: 13 }}
+              href={`/projects/${projectId}/import`}
+            >
+              Smart import
+            </Link>
           )}
         </div>
       </div>
 
       {readOnly && (
         <p className="text-muted" style={{ fontSize: 13 }}>
-          You have read-only access to this organization — editing, creating, and bulk actions are hidden.
+          You have read-only access to this organization — editing, creating,
+          and bulk actions are hidden.
         </p>
       )}
-
-      <Modal open={importOpen} onClose={() => setImportOpen(false)} title="Import test cases from CSV">
-        <div style={{ display: "grid", gap: 10 }}>
-          <p className="text-muted" style={{ fontSize: 13, margin: 0 }}>
-            Header row with <code>title</code>, <code>given</code>, <code>when</code>, <code>then</code>, and optionally{" "}
-            <code>priority</code>/<code>tags</code>. For multiple steps in one cell, separate them with <code>|</code>.
-          </p>
-          <textarea
-            value={importCsvText}
-            onChange={(e) => setImportCsvText(e.target.value)}
-            placeholder={'title,given,when,then,priority,tags\n"Login succeeds","a registered user","valid credentials submitted","dashboard is shown",HIGH,"auth|smoke"'}
-            rows={8}
-            style={{ width: "100%", fontFamily: "monospace", fontSize: 12 }}
-          />
-          <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
-            <button className="btn-secondary" onClick={() => setImportOpen(false)}>
-              Close
-            </button>
-            <button className="btn-primary" onClick={importCsv} disabled={importMutation.isPending || !importCsvText.trim()}>
-              {importMutation.isPending ? "Importing…" : "Import"}
-            </button>
-          </div>
-          {importError && <p style={{ color: "var(--ember)" }}>{importError}</p>}
-          {importResult && (
-            <div className="panel">
-              <p style={{ margin: 0 }}>Imported {importResult.createdCount} test case(s).</p>
-              {importResult.skipped.length > 0 && (
-                <>
-                  <p className="text-muted" style={{ marginBottom: 4 }}>
-                    Skipped {importResult.skipped.length} row(s):
-                  </p>
-                  <ul style={{ margin: 0, paddingLeft: 18, fontSize: 12 }}>
-                    {importResult.skipped.map((s) => (
-                      <li key={s.rowNumber}>
-                        Row {s.rowNumber}: {s.reason}
-                      </li>
-                    ))}
-                  </ul>
-                </>
-              )}
-            </div>
-          )}
-        </div>
-      </Modal>
 
       {loading && <p>Loading…</p>}
       {pageError && <p style={{ color: "var(--ember)" }}>{pageError}</p>}
 
       {!loading && !pageError && cases.length === 0 && (
         <div className="panel">
-          <p style={{ marginBottom: project?.repoUrl ? 12 : 0 }}>No test cases tracked for this project yet.</p>
+          <p style={{ marginBottom: project?.repoUrl ? 12 : 0 }}>
+            No test cases tracked for this project yet.
+          </p>
           {project?.repoUrl ? (
             <>
               <p className="text-muted" style={{ fontSize: 13 }}>
-                Connecting a repo doesn&apos;t scan it automatically — reverse-engineer its test files to populate this
-                list.
+                Connecting a repo doesn&apos;t scan it automatically —
+                reverse-engineer its test files to populate this list.
               </p>
               {!readOnly && (
-                <a className="btn-primary" href={`/projects/${projectId}/reverse-engineer`}>
+                <a
+                  className="btn-primary"
+                  href={`/projects/${projectId}/reverse-engineer`}
+                >
                   Scan {project.repoUrl}
                 </a>
               )}
             </>
           ) : (
             <p className="text-muted" style={{ fontSize: 13 }}>
-              Connect a repo on the <Link href="/projects">project settings</Link> page and scan it, or type a title below.
+              Connect a repo on the{" "}
+              <Link href="/projects">project settings</Link> page and scan it,
+              or type a title below.
             </p>
           )}
           <div style={{ marginTop: 12 }}>
-            <QuickAddRow projectId={projectId} suitePath={null} onAdded={reload} />
+            <QuickAddRow
+              projectId={projectId}
+              suitePath={null}
+              onAdded={reload}
+            />
           </div>
         </div>
       )}
 
       {!loading && !pageError && cases.length > 0 && (
         <div className="test-case-layout">
-          <TestCaseTree cases={cases} selectedPath={selectedPath} onSelect={setSelectedPath} />
+          <TestCaseTree
+            cases={cases}
+            selectedPath={selectedPath}
+            onSelect={setSelectedPath}
+          />
           <div className="test-case-list">
-            <QuickAddRow projectId={projectId} suitePath={selectedPath} onAdded={reload} />
+            <QuickAddRow
+              projectId={projectId}
+              suitePath={selectedPath}
+              onAdded={reload}
+            />
 
-            <div style={{ display: "flex", gap: 8, marginBottom: 10, flexWrap: "wrap" }}>
+            <div
+              style={{
+                display: "flex",
+                gap: 8,
+                marginBottom: 10,
+                flexWrap: "wrap",
+              }}
+            >
               <input
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 placeholder="Search title or tags…"
                 style={{ flex: 1, minWidth: 160 }}
               />
-              <select value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)}>
+              <select
+                value={typeFilter}
+                onChange={(e) => setTypeFilter(e.target.value)}
+              >
                 <option value="">All types</option>
                 {TEST_TYPES.map((t) => (
-                  <option key={t} value={t}>{t}</option>
+                  <option key={t} value={t}>
+                    {t}
+                  </option>
                 ))}
               </select>
-              <select value={reviewFilter} onChange={(e) => setReviewFilter(e.target.value)}>
+              <select
+                value={reviewFilter}
+                onChange={(e) => setReviewFilter(e.target.value)}
+              >
                 <option value="">All review statuses</option>
                 {REVIEW_STATUSES.map((s) => (
-                  <option key={s} value={s}>{s}</option>
+                  <option key={s} value={s}>
+                    {s}
+                  </option>
                 ))}
               </select>
-              <select value={originFilter} onChange={(e) => setOriginFilter(e.target.value)}>
+              <select
+                value={originFilter}
+                onChange={(e) => setOriginFilter(e.target.value)}
+              >
                 <option value="">All origins</option>
                 {ORIGINS.map((o) => (
-                  <option key={o} value={o}>{o}</option>
+                  <option key={o} value={o}>
+                    {o}
+                  </option>
                 ))}
               </select>
-              <label style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 13, color: "var(--muted)" }}>
-                <input type="checkbox" checked={showArchived} onChange={(e) => setShowArchived(e.target.checked)} />
+              <label
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 4,
+                  fontSize: 13,
+                  color: "var(--muted)",
+                }}
+              >
+                <input
+                  type="checkbox"
+                  checked={showArchived}
+                  onChange={(e) => setShowArchived(e.target.checked)}
+                />
                 Show archived
               </label>
             </div>
 
             {!readOnly && selected.size > 0 && (
-              <div className="panel" style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 10, marginBottom: 10, padding: 10 }}>
+              <div
+                className="panel"
+                style={{
+                  display: "flex",
+                  flexWrap: "wrap",
+                  alignItems: "center",
+                  gap: 10,
+                  marginBottom: 10,
+                  padding: 10,
+                }}
+              >
                 <strong>{selected.size} selected</strong>
-                <button className="btn-primary" onClick={startManualRun} disabled={startingRun}>
+                <button
+                  className="btn-primary"
+                  onClick={startManualRun}
+                  disabled={startingRun}
+                >
                   {startingRun ? "Starting…" : "Run manually"}
                 </button>
-                <button className="btn-secondary" onClick={() => bulkReview("approve")} disabled={bulkBusy}>
+                <button
+                  className="btn-secondary"
+                  onClick={() => bulkReview("approve")}
+                  disabled={bulkBusy}
+                >
                   Approve
                 </button>
-                <button className="btn-secondary" onClick={() => bulkReview("reject")} disabled={bulkBusy}>
+                <button
+                  className="btn-secondary"
+                  onClick={() => bulkReview("reject")}
+                  disabled={bulkBusy}
+                >
                   Reject
                 </button>
-                <button className="btn-secondary" onClick={() => bulkArchive(true)} disabled={bulkBusy}>
+                <button
+                  className="btn-secondary"
+                  onClick={() => bulkArchive(true)}
+                  disabled={bulkBusy}
+                >
                   Archive
                 </button>
-                <button className="btn-secondary" onClick={() => bulkArchive(false)} disabled={bulkBusy}>
+                <button
+                  className="btn-secondary"
+                  onClick={() => bulkArchive(false)}
+                  disabled={bulkBusy}
+                >
                   Restore
                 </button>
                 <span style={{ display: "flex", alignItems: "center", gap: 4 }}>
-                  <select value={bulkMovePlanId} onChange={(e) => setBulkMovePlanId(e.target.value)} style={{ fontSize: 13 }}>
+                  <select
+                    value={bulkMovePlanId}
+                    onChange={(e) => setBulkMovePlanId(e.target.value)}
+                    style={{ fontSize: 13 }}
+                  >
                     <option value="">Move to plan…</option>
                     {plans.map((p) => (
-                      <option key={p.id} value={p.id}>{p.name}</option>
+                      <option key={p.id} value={p.id}>
+                        {p.name}
+                      </option>
                     ))}
                   </select>
-                  <button className="btn-secondary" onClick={bulkMove} disabled={bulkBusy || !bulkMovePlanId} style={{ fontSize: 13 }}>
+                  <button
+                    className="btn-secondary"
+                    onClick={bulkMove}
+                    disabled={bulkBusy || !bulkMovePlanId}
+                    style={{ fontSize: 13 }}
+                  >
                     Move
                   </button>
                 </span>
@@ -460,14 +628,29 @@ export default function TestCasesPage() {
                     placeholder="add tag…"
                     style={{ fontSize: 13, width: 100 }}
                   />
-                  <button className="btn-secondary" onClick={bulkAddTag} disabled={bulkBusy || !bulkTag.trim()} style={{ fontSize: 13 }}>
+                  <button
+                    className="btn-secondary"
+                    onClick={bulkAddTag}
+                    disabled={bulkBusy || !bulkTag.trim()}
+                    style={{ fontSize: 13 }}
+                  >
                     Tag
                   </button>
                 </span>
-                <button className="btn-secondary" onClick={bulkDelete} disabled={bulkBusy} style={{ color: "var(--ember)" }}>
+                <button
+                  className="btn-secondary"
+                  onClick={bulkDelete}
+                  disabled={bulkBusy}
+                  style={{ color: "var(--ember)" }}
+                >
                   Delete
                 </button>
-                <button className="btn-secondary" onClick={() => setSelected(new Set())} disabled={bulkBusy} style={{ marginLeft: "auto" }}>
+                <button
+                  className="btn-secondary"
+                  onClick={() => setSelected(new Set())}
+                  disabled={bulkBusy}
+                  style={{ marginLeft: "auto" }}
+                >
                   Clear
                 </button>
               </div>
@@ -475,20 +658,47 @@ export default function TestCasesPage() {
 
             {selectedPath === UNASSIGNED && (
               <p className="text-muted" style={{ fontSize: 13 }}>
-                These cases have no suite yet — assign one below, or leave them here.
+                These cases have no suite yet — assign one below, or leave them
+                here.
               </p>
             )}
 
             {visibleCases.length > 0 && (
-              <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: "var(--muted)", marginBottom: 6 }}>
-                <input type="checkbox" checked={selected.size === visibleCases.length} onChange={toggleAllVisible} />
+              <label
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 6,
+                  fontSize: 12,
+                  color: "var(--muted)",
+                  marginBottom: 6,
+                }}
+              >
+                <input
+                  type="checkbox"
+                  checked={selected.size === visibleCases.length}
+                  onChange={toggleAllVisible}
+                />
                 Select all ({visibleCases.length})
               </label>
             )}
             <ul style={{ listStyle: "none", padding: 0 }}>
               {visibleCases.map((tc) => (
-                <li key={tc.id} style={{ display: "flex", alignItems: "flex-start", gap: 8, padding: "3px 0" }}>
-                  <input type="checkbox" checked={selected.has(tc.id)} onChange={() => toggle(tc.id)} style={{ marginTop: 4 }} />
+                <li
+                  key={tc.id}
+                  style={{
+                    display: "flex",
+                    alignItems: "flex-start",
+                    gap: 8,
+                    padding: "3px 0",
+                  }}
+                >
+                  <input
+                    type="checkbox"
+                    checked={selected.has(tc.id)}
+                    onChange={() => toggle(tc.id)}
+                    style={{ marginTop: 4 }}
+                  />
                   <div>
                     <a
                       href={`/projects/${projectId}/test-cases/${tc.id}`}
@@ -500,26 +710,43 @@ export default function TestCasesPage() {
                       {tc.title}
                     </a>{" "}
                     <small>
-                      [{tc.testType}] {tc.origin === "AI_REVERSE_ENGINEERED" ? "🤖 AI-reversed" : ""}
-                      {tc.reviewStatus === "PENDING_REVIEW" && " ⏳ pending review"}
+                      [{tc.testType}]{" "}
+                      {tc.origin === "AI_REVERSE_ENGINEERED"
+                        ? "🤖 AI-reversed"
+                        : ""}
+                      {tc.reviewStatus === "PENDING_REVIEW" &&
+                        " ⏳ pending review"}
                       {tc.reviewStatus === "REJECTED" && " ❌ rejected"}
                       {tc.isFlaky && " 🎲 flaky"}
                       {tc.archived && " · archived"}
                     </small>
                     {selectedPath === UNASSIGNED && (
-                      <AssignSuiteControl caseId={tc.id} knownPaths={knownPaths} onAssigned={reload} />
+                      <AssignSuiteControl
+                        caseId={tc.id}
+                        knownPaths={knownPaths}
+                        onAssigned={reload}
+                      />
                     )}
                   </div>
                 </li>
               ))}
-              {visibleCases.length === 0 && <p className="text-muted">No test cases match.</p>}
+              {visibleCases.length === 0 && (
+                <p className="text-muted">No test cases match.</p>
+              )}
             </ul>
           </div>
         </div>
       )}
 
       <Drawer open={openCaseId !== null} onClose={() => setOpenCaseId(null)}>
-        {openCaseId && <TestCaseDetailContent id={openCaseId} projectId={projectId} onChanged={reload} readOnly={readOnly} />}
+        {openCaseId && (
+          <TestCaseDetailContent
+            id={openCaseId}
+            projectId={projectId}
+            onChanged={reload}
+            readOnly={readOnly}
+          />
+        )}
       </Drawer>
     </div>
   );

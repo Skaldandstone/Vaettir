@@ -19,7 +19,15 @@ import { trpcReact, type RouterOutputs } from "@/lib/trpcReact";
 type Source = "csv" | "testrail" | "xray" | "qtest" | "zephyr";
 type Step = "source" | "upload" | "review" | "done";
 
-const TARGET_FIELDS = ["title", "given", "when", "then", "priority", "tags", "externalId"] as const;
+const TARGET_FIELDS = [
+  "title",
+  "given",
+  "when",
+  "then",
+  "priority",
+  "tags",
+  "externalId",
+] as const;
 type TargetField = (typeof TARGET_FIELDS)[number];
 const FIELD_LABELS: Record<TargetField, string> = {
   title: "Title",
@@ -31,11 +39,16 @@ const FIELD_LABELS: Record<TargetField, string> = {
   externalId: "External ID (for re-import)",
 };
 
-const SOURCE_INFO: Record<Source, { label: string; blurb: string; accept: string }> = {
+const SOURCE_INFO: Record<
+  Source,
+  { label: string; blurb: string; accept: string }
+> = {
   csv: {
-    label: "Generic CSV",
-    blurb: "Any spreadsheet export - you'll map its columns to Vaettir's fields in the next step.",
-    accept: ".csv",
+    label: "Spreadsheet or vendor export",
+    blurb:
+      "CSV or Excel (.xlsx) from Qase, Tricentis, TestRail, qTest, or another test system. Vaettir detects sheets, headers, and likely fields before anything is written.",
+    accept:
+      ".csv,.xlsx,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
   },
   testrail: {
     label: "TestRail",
@@ -44,17 +57,20 @@ const SOURCE_INFO: Record<Source, { label: string; blurb: string; accept: string
   },
   xray: {
     label: "Xray (Jira)",
-    blurb: "A Jira Test-issue CSV export (JQL: issuetype = Test), or Xray's own JSON test export.",
+    blurb:
+      "A Jira Test-issue CSV export (JQL: issuetype = Test), or Xray's own JSON test export.",
     accept: ".csv,.json,text/csv,application/json",
   },
   qtest: {
     label: "qTest",
-    blurb: "Connect directly with your qTest instance URL and a personal API token - no file needed.",
+    blurb:
+      "Connect directly with your qTest instance URL and a personal API token - no file needed.",
     accept: "",
   },
   zephyr: {
     label: "Zephyr Scale",
-    blurb: "Connect directly with a Zephyr Scale Cloud personal API token and your Jira project key - no file needed.",
+    blurb:
+      "Connect directly with a Zephyr Scale Cloud personal API token and your Jira project key - no file needed.",
     accept: "",
   },
 };
@@ -63,17 +79,40 @@ function readFileAsText(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = () => resolve(reader.result as string);
-    reader.onerror = () => reject(reader.error ?? new Error("Failed to read file"));
+    reader.onerror = () =>
+      reject(reader.error ?? new Error("Failed to read file"));
     reader.readAsText(file);
   });
 }
 
-type FilePreviewRow = RouterOutputs["importJobs"]["previewXray"]["previewRows"][number];
+function readFileAsBase64(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = String(reader.result ?? "");
+      resolve(result.slice(result.indexOf(",") + 1));
+    };
+    reader.onerror = () =>
+      reject(reader.error ?? new Error("Failed to read file"));
+    reader.readAsDataURL(file);
+  });
+}
+
+type FilePreviewRow =
+  RouterOutputs["importJobs"]["previewXray"]["previewRows"][number];
 type FileCommitResult = RouterOutputs["importJobs"]["commitXray"];
 type CsvPreview = RouterOutputs["importJobs"]["previewCsv"];
-type CsvMappedPreviewRow = RouterOutputs["importJobs"]["previewWithMapping"]["previewRows"][number];
+type CsvMappedPreviewRow =
+  RouterOutputs["importJobs"]["previewWithMapping"]["previewRows"][number];
+type XlsxPreview = RouterOutputs["importJobs"]["previewXlsx"];
 
-export function MigrationWizard({ projectId, onCommitted }: { projectId: string; onCommitted: () => void }) {
+export function MigrationWizard({
+  projectId,
+  onCommitted,
+}: {
+  projectId: string;
+  onCommitted: () => void;
+}) {
   const utils = trpcReact.useUtils();
   const [step, setStep] = useState<Step>("source");
   const [source, setSource] = useState<Source | null>(null);
@@ -85,9 +124,21 @@ export function MigrationWizard({ projectId, onCommitted }: { projectId: string;
 
   // CSV-only mapping state
   const [csvPreview, setCsvPreview] = useState<CsvPreview | null>(null);
-  const [mapping, setMapping] = useState<Partial<Record<TargetField, string>>>({});
-  const [csvPreviewRows, setCsvPreviewRows] = useState<CsvMappedPreviewRow[]>([]);
-  const [csvPreviewSkipped, setCsvPreviewSkipped] = useState<{ rowNumber: number; reason: string }[]>([]);
+  const [mapping, setMapping] = useState<Partial<Record<TargetField, string>>>(
+    {},
+  );
+  const [csvPreviewRows, setCsvPreviewRows] = useState<CsvMappedPreviewRow[]>(
+    [],
+  );
+  const [csvPreviewSkipped, setCsvPreviewSkipped] = useState<
+    { rowNumber: number; reason: string }[]
+  >([]);
+  const [xlsxBase64, setXlsxBase64] = useState("");
+  const [xlsxPreview, setXlsxPreview] = useState<XlsxPreview | null>(null);
+  const [selectedSheets, setSelectedSheets] = useState<Set<string>>(new Set());
+  const [xlsxMappings, setXlsxMappings] = useState<
+    Record<string, Partial<Record<TargetField, string>>>
+  >({});
 
   // TestRail/Xray preview state
   const [filePreview, setFilePreview] = useState<{
@@ -112,8 +163,10 @@ export function MigrationWizard({ projectId, onCommitted }: { projectId: string;
   const [zephyrProjectKey, setZephyrProjectKey] = useState("");
 
   const commitCsvMutation = trpcReact.importJobs.commitCsv.useMutation();
+  const commitXlsxMutation = trpcReact.importJobs.commitXlsx.useMutation();
   const commitXrayMutation = trpcReact.importJobs.commitXray.useMutation();
-  const commitTestRailMutation = trpcReact.importJobs.commitTestRail.useMutation();
+  const commitTestRailMutation =
+    trpcReact.importJobs.commitTestRail.useMutation();
   const commitQTestMutation = trpcReact.importJobs.commitQTest.useMutation();
   const commitZephyrMutation = trpcReact.importJobs.commitZephyr.useMutation();
 
@@ -127,6 +180,10 @@ export function MigrationWizard({ projectId, onCommitted }: { projectId: string;
     setMapping({});
     setCsvPreviewRows([]);
     setCsvPreviewSkipped([]);
+    setXlsxBase64("");
+    setXlsxPreview(null);
+    setSelectedSheets(new Set());
+    setXlsxMappings({});
     setFilePreview(null);
     setResult(null);
     setQtestBaseUrl("");
@@ -146,29 +203,67 @@ export function MigrationWizard({ projectId, onCommitted }: { projectId: string;
     if (!source) return;
     setError(null);
     setFileName(file.name);
-    const text = await readFileAsText(file);
-    setRawContent(text);
+    setCsvPreview(null);
+    setXlsxPreview(null);
+    setXlsxBase64("");
     setLoading(true);
     try {
       if (source === "csv") {
-        const res = await utils.importJobs.previewCsv.fetch({ projectId, csvText: text });
+        if (file.name.toLowerCase().endsWith(".xlsx")) {
+          const fileBase64 = await readFileAsBase64(file);
+          const res = await utils.importJobs.previewXlsx.fetch({
+            projectId,
+            fileBase64,
+          });
+          const usableSheets = res.sheets.filter(
+            (sheet) => sheet.suggestedMapping.title,
+          );
+          setXlsxBase64(fileBase64);
+          setXlsxPreview(res);
+          setSelectedSheets(new Set(usableSheets.map((sheet) => sheet.name)));
+          setXlsxMappings(
+            Object.fromEntries(
+              res.sheets.map((sheet) => [sheet.name, sheet.suggestedMapping]),
+            ),
+          );
+          return;
+        }
+        const text = await readFileAsText(file);
+        setRawContent(text);
+        const res = await utils.importJobs.previewCsv.fetch({
+          projectId,
+          csvText: text,
+        });
         setCsvPreview(res);
-        const suggested = res.suggestedMapping as Partial<Record<TargetField, string>>;
+        const suggested = res.suggestedMapping as Partial<
+          Record<TargetField, string>
+        >;
         setMapping(suggested);
         setCsvPreviewRows(res.previewRows);
         setCsvPreviewSkipped(res.previewSkipped);
       } else if (source === "xray") {
-        const res = await utils.importJobs.previewXray.fetch({ projectId, content: text });
+        const text = await readFileAsText(file);
+        setRawContent(text);
+        const res = await utils.importJobs.previewXray.fetch({
+          projectId,
+          content: text,
+        });
         setFilePreview({
           format: res.format,
-          formatLabel: res.format === "jira-csv" ? "Jira CSV export" : "Xray JSON export",
+          formatLabel:
+            res.format === "jira-csv" ? "Jira CSV export" : "Xray JSON export",
           caseCount: res.caseCount,
           previewRows: res.previewRows,
           skipped: res.skipped,
         });
         setStep("review");
       } else {
-        const res = await utils.importJobs.previewTestRail.fetch({ projectId, content: text });
+        const text = await readFileAsText(file);
+        setRawContent(text);
+        const res = await utils.importJobs.previewTestRail.fetch({
+          projectId,
+          content: text,
+        });
         setFilePreview({
           format: res.format,
           formatLabel: "TestRail XML export",
@@ -187,7 +282,12 @@ export function MigrationWizard({ projectId, onCommitted }: { projectId: string;
 
   async function connectQTest() {
     const parsedProjectId = Number(qtestProjectId);
-    if (!qtestBaseUrl.trim() || !qtestApiToken.trim() || !Number.isFinite(parsedProjectId)) return;
+    if (
+      !qtestBaseUrl.trim() ||
+      !qtestApiToken.trim() ||
+      !Number.isFinite(parsedProjectId)
+    )
+      return;
     setError(null);
     setLoading(true);
     try {
@@ -262,22 +362,93 @@ export function MigrationWizard({ projectId, onCommitted }: { projectId: string;
     }
   }
 
+  async function updateXlsxMapping(
+    sheetName: string,
+    field: TargetField,
+    column: string,
+  ) {
+    const nextMapping = {
+      ...xlsxMappings[sheetName],
+      [field]: column || undefined,
+    };
+    setXlsxMappings((current) => ({ ...current, [sheetName]: nextMapping }));
+    if (!nextMapping.title) return;
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await utils.importJobs.previewXlsxSheet.fetch({
+        projectId,
+        fileBase64: xlsxBase64,
+        sheetName,
+        mapping: nextMapping as Record<TargetField, string>,
+      });
+      setXlsxPreview((current) =>
+        current
+          ? {
+              sheets: current.sheets.map((sheet) =>
+                sheet.name === sheetName
+                  ? {
+                      ...sheet,
+                      suggestedMapping: nextMapping,
+                      previewRows: res.previewRows,
+                      skippedCount: res.skippedCount,
+                    }
+                  : sheet,
+              ),
+            }
+          : current,
+      );
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setLoading(false);
+    }
+  }
+
   async function commit() {
     setError(null);
     try {
       let res: FileCommitResult;
       if (source === "csv") {
-        if (!mapping.title) return;
-        res = await commitCsvMutation.mutateAsync({
+        if (xlsxPreview) {
+          const sheets = [...selectedSheets]
+            .map((name) => ({ name, mapping: xlsxMappings[name] }))
+            .filter(
+              (
+                sheet,
+              ): sheet is {
+                name: string;
+                mapping: Record<TargetField, string>;
+              } => Boolean(sheet.mapping?.title),
+            );
+          if (sheets.length === 0) return;
+          res = await commitXlsxMutation.mutateAsync({
+            projectId,
+            fileBase64: xlsxBase64,
+            sourceLabel: fileName,
+            sheets,
+          });
+        } else {
+          if (!mapping.title) return;
+          res = await commitCsvMutation.mutateAsync({
+            projectId,
+            csvText: rawContent,
+            mapping: mapping as Record<TargetField, string>,
+            sourceLabel: fileName || undefined,
+          });
+        }
+      } else if (source === "xray") {
+        res = await commitXrayMutation.mutateAsync({
           projectId,
-          csvText: rawContent,
-          mapping: mapping as Record<TargetField, string>,
+          content: rawContent,
           sourceLabel: fileName || undefined,
         });
-      } else if (source === "xray") {
-        res = await commitXrayMutation.mutateAsync({ projectId, content: rawContent, sourceLabel: fileName || undefined });
       } else if (source === "testrail") {
-        res = await commitTestRailMutation.mutateAsync({ projectId, content: rawContent, sourceLabel: fileName || undefined });
+        res = await commitTestRailMutation.mutateAsync({
+          projectId,
+          content: rawContent,
+          sourceLabel: fileName || undefined,
+        });
       } else if (source === "qtest") {
         const parsedProjectId = Number(qtestProjectId);
         if (!Number.isFinite(parsedProjectId)) return;
@@ -306,6 +477,7 @@ export function MigrationWizard({ projectId, onCommitted }: { projectId: string;
 
   const committing =
     commitCsvMutation.isPending ||
+    commitXlsxMutation.isPending ||
     commitXrayMutation.isPending ||
     commitTestRailMutation.isPending ||
     commitQTestMutation.isPending ||
@@ -315,10 +487,20 @@ export function MigrationWizard({ projectId, onCommitted }: { projectId: string;
 
   return (
     <div className="panel" style={{ marginBottom: 20 }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
+      <div
+        style={{
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "baseline",
+        }}
+      >
         <h2 style={{ marginTop: 0 }}>Migration assistant</h2>
         {step !== "source" && (
-          <button className="btn-secondary" style={{ fontSize: 12 }} onClick={reset}>
+          <button
+            className="btn-secondary"
+            style={{ fontSize: 12 }}
+            onClick={reset}
+          >
             Start over
           </button>
         )}
@@ -332,7 +514,14 @@ export function MigrationWizard({ projectId, onCommitted }: { projectId: string;
           <p className="text-muted" style={{ fontSize: 13 }}>
             Where is your test case data coming from?
           </p>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12, maxWidth: 720 }}>
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "repeat(3, 1fr)",
+              gap: 12,
+              maxWidth: 720,
+            }}
+          >
             {(Object.keys(SOURCE_INFO) as Source[]).map((s) => (
               <button
                 key={s}
@@ -346,7 +535,9 @@ export function MigrationWizard({ projectId, onCommitted }: { projectId: string;
                   cursor: "pointer",
                 }}
               >
-                <div style={{ fontWeight: 600, marginBottom: 4 }}>{SOURCE_INFO[s].label}</div>
+                <div style={{ fontWeight: 600, marginBottom: 4 }}>
+                  {SOURCE_INFO[s].label}
+                </div>
                 <div className="text-muted" style={{ fontSize: 12 }}>
                   {SOURCE_INFO[s].blurb}
                 </div>
@@ -356,28 +547,32 @@ export function MigrationWizard({ projectId, onCommitted }: { projectId: string;
         </>
       )}
 
-      {step === "upload" && source && source !== "qtest" && source !== "zephyr" && (
-        <>
-          <p className="text-muted" style={{ fontSize: 13 }}>
-            {SOURCE_INFO[source].blurb}
-          </p>
-          <input
-            type="file"
-            accept={SOURCE_INFO[source].accept}
-            onChange={(e) => {
-              const file = e.target.files?.[0];
-              if (file) void loadFile(file);
-              e.target.value = "";
-            }}
-          />
-          {loading && <p className="text-muted">Reading export…</p>}
-        </>
-      )}
+      {step === "upload" &&
+        source &&
+        source !== "qtest" &&
+        source !== "zephyr" && (
+          <>
+            <p className="text-muted" style={{ fontSize: 13 }}>
+              {SOURCE_INFO[source].blurb}
+            </p>
+            <input
+              type="file"
+              accept={SOURCE_INFO[source].accept}
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                if (file) void loadFile(file);
+                e.target.value = "";
+              }}
+            />
+            {loading && <p className="text-muted">Reading export…</p>}
+          </>
+        )}
 
       {step === "upload" && source === "qtest" && (
         <div style={{ display: "grid", gap: 8, maxWidth: 420 }}>
           <p className="text-muted" style={{ fontSize: 13 }}>
-            {SOURCE_INFO.qtest.blurb} Nothing is stored beyond this one import - the token isn&apos;t saved.
+            {SOURCE_INFO.qtest.blurb} Nothing is stored beyond this one import -
+            the token isn&apos;t saved.
           </p>
           <label style={{ fontSize: 13 }}>
             qTest instance URL
@@ -408,7 +603,12 @@ export function MigrationWizard({ projectId, onCommitted }: { projectId: string;
           </label>
           <button
             onClick={connectQTest}
-            disabled={loading || !qtestBaseUrl.trim() || !qtestApiToken.trim() || !qtestProjectId.trim()}
+            disabled={
+              loading ||
+              !qtestBaseUrl.trim() ||
+              !qtestApiToken.trim() ||
+              !qtestProjectId.trim()
+            }
             style={{ marginTop: 4 }}
           >
             {loading ? "Connecting…" : "Connect and scan"}
@@ -419,7 +619,8 @@ export function MigrationWizard({ projectId, onCommitted }: { projectId: string;
       {step === "upload" && source === "zephyr" && (
         <div style={{ display: "grid", gap: 8, maxWidth: 420 }}>
           <p className="text-muted" style={{ fontSize: 13 }}>
-            {SOURCE_INFO.zephyr.blurb} Nothing is stored beyond this one import - the token isn&apos;t saved.
+            {SOURCE_INFO.zephyr.blurb} Nothing is stored beyond this one import
+            - the token isn&apos;t saved.
           </p>
           <label style={{ fontSize: 13 }}>
             API token
@@ -441,7 +642,9 @@ export function MigrationWizard({ projectId, onCommitted }: { projectId: string;
           </label>
           <button
             onClick={connectZephyr}
-            disabled={loading || !zephyrApiToken.trim() || !zephyrProjectKey.trim()}
+            disabled={
+              loading || !zephyrApiToken.trim() || !zephyrProjectKey.trim()
+            }
             style={{ marginTop: 4 }}
           >
             {loading ? "Connecting…" : "Connect and scan"}
@@ -449,21 +652,172 @@ export function MigrationWizard({ projectId, onCommitted }: { projectId: string;
         </div>
       )}
 
-      {step === "upload" && source === "csv" && csvPreview && (
+      {step === "upload" && source === "csv" && xlsxPreview && (
+        <div className="xlsx-mapping-workspace">
+          <div className="xlsx-workbook-heading">
+            <div>
+              <h3>Review workbook — {fileName}</h3>
+              <p className="text-muted">
+                {xlsxPreview.sheets.length} worksheet(s) detected. Choose the
+                sheets to import and verify each suggested mapping.
+              </p>
+            </div>
+            <span className="status-pill status-info">
+              {selectedSheets.size} selected
+            </span>
+          </div>
+          <div className="xlsx-sheet-list">
+            {xlsxPreview.sheets.map((sheet) => {
+              const selected = selectedSheets.has(sheet.name);
+              const sheetMapping = xlsxMappings[sheet.name] ?? {};
+              return (
+                <section
+                  key={sheet.name}
+                  className={`xlsx-sheet-card${selected ? " is-selected" : ""}`}
+                >
+                  <div className="xlsx-sheet-heading">
+                    <label>
+                      <input
+                        type="checkbox"
+                        checked={selected}
+                        disabled={!sheetMapping.title}
+                        onChange={(event) =>
+                          setSelectedSheets((current) => {
+                            const next = new Set(current);
+                            if (event.target.checked) next.add(sheet.name);
+                            else next.delete(sheet.name);
+                            return next;
+                          })
+                        }
+                      />
+                      <span>
+                        <strong>{sheet.name}</strong>
+                        <small>
+                          {sheet.rowCount} data row(s)
+                          {sheet.headerRow
+                            ? ` · header on row ${sheet.headerRow}`
+                            : ""}
+                        </small>
+                      </span>
+                    </label>
+                    {sheet.warning && (
+                      <span className="status-pill status-warning">
+                        {sheet.warning}
+                      </span>
+                    )}
+                  </div>
+                  {sheet.headers.length > 0 && (
+                    <>
+                      <div className="xlsx-field-grid">
+                        {TARGET_FIELDS.map((field) => (
+                          <label key={field}>
+                            {FIELD_LABELS[field]}
+                            {field === "title" && (
+                              <span className="text-error"> *</span>
+                            )}
+                            <select
+                              value={sheetMapping[field] ?? ""}
+                              onChange={(event) =>
+                                void updateXlsxMapping(
+                                  sheet.name,
+                                  field,
+                                  event.target.value,
+                                )
+                              }
+                            >
+                              <option value="">— not mapped —</option>
+                              {sheet.headers.map((header) => (
+                                <option key={header} value={header}>
+                                  {header}
+                                </option>
+                              ))}
+                            </select>
+                          </label>
+                        ))}
+                      </div>
+                      {sheet.previewRows.length > 0 && (
+                        <div className="table-scroll xlsx-preview-table">
+                          <table className="workspace-table">
+                            <thead>
+                              <tr>
+                                <th>Row</th>
+                                <th>Title</th>
+                                <th>Steps</th>
+                                <th>Expected</th>
+                                <th>Priority</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {sheet.previewRows.slice(0, 5).map((row) => (
+                                <tr key={row.rowNumber}>
+                                  <td>{row.rowNumber}</td>
+                                  <td>{row.title}</td>
+                                  <td>{row.when.join(" · ") || "—"}</td>
+                                  <td>{row.then.join(" · ") || "—"}</td>
+                                  <td>{row.priority}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      )}
+                      {sheet.skippedCount > 0 && (
+                        <p className="xlsx-sheet-note">
+                          {sheet.skippedCount} row(s) are missing a title and
+                          will be skipped.
+                        </p>
+                      )}
+                    </>
+                  )}
+                </section>
+              );
+            })}
+          </div>
+          <button
+            onClick={() => setStep("review")}
+            disabled={loading || selectedSheets.size === 0}
+          >
+            Review import scope
+          </button>
+        </div>
+      )}
+
+      {step === "upload" && source === "csv" && csvPreview && !xlsxPreview && (
         <div style={{ marginTop: 16 }}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
+          <div
+            style={{
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "baseline",
+            }}
+          >
             <h3 style={{ margin: 0 }}>Map columns — {fileName}</h3>
           </div>
           <p className="text-muted" style={{ fontSize: 13 }}>
-            {csvPreview.rowCount} data row(s) found. &quot;Title&quot; is required; leave any other field unmapped to
-            skip it. Map &quot;External ID&quot; to a column with a stable per-row id to make this import re-runnable.
+            {csvPreview.rowCount} data row(s) found. &quot;Title&quot; is
+            required; leave any other field unmapped to skip it. Map
+            &quot;External ID&quot; to a column with a stable per-row id to make
+            this import re-runnable.
           </p>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, maxWidth: 500 }}>
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "1fr 1fr",
+              gap: 12,
+              maxWidth: 500,
+            }}
+          >
             {TARGET_FIELDS.map((field) => (
               <label key={field} style={{ fontSize: 13 }}>
                 {FIELD_LABELS[field]}
-                {field === "title" && <span style={{ color: "var(--ember)" }}> *</span>}
-                <select value={mapping[field] ?? ""} onChange={(e) => void updateMapping(field, e.target.value)} style={{ width: "100%" }}>
+                {field === "title" && (
+                  <span style={{ color: "var(--ember)" }}> *</span>
+                )}
+                <select
+                  value={mapping[field] ?? ""}
+                  onChange={(e) => void updateMapping(field, e.target.value)}
+                  style={{ width: "100%" }}
+                >
                   <option value="">— not mapped —</option>
                   {csvPreview.headers.map((h) => (
                     <option key={h} value={h}>
@@ -475,11 +829,23 @@ export function MigrationWizard({ projectId, onCommitted }: { projectId: string;
             ))}
           </div>
 
-          <h4 style={{ marginTop: 16 }}>Preview (first {csvPreviewRows.length} row(s))</h4>
-          {!mapping.title && <p style={{ color: "var(--ember)" }}>Map a column to Title to see a preview.</p>}
+          <h4 style={{ marginTop: 16 }}>
+            Preview (first {csvPreviewRows.length} row(s))
+          </h4>
+          {!mapping.title && (
+            <p style={{ color: "var(--ember)" }}>
+              Map a column to Title to see a preview.
+            </p>
+          )}
           {csvPreviewRows.length > 0 && (
             <div style={{ overflowX: "auto" }}>
-              <table style={{ width: "100%", fontSize: 12, borderCollapse: "collapse" }}>
+              <table
+                style={{
+                  width: "100%",
+                  fontSize: 12,
+                  borderCollapse: "collapse",
+                }}
+              >
                 <thead>
                   <tr>
                     <th style={{ textAlign: "left" }}>Row</th>
@@ -493,7 +859,10 @@ export function MigrationWizard({ projectId, onCommitted }: { projectId: string;
                 </thead>
                 <tbody>
                   {csvPreviewRows.map((r) => (
-                    <tr key={r.rowNumber} style={{ borderTop: "1px solid var(--line)" }}>
+                    <tr
+                      key={r.rowNumber}
+                      style={{ borderTop: "1px solid var(--line)" }}
+                    >
                       <td className="text-muted">{r.rowNumber}</td>
                       <td>{r.title}</td>
                       <td>{r.given.join(" | ")}</td>
@@ -509,7 +878,8 @@ export function MigrationWizard({ projectId, onCommitted }: { projectId: string;
           )}
           {csvPreviewSkipped.length > 0 && (
             <p className="text-muted" style={{ fontSize: 12 }}>
-              {csvPreviewSkipped.length} row(s) would be skipped (missing title), e.g. row {csvPreviewSkipped[0]!.rowNumber}.
+              {csvPreviewSkipped.length} row(s) would be skipped (missing
+              title), e.g. row {csvPreviewSkipped[0]!.rowNumber}.
             </p>
           )}
 
@@ -521,20 +891,59 @@ export function MigrationWizard({ projectId, onCommitted }: { projectId: string;
         </div>
       )}
 
-      {step === "review" && source === "csv" && (
+      {step === "review" && source === "csv" && xlsxPreview && (
         <div>
           <h3 style={{ marginTop: 0 }}>Ready to import — {fileName}</h3>
           <p className="text-muted" style={{ fontSize: 13 }}>
-            {csvPreviewRows.length} row(s) shown of {csvPreview?.rowCount ?? 0} total will be created
-            {csvPreviewSkipped.length > 0 && `, ${csvPreviewSkipped.length} row(s) skipped (missing title)`}. Nothing is
-            written until you confirm.
+            {selectedSheets.size} worksheet(s),{" "}
+            {xlsxPreview.sheets
+              .filter((sheet) => selectedSheets.has(sheet.name))
+              .reduce((sum, sheet) => sum + sheet.rowCount, 0)}{" "}
+            source row(s). Each worksheet becomes a suite. Stable source IDs are
+            preserved for safe re-imports. Nothing is written until you confirm.
+          </p>
+          <div className="xlsx-review-list">
+            {xlsxPreview.sheets
+              .filter((sheet) => selectedSheets.has(sheet.name))
+              .map((sheet) => (
+                <span key={sheet.name}>
+                  <strong>{sheet.name}</strong>
+                  {sheet.rowCount} rows · {sheet.previewRows.length} previewed
+                </span>
+              ))}
+          </div>
+          <div style={{ display: "flex", gap: 8 }}>
+            <button className="btn-secondary" onClick={() => setStep("upload")}>
+              Back to mapping
+            </button>
+            <button
+              onClick={commit}
+              disabled={committing || selectedSheets.size === 0}
+            >
+              {committing ? "Importing…" : "Import selected worksheets"}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {step === "review" && source === "csv" && !xlsxPreview && (
+        <div>
+          <h3 style={{ marginTop: 0 }}>Ready to import — {fileName}</h3>
+          <p className="text-muted" style={{ fontSize: 13 }}>
+            {csvPreviewRows.length} row(s) shown of {csvPreview?.rowCount ?? 0}{" "}
+            total will be created
+            {csvPreviewSkipped.length > 0 &&
+              `, ${csvPreviewSkipped.length} row(s) skipped (missing title)`}
+            . Nothing is written until you confirm.
           </p>
           <div style={{ display: "flex", gap: 8 }}>
             <button className="btn-secondary" onClick={() => setStep("upload")}>
               Back to mapping
             </button>
             <button onClick={commit} disabled={committing}>
-              {committing ? "Importing…" : `Import ${csvPreview?.rowCount ?? 0} row(s)`}
+              {committing
+                ? "Importing…"
+                : `Import ${csvPreview?.rowCount ?? 0} row(s)`}
             </button>
           </div>
         </div>
@@ -544,15 +953,27 @@ export function MigrationWizard({ projectId, onCommitted }: { projectId: string;
         <div>
           <h3 style={{ marginTop: 0 }}>
             Ready to import —{" "}
-            {source === "qtest" ? `qTest project ${qtestProjectId}` : source === "zephyr" ? `Zephyr project ${zephyrProjectKey}` : fileName}
+            {source === "qtest"
+              ? `qTest project ${qtestProjectId}`
+              : source === "zephyr"
+                ? `Zephyr project ${zephyrProjectKey}`
+                : fileName}
           </h3>
           <p className="text-muted" style={{ fontSize: 13 }}>
-            Detected {filePreview.formatLabel} · {filePreview.caseCount} test case(s) will be imported
-            {filePreview.skipped.length > 0 && `, ${filePreview.skipped.length} row(s) skipped`}. Nothing is written
-            until you confirm.
+            Detected {filePreview.formatLabel} · {filePreview.caseCount} test
+            case(s) will be imported
+            {filePreview.skipped.length > 0 &&
+              `, ${filePreview.skipped.length} row(s) skipped`}
+            . Nothing is written until you confirm.
           </p>
           <div style={{ overflowX: "auto" }}>
-            <table style={{ width: "100%", fontSize: 12, borderCollapse: "collapse" }}>
+            <table
+              style={{
+                width: "100%",
+                fontSize: 12,
+                borderCollapse: "collapse",
+              }}
+            >
               <thead>
                 <tr>
                   <th style={{ textAlign: "left" }}>Key</th>
@@ -565,7 +986,10 @@ export function MigrationWizard({ projectId, onCommitted }: { projectId: string;
               </thead>
               <tbody>
                 {filePreview.previewRows.map((r, i) => (
-                  <tr key={`${r.key}-${i}`} style={{ borderTop: "1px solid var(--line)" }}>
+                  <tr
+                    key={`${r.key}-${i}`}
+                    style={{ borderTop: "1px solid var(--line)" }}
+                  >
                     <td className="text-muted">{r.key}</td>
                     <td>{r.title}</td>
                     <td>{r.testType}</td>
@@ -579,21 +1003,34 @@ export function MigrationWizard({ projectId, onCommitted }: { projectId: string;
           </div>
           {filePreview.caseCount > filePreview.previewRows.length && (
             <p className="text-muted" style={{ fontSize: 12 }}>
-              Showing the first {filePreview.previewRows.length} of {filePreview.caseCount}.
+              Showing the first {filePreview.previewRows.length} of{" "}
+              {filePreview.caseCount}.
             </p>
           )}
           {filePreview.skipped.length > 0 && (
             <p className="text-muted" style={{ fontSize: 12 }}>
-              Skipped: {filePreview.skipped.slice(0, 5).map((s) => `row ${s.rowNumber} (${s.reason})`).join("; ")}
-              {filePreview.skipped.length > 5 && ` and ${filePreview.skipped.length - 5} more`}
+              Skipped:{" "}
+              {filePreview.skipped
+                .slice(0, 5)
+                .map((s) => `row ${s.rowNumber} (${s.reason})`)
+                .join("; ")}
+              {filePreview.skipped.length > 5 &&
+                ` and ${filePreview.skipped.length - 5} more`}
             </p>
           )}
           <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
             <button className="btn-secondary" onClick={() => setStep("upload")}>
-              {source === "qtest" || source === "zephyr" ? "Change connection" : "Choose a different file"}
+              {source === "qtest" || source === "zephyr"
+                ? "Change connection"
+                : "Choose a different file"}
             </button>
-            <button onClick={commit} disabled={committing || filePreview.caseCount === 0}>
-              {committing ? "Importing…" : `Import ${filePreview.caseCount} test case(s)`}
+            <button
+              onClick={commit}
+              disabled={committing || filePreview.caseCount === 0}
+            >
+              {committing
+                ? "Importing…"
+                : `Import ${filePreview.caseCount} test case(s)`}
             </button>
           </div>
         </div>
@@ -601,11 +1038,16 @@ export function MigrationWizard({ projectId, onCommitted }: { projectId: string;
 
       {step === "done" && result && (
         <div>
-          <h3 style={{ marginTop: 0, color: "var(--frost)" }}>Import complete</h3>
+          <h3 style={{ marginTop: 0, color: "var(--frost)" }}>
+            Import complete
+          </h3>
           <p>
             Imported {result.createdCount} test case(s)
-            {result.updatedCount > 0 && `, updated ${result.updatedCount} existing case(s)`}
-            {result.skipped.length > 0 && `, skipped ${result.skipped.length} row(s)`}.
+            {result.updatedCount > 0 &&
+              `, updated ${result.updatedCount} existing case(s)`}
+            {result.skipped.length > 0 &&
+              `, skipped ${result.skipped.length} row(s)`}
+            .
           </p>
           <button onClick={reset}>Import another</button>
         </div>

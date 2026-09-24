@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { trpcReact } from "@/lib/trpcReact";
 import { GlobalSearch } from "./GlobalSearch";
 import { Icon, type IconName } from "./ui/Workspace";
@@ -122,16 +122,28 @@ function ProjectSidebar({ projectId }: { projectId: string }) {
     { href: `/projects/${projectId}/requirements`, label: "Requirements" },
     { href: `/projects/${projectId}/compliance`, label: "Compliance" },
     { href: `/projects/${projectId}/audit-log`, label: "Audit Log" },
-    { href: `/projects/${projectId}/reverse-engineer`, label: "Reverse Engineer" },
-    { href: `/projects/${projectId}/live-app-generation`, label: "Live App Generation" },
-    { href: `/projects/${projectId}/production-signals`, label: "Production Signals" },
+    {
+      href: `/projects/${projectId}/reverse-engineer`,
+      label: "Reverse Engineer",
+    },
+    {
+      href: `/projects/${projectId}/live-app-generation`,
+      label: "Live App Generation",
+    },
+    {
+      href: `/projects/${projectId}/production-signals`,
+      label: "Production Signals",
+    },
     { href: `/projects/${projectId}/import`, label: "Import" },
     { href: `/projects/${projectId}/test-strategy`, label: "Test Strategy" },
     { href: `/projects/${projectId}/releases`, label: "Release Readiness" },
   ];
 
   return (
-    <SidebarFrame label={currentName || "Project workspace"} detail="Project navigation">
+    <SidebarFrame
+      label={currentName || "Project workspace"}
+      detail="Project navigation"
+    >
       <div className="sidebar-group">
         <Link href="/projects" className="sidebar-back">
           &larr; All projects
@@ -142,7 +154,9 @@ function ProjectSidebar({ projectId }: { projectId: string }) {
           value={projectId}
           onChange={(e) => router.push(`/projects/${e.target.value}`)}
         >
-          {!projects.some((p) => p.id === projectId) && <option value={projectId}>{currentName || "…"}</option>}
+          {!projects.some((p) => p.id === projectId) && (
+            <option value={projectId}>{currentName || "…"}</option>
+          )}
           {projects.map((p) => (
             <option key={p.id} value={p.id}>
               {p.name}
@@ -156,7 +170,12 @@ function ProjectSidebar({ projectId }: { projectId: string }) {
       <div className="sidebar-group">
         <div className="eyebrow sidebar-group-label">Project</div>
         {links.map((link) => (
-          <SidebarLink key={link.href} href={link.href} label={link.label} exact={link.label === "Overview"} />
+          <SidebarLink
+            key={link.href}
+            href={link.href}
+            label={link.label}
+            exact={link.label === "Overview"}
+          />
         ))}
       </div>
       <div className="sidebar-group">
@@ -169,11 +188,23 @@ function ProjectSidebar({ projectId }: { projectId: string }) {
   );
 }
 
-function SidebarLink({ href, label, exact = false }: { href: string; label: string; exact?: boolean }) {
+function SidebarLink({
+  href,
+  label,
+  exact = false,
+}: {
+  href: string;
+  label: string;
+  exact?: boolean;
+}) {
   const pathname = usePathname();
   const active = isNavigationActive(pathname, href, exact);
   return (
-    <Link href={href} aria-current={active ? "page" : undefined} className={`sidebar-link${active ? " active" : ""}`}>
+    <Link
+      href={href}
+      aria-current={active ? "page" : undefined}
+      className={`sidebar-link${active ? " active" : ""}`}
+    >
       <Icon name={LINK_ICONS[label] ?? "folder"} size={17} />
       {label}
     </Link>
@@ -182,6 +213,21 @@ function SidebarLink({ href, label, exact = false }: { href: string; label: stri
 
 export function Sidebar() {
   const pathname = usePathname();
+  const [exampleVisible, setExampleVisible] = useState(true);
+
+  useEffect(() => {
+    // The server cannot read browser storage; reconcile this browser-only preference after hydration.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setExampleVisible(
+      localStorage.getItem("vaettir:hide-example-workspace") !== "1",
+    );
+  }, []);
+
+  function setExampleWorkspaceVisible(visible: boolean) {
+    setExampleVisible(visible);
+    if (visible) localStorage.removeItem("vaettir:hide-example-workspace");
+    else localStorage.setItem("vaettir:hide-example-workspace", "1");
+  }
 
   // /share is a public, unauthenticated preview surface (see middleware.ts) -
   // an org-scoped sidebar would either render nothing useful or attempt
@@ -192,7 +238,8 @@ export function Sidebar() {
     pathname.startsWith("/sign-in") ||
     pathname.startsWith("/sign-up") ||
     pathname.startsWith("/onboarding")
-  ) return null;
+  )
+    return null;
 
   const projectId = projectIdFromPath(pathname);
 
@@ -213,7 +260,42 @@ export function Sidebar() {
       </div>
       <div className="sidebar-group">
         <div className="eyebrow sidebar-group-label">Workspace</div>
-        <SidebarLink href="/" label="Example workspace" exact />
+        {exampleVisible ? (
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "1fr auto",
+              alignItems: "center",
+            }}
+          >
+            <SidebarLink href="/" label="Example workspace" exact />
+            <button
+              type="button"
+              className="btn-secondary"
+              aria-label="Hide example workspace"
+              title="Hide example workspace"
+              onClick={() => setExampleWorkspaceVisible(false)}
+              style={{ padding: "2px 7px", marginRight: 6, fontSize: 14 }}
+            >
+              ×
+            </button>
+          </div>
+        ) : (
+          <button
+            type="button"
+            className="sidebar-link"
+            onClick={() => setExampleWorkspaceVisible(true)}
+            style={{
+              width: "100%",
+              border: 0,
+              background: "transparent",
+              cursor: "pointer",
+            }}
+          >
+            <Icon name="grid" size={17} />
+            Show example workspace
+          </button>
+        )}
         {ORG_LINKS.map((link) => (
           <SidebarLink key={link.href} href={link.href} label={link.label} />
         ))}

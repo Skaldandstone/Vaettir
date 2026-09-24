@@ -1,28 +1,25 @@
-const LABEL_STYLE: Record<string, { color: string; background: string }> = {
-  READY: { color: "var(--frost)", background: "var(--frost-dim)" },
-  AT_RISK: { color: "var(--ember)", background: "transparent" },
-  BLOCKED: { color: "var(--ember)", background: "var(--ember-dim)" },
-};
-
-export function ReadinessBadge({ score, label }: { score: number; label: string }) {
-  const style = LABEL_STYLE[label] ?? LABEL_STYLE.AT_RISK!;
+export function ReadinessBadge({
+  score,
+  label,
+}: {
+  score: number;
+  label: string;
+}) {
+  const boundedScore = Math.min(100, Math.max(0, score));
+  const tone =
+    label === "READY" ? "success" : label === "BLOCKED" ? "danger" : "warning";
   return (
     <span
-      style={{
-        display: "inline-flex",
-        alignItems: "center",
-        gap: 6,
-        padding: "3px 10px",
-        borderRadius: 999,
-        fontSize: 12,
-        fontWeight: 600,
-        letterSpacing: "0.02em",
-        color: style.color,
-        background: style.background,
-        border: `1px solid ${style.color}`,
-      }}
+      className={`readiness-meter readiness-${tone}`}
+      aria-label={`${label.replace("_", " ")}: ${score} out of 100`}
     >
-      {score}/100 · {label.replace("_", " ")}
+      <span className="readiness-meter-copy">
+        <strong>{label.replace("_", " ")}</strong>
+        <span>{score}/100</span>
+      </span>
+      <span className="readiness-meter-track" aria-hidden="true">
+        <span style={{ width: `${boundedScore}%` }} />
+      </span>
     </span>
   );
 }

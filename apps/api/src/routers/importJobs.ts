@@ -1,16 +1,25 @@
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 import { router, protectedProcedure, requireProjectAccess } from "../trpc.js";
-import { inspectCsv, mapCsvRows, TARGET_FIELDS, type TargetField } from "../services/csvFieldMapping.js";
+import {
+  inspectCsv,
+  mapCsvRows,
+  TARGET_FIELDS,
+  type TargetField,
+} from "../services/csvFieldMapping.js";
 import { commitImportedTestCases } from "../services/importCommit.js";
 import { parseXrayExport } from "../services/xrayImport.js";
 import { parseTestRailXml } from "../services/testrailImport.js";
 import { scanQTestProject } from "../services/qtestImport.js";
 import { scanZephyrProject } from "../services/zephyrImport.js";
+import { parseXlsxWorkbook, previewXlsxSheet } from "../services/xlsxImport.js";
 
-const fieldMappingSchema = z.record(z.enum(TARGET_FIELDS), z.string()).refine((m) => Boolean(m.title), {
-  message: 'The "title" field must be mapped to a CSV column',
-});
+const fieldMappingSchema = z
+  .record(z.enum(TARGET_FIELDS), z.string())
+  .refine((m) => Boolean(m.title), {
+    message: 'The "title" field must be mapped to a CSV column',
+  });
+const xlsxContentSchema = z.string().min(1).max(14_000_000);
 
 // P11-01/P11-02: the generic ImportJob pipeline. `previewCsv` never writes
 // anything - it's pure inspection/mapping-preview, so the user can adjust
@@ -31,7 +40,9 @@ const filePreviewRow = z.object({
   stepCount: z.number(),
 });
 
-function toFilePreviewRow(c: ReturnType<typeof parseXrayExport>["cases"][number]): z.infer<typeof filePreviewRow> {
+function toFilePreviewRow(
+  c: ReturnType<typeof parseXrayExport>["cases"][number],
+): z.infer<typeof filePreviewRow> {
   return {
     rowNumber: c.rowNumber,
     key: c.key,
@@ -48,6 +59,201 @@ function toFilePreviewRow(c: ReturnType<typeof parseXrayExport>["cases"][number]
 }
 
 export const importJobsRouter = router({
+  previewXlsx: protectedProcedure
+    .input(z.object({ projectId: z.string(), fileBase64: xlsxContentSchema }))
+    .output(
+      z.object({
+        sheets: z.array(
+          z.object({
+            name: z.string(),
+            headerRow: z.number().nullable(),
+            headers: z.array(z.string()),
+            rowCount: z.number(),
+            suggestedMapping: z.record(z.string(), z.string()),
+            previewRows: z.array(
+              z.object({
+                rowNumber: z.number(),
+                title: z.string(),
+                given: z.array(z.string()),
+                when: z.array(z.string()),
+                then: z.array(z.string()),
+                priority: z.enum(["CRITICAL", "HIGH", "MEDIUM", "LOW"]),
+                tags: z.array(z.string()),
+                externalId: z.string().optional(),
+              }),
+            ),
+            skippedCount: z.number(),
+            warning: z.string().optional(),
+          }),
+        ),
+      }),
+    )
+    .query(async ({ ctx, input }) => {
+      await requireProjectAccess(ctx, input.projectId);
+      try {
+        const sheets = parseXlsxWorkbook(
+          Buffer.from(input.fileBase64, "base64"),
+        );
+        return {
+          sheets: sheets.map((sheet) => {
+            const preview = sheet.suggestedMapping.title
+              ? previewXlsxSheet(sheet)
+              : { rows: [], skipped: [] };
+            return {
+              name: sheet.name,
+              headerRow: sheet.headerRow,
+              headers: sheet.headers,
+              rowCount: sheet.rowCount,
+              suggestedMapping: sheet.suggestedMapping,
+              previewRows: preview.rows,
+              skippedCount: preview.skipped.length,
+              warning: sheet.warning,
+            };
+          }),
+        };
+      } catch (error) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }),
+
+  previewXlsxSheet: protectedProcedure
+    .input(
+      z.object({
+        projectId: z.string(),
+        fileBase64: xlsxContentSchema,
+        sheetName: z.string(),
+        mapping: fieldMappingSchema,
+      }),
+    )
+    .output(
+      z.object({
+        previewRows: z.array(
+          z.object({
+            rowNumber: z.number(),
+            title: z.string(),
+            given: z.array(z.string()),
+            when: z.array(z.string()),
+            then: z.array(z.string()),
+            priority: z.enum(["CRITICAL", "HIGH", "MEDIUM", "LOW"]),
+            tags: z.array(z.string()),
+            externalId: z.string().optional(),
+          }),
+        ),
+        skippedCount: z.number(),
+      }),
+    )
+    .query(async ({ ctx, input }) => {
+      await requireProjectAccess(ctx, input.projectId);
+      try {
+        const sheet = parseXlsxWorkbook(
+          Buffer.from(input.fileBase64, "base64"),
+        ).find((candidate) => candidate.name === input.sheetName);
+        if (!sheet)
+          throw new Error("Worksheet was not found in the uploaded workbook");
+        const preview = previewXlsxSheet(sheet, input.mapping);
+        return {
+          previewRows: preview.rows,
+          skippedCount: preview.skipped.length,
+        };
+      } catch (error) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }),
+
+  commitXlsx: protectedProcedure
+    .input(
+      z.object({
+        projectId: z.string(),
+        fileBase64: xlsxContentSchema,
+        sourceLabel: z.string().optional(),
+        sheets: z
+          .array(z.object({ name: z.string(), mapping: fieldMappingSchema }))
+          .min(1),
+      }),
+    )
+    .output(
+      z.object({
+        importJobId: z.string(),
+        createdCount: z.number(),
+        updatedCount: z.number(),
+        skipped: z.array(
+          z.object({ rowNumber: z.number(), reason: z.string() }),
+        ),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const { project } = await requireProjectAccess(
+        ctx,
+        input.projectId,
+        "EDITOR",
+      );
+      try {
+        const workbook = parseXlsxWorkbook(
+          Buffer.from(input.fileBase64, "base64"),
+        );
+        const selected = new Map(
+          input.sheets.map((sheet) => [sheet.name, sheet.mapping]),
+        );
+        const rows: ReturnType<typeof mapCsvRows>["rows"] = [];
+        const skipped: { rowNumber: number; reason: string }[] = [];
+        let rowOffset = 0;
+        for (const sheet of workbook) {
+          const mapping = selected.get(sheet.name);
+          if (!mapping || !sheet.csvText) continue;
+          const mapped = mapCsvRows(sheet.csvText, mapping);
+          rows.push(
+            ...mapped.rows.map((row) => ({
+              ...row,
+              rowNumber: row.rowNumber + rowOffset,
+              externalId: row.externalId
+                ? `${sheet.name}:${row.externalId}`
+                : undefined,
+              suitePath: sheet.name.trim(),
+            })),
+          );
+          skipped.push(
+            ...mapped.skipped.map((row) => ({
+              rowNumber: row.rowNumber + rowOffset,
+              reason: `${sheet.name}: ${row.reason}`,
+            })),
+          );
+          rowOffset += sheet.rowCount + 1;
+        }
+        if (rows.length === 0)
+          throw new Error(
+            "No importable test cases were found in the selected worksheets",
+          );
+        return commitImportedTestCases(ctx.prisma, {
+          projectId: input.projectId,
+          organizationId: project.organizationId,
+          actorId: ctx.user.id,
+          rows,
+          skipped,
+          source: "CSV",
+          sourceLabel: input.sourceLabel,
+          fieldMapping: Object.fromEntries(
+            input.sheets.map((sheet) => [
+              sheet.name,
+              JSON.stringify(sheet.mapping),
+            ]),
+          ),
+          keyPrefix: "xlsx",
+          framework: "xlsx",
+        });
+      } catch (error) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }),
+
   previewCsv: protectedProcedure
     .input(z.object({ projectId: z.string(), csvText: z.string().min(1) }))
     .output(
@@ -67,7 +273,9 @@ export const importJobsRouter = router({
             externalId: z.string().optional(),
           }),
         ),
-        previewSkipped: z.array(z.object({ rowNumber: z.number(), reason: z.string() })),
+        previewSkipped: z.array(
+          z.object({ rowNumber: z.number(), reason: z.string() }),
+        ),
       }),
     )
     .query(async ({ ctx, input }) => {
@@ -82,14 +290,26 @@ export const importJobsRouter = router({
         previewSkipped = preview.skipped;
       }
 
-      return { headers, suggestedMapping, rowCount, previewRows, previewSkipped };
+      return {
+        headers,
+        suggestedMapping,
+        rowCount,
+        previewRows,
+        previewSkipped,
+      };
     }),
 
   // Re-runs mapCsvRows with a user-adjusted mapping, still preview-only
   // (no ImportJob, no TestCases) - called every time the user changes a
   // dropdown in the mapping UI so they see the real effect before committing.
   previewWithMapping: protectedProcedure
-    .input(z.object({ projectId: z.string(), csvText: z.string().min(1), mapping: fieldMappingSchema }))
+    .input(
+      z.object({
+        projectId: z.string(),
+        csvText: z.string().min(1),
+        mapping: fieldMappingSchema,
+      }),
+    )
     .output(
       z.object({
         previewRows: z.array(
@@ -104,7 +324,9 @@ export const importJobsRouter = router({
             externalId: z.string().optional(),
           }),
         ),
-        previewSkipped: z.array(z.object({ rowNumber: z.number(), reason: z.string() })),
+        previewSkipped: z.array(
+          z.object({ rowNumber: z.number(), reason: z.string() }),
+        ),
       }),
     )
     .query(async ({ ctx, input }) => {
@@ -113,7 +335,10 @@ export const importJobsRouter = router({
         const { rows, skipped } = mapCsvRows(input.csvText, input.mapping, 10);
         return { previewRows: rows, previewSkipped: skipped };
       } catch (e) {
-        throw new TRPCError({ code: "BAD_REQUEST", message: e instanceof Error ? e.message : String(e) });
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: e instanceof Error ? e.message : String(e),
+        });
       }
     }),
 
@@ -132,17 +357,26 @@ export const importJobsRouter = router({
         importJobId: z.string(),
         createdCount: z.number(),
         updatedCount: z.number(),
-        skipped: z.array(z.object({ rowNumber: z.number(), reason: z.string() })),
+        skipped: z.array(
+          z.object({ rowNumber: z.number(), reason: z.string() }),
+        ),
       }),
     )
     .mutation(async ({ ctx, input }) => {
-      const { project } = await requireProjectAccess(ctx, input.projectId, "EDITOR");
+      const { project } = await requireProjectAccess(
+        ctx,
+        input.projectId,
+        "EDITOR",
+      );
 
       let mapped;
       try {
         mapped = mapCsvRows(input.csvText, input.mapping);
       } catch (e) {
-        throw new TRPCError({ code: "BAD_REQUEST", message: e instanceof Error ? e.message : String(e) });
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: e instanceof Error ? e.message : String(e),
+        });
       }
 
       // P11-11: when the mapping includes an external-id column, re-running
@@ -176,7 +410,9 @@ export const importJobsRouter = router({
         format: z.enum(["jira-csv", "xray-json"]),
         caseCount: z.number(),
         previewRows: z.array(filePreviewRow),
-        skipped: z.array(z.object({ rowNumber: z.number(), reason: z.string() })),
+        skipped: z.array(
+          z.object({ rowNumber: z.number(), reason: z.string() }),
+        ),
       }),
     )
     .query(async ({ ctx, input }) => {
@@ -185,7 +421,10 @@ export const importJobsRouter = router({
       try {
         parsed = parseXrayExport(input.content);
       } catch (e) {
-        throw new TRPCError({ code: "BAD_REQUEST", message: e instanceof Error ? e.message : String(e) });
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: e instanceof Error ? e.message : String(e),
+        });
       }
       return {
         format: parsed.format,
@@ -209,16 +448,25 @@ export const importJobsRouter = router({
         importJobId: z.string(),
         createdCount: z.number(),
         updatedCount: z.number(),
-        skipped: z.array(z.object({ rowNumber: z.number(), reason: z.string() })),
+        skipped: z.array(
+          z.object({ rowNumber: z.number(), reason: z.string() }),
+        ),
       }),
     )
     .mutation(async ({ ctx, input }) => {
-      const { project } = await requireProjectAccess(ctx, input.projectId, "EDITOR");
+      const { project } = await requireProjectAccess(
+        ctx,
+        input.projectId,
+        "EDITOR",
+      );
       let parsed;
       try {
         parsed = parseXrayExport(input.content);
       } catch (e) {
-        throw new TRPCError({ code: "BAD_REQUEST", message: e instanceof Error ? e.message : String(e) });
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: e instanceof Error ? e.message : String(e),
+        });
       }
       return commitImportedTestCases(ctx.prisma, {
         projectId: input.projectId,
@@ -260,7 +508,9 @@ export const importJobsRouter = router({
         suiteName: z.string().nullable(),
         caseCount: z.number(),
         previewRows: z.array(filePreviewRow),
-        skipped: z.array(z.object({ rowNumber: z.number(), reason: z.string() })),
+        skipped: z.array(
+          z.object({ rowNumber: z.number(), reason: z.string() }),
+        ),
       }),
     )
     .query(async ({ ctx, input }) => {
@@ -269,7 +519,10 @@ export const importJobsRouter = router({
       try {
         parsed = parseTestRailXml(input.content);
       } catch (e) {
-        throw new TRPCError({ code: "BAD_REQUEST", message: e instanceof Error ? e.message : String(e) });
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: e instanceof Error ? e.message : String(e),
+        });
       }
       return {
         format: parsed.format,
@@ -294,16 +547,25 @@ export const importJobsRouter = router({
         importJobId: z.string(),
         createdCount: z.number(),
         updatedCount: z.number(),
-        skipped: z.array(z.object({ rowNumber: z.number(), reason: z.string() })),
+        skipped: z.array(
+          z.object({ rowNumber: z.number(), reason: z.string() }),
+        ),
       }),
     )
     .mutation(async ({ ctx, input }) => {
-      const { project } = await requireProjectAccess(ctx, input.projectId, "EDITOR");
+      const { project } = await requireProjectAccess(
+        ctx,
+        input.projectId,
+        "EDITOR",
+      );
       let parsed;
       try {
         parsed = parseTestRailXml(input.content);
       } catch (e) {
-        throw new TRPCError({ code: "BAD_REQUEST", message: e instanceof Error ? e.message : String(e) });
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: e instanceof Error ? e.message : String(e),
+        });
       }
       return commitImportedTestCases(ctx.prisma, {
         projectId: input.projectId,
@@ -325,7 +587,10 @@ export const importJobsRouter = router({
         skipped: parsed.skipped,
         source: "TESTRAIL",
         sourceLabel: input.sourceLabel,
-        fieldMapping: { format: parsed.format, suiteName: parsed.suiteName ?? "" },
+        fieldMapping: {
+          format: parsed.format,
+          suiteName: parsed.suiteName ?? "",
+        },
         keyPrefix: "testrail",
         framework: "testrail",
         testPlanId: input.testPlanId,
@@ -339,22 +604,37 @@ export const importJobsRouter = router({
   // import operation, not a recurring sync). Never logged: the token isn't
   // included in fieldMapping/ImportJob or anywhere else that's stored.
   previewQTest: protectedProcedure
-    .input(z.object({ projectId: z.string(), baseUrl: z.string().min(1), apiToken: z.string().min(1), qtestProjectId: z.number() }))
+    .input(
+      z.object({
+        projectId: z.string(),
+        baseUrl: z.string().min(1),
+        apiToken: z.string().min(1),
+        qtestProjectId: z.number(),
+      }),
+    )
     .output(
       z.object({
         format: z.literal("qtest-api"),
         caseCount: z.number(),
         previewRows: z.array(filePreviewRow),
-        skipped: z.array(z.object({ rowNumber: z.number(), reason: z.string() })),
+        skipped: z.array(
+          z.object({ rowNumber: z.number(), reason: z.string() }),
+        ),
       }),
     )
     .query(async ({ ctx, input }) => {
       await requireProjectAccess(ctx, input.projectId);
       let scan;
       try {
-        scan = await scanQTestProject({ baseUrl: input.baseUrl, apiToken: input.apiToken }, input.qtestProjectId);
+        scan = await scanQTestProject(
+          { baseUrl: input.baseUrl, apiToken: input.apiToken },
+          input.qtestProjectId,
+        );
       } catch (e) {
-        throw new TRPCError({ code: "BAD_REQUEST", message: e instanceof Error ? e.message : String(e) });
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: e instanceof Error ? e.message : String(e),
+        });
       }
       return {
         format: "qtest-api" as const,
@@ -380,16 +660,28 @@ export const importJobsRouter = router({
         importJobId: z.string(),
         createdCount: z.number(),
         updatedCount: z.number(),
-        skipped: z.array(z.object({ rowNumber: z.number(), reason: z.string() })),
+        skipped: z.array(
+          z.object({ rowNumber: z.number(), reason: z.string() }),
+        ),
       }),
     )
     .mutation(async ({ ctx, input }) => {
-      const { project } = await requireProjectAccess(ctx, input.projectId, "EDITOR");
+      const { project } = await requireProjectAccess(
+        ctx,
+        input.projectId,
+        "EDITOR",
+      );
       let scan;
       try {
-        scan = await scanQTestProject({ baseUrl: input.baseUrl, apiToken: input.apiToken }, input.qtestProjectId);
+        scan = await scanQTestProject(
+          { baseUrl: input.baseUrl, apiToken: input.apiToken },
+          input.qtestProjectId,
+        );
       } catch (e) {
-        throw new TRPCError({ code: "BAD_REQUEST", message: e instanceof Error ? e.message : String(e) });
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: e instanceof Error ? e.message : String(e),
+        });
       }
       return commitImportedTestCases(ctx.prisma, {
         projectId: input.projectId,
@@ -411,7 +703,10 @@ export const importJobsRouter = router({
         skipped: scan.skipped,
         source: "QTEST",
         sourceLabel: input.sourceLabel,
-        fieldMapping: { format: "qtest-api", qtestProjectId: String(input.qtestProjectId) },
+        fieldMapping: {
+          format: "qtest-api",
+          qtestProjectId: String(input.qtestProjectId),
+        },
         keyPrefix: "qtest",
         framework: "qtest",
         testPlanId: input.testPlanId,
@@ -423,22 +718,36 @@ export const importJobsRouter = router({
   // token + project key, no instance URL and no SSRF guard needed. Never
   // persisted, same one-shot-input reasoning as qTest's connection.
   previewZephyr: protectedProcedure
-    .input(z.object({ projectId: z.string(), apiToken: z.string().min(1), zephyrProjectKey: z.string().min(1) }))
+    .input(
+      z.object({
+        projectId: z.string(),
+        apiToken: z.string().min(1),
+        zephyrProjectKey: z.string().min(1),
+      }),
+    )
     .output(
       z.object({
         format: z.literal("zephyr-api"),
         caseCount: z.number(),
         previewRows: z.array(filePreviewRow),
-        skipped: z.array(z.object({ rowNumber: z.number(), reason: z.string() })),
+        skipped: z.array(
+          z.object({ rowNumber: z.number(), reason: z.string() }),
+        ),
       }),
     )
     .query(async ({ ctx, input }) => {
       await requireProjectAccess(ctx, input.projectId);
       let scan;
       try {
-        scan = await scanZephyrProject({ apiToken: input.apiToken }, input.zephyrProjectKey);
+        scan = await scanZephyrProject(
+          { apiToken: input.apiToken },
+          input.zephyrProjectKey,
+        );
       } catch (e) {
-        throw new TRPCError({ code: "BAD_REQUEST", message: e instanceof Error ? e.message : String(e) });
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: e instanceof Error ? e.message : String(e),
+        });
       }
       return {
         format: "zephyr-api" as const,
@@ -463,16 +772,28 @@ export const importJobsRouter = router({
         importJobId: z.string(),
         createdCount: z.number(),
         updatedCount: z.number(),
-        skipped: z.array(z.object({ rowNumber: z.number(), reason: z.string() })),
+        skipped: z.array(
+          z.object({ rowNumber: z.number(), reason: z.string() }),
+        ),
       }),
     )
     .mutation(async ({ ctx, input }) => {
-      const { project } = await requireProjectAccess(ctx, input.projectId, "EDITOR");
+      const { project } = await requireProjectAccess(
+        ctx,
+        input.projectId,
+        "EDITOR",
+      );
       let scan;
       try {
-        scan = await scanZephyrProject({ apiToken: input.apiToken }, input.zephyrProjectKey);
+        scan = await scanZephyrProject(
+          { apiToken: input.apiToken },
+          input.zephyrProjectKey,
+        );
       } catch (e) {
-        throw new TRPCError({ code: "BAD_REQUEST", message: e instanceof Error ? e.message : String(e) });
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: e instanceof Error ? e.message : String(e),
+        });
       }
       return commitImportedTestCases(ctx.prisma, {
         projectId: input.projectId,
@@ -494,7 +815,10 @@ export const importJobsRouter = router({
         skipped: scan.skipped,
         source: "ZEPHYR",
         sourceLabel: input.sourceLabel,
-        fieldMapping: { format: "zephyr-api", zephyrProjectKey: input.zephyrProjectKey },
+        fieldMapping: {
+          format: "zephyr-api",
+          zephyrProjectKey: input.zephyrProjectKey,
+        },
         keyPrefix: "zephyr",
         framework: "zephyr",
         testPlanId: input.testPlanId,

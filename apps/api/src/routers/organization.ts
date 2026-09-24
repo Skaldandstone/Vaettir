@@ -8,16 +8,35 @@ import {
   type StepFieldKey,
   type SeatType as CoreSeatType,
 } from "@vaettir/core";
-import { router, protectedProcedure, requireOrgRole } from "../trpc.js";
+import {
+  router,
+  protectedProcedure,
+  requireOrgRole,
+  isStaffEmail,
+} from "../trpc.js";
 import type { Prisma, PrismaClient } from "@vaettir/db";
 import { sendReadinessDigestForOrg } from "../jobs/readinessDigestScheduler.js";
 import { getAiCreditBalance } from "../services/aiCredits.js";
 import { computeRetentionDryRun } from "../services/retentionAudit.js";
 import { WEBHOOK_EVENT_TYPES } from "../services/webhookDelivery.js";
 import { assertPublicHttpUrl, UnsafeUrlError } from "../services/urlGuard.js";
-import { bootstrapBetaOrganization, PRIVATE_BETA_TIER } from "../services/privateBeta.js";
-import { createBillingCheckoutSession, createBillingPortalSession as createStripePortalSession, createCreditTopupCheckoutSession, CREDIT_TOPUP_PACKS, type CreditTopupPackKey, syncBillingSeatQuantity, BillingNotConfiguredError } from "../services/stripeBilling.js";
-import { encryptToken, TokenEncryptionNotConfiguredError } from "../services/tokenEncryption.js";
+import {
+  bootstrapBetaOrganization,
+  PRIVATE_BETA_TIER,
+} from "../services/privateBeta.js";
+import {
+  createBillingCheckoutSession,
+  createBillingPortalSession as createStripePortalSession,
+  createCreditTopupCheckoutSession,
+  CREDIT_TOPUP_PACKS,
+  type CreditTopupPackKey,
+  syncBillingSeatQuantity,
+  BillingNotConfiguredError,
+} from "../services/stripeBilling.js";
+import {
+  encryptToken,
+  TokenEncryptionNotConfiguredError,
+} from "../services/tokenEncryption.js";
 import { computeIntegrationsHealth } from "../services/integrationsHealth.js";
 
 const INVITATION_EXPIRY_DAYS = 7;
@@ -25,27 +44,52 @@ const INVITATION_EXPIRY_DAYS = 7;
 async function getSeatCounts(prisma: PrismaClient, organizationId: string) {
   const [fullSeats, readOnlySeats] = await Promise.all([
     prisma.membership.count({ where: { organizationId, seatType: "FULL" } }),
-    prisma.membership.count({ where: { organizationId, seatType: "READ_ONLY" } }),
+    prisma.membership.count({
+      where: { organizationId, seatType: "READ_ONLY" },
+    }),
   ]);
   return { fullSeats, readOnlySeats };
 }
 
-async function lockActiveOrganization(tx: Prisma.TransactionClient, organizationId: string) {
-  const rows = await tx.$queryRaw<Array<{ id: string; suspendedAt: Date | null }>>`
+async function lockActiveOrganization(
+  tx: Prisma.TransactionClient,
+  organizationId: string,
+) {
+  const rows = await tx.$queryRaw<
+    Array<{ id: string; suspendedAt: Date | null }>
+  >`
     SELECT "id", "suspendedAt" FROM "Organization" WHERE "id" = ${organizationId} FOR UPDATE
   `;
-  if (!rows[0]) throw new TRPCError({ code: "NOT_FOUND", message: "Organization not found" });
+  if (!rows[0])
+    throw new TRPCError({
+      code: "NOT_FOUND",
+      message: "Organization not found",
+    });
   if (rows[0].suspendedAt) {
-    throw new TRPCError({ code: "FORBIDDEN", message: "This organization is suspended. Contact support." });
+    throw new TRPCError({
+      code: "FORBIDDEN",
+      message: "This organization is suspended. Contact support.",
+    });
   }
 }
 
-async function requireTransactionAdmin(tx: Prisma.TransactionClient, organizationId: string, userId: string) {
+async function requireTransactionAdmin(
+  tx: Prisma.TransactionClient,
+  organizationId: string,
+  userId: string,
+) {
   const membership = await tx.membership.findUnique({
     where: { organizationId_userId: { organizationId, userId } },
   });
-  if (!membership || !["OWNER", "ADMIN"].includes(membership.role) || membership.seatType === "READ_ONLY") {
-    throw new TRPCError({ code: "FORBIDDEN", message: "Organization admin access required" });
+  if (
+    !membership ||
+    !["OWNER", "ADMIN"].includes(membership.role) ||
+    membership.seatType === "READ_ONLY"
+  ) {
+    throw new TRPCError({
+      code: "FORBIDDEN",
+      message: "Organization admin access required",
+    });
   }
 }
 
@@ -55,7 +99,10 @@ async function getReservedSeatCounts(
   excludeInvitationId?: string,
 ) {
   const [members, pending] = await Promise.all([
-    tx.membership.findMany({ where: { organizationId }, select: { seatType: true } }),
+    tx.membership.findMany({
+      where: { organizationId },
+      select: { seatType: true },
+    }),
     tx.invitation.findMany({
       where: {
         organizationId,
@@ -67,16 +114,22 @@ async function getReservedSeatCounts(
     }),
   ]);
   return {
-    fullSeats: [...members, ...pending].filter((seat) => seat.seatType === "FULL").length,
-    readOnlySeats: [...members, ...pending].filter((seat) => seat.seatType === "READ_ONLY").length,
+    fullSeats: [...members, ...pending].filter(
+      (seat) => seat.seatType === "FULL",
+    ).length,
+    readOnlySeats: [...members, ...pending].filter(
+      (seat) => seat.seatType === "READ_ONLY",
+    ).length,
   };
 }
 
 const stepFieldLabelsInputSchema = z.object(
-  Object.fromEntries(Object.keys(DEFAULT_STEP_FIELD_LABELS).map((k) => [k, z.string().min(1).optional()])) as Record<
-    StepFieldKey,
-    z.ZodOptional<z.ZodString>
-  >,
+  Object.fromEntries(
+    Object.keys(DEFAULT_STEP_FIELD_LABELS).map((k) => [
+      k,
+      z.string().min(1).optional(),
+    ]),
+  ) as Record<StepFieldKey, z.ZodOptional<z.ZodString>>,
 );
 
 export const organizationRouter = router({
@@ -92,7 +145,14 @@ export const organizationRouter = router({
     // already needed, tripped here once a react-query `useMutation` wrapper
     // (P1-15) tried to fully resolve the unbounded type.
     .output(z.object({ id: z.string(), name: z.string(), slug: z.string() }))
-    .mutation(({ ctx, input }) => bootstrapBetaOrganization(ctx.prisma, ctx.user, input.organizationName)),
+    .mutation(({ ctx, input }) =>
+      bootstrapBetaOrganization(
+        ctx.prisma,
+        ctx.user,
+        input.organizationName,
+        isStaffEmail(ctx.user.email),
+      ),
+    ),
 
   // .output() bounds the inferred type instead of letting it flow straight
   // from Prisma's Organization model -- see testCases.ts's byId for why
@@ -102,7 +162,17 @@ export const organizationRouter = router({
   // loaded on context rather than a second query - this is what the web
   // app's read-only UI gating (lib/membership.ts) is built on.
   mine: protectedProcedure
-    .output(z.array(z.object({ id: z.string(), name: z.string(), slug: z.string(), role: z.string(), seatType: z.string() })))
+    .output(
+      z.array(
+        z.object({
+          id: z.string(),
+          name: z.string(),
+          slug: z.string(),
+          role: z.string(),
+          seatType: z.string(),
+        }),
+      ),
+    )
     .query(({ ctx }) =>
       ctx.prisma.organization
         .findMany({
@@ -111,8 +181,14 @@ export const organizationRouter = router({
         })
         .then((orgs) =>
           orgs.map((org) => {
-            const membership = ctx.user.memberships.find((m) => m.organizationId === org.id)!;
-            return { ...org, role: membership.role, seatType: membership.seatType };
+            const membership = ctx.user.memberships.find(
+              (m) => m.organizationId === org.id,
+            )!;
+            return {
+              ...org,
+              role: membership.role,
+              seatType: membership.seatType,
+            };
           }),
         ),
     ),
@@ -167,11 +243,15 @@ export const organizationRouter = router({
           datadogWebhookSecret: true,
         },
       });
-      const overrides = (org.stepFieldLabels as Partial<Record<StepFieldKey, string>> | null) ?? {};
+      const overrides =
+        (org.stepFieldLabels as Partial<Record<StepFieldKey, string>> | null) ??
+        {};
       // Strip undefined entries -- Partial<...> allows them, but the output
       // schema (and the JSON response) shouldn't carry keys with no value.
       const definedOverrides = Object.fromEntries(
-        Object.entries(overrides).filter((entry): entry is [string, string] => entry[1] !== undefined),
+        Object.entries(overrides).filter(
+          (entry): entry is [string, string] => entry[1] !== undefined,
+        ),
       );
       return {
         id: org.id,
@@ -204,7 +284,12 @@ export const organizationRouter = router({
   // multi-year retention), so a floor is enforced rather than letting an org
   // configure something a real auditor would reject outright.
   updateDataRetention: protectedProcedure
-    .input(z.object({ organizationId: z.string(), dataRetentionYears: z.number().int().min(1).max(20) }))
+    .input(
+      z.object({
+        organizationId: z.string(),
+        dataRetentionYears: z.number().int().min(1).max(20),
+      }),
+    )
     .mutation(async ({ ctx, input }) => {
       requireOrgRole(ctx, input.organizationId, "ADMIN");
       const org = await ctx.prisma.organization.update({
@@ -220,7 +305,12 @@ export const organizationRouter = router({
   // releases.updateStatus refuse the READY transition server-side, so it
   // can't be bypassed by hitting the API directly either.
   updateReleaseGatePolicy: protectedProcedure
-    .input(z.object({ organizationId: z.string(), releaseGatePolicy: z.enum(["SOFT_WARNING", "HARD_BLOCK"]) }))
+    .input(
+      z.object({
+        organizationId: z.string(),
+        releaseGatePolicy: z.enum(["SOFT_WARNING", "HARD_BLOCK"]),
+      }),
+    )
     .mutation(async ({ ctx, input }) => {
       requireOrgRole(ctx, input.organizationId, "ADMIN");
       const org = await ctx.prisma.organization.update({
@@ -248,7 +338,11 @@ export const organizationRouter = router({
     )
     .mutation(async ({ ctx, input }) => {
       requireOrgRole(ctx, input.organizationId, "ADMIN");
-      const data: { slackWebhookUrl?: string | null; digestEnabled: boolean; digestHourUtc: number | null } = {
+      const data: {
+        slackWebhookUrl?: string | null;
+        digestEnabled: boolean;
+        digestHourUtc: number | null;
+      } = {
         digestEnabled: input.digestEnabled,
         digestHourUtc: input.digestHourUtc,
       };
@@ -259,7 +353,10 @@ export const organizationRouter = router({
             await assertPublicHttpUrl(trimmed);
           } catch (err) {
             if (err instanceof UnsafeUrlError) {
-              throw new TRPCError({ code: "BAD_REQUEST", message: err.message });
+              throw new TRPCError({
+                code: "BAD_REQUEST",
+                message: err.message,
+              });
             }
             throw err;
           }
@@ -267,7 +364,10 @@ export const organizationRouter = router({
         data.slackWebhookUrl = trimmed.length > 0 ? trimmed : null;
       }
       if (data.slackWebhookUrl === null) data.digestEnabled = false;
-      await ctx.prisma.organization.update({ where: { id: input.organizationId }, data });
+      await ctx.prisma.organization.update({
+        where: { id: input.organizationId },
+        data,
+      });
     }),
 
   // Fires a digest immediately -- both "test my webhook" during setup and
@@ -281,7 +381,12 @@ export const organizationRouter = router({
   // ahead of adding a webhook; nothing sends until both exist), matching
   // notifySlackEvent's own no-op-when-unconfigured guard.
   updateSlackEventTypes: protectedProcedure
-    .input(z.object({ organizationId: z.string(), eventTypes: z.array(z.enum(WEBHOOK_EVENT_TYPES)) }))
+    .input(
+      z.object({
+        organizationId: z.string(),
+        eventTypes: z.array(z.enum(WEBHOOK_EVENT_TYPES)),
+      }),
+    )
     .mutation(async ({ ctx, input }) => {
       requireOrgRole(ctx, input.organizationId, "ADMIN");
       await ctx.prisma.organization.update({
@@ -304,7 +409,11 @@ export const organizationRouter = router({
       if (!trimmed) {
         await ctx.prisma.organization.update({
           where: { id: input.organizationId },
-          data: { linearEncryptedApiKey: null, linearApiKeyIv: null, linearApiKeyAuthTag: null },
+          data: {
+            linearEncryptedApiKey: null,
+            linearApiKeyIv: null,
+            linearApiKeyAuthTag: null,
+          },
         });
         return;
       }
@@ -313,13 +422,20 @@ export const organizationRouter = router({
         encrypted = encryptToken(trimmed);
       } catch (e) {
         if (e instanceof TokenEncryptionNotConfiguredError) {
-          throw new TRPCError({ code: "PRECONDITION_FAILED", message: e.message });
+          throw new TRPCError({
+            code: "PRECONDITION_FAILED",
+            message: e.message,
+          });
         }
         throw e;
       }
       await ctx.prisma.organization.update({
         where: { id: input.organizationId },
-        data: { linearEncryptedApiKey: encrypted.ciphertext, linearApiKeyIv: encrypted.iv, linearApiKeyAuthTag: encrypted.authTag },
+        data: {
+          linearEncryptedApiKey: encrypted.ciphertext,
+          linearApiKeyIv: encrypted.iv,
+          linearApiKeyAuthTag: encrypted.authTag,
+        },
       });
     }),
 
@@ -345,7 +461,14 @@ export const organizationRouter = router({
   // supported in this pass, matching how little the connection changes in
   // practice once set up.
   updateJiraConnection: protectedProcedure
-    .input(z.object({ organizationId: z.string(), baseUrl: z.string(), email: z.string(), apiToken: z.string() }))
+    .input(
+      z.object({
+        organizationId: z.string(),
+        baseUrl: z.string(),
+        email: z.string(),
+        apiToken: z.string(),
+      }),
+    )
     .mutation(async ({ ctx, input }) => {
       requireOrgRole(ctx, input.organizationId, "ADMIN");
       const baseUrl = input.baseUrl.trim();
@@ -354,19 +477,31 @@ export const organizationRouter = router({
       if (!baseUrl && !email && !apiToken) {
         await ctx.prisma.organization.update({
           where: { id: input.organizationId },
-          data: { jiraBaseUrl: null, jiraEmail: null, jiraEncryptedApiToken: null, jiraApiTokenIv: null, jiraApiTokenAuthTag: null },
+          data: {
+            jiraBaseUrl: null,
+            jiraEmail: null,
+            jiraEncryptedApiToken: null,
+            jiraApiTokenIv: null,
+            jiraApiTokenAuthTag: null,
+          },
         });
         return;
       }
       if (!baseUrl || !email || !apiToken) {
-        throw new TRPCError({ code: "BAD_REQUEST", message: "Base URL, email, and API token are all required together." });
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "Base URL, email, and API token are all required together.",
+        });
       }
       let encrypted;
       try {
         encrypted = encryptToken(apiToken);
       } catch (e) {
         if (e instanceof TokenEncryptionNotConfiguredError) {
-          throw new TRPCError({ code: "PRECONDITION_FAILED", message: e.message });
+          throw new TRPCError({
+            code: "PRECONDITION_FAILED",
+            message: e.message,
+          });
         }
         throw e;
       }
@@ -441,7 +576,10 @@ export const organizationRouter = router({
           lastSyncedAt: z.string().nullable(),
         }),
         pagerduty: z.object({ projectsConfigured: z.number() }),
-        datadog: z.object({ projectsConfigured: z.number(), webhookConfigured: z.boolean() }),
+        datadog: z.object({
+          projectsConfigured: z.number(),
+          webhookConfigured: z.boolean(),
+        }),
       }),
     )
     .query(({ ctx, input }) => {
@@ -461,14 +599,21 @@ export const organizationRouter = router({
   // set; omit a field to leave it at whatever it currently is (or the
   // default, if never overridden) rather than resetting it.
   updateStepFieldLabels: protectedProcedure
-    .input(z.object({ organizationId: z.string(), labels: stepFieldLabelsInputSchema }))
+    .input(
+      z.object({
+        organizationId: z.string(),
+        labels: stepFieldLabelsInputSchema,
+      }),
+    )
     .mutation(async ({ ctx, input }) => {
       requireOrgRole(ctx, input.organizationId, "ADMIN");
       const org = await ctx.prisma.organization.findUniqueOrThrow({
         where: { id: input.organizationId },
         select: { stepFieldLabels: true },
       });
-      const current = (org.stepFieldLabels as Partial<Record<StepFieldKey, string>> | null) ?? {};
+      const current =
+        (org.stepFieldLabels as Partial<Record<StepFieldKey, string>> | null) ??
+        {};
       const merged = { ...current, ...input.labels };
       await ctx.prisma.organization.update({
         where: { id: input.organizationId },
@@ -542,21 +687,32 @@ export const organizationRouter = router({
         seatType: z.enum(["FULL", "READ_ONLY"]).default("FULL"),
       }),
     )
-    .output(z.object({ id: z.string(), token: z.string(), expiresAt: z.date() }))
+    .output(
+      z.object({ id: z.string(), token: z.string(), expiresAt: z.date() }),
+    )
     .mutation(async ({ ctx, input }) => {
       requireOrgRole(ctx, input.organizationId, "ADMIN");
       return ctx.prisma.$transaction(async (tx) => {
         await lockActiveOrganization(tx, input.organizationId);
         await requireTransactionAdmin(tx, input.organizationId, ctx.user.id);
         if (input.seatType === "READ_ONLY" && input.role !== "VIEWER") {
-          throw new TRPCError({ code: "BAD_REQUEST", message: "Read-only seats can only hold the Viewer role" });
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "Read-only seats can only hold the Viewer role",
+          });
         }
 
         const email = input.email.trim().toLowerCase();
         const [org, existingMember, existingInvitation] = await Promise.all([
-          tx.organization.findUniqueOrThrow({ where: { id: input.organizationId }, include: { planTier: true } }),
+          tx.organization.findUniqueOrThrow({
+            where: { id: input.organizationId },
+            include: { planTier: true },
+          }),
           tx.membership.findFirst({
-            where: { organizationId: input.organizationId, user: { email: { equals: email, mode: "insensitive" } } },
+            where: {
+              organizationId: input.organizationId,
+              user: { email: { equals: email, mode: "insensitive" } },
+            },
           }),
           tx.invitation.findFirst({
             where: {
@@ -567,13 +723,24 @@ export const organizationRouter = router({
             },
           }),
         ]);
-        if (existingMember) throw new TRPCError({ code: "BAD_REQUEST", message: "This person is already a member" });
+        if (existingMember)
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "This person is already a member",
+          });
         if (existingInvitation) {
-          throw new TRPCError({ code: "BAD_REQUEST", message: "This person already has a pending invitation" });
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "This person already has a pending invitation",
+          });
         }
 
         const counts = await getReservedSeatCounts(tx, input.organizationId);
-        const check = canAddSeat(org.planTier, counts, input.seatType as CoreSeatType);
+        const check = canAddSeat(
+          org.planTier,
+          counts,
+          input.seatType as CoreSeatType,
+        );
         if (!check.allowed) {
           throw new TRPCError({
             code: "BAD_REQUEST",
@@ -581,7 +748,9 @@ export const organizationRouter = router({
           });
         }
 
-        const expiresAt = new Date(Date.now() + INVITATION_EXPIRY_DAYS * 24 * 60 * 60 * 1000);
+        const expiresAt = new Date(
+          Date.now() + INVITATION_EXPIRY_DAYS * 24 * 60 * 60 * 1000,
+        );
         return tx.invitation.create({
           data: {
             organizationId: input.organizationId,
@@ -604,75 +773,124 @@ export const organizationRouter = router({
     .input(
       z.object({
         membershipId: z.string(),
-        role: z.enum(["OWNER", "ADMIN", "EDITOR", "VIEWER", "COMPLIANCE_AUDITOR"]),
+        role: z.enum([
+          "OWNER",
+          "ADMIN",
+          "EDITOR",
+          "VIEWER",
+          "COMPLIANCE_AUDITOR",
+        ]),
         seatType: z.enum(["FULL", "READ_ONLY"]),
       }),
     )
     .mutation(async ({ ctx, input }) => {
-      const target = await ctx.prisma.membership.findUniqueOrThrow({ where: { id: input.membershipId } });
-      requireOrgRole(ctx, target.organizationId, "ADMIN");
-      return ctx.prisma.$transaction(async (tx) => {
-        await lockActiveOrganization(tx, target.organizationId);
-        await requireTransactionAdmin(tx, target.organizationId, ctx.user.id);
-        const membership = await tx.membership.findUniqueOrThrow({
-          where: { id: input.membershipId },
-          include: { organization: { include: { planTier: true } } },
-        });
-        if (input.seatType === "READ_ONLY" && input.role !== "VIEWER") {
-          throw new TRPCError({ code: "BAD_REQUEST", message: "Read-only seats can only hold the Viewer role" });
-        }
-        if (membership.role === "OWNER" && input.role !== "OWNER") {
-          const otherOwners = await tx.membership.count({
-            where: { organizationId: membership.organizationId, role: "OWNER", id: { not: membership.id } },
-          });
-          if (otherOwners === 0) {
-            throw new TRPCError({ code: "BAD_REQUEST", message: "An organization must have at least one Owner" });
-          }
-        }
-
-        if (input.seatType !== membership.seatType) {
-          const counts = await getReservedSeatCounts(tx, membership.organizationId);
-          const check = canAddSeat(membership.organization.planTier, counts, input.seatType as CoreSeatType);
-          if (!check.allowed) {
-            throw new TRPCError({ code: "BAD_REQUEST", message: check.reason ?? "Seat limit reached" });
-          }
-        }
-
-        return tx.membership.update({
-          where: { id: input.membershipId },
-          data: { role: input.role, seatType: input.seatType },
-        });
-      }).then((updated) => {
-        void syncBillingSeatQuantity(ctx.prisma, updated.organizationId).catch(() => undefined);
-        return updated;
+      const target = await ctx.prisma.membership.findUniqueOrThrow({
+        where: { id: input.membershipId },
       });
+      requireOrgRole(ctx, target.organizationId, "ADMIN");
+      return ctx.prisma
+        .$transaction(async (tx) => {
+          await lockActiveOrganization(tx, target.organizationId);
+          await requireTransactionAdmin(tx, target.organizationId, ctx.user.id);
+          const membership = await tx.membership.findUniqueOrThrow({
+            where: { id: input.membershipId },
+            include: { organization: { include: { planTier: true } } },
+          });
+          if (input.seatType === "READ_ONLY" && input.role !== "VIEWER") {
+            throw new TRPCError({
+              code: "BAD_REQUEST",
+              message: "Read-only seats can only hold the Viewer role",
+            });
+          }
+          if (membership.role === "OWNER" && input.role !== "OWNER") {
+            const otherOwners = await tx.membership.count({
+              where: {
+                organizationId: membership.organizationId,
+                role: "OWNER",
+                id: { not: membership.id },
+              },
+            });
+            if (otherOwners === 0) {
+              throw new TRPCError({
+                code: "BAD_REQUEST",
+                message: "An organization must have at least one Owner",
+              });
+            }
+          }
+
+          if (input.seatType !== membership.seatType) {
+            const counts = await getReservedSeatCounts(
+              tx,
+              membership.organizationId,
+            );
+            const check = canAddSeat(
+              membership.organization.planTier,
+              counts,
+              input.seatType as CoreSeatType,
+            );
+            if (!check.allowed) {
+              throw new TRPCError({
+                code: "BAD_REQUEST",
+                message: check.reason ?? "Seat limit reached",
+              });
+            }
+          }
+
+          return tx.membership.update({
+            where: { id: input.membershipId },
+            data: { role: input.role, seatType: input.seatType },
+          });
+        })
+        .then((updated) => {
+          void syncBillingSeatQuantity(
+            ctx.prisma,
+            updated.organizationId,
+          ).catch(() => undefined);
+          return updated;
+        });
     }),
 
   removeMember: protectedProcedure
     .input(z.object({ membershipId: z.string() }))
     .mutation(async ({ ctx, input }) => {
-      const membership = await ctx.prisma.membership.findUniqueOrThrow({ where: { id: input.membershipId } });
+      const membership = await ctx.prisma.membership.findUniqueOrThrow({
+        where: { id: input.membershipId },
+      });
       requireOrgRole(ctx, membership.organizationId, "ADMIN");
 
       if (membership.role === "OWNER") {
         const otherOwners = await ctx.prisma.membership.count({
-          where: { organizationId: membership.organizationId, role: "OWNER", id: { not: membership.id } },
+          where: {
+            organizationId: membership.organizationId,
+            role: "OWNER",
+            id: { not: membership.id },
+          },
         });
         if (otherOwners === 0) {
-          throw new TRPCError({ code: "BAD_REQUEST", message: "An organization must have at least one Owner" });
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "An organization must have at least one Owner",
+          });
         }
       }
 
       await ctx.prisma.membership.delete({ where: { id: input.membershipId } });
-      void syncBillingSeatQuantity(ctx.prisma, membership.organizationId).catch(() => undefined);
+      void syncBillingSeatQuantity(ctx.prisma, membership.organizationId).catch(
+        () => undefined,
+      );
     }),
 
   revokeInvitation: protectedProcedure
     .input(z.object({ invitationId: z.string() }))
     .mutation(async ({ ctx, input }) => {
-      const invitation = await ctx.prisma.invitation.findUniqueOrThrow({ where: { id: input.invitationId } });
+      const invitation = await ctx.prisma.invitation.findUniqueOrThrow({
+        where: { id: input.invitationId },
+      });
       requireOrgRole(ctx, invitation.organizationId, "ADMIN");
-      await ctx.prisma.invitation.update({ where: { id: input.invitationId }, data: { status: "REVOKED" } });
+      await ctx.prisma.invitation.update({
+        where: { id: input.invitationId },
+        data: { status: "REVOKED" },
+      });
     }),
 
   // Looks up the invitation by token for display before the user commits --
@@ -701,61 +919,96 @@ export const organizationRouter = router({
         seatType: invitation.seatType,
         status: invitation.status,
         expired: invitation.expiresAt < new Date(),
-        emailMatches: invitation.email.toLowerCase() === ctx.user.email.toLowerCase(),
+        emailMatches:
+          invitation.email.toLowerCase() === ctx.user.email.toLowerCase(),
       };
     }),
 
   acceptInvitation: protectedProcedure
     .input(z.object({ token: z.string() }))
     .mutation(async ({ ctx, input }) => {
-      const target = await ctx.prisma.invitation.findUniqueOrThrow({ where: { token: input.token } });
-      return ctx.prisma.$transaction(async (tx) => {
-        await lockActiveOrganization(tx, target.organizationId);
-        await tx.$queryRaw`SELECT "id" FROM "User" WHERE "id" = ${ctx.user.id} FOR UPDATE`;
-        const invitation = await tx.invitation.findUniqueOrThrow({
-          where: { token: input.token },
-          include: { organization: { include: { planTier: true } } },
-        });
-        if (invitation.status !== "PENDING" || invitation.expiresAt <= new Date()) {
-          throw new TRPCError({ code: "BAD_REQUEST", message: "This invitation is expired or no longer pending" });
-        }
-        if (invitation.email.toLowerCase() !== ctx.user.email.toLowerCase()) {
-          throw new TRPCError({
-            code: "FORBIDDEN",
-            message: "Sign in with the email address this invitation was sent to",
-          });
-        }
-        if (await tx.membership.findUnique({
-          where: { organizationId_userId: { organizationId: invitation.organizationId, userId: ctx.user.id } },
-        })) {
-          throw new TRPCError({ code: "BAD_REQUEST", message: "You're already a member of this organization" });
-        }
-        const counts = await getReservedSeatCounts(tx, invitation.organizationId, invitation.id);
-        const check = canAddSeat(invitation.organization.planTier, counts, invitation.seatType as CoreSeatType);
-        if (!check.allowed) {
-          throw new TRPCError({ code: "BAD_REQUEST", message: check.reason ?? "Seat limit reached" });
-        }
-        const membership = await tx.membership.create({
-          data: {
-            organizationId: invitation.organizationId,
-            userId: ctx.user.id,
-            role: invitation.role,
-            seatType: invitation.seatType,
-          },
-        });
-        await tx.invitation.update({
-          where: { id: invitation.id },
-          data: { status: "ACCEPTED", acceptedAt: new Date() },
-        });
-        return { membership, organizationId: invitation.organizationId };
-      }).then(({ membership, organizationId }) => {
-        // P12-05: fire-and-forget, matching P5-14/P9-06's precedent -- a
-        // transient Stripe API failure here should never fail the invite
-        // acceptance itself, and this is a no-op when billing isn't
-        // configured or the org has no active subscription.
-        void syncBillingSeatQuantity(ctx.prisma, organizationId).catch(() => undefined);
-        return membership;
+      const target = await ctx.prisma.invitation.findUniqueOrThrow({
+        where: { token: input.token },
       });
+      return ctx.prisma
+        .$transaction(async (tx) => {
+          await lockActiveOrganization(tx, target.organizationId);
+          await tx.$queryRaw`SELECT "id" FROM "User" WHERE "id" = ${ctx.user.id} FOR UPDATE`;
+          const invitation = await tx.invitation.findUniqueOrThrow({
+            where: { token: input.token },
+            include: { organization: { include: { planTier: true } } },
+          });
+          if (
+            invitation.status !== "PENDING" ||
+            invitation.expiresAt <= new Date()
+          ) {
+            throw new TRPCError({
+              code: "BAD_REQUEST",
+              message: "This invitation is expired or no longer pending",
+            });
+          }
+          if (invitation.email.toLowerCase() !== ctx.user.email.toLowerCase()) {
+            throw new TRPCError({
+              code: "FORBIDDEN",
+              message:
+                "Sign in with the email address this invitation was sent to",
+            });
+          }
+          if (
+            await tx.membership.findUnique({
+              where: {
+                organizationId_userId: {
+                  organizationId: invitation.organizationId,
+                  userId: ctx.user.id,
+                },
+              },
+            })
+          ) {
+            throw new TRPCError({
+              code: "BAD_REQUEST",
+              message: "You're already a member of this organization",
+            });
+          }
+          const counts = await getReservedSeatCounts(
+            tx,
+            invitation.organizationId,
+            invitation.id,
+          );
+          const check = canAddSeat(
+            invitation.organization.planTier,
+            counts,
+            invitation.seatType as CoreSeatType,
+          );
+          if (!check.allowed) {
+            throw new TRPCError({
+              code: "BAD_REQUEST",
+              message: check.reason ?? "Seat limit reached",
+            });
+          }
+          const membership = await tx.membership.create({
+            data: {
+              organizationId: invitation.organizationId,
+              userId: ctx.user.id,
+              role: invitation.role,
+              seatType: invitation.seatType,
+            },
+          });
+          await tx.invitation.update({
+            where: { id: invitation.id },
+            data: { status: "ACCEPTED", acceptedAt: new Date() },
+          });
+          return { membership, organizationId: invitation.organizationId };
+        })
+        .then(({ membership, organizationId }) => {
+          // P12-05: fire-and-forget, matching P5-14/P9-06's precedent -- a
+          // transient Stripe API failure here should never fail the invite
+          // acceptance itself, and this is a no-op when billing isn't
+          // configured or the org has no active subscription.
+          void syncBillingSeatQuantity(ctx.prisma, organizationId).catch(
+            () => undefined,
+          );
+          return membership;
+        });
     }),
 
   // P12-08 (dry-run half): read-only report of what's currently older than
@@ -801,7 +1054,12 @@ export const organizationRouter = router({
         }),
       ),
     )
-    .query(({ ctx }) => ctx.prisma.planTier.findMany({ where: { isPublic: true }, orderBy: { sortOrder: "asc" } })),
+    .query(({ ctx }) =>
+      ctx.prisma.planTier.findMany({
+        where: { isPublic: true },
+        orderBy: { sortOrder: "asc" },
+      }),
+    ),
 
   // P12-04: switching plans is validated against ACTUAL seated usage, not
   // just accepted and left to silently misbehave -- a downgrade that would
@@ -824,7 +1082,10 @@ export const organizationRouter = router({
           getReservedSeatCounts(tx, input.organizationId),
         ]);
 
-        if (organization.planTier.key === PRIVATE_BETA_TIER || !targetTier.isPublic) {
+        if (
+          organization.planTier.key === PRIVATE_BETA_TIER ||
+          !targetTier.isPublic
+        ) {
           throw new TRPCError({
             code: "FORBIDDEN",
             message: "Private-beta plan changes are managed by staff",
@@ -832,11 +1093,21 @@ export const organizationRouter = router({
         }
 
         const overflows: string[] = [];
-        if (targetTier.maxFullSeats !== null && counts.fullSeats > targetTier.maxFullSeats) {
-          overflows.push(`${counts.fullSeats - targetTier.maxFullSeats} full seat(s)`);
+        if (
+          targetTier.maxFullSeats !== null &&
+          counts.fullSeats > targetTier.maxFullSeats
+        ) {
+          overflows.push(
+            `${counts.fullSeats - targetTier.maxFullSeats} full seat(s)`,
+          );
         }
-        if (targetTier.maxReadOnlySeats !== null && counts.readOnlySeats > targetTier.maxReadOnlySeats) {
-          overflows.push(`${counts.readOnlySeats - targetTier.maxReadOnlySeats} read-only seat(s)`);
+        if (
+          targetTier.maxReadOnlySeats !== null &&
+          counts.readOnlySeats > targetTier.maxReadOnlySeats
+        ) {
+          overflows.push(
+            `${counts.readOnlySeats - targetTier.maxReadOnlySeats} read-only seat(s)`,
+          );
         }
         if (overflows.length > 0) {
           throw new TRPCError({
@@ -845,7 +1116,10 @@ export const organizationRouter = router({
           });
         }
 
-        await tx.organization.update({ where: { id: input.organizationId }, data: { planTierId: input.planTierId } });
+        await tx.organization.update({
+          where: { id: input.organizationId },
+          data: { planTierId: input.planTierId },
+        });
         return { planTierId: input.planTierId, planTierName: targetTier.name };
       });
     }),
@@ -861,10 +1135,17 @@ export const organizationRouter = router({
     .mutation(async ({ ctx, input }) => {
       requireOrgRole(ctx, input.organizationId, "ADMIN");
       try {
-        return await createBillingCheckoutSession(ctx.prisma, input.organizationId, input.planTierId);
+        return await createBillingCheckoutSession(
+          ctx.prisma,
+          input.organizationId,
+          input.planTierId,
+        );
       } catch (err) {
         if (err instanceof BillingNotConfiguredError) {
-          throw new TRPCError({ code: "PRECONDITION_FAILED", message: err.message });
+          throw new TRPCError({
+            code: "PRECONDITION_FAILED",
+            message: err.message,
+          });
         }
         throw err;
       }
@@ -877,10 +1158,16 @@ export const organizationRouter = router({
     .mutation(async ({ ctx, input }) => {
       requireOrgRole(ctx, input.organizationId, "ADMIN");
       try {
-        return await createStripePortalSession(ctx.prisma, input.organizationId);
+        return await createStripePortalSession(
+          ctx.prisma,
+          input.organizationId,
+        );
       } catch (err) {
         if (err instanceof BillingNotConfiguredError) {
-          throw new TRPCError({ code: "PRECONDITION_FAILED", message: err.message });
+          throw new TRPCError({
+            code: "PRECONDITION_FAILED",
+            message: err.message,
+          });
         }
         throw err;
       }
@@ -892,17 +1179,31 @@ export const organizationRouter = router({
   // never-trust-the-client-side-redirect principle as the subscription
   // checkout above.
   createCreditTopup: protectedProcedure
-    .input(z.object({ organizationId: z.string(), packKey: z.enum(Object.keys(CREDIT_TOPUP_PACKS) as [string, ...string[]]) }))
+    .input(
+      z.object({
+        organizationId: z.string(),
+        packKey: z.enum(
+          Object.keys(CREDIT_TOPUP_PACKS) as [string, ...string[]],
+        ),
+      }),
+    )
     .mutation(async ({ ctx, input }) => {
       requireOrgRole(ctx, input.organizationId, "ADMIN");
       try {
         // z.enum(Object.keys(...)) validates this is a real pack key at
         // runtime, but its static type widens to plain `string` -- the cast
         // is safe because the schema itself is built from the same const.
-        return await createCreditTopupCheckoutSession(ctx.prisma, input.organizationId, input.packKey as CreditTopupPackKey);
+        return await createCreditTopupCheckoutSession(
+          ctx.prisma,
+          input.organizationId,
+          input.packKey as CreditTopupPackKey,
+        );
       } catch (err) {
         if (err instanceof BillingNotConfiguredError) {
-          throw new TRPCError({ code: "PRECONDITION_FAILED", message: err.message });
+          throw new TRPCError({
+            code: "PRECONDITION_FAILED",
+            message: err.message,
+          });
         }
         throw err;
       }
@@ -931,16 +1232,26 @@ export const organizationRouter = router({
     .query(async ({ ctx, input }) => {
       requireOrgRole(ctx, input.organizationId);
       const [org, counts, allTiers] = await Promise.all([
-        ctx.prisma.organization.findUniqueOrThrow({ where: { id: input.organizationId }, include: { planTier: true } }),
+        ctx.prisma.organization.findUniqueOrThrow({
+          where: { id: input.organizationId },
+          include: { planTier: true },
+        }),
         getSeatCounts(ctx.prisma, input.organizationId),
         ctx.prisma.planTier.findMany({ where: { isPublic: true } }),
       ]);
 
       let nextTierNameForOneMoreFullSeat: string | null = null;
       const privateBeta = org.planTier.key === PRIVATE_BETA_TIER;
-      if (!privateBeta && org.planTier.maxFullSeats !== null && counts.fullSeats >= org.planTier.maxFullSeats) {
+      if (
+        !privateBeta &&
+        org.planTier.maxFullSeats !== null &&
+        counts.fullSeats >= org.planTier.maxFullSeats
+      ) {
         const next = minimumTierForSeatCount(allTiers, counts.fullSeats + 1);
-        if (next.key !== org.planTier.key) nextTierNameForOneMoreFullSeat = allTiers.find((t) => t.key === next.key)!.name;
+        if (next.key !== org.planTier.key)
+          nextTierNameForOneMoreFullSeat = allTiers.find(
+            (t) => t.key === next.key,
+          )!.name;
       }
 
       return {
@@ -990,7 +1301,11 @@ export const organizationRouter = router({
         getAiCreditBalance(ctx.prisma, input.organizationId),
         ctx.prisma.organization.findUniqueOrThrow({
           where: { id: input.organizationId },
-          select: { planTier: { select: { name: true, includedAiCreditsPerMonth: true } } },
+          select: {
+            planTier: {
+              select: { name: true, includedAiCreditsPerMonth: true },
+            },
+          },
         }),
         ctx.prisma.aiCreditTransaction.findMany({
           where: { organizationId: input.organizationId },
@@ -1010,7 +1325,12 @@ export const organizationRouter = router({
   // the UI's cue for whether one is overdue. null means never reviewed.
   accessReviewStatus: protectedProcedure
     .input(z.object({ organizationId: z.string() }))
-    .output(z.object({ lastReviewedAt: z.date().nullable(), daysSinceLastReview: z.number().nullable() }))
+    .output(
+      z.object({
+        lastReviewedAt: z.date().nullable(),
+        daysSinceLastReview: z.number().nullable(),
+      }),
+    )
     .query(async ({ ctx, input }) => {
       requireOrgRole(ctx, input.organizationId, "ADMIN");
       const last = await ctx.prisma.accessReview.findFirst({
@@ -1019,7 +1339,9 @@ export const organizationRouter = router({
         select: { performedAt: true },
       });
       if (!last) return { lastReviewedAt: null, daysSinceLastReview: null };
-      const daysSinceLastReview = Math.floor((Date.now() - last.performedAt.getTime()) / (1000 * 60 * 60 * 24));
+      const daysSinceLastReview = Math.floor(
+        (Date.now() - last.performedAt.getTime()) / (1000 * 60 * 60 * 24),
+      );
       return { lastReviewedAt: last.performedAt, daysSinceLastReview };
     }),
 
@@ -1041,7 +1363,10 @@ export const organizationRouter = router({
       requireOrgRole(ctx, input.organizationId, "ADMIN");
       const reviews = await ctx.prisma.accessReview.findMany({
         where: { organizationId: input.organizationId },
-        include: { performedBy: { select: { email: true } }, entries: { select: { decision: true } } },
+        include: {
+          performedBy: { select: { email: true } },
+          entries: { select: { decision: true } },
+        },
         orderBy: { performedAt: "desc" },
       });
       return reviews.map((r) => ({
@@ -1049,7 +1374,8 @@ export const organizationRouter = router({
         period: r.period,
         performedAt: r.performedAt,
         performedByEmail: r.performedBy.email,
-        confirmedCount: r.entries.filter((e) => e.decision === "CONFIRMED").length,
+        confirmedCount: r.entries.filter((e) => e.decision === "CONFIRMED")
+          .length,
         revokedCount: r.entries.filter((e) => e.decision === "REVOKED").length,
       }));
     }),
@@ -1126,19 +1452,32 @@ export const organizationRouter = router({
       });
       const byId = new Map(memberships.map((m) => [m.id, m]));
       const decisionIds = new Set(input.decisions.map((d) => d.membershipId));
-      if (decisionIds.size !== input.decisions.length || decisionIds.size !== memberships.length || memberships.some((m) => !decisionIds.has(m.id))) {
+      if (
+        decisionIds.size !== input.decisions.length ||
+        decisionIds.size !== memberships.length ||
+        memberships.some((m) => !decisionIds.has(m.id))
+      ) {
         throw new TRPCError({
           code: "BAD_REQUEST",
-          message: "A review must cover every current member exactly once, with no omissions or duplicates",
+          message:
+            "A review must cover every current member exactly once, with no omissions or duplicates",
         });
       }
 
-      const revokedIds = input.decisions.filter((d) => d.decision === "REVOKED").map((d) => d.membershipId);
-      const remainingOwners = memberships.filter((m) => m.role === "OWNER" && !revokedIds.includes(m.id)).length;
-      if (memberships.some((m) => m.role === "OWNER") && remainingOwners === 0) {
+      const revokedIds = input.decisions
+        .filter((d) => d.decision === "REVOKED")
+        .map((d) => d.membershipId);
+      const remainingOwners = memberships.filter(
+        (m) => m.role === "OWNER" && !revokedIds.includes(m.id),
+      ).length;
+      if (
+        memberships.some((m) => m.role === "OWNER") &&
+        remainingOwners === 0
+      ) {
         throw new TRPCError({
           code: "BAD_REQUEST",
-          message: "An organization must have at least one Owner - can't revoke every Owner in the same review",
+          message:
+            "An organization must have at least one Owner - can't revoke every Owner in the same review",
         });
       }
 
@@ -1164,7 +1503,9 @@ export const organizationRouter = router({
       });
 
       if (revokedIds.length > 0) {
-        await ctx.prisma.membership.deleteMany({ where: { id: { in: revokedIds } } });
+        await ctx.prisma.membership.deleteMany({
+          where: { id: { in: revokedIds } },
+        });
       }
 
       return { id: review.id };

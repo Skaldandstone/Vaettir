@@ -2,8 +2,10 @@
 
 import { Fragment, useState } from "react";
 import { useParams } from "next/navigation";
+import { useRouter } from "next/navigation";
 import { trpcReact } from "@/lib/trpcReact";
 import { Drawer } from "@/components/Drawer";
+import { Modal } from "@/components/Modal";
 import { useProjectPermissions } from "@/lib/use-project-permissions";
 
 const STATUS_COLORS: Record<string, string> = {
@@ -34,7 +36,10 @@ function LinkResultPicker({
   onLinked: () => void;
 }) {
   const [picking, setPicking] = useState(false);
-  const candidatesQuery = trpcReact.testCases.list.useQuery({ projectId }, { enabled: picking });
+  const candidatesQuery = trpcReact.testCases.list.useQuery(
+    { projectId },
+    { enabled: picking },
+  );
   const candidates = candidatesQuery.data ?? [];
   const [selected, setSelected] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -56,7 +61,11 @@ function LinkResultPicker({
 
   if (!picking) {
     return (
-      <button className="btn-secondary" style={{ fontSize: 11 }} onClick={() => setPicking(true)}>
+      <button
+        className="btn-secondary"
+        style={{ fontSize: 11 }}
+        onClick={() => setPicking(true)}
+      >
         Link to test case
       </button>
     );
@@ -64,7 +73,11 @@ function LinkResultPicker({
 
   return (
     <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
-      <select value={selected} onChange={(e) => setSelected(e.target.value)} style={{ fontSize: 11 }}>
+      <select
+        value={selected}
+        onChange={(e) => setSelected(e.target.value)}
+        style={{ fontSize: 11 }}
+      >
         <option value="">Pick a test case…</option>
         {candidates.map((tc) => (
           <option key={tc.id} value={tc.id}>
@@ -72,13 +85,24 @@ function LinkResultPicker({
           </option>
         ))}
       </select>
-      <button className="btn-secondary" style={{ fontSize: 11 }} onClick={link} disabled={linkMutation.isPending || !selected}>
+      <button
+        className="btn-secondary"
+        style={{ fontSize: 11 }}
+        onClick={link}
+        disabled={linkMutation.isPending || !selected}
+      >
         Link
       </button>
-      <button className="btn-secondary" style={{ fontSize: 11 }} onClick={() => setPicking(false)}>
+      <button
+        className="btn-secondary"
+        style={{ fontSize: 11 }}
+        onClick={() => setPicking(false)}
+      >
         Cancel
       </button>
-      {error && <span style={{ color: "var(--ember)", fontSize: 11 }}>{error}</span>}
+      {error && (
+        <span style={{ color: "var(--ember)", fontSize: 11 }}>{error}</span>
+      )}
     </div>
   );
 }
@@ -93,9 +117,17 @@ const CLASSIFICATION_COLORS: Record<string, string> = {
 // Never touches the repo -- approving a suggestion just marks it reviewed
 // so it stops showing as needing attention; the suggested diff is right
 // here to copy, not applied anywhere automatically.
-function HealingSuggestionPanel({ testResultId, canEdit }: { testResultId: string; canEdit: boolean }) {
+function HealingSuggestionPanel({
+  testResultId,
+  canEdit,
+}: {
+  testResultId: string;
+  canEdit: boolean;
+}) {
   const utils = trpcReact.useUtils();
-  const suggestionQuery = trpcReact.healingSuggestions.byTestResult.useQuery({ testResultId });
+  const suggestionQuery = trpcReact.healingSuggestions.byTestResult.useQuery({
+    testResultId,
+  });
   const suggestion = suggestionQuery.data ?? null;
   const [error, setError] = useState<string | null>(null);
 
@@ -104,13 +136,18 @@ function HealingSuggestionPanel({ testResultId, canEdit }: { testResultId: strin
   // than refetching.
   const classifyMutation = trpcReact.healingSuggestions.classify.useMutation({
     onSuccess: (result) => {
-      if (result.ok) utils.healingSuggestions.byTestResult.setData({ testResultId }, result.suggestion);
+      if (result.ok)
+        utils.healingSuggestions.byTestResult.setData(
+          { testResultId },
+          result.suggestion,
+        );
       else setError(result.reason);
     },
     onError: (e) => setError(e.message),
   });
   const reviewMutation = trpcReact.healingSuggestions.review.useMutation({
-    onSuccess: (updated) => utils.healingSuggestions.byTestResult.setData({ testResultId }, updated),
+    onSuccess: (updated) =>
+      utils.healingSuggestions.byTestResult.setData({ testResultId }, updated),
     onError: (e) => setError(e.message),
   });
 
@@ -129,21 +166,48 @@ function HealingSuggestionPanel({ testResultId, canEdit }: { testResultId: strin
   if (!suggestion) {
     return (
       <div style={{ marginTop: 4 }}>
-        {canEdit && <button className="btn-secondary" style={{ fontSize: 11 }} onClick={classify} disabled={classifyMutation.isPending}>
-          {classifyMutation.isPending ? "Classifying…" : "Classify failure"}
-        </button>}
-        {error && <div style={{ color: "var(--ember)", fontSize: 11, marginTop: 4 }}>{error}</div>}
+        {canEdit && (
+          <button
+            className="btn-secondary"
+            style={{ fontSize: 11 }}
+            onClick={classify}
+            disabled={classifyMutation.isPending}
+          >
+            {classifyMutation.isPending ? "Classifying…" : "Classify failure"}
+          </button>
+        )}
+        {error && (
+          <div style={{ color: "var(--ember)", fontSize: 11, marginTop: 4 }}>
+            {error}
+          </div>
+        )}
       </div>
     );
   }
 
   return (
-    <div style={{ marginTop: 6, padding: 8, border: "1px solid var(--line)", borderRadius: 4, fontSize: 12 }}>
+    <div
+      style={{
+        marginTop: 6,
+        padding: 8,
+        border: "1px solid var(--line)",
+        borderRadius: 4,
+        fontSize: 12,
+      }}
+    >
       <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-        <span style={{ fontWeight: 600, color: CLASSIFICATION_COLORS[suggestion.classification] ?? "inherit" }}>
+        <span
+          style={{
+            fontWeight: 600,
+            color:
+              CLASSIFICATION_COLORS[suggestion.classification] ?? "inherit",
+          }}
+        >
           {suggestion.classification.replace("_", " ")}
         </span>
-        {suggestion.resolvedAt && <span style={{ color: "var(--frost)" }}>resolved</span>}
+        {suggestion.resolvedAt && (
+          <span style={{ color: "var(--frost)" }}>resolved</span>
+        )}
         {suggestion.status !== "PENDING" && !suggestion.resolvedAt && (
           <span className="text-muted">{suggestion.status.toLowerCase()}</span>
         )}
@@ -154,23 +218,47 @@ function HealingSuggestionPanel({ testResultId, canEdit }: { testResultId: strin
           <div className="text-muted" style={{ marginTop: 6 }}>
             Suggested fix:
           </div>
-          <pre style={{ background: "var(--panel-bg, #1a1a1a)", padding: 6, borderRadius: 3, overflowX: "auto", margin: "4px 0" }}>
+          <pre
+            style={{
+              background: "var(--panel-bg, #1a1a1a)",
+              padding: 6,
+              borderRadius: 3,
+              overflowX: "auto",
+              margin: "4px 0",
+            }}
+          >
             {suggestion.suggestedDiff}
           </pre>
-          {suggestion.suggestionRationale && <p className="text-muted" style={{ margin: 0 }}>{suggestion.suggestionRationale}</p>}
+          {suggestion.suggestionRationale && (
+            <p className="text-muted" style={{ margin: 0 }}>
+              {suggestion.suggestionRationale}
+            </p>
+          )}
         </>
       )}
       {canEdit && suggestion.status === "PENDING" && (
         <div style={{ display: "flex", gap: 6, marginTop: 6 }}>
-          <button className="btn-secondary" style={{ fontSize: 11 }} onClick={() => review("APPROVED")}>
+          <button
+            className="btn-secondary"
+            style={{ fontSize: 11 }}
+            onClick={() => review("APPROVED")}
+          >
             Approve
           </button>
-          <button className="btn-secondary" style={{ fontSize: 11 }} onClick={() => review("REJECTED")}>
+          <button
+            className="btn-secondary"
+            style={{ fontSize: 11 }}
+            onClick={() => review("REJECTED")}
+          >
             Reject
           </button>
         </div>
       )}
-      {error && <div style={{ color: "var(--ember)", fontSize: 11, marginTop: 4 }}>{error}</div>}
+      {error && (
+        <div style={{ color: "var(--ember)", fontSize: 11, marginTop: 4 }}>
+          {error}
+        </div>
+      )}
     </div>
   );
 }
@@ -180,14 +268,19 @@ function TestRunDetail({ id, canEdit }: { id: string; canEdit: boolean }) {
   const runQuery = trpcReact.testRuns.byId.useQuery({ id });
   const run = runQuery.data;
 
-  if (runQuery.error) return <p style={{ color: "var(--ember)" }}>{runQuery.error.message}</p>;
+  if (runQuery.error)
+    return <p style={{ color: "var(--ember)" }}>{runQuery.error.message}</p>;
   if (!run) return <p>Loading…</p>;
 
   const reload = () => void utils.testRuns.byId.invalidate({ id });
 
   return (
     <div>
-      <h1 style={{ marginBottom: 2 }}>{run.ciProvider === "manual" ? "Manual test run" : `${run.ciProvider} run`}</h1>
+      <h1 style={{ marginBottom: 2 }}>
+        {run.ciProvider === "manual"
+          ? "Manual test run"
+          : `${run.ciProvider} run`}
+      </h1>
       <p className="text-muted" style={{ fontSize: 13 }}>
         {run.ciProvider === "manual" ? (
           <>{run.startedByEmail ?? "Unknown tester"}</>
@@ -207,9 +300,13 @@ function TestRunDetail({ id, canEdit }: { id: string; canEdit: boolean }) {
           </>
         )}
       </p>
-      <table style={{ width: "100%", borderCollapse: "collapse", marginTop: 16 }}>
+      <table
+        style={{ width: "100%", borderCollapse: "collapse", marginTop: 16 }}
+      >
         <thead>
-          <tr style={{ textAlign: "left", borderBottom: "1px solid var(--line)" }}>
+          <tr
+            style={{ textAlign: "left", borderBottom: "1px solid var(--line)" }}
+          >
             <th style={{ padding: "6px 8px", fontSize: 12 }}>Status</th>
             <th style={{ padding: "6px 8px", fontSize: 12 }}>Test</th>
             <th style={{ padding: "6px 8px", fontSize: 12 }}>Duration</th>
@@ -219,27 +316,66 @@ function TestRunDetail({ id, canEdit }: { id: string; canEdit: boolean }) {
         <tbody>
           {run.results.map((r) => (
             <Fragment key={r.id}>
-              <tr style={{ borderBottom: r.status === "FAIL" && r.testCaseId ? "none" : "1px solid var(--line)" }}>
-                <td style={{ padding: "6px 8px", fontSize: 12, color: RESULT_COLORS[r.status] ?? "inherit", fontWeight: 600 }}>
+              <tr
+                style={{
+                  borderBottom:
+                    r.status === "FAIL" && r.testCaseId
+                      ? "none"
+                      : "1px solid var(--line)",
+                }}
+              >
+                <td
+                  style={{
+                    padding: "6px 8px",
+                    fontSize: 12,
+                    color: RESULT_COLORS[r.status] ?? "inherit",
+                    fontWeight: 600,
+                  }}
+                >
                   {r.status}
                 </td>
                 <td style={{ padding: "6px 8px", fontSize: 13 }}>
                   {r.testCaseTitle ?? (
-                    <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-                      <span className="text-muted">{r.externalTestId ?? "(unknown)"} — unmatched</span>
-                      {canEdit && <LinkResultPicker testResultId={r.id} projectId={run.projectId} onLinked={reload} />}
+                    <div
+                      style={{
+                        display: "flex",
+                        flexDirection: "column",
+                        gap: 4,
+                      }}
+                    >
+                      <span className="text-muted">
+                        {r.externalTestId ?? "(unknown)"} — unmatched
+                      </span>
+                      {canEdit && (
+                        <LinkResultPicker
+                          testResultId={r.id}
+                          projectId={run.projectId}
+                          onLinked={reload}
+                        />
+                      )}
                     </div>
                   )}
                 </td>
-                <td style={{ padding: "6px 8px", fontSize: 12 }}>{r.durationMs !== null ? `${r.durationMs}ms` : "—"}</td>
-                <td style={{ padding: "6px 8px", fontSize: 12, color: r.errorMessage ? "var(--ember)" : "inherit" }}>
+                <td style={{ padding: "6px 8px", fontSize: 12 }}>
+                  {r.durationMs !== null ? `${r.durationMs}ms` : "—"}
+                </td>
+                <td
+                  style={{
+                    padding: "6px 8px",
+                    fontSize: 12,
+                    color: r.errorMessage ? "var(--ember)" : "inherit",
+                  }}
+                >
                   {r.errorMessage ?? r.note ?? ""}
                 </td>
               </tr>
               {r.status === "FAIL" && r.testCaseId && (
                 <tr style={{ borderBottom: "1px solid var(--line)" }}>
                   <td colSpan={4} style={{ padding: "0 8px 8px" }}>
-                    <HealingSuggestionPanel testResultId={r.id} canEdit={canEdit} />
+                    <HealingSuggestionPanel
+                      testResultId={r.id}
+                      canEdit={canEdit}
+                    />
                   </td>
                 </tr>
               )}
@@ -269,11 +405,14 @@ function CoverageSection({ projectId }: { projectId: string }) {
     <div style={{ marginTop: 32 }}>
       <h2 style={{ marginBottom: 4 }}>Coverage</h2>
       <p className="text-muted" style={{ fontSize: 13, marginBottom: 12 }}>
-        Ingested coverage reports (Istanbul/nyc, Cobertura, JaCoCo). Most recent first.
+        Ingested coverage reports (Istanbul/nyc, Cobertura, JaCoCo). Most recent
+        first.
       </p>
       <table style={{ width: "100%", borderCollapse: "collapse" }}>
         <thead>
-          <tr style={{ textAlign: "left", borderBottom: "1px solid var(--line)" }}>
+          <tr
+            style={{ textAlign: "left", borderBottom: "1px solid var(--line)" }}
+          >
             <th style={{ padding: "6px 8px", fontSize: 12 }}>Tool</th>
             <th style={{ padding: "6px 8px", fontSize: 12 }}>Branch</th>
             <th style={{ padding: "6px 8px", fontSize: 12 }}>Commit</th>
@@ -290,9 +429,16 @@ function CoverageSection({ projectId }: { projectId: string }) {
                 <code>{r.commitSha.slice(0, 10)}</code>
               </td>
               <td style={{ padding: "6px 8px", fontSize: 13 }}>
-                {coveragePct(r.linesCovered, r.linesTotal)} ({r.linesCovered}/{r.linesTotal})
+                {coveragePct(r.linesCovered, r.linesTotal)} ({r.linesCovered}/
+                {r.linesTotal})
               </td>
-              <td style={{ padding: "6px 8px", fontSize: 12, color: "var(--text-muted, #57606a)" }}>
+              <td
+                style={{
+                  padding: "6px 8px",
+                  fontSize: 12,
+                  color: "var(--text-muted, #57606a)",
+                }}
+              >
                 {new Date(r.createdAt).toLocaleString()}
               </td>
             </tr>
@@ -307,7 +453,9 @@ function CoverageSection({ projectId }: { projectId: string }) {
 // specific test keeps generating brittle-failure suggestions, that's a
 // signal the test itself needs attention, not the app.
 function HealingSignalSection({ projectId }: { projectId: string }) {
-  const signalQuery = trpcReact.healingSuggestions.aggregateSignal.useQuery({ projectId });
+  const signalQuery = trpcReact.healingSuggestions.aggregateSignal.useQuery({
+    projectId,
+  });
   const signal = signalQuery.data;
 
   if (!signal || signal.totalCount === 0) return null;
@@ -316,8 +464,9 @@ function HealingSignalSection({ projectId }: { projectId: string }) {
     <div style={{ marginTop: 32 }}>
       <h2 style={{ marginBottom: 4 }}>Failure classification signal</h2>
       <p className="text-muted" style={{ fontSize: 13, marginBottom: 12 }}>
-        {signal.brittleCount} brittle · {signal.realRegressionCount} real regressions · {signal.uncertainCount} uncertain ·{" "}
-        {signal.resolvedCount} resolved (of {signal.totalCount} classified)
+        {signal.brittleCount} brittle · {signal.realRegressionCount} real
+        regressions · {signal.uncertainCount} uncertain · {signal.resolvedCount}{" "}
+        resolved (of {signal.totalCount} classified)
       </p>
       {signal.repeatOffenders.length > 0 && (
         <>
@@ -340,34 +489,117 @@ function HealingSignalSection({ projectId }: { projectId: string }) {
 // P1-15
 export default function TestRunsPage() {
   const { projectId } = useParams<{ projectId: string }>();
+  const router = useRouter();
   const { canEdit } = useProjectPermissions(projectId);
   const runsQuery = trpcReact.testRuns.list.useQuery({ projectId });
   const runs = runsQuery.data ?? [];
   const loading = runsQuery.isLoading;
   const error = runsQuery.error?.message ?? null;
   const [openRunId, setOpenRunId] = useState<string | null>(null);
+  const [manualOpen, setManualOpen] = useState(false);
+  const [manualSearch, setManualSearch] = useState("");
+  const [manualSelection, setManualSelection] = useState<Set<string>>(
+    new Set(),
+  );
+  const [manualError, setManualError] = useState<string | null>(null);
+  const casesQuery = trpcReact.testCases.list.useQuery(
+    { projectId },
+    { enabled: manualOpen },
+  );
+  const startManualMutation = trpcReact.manualExecution.start.useMutation();
+  const manualCases = (casesQuery.data ?? []).filter((testCase) =>
+    testCase.title.toLowerCase().includes(manualSearch.trim().toLowerCase()),
+  );
+
+  function toggleManualCase(id: string) {
+    setManualSelection((current) => {
+      const next = new Set(current);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  async function startManualRun() {
+    if (manualSelection.size === 0) return;
+    setManualError(null);
+    try {
+      const result = await startManualMutation.mutateAsync({
+        projectId,
+        testCaseIds: [...manualSelection],
+      });
+      router.push(
+        `/projects/${projectId}/test-runs/manual/${result.testRunId}`,
+      );
+    } catch (cause) {
+      setManualError(cause instanceof Error ? cause.message : String(cause));
+    }
+  }
 
   return (
     <div style={{ maxWidth: 900 }}>
-      <h1 style={{ marginBottom: 4 }}>Test Runs</h1>
+      <div
+        style={{
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "center",
+          gap: 12,
+        }}
+      >
+        <h1 style={{ marginBottom: 4 }}>Test Runs</h1>
+        {canEdit && (
+          <button
+            className="btn-primary"
+            type="button"
+            onClick={() => setManualOpen(true)}
+          >
+            Start manual run
+          </button>
+        )}
+      </div>
       <p className="text-muted" style={{ marginBottom: 20 }}>
-        Results ingested from CI (JUnit XML) or recorded through manual execution. Most recent first.
+        Results ingested from CI (JUnit XML) or recorded through manual
+        execution. Most recent first.
       </p>
 
       {loading && <p>Loading…</p>}
       {error && <p style={{ color: "var(--ember)" }}>{error}</p>}
 
       {!loading && !error && runs.length === 0 && (
-        <p className="text-muted">
-          No test runs ingested yet - post JUnit XML to <code>testRuns.ingestJUnit</code> with a project API key to see
-          results here.
-        </p>
+        <div className="panel">
+          <h2 style={{ marginTop: 0 }}>Choose how this project runs tests</h2>
+          <p className="text-muted">
+            Record a guided manual session, connect CI, or import historical
+            JUnit results.
+          </p>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+            {canEdit && (
+              <button
+                className="btn-primary"
+                onClick={() => setManualOpen(true)}
+              >
+                Start manual run
+              </button>
+            )}
+            <a className="btn-secondary" href={`/projects/${projectId}/import`}>
+              Import historical results
+            </a>
+            <a className="btn-secondary" href="/settings/integrations">
+              Configure CI and integrations
+            </a>
+          </div>
+        </div>
       )}
 
       {!loading && runs.length > 0 && (
         <table style={{ width: "100%", borderCollapse: "collapse" }}>
           <thead>
-            <tr style={{ textAlign: "left", borderBottom: "1px solid var(--line)" }}>
+            <tr
+              style={{
+                textAlign: "left",
+                borderBottom: "1px solid var(--line)",
+              }}
+            >
               <th style={{ padding: "6px 8px", fontSize: 12 }}>Status</th>
               <th style={{ padding: "6px 8px", fontSize: 12 }}>Provider</th>
               <th style={{ padding: "6px 8px", fontSize: 12 }}>Branch</th>
@@ -381,35 +613,62 @@ export default function TestRunsPage() {
             {runs.map((r) => (
               <tr
                 key={r.id}
-                style={{ borderBottom: "1px solid var(--line)", cursor: "pointer" }}
+                style={{
+                  borderBottom: "1px solid var(--line)",
+                  cursor: "pointer",
+                }}
                 onClick={() => setOpenRunId(r.id)}
               >
-                <td style={{ padding: "6px 8px", fontSize: 12, color: STATUS_COLORS[r.status] ?? "inherit", fontWeight: 600 }}>
+                <td
+                  style={{
+                    padding: "6px 8px",
+                    fontSize: 12,
+                    color: STATUS_COLORS[r.status] ?? "inherit",
+                    fontWeight: 600,
+                  }}
+                >
                   {r.status}
                 </td>
-                <td style={{ padding: "6px 8px", fontSize: 13 }}>{r.ciProvider}</td>
+                <td style={{ padding: "6px 8px", fontSize: 13 }}>
+                  {r.ciProvider}
+                </td>
                 {r.ciProvider === "manual" ? (
                   <td colSpan={2} style={{ padding: "6px 8px", fontSize: 13 }}>
                     {r.startedByEmail ?? "Unknown tester"}
                   </td>
                 ) : (
                   <>
-                    <td style={{ padding: "6px 8px", fontSize: 13 }}>{r.branch}</td>
+                    <td style={{ padding: "6px 8px", fontSize: 13 }}>
+                      {r.branch}
+                    </td>
                     <td style={{ padding: "6px 8px", fontSize: 12 }}>
                       <code>{r.commitSha.slice(0, 10)}</code>
                     </td>
                   </>
                 )}
-                <td style={{ padding: "6px 8px", fontSize: 13 }}>{r.resultCount}</td>
-                <td style={{ padding: "6px 8px", fontSize: 12, color: "var(--text-muted, #57606a)" }}>
+                <td style={{ padding: "6px 8px", fontSize: 13 }}>
+                  {r.resultCount}
+                </td>
+                <td
+                  style={{
+                    padding: "6px 8px",
+                    fontSize: 12,
+                    color: "var(--text-muted, #57606a)",
+                  }}
+                >
                   {new Date(r.startedAt).toLocaleString()}
                 </td>
                 <td style={{ padding: "6px 8px", fontSize: 12 }}>
-                  {canEdit && r.ciProvider === "manual" && r.status === "RUNNING" && (
-                    <a href={`/projects/${projectId}/test-runs/manual/${r.id}`} onClick={(e) => e.stopPropagation()}>
-                      Resume
-                    </a>
-                  )}
+                  {canEdit &&
+                    r.ciProvider === "manual" &&
+                    r.status === "RUNNING" && (
+                      <a
+                        href={`/projects/${projectId}/test-runs/manual/${r.id}`}
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        Resume
+                      </a>
+                    )}
                 </td>
               </tr>
             ))}
@@ -420,6 +679,95 @@ export default function TestRunsPage() {
       <Drawer open={openRunId !== null} onClose={() => setOpenRunId(null)}>
         {openRunId && <TestRunDetail id={openRunId} canEdit={canEdit} />}
       </Drawer>
+
+      <Modal
+        open={manualOpen}
+        onClose={() => setManualOpen(false)}
+        title="Start a manual test run"
+      >
+        <div style={{ display: "grid", gap: 10 }}>
+          <p className="text-muted" style={{ margin: 0, fontSize: 13 }}>
+            Select the cases a tester will execute. Results are recorded in the
+            same release and compliance history as CI results.
+          </p>
+          <input
+            value={manualSearch}
+            onChange={(event) => setManualSearch(event.target.value)}
+            placeholder="Search test cases"
+            aria-label="Search test cases"
+          />
+          <div
+            style={{
+              maxHeight: 320,
+              overflowY: "auto",
+              border: "1px solid var(--line)",
+              borderRadius: 6,
+            }}
+          >
+            {casesQuery.isLoading && (
+              <p className="text-muted" style={{ padding: 12 }}>
+                Loading test cases…
+              </p>
+            )}
+            {!casesQuery.isLoading && manualCases.length === 0 && (
+              <p className="text-muted" style={{ padding: 12 }}>
+                No test cases match this search. Import or create cases first.
+              </p>
+            )}
+            {manualCases.map((testCase) => (
+              <label
+                key={testCase.id}
+                style={{
+                  display: "flex",
+                  gap: 8,
+                  padding: "9px 10px",
+                  borderBottom: "1px solid var(--line)",
+                }}
+              >
+                <input
+                  type="checkbox"
+                  checked={manualSelection.has(testCase.id)}
+                  onChange={() => toggleManualCase(testCase.id)}
+                />
+                <span>{testCase.title}</span>
+              </label>
+            ))}
+          </div>
+          {manualError && (
+            <p style={{ color: "var(--ember)", margin: 0 }}>{manualError}</p>
+          )}
+          <div
+            style={{
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "center",
+            }}
+          >
+            <span className="text-muted" style={{ fontSize: 12 }}>
+              {manualSelection.size} selected
+            </span>
+            <div style={{ display: "flex", gap: 8 }}>
+              <button
+                className="btn-secondary"
+                onClick={() => setManualOpen(false)}
+              >
+                Cancel
+              </button>
+              <button
+                className="btn-primary"
+                onClick={startManualRun}
+                disabled={
+                  manualSelection.size === 0 || startManualMutation.isPending
+                }
+              >
+                {startManualMutation.isPending
+                  ? "Starting…"
+                  : "Begin execution"}
+              </button>
+            </div>
+          </div>
+        </div>
+      </Modal>
 
       <CoverageSection projectId={projectId} />
       <HealingSignalSection projectId={projectId} />
