@@ -3,6 +3,7 @@ import { prisma } from "@vaettir/db";
 import { getOrgOverview } from "../services/orgReadiness.js";
 import { postSlackDigest } from "../services/readinessDigest.js";
 import { recordHeartbeat } from "../services/heartbeat.js";
+import { createSafeSchedulerRunner } from "./safeSchedulerRunner.js";
 
 // P7-09: no queue/cron infra exists (see reverseEngineerWorker.ts's same
 // note) -- an in-process interval checks every org with digestEnabled at
@@ -48,8 +49,10 @@ async function checkOnce(): Promise<void> {
   }
 }
 
+const runCheckSafely = createSafeSchedulerRunner("readinessDigestScheduler", checkOnce);
+
 export function startReadinessDigestScheduler(): void {
   if (checkHandle) return;
-  checkHandle = setInterval(() => void checkOnce(), CHECK_INTERVAL_MS);
+  checkHandle = setInterval(() => void runCheckSafely(), CHECK_INTERVAL_MS);
   checkHandle.unref();
 }

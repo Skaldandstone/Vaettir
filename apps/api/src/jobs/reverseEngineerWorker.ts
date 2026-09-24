@@ -7,6 +7,7 @@ import { getMostRecentHeuristic, recordHeuristicUsage } from "../services/custom
 import { chargeAiCredits, InsufficientAiCreditsError, meterAiCall } from "../services/aiCredits.js";
 import { recordHeartbeat } from "../services/heartbeat.js";
 import { linkExternalTestResult, validateTriggeringResult } from "../services/externalTestMapping.js";
+import { createSafeSchedulerRunner } from "./safeSchedulerRunner.js";
 
 // Single-instance, in-process poller -- no Redis/queue infra exists yet, and
 // running one API instance is the actual current deployment shape (see
@@ -141,6 +142,8 @@ async function pollOnce(): Promise<void> {
   }
 }
 
+const runScheduledPollSafely = createSafeSchedulerRunner("reverseEngineerWorker", pollOnce);
+
 // Called by agent.submitJob to nudge the queue immediately instead of
 // waiting up to POLL_INTERVAL_MS for the next tick. Errors are swallowed --
 // the next scheduled tick will retry, and the caller (a fire-and-forget
@@ -155,6 +158,6 @@ export async function kickReverseEngineerQueue(): Promise<void> {
 
 export function startReverseEngineerJobPoller(): void {
   if (pollHandle) return;
-  pollHandle = setInterval(() => void pollOnce(), POLL_INTERVAL_MS);
+  pollHandle = setInterval(() => void runScheduledPollSafely(), POLL_INTERVAL_MS);
   pollHandle.unref();
 }

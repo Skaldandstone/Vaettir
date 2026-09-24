@@ -2,6 +2,7 @@ import * as Sentry from "@sentry/node";
 import { prisma } from "@vaettir/db";
 import { recordReadinessSnapshot } from "../services/releaseReadiness.js";
 import { recordHeartbeat } from "../services/heartbeat.js";
+import { createSafeSchedulerRunner } from "./safeSchedulerRunner.js";
 
 // P8-04 (release-readiness state changes): same in-process interval shape
 // as readinessDigestScheduler.ts - no queue/cron infra exists. Every 5
@@ -33,8 +34,10 @@ export async function checkReadinessChangesOnce(): Promise<void> {
   }
 }
 
+const runCheckSafely = createSafeSchedulerRunner("readinessChangeScheduler", checkReadinessChangesOnce);
+
 export function startReadinessChangeScheduler(): void {
   if (checkHandle) return;
-  checkHandle = setInterval(() => void checkReadinessChangesOnce(), CHECK_INTERVAL_MS);
+  checkHandle = setInterval(() => void runCheckSafely(), CHECK_INTERVAL_MS);
   checkHandle.unref();
 }
