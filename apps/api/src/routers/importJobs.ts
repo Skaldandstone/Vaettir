@@ -20,6 +20,19 @@ const fieldMappingSchema = z
     message: 'The "title" field must be mapped to a CSV column',
   });
 const xlsxContentSchema = z.string().min(1).max(14_000_000);
+const mappedRowSchema = z.object({
+  rowNumber: z.number(),
+  title: z.string(),
+  given: z.array(z.string()),
+  when: z.array(z.string()),
+  then: z.array(z.string()),
+  priority: z.enum(["CRITICAL", "HIGH", "MEDIUM", "LOW"]),
+  tags: z.array(z.string()),
+  externalId: z.string().optional(),
+});
+const rowOverrideSchema = mappedRowSchema.partial().extend({
+  rowNumber: z.number().int().min(2),
+});
 
 // P11-01/P11-02: the generic ImportJob pipeline. `previewCsv` never writes
 // anything - it's pure inspection/mapping-preview, so the user can adjust
@@ -70,18 +83,8 @@ export const importJobsRouter = router({
             headers: z.array(z.string()),
             rowCount: z.number(),
             suggestedMapping: z.record(z.string(), z.string()),
-            previewRows: z.array(
-              z.object({
-                rowNumber: z.number(),
-                title: z.string(),
-                given: z.array(z.string()),
-                when: z.array(z.string()),
-                then: z.array(z.string()),
-                priority: z.enum(["CRITICAL", "HIGH", "MEDIUM", "LOW"]),
-                tags: z.array(z.string()),
-                externalId: z.string().optional(),
-              }),
-            ),
+            previewRows: z.array(mappedRowSchema),
+            incompleteRows: z.array(mappedRowSchema),
             skippedCount: z.number(),
             warning: z.string().optional(),
           }),
@@ -98,7 +101,7 @@ export const importJobsRouter = router({
           sheets: sheets.map((sheet) => {
             const preview = sheet.suggestedMapping.title
               ? previewXlsxSheet(sheet)
-              : { rows: [], skipped: [] };
+              : { rows: [], skipped: [], incompleteRows: [] };
             return {
               name: sheet.name,
               headerRow: sheet.headerRow,
@@ -106,6 +109,7 @@ export const importJobsRouter = router({
               rowCount: sheet.rowCount,
               suggestedMapping: sheet.suggestedMapping,
               previewRows: preview.rows,
+              incompleteRows: preview.incompleteRows,
               skippedCount: preview.skipped.length,
               warning: sheet.warning,
             };
@@ -126,22 +130,13 @@ export const importJobsRouter = router({
         fileBase64: xlsxContentSchema,
         sheetName: z.string(),
         mapping: fieldMappingSchema,
+        overrides: z.array(rowOverrideSchema).default([]),
       }),
     )
     .output(
       z.object({
-        previewRows: z.array(
-          z.object({
-            rowNumber: z.number(),
-            title: z.string(),
-            given: z.array(z.string()),
-            when: z.array(z.string()),
-            then: z.array(z.string()),
-            priority: z.enum(["CRITICAL", "HIGH", "MEDIUM", "LOW"]),
-            tags: z.array(z.string()),
-            externalId: z.string().optional(),
-          }),
-        ),
+        previewRows: z.array(mappedRowSchema),
+        incompleteRows: z.array(mappedRowSchema),
         skippedCount: z.number(),
       }),
     )
@@ -153,9 +148,10 @@ export const importJobsRouter = router({
         ).find((candidate) => candidate.name === input.sheetName);
         if (!sheet)
           throw new Error("Worksheet was not found in the uploaded workbook");
-        const preview = previewXlsxSheet(sheet, input.mapping);
+        const preview = previewXlsxSheet(sheet, input.mapping, input.overrides);
         return {
           previewRows: preview.rows,
+          incompleteRows: preview.incompleteRows,
           skippedCount: preview.skipped.length,
         };
       } catch (error) {
@@ -173,7 +169,13 @@ export const importJobsRouter = router({
         fileBase64: xlsxContentSchema,
         sourceLabel: z.string().optional(),
         sheets: z
-          .array(z.object({ name: z.string(), mapping: fieldMappingSchema }))
+          .array(
+            z.object({
+              name: z.string(),
+              mapping: fieldMappingSchema,
+              overrides: z.array(rowOverrideSchema).default([]),
+            }),
+          )
           .min(1),
       }),
     )
@@ -198,15 +200,25 @@ export const importJobsRouter = router({
           Buffer.from(input.fileBase64, "base64"),
         );
         const selected = new Map(
-          input.sheets.map((sheet) => [sheet.name, sheet.mapping]),
+          input.sheets.map((sheet) => [sheet.name, sheet]),
         );
         const rows: ReturnType<typeof mapCsvRows>["rows"] = [];
         const skipped: { rowNumber: number; reason: string }[] = [];
         let rowOffset = 0;
         for (const sheet of workbook) {
-          const mapping = selected.get(sheet.name);
-          if (!mapping || !sheet.csvText) continue;
-          const mapped = mapCsvRows(sheet.csvText, mapping);
+          const selection = selected.get(sheet.name);
+          if (!selection || !sheet.csvText) continue;
+          const mapped = mapCsvRows(
+            sheet.csvText,
+            selection.mapping,
+            undefined,
+            selection.overrides,
+          );
+          if (mapped.skipped.length > 0) {
+            throw new Error(
+              `${sheet.name}: complete the required title for row(s) ${mapped.skipped.map((row) => row.rowNumber).join(", ")} before importing`,
+            );
+          }
           rows.push(
             ...mapped.rows.map((row) => ({
               ...row,
@@ -215,12 +227,6 @@ export const importJobsRouter = router({
                 ? `${sheet.name}:${row.externalId}`
                 : undefined,
               suitePath: sheet.name.trim(),
-            })),
-          );
-          skipped.push(
-            ...mapped.skipped.map((row) => ({
-              rowNumber: row.rowNumber + rowOffset,
-              reason: `${sheet.name}: ${row.reason}`,
             })),
           );
           rowOffset += sheet.rowCount + 1;
@@ -261,18 +267,8 @@ export const importJobsRouter = router({
         headers: z.array(z.string()),
         suggestedMapping: z.record(z.string(), z.string()),
         rowCount: z.number(),
-        previewRows: z.array(
-          z.object({
-            rowNumber: z.number(),
-            title: z.string(),
-            given: z.array(z.string()),
-            when: z.array(z.string()),
-            then: z.array(z.string()),
-            priority: z.enum(["CRITICAL", "HIGH", "MEDIUM", "LOW"]),
-            tags: z.array(z.string()),
-            externalId: z.string().optional(),
-          }),
-        ),
+        previewRows: z.array(mappedRowSchema),
+        incompleteRows: z.array(mappedRowSchema),
         previewSkipped: z.array(
           z.object({ rowNumber: z.number(), reason: z.string() }),
         ),
@@ -284,10 +280,12 @@ export const importJobsRouter = router({
 
       let previewRows: ReturnType<typeof mapCsvRows>["rows"] = [];
       let previewSkipped: ReturnType<typeof mapCsvRows>["skipped"] = [];
+      let incompleteRows: ReturnType<typeof mapCsvRows>["incompleteRows"] = [];
       if (suggestedMapping.title) {
-        const preview = mapCsvRows(input.csvText, suggestedMapping, 10);
-        previewRows = preview.rows;
+        const preview = mapCsvRows(input.csvText, suggestedMapping);
+        previewRows = preview.rows.slice(0, 10);
         previewSkipped = preview.skipped;
+        incompleteRows = preview.incompleteRows;
       }
 
       return {
@@ -296,6 +294,7 @@ export const importJobsRouter = router({
         rowCount,
         previewRows,
         previewSkipped,
+        incompleteRows,
       };
     }),
 
@@ -308,22 +307,13 @@ export const importJobsRouter = router({
         projectId: z.string(),
         csvText: z.string().min(1),
         mapping: fieldMappingSchema,
+        overrides: z.array(rowOverrideSchema).default([]),
       }),
     )
     .output(
       z.object({
-        previewRows: z.array(
-          z.object({
-            rowNumber: z.number(),
-            title: z.string(),
-            given: z.array(z.string()),
-            when: z.array(z.string()),
-            then: z.array(z.string()),
-            priority: z.enum(["CRITICAL", "HIGH", "MEDIUM", "LOW"]),
-            tags: z.array(z.string()),
-            externalId: z.string().optional(),
-          }),
-        ),
+        previewRows: z.array(mappedRowSchema),
+        incompleteRows: z.array(mappedRowSchema),
         previewSkipped: z.array(
           z.object({ rowNumber: z.number(), reason: z.string() }),
         ),
@@ -332,8 +322,17 @@ export const importJobsRouter = router({
     .mutation(async ({ ctx, input }) => {
       await requireProjectAccess(ctx, input.projectId);
       try {
-        const { rows, skipped } = mapCsvRows(input.csvText, input.mapping, 10);
-        return { previewRows: rows, previewSkipped: skipped };
+        const { rows, skipped, incompleteRows } = mapCsvRows(
+          input.csvText,
+          input.mapping,
+          undefined,
+          input.overrides,
+        );
+        return {
+          previewRows: rows.slice(0, 10),
+          previewSkipped: skipped,
+          incompleteRows,
+        };
       } catch (e) {
         throw new TRPCError({
           code: "BAD_REQUEST",
@@ -348,6 +347,7 @@ export const importJobsRouter = router({
         projectId: z.string(),
         csvText: z.string().min(1),
         mapping: fieldMappingSchema,
+        overrides: z.array(rowOverrideSchema).default([]),
         testPlanId: z.string().optional(),
         sourceLabel: z.string().optional(),
       }),
@@ -371,7 +371,17 @@ export const importJobsRouter = router({
 
       let mapped;
       try {
-        mapped = mapCsvRows(input.csvText, input.mapping);
+        mapped = mapCsvRows(
+          input.csvText,
+          input.mapping,
+          undefined,
+          input.overrides,
+        );
+        if (mapped.skipped.length > 0) {
+          throw new Error(
+            `Complete the required title for row(s) ${mapped.skipped.map((row) => row.rowNumber).join(", ")} before importing`,
+          );
+        }
       } catch (e) {
         throw new TRPCError({
           code: "BAD_REQUEST",

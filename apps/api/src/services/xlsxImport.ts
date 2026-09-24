@@ -4,6 +4,7 @@ import {
   inspectCsv,
   mapCsvRows,
   suggestCsvMapping,
+  type MappedRowOverride,
   type TargetField,
 } from "./csvFieldMapping.js";
 
@@ -206,7 +207,14 @@ export function parseXlsxWorkbook(buffer: Buffer): ParsedWorkbookSheet[] {
 export function previewXlsxSheet(
   sheet: ParsedWorkbookSheet,
   mapping?: Partial<Record<TargetField, string>>,
+  overrides: MappedRowOverride[] = [],
 ) {
-  if (!sheet.csvText) return { rows: [], skipped: [] };
-  return mapCsvRows(sheet.csvText, mapping ?? sheet.suggestedMapping, 10);
+  if (!sheet.csvText) return { rows: [], skipped: [], incompleteRows: [] };
+  const preview = mapCsvRows(
+    sheet.csvText,
+    mapping ?? sheet.suggestedMapping,
+    undefined,
+    overrides,
+  );
+  return { ...preview, rows: preview.rows.slice(0, 10) };
 }

@@ -13,8 +13,8 @@ import { trpcReact, type RouterOutputs } from "@/lib/trpcReact";
 // knew which importer applied to their export. This makes the same three
 // backends into one step machine: pick a source -> upload -> (CSV only) map
 // columns -> review the exact scope preview -> commit -> see the diff
-// report, with a "start over" at every step. No new backend logic - this is
-// purely the orchestration layer the ticket asked for.
+// report, with a "start over" at every step. Spreadsheet previews also retain
+// incomplete rows for inline repair instead of silently dropping source data.
 
 type Source = "csv" | "testrail" | "xray" | "qtest" | "zephyr";
 type Step = "source" | "upload" | "review" | "done";
@@ -115,7 +115,128 @@ type FileCommitResult = RouterOutputs["importJobs"]["commitXray"];
 type CsvPreview = RouterOutputs["importJobs"]["previewCsv"];
 type CsvMappedPreviewRow =
   RouterOutputs["importJobs"]["previewWithMapping"]["previewRows"][number];
+type EditableImportRow =
+  RouterOutputs["importJobs"]["previewWithMapping"]["incompleteRows"][number];
 type XlsxPreview = RouterOutputs["importJobs"]["previewXlsx"];
+
+function rowRecord(rows: EditableImportRow[]) {
+  return Object.fromEntries(
+    rows.map((row) => [
+      row.rowNumber,
+      {
+        ...row,
+        title:
+          row.title.trim() ||
+          row.externalId?.trim() ||
+          row.tags[0]?.trim() ||
+          "",
+      },
+    ]),
+  );
+}
+
+function reconcileRowOverrides(
+  current: Record<number, EditableImportRow>,
+  incompleteRows: EditableImportRow[],
+) {
+  const next = rowRecord(incompleteRows);
+  for (const row of Object.values(current)) {
+    if (row.title.trim()) next[row.rowNumber] = row;
+  }
+  return next;
+}
+
+function splitEditedLines(value: string) {
+  return value
+    .split(/\r?\n/)
+    .map((part) => part.trim())
+    .filter(Boolean);
+}
+
+function RowRepairEditor({
+  row,
+  onChange,
+}: {
+  row: EditableImportRow;
+  onChange: (next: EditableImportRow) => void;
+}) {
+  const updateLines = (field: "given" | "when" | "then", value: string) =>
+    onChange({ ...row, [field]: splitEditedLines(value) });
+
+  return (
+    <fieldset className="import-row-repair">
+      <legend>Source row {row.rowNumber}</legend>
+      <label className="import-row-repair-title">
+        Title <span className="text-error">*</span>
+        <input
+          value={row.title}
+          onChange={(event) => onChange({ ...row, title: event.target.value })}
+          placeholder="Add the missing test-case title"
+        />
+      </label>
+      <label>
+        Preconditions
+        <textarea
+          rows={3}
+          value={row.given.join("\n")}
+          onChange={(event) => updateLines("given", event.target.value)}
+          placeholder="One item per line"
+        />
+      </label>
+      <label>
+        Steps
+        <textarea
+          rows={3}
+          value={row.when.join("\n")}
+          onChange={(event) => updateLines("when", event.target.value)}
+          placeholder="One step per line"
+        />
+      </label>
+      <label>
+        Expected results
+        <textarea
+          rows={3}
+          value={row.then.join("\n")}
+          onChange={(event) => updateLines("then", event.target.value)}
+          placeholder="One result per line"
+        />
+      </label>
+      <label>
+        Priority
+        <select
+          value={row.priority}
+          onChange={(event) =>
+            onChange({
+              ...row,
+              priority: event.target.value as EditableImportRow["priority"],
+            })
+          }
+        >
+          <option value="CRITICAL">Critical</option>
+          <option value="HIGH">High</option>
+          <option value="MEDIUM">Medium</option>
+          <option value="LOW">Low</option>
+        </select>
+      </label>
+      <label>
+        Tags
+        <input
+          value={row.tags.join(", ")}
+          onChange={(event) =>
+            onChange({
+              ...row,
+              tags: event.target.value
+                .split(",")
+                .map((tag) => tag.trim())
+                .filter(Boolean),
+            })
+          }
+          placeholder="Comma-separated"
+        />
+      </label>
+    </fieldset>
+  );
+}
 
 export function MigrationWizard({
   projectId,
@@ -140,14 +261,17 @@ export function MigrationWizard({
   const [csvPreviewRows, setCsvPreviewRows] = useState<CsvMappedPreviewRow[]>(
     [],
   );
-  const [csvPreviewSkipped, setCsvPreviewSkipped] = useState<
-    { rowNumber: number; reason: string }[]
-  >([]);
+  const [csvRowOverrides, setCsvRowOverrides] = useState<
+    Record<number, EditableImportRow>
+  >({});
   const [xlsxBase64, setXlsxBase64] = useState("");
   const [xlsxPreview, setXlsxPreview] = useState<XlsxPreview | null>(null);
   const [selectedSheets, setSelectedSheets] = useState<Set<string>>(new Set());
   const [xlsxMappings, setXlsxMappings] = useState<
     Record<string, Partial<Record<TargetField, string>>>
+  >({});
+  const [xlsxRowOverrides, setXlsxRowOverrides] = useState<
+    Record<string, Record<number, EditableImportRow>>
   >({});
 
   // TestRail/Xray preview state
@@ -201,11 +325,12 @@ export function MigrationWizard({
     setCsvPreview(null);
     setMapping({});
     setCsvPreviewRows([]);
-    setCsvPreviewSkipped([]);
+    setCsvRowOverrides({});
     setXlsxBase64("");
     setXlsxPreview(null);
     setSelectedSheets(new Set());
     setXlsxMappings({});
+    setXlsxRowOverrides({});
     setFilePreview(null);
     setResult(null);
     setQtestBaseUrl("");
@@ -248,6 +373,14 @@ export function MigrationWizard({
               res.sheets.map((sheet) => [sheet.name, sheet.suggestedMapping]),
             ),
           );
+          setXlsxRowOverrides(
+            Object.fromEntries(
+              res.sheets.map((sheet) => [
+                sheet.name,
+                rowRecord(sheet.incompleteRows),
+              ]),
+            ),
+          );
           return;
         }
         const text = await readFileAsText(file);
@@ -262,7 +395,7 @@ export function MigrationWizard({
         >;
         setMapping(suggested);
         setCsvPreviewRows(res.previewRows);
-        setCsvPreviewSkipped(res.previewSkipped);
+        setCsvRowOverrides(rowRecord(res.incompleteRows));
       } else if (source === "xray") {
         const text = await readFileAsText(file);
         setRawContent(text);
@@ -364,7 +497,6 @@ export function MigrationWizard({
     setMapping(next);
     if (!next.title) {
       setCsvPreviewRows([]);
-      setCsvPreviewSkipped([]);
       return;
     }
     setLoading(true);
@@ -374,9 +506,12 @@ export function MigrationWizard({
         projectId,
         csvText: rawContent,
         mapping: next as Record<TargetField, string>,
+        overrides: Object.values(csvRowOverrides),
       });
       setCsvPreviewRows(res.previewRows);
-      setCsvPreviewSkipped(res.previewSkipped);
+      setCsvRowOverrides((current) =>
+        reconcileRowOverrides(current, res.incompleteRows),
+      );
     } catch (e) {
       setError(importErrorMessage(e));
     } finally {
@@ -403,6 +538,7 @@ export function MigrationWizard({
         fileBase64: xlsxBase64,
         sheetName,
         mapping: nextMapping as Record<TargetField, string>,
+        overrides: Object.values(xlsxRowOverrides[sheetName] ?? {}),
       });
       setXlsxPreview((current) =>
         current
@@ -413,6 +549,7 @@ export function MigrationWizard({
                       ...sheet,
                       suggestedMapping: nextMapping,
                       previewRows: res.previewRows,
+                      incompleteRows: res.incompleteRows,
                       skippedCount: res.skippedCount,
                     }
                   : sheet,
@@ -420,11 +557,35 @@ export function MigrationWizard({
             }
           : current,
       );
+      setXlsxRowOverrides((current) => ({
+        ...current,
+        [sheetName]: reconcileRowOverrides(
+          current[sheetName] ?? {},
+          res.incompleteRows,
+        ),
+      }));
     } catch (e) {
       setError(importErrorMessage(e));
     } finally {
       setLoading(false);
     }
+  }
+
+  function updateCsvRepair(row: EditableImportRow) {
+    setCsvRowOverrides((current) => ({
+      ...current,
+      [row.rowNumber]: row,
+    }));
+  }
+
+  function updateXlsxRepair(sheetName: string, row: EditableImportRow) {
+    setXlsxRowOverrides((current) => ({
+      ...current,
+      [sheetName]: {
+        ...(current[sheetName] ?? {}),
+        [row.rowNumber]: row,
+      },
+    }));
   }
 
   async function commit() {
@@ -434,13 +595,18 @@ export function MigrationWizard({
       if (source === "csv") {
         if (xlsxPreview) {
           const sheets = [...selectedSheets]
-            .map((name) => ({ name, mapping: xlsxMappings[name] }))
+            .map((name) => ({
+              name,
+              mapping: xlsxMappings[name],
+              overrides: Object.values(xlsxRowOverrides[name] ?? {}),
+            }))
             .filter(
               (
                 sheet,
               ): sheet is {
                 name: string;
                 mapping: Record<TargetField, string>;
+                overrides: EditableImportRow[];
               } => Boolean(sheet.mapping?.title),
             );
           if (sheets.length === 0) return;
@@ -456,6 +622,7 @@ export function MigrationWizard({
             projectId,
             csvText: rawContent,
             mapping: mapping as Record<TargetField, string>,
+            overrides: Object.values(csvRowOverrides),
             sourceLabel: fileName || undefined,
           });
         }
@@ -506,6 +673,14 @@ export function MigrationWizard({
     commitZephyrMutation.isPending;
   const stepNumber = { source: 1, upload: 2, review: 3, done: 4 }[step];
   const totalSteps = 4;
+  const unresolvedCsvRows = Object.values(csvRowOverrides).filter(
+    (row) => !row.title.trim(),
+  );
+  const unresolvedXlsxRows = [...selectedSheets].flatMap((sheetName) =>
+    Object.values(xlsxRowOverrides[sheetName] ?? {}).filter(
+      (row) => !row.title.trim(),
+    ),
+  );
 
   return (
     <div className="panel" style={{ marginBottom: 20 }}>
@@ -692,6 +867,12 @@ export function MigrationWizard({
             {xlsxPreview.sheets.map((sheet) => {
               const selected = selectedSheets.has(sheet.name);
               const sheetMapping = xlsxMappings[sheet.name] ?? {};
+              const repairRows = Object.values(
+                xlsxRowOverrides[sheet.name] ?? {},
+              );
+              const unresolvedRepairCount = repairRows.filter(
+                (row) => !row.title.trim(),
+              ).length;
               return (
                 <section
                   key={sheet.name}
@@ -783,11 +964,29 @@ export function MigrationWizard({
                           </table>
                         </div>
                       )}
-                      {sheet.skippedCount > 0 && (
-                        <p className="xlsx-sheet-note">
-                          {sheet.skippedCount} row(s) are missing a title and
-                          will be skipped.
-                        </p>
+                      {repairRows.length > 0 && (
+                        <details
+                          className="import-repair-panel"
+                          open={unresolvedRepairCount > 0}
+                        >
+                          <summary>
+                            Review {repairRows.length} incomplete source row(s)
+                          </summary>
+                          <p className="text-muted">
+                            Vaettir retained these rows and suggested titles
+                            from stable IDs or section tags when possible.
+                            Review or edit any field before continuing.
+                          </p>
+                          {repairRows.map((row) => (
+                            <RowRepairEditor
+                              key={row.rowNumber}
+                              row={row}
+                              onChange={(next) =>
+                                updateXlsxRepair(sheet.name, next)
+                              }
+                            />
+                          ))}
+                        </details>
                       )}
                     </>
                   )}
@@ -797,10 +996,20 @@ export function MigrationWizard({
           </div>
           <button
             onClick={() => setStep("review")}
-            disabled={loading || selectedSheets.size === 0}
+            disabled={
+              loading ||
+              selectedSheets.size === 0 ||
+              unresolvedXlsxRows.length > 0
+            }
           >
             Review import scope
           </button>
+          {unresolvedXlsxRows.length > 0 && (
+            <p className="xlsx-sheet-note" role="status">
+              Complete {unresolvedXlsxRows.length} required title field(s) to
+              continue. No rows will be dropped.
+            </p>
+          )}
         </div>
       )}
 
@@ -898,18 +1107,44 @@ export function MigrationWizard({
               </table>
             </div>
           )}
-          {csvPreviewSkipped.length > 0 && (
-            <p className="text-muted" style={{ fontSize: 12 }}>
-              {csvPreviewSkipped.length} row(s) would be skipped (missing
-              title), e.g. row {csvPreviewSkipped[0]!.rowNumber}.
-            </p>
+          {Object.values(csvRowOverrides).length > 0 && (
+            <details
+              className="import-repair-panel"
+              open={unresolvedCsvRows.length > 0}
+            >
+              <summary>
+                Review {Object.values(csvRowOverrides).length} incomplete source
+                row(s)
+              </summary>
+              <p className="text-muted">
+                Vaettir retained these rows and suggested titles from stable IDs
+                or section tags when possible. Review or edit any field before
+                continuing.
+              </p>
+              {Object.values(csvRowOverrides).map((row) => (
+                <RowRepairEditor
+                  key={row.rowNumber}
+                  row={row}
+                  onChange={updateCsvRepair}
+                />
+              ))}
+            </details>
           )}
 
           <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
-            <button onClick={() => setStep("review")} disabled={!mapping.title}>
+            <button
+              onClick={() => setStep("review")}
+              disabled={!mapping.title || unresolvedCsvRows.length > 0}
+            >
               Review scope
             </button>
           </div>
+          {unresolvedCsvRows.length > 0 && (
+            <p className="xlsx-sheet-note" role="status">
+              Complete {unresolvedCsvRows.length} required title field(s) to
+              continue. No rows will be dropped.
+            </p>
+          )}
         </div>
       )}
 
@@ -953,10 +1188,8 @@ export function MigrationWizard({
           <h3 style={{ marginTop: 0 }}>Ready to import — {fileName}</h3>
           <p className="text-muted" style={{ fontSize: 13 }}>
             {csvPreviewRows.length} row(s) shown of {csvPreview?.rowCount ?? 0}{" "}
-            total will be created
-            {csvPreviewSkipped.length > 0 &&
-              `, ${csvPreviewSkipped.length} row(s) skipped (missing title)`}
-            . Nothing is written until you confirm.
+            total will be created. Any incomplete source rows were repaired
+            before this step. Nothing is written until you confirm.
           </p>
           <div style={{ display: "flex", gap: 8 }}>
             <button className="btn-secondary" onClick={() => setStep("upload")}>

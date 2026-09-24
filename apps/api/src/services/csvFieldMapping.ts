@@ -175,7 +175,12 @@ export interface MappedRow {
 export interface MapCsvResult {
   rows: MappedRow[];
   skipped: { rowNumber: number; reason: string }[];
+  incompleteRows: MappedRow[];
 }
+
+export type MappedRowOverride = Partial<Omit<MappedRow, "rowNumber">> & {
+  rowNumber: number;
+};
 
 // Applies a CONFIRMED mapping (source column header -> target field) to
 // every data row. Used both for the preview (a small slice, `limit`) and
@@ -185,9 +190,10 @@ export function mapCsvRows(
   text: string,
   mapping: Partial<Record<TargetField, string>>,
   limit?: number,
+  overrides: MappedRowOverride[] = [],
 ): MapCsvResult {
   const rows = splitCsvRows(text);
-  if (rows.length < 2) return { rows: [], skipped: [] };
+  if (rows.length < 2) return { rows: [], skipped: [], incompleteRows: [] };
   const header = rows[0] ?? [];
   const colIndex = (field: TargetField): number => {
     const col = mapping[field];
@@ -208,15 +214,14 @@ export function mapCsvRows(
 
   const mapped: MappedRow[] = [];
   const skipped: { rowNumber: number; reason: string }[] = [];
+  const incompleteRows: MappedRow[] = [];
+  const overrideByRow = new Map(overrides.map((row) => [row.rowNumber, row]));
   const dataRows = limit ? rows.slice(1, 1 + limit) : rows.slice(1);
 
   dataRows.forEach((r, i) => {
     const rowNumber = i + 2;
-    const title = (r[idx.title] ?? "").trim();
-    if (!title) {
-      skipped.push({ rowNumber, reason: "missing title" });
-      return;
-    }
+    const override = overrideByRow.get(rowNumber);
+    const title = (override?.title ?? r[idx.title] ?? "").trim();
     const given = idx.given >= 0 ? splitMultiValue(r[idx.given]) : [];
     const when = idx.when >= 0 ? splitMultiValue(r[idx.when]) : [];
     const then = idx.then >= 0 ? splitMultiValue(r[idx.then]) : [];
@@ -232,17 +237,23 @@ export function mapCsvRows(
         ? (r[idx.externalId] ?? "").trim() || undefined
         : undefined;
 
-    mapped.push({
+    const candidate: MappedRow = {
       rowNumber,
       title,
-      given,
-      when,
-      then,
-      priority,
-      tags,
-      externalId,
-    });
+      given: override?.given ?? given,
+      when: override?.when ?? when,
+      then: override?.then ?? then,
+      priority: override?.priority ?? priority,
+      tags: override?.tags ?? tags,
+      externalId: override?.externalId ?? externalId,
+    };
+    if (!candidate.title) {
+      skipped.push({ rowNumber, reason: "missing title" });
+      incompleteRows.push(candidate);
+      return;
+    }
+    mapped.push(candidate);
   });
 
-  return { rows: mapped, skipped };
+  return { rows: mapped, skipped, incompleteRows };
 }

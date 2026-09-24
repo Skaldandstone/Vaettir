@@ -1677,6 +1677,69 @@ main.app-main {
   color: var(--warning);
   font-size: 10px;
 }
+.import-repair-panel {
+  display: grid;
+  gap: 10px;
+  margin-top: 14px;
+  padding: 12px;
+  border: 1px solid color-mix(in srgb, var(--warning) 55%, var(--line));
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--warning) 8%, var(--ink));
+}
+.import-repair-panel p {
+  margin: 3px 0 0;
+  font-size: 11px;
+}
+.import-repair-panel > summary {
+  color: var(--fg);
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 700;
+}
+.import-repair-panel[open] > summary {
+  margin-bottom: 2px;
+}
+.import-row-repair {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin: 0;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+}
+.import-row-repair legend {
+  padding: 0 6px;
+  color: var(--warning);
+  font-size: 11px;
+  font-weight: 700;
+}
+.import-row-repair label {
+  margin: 0;
+  font-size: 10px;
+}
+.import-row-repair input,
+.import-row-repair select,
+.import-row-repair textarea {
+  width: 100%;
+  margin-top: 4px;
+  font-size: 11px;
+}
+.import-row-repair textarea {
+  min-height: 72px;
+  resize: vertical;
+}
+.import-row-repair-title {
+  grid-column: 1 / -1;
+}
+@media (max-width: 720px) {
+  .import-row-repair {
+    grid-template-columns: 1fr;
+  }
+  .import-row-repair-title {
+    grid-column: auto;
+  }
+}
 .xlsx-review-list {
   display: grid;
   gap: 7px;
