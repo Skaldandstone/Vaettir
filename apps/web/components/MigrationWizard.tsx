@@ -98,6 +98,17 @@ function readFileAsBase64(file: File): Promise<string> {
   });
 }
 
+function importErrorMessage(error: unknown) {
+  const message = error instanceof Error ? error.message : String(error);
+  if (/failed to fetch|networkerror|load failed/i.test(message)) {
+    return "Vaettir could not reach the import service. Nothing was written. Check your connection and retry; if it continues, send support the file name and time of the attempt.";
+  }
+  if (/413|payload too large|request entity too large/i.test(message)) {
+    return "This export is larger than the current upload limit. Nothing was written. Split it into smaller workbooks or contact support for an assisted migration.";
+  }
+  return message;
+}
+
 type FilePreviewRow =
   RouterOutputs["importJobs"]["previewXray"]["previewRows"][number];
 type FileCommitResult = RouterOutputs["importJobs"]["commitXray"];
@@ -113,7 +124,6 @@ export function MigrationWizard({
   projectId: string;
   onCommitted: () => void;
 }) {
-  const utils = trpcReact.useUtils();
   const [step, setStep] = useState<Step>("source");
   const [source, setSource] = useState<Source | null>(null);
   const [fileName, setFileName] = useState("");
@@ -169,6 +179,18 @@ export function MigrationWizard({
     trpcReact.importJobs.commitTestRail.useMutation();
   const commitQTestMutation = trpcReact.importJobs.commitQTest.useMutation();
   const commitZephyrMutation = trpcReact.importJobs.commitZephyr.useMutation();
+  const previewXlsxMutation = trpcReact.importJobs.previewXlsx.useMutation();
+  const previewXlsxSheetMutation =
+    trpcReact.importJobs.previewXlsxSheet.useMutation();
+  const previewCsvMutation = trpcReact.importJobs.previewCsv.useMutation();
+  const previewWithMappingMutation =
+    trpcReact.importJobs.previewWithMapping.useMutation();
+  const previewXrayMutation = trpcReact.importJobs.previewXray.useMutation();
+  const previewTestRailMutation =
+    trpcReact.importJobs.previewTestRail.useMutation();
+  const previewQTestMutation = trpcReact.importJobs.previewQTest.useMutation();
+  const previewZephyrMutation =
+    trpcReact.importJobs.previewZephyr.useMutation();
 
   function reset() {
     setStep("source");
@@ -211,7 +233,7 @@ export function MigrationWizard({
       if (source === "csv") {
         if (file.name.toLowerCase().endsWith(".xlsx")) {
           const fileBase64 = await readFileAsBase64(file);
-          const res = await utils.importJobs.previewXlsx.fetch({
+          const res = await previewXlsxMutation.mutateAsync({
             projectId,
             fileBase64,
           });
@@ -230,7 +252,7 @@ export function MigrationWizard({
         }
         const text = await readFileAsText(file);
         setRawContent(text);
-        const res = await utils.importJobs.previewCsv.fetch({
+        const res = await previewCsvMutation.mutateAsync({
           projectId,
           csvText: text,
         });
@@ -244,7 +266,7 @@ export function MigrationWizard({
       } else if (source === "xray") {
         const text = await readFileAsText(file);
         setRawContent(text);
-        const res = await utils.importJobs.previewXray.fetch({
+        const res = await previewXrayMutation.mutateAsync({
           projectId,
           content: text,
         });
@@ -260,7 +282,7 @@ export function MigrationWizard({
       } else {
         const text = await readFileAsText(file);
         setRawContent(text);
-        const res = await utils.importJobs.previewTestRail.fetch({
+        const res = await previewTestRailMutation.mutateAsync({
           projectId,
           content: text,
         });
@@ -274,7 +296,7 @@ export function MigrationWizard({
         setStep("review");
       }
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      setError(importErrorMessage(e));
     } finally {
       setLoading(false);
     }
@@ -291,7 +313,7 @@ export function MigrationWizard({
     setError(null);
     setLoading(true);
     try {
-      const res = await utils.importJobs.previewQTest.fetch({
+      const res = await previewQTestMutation.mutateAsync({
         projectId,
         baseUrl: qtestBaseUrl.trim(),
         apiToken: qtestApiToken.trim(),
@@ -306,7 +328,7 @@ export function MigrationWizard({
       });
       setStep("review");
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      setError(importErrorMessage(e));
     } finally {
       setLoading(false);
     }
@@ -317,7 +339,7 @@ export function MigrationWizard({
     setError(null);
     setLoading(true);
     try {
-      const res = await utils.importJobs.previewZephyr.fetch({
+      const res = await previewZephyrMutation.mutateAsync({
         projectId,
         apiToken: zephyrApiToken.trim(),
         zephyrProjectKey: zephyrProjectKey.trim(),
@@ -331,7 +353,7 @@ export function MigrationWizard({
       });
       setStep("review");
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      setError(importErrorMessage(e));
     } finally {
       setLoading(false);
     }
@@ -348,7 +370,7 @@ export function MigrationWizard({
     setLoading(true);
     setError(null);
     try {
-      const res = await utils.importJobs.previewWithMapping.fetch({
+      const res = await previewWithMappingMutation.mutateAsync({
         projectId,
         csvText: rawContent,
         mapping: next as Record<TargetField, string>,
@@ -356,7 +378,7 @@ export function MigrationWizard({
       setCsvPreviewRows(res.previewRows);
       setCsvPreviewSkipped(res.previewSkipped);
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      setError(importErrorMessage(e));
     } finally {
       setLoading(false);
     }
@@ -376,7 +398,7 @@ export function MigrationWizard({
     setLoading(true);
     setError(null);
     try {
-      const res = await utils.importJobs.previewXlsxSheet.fetch({
+      const res = await previewXlsxSheetMutation.mutateAsync({
         projectId,
         fileBase64: xlsxBase64,
         sheetName,
@@ -399,7 +421,7 @@ export function MigrationWizard({
           : current,
       );
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      setError(importErrorMessage(e));
     } finally {
       setLoading(false);
     }
@@ -471,7 +493,7 @@ export function MigrationWizard({
       setStep("done");
       onCommitted();
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      setError(importErrorMessage(e));
     }
   }
 

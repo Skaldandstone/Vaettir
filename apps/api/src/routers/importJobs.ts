@@ -88,7 +88,7 @@ export const importJobsRouter = router({
         ),
       }),
     )
-    .query(async ({ ctx, input }) => {
+    .mutation(async ({ ctx, input }) => {
       await requireProjectAccess(ctx, input.projectId);
       try {
         const sheets = parseXlsxWorkbook(
@@ -145,7 +145,7 @@ export const importJobsRouter = router({
         skippedCount: z.number(),
       }),
     )
-    .query(async ({ ctx, input }) => {
+    .mutation(async ({ ctx, input }) => {
       await requireProjectAccess(ctx, input.projectId);
       try {
         const sheet = parseXlsxWorkbook(
@@ -278,7 +278,7 @@ export const importJobsRouter = router({
         ),
       }),
     )
-    .query(async ({ ctx, input }) => {
+    .mutation(async ({ ctx, input }) => {
       await requireProjectAccess(ctx, input.projectId);
       const { headers, suggestedMapping, rowCount } = inspectCsv(input.csvText);
 
@@ -329,7 +329,7 @@ export const importJobsRouter = router({
         ),
       }),
     )
-    .query(async ({ ctx, input }) => {
+    .mutation(async ({ ctx, input }) => {
       await requireProjectAccess(ctx, input.projectId);
       try {
         const { rows, skipped } = mapCsvRows(input.csvText, input.mapping, 10);
@@ -415,7 +415,7 @@ export const importJobsRouter = router({
         ),
       }),
     )
-    .query(async ({ ctx, input }) => {
+    .mutation(async ({ ctx, input }) => {
       await requireProjectAccess(ctx, input.projectId);
       let parsed;
       try {
@@ -513,7 +513,7 @@ export const importJobsRouter = router({
         ),
       }),
     )
-    .query(async ({ ctx, input }) => {
+    .mutation(async ({ ctx, input }) => {
       await requireProjectAccess(ctx, input.projectId);
       let parsed;
       try {
@@ -622,7 +622,7 @@ export const importJobsRouter = router({
         ),
       }),
     )
-    .query(async ({ ctx, input }) => {
+    .mutation(async ({ ctx, input }) => {
       await requireProjectAccess(ctx, input.projectId);
       let scan;
       try {
@@ -735,7 +735,7 @@ export const importJobsRouter = router({
         ),
       }),
     )
-    .query(async ({ ctx, input }) => {
+    .mutation(async ({ ctx, input }) => {
       await requireProjectAccess(ctx, input.projectId);
       let scan;
       try {
