@@ -38,6 +38,7 @@ const runCheckSafely = createSafeSchedulerRunner("readinessChangeScheduler", che
 
 export function startReadinessChangeScheduler(): void {
   if (checkHandle) return;
+  void runCheckSafely();
   checkHandle = setInterval(() => void runCheckSafely(), CHECK_INTERVAL_MS);
   checkHandle.unref();
 }
