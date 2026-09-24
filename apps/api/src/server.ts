@@ -22,8 +22,7 @@ import { handleMergeRequestWebhook, type GitlabMergeRequestPayload } from "./ser
 import { getHeartbeatStatuses } from "./services/heartbeat.js";
 import { getStripeRuntime } from "./services/stripeConfig.js";
 import { handleStripeWebhookEvent } from "./services/stripeBilling.js";
-import { exchangeGooglePlayCode } from "./services/productionSignalOAuth.js";
-import { encryptToken } from "./services/tokenEncryption.js";
+import { handleGooglePlayOAuthCallback } from "./services/googlePlayOAuthCallback.js";
 import { verifyPagerDutySignature, handlePagerDutyWebhook, type PagerDutyWebhookPayload } from "./services/pagerdutyWebhook.js";
 import { verifyLinearSignature, type LinearWebhookPayload } from "./services/linearApi.js";
 import { handleLinearWebhook } from "./services/linearWebhook.js";
@@ -294,39 +293,9 @@ async function registerProductionSignalOAuthRoute(instance: FastifyInstance) {
         return reply.send({ status, message });
       }
 
-      if (error) return finish(null, "error", error);
-      if (!code || !state) return reply.code(400).send({ error: "missing code or state" });
-
-      const connection = await prisma.productionSignalConnection.findUnique({ where: { oauthState: state } });
-      if (!connection || connection.provider !== "GOOGLE_PLAY") {
-        return reply.code(400).send({ error: "unknown or expired connection state" });
-      }
-
-      try {
-        const tokens = await exchangeGooglePlayCode(code);
-        const encrypted = encryptToken(JSON.stringify({ accessToken: tokens.accessToken, refreshToken: tokens.refreshToken }));
-        await prisma.productionSignalConnection.update({
-          where: { id: connection.id },
-          data: {
-            status: "CONNECTED",
-            encryptedCredentials: encrypted.ciphertext,
-            credentialsIv: encrypted.iv,
-            credentialsAuthTag: encrypted.authTag,
-            scope: tokens.scope,
-            oauthState: null, // one-time use - never valid again after this callback
-            connectedAt: new Date(),
-            lastSyncError: null,
-          },
-        });
-        return finish(connection.projectId, "connected");
-      } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
-        await prisma.productionSignalConnection.update({
-          where: { id: connection.id },
-          data: { status: "ERROR", oauthState: null, lastSyncError: message },
-        });
-        return finish(connection.projectId, "error", message);
-      }
+      const result = await handleGooglePlayOAuthCallback(prisma, { code, state, error });
+      if (result.httpStatus === 400) return reply.code(400).send({ error: result.message });
+      return finish(result.projectId, result.status, result.message);
     },
   );
 }
