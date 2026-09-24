@@ -4,6 +4,7 @@ import { prisma, type OrgRole } from "@vaettir/db";
 import { verifyClerkSessionToken, getOrCreateLocalUser } from "./clerk.js";
 import { hashApiKey, looksLikeApiKey } from "./services/apiKeyAuth.js";
 import { publicTrpcErrorShape } from "./publicErrors.js";
+import { reportPrivilegedAccessDenied, type SecurityEventLogger } from "./services/securityEvents.js";
 
 function extractBearerToken(authHeader: string | undefined): string | null {
   if (!authHeader?.startsWith("Bearer ")) return null;
@@ -53,7 +54,17 @@ export async function createContext({ req }: CreateFastifyContextOptions) {
             : null,
         );
 
-  return { prisma, user, staff: resolveStaff(req.headers) };
+  return {
+    prisma,
+    user,
+    staff: resolveStaff(req.headers),
+    securityLogger: req.log as SecurityEventLogger,
+    staffAttempt: {
+      tokenConfigured: Boolean(process.env.STAFF_ADMIN_TOKEN),
+      tokenPresented: typeof req.headers["x-staff-token"] === "string",
+      actorHeaderPresented: typeof req.headers["x-staff-actor"] === "string",
+    },
+  };
 }
 
 export type Context = Awaited<ReturnType<typeof createContext>>;
@@ -84,6 +95,12 @@ export const protectedProcedure = t.procedure.use(({ ctx, next }) => {
 // at the Adminhelper layer via the forwarded X-Staff-Actor.
 export const staffTokenProcedure = t.procedure.use(({ ctx, next }) => {
   if (!ctx.staff) {
+    reportPrivilegedAccessDenied(ctx.securityLogger, {
+      surface: "staff_token",
+      reason: ctx.staffAttempt?.tokenConfigured ? "staff_token_missing_or_invalid" : "staff_token_disabled",
+      tokenPresented: ctx.staffAttempt?.tokenPresented ?? false,
+      actorHeaderPresented: ctx.staffAttempt?.actorHeaderPresented ?? false,
+    });
     throw new TRPCError({ code: "UNAUTHORIZED", message: "Staff access token required" });
   }
   return next({ ctx: { ...ctx, staff: ctx.staff } });
@@ -180,6 +197,10 @@ export function isStaffEmail(email: string): boolean {
 
 export const staffProcedure = protectedProcedure.use(({ ctx, next }) => {
   if (!isStaffEmail(ctx.user.email)) {
+    reportPrivilegedAccessDenied(ctx.securityLogger, {
+      surface: "staff_email",
+      reason: "email_not_allowlisted",
+    });
     throw new TRPCError({ code: "FORBIDDEN", message: "Staff access required" });
   }
   return next({ ctx });
@@ -205,6 +226,10 @@ const LIVE_APP_SCAN_ALLOWLIST = new Set(
 
 export const liveAppScanProcedure = protectedProcedure.use(({ ctx, next }) => {
   if (!LIVE_APP_SCAN_ALLOWLIST.has(ctx.user.email.toLowerCase())) {
+    reportPrivilegedAccessDenied(ctx.securityLogger, {
+      surface: "live_app_scan",
+      reason: "feature_not_allowlisted",
+    });
     throw new TRPCError({ code: "FORBIDDEN", message: "This feature is limited to a small allowlist while it's new and unproven." });
   }
   return next({ ctx });
