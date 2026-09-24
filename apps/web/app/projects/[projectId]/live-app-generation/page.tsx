@@ -13,6 +13,9 @@ type Draft = RouterOutputs["liveAppGeneration"]["generateFromUrl"][number];
 type DeviceCapture =
   RouterInputs["liveAppGeneration"]["generateFromDeviceCapture"]["capture"];
 type CaptureMode = "web" | "android" | "ios-connected" | "ios-remote";
+type ConnectorStatus = "idle" | "connecting" | "connected";
+
+const CONNECTOR_URL = "http://127.0.0.1:4774";
 
 // SSE-181: deliberately its own page, not folded into /reverse-engineer or
 // the shared /test-cases/review queue - there's no prior test to diff a
@@ -32,6 +35,14 @@ export default function LiveAppGenerationPage() {
   const [deviceCapture, setDeviceCapture] = useState<DeviceCapture | null>(
     null,
   );
+  const [connectorStatus, setConnectorStatus] =
+    useState<ConnectorStatus>("idle");
+  const [pairingCode, setPairingCode] = useState("");
+  const [screenLabel, setScreenLabel] = useState("");
+  const [deviceSerial, setDeviceSerial] = useState("");
+  const [appiumUrl, setAppiumUrl] = useState("http://127.0.0.1:4723");
+  const [appiumSessionId, setAppiumSessionId] = useState("");
+  const [capturing, setCapturing] = useState(false);
   const [generating, setGenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [drafts, setDrafts] = useState<Draft[] | null>(null);
@@ -102,6 +113,103 @@ export default function LiveAppGenerationPage() {
           ? captureError.message
           : "Could not read the capture file.",
       );
+    }
+  }
+
+  async function connectorRequest<T>(path: string, init?: RequestInit) {
+    const controller = new AbortController();
+    const timeout = window.setTimeout(() => controller.abort(), 8_000);
+    try {
+      const response = await fetch(`${CONNECTOR_URL}${path}`, {
+        ...init,
+        signal: controller.signal,
+        headers: {
+          "content-type": "application/json",
+          "x-vaettir-pairing-code": pairingCode.trim().toUpperCase(),
+          ...init?.headers,
+        },
+      });
+      const payload = (await response.json().catch(() => ({}))) as {
+        error?: string;
+      } & T;
+      if (!response.ok) {
+        throw new Error(
+          payload.error || `Connector returned HTTP ${response.status}.`,
+        );
+      }
+      return payload;
+    } finally {
+      window.clearTimeout(timeout);
+    }
+  }
+
+  async function connectToDeviceConnector() {
+    setConnectorStatus("connecting");
+    setError(null);
+    try {
+      await connectorRequest<{ connected: boolean }>("/health");
+      setConnectorStatus("connected");
+    } catch (connectorError) {
+      setConnectorStatus("idle");
+      setError(
+        connectorError instanceof DOMException &&
+          connectorError.name === "AbortError"
+          ? "The connector did not respond. Start the downloaded helper, then try again."
+          : connectorError instanceof Error
+            ? connectorError.message
+            : "Could not connect to the device helper.",
+      );
+    }
+  }
+
+  async function captureCurrentScreen() {
+    setCapturing(true);
+    setError(null);
+    try {
+      const response = await connectorRequest<{ capture: DeviceCapture }>(
+        "/capture",
+        {
+          method: "POST",
+          body: JSON.stringify({
+            source: captureMode,
+            label: screenLabel.trim() || undefined,
+            serial:
+              captureMode === "android"
+                ? deviceSerial.trim() || undefined
+                : undefined,
+            appiumUrl: captureMode === "android" ? undefined : appiumUrl.trim(),
+            sessionId:
+              captureMode === "android" ? undefined : appiumSessionId.trim(),
+          }),
+        },
+      );
+      setDeviceCapture((current) => {
+        if (!current) return response.capture;
+        if (
+          current.source !== response.capture.source ||
+          current.deviceName !== response.capture.deviceName
+        ) {
+          return response.capture;
+        }
+        return {
+          ...current,
+          capturedAt: response.capture.capturedAt,
+          appName: response.capture.appName ?? current.appName,
+          screens: [...current.screens, ...response.capture.screens].slice(
+            0,
+            25,
+          ),
+        };
+      });
+      setScreenLabel("");
+    } catch (captureError) {
+      setError(
+        captureError instanceof Error
+          ? captureError.message
+          : "Device capture failed.",
+      );
+    } finally {
+      setCapturing(false);
     }
   }
 
@@ -209,50 +317,262 @@ export default function LiveAppGenerationPage() {
               </label>
             ) : (
               <>
-                <div>
-                  <strong>
-                    {captureMode === "android"
-                      ? "Capture the foreground Android screen over ADB"
-                      : captureMode === "ios-connected"
-                        ? "Capture a connected iPhone/iPad through local Appium + WebDriverAgent"
-                        : "Capture a remote iPhone/iPad through an Appium-compatible device provider"}
-                  </strong>
-                  <p
-                    className="text-muted"
-                    style={{ fontSize: 13, marginBottom: 8 }}
+                <div style={{ display: "grid", gap: 16 }}>
+                  <div>
+                    <strong>
+                      {captureMode === "android"
+                        ? "Capture Android screens directly from this page"
+                        : captureMode === "ios-connected"
+                          ? "Capture a connected iPhone or iPad from this page"
+                          : "Capture an active remote iOS device session"}
+                    </strong>
+                    <p
+                      className="text-muted"
+                      style={{ fontSize: 13, margin: "6px 0 0" }}
+                    >
+                      A small connector runs on the computer attached to the
+                      device. Raw hierarchy, screenshots, and provider
+                      credentials stay on that computer. Vaettir receives only
+                      named controls such as buttons, fields, tabs, and labels.
+                    </p>
+                  </div>
+
+                  <section
+                    style={{
+                      display: "grid",
+                      gridTemplateColumns: "36px minmax(0, 1fr)",
+                      gap: 12,
+                      alignItems: "start",
+                    }}
                   >
-                    Run the local capture command from the Vaettir repository,
-                    interact with the device, and append each important screen.
-                    Credentials, screenshots, and raw hierarchy XML are never
-                    uploaded.
-                  </p>
-                  <code style={{ display: "block", overflowWrap: "anywhere" }}>
-                    {captureMode === "android"
-                      ? "pnpm capture:device -- --source adb --output vaettir-device.json"
-                      : captureMode === "ios-connected"
-                        ? "pnpm capture:device -- --source ios-connected --appium-url http://127.0.0.1:4723 --session-id <id> --output vaettir-device.json"
-                        : "pnpm capture:device -- --source ios-remote --appium-url <provider-url> --session-id <id> --output vaettir-device.json"}
-                  </code>
+                    <span className="metric-icon frost" aria-hidden="true">
+                      1
+                    </span>
+                    <div>
+                      <strong>Start the Vaettir Device Connector</strong>
+                      <p
+                        className="text-muted"
+                        style={{ fontSize: 13, margin: "4px 0 8px" }}
+                      >
+                        Download it once on the computer that can reach the
+                        device. It requires{" "}
+                        {captureMode === "android"
+                          ? "Node 22 and ADB"
+                          : captureMode === "ios-connected"
+                            ? "Node 22 on macOS, Xcode, Appium, and WebDriverAgent"
+                            : "Node 22 and an active Appium-compatible provider session"}
+                        .
+                      </p>
+                      <div
+                        style={{ display: "flex", flexWrap: "wrap", gap: 8 }}
+                      >
+                        <a
+                          className="btn btn-secondary"
+                          href="/connectors/vaettir-device-connector.mjs"
+                          download="vaettir-device-connector.mjs"
+                        >
+                          Download connector
+                        </a>
+                        <code
+                          style={{
+                            alignSelf: "center",
+                            overflowWrap: "anywhere",
+                          }}
+                        >
+                          {'node "$HOME/Downloads/vaettir-device-connector.mjs"'}
+                        </code>
+                      </div>
+                    </div>
+                  </section>
+
+                  <section
+                    style={{
+                      display: "grid",
+                      gridTemplateColumns: "36px minmax(0, 1fr)",
+                      gap: 12,
+                      alignItems: "start",
+                    }}
+                  >
+                    <span className="metric-icon frost" aria-hidden="true">
+                      2
+                    </span>
+                    <div>
+                      <strong>Pair this browser</strong>
+                      <p
+                        className="text-muted"
+                        style={{ fontSize: 13, margin: "4px 0 8px" }}
+                      >
+                        Enter the pairing code printed by the connector. The
+                        code is kept only in this page and the connector listens
+                        only on your computer.
+                      </p>
+                      <div
+                        style={{
+                          display: "grid",
+                          gridTemplateColumns: "minmax(180px, 1fr) auto",
+                          gap: 8,
+                          maxWidth: 480,
+                        }}
+                      >
+                        <input
+                          value={pairingCode}
+                          onChange={(event) => {
+                            setPairingCode(event.target.value.toUpperCase());
+                            setConnectorStatus("idle");
+                          }}
+                          placeholder="Pairing code"
+                          autoComplete="off"
+                          spellCheck={false}
+                          aria-label="Device connector pairing code"
+                        />
+                        <button
+                          type="button"
+                          className={
+                            connectorStatus === "connected"
+                              ? "btn-secondary"
+                              : ""
+                          }
+                          onClick={() => void connectToDeviceConnector()}
+                          disabled={
+                            !pairingCode.trim() ||
+                            connectorStatus === "connecting"
+                          }
+                        >
+                          {connectorStatus === "connecting"
+                            ? "Connecting…"
+                            : connectorStatus === "connected"
+                              ? "Connected"
+                              : "Connect"}
+                        </button>
+                      </div>
+                    </div>
+                  </section>
+
+                  <section
+                    style={{
+                      display: "grid",
+                      gridTemplateColumns: "36px minmax(0, 1fr)",
+                      gap: 12,
+                      alignItems: "start",
+                      opacity: connectorStatus === "connected" ? 1 : 0.55,
+                    }}
+                  >
+                    <span className="metric-icon frost" aria-hidden="true">
+                      3
+                    </span>
+                    <div style={{ display: "grid", gap: 8 }}>
+                      <strong>Capture each important screen</strong>
+                      {captureMode === "android" ? (
+                        <label>
+                          Device serial{" "}
+                          <span className="text-muted">
+                            (only needed when several devices are connected)
+                          </span>
+                          <input
+                            value={deviceSerial}
+                            onChange={(event) =>
+                              setDeviceSerial(event.target.value)
+                            }
+                            placeholder="Leave blank to use the only connected device"
+                            disabled={connectorStatus !== "connected"}
+                            style={{ width: "100%" }}
+                          />
+                        </label>
+                      ) : (
+                        <div
+                          style={{
+                            display: "grid",
+                            gridTemplateColumns:
+                              "repeat(auto-fit, minmax(220px, 1fr))",
+                            gap: 8,
+                          }}
+                        >
+                          <label>
+                            Appium server
+                            <input
+                              value={appiumUrl}
+                              onChange={(event) =>
+                                setAppiumUrl(event.target.value)
+                              }
+                              placeholder={
+                                captureMode === "ios-remote"
+                                  ? "https://provider.example/wd/hub"
+                                  : "http://127.0.0.1:4723"
+                              }
+                              disabled={connectorStatus !== "connected"}
+                              style={{ width: "100%" }}
+                            />
+                          </label>
+                          <label>
+                            Active session ID
+                            <input
+                              value={appiumSessionId}
+                              onChange={(event) =>
+                                setAppiumSessionId(event.target.value)
+                              }
+                              placeholder="Appium session ID"
+                              disabled={connectorStatus !== "connected"}
+                              style={{ width: "100%" }}
+                            />
+                          </label>
+                        </div>
+                      )}
+                      <label>
+                        Screen name
+                        <input
+                          value={screenLabel}
+                          onChange={(event) =>
+                            setScreenLabel(event.target.value)
+                          }
+                          placeholder="For example: Sign in, Cart, Checkout"
+                          disabled={connectorStatus !== "connected"}
+                          style={{ width: "100%" }}
+                        />
+                      </label>
+                      <button
+                        type="button"
+                        onClick={() => void captureCurrentScreen()}
+                        disabled={
+                          connectorStatus !== "connected" ||
+                          capturing ||
+                          (captureMode !== "android" &&
+                            (!appiumUrl.trim() || !appiumSessionId.trim()))
+                        }
+                      >
+                        {capturing
+                          ? "Capturing current screen…"
+                          : "Capture current screen"}
+                      </button>
+                    </div>
+                  </section>
                 </div>
-                <label>
-                  Vaettir device capture (.json)
-                  <input
-                    type="file"
-                    accept="application/json,.json"
-                    onChange={(event) =>
-                      void selectCapture(event.target.files?.[0])
-                    }
-                  />
-                </label>
                 {deviceCapture && (
                   <div className="status-panel success">
-                    <strong>{deviceCapture.deviceName}</strong>
+                    <strong>
+                      {deviceCapture.deviceName}: {deviceCapture.screens.length}{" "}
+                      screen
+                      {deviceCapture.screens.length === 1 ? "" : "s"} ready
+                    </strong>
                     <span>
-                      {deviceCapture.screens.length} observed screen
-                      {deviceCapture.screens.length === 1 ? "" : "s"}
+                      {deviceCapture.screens
+                        .map((screen) => screen.label)
+                        .join(" · ")}
                     </span>
                   </div>
                 )}
+                <details>
+                  <summary>Already have a Vaettir capture file?</summary>
+                  <label style={{ display: "block", marginTop: 8 }}>
+                    Import capture (.json)
+                    <input
+                      type="file"
+                      accept="application/json,.json"
+                      onChange={(event) =>
+                        void selectCapture(event.target.files?.[0])
+                      }
+                    />
+                  </label>
+                </details>
               </>
             )}
             <button
