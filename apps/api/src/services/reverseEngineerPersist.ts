@@ -43,11 +43,15 @@ export async function persistReverseEngineerResult(
     where: { testCase: { projectId: args.projectId }, filePath: args.filePath },
     select: { id: true, functionName: true, testCaseId: true },
   });
-  const existingByFunctionName = new Map(existingSources.map((s) => [s.functionName, s]));
+  const existingByFunctionName = new Map(
+    existingSources.map((s) => [s.functionName, s]),
+  );
 
   const persisted = await Promise.all(
     args.result.testCases.map((tc) => {
-      const existing = existingByFunctionName.get(tc.sourceFunctionName ?? null);
+      const existing = existingByFunctionName.get(
+        tc.sourceFunctionName ?? null,
+      );
 
       const testCaseData = {
         title: tc.title,
@@ -57,6 +61,7 @@ export async function persistReverseEngineerResult(
         then: tc.then,
         tags: tc.tags,
         testType: tc.testType as never,
+        ...(isAi ? { automationStatus: "AUTOMATED" as const } : {}),
         confidence: isAi ? tc.confidence : null,
       };
       // Frozen exactly as the AI produced it, never touched by a later
@@ -80,7 +85,13 @@ export async function persistReverseEngineerResult(
           data: {
             ...testCaseData,
             aiSnapshot: aiSnapshot ?? Prisma.JsonNull,
-            ...(isAi ? { reviewStatus: "PENDING_REVIEW", reviewedById: null, reviewedAt: null } : {}),
+            ...(isAi
+              ? {
+                  reviewStatus: "PENDING_REVIEW",
+                  reviewedById: null,
+                  reviewedAt: null,
+                }
+              : {}),
             source: {
               update: {
                 contentHash: args.contentHash,
@@ -121,19 +132,32 @@ export async function persistReverseEngineerResult(
   // file need review" is the useful unit, not a notification storm for
   // every individual case in a multi-case file.
   if (isAi && persisted.length > 0) {
-    const project = await prisma.project.findUnique({ where: { id: args.projectId }, select: { organizationId: true, name: true } });
+    const project = await prisma.project.findUnique({
+      where: { id: args.projectId },
+      select: { organizationId: true, name: true },
+    });
     if (project) {
-      void dispatchWebhookEvent(prisma, project.organizationId, "test_case.review_requested", {
-        projectId: args.projectId,
-        filePath: args.filePath,
-        count: persisted.length,
-        testCaseIds: persisted.map((tc) => tc.id),
-      }).catch(() => undefined);
-      void notifySlackEvent(prisma, project.organizationId, "test_case.review_requested", {
-        projectName: project.name,
-        filePath: args.filePath,
-        count: persisted.length,
-      }).catch(() => undefined);
+      void dispatchWebhookEvent(
+        prisma,
+        project.organizationId,
+        "test_case.review_requested",
+        {
+          projectId: args.projectId,
+          filePath: args.filePath,
+          count: persisted.length,
+          testCaseIds: persisted.map((tc) => tc.id),
+        },
+      ).catch(() => undefined);
+      void notifySlackEvent(
+        prisma,
+        project.organizationId,
+        "test_case.review_requested",
+        {
+          projectName: project.name,
+          filePath: args.filePath,
+          count: persisted.length,
+        },
+      ).catch(() => undefined);
     }
   }
 

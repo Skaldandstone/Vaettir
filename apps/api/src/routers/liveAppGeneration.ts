@@ -9,6 +9,7 @@ import {
 } from "../services/aiCredits.js";
 import { scanLiveApp, LiveAppScanError } from "../services/liveAppScan.js";
 import { UnsafeUrlError } from "../services/urlGuard.js";
+import { snapshotTestCaseVersion } from "../services/testCaseVersion.js";
 
 // SSE-181: live-app test generation. Deliberately its own router, its own
 // review surface (see the web page), and its own origin tag
@@ -28,12 +29,38 @@ const draftOutput = z.object({
   testType: z.string(),
   confidence: z.number(),
   notes: z.string().nullable(),
+  coverageDisposition: z.enum(["NEW_COVERAGE", "STALE_EXISTING"]),
+  matchedExistingTestCaseId: z.string().nullable(),
+  matchedExistingTestCaseTitle: z.string().nullable(),
+  matchedExistingUpdatedAt: z.string().nullable(),
+  coverageRationale: z.string(),
+  observedReleaseCommit: z.string(),
+  steps: z.array(
+    z.object({
+      action: z.string(),
+      target: z.object({
+        role: z.string(),
+        name: z.string(),
+        stableId: z.string().optional(),
+        selector: z.string().optional(),
+        event: z.string().optional(),
+        route: z.string().optional(),
+      }),
+      input: z.string().nullable().optional(),
+      expectedResult: z.string(),
+      expectedResponse: z.string().nullable().optional(),
+    }),
+  ),
 });
 
 const observedElement = z
   .object({
     role: z.string().trim().min(1).max(80),
     name: z.string().trim().min(1).max(200),
+    stableId: z.string().trim().min(1).max(200).optional(),
+    selector: z.string().trim().min(1).max(500).optional(),
+    event: z.string().trim().min(1).max(80).optional(),
+    route: z.string().trim().min(1).max(500).optional(),
   })
   .strict();
 
@@ -63,6 +90,7 @@ function serializeDrafts(
   testCases: Awaited<
     ReturnType<typeof generateTestCasesFromLiveApp>
   >["testCases"],
+  existingCases: Map<string, { title: string; updatedAt: string }>,
 ) {
   return testCases.map((testCase) => ({
     title: testCase.title,
@@ -74,7 +102,74 @@ function serializeDrafts(
     testType: testCase.testType,
     confidence: testCase.confidence,
     notes: testCase.notes ?? null,
+    coverageDisposition: testCase.coverageDisposition,
+    matchedExistingTestCaseId: testCase.matchedExistingTestCaseId,
+    matchedExistingTestCaseTitle: testCase.matchedExistingTestCaseId
+      ? (existingCases.get(testCase.matchedExistingTestCaseId)?.title ?? null)
+      : null,
+    matchedExistingUpdatedAt: testCase.matchedExistingTestCaseId
+      ? (existingCases.get(testCase.matchedExistingTestCaseId)?.updatedAt ??
+        null)
+      : null,
+    coverageRationale: testCase.coverageRationale,
+    observedReleaseCommit: testCase.observedReleaseCommit,
+    steps: testCase.steps,
   }));
+}
+
+const RELEASE_COMMIT =
+  process.env.VAETTIR_RELEASE_COMMIT?.trim() || "unverified-local-build";
+
+async function existingInventory(
+  prisma: Parameters<typeof requireProjectAccess>[0]["prisma"],
+  projectId: string,
+) {
+  const cases = await prisma.testCase.findMany({
+    where: { projectId, archived: false },
+    orderBy: { updatedAt: "desc" },
+    select: {
+      id: true,
+      title: true,
+      given: true,
+      when: true,
+      then: true,
+      testType: true,
+      updatedAt: true,
+      steps: {
+        orderBy: { order: "asc" },
+        select: {
+          action: true,
+          expectedActionOrData: true,
+          expectedResult: true,
+        },
+      },
+    },
+  });
+  return cases.map((testCase) => ({
+    ...testCase,
+    testType: String(testCase.testType),
+    updatedAt: testCase.updatedAt.toISOString(),
+  }));
+}
+
+function technicalTarget(
+  step: z.infer<typeof draftOutput>["steps"][number],
+): string {
+  return [
+    `role=${step.target.role}`,
+    `name=${JSON.stringify(step.target.name)}`,
+    step.target.stableId
+      ? `objectId=${JSON.stringify(step.target.stableId)}`
+      : null,
+    step.target.selector
+      ? `selector=${JSON.stringify(step.target.selector)}`
+      : null,
+    step.target.event ? `event=${step.target.event}` : null,
+    step.target.route ? `route=${JSON.stringify(step.target.route)}` : null,
+    step.input ? `input=${JSON.stringify(step.input)}` : null,
+  ]
+    .filter(Boolean)
+    .join("; ");
 }
 
 export const liveAppGenerationRouter = router({
@@ -111,10 +206,28 @@ export const liveAppGenerationRouter = router({
         throw err;
       }
 
-      const { testCases } = await meterAiCall(ctx.prisma, charge, () =>
-        generateTestCasesFromLiveApp(scan),
+      const existingTestCases = await existingInventory(
+        ctx.prisma,
+        input.projectId,
       );
-      return serializeDrafts(testCases);
+      const generationInput = {
+        ...scan,
+        existingTestCases,
+        releaseCommit: RELEASE_COMMIT,
+      };
+
+      const { testCases } = await meterAiCall(ctx.prisma, charge, () =>
+        generateTestCasesFromLiveApp(generationInput),
+      );
+      return serializeDrafts(
+        testCases,
+        new Map(
+          existingTestCases.map((testCase) => [
+            testCase.id,
+            { title: testCase.title, updatedAt: testCase.updatedAt },
+          ]),
+        ),
+      );
     }),
 
   // Local ADB, connected-iOS (Appium/WebDriverAgent), and remote-iOS
@@ -155,10 +268,27 @@ export const liveAppGenerationRouter = router({
           elements: screen.elements,
         })),
       };
-      const { testCases } = await meterAiCall(ctx.prisma, charge, () =>
-        generateTestCasesFromLiveApp(scan),
+      const existingTestCases = await existingInventory(
+        ctx.prisma,
+        input.projectId,
       );
-      return serializeDrafts(testCases);
+      const generationInput = {
+        ...scan,
+        existingTestCases,
+        releaseCommit: RELEASE_COMMIT,
+      };
+      const { testCases } = await meterAiCall(ctx.prisma, charge, () =>
+        generateTestCasesFromLiveApp(generationInput),
+      );
+      return serializeDrafts(
+        testCases,
+        new Map(
+          existingTestCases.map((testCase) => [
+            testCase.id,
+            { title: testCase.title, updatedAt: testCase.updatedAt },
+          ]),
+        ),
+      );
     }),
 
   // Commits one reviewed draft as a real TestCase, tagged distinctly from
@@ -175,32 +305,139 @@ export const liveAppGenerationRouter = router({
         input.projectId,
         "EDITOR",
       );
-      const created = await ctx.prisma.testCase.create({
-        data: {
-          projectId: input.projectId,
-          title: input.title,
-          background: input.background,
-          given: input.given,
-          when: input.when,
-          then: input.then,
-          tags: input.tags,
-          testType: input.testType as never,
-          priority: "MEDIUM",
-          origin: "AI_LIVE_APP_GENERATED",
-          reviewStatus: "PENDING_REVIEW",
-          confidence: input.confidence,
-          aiSnapshot: {
+      if (input.observedReleaseCommit !== RELEASE_COMMIT) {
+        throw new TRPCError({
+          code: "CONFLICT",
+          message:
+            "This draft was generated from a different release. Generate it again before saving.",
+        });
+      }
+      const stepData = input.steps.map((step, order) => ({
+        order,
+        action: step.action,
+        expectedActionOrData: technicalTarget(step),
+        expectedResult: step.expectedResult,
+        expectedResponse: step.expectedResponse ?? null,
+      }));
+      const snapshot = {
+        title: input.title,
+        background: input.background,
+        given: input.given,
+        when: input.when,
+        then: input.then,
+        tags: input.tags,
+        observedReleaseCommit: input.observedReleaseCommit,
+        coverageDisposition: input.coverageDisposition,
+        coverageRationale: input.coverageRationale,
+        matchedExistingTestCaseId: input.matchedExistingTestCaseId,
+        steps: input.steps,
+      };
+
+      let saved;
+      if (input.coverageDisposition === "STALE_EXISTING") {
+        if (!input.matchedExistingTestCaseId) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "A stale-case update must identify the existing case.",
+          });
+        }
+        const existing = await ctx.prisma.testCase.findFirst({
+          where: {
+            id: input.matchedExistingTestCaseId,
+            projectId: input.projectId,
+            archived: false,
+          },
+          select: { id: true, updatedAt: true },
+        });
+        if (!existing)
+          throw new TRPCError({
+            code: "NOT_FOUND",
+            message:
+              "The matched existing case no longer exists in this project.",
+          });
+        if (
+          !input.matchedExistingUpdatedAt ||
+          existing.updatedAt.toISOString() !== input.matchedExistingUpdatedAt
+        ) {
+          throw new TRPCError({
+            code: "CONFLICT",
+            message:
+              "The existing case changed after this draft was generated. Generate it again before updating.",
+          });
+        }
+        saved = await ctx.prisma.testCase.update({
+          where: { id: existing.id },
+          data: {
             title: input.title,
             background: input.background,
             given: input.given,
             when: input.when,
             then: input.then,
             tags: input.tags,
+            testType: input.testType as never,
+            automationStatus: "NEEDS_AUTOMATION",
+            reviewStatus: "PENDING_REVIEW",
+            reviewedById: null,
+            reviewedAt: null,
+            reviewNote: `Live-app update from release ${input.observedReleaseCommit}: ${input.coverageRationale}`,
+            confidence: input.confidence,
+            aiSnapshot: snapshot,
+            updatedById: ctx.user.id,
+            steps: { deleteMany: {}, create: stepData },
           },
-          createdById: ctx.user.id,
-          updatedById: ctx.user.id,
-        },
+        });
+      } else {
+        if (input.matchedExistingTestCaseId) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "New coverage cannot target an existing case.",
+          });
+        }
+        saved = await ctx.prisma.testCase.create({
+          data: {
+            projectId: input.projectId,
+            title: input.title,
+            background: input.background,
+            given: input.given,
+            when: input.when,
+            then: input.then,
+            tags: input.tags,
+            testType: input.testType as never,
+            priority: "MEDIUM",
+            automationStatus: "NEEDS_AUTOMATION",
+            origin: "AI_LIVE_APP_GENERATED",
+            reviewStatus: "PENDING_REVIEW",
+            confidence: input.confidence,
+            aiSnapshot: snapshot,
+            steps: { create: stepData },
+            createdById: ctx.user.id,
+            updatedById: ctx.user.id,
+          },
+        });
+      }
+      await snapshotTestCaseVersion(ctx.prisma, {
+        testCaseId: saved.id,
+        title: saved.title,
+        background: saved.background,
+        given: saved.given,
+        when: saved.when,
+        then: saved.then,
+        steps: stepData.map((step) => ({
+          ...step,
+          expectedActionOrData: step.expectedActionOrData || null,
+        })),
+        tags: saved.tags,
+        priority: saved.priority,
+        testType: saved.testType,
+        actorId: ctx.user.id,
       });
-      return { id: created.id, organizationId: project.organizationId };
+      return {
+        id: saved.id,
+        organizationId: project.organizationId,
+        action:
+          input.coverageDisposition === "STALE_EXISTING"
+            ? "UPDATED"
+            : "CREATED",
+      };
     }),
 });

@@ -28,6 +28,28 @@ const mappedRowSchema = z.object({
   then: z.array(z.string()),
   priority: z.enum(["CRITICAL", "HIGH", "MEDIUM", "LOW"]),
   tags: z.array(z.string()),
+  testType: z.enum([
+    "UNIT",
+    "FUNCTIONAL",
+    "CONTRACT",
+    "INSTRUMENTATION",
+    "SMOKE",
+    "SANITY",
+    "REGRESSION",
+    "E2E",
+    "PERFORMANCE",
+    "SECURITY",
+    "ACCESSIBILITY",
+    "EXPLORATORY",
+    "COMPLIANCE",
+    "OTHER",
+  ]),
+  automationStatus: z.enum([
+    "MANUAL",
+    "AUTOMATED",
+    "PARTIALLY_AUTOMATED",
+    "NEEDS_AUTOMATION",
+  ]),
   externalId: z.string().optional(),
 });
 const rowOverrideSchema = mappedRowSchema.partial().extend({

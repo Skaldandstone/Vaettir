@@ -32,6 +32,28 @@ const TEST_TYPES = [
 ];
 const REVIEW_STATUSES = ["APPROVED", "PENDING_REVIEW", "REJECTED"];
 const ORIGINS = ["AUTHORED", "AI_REVERSE_ENGINEERED", "IMPORTED"];
+const AUTOMATION_STATUSES = [
+  "MANUAL",
+  "AUTOMATED",
+  "PARTIALLY_AUTOMATED",
+  "NEEDS_AUTOMATION",
+];
+const PRIORITIES = ["CRITICAL", "HIGH", "MEDIUM", "LOW"];
+type CaseSort =
+  | "updated"
+  | "title"
+  | "type"
+  | "automation"
+  | "risk"
+  | "priority"
+  | "origin"
+  | "suite";
+const PRIORITY_RANK: Record<string, number> = {
+  CRITICAL: 4,
+  HIGH: 3,
+  MEDIUM: 2,
+  LOW: 1,
+};
 
 function AssignSuiteControl({
   caseId,
@@ -154,8 +176,11 @@ export default function TestCasesPage() {
 
   const [search, setSearch] = useState("");
   const [typeFilter, setTypeFilter] = useState("");
+  const [automationFilter, setAutomationFilter] = useState("");
+  const [priorityFilter, setPriorityFilter] = useState("");
   const [reviewFilter, setReviewFilter] = useState("");
   const [originFilter, setOriginFilter] = useState("");
+  const [sortBy, setSortBy] = useState<CaseSort>("updated");
   const [showArchived, setShowArchived] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [bulkBusy, setBulkBusy] = useState(false);
@@ -174,6 +199,8 @@ export default function TestCasesPage() {
       selectedPath,
       search,
       typeFilter,
+      automationFilter,
+      priorityFilter,
       reviewFilter,
       originFilter,
       showArchived,
@@ -190,23 +217,57 @@ export default function TestCasesPage() {
   const pathFiltered = filterCasesByPath(cases, selectedPath);
   const visibleCases = useMemo(() => {
     const q = search.trim().toLowerCase();
-    return pathFiltered.filter(
+    const filtered = pathFiltered.filter(
       (tc) =>
         (showArchived || !tc.archived) &&
         (!q ||
           tc.title.toLowerCase().includes(q) ||
           tc.tags.some((t) => t.toLowerCase().includes(q))) &&
         (!typeFilter || tc.testType === typeFilter) &&
+        (!automationFilter || tc.automationStatus === automationFilter) &&
+        (!priorityFilter || tc.priority === priorityFilter) &&
         (!reviewFilter || tc.reviewStatus === reviewFilter) &&
         (!originFilter || tc.origin === originFilter),
     );
+    if (sortBy === "updated") return filtered;
+    return [...filtered].sort((a, b) => {
+      if (sortBy === "risk") return (b.riskScore ?? -1) - (a.riskScore ?? -1);
+      if (sortBy === "priority")
+        return (
+          (PRIORITY_RANK[b.priority] ?? 0) - (PRIORITY_RANK[a.priority] ?? 0)
+        );
+      const left =
+        sortBy === "title"
+          ? a.title
+          : sortBy === "type"
+            ? a.testType
+            : sortBy === "automation"
+              ? a.automationStatus
+              : sortBy === "origin"
+                ? a.origin
+                : (a.suitePath ?? "");
+      const right =
+        sortBy === "title"
+          ? b.title
+          : sortBy === "type"
+            ? b.testType
+            : sortBy === "automation"
+              ? b.automationStatus
+              : sortBy === "origin"
+                ? b.origin
+                : (b.suitePath ?? "");
+      return left.localeCompare(right);
+    });
   }, [
     pathFiltered,
     search,
     typeFilter,
+    automationFilter,
+    priorityFilter,
     reviewFilter,
     originFilter,
     showArchived,
+    sortBy,
   ]);
 
   const knownPaths = collectKnownSuitePaths(cases);
@@ -313,13 +374,32 @@ export default function TestCasesPage() {
 
   async function exportCsv() {
     const rows = await utils.testCases.exportCsv.fetch({ projectId });
-    const header = ["title", "given", "when", "then", "priority", "tags"];
+    const header = [
+      "title",
+      "given",
+      "when",
+      "then",
+      "testType",
+      "automationStatus",
+      "priority",
+      "riskScore",
+      "riskSeverity",
+      "origin",
+      "suite",
+      "tags",
+    ];
     const body = rows.map((r) => [
       r.title,
       r.given.join("|"),
       r.when.join("|"),
       r.then.join("|"),
+      r.testType,
+      r.automationStatus,
       r.priority,
+      r.riskScore == null ? "" : String(r.riskScore),
+      r.riskSeverity ?? "",
+      r.origin,
+      r.suitePath ?? "",
       r.tags.join("|"),
     ]);
     downloadCsv(`${project?.name ?? "test-cases"}.csv`, [header, ...body]);
@@ -511,6 +591,28 @@ export default function TestCasesPage() {
                 ))}
               </select>
               <select
+                value={automationFilter}
+                onChange={(e) => setAutomationFilter(e.target.value)}
+              >
+                <option value="">All automation</option>
+                {AUTOMATION_STATUSES.map((status) => (
+                  <option key={status} value={status}>
+                    {status.replaceAll("_", " ")}
+                  </option>
+                ))}
+              </select>
+              <select
+                value={priorityFilter}
+                onChange={(e) => setPriorityFilter(e.target.value)}
+              >
+                <option value="">All priorities</option>
+                {PRIORITIES.map((priority) => (
+                  <option key={priority} value={priority}>
+                    {priority}
+                  </option>
+                ))}
+              </select>
+              <select
                 value={reviewFilter}
                 onChange={(e) => setReviewFilter(e.target.value)}
               >
@@ -531,6 +633,20 @@ export default function TestCasesPage() {
                     {o}
                   </option>
                 ))}
+              </select>
+              <select
+                aria-label="Sort test cases"
+                value={sortBy}
+                onChange={(e) => setSortBy(e.target.value as CaseSort)}
+              >
+                <option value="updated">Newest activity</option>
+                <option value="title">Title A-Z</option>
+                <option value="type">Type</option>
+                <option value="automation">Automation</option>
+                <option value="risk">Risk high-low</option>
+                <option value="priority">Priority high-low</option>
+                <option value="origin">Origin</option>
+                <option value="suite">Suite</option>
               </select>
               <label
                 style={{
@@ -682,58 +798,109 @@ export default function TestCasesPage() {
                 Select all ({visibleCases.length})
               </label>
             )}
-            <ul style={{ listStyle: "none", padding: 0 }}>
-              {visibleCases.map((tc) => (
-                <li
-                  key={tc.id}
-                  style={{
-                    display: "flex",
-                    alignItems: "flex-start",
-                    gap: 8,
-                    padding: "3px 0",
-                  }}
-                >
-                  <input
-                    type="checkbox"
-                    checked={selected.has(tc.id)}
-                    onChange={() => toggle(tc.id)}
-                    style={{ marginTop: 4 }}
-                  />
-                  <div>
-                    <a
-                      href={`/projects/${projectId}/test-cases/${tc.id}`}
-                      onClick={(e) => {
-                        e.preventDefault();
-                        setOpenCaseId(tc.id);
-                      }}
-                    >
-                      {tc.title}
-                    </a>{" "}
-                    <small>
-                      [{tc.testType}]{" "}
-                      {tc.origin === "AI_REVERSE_ENGINEERED"
-                        ? "🤖 AI-reversed"
-                        : ""}
-                      {tc.reviewStatus === "PENDING_REVIEW" &&
-                        " ⏳ pending review"}
-                      {tc.reviewStatus === "REJECTED" && " ❌ rejected"}
-                      {tc.isFlaky && " 🎲 flaky"}
-                      {tc.archived && " · archived"}
-                    </small>
-                    {selectedPath === UNASSIGNED && (
-                      <AssignSuiteControl
-                        caseId={tc.id}
-                        knownPaths={knownPaths}
-                        onAssigned={reload}
-                      />
-                    )}
-                  </div>
-                </li>
-              ))}
-              {visibleCases.length === 0 && (
-                <p className="text-muted">No test cases match.</p>
-              )}
-            </ul>
+            {visibleCases.length > 0 ? (
+              <div className="table-scroll test-case-inventory">
+                <table className="workspace-table">
+                  <thead>
+                    <tr>
+                      <th aria-label="Select" />
+                      <th>Test case</th>
+                      <th>Type</th>
+                      <th>Automation</th>
+                      <th>Risk</th>
+                      <th>Priority</th>
+                      <th>Origin</th>
+                      <th>Suite</th>
+                      <th>Review</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {visibleCases.map((tc) => {
+                      const riskTone =
+                        tc.riskScore == null
+                          ? "unscored"
+                          : tc.riskScore >= 70
+                            ? "high"
+                            : tc.riskScore >= 40
+                              ? "medium"
+                              : "low";
+                      return (
+                        <tr key={tc.id}>
+                          <td>
+                            <input
+                              type="checkbox"
+                              checked={selected.has(tc.id)}
+                              onChange={() => toggle(tc.id)}
+                              aria-label={`Select ${tc.title}`}
+                            />
+                          </td>
+                          <td className="test-case-title-cell">
+                            <a
+                              href={`/projects/${projectId}/test-cases/${tc.id}`}
+                              onClick={(e) => {
+                                e.preventDefault();
+                                setOpenCaseId(tc.id);
+                              }}
+                            >
+                              {tc.title}
+                            </a>
+                            {tc.tags.length > 0 && (
+                              <small>{tc.tags.slice(0, 3).join(" · ")}</small>
+                            )}
+                            {selectedPath === UNASSIGNED && (
+                              <AssignSuiteControl
+                                caseId={tc.id}
+                                knownPaths={knownPaths}
+                                onAssigned={reload}
+                              />
+                            )}
+                          </td>
+                          <td>
+                            <span className="status-pill status-info">
+                              {tc.testType}
+                            </span>
+                          </td>
+                          <td>{tc.automationStatus.replaceAll("_", " ")}</td>
+                          <td>
+                            <div
+                              className={`case-risk case-risk-${riskTone}`}
+                              title={
+                                tc.riskScore == null
+                                  ? "Risk has not been assessed"
+                                  : `${tc.riskSeverity ?? "Risk"}: ${tc.riskScore}/100`
+                              }
+                            >
+                              <span>
+                                {tc.riskScore == null
+                                  ? "Not assessed"
+                                  : `${tc.riskScore}/100`}
+                              </span>
+                              <i>
+                                <b
+                                  style={{
+                                    width: `${Math.max(tc.riskScore ?? 0, 4)}%`,
+                                  }}
+                                />
+                              </i>
+                            </div>
+                          </td>
+                          <td>{tc.priority}</td>
+                          <td>{tc.origin.replaceAll("_", " ")}</td>
+                          <td>{tc.suitePath ?? "Unassigned"}</td>
+                          <td>
+                            {tc.reviewStatus.replaceAll("_", " ")}
+                            {tc.isFlaky && " · Flaky"}
+                            {tc.archived && " · Archived"}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <p className="text-muted">No test cases match.</p>
+            )}
           </div>
         </div>
       )}

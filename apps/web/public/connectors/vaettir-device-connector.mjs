@@ -88,10 +88,36 @@ function extractElements(xml, maximum = 150) {
       ROLE_BY_NATIVE_TYPE.find(([pattern]) => pattern.test(type))?.[1] ??
       (attributes.clickable === "true" ? "button" : "element");
     const normalizedName = name.slice(0, 200);
-    const key = `${role}\u0000${normalizedName}`;
+    const androidId = attributes["resource-id"];
+    const iosId = tag.startsWith("<XCUIElementType")
+      ? attributes.name
+      : undefined;
+    const stableId = (androidId || iosId || "").slice(0, 200) || undefined;
+    const selector = androidId
+      ? `resource-id=${androidId}`
+      : iosId
+        ? `accessibility-id=${iosId}`
+        : undefined;
+    const event =
+      role === "textbox"
+        ? "fill"
+        : ["checkbox", "radio", "switch"].includes(role)
+          ? "check"
+          : role === "combobox"
+            ? "select"
+            : role === "link"
+              ? "navigate"
+              : "click";
+    const key = `${role}\u0000${normalizedName}\u0000${stableId ?? ""}`;
     if (seen.has(key)) continue;
     seen.add(key);
-    elements.push({ role, name: normalizedName });
+    elements.push({
+      role,
+      name: normalizedName,
+      ...(stableId ? { stableId } : {}),
+      ...(selector ? { selector } : {}),
+      event,
+    });
     if (elements.length >= maximum) break;
   }
   return elements;

@@ -379,7 +379,9 @@ export default function LiveAppGenerationPage() {
                             overflowWrap: "anywhere",
                           }}
                         >
-                          {'node "$HOME/Downloads/vaettir-device-connector.mjs"'}
+                          {
+                            'node "$HOME/Downloads/vaettir-device-connector.mjs"'
+                          }
                         </code>
                       </div>
                     </div>
@@ -601,8 +603,9 @@ export default function LiveAppGenerationPage() {
 
           {drafts && drafts.length === 0 && committedTitles.length === 0 && (
             <p className="text-muted">
-              No drafts generated - the crawl may not have found enough to work
-              with.
+              No uncovered or demonstrably stale cases were found. The capture
+              may be fully covered, or it may not contain enough evidence to
+              justify a change.
             </p>
           )}
 
@@ -628,6 +631,20 @@ export default function LiveAppGenerationPage() {
                     <strong>{draft.testType}</strong> · confidence{" "}
                     {(draft.confidence * 100).toFixed(0)}%
                   </p>
+                  <div
+                    className={`status-panel ${draft.coverageDisposition === "STALE_EXISTING" ? "warning" : "success"}`}
+                  >
+                    <strong>
+                      {draft.coverageDisposition === "STALE_EXISTING"
+                        ? `Update existing: ${draft.matchedExistingTestCaseTitle ?? draft.matchedExistingTestCaseId}`
+                        : "New, uncovered behavior"}
+                    </strong>
+                    <span>{draft.coverageRationale}</span>
+                    <small>
+                      Observed in release{" "}
+                      {draft.observedReleaseCommit.slice(0, 12)}
+                    </small>
+                  </div>
                   {draft.background && (
                     <p>
                       <em>Background: {draft.background}</em>
@@ -644,6 +661,46 @@ export default function LiveAppGenerationPage() {
                       <li key={`t${j}`}>Then {s}</li>
                     ))}
                   </ul>
+                  <h4>Executable action detail</h4>
+                  <div className="table-scroll">
+                    <table className="data-table">
+                      <thead>
+                        <tr>
+                          <th>Action</th>
+                          <th>Target</th>
+                          <th>Stable selector / event</th>
+                          <th>Expected</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {draft.steps.map((step, stepIndex) => (
+                          <tr key={`${step.action}-${stepIndex}`}>
+                            <td>{step.action}</td>
+                            <td>
+                              {step.target.role}: {step.target.name}
+                            </td>
+                            <td>
+                              <code>
+                                {[
+                                  step.target.stableId &&
+                                    `objectId=${step.target.stableId}`,
+                                  step.target.selector &&
+                                    `selector=${step.target.selector}`,
+                                  step.target.event &&
+                                    `event=${step.target.event}`,
+                                  step.target.route &&
+                                    `route=${step.target.route}`,
+                                ]
+                                  .filter(Boolean)
+                                  .join(" · ") || "Accessible role + name"}
+                              </code>
+                            </td>
+                            <td>{step.expectedResult}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
                   {draft.tags.length > 0 && (
                     <p className="text-muted" style={{ fontSize: 12 }}>
                       Tags: {draft.tags.join(", ")}
@@ -672,7 +729,11 @@ export default function LiveAppGenerationPage() {
                       onClick={() => commit(i)}
                       disabled={busyIndex === i}
                     >
-                      {busyIndex === i ? "Saving…" : "Save as pending review"}
+                      {busyIndex === i
+                        ? "Saving…"
+                        : draft.coverageDisposition === "STALE_EXISTING"
+                          ? "Update existing case for review"
+                          : "Save new case for review"}
                     </button>
                   </div>
                 </div>

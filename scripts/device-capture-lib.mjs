@@ -38,6 +38,14 @@ function nativeRole(attributes, tag) {
   );
 }
 
+function eventForRole(role) {
+  if (role === "textbox") return "fill";
+  if (["checkbox", "radio", "switch"].includes(role)) return "check";
+  if (role === "combobox") return "select";
+  if (role === "link") return "navigate";
+  return "click";
+}
+
 export function extractElementsFromHierarchy(xml, maximum = 150) {
   const elements = [];
   const seen = new Set();
@@ -57,10 +65,26 @@ export function extractElementsFromHierarchy(xml, maximum = 150) {
     if (!name) continue;
     const role = nativeRole(attributes, tag);
     const normalizedName = name.slice(0, 200);
-    const key = `${role}\u0000${normalizedName}`;
+    const androidId = attributes["resource-id"];
+    const iosId = tag.startsWith("<XCUIElementType")
+      ? attributes.name
+      : undefined;
+    const stableId = (androidId || iosId || "").slice(0, 200) || undefined;
+    const selector = androidId
+      ? `resource-id=${androidId}`
+      : iosId
+        ? `accessibility-id=${iosId}`
+        : undefined;
+    const key = `${role}\u0000${normalizedName}\u0000${stableId ?? ""}`;
     if (seen.has(key)) continue;
     seen.add(key);
-    elements.push({ role, name: normalizedName });
+    elements.push({
+      role,
+      name: normalizedName,
+      ...(stableId ? { stableId } : {}),
+      ...(selector ? { selector } : {}),
+      event: eventForRole(role),
+    });
     if (elements.length >= maximum) break;
   }
   return elements;

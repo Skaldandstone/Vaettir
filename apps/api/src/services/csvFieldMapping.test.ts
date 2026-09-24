@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { mapCsvRows } from "./csvFieldMapping.js";
+import { inferTestCaseType, mapCsvRows } from "./csvFieldMapping.js";
 
 const CSV = `Id,Title,Preconditions,Steps,Expected,Priority,Tags
 TC-1,Login succeeds,Account exists,Open login|Choose OAuth,Dashboard opens,High,auth|smoke
@@ -31,6 +31,8 @@ describe("mapped CSV row repair", () => {
         then: ["Plans are shown"],
         priority: "MEDIUM",
         tags: ["billing"],
+        testType: "FUNCTIONAL",
+        automationStatus: "MANUAL",
         externalId: "TC-2",
       },
     ]);
@@ -55,6 +57,37 @@ describe("mapped CSV row repair", () => {
       when: ["Open the pricing page", "Review available plans"],
       then: ["Plans are shown"],
       externalId: "TC-2",
+    });
+  });
+
+  it("infers useful test types instead of flattening imports to functional", () => {
+    expect(
+      inferTestCaseType({
+        title: "DAU matches Mixpanel event tracking",
+        tags: ["Analytics"],
+      }),
+    ).toBe("INSTRUMENTATION");
+    expect(
+      inferTestCaseType({ title: "API rejects unauthorized permissions" }),
+    ).toBe("SECURITY");
+    expect(
+      inferTestCaseType({ title: "Response time under concurrent load" }),
+    ).toBe("PERFORMANCE");
+    expect(
+      inferTestCaseType({ title: "Screen reader announces the dialog" }),
+    ).toBe("ACCESSIBILITY");
+  });
+
+  it("honors explicit type and automation columns over inference", () => {
+    const csv = `Title,Type,Automation\nAPI health endpoint responds,Smoke,Automated\n`;
+    const result = mapCsvRows(csv, {
+      title: "Title",
+      testType: "Type",
+      automationStatus: "Automation",
+    });
+    expect(result.rows[0]).toMatchObject({
+      testType: "SMOKE",
+      automationStatus: "AUTOMATED",
     });
   });
 });

@@ -28,6 +28,10 @@ const NAVIGATION_TIMEOUT_MS = 15_000;
 export interface ScannedElement {
   role: string; // e.g. "button", "link", "textbox" - from the accessibility tree
   name: string; // the accessible name (label/text), truncated
+  stableId?: string;
+  selector?: string;
+  event?: string;
+  route?: string;
 }
 
 export interface ScannedPage {
@@ -48,9 +52,31 @@ export interface LiveAppScanResult {
 // which matters here since none of this can be exercised against a real
 // browser in this environment (see the file-level comment) - preferring
 // the API least likely to have subtly changed shape under me.
-const INTERESTING_ROLES = ["button", "link", "textbox", "checkbox", "radio", "combobox", "menuitem"] as const;
+const INTERESTING_ROLES = [
+  "button",
+  "link",
+  "textbox",
+  "checkbox",
+  "radio",
+  "combobox",
+  "menuitem",
+] as const;
 
-async function extractPageElements(page: import("playwright").Page): Promise<ScannedElement[]> {
+function actionForRole(role: (typeof INTERESTING_ROLES)[number]): string {
+  if (role === "textbox") return "fill";
+  if (role === "checkbox" || role === "radio") return "check";
+  if (role === "combobox") return "select";
+  if (role === "link") return "navigate";
+  return "click";
+}
+
+function attributeSelector(attribute: string, value: string): string {
+  return `[${attribute}="${value.replaceAll("\\", "\\\\").replaceAll('"', '\\"')}"]`;
+}
+
+async function extractPageElements(
+  page: import("playwright").Page,
+): Promise<ScannedElement[]> {
   const elements: ScannedElement[] = [];
   for (const role of INTERESTING_ROLES) {
     if (elements.length >= 100) break; // a pathological page shouldn't blow up the prompt this feeds
@@ -71,18 +97,49 @@ async function extractPageElements(page: import("playwright").Page): Promise<Sca
           // don't fail the whole scan over one flaky element.
         }
       }
-      if (name) elements.push({ role, name: name.slice(0, 200) });
+      if (name) {
+        const [testId, id, fieldName, href] = await Promise.all([
+          locator.getAttribute("data-testid").catch(() => null),
+          locator.getAttribute("id").catch(() => null),
+          locator.getAttribute("name").catch(() => null),
+          locator.getAttribute("href").catch(() => null),
+        ]);
+        const stableId =
+          (testId || id || fieldName || "").slice(0, 200) || undefined;
+        const selector = testId
+          ? attributeSelector("data-testid", testId)
+          : id
+            ? attributeSelector("id", id)
+            : fieldName
+              ? attributeSelector("name", fieldName)
+              : undefined;
+        elements.push({
+          role,
+          name: name.slice(0, 200),
+          ...(stableId ? { stableId } : {}),
+          ...(selector ? { selector } : {}),
+          event: actionForRole(role),
+          ...(href ? { route: href.slice(0, 500) } : {}),
+        });
+      }
     }
   }
   return elements;
 }
 
-async function extractSameOriginLinks(page: import("playwright").Page, origin: string): Promise<string[]> {
+async function extractSameOriginLinks(
+  page: import("playwright").Page,
+  origin: string,
+): Promise<string[]> {
   // Typed loosely (not against DOM lib types) so this compiles the same way
   // regardless of which tsconfig ends up checking it - the callback runs in
   // the browser, never in this process, so it doesn't need to match this
   // package's own lib configuration.
-  const hrefs = await page.locator("a[href]").evaluateAll((anchors: unknown[]) => anchors.map((a) => (a as { href: string }).href));
+  const hrefs = await page
+    .locator("a[href]")
+    .evaluateAll((anchors: unknown[]) =>
+      anchors.map((a) => (a as { href: string }).href),
+    );
   const seen = new Set<string>();
   const links: string[] = [];
   for (const href of hrefs) {
@@ -106,13 +163,17 @@ async function extractSameOriginLinks(page: import("playwright").Page, origin: s
 // same SSRF-hardened public-URL guard every other server-side URL fetch in
 // this codebase already uses - a discovered internal-looking link is
 // silently skipped, not followed, rather than erroring the whole scan.
-export async function scanLiveApp(startUrlRaw: string): Promise<LiveAppScanResult> {
+export async function scanLiveApp(
+  startUrlRaw: string,
+): Promise<LiveAppScanResult> {
   const startUrl = await assertPublicHttpUrl(startUrlRaw);
 
   let browser: Browser | undefined;
   try {
     browser = await chromium.launch({ headless: true });
-    const context = await browser.newContext({ userAgent: "VaettirLiveAppScan/1.0" });
+    const context = await browser.newContext({
+      userAgent: "VaettirLiveAppScan/1.0",
+    });
     const page = await context.newPage();
     page.setDefaultNavigationTimeout(NAVIGATION_TIMEOUT_MS);
 
@@ -133,12 +194,16 @@ export async function scanLiveApp(startUrlRaw: string): Promise<LiveAppScanResul
         // start URL itself failing is different (see below), but a link
         // discovered ON the start page going nowhere is just noise.
         if (url === startUrl.toString()) {
-          throw new LiveAppScanError(`Could not reach ${url}: ${err instanceof Error ? err.message : String(err)}`);
+          throw new LiveAppScanError(
+            `Could not reach ${url}: ${err instanceof Error ? err.message : String(err)}`,
+          );
         }
         continue;
       }
       if (url === startUrl.toString() && (!response || !response.ok())) {
-        throw new LiveAppScanError(`${url} responded with ${response?.status() ?? "no response"}.`);
+        throw new LiveAppScanError(
+          `${url} responded with ${response?.status() ?? "no response"}.`,
+        );
       }
 
       const [title, elements, links] = await Promise.all([

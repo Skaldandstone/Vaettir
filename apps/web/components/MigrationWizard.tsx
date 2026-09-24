@@ -26,6 +26,8 @@ const TARGET_FIELDS = [
   "then",
   "priority",
   "tags",
+  "testType",
+  "automationStatus",
   "externalId",
 ] as const;
 type TargetField = (typeof TARGET_FIELDS)[number];
@@ -36,6 +38,8 @@ const FIELD_LABELS: Record<TargetField, string> = {
   then: "Then (expected result)",
   priority: "Priority",
   tags: "Tags",
+  testType: "Test type",
+  automationStatus: "Automation status",
   externalId: "External ID (for re-import)",
 };
 
@@ -216,6 +220,57 @@ function RowRepairEditor({
           <option value="HIGH">High</option>
           <option value="MEDIUM">Medium</option>
           <option value="LOW">Low</option>
+        </select>
+      </label>
+      <label>
+        Test type
+        <select
+          value={row.testType}
+          onChange={(event) =>
+            onChange({
+              ...row,
+              testType: event.target.value as EditableImportRow["testType"],
+            })
+          }
+        >
+          {[
+            "UNIT",
+            "FUNCTIONAL",
+            "CONTRACT",
+            "INSTRUMENTATION",
+            "SMOKE",
+            "SANITY",
+            "REGRESSION",
+            "E2E",
+            "PERFORMANCE",
+            "SECURITY",
+            "ACCESSIBILITY",
+            "EXPLORATORY",
+            "COMPLIANCE",
+            "OTHER",
+          ].map((type) => (
+            <option key={type} value={type}>
+              {type}
+            </option>
+          ))}
+        </select>
+      </label>
+      <label>
+        Automation
+        <select
+          value={row.automationStatus}
+          onChange={(event) =>
+            onChange({
+              ...row,
+              automationStatus: event.target
+                .value as EditableImportRow["automationStatus"],
+            })
+          }
+        >
+          <option value="MANUAL">Manual</option>
+          <option value="AUTOMATED">Automated</option>
+          <option value="PARTIALLY_AUTOMATED">Partially automated</option>
+          <option value="NEEDS_AUTOMATION">Needs automation</option>
         </select>
       </label>
       <label>
@@ -947,6 +1002,8 @@ export function MigrationWizard({
                                 <th>Title</th>
                                 <th>Steps</th>
                                 <th>Expected</th>
+                                <th>Type</th>
+                                <th>Automation</th>
                                 <th>Priority</th>
                               </tr>
                             </thead>
@@ -957,6 +1014,8 @@ export function MigrationWizard({
                                   <td>{row.title}</td>
                                   <td>{row.when.join(" · ") || "—"}</td>
                                   <td>{row.then.join(" · ") || "—"}</td>
+                                  <td>{row.testType}</td>
+                                  <td>{row.automationStatus}</td>
                                   <td>{row.priority}</td>
                                 </tr>
                               ))}
@@ -1084,6 +1143,8 @@ export function MigrationWizard({
                     <th style={{ textAlign: "left" }}>Given</th>
                     <th style={{ textAlign: "left" }}>When</th>
                     <th style={{ textAlign: "left" }}>Then</th>
+                    <th style={{ textAlign: "left" }}>Type</th>
+                    <th style={{ textAlign: "left" }}>Automation</th>
                     <th style={{ textAlign: "left" }}>Priority</th>
                     <th style={{ textAlign: "left" }}>Tags</th>
                   </tr>
@@ -1099,6 +1160,8 @@ export function MigrationWizard({
                       <td>{r.given.join(" | ")}</td>
                       <td>{r.when.join(" | ")}</td>
                       <td>{r.then.join(" | ")}</td>
+                      <td>{r.testType}</td>
+                      <td>{r.automationStatus}</td>
                       <td>{r.priority}</td>
                       <td>{r.tags.join(", ")}</td>
                     </tr>

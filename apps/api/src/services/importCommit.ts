@@ -1,6 +1,13 @@
 import type { PrismaClient } from "@vaettir/db";
 import { recordAudit } from "./auditLog.js";
 import { snapshotTestCaseVersion } from "./testCaseVersion.js";
+import {
+  inferTestCaseType,
+  normalizeAutomationStatus,
+  normalizeTestType,
+  type InferredAutomationStatus,
+  type InferredTestCaseType,
+} from "./csvFieldMapping.js";
 
 // P11-05: the one write path every file-based importer shares. Started
 // life inline in importJobs.commitCsv (P11-01/P11-11); pulled out here so
@@ -19,9 +26,15 @@ export interface ImportedTestCaseRow {
   then: string[];
   priority: "CRITICAL" | "HIGH" | "MEDIUM" | "LOW";
   tags: string[];
+  testType?: InferredTestCaseType | string;
+  automationStatus?: InferredAutomationStatus | string;
   suitePath?: string | null;
   externalId?: string;
-  steps?: { action: string; expectedActionOrData: string | null; expectedResult: string | null }[];
+  steps?: {
+    action: string;
+    expectedActionOrData: string | null;
+    expectedResult: string | null;
+  }[];
 }
 
 export interface CommitImportArgs {
@@ -51,19 +64,33 @@ export interface CommitImportResult {
   skipped: { rowNumber: number; reason: string }[];
 }
 
-export async function commitImportedTestCases(prisma: PrismaClient, args: CommitImportArgs): Promise<CommitImportResult> {
+export async function commitImportedTestCases(
+  prisma: PrismaClient,
+  args: CommitImportArgs,
+): Promise<CommitImportResult> {
   const keyFor = (raw: string) => `${args.keyPrefix}:${args.projectId}:${raw}`;
-  const rowsWithExternalId = args.rows.filter((r): r is ImportedTestCaseRow & { externalId: string } => Boolean(r.externalId));
+  const rowsWithExternalId = args.rows.filter(
+    (r): r is ImportedTestCaseRow & { externalId: string } =>
+      Boolean(r.externalId),
+  );
   const existingSources =
     rowsWithExternalId.length > 0
       ? await prisma.testCaseSource.findMany({
-          where: { externalTestId: { in: rowsWithExternalId.map((r) => keyFor(r.externalId)) } },
+          where: {
+            externalTestId: {
+              in: rowsWithExternalId.map((r) => keyFor(r.externalId)),
+            },
+          },
         })
       : [];
-  const sourceByKey = new Map(existingSources.map((s) => [s.externalTestId!, s]));
+  const sourceByKey = new Map(
+    existingSources.map((s) => [s.externalTestId!, s]),
+  );
 
   const updateRowNumbers = new Set(
-    rowsWithExternalId.filter((r) => sourceByKey.has(keyFor(r.externalId))).map((r) => r.rowNumber),
+    rowsWithExternalId
+      .filter((r) => sourceByKey.has(keyFor(r.externalId)))
+      .map((r) => r.rowNumber),
   );
   // A Cucumber outline can expand one source row into several cases that
   // share an externalId; only the first can be an in-place update, the
@@ -90,6 +117,20 @@ export async function commitImportedTestCases(prisma: PrismaClient, args: Commit
       expectedResponse: null,
     }));
 
+  const classification = (r: ImportedTestCaseRow) => ({
+    testType:
+      normalizeTestType(r.testType) ??
+      inferTestCaseType({
+        title: r.title,
+        given: r.given,
+        when: r.when,
+        then: r.then,
+        tags: r.tags,
+      }),
+    automationStatus:
+      normalizeAutomationStatus(r.automationStatus) ?? ("MANUAL" as const),
+  });
+
   const updated = await prisma.$transaction(
     toUpdate.map((r) => {
       const source = sourceByKey.get(keyFor(r.externalId!))!;
@@ -103,6 +144,7 @@ export async function commitImportedTestCases(prisma: PrismaClient, args: Commit
           then: r.then,
           tags: r.tags,
           priority: r.priority,
+          ...classification(r),
           suitePath: r.suitePath ?? undefined,
           updatedById: args.actorId,
           source: { update: { lastSyncedAt: new Date() } },
@@ -125,7 +167,7 @@ export async function commitImportedTestCases(prisma: PrismaClient, args: Commit
           when: r.when,
           then: r.then,
           tags: r.tags,
-          testType: "FUNCTIONAL",
+          ...classification(r),
           priority: r.priority,
           suitePath: r.suitePath ?? undefined,
           origin: "IMPORTED",
@@ -182,7 +224,10 @@ export async function commitImportedTestCases(prisma: PrismaClient, args: Commit
       sourceLabel: args.sourceLabel,
       fieldMapping: args.fieldMapping,
       testPlanId: args.testPlanId,
-      status: args.skipped.length > 0 && created.length === 0 && updated.length === 0 ? "FAILED" : "SUCCEEDED",
+      status:
+        args.skipped.length > 0 && created.length === 0 && updated.length === 0
+          ? "FAILED"
+          : "SUCCEEDED",
       createdCount: created.length,
       updatedCount: updated.length,
       skippedCount: args.skipped.length,
@@ -205,5 +250,10 @@ export async function commitImportedTestCases(prisma: PrismaClient, args: Commit
     });
   }
 
-  return { importJobId: importJob.id, createdCount: created.length, updatedCount: updated.length, skipped: args.skipped };
+  return {
+    importJobId: importJob.id,
+    createdCount: created.length,
+    updatedCount: updated.length,
+    skipped: args.skipped,
+  };
 }

@@ -14,8 +14,8 @@ test("extracts named Android controls without retaining hierarchy XML", () => {
       <node class="android.widget.Button" text="Continue" clickable="true" />
     </hierarchy>`);
   assert.deepEqual(elements, [
-    { role: "button", name: "Continue" },
-    { role: "textbox", name: "Email address" },
+    { role: "button", name: "Continue", event: "click" },
+    { role: "textbox", name: "Email address", event: "fill" },
   ]);
 });
 
@@ -27,8 +27,29 @@ test("extracts Appium iOS accessibility elements", () => {
       <XCUIElementTypeButton type="XCUIElementTypeButton" name="Hidden" visible="false" />
     </XCUIElementTypeApplication>`);
   assert.deepEqual(elements, [
-    { role: "button", name: "Sign in" },
-    { role: "textbox", name: "Email" },
+    {
+      role: "button",
+      name: "Sign in",
+      stableId: "Sign in",
+      selector: "accessibility-id=Sign in",
+      event: "click",
+    },
+    { role: "textbox", name: "Email", event: "fill" },
+  ]);
+});
+
+test("retains Android object ids and selectors for executable steps", () => {
+  const elements = extractElementsFromHierarchy(
+    '<node class="android.widget.Button" text="Checkout" resource-id="com.example:id/checkout" clickable="true" />',
+  );
+  assert.deepEqual(elements, [
+    {
+      role: "button",
+      name: "Checkout",
+      stableId: "com.example:id/checkout",
+      selector: "resource-id=com.example:id/checkout",
+      event: "click",
+    },
   ]);
 });
 

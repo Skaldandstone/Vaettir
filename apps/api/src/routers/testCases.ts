@@ -1,6 +1,10 @@
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
-import { TestCaseStepInputSchema, resolveStepFieldLabels, type StepFieldKey } from "@vaettir/core";
+import {
+  TestCaseStepInputSchema,
+  resolveStepFieldLabels,
+  type StepFieldKey,
+} from "@vaettir/core";
 import {
   assessTestCaseRisk,
   AutomationDraftSchema,
@@ -12,7 +16,11 @@ import {
 import { Prisma } from "@vaettir/db";
 import { router, protectedProcedure, requireProjectAccess } from "../trpc.js";
 import { recordAudit } from "../services/auditLog.js";
-import { chargeAiCredits, InsufficientAiCreditsError, meterAiCall } from "../services/aiCredits.js";
+import {
+  chargeAiCredits,
+  InsufficientAiCreditsError,
+  meterAiCall,
+} from "../services/aiCredits.js";
 import { parseTestCaseCsv } from "../services/testCaseCsvImport.js";
 import { snapshotTestCaseVersion } from "../services/testCaseVersion.js";
 
@@ -45,19 +53,30 @@ const testCaseContentSchema = z.object({
 });
 
 function requireAtLeastOneFormat(v: z.infer<typeof testCaseContentSchema>) {
-  return (v.given.length > 0 && v.when.length > 0 && v.then.length > 0) || v.steps.length > 0 || Boolean(v.sharedStepGroupId);
+  return (
+    (v.given.length > 0 && v.when.length > 0 && v.then.length > 0) ||
+    v.steps.length > 0 ||
+    Boolean(v.sharedStepGroupId)
+  );
 }
-const AT_LEAST_ONE_FORMAT_MESSAGE = "Provide given/when/then, at least one structured step, or a shared step library";
+const AT_LEAST_ONE_FORMAT_MESSAGE =
+  "Provide given/when/then, at least one structured step, or a shared step library";
 
 export const testCasesRouter = router({
   list: protectedProcedure
-    .input(z.object({ projectId: z.string(), includeArchived: z.boolean().default(false) }))
+    .input(
+      z.object({
+        projectId: z.string(),
+        includeArchived: z.boolean().default(false),
+      }),
+    )
     .output(
       z.array(
         z.object({
           id: z.string(),
           title: z.string(),
           testType: z.string(),
+          automationStatus: z.string(),
           priority: z.string(),
           tags: z.array(z.string()),
           origin: z.string(),
@@ -66,13 +85,18 @@ export const testCasesRouter = router({
           suitePath: z.string().nullable(),
           archived: z.boolean(),
           isFlaky: z.boolean(),
+          riskSeverity: z.string().nullable(),
+          riskScore: z.number().nullable(),
         }),
       ),
     )
     .query(async ({ ctx, input }) => {
       await requireProjectAccess(ctx, input.projectId);
       const cases = await ctx.prisma.testCase.findMany({
-        where: { projectId: input.projectId, ...(input.includeArchived ? {} : { archived: false }) },
+        where: {
+          projectId: input.projectId,
+          ...(input.includeArchived ? {} : { archived: false }),
+        },
         include: { source: true, testPlan: true },
         orderBy: { updatedAt: "desc" },
       });
@@ -80,6 +104,7 @@ export const testCasesRouter = router({
         id: tc.id,
         title: tc.title,
         testType: tc.testType,
+        automationStatus: tc.automationStatus,
         priority: tc.priority,
         tags: tc.tags,
         origin: tc.origin,
@@ -88,6 +113,8 @@ export const testCasesRouter = router({
         suitePath: tc.suitePath,
         archived: tc.archived,
         isFlaky: tc.isFlaky,
+        riskSeverity: tc.riskSeverity,
+        riskScore: tc.riskScore,
       }));
     }),
 
@@ -100,7 +127,12 @@ export const testCasesRouter = router({
   // P3-04's compliance report export already uses) - this returns
   // structured data, not a pre-formatted file.
   exportCsv: protectedProcedure
-    .input(z.object({ projectId: z.string(), includeArchived: z.boolean().default(false) }))
+    .input(
+      z.object({
+        projectId: z.string(),
+        includeArchived: z.boolean().default(false),
+      }),
+    )
     .output(
       z.array(
         z.object({
@@ -108,7 +140,13 @@ export const testCasesRouter = router({
           given: z.array(z.string()),
           when: z.array(z.string()),
           then: z.array(z.string()),
+          testType: z.string(),
+          automationStatus: z.string(),
           priority: z.string(),
+          riskScore: z.number().nullable(),
+          riskSeverity: z.string().nullable(),
+          origin: z.string(),
+          suitePath: z.string().nullable(),
           tags: z.array(z.string()),
         }),
       ),
@@ -116,9 +154,25 @@ export const testCasesRouter = router({
     .query(async ({ ctx, input }) => {
       await requireProjectAccess(ctx, input.projectId);
       const cases = await ctx.prisma.testCase.findMany({
-        where: { projectId: input.projectId, ...(input.includeArchived ? {} : { archived: false }) },
+        where: {
+          projectId: input.projectId,
+          ...(input.includeArchived ? {} : { archived: false }),
+        },
         orderBy: { title: "asc" },
-        select: { title: true, given: true, when: true, then: true, priority: true, tags: true },
+        select: {
+          title: true,
+          given: true,
+          when: true,
+          then: true,
+          testType: true,
+          automationStatus: true,
+          priority: true,
+          riskScore: true,
+          riskSeverity: true,
+          origin: true,
+          suitePath: true,
+          tags: true,
+        },
       });
       return cases;
     }),
@@ -185,7 +239,9 @@ export const testCasesRouter = router({
           source: true,
           steps: { orderBy: { order: "asc" } },
           sharedStepGroup: true,
-          project: { include: { organization: { select: { stepFieldLabels: true } } } },
+          project: {
+            include: { organization: { select: { stepFieldLabels: true } } },
+          },
           reviewedBy: { select: { name: true, email: true } },
         },
       });
@@ -220,7 +276,9 @@ export const testCasesRouter = router({
         sharedStepGroupId: tc.sharedStepGroupId,
         sharedStepGroupName: tc.sharedStepGroup?.name ?? null,
         stepFieldLabels: resolveStepFieldLabels(
-          tc.project.organization.stepFieldLabels as Partial<Record<StepFieldKey, string>> | null,
+          tc.project.organization.stepFieldLabels as Partial<
+            Record<StepFieldKey, string>
+          > | null,
         ),
         tags: tc.tags,
         testType: tc.testType,
@@ -228,7 +286,9 @@ export const testCasesRouter = router({
         origin: tc.origin,
         confidence: tc.confidence,
         reviewStatus: tc.reviewStatus,
-        reviewedByName: tc.reviewedBy ? (tc.reviewedBy.name ?? tc.reviewedBy.email) : null,
+        reviewedByName: tc.reviewedBy
+          ? (tc.reviewedBy.name ?? tc.reviewedBy.email)
+          : null,
         reviewedAt: tc.reviewedAt,
         reviewNote: tc.reviewNote,
         riskSeverity: tc.riskSeverity,
@@ -239,7 +299,11 @@ export const testCasesRouter = router({
         flakyDetectedAt: tc.flakyDetectedAt,
         suitePath: tc.suitePath,
         source: tc.source
-          ? { filePath: tc.source.filePath, functionName: tc.source.functionName, framework: tc.source.framework }
+          ? {
+              filePath: tc.source.filePath,
+              functionName: tc.source.functionName,
+              framework: tc.source.framework,
+            }
           : null,
         aiSnapshot: tc.aiSnapshot as {
           title: string;
@@ -278,7 +342,12 @@ export const testCasesRouter = router({
         include: { source: true },
         orderBy: { confidence: "asc" },
       });
-      return cases.map((c) => ({ id: c.id, title: c.title, confidence: c.confidence, sourceFilePath: c.source?.filePath ?? null }));
+      return cases.map((c) => ({
+        id: c.id,
+        title: c.title,
+        confidence: c.confidence,
+        sourceFilePath: c.source?.filePath ?? null,
+      }));
     }),
 
   // .output() bounds the inferred type (TS2589 once react-query's useMutation
@@ -288,11 +357,24 @@ export const testCasesRouter = router({
     .input(z.object({ id: z.string(), note: z.string().optional() }))
     .output(z.object({ id: z.string(), reviewStatus: z.string() }))
     .mutation(async ({ ctx, input }) => {
-      const existing = await ctx.prisma.testCase.findUniqueOrThrow({ where: { id: input.id }, select: { projectId: true, title: true } });
-      const { project } = await requireProjectAccess(ctx, existing.projectId, "EDITOR");
+      const existing = await ctx.prisma.testCase.findUniqueOrThrow({
+        where: { id: input.id },
+        select: { projectId: true, title: true },
+      });
+      const { project } = await requireProjectAccess(
+        ctx,
+        existing.projectId,
+        "EDITOR",
+      );
       const updated = await ctx.prisma.testCase.update({
         where: { id: input.id },
-        data: { reviewStatus: "APPROVED", reviewedById: ctx.user.id, reviewedAt: new Date(), reviewNote: input.note, updatedById: ctx.user.id },
+        data: {
+          reviewStatus: "APPROVED",
+          reviewedById: ctx.user.id,
+          reviewedAt: new Date(),
+          reviewNote: input.note,
+          updatedById: ctx.user.id,
+        },
       });
       await recordAudit(ctx.prisma, {
         organizationId: project.organizationId,
@@ -311,11 +393,24 @@ export const testCasesRouter = router({
     .input(z.object({ id: z.string(), note: z.string().optional() }))
     .output(z.object({ id: z.string(), reviewStatus: z.string() }))
     .mutation(async ({ ctx, input }) => {
-      const existing = await ctx.prisma.testCase.findUniqueOrThrow({ where: { id: input.id }, select: { projectId: true, title: true } });
-      const { project } = await requireProjectAccess(ctx, existing.projectId, "EDITOR");
+      const existing = await ctx.prisma.testCase.findUniqueOrThrow({
+        where: { id: input.id },
+        select: { projectId: true, title: true },
+      });
+      const { project } = await requireProjectAccess(
+        ctx,
+        existing.projectId,
+        "EDITOR",
+      );
       const updated = await ctx.prisma.testCase.update({
         where: { id: input.id },
-        data: { reviewStatus: "REJECTED", reviewedById: ctx.user.id, reviewedAt: new Date(), reviewNote: input.note, updatedById: ctx.user.id },
+        data: {
+          reviewStatus: "REJECTED",
+          reviewedById: ctx.user.id,
+          reviewedAt: new Date(),
+          reviewNote: input.note,
+          updatedById: ctx.user.id,
+        },
       });
       await recordAudit(ctx.prisma, {
         organizationId: project.organizationId,
@@ -332,15 +427,29 @@ export const testCasesRouter = router({
 
   assessRisk: protectedProcedure
     .input(z.object({ id: z.string() }))
-    .output(z.object({ riskSeverity: z.string().nullable(), riskScore: z.number().nullable(), riskRationale: z.string().nullable() }))
+    .output(
+      z.object({
+        riskSeverity: z.string().nullable(),
+        riskScore: z.number().nullable(),
+        riskRationale: z.string().nullable(),
+      }),
+    )
     .mutation(async ({ ctx, input }) => {
       const tc = await ctx.prisma.testCase.findUniqueOrThrow({
         where: { id: input.id },
         include: { source: { select: { filePath: true } } },
       });
-      const { project } = await requireProjectAccess(ctx, tc.projectId, "EDITOR");
+      const { project } = await requireProjectAccess(
+        ctx,
+        tc.projectId,
+        "EDITOR",
+      );
 
-      const charge = await chargeAiCredits(ctx.prisma, project.organizationId, "assessTestCaseRisk").catch((e: unknown) => {
+      const charge = await chargeAiCredits(
+        ctx.prisma,
+        project.organizationId,
+        "assessTestCaseRisk",
+      ).catch((e: unknown) => {
         if (e instanceof InsufficientAiCreditsError) {
           throw new TRPCError({ code: "BAD_REQUEST", message: e.message });
         }
@@ -368,7 +477,11 @@ export const testCasesRouter = router({
           updatedById: ctx.user.id,
         },
       });
-      return { riskSeverity: updated.riskSeverity, riskScore: updated.riskScore, riskRationale: updated.riskRationale };
+      return {
+        riskSeverity: updated.riskSeverity,
+        riskScore: updated.riskScore,
+        riskRationale: updated.riskRationale,
+      };
     }),
 
   generateAutomationDraft: protectedProcedure
@@ -433,10 +546,19 @@ export const testCasesRouter = router({
   // latency-sensitive, so sequential + a sane cap is the simple, safe
   // choice over adding real concurrency control for no real benefit yet.
   assessProjectRisk: protectedProcedure
-    .input(z.object({ projectId: z.string(), limit: z.number().min(1).max(50).default(20) }))
+    .input(
+      z.object({
+        projectId: z.string(),
+        limit: z.number().min(1).max(50).default(20),
+      }),
+    )
     .output(z.object({ assessedCount: z.number(), failedCount: z.number() }))
     .mutation(async ({ ctx, input }) => {
-      const { project } = await requireProjectAccess(ctx, input.projectId, "EDITOR");
+      const { project } = await requireProjectAccess(
+        ctx,
+        input.projectId,
+        "EDITOR",
+      );
       const unassessed = await ctx.prisma.testCase.findMany({
         where: { projectId: input.projectId, riskAssessedAt: null },
         include: { source: { select: { filePath: true } } },
@@ -450,7 +572,11 @@ export const testCasesRouter = router({
           // Charge (and stop the batch, not just this case) the moment
           // credits run out -- partial progress on the batch is kept
           // rather than the whole mutation failing outright.
-          const charge = await chargeAiCredits(ctx.prisma, project.organizationId, "assessTestCaseRisk");
+          const charge = await chargeAiCredits(
+            ctx.prisma,
+            project.organizationId,
+            "assessTestCaseRisk",
+          );
           const assessment = await meterAiCall(ctx.prisma, charge, () =>
             assessTestCaseRisk({
               title: tc.title,
@@ -489,7 +615,10 @@ export const testCasesRouter = router({
     .input(z.object({ testPlanId: z.string() }))
     .output(z.array(z.object({ id: z.string(), title: z.string() })))
     .query(async ({ ctx, input }) => {
-      const plan = await ctx.prisma.testPlan.findUniqueOrThrow({ where: { id: input.testPlanId }, select: { projectId: true } });
+      const plan = await ctx.prisma.testPlan.findUniqueOrThrow({
+        where: { id: input.testPlanId },
+        select: { projectId: true },
+      });
       await requireProjectAccess(ctx, plan.projectId);
       const cases = await ctx.prisma.testCase.findMany({
         where: { testPlanId: input.testPlanId, archived: false },
@@ -512,31 +641,55 @@ export const testCasesRouter = router({
     .output(
       z.object({
         issues: z.array(
-          z.object({ testCaseId: z.string(), issueType: z.string(), description: z.string(), suggestion: z.string() }),
+          z.object({
+            testCaseId: z.string(),
+            issueType: z.string(),
+            description: z.string(),
+            suggestion: z.string(),
+          }),
         ),
-        duplicateGroups: z.array(z.object({ testCaseIds: z.array(z.string()), reason: z.string() })),
+        duplicateGroups: z.array(
+          z.object({ testCaseIds: z.array(z.string()), reason: z.string() }),
+        ),
         reviewedCount: z.number(),
         truncated: z.boolean(),
       }),
     )
     .mutation(async ({ ctx, input }) => {
-      const plan = await ctx.prisma.testPlan.findUniqueOrThrow({ where: { id: input.testPlanId }, select: { projectId: true } });
-      const { project } = await requireProjectAccess(ctx, plan.projectId, "EDITOR");
+      const plan = await ctx.prisma.testPlan.findUniqueOrThrow({
+        where: { id: input.testPlanId },
+        select: { projectId: true },
+      });
+      const { project } = await requireProjectAccess(
+        ctx,
+        plan.projectId,
+        "EDITOR",
+      );
 
       const REVIEW_LIMIT = 30;
       const allCases = await ctx.prisma.testCase.findMany({
         where: { testPlanId: input.testPlanId, archived: false },
-        include: { steps: { orderBy: { order: "asc" } }, sharedStepGroup: true },
+        include: {
+          steps: { orderBy: { order: "asc" } },
+          sharedStepGroup: true,
+        },
         orderBy: { createdAt: "asc" },
         take: REVIEW_LIMIT + 1,
       });
       const truncated = allCases.length > REVIEW_LIMIT;
       const cases = allCases.slice(0, REVIEW_LIMIT);
       if (cases.length === 0) {
-        throw new TRPCError({ code: "BAD_REQUEST", message: "This test plan has no test cases to review." });
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "This test plan has no test cases to review.",
+        });
       }
 
-      const charge = await chargeAiCredits(ctx.prisma, project.organizationId, "reviewTestCaseQuality").catch((e: unknown) => {
+      const charge = await chargeAiCredits(
+        ctx.prisma,
+        project.organizationId,
+        "reviewTestCaseQuality",
+      ).catch((e: unknown) => {
         if (e instanceof InsufficientAiCreditsError) {
           throw new TRPCError({ code: "BAD_REQUEST", message: e.message });
         }
@@ -550,11 +703,19 @@ export const testCasesRouter = router({
         when: tc.when,
         then: tc.then,
         steps: tc.sharedStepGroup
-          ? (tc.sharedStepGroup.steps as Array<{ action: string; expectedResult: string | null }>)
-          : tc.steps.map((s) => ({ action: s.action, expectedResult: s.expectedResult })),
+          ? (tc.sharedStepGroup.steps as Array<{
+              action: string;
+              expectedResult: string | null;
+            }>)
+          : tc.steps.map((s) => ({
+              action: s.action,
+              expectedResult: s.expectedResult,
+            })),
       }));
 
-      const review = await meterAiCall(ctx.prisma, charge, () => reviewTestCaseQuality(forReview));
+      const review = await meterAiCall(ctx.prisma, charge, () =>
+        reviewTestCaseQuality(forReview),
+      );
       const validIds = new Set(cases.map((c) => c.id));
       return {
         // The AI is instructed to only use real ids, but it's cheap
@@ -562,7 +723,10 @@ export const testCasesRouter = router({
         // id reach the UI and fail to link anywhere.
         issues: review.issues.filter((i) => validIds.has(i.testCaseId)),
         duplicateGroups: review.duplicateGroups
-          .map((g) => ({ ...g, testCaseIds: g.testCaseIds.filter((id) => validIds.has(id)) }))
+          .map((g) => ({
+            ...g,
+            testCaseIds: g.testCaseIds.filter((id) => validIds.has(id)),
+          }))
           .filter((g) => g.testCaseIds.length >= 2),
         reviewedCount: cases.length,
         truncated,
@@ -577,10 +741,20 @@ export const testCasesRouter = router({
   // detail view calls this out and links to the editor instead of hiding
   // the gap.
   quickCreate: protectedProcedure
-    .input(z.object({ projectId: z.string(), title: z.string().min(1), suitePath: z.string().optional() }))
+    .input(
+      z.object({
+        projectId: z.string(),
+        title: z.string().min(1),
+        suitePath: z.string().optional(),
+      }),
+    )
     .output(z.object({ id: z.string() }))
     .mutation(async ({ ctx, input }) => {
-      const { project } = await requireProjectAccess(ctx, input.projectId, "EDITOR");
+      const { project } = await requireProjectAccess(
+        ctx,
+        input.projectId,
+        "EDITOR",
+      );
       const created = await ctx.prisma.testCase.create({
         data: {
           projectId: input.projectId,
@@ -605,11 +779,19 @@ export const testCasesRouter = router({
     }),
 
   create: protectedProcedure
-    .input(testCaseContentSchema.extend({ projectId: z.string() }).refine(requireAtLeastOneFormat, {
-      message: AT_LEAST_ONE_FORMAT_MESSAGE,
-    }))
+    .input(
+      testCaseContentSchema
+        .extend({ projectId: z.string() })
+        .refine(requireAtLeastOneFormat, {
+          message: AT_LEAST_ONE_FORMAT_MESSAGE,
+        }),
+    )
     .mutation(async ({ ctx, input }) => {
-      const { project } = await requireProjectAccess(ctx, input.projectId, "EDITOR");
+      const { project } = await requireProjectAccess(
+        ctx,
+        input.projectId,
+        "EDITOR",
+      );
       const created = await ctx.prisma.testCase.create({
         data: {
           projectId: input.projectId,
@@ -682,21 +864,36 @@ export const testCasesRouter = router({
   // human-authored-elsewhere content skips the AI trust gate (lands
   // APPROVED, not PENDING_REVIEW).
   importCsv: protectedProcedure
-    .input(z.object({ projectId: z.string(), csvText: z.string().min(1), testPlanId: z.string().optional() }))
+    .input(
+      z.object({
+        projectId: z.string(),
+        csvText: z.string().min(1),
+        testPlanId: z.string().optional(),
+      }),
+    )
     .output(
       z.object({
         createdCount: z.number(),
-        skipped: z.array(z.object({ rowNumber: z.number(), reason: z.string() })),
+        skipped: z.array(
+          z.object({ rowNumber: z.number(), reason: z.string() }),
+        ),
       }),
     )
     .mutation(async ({ ctx, input }) => {
-      const { project } = await requireProjectAccess(ctx, input.projectId, "EDITOR");
+      const { project } = await requireProjectAccess(
+        ctx,
+        input.projectId,
+        "EDITOR",
+      );
 
       let parsed;
       try {
         parsed = parseTestCaseCsv(input.csvText);
       } catch (e) {
-        throw new TRPCError({ code: "BAD_REQUEST", message: e instanceof Error ? e.message : String(e) });
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: e instanceof Error ? e.message : String(e),
+        });
       }
 
       const created = await ctx.prisma.$transaction(
@@ -753,15 +950,30 @@ export const testCasesRouter = router({
     }),
 
   update: protectedProcedure
-    .input(testCaseContentSchema.extend({ id: z.string() }).refine(requireAtLeastOneFormat, {
-      message: AT_LEAST_ONE_FORMAT_MESSAGE,
-    }))
+    .input(
+      testCaseContentSchema
+        .extend({ id: z.string() })
+        .refine(requireAtLeastOneFormat, {
+          message: AT_LEAST_ONE_FORMAT_MESSAGE,
+        }),
+    )
     .mutation(async ({ ctx, input }) => {
       const existing = await ctx.prisma.testCase.findUniqueOrThrow({
         where: { id: input.id },
-        select: { projectId: true, origin: true, title: true, given: true, when: true, then: true },
+        select: {
+          projectId: true,
+          origin: true,
+          title: true,
+          given: true,
+          when: true,
+          then: true,
+        },
       });
-      const { project } = await requireProjectAccess(ctx, existing.projectId, "EDITOR");
+      const { project } = await requireProjectAccess(
+        ctx,
+        existing.projectId,
+        "EDITOR",
+      );
 
       // P2-07: a human correcting the AI's own output is the raw material
       // for tightening the system prompt later -- capture it only when the
@@ -773,7 +985,8 @@ export const testCasesRouter = router({
         JSON.stringify(existing.given) !== JSON.stringify(input.given) ||
         JSON.stringify(existing.when) !== JSON.stringify(input.when) ||
         JSON.stringify(existing.then) !== JSON.stringify(input.then);
-      const shouldCaptureFeedback = existing.origin === "AI_REVERSE_ENGINEERED" && contentChanged;
+      const shouldCaptureFeedback =
+        existing.origin === "AI_REVERSE_ENGINEERED" && contentChanged;
 
       // Steps don't have stable client-side ids yet (the form just edits an
       // ordered list), so replace-all is simpler and correct here; revisit
@@ -869,7 +1082,10 @@ export const testCasesRouter = router({
   setSuite: protectedProcedure
     .input(z.object({ id: z.string(), suitePath: z.string().nullable() }))
     .mutation(async ({ ctx, input }) => {
-      const existing = await ctx.prisma.testCase.findUniqueOrThrow({ where: { id: input.id }, select: { projectId: true } });
+      const existing = await ctx.prisma.testCase.findUniqueOrThrow({
+        where: { id: input.id },
+        select: { projectId: true },
+      });
       await requireProjectAccess(ctx, existing.projectId, "EDITOR");
       await ctx.prisma.testCase.update({
         where: { id: input.id },
@@ -880,15 +1096,26 @@ export const testCasesRouter = router({
   delete: protectedProcedure
     .input(z.object({ id: z.string() }))
     .mutation(async ({ ctx, input }) => {
-      const existing = await ctx.prisma.testCase.findUniqueOrThrow({ where: { id: input.id }, select: { projectId: true, title: true } });
-      const { project } = await requireProjectAccess(ctx, existing.projectId, "EDITOR");
+      const existing = await ctx.prisma.testCase.findUniqueOrThrow({
+        where: { id: input.id },
+        select: { projectId: true, title: true },
+      });
+      const { project } = await requireProjectAccess(
+        ctx,
+        existing.projectId,
+        "EDITOR",
+      );
       try {
         await ctx.prisma.testCase.delete({ where: { id: input.id } });
       } catch (e) {
-        if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2003") {
+        if (
+          e instanceof Prisma.PrismaClientKnownRequestError &&
+          e.code === "P2003"
+        ) {
           throw new TRPCError({
             code: "BAD_REQUEST",
-            message: "This test case is linked to a compliance control or a change-impact recommendation. Unlink those first.",
+            message:
+              "This test case is linked to a compliance control or a change-impact recommendation. Unlink those first.",
           });
         }
         throw e;
@@ -911,7 +1138,12 @@ export const testCasesRouter = router({
   // to -- ids outside the project are silently ignored, not an error, since
   // the caller only ever offers ids it already rendered from this project.
   bulkDelete: protectedProcedure
-    .input(z.object({ projectId: z.string(), ids: z.array(z.string()).min(1).max(200) }))
+    .input(
+      z.object({
+        projectId: z.string(),
+        ids: z.array(z.string()).min(1).max(200),
+      }),
+    )
     .output(z.object({ deletedCount: z.number(), blockedCount: z.number() }))
     .mutation(async ({ ctx, input }) => {
       await requireProjectAccess(ctx, input.projectId, "EDITOR");
@@ -919,7 +1151,9 @@ export const testCasesRouter = router({
       let blockedCount = 0;
       for (const id of input.ids) {
         try {
-          await ctx.prisma.testCase.delete({ where: { id, projectId: input.projectId } });
+          await ctx.prisma.testCase.delete({
+            where: { id, projectId: input.projectId },
+          });
           deletedCount++;
         } catch {
           blockedCount++;
@@ -929,7 +1163,13 @@ export const testCasesRouter = router({
     }),
 
   bulkReview: protectedProcedure
-    .input(z.object({ projectId: z.string(), ids: z.array(z.string()).min(1).max(200), decision: z.enum(["approve", "reject"]) }))
+    .input(
+      z.object({
+        projectId: z.string(),
+        ids: z.array(z.string()).min(1).max(200),
+        decision: z.enum(["approve", "reject"]),
+      }),
+    )
     .output(z.object({ updatedCount: z.number() }))
     .mutation(async ({ ctx, input }) => {
       await requireProjectAccess(ctx, input.projectId, "EDITOR");
@@ -946,14 +1186,26 @@ export const testCasesRouter = router({
     }),
 
   bulkSetTestPlan: protectedProcedure
-    .input(z.object({ projectId: z.string(), ids: z.array(z.string()).min(1).max(200), testPlanId: z.string().nullable() }))
+    .input(
+      z.object({
+        projectId: z.string(),
+        ids: z.array(z.string()).min(1).max(200),
+        testPlanId: z.string().nullable(),
+      }),
+    )
     .output(z.object({ updatedCount: z.number() }))
     .mutation(async ({ ctx, input }) => {
       await requireProjectAccess(ctx, input.projectId, "EDITOR");
       if (input.testPlanId) {
-        const plan = await ctx.prisma.testPlan.findUniqueOrThrow({ where: { id: input.testPlanId }, select: { projectId: true } });
+        const plan = await ctx.prisma.testPlan.findUniqueOrThrow({
+          where: { id: input.testPlanId },
+          select: { projectId: true },
+        });
         if (plan.projectId !== input.projectId) {
-          throw new TRPCError({ code: "BAD_REQUEST", message: "That test plan does not belong to this project" });
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "That test plan does not belong to this project",
+          });
         }
       }
       const result = await ctx.prisma.testCase.updateMany({
@@ -968,7 +1220,13 @@ export const testCasesRouter = router({
   // carry a different tag set. Bounded at the same 200-id cap as the other
   // bulk ops, so this stays a handful of round trips at worst.
   bulkAddTags: protectedProcedure
-    .input(z.object({ projectId: z.string(), ids: z.array(z.string()).min(1).max(200), tags: z.array(z.string().min(1)).min(1) }))
+    .input(
+      z.object({
+        projectId: z.string(),
+        ids: z.array(z.string()).min(1).max(200),
+        tags: z.array(z.string().min(1)).min(1),
+      }),
+    )
     .output(z.object({ updatedCount: z.number() }))
     .mutation(async ({ ctx, input }) => {
       await requireProjectAccess(ctx, input.projectId, "EDITOR");
@@ -979,14 +1237,23 @@ export const testCasesRouter = router({
       let updatedCount = 0;
       for (const tc of cases) {
         const merged = Array.from(new Set([...tc.tags, ...input.tags]));
-        await ctx.prisma.testCase.update({ where: { id: tc.id }, data: { tags: merged, updatedById: ctx.user.id } });
+        await ctx.prisma.testCase.update({
+          where: { id: tc.id },
+          data: { tags: merged, updatedById: ctx.user.id },
+        });
         updatedCount++;
       }
       return { updatedCount };
     }),
 
   bulkArchive: protectedProcedure
-    .input(z.object({ projectId: z.string(), ids: z.array(z.string()).min(1).max(200), archived: z.boolean() }))
+    .input(
+      z.object({
+        projectId: z.string(),
+        ids: z.array(z.string()).min(1).max(200),
+        archived: z.boolean(),
+      }),
+    )
     .output(z.object({ updatedCount: z.number() }))
     .mutation(async ({ ctx, input }) => {
       await requireProjectAccess(ctx, input.projectId, "EDITOR");
@@ -1002,7 +1269,12 @@ export const testCasesRouter = router({
   // patterns" step is a human reading this list and deciding whether the
   // system prompt needs adjusting, not something this endpoint automates.
   listAiEditFeedback: protectedProcedure
-    .input(z.object({ projectId: z.string(), limit: z.number().int().min(1).max(200).default(50) }))
+    .input(
+      z.object({
+        projectId: z.string(),
+        limit: z.number().int().min(1).max(200).default(50),
+      }),
+    )
     .output(
       z.array(
         z.object({
@@ -1064,16 +1336,27 @@ export const testCasesRouter = router({
           priority: z.string(),
           testType: z.string(),
           createdAt: z.date(),
-          createdBy: z.object({ id: z.string(), name: z.string().nullable(), email: z.string() }).nullable(),
+          createdBy: z
+            .object({
+              id: z.string(),
+              name: z.string().nullable(),
+              email: z.string(),
+            })
+            .nullable(),
         }),
       ),
     )
     .query(async ({ ctx, input }) => {
-      const testCase = await ctx.prisma.testCase.findUniqueOrThrow({ where: { id: input.testCaseId }, select: { projectId: true } });
+      const testCase = await ctx.prisma.testCase.findUniqueOrThrow({
+        where: { id: input.testCaseId },
+        select: { projectId: true },
+      });
       await requireProjectAccess(ctx, testCase.projectId);
       const versions = await ctx.prisma.testCaseVersion.findMany({
         where: { testCaseId: input.testCaseId },
-        include: { createdBy: { select: { id: true, name: true, email: true } } },
+        include: {
+          createdBy: { select: { id: true, name: true, email: true } },
+        },
         orderBy: { versionNumber: "desc" },
       });
       return versions.map((v) => ({

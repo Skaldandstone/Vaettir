@@ -1759,6 +1759,69 @@ main.app-main {
 .xlsx-review-list strong {
   color: var(--fg);
 }
+.test-case-inventory {
+  border: 1px solid var(--line);
+  border-radius: 7px;
+}
+.test-case-inventory .workspace-table {
+  min-width: 1120px;
+}
+.test-case-inventory .workspace-table th,
+.test-case-inventory .workspace-table td {
+  padding: 9px 10px;
+  font-size: 10px;
+  vertical-align: top;
+}
+.test-case-inventory .workspace-table th {
+  color: var(--muted);
+  font-size: 9px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.test-case-title-cell {
+  min-width: 330px;
+  max-width: 520px;
+}
+.test-case-title-cell > a,
+.test-case-title-cell > small {
+  display: block;
+}
+.test-case-title-cell > small {
+  margin-top: 3px;
+  color: var(--muted-dim);
+}
+.case-risk {
+  display: grid;
+  gap: 4px;
+  min-width: 86px;
+}
+.case-risk > span {
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+.case-risk > i {
+  display: block;
+  width: 100%;
+  height: 5px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--line);
+}
+.case-risk > i > b {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--muted-dim);
+}
+.case-risk-low > i > b {
+  background: var(--frost);
+}
+.case-risk-medium > i > b {
+  background: var(--warning);
+}
+.case-risk-high > i > b {
+  background: var(--ember);
+}
 .compliance-framework-picker {
   display: grid;
   gap: 14px;
