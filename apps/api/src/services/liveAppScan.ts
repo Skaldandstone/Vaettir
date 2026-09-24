@@ -10,15 +10,11 @@ import { assertPublicHttpUrl, UnsafeUrlError } from "./urlGuard.js";
 // like repoScan.ts (file discovery) and reverseEngineer.ts (the AI call)
 // already are for the source-code path.
 //
-// NOT LIVE-VERIFIED: this environment has no Chromium binary installed and
-// no way to run one (no display, no `playwright install` network access
-// exercised here) - written carefully against Playwright's documented API,
-// typechecked, but never actually launched against a real page. Flagged
-// the same way this codebase already flags every other capability that
-// couldn't be exercised live (Expo/mobile device runs, Docker-less builds).
-// The production Dockerfile needs `npx playwright install --with-deps
-// chromium` added before this can run in production either - not done in
-// this pass, a real follow-up.
+// The production API image installs Playwright's pinned Chromium build and
+// its Debian runtime libraries. Local source checks do not prove navigation
+// against arbitrary customer applications; every requested URL still goes
+// through the public-address guard below and each generated draft remains a
+// review item rather than being persisted automatically.
 
 export class LiveAppScanError extends Error {}
 

@@ -2,9 +2,17 @@
 
 import { useState } from "react";
 import { useParams } from "next/navigation";
-import { trpcReact, useReadOnlySeat, type RouterOutputs } from "@/lib/trpcReact";
+import {
+  trpcReact,
+  useReadOnlySeat,
+  type RouterInputs,
+  type RouterOutputs,
+} from "@/lib/trpcReact";
 
 type Draft = RouterOutputs["liveAppGeneration"]["generateFromUrl"][number];
+type DeviceCapture =
+  RouterInputs["liveAppGeneration"]["generateFromDeviceCapture"]["capture"];
+type CaptureMode = "web" | "android" | "ios-connected" | "ios-remote";
 
 // SSE-181: deliberately its own page, not folded into /reverse-engineer or
 // the shared /test-cases/review queue - there's no prior test to diff a
@@ -19,7 +27,11 @@ export default function LiveAppGenerationPage() {
   const { projectId } = useParams<{ projectId: string }>();
   const readOnly = useReadOnlySeat(projectId);
 
+  const [captureMode, setCaptureMode] = useState<CaptureMode>("web");
   const [startUrl, setStartUrl] = useState("");
+  const [deviceCapture, setDeviceCapture] = useState<DeviceCapture | null>(
+    null,
+  );
   const [generating, setGenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [drafts, setDrafts] = useState<Draft[] | null>(null);
@@ -27,7 +39,10 @@ export default function LiveAppGenerationPage() {
   const [committedTitles, setCommittedTitles] = useState<string[]>([]);
   const [busyIndex, setBusyIndex] = useState<number | null>(null);
 
-  const generateMutation = trpcReact.liveAppGeneration.generateFromUrl.useMutation();
+  const generateMutation =
+    trpcReact.liveAppGeneration.generateFromUrl.useMutation();
+  const generateDeviceMutation =
+    trpcReact.liveAppGeneration.generateFromDeviceCapture.useMutation();
   const commitMutation = trpcReact.liveAppGeneration.commitDraft.useMutation();
 
   async function generate() {
@@ -36,13 +51,57 @@ export default function LiveAppGenerationPage() {
     setDrafts(null);
     setCommittedTitles([]);
     try {
-      const res = await generateMutation.mutateAsync({ projectId, startUrl });
+      const res =
+        captureMode === "web"
+          ? await generateMutation.mutateAsync({ projectId, startUrl })
+          : await generateDeviceMutation.mutateAsync({
+              projectId,
+              capture: deviceCapture as DeviceCapture,
+            });
       setDrafts(res);
-      setScannedUrl(startUrl);
+      setScannedUrl(
+        captureMode === "web"
+          ? startUrl
+          : `${deviceCapture?.appName ?? "App"} on ${deviceCapture?.deviceName ?? "device"}`,
+      );
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
       setGenerating(false);
+    }
+  }
+
+  async function selectCapture(file: File | undefined) {
+    setError(null);
+    setDeviceCapture(null);
+    if (!file) return;
+    try {
+      const capture = JSON.parse(await file.text()) as DeviceCapture;
+      if (
+        capture.version !== 1 ||
+        !Array.isArray(capture.screens) ||
+        capture.screens.length === 0
+      ) {
+        throw new Error("This is not a Vaettir device-capture manifest.");
+      }
+      const expectedSource =
+        captureMode === "android"
+          ? "ANDROID_ADB"
+          : captureMode === "ios-connected"
+            ? "IOS_CONNECTED"
+            : "IOS_REMOTE";
+      if (capture.source !== expectedSource) {
+        throw new Error(
+          `This file reports ${capture.source}; the selected source expects ${expectedSource}.`,
+        );
+      }
+      setDeviceCapture(capture);
+    } catch (captureError) {
+      setError(
+        captureError instanceof Error
+          ? captureError.message
+          : "Could not read the capture file.",
+      );
     }
   }
 
@@ -86,19 +145,43 @@ export default function LiveAppGenerationPage() {
         Experimental — early access
       </div>
       <p>
-        Crawls a public URL (and a handful of same-origin pages linked from it) and drafts BDD test cases grounded in
-        what was actually observed on the page - buttons, links, form fields, page titles. There&apos;s no prior test
-        to compare against here, unlike reverse-engineering, so review each draft on its own merits before saving it.
+        Observe a web app or capture a real Android/iOS screen, then draft BDD
+        test cases grounded in the controls that were actually present. Nothing
+        is saved until you review each draft.
       </p>
 
       {readOnly && (
         <p className="text-muted" style={{ fontSize: 13 }}>
-          You have read-only access to this organization — generating test cases is hidden.
+          You have read-only access to this organization — generating test cases
+          is hidden.
         </p>
       )}
 
       {!readOnly && (
         <>
+          <div className="tab-bar" style={{ marginTop: 16 }}>
+            {(
+              [
+                ["web", "Web URL"],
+                ["android", "Android / ADB"],
+                ["ios-connected", "Connected iOS"],
+                ["ios-remote", "Remote iOS"],
+              ] as const
+            ).map(([mode, label]) => (
+              <button
+                key={mode}
+                type="button"
+                className={captureMode === mode ? "active" : ""}
+                onClick={() => {
+                  setCaptureMode(mode);
+                  setDeviceCapture(null);
+                  setError(null);
+                }}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
           <div
             style={{
               display: "grid",
@@ -110,17 +193,80 @@ export default function LiveAppGenerationPage() {
               margin: "16px 0",
             }}
           >
-            <label>
-              Start URL <span style={{ color: "var(--muted-dim)" }}>(public http/https only - private and internal addresses are rejected)</span>
-              <input
-                value={startUrl}
-                onChange={(e) => setStartUrl(e.target.value)}
-                placeholder="https://your-staging-app.example.com"
-                style={{ width: "100%" }}
-              />
-            </label>
-            <button onClick={generate} disabled={generating || !startUrl.trim()}>
-              {generating ? "Crawling + generating…" : "Crawl and generate drafts"}
+            {captureMode === "web" ? (
+              <label>
+                Start URL{" "}
+                <span style={{ color: "var(--muted-dim)" }}>
+                  (public http/https only - private and internal addresses are
+                  rejected)
+                </span>
+                <input
+                  value={startUrl}
+                  onChange={(event) => setStartUrl(event.target.value)}
+                  placeholder="https://your-staging-app.example.com"
+                  style={{ width: "100%" }}
+                />
+              </label>
+            ) : (
+              <>
+                <div>
+                  <strong>
+                    {captureMode === "android"
+                      ? "Capture the foreground Android screen over ADB"
+                      : captureMode === "ios-connected"
+                        ? "Capture a connected iPhone/iPad through local Appium + WebDriverAgent"
+                        : "Capture a remote iPhone/iPad through an Appium-compatible device provider"}
+                  </strong>
+                  <p
+                    className="text-muted"
+                    style={{ fontSize: 13, marginBottom: 8 }}
+                  >
+                    Run the local capture command from the Vaettir repository,
+                    interact with the device, and append each important screen.
+                    Credentials, screenshots, and raw hierarchy XML are never
+                    uploaded.
+                  </p>
+                  <code style={{ display: "block", overflowWrap: "anywhere" }}>
+                    {captureMode === "android"
+                      ? "pnpm capture:device -- --source adb --output vaettir-device.json"
+                      : captureMode === "ios-connected"
+                        ? "pnpm capture:device -- --source ios-connected --appium-url http://127.0.0.1:4723 --session-id <id> --output vaettir-device.json"
+                        : "pnpm capture:device -- --source ios-remote --appium-url <provider-url> --session-id <id> --output vaettir-device.json"}
+                  </code>
+                </div>
+                <label>
+                  Vaettir device capture (.json)
+                  <input
+                    type="file"
+                    accept="application/json,.json"
+                    onChange={(event) =>
+                      void selectCapture(event.target.files?.[0])
+                    }
+                  />
+                </label>
+                {deviceCapture && (
+                  <div className="status-panel success">
+                    <strong>{deviceCapture.deviceName}</strong>
+                    <span>
+                      {deviceCapture.screens.length} observed screen
+                      {deviceCapture.screens.length === 1 ? "" : "s"}
+                    </span>
+                  </div>
+                )}
+              </>
+            )}
+            <button
+              onClick={generate}
+              disabled={
+                generating ||
+                (captureMode === "web" ? !startUrl.trim() : !deviceCapture)
+              }
+            >
+              {generating
+                ? "Generating grounded drafts…"
+                : captureMode === "web"
+                  ? "Crawl and generate drafts"
+                  : "Generate from device capture"}
             </button>
           </div>
 
@@ -128,28 +274,39 @@ export default function LiveAppGenerationPage() {
 
           {committedTitles.length > 0 && (
             <p style={{ color: "var(--frost)" }}>
-              Saved {committedTitles.length} test case(s) as pending review: {committedTitles.join(", ")}
+              Saved {committedTitles.length} test case(s) as pending review:{" "}
+              {committedTitles.join(", ")}
             </p>
           )}
 
           {drafts && drafts.length === 0 && committedTitles.length === 0 && (
-            <p className="text-muted">No drafts generated - the crawl may not have found enough to work with.</p>
+            <p className="text-muted">
+              No drafts generated - the crawl may not have found enough to work
+              with.
+            </p>
           )}
 
           {drafts && drafts.length > 0 && (
             <div style={{ marginTop: 24 }}>
               <h2>Drafts from {scannedUrl}</h2>
               <p className="text-muted" style={{ fontSize: 13 }}>
-                Nothing is saved yet. Commit each draft you want to keep, or discard it.
+                Nothing is saved yet. Commit each draft you want to keep, or
+                discard it.
               </p>
               {drafts.map((draft, i) => (
                 <div
                   key={`${draft.title}-${i}`}
-                  style={{ border: "1px solid var(--line)", borderRadius: 8, padding: 16, marginBottom: 12 }}
+                  style={{
+                    border: "1px solid var(--line)",
+                    borderRadius: 8,
+                    padding: 16,
+                    marginBottom: 12,
+                  }}
                 >
                   <h3>{draft.title}</h3>
                   <p>
-                    <strong>{draft.testType}</strong> · confidence {(draft.confidence * 100).toFixed(0)}%
+                    <strong>{draft.testType}</strong> · confidence{" "}
+                    {(draft.confidence * 100).toFixed(0)}%
                   </p>
                   {draft.background && (
                     <p>
@@ -177,11 +334,24 @@ export default function LiveAppGenerationPage() {
                       <small>{draft.notes}</small>
                     </p>
                   )}
-                  <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
-                    <button className="btn-secondary" onClick={() => discard(i)} disabled={busyIndex === i}>
+                  <div
+                    style={{
+                      display: "flex",
+                      gap: 8,
+                      justifyContent: "flex-end",
+                    }}
+                  >
+                    <button
+                      className="btn-secondary"
+                      onClick={() => discard(i)}
+                      disabled={busyIndex === i}
+                    >
                       Discard
                     </button>
-                    <button onClick={() => commit(i)} disabled={busyIndex === i}>
+                    <button
+                      onClick={() => commit(i)}
+                      disabled={busyIndex === i}
+                    >
                       {busyIndex === i ? "Saving…" : "Save as pending review"}
                     </button>
                   </div>

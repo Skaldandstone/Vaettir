@@ -53,6 +53,7 @@ const runCheckSafely = createSafeSchedulerRunner("readinessDigestScheduler", che
 
 export function startReadinessDigestScheduler(): void {
   if (checkHandle) return;
+  void runCheckSafely();
   checkHandle = setInterval(() => void runCheckSafely(), CHECK_INTERVAL_MS);
   checkHandle.unref();
 }

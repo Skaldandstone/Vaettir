@@ -15,6 +15,7 @@ WORKDIR /app
 
 COPY . .
 RUN pnpm install --frozen-lockfile \
+    && pnpm --filter @vaettir/api exec playwright install --with-deps chromium \
     && pnpm --filter @vaettir/db generate \
     && pnpm turbo run build --filter=@vaettir/api...
 
