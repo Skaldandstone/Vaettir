@@ -31,6 +31,7 @@ import { handleJiraWebhook } from "./services/jiraWebhook.js";
 import { verifyDatadogWebhookSecret, handleDatadogWebhook, type DatadogWebhookPayload } from "./services/datadogWebhook.js";
 import { getReleaseIdentity } from "./releaseIdentity.js";
 import { publicHttpErrorMessage } from "./publicErrors.js";
+import { createCorsOriginPolicy } from "./corsPolicy.js";
 
 // P10-07: expected poller intervals, keyed by the same names each poller
 // calls recordHeartbeat with - the one place server.ts needs to know
@@ -332,7 +333,7 @@ function reportUnexpectedTrpcError({ error }: { error: { code: string; cause?: u
   }
 }
 
-await server.register(cors, { origin: true });
+await server.register(cors, { origin: createCorsOriginPolicy(process.env) });
 
 // P10-04: coarse per-IP flood protection at the HTTP layer, distinct from
 // (and a layer below) the AI reverse-engineering endpoint's existing
