@@ -1,3 +1,4 @@
+import "./validateProductionReleaseIdentity.js";
 import "./resolveDatabaseUrl.js";
 import "./instrument.js";
 import { readFileSync } from "node:fs";
