@@ -68,6 +68,9 @@ jobs:
       - name: Verify operations contracts
         run: pnpm test:operations
 
+      - name: Verify restore-drill safety contracts
+        run: pnpm test:restore
+
       - name: Typecheck
         run: pnpm typecheck
 
