@@ -1045,6 +1045,7 @@ export function TestCaseDetailContent({
         {tc.confidence != null &&
           ` (confidence ${(tc.confidence * 100).toFixed(0)}%)`}
       </p>
+      <p><a href={`/projects/${projectId}/test-cases/${tc.id}/unreal`}>Unreal playtest (technical preview)</a></p>
 
       <div className="risk-assessment-panel">
         <strong>Risk assessment</strong>
