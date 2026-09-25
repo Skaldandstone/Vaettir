@@ -13,20 +13,22 @@ review until a user explicitly saves a draft.
 ## Pair the browser
 
 1. Open **Live App Generation** and choose Android, Connected iOS, or Remote iOS.
-2. Download `vaettir-device-connector.mjs` from the page onto the computer that can reach the device.
-3. Run `node ~/Downloads/vaettir-device-connector.mjs` with Node 22 or newer.
-4. Enter the printed one-time pairing code in Vaettir and select **Connect**.
-5. Put the app on an important screen, name it, and select **Capture current screen**. Repeat for other states,
+2. Select **Download Windows helper** (or the detected macOS/Linux equivalent) on the computer that can reach
+   the device.
+3. Open the downloaded launcher and leave its window open. The launcher downloads the current connector, starts
+   it with a page-generated pairing code, and the page connects automatically. No code needs to be copied.
+4. Put the app on an important screen, name it, and select **Capture current screen**. Repeat for other states,
    then generate drafts.
 
 The connector binds only to `127.0.0.1`, accepts only the production Vaettir origin and supported local
 development origins, and requires the pairing code on every request. Close its terminal window when finished.
+The raw `.mjs` download and manual pairing code remain under **Manual setup and troubleshooting**.
 
 ## Android over ADB
 
-Enable USB debugging, authorize the workstation, and verify the device appears in `adb devices`. Start the
-connector, pair it in Vaettir, and capture each foreground app screen from the page. If several devices are
-attached, enter the desired serial shown by `adb devices`.
+Enable USB debugging and authorize the workstation. After the helper connects, Vaettir discovers attached
+devices and shows their model names. Choose the device and capture each foreground app screen from the page. An
+unauthorized device remains visible with an instruction to accept its USB debugging prompt.
 
 The repository command remains available as a troubleshooting fallback:
 

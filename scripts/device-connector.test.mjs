@@ -72,7 +72,7 @@ test("connector is loopback-paired and permits the production origin", async () 
       headers: { origin: allowedOrigin, "x-vaettir-pairing-code": "TESTCODE" },
     });
     assert.equal(paired.status, 200);
-    assert.deepEqual(await paired.json(), { connected: true, version: 1 });
+    assert.deepEqual(await paired.json(), { connected: true, version: 2 });
   } finally {
     child.kill();
     if (child.exitCode === null) await once(child, "exit");

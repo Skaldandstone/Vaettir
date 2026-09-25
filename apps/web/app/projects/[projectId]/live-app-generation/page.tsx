@@ -1,7 +1,14 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useParams } from "next/navigation";
+import { downloadFile } from "@/lib/download";
+import {
+  buildDeviceConnectorLauncher,
+  createDeviceConnectorPairingCode,
+  detectDeviceConnectorPlatform,
+  type DeviceConnectorPlatform,
+} from "@/lib/deviceConnectorLauncher";
 import {
   trpcReact,
   useReadOnlySeat,
@@ -14,6 +21,12 @@ type DeviceCapture =
   RouterInputs["liveAppGeneration"]["generateFromDeviceCapture"]["capture"];
 type CaptureMode = "web" | "android" | "ios-connected" | "ios-remote";
 type ConnectorStatus = "idle" | "connecting" | "connected";
+type AndroidDevice = {
+  id: string;
+  name: string;
+  status: string;
+  ready: boolean;
+};
 
 const CONNECTOR_URL = "http://127.0.0.1:4774";
 
@@ -38,6 +51,10 @@ export default function LiveAppGenerationPage() {
   const [connectorStatus, setConnectorStatus] =
     useState<ConnectorStatus>("idle");
   const [pairingCode, setPairingCode] = useState("");
+  const [connectorPlatform, setConnectorPlatform] =
+    useState<DeviceConnectorPlatform>("windows");
+  const [androidDevices, setAndroidDevices] = useState<AndroidDevice[]>([]);
+  const [discoveringDevices, setDiscoveringDevices] = useState(false);
   const [screenLabel, setScreenLabel] = useState("");
   const [deviceSerial, setDeviceSerial] = useState("");
   const [appiumUrl, setAppiumUrl] = useState("http://127.0.0.1:4723");
@@ -49,6 +66,15 @@ export default function LiveAppGenerationPage() {
   const [scannedUrl, setScannedUrl] = useState<string | null>(null);
   const [committedTitles, setCommittedTitles] = useState<string[]>([]);
   const [busyIndex, setBusyIndex] = useState<number | null>(null);
+  const connectionAttemptRef = useRef(0);
+
+  useEffect(() => {
+    const initialize = window.setTimeout(() => {
+      setPairingCode(createDeviceConnectorPairingCode());
+      setConnectorPlatform(detectDeviceConnectorPlatform(navigator.userAgent));
+    }, 0);
+    return () => window.clearTimeout(initialize);
+  }, []);
 
   const generateMutation =
     trpcReact.liveAppGeneration.generateFromUrl.useMutation();
@@ -116,9 +142,13 @@ export default function LiveAppGenerationPage() {
     }
   }
 
-  async function connectorRequest<T>(path: string, init?: RequestInit) {
+  async function connectorRequest<T>(
+    path: string,
+    init?: RequestInit,
+    timeoutMs = 8_000,
+  ) {
     const controller = new AbortController();
-    const timeout = window.setTimeout(() => controller.abort(), 8_000);
+    const timeout = window.setTimeout(() => controller.abort(), timeoutMs);
     try {
       const response = await fetch(`${CONNECTOR_URL}${path}`, {
         ...init,
@@ -143,12 +173,40 @@ export default function LiveAppGenerationPage() {
     }
   }
 
+  async function discoverAndroidDevices() {
+    setDiscoveringDevices(true);
+    try {
+      const response = await connectorRequest<{ devices: AndroidDevice[] }>(
+        "/devices?source=android",
+      );
+      setAndroidDevices(response.devices);
+      const readyDevices = response.devices.filter((device) => device.ready);
+      const onlyReadyDevice =
+        readyDevices.length === 1 ? readyDevices[0] : undefined;
+      if (onlyReadyDevice) setDeviceSerial(onlyReadyDevice.id);
+      return response.devices;
+    } finally {
+      setDiscoveringDevices(false);
+    }
+  }
+
   async function connectToDeviceConnector() {
     setConnectorStatus("connecting");
     setError(null);
     try {
       await connectorRequest<{ connected: boolean }>("/health");
       setConnectorStatus("connected");
+      if (captureMode === "android") {
+        try {
+          await discoverAndroidDevices();
+        } catch (deviceError) {
+          setError(
+            deviceError instanceof Error
+              ? deviceError.message
+              : "Android device discovery failed.",
+          );
+        }
+      }
     } catch (connectorError) {
       setConnectorStatus("idle");
       setError(
@@ -158,6 +216,64 @@ export default function LiveAppGenerationPage() {
           : connectorError instanceof Error
             ? connectorError.message
             : "Could not connect to the device helper.",
+      );
+    }
+  }
+
+  async function waitForDeviceConnector(attempt: number) {
+    for (let retry = 0; retry < 80; retry += 1) {
+      if (connectionAttemptRef.current !== attempt) return;
+      try {
+        await connectorRequest<{ connected: boolean }>(
+          "/health",
+          undefined,
+          1_000,
+        );
+        if (connectionAttemptRef.current !== attempt) return;
+        setConnectorStatus("connected");
+        setError(null);
+        if (captureMode === "android") {
+          try {
+            await discoverAndroidDevices();
+          } catch (deviceError) {
+            setError(
+              deviceError instanceof Error
+                ? deviceError.message
+                : "Android device discovery failed.",
+            );
+          }
+        }
+        return;
+      } catch {
+        await new Promise((resolve) => window.setTimeout(resolve, 1_500));
+      }
+    }
+    if (connectionAttemptRef.current === attempt) {
+      setConnectorStatus("idle");
+      setError(
+        "The helper did not start. Open the downloaded file, keep its window open, then choose Reconnect.",
+      );
+    }
+  }
+
+  function downloadConnectorLauncher() {
+    try {
+      const launcher = buildDeviceConnectorLauncher({
+        platform: connectorPlatform,
+        origin: window.location.origin,
+        pairingCode,
+      });
+      downloadFile(launcher.filename, launcher.content, launcher.mimeType);
+      const attempt = connectionAttemptRef.current + 1;
+      connectionAttemptRef.current = attempt;
+      setConnectorStatus("connecting");
+      setError(null);
+      void waitForDeviceConnector(attempt);
+    } catch (launcherError) {
+      setError(
+        launcherError instanceof Error
+          ? launcherError.message
+          : "The device helper could not be prepared.",
       );
     }
   }
@@ -348,14 +464,15 @@ export default function LiveAppGenerationPage() {
                     <span className="metric-icon frost" aria-hidden="true">
                       1
                     </span>
-                    <div>
-                      <strong>Start the Vaettir Device Connector</strong>
+                    <div style={{ display: "grid", gap: 10 }}>
+                      <strong>Connect this computer</strong>
                       <p
                         className="text-muted"
-                        style={{ fontSize: 13, margin: "4px 0 8px" }}
+                        style={{ fontSize: 13, margin: 0 }}
                       >
-                        Download it once on the computer that can reach the
-                        device. It requires{" "}
+                        Download and open the prepared helper. Pairing is
+                        already built in, and this page connects automatically.
+                        It requires{" "}
                         {captureMode === "android"
                           ? "Node 22 and ADB"
                           : captureMode === "ios-connected"
@@ -366,87 +483,77 @@ export default function LiveAppGenerationPage() {
                       <div
                         style={{ display: "flex", flexWrap: "wrap", gap: 8 }}
                       >
-                        <a
-                          className="btn btn-secondary"
-                          href="/connectors/vaettir-device-connector.mjs"
-                          download="vaettir-device-connector.mjs"
-                        >
-                          Download connector
-                        </a>
-                        <code
-                          style={{
-                            alignSelf: "center",
-                            overflowWrap: "anywhere",
-                          }}
-                        >
-                          {
-                            'node "$HOME/Downloads/vaettir-device-connector.mjs"'
-                          }
-                        </code>
-                      </div>
-                    </div>
-                  </section>
-
-                  <section
-                    style={{
-                      display: "grid",
-                      gridTemplateColumns: "36px minmax(0, 1fr)",
-                      gap: 12,
-                      alignItems: "start",
-                    }}
-                  >
-                    <span className="metric-icon frost" aria-hidden="true">
-                      2
-                    </span>
-                    <div>
-                      <strong>Pair this browser</strong>
-                      <p
-                        className="text-muted"
-                        style={{ fontSize: 13, margin: "4px 0 8px" }}
-                      >
-                        Enter the pairing code printed by the connector. The
-                        code is kept only in this page and the connector listens
-                        only on your computer.
-                      </p>
-                      <div
-                        style={{
-                          display: "grid",
-                          gridTemplateColumns: "minmax(180px, 1fr) auto",
-                          gap: 8,
-                          maxWidth: 480,
-                        }}
-                      >
-                        <input
-                          value={pairingCode}
-                          onChange={(event) => {
-                            setPairingCode(event.target.value.toUpperCase());
-                            setConnectorStatus("idle");
-                          }}
-                          placeholder="Pairing code"
-                          autoComplete="off"
-                          spellCheck={false}
-                          aria-label="Device connector pairing code"
-                        />
                         <button
                           type="button"
-                          className={
-                            connectorStatus === "connected"
-                              ? "btn-secondary"
-                              : ""
-                          }
-                          onClick={() => void connectToDeviceConnector()}
+                          onClick={downloadConnectorLauncher}
                           disabled={
-                            !pairingCode.trim() ||
-                            connectorStatus === "connecting"
+                            !pairingCode || connectorStatus === "connecting"
                           }
                         >
-                          {connectorStatus === "connecting"
-                            ? "Connecting…"
-                            : connectorStatus === "connected"
-                              ? "Connected"
-                              : "Connect"}
+                          Download{" "}
+                          {connectorPlatform === "windows"
+                            ? "Windows"
+                            : connectorPlatform === "macos"
+                              ? "macOS"
+                              : "Linux"}{" "}
+                          helper
+                        </button>
+                        <button
+                          type="button"
+                          className="btn-secondary"
+                          onClick={() => void connectToDeviceConnector()}
+                          disabled={
+                            !pairingCode || connectorStatus === "connecting"
+                          }
+                        >
+                          {connectorStatus === "connected"
+                            ? "Reconnect"
+                            : "I opened it - connect"}
                         </button>
                       </div>
+                      <div
+                        className={`status-panel ${
+                          connectorStatus === "connected" ? "success" : ""
+                        }`}
+                        role="status"
+                      >
+                        <strong>
+                          {connectorStatus === "connected"
+                            ? "Computer connected"
+                            : connectorStatus === "connecting"
+                              ? "Waiting for the helper to open..."
+                              : "Not connected yet"}
+                        </strong>
+                        <span>
+                          {connectorStatus === "connected"
+                            ? "Keep the helper window open while you capture screens."
+                            : connectorStatus === "connecting"
+                              ? "Open the downloaded file if your browser did not open it automatically."
+                              : "Nothing is uploaded until you capture a screen and generate drafts."}
+                        </span>
+                      </div>
+                      <details>
+                        <summary>Manual setup and troubleshooting</summary>
+                        <div style={{ display: "grid", gap: 8, marginTop: 8 }}>
+                          <span className="text-muted" style={{ fontSize: 13 }}>
+                            Pairing code:{" "}
+                            <code>{pairingCode || "Preparing..."}</code>
+                          </span>
+                          <span className="text-muted" style={{ fontSize: 13 }}>
+                            If the prepared helper is blocked, download the raw
+                            connector and run it with Node using the pairing
+                            code above.
+                          </span>
+                          <a
+                            className="btn btn-secondary"
+                            href="/connectors/vaettir-device-connector.mjs"
+                            download="vaettir-device-connector.mjs"
+                            style={{ width: "fit-content" }}
+                          >
+                            Download raw connector
+                          </a>
+                        </div>
+                      </details>
                     </div>
                   </section>
 
@@ -460,26 +567,85 @@ export default function LiveAppGenerationPage() {
                     }}
                   >
                     <span className="metric-icon frost" aria-hidden="true">
-                      3
+                      2
                     </span>
                     <div style={{ display: "grid", gap: 8 }}>
                       <strong>Capture each important screen</strong>
                       {captureMode === "android" ? (
-                        <label>
-                          Device serial{" "}
-                          <span className="text-muted">
-                            (only needed when several devices are connected)
-                          </span>
-                          <input
-                            value={deviceSerial}
-                            onChange={(event) =>
-                              setDeviceSerial(event.target.value)
-                            }
-                            placeholder="Leave blank to use the only connected device"
-                            disabled={connectorStatus !== "connected"}
-                            style={{ width: "100%" }}
-                          />
-                        </label>
+                        <div style={{ display: "grid", gap: 8 }}>
+                          <div
+                            style={{
+                              display: "flex",
+                              alignItems: "end",
+                              gap: 8,
+                            }}
+                          >
+                            <label style={{ flex: 1 }}>
+                              Android device
+                              <select
+                                value={deviceSerial}
+                                onChange={(event) =>
+                                  setDeviceSerial(event.target.value)
+                                }
+                                disabled={
+                                  connectorStatus !== "connected" ||
+                                  discoveringDevices
+                                }
+                                style={{ width: "100%" }}
+                              >
+                                <option value="">
+                                  {discoveringDevices
+                                    ? "Looking for devices..."
+                                    : androidDevices.length === 0
+                                      ? "No device found"
+                                      : "Choose a device"}
+                                </option>
+                                {androidDevices.map((device) => (
+                                  <option
+                                    key={device.id}
+                                    value={device.id}
+                                    disabled={!device.ready}
+                                  >
+                                    {device.name}
+                                    {device.ready ? "" : ` (${device.status})`}
+                                  </option>
+                                ))}
+                              </select>
+                            </label>
+                            <button
+                              type="button"
+                              className="btn-secondary"
+                              onClick={() => {
+                                setError(null);
+                                void discoverAndroidDevices().catch(
+                                  (deviceError) =>
+                                    setError(
+                                      deviceError instanceof Error
+                                        ? deviceError.message
+                                        : "Android device discovery failed.",
+                                    ),
+                                );
+                              }}
+                              disabled={
+                                connectorStatus !== "connected" ||
+                                discoveringDevices
+                              }
+                            >
+                              Refresh
+                            </button>
+                          </div>
+                          {androidDevices.some(
+                            (device) => device.status === "unauthorized",
+                          ) && (
+                            <span
+                              className="text-muted"
+                              style={{ fontSize: 13 }}
+                            >
+                              Unlock the device and accept its USB debugging
+                              prompt, then refresh.
+                            </span>
+                          )}
+                        </div>
                       ) : (
                         <div
                           style={{
@@ -537,6 +703,7 @@ export default function LiveAppGenerationPage() {
                         disabled={
                           connectorStatus !== "connected" ||
                           capturing ||
+                          (captureMode === "android" && !deviceSerial) ||
                           (captureMode !== "android" &&
                             (!appiumUrl.trim() || !appiumSessionId.trim()))
                         }

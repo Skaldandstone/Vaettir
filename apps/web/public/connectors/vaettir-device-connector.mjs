@@ -47,6 +47,38 @@ function run(command, args) {
   }
 }
 
+function listAndroidDevices() {
+  let output;
+  try {
+    output = run("adb", ["devices", "-l"]);
+  } catch (error) {
+    if (error?.cause?.code === "ENOENT") {
+      throw new Error(
+        "ADB is not installed or is not on PATH. Install Android Platform Tools, then restart the helper.",
+      );
+    }
+    throw error;
+  }
+  return output
+    .split(/\r?\n/)
+    .slice(1)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => {
+      const [serial, state, ...details] = line.split(/\s+/);
+      const model = details
+        .find((detail) => detail.startsWith("model:"))
+        ?.slice("model:".length)
+        .replaceAll("_", " ");
+      return {
+        id: serial,
+        name: model || serial,
+        status: state,
+        ready: state === "device",
+      };
+    });
+}
+
 function decodeXml(value) {
   return value
     .replaceAll("&quot;", '"')
@@ -148,12 +180,9 @@ function manifest({ source, deviceName, appName, label, hierarchy }) {
 }
 
 function captureAndroid(options) {
-  const devices = run("adb", ["devices"])
-    .split(/\r?\n/)
-    .slice(1)
-    .map((line) => line.trim().split(/\s+/))
-    .filter(([, state]) => state === "device")
-    .map(([serial]) => serial);
+  const devices = listAndroidDevices()
+    .filter((device) => device.ready)
+    .map((device) => device.id);
   const serial =
     options.serial || (devices.length === 1 ? devices[0] : undefined);
   if (!serial) {
@@ -302,7 +331,24 @@ const server = createServer(async (request, response) => {
     return send(response, 401, { error: "Pairing code is incorrect." }, cors);
   }
   if (request.method === "GET" && request.url === "/health") {
-    return send(response, 200, { connected: true, version: 1 }, cors);
+    return send(response, 200, { connected: true, version: 2 }, cors);
+  }
+  if (request.method === "GET" && request.url === "/devices?source=android") {
+    try {
+      return send(response, 200, { devices: listAndroidDevices() }, cors);
+    } catch (error) {
+      return send(
+        response,
+        400,
+        {
+          error:
+            error instanceof Error
+              ? error.message
+              : "Android device discovery failed.",
+        },
+        cors,
+      );
+    }
   }
   if (request.method === "POST" && request.url === "/capture") {
     try {
