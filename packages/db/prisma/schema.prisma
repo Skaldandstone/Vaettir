@@ -1991,3 +1991,34 @@ model ProductionSignal {
   @@unique([connectionId, externalId])
   @@index([projectId, occurredAt])
 }
+
+// Delivery evidence for Clerk-managed transactional messages that Vaettir
+// sends through its own provider. Message bodies and recipient addresses are
+// deliberately not retained: invitation bodies contain expiring credentials,
+// and a one-way recipient hash plus domain is enough for idempotency and
+// operational evidence without creating another customer-PII store.
+model TransactionalEmailDelivery {
+  id                String                   @id @default(cuid())
+  clerkEmailId      String                   @unique
+  webhookId         String                   @unique
+  templateSlug      String
+  recipientHash     String
+  recipientDomain   String
+  status            TransactionalEmailStatus @default(RECEIVED)
+  attemptCount      Int                      @default(0)
+  providerMessageId String?                  @unique
+  lastErrorCode     String?
+  receivedAt        DateTime                 @default(now())
+  sentAt            DateTime?
+  updatedAt         DateTime                 @updatedAt
+
+  @@index([status, updatedAt])
+}
+
+enum TransactionalEmailStatus {
+  RECEIVED
+  SENDING
+  SENT
+  FAILED
+  UNKNOWN
+}

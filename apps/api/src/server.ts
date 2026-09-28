@@ -33,6 +33,7 @@ import { verifyDatadogWebhookSecret, handleDatadogWebhook, type DatadogWebhookPa
 import { getReleaseIdentity } from "./releaseIdentity.js";
 import { publicHttpErrorMessage } from "./publicErrors.js";
 import { createCorsOriginPolicy } from "./corsPolicy.js";
+import { registerClerkEmailWebhookRoute } from "./clerkEmailWebhook.js";
 
 // P10-07: expected poller intervals, keyed by the same names each poller
 // calls recordHeartbeat with - the one place server.ts needs to know
@@ -382,6 +383,7 @@ await server.register(registerPagerDutyWebhookRoute);
 await server.register(registerLinearWebhookRoute);
 await server.register(registerJiraWebhookRoute);
 await server.register(registerDatadogWebhookRoute);
+await server.register((instance) => registerClerkEmailWebhookRoute(instance, prisma));
 
 // Mirrored under /api: the ALB/CloudFront path in front of this service
 // routes only /api/* here (the same domain also serves apps/web), so
@@ -415,6 +417,7 @@ await server.register(
     await instance.register(registerLinearWebhookRoute);
     await instance.register(registerJiraWebhookRoute);
     await instance.register(registerDatadogWebhookRoute);
+    await instance.register((child) => registerClerkEmailWebhookRoute(child, prisma));
   },
   { prefix: "/api" },
 );
