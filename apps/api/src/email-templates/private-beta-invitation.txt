@@ -1,0 +1,31 @@
+You are invited to Vaettir
+
+Build release confidence from the test work your team already has.
+
+You have been invited to create a private Vaettir workspace for your team. Bring your current test inventory, connect delivery signals, and see what is ready, at risk, or blocked.
+
+Create your workspace:
+{{action_url}}
+
+This invitation expires in {{invitation.expires_in_days}} days.
+
+YOUR PRIVATE BETA INCLUDES
+
+- 5 full seats and 2 read-only seats
+- 500 AI credits each month, with no automatic overage charges
+- Smart imports, test intelligence, release readiness, and compliance evidence in one workspace
+
+GET STARTED
+
+1. Sign in with Google or email using the address that received this invitation.
+2. Name your team workspace.
+3. Import a test inventory or create your first project.
+
+BETA DATA BOUNDARY
+
+Use non-regulated project data and test code only. Do not upload secrets, credentials, or regulated personal data. When you explicitly use an AI feature, Vaettir sends the selected test or review context to the configured AI provider for processing.
+
+Questions or feedback? Reply to this email. Please do not send passwords, API keys, or customer data.
+
+Vaettir by Skald & Stone
+Quality intelligence for teams that ship software.
