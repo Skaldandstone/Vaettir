@@ -8,6 +8,19 @@ import {
 } from "./membership.ts";
 import { assertTestEnvironment } from "../e2e/test-environment.ts";
 import { saveRequirementDrafts } from "./requirement-drafts.ts";
+import { creditOperationLabel } from "./credit-labels.ts";
+
+test("credit operations have user-facing labels with a readable fallback", () => {
+  assert.equal(
+    creditOperationLabel("generateAutomationDraft"),
+    "Draft framework-specific automation",
+  );
+  assert.equal(
+    creditOperationLabel("extractRequirementsFromMarkdown"),
+    "Extract requirements from a document",
+  );
+  assert.equal(creditOperationLabel("newOperation_name"), "New Operation name");
+});
 
 test("requirement review keeps acknowledged rows out of retries", async () => {
   const rows = ["One", "Two", "Three"].map((title) => ({

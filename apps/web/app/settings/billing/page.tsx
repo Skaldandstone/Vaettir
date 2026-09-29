@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { trpcReact } from "../../../lib/trpcReact";
 import { canAdministerOrganization } from "../../../lib/membership";
+import { creditOperationLabel } from "../../../lib/credit-labels";
 
 const money = (cents: number) =>
   new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(
@@ -45,6 +46,9 @@ export default function BillingPage() {
   const topup = trpcReact.organization.createCreditTopup.useMutation(handlers);
   const busy = checkout.isPending || portal.isPending || topup.isPending;
   const data = overview.data;
+  const availablePlans = (tiers.data ?? []).filter(
+    (tier) => tier.key !== "free",
+  );
   const enabled = canAdmin && data?.purchasesEnabled && !busy;
   const pageError =
     orgs.error ?? overview.error ?? seats.error ?? credits.error ?? tiers.error;
@@ -101,34 +105,35 @@ export default function BillingPage() {
           <h3>Available plans</h3>
           {tiers.isLoading ? (
             <p>Loading plans…</p>
+          ) : availablePlans.length === 0 ? (
+            <p className="text-muted">
+              No self-service plan changes are currently available. Your
+              existing plan and included allowances remain in effect.
+            </p>
           ) : (
-            (tiers.data ?? [])
-              .filter((t) => t.key !== "free")
-              .map((t) => (
-                <div className="billing-catalog-row" key={t.id}>
-                  <span>
-                    <strong>{t.name}</strong>
-                    <small>
-                      {t.monthlyPricePerSeatCents == null
-                        ? "Price not published"
-                        : `${money(t.monthlyPricePerSeatCents)} / seat / month`}
-                    </small>
-                  </span>
-                  <button
-                    disabled={!enabled || t.id === seats.data?.planTierId}
-                    onClick={() =>
-                      checkout.mutate({
-                        organizationId: orgId,
-                        planTierId: t.id,
-                      })
-                    }
-                  >
-                    {t.id === seats.data?.planTierId
-                      ? "Current"
-                      : "Choose plan"}
-                  </button>
-                </div>
-              ))
+            availablePlans.map((t) => (
+              <div className="billing-catalog-row" key={t.id}>
+                <span>
+                  <strong>{t.name}</strong>
+                  <small>
+                    {t.monthlyPricePerSeatCents == null
+                      ? "Price not published"
+                      : `${money(t.monthlyPricePerSeatCents)} / seat / month`}
+                  </small>
+                </span>
+                <button
+                  disabled={!enabled || t.id === seats.data?.planTierId}
+                  onClick={() =>
+                    checkout.mutate({
+                      organizationId: orgId,
+                      planTierId: t.id,
+                    })
+                  }
+                >
+                  {t.id === seats.data?.planTierId ? "Current" : "Choose plan"}
+                </button>
+              </div>
+            ))
           )}
         </section>
         <section className="panel">
@@ -169,7 +174,7 @@ export default function BillingPage() {
             <ul>
               {data?.operationCosts.map((cost) => (
                 <li key={cost.operation}>
-                  {cost.operation.replace(/[_-]/g, " ")}{" "}
+                  {creditOperationLabel(cost.operation)}:{" "}
                   <strong>{cost.credits} credits</strong>
                 </li>
               ))}
@@ -182,11 +187,17 @@ export default function BillingPage() {
         {seats.data && (
           <div className="billing-module-grid">
             <div>
-              <h3>{seats.data.fullSeatsUsed} full seats</h3>
+              <h3>
+                {seats.data.fullSeatsUsed} full{" "}
+                {seats.data.fullSeatsUsed === 1 ? "seat" : "seats"}
+              </h3>
               <p>
                 Plan capacity: {seats.data.fullSeatsIncluded ?? "Unlimited"}
               </p>
-              <h3>{seats.data.readOnlySeatsUsed} read-only seats</h3>
+              <h3>
+                {seats.data.readOnlySeatsUsed} read-only{" "}
+                {seats.data.readOnlySeatsUsed === 1 ? "seat" : "seats"}
+              </h3>
               <p>
                 Plan capacity: {seats.data.readOnlySeatsIncluded ?? "Unlimited"}
               </p>
