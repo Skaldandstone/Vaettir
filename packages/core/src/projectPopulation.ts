@@ -22,6 +22,32 @@ export const populationSectionSchema = z.enum([
   "assessment",
 ]);
 const identifier = z.string().trim().min(1).max(500);
+// Draft preferences are not approved project facts or authenticated connections.
+export const populationDraftSchema = z
+  .object({
+    schemaVersion: z.literal(1),
+    step: z.enum(["scope", "context", "sources", "review"]),
+    sections: z
+      .array(populationSectionSchema)
+      .min(1)
+      .max(6)
+      .refine(
+        (values) => new Set(values).size === values.length,
+        "Duplicate sections",
+      ),
+    objective: z.string().max(2000),
+    systemScope: z.enum(["SOFTWARE", "HARDWARE", "BOTH", "PROCESS"]),
+    // Preferences only; credentials and connection IDs are never accepted here.
+    providers: z
+      .array(populationProviderSchema)
+      .max(10)
+      .refine(
+        (values) => new Set(values).size === values.length,
+        "Duplicate providers",
+      ),
+  })
+  .strict();
+export type PopulationDraft = z.infer<typeof populationDraftSchema>;
 export const sourceRevisionSchema = z.discriminatedUnion("kind", [
   z
     .object({

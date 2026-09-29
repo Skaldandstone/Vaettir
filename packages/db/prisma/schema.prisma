@@ -290,9 +290,35 @@ model Project {
   aiEditFeedback              AiEditFeedback[]
   productionSignalConnections ProductionSignalConnection[]
   productionSignals           ProductionSignal[]
+  populationDraft             ProjectPopulationDraft?
+  populationDraftWrites       ProjectPopulationDraftWrite[]
 
   @@unique([organizationId, slug])
   @@unique([organizationId, datadogProjectTag])
+}
+
+// Saved wizard preferences only. Approved evidence and generated records have
+// separate lifecycles; saving or rerunning a draft must not overwrite them.
+model ProjectPopulationDraft {
+  projectId String @id
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  version Int @default(1)
+  document Json
+  updatedByUserId String
+  updatedAt DateTime @updatedAt
+}
+
+// Durable receipts make a retried save safe even after another subsequent save.
+// Only request hashes/version/actor are retained, not copies of draft contents.
+model ProjectPopulationDraftWrite {
+  projectId String
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  requestId String
+  payloadHash String
+  actorId String
+  appliedVersion Int
+  createdAt DateTime @default(now())
+  @@id([projectId, requestId])
 }
 
 // ---------------------------------------------------------------------------

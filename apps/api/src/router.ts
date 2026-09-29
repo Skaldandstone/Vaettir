@@ -27,8 +27,10 @@ import { userRouter } from "./routers/user.js";
 import { betaRouter } from "./routers/beta.js";
 import { liveAppGenerationRouter } from "./routers/liveAppGeneration.js";
 import { productionSignalsRouter } from "./routers/productionSignals.js";
+import { projectPopulationRouter } from "./routers/projectPopulation.js";
 
 export const appRouter = router({
+  projectPopulation: projectPopulationRouter,
   beta: betaRouter,
   testCases: testCasesRouter,
   testPlans: testPlansRouter,

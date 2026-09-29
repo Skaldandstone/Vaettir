@@ -32,6 +32,16 @@ This module does not fetch sources, execute code, invoke AI, write records, auth
 4. Add bounded jobs, cancellation, network/SSRF protections, source filtering, cost approval, cross-source reconciliation and evidence-based assessments. Recompute affected outputs only; preserve edits and approval history.
 5. Extend real adapters and complete outstanding work from `assistive-ux-20260928.md` without claiming all providers are operational from interface availability.
 
+## Increment 2: saved draft API
+
+Added `projectPopulation.draft` and `projectPopulation.saveDraft` with a strict shared preference schema. An additive migration stores one versioned draft per project plus durable request receipts. Saving does not update the project's approved quality profile, evidence baseline, or generated records. Provider choices are preferences, not authenticated connections; credentials are not accepted in the draft schema.
+
+Reads require project membership; writes require Editor+ and a full seat; suspension blocks both. Saves serialize on the existing parent project row, including first-save races. Expected-version checks reject stale edits. Request hashes and actor binding prevent reusing a save ID for different input; exact retries acknowledge the original version even after subsequent writes without overwriting those later writes. UI callers must refetch after acknowledgment because the acknowledged version can be historical.
+
+Validation: the fresh local database applied all migrations and seeded successfully. The API suite passed 348 tests across 62 files before two additional authorization/first-save cases were added; the expanded focused suite then passed all 8 cases. Core 68 tests, focused lint and all 7 root typecheck tasks passed. Evidence: ignored `.local/ux-validation/vaettir_ux_test_1790664204739/`. No production migration/deployment or customer-data changes in this increment.
+
+Still next: actual re-entrant wizard UI, persisted scan/evidence review and commit, authenticated provider adapters, generation/cost approval, and assessment. The saved-draft API is not a full wizard or an approved-evidence baseline. James has now authorized validated overnight deployments before September 29 07:00 Pacific, superseding the earlier source-only deployment restriction; client-source processing and other authority boundaries remain unchanged.
+
 ## Evidence and release boundary
 
 Initial core suite: 68 tests passed (21 new reconciliation cases); core TypeScript build passed. Tests use synthetic evidence only. Full-root checks and checkpoint revision are recorded in Linear and the local handoff. No deployment, production migration, external source scan, paid AI call or customer-record write is authorized by this source-only overnight run.
