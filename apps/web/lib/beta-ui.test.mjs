@@ -1,5 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import {
   canEditProject,
   canAdministerOrganization,
@@ -10,6 +11,15 @@ import { assertTestEnvironment } from "../e2e/test-environment.ts";
 import { saveRequirementDrafts } from "./requirement-drafts.ts";
 import { creditOperationLabel } from "./credit-labels.ts";
 import { nextPopulationStep } from "./population-navigation.ts";
+
+test("population subpages reuse the layout main landmark", () => {
+  for (const section of ["documents", "requirements", "assessment"]) {
+    const source = readFileSync(new URL(`../app/projects/[projectId]/populate/${section}/page.tsx`, import.meta.url), "utf8");
+    assert.doesNotMatch(source, /<main\b/);
+  }
+  const documents = readFileSync(new URL("../components/PopulationDocuments.tsx", import.meta.url), "utf8");
+  assert.match(documents, /<h1>Project documents<\/h1>/);
+});
 
 test("partial project setup skips only unselected sections in either direction", () => {
   assert.equal(nextPopulationStep(0, 1, ["assessment"]), "review");

@@ -4,9 +4,9 @@ import { PopulationAssessment } from "@/components/PopulationAssessment";
 export default function Page() {
   const { projectId } = useParams<{ projectId: string }>();
   return (
-    <main>
+    <div>
       <a href={`/projects/${projectId}/populate`}>Back to setup</a>
       <PopulationAssessment projectId={projectId} />
-    </main>
+    </div>
   );
 }

@@ -9,9 +9,9 @@ export default function Page() {
   if (!canEdit)
     return <p>A full editor seat is required to approve suggestions.</p>;
   return (
-    <main>
+    <div>
       <a href={`/projects/${projectId}/populate`}>Back to project setup</a>
       <PopulationRequirements projectId={projectId} />
-    </main>
+    </div>
   );
 }

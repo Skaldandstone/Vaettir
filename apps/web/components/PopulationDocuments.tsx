@@ -72,7 +72,7 @@ export function PopulationDocuments({ projectId }: { projectId: string }) {
   }
   return (
     <section className="population-wizard" style={{ marginTop: 32 }}>
-      <h2>Project documents</h2>
+      <h1>Project documents</h1>
       <p>
         Build an approved evidence baseline from a README, specification or
         release note. No AI credits are used.
