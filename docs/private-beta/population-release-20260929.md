@@ -32,4 +32,8 @@ Rendered inspection found nested main landmarks in the three population subpages
 
 Web-only commit `a8556f2771fde92ea3820b27e5bfaa1f20f3a20a` passed CodeBuild `vaettir-web-build:d9e3fc55-eacf-4d31-94d4-d400f066f746` and deployed as `vaettir-web:16`, digest `sha256:2cd9b66b1e41b78772e2a22c9742fd36abd0788f3e99919da24d6edafadbaa9d`. Runtime acceptance passed (one completed deployment, running one, pending zero); the new target was healthy while the previous target drained. Authenticated document-page inspection confirmed a single main landmark and level-one heading. API remains `a42765c` / revision 22. No new migration or customer write accompanied this web correction.
 
+## File-intake follow-up
+
+Web commit `616d8e25144ef4c044cd937b87a83633b60ec043` passed CodeBuild `vaettir-web-build:036f20c0-9575-44b8-a771-01eb27f32012` and deployed as `vaettir-web:17`, digest `sha256:af1b3a7e0c17887f8737bc38c8151f501a6145b9cd8c592574dd7edc3c2b7d1a`. The runtime acceptance checker passes. Authenticated read-only inspection verified the file disclosure, file control, permission explanation and disabled preview until required input is supplied. No customer document was selected or uploaded. Native file-picker/full upload acceptance remains distinct from decoder tests and this rendered check. API remains revision 22.
+
 Scope and remaining limitations are recorded in [project-population-20260929.md](project-population-20260929.md). This is the saved-setup, reviewed-document, cited-requirement and evidence-snapshot slice, not completed multi-provider discovery or test/strategy generation.
