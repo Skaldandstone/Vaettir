@@ -11,6 +11,30 @@ import { assertTestEnvironment } from "../e2e/test-environment.ts";
 import { saveRequirementDrafts } from "./requirement-drafts.ts";
 import { creditOperationLabel } from "./credit-labels.ts";
 import { nextPopulationStep } from "./population-navigation.ts";
+import { readDocumentFile } from "./document-file.ts";
+
+function documentFile(name, contents) {
+  const bytes = new TextEncoder().encode(contents);
+  return { name, size: bytes.byteLength, arrayBuffer: async () => bytes.buffer };
+}
+test("document file accepts UTF-8 Markdown/text/README without executing markup", async () => {
+  const content = '# Intent\r\nThe device shall report temperature. ✓\n<script>doNotRun()</script>';
+  for (const name of ["spec.md", "SPEC.MARKDOWN", "spec.txt", "README"])
+    assert.equal(await readDocumentFile(documentFile(name, content)), content);
+});
+test("document file rejects non-text types before reading their bytes", async () => {
+  for (const name of ["credentials.env", "private.pem", "archive.zip", "document.pdf", "image.png", "readme.md.exe"]) {
+    await assert.rejects(readDocumentFile({ name, size: 20, arrayBuffer: () => { throw new Error("must not read"); } }), /Choose a Markdown/);
+  }
+});
+test("document file bounds bytes and decoded characters and rejects invalid content", async () => {
+  await assert.rejects(readDocumentFile({name: "x.txt", size: 200001, arrayBuffer: () => { throw new Error("must not read"); }}), /200 KB/);
+  await assert.rejects(readDocumentFile(documentFile("x.txt", "a".repeat(50001))), /50,000/);
+  for (const text of ["\0binary", "escape\x1b", "\u007f"]) await assert.rejects(readDocumentFile(documentFile("x.txt", text)), /control characters/);
+  await assert.rejects(readDocumentFile(documentFile("x.txt", "  \n")), /no text/);
+  await assert.rejects(readDocumentFile({name:"x.txt",size:1,arrayBuffer:async()=>new Uint8Array([255]).buffer}), /UTF-8/);
+  await assert.rejects(readDocumentFile({name:"x.txt",size:2,arrayBuffer:async()=>new Uint8Array([65]).buffer}), /size changed/);
+});
 
 test("population subpages reuse the layout main landmark", () => {
   for (const section of ["documents", "requirements", "assessment"]) {

@@ -28,4 +28,8 @@ Authenticated read-only browser checks on the existing demo project verified all
 
 Rendered inspection found nested main landmarks in the three population subpages. A follow-up removes those nested landmarks, gives the document page a level-one heading and adds a structural regression test. It requires a subsequent web build/deployment; do not claim this fix is in the a42765c image.
 
+## Accessibility follow-up
+
+Web-only commit `a8556f2771fde92ea3820b27e5bfaa1f20f3a20a` passed CodeBuild `vaettir-web-build:d9e3fc55-eacf-4d31-94d4-d400f066f746` and deployed as `vaettir-web:16`, digest `sha256:2cd9b66b1e41b78772e2a22c9742fd36abd0788f3e99919da24d6edafadbaa9d`. Runtime acceptance passed (one completed deployment, running one, pending zero); the new target was healthy while the previous target drained. Authenticated document-page inspection confirmed a single main landmark and level-one heading. API remains `a42765c` / revision 22. No new migration or customer write accompanied this web correction.
+
 Scope and remaining limitations are recorded in [project-population-20260929.md](project-population-20260929.md). This is the saved-setup, reviewed-document, cited-requirement and evidence-snapshot slice, not completed multi-provider discovery or test/strategy generation.

@@ -2,6 +2,7 @@
 import { useState } from "react";
 import { TRPCClientError } from "@trpc/client";
 import { trpcReact } from "../lib/trpcReact";
+import { DocumentFileInput } from "./DocumentFileInput";
 
 export function PopulationDocuments({ projectId }: { projectId: string }) {
   const list = trpcReact.populationDocuments.list.useQuery({ projectId });
@@ -168,13 +169,18 @@ export function PopulationDocuments({ projectId }: { projectId: string }) {
                 onChange={(e) => setTitle(e.target.value)}
               />
             </label>
+            <DocumentFileInput onUse={(text, name) => {
+              setContent(text);
+              setTitle((current) => current || name.slice(0, 200));
+              setPermission(false);
+            }} />
             <label>
               Plain text or Markdown
               <textarea
                 rows={8}
                 value={content}
                 maxLength={50000}
-                onChange={(e) => setContent(e.target.value)}
+                onChange={(e) => { setContent(e.target.value); setPermission(false); }}
               />
             </label>
             <label>
