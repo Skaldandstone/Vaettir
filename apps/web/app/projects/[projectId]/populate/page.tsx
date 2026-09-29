@@ -186,6 +186,7 @@ function Editor({
         </section>
       )}
       <p><a className="btn-secondary" href={`/projects/${projectId}/populate/documents`}>Review document evidence</a></p>
+      <p><a className="btn-secondary" href={`/projects/${projectId}/populate/requirements`}>Review requirement suggestions</a></p>
     </div>
   );
 }

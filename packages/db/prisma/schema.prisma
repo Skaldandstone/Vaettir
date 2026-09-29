@@ -294,6 +294,7 @@ model Project {
   populationDraftWrites       ProjectPopulationDraftWrite[]
   populationDocuments         ProjectPopulationDocument[]
   populationDocumentRuns      ProjectPopulationDocumentRun[]
+  populationRequirements      ProjectPopulationRequirement[]
 
   @@unique([organizationId, slug])
   @@unique([organizationId, datadogProjectTag])
@@ -353,6 +354,22 @@ model ProjectPopulationDocumentRun {
   appliedVersion Int?
   cancelledAt DateTime?
   @@id([projectId, requestId])
+}
+
+model ProjectPopulationRequirement {
+  projectId String
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  sourceKey String
+  candidateKey String
+  sourceVersion Int
+  sourceLine Int
+  sourceQuote String
+  approvedTitle String
+  approvedBy String
+  approvedAt DateTime @default(now())
+  requirementId String?
+  requirement Requirement? @relation(fields: [requirementId], references: [id], onDelete: SetNull)
+  @@id([projectId, sourceKey, candidateKey])
 }
 
 // ---------------------------------------------------------------------------
@@ -706,6 +723,7 @@ enum TestPlanStatus {
 // ---------------------------------------------------------------------------
 
 model Requirement {
+  populationEvidence ProjectPopulationRequirement[]
   id          String   @id @default(cuid())
   projectId   String
   project     Project  @relation(fields: [projectId], references: [id])

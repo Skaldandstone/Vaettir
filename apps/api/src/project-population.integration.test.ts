@@ -87,6 +87,105 @@ describe.skipIf(!isolated)("population draft persistence", () => {
     ).toBe("");
   });
 
+  it("creates cited requirements once and preserves human edits and removals on rerun", async () => {
+    const projectId = (await owner.project.create({organizationId,name:`Requirements ${randomUUID()}`})).id;
+    const doc = {
+      projectId,
+      requestId: randomUUID(),
+      sourceKey: "req-fixture",
+      title: "Device spec",
+      content: "Voltage shall stay below 5 V.\nPlayback must resume.",
+      processingPermission: true as const,
+    };
+    await owner.populationDocuments.preview(doc);
+    await owner.populationDocuments.approve({
+      projectId,
+      requestId: doc.requestId,
+      approve: true,
+    });
+    const preview = await owner.populationRequirements.preview({
+      projectId,
+      sourceKey: doc.sourceKey,
+    });
+    const row = preview.candidates[0]!;
+    const approval = {
+      projectId,
+      sourceKey: doc.sourceKey,
+      version: preview.version,
+      candidateKey: row.key,
+      title: "Voltage shall remain below 5 V at full load.",
+      approve: true as const,
+    };
+    const results = await Promise.all([
+      owner.populationRequirements.approve(approval),
+      owner.populationRequirements.approve(approval),
+    ]);
+    expect(results[0]!.requirementId).toBe(results[1]!.requirementId);
+    expect(results.filter((result) => result.created)).toHaveLength(1);
+    await prisma.requirement.update({
+      where: { id: results[0]!.requirementId },
+      data: { title: "Human-reviewed voltage limit" },
+    });
+    expect(
+      (
+        await owner.populationRequirements.preview({
+          projectId,
+          sourceKey: doc.sourceKey,
+        })
+      ).candidates[0]?.status,
+    ).toBe("human-edited");
+    await owner.populationRequirements.approve(approval);
+    expect(
+      (
+        await prisma.requirement.findUniqueOrThrow({
+          where: { id: results[0]!.requirementId },
+        })
+      ).title,
+    ).toBe("Human-reviewed voltage limit");
+    await prisma.requirement.delete({
+      where: { id: results[0]!.requirementId },
+    });
+    await expect(
+      owner.populationRequirements.approve(approval),
+    ).rejects.toMatchObject({ code: "CONFLICT" });
+    expect(
+      (
+        await owner.populationRequirements.preview({
+          projectId,
+          sourceKey: doc.sourceKey,
+        })
+      ).candidates[0]?.status,
+    ).toBe("removed");
+    await expect(
+      viewer.populationRequirements.approve(approval),
+    ).rejects.toMatchObject({ code: "FORBIDDEN" });
+    await expect(
+      otherOwner.populationRequirements.preview({
+        projectId,
+        sourceKey: doc.sourceKey,
+      }),
+    ).rejects.toThrow();
+    const changed = {
+      ...doc,
+      requestId: randomUUID(),
+      content: "Playback must resume.\nSystem must log events.",
+    };
+    await owner.populationDocuments.preview(changed);
+    await owner.populationDocuments.approve({
+      projectId,
+      requestId: changed.requestId,
+      approve: true,
+    });
+    expect((await owner.populationRequirements.preview({projectId,sourceKey:doc.sourceKey})).staleLinks).toHaveLength(1);
+    await expect(
+      owner.populationRequirements.approve({
+        ...approval,
+        candidateKey: preview.candidates[1]!.key,
+        title: preview.candidates[1]!.title,
+      }),
+    ).rejects.toMatchObject({ code: "CONFLICT" });
+  });
+
   it("reviews document evidence, deduplicates identical reruns and preserves unrelated records", async () => {
     const input = {
       projectId,
