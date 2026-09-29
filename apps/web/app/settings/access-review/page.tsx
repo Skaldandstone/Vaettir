@@ -1,4 +1,5 @@
 "use client";
+import { roleLabel } from "@/lib/membership";
 
 import { Fragment, useEffect, useState } from "react";
 import { canAdministerOrganization } from "../../../lib/membership";
@@ -270,7 +271,7 @@ export default function AccessReviewPage() {
               <td style={cellStyle}>
                 {m.userName ? `${m.userName} (${m.userEmail})` : m.userEmail}
               </td>
-              <td style={cellStyle}>{m.role}</td>
+              <td style={cellStyle}>{roleLabel(m.role)}</td>
               <td style={cellStyle}>
                 <select
                   disabled={submitMutation.isPending}
@@ -384,7 +385,7 @@ export default function AccessReviewPage() {
                       <ul style={{ margin: 0, paddingLeft: 18 }}>
                         {expanded[r.id]!.entries.map((e, i) => (
                           <li key={i}>
-                            {e.userEmail} - {e.role} -{" "}
+                            {e.userEmail} - {roleLabel(e.role)} -{" "}
                             <strong>{e.decision}</strong>
                             {e.note ? ` - "${e.note}"` : ""}
                           </li>

@@ -112,12 +112,13 @@ const AUTOMATION_FRAMEWORKS: Array<{
   { value: "GODOT_GDUNIT4", label: "Godot GdUnit4" },
 ];
 
-function AutomationDraftSection({ testCaseId }: { testCaseId: string }) {
+function AutomationDraftSection({ testCaseId, readOnly = false }: { testCaseId: string; readOnly?: boolean }) {
   const [framework, setFramework] = useState<AutomationFramework>("MAESTRO");
   const [projectContext, setProjectContext] = useState("");
-  const [draft, setDraft] = useState<
-    RouterOutputs["testCases"]["generateAutomationDraft"] | null
-  >(null);
+  const saved = trpcReact.testCases.automationDraft.useQuery({ id: testCaseId }, { refetchInterval: query => query.state.data?.status === "GENERATING" ? 3000 : false });
+  const draft = saved.data?.content;
+  const [confirmReject, setConfirmReject] = useState(false);
+  const rejectMutation = trpcReact.testCases.rejectAutomationDraft.useMutation();
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const generateMutation =
@@ -127,12 +128,12 @@ function AutomationDraftSection({ testCaseId }: { testCaseId: string }) {
     setError(null);
     setCopied(false);
     try {
-      const nextDraft = await generateMutation.mutateAsync({
+      await generateMutation.mutateAsync({
         id: testCaseId,
         framework,
         projectContext: projectContext.trim() || undefined,
       });
-      setDraft(nextDraft);
+      await saved.refetch();
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
     }
@@ -171,12 +172,15 @@ function AutomationDraftSection({ testCaseId }: { testCaseId: string }) {
       }}
     >
       <strong>Automation draft</strong>
+      {saved.isLoading && <p role="status">Loading saved draft…</p>}
+      {saved.error && <p role="alert">Could not load saved draft. <button onClick={() => void saved.refetch()}>Retry</button></p>}
+      {saved.data?.status === "GENERATING" && <p role="status">Your draft is generating. You can close this panel and return. If this status persists, contact an administrator; starting another paid request is blocked.</p>}
       <p className="text-muted" style={{ fontSize: 13, margin: "5px 0 12px" }}>
         Turn this reviewed case into framework-specific source. Vaettir returns
         a draft for human review and never writes to your repository or claims
         that the source was executed.
       </p>
-      <div style={{ display: "grid", gap: 10 }}>
+      {!readOnly && !saved.data && !saved.isLoading && !saved.error && <div style={{ display: "grid", gap: 10 }}>
         <label>
           <span
             className="eyebrow"
@@ -221,10 +225,10 @@ function AutomationDraftSection({ testCaseId }: { testCaseId: string }) {
               : "Generate review draft"}
           </button>
           <span className="text-muted" style={{ fontSize: 12, marginLeft: 8 }}>
-            Uses 10 AI credits
+            Starts at 10 AI credits; final cost is reconciled to usage.
           </span>
         </div>
-      </div>
+      </div>}
 
       {error && <p style={{ color: "var(--ember)" }}>{error}</p>}
       {draft && (
@@ -235,17 +239,22 @@ function AutomationDraftSection({ testCaseId }: { testCaseId: string }) {
             paddingTop: 14,
           }}
         >
+          <p className="text-muted">Saved with this test case. Reopening, copying or downloading does not use credits.</p>
+          {!readOnly && (!confirmReject ? <button className="btn-secondary" onClick={() => setConfirmReject(true)}>Reject draft…</button> : <div role="group" aria-label="Confirm draft rejection">
+            <p>Reject this saved draft? Creating a replacement uses credits. Rejection does not refund the original generation.</p>
+            <button disabled={rejectMutation.isPending} onClick={async () => {
+              if (!saved.data) return;
+              try {
+                await rejectMutation.mutateAsync({ id: testCaseId, draftId: saved.data.id });
+                await saved.refetch(); setConfirmReject(false);
+              } catch (cause) { setError(cause instanceof Error ? cause.message : String(cause)); }
+            }}>Reject draft</button>
+            <button className="btn-secondary" disabled={rejectMutation.isPending} onClick={() => setConfirmReject(false)}>Keep draft</button>
+          </div>)}
           <p style={{ fontSize: 13 }}>
             <strong>Stable ID:</strong> <code>{draft.automationId}</code>
           </p>
-          <div
-            style={{
-              display: "flex",
-              justifyContent: "space-between",
-              gap: 8,
-              alignItems: "center",
-            }}
-          >
+          <div className="case-draft-toolbar">
             <strong>{draft.fileName}</strong>
             <div style={{ display: "flex", gap: 6 }}>
               <button className="btn-secondary" onClick={copyDraft}>
@@ -957,12 +966,14 @@ export function TestCaseDetailContent({
   projectId,
   onEditHref,
   onChanged,
+  onSuiteSelect,
   readOnly,
 }: {
   id: string;
   projectId: string;
   onEditHref?: string;
   onChanged?: () => void;
+  onSuiteSelect?: (path: string) => void;
   readOnly?: boolean;
 }) {
   const utils = trpcReact.useUtils();
@@ -1019,14 +1030,8 @@ export function TestCaseDetailContent({
   if (!tc) return <p>Loading…</p>;
 
   return (
-    <div>
-      <div
-        style={{
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "space-between",
-        }}
-      >
+    <div className="test-case-details-content">
+      <div className="case-detail-heading">
         <h1 style={{ margin: 0 }}>{tc.title}</h1>
         {!readOnly && (
           <a
@@ -1038,14 +1043,73 @@ export function TestCaseDetailContent({
           </a>
         )}
       </div>
-      <p>
-        <strong>Domain:</strong> {tc.validationDomain.replace(/_/g, " ")} &nbsp;
-        <strong>Type:</strong> {tc.testType} &nbsp; <strong>Priority:</strong>{" "}
-        {tc.priority} &nbsp;
-        <strong>Origin:</strong> {tc.origin}
-        {tc.confidence != null &&
-          ` (confidence ${(tc.confidence * 100).toFixed(0)}%)`}
-      </p>
+      <dl className="case-metadata">
+        {([["Domain", tc.validationDomain], ["Type", tc.testType], ["Priority", tc.priority], ["Origin", tc.origin]] as const).map(([label, value]) => <div key={label}><dt>{label}</dt><dd>{value.replaceAll("_", " ").toLowerCase()}</dd></div>)}
+      </dl>
+
+      <p><strong>Suite:</strong> {tc.suitePath ? <a href={`/projects/${projectId}/test-cases?suite=${encodeURIComponent(tc.suitePath)}`} onClick={event => { if (onSuiteSelect && tc.suitePath) { event.preventDefault(); onSuiteSelect(tc.suitePath); } }}>{tc.suitePath}</a> : "Unassigned"}</p>
+
+      {tc.background && (
+        <p>
+          <strong>Background:</strong> {tc.background}
+        </p>
+      )}
+
+      {(tc.given.length > 0 || tc.when.length > 0 || tc.then.length > 0) && (
+        <section className="case-step-table" aria-label="Scenario steps">
+          <h3>Steps · Given / When / Then</h3>
+          <table><thead><tr><th style={cellStyle}>#</th><th style={cellStyle}>Phase</th><th style={cellStyle}>Action or precondition</th><th style={cellStyle}>Expected outcome</th></tr></thead>
+            <tbody>{[...tc.given.map(text => ({ phase: "Given", text })), ...tc.when.map(text => ({ phase: "When", text })), ...tc.then.map(text => ({ phase: "Then", text }))].map((step, index) => <tr key={index}><td style={cellStyle}>{index + 1}</td><td style={cellStyle}>{step.phase}</td><td style={cellStyle}>{step.phase !== "Then" ? step.text : "—"}</td><td style={cellStyle}>{step.phase === "Then" ? step.text : "—"}</td></tr>)}</tbody>
+          </table>
+        </section>
+      )}
+
+      {tc.steps.length > 0 && (
+        <section className="case-step-table">
+          <h3>Steps</h3>
+          <table style={{ borderCollapse: "collapse", width: "100%" }}>
+            <thead>
+              <tr>
+                <th style={cellStyle}>#</th>
+                <th style={cellStyle}>{tc.stepFieldLabels.action}</th>
+                <th style={cellStyle}>
+                  {tc.stepFieldLabels.expectedActionOrData}
+                </th>
+                <th style={cellStyle}>{tc.stepFieldLabels.expectedResult}</th>
+                <th style={cellStyle}>{tc.stepFieldLabels.expectedResponse}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {tc.steps.map((s) => (
+                <tr key={s.order}>
+                  <td style={cellStyle}>{s.order + 1}</td>
+                  <td style={cellStyle}>{s.action}</td>
+                  <td style={cellStyle}>{s.expectedActionOrData ?? "—"}</td>
+                  <td style={cellStyle}>{s.expectedResult ?? "—"}</td>
+                  <td style={cellStyle}>{s.expectedResponse ?? "—"}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </section>
+      )}
+
+      {tc.given.length === 0 &&
+        tc.when.length === 0 &&
+        tc.then.length === 0 &&
+        tc.steps.length === 0 && (
+          <p className="text-muted">
+            No content yet — this case was quick-added with just a title.{" "}
+            <a
+              href={
+                onEditHref ?? `/projects/${projectId}/test-cases/${tc.id}/edit`
+              }
+            >
+              Fill it in
+            </a>
+            .
+          </p>
+        )}
 
       {Object.values(tc.verificationProfile).some(Boolean) && (
         <section className="panel">
@@ -1104,12 +1168,6 @@ export function TestCaseDetailContent({
         )}
       </div>
 
-      {tc.suitePath && (
-        <p>
-          <strong>Suite:</strong> {tc.suitePath}
-        </p>
-      )}
-
       {tc.source && (
         <p>
           <strong>Source:</strong> {tc.source.filePath}
@@ -1118,7 +1176,7 @@ export function TestCaseDetailContent({
         </p>
       )}
 
-      {!readOnly && <AutomationDraftSection testCaseId={tc.id} />}
+      <AutomationDraftSection key={tc.id} testCaseId={tc.id} readOnly={readOnly} />
       <ComplianceControlsSection
         testCaseId={tc.id}
         projectId={projectId}
@@ -1276,81 +1334,6 @@ export function TestCaseDetailContent({
             })()}
         </div>
       )}
-      {tc.background && (
-        <p>
-          <strong>Background:</strong> {tc.background}
-        </p>
-      )}
-
-      {(tc.given.length > 0 || tc.when.length > 0 || tc.then.length > 0) && (
-        <>
-          <h3>Given</h3>
-          <ul>
-            {tc.given.map((s, i) => (
-              <li key={i}>{s}</li>
-            ))}
-          </ul>
-          <h3>When</h3>
-          <ul>
-            {tc.when.map((s, i) => (
-              <li key={i}>{s}</li>
-            ))}
-          </ul>
-          <h3>Then</h3>
-          <ul>
-            {tc.then.map((s, i) => (
-              <li key={i}>{s}</li>
-            ))}
-          </ul>
-        </>
-      )}
-
-      {tc.steps.length > 0 && (
-        <>
-          <h3>Steps</h3>
-          <table style={{ borderCollapse: "collapse", width: "100%" }}>
-            <thead>
-              <tr>
-                <th style={cellStyle}>#</th>
-                <th style={cellStyle}>{tc.stepFieldLabels.action}</th>
-                <th style={cellStyle}>
-                  {tc.stepFieldLabels.expectedActionOrData}
-                </th>
-                <th style={cellStyle}>{tc.stepFieldLabels.expectedResult}</th>
-                <th style={cellStyle}>{tc.stepFieldLabels.expectedResponse}</th>
-              </tr>
-            </thead>
-            <tbody>
-              {tc.steps.map((s) => (
-                <tr key={s.order}>
-                  <td style={cellStyle}>{s.order + 1}</td>
-                  <td style={cellStyle}>{s.action}</td>
-                  <td style={cellStyle}>{s.expectedActionOrData ?? "—"}</td>
-                  <td style={cellStyle}>{s.expectedResult ?? "—"}</td>
-                  <td style={cellStyle}>{s.expectedResponse ?? "—"}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </>
-      )}
-
-      {tc.given.length === 0 &&
-        tc.when.length === 0 &&
-        tc.then.length === 0 &&
-        tc.steps.length === 0 && (
-          <p className="text-muted">
-            No content yet — this case was quick-added with just a title.{" "}
-            <a
-              href={
-                onEditHref ?? `/projects/${projectId}/test-cases/${tc.id}/edit`
-              }
-            >
-              Fill it in
-            </a>
-            .
-          </p>
-        )}
 
       {tc.tags.length > 0 && (
         <p>

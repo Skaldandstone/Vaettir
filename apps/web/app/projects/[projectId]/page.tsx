@@ -5,9 +5,12 @@ import { useParams } from "next/navigation";
 import { trpcReact } from "@/lib/trpcReact";
 import { useProjectPermissions } from "@/lib/use-project-permissions";
 import { ConnectionLink, ProviderMark } from "@/components/SourceConnectionChips";
+import { ProjectPopulationModal } from "@/components/ProjectPopulationModal";
+import { ProjectRepositories } from "@/components/ProjectRepositories";
 
 // P1-15
 export default function ProjectOverviewPage() {
+  const [populationOpen, setPopulationOpen] = useState(false);
   const { projectId } = useParams<{ projectId: string }>();
   const { canEdit } = useProjectPermissions(projectId);
   const utils = trpcReact.useUtils();
@@ -127,7 +130,9 @@ export default function ProjectOverviewPage() {
   return (
     <div>
       <h1 style={{ marginBottom: 2 }}>{project.name}</h1>
-      {canEdit && <a className="btn-secondary" href={`/projects/${projectId}/populate`}>Update project understanding / Add sources</a>}
+      {canEdit && <button className="btn-secondary" onClick={() => setPopulationOpen(true)}>Update project understanding / Add sources</button>}
+      {canEdit && populationOpen && <ProjectPopulationModal projectId={projectId} onClose={() => setPopulationOpen(false)} />}
+      <ProjectRepositories projectId={projectId} canEdit={canEdit} />
       <p
         className="text-muted"
         style={{ marginBottom: project.repoUrl ? 24 : 8 }}

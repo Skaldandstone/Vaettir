@@ -52,6 +52,7 @@ export function PopulationWizard({
   onSave,
   onExit,
   documentsHref,
+  onDocuments,
 }: {
   initial: PopulationDraft;
   locked: boolean;
@@ -59,6 +60,7 @@ export function PopulationWizard({
   onSave: (document: PopulationDraft) => void;
   onExit: () => void;
   documentsHref?: string;
+  onDocuments?: () => void;
 }) {
   const [draft, setDraft] = useState(initial);
   const step = steps.indexOf(draft.step);
@@ -218,7 +220,7 @@ export function PopulationWizard({
               <p>
                 Open a source to see its available actions. Sources are never read without your approval.
               </p>
-              <SourceConnectionChips documentsHref={documentsHref} />
+              <SourceConnectionChips documentsHref={documentsHref} onDocuments={onDocuments} />
               {draft.providers.length > 0 && <p className="text-muted">Previously saved preferences: {draft.providers.map((key) => providers[key]).join(", ")}. These are not connected accounts.</p>}
               <button
                 type="button"

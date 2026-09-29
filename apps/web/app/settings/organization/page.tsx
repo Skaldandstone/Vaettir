@@ -1,4 +1,5 @@
 "use client";
+import { roleLabel } from "@/lib/membership";
 
 import { useEffect, useState } from "react";
 import { trpcReact, type RouterOutputs } from "@/lib/trpcReact";
@@ -88,7 +89,7 @@ function ApiKeysSection({ organizationId }: { organizationId: string }) {
                 <td style={cellStyle}>
                   <code>{k.keyPrefix}…</code>
                 </td>
-                <td style={cellStyle}>{k.role}</td>
+                <td style={cellStyle}>{roleLabel(k.role)}</td>
                 <td style={cellStyle}>{k.lastUsedAt ? new Date(k.lastUsedAt).toLocaleString() : "never"}</td>
                 <td style={cellStyle}>
                   {k.revokedAt ? "revoked" : <button onClick={() => revoke(k.id)}>Revoke</button>}
@@ -111,7 +112,7 @@ function ApiKeysSection({ organizationId }: { organizationId: string }) {
         <select value={role} onChange={(e) => setRole(e.target.value)}>
           {API_KEY_ROLES.map((r) => (
             <option key={r} value={r}>
-              {r}
+              {roleLabel(r)}
             </option>
           ))}
         </select>

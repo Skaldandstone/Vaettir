@@ -291,6 +291,7 @@ model Project {
   productionSignalConnections ProductionSignalConnection[]
   productionSignals           ProductionSignal[]
   populationDraft             ProjectPopulationDraft?
+  repositories                ProjectRepository[]
   populationDraftWrites       ProjectPopulationDraftWrite[]
   populationDocuments         ProjectPopulationDocument[]
   populationDocumentRuns      ProjectPopulationDocumentRun[]
@@ -302,6 +303,17 @@ model Project {
 
 // Saved wizard preferences only. Approved evidence and generated records have
 // separate lifecycles; saving or rerunning a draft must not overwrite them.
+model ProjectRepository {
+  id String @id @default(cuid())
+  projectId String
+  project Project @relation(fields: [projectId], references: [id])
+  provider String
+  url String
+  revision String?
+  createdAt DateTime @default(now())
+  @@unique([projectId, provider, url])
+}
+
 model ProjectPopulationDraft {
   projectId String @id
   project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
@@ -859,6 +871,7 @@ model TestCase {
   // somewhere to render, so it falls into a distinct "Unassigned" bucket
   // rather than being forced into a guessed suite.
   suitePath String?
+  automationDrafts AutomationDraft[]
 
   // Soft-hide, not soft-delete: an archived case stays fully intact (still
   // linked from past TestSelectionRecommendations, compliance controls,
@@ -954,6 +967,21 @@ model TestCase {
 // run's recommendations later, and so there's an audit trail of what was
 // actually recommended for a given build, matching the ReverseEngineerJob
 // pattern rather than being fire-and-forget.
+model AutomationDraft {
+  id String @id @default(cuid())
+  testCaseId String
+  testCase TestCase @relation(fields: [testCaseId], references: [id], onDelete: Cascade)
+  framework String
+  status String @default("GENERATING")
+  content Json?
+  createdById String
+  rejectedById String?
+  rejectedAt DateTime?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  @@index([testCaseId, createdAt])
+}
+
 model TestSelectionRun {
   id           String   @id @default(cuid())
   projectId    String

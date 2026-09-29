@@ -31,7 +31,7 @@ export function ConnectionLink({ href, provider, label, status }: { href: string
   return <a className="source-connection-chip" href={href}><ProviderMark id={provider} /><span><strong>{label}</strong><small>{status}</small></span><span aria-hidden="true">→</span></a>;
 }
 
-export function SourceConnectionChips({ documentsHref, only }: { documentsHref?: string; only?: string[] }) {
+export function SourceConnectionChips({ documentsHref, only, onDocuments }: { documentsHref?: string; only?: string[]; onDocuments?: () => void }) {
   const [active, setActive] = useState<string | null>(null);
   const name = sources.find(([id]) => id === active)?.[1];
   return <div className="source-connections">
@@ -47,7 +47,7 @@ export function SourceConnectionChips({ documentsHref, only }: { documentsHref?:
     <div id="source-connection-detail" hidden={!active} className="source-connection-detail">
       <h4>{name}</h4>
       {active === "document" ? <><p>Upload Markdown or text, review the contents, then approve what to add. Nothing is imported automatically.</p>
-        {documentsHref ? <a className="btn-primary" href={documentsHref}>Review document evidence</a> : <p>Open document evidence from the project to add a file.</p>}</>
+        {onDocuments ? <button type="button" className="btn-primary" onClick={onDocuments}>Add document evidence</button> : documentsHref ? <a className="btn-primary" href={documentsHref}>Review document evidence</a> : <p>Open document evidence from the project to add a file.</p>}</>
         : <p>{name} discovery is not available in this wizard yet. No account is connected and no source data will be read. You can add exported Markdown or text through Documents.</p>}
       <button type="button" className="btn-secondary" onClick={() => setActive(null)}>Close details</button>
     </div>

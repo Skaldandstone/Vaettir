@@ -1,4 +1,9 @@
-import { beforeAll, describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it, vi } from "vitest";
+import { generateAutomationDraft } from "@vaettir/ai-agent";
+vi.mock("@vaettir/ai-agent", async (importOriginal) => ({
+  ...await importOriginal<typeof import("@vaettir/ai-agent")>(),
+  generateAutomationDraft: vi.fn(),
+}));
 import { prisma } from "@vaettir/db";
 import { appRouter } from "./router.js";
 
@@ -84,6 +89,46 @@ describe.skipIf(!isolated)("assistive UX persistence and authorization", () => {
         ],
       })
     ).id;
+  });
+
+  it("retains paid automation output across reloads and retries until explicit rejection", async () => {
+    const content = { framework: "MAESTRO" as const, automationId: `VAE-${caseId}`, fileName: "flow.yaml", code: "# synthetic draft", explanation: "Fixture only", assumptions: [], requiredDependencies: [], validationCommands: [] };
+    const record = await prisma.automationDraft.create({ data: { testCaseId: caseId, framework: "MAESTRO", createdById: "fixture", status: "READY", content } });
+    expect((await owner.testCases.automationDraft({ id: caseId }))?.content).toEqual(content);
+    expect((await viewer.testCases.automationDraft({ id: caseId }))?.content).toEqual(content);
+    // No balance or AI configuration exists: this must return the retained draft before charging.
+    expect(await owner.testCases.generateAutomationDraft({ id: caseId, framework: "MAESTRO" })).toEqual(content);
+    await expect(viewer.testCases.rejectAutomationDraft({ id: caseId, draftId: record.id })).rejects.toThrow();
+    await expect(owner.testCases.rejectAutomationDraft({ id: secondCaseId, draftId: record.id })).rejects.toThrow();
+    await expect(prisma.automationDraft.create({ data: { testCaseId: caseId, framework: "MAESTRO", createdById: "fixture" } })).rejects.toThrow();
+    expect((await owner.testCases.automationDraft({ id: caseId }))?.id).toBe(record.id);
+    await owner.testCases.rejectAutomationDraft({ id: caseId, draftId: record.id });
+    expect(await owner.testCases.automationDraft({ id: caseId })).toBeNull();
+    const history = await prisma.automationDraft.findUniqueOrThrow({ where: { id: record.id } });
+    expect(history.status).toBe("REJECTED");
+    expect(history.content).toEqual(content);
+    expect(history.rejectedAt).not.toBeNull();
+    const pending = await prisma.automationDraft.create({ data: { testCaseId: caseId, framework: "MAESTRO", createdById: "fixture" } });
+    await expect(owner.testCases.generateAutomationDraft({ id: caseId, framework: "MAESTRO" })).rejects.toThrow("already generating");
+    await expect(owner.testCases.rejectAutomationDraft({ id: caseId, draftId: pending.id })).rejects.toThrow();
+    await prisma.automationDraft.update({ where: { id: pending.id }, data: { status: "FAILED" } });
+  });
+
+  it("persists generated output before returning and charges once across concurrent requests", async () => {
+    const project = await prisma.project.findUniqueOrThrow({ where: { id: projectId } });
+    await prisma.aiCreditTransaction.create({ data: { organizationId: project.organizationId, type: "GRANT", amount: 100 } });
+    const content = { framework: "MAESTRO" as const, automationId: `VAE-${secondCaseId}`, fileName: "flow.yaml", code: "# generated fixture", explanation: "Not executed", assumptions: [], requiredDependencies: [], validationCommands: [] };
+    vi.mocked(generateAutomationDraft).mockResolvedValue(content);
+    const before = await prisma.aiCreditTransaction.count({ where: { organizationId: project.organizationId, type: "CONSUMPTION" } });
+    const results = await Promise.allSettled([
+      owner.testCases.generateAutomationDraft({ id: secondCaseId, framework: "MAESTRO" }),
+      owner.testCases.generateAutomationDraft({ id: secondCaseId, framework: "MAESTRO" }),
+    ]);
+    expect(results.some(result => result.status === "fulfilled")).toBe(true);
+    expect(vi.mocked(generateAutomationDraft)).toHaveBeenCalledTimes(1);
+    expect((await viewer.testCases.automationDraft({ id: secondCaseId }))?.content).toEqual(content);
+    expect(await owner.testCases.generateAutomationDraft({ id: secondCaseId, framework: "MAESTRO" })).toEqual(content);
+    expect(await prisma.aiCreditTransaction.count({ where: { organizationId: project.organizationId, type: "CONSUMPTION" } })).toBe(before + 1);
   });
 
   it("roundtrips project and physical test profiles including a version snapshot", async () => {

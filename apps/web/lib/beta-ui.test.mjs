@@ -6,6 +6,7 @@ import {
   canAdministerOrganization,
   canSignOffCompliance,
   isReadOnlySeat,
+  roleLabel,
 } from "./membership.ts";
 import { assertTestEnvironment } from "../e2e/test-environment.ts";
 import { saveRequirementDrafts } from "./requirement-drafts.ts";
@@ -30,6 +31,11 @@ function documentFile(name, contents) {
   const bytes = new TextEncoder().encode(contents);
   return { name, size: bytes.byteLength, arrayBuffer: async () => bytes.buffer };
 }
+test("role labels are human readable without changing stored enum values", () => {
+  assert.equal(roleLabel("COMPLIANCE_AUDITOR"), "Compliance auditor");
+  assert.equal(roleLabel("ADMIN"), "Admin");
+  assert.equal(roleLabel("FUTURE_ROLE"), "future role");
+});
 test("document file accepts UTF-8 Markdown/text/README without executing markup", async () => {
   const content = '# Intent\r\nThe device shall report temperature. ✓\n<script>doNotRun()</script>';
   for (const name of ["spec.md", "SPEC.MARKDOWN", "spec.txt", "README"])

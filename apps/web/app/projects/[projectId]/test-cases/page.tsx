@@ -47,6 +47,7 @@ type CaseSort =
   | "risk"
   | "priority"
   | "origin"
+  | "review"
   | "suite";
 const PRIORITY_RANK: Record<string, number> = {
   CRITICAL: 4,
@@ -171,6 +172,7 @@ export default function TestCasesPage() {
   const plans = plansQuery.data ?? [];
 
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
+  useEffect(() => { setSelectedPath(new URLSearchParams(window.location.search).get("suite")); }, []);
   const [openCaseId, setOpenCaseId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -181,6 +183,11 @@ export default function TestCasesPage() {
   const [reviewFilter, setReviewFilter] = useState("");
   const [originFilter, setOriginFilter] = useState("");
   const [sortBy, setSortBy] = useState<CaseSort>("updated");
+  const [sortDescending, setSortDescending] = useState(true);
+  function sortColumn(column: CaseSort) {
+    setSortDescending(sortBy === column ? !sortDescending : column === "risk" || column === "priority" || column === "updated");
+    setSortBy(column);
+  }
   const [showArchived, setShowArchived] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [bulkBusy, setBulkBusy] = useState(false);
@@ -229,13 +236,15 @@ export default function TestCasesPage() {
         (!reviewFilter || tc.reviewStatus === reviewFilter) &&
         (!originFilter || tc.origin === originFilter),
     );
-    if (sortBy === "updated") return filtered;
+    if (sortBy === "updated") return sortDescending ? filtered : [...filtered].reverse();
     return [...filtered].sort((a, b) => {
-      if (sortBy === "risk") return (b.riskScore ?? -1) - (a.riskScore ?? -1);
+      const direction = sortDescending ? -1 : 1;
+      if (sortBy === "risk") return ((a.riskScore ?? -1) - (b.riskScore ?? -1)) * direction;
       if (sortBy === "priority")
         return (
-          (PRIORITY_RANK[b.priority] ?? 0) - (PRIORITY_RANK[a.priority] ?? 0)
-        );
+          (PRIORITY_RANK[a.priority] ?? 0) - (PRIORITY_RANK[b.priority] ?? 0)
+        ) * direction;
+      if (sortBy === "review") return a.reviewStatus.localeCompare(b.reviewStatus) * direction;
       const left =
         sortBy === "title"
           ? a.title
@@ -256,7 +265,7 @@ export default function TestCasesPage() {
               : sortBy === "origin"
                 ? b.origin
                 : (b.suitePath ?? "");
-      return left.localeCompare(right);
+      return left.localeCompare(right, undefined, {sensitivity:"base",numeric:true}) * direction;
     });
   }, [
     pathFiltered,
@@ -268,6 +277,7 @@ export default function TestCasesPage() {
     originFilter,
     showArchived,
     sortBy,
+    sortDescending,
   ]);
 
   const knownPaths = collectKnownSuitePaths(cases);
@@ -637,7 +647,7 @@ export default function TestCasesPage() {
               <select
                 aria-label="Sort test cases"
                 value={sortBy}
-                onChange={(e) => setSortBy(e.target.value as CaseSort)}
+                onChange={(e) => {const value=e.target.value as CaseSort;setSortBy(value);setSortDescending(["updated","risk","priority"].includes(value));}}
               >
                 <option value="updated">Newest activity</option>
                 <option value="title">Title A-Z</option>
@@ -647,6 +657,7 @@ export default function TestCasesPage() {
                 <option value="priority">Priority high-low</option>
                 <option value="origin">Origin</option>
                 <option value="suite">Suite</option>
+                <option value="review">Review</option>
               </select>
               <label
                 style={{
@@ -804,14 +815,7 @@ export default function TestCasesPage() {
                   <thead>
                     <tr>
                       <th aria-label="Select" />
-                      <th>Test case</th>
-                      <th>Type</th>
-                      <th>Automation</th>
-                      <th>Risk</th>
-                      <th>Priority</th>
-                      <th>Origin</th>
-                      <th>Suite</th>
-                      <th>Review</th>
+                      {([["title","Test case"],["type","Type"],["automation","Automation"],["risk","Risk"],["priority","Priority"],["origin","Origin"],["review","Review"]] as const).map(([key,label]) => <th key={key} scope="col" aria-sort={sortBy === key ? sortDescending ? "descending" : "ascending" : "none"}><button className="member-sort" onClick={() => sortColumn(key)}>{label} {sortBy === key ? sortDescending ? "↓" : "↑" : "↕"}</button></th>)}
                     </tr>
                   </thead>
                   <tbody>
@@ -886,7 +890,6 @@ export default function TestCasesPage() {
                           </td>
                           <td>{tc.priority}</td>
                           <td>{tc.origin.replaceAll("_", " ")}</td>
-                          <td>{tc.suitePath ?? "Unassigned"}</td>
                           <td>
                             {tc.reviewStatus.replaceAll("_", " ")}
                             {tc.isFlaky && " · Flaky"}
@@ -911,6 +914,7 @@ export default function TestCasesPage() {
             id={openCaseId}
             projectId={projectId}
             onChanged={reload}
+            onSuiteSelect={(path) => { setSelectedPath(path); setOpenCaseId(null); }}
             readOnly={readOnly}
           />
         )}

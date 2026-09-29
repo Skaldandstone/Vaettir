@@ -496,6 +496,32 @@ export const testCasesRouter = router({
       };
     }),
 
+  automationDraft: protectedProcedure
+    .input(z.object({ id: z.string() }))
+    .query(async ({ ctx, input }) => {
+      const tc = await ctx.prisma.testCase.findUniqueOrThrow({ where: { id: input.id } });
+      await requireProjectAccess(ctx, tc.projectId);
+      const saved = await ctx.prisma.automationDraft.findFirst({
+        where: { testCaseId: tc.id, status: { in: ["GENERATING", "READY"] } },
+      });
+      return saved ? { id: saved.id, status: saved.status, createdAt: saved.createdAt,
+        content: saved.content ? AutomationDraftSchema.parse(saved.content) : null } : null;
+    }),
+
+  rejectAutomationDraft: protectedProcedure
+    .input(z.object({ id: z.string(), draftId: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      const tc = await ctx.prisma.testCase.findUniqueOrThrow({ where: { id: input.id } });
+      const { membership } = await requireProjectAccess(ctx, tc.projectId, "EDITOR");
+      if (membership.seatType !== "FULL") throw new TRPCError({ code: "FORBIDDEN", message: "A full editor seat is required." });
+      const result = await ctx.prisma.automationDraft.updateMany({
+        where: { id: input.draftId, testCaseId: tc.id, status: "READY" },
+        data: { status: "REJECTED", rejectedById: ctx.user.id, rejectedAt: new Date() },
+      });
+      if (!result.count) throw new TRPCError({ code: "CONFLICT", message: "Draft changed or is still generating. Refresh before rejecting." });
+      return { rejected: true };
+    }),
+
   generateAutomationDraft: protectedProcedure
     .input(
       z.object({
@@ -515,7 +541,23 @@ export const testCasesRouter = router({
           project: { select: { id: true, name: true, organizationId: true } },
         },
       });
-      await requireProjectAccess(ctx, tc.projectId, "EDITOR");
+      const { membership } = await requireProjectAccess(ctx, tc.projectId, "EDITOR");
+      if (membership.seatType !== "FULL") throw new TRPCError({ code: "FORBIDDEN", message: "A full editor seat is required." });
+      const existing = await ctx.prisma.automationDraft.findFirst({
+        where: { testCaseId: tc.id, status: { in: ["GENERATING", "READY"] } },
+      });
+      if (existing?.content) return AutomationDraftSchema.parse(existing.content);
+      if (existing) throw new TRPCError({ code: "CONFLICT", message: "A draft is already generating. Reopen this case to check it; no new credits were charged." });
+      const saved = await ctx.prisma.automationDraft.create({
+        data: { testCaseId: tc.id, framework: input.framework, createdById: ctx.user.id },
+      }).catch((error: unknown) => {
+        if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
+          throw new TRPCError({ code: "CONFLICT", message: "Another request already started this draft. No new credits were charged." });
+        }
+        throw error;
+      });
+      let generated = false;
+      try {
       const charge = await chargeAiCredits(
         ctx.prisma,
         tc.project.organizationId,
@@ -535,7 +577,7 @@ export const testCasesRouter = router({
             expectedResponse?: string | null;
           }>)
         : tc.steps;
-      return meterAiCall(ctx.prisma, charge, () =>
+      const draft = await meterAiCall(ctx.prisma, charge, () =>
         generateAutomationDraft({
           framework: input.framework,
           automationId: `VAE-${tc.id}`,
@@ -550,6 +592,20 @@ export const testCasesRouter = router({
           projectContext: input.projectContext,
         }),
       );
+      generated = true;
+      await ctx.prisma.automationDraft.update({
+        where: { id: saved.id }, data: { status: "READY", content: draft },
+      });
+      return draft;
+      } catch (error) {
+        // Never remove an already persisted paid result.
+        // If storage failed after generation, keep the reservation to prevent
+        // a retry from charging again. An operator must reconcile that failure.
+        if (!generated) await ctx.prisma.automationDraft.updateMany({
+          where: { id: saved.id, status: "GENERATING" }, data: { status: "FAILED" },
+        });
+        throw error;
+      }
     }),
 
   // Assesses every not-yet-assessed case in a project, sequentially (not

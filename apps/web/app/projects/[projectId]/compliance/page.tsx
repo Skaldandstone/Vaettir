@@ -1,4 +1,5 @@
 "use client";
+import { roleLabel } from "@/lib/membership";
 
 import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
@@ -873,7 +874,7 @@ function ControlEvidenceDrawer({
               <option value="">Request from…</option>
               {members.map((m) => (
                 <option key={m.userId} value={m.userId}>
-                  {m.userName ?? m.userEmail} ({m.role})
+                  {m.userName ?? m.userEmail} ({roleLabel(m.role)})
                 </option>
               ))}
             </select>

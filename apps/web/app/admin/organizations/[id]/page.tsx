@@ -1,4 +1,5 @@
 "use client";
+import { roleLabel } from "@/lib/membership";
 
 import { useState } from "react";
 import { useParams } from "next/navigation";
@@ -288,7 +289,7 @@ export default function AdminOrganizationDetailPage() {
               <tr key={m.membershipId} style={{ borderTop: "1px solid var(--border, #333)" }}>
                 <td>{m.email}</td>
                 <td>{m.name ?? "—"}</td>
-                <td>{m.role}</td>
+                <td>{roleLabel(m.role)}</td>
                 <td>{m.seatType}</td>
                 <td>
                   <button onClick={() => deactivateMember(m.membershipId)} disabled={busy}>
@@ -310,7 +311,7 @@ export default function AdminOrganizationDetailPage() {
               <tr key={inv.id} style={{ borderTop: "1px solid var(--border, #333)" }}>
                 <td>{inv.email}</td>
                 <td>
-                  {inv.role} / {inv.seatType}
+                  {roleLabel(inv.role)} / {inv.seatType}
                 </td>
                 <td>expires {new Date(inv.expiresAt).toLocaleDateString()}</td>
                 <td>
@@ -352,7 +353,7 @@ export default function AdminOrganizationDetailPage() {
               .filter((m) => m.membershipId !== previousOwnerMembershipId)
               .map((m) => (
                 <option key={m.membershipId} value={m.membershipId}>
-                  {m.email} ({m.role})
+                  {m.email} ({roleLabel(m.role)})
                 </option>
               ))}
           </select>

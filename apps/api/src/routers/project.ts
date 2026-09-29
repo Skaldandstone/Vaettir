@@ -1,7 +1,8 @@
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 import { Prisma } from "@vaettir/db";
-import { router, protectedProcedure, requireOrgRole } from "../trpc.js";
+import { router, protectedProcedure, requireOrgRole, requireProjectAccess } from "../trpc.js";
+import { RepositoryProvider, validateRepositoryLocation } from "../services/projectRepository.js";
 
 function slugify(name: string): string {
   return (
@@ -26,6 +27,18 @@ const qualityProfileSchema = z.object({
 });
 
 export const projectRouter = router({
+  repositories: protectedProcedure.input(z.object({projectId:z.string()})).query(async ({ctx,input}) => {
+    await requireProjectAccess(ctx,input.projectId);
+    return ctx.prisma.projectRepository.findMany({where:{projectId:input.projectId},orderBy:{createdAt:"asc"}});
+  }),
+  addRepository: protectedProcedure.input(z.object({projectId:z.string(),provider:RepositoryProvider,url:z.string().max(1000),revision:z.string().trim().max(200).optional()})).mutation(async ({ctx,input}) => {
+    const {membership} = await requireProjectAccess(ctx,input.projectId,"EDITOR");
+    if(membership.seatType !== "FULL") throw new TRPCError({code:"FORBIDDEN",message:"A full editor seat is required."});
+    let url:string;
+    try {url=validateRepositoryLocation(input.provider,input.url);} catch(error) {throw new TRPCError({code:"BAD_REQUEST",message:error instanceof Error ? error.message : "Invalid repository URL"});}
+    // Register metadata only: never fetch source, validate credentials, or replace the legacy primary repository.
+    return ctx.prisma.projectRepository.upsert({where:{projectId_provider_url:{projectId:input.projectId,provider:input.provider,url}},create:{projectId:input.projectId,provider:input.provider,url,revision:input.revision || null},update:{}});
+  }),
   list: protectedProcedure
     .input(z.object({ organizationId: z.string() }))
     .output(

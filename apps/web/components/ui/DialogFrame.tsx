@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, type ReactNode } from "react";
+import { useEffect, useRef, type ReactNode, type CSSProperties } from "react";
 import { createPortal } from "react-dom";
 
 /** Native modality keeps background controls inert and contains keyboard focus. */
@@ -12,6 +12,7 @@ export function DialogFrame({
   label,
   labelledBy,
   dismissible = true,
+  style,
 }: {
   open: boolean;
   onClose: () => void;
@@ -20,6 +21,7 @@ export function DialogFrame({
   label?: string;
   labelledBy?: string;
   dismissible?: boolean;
+  style?: CSSProperties;
 }) {
   const ref = useRef<HTMLDialogElement>(null);
   useEffect(() => {
@@ -41,6 +43,7 @@ export function DialogFrame({
   return createPortal(
     <dialog
       ref={ref}
+      style={style}
       className={`native-dialog ${className}`}
       aria-label={label}
       aria-labelledby={labelledBy}

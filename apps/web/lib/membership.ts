@@ -13,6 +13,11 @@ export function isReadOnlySeat(seatType: string | undefined): boolean {
 
 type Membership = { role: string; seatType: string } | null | undefined;
 
+export function roleLabel(role: string): string {
+  const labels: Record<string, string> = { OWNER: "Owner", ADMIN: "Admin", EDITOR: "Editor", VIEWER: "Viewer", COMPLIANCE_AUDITOR: "Compliance auditor" };
+  return labels[role] ?? role.replaceAll("_", " ").toLowerCase();
+}
+
 export function canEditProject(member: Membership): boolean {
   return member?.seatType === "FULL" && ["OWNER", "ADMIN", "EDITOR"].includes(member.role);
 }

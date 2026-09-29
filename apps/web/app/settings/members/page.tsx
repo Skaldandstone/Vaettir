@@ -1,4 +1,5 @@
 "use client";
+import { roleLabel } from "@/lib/membership";
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
@@ -46,6 +47,40 @@ export default function MembersPage() {
   const [inviteError, setInviteError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [inviteOpen, setInviteOpen] = useState(false);
+  const [search, setSearch] = useState("");
+  const [selectedMembers, setSelectedMembers] = useState<string[]>([]);
+  const [bulkOpen, setBulkOpen] = useState(false);
+  const [bulkRole, setBulkRole] = useState("EDITOR");
+  const [bulkSeat, setBulkSeat] = useState<"FULL" | "READ_ONLY">("FULL");
+  const [bulkBusy, setBulkBusy] = useState(false);
+  const [bulkResult, setBulkResult] = useState("");
+  async function applyBulkMembers() {
+    if (!canManage || bulkBusy) return;
+    setBulkBusy(true);
+    let completed = 0;
+    const failures: string[] = [];
+    for (const id of selectedMembers) {
+      try {
+        await updateMemberMutation.mutateAsync({ membershipId: id, role: bulkRole as never, seatType: bulkSeat });
+        completed++;
+        setSelectedMembers(previous => previous.filter(value => value !== id));
+      } catch (error) {
+        failures.push(`${members.find(m => m.id === id)?.userEmail ?? id}: ${error instanceof Error ? error.message : "Update failed"}`);
+      }
+    }
+    setBulkResult(`${completed} updated.${failures.length ? ` Failed rows remain selected. ${failures.join("; ")}` : " All requested changes saved."}`);
+    setBulkBusy(false);
+  }
+  const [sort, setSort] = useState<{ key: "email" | "role" | "seat"; desc: boolean }>({ key: "email", desc: false });
+  const [inviteSort, setInviteSort] = useState<{ key: "email" | "role" | "seat"; desc: boolean }>({ key: "email", desc: false });
+  function compare(a: string, b: string, desc: boolean) { return a.localeCompare(b, undefined, { sensitivity: "base" }) * (desc ? -1 : 1); }
+  const visibleMembers = members.filter(m => `${m.userName ?? ""} ${m.userEmail} ${roleLabel(m.role)}`.toLowerCase().includes(search.toLowerCase())).sort((a,b) => compare(sort.key === "email" ? a.userEmail : sort.key === "role" ? roleLabel(a.role) : a.seatType, sort.key === "email" ? b.userEmail : sort.key === "role" ? roleLabel(b.role) : b.seatType, sort.desc));
+  const visibleInvitations = invitations.filter(inv => `${inv.email} ${roleLabel(inv.role)}`.toLowerCase().includes(search.toLowerCase())).sort((a,b) => compare(inviteSort.key === "email" ? a.email : inviteSort.key === "role" ? roleLabel(a.role) : a.seatType, inviteSort.key === "email" ? b.email : inviteSort.key === "role" ? roleLabel(b.role) : b.seatType, inviteSort.desc));
+  function headers(pending: boolean) {
+    const current = pending ? inviteSort : sort;
+    const update = pending ? setInviteSort : setSort;
+    return <tr>{([ ["email", "User / email"], ["role", "Permission role"], ["seat", "Seat"] ] as const).map(([key,label]) => <th key={key} scope="col" style={cellStyle} aria-sort={current.key === key ? current.desc ? "descending" : "ascending" : "none"}><button className="member-sort" onClick={() => update({key,desc:current.key === key && !current.desc})}>{label} {current.key === key ? current.desc ? "↓" : "↑" : "↕"}</button></th>)}<th scope="col" style={cellStyle}>Actions</th></tr>;
+  }
 
   useEffect(() => {
     if (orgsQuery.data && orgsQuery.data.length === 0) router.push("/onboarding");
@@ -99,7 +134,7 @@ export default function MembersPage() {
   if (!orgId) return <p>You don't belong to an organization yet.</p>;
 
   return (
-    <div style={{ maxWidth: 640 }}>
+    <div style={{ maxWidth: 1000 }}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
         <h1>{orgName} members</h1>
         {canManage && (
@@ -163,40 +198,39 @@ export default function MembersPage() {
       )}
 
       <h2>Current members</h2>
+      {canManage && <div style={{display:"flex",gap:12,alignItems:"center",marginBottom:12}}><label><input type="checkbox" disabled={bulkBusy} checked={visibleMembers.length > 0 && visibleMembers.every(m => selectedMembers.includes(m.id))} onChange={e => setSelectedMembers(e.target.checked ? [...new Set([...selectedMembers,...visibleMembers.map(m => m.id)])] : selectedMembers.filter(id => !visibleMembers.some(m => m.id === id)))} /> Select displayed members</label><button className="btn-secondary" disabled={!selectedMembers.length || bulkBusy} onClick={() => {setBulkResult("");setBulkOpen(true);}}>Edit {selectedMembers.length} selected</button></div>}
+      <label>Find a member or invitation<input type="search" value={search} onChange={e => setSearch(e.target.value)} placeholder="Name, email or role" style={{display:"block",margin:"8px 0 16px",width:"min(100%, 420px)"}} /></label>
       {actionError && <p style={{ color: "var(--ember)" }}>{actionError}</p>}
-      <table style={{ borderCollapse: "collapse", width: "100%", marginBottom: 24 }}>
+      <div className="member-table-scroll"><table aria-label="Current members" style={{ borderCollapse: "collapse", width: "100%", marginBottom: 24 }}>
         <thead>
-          <tr>
-            <th style={cellStyle}>Email</th>
-            <th style={cellStyle}>Role</th>
-            <th style={cellStyle}>Seat</th>
-            <th style={cellStyle}></th>
-          </tr>
+          {headers(false)}
         </thead>
         <tbody>
-          {members.map((m) => (
+          {visibleMembers.length === 0 && <tr><td colSpan={4} style={cellStyle}>No matching members.</td></tr>}
+          {visibleMembers.map((m) => (
             <tr key={m.id}>
-              <td style={cellStyle}>{m.userName ? `${m.userName} (${m.userEmail})` : m.userEmail}</td>
+              <td style={cellStyle}>{canManage && <input type="checkbox" aria-label={`Select ${m.userEmail}`} disabled={bulkBusy} checked={selectedMembers.includes(m.id)} onChange={e => setSelectedMembers(previous => e.target.checked ? [...previous,m.id] : previous.filter(id => id !== m.id))} />} {m.userName ? `${m.userName} (${m.userEmail})` : m.userEmail}</td>
               <td style={cellStyle}>
                 {canManage ? (
                 <select
                   value={m.role}
+                  disabled={bulkBusy || updateMemberMutation.isPending}
                   onChange={(e) => updateMember(m.id, e.target.value, m.seatType as "FULL" | "READ_ONLY")}
                 >
                   {EDIT_ROLES.map((r) => (
                     <option key={r} value={r}>
-                      {r}
+                      {roleLabel(r)}
                     </option>
                   ))}
                 </select>
-                ) : m.role}
+                ) : roleLabel(m.role)}
               </td>
               <td style={cellStyle}>
                 {canManage ? (
                 <select
                   value={m.seatType}
                   onChange={(e) => updateMember(m.id, m.role, e.target.value as "FULL" | "READ_ONLY")}
-                  disabled={m.role !== "VIEWER"}
+                  disabled={m.role !== "VIEWER" || bulkBusy || updateMemberMutation.isPending}
                 >
                   <option value="FULL">Full</option>
                   <option value="READ_ONLY">Read-only</option>
@@ -216,7 +250,12 @@ export default function MembersPage() {
             </tr>
           ))}
         </tbody>
-      </table>
+      </table></div>
+      <Modal open={bulkOpen && canManage} title="Review member permission changes" onClose={() => setBulkOpen(false)} dismissible={!bulkBusy}>
+        <p>Apply the following role and seat to {selectedMembers.length} selected members. Owner protection, seat limits and administrator permissions are checked for every member.</p>
+        <fieldset disabled={bulkBusy}><label>Role<select value={bulkRole} onChange={e => {setBulkRole(e.target.value); if(e.target.value !== "VIEWER") setBulkSeat("FULL");}}>{EDIT_ROLES.map(r => <option key={r} value={r}>{roleLabel(r)}</option>)}</select></label><label>Seat<select value={bulkSeat} disabled={bulkRole !== "VIEWER"} onChange={e => setBulkSeat(e.target.value as "FULL" | "READ_ONLY")}><option value="FULL">Full</option><option value="READ_ONLY">Read-only</option></select></label><details><summary>Selected members</summary><ul>{members.filter(m => selectedMembers.includes(m.id)).map(m => <li key={m.id}>{m.userEmail}: {roleLabel(m.role)} → {roleLabel(bulkRole)}</li>)}</ul></details><button className="btn-primary" disabled={!selectedMembers.length} onClick={() => void applyBulkMembers()}>Confirm permission changes</button></fieldset>
+        {bulkBusy && <p role="status">Applying changes…</p>}{bulkResult && <p role="status">{bulkResult}</p>}
+      </Modal>
 
       <Modal open={canManage && inviteOpen} onClose={() => setInviteOpen(false)} title="Invite someone">
         <div style={{ display: "grid", gap: 10 }}>
@@ -236,7 +275,7 @@ export default function MembersPage() {
               >
                 {ROLES.map((r) => (
                   <option key={r} value={r}>
-                    {r}
+                    {roleLabel(r)}
                   </option>
                 ))}
               </select>
@@ -268,19 +307,15 @@ export default function MembersPage() {
         </div>
       </Modal>
 
-      {canManage && invitations.length > 0 && (
+      {canManage && (
         <>
           <h2>Pending invitations</h2>
-          <ul>
-            {invitations.map((inv) => (
-              <li key={inv.id}>
-                {inv.email} — {inv.role} ({inv.seatType})
-                <button onClick={() => canManage && revokeMutation.mutate({ invitationId: inv.id })} style={{ marginLeft: 8 }}>
-                  Revoke
-                </button>
-              </li>
-            ))}
-          </ul>
+          {invitationsQuery.error && <p role="alert">Could not load invitations: {invitationsQuery.error.message}</p>}
+          {revokeMutation.error && <p role="alert">{revokeMutation.error.message}</p>}
+          <div className="member-table-scroll"><table aria-label="Pending invitations" style={{borderCollapse:"collapse",width:"100%"}}><thead>{headers(true)}</thead><tbody>
+            {invitationsQuery.isLoading ? <tr><td colSpan={4} style={cellStyle}>Loading invitations…</td></tr> : !invitationsQuery.error && visibleInvitations.length === 0 ? <tr><td colSpan={4} style={cellStyle}>{search ? "No matching invitations." : "No pending invitations."}</td></tr> : null}
+            {visibleInvitations.map(inv => <tr key={inv.id}><td style={cellStyle}>{inv.email}<small style={{display:"block",color:"var(--muted)"}}>Awaiting acceptance</small></td><td style={cellStyle}>{roleLabel(inv.role)}</td><td style={cellStyle}>{inv.seatType === "READ_ONLY" ? "Read-only" : "Full"}</td><td style={cellStyle}><button className="btn-secondary" disabled={revokeMutation.isPending} aria-label={`Revoke invitation for ${inv.email}`} onClick={() => revokeMutation.mutate({invitationId:inv.id})}>Revoke</button></td></tr>)}
+          </tbody></table></div>
         </>
       )}
     </div>
