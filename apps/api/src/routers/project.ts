@@ -12,6 +12,19 @@ function slugify(name: string): string {
   );
 }
 
+const qualityProfileSchema = z.object({
+  objective: z.string().max(1000).default(""),
+  systemScope: z
+    .enum(["SOFTWARE", "HARDWARE", "BOTH", "PROCESS"])
+    .default("SOFTWARE"),
+  softwareTypes: z.array(z.string()).max(20).default([]),
+  hardwareTypes: z.array(z.string()).max(20).default([]),
+  testEnvironments: z.array(z.string()).max(20).default([]),
+  qualityObjectives: z.array(z.string()).max(20).default([]),
+  complianceNeeds: z.array(z.string()).max(30).default([]),
+  executionSources: z.array(z.string()).max(20).default([]),
+});
+
 export const projectRouter = router({
   list: protectedProcedure
     .input(z.object({ organizationId: z.string() }))
@@ -41,6 +54,7 @@ export const projectRouter = router({
         name: z.string().min(1),
         repoUrl: z.string().optional(),
         defaultBranch: z.string().default("main"),
+        qualityProfile: qualityProfileSchema.default({}),
       }),
     )
     .output(z.object({ id: z.string(), name: z.string(), slug: z.string() }))
@@ -52,7 +66,9 @@ export const projectRouter = router({
       let suffix = 1;
       while (
         await ctx.prisma.project.findUnique({
-          where: { organizationId_slug: { organizationId: input.organizationId, slug } },
+          where: {
+            organizationId_slug: { organizationId: input.organizationId, slug },
+          },
         })
       ) {
         slug = `${baseSlug}-${++suffix}`;
@@ -65,6 +81,7 @@ export const projectRouter = router({
           slug,
           repoUrl: input.repoUrl,
           defaultBranch: input.defaultBranch,
+          qualityProfile: input.qualityProfile,
         },
         select: { id: true, name: true, slug: true },
       });
@@ -82,12 +99,18 @@ export const projectRouter = router({
         defaultBranch: z.string(),
         pagerdutyServiceId: z.string().nullable(),
         datadogProjectTag: z.string().nullable(),
+        qualityProfile: qualityProfileSchema,
       }),
     )
     .query(async ({ ctx, input }) => {
-      const project = await ctx.prisma.project.findUniqueOrThrow({ where: { id: input.id } });
+      const project = await ctx.prisma.project.findUniqueOrThrow({
+        where: { id: input.id },
+      });
       requireOrgRole(ctx, project.organizationId);
-      return project;
+      return {
+        ...project,
+        qualityProfile: qualityProfileSchema.parse(project.qualityProfile),
+      };
     }),
 
   update: protectedProcedure
@@ -105,6 +128,7 @@ export const projectRouter = router({
         // Same undefined/""-clears-to-null convention; unique per-org only
         // (see the schema comment on Project.datadogProjectTag).
         datadogProjectTag: z.string().optional(),
+        qualityProfile: qualityProfileSchema.optional(),
       }),
     )
     .output(z.object({ id: z.string(), name: z.string(), slug: z.string() }))
@@ -121,16 +145,27 @@ export const projectRouter = router({
             name: input.name,
             repoUrl: input.repoUrl,
             defaultBranch: input.defaultBranch,
-            pagerdutyServiceId: input.pagerdutyServiceId === undefined ? undefined : input.pagerdutyServiceId.trim() || null,
-            datadogProjectTag: input.datadogProjectTag === undefined ? undefined : input.datadogProjectTag.trim() || null,
+            pagerdutyServiceId:
+              input.pagerdutyServiceId === undefined
+                ? undefined
+                : input.pagerdutyServiceId.trim() || null,
+            datadogProjectTag:
+              input.datadogProjectTag === undefined
+                ? undefined
+                : input.datadogProjectTag.trim() || null,
+            qualityProfile: input.qualityProfile,
           },
           select: { id: true, name: true, slug: true },
         });
       } catch (e) {
-        if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2002") {
+        if (
+          e instanceof Prisma.PrismaClientKnownRequestError &&
+          e.code === "P2002"
+        ) {
           throw new TRPCError({
             code: "BAD_REQUEST",
-            message: "Another project is already configured with that PagerDuty service ID or Datadog project tag.",
+            message:
+              "Another project is already configured with that PagerDuty service ID or Datadog project tag.",
           });
         }
         throw e;
@@ -153,10 +188,14 @@ export const projectRouter = router({
       try {
         await ctx.prisma.project.delete({ where: { id: input.id } });
       } catch (e) {
-        if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2003") {
+        if (
+          e instanceof Prisma.PrismaClientKnownRequestError &&
+          e.code === "P2003"
+        ) {
           throw new TRPCError({
             code: "BAD_REQUEST",
-            message: "This project still has test cases, test plans, requirements, or other content. Delete those first.",
+            message:
+              "This project still has test cases, test plans, requirements, or other content. Delete those first.",
           });
         }
         throw e;

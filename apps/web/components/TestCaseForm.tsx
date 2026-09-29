@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { trpcReact } from "@/lib/trpcReact";
+import { trpcReact, type RouterOutputs } from "@/lib/trpcReact";
 import { collectKnownSuitePaths } from "@/components/TestCaseTree";
 
 const TEST_TYPES = [
@@ -44,9 +44,16 @@ interface TestCaseFormValue {
   then: string[];
   steps: StepRow[];
   sharedStepGroupId: string;
+  validationDomain: RouterOutputs["testCases"]["byId"]["validationDomain"];
+  verificationProfile: RouterOutputs["testCases"]["byId"]["verificationProfile"];
 }
 
-const EMPTY_STEP: StepRow = { action: "", expectedActionOrData: "", expectedResult: "", expectedResponse: "" };
+const EMPTY_STEP: StepRow = {
+  action: "",
+  expectedActionOrData: "",
+  expectedResult: "",
+  expectedResponse: "",
+};
 
 function defaultValue(): TestCaseFormValue {
   return {
@@ -62,6 +69,13 @@ function defaultValue(): TestCaseFormValue {
     then: [],
     steps: [],
     sharedStepGroupId: "",
+    validationDomain: "SOFTWARE",
+    verificationProfile: {
+      setup: "",
+      safety: "",
+      instruments: "",
+      acceptanceCriteria: "",
+    },
   };
 }
 
@@ -70,7 +84,12 @@ interface TestCaseFormProps {
   projectId: string;
   testCaseId?: string;
   initial?: Partial<TestCaseFormValue>;
-  stepFieldLabels?: { action: string; expectedActionOrData: string; expectedResult: string; expectedResponse: string };
+  stepFieldLabels?: {
+    action: string;
+    expectedActionOrData: string;
+    expectedResult: string;
+    expectedResponse: string;
+  };
 }
 
 function StringListEditor({
@@ -89,10 +108,15 @@ function StringListEditor({
         <div key={i} style={{ display: "flex", gap: 6, marginBottom: 4 }}>
           <input
             value={item}
-            onChange={(e) => onChange(items.map((v, j) => (j === i ? e.target.value : v)))}
+            onChange={(e) =>
+              onChange(items.map((v, j) => (j === i ? e.target.value : v)))
+            }
             style={{ flex: 1 }}
           />
-          <button type="button" onClick={() => onChange(items.filter((_, j) => j !== i))}>
+          <button
+            type="button"
+            onClick={() => onChange(items.filter((_, j) => j !== i))}
+          >
             Remove
           </button>
         </div>
@@ -104,22 +128,38 @@ function StringListEditor({
   );
 }
 
-export default function TestCaseForm({ mode, projectId, testCaseId, initial, stepFieldLabels }: TestCaseFormProps) {
+export default function TestCaseForm({
+  mode,
+  projectId,
+  testCaseId,
+  initial,
+  stepFieldLabels,
+}: TestCaseFormProps) {
   const router = useRouter();
-  const [value, setValue] = useState<TestCaseFormValue>({ ...defaultValue(), ...initial });
+  const [value, setValue] = useState<TestCaseFormValue>({
+    ...defaultValue(),
+    ...initial,
+  });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   // P1-15: both reads share the cache with the test-cases list page and the
   // shared-steps page, so opening the form right after either is free.
   const utils = trpcReact.useUtils();
   const casesQuery = trpcReact.testCases.list.useQuery({ projectId });
-  const knownSuitePaths = useMemo(() => (casesQuery.data ? collectKnownSuitePaths(casesQuery.data) : []), [casesQuery.data]);
-  const sharedGroupsQuery = trpcReact.sharedStepGroups.list.useQuery({ projectId });
+  const knownSuitePaths = useMemo(
+    () => (casesQuery.data ? collectKnownSuitePaths(casesQuery.data) : []),
+    [casesQuery.data],
+  );
+  const sharedGroupsQuery = trpcReact.sharedStepGroups.list.useQuery({
+    projectId,
+  });
   const sharedGroups = sharedGroupsQuery.data ?? [];
   const createMutation = trpcReact.testCases.create.useMutation();
   const updateMutation = trpcReact.testCases.update.useMutation();
 
-  const selectedGroup = sharedGroups.find((g) => g.id === value.sharedStepGroupId);
+  const selectedGroup = sharedGroups.find(
+    (g) => g.id === value.sharedStepGroupId,
+  );
 
   const labels = stepFieldLabels ?? {
     action: "Test Step",
@@ -129,7 +169,10 @@ export default function TestCaseForm({ mode, projectId, testCaseId, initial, ste
   };
 
   function updateStep(i: number, patch: Partial<StepRow>) {
-    setValue((v) => ({ ...v, steps: v.steps.map((s, j) => (j === i ? { ...s, ...patch } : s)) }));
+    setValue((v) => ({
+      ...v,
+      steps: v.steps.map((s, j) => (j === i ? { ...s, ...patch } : s)),
+    }));
   }
 
   async function submit() {
@@ -159,6 +202,8 @@ export default function TestCaseForm({ mode, projectId, testCaseId, initial, ste
           .map((t) => t.trim())
           .filter(Boolean),
         testType: value.testType,
+        validationDomain: value.validationDomain,
+        verificationProfile: value.verificationProfile,
         priority: value.priority as "CRITICAL" | "HIGH" | "MEDIUM" | "LOW",
         suitePath: value.suitePath || undefined,
       };
@@ -171,7 +216,8 @@ export default function TestCaseForm({ mode, projectId, testCaseId, initial, ste
       // The detail page + list read from the cache; make sure they see the
       // saved row rather than the pre-edit copy.
       void utils.testCases.list.invalidate({ projectId });
-      if (mode === "edit") void utils.testCases.byId.invalidate({ id: testCaseId! });
+      if (mode === "edit")
+        void utils.testCases.byId.invalidate({ id: testCaseId! });
       router.push(`/projects/${projectId}/test-cases/${result.id}`);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -192,18 +238,56 @@ export default function TestCaseForm({ mode, projectId, testCaseId, initial, ste
           />
         </label>
         <label>
-          Background <span style={{ color: "var(--muted-dim)" }}>(optional, shared context)</span>
+          Background{" "}
+          <span style={{ color: "var(--muted-dim)" }}>
+            (optional, shared context)
+          </span>
           <textarea
             value={value.background}
-            onChange={(e) => setValue((v) => ({ ...v, background: e.target.value }))}
+            onChange={(e) =>
+              setValue((v) => ({ ...v, background: e.target.value }))
+            }
             rows={2}
             style={{ width: "100%" }}
           />
         </label>
         <div style={{ display: "flex", gap: 16 }}>
           <label>
+            Validation domain
+            <select
+              value={value.validationDomain}
+              onChange={(e) =>
+                setValue((v) => ({
+                  ...v,
+                  validationDomain: e.target
+                    .value as TestCaseFormValue["validationDomain"],
+                }))
+              }
+            >
+              {[
+                "SOFTWARE",
+                "HARDWARE",
+                "SYSTEM_INTEGRATION",
+                "HIL",
+                "MANUFACTURING",
+                "MEDICAL_DEVICE",
+                "PHARMA_LAB",
+                "OTHER",
+              ].map((domain) => (
+                <option key={domain} value={domain}>
+                  {domain.replace(/_/g, " ")}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label>
             Type
-            <select value={value.testType} onChange={(e) => setValue((v) => ({ ...v, testType: e.target.value }))}>
+            <select
+              value={value.testType}
+              onChange={(e) =>
+                setValue((v) => ({ ...v, testType: e.target.value }))
+              }
+            >
               {TEST_TYPES.map((t) => (
                 <option key={t} value={t}>
                   {t}
@@ -213,7 +297,12 @@ export default function TestCaseForm({ mode, projectId, testCaseId, initial, ste
           </label>
           <label>
             Priority
-            <select value={value.priority} onChange={(e) => setValue((v) => ({ ...v, priority: e.target.value }))}>
+            <select
+              value={value.priority}
+              onChange={(e) =>
+                setValue((v) => ({ ...v, priority: e.target.value }))
+              }
+            >
               {PRIORITIES.map((p) => (
                 <option key={p} value={p}>
                   {p}
@@ -222,8 +311,49 @@ export default function TestCaseForm({ mode, projectId, testCaseId, initial, ste
             </select>
           </label>
         </div>
+        <details open={value.validationDomain !== "SOFTWARE"}>
+          <summary>Fixture, safety and measurement criteria</summary>
+          <p>
+            Document approved procedures and acceptance limits. Attach diagrams
+            or visual setup references to the saved case. This does not certify
+            a regulated process.
+          </p>
+          {(
+            [
+              ["setup", "System under test and fixture setup"],
+              ["safety", "Safety prerequisites and stop conditions"],
+              [
+                "instruments",
+                "Instruments, calibration and sampling requirements",
+              ],
+              [
+                "acceptanceCriteria",
+                "Measurements, units, limits and pass criteria",
+              ],
+            ] as const
+          ).map(([key, label]) => (
+            <label key={key} style={{ display: "block", marginBottom: 10 }}>
+              {label}
+              <textarea
+                style={{ width: "100%" }}
+                rows={3}
+                value={value.verificationProfile[key]}
+                onChange={(e) =>
+                  setValue((v) => ({
+                    ...v,
+                    verificationProfile: {
+                      ...v.verificationProfile,
+                      [key]: e.target.value,
+                    },
+                  }))
+                }
+              />
+            </label>
+          ))}
+        </details>
         <label>
-          Tags <span style={{ color: "var(--muted-dim)" }}>(comma-separated)</span>
+          Tags{" "}
+          <span style={{ color: "var(--muted-dim)" }}>(comma-separated)</span>
           <input
             value={value.tags}
             onChange={(e) => setValue((v) => ({ ...v, tags: e.target.value }))}
@@ -231,11 +361,17 @@ export default function TestCaseForm({ mode, projectId, testCaseId, initial, ste
           />
         </label>
         <label>
-          Suite <span style={{ color: "var(--muted-dim)" }}>(optional, e.g. "auth/password-reset" — leave blank to stay unassigned)</span>
+          Suite{" "}
+          <span style={{ color: "var(--muted-dim)" }}>
+            (optional, e.g. "auth/password-reset" — leave blank to stay
+            unassigned)
+          </span>
           <input
             list="known-suite-paths"
             value={value.suitePath}
-            onChange={(e) => setValue((v) => ({ ...v, suitePath: e.target.value }))}
+            onChange={(e) =>
+              setValue((v) => ({ ...v, suitePath: e.target.value }))
+            }
             style={{ width: "100%" }}
           />
           <datalist id="known-suite-paths">
@@ -248,19 +384,37 @@ export default function TestCaseForm({ mode, projectId, testCaseId, initial, ste
 
       <h2>Given / When / Then</h2>
       <p style={{ color: "var(--muted)", fontSize: 13 }}>
-        Fill this in, or the structured step table below, or both — at least one is required.
+        Fill this in, or the structured step table below, or both — at least one
+        is required.
       </p>
-      <StringListEditor label="Given" items={value.given} onChange={(given) => setValue((v) => ({ ...v, given }))} />
-      <StringListEditor label="When" items={value.when} onChange={(when) => setValue((v) => ({ ...v, when }))} />
-      <StringListEditor label="Then" items={value.then} onChange={(then) => setValue((v) => ({ ...v, then }))} />
+      <StringListEditor
+        label="Given"
+        items={value.given}
+        onChange={(given) => setValue((v) => ({ ...v, given }))}
+      />
+      <StringListEditor
+        label="When"
+        items={value.when}
+        onChange={(when) => setValue((v) => ({ ...v, when }))}
+      />
+      <StringListEditor
+        label="Then"
+        items={value.then}
+        onChange={(then) => setValue((v) => ({ ...v, then }))}
+      />
 
       <h2>Structured steps</h2>
       {sharedGroups.length > 0 && (
         <label style={{ display: "block", marginBottom: 10 }}>
-          Use a shared step library <span style={{ color: "var(--muted-dim)" }}>(optional - edited in one place, reused by any case)</span>
+          Use a shared step library{" "}
+          <span style={{ color: "var(--muted-dim)" }}>
+            (optional - edited in one place, reused by any case)
+          </span>
           <select
             value={value.sharedStepGroupId}
-            onChange={(e) => setValue((v) => ({ ...v, sharedStepGroupId: e.target.value }))}
+            onChange={(e) =>
+              setValue((v) => ({ ...v, sharedStepGroupId: e.target.value }))
+            }
             style={{ display: "block", width: "100%" }}
           >
             <option value="">None - author steps for this case</option>
@@ -273,10 +427,22 @@ export default function TestCaseForm({ mode, projectId, testCaseId, initial, ste
         </label>
       )}
       {selectedGroup && (
-        <div style={{ border: "1px solid var(--line)", borderRadius: 8, padding: 10, marginBottom: 10, background: "var(--panel-bg, transparent)" }}>
+        <div
+          style={{
+            border: "1px solid var(--line)",
+            borderRadius: 8,
+            padding: 10,
+            marginBottom: 10,
+            background: "var(--panel-bg, transparent)",
+          }}
+        >
           <p className="text-muted" style={{ fontSize: 12, margin: "0 0 6px" }}>
-            Steps come from &ldquo;{selectedGroup.name}&rdquo; - manage the content on the{" "}
-            <a href={`/projects/${projectId}/shared-steps`}>Shared step libraries</a> page.
+            Steps come from &ldquo;{selectedGroup.name}&rdquo; - manage the
+            content on the{" "}
+            <a href={`/projects/${projectId}/shared-steps`}>
+              Shared step libraries
+            </a>{" "}
+            page.
           </p>
           <ol style={{ margin: 0, paddingLeft: 18, fontSize: 13 }}>
             {selectedGroup.steps.map((s, i) => (
@@ -285,58 +451,97 @@ export default function TestCaseForm({ mode, projectId, testCaseId, initial, ste
           </ol>
         </div>
       )}
-      {!value.sharedStepGroupId && value.steps.map((step, i) => (
-        <div key={i} style={{ border: "1px solid var(--line)", borderRadius: 8, padding: 12, marginBottom: 10 }}>
-          <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6 }}>
-            <strong>Step {i + 1}</strong>
-            <button
-              type="button"
-              onClick={() => setValue((v) => ({ ...v, steps: v.steps.filter((_, j) => j !== i) }))}
+      {!value.sharedStepGroupId &&
+        value.steps.map((step, i) => (
+          <div
+            key={i}
+            style={{
+              border: "1px solid var(--line)",
+              borderRadius: 8,
+              padding: 12,
+              marginBottom: 10,
+            }}
+          >
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                marginBottom: 6,
+              }}
             >
-              Remove step
-            </button>
+              <strong>Step {i + 1}</strong>
+              <button
+                type="button"
+                onClick={() =>
+                  setValue((v) => ({
+                    ...v,
+                    steps: v.steps.filter((_, j) => j !== i),
+                  }))
+                }
+              >
+                Remove step
+              </button>
+            </div>
+            <div style={{ display: "grid", gap: 6 }}>
+              <label>
+                {labels.action}
+                <input
+                  value={step.action}
+                  onChange={(e) => updateStep(i, { action: e.target.value })}
+                  style={{ width: "100%" }}
+                />
+              </label>
+              <label>
+                {labels.expectedActionOrData}
+                <input
+                  value={step.expectedActionOrData}
+                  onChange={(e) =>
+                    updateStep(i, { expectedActionOrData: e.target.value })
+                  }
+                  style={{ width: "100%" }}
+                />
+              </label>
+              <label>
+                {labels.expectedResult}
+                <input
+                  value={step.expectedResult}
+                  onChange={(e) =>
+                    updateStep(i, { expectedResult: e.target.value })
+                  }
+                  style={{ width: "100%" }}
+                />
+              </label>
+              <label>
+                {labels.expectedResponse}
+                <input
+                  value={step.expectedResponse}
+                  onChange={(e) =>
+                    updateStep(i, { expectedResponse: e.target.value })
+                  }
+                  style={{ width: "100%" }}
+                />
+              </label>
+            </div>
           </div>
-          <div style={{ display: "grid", gap: 6 }}>
-            <label>
-              {labels.action}
-              <input value={step.action} onChange={(e) => updateStep(i, { action: e.target.value })} style={{ width: "100%" }} />
-            </label>
-            <label>
-              {labels.expectedActionOrData}
-              <input
-                value={step.expectedActionOrData}
-                onChange={(e) => updateStep(i, { expectedActionOrData: e.target.value })}
-                style={{ width: "100%" }}
-              />
-            </label>
-            <label>
-              {labels.expectedResult}
-              <input
-                value={step.expectedResult}
-                onChange={(e) => updateStep(i, { expectedResult: e.target.value })}
-                style={{ width: "100%" }}
-              />
-            </label>
-            <label>
-              {labels.expectedResponse}
-              <input
-                value={step.expectedResponse}
-                onChange={(e) => updateStep(i, { expectedResponse: e.target.value })}
-                style={{ width: "100%" }}
-              />
-            </label>
-          </div>
-        </div>
-      ))}
+        ))}
       {!value.sharedStepGroupId && (
-        <button type="button" onClick={() => setValue((v) => ({ ...v, steps: [...v.steps, { ...EMPTY_STEP }] }))}>
+        <button
+          type="button"
+          onClick={() =>
+            setValue((v) => ({ ...v, steps: [...v.steps, { ...EMPTY_STEP }] }))
+          }
+        >
           + Add step
         </button>
       )}
 
       <div style={{ marginTop: 24 }}>
         <button onClick={submit} disabled={saving || !value.title}>
-          {saving ? "Saving…" : mode === "create" ? "Create test case" : "Save changes"}
+          {saving
+            ? "Saving…"
+            : mode === "create"
+              ? "Create test case"
+              : "Save changes"}
         </button>
         {error && <p style={{ color: "var(--ember)" }}>{error}</p>}
       </div>

@@ -28,7 +28,9 @@ function GenerateTestCasesModal({
 }) {
   const utils = trpcReact.useUtils();
   const createCase = trpcReact.testCases.create.useMutation();
-  const [drafts, setDrafts] = useState<RouterOutputs["requirements"]["generateTestCases"] | null>(null);
+  const [drafts, setDrafts] = useState<
+    RouterOutputs["requirements"]["generateTestCases"] | null
+  >(null);
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [generating, setGenerating] = useState(true);
   const [creating, setCreating] = useState(false);
@@ -88,9 +90,20 @@ function GenerateTestCasesModal({
       {drafts && (
         <div style={{ maxHeight: 500, overflowY: "auto" }}>
           {drafts.map((d, i) => (
-            <div key={i} className="panel" style={{ marginBottom: 10, padding: 10 }}>
-              <label style={{ display: "flex", gap: 8, alignItems: "flex-start" }}>
-                <input type="checkbox" checked={selected.has(i)} onChange={() => toggle(i)} style={{ marginTop: 4 }} />
+            <div
+              key={i}
+              className="panel"
+              style={{ marginBottom: 10, padding: 10 }}
+            >
+              <label
+                style={{ display: "flex", gap: 8, alignItems: "flex-start" }}
+              >
+                <input
+                  type="checkbox"
+                  checked={selected.has(i)}
+                  onChange={() => toggle(i)}
+                  style={{ marginTop: 4 }}
+                />
                 <div style={{ flex: 1 }}>
                   <strong>{d.title}</strong>{" "}
                   <span className="text-muted" style={{ fontSize: 12 }}>
@@ -111,12 +124,25 @@ function GenerateTestCasesModal({
               </label>
             </div>
           ))}
-          {drafts.length === 0 && <p className="text-muted">No draft cases produced.</p>}
-          <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 10 }}>
+          {drafts.length === 0 && (
+            <p className="text-muted">No draft cases produced.</p>
+          )}
+          <div
+            style={{
+              display: "flex",
+              gap: 8,
+              justifyContent: "flex-end",
+              marginTop: 10,
+            }}
+          >
             <button className="btn-secondary" onClick={onClose}>
               Cancel
             </button>
-            <button className="btn-primary" onClick={createSelected} disabled={creating || selected.size === 0}>
+            <button
+              className="btn-primary"
+              onClick={createSelected}
+              disabled={creating || selected.size === 0}
+            >
               {creating ? "Creating…" : `Create ${selected.size} selected`}
             </button>
           </div>
@@ -126,7 +152,11 @@ function GenerateTestCasesModal({
   );
 }
 
-type DraftRequirement = { title: string; description: string; sourceFile: string | null };
+type DraftRequirement = {
+  title: string;
+  description: string;
+  sourceFile: string | null;
+};
 
 // Shared review list: both the markdown-paste and repo-scan extraction
 // paths land drafts here for the same checkbox-and-create review flow
@@ -143,7 +173,9 @@ function DraftRequirementReview({
   onCreated: () => void;
 }) {
   const createRequirement = trpcReact.requirements.create.useMutation();
-  const [selected, setSelected] = useState<Set<number>>(new Set(drafts.map((_, i) => i)));
+  const [selected, setSelected] = useState<Set<number>>(
+    new Set(drafts.map((_, i) => i)),
+  );
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -165,7 +197,9 @@ function DraftRequirementReview({
         await createRequirement.mutateAsync({
           projectId,
           title: d.title,
-          description: d.sourceFile ? `${d.description}\n\n(extracted from ${d.sourceFile})` : d.description,
+          description: d.sourceFile
+            ? `${d.description}\n\n(extracted from ${d.sourceFile})`
+            : d.description,
         });
       }
       onCreated();
@@ -181,9 +215,18 @@ function DraftRequirementReview({
     <div style={{ maxHeight: 500, overflowY: "auto" }}>
       {error && <p style={{ color: "var(--ember)" }}>{error}</p>}
       {drafts.map((d, i) => (
-        <div key={i} className="panel" style={{ marginBottom: 10, padding: 10 }}>
+        <div
+          key={i}
+          className="panel"
+          style={{ marginBottom: 10, padding: 10 }}
+        >
           <label style={{ display: "flex", gap: 8, alignItems: "flex-start" }}>
-            <input type="checkbox" checked={selected.has(i)} onChange={() => toggle(i)} style={{ marginTop: 4 }} />
+            <input
+              type="checkbox"
+              checked={selected.has(i)}
+              onChange={() => toggle(i)}
+              style={{ marginTop: 4 }}
+            />
             <div style={{ flex: 1 }}>
               <strong>{d.title}</strong>{" "}
               {d.sourceFile && (
@@ -196,12 +239,25 @@ function DraftRequirementReview({
           </label>
         </div>
       ))}
-      {drafts.length === 0 && <p className="text-muted">No requirements found in the source.</p>}
-      <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 10 }}>
+      {drafts.length === 0 && (
+        <p className="text-muted">No requirements found in the source.</p>
+      )}
+      <div
+        style={{
+          display: "flex",
+          gap: 8,
+          justifyContent: "flex-end",
+          marginTop: 10,
+        }}
+      >
         <button className="btn-secondary" onClick={onClose}>
           Cancel
         </button>
-        <button className="btn-primary" onClick={createSelected} disabled={creating || selected.size === 0}>
+        <button
+          className="btn-primary"
+          onClick={createSelected}
+          disabled={creating || selected.size === 0}
+        >
           {creating ? "Creating…" : `Create ${selected.size} selected`}
         </button>
       </div>
@@ -216,7 +272,12 @@ function LinearLinkControl({
   requirement,
   onChanged,
 }: {
-  requirement: { id: string; linearIssueId: string | null; linearStatusName: string | null; linearSyncedAt: string | Date | null };
+  requirement: {
+    id: string;
+    linearIssueId: string | null;
+    linearStatusName: string | null;
+    linearSyncedAt: string | Date | null;
+  };
   onChanged: () => void;
 }) {
   const [issueId, setIssueId] = useState("");
@@ -229,7 +290,10 @@ function LinearLinkControl({
     if (!issueId.trim()) return;
     setError(null);
     try {
-      await linkMutation.mutateAsync({ requirementId: requirement.id, linearIssueId: issueId.trim() });
+      await linkMutation.mutateAsync({
+        requirementId: requirement.id,
+        linearIssueId: issueId.trim(),
+      });
       setIssueId("");
       onChanged();
     } catch (e) {
@@ -257,12 +321,22 @@ function LinearLinkControl({
       <div style={{ fontSize: 12, marginTop: 4 }}>
         <span className="text-muted">
           Linear {requirement.linearIssueId}
-          {requirement.linearStatusName && <> · {requirement.linearStatusName}</>}
+          {requirement.linearStatusName && (
+            <> · {requirement.linearStatusName}</>
+          )}
         </span>{" "}
-        <button style={{ fontSize: 11 }} onClick={sync} disabled={syncMutation.isPending}>
+        <button
+          style={{ fontSize: 11 }}
+          onClick={sync}
+          disabled={syncMutation.isPending}
+        >
           {syncMutation.isPending ? "Syncing…" : "Sync"}
         </button>{" "}
-        <button className="btn-secondary" style={{ fontSize: 11 }} onClick={unlink}>
+        <button
+          className="btn-secondary"
+          style={{ fontSize: 11 }}
+          onClick={unlink}
+        >
           Unlink
         </button>
         {error && <span style={{ color: "var(--ember)" }}> {error}</span>}
@@ -278,10 +352,16 @@ function LinearLinkControl({
         placeholder="Linear issue, e.g. ENG-123"
         style={{ fontSize: 12, width: 160 }}
       />
-      <button style={{ fontSize: 11 }} onClick={link} disabled={linkMutation.isPending || !issueId.trim()}>
+      <button
+        style={{ fontSize: 11 }}
+        onClick={link}
+        disabled={linkMutation.isPending || !issueId.trim()}
+      >
         {linkMutation.isPending ? "Linking…" : "Link"}
       </button>
-      {error && <span style={{ color: "var(--ember)", fontSize: 12 }}>{error}</span>}
+      {error && (
+        <span style={{ color: "var(--ember)", fontSize: 12 }}>{error}</span>
+      )}
     </div>
   );
 }
@@ -291,7 +371,12 @@ function JiraLinkControl({
   requirement,
   onChanged,
 }: {
-  requirement: { id: string; jiraIssueKey: string | null; jiraStatusName: string | null; jiraSyncedAt: string | Date | null };
+  requirement: {
+    id: string;
+    jiraIssueKey: string | null;
+    jiraStatusName: string | null;
+    jiraSyncedAt: string | Date | null;
+  };
   onChanged: () => void;
 }) {
   const [issueKey, setIssueKey] = useState("");
@@ -304,7 +389,10 @@ function JiraLinkControl({
     if (!issueKey.trim()) return;
     setError(null);
     try {
-      await linkMutation.mutateAsync({ requirementId: requirement.id, jiraIssueKey: issueKey.trim() });
+      await linkMutation.mutateAsync({
+        requirementId: requirement.id,
+        jiraIssueKey: issueKey.trim(),
+      });
       setIssueKey("");
       onChanged();
     } catch (e) {
@@ -334,10 +422,18 @@ function JiraLinkControl({
           Jira {requirement.jiraIssueKey}
           {requirement.jiraStatusName && <> · {requirement.jiraStatusName}</>}
         </span>{" "}
-        <button style={{ fontSize: 11 }} onClick={sync} disabled={syncMutation.isPending}>
+        <button
+          style={{ fontSize: 11 }}
+          onClick={sync}
+          disabled={syncMutation.isPending}
+        >
           {syncMutation.isPending ? "Syncing…" : "Sync"}
         </button>{" "}
-        <button className="btn-secondary" style={{ fontSize: 11 }} onClick={unlink}>
+        <button
+          className="btn-secondary"
+          style={{ fontSize: 11 }}
+          onClick={unlink}
+        >
           Unlink
         </button>
         {error && <span style={{ color: "var(--ember)" }}> {error}</span>}
@@ -353,10 +449,16 @@ function JiraLinkControl({
         placeholder="Jira issue, e.g. PROJ-123"
         style={{ fontSize: 12, width: 160 }}
       />
-      <button style={{ fontSize: 11 }} onClick={link} disabled={linkMutation.isPending || !issueKey.trim()}>
+      <button
+        style={{ fontSize: 11 }}
+        onClick={link}
+        disabled={linkMutation.isPending || !issueKey.trim()}
+      >
         {linkMutation.isPending ? "Linking…" : "Link"}
       </button>
-      {error && <span style={{ color: "var(--ember)", fontSize: 12 }}>{error}</span>}
+      {error && (
+        <span style={{ color: "var(--ember)", fontSize: 12 }}>{error}</span>
+      )}
     </div>
   );
 }
@@ -367,7 +469,13 @@ function JiraLinkControl({
 // apps/web/app/share/requirements/[token]/page.tsx), no app installation
 // required. Opt-in only: nothing is generated until this button is
 // clicked.
-function ShareLinkControl({ requirement, onChanged }: { requirement: { id: string; shareToken: string | null }; onChanged: () => void }) {
+function ShareLinkControl({
+  requirement,
+  onChanged,
+}: {
+  requirement: { id: string; shareToken: string | null };
+  onChanged: () => void;
+}) {
   const [copied, setCopied] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const createMutation = trpcReact.requirements.createShareLink.useMutation();
@@ -384,7 +492,12 @@ function ShareLinkControl({ requirement, onChanged }: { requirement: { id: strin
   }
 
   async function revoke() {
-    if (!confirm("Revoke this share link? Anywhere it was pasted will stop showing live test status.")) return;
+    if (
+      !confirm(
+        "Revoke this share link? Anywhere it was pasted will stop showing live test status.",
+      )
+    )
+      return;
     await revokeMutation.mutateAsync({ requirementId: requirement.id });
     onChanged();
   }
@@ -404,7 +517,11 @@ function ShareLinkControl({ requirement, onChanged }: { requirement: { id: strin
         <button style={{ fontSize: 11 }} onClick={copyLink}>
           {copied ? "Copied!" : "Copy share link"}
         </button>{" "}
-        <button className="btn-secondary" style={{ fontSize: 11 }} onClick={revoke}>
+        <button
+          className="btn-secondary"
+          style={{ fontSize: 11 }}
+          onClick={revoke}
+        >
           Revoke
         </button>
         {error && <span style={{ color: "var(--ember)" }}> {error}</span>}
@@ -414,10 +531,16 @@ function ShareLinkControl({ requirement, onChanged }: { requirement: { id: strin
 
   return (
     <div style={{ marginTop: 4 }}>
-      <button style={{ fontSize: 11 }} onClick={create} disabled={createMutation.isPending}>
+      <button
+        style={{ fontSize: 11 }}
+        onClick={create}
+        disabled={createMutation.isPending}
+      >
         {createMutation.isPending ? "Generating…" : "Share test status"}
       </button>
-      {error && <span style={{ color: "var(--ember)", fontSize: 12 }}> {error}</span>}
+      {error && (
+        <span style={{ color: "var(--ember)", fontSize: 12 }}> {error}</span>
+      )}
     </div>
   );
 }
@@ -426,8 +549,17 @@ function ShareLinkControl({ requirement, onChanged }: { requirement: { id: strin
 // requirements from it. Two-step: paste content, then Extract fires the
 // real AI call and swaps into the same review list every extraction path
 // uses.
-function ExtractFromMarkdownModal({ projectId, onClose, onCreated }: { projectId: string; onClose: () => void; onCreated: () => void }) {
-  const extractMutation = trpcReact.requirements.extractFromMarkdown.useMutation();
+function ExtractFromMarkdownModal({
+  projectId,
+  onClose,
+  onCreated,
+}: {
+  projectId: string;
+  onClose: () => void;
+  onCreated: () => void;
+}) {
+  const extractMutation =
+    trpcReact.requirements.extractFromMarkdown.useMutation();
   const [fileName, setFileName] = useState("requirements.md");
   const [content, setContent] = useState("");
   const [drafts, setDrafts] = useState<DraftRequirement[] | null>(null);
@@ -445,7 +577,11 @@ function ExtractFromMarkdownModal({ projectId, onClose, onCreated }: { projectId
     if (!content.trim()) return;
     setError(null);
     try {
-      const result = await extractMutation.mutateAsync({ projectId, fileName, markdownContent: content });
+      const result = await extractMutation.mutateAsync({
+        projectId,
+        fileName,
+        markdownContent: content,
+      });
       setDrafts(result);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -453,10 +589,18 @@ function ExtractFromMarkdownModal({ projectId, onClose, onCreated }: { projectId
   }
 
   return (
-    <Modal open onClose={onClose} title="Extract requirements from a markdown file">
+    <Modal
+      open
+      onClose={onClose}
+      title="Extract requirements from a markdown file"
+    >
       {!drafts && (
         <div style={{ display: "grid", gap: 10 }}>
-          <input type="file" accept=".md,.mdx,text/markdown" onChange={handleFile} />
+          <input
+            type="file"
+            accept=".md,.mdx,text/markdown"
+            onChange={handleFile}
+          />
           <textarea
             value={content}
             onChange={(e) => setContent(e.target.value)}
@@ -469,13 +613,24 @@ function ExtractFromMarkdownModal({ projectId, onClose, onCreated }: { projectId
             <button className="btn-secondary" onClick={onClose}>
               Cancel
             </button>
-            <button className="btn-primary" onClick={extract} disabled={extracting || !content.trim()}>
+            <button
+              className="btn-primary"
+              onClick={extract}
+              disabled={extracting || !content.trim()}
+            >
               {extracting ? "Extracting…" : "Extract"}
             </button>
           </div>
         </div>
       )}
-      {drafts && <DraftRequirementReview drafts={drafts} projectId={projectId} onClose={onClose} onCreated={onCreated} />}
+      {drafts && (
+        <DraftRequirementReview
+          drafts={drafts}
+          projectId={projectId}
+          onClose={onClose}
+          onCreated={onCreated}
+        />
+      )}
     </Modal>
   );
 }
@@ -509,10 +664,21 @@ function ExtractFromRepoModal({
   }, [projectId, repoUrl, utils]);
 
   return (
-    <Modal open onClose={onClose} title={`Extract requirements from ${repoUrl}`}>
+    <Modal
+      open
+      onClose={onClose}
+      title={`Extract requirements from ${repoUrl}`}
+    >
       {scanning && <p>Scanning repo for requirements/spec docs…</p>}
       {error && <p style={{ color: "var(--ember)" }}>{error}</p>}
-      {drafts && <DraftRequirementReview drafts={drafts} projectId={projectId} onClose={onClose} onCreated={onCreated} />}
+      {drafts && (
+        <DraftRequirementReview
+          drafts={drafts}
+          projectId={projectId}
+          onClose={onClose}
+          onCreated={onCreated}
+        />
+      )}
     </Modal>
   );
 }
@@ -554,7 +720,12 @@ export default function RequirementsPage() {
     setEditingId(null);
   }
 
-  function startEdit(r: { id: string; title: string; description: string | null; externalRef: string | null }) {
+  function startEdit(r: {
+    id: string;
+    title: string;
+    description: string | null;
+    externalRef: string | null;
+  }) {
     setEditingId(r.id);
     setTitle(r.title);
     setDescription(r.description ?? "");
@@ -607,41 +778,68 @@ export default function RequirementsPage() {
     );
   }, [requirements, search]);
 
-  const displayError = error ?? (listQuery.error ? String(listQuery.error.message) : null);
+  const displayError =
+    error ?? (listQuery.error ? String(listQuery.error.message) : null);
 
   return (
     <div style={{ maxWidth: 640 }}>
       <h1>Requirements</h1>
 
-      {canEdit && <div style={{ display: "flex", gap: 8, margin: "8px 0 16px" }}>
-        <button className="btn-secondary" onClick={() => setMarkdownModalOpen(true)}>
-          Extract from markdown file
-        </button>
-        <button className="btn-secondary" onClick={() => setRepoModalOpen(true)} disabled={!repoUrl} title={repoUrl ?? "Connect a repo first"}>
-          Extract from repo {repoUrl ? "" : "(no repo connected)"}
-        </button>
-      </div>}
-
-      {canEdit && <div style={{ display: "grid", gap: 8, margin: "16px 0", maxWidth: 420 }}>
-        <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Title" />
-        <textarea
-          value={description}
-          onChange={(e) => setDescription(e.target.value)}
-          placeholder="Description (optional)"
-          rows={2}
-        />
-        <input
-          value={externalRef}
-          onChange={(e) => setExternalRef(e.target.value)}
-          placeholder="External ref, e.g. JIRA-123 (optional)"
-        />
-        <div style={{ display: "flex", gap: 8 }}>
-          <button onClick={submit} disabled={saving || !title}>
-            {saving ? "Saving…" : editingId ? "Save changes" : "+ New requirement"}
+      {canEdit && (
+        <div style={{ display: "flex", gap: 8, margin: "8px 0 16px" }}>
+          <button
+            className="btn-secondary"
+            onClick={() => setMarkdownModalOpen(true)}
+          >
+            Extract from markdown file
           </button>
-          {editingId && <button onClick={resetForm}>Cancel</button>}
+          {repoUrl ? (
+            <button
+              className="btn-secondary"
+              onClick={() => setRepoModalOpen(true)}
+            >
+              Extract from repository
+            </button>
+          ) : (
+            <a className="connection-chip" href={`/projects/${projectId}`}>
+              GitHub · Connect repository to extract requirements
+            </a>
+          )}
         </div>
-      </div>}
+      )}
+
+      {canEdit && (
+        <div
+          style={{ display: "grid", gap: 8, margin: "16px 0", maxWidth: 420 }}
+        >
+          <input
+            value={title}
+            onChange={(e) => setTitle(e.target.value)}
+            placeholder="Title"
+          />
+          <textarea
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
+            placeholder="Description (optional)"
+            rows={2}
+          />
+          <input
+            value={externalRef}
+            onChange={(e) => setExternalRef(e.target.value)}
+            placeholder="External ref, e.g. JIRA-123 (optional)"
+          />
+          <div style={{ display: "flex", gap: 8 }}>
+            <button onClick={submit} disabled={saving || !title}>
+              {saving
+                ? "Saving…"
+                : editingId
+                  ? "Save changes"
+                  : "+ New requirement"}
+            </button>
+            {editingId && <button onClick={resetForm}>Cancel</button>}
+          </div>
+        </div>
+      )}
 
       {loading && <p>Loading…</p>}
       {displayError && <p style={{ color: "var(--ember)" }}>{displayError}</p>}
@@ -657,28 +855,57 @@ export default function RequirementsPage() {
 
       <ul style={{ listStyle: "none", padding: 0 }}>
         {visibleRequirements.map((r) => (
-          <li key={r.id} style={{ marginBottom: 10, borderBottom: "1px solid var(--line)", paddingBottom: 8 }}>
-            <strong>{r.title}</strong> {r.externalRef && <span style={{ color: "var(--muted-dim)" }}>[{r.externalRef}]</span>}
-            <div style={{ color: "var(--muted)", fontSize: 13 }}>{r.description}</div>
-            <div style={{ fontSize: 12, color: "var(--muted-dim)" }}>{r.acceptanceCriteriaCount} linked acceptance criteria</div>
-            {canEdit && <LinearLinkControl requirement={r} onChanged={reload} />}
+          <li
+            key={r.id}
+            style={{
+              marginBottom: 10,
+              borderBottom: "1px solid var(--line)",
+              paddingBottom: 8,
+            }}
+          >
+            <strong>{r.title}</strong>{" "}
+            {r.externalRef && (
+              <span style={{ color: "var(--muted-dim)" }}>
+                [{r.externalRef}]
+              </span>
+            )}
+            <div style={{ color: "var(--muted)", fontSize: 13 }}>
+              {r.description}
+            </div>
+            <div style={{ fontSize: 12, color: "var(--muted-dim)" }}>
+              {r.acceptanceCriteriaCount} linked acceptance criteria
+            </div>
+            {canEdit && (
+              <LinearLinkControl requirement={r} onChanged={reload} />
+            )}
             {canEdit && <JiraLinkControl requirement={r} onChanged={reload} />}
             {canEdit && <ShareLinkControl requirement={r} onChanged={reload} />}
-            {canEdit && <>
-            <button onClick={() => startEdit(r)} style={{ marginRight: 8, marginTop: 6 }}>
-              Edit
-            </button>
-            <button onClick={() => remove(r.id)} style={{ marginRight: 8 }}>
-              Delete
-            </button>
-            <button onClick={() => setGeneratingForId(r.id)}>Generate test cases with AI</button>
-            </>}
+            {canEdit && (
+              <>
+                <button
+                  onClick={() => startEdit(r)}
+                  style={{ marginRight: 8, marginTop: 6 }}
+                >
+                  Edit
+                </button>
+                <button onClick={() => remove(r.id)} style={{ marginRight: 8 }}>
+                  Delete
+                </button>
+                <button onClick={() => setGeneratingForId(r.id)}>
+                  Generate test cases with AI
+                </button>
+              </>
+            )}
           </li>
         ))}
-        {!loading && requirements.length === 0 && <p style={{ color: "var(--muted)" }}>No requirements yet.</p>}
-        {!loading && requirements.length > 0 && visibleRequirements.length === 0 && (
-          <p style={{ color: "var(--muted)" }}>No requirements match.</p>
+        {!loading && requirements.length === 0 && (
+          <p style={{ color: "var(--muted)" }}>No requirements yet.</p>
         )}
+        {!loading &&
+          requirements.length > 0 &&
+          visibleRequirements.length === 0 && (
+            <p style={{ color: "var(--muted)" }}>No requirements match.</p>
+          )}
       </ul>
 
       {canEdit && generatingForId && (
@@ -690,10 +917,19 @@ export default function RequirementsPage() {
         />
       )}
       {canEdit && markdownModalOpen && (
-        <ExtractFromMarkdownModal projectId={projectId} onClose={() => setMarkdownModalOpen(false)} onCreated={reload} />
+        <ExtractFromMarkdownModal
+          projectId={projectId}
+          onClose={() => setMarkdownModalOpen(false)}
+          onCreated={reload}
+        />
       )}
       {canEdit && repoModalOpen && repoUrl && (
-        <ExtractFromRepoModal projectId={projectId} repoUrl={repoUrl} onClose={() => setRepoModalOpen(false)} onCreated={reload} />
+        <ExtractFromRepoModal
+          projectId={projectId}
+          repoUrl={repoUrl}
+          onClose={() => setRepoModalOpen(false)}
+          onCreated={reload}
+        />
       )}
     </div>
   );

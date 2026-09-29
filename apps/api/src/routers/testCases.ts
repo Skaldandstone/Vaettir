@@ -23,6 +23,10 @@ import {
 } from "../services/aiCredits.js";
 import { parseTestCaseCsv } from "../services/testCaseCsvImport.js";
 import { snapshotTestCaseVersion } from "../services/testCaseVersion.js";
+import {
+  validationDomainSchema,
+  verificationProfileSchema,
+} from "../services/physicalValidation.js";
 
 const stepOutputSchema = z.object({
   order: z.number(),
@@ -50,6 +54,8 @@ const testCaseContentSchema = z.object({
   testType: z.string(),
   priority: z.enum(["CRITICAL", "HIGH", "MEDIUM", "LOW"]).default("MEDIUM"),
   suitePath: z.string().optional(),
+  validationDomain: validationDomainSchema.optional(),
+  verificationProfile: verificationProfileSchema.optional(),
 });
 
 function requireAtLeastOneFormat(v: z.infer<typeof testCaseContentSchema>) {
@@ -194,6 +200,8 @@ export const testCasesRouter = router({
         sharedStepGroupId: z.string().nullable(),
         sharedStepGroupName: z.string().nullable(),
         stepFieldLabels: z.record(z.string()),
+        validationDomain: validationDomainSchema,
+        verificationProfile: verificationProfileSchema,
         tags: z.array(z.string()),
         testType: z.string(),
         priority: z.string(),
@@ -273,6 +281,10 @@ export const testCasesRouter = router({
         when: tc.when,
         then: tc.then,
         steps: resolvedSteps,
+        validationDomain: tc.validationDomain,
+        verificationProfile: verificationProfileSchema.parse(
+          tc.verificationProfile,
+        ),
         sharedStepGroupId: tc.sharedStepGroupId,
         sharedStepGroupName: tc.sharedStepGroup?.name ?? null,
         stepFieldLabels: resolveStepFieldLabels(
@@ -803,6 +815,8 @@ export const testCasesRouter = router({
           then: input.then,
           tags: input.tags,
           testType: input.testType as never,
+          validationDomain: input.validationDomain,
+          verificationProfile: input.verificationProfile,
           priority: input.priority,
           suitePath: input.suitePath || undefined,
           createdById: ctx.user.id,
@@ -1022,6 +1036,8 @@ export const testCasesRouter = router({
             then: input.then,
             tags: input.tags,
             testType: input.testType as never,
+            validationDomain: input.validationDomain,
+            verificationProfile: input.verificationProfile,
             priority: input.priority,
             // Update (unlike create) needs to distinguish "field omitted,
             // leave alone" (undefined) from "field submitted empty, clear

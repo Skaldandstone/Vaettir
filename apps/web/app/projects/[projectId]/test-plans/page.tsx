@@ -2,7 +2,11 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useParams } from "next/navigation";
-import { trpcReact, useReadOnlySeat, type RouterOutputs } from "@/lib/trpcReact";
+import {
+  trpcReact,
+  useReadOnlySeat,
+  type RouterOutputs,
+} from "@/lib/trpcReact";
 import { Drawer } from "@/components/Drawer";
 import { Modal } from "@/components/Modal";
 import { TestPlanDetailContent } from "@/components/TestPlanDetailContent";
@@ -17,14 +21,12 @@ function GenerateStrategyModal({
   open,
   onClose,
   projectId,
-  qaStrategyTypeId,
   projectRepo,
   onCreated,
 }: {
   open: boolean;
   onClose: () => void;
   projectId: string;
-  qaStrategyTypeId: string | undefined;
   projectRepo: { repoUrl: string | null; defaultBranch: string } | null;
   onCreated: () => void;
 }) {
@@ -32,13 +34,16 @@ function GenerateStrategyModal({
   const [groundInBuild, setGroundInBuild] = useState(false);
   const [baseRef, setBaseRef] = useState("");
   const [headRef, setHeadRef] = useState("");
-  const [draft, setDraft] = useState<RouterOutputs["testPlans"]["generateStrategyDraft"] | null>(null);
+  const [draft, setDraft] = useState<
+    RouterOutputs["testPlans"]["generateStrategyDraft"] | null
+  >(null);
   const [planName, setPlanName] = useState("");
   const [error, setError] = useState<string | null>(null);
 
   // P1-15: mutateAsync keeps the original sequential generate -> edit -> create
   // flow; these are one-shot AI/create actions, not cached data.
-  const generateMutation = trpcReact.testPlans.generateStrategyDraft.useMutation();
+  const generateMutation =
+    trpcReact.testPlans.generateStrategyDraft.useMutation();
   const createMutation = trpcReact.testPlans.create.useMutation();
 
   function linesToArray(text: string): string[] {
@@ -60,20 +65,24 @@ function GenerateStrategyModal({
           : {}),
       });
       setDraft(result);
-      setPlanName(prompt.trim().length > 60 ? `${prompt.trim().slice(0, 57)}…` : prompt.trim());
+      setPlanName(
+        prompt.trim().length > 60
+          ? `${prompt.trim().slice(0, 57)}…`
+          : prompt.trim(),
+      );
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     }
   }
 
   async function createFromDraft() {
-    if (!draft || !qaStrategyTypeId || !planName.trim()) return;
+    if (!draft || !planName.trim()) return;
     setError(null);
     try {
       const { groundedInCommits: _groundedInCommits, ...customFields } = draft;
       await createMutation.mutateAsync({
         projectId,
-        testPlanTypeId: qaStrategyTypeId,
+        testPlanTypeId: draft.testPlanTypeId,
         name: planName.trim(),
         customFields,
       });
@@ -93,9 +102,6 @@ function GenerateStrategyModal({
   return (
     <Modal open={open} onClose={onClose} title="Generate a QA strategy draft">
       <div style={{ display: "grid", gap: 10, minWidth: 420 }}>
-        {!qaStrategyTypeId && (
-          <p style={{ color: "var(--ember)" }}>No "QA Strategy" plan type exists in this org - nothing to generate into.</p>
-        )}
         <label>
           What's changing or shipping?
           <textarea
@@ -107,10 +113,21 @@ function GenerateStrategyModal({
           />
         </label>
         {projectRepo?.repoUrl && (
-          <div style={{ border: "1px solid var(--line)", borderRadius: 6, padding: 8 }}>
+          <div
+            style={{
+              border: "1px solid var(--line)",
+              borderRadius: 6,
+              padding: 8,
+            }}
+          >
             <label style={{ fontSize: 13 }}>
-              <input type="checkbox" checked={groundInBuild} onChange={(e) => setGroundInBuild(e.target.checked)} /> Ground in a
-              real build (the actual commits between two refs, e.g. "what's in this release")
+              <input
+                type="checkbox"
+                checked={groundInBuild}
+                onChange={(e) => setGroundInBuild(e.target.checked)}
+              />{" "}
+              Ground in a real build (the actual commits between two refs, e.g.
+              "what's in this release")
             </label>
             {groundInBuild && (
               <div style={{ display: "flex", gap: 8, marginTop: 6 }}>
@@ -133,7 +150,9 @@ function GenerateStrategyModal({
         <button
           className="btn-secondary"
           onClick={generate}
-          disabled={generating || !prompt.trim() || !qaStrategyTypeId || (groundInBuild && !headRef.trim())}
+          disabled={
+            generating || !prompt.trim() || (groundInBuild && !headRef.trim())
+          }
         >
           {generating ? "Generating…" : "Generate draft"}
         </button>
@@ -142,7 +161,9 @@ function GenerateStrategyModal({
 
         {draft?.groundedInCommits && (
           <details style={{ fontSize: 12 }}>
-            <summary>Grounded in {draft.groundedInCommits.length} real commit(s)</summary>
+            <summary>
+              Grounded in {draft.groundedInCommits.length} real commit(s)
+            </summary>
             <ul style={{ margin: "4px 0 0 16px", padding: 0 }}>
               {draft.groundedInCommits.map((c) => (
                 <li key={c.sha}>
@@ -157,7 +178,11 @@ function GenerateStrategyModal({
           <>
             <label>
               Plan name
-              <input value={planName} onChange={(e) => setPlanName(e.target.value)} style={{ width: "100%" }} />
+              <input
+                value={planName}
+                onChange={(e) => setPlanName(e.target.value)}
+                style={{ width: "100%" }}
+              />
             </label>
             {(
               [
@@ -168,20 +193,40 @@ function GenerateStrategyModal({
               ] as const
             ).map(([key, label]) => (
               <label key={key}>
-                {label} <span className="text-muted" style={{ fontSize: 12 }}>(one per line, edit freely)</span>
+                {label}{" "}
+                <span className="text-muted" style={{ fontSize: 12 }}>
+                  (one per line, edit freely)
+                </span>
                 <textarea
                   value={draft[key].join("\n")}
-                  onChange={(e) => setDraft({ ...draft, [key]: linesToArray(e.target.value) })}
+                  onChange={(e) =>
+                    setDraft({ ...draft, [key]: linesToArray(e.target.value) })
+                  }
                   rows={3}
-                  style={{ width: "100%", fontFamily: "monospace", fontSize: 12 }}
+                  style={{
+                    width: "100%",
+                    fontFamily: "monospace",
+                    fontSize: 12,
+                  }}
                 />
               </label>
             ))}
-            <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 8 }}>
+            <div
+              style={{
+                display: "flex",
+                gap: 8,
+                justifyContent: "flex-end",
+                marginTop: 8,
+              }}
+            >
               <button className="btn-secondary" onClick={onClose}>
                 Discard
               </button>
-              <button className="btn-primary" onClick={createFromDraft} disabled={creating || !planName.trim()}>
+              <button
+                className="btn-primary"
+                onClick={createFromDraft}
+                disabled={creating || !planName.trim()}
+              >
                 {creating ? "Creating…" : "Create QA strategy plan"}
               </button>
             </div>
@@ -202,7 +247,12 @@ export default function TestPlansPage() {
   const plansQuery = trpcReact.testPlans.list.useQuery({ projectId });
   const plans = plansQuery.data ?? [];
   const types = typesQuery.data ?? [];
-  const projectRepo = projectQuery.data ? { repoUrl: projectQuery.data.repoUrl, defaultBranch: projectQuery.data.defaultBranch } : null;
+  const projectRepo = projectQuery.data
+    ? {
+        repoUrl: projectQuery.data.repoUrl,
+        defaultBranch: projectQuery.data.defaultBranch,
+      }
+    : null;
 
   const [name, setName] = useState("");
   const [testPlanTypeId, setTestPlanTypeId] = useState("");
@@ -216,7 +266,8 @@ export default function TestPlansPage() {
     if (!testPlanTypeId && types[0]) setTestPlanTypeId(types[0].id);
   }, [types, testPlanTypeId]);
 
-  const invalidatePlans = () => void utils.testPlans.list.invalidate({ projectId });
+  const invalidatePlans = () =>
+    void utils.testPlans.list.invalidate({ projectId });
 
   const createMutation = trpcReact.testPlans.create.useMutation({
     onSuccess: () => {
@@ -229,7 +280,9 @@ export default function TestPlansPage() {
   const visiblePlans = useMemo(() => {
     const q = search.trim().toLowerCase();
     return plans.filter(
-      (p) => (!q || p.name.toLowerCase().includes(q)) && (!statusFilter || p.status === statusFilter),
+      (p) =>
+        (!q || p.name.toLowerCase().includes(q)) &&
+        (!statusFilter || p.status === statusFilter),
     );
   }, [plans, search, statusFilter]);
 
@@ -247,32 +300,49 @@ export default function TestPlansPage() {
       <h1>Test Plans</h1>
       {readOnly && (
         <p className="text-muted" style={{ fontSize: 13 }}>
-          You have read-only access to this organization — creating and editing plans is hidden.
+          You have read-only access to this organization — creating and editing
+          plans is hidden.
         </p>
       )}
 
       {!readOnly && (
-      <div style={{ display: "flex", gap: 8, alignItems: "center", margin: "16px 0" }}>
-        <select value={testPlanTypeId} onChange={(e) => setTestPlanTypeId(e.target.value)}>
-          {types.map((t) => (
-            <option key={t.id} value={t.id}>
-              {t.name}
-            </option>
-          ))}
-        </select>
-        <input
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          onKeyDown={(e) => e.key === "Enter" && submit()}
-          placeholder="Plan name, press Enter…"
-        />
-        <button onClick={submit} disabled={createMutation.isPending || !name.trim()}>
-          {createMutation.isPending ? "Creating…" : "+ New test plan"}
-        </button>
-        <button className="btn-secondary" onClick={() => setGenerateOpen(true)}>
-          Generate strategy with AI
-        </button>
-      </div>
+        <div
+          style={{
+            display: "flex",
+            gap: 8,
+            alignItems: "center",
+            margin: "16px 0",
+          }}
+        >
+          <select
+            value={testPlanTypeId}
+            onChange={(e) => setTestPlanTypeId(e.target.value)}
+          >
+            {types.map((t) => (
+              <option key={t.id} value={t.id}>
+                {t.name}
+              </option>
+            ))}
+          </select>
+          <input
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && submit()}
+            placeholder="Plan name, press Enter…"
+          />
+          <button
+            onClick={submit}
+            disabled={createMutation.isPending || !name.trim()}
+          >
+            {createMutation.isPending ? "Creating…" : "+ New test plan"}
+          </button>
+          <button
+            className="btn-secondary"
+            onClick={() => setGenerateOpen(true)}
+          >
+            Generate strategy with AI
+          </button>
+        </div>
       )}
 
       {loading && <p>Loading…</p>}
@@ -280,11 +350,21 @@ export default function TestPlansPage() {
 
       {plans.length > 0 && (
         <div style={{ display: "flex", gap: 8, marginBottom: 10 }}>
-          <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search plans…" style={{ flex: 1, maxWidth: 300 }} />
-          <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
+          <input
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search plans…"
+            style={{ flex: 1, maxWidth: 300 }}
+          />
+          <select
+            value={statusFilter}
+            onChange={(e) => setStatusFilter(e.target.value)}
+          >
             <option value="">All statuses</option>
             {STATUSES.map((s) => (
-              <option key={s} value={s}>{s}</option>
+              <option key={s} value={s}>
+                {s}
+              </option>
             ))}
           </select>
         </div>
@@ -303,23 +383,33 @@ export default function TestPlansPage() {
               {p.name}
             </a>{" "}
             <small>
-              [{p.testPlanType.name}] {p.status} — {p.acceptanceCriteria.length} acceptance criteria
+              [{p.testPlanType.name}] {p.status} — {p.acceptanceCriteria.length}{" "}
+              acceptance criteria
             </small>
           </li>
         ))}
-        {!loading && plans.length === 0 && <p style={{ color: "var(--muted)" }}>No test plans yet.</p>}
-        {!loading && plans.length > 0 && visiblePlans.length === 0 && <p style={{ color: "var(--muted)" }}>No test plans match.</p>}
+        {!loading && plans.length === 0 && (
+          <p style={{ color: "var(--muted)" }}>No test plans yet.</p>
+        )}
+        {!loading && plans.length > 0 && visiblePlans.length === 0 && (
+          <p style={{ color: "var(--muted)" }}>No test plans match.</p>
+        )}
       </ul>
 
       <Drawer open={openPlanId !== null} onClose={() => setOpenPlanId(null)}>
-        {openPlanId && <TestPlanDetailContent id={openPlanId} onChanged={invalidatePlans} readOnly={readOnly} />}
+        {openPlanId && (
+          <TestPlanDetailContent
+            id={openPlanId}
+            onChanged={invalidatePlans}
+            readOnly={readOnly}
+          />
+        )}
       </Drawer>
 
       <GenerateStrategyModal
         open={generateOpen}
         onClose={() => setGenerateOpen(false)}
         projectId={projectId}
-        qaStrategyTypeId={types.find((t) => t.key === "qa-strategy")?.id}
         projectRepo={projectRepo}
         onCreated={invalidatePlans}
       />

@@ -237,6 +237,11 @@ model Project {
   repoUrl        String?
   defaultBranch  String       @default("main")
   createdAt      DateTime     @default(now())
+  // Captured by project setup so navigation, templates, dashboards and
+  // compliance suggestions can adapt to software, hardware, HIL,
+  // manufacturing, medical-device and laboratory work.
+  qualityProfile Json         @default("{}")
+  hiddenComplianceFrameworkIds String[] @default([])
 
   // The commit SHA the most recent successful repo scan resolved `ref` to
   // (P2-05). When set, the next scan diffs from here to HEAD instead of
@@ -729,6 +734,17 @@ enum AutomationStatus {
   NEEDS_AUTOMATION
 }
 
+enum ValidationDomain {
+  SOFTWARE
+  HARDWARE
+  SYSTEM_INTEGRATION
+  HIL
+  MANUFACTURING
+  MEDICAL_DEVICE
+  PHARMA_LAB
+  OTHER
+}
+
 // The canonical, human-readable test case. Whether it was authored by a
 // human or reverse-engineered from code by the AI agent, it lives here in
 // the same BDD-normalized shape.
@@ -750,6 +766,11 @@ model TestCase {
   priority         TestCasePriority @default(MEDIUM)
   testType         TestCaseType
   automationStatus AutomationStatus @default(MANUAL)
+  validationDomain ValidationDomain @default(SOFTWARE)
+  // Domain-specific procedure definition. Hardware/HIL cases use this for
+  // unit-under-test metadata, rigs/instruments, safety controls, stimuli,
+  // expected measurement channels and visual evidence requirements.
+  verificationProfile Json @default("{}")
 
   // Manual suite/folder assignment, independent of origin -- a "/"-delimited
   // path like the tree UI's derived-from-source grouping (e.g.
@@ -940,6 +961,8 @@ model TestCaseVersion {
   tags          String[]
   priority      TestCasePriority
   testType      TestCaseType
+  validationDomain ValidationDomain @default(SOFTWARE)
+  verificationProfile Json @default("{}")
   createdById   String?
   createdBy     User?            @relation(fields: [createdById], references: [id])
   createdAt     DateTime         @default(now())
@@ -1530,6 +1553,9 @@ model TestRun {
   // P7-02's acceptance-criteria computation). Empty for every CI-ingested
   // run; only meaningful alongside ciProvider = "manual".
   manualTestCaseIds String[] @default([])
+  // Serial/lot/batch, hardware and firmware revisions, bench/site,
+  // environment and calibration context for physical or regulated runs.
+  executionContext Json @default("{}")
 
   // Who ran a manual run (P5-16) - a CI run's "who" is the pipeline
   // itself, but a manual run's tester is real, useful information the
@@ -1620,6 +1646,10 @@ model TestResult {
   // from automated ingestion) - a tester leaves this on any status, not
   // just FAIL.
   note             String?
+  // Measured values, units, timestamps, tolerance verdicts and deviations.
+  // Large traces/images remain artifacts; this keeps their summarized,
+  // searchable values beside the verdict.
+  observations     Json @default("{}")
 
   reverseEngineerJob ReverseEngineerJob?
   artifacts          TestResultArtifact[]
@@ -1758,6 +1788,7 @@ model Release {
   project    Project       @relation(fields: [projectId], references: [id])
   name       String
   targetDate DateTime?
+  goals      String[]      @default([])
   status     ReleaseStatus @default(PLANNING)
 
   testPlans          TestPlan[]

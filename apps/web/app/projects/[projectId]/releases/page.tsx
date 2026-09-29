@@ -8,6 +8,7 @@ import { ReadinessBadge } from "@/components/ReadinessBadge";
 import { TrendChart } from "@/components/TrendChart";
 import { DistributionBar, ScoreRing } from "@/components/MetricVisuals";
 import { useProjectPermissions } from "@/lib/use-project-permissions";
+import { CreationWizard, WizardChoices } from "@/components/CreationWizard";
 
 // P1-15
 export default function ReleasesPage() {
@@ -19,17 +20,27 @@ export default function ReleasesPage() {
   const trendQuery = trpcReact.releases.trend.useQuery({ projectId });
   const releases = releasesQuery.data ?? [];
   const trend = trendQuery.data ?? [];
+  const plansQuery = trpcReact.testPlans.list.useQuery({ projectId });
 
   const [createOpen, setCreateOpen] = useState(false);
   const [name, setName] = useState("");
+  const [targetDate, setTargetDate] = useState("");
+  const [releaseStep, setReleaseStep] = useState(0);
+  const [selectedPlanIds, setSelectedPlanIds] = useState<string[]>([]);
+  const [releaseGoals, setReleaseGoals] = useState<string[]>([]);
   const [createError, setCreateError] = useState<string | null>(null);
 
   const createMutation = trpcReact.releases.create.useMutation({
     onSuccess: () => {
       setName("");
+      setTargetDate("");
+      setReleaseStep(0);
+      setSelectedPlanIds([]);
+      setReleaseGoals([]);
       setCreateOpen(false);
       void utils.releases.list.invalidate({ projectId });
       void utils.releases.trend.invalidate({ projectId });
+      void utils.testPlans.list.invalidate({ projectId });
     },
     onError: (e) => setCreateError(e.message),
   });
@@ -37,7 +48,13 @@ export default function ReleasesPage() {
   function submit() {
     if (!canEdit || !name.trim()) return;
     setCreateError(null);
-    createMutation.mutate({ projectId, name: name.trim() });
+    createMutation.mutate({
+      projectId,
+      name: name.trim(),
+      targetDate: targetDate ? new Date(`${targetDate}T12:00:00`) : undefined,
+      testPlanIds: selectedPlanIds,
+      goals: releaseGoals,
+    });
   }
 
   const loading = releasesQuery.isLoading;
@@ -225,41 +242,141 @@ export default function ReleasesPage() {
       <Modal
         open={canEdit && createOpen}
         onClose={() => setCreateOpen(false)}
-        title="New release"
+        title="Plan a release"
       >
-        <div style={{ display: "grid", gap: 10 }}>
-          <label>
-            Release name
-            <input
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              style={{ width: "100%" }}
-            />
-          </label>
-          <div
-            style={{
-              display: "flex",
-              gap: 8,
-              justifyContent: "flex-end",
-              marginTop: 8,
-            }}
-          >
-            <button
-              className="btn-secondary"
-              onClick={() => setCreateOpen(false)}
-            >
-              Cancel
-            </button>
-            <button
-              className="btn-primary"
-              onClick={submit}
-              disabled={createMutation.isPending || !name.trim()}
-            >
-              {createMutation.isPending ? "Creating…" : "Create release"}
-            </button>
-          </div>
+        <CreationWizard
+          step={releaseStep}
+          steps={["Identity", "Quality scope", "Review"]}
+          title={
+            [
+              "What is shipping?",
+              "What evidence should gate it?",
+              "Review the release setup",
+            ][releaseStep]!
+          }
+          description={
+            [
+              "Give the release a recognizable name and target. You can adjust status and dates later.",
+              "Reuse existing plans so their acceptance criteria immediately contribute to readiness.",
+              "Vaettir will create the release and link the selected quality plans.",
+            ][releaseStep]
+          }
+          canContinue={releaseStep === 0 ? Boolean(name.trim()) : true}
+          busy={createMutation.isPending}
+          submitLabel="Create release workspace"
+          onStepChange={setReleaseStep}
+          onCancel={() => setCreateOpen(false)}
+          onSubmit={submit}
+        >
+          {releaseStep === 0 && (
+            <>
+              <label>
+                Release name
+                <input
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  placeholder="For example: Pilot build 1.2"
+                />
+              </label>
+              <label>
+                Target date <span className="text-muted">(optional)</span>
+                <input
+                  type="date"
+                  value={targetDate}
+                  onChange={(e) => setTargetDate(e.target.value)}
+                />
+              </label>
+              <WizardChoices
+                title="Primary goals"
+                options={[
+                  "Customer launch",
+                  "Internal milestone",
+                  "Regulatory submission",
+                  "Pilot/manufacturing build",
+                  "Field trial",
+                  "Maintenance release",
+                ]}
+                selected={releaseGoals}
+                onToggle={(goal) =>
+                  setReleaseGoals((goals) =>
+                    goals.includes(goal)
+                      ? goals.filter((item) => item !== goal)
+                      : [...goals, goal],
+                  )
+                }
+              />
+            </>
+          )}
+          {releaseStep === 1 && (
+            <>
+              <fieldset>
+                <legend>Link unassigned test plans</legend>
+                {(plansQuery.data ?? [])
+                  .filter((plan) => !plan.releaseId)
+                  .map((plan) => (
+                    <label
+                      key={plan.id}
+                      style={{ display: "block", margin: "10px 0" }}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={selectedPlanIds.includes(plan.id)}
+                        onChange={(e) =>
+                          setSelectedPlanIds((ids) =>
+                            e.target.checked
+                              ? [...ids, plan.id]
+                              : ids.filter((id) => id !== plan.id),
+                          )
+                        }
+                      />{" "}
+                      {plan.name} · {plan.acceptanceCriteria.length} acceptance
+                      criteria
+                    </label>
+                  ))}
+                {plansQuery.isLoading && <p>Loading plans…</p>}
+                {plansQuery.error && (
+                  <p role="alert">{plansQuery.error.message}</p>
+                )}
+                {plansQuery.data?.every((plan) => !!plan.releaseId) && (
+                  <p>
+                    No unassigned plans. You can create the release now and add
+                    a plan later.
+                  </p>
+                )}
+              </fieldset>
+              {(plansQuery.data ?? []).length === 0 && (
+                <div className="panel" style={{ padding: 14 }}>
+                  <strong>No plans to link yet</strong>
+                  <p
+                    className="text-muted"
+                    style={{ margin: "4px 0 0", fontSize: 13 }}
+                  >
+                    Create a Test Strategy or Test Plan first, or continue with
+                    an empty release and add criteria later.
+                  </p>
+                </div>
+              )}
+            </>
+          )}
+          {releaseStep === 2 && (
+            <div className="panel" style={{ padding: 14 }}>
+              <strong>{name}</strong>
+              <p className="text-muted" style={{ margin: "4px 0" }}>
+                {targetDate
+                  ? `Target ${new Date(`${targetDate}T12:00:00`).toLocaleDateString()}`
+                  : "No target date"}
+              </p>
+              <p style={{ margin: 0, fontSize: 13 }}>
+                {selectedPlanIds.length} test plan(s) will contribute acceptance
+                criteria.{" "}
+                {releaseGoals.length
+                  ? `Goals: ${releaseGoals.join(", ")}.`
+                  : ""}
+              </p>
+            </div>
+          )}
           {error && <p style={{ color: "var(--ember)" }}>{error}</p>}
-        </div>
+        </CreationWizard>
       </Modal>
     </div>
   );

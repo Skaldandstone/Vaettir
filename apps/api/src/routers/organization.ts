@@ -16,7 +16,10 @@ import {
 } from "../trpc.js";
 import type { Prisma, PrismaClient } from "@vaettir/db";
 import { sendReadinessDigestForOrg } from "../jobs/readinessDigestScheduler.js";
-import { getAiCreditBalance } from "../services/aiCredits.js";
+import {
+  AI_OPERATION_COSTS,
+  getAiCreditBalance,
+} from "../services/aiCredits.js";
 import { computeRetentionDryRun } from "../services/retentionAudit.js";
 import { WEBHOOK_EVENT_TYPES } from "../services/webhookDelivery.js";
 import { assertPublicHttpUrl, UnsafeUrlError } from "../services/urlGuard.js";
@@ -33,6 +36,7 @@ import {
   syncBillingSeatQuantity,
   BillingNotConfiguredError,
 } from "../services/stripeBilling.js";
+import { getBillingAvailability } from "../services/stripeConfig.js";
 import {
   encryptToken,
   TokenEncryptionNotConfiguredError,
@@ -1318,6 +1322,80 @@ export const organizationRouter = router({
         includedPerMonth: org.planTier.includedAiCreditsPerMonth,
         planTierName: org.planTier.name,
         recent,
+      };
+    }),
+
+  // The billing page remains useful before checkout is enabled. This query
+  // intentionally exposes catalog and availability metadata only: no Stripe
+  // credentials, customer IDs or subscription IDs leave the API.
+  billingOverview: protectedProcedure
+    .input(z.object({ organizationId: z.string() }))
+    .output(
+      z.object({
+        purchasesEnabled: z.boolean(),
+        billingMode: z.enum(["sandbox", "unavailable"]),
+        availabilityReason: z
+          .enum([
+            "NOT_CONFIGURED",
+            "INCOMPLETE_CONFIGURATION",
+            "PRODUCTION_CHECKOUT_DISABLED",
+          ])
+          .nullable(),
+        hasBillingAccount: z.boolean(),
+        hasActiveSubscription: z.boolean(),
+        currentPlan: z.object({
+          key: z.string(),
+          name: z.string(),
+          monthlyPricePerSeatCents: z.number().nullable(),
+        }),
+        creditUnitUsdCents: z.number(),
+        operationCosts: z.array(
+          z.object({ operation: z.string(), credits: z.number() }),
+        ),
+        topupPacks: z.array(
+          z.object({
+            key: z.string(),
+            credits: z.number(),
+            priceUsdCents: z.number(),
+          }),
+        ),
+      }),
+    )
+    .query(async ({ ctx, input }) => {
+      requireOrgRole(ctx, input.organizationId);
+      const organization = await ctx.prisma.organization.findUniqueOrThrow({
+        where: { id: input.organizationId },
+        select: {
+          stripeCustomerId: true,
+          stripeSubscriptionId: true,
+          planTier: {
+            select: {
+              key: true,
+              name: true,
+              monthlyPricePerSeatCents: true,
+            },
+          },
+        },
+      });
+      const availability = getBillingAvailability();
+      return {
+        purchasesEnabled: availability.purchasesEnabled,
+        billingMode: availability.mode,
+        availabilityReason: availability.reason,
+        hasBillingAccount: Boolean(organization.stripeCustomerId),
+        hasActiveSubscription: Boolean(organization.stripeSubscriptionId),
+        currentPlan: organization.planTier,
+        // The current ledger conversion is approximately $0.01 per credit.
+        // This is a display aid, not a promise that every model costs the same.
+        creditUnitUsdCents: 1,
+        operationCosts: Object.entries(AI_OPERATION_COSTS).map(
+          ([operation, credits]) => ({ operation, credits }),
+        ),
+        topupPacks: Object.entries(CREDIT_TOPUP_PACKS).map(([key, pack]) => ({
+          key,
+          credits: pack.credits,
+          priceUsdCents: pack.priceUsdCents,
+        })),
       };
     }),
 

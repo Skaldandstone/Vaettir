@@ -406,6 +406,11 @@ export default function ReleaseReadinessPage() {
         <h1 style={{ margin: 0 }}>{release.name}</h1>
         <ReadinessBadge score={readiness.score} label={readiness.label} />
       </div>
+      {release.goals.length > 0 && (
+        <p>
+          <strong>Release goals:</strong> {release.goals.join(" · ")}
+        </p>
+      )}
       <p className="text-muted" style={{ marginBottom: 12 }}>
         <a href={`/projects/${projectId}/test-strategy`}>← Test strategy</a>
         {release.targetDate &&

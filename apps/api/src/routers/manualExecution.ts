@@ -4,6 +4,13 @@ import { router, protectedProcedure, requireProjectAccess } from "../trpc.js";
 import { recomputeFlaky } from "../services/flakyDetection.js";
 import { resolveHealingSuggestionsOnPass } from "../services/healingSuggestion.js";
 import { resolveStepFieldLabels } from "@vaettir/core";
+import {
+  manualRunStatus,
+  measurementVerdict,
+  observationsSchema,
+  verificationProfileSchema,
+  validationDomainSchema,
+} from "../services/physicalValidation.js";
 
 // Closes the single biggest gap found in the 2026-08-27 competitor parity
 // audit (see COMPETITIVE_ANALYSIS.md): every competitor researched
@@ -45,7 +52,10 @@ export const manualExecutionRouter = router({
         select: { id: true },
       });
       if (cases.length !== input.testCaseIds.length) {
-        throw new TRPCError({ code: "BAD_REQUEST", message: "One or more test cases don't belong to this project" });
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "One or more test cases don't belong to this project",
+        });
       }
 
       const run = await ctx.prisma.testRun.create({
@@ -80,6 +90,8 @@ export const manualExecutionRouter = router({
           z.object({
             testCaseId: z.string(),
             title: z.string(),
+            validationDomain: validationDomainSchema,
+            verificationProfile: verificationProfileSchema,
             given: z.array(z.string()),
             when: z.array(z.string()),
             then: z.array(z.string()),
@@ -93,7 +105,11 @@ export const manualExecutionRouter = router({
               }),
             ),
             currentResult: z
-              .object({ status: z.string(), note: z.string().nullable() })
+              .object({
+                status: z.string(),
+                note: z.string().nullable(),
+                observations: observationsSchema,
+              })
               .nullable(),
           }),
         ),
@@ -109,16 +125,27 @@ export const manualExecutionRouter = router({
       const [cases, results] = await Promise.all([
         ctx.prisma.testCase.findMany({
           where: { id: { in: run.manualTestCaseIds } },
-          include: { steps: { orderBy: { order: "asc" } }, sharedStepGroup: true },
+          include: {
+            steps: { orderBy: { order: "asc" } },
+            sharedStepGroup: true,
+          },
         }),
         ctx.prisma.testResult.findMany({
-          where: { testRunId: run.id, testCaseId: { in: run.manualTestCaseIds } },
+          where: {
+            testRunId: run.id,
+            testCaseId: { in: run.manualTestCaseIds },
+          },
         }),
       ]);
       const casesById = new Map(cases.map((c) => [c.id, c]));
-      const resultByCase = new Map(results.map((r) => [r.testCaseId as string, r]));
+      const resultByCase = new Map(
+        results.map((r) => [r.testCaseId as string, r]),
+      );
 
-      const overrides = (run.project.organization.stepFieldLabels as Partial<Record<string, string>> | null) ?? {};
+      const overrides =
+        (run.project.organization.stepFieldLabels as Partial<
+          Record<string, string>
+        > | null) ?? {};
 
       return {
         testRunId: run.id,
@@ -133,6 +160,10 @@ export const manualExecutionRouter = router({
             return {
               testCaseId: c.id,
               title: c.title,
+              validationDomain: c.validationDomain,
+              verificationProfile: verificationProfileSchema.parse(
+                c.verificationProfile,
+              ),
               given: c.given,
               when: c.when,
               then: c.then,
@@ -153,7 +184,13 @@ export const manualExecutionRouter = router({
                     expectedResult: s.expectedResult,
                     expectedResponse: s.expectedResponse,
                   })),
-              currentResult: result ? { status: result.status, note: result.note } : null,
+              currentResult: result
+                ? {
+                    status: result.status,
+                    note: result.note,
+                    observations: observationsSchema.parse(result.observations),
+                  }
+                : null,
             };
           }),
       };
@@ -170,33 +207,78 @@ export const manualExecutionRouter = router({
         testCaseId: z.string(),
         status: z.enum(["PASS", "FAIL", "BLOCKED", "SKIP"]),
         note: z.string().optional(),
+        observations: observationsSchema.optional(),
       }),
     )
     .mutation(async ({ ctx, input }) => {
-      const run = await ctx.prisma.testRun.findUniqueOrThrow({ where: { id: input.testRunId } });
-      await requireProjectAccess(ctx, run.projectId, "EDITOR");
-
-      if (!run.manualTestCaseIds.includes(input.testCaseId)) {
-        throw new TRPCError({ code: "BAD_REQUEST", message: "That test case isn't part of this run's planned scope" });
-      }
-
-      const existing = await ctx.prisma.testResult.findFirst({
-        where: { testRunId: input.testRunId, testCaseId: input.testCaseId },
+      const authorizedRun = await ctx.prisma.testRun.findUniqueOrThrow({
+        where: { id: input.testRunId },
       });
+      await requireProjectAccess(ctx, authorizedRun.projectId, "EDITOR");
 
-      const result = existing
-        ? await ctx.prisma.testResult.update({
-            where: { id: existing.id },
-            data: { status: input.status, note: input.note ?? null },
-          })
-        : await ctx.prisma.testResult.create({
-            data: {
-              testRunId: input.testRunId,
-              testCaseId: input.testCaseId,
-              status: input.status,
-              note: input.note ?? null,
-            },
+      const result = await ctx.prisma.$transaction(async (tx) => {
+        // Serialize result changes and completion for this run, including parallel
+        // tabs. This also prevents duplicate first-result inserts.
+        await tx.$queryRaw`SELECT id FROM "TestRun" WHERE id = ${input.testRunId} FOR UPDATE`;
+        const run = await tx.testRun.findUniqueOrThrow({
+          where: { id: input.testRunId },
+        });
+
+        if (run.ciProvider !== "manual" || run.status !== "RUNNING") {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "Only an active manual run can accept results",
           });
+        }
+
+        if (!run.manualTestCaseIds.includes(input.testCaseId)) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "That test case isn't part of this run's planned scope",
+          });
+        }
+
+        const existing = await tx.testResult.findFirst({
+          where: { testRunId: input.testRunId, testCaseId: input.testCaseId },
+        });
+
+        const observations =
+          input.observations ??
+          observationsSchema.parse(existing?.observations ?? {});
+        if (
+          input.status === "PASS" &&
+          observations.measurements.some(
+            (m) => measurementVerdict(m) === "OUT_OF_RANGE",
+          )
+        ) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message:
+              "A reading is outside its recorded limits. Review the evidence or record Fail instead of Pass.",
+          });
+        }
+
+        const result = existing
+          ? await tx.testResult.update({
+              where: { id: existing.id },
+              data: {
+                status: input.status,
+                note: input.note ?? null,
+                observations,
+              },
+            })
+          : await tx.testResult.create({
+              data: {
+                testRunId: input.testRunId,
+                testCaseId: input.testCaseId,
+                status: input.status,
+                note: input.note ?? null,
+                observations,
+              },
+            });
+
+        return result;
+      });
 
       // Same real-time signals a CI-ingested result already triggers
       // (P5-05, P6.5-04) - a manually-recorded PASS/FAIL is just as real.
@@ -214,26 +296,44 @@ export const manualExecutionRouter = router({
   // does everywhere else it's read (dashboards, release readiness).
   // Doesn't require every planned case to have been recorded - a tester
   // can stop partway and the run reflects whatever was actually done.
-  complete: protectedProcedure.input(z.object({ testRunId: z.string() })).mutation(async ({ ctx, input }) => {
-    const run = await ctx.prisma.testRun.findUniqueOrThrow({ where: { id: input.testRunId } });
-    await requireProjectAccess(ctx, run.projectId, "EDITOR");
+  complete: protectedProcedure
+    .input(z.object({ testRunId: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      const authorizedRun = await ctx.prisma.testRun.findUniqueOrThrow({
+        where: { id: input.testRunId },
+      });
+      await requireProjectAccess(ctx, authorizedRun.projectId, "EDITOR");
+      return ctx.prisma.$transaction(async (tx) => {
+        await tx.$queryRaw`SELECT id FROM "TestRun" WHERE id = ${input.testRunId} FOR UPDATE`;
+        const run = await tx.testRun.findUniqueOrThrow({
+          where: { id: input.testRunId },
+        });
 
-    const results = await ctx.prisma.testResult.findMany({
-      where: { testRunId: input.testRunId },
-      select: { status: true },
-    });
+        if (run.ciProvider !== "manual" || run.status !== "RUNNING") {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "Only an active manual run can be completed",
+          });
+        }
 
-    const status =
-      results.some((r) => r.status === "FAIL" || r.status === "BLOCKED")
-        ? "FAILED"
-        : results.some((r) => r.status === "SKIP")
-          ? "PARTIAL"
-          : "PASSED";
+        const results = await tx.testResult.findMany({
+          where: {
+            testRunId: input.testRunId,
+            testCaseId: { in: run.manualTestCaseIds },
+          },
+          select: { status: true },
+        });
 
-    await ctx.prisma.testRun.update({
-      where: { id: input.testRunId },
-      data: { status, finishedAt: new Date() },
-    });
-    return { status };
-  }),
+        const status = manualRunStatus(
+          run.manualTestCaseIds.length,
+          results.map((r) => r.status),
+        );
+
+        await tx.testRun.update({
+          where: { id: input.testRunId },
+          data: { status, finishedAt: new Date() },
+        });
+        return { status };
+      });
+    }),
 });

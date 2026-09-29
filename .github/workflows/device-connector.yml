@@ -1,0 +1,27 @@
+name: Build standalone device connectors (unsigned)
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  build:
+    strategy:
+      matrix:
+        os: [windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 26.8.1
+      - run: node scripts/build-device-connector.mjs
+      - name: Smoke test native binary
+        run: node -e "const file = 'dist/device-connector/' + process.platform + '-' + process.arch + '/VaettirDeviceConnector' + (process.platform === 'win32' ? '.exe' : ''); const result = require('node:child_process').spawnSync(process.execPath, ['scripts/smoke-device-connector-binary.mjs', file], { stdio: 'inherit' }); process.exit(result.status ?? 1);"
+      - uses: actions/upload-artifact@v6
+        with:
+          name: unsigned-device-connector-${{ runner.os }}-${{ runner.arch }}
+          path: |
+            dist/device-connector/**/*.exe
+            dist/device-connector/**/*.zip
+            dist/device-connector/**/manifest.json
+          retention-days: 7

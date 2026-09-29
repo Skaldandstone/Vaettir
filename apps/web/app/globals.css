@@ -3368,3 +3368,410 @@ main.app-main {
     transition: none !important;
   }
 }
+
+.creation-wizard {
+  display: grid;
+  gap: 14px;
+  width: min(680px, 78vw);
+}
+.creation-wizard-progress {
+  display: grid;
+  grid-template-columns: repeat(var(--wizard-steps, 4), minmax(30px, 1fr));
+  gap: 5px;
+}
+.creation-wizard-progress button {
+  min-height: 5px;
+  height: 5px;
+  padding: 0;
+  border: 0;
+  border-radius: 99px;
+  background: var(--line);
+}
+.creation-wizard-progress button.complete {
+  background: var(--frost);
+}
+.creation-wizard-body {
+  display: grid;
+  gap: 13px;
+}
+.creation-wizard-actions {
+  justify-content: space-between;
+  margin-top: 4px;
+}
+.wizard-choice-group {
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+.wizard-choice-group legend {
+  margin-bottom: 7px;
+  font-weight: 650;
+}
+.wizard-choice-group > div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+.wizard-choice-group label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 36px;
+  padding: 7px 10px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--panel);
+  cursor: pointer;
+  font-size: 12px;
+}
+.wizard-choice-group label.selected {
+  border-color: var(--frost);
+  background: var(--frost-dim);
+}
+.wizard-choice-group input {
+  margin: 0;
+}
+.import-method-grid,
+.import-provider-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+  gap: 10px;
+  margin-bottom: 14px;
+}
+.import-method-card,
+.import-provider-card {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: start;
+  gap: 10px;
+  min-height: 94px;
+  padding: 13px;
+  text-align: left;
+  white-space: normal;
+  color: var(--text);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+}
+.import-method-card.selected {
+  border-color: var(--frost);
+  background: var(--frost-dim);
+}
+.import-method-card strong,
+.import-provider-card strong,
+.import-method-card small,
+.import-provider-card small {
+  display: block;
+}
+.import-method-card small,
+.import-provider-card small {
+  margin-top: 4px;
+  color: var(--muted);
+  font-weight: 400;
+  line-height: 1.45;
+}
+.import-method-icon,
+.provider-mark {
+  display: grid;
+  place-items: center;
+  width: 35px;
+  height: 35px;
+  border-radius: 8px;
+  background: var(--frost-dim);
+  color: var(--frost);
+  font-weight: 750;
+  letter-spacing: -0.04em;
+}
+
+.account-menu {
+  position: relative;
+}
+.account-menu-trigger {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  overflow: hidden;
+  color: var(--on-accent);
+  font-weight: 750;
+  border: 2px solid color-mix(in srgb, var(--frost) 65%, transparent);
+  border-radius: 50%;
+  background: var(--frost);
+}
+.account-menu-trigger img,
+.account-menu-identity > img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.account-menu-popover {
+  position: absolute;
+  z-index: 120;
+  top: calc(100% + 9px);
+  right: 0;
+  width: min(360px, calc(100vw - 24px));
+  overflow: hidden;
+  color: var(--fg);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--panel);
+  box-shadow: 0 18px 50px rgb(0 0 0 / 28%);
+}
+.account-menu-identity {
+  display: grid;
+  grid-template-columns: 42px minmax(0, 1fr);
+  gap: 11px;
+  align-items: center;
+  padding: 15px;
+}
+.account-menu-identity > img,
+.account-menu-identity > span {
+  display: grid;
+  place-items: center;
+  width: 42px;
+  height: 42px;
+  color: var(--on-accent);
+  border-radius: 50%;
+  background: var(--frost);
+}
+.account-menu-identity strong,
+.account-menu-identity small,
+.account-menu-section strong,
+.account-menu-section small {
+  display: block;
+}
+.account-menu-identity small,
+.account-menu-section small {
+  margin-top: 2px;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 450;
+}
+.account-menu-section {
+  padding: 7px;
+  border-top: 1px solid var(--line);
+}
+.account-menu-section > a,
+.account-menu-section > button,
+.account-menu-section > .account-menu-disabled {
+  display: grid;
+  grid-template-columns: 22px minmax(0, 1fr);
+  gap: 8px;
+  align-items: center;
+  width: 100%;
+  min-height: 38px;
+  padding: 8px 9px;
+  color: var(--fg);
+  text-align: left;
+  text-decoration: none;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+}
+.account-menu-section > a:hover,
+.account-menu-section > button:hover {
+  background: var(--panel-2);
+}
+.account-menu-heading {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 5px 9px 7px;
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.account-menu-heading small {
+  margin: 0;
+  color: var(--warning);
+  text-transform: none;
+  letter-spacing: 0;
+}
+.account-menu-section > .account-menu-disabled {
+  color: var(--muted);
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.security-center {
+  display: grid;
+  gap: 18px;
+  max-width: 1080px;
+}
+.security-center .workspace-alert {
+  display: grid;
+  gap: 4px;
+}
+.security-method-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+.security-method-card {
+  display: grid;
+  align-content: start;
+  gap: 14px;
+  padding: 20px;
+}
+.security-method-heading,
+.security-method-heading > div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+.security-method-heading h2,
+.account-identity-panel h2,
+.backup-code-panel h2 {
+  margin: 0;
+  font-size: 18px;
+}
+.security-method-icon {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  color: var(--frost);
+  font-weight: 750;
+  border-radius: 8px;
+  background: var(--frost-dim);
+}
+.security-method-card > p,
+.account-identity-panel p,
+.backup-code-panel p,
+.security-enrollment p {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.55;
+}
+.security-method-card > button {
+  justify-self: start;
+}
+.security-method-list {
+  display: grid;
+  gap: 7px;
+  padding: 0;
+  margin: 0;
+  list-style: none;
+}
+.security-method-list li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 9px 0;
+  border-top: 1px solid var(--line);
+}
+.security-method-list small {
+  display: block;
+  margin-top: 2px;
+  color: var(--muted);
+}
+.security-enrollment {
+  display: grid;
+  gap: 10px;
+  padding: 13px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel-2);
+}
+.security-enrollment code {
+  padding: 9px;
+  overflow-wrap: anywhere;
+  border-radius: 5px;
+  background: var(--bg);
+}
+.security-enrollment label {
+  display: grid;
+  gap: 5px;
+}
+.backup-code-panel,
+.account-identity-panel {
+  padding: 20px;
+}
+.backup-code-panel > div {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 7px;
+  margin-top: 12px;
+}
+.backup-code-panel code {
+  padding: 8px;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  background: var(--panel-2);
+}
+.account-identity-panel {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+}
+@media (max-width: 760px) {
+  .security-method-grid {
+    grid-template-columns: 1fr;
+  }
+  .account-identity-panel {
+    align-items: stretch;
+    flex-direction: column;
+  }
+}
+.billing-module-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 20px;
+  margin-top: 20px;
+}
+.billing-catalog-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 0;
+  border-top: 1px solid var(--line);
+}
+.billing-catalog-row small {
+  display: block;
+  margin-top: 4px;
+  color: var(--muted);
+}
+.project-connection-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin: 18px 0;
+  align-items: flex-start;
+}
+.connection-chip {
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  padding: 8px 14px;
+  background: var(--panel);
+}
+.connection-chip summary {
+  cursor: pointer;
+}
+.connection-chip-form {
+  max-width: 520px;
+  padding-top: 14px;
+}
+.overview-distribution {
+  display: grid;
+  grid-template-columns: minmax(100px, 180px) 1fr 48px;
+  align-items: center;
+  gap: 12px;
+  margin: 10px 0;
+}
+.overview-distribution meter {
+  width: 100%;
+  height: 22px;
+  accent-color: var(--frost);
+}
+@media (max-width: 760px) {
+  .billing-module-grid {
+    grid-template-columns: 1fr;
+  }
+}

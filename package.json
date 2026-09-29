@@ -21,6 +21,7 @@
     "email:invitation:inspect": "node scripts/clerk-invitation-template.mjs inspect",
     "email:invitation:sync": "node scripts/clerk-invitation-template.mjs sync",
     "capture:device": "node scripts/capture-mobile-app.mjs",
+    "build:device-connector": "node scripts/build-device-connector.mjs",
     "restore:drill": "node scripts/local-restore-drill.mjs",
     "db:generate": "pnpm --filter @vaettir/db generate",
     "db:migrate": "pnpm --filter @vaettir/db migrate",

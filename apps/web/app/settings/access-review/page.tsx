@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { Fragment, useEffect, useState } from "react";
+import { canAdministerOrganization } from "../../../lib/membership";
 import { useRouter } from "next/navigation";
 import { trpcReact, type RouterOutputs } from "../../../lib/trpcReact";
 
@@ -14,32 +15,62 @@ export default function AccessReviewPage() {
   const orgsQuery = trpcReact.organization.mine.useQuery();
   const orgId = orgsQuery.data?.[0]?.id;
   const orgName = orgsQuery.data?.[0]?.name ?? "";
+  const canAdmin = canAdministerOrganization(orgsQuery.data?.[0]);
 
-  const membersQuery = trpcReact.organization.listMembers.useQuery({ organizationId: orgId! }, { enabled: !!orgId });
-  const statusQuery = trpcReact.organization.accessReviewStatus.useQuery({ organizationId: orgId! }, { enabled: !!orgId });
-  const reviewsQuery = trpcReact.organization.listAccessReviews.useQuery({ organizationId: orgId! }, { enabled: !!orgId });
+  const membersQuery = trpcReact.organization.listMembers.useQuery(
+    { organizationId: orgId! },
+    { enabled: !!orgId && canAdmin },
+  );
+  const statusQuery = trpcReact.organization.accessReviewStatus.useQuery(
+    { organizationId: orgId! },
+    { enabled: !!orgId && canAdmin },
+  );
+  const reviewsQuery = trpcReact.organization.listAccessReviews.useQuery(
+    { organizationId: orgId! },
+    { enabled: !!orgId && canAdmin },
+  );
 
   const members = membersQuery.data ?? [];
   const status = statusQuery.data ?? null;
   const reviews = reviewsQuery.data ?? [];
 
-  const [expanded, setExpanded] = useState<Record<string, RouterOutputs["organization"]["getAccessReviewDetail"] | undefined>>({});
+  const [expanded, setExpanded] = useState<
+    Record<
+      string,
+      RouterOutputs["organization"]["getAccessReviewDetail"] | undefined
+    >
+  >({});
   const [period, setPeriod] = useState("");
-  const [decisions, setDecisions] = useState<Record<string, { decision: Decision; note: string }>>({});
+  const [decisions, setDecisions] = useState<
+    Record<string, { decision: Decision | ""; note: string }>
+  >({});
+  const [selected, setSelected] = useState<string[]>([]);
+  const [bulkNote, setBulkNote] = useState("");
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [submitted, setSubmitted] = useState(false);
 
   useEffect(() => {
-    if (orgsQuery.data && orgsQuery.data.length === 0) router.push("/onboarding");
+    if (orgsQuery.data && orgsQuery.data.length === 0)
+      router.push("/onboarding");
   }, [orgsQuery.data, router]);
 
   useEffect(() => {
     if (membersQuery.data) {
-      setDecisions(Object.fromEntries(membersQuery.data.map((m) => [m.id, { decision: "CONFIRMED" as Decision, note: "" }])));
+      setDecisions((prev) =>
+        Object.fromEntries(
+          membersQuery.data.map((m) => [
+            m.id,
+            prev[m.id] ?? { decision: "", note: "" },
+          ]),
+        ),
+      );
+      setSelected((prev) =>
+        prev.filter((id) => membersQuery.data.some((m) => m.id === id)),
+      );
     }
   }, [membersQuery.data]);
 
-  function setDecision(membershipId: string, decision: Decision) {
+  function setDecision(membershipId: string, decision: Decision | "") {
     setDecisions((prev) => ({
       ...prev,
       [membershipId]: { decision, note: prev[membershipId]?.note ?? "" },
@@ -49,7 +80,7 @@ export default function AccessReviewPage() {
   function setNote(membershipId: string, note: string) {
     setDecisions((prev) => ({
       ...prev,
-      [membershipId]: { decision: prev[membershipId]?.decision ?? "CONFIRMED", note },
+      [membershipId]: { decision: prev[membershipId]?.decision ?? "", note },
     }));
   }
 
@@ -57,13 +88,31 @@ export default function AccessReviewPage() {
     onSuccess: () => {
       setSubmitted(true);
       setPeriod("");
+      setDecisions({});
+      setSelected([]);
       void utils.organization.invalidate();
     },
     onError: (e) => setSubmitError(e.message),
   });
 
   function submitReview() {
-    if (!orgId) return;
+    if (
+      !orgId ||
+      !canAdmin ||
+      !period.trim() ||
+      members.some((m) => !decisions[m.id]?.decision)
+    )
+      return;
+    const revocations = members.filter(
+      (m) => decisions[m.id]?.decision === "REVOKED",
+    );
+    if (
+      revocations.length &&
+      !window.confirm(
+        `Remove access immediately for ${revocations.map((m) => m.userEmail).join(", ")}? This submits the full review.`,
+      )
+    )
+      return;
     setSubmitError(null);
     setSubmitted(false);
     submitMutation.mutate({
@@ -71,7 +120,7 @@ export default function AccessReviewPage() {
       period,
       decisions: members.map((m) => ({
         membershipId: m.id,
-        decision: decisions[m.id]?.decision ?? "CONFIRMED",
+        decision: decisions[m.id]!.decision as Decision,
         note: decisions[m.id]?.note?.trim() || undefined,
       })),
     });
@@ -86,21 +135,38 @@ export default function AccessReviewPage() {
     setExpanded((prev) => ({ ...prev, [id]: detail }));
   }
 
-  const loading = orgsQuery.isLoading || (!!orgId && (membersQuery.isLoading || statusQuery.isLoading || reviewsQuery.isLoading));
-  const pageError = orgsQuery.error?.message ?? membersQuery.error?.message ?? null;
+  const loading =
+    orgsQuery.isLoading ||
+    (!!orgId &&
+      canAdmin &&
+      (membersQuery.isLoading ||
+        statusQuery.isLoading ||
+        reviewsQuery.isLoading));
+  const pageError =
+    orgsQuery.error?.message ?? membersQuery.error?.message ?? null;
 
   if (loading) return <p>Loading…</p>;
   if (pageError) return <p style={{ color: "var(--ember)" }}>{pageError}</p>;
   if (!orgId) return <p>You don't belong to an organization yet.</p>;
+  if (!canAdmin)
+    return (
+      <p>
+        Access review requires a full-seat workspace Owner or Admin. Ask your
+        workspace owner for access.
+      </p>
+    );
 
-  const revokedCount = Object.values(decisions).filter((d) => d.decision === "REVOKED").length;
+  const revokedCount = Object.values(decisions).filter(
+    (d) => d.decision === "REVOKED",
+  ).length;
 
   return (
     <div style={{ maxWidth: 720 }}>
       <h1>{orgName} access review</h1>
       <p className="text-muted" style={{ fontSize: 13, marginTop: -6 }}>
-        A periodic record that someone with admin access actually looked at who has access to this org and confirmed
-        it's still appropriate - the kind of evidence a SOC 2 auditor asks for. Every current member must get a
+        A periodic record that someone with admin access actually looked at who
+        has access to this org and confirmed it's still appropriate - the kind
+        of evidence a SOC 2 auditor asks for. Every current member must get a
         decision; revoking removes their access immediately.
       </p>
 
@@ -108,19 +174,76 @@ export default function AccessReviewPage() {
         <div className="panel" style={{ margin: "12px 0 20px" }}>
           {status.lastReviewedAt ? (
             <p style={{ margin: 0 }}>
-              Last reviewed <strong>{status.daysSinceLastReview}</strong> day{status.daysSinceLastReview === 1 ? "" : "s"} ago
-              {" "}({new Date(status.lastReviewedAt).toLocaleDateString()}).
+              Last reviewed <strong>{status.daysSinceLastReview}</strong> day
+              {status.daysSinceLastReview === 1 ? "" : "s"} ago (
+              {new Date(status.lastReviewedAt).toLocaleDateString()}).
             </p>
           ) : (
-            <p style={{ margin: 0, color: "var(--ember)" }}>This organization has never completed an access review.</p>
+            <p style={{ margin: 0, color: "var(--ember)" }}>
+              This organization has never completed an access review.
+            </p>
           )}
         </div>
       )}
 
       <h2>Review current members</h2>
-      <table style={{ borderCollapse: "collapse", width: "100%", marginBottom: 12 }}>
+      <div
+        className="panel"
+        style={{
+          display: "flex",
+          flexWrap: "wrap",
+          gap: 8,
+          alignItems: "center",
+          marginBottom: 12,
+        }}
+      >
+        <span>{selected.length} selected</span>
+        <button
+          disabled={!selected.length || submitMutation.isPending}
+          onClick={() => selected.forEach((id) => setDecision(id, "CONFIRMED"))}
+        >
+          Confirm selected
+        </button>
+        <button
+          disabled={!selected.length || submitMutation.isPending}
+          onClick={() => selected.forEach((id) => setDecision(id, "REVOKED"))}
+        >
+          Mark selected for revocation
+        </button>
+        <input
+          aria-label="Note for selected members"
+          placeholder="Shared review note"
+          value={bulkNote}
+          onChange={(e) => setBulkNote(e.target.value)}
+        />
+        <button
+          disabled={!selected.length || submitMutation.isPending}
+          onClick={() => selected.forEach((id) => setNote(id, bulkNote))}
+        >
+          Apply note
+        </button>
+        <small>
+          Changes are staged until you submit. Every member needs an explicit
+          decision.
+        </small>
+      </div>
+      <table
+        style={{ borderCollapse: "collapse", width: "100%", marginBottom: 12 }}
+      >
         <thead>
           <tr>
+            <th style={cellStyle}>
+              <input
+                type="checkbox"
+                aria-label="Select all members"
+                checked={
+                  members.length > 0 && selected.length === members.length
+                }
+                onChange={(e) =>
+                  setSelected(e.target.checked ? members.map((m) => m.id) : [])
+                }
+              />
+            </th>
             <th style={cellStyle}>Member</th>
             <th style={cellStyle}>Role</th>
             <th style={cellStyle}>Decision</th>
@@ -130,13 +253,34 @@ export default function AccessReviewPage() {
         <tbody>
           {members.map((m) => (
             <tr key={m.id}>
-              <td style={cellStyle}>{m.userName ? `${m.userName} (${m.userEmail})` : m.userEmail}</td>
+              <td style={cellStyle}>
+                <input
+                  type="checkbox"
+                  aria-label={`Select ${m.userEmail}`}
+                  checked={selected.includes(m.id)}
+                  onChange={(e) =>
+                    setSelected((prev) =>
+                      e.target.checked
+                        ? [...prev, m.id]
+                        : prev.filter((id) => id !== m.id),
+                    )
+                  }
+                />
+              </td>
+              <td style={cellStyle}>
+                {m.userName ? `${m.userName} (${m.userEmail})` : m.userEmail}
+              </td>
               <td style={cellStyle}>{m.role}</td>
               <td style={cellStyle}>
                 <select
-                  value={decisions[m.id]?.decision ?? "CONFIRMED"}
-                  onChange={(e) => setDecision(m.id, e.target.value as Decision)}
+                  disabled={submitMutation.isPending}
+                  aria-label={`Access decision for ${m.userEmail}`}
+                  value={decisions[m.id]?.decision ?? ""}
+                  onChange={(e) =>
+                    setDecision(m.id, e.target.value as Decision)
+                  }
                 >
+                  <option value="">Choose decision</option>
                   <option value="CONFIRMED">Confirm access</option>
                   <option value="REVOKED">Revoke access</option>
                 </select>
@@ -156,23 +300,44 @@ export default function AccessReviewPage() {
 
       {revokedCount > 0 && (
         <p style={{ color: "var(--ember)", fontSize: 13 }}>
-          {revokedCount} member{revokedCount === 1 ? "" : "s"} will be removed from the organization immediately on submit.
+          {revokedCount} member{revokedCount === 1 ? "" : "s"} will be removed
+          from the organization immediately on submit.
         </p>
       )}
 
-      <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 8 }}>
+      <div
+        style={{
+          display: "flex",
+          gap: 8,
+          alignItems: "center",
+          marginBottom: 8,
+        }}
+      >
         <input
           value={period}
           onChange={(e) => setPeriod(e.target.value)}
           placeholder="Period (e.g. 2026-Q3)"
           style={{ fontSize: 13, width: 160 }}
         />
-        <button className="btn-primary" onClick={submitReview} disabled={submitMutation.isPending || !period.trim()}>
+        <button
+          className="btn-primary"
+          onClick={submitReview}
+          disabled={
+            submitMutation.isPending ||
+            !period.trim() ||
+            !members.length ||
+            members.some((m) => !decisions[m.id]?.decision)
+          }
+        >
           {submitMutation.isPending ? "Submitting…" : "Submit review"}
         </button>
       </div>
-      {submitted && <p style={{ color: "var(--frost)", fontSize: 13 }}>Review recorded.</p>}
-      {submitError && <p style={{ color: "var(--ember)", fontSize: 13 }}>{submitError}</p>}
+      {submitted && (
+        <p style={{ color: "var(--frost)", fontSize: 13 }}>Review recorded.</p>
+      )}
+      {submitError && (
+        <p style={{ color: "var(--ember)", fontSize: 13 }}>{submitError}</p>
+      )}
 
       <h2 style={{ marginTop: 32 }}>Past reviews</h2>
       {reviews.length === 0 ? (
@@ -191,26 +356,36 @@ export default function AccessReviewPage() {
           </thead>
           <tbody>
             {reviews.map((r) => (
-              <>
+              <Fragment key={r.id}>
                 <tr key={r.id}>
                   <td style={cellStyle}>{r.period}</td>
-                  <td style={cellStyle}>{new Date(r.performedAt).toLocaleDateString()}</td>
+                  <td style={cellStyle}>
+                    {new Date(r.performedAt).toLocaleDateString()}
+                  </td>
                   <td style={cellStyle}>{r.performedByEmail}</td>
                   <td style={cellStyle}>{r.confirmedCount}</td>
                   <td style={cellStyle}>{r.revokedCount}</td>
                   <td style={cellStyle}>
-                    <button className="btn-secondary" style={{ fontSize: 12 }} onClick={() => toggleExpand(r.id)}>
+                    <button
+                      className="btn-secondary"
+                      style={{ fontSize: 12 }}
+                      onClick={() => toggleExpand(r.id)}
+                    >
                       {expanded[r.id] ? "Hide" : "View"}
                     </button>
                   </td>
                 </tr>
                 {expanded[r.id] && (
                   <tr key={`${r.id}-detail`}>
-                    <td colSpan={6} style={{ ...cellStyle, background: "var(--frost-dim)" }}>
+                    <td
+                      colSpan={6}
+                      style={{ ...cellStyle, background: "var(--frost-dim)" }}
+                    >
                       <ul style={{ margin: 0, paddingLeft: 18 }}>
                         {expanded[r.id]!.entries.map((e, i) => (
                           <li key={i}>
-                            {e.userEmail} - {e.role} - <strong>{e.decision}</strong>
+                            {e.userEmail} - {e.role} -{" "}
+                            <strong>{e.decision}</strong>
                             {e.note ? ` - "${e.note}"` : ""}
                           </li>
                         ))}
@@ -218,7 +393,7 @@ export default function AccessReviewPage() {
                     </td>
                   </tr>
                 )}
-              </>
+              </Fragment>
             ))}
           </tbody>
         </table>
@@ -227,4 +402,8 @@ export default function AccessReviewPage() {
   );
 }
 
-const cellStyle = { border: "1px solid var(--line)", padding: "6px 10px", textAlign: "left" as const };
+const cellStyle = {
+  border: "1px solid var(--line)",
+  padding: "6px 10px",
+  textAlign: "left" as const,
+};

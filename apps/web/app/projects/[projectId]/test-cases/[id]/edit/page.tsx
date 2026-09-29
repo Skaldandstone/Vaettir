@@ -12,9 +12,13 @@ export default function EditTestCasePage() {
   const tcQuery = trpcReact.testCases.byId.useQuery({ id: params.id });
   const tc = tcQuery.data;
 
-  if (tcQuery.error) return <p style={{ color: "var(--ember)" }}>{tcQuery.error.message}</p>;
+  if (tcQuery.error)
+    return <p style={{ color: "var(--ember)" }}>{tcQuery.error.message}</p>;
   if (!loaded || !tc) return <p>Loading…</p>;
-  if (!canEdit) return <p>A full-seat Editor, Admin, or Owner is required to edit test cases.</p>;
+  if (!canEdit)
+    return (
+      <p>A full-seat Editor, Admin, or Owner is required to edit test cases.</p>
+    );
 
   return (
     <div>
@@ -35,6 +39,8 @@ export default function EditTestCasePage() {
           title: tc.title,
           background: tc.background ?? "",
           testType: tc.testType,
+          validationDomain: tc.validationDomain,
+          verificationProfile: tc.verificationProfile,
           priority: tc.priority,
           tags: tc.tags.join(", "),
           suitePath: tc.suitePath ?? "",

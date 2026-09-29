@@ -26,6 +26,10 @@ export async function snapshotTestCaseVersion(
     actorId: string | null;
   },
 ) {
+  const physicalProfile = await prisma.testCase.findUniqueOrThrow({
+    where: { id: args.testCaseId },
+    select: { validationDomain: true, verificationProfile: true },
+  });
   const last = await prisma.testCaseVersion.findFirst({
     where: { testCaseId: args.testCaseId },
     orderBy: { versionNumber: "desc" },
@@ -44,6 +48,8 @@ export async function snapshotTestCaseVersion(
       tags: args.tags,
       priority: args.priority,
       testType: args.testType,
+      validationDomain: physicalProfile.validationDomain,
+      verificationProfile: physicalProfile.verificationProfile as never,
       createdById: args.actorId ?? undefined,
     },
   });

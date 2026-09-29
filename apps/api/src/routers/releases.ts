@@ -1,18 +1,36 @@
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
-import { router, protectedProcedure, requireProjectAccess, requireOrgRole } from "../trpc.js";
+import {
+  router,
+  protectedProcedure,
+  requireProjectAccess,
+  requireOrgRole,
+} from "../trpc.js";
 import { computeStatusesByTestPlan } from "../services/acceptanceCriteria.js";
 import { evaluateReleaseGate } from "../services/releaseGate.js";
 import { computeReadiness, getOrgOverview } from "../services/orgReadiness.js";
-import { computeReleaseReadiness, refreshReleaseReadiness } from "../services/releaseReadiness.js";
-import { chargeAiCredits, InsufficientAiCreditsError, meterAiCall } from "../services/aiCredits.js";
+import {
+  computeReleaseReadiness,
+  refreshReleaseReadiness,
+} from "../services/releaseReadiness.js";
+import {
+  chargeAiCredits,
+  InsufficientAiCreditsError,
+  meterAiCall,
+} from "../services/aiCredits.js";
 import { getCommitLog } from "../services/changeImpact.js";
 import { generateReleaseSummary } from "@vaettir/ai-agent";
 
 const readinessOutput = z.object({
   score: z.number(),
   label: z.enum(["READY", "AT_RISK", "BLOCKED"]),
-  criteria: z.object({ met: z.number(), atRisk: z.number(), notMet: z.number(), pending: z.number(), total: z.number() }),
+  criteria: z.object({
+    met: z.number(),
+    atRisk: z.number(),
+    notMet: z.number(),
+    pending: z.number(),
+    total: z.number(),
+  }),
   riskFlags: z.object({
     critical: z.number(),
     high: z.number(),
@@ -53,11 +71,22 @@ export const releasesRouter = router({
         where: { projectId: input.projectId },
         orderBy: { createdAt: "desc" },
         include: {
-          testPlans: { include: { acceptanceCriteria: { select: { testPlanId: true, status: true } } } },
-          riskFlags: { where: { resolvedAt: null }, select: { severity: true } },
+          testPlans: {
+            include: {
+              acceptanceCriteria: {
+                select: { testPlanId: true, status: true },
+              },
+            },
+          },
+          riskFlags: {
+            where: { resolvedAt: null },
+            select: { severity: true },
+          },
         },
       });
-      const allCriteria = releases.flatMap((r) => r.testPlans.flatMap((p) => p.acceptanceCriteria));
+      const allCriteria = releases.flatMap((r) =>
+        r.testPlans.flatMap((p) => p.acceptanceCriteria),
+      );
       const computedByPlan = await computeStatusesByTestPlan(
         ctx.prisma,
         allCriteria.map((c) => c.testPlanId),
@@ -69,7 +98,9 @@ export const releasesRouter = router({
         targetDate: r.targetDate,
         readiness: computeReadiness(
           r.testPlans.flatMap((p) =>
-            p.acceptanceCriteria.map((c) => ({ status: computedByPlan.get(c.testPlanId) ?? c.status })),
+            p.acceptanceCriteria.map((c) => ({
+              status: computedByPlan.get(c.testPlanId) ?? c.status,
+            })),
           ),
           r.riskFlags,
         ),
@@ -86,28 +117,71 @@ export const releasesRouter = router({
         status: z.string(),
         targetDate: z.date().nullable(),
         createdAt: z.date(),
+        goals: z.array(z.string()),
       }),
     )
     .query(async ({ ctx, input }) => {
-      const release = await ctx.prisma.release.findUniqueOrThrow({ where: { id: input.id } });
+      const release = await ctx.prisma.release.findUniqueOrThrow({
+        where: { id: input.id },
+      });
       await requireProjectAccess(ctx, release.projectId);
       return release;
     }),
 
   create: protectedProcedure
-    .input(z.object({ projectId: z.string(), name: z.string().min(1), targetDate: z.date().optional() }))
+    .input(
+      z.object({
+        projectId: z.string(),
+        name: z.string().trim().min(1),
+        targetDate: z.date().optional(),
+        testPlanIds: z.array(z.string()).max(200).default([]),
+        goals: z.array(z.string().max(200)).max(20).default([]),
+      }),
+    )
     .output(z.object({ id: z.string(), name: z.string() }))
     .mutation(async ({ ctx, input }) => {
       await requireProjectAccess(ctx, input.projectId, "EDITOR");
-      return ctx.prisma.release.create({
-        data: {
-          projectId: input.projectId,
-          name: input.name,
-          targetDate: input.targetDate,
-          createdById: ctx.user.id,
-          updatedById: ctx.user.id,
-        },
-        select: { id: true, name: true },
+      return ctx.prisma.$transaction(async (tx) => {
+        const planIds = [...new Set(input.testPlanIds)];
+        const eligibleCount = await tx.testPlan.count({
+          where: {
+            id: { in: planIds },
+            projectId: input.projectId,
+            releaseId: null,
+          },
+        });
+        if (eligibleCount !== planIds.length)
+          throw new TRPCError({
+            code: "CONFLICT",
+            message:
+              "A selected plan belongs to another project or is already assigned to a release. Refresh the plan selection.",
+          });
+        const release = await tx.release.create({
+          data: {
+            projectId: input.projectId,
+            name: input.name,
+            targetDate: input.targetDate,
+            goals: input.goals,
+            createdById: ctx.user.id,
+            updatedById: ctx.user.id,
+          },
+          select: { id: true, name: true },
+        });
+        const linked = await tx.testPlan.updateMany({
+          where: {
+            id: { in: planIds },
+            projectId: input.projectId,
+            releaseId: null,
+          },
+          data: { releaseId: release.id, updatedById: ctx.user.id },
+        });
+        if (linked.count !== planIds.length)
+          throw new TRPCError({
+            code: "CONFLICT",
+            message:
+              "A selected plan was assigned elsewhere. Nothing was created; refresh and retry.",
+          });
+        return release;
       });
     }),
 
@@ -115,9 +189,22 @@ export const releasesRouter = router({
   // PLANNING or IN_TESTING are never held up by this check, since the
   // gate's whole point is "don't call this release ready when it isn't."
   updateStatus: protectedProcedure
-    .input(z.object({ id: z.string(), status: z.enum(["PLANNING", "IN_TESTING", "READY", "SHIPPED", "BLOCKED"]) }))
+    .input(
+      z.object({
+        id: z.string(),
+        status: z.enum([
+          "PLANNING",
+          "IN_TESTING",
+          "READY",
+          "SHIPPED",
+          "BLOCKED",
+        ]),
+      }),
+    )
     .mutation(async ({ ctx, input }) => {
-      const release = await ctx.prisma.release.findUniqueOrThrow({ where: { id: input.id } });
+      const release = await ctx.prisma.release.findUniqueOrThrow({
+        where: { id: input.id },
+      });
       await requireProjectAccess(ctx, release.projectId, "EDITOR");
 
       if (input.status === "READY") {
@@ -130,14 +217,25 @@ export const releasesRouter = router({
         }
       }
 
-      return ctx.prisma.release.update({ where: { id: input.id }, data: { status: input.status, updatedById: ctx.user.id } });
+      return ctx.prisma.release.update({
+        where: { id: input.id },
+        data: { status: input.status, updatedById: ctx.user.id },
+      });
     }),
 
   checkGate: protectedProcedure
     .input(z.object({ releaseId: z.string() }))
-    .output(z.object({ policy: z.string(), passes: z.boolean(), reasons: z.array(z.string()) }))
+    .output(
+      z.object({
+        policy: z.string(),
+        passes: z.boolean(),
+        reasons: z.array(z.string()),
+      }),
+    )
     .query(async ({ ctx, input }) => {
-      const release = await ctx.prisma.release.findUniqueOrThrow({ where: { id: input.releaseId } });
+      const release = await ctx.prisma.release.findUniqueOrThrow({
+        where: { id: input.releaseId },
+      });
       await requireProjectAccess(ctx, release.projectId);
       return evaluateReleaseGate(ctx.prisma, input.releaseId);
     }),
@@ -146,7 +244,9 @@ export const releasesRouter = router({
     .input(z.object({ releaseId: z.string() }))
     .output(readinessOutput)
     .query(async ({ ctx, input }) => {
-      const release = await ctx.prisma.release.findUniqueOrThrow({ where: { id: input.releaseId } });
+      const release = await ctx.prisma.release.findUniqueOrThrow({
+        where: { id: input.releaseId },
+      });
       await requireProjectAccess(ctx, release.projectId);
       // P8-04: one shared implementation with the snapshot/notify service,
       // so what the page shows and what a "readiness changed" notification
@@ -157,7 +257,12 @@ export const releasesRouter = router({
   // P8-04: the persisted readiness history behind change notifications -
   // one row per score/label move, newest first, baseline included.
   readinessHistory: protectedProcedure
-    .input(z.object({ releaseId: z.string(), limit: z.number().int().min(1).max(200).default(50) }))
+    .input(
+      z.object({
+        releaseId: z.string(),
+        limit: z.number().int().min(1).max(200).default(50),
+      }),
+    )
     .output(
       z.array(
         z.object({
@@ -173,7 +278,9 @@ export const releasesRouter = router({
       ),
     )
     .query(async ({ ctx, input }) => {
-      const release = await ctx.prisma.release.findUniqueOrThrow({ where: { id: input.releaseId } });
+      const release = await ctx.prisma.release.findUniqueOrThrow({
+        where: { id: input.releaseId },
+      });
       await requireProjectAccess(ctx, release.projectId);
       return ctx.prisma.releaseReadinessSnapshot.findMany({
         where: { releaseId: input.releaseId },
@@ -192,17 +299,27 @@ export const releasesRouter = router({
           status: z.string(),
           testPlanType: z.object({ id: z.string(), name: z.string() }),
           acceptanceCriteria: z.array(
-            z.object({ id: z.string(), description: z.string(), status: z.string(), autoComputed: z.boolean() }),
+            z.object({
+              id: z.string(),
+              description: z.string(),
+              status: z.string(),
+              autoComputed: z.boolean(),
+            }),
           ),
         }),
       ),
     )
     .query(async ({ ctx, input }) => {
-      const release = await ctx.prisma.release.findUniqueOrThrow({ where: { id: input.releaseId } });
+      const release = await ctx.prisma.release.findUniqueOrThrow({
+        where: { id: input.releaseId },
+      });
       await requireProjectAccess(ctx, release.projectId);
       const plans = await ctx.prisma.testPlan.findMany({
         where: { releaseId: input.releaseId },
-        include: { testPlanType: true, acceptanceCriteria: { orderBy: { createdAt: "asc" } } },
+        include: {
+          testPlanType: true,
+          acceptanceCriteria: { orderBy: { createdAt: "asc" } },
+        },
         orderBy: { updatedAt: "desc" },
       });
       const computedByPlan = await computeStatusesByTestPlan(
@@ -227,7 +344,9 @@ export const releasesRouter = router({
     .input(z.object({ releaseId: z.string() }))
     .output(z.array(riskFlagOutput))
     .query(async ({ ctx, input }) => {
-      const release = await ctx.prisma.release.findUniqueOrThrow({ where: { id: input.releaseId } });
+      const release = await ctx.prisma.release.findUniqueOrThrow({
+        where: { id: input.releaseId },
+      });
       await requireProjectAccess(ctx, release.projectId);
       return ctx.prisma.riskFlag.findMany({
         where: { releaseId: input.releaseId },
@@ -246,7 +365,10 @@ export const releasesRouter = router({
       await requireProjectAccess(ctx, flag.release.projectId, "EDITOR");
       const updated = await ctx.prisma.riskFlag.update({
         where: { id: input.id },
-        data: { resolvedAt: input.resolved ? new Date() : null, updatedById: ctx.user.id },
+        data: {
+          resolvedAt: input.resolved ? new Date() : null,
+          updatedById: ctx.user.id,
+        },
       });
       refreshReleaseReadiness(ctx.prisma, flag.releaseId);
       return updated;
@@ -268,11 +390,21 @@ export const releasesRouter = router({
             projectId: z.string(),
             projectName: z.string(),
             release: z
-              .object({ id: z.string(), name: z.string(), status: z.string(), readiness: readinessOutput })
+              .object({
+                id: z.string(),
+                name: z.string(),
+                status: z.string(),
+                readiness: readinessOutput,
+              })
               .nullable(),
           }),
         ),
-        summary: z.object({ ready: z.number(), atRisk: z.number(), blocked: z.number(), noActiveRelease: z.number() }),
+        summary: z.object({
+          ready: z.number(),
+          atRisk: z.number(),
+          blocked: z.number(),
+          noActiveRelease: z.number(),
+        }),
       }),
     )
     .query(({ ctx, input }) => {
@@ -289,7 +421,12 @@ export const releasesRouter = router({
   // lower bound from the release before it, then trimmed to the last N for
   // the response.
   trend: protectedProcedure
-    .input(z.object({ projectId: z.string(), limit: z.number().int().min(1).max(50).default(10) }))
+    .input(
+      z.object({
+        projectId: z.string(),
+        limit: z.number().int().min(1).max(50).default(10),
+      }),
+    )
     .output(
       z.array(
         z.object({
@@ -326,17 +463,33 @@ export const releasesRouter = router({
       });
 
       const trend = allReleases.map((release, i) => {
-        const windowStart = i === 0 ? new Date(0) : allReleases[i - 1]!.createdAt;
-        const windowRuns = runs.filter((r) => r.startedAt > windowStart && r.startedAt <= release.createdAt);
+        const windowStart =
+          i === 0 ? new Date(0) : allReleases[i - 1]!.createdAt;
+        const windowRuns = runs.filter(
+          (r) => r.startedAt > windowStart && r.startedAt <= release.createdAt,
+        );
 
         const allResults = windowRuns.flatMap((r) => r.results);
-        const passRate = allResults.length > 0 ? allResults.filter((r) => r.status === "PASS").length / allResults.length : null;
-        const flakyCount = allResults.filter((r) => r.status === "FLAKY").length;
+        const passRate =
+          allResults.length > 0
+            ? allResults.filter((r) => r.status === "PASS").length /
+              allResults.length
+            : null;
+        const flakyCount = allResults.filter(
+          (r) => r.status === "FLAKY",
+        ).length;
 
-        const coverageRuns = windowRuns.filter((r) => r.coverageReport && r.coverageReport.linesTotal > 0);
+        const coverageRuns = windowRuns.filter(
+          (r) => r.coverageReport && r.coverageReport.linesTotal > 0,
+        );
         const coveragePct =
           coverageRuns.length > 0
-            ? (coverageRuns.reduce((sum, r) => sum + r.coverageReport!.linesCovered / r.coverageReport!.linesTotal, 0) /
+            ? (coverageRuns.reduce(
+                (sum, r) =>
+                  sum +
+                  r.coverageReport!.linesCovered / r.coverageReport!.linesTotal,
+                0,
+              ) /
                 coverageRuns.length) *
               100
             : null;
@@ -351,11 +504,16 @@ export const releasesRouter = router({
           if (run.status === "FAILED") {
             failStreakStart ??= run.startedAt;
           } else if (run.status === "PASSED" && failStreakStart) {
-            greenGapsMs.push(run.startedAt.getTime() - failStreakStart.getTime());
+            greenGapsMs.push(
+              run.startedAt.getTime() - failStreakStart.getTime(),
+            );
             failStreakStart = null;
           }
         }
-        const meanTimeToGreenMs = greenGapsMs.length > 0 ? greenGapsMs.reduce((a, b) => a + b, 0) / greenGapsMs.length : null;
+        const meanTimeToGreenMs =
+          greenGapsMs.length > 0
+            ? greenGapsMs.reduce((a, b) => a + b, 0) / greenGapsMs.length
+            : null;
 
         return {
           releaseId: release.id,
@@ -384,7 +542,13 @@ export const releasesRouter = router({
     .input(z.object({ releaseId: z.string() }))
     .output(
       z.object({
-        release: z.object({ id: z.string(), name: z.string(), status: z.string(), targetDate: z.date().nullable(), projectId: z.string() }),
+        release: z.object({
+          id: z.string(),
+          name: z.string(),
+          status: z.string(),
+          targetDate: z.date().nullable(),
+          projectId: z.string(),
+        }),
         projectName: z.string(),
         readiness: readinessOutput,
         testPlans: z.array(
@@ -394,7 +558,12 @@ export const releasesRouter = router({
             status: z.string(),
             testPlanType: z.object({ id: z.string(), name: z.string() }),
             acceptanceCriteria: z.array(
-              z.object({ id: z.string(), description: z.string(), status: z.string(), autoComputed: z.boolean() }),
+              z.object({
+                id: z.string(),
+                description: z.string(),
+                status: z.string(),
+                autoComputed: z.boolean(),
+              }),
             ),
           }),
         ),
@@ -415,41 +584,55 @@ export const releasesRouter = router({
       }),
     )
     .query(async ({ ctx, input }) => {
-      const release = await ctx.prisma.release.findUniqueOrThrow({ where: { id: input.releaseId } });
+      const release = await ctx.prisma.release.findUniqueOrThrow({
+        where: { id: input.releaseId },
+      });
       await requireProjectAccess(ctx, release.projectId);
-      const project = await ctx.prisma.project.findUniqueOrThrow({ where: { id: release.projectId }, select: { name: true } });
+      const project = await ctx.prisma.project.findUniqueOrThrow({
+        where: { id: release.projectId },
+        select: { name: true },
+      });
 
-      const [criteria, openFlags, plans, riskFlags, allReleases, runs] = await Promise.all([
-        ctx.prisma.acceptanceCriterion.findMany({
-          where: { testPlan: { releaseId: input.releaseId } },
-          select: { testPlanId: true, status: true },
-        }),
-        ctx.prisma.riskFlag.findMany({ where: { releaseId: input.releaseId, resolvedAt: null }, select: { severity: true } }),
-        ctx.prisma.testPlan.findMany({
-          where: { releaseId: input.releaseId },
-          include: { testPlanType: true, acceptanceCriteria: { orderBy: { createdAt: "asc" } } },
-          orderBy: { updatedAt: "desc" },
-        }),
-        ctx.prisma.riskFlag.findMany({
-          where: { releaseId: input.releaseId },
-          orderBy: [{ resolvedAt: "asc" }, { createdAt: "desc" }],
-        }),
-        ctx.prisma.release.findMany({
-          where: { projectId: release.projectId },
-          orderBy: { createdAt: "asc" },
-          select: { id: true, name: true, createdAt: true },
-        }),
-        ctx.prisma.testRun.findMany({
-          where: { projectId: release.projectId },
-          orderBy: { startedAt: "asc" },
-          select: {
-            startedAt: true,
-            status: true,
-            results: { select: { status: true } },
-            coverageReport: { select: { linesCovered: true, linesTotal: true } },
-          },
-        }),
-      ]);
+      const [criteria, openFlags, plans, riskFlags, allReleases, runs] =
+        await Promise.all([
+          ctx.prisma.acceptanceCriterion.findMany({
+            where: { testPlan: { releaseId: input.releaseId } },
+            select: { testPlanId: true, status: true },
+          }),
+          ctx.prisma.riskFlag.findMany({
+            where: { releaseId: input.releaseId, resolvedAt: null },
+            select: { severity: true },
+          }),
+          ctx.prisma.testPlan.findMany({
+            where: { releaseId: input.releaseId },
+            include: {
+              testPlanType: true,
+              acceptanceCriteria: { orderBy: { createdAt: "asc" } },
+            },
+            orderBy: { updatedAt: "desc" },
+          }),
+          ctx.prisma.riskFlag.findMany({
+            where: { releaseId: input.releaseId },
+            orderBy: [{ resolvedAt: "asc" }, { createdAt: "desc" }],
+          }),
+          ctx.prisma.release.findMany({
+            where: { projectId: release.projectId },
+            orderBy: { createdAt: "asc" },
+            select: { id: true, name: true, createdAt: true },
+          }),
+          ctx.prisma.testRun.findMany({
+            where: { projectId: release.projectId },
+            orderBy: { startedAt: "asc" },
+            select: {
+              startedAt: true,
+              status: true,
+              results: { select: { status: true } },
+              coverageReport: {
+                select: { linesCovered: true, linesTotal: true },
+              },
+            },
+          }),
+        ]);
 
       const computedByPlan = await computeStatusesByTestPlan(ctx.prisma, [
         ...criteria.map((c) => c.testPlanId),
@@ -457,7 +640,9 @@ export const releasesRouter = router({
       ]);
 
       const readiness = computeReadiness(
-        criteria.map((c) => ({ status: computedByPlan.get(c.testPlanId) ?? c.status })),
+        criteria.map((c) => ({
+          status: computedByPlan.get(c.testPlanId) ?? c.status,
+        })),
         openFlags,
       );
 
@@ -478,15 +663,32 @@ export const releasesRouter = router({
       });
 
       const trend = allReleases.map((r, i) => {
-        const windowStart = i === 0 ? new Date(0) : allReleases[i - 1]!.createdAt;
-        const windowRuns = runs.filter((run) => run.startedAt > windowStart && run.startedAt <= r.createdAt);
+        const windowStart =
+          i === 0 ? new Date(0) : allReleases[i - 1]!.createdAt;
+        const windowRuns = runs.filter(
+          (run) => run.startedAt > windowStart && run.startedAt <= r.createdAt,
+        );
         const allResults = windowRuns.flatMap((run) => run.results);
-        const passRate = allResults.length > 0 ? allResults.filter((res) => res.status === "PASS").length / allResults.length : null;
-        const flakyCount = allResults.filter((res) => res.status === "FLAKY").length;
-        const coverageRuns = windowRuns.filter((run) => run.coverageReport && run.coverageReport.linesTotal > 0);
+        const passRate =
+          allResults.length > 0
+            ? allResults.filter((res) => res.status === "PASS").length /
+              allResults.length
+            : null;
+        const flakyCount = allResults.filter(
+          (res) => res.status === "FLAKY",
+        ).length;
+        const coverageRuns = windowRuns.filter(
+          (run) => run.coverageReport && run.coverageReport.linesTotal > 0,
+        );
         const coveragePct =
           coverageRuns.length > 0
-            ? (coverageRuns.reduce((sum, run) => sum + run.coverageReport!.linesCovered / run.coverageReport!.linesTotal, 0) /
+            ? (coverageRuns.reduce(
+                (sum, run) =>
+                  sum +
+                  run.coverageReport!.linesCovered /
+                    run.coverageReport!.linesTotal,
+                0,
+              ) /
                 coverageRuns.length) *
               100
             : null;
@@ -496,16 +698,36 @@ export const releasesRouter = router({
           if (run.status === "FAILED") {
             failStreakStart ??= run.startedAt;
           } else if (run.status === "PASSED" && failStreakStart) {
-            greenGapsMs.push(run.startedAt.getTime() - failStreakStart.getTime());
+            greenGapsMs.push(
+              run.startedAt.getTime() - failStreakStart.getTime(),
+            );
             failStreakStart = null;
           }
         }
-        const meanTimeToGreenMs = greenGapsMs.length > 0 ? greenGapsMs.reduce((a, b) => a + b, 0) / greenGapsMs.length : null;
-        return { releaseId: r.id, name: r.name, createdAt: r.createdAt, runCount: windowRuns.length, passRate, flakyCount, coveragePct, meanTimeToGreenMs };
+        const meanTimeToGreenMs =
+          greenGapsMs.length > 0
+            ? greenGapsMs.reduce((a, b) => a + b, 0) / greenGapsMs.length
+            : null;
+        return {
+          releaseId: r.id,
+          name: r.name,
+          createdAt: r.createdAt,
+          runCount: windowRuns.length,
+          passRate,
+          flakyCount,
+          coveragePct,
+          meanTimeToGreenMs,
+        };
       });
 
       return {
-        release: { id: release.id, name: release.name, status: release.status, targetDate: release.targetDate, projectId: release.projectId },
+        release: {
+          id: release.id,
+          name: release.name,
+          status: release.status,
+          targetDate: release.targetDate,
+          projectId: release.projectId,
+        },
         projectName: project.name,
         readiness,
         testPlans,
@@ -526,7 +748,13 @@ export const releasesRouter = router({
   // draft for review/edit, matching every other AI-generation feature in
   // this codebase - nothing is saved or shared automatically.
   generateSummaryDraft: protectedProcedure
-    .input(z.object({ releaseId: z.string(), baseRef: z.string().optional(), headRef: z.string().optional() }))
+    .input(
+      z.object({
+        releaseId: z.string(),
+        baseRef: z.string().optional(),
+        headRef: z.string().optional(),
+      }),
+    )
     .output(
       z.object({
         overview: z.string(),
@@ -534,12 +762,20 @@ export const releasesRouter = router({
         coverage: z.string(),
         risks: z.string(),
         recommendation: z.string(),
-        groundedInCommits: z.array(z.object({ sha: z.string(), subject: z.string() })).optional(),
+        groundedInCommits: z
+          .array(z.object({ sha: z.string(), subject: z.string() }))
+          .optional(),
       }),
     )
     .mutation(async ({ ctx, input }) => {
-      const release = await ctx.prisma.release.findUniqueOrThrow({ where: { id: input.releaseId } });
-      const { project } = await requireProjectAccess(ctx, release.projectId, "EDITOR");
+      const release = await ctx.prisma.release.findUniqueOrThrow({
+        where: { id: input.releaseId },
+      });
+      const { project } = await requireProjectAccess(
+        ctx,
+        release.projectId,
+        "EDITOR",
+      );
       const projectFull = await ctx.prisma.project.findUniqueOrThrow({
         where: { id: release.projectId },
         select: { name: true, repoUrl: true, defaultBranch: true },
@@ -555,9 +791,14 @@ export const releasesRouter = router({
           select: { severity: true, source: true, description: true },
         }),
       ]);
-      const computedByPlan = await computeStatusesByTestPlan(ctx.prisma, criteria.map((c) => c.testPlanId));
+      const computedByPlan = await computeStatusesByTestPlan(
+        ctx.prisma,
+        criteria.map((c) => c.testPlanId),
+      );
       const readiness = computeReadiness(
-        criteria.map((c) => ({ status: computedByPlan.get(c.testPlanId) ?? c.status })),
+        criteria.map((c) => ({
+          status: computedByPlan.get(c.testPlanId) ?? c.status,
+        })),
         openFlags,
       );
 
@@ -565,14 +806,29 @@ export const releasesRouter = router({
       let groundedInCommits: { sha: string; subject: string }[] | undefined;
       if (input.headRef) {
         if (!projectFull.repoUrl) {
-          throw new TRPCError({ code: "BAD_REQUEST", message: "This project has no repo connected to ground the summary in" });
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message:
+              "This project has no repo connected to ground the summary in",
+          });
         }
-        const commits = await getCommitLog(projectFull.repoUrl, input.baseRef ?? projectFull.defaultBranch, input.headRef);
+        const commits = await getCommitLog(
+          projectFull.repoUrl,
+          input.baseRef ?? projectFull.defaultBranch,
+          input.headRef,
+        );
         groundedInCommits = commits;
-        changesSummary = commits.length > 0 ? commits.map((c) => `- ${c.sha} ${c.subject}`).join("\n") : undefined;
+        changesSummary =
+          commits.length > 0
+            ? commits.map((c) => `- ${c.sha} ${c.subject}`).join("\n")
+            : undefined;
       }
 
-      const charge = await chargeAiCredits(ctx.prisma, project.organizationId, "generateReleaseSummary").catch((e: unknown) => {
+      const charge = await chargeAiCredits(
+        ctx.prisma,
+        project.organizationId,
+        "generateReleaseSummary",
+      ).catch((e: unknown) => {
         if (e instanceof InsufficientAiCreditsError) {
           throw new TRPCError({ code: "BAD_REQUEST", message: e.message });
         }

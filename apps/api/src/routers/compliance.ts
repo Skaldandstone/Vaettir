@@ -19,6 +19,14 @@ const SIGN_OFF_ROLES = ["COMPLIANCE_AUDITOR", "ADMIN", "OWNER"];
 // visually distinct regardless of who adds what.
 export const complianceRouter = router({
   listFrameworks: protectedProcedure
+    .input(
+      z
+        .object({
+          projectId: z.string(),
+          includeHidden: z.boolean().default(false),
+        })
+        .optional(),
+    )
     .output(
       z.array(
         z.object({
@@ -31,8 +39,21 @@ export const complianceRouter = router({
         }),
       ),
     )
-    .query(async ({ ctx }) => {
+    .query(async ({ ctx, input }) => {
+      const scope = input
+        ? await requireProjectAccess(ctx, input.projectId)
+        : null;
+      const project = scope
+        ? await ctx.prisma.project.findUniqueOrThrow({
+            where: { id: scope.project.id },
+            select: { hiddenComplianceFrameworkIds: true },
+          })
+        : null;
       const frameworks = await ctx.prisma.complianceFramework.findMany({
+        where:
+          project && !input?.includeHidden
+            ? { id: { notIn: project.hiddenComplianceFrameworkIds } }
+            : undefined,
         include: { _count: { select: { controls: true } } },
         orderBy: [{ isBuiltIn: "desc" }, { name: "asc" }],
       });
@@ -47,15 +68,77 @@ export const complianceRouter = router({
     }),
 
   createFramework: protectedProcedure
-    .input(z.object({ key: z.string().min(1), name: z.string().min(1), version: z.string().optional(), description: z.string().optional() }))
+    .input(
+      z.object({
+        key: z.string().min(1),
+        name: z.string().min(1),
+        version: z.string().optional(),
+        description: z.string().optional(),
+      }),
+    )
     .mutation(async ({ ctx, input }) => {
-      const existing = await ctx.prisma.complianceFramework.findUnique({ where: { key: input.key } });
+      const existing = await ctx.prisma.complianceFramework.findUnique({
+        where: { key: input.key },
+      });
       if (existing) {
-        throw new TRPCError({ code: "BAD_REQUEST", message: `A framework with key "${input.key}" already exists` });
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: `A framework with key "${input.key}" already exists`,
+        });
       }
       return ctx.prisma.complianceFramework.create({
-        data: { key: input.key, name: input.name, version: input.version, description: input.description, isBuiltIn: false },
+        data: {
+          key: input.key,
+          name: input.name,
+          version: input.version,
+          description: input.description,
+          isBuiltIn: false,
+        },
       });
+    }),
+
+  setFrameworkVisibility: protectedProcedure
+    .input(
+      z.object({
+        projectId: z.string(),
+        frameworkId: z.string(),
+        hidden: z.boolean(),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const { project } = await requireProjectAccess(
+        ctx,
+        input.projectId,
+        "ADMIN",
+      );
+      const framework = await ctx.prisma.complianceFramework.findUniqueOrThrow({
+        where: { id: input.frameworkId },
+      });
+      await ctx.prisma.$transaction(async (tx) => {
+        await tx.$queryRaw`SELECT id FROM "Project" WHERE id = ${project.id} FOR UPDATE`;
+        const current = await tx.project.findUniqueOrThrow({
+          where: { id: project.id },
+        });
+        const ids = new Set(current.hiddenComplianceFrameworkIds);
+        if (input.hidden) ids.add(framework.id);
+        else ids.delete(framework.id);
+        await tx.project.update({
+          where: { id: project.id },
+          data: { hiddenComplianceFrameworkIds: [...ids] },
+        });
+        await tx.auditLog.create({
+          data: {
+            organizationId: project.organizationId,
+            projectId: project.id,
+            actorId: ctx.user.id,
+            entityType: "ComplianceFramework",
+            entityId: framework.id,
+            action: "UPDATE",
+            summary: `${input.hidden ? "Hid" : "Restored"} framework "${framework.name}" in this project; evidence retained`,
+          },
+        });
+      });
+      return { hidden: input.hidden };
     }),
 
   // P3-02: bulk-import a control set (AICPA TSC, NIST CSF, etc.) from
@@ -70,14 +153,22 @@ export const complianceRouter = router({
       z.object({
         frameworkId: z.string(),
         controls: z
-          .array(z.object({ code: z.string().min(1), title: z.string().min(1), description: z.string().optional() }))
+          .array(
+            z.object({
+              code: z.string().min(1),
+              title: z.string().min(1),
+              description: z.string().optional(),
+            }),
+          )
           .min(1)
           .max(500),
       }),
     )
     .output(z.object({ createdCount: z.number(), skippedCount: z.number() }))
     .mutation(async ({ ctx, input }) => {
-      await ctx.prisma.complianceFramework.findUniqueOrThrow({ where: { id: input.frameworkId } });
+      await ctx.prisma.complianceFramework.findUniqueOrThrow({
+        where: { id: input.frameworkId },
+      });
       const result = await ctx.prisma.complianceControl.createMany({
         data: input.controls.map((c) => ({
           frameworkId: input.frameworkId,
@@ -87,17 +178,35 @@ export const complianceRouter = router({
         })),
         skipDuplicates: true,
       });
-      return { createdCount: result.count, skippedCount: input.controls.length - result.count };
+      return {
+        createdCount: result.count,
+        skippedCount: input.controls.length - result.count,
+      };
     }),
 
   createControl: protectedProcedure
-    .input(z.object({ frameworkId: z.string(), code: z.string().min(1), title: z.string().min(1), description: z.string().optional() }))
+    .input(
+      z.object({
+        frameworkId: z.string(),
+        code: z.string().min(1),
+        title: z.string().min(1),
+        description: z.string().optional(),
+      }),
+    )
     .mutation(async ({ ctx, input }) => {
       const existing = await ctx.prisma.complianceControl.findUnique({
-        where: { frameworkId_code: { frameworkId: input.frameworkId, code: input.code } },
+        where: {
+          frameworkId_code: {
+            frameworkId: input.frameworkId,
+            code: input.code,
+          },
+        },
       });
       if (existing) {
-        throw new TRPCError({ code: "BAD_REQUEST", message: `Control "${input.code}" already exists on this framework` });
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: `Control "${input.code}" already exists on this framework`,
+        });
       }
       return ctx.prisma.complianceControl.create({ data: input });
     }),
@@ -123,7 +232,15 @@ export const complianceRouter = router({
       await requireProjectAccess(ctx, input.projectId);
       const controls = await ctx.prisma.complianceControl.findMany({
         where: { frameworkId: input.frameworkId },
-        include: { _count: { select: { testCases: { where: { testCase: { projectId: input.projectId } } } } } },
+        include: {
+          _count: {
+            select: {
+              testCases: {
+                where: { testCase: { projectId: input.projectId } },
+              },
+            },
+          },
+        },
         orderBy: { code: "asc" },
       });
       return controls.map((c) => ({
@@ -137,9 +254,21 @@ export const complianceRouter = router({
 
   testCaseControls: protectedProcedure
     .input(z.object({ testCaseId: z.string() }))
-    .output(z.array(z.object({ id: z.string(), code: z.string(), title: z.string(), frameworkName: z.string() })))
+    .output(
+      z.array(
+        z.object({
+          id: z.string(),
+          code: z.string(),
+          title: z.string(),
+          frameworkName: z.string(),
+        }),
+      ),
+    )
     .query(async ({ ctx, input }) => {
-      const tc = await ctx.prisma.testCase.findUniqueOrThrow({ where: { id: input.testCaseId }, select: { projectId: true } });
+      const tc = await ctx.prisma.testCase.findUniqueOrThrow({
+        where: { id: input.testCaseId },
+        select: { projectId: true },
+      });
       await requireProjectAccess(ctx, tc.projectId);
       const mappings = await ctx.prisma.testCaseComplianceControl.findMany({
         where: { testCaseId: input.testCaseId },
@@ -157,12 +286,26 @@ export const complianceRouter = router({
     .input(z.object({ testCaseId: z.string(), controlId: z.string() }))
     .mutation(async ({ ctx, input }) => {
       const [tc, control] = await Promise.all([
-        ctx.prisma.testCase.findUniqueOrThrow({ where: { id: input.testCaseId }, select: { projectId: true, title: true } }),
-        ctx.prisma.complianceControl.findUniqueOrThrow({ where: { id: input.controlId } }),
+        ctx.prisma.testCase.findUniqueOrThrow({
+          where: { id: input.testCaseId },
+          select: { projectId: true, title: true },
+        }),
+        ctx.prisma.complianceControl.findUniqueOrThrow({
+          where: { id: input.controlId },
+        }),
       ]);
-      const { project } = await requireProjectAccess(ctx, tc.projectId, "EDITOR");
+      const { project } = await requireProjectAccess(
+        ctx,
+        tc.projectId,
+        "EDITOR",
+      );
       await ctx.prisma.testCaseComplianceControl.upsert({
-        where: { testCaseId_controlId: { testCaseId: input.testCaseId, controlId: input.controlId } },
+        where: {
+          testCaseId_controlId: {
+            testCaseId: input.testCaseId,
+            controlId: input.controlId,
+          },
+        },
         create: { testCaseId: input.testCaseId, controlId: input.controlId },
         update: {},
       });
@@ -181,10 +324,19 @@ export const complianceRouter = router({
     .input(z.object({ testCaseId: z.string(), controlId: z.string() }))
     .mutation(async ({ ctx, input }) => {
       const [tc, control] = await Promise.all([
-        ctx.prisma.testCase.findUniqueOrThrow({ where: { id: input.testCaseId }, select: { projectId: true, title: true } }),
-        ctx.prisma.complianceControl.findUniqueOrThrow({ where: { id: input.controlId } }),
+        ctx.prisma.testCase.findUniqueOrThrow({
+          where: { id: input.testCaseId },
+          select: { projectId: true, title: true },
+        }),
+        ctx.prisma.complianceControl.findUniqueOrThrow({
+          where: { id: input.controlId },
+        }),
       ]);
-      const { project } = await requireProjectAccess(ctx, tc.projectId, "EDITOR");
+      const { project } = await requireProjectAccess(
+        ctx,
+        tc.projectId,
+        "EDITOR",
+      );
       await ctx.prisma.testCaseComplianceControl.deleteMany({
         where: { testCaseId: input.testCaseId, controlId: input.controlId },
       });
@@ -208,10 +360,16 @@ export const complianceRouter = router({
     .query(async ({ ctx, input }) => {
       await requireProjectAccess(ctx, input.projectId);
       const mappings = await ctx.prisma.testCaseComplianceControl.findMany({
-        where: { controlId: input.controlId, testCase: { projectId: input.projectId } },
+        where: {
+          controlId: input.controlId,
+          testCase: { projectId: input.projectId },
+        },
         include: { testCase: { select: { id: true, title: true } } },
       });
-      return mappings.map((m) => ({ id: m.testCase.id, title: m.testCase.title }));
+      return mappings.map((m) => ({
+        id: m.testCase.id,
+        title: m.testCase.title,
+      }));
     }),
 
   // Test cases in a project not yet mapped to a given control -- feeds a
@@ -222,7 +380,10 @@ export const complianceRouter = router({
     .query(async ({ ctx, input }) => {
       await requireProjectAccess(ctx, input.projectId);
       return ctx.prisma.testCase.findMany({
-        where: { projectId: input.projectId, complianceControls: { none: { controlId: input.controlId } } },
+        where: {
+          projectId: input.projectId,
+          complianceControls: { none: { controlId: input.controlId } },
+        },
         select: { id: true, title: true },
         orderBy: { title: "asc" },
         take: 200,
@@ -247,7 +408,9 @@ export const complianceRouter = router({
             code: z.string(),
             title: z.string(),
             description: z.string().nullable(),
-            mappedTestCases: z.array(z.object({ title: z.string(), reviewStatus: z.string() })),
+            mappedTestCases: z.array(
+              z.object({ title: z.string(), reviewStatus: z.string() }),
+            ),
           }),
         ),
       }),
@@ -255,15 +418,22 @@ export const complianceRouter = router({
     .query(async ({ ctx, input }) => {
       await requireProjectAccess(ctx, input.projectId);
       const [project, framework] = await Promise.all([
-        ctx.prisma.project.findUniqueOrThrow({ where: { id: input.projectId }, select: { name: true } }),
-        ctx.prisma.complianceFramework.findUniqueOrThrow({ where: { id: input.frameworkId } }),
+        ctx.prisma.project.findUniqueOrThrow({
+          where: { id: input.projectId },
+          select: { name: true },
+        }),
+        ctx.prisma.complianceFramework.findUniqueOrThrow({
+          where: { id: input.frameworkId },
+        }),
       ]);
       const controls = await ctx.prisma.complianceControl.findMany({
         where: { frameworkId: input.frameworkId },
         include: {
           testCases: {
             where: { testCase: { projectId: input.projectId } },
-            include: { testCase: { select: { title: true, reviewStatus: true } } },
+            include: {
+              testCase: { select: { title: true, reviewStatus: true } },
+            },
           },
         },
         orderBy: { code: "asc" },
@@ -276,7 +446,10 @@ export const complianceRouter = router({
           code: c.code,
           title: c.title,
           description: c.description,
-          mappedTestCases: c.testCases.map((m) => ({ title: m.testCase.title, reviewStatus: m.testCase.reviewStatus })),
+          mappedTestCases: c.testCases.map((m) => ({
+            title: m.testCase.title,
+            reviewStatus: m.testCase.reviewStatus,
+          })),
         })),
       };
     }),
@@ -323,8 +496,12 @@ export const complianceRouter = router({
         include: { recordedBy: { select: { email: true } } },
       });
       await recordAudit(ctx.prisma, {
-        organizationId: (await ctx.prisma.project.findUniqueOrThrow({ where: { id: input.projectId }, select: { organizationId: true } }))
-          .organizationId,
+        organizationId: (
+          await ctx.prisma.project.findUniqueOrThrow({
+            where: { id: input.projectId },
+            select: { organizationId: true },
+          })
+        ).organizationId,
         projectId: input.projectId,
         actorId: ctx.user.id,
         entityType: "ComplianceEvidence",
@@ -362,7 +539,10 @@ export const complianceRouter = router({
       await requireProjectAccess(ctx, input.projectId);
       const rows = await ctx.prisma.complianceEvidence.findMany({
         where: { projectId: input.projectId, controlId: input.controlId },
-        include: { testCase: { select: { title: true } }, recordedBy: { select: { email: true } } },
+        include: {
+          testCase: { select: { title: true } },
+          recordedBy: { select: { email: true } },
+        },
         orderBy: { recordedAt: "desc" },
       });
       return rows.map((r) => ({
@@ -384,7 +564,14 @@ export const complianceRouter = router({
   // requireProjectAccess's minRole check can't express "must actually hold
   // this specific role," hence the explicit membership.role check below.
   signOffControl: protectedProcedure
-    .input(z.object({ projectId: z.string(), controlId: z.string(), period: z.string().min(1), statement: z.string().min(1) }))
+    .input(
+      z.object({
+        projectId: z.string(),
+        controlId: z.string(),
+        period: z.string().min(1),
+        statement: z.string().min(1),
+      }),
+    )
     .output(
       z.object({
         id: z.string(),
@@ -400,7 +587,8 @@ export const complianceRouter = router({
       if (!SIGN_OFF_ROLES.includes(membership.role)) {
         throw new TRPCError({
           code: "FORBIDDEN",
-          message: "Only a Compliance Auditor (or an org Admin/Owner) can sign off on a control",
+          message:
+            "Only a Compliance Auditor (or an org Admin/Owner) can sign off on a control",
         });
       }
       const signOff = await ctx.prisma.complianceSignOff.create({
@@ -413,8 +601,14 @@ export const complianceRouter = router({
         },
         include: { signedBy: { select: { email: true } } },
       });
-      const project = await ctx.prisma.project.findUniqueOrThrow({ where: { id: input.projectId }, select: { organizationId: true, name: true } });
-      const control = await ctx.prisma.complianceControl.findUnique({ where: { id: input.controlId }, select: { title: true } });
+      const project = await ctx.prisma.project.findUniqueOrThrow({
+        where: { id: input.projectId },
+        select: { organizationId: true, name: true },
+      });
+      const control = await ctx.prisma.complianceControl.findUnique({
+        where: { id: input.controlId },
+        select: { title: true },
+      });
       await recordAudit(ctx.prisma, {
         organizationId: project.organizationId,
         projectId: input.projectId,
@@ -424,18 +618,28 @@ export const complianceRouter = router({
         action: "CREATE",
         summary: `Signed off on a compliance control for ${input.period}`,
       });
-      void dispatchWebhookEvent(ctx.prisma, project.organizationId, "compliance.sign_off_recorded", {
-        projectId: input.projectId,
-        controlId: input.controlId,
-        period: input.period,
-        signedByEmail: signOff.signedBy.email,
-      }).catch(() => undefined);
-      void notifySlackEvent(ctx.prisma, project.organizationId, "compliance.sign_off_recorded", {
-        projectName: project.name,
-        controlName: control?.title ?? input.controlId,
-        period: input.period,
-        signedByEmail: signOff.signedBy.email,
-      }).catch(() => undefined);
+      void dispatchWebhookEvent(
+        ctx.prisma,
+        project.organizationId,
+        "compliance.sign_off_recorded",
+        {
+          projectId: input.projectId,
+          controlId: input.controlId,
+          period: input.period,
+          signedByEmail: signOff.signedBy.email,
+        },
+      ).catch(() => undefined);
+      void notifySlackEvent(
+        ctx.prisma,
+        project.organizationId,
+        "compliance.sign_off_recorded",
+        {
+          projectName: project.name,
+          controlName: control?.title ?? input.controlId,
+          period: input.period,
+          signedByEmail: signOff.signedBy.email,
+        },
+      ).catch(() => undefined);
       // P8-04: auto-fulfill an open request for THIS signer, on THIS
       // control+period - a sign-off that happens unprompted (no matching
       // request) is fine and just leaves no request to fulfill; a request
@@ -444,11 +648,20 @@ export const complianceRouter = router({
       // since fulfilledSignOffId is unique - two open duplicate requests
       // can't both be stamped with the same sign-off id.
       const openRequest = await ctx.prisma.complianceSignOffRequest.findFirst({
-        where: { controlId: input.controlId, projectId: input.projectId, period: input.period, requestedForId: ctx.user.id, fulfilledAt: null },
+        where: {
+          controlId: input.controlId,
+          projectId: input.projectId,
+          period: input.period,
+          requestedForId: ctx.user.id,
+          fulfilledAt: null,
+        },
       });
       if (openRequest) {
         await ctx.prisma.complianceSignOffRequest
-          .update({ where: { id: openRequest.id }, data: { fulfilledAt: new Date(), fulfilledSignOffId: signOff.id } })
+          .update({
+            where: { id: openRequest.id },
+            data: { fulfilledAt: new Date(), fulfilledSignOffId: signOff.id },
+          })
           .catch(() => undefined);
       }
       return {
@@ -498,19 +711,46 @@ export const complianceRouter = router({
   // fulfill it - requesting from a VIEWER would create a request nobody can
   // ever satisfy.
   requestSignOff: protectedProcedure
-    .input(z.object({ projectId: z.string(), controlId: z.string(), period: z.string().min(1), requestedForUserId: z.string() }))
+    .input(
+      z.object({
+        projectId: z.string(),
+        controlId: z.string(),
+        period: z.string().min(1),
+        requestedForUserId: z.string(),
+      }),
+    )
     .output(z.object({ id: z.string() }))
     .mutation(async ({ ctx, input }) => {
-      const { membership, project } = await requireProjectAccess(ctx, input.projectId);
+      const { membership, project } = await requireProjectAccess(
+        ctx,
+        input.projectId,
+      );
       if (!SIGN_OFF_ROLES.includes(membership.role)) {
-        throw new TRPCError({ code: "FORBIDDEN", message: "Only a Compliance Auditor (or an org Admin/Owner) can request a sign-off" });
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message:
+            "Only a Compliance Auditor (or an org Admin/Owner) can request a sign-off",
+        });
       }
-      const projectFull = await ctx.prisma.project.findUniqueOrThrow({ where: { id: input.projectId }, select: { name: true } });
-      const targetMembership = await ctx.prisma.membership.findFirst({
-        where: { organizationId: project.organizationId, userId: input.requestedForUserId },
+      const projectFull = await ctx.prisma.project.findUniqueOrThrow({
+        where: { id: input.projectId },
+        select: { name: true },
       });
-      if (!targetMembership || !SIGN_OFF_ROLES.includes(targetMembership.role)) {
-        throw new TRPCError({ code: "BAD_REQUEST", message: "That member can't sign off on controls (needs Compliance Auditor, Admin, or Owner)" });
+      const targetMembership = await ctx.prisma.membership.findFirst({
+        where: {
+          organizationId: project.organizationId,
+          userId: input.requestedForUserId,
+        },
+      });
+      if (
+        !targetMembership ||
+        !SIGN_OFF_ROLES.includes(targetMembership.role)
+      ) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message:
+            "That member can't sign off on controls (needs Compliance Auditor, Admin, or Owner)",
+        });
       }
 
       const request = await ctx.prisma.complianceSignOffRequest.create({
@@ -523,11 +763,19 @@ export const complianceRouter = router({
         },
       });
 
-      const control = await ctx.prisma.complianceControl.findUnique({ where: { id: input.controlId }, select: { title: true } });
+      const control = await ctx.prisma.complianceControl.findUnique({
+        where: { id: input.controlId },
+        select: { title: true },
+      });
       void sendPushToUser(ctx.prisma, input.requestedForUserId, {
         title: "Compliance sign-off requested",
         body: `${projectFull.name}: ${control?.title ?? "a control"} for ${input.period}`,
-        data: { type: "compliance.sign_off_requested", projectId: input.projectId, controlId: input.controlId, period: input.period },
+        data: {
+          type: "compliance.sign_off_requested",
+          projectId: input.projectId,
+          controlId: input.controlId,
+          period: input.period,
+        },
       }).catch(() => undefined);
 
       return { id: request.id };

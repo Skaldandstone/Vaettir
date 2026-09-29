@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { prisma } from "@vaettir/db";
 import { appRouter } from "../router.js";
 import {
@@ -42,6 +42,7 @@ function studioCaller(actor = "invitation-review") {
 }
 
 beforeAll(async () => {
+  vi.stubEnv("FULL_ACCESS_EMAIL_ALLOWLIST", `${run}@skaldandstone.com`);
   const owner = await createUser("owner");
   ownerId = owner.id;
   ownerEmail = owner.email;
@@ -61,6 +62,7 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
+  vi.unstubAllEnvs();
   if (organizationIds.length > 0) {
     await prisma.auditLog.deleteMany({
       where: { organizationId: { in: organizationIds } },
@@ -268,6 +270,11 @@ describe("private-beta and Studio enrollment boundaries", () => {
   });
 
   it("serializes reservations at the three-team limit", async () => {
+    // The original invited owner and the self-service owner above both hold
+    // real reservations. Staff status does not exempt a workspace from capacity.
+    expect(
+      await prisma.betaEnrollment.count({ where: { revokedAt: null } }),
+    ).toBe(2);
     const outcomes = await Promise.allSettled(
       Array.from({ length: 5 }, (_, index) =>
         enrollBetaOwner(
@@ -283,10 +290,10 @@ describe("private-beta and Studio enrollment boundaries", () => {
     }
     expect(
       outcomes.filter((outcome) => outcome.status === "fulfilled"),
-    ).toHaveLength(BETA_TEAM_LIMIT - 1);
+    ).toHaveLength(BETA_TEAM_LIMIT - 2);
     expect(
       outcomes.filter((outcome) => outcome.status === "rejected"),
-    ).toHaveLength(3);
+    ).toHaveLength(4);
     expect(
       await prisma.betaEnrollment.count({ where: { revokedAt: null } }),
     ).toBe(BETA_TEAM_LIMIT);

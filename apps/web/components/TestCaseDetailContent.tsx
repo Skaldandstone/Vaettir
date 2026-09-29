@@ -1039,6 +1039,7 @@ export function TestCaseDetailContent({
         )}
       </div>
       <p>
+        <strong>Domain:</strong> {tc.validationDomain.replace(/_/g, " ")} &nbsp;
         <strong>Type:</strong> {tc.testType} &nbsp; <strong>Priority:</strong>{" "}
         {tc.priority} &nbsp;
         <strong>Origin:</strong> {tc.origin}
@@ -1046,6 +1047,29 @@ export function TestCaseDetailContent({
           ` (confidence ${(tc.confidence * 100).toFixed(0)}%)`}
       </p>
 
+      {Object.values(tc.verificationProfile).some(Boolean) && (
+        <section className="panel">
+          <h3>Physical verification procedure</h3>
+          {(
+            [
+              ["setup", "Fixture and setup"],
+              ["safety", "Safety and stop conditions"],
+              ["instruments", "Instruments and calibration"],
+              ["acceptanceCriteria", "Measurement acceptance criteria"],
+            ] as const
+          ).map(
+            ([key, label]) =>
+              tc.verificationProfile[key] && (
+                <div key={key}>
+                  <strong>{label}</strong>
+                  <p style={{ whiteSpace: "pre-wrap" }}>
+                    {tc.verificationProfile[key]}
+                  </p>
+                </div>
+              ),
+          )}
+        </section>
+      )}
       <div className="risk-assessment-panel">
         <strong>Risk assessment</strong>
         {tc.riskScore != null ? (

@@ -14,10 +14,6 @@ import { isNavigationActive } from "../lib/usability";
 const LINK_ICONS: Record<string, IconName> = {
   Dashboard: "grid",
   Projects: "folder",
-  Members: "people",
-  "Access Review": "check",
-  Integrations: "branch",
-  Settings: "settings",
   "Example workspace": "grid",
   Overview: "grid",
   "Test Cases": "cases",
@@ -37,13 +33,6 @@ const LINK_ICONS: Record<string, IconName> = {
 const ORG_LINKS = [
   { href: "/dashboard", label: "Dashboard" },
   { href: "/projects", label: "Projects" },
-];
-const ORG_ADMIN_LINKS = [
-  { href: "/settings/members", label: "Members" },
-  { href: "/settings/access-review", label: "Access Review" },
-  { href: "/settings/billing", label: "Billing" },
-  { href: "/settings/integrations", label: "Integrations" },
-  { href: "/settings/organization", label: "Settings" },
 ];
 
 // Mirrors TestRail/Qase: a project-scoped sidebar with a switcher at the
@@ -117,6 +106,7 @@ function ProjectSidebar({ projectId }: { projectId: string }) {
   const links = [
     { href: `/projects/${projectId}`, label: "Overview" },
     { href: `/projects/${projectId}/test-cases`, label: "Test Cases" },
+    { href: `/projects/${projectId}/test-strategy`, label: "Test Strategy" },
     { href: `/projects/${projectId}/test-plans`, label: "Test Plans" },
     { href: `/projects/${projectId}/test-runs`, label: "Test Runs" },
     { href: `/projects/${projectId}/requirements`, label: "Requirements" },
@@ -135,7 +125,6 @@ function ProjectSidebar({ projectId }: { projectId: string }) {
       label: "Production Signals",
     },
     { href: `/projects/${projectId}/import`, label: "Import" },
-    { href: `/projects/${projectId}/test-strategy`, label: "Test Strategy" },
     { href: `/projects/${projectId}/releases`, label: "Release Readiness" },
   ];
 
@@ -176,12 +165,6 @@ function ProjectSidebar({ projectId }: { projectId: string }) {
             label={link.label}
             exact={link.label === "Overview"}
           />
-        ))}
-      </div>
-      <div className="sidebar-group">
-        <div className="eyebrow sidebar-group-label">Organization</div>
-        {ORG_ADMIN_LINKS.map((link) => (
-          <SidebarLink key={link.href} href={link.href} label={link.label} />
         ))}
       </div>
     </SidebarFrame>
@@ -297,12 +280,6 @@ export function Sidebar() {
           </button>
         )}
         {ORG_LINKS.map((link) => (
-          <SidebarLink key={link.href} href={link.href} label={link.label} />
-        ))}
-      </div>
-      <div className="sidebar-group">
-        <div className="eyebrow sidebar-group-label">Organization</div>
-        {ORG_ADMIN_LINKS.map((link) => (
           <SidebarLink key={link.href} href={link.href} label={link.label} />
         ))}
       </div>

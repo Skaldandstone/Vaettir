@@ -18,6 +18,7 @@ import { trpcReact, type RouterOutputs } from "@/lib/trpcReact";
 
 type Source = "csv" | "testrail" | "xray" | "qtest" | "zephyr";
 type Step = "source" | "upload" | "review" | "done";
+type ImportMethod = "api" | "webhook" | "file";
 
 const TARGET_FIELDS = [
   "title",
@@ -45,10 +46,11 @@ const FIELD_LABELS: Record<TargetField, string> = {
 
 const SOURCE_INFO: Record<
   Source,
-  { label: string; blurb: string; accept: string }
+  { label: string; mark: string; blurb: string; accept: string }
 > = {
   csv: {
-    label: "Spreadsheet or vendor export",
+    label: "Smart file import",
+    mark: "CSV",
     blurb:
       "CSV or Excel (.xlsx) from Qase, Tricentis, TestRail, qTest, or another test system. Vaettir detects sheets, headers, and likely fields before anything is written.",
     accept:
@@ -56,23 +58,27 @@ const SOURCE_INFO: Record<
   },
   testrail: {
     label: "TestRail",
+    mark: "TR",
     blurb: "TestRail → open the suite → Test Cases → Export → XML.",
     accept: ".xml,text/xml,application/xml",
   },
   xray: {
     label: "Xray (Jira)",
+    mark: "XR",
     blurb:
       "A Jira Test-issue CSV export (JQL: issuetype = Test), or Xray's own JSON test export.",
     accept: ".csv,.json,text/csv,application/json",
   },
   qtest: {
     label: "qTest",
+    mark: "qT",
     blurb:
       "Connect directly with your qTest instance URL and a personal API token - no file needed.",
     accept: "",
   },
   zephyr: {
     label: "Zephyr Scale",
+    mark: "ZS",
     blurb:
       "Connect directly with a Zephyr Scale Cloud personal API token and your Jira project key - no file needed.",
     accept: "",
@@ -301,6 +307,7 @@ export function MigrationWizard({
   onCommitted: () => void;
 }) {
   const [step, setStep] = useState<Step>("source");
+  const [importMethod, setImportMethod] = useState<ImportMethod | null>(null);
   const [source, setSource] = useState<Source | null>(null);
   const [fileName, setFileName] = useState("");
   const [rawContent, setRawContent] = useState("");
@@ -373,6 +380,7 @@ export function MigrationWizard({
 
   function reset() {
     setStep("source");
+    setImportMethod(null);
     setSource(null);
     setFileName("");
     setRawContent("");
@@ -764,38 +772,96 @@ export function MigrationWizard({
       {step === "source" && (
         <>
           <p className="text-muted" style={{ fontSize: 13 }}>
-            Where is your test case data coming from?
+            How should Vaettir receive the test cases?
           </p>
-          <div
-            style={{
-              display: "grid",
-              gridTemplateColumns: "repeat(3, 1fr)",
-              gap: 12,
-              maxWidth: 720,
-            }}
-          >
-            {(Object.keys(SOURCE_INFO) as Source[]).map((s) => (
+          <div className="import-method-grid">
+            {(
+              [
+                [
+                  "api",
+                  "Connect an API",
+                  "Pull cases directly from the source system and preview them before import.",
+                ],
+                [
+                  "webhook",
+                  "Webhook intake",
+                  "Check availability for continuous test-case imports.",
+                ],
+                [
+                  "file",
+                  "Upload an export",
+                  "Drop in CSV, Excel, XML, or JSON. Vaettir detects the vendor and fields.",
+                ],
+              ] as const
+            ).map(([value, label, detail]) => (
               <button
-                key={s}
-                onClick={() => chooseSource(s)}
-                style={{
-                  textAlign: "left",
-                  border: "1px solid var(--line)",
-                  borderRadius: 8,
-                  padding: 12,
-                  background: "transparent",
-                  cursor: "pointer",
+                key={value}
+                type="button"
+                className={`import-method-card${importMethod === value ? " selected" : ""}`}
+                onClick={() => {
+                  setImportMethod(value);
+                  setSource(null);
                 }}
               >
-                <div style={{ fontWeight: 600, marginBottom: 4 }}>
-                  {SOURCE_INFO[s].label}
-                </div>
-                <div className="text-muted" style={{ fontSize: 12 }}>
-                  {SOURCE_INFO[s].blurb}
-                </div>
+                <span className="import-method-icon" aria-hidden="true">
+                  {value === "api" ? "↔" : value === "webhook" ? "⌁" : "⇧"}
+                </span>
+                <span>
+                  <strong>{label}</strong>
+                  <small>{detail}</small>
+                </span>
               </button>
             ))}
           </div>
+          {importMethod === "webhook" && (
+            <div className="panel" style={{ padding: 14 }}>
+              <strong>
+                Continuous test-case imports are not available yet
+              </strong>
+              <p
+                className="text-muted"
+                style={{ margin: "4px 0 10px", fontSize: 13 }}
+              >
+                Existing notification and incident webhooks do not import test
+                cases. Use a supported API or upload an export to map and review
+                cases now.
+              </p>
+              <button
+                className="btn-primary"
+                onClick={() => setImportMethod("file")}
+              >
+                Import a file
+              </button>
+            </div>
+          )}
+          {(importMethod === "api" || importMethod === "file") && (
+            <div className="import-provider-grid">
+              {(Object.keys(SOURCE_INFO) as Source[])
+                .filter((s) =>
+                  importMethod === "api"
+                    ? s === "qtest" || s === "zephyr"
+                    : s === "csv" || s === "testrail" || s === "xray",
+                )
+                .map((s) => (
+                  <button
+                    key={s}
+                    onClick={() => chooseSource(s)}
+                    className="import-provider-card"
+                  >
+                    <span
+                      className={`provider-mark provider-${s}`}
+                      aria-hidden="true"
+                    >
+                      {SOURCE_INFO[s].mark}
+                    </span>
+                    <span>
+                      <strong>{SOURCE_INFO[s].label}</strong>
+                      <small>{SOURCE_INFO[s].blurb}</small>
+                    </span>
+                  </button>
+                ))}
+            </div>
+          )}
         </>
       )}
 
