@@ -21,7 +21,7 @@ export function cloneInvocation(repoUrl: string, dir: string, ref?: string) {
   assertScannableRepoUrl(repoUrl);
   if (ref !== undefined && (!ref || ref.startsWith("-") || /\s/.test(ref) || Array.from(ref).some(char => char.charCodeAt(0) < 32)))
     throw new Error("Invalid repository branch");
-  const env: NodeJS.ProcessEnv = {};
+  const env: NodeJS.ProcessEnv = { NODE_ENV: process.env.NODE_ENV ?? "production" };
   for (const [key, value] of Object.entries(process.env)) {
     if (["PATH", "SYSTEMROOT", "WINDIR", "TEMP", "TMP", "LANG"].includes(key.toUpperCase())) env[key] = value;
   }

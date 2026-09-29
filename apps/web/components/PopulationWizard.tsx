@@ -3,7 +3,10 @@
 import { useState } from "react";
 import type { PopulationDraft } from "@vaettir/core";
 import { CreationWizard, WizardChoices } from "./CreationWizard";
-import { nextPopulationStep, populationSteps as steps } from "../lib/population-navigation";
+import {
+  nextPopulationStep,
+  populationSteps as steps,
+} from "../lib/population-navigation";
 
 const sections = {
   context: "Objectives and system",
@@ -57,7 +60,10 @@ export function PopulationWizard({
   const [draft, setDraft] = useState(initial);
   const step = steps.indexOf(draft.step);
   const move = (next: number) => {
-    setDraft({ ...draft, step: nextPopulationStep(step, next, draft.sections) });
+    setDraft({
+      ...draft,
+      step: nextPopulationStep(step, next, draft.sections),
+    });
   };
   return (
     <section className="population-wizard">
@@ -152,6 +158,56 @@ export function PopulationWizard({
                 Optional. Keep secrets and customer data out of this
                 description.
               </p>
+              <details>
+                <summary>
+                  Hardware, software and compliance details (optional)
+                </summary>
+                <p className="text-muted">
+                  Add only what you know. These notes stay in your setup draft;
+                  they do not establish compliance or change approved work.
+                </p>
+                {(
+                  [
+                    [
+                      "hardware",
+                      "Hardware and test equipment",
+                      "For example: controller revision B, power supply, HIL bench and measurement ranges.",
+                    ],
+                    [
+                      "software",
+                      "Software and interfaces",
+                      "For example: firmware, mobile apps, services and the interfaces between them.",
+                    ],
+                    [
+                      "compliance",
+                      "Compliance needs to review",
+                      "List relevant frameworks, jurisdiction or validation needs. Uncertain applicability is fine.",
+                    ],
+                  ] as const
+                ).map(([key, label, placeholder]) => (
+                  <label key={key}>
+                    {label}
+                    <textarea
+                      rows={3}
+                      maxLength={1000}
+                      placeholder={placeholder}
+                      value={draft.contextDetails?.[key] ?? ""}
+                      onChange={(event) =>
+                        setDraft({
+                          ...draft,
+                          contextDetails: {
+                            hardware: "",
+                            software: "",
+                            compliance: "",
+                            ...draft.contextDetails,
+                            [key]: event.target.value,
+                          },
+                        })
+                      }
+                    />
+                  </label>
+                ))}
+              </details>
             </>
           )}
           {step === 2 && (
@@ -203,6 +259,18 @@ export function PopulationWizard({
                 <dd>{draft.systemScope.toLowerCase()}</dd>
                 <dt>Objective</dt>
                 <dd>{draft.objective || "Not specified"}</dd>
+                {draft.contextDetails && (
+                  <>
+                    <dt>Hardware and test equipment</dt>
+                    <dd>{draft.contextDetails.hardware || "Not specified"}</dd>
+                    <dt>Software and interfaces</dt>
+                    <dd>{draft.contextDetails.software || "Not specified"}</dd>
+                    <dt>Compliance needs to review</dt>
+                    <dd>
+                      {draft.contextDetails.compliance || "Not specified"}
+                    </dd>
+                  </>
+                )}
                 <dt>Source preferences</dt>
                 <dd>
                   {draft.providers.map((key) => providers[key]).join(", ") ||

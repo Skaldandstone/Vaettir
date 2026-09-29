@@ -25,6 +25,7 @@ describe.skipIf(!isolated)("population draft persistence", () => {
     objective: "Verify playback",
     systemScope: "SOFTWARE",
     providers: ["gitlab", "jira"],
+    contextDetails: { hardware: "Controller B and HIL bench", software: "Firmware and API", compliance: "Applicability review required" },
   };
   const key = `population-${randomUUID()}`;
 

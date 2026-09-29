@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   populationEvidenceKey,
+  populationDraftSchema,
   previewProjectPopulation,
   sourceRevisionSchema,
   type PopulationEvidence,
@@ -42,6 +43,37 @@ const preview = (baseline: PopulationEvidence[], scans: PopulationScan[]) =>
   });
 
 describe("project population reconciliation", () => {
+  it("retains optional context and accepts older drafts without changing their shape", () => {
+    const legacy = {
+      schemaVersion: 1,
+      step: "context",
+      sections: ["context"],
+      objective: "Validate system",
+      systemScope: "BOTH",
+      providers: [],
+    };
+    expect(populationDraftSchema.parse(legacy)).toEqual(legacy);
+    const contextDetails = {
+      hardware: "HIL bench",
+      software: "Firmware",
+      compliance: "Review applicability",
+    };
+    expect(
+      populationDraftSchema.parse({ ...legacy, contextDetails }).contextDetails,
+    ).toEqual(contextDetails);
+    expect(
+      populationDraftSchema.safeParse({
+        ...legacy,
+        contextDetails: { ...contextDetails, hardware: "x".repeat(1001) },
+      }).success,
+    ).toBe(false);
+    expect(
+      populationDraftSchema.safeParse({
+        ...legacy,
+        contextDetails: { ...contextDetails, credentials: "no" },
+      }).success,
+    ).toBe(false);
+  });
   it("identical reruns propose no additions or updates", () => {
     const result = preview([item()], [scan([item()])]);
     expect(result.baselineVersion).toBe(3);

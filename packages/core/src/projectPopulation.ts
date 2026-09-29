@@ -37,6 +37,14 @@ export const populationDraftSchema = z
       ),
     objective: z.string().max(2000),
     systemScope: z.enum(["SOFTWARE", "HARDWARE", "BOTH", "PROCESS"]),
+    contextDetails: z
+      .object({
+        hardware: z.string().max(1000),
+        software: z.string().max(1000),
+        compliance: z.string().max(1000),
+      })
+      .strict()
+      .optional(),
     // Preferences only; credentials and connection IDs are never accepted here.
     providers: z
       .array(populationProviderSchema)
