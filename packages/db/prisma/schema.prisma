@@ -292,6 +292,8 @@ model Project {
   productionSignals           ProductionSignal[]
   populationDraft             ProjectPopulationDraft?
   populationDraftWrites       ProjectPopulationDraftWrite[]
+  populationDocuments         ProjectPopulationDocument[]
+  populationDocumentRuns      ProjectPopulationDocumentRun[]
 
   @@unique([organizationId, slug])
   @@unique([organizationId, datadogProjectTag])
@@ -318,6 +320,38 @@ model ProjectPopulationDraftWrite {
   actorId String
   appliedVersion Int
   createdAt DateTime @default(now())
+  @@id([projectId, requestId])
+}
+
+// Explicitly approved document evidence. No generated test/requirement is overwritten.
+model ProjectPopulationDocument {
+  projectId String
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  sourceKey String
+  version Int
+  title String
+  content String
+  contentHash String
+  approvedBy String
+  approvedAt DateTime @default(now())
+  @@id([projectId, sourceKey])
+}
+
+// Immutable preview input and durable approval receipt, retained for provenance.
+model ProjectPopulationDocumentRun {
+  projectId String
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  requestId String
+  sourceKey String
+  expectedVersion Int
+  title String
+  content String
+  contentHash String
+  actorId String
+  createdAt DateTime @default(now())
+  approvedAt DateTime?
+  appliedVersion Int?
+  cancelledAt DateTime?
   @@id([projectId, requestId])
 }
 

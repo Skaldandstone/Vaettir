@@ -87,6 +87,152 @@ describe.skipIf(!isolated)("population draft persistence", () => {
     ).toBe("");
   });
 
+  it("reviews document evidence, deduplicates identical reruns and preserves unrelated records", async () => {
+    const input = {
+      projectId,
+      requestId: randomUUID(),
+      sourceKey: "readme",
+      title: "System specification",
+      content: "Playback must resume after interruption.",
+      processingPermission: true as const,
+    };
+    const preview = await owner.populationDocuments.preview(input);
+    expect(preview.status).toBe("new");
+    expect(await owner.populationDocuments.list({ projectId })).toEqual([]);
+    const approval = {
+      projectId,
+      requestId: input.requestId,
+      approve: true as const,
+    };
+    expect(await owner.populationDocuments.approve(approval)).toEqual({
+      version: 1,
+      replayed: false,
+    });
+    expect(await owner.populationDocuments.approve(approval)).toEqual({
+      version: 1,
+      replayed: true,
+    });
+    const rerun = { ...input, requestId: randomUUID() };
+    expect((await owner.populationDocuments.preview(rerun)).status).toBe(
+      "unchanged",
+    );
+    expect(
+      await owner.populationDocuments.approve({
+        ...approval,
+        requestId: rerun.requestId,
+      }),
+    ).toEqual({ version: 1, replayed: false });
+    expect(await owner.populationDocuments.list({ projectId })).toHaveLength(1);
+    const left = {
+      ...input,
+      requestId: randomUUID(),
+      content: "Playback must resume in 2 seconds.",
+    };
+    const right = {
+      ...input,
+      requestId: randomUUID(),
+      content: "Playback must resume in 3 seconds.",
+    };
+    expect((await owner.populationDocuments.preview(left)).status).toBe(
+      "changed",
+    );
+    await owner.populationDocuments.preview(right);
+    await owner.populationDocuments.approve({
+      ...approval,
+      requestId: left.requestId,
+    });
+    await expect(
+      owner.populationDocuments.approve({
+        ...approval,
+        requestId: right.requestId,
+      }),
+    ).rejects.toMatchObject({ code: "CONFLICT" });
+    expect(await owner.populationDocuments.approve(approval)).toEqual({
+      version: 1,
+      replayed: true,
+    });
+    expect(
+      (
+        await prisma.projectPopulationDocument.findUniqueOrThrow({
+          where: { projectId_sourceKey: { projectId, sourceKey: "readme" } },
+        })
+      ).content,
+    ).toBe(left.content);
+    await expect(
+      owner.populationDocuments.preview({ ...input, content: "Changed reuse" }),
+    ).rejects.toMatchObject({ code: "CONFLICT" });
+  });
+
+  it("document intake enforces processing permission, scope and full editor seat", async () => {
+    const input = {
+      projectId,
+      requestId: randomUUID(),
+      sourceKey: "security-spec",
+      title: "Spec",
+      content: "Synthetic requirements",
+      processingPermission: true as const,
+    };
+    await expect(
+      viewer.populationDocuments.preview(input),
+    ).rejects.toMatchObject({ code: "FORBIDDEN" });
+    await expect(
+      readOnly.populationDocuments.preview(input),
+    ).rejects.toMatchObject({ code: "FORBIDDEN" });
+    await expect(
+      otherOwner.populationDocuments.preview(input),
+    ).rejects.toThrow();
+    await expect(
+      otherOwner.populationDocuments.list({ projectId }),
+    ).rejects.toThrow();
+    await expect(
+      owner.populationDocuments.preview({
+        ...input,
+        processingPermission: false as unknown as true,
+      }),
+    ).rejects.toThrow();
+    await expect(
+      owner.populationDocuments.preview({
+        ...input,
+        content: "x".repeat(50001),
+      }),
+    ).rejects.toThrow();
+    await expect(
+      owner.populationDocuments.preview({ ...input, content: "x\0y" }),
+    ).rejects.toThrow();
+    await owner.populationDocuments.preview(input);
+    expect(
+      (await owner.populationDocuments.pending({ projectId })).some(
+        (run) => run.requestId === input.requestId,
+      ),
+    ).toBe(true);
+    expect(await viewer.populationDocuments.pending({ projectId })).toEqual([]);
+    await expect(
+      otherOwner.populationDocuments.approve({
+        projectId,
+        requestId: input.requestId,
+        approve: true,
+      }),
+    ).rejects.toThrow();
+    expect(
+      await owner.populationDocuments.cancel({
+        projectId,
+        requestId: input.requestId,
+      }),
+    ).toEqual({ cancelled: true });
+    await expect(
+      owner.populationDocuments.approve({
+        projectId,
+        requestId: input.requestId,
+        approve: true,
+      }),
+    ).rejects.toMatchObject({ code: "CONFLICT" });
+    expect(
+      (await owner.populationDocuments.pending({ projectId })).some(
+        (run) => run.requestId === input.requestId,
+      ),
+    ).toBe(false);
+  });
+
   it("serializes simultaneous saves from the same baseline", async () => {
     const results = await Promise.allSettled(
       ["A", "B"].map((objective) =>
