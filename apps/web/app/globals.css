@@ -604,6 +604,7 @@ body:has(.native-dialog[open]) {
 .drawer-resizer { position: fixed; top: 0; bottom: 0; width: 10px; margin-left: -28px; cursor: ew-resize; touch-action: none; z-index: 2; }
 .drawer-resizer:hover, .drawer-resizer:focus-visible { background: var(--frost-dim); outline: 2px solid var(--frost); }
 .test-case-details-content { min-width: 0; overflow-wrap: anywhere; }
+.test-case-details-content input, .test-case-details-content select, .test-case-details-content textarea { max-width: 100%; box-sizing: border-box; }
 .case-detail-heading { display: flex; align-items: start; gap: 16px; padding-right: 42px; }
 .case-detail-heading h1 { flex: 1; font-size: 1.5rem; }
 .case-detail-heading a { flex-shrink: 0; }
