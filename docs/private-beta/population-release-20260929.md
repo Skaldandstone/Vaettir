@@ -44,6 +44,12 @@ API commit `6b93254dc25f6e0b533e3045b897dd36427f0238` passed CodeBuild `vaettir-
 
 Exact public API health confirms this commit/digest, healthy DB/workers; the new ALB target was healthy and authenticated read-only project assessment loaded. At 05:10 Pacific, ECS runtime acceptance completed with one running task, zero pending/failed tasks and one completed deployment. This does not establish live repository-provider acceptance; no customer repository was fetched.
 
-## Context update release candidate
+## Context update release
 
-Both builds for `b7ecfa64042ab1bb7049872017a3dc2d4fe3257b` succeeded: API `233614d8-48e2-4c98-a616-4905ff221750`, web `c2f7f1aa-ea3a-4611-825c-5333a48bcb7e` in their existing build projects. API-first rollout is in progress; web remains 616d8e2 until the compatible API is accepted. Source proof: API371, core69, web39, typecheck7, focused lint and synthetic context-entry/review rendering. New context fields are optional draft notes, not approved project facts. Preserve context-bearing drafts during recovery; pre-context strict-schema APIs cannot read them.
+Both builds for `b7ecfa64042ab1bb7049872017a3dc2d4fe3257b` succeeded: API `233614d8-48e2-4c98-a616-4905ff221750`, web `c2f7f1aa-ea3a-4611-825c-5333a48bcb7e` in their existing build projects. API24 passed runtime acceptance before web18 was deployed. At 05:44 Pacific, web18 also passed the release checker: one completed deployment, one running task, zero pending or failed tasks. Both new ALB targets were healthy. API detailed health confirmed the exact commit/digest and healthy database/workers.
+
+- API24 digest: `sha256:c66dc23dc13318067c1934f2e648cbaed62906aa335246ef11f160a721e856ae`.
+- Web18 digest: `sha256:30078e7fae26b1b2f732c93a9c6432207c25ec84fb724b2c84503d986b31e463`.
+- Previous API23/web17 definitions and release metadata retained in ignored `.local/deploy-b7ecfa6/`.
+
+Authenticated read-only DOM and screenshot checks verified the optional hardware/equipment, software/interface and compliance-note disclosure in the deployed wizard. No customer draft was saved. Source proof: API371, core69, web39, typecheck7, focused lint and synthetic context-entry/review rendering. New context fields are optional draft notes, not approved project facts. Preserve context-bearing drafts during recovery; pre-context strict-schema APIs cannot read them. No new migration was needed. Connected-provider discovery, durable source jobs, semantic reconciliation, test/strategy generation and component/release phase inference remain unfinished.
