@@ -835,7 +835,7 @@ export function MigrationWizard({
             </div>
           )}
           {(importMethod === "api" || importMethod === "file") && (
-            <div className="import-provider-grid">
+            <div className="source-chip-list">
               {(Object.keys(SOURCE_INFO) as Source[])
                 .filter((s) =>
                   importMethod === "api"
@@ -846,7 +846,7 @@ export function MigrationWizard({
                   <button
                     key={s}
                     onClick={() => chooseSource(s)}
-                    className="import-provider-card"
+                    className="source-connection-chip"
                   >
                     <span
                       className={`provider-mark provider-${s}`}
@@ -856,7 +856,7 @@ export function MigrationWizard({
                     </span>
                     <span>
                       <strong>{SOURCE_INFO[s].label}</strong>
-                      <small>{SOURCE_INFO[s].blurb}</small>
+                      <small>{importMethod === "api" ? "Connect API" : s === "csv" ? "CSV / Excel" : s === "testrail" ? "XML export" : "CSV / JSON export"}</small>
                     </span>
                   </button>
                 ))}

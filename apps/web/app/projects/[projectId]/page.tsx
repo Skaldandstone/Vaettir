@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import { trpcReact } from "@/lib/trpcReact";
 import { useProjectPermissions } from "@/lib/use-project-permissions";
+import { ConnectionLink, ProviderMark } from "@/components/SourceConnectionChips";
 
 // P1-15
 export default function ProjectOverviewPage() {
@@ -137,19 +138,15 @@ export default function ProjectOverviewPage() {
 
       <div
         className="project-connection-chips"
+        id="project-connections"
         aria-label="Project connections"
       >
         {project.repoUrl && (
-          <a
-            className="connection-chip"
-            href={`/projects/${projectId}/reverse-engineer`}
-          >
-            GitHub · Repository linked
-          </a>
+          <ConnectionLink href={`/projects/${projectId}/reverse-engineer`} provider="git" label="Repository" status="URL linked · Review and scan" />
         )}
         {canEdit && !project.repoUrl && (
           <details className="connection-chip">
-            <summary>GitHub · Connect repository</summary>
+            <summary><ProviderMark id="github" /><span><strong>GitHub</strong><small>Connect repository</small></span></summary>
             <div className="connection-chip-form">
               <strong>Connect a GitHub repo</strong>
               <p
@@ -180,10 +177,10 @@ export default function ProjectOverviewPage() {
 
         <details className="connection-chip">
           <summary>
-            PagerDuty ·{" "}
+            <ProviderMark id="pagerduty" /><span><strong>PagerDuty</strong><small>
             {project.pagerdutyServiceId
               ? "Routing configured"
-              : "Not connected"}
+              : "Set up routing"}</small></span>
           </summary>
           <div className="connection-chip-form">
             <strong>PagerDuty incident linkage</strong>
@@ -228,8 +225,8 @@ export default function ProjectOverviewPage() {
 
         <details className="connection-chip">
           <summary>
-            Datadog ·{" "}
-            {project.datadogProjectTag ? "Routing configured" : "Not connected"}
+            <ProviderMark id="datadog" /><span><strong>Datadog</strong><small>
+            {project.datadogProjectTag ? "Routing configured" : "Set up routing"}</small></span>
           </summary>
           <div className="connection-chip-form">
             <strong>Datadog incident linkage</strong>

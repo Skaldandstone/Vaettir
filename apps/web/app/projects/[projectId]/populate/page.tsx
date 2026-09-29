@@ -127,6 +127,7 @@ function Editor({
     <div>
       <h1>Update project understanding</h1>
       <PopulationWizard
+        documentsHref={`/projects/${projectId}/populate/documents`}
         key={display.key}
         initial={display.initial}
         locked={busy || pending !== null}

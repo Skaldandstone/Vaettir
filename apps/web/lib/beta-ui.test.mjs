@@ -13,6 +13,19 @@ import { creditOperationLabel } from "./credit-labels.ts";
 import { nextPopulationStep } from "./population-navigation.ts";
 import { readDocumentFile } from "./document-file.ts";
 
+test("source connections are disclosure chips, not checkbox preferences", () => {
+  const chips = readFileSync(new URL("../components/SourceConnectionChips.tsx", import.meta.url), "utf8");
+  assert.doesNotMatch(chips, /type="checkbox"/);
+  assert.match(chips, /aria-expanded/);
+  assert.match(chips, /Not available yet/);
+  assert.match(chips, /ProviderMark/);
+  const wizard = readFileSync(new URL("../components/PopulationWizard.tsx", import.meta.url), "utf8");
+  assert.match(wizard, /<SourceConnectionChips/);
+  assert.doesNotMatch(wizard, /title="Source preferences/);
+  for (const path of ["../app/projects/[projectId]/requirements/page.tsx", "../app/projects/[projectId]/reverse-engineer/page.tsx"])
+    assert.match(readFileSync(new URL(path, import.meta.url), "utf8"), /#project-connections/);
+});
+
 function documentFile(name, contents) {
   const bytes = new TextEncoder().encode(contents);
   return { name, size: bytes.byteLength, arrayBuffer: async () => bytes.buffer };

@@ -5,6 +5,7 @@ import type { ChangeEvent } from "react";
 import { useParams } from "next/navigation";
 import { trpcReact, type RouterOutputs } from "@/lib/trpcReact";
 import { Modal } from "@/components/Modal";
+import { ConnectionLink, SourceConnectionChips } from "@/components/SourceConnectionChips";
 import { CreationWizard, WizardChoices } from "@/components/CreationWizard";
 import { useProjectPermissions } from "@/lib/use-project-permissions";
 import { saveRequirementDrafts } from "@/lib/requirement-drafts";
@@ -960,17 +961,9 @@ export default function RequirementsPage() {
                   before saving.
                 </p>
                 {creationSource === "Connected repository" && !repoUrl && (
-                  <a
-                    className="connection-chip"
-                    href={`/projects/${projectId}`}
-                  >
-                    GitHub · Connect a repository first
-                  </a>
+                  <ConnectionLink href={`/projects/${projectId}#project-connections`} provider="github" label="GitHub" status="Connect repository" />
                 )}
-                <p className="text-muted">
-                  Direct Google Drive, Jira and Linear intake is not available
-                  yet. Document text can be pasted using Markdown document.
-                </p>
+                <SourceConnectionChips only={["drive", "jira", "linear"]} />
               </>
             )}
             {creationStep === 1 && (

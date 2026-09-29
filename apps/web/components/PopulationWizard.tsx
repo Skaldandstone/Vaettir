@@ -3,6 +3,7 @@
 import { useState } from "react";
 import type { PopulationDraft } from "@vaettir/core";
 import { CreationWizard, WizardChoices } from "./CreationWizard";
+import { SourceConnectionChips } from "./SourceConnectionChips";
 import {
   nextPopulationStep,
   populationSteps as steps,
@@ -50,12 +51,14 @@ export function PopulationWizard({
   status,
   onSave,
   onExit,
+  documentsHref,
 }: {
   initial: PopulationDraft;
   locked: boolean;
   status: string;
   onSave: (document: PopulationDraft) => void;
   onExit: () => void;
+  documentsHref?: string;
 }) {
   const [draft, setDraft] = useState(initial);
   const step = steps.indexOf(draft.step);
@@ -213,34 +216,10 @@ export function PopulationWizard({
           {step === 2 && (
             <>
               <p>
-                Choose sources to include in your setup plan. This does not
-                connect or read them.
+                Open a source to see its available actions. Sources are never read without your approval.
               </p>
-              <WizardChoices
-                title="Source preferences (optional)"
-                options={Object.values(providers)}
-                selected={draft.providers.map((key) => providers[key])}
-                onToggle={(label) => {
-                  const key = (
-                    Object.keys(providers) as PopulationDraft["providers"]
-                  ).find((key) => providers[key] === label)!;
-                  setDraft({
-                    ...draft,
-                    providers: draft.providers.includes(key)
-                      ? draft.providers.filter((value) => value !== key)
-                      : [...draft.providers, key],
-                  });
-                }}
-              />
-              <details>
-                <summary>Connection availability</summary>
-                <p>
-                  Multi-source discovery is not connected through this wizard
-                  yet. These preferences are saved for later setup. No
-                  credentials, repository contents, tickets or documents are
-                  requested here.
-                </p>
-              </details>
+              <SourceConnectionChips documentsHref={documentsHref} />
+              {draft.providers.length > 0 && <p className="text-muted">Previously saved preferences: {draft.providers.map((key) => providers[key]).join(", ")}. These are not connected accounts.</p>}
               <button
                 type="button"
                 className="btn-secondary"

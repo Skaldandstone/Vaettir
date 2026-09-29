@@ -3753,12 +3753,32 @@ main.app-main {
 }
 .connection-chip summary {
   cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 10px;
 }
+.connection-chip:not([open]) { border-radius: 999px; }
+.connection-chip summary strong, .connection-chip summary small { display: block; }
+.connection-chip summary small { color: var(--muted); font-size: 11px; }
+.source-connection-chip { text-decoration: none; }
 .connection-chip-form {
   max-width: 520px;
   padding-top: 14px;
 }
 .population-wizard { max-width: 760px; }
+.source-chip-list { display: flex; flex-wrap: wrap; gap: 10px; margin: 20px 0; }
+.source-connection-chip { display: inline-flex; align-items: center; gap: 10px; border: 1px solid var(--line); border-radius: 999px; padding: 9px 16px 9px 10px; background: var(--panel); color: var(--text); text-align: left; cursor: pointer; min-height: 54px; }
+.source-connection-chip:hover, .source-connection-chip[aria-expanded="true"] { border-color: var(--frost); background: var(--bg); }
+.source-connection-chip:focus-visible { outline: 2px solid var(--frost); outline-offset: 3px; }
+.source-connection-chip strong, .source-connection-chip small { display: block; }
+.source-connection-chip small { color: var(--muted); font-size: 11px; margin-top: 2px; }
+.source-provider-mark { display: grid; place-items: center; width: 30px; height: 30px; flex: 0 0 30px; font-size: 11px; font-weight: 700; }
+.source-provider-mark svg { width: 24px; height: 24px; }
+.provider-gitlab, .provider-git { color: #e97846; }
+.provider-bitbucket, .provider-azure-devops, .provider-jira { color: #649dff; }
+.provider-linear { color: #aaa2ff; }
+.source-connection-detail { border-left: 3px solid var(--frost); padding: 4px 16px 16px; margin-bottom: 16px; }
+.source-connection-detail .btn-secondary { margin-left: 8px; }
 .population-assessment-stages { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr)); gap: 16px; margin: 24px 0; }
 .population-stage { border: 1px solid var(--line); border-top: 4px solid var(--muted); border-radius: 8px; padding: 18px; color: inherit; text-decoration: none; background: var(--panel); }
 .population-stage.recorded { border-top-color: var(--frost); }
