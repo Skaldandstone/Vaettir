@@ -9,6 +9,17 @@ import {
 import { assertTestEnvironment } from "../e2e/test-environment.ts";
 import { saveRequirementDrafts } from "./requirement-drafts.ts";
 import { creditOperationLabel } from "./credit-labels.ts";
+import { nextPopulationStep } from "./population-navigation.ts";
+
+test("partial project setup skips only unselected sections in either direction", () => {
+  assert.equal(nextPopulationStep(0, 1, ["assessment"]), "review");
+  assert.equal(nextPopulationStep(3, 2, ["assessment"]), "scope");
+  assert.equal(nextPopulationStep(0, 1, ["sources"]), "sources");
+  assert.equal(nextPopulationStep(3, 2, ["context"]), "context");
+  assert.equal(nextPopulationStep(0, 1, ["context", "sources"]), "context");
+  assert.throws(() => nextPopulationStep(0, -1, []), /Invalid wizard step/);
+  assert.throws(() => nextPopulationStep(0, 4, []), /Invalid wizard step/);
+});
 
 test("credit operations have user-facing labels with a readable fallback", () => {
   assert.equal(

@@ -44,6 +44,14 @@ Still next: actual re-entrant wizard UI, persisted scan/evidence review and comm
 
 ## Evidence and release boundary
 
-Initial core suite: 68 tests passed (21 new reconciliation cases); core TypeScript build passed. Tests use synthetic evidence only. Full-root checks and checkpoint revision are recorded in Linear and the local handoff. No deployment, production migration, external source scan, paid AI call or customer-record write is authorized by this source-only overnight run.
+Initial core suite: 68 tests passed (21 new reconciliation cases); core TypeScript build passed. Tests use synthetic evidence only. Full-root checks and checkpoint revision are recorded in Linear and the local handoff. Validated deployment through existing AWS resources is now authorized before 07:00 Pacific; client source processing, paid AI and unrelated customer writes are not.
+
+## Increment 3: draft wizard UI
+
+The project overview now links to `/projects/[projectId]/populate`. Four compact steps select sections, describe objectives/system type, select source preferences and review. Partial reruns skip unselected context/source steps. Progress is saved through the versioned draft API; a later visit resumes the saved step. Uncertain saves lock editing and reuse the original request ID until confirmed. Newer drafts receive explicit comparison and user-directed reconciliation rather than background replacement.
+
+This is a setup-preference workflow, not finished source intake. Provider-logo assets, authentication, scope selection, evidence review/approval, generation and assessment remain to be connected. Source preferences explicitly do not claim live connectivity. Existing approved records remain untouched.
+
+Validation: web contracts 35/35, web typecheck and focused ESLint passed. Synthetic browser rendering verified scope, objective entry, source choice, review and save callback. Preview bundle initially failed because its ignored harness resolved React from the repository root; setting the installed web dependency search path fixed it. This was a harness issue, not a disabled check. Production API integration, mobile sizing and authenticated full-flow acceptance remain separate checks before release.
 
 Execution tracking: SSE-135 / P9-00, with related reverse-engineering, strategy and foundation work remaining in their existing tickets. No duplicate tickets or customer-facing completion claim.

@@ -3758,6 +3758,12 @@ main.app-main {
   max-width: 520px;
   padding-top: 14px;
 }
+.population-wizard { max-width: 760px; }
+.population-fields { border: 0; padding: 0; margin: 0; min-width: 0; }
+.population-wizard label { display: grid; gap: 8px; }
+.population-wizard .wizard-choice-group label { display: flex; align-items: center; }
+.population-wizard textarea, .population-wizard select { width: 100%; box-sizing: border-box; }
+.population-wizard dd { margin: 4px 0 16px; overflow-wrap: anywhere; }
 .overview-distribution {
   display: grid;
   grid-template-columns: minmax(100px, 180px) 1fr 48px;

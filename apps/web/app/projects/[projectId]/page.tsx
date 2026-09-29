@@ -126,6 +126,7 @@ export default function ProjectOverviewPage() {
   return (
     <div>
       <h1 style={{ marginBottom: 2 }}>{project.name}</h1>
+      {canEdit && <a className="btn-secondary" href={`/projects/${projectId}/populate`}>Update project understanding / Add sources</a>}
       <p
         className="text-muted"
         style={{ marginBottom: project.repoUrl ? 24 : 8 }}

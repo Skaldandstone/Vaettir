@@ -1,0 +1,234 @@
+"use client";
+
+import { useState } from "react";
+import type { PopulationDraft } from "@vaettir/core";
+import { CreationWizard, WizardChoices } from "./CreationWizard";
+import { nextPopulationStep, populationSteps as steps } from "../lib/population-navigation";
+
+const sections = {
+  context: "Objectives and system",
+  sources: "Source selection",
+  requirements: "Requirements",
+  strategy: "Test strategy",
+  cases: "Test cases",
+  assessment: "Project assessment",
+} as const;
+const providers = {
+  github: "GitHub",
+  gitlab: "GitLab",
+  bitbucket: "Bitbucket",
+  "azure-devops": "Azure DevOps",
+  git: "Self-hosted Git",
+  perforce: "Perforce",
+  svn: "SVN",
+  jira: "Jira",
+  linear: "Linear",
+  document: "Documents",
+} as const;
+const titles = [
+  "What would you like to update?",
+  "What are you validating?",
+  "Which sources will help?",
+  "Review your setup draft",
+];
+export const emptyPopulationDraft: PopulationDraft = {
+  schemaVersion: 1,
+  step: "scope",
+  sections: ["context", "sources"],
+  objective: "",
+  systemScope: "SOFTWARE",
+  providers: [],
+};
+
+// Pure UI: connection selections are preferences, never connection-health claims.
+export function PopulationWizard({
+  initial,
+  locked,
+  status,
+  onSave,
+  onExit,
+}: {
+  initial: PopulationDraft;
+  locked: boolean;
+  status: string;
+  onSave: (document: PopulationDraft) => void;
+  onExit: () => void;
+}) {
+  const [draft, setDraft] = useState(initial);
+  const step = steps.indexOf(draft.step);
+  const move = (next: number) => {
+    setDraft({ ...draft, step: nextPopulationStep(step, next, draft.sections) });
+  };
+  return (
+    <section className="population-wizard">
+      <p className="text-muted">
+        Update this project in small steps. Existing cases, requirements and
+        approvals stay unchanged.
+      </p>
+      <fieldset disabled={locked} className="population-fields">
+        <CreationWizard
+          step={step}
+          steps={["Choose sections", "Objectives", "Sources", "Review"]}
+          title={titles[step]!}
+          canContinue={draft.sections.length > 0}
+          submitLabel="Save reviewed draft"
+          onStepChange={move}
+          onCancel={onExit}
+          onSubmit={() => onSave(draft)}
+        >
+          {step === 0 && (
+            <>
+              <p>
+                Run all sections again, or select only what needs new
+                information.
+              </p>
+              <WizardChoices
+                title="Sections to revisit"
+                options={Object.values(sections)}
+                selected={draft.sections.map((key) => sections[key])}
+                onToggle={(label) => {
+                  const key = (
+                    Object.keys(sections) as PopulationDraft["sections"]
+                  ).find((key) => sections[key] === label)!;
+                  setDraft({
+                    ...draft,
+                    sections: draft.sections.includes(key)
+                      ? draft.sections.filter((value) => value !== key)
+                      : [...draft.sections, key],
+                  });
+                }}
+              />
+              <button
+                type="button"
+                className="btn-secondary"
+                onClick={() =>
+                  setDraft({
+                    ...draft,
+                    sections: Object.keys(
+                      sections,
+                    ) as PopulationDraft["sections"],
+                  })
+                }
+              >
+                Select all sections
+              </button>
+            </>
+          )}
+          {step === 1 && (
+            <>
+              <label>
+                System type
+                <select
+                  value={draft.systemScope}
+                  onChange={(event) =>
+                    setDraft({
+                      ...draft,
+                      systemScope: event.target
+                        .value as PopulationDraft["systemScope"],
+                    })
+                  }
+                >
+                  <option value="SOFTWARE">Software</option>
+                  <option value="HARDWARE">Hardware</option>
+                  <option value="BOTH">Hardware and software</option>
+                  <option value="PROCESS">
+                    Process or laboratory validation
+                  </option>
+                </select>
+              </label>
+              <label>
+                What should this project establish?
+                <textarea
+                  rows={5}
+                  maxLength={2000}
+                  value={draft.objective}
+                  placeholder="For example: verify the device, firmware and mobile app work safely together."
+                  onChange={(event) =>
+                    setDraft({ ...draft, objective: event.target.value })
+                  }
+                />
+              </label>
+              <p className="text-muted">
+                Optional. Keep secrets and customer data out of this
+                description.
+              </p>
+            </>
+          )}
+          {step === 2 && (
+            <>
+              <p>
+                Choose sources to include in your setup plan. This does not
+                connect or read them.
+              </p>
+              <WizardChoices
+                title="Source preferences (optional)"
+                options={Object.values(providers)}
+                selected={draft.providers.map((key) => providers[key])}
+                onToggle={(label) => {
+                  const key = (
+                    Object.keys(providers) as PopulationDraft["providers"]
+                  ).find((key) => providers[key] === label)!;
+                  setDraft({
+                    ...draft,
+                    providers: draft.providers.includes(key)
+                      ? draft.providers.filter((value) => value !== key)
+                      : [...draft.providers, key],
+                  });
+                }}
+              />
+              <details>
+                <summary>Connection availability</summary>
+                <p>
+                  Multi-source discovery is not connected through this wizard
+                  yet. These preferences are saved for later setup. No
+                  credentials, repository contents, tickets or documents are
+                  requested here.
+                </p>
+              </details>
+              <button
+                type="button"
+                className="btn-secondary"
+                onClick={() => setDraft({ ...draft, step: "review" })}
+              >
+                Continue without connecting
+              </button>
+            </>
+          )}
+          {step === 3 && (
+            <>
+              <dl>
+                <dt>Selected sections</dt>
+                <dd>{draft.sections.map((key) => sections[key]).join(", ")}</dd>
+                <dt>System</dt>
+                <dd>{draft.systemScope.toLowerCase()}</dd>
+                <dt>Objective</dt>
+                <dd>{draft.objective || "Not specified"}</dd>
+                <dt>Source preferences</dt>
+                <dd>
+                  {draft.providers.map((key) => providers[key]).join(", ") ||
+                    "None selected"}
+                </dd>
+              </dl>
+              <p>
+                Saving retains your setup choices only. It does not generate or
+                import records, overwrite approved work, or spend AI credits.
+                Discovery and generation require a separate reviewed action.
+              </p>
+            </>
+          )}
+        </CreationWizard>
+        <button
+          type="button"
+          className="btn-secondary"
+          disabled={!draft.sections.length}
+          onClick={() => onSave(draft)}
+        >
+          Save progress
+        </button>
+      </fieldset>
+      <p role="status" aria-live="polite">
+        {status}
+      </p>
+    </section>
+  );
+}
