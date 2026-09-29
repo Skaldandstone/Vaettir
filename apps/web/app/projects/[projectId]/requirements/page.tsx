@@ -5,7 +5,9 @@ import type { ChangeEvent } from "react";
 import { useParams } from "next/navigation";
 import { trpcReact, type RouterOutputs } from "@/lib/trpcReact";
 import { Modal } from "@/components/Modal";
+import { CreationWizard, WizardChoices } from "@/components/CreationWizard";
 import { useProjectPermissions } from "@/lib/use-project-permissions";
+import { saveRequirementDrafts } from "@/lib/requirement-drafts";
 
 // 2026-08-27 competitor parity audit: draft-and-review, same shape as
 // P4-02's strategy generation - nothing here creates a real TestCase
@@ -166,13 +168,17 @@ function DraftRequirementReview({
   projectId,
   onClose,
   onCreated,
+  onBusyChange,
 }: {
   drafts: DraftRequirement[];
   projectId: string;
   onClose: () => void;
   onCreated: () => void;
+  onBusyChange: (busy: boolean) => void;
 }) {
   const createRequirement = trpcReact.requirements.create.useMutation();
+  const [editableDrafts, setEditableDrafts] = useState(drafts);
+  const [saved, setSaved] = useState<Set<number>>(new Set());
   const [selected, setSelected] = useState<Set<number>>(
     new Set(drafts.map((_, i) => i)),
   );
@@ -189,54 +195,113 @@ function DraftRequirementReview({
   }
 
   async function createSelected() {
+    if (creating || selected.size === 0) return;
+    if ([...selected].some((i) => !editableDrafts[i]?.title.trim())) {
+      setError(
+        "Add a title to each selected requirement before creating it. Your rows have been kept for editing.",
+      );
+      return;
+    }
     setCreating(true);
+    onBusyChange(true);
     setError(null);
     try {
-      for (const i of selected) {
-        const d = drafts[i]!;
-        await createRequirement.mutateAsync({
-          projectId,
-          title: d.title,
-          description: d.sourceFile
-            ? `${d.description}\n\n(extracted from ${d.sourceFile})`
-            : d.description,
-        });
-      }
-      onCreated();
-      onClose();
+      await saveRequirementDrafts(
+        editableDrafts,
+        selected,
+        saved,
+        (draft) => createRequirement.mutateAsync({ projectId, ...draft }),
+        (i) => {
+          setSaved((previous) => new Set(previous).add(i));
+          setSelected((previous) => {
+            const next = new Set(previous);
+            next.delete(i);
+            return next;
+          });
+        },
+      );
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
       setCreating(false);
+      onBusyChange(false);
+      onCreated();
     }
   }
 
   return (
     <div style={{ maxHeight: 500, overflowY: "auto" }}>
-      {error && <p style={{ color: "var(--ember)" }}>{error}</p>}
-      {drafts.map((d, i) => (
+      <p>
+        Edit each requirement before saving. Unchecked rows remain in this
+        review; nothing is silently discarded.
+      </p>
+      {saved.size > 0 && (
+        <p role="status">
+          {saved.size} requirements created. Saved rows will not be submitted
+          again.
+        </p>
+      )}
+      {error && (
+        <p role="alert" style={{ color: "var(--ember)" }}>
+          {error} Saved rows stay locked. If the connection dropped, check the
+          requirements list before retrying an uncertain row.
+        </p>
+      )}
+      {editableDrafts.map((d, i) => (
         <div
           key={i}
           className="panel"
           style={{ marginBottom: 10, padding: 10 }}
         >
-          <label style={{ display: "flex", gap: 8, alignItems: "flex-start" }}>
-            <input
-              type="checkbox"
-              checked={selected.has(i)}
-              onChange={() => toggle(i)}
-              style={{ marginTop: 4 }}
-            />
-            <div style={{ flex: 1 }}>
-              <strong>{d.title}</strong>{" "}
-              {d.sourceFile && (
-                <span className="text-muted" style={{ fontSize: 12 }}>
-                  ({d.sourceFile})
-                </span>
-              )}
-              <p style={{ fontSize: 13, margin: "4px 0 0" }}>{d.description}</p>
-            </div>
-          </label>
+          <div style={{ display: "grid", gap: 8 }}>
+            <label>
+              <input
+                type="checkbox"
+                disabled={creating || saved.has(i)}
+                checked={selected.has(i)}
+                onChange={() => toggle(i)}
+                style={{ marginTop: 4 }}
+              />
+              {saved.has(i) ? "Created" : `Include requirement ${i + 1}`}
+            </label>
+            <label>
+              Title
+              <input
+                value={d.title}
+                disabled={creating || saved.has(i)}
+                aria-invalid={selected.has(i) && !d.title.trim()}
+                onChange={(event) =>
+                  setEditableDrafts((rows) =>
+                    rows.map((row, index) =>
+                      index === i ? { ...row, title: event.target.value } : row,
+                    ),
+                  )
+                }
+              />
+            </label>
+            <label>
+              Description and acceptance expectations
+              <textarea
+                value={d.description}
+                rows={3}
+                disabled={creating || saved.has(i)}
+                onChange={(event) =>
+                  setEditableDrafts((rows) =>
+                    rows.map((row, index) =>
+                      index === i
+                        ? { ...row, description: event.target.value }
+                        : row,
+                    ),
+                  )
+                }
+              />
+            </label>
+            {d.sourceFile && (
+              <span className="text-muted" style={{ fontSize: 12 }}>
+                ({d.sourceFile})
+              </span>
+            )}
+          </div>
         </div>
       ))}
       {drafts.length === 0 && (
@@ -250,13 +315,17 @@ function DraftRequirementReview({
           marginTop: 10,
         }}
       >
-        <button className="btn-secondary" onClick={onClose}>
-          Cancel
+        <button className="btn-secondary" onClick={onClose} disabled={creating}>
+          Close review
         </button>
         <button
           className="btn-primary"
           onClick={createSelected}
-          disabled={creating || selected.size === 0}
+          disabled={
+            creating ||
+            selected.size === 0 ||
+            [...selected].some((i) => !editableDrafts[i]?.title.trim())
+          }
         >
           {creating ? "Creating…" : `Create ${selected.size} selected`}
         </button>
@@ -561,6 +630,7 @@ function ExtractFromMarkdownModal({
   const extractMutation =
     trpcReact.requirements.extractFromMarkdown.useMutation();
   const [fileName, setFileName] = useState("requirements.md");
+  const [savingDrafts, setSavingDrafts] = useState(false);
   const [content, setContent] = useState("");
   const [drafts, setDrafts] = useState<DraftRequirement[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -593,6 +663,7 @@ function ExtractFromMarkdownModal({
       open
       onClose={onClose}
       title="Extract requirements from a markdown file"
+      dismissible={!extracting && !savingDrafts}
     >
       {!drafts && (
         <div style={{ display: "grid", gap: 10 }}>
@@ -629,6 +700,7 @@ function ExtractFromMarkdownModal({
           projectId={projectId}
           onClose={onClose}
           onCreated={onCreated}
+          onBusyChange={setSavingDrafts}
         />
       )}
     </Modal>
@@ -636,9 +708,7 @@ function ExtractFromMarkdownModal({
 }
 
 // 2026-08-28: scans the project's connected repo for likely requirements/
-// spec docs (README + docs/spec/requirements-hinted paths) and extracts
-// from each - fires immediately on open since the repo URL is already
-// known from the project.
+// spec docs after explicit confirmation. Opening a dialog must not spend credits.
 function ExtractFromRepoModal({
   projectId,
   repoUrl,
@@ -652,23 +722,51 @@ function ExtractFromRepoModal({
 }) {
   const utils = trpcReact.useUtils();
   const [drafts, setDrafts] = useState<DraftRequirement[] | null>(null);
-  const [scanning, setScanning] = useState(true);
+  const [scanning, setScanning] = useState(false);
+  const [savingDrafts, setSavingDrafts] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    utils.client.requirements.extractFromRepo
-      .mutate({ projectId, repoUrl })
-      .then(setDrafts)
-      .catch((e) => setError(e instanceof Error ? e.message : String(e)))
-      .finally(() => setScanning(false));
-  }, [projectId, repoUrl, utils]);
+  async function scan() {
+    if (scanning) return;
+    setScanning(true);
+    setError(null);
+    try {
+      setDrafts(
+        await utils.client.requirements.extractFromRepo.mutate({
+          projectId,
+          repoUrl,
+        }),
+      );
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setScanning(false);
+    }
+  }
 
   return (
     <Modal
       open
       onClose={onClose}
       title={`Extract requirements from ${repoUrl}`}
+      dismissible={!scanning && !savingDrafts}
     >
+      {!drafts && !scanning && (
+        <div>
+          <p>
+            Scan the connected repository for specification documents, then edit
+            and select the proposed requirements. No requirements are saved
+            until you confirm them.
+          </p>
+          <p className="text-muted">
+            This uses AI credits. Review the operation costs in Billing before
+            starting.
+          </p>
+          <button className="btn-primary" onClick={scan}>
+            Scan repository and draft requirements
+          </button>
+        </div>
+      )}
       {scanning && <p>Scanning repo for requirements/spec docs…</p>}
       {error && <p style={{ color: "var(--ember)" }}>{error}</p>}
       {drafts && (
@@ -677,6 +775,7 @@ function ExtractFromRepoModal({
           projectId={projectId}
           onClose={onClose}
           onCreated={onCreated}
+          onBusyChange={setSavingDrafts}
         />
       )}
     </Modal>
@@ -698,6 +797,8 @@ export default function RequirementsPage() {
   const [generatingForId, setGeneratingForId] = useState<string | null>(null);
   const [markdownModalOpen, setMarkdownModalOpen] = useState(false);
   const [repoModalOpen, setRepoModalOpen] = useState(false);
+  const [creationStep, setCreationStep] = useState<number | null>(null);
+  const [creationSource, setCreationSource] = useState("Write a requirement");
 
   const listQuery = trpcReact.requirements.list.useQuery({ projectId });
   const requirements = listQuery.data ?? [];
@@ -753,6 +854,7 @@ export default function RequirementsPage() {
         });
       }
       resetForm();
+      setCreationStep(null);
       reload();
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -788,27 +890,141 @@ export default function RequirementsPage() {
       {canEdit && (
         <div style={{ display: "flex", gap: 8, margin: "8px 0 16px" }}>
           <button
-            className="btn-secondary"
-            onClick={() => setMarkdownModalOpen(true)}
+            className="btn-primary"
+            onClick={() => {
+              resetForm();
+              setCreationStep(0);
+            }}
           >
-            Extract from markdown file
+            Add requirements
           </button>
-          {repoUrl ? (
-            <button
-              className="btn-secondary"
-              onClick={() => setRepoModalOpen(true)}
-            >
-              Extract from repository
-            </button>
-          ) : (
-            <a className="connection-chip" href={`/projects/${projectId}`}>
-              GitHub · Connect repository to extract requirements
-            </a>
-          )}
         </div>
       )}
 
-      {canEdit && (
+      {canEdit && creationStep !== null && (
+        <Modal
+          open
+          title="Add requirements"
+          onClose={() => setCreationStep(null)}
+          dismissible={!saving}
+        >
+          <CreationWizard
+            step={creationStep}
+            steps={["Source", "Describe", "Review"]}
+            title={
+              creationStep === 0
+                ? "Where should we start?"
+                : creationStep === 1
+                  ? "Describe the behavior you need"
+                  : "Review your requirement"
+            }
+            description="Capture the outcome first. You can connect test cases and acceptance criteria afterwards."
+            busy={saving}
+            submitLabel="Create requirement"
+            canContinue={
+              creationStep === 0
+                ? creationSource !== "Connected repository" || !!repoUrl
+                : !!title.trim()
+            }
+            onCancel={() => setCreationStep(null)}
+            onSubmit={submit}
+            onStepChange={(next) => {
+              if (
+                creationStep === 0 &&
+                next === 1 &&
+                creationSource !== "Write a requirement"
+              ) {
+                setCreationStep(null);
+                if (creationSource === "Markdown document")
+                  setMarkdownModalOpen(true);
+                else setRepoModalOpen(true);
+              } else setCreationStep(next);
+            }}
+          >
+            {creationStep === 0 && (
+              <>
+                <WizardChoices
+                  title="Requirement source"
+                  single
+                  options={[
+                    "Write a requirement",
+                    "Markdown document",
+                    "Connected repository",
+                  ]}
+                  selected={[creationSource]}
+                  onToggle={setCreationSource}
+                />
+                <p className="text-muted">
+                  Write one requirement, upload or paste a specification, or
+                  draft from repository documents. Extracted rows can be edited
+                  before saving.
+                </p>
+                {creationSource === "Connected repository" && !repoUrl && (
+                  <a
+                    className="connection-chip"
+                    href={`/projects/${projectId}`}
+                  >
+                    GitHub · Connect a repository first
+                  </a>
+                )}
+                <p className="text-muted">
+                  Direct Google Drive, Jira and Linear intake is not available
+                  yet. Document text can be pasted using Markdown document.
+                </p>
+              </>
+            )}
+            {creationStep === 1 && (
+              <div style={{ display: "grid", gap: 12 }}>
+                <label>
+                  Requirement title
+                  <input
+                    value={title}
+                    onChange={(event) => setTitle(event.target.value)}
+                    placeholder="For example: alert the operator when supply voltage is outside limits"
+                  />
+                </label>
+                <label>
+                  Expected behavior and acceptance conditions
+                  <textarea
+                    rows={5}
+                    value={description}
+                    onChange={(event) => setDescription(event.target.value)}
+                    placeholder="Who needs this? Under what conditions? What measurable outcome confirms it works?"
+                  />
+                </label>
+                <label>
+                  Source reference (optional)
+                  <input
+                    value={externalRef}
+                    onChange={(event) => setExternalRef(event.target.value)}
+                    placeholder="Specification section, ticket ID or document URL"
+                  />
+                </label>
+              </div>
+            )}
+            {creationStep === 2 && (
+              <div>
+                <h4>{title}</h4>
+                <p style={{ whiteSpace: "pre-wrap" }}>
+                  {description || "No additional acceptance details supplied."}
+                </p>
+                {externalRef && <p>Source: {externalRef}</p>}
+                <p className="text-muted">
+                  This creates a requirement only. It does not claim that any
+                  tests have passed.
+                </p>
+              </div>
+            )}
+            {error && (
+              <p role="alert" style={{ color: "var(--ember)" }}>
+                {error}
+              </p>
+            )}
+          </CreationWizard>
+        </Modal>
+      )}
+
+      {canEdit && editingId && (
         <div
           style={{ display: "grid", gap: 8, margin: "16px 0", maxWidth: 420 }}
         >

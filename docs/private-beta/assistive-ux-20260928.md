@@ -38,7 +38,7 @@ Earlier failed API logs are retained. Staff fixtures were corrected to use exact
 
 1. Signed/notarized native connector publication and in-product native download flow; macOS app launch and actual Android/connected iOS/remote iOS acceptance. The production helper is still the previous script-based download until release integration is completed.
 2. Production Clerk passkey/MFA configuration verification and enrollment acceptance. Development-instance settings are not production evidence. Enterprise SAML/SSO provisioning and local-organization-to-provider binding remain unimplemented; do not expose a fake configuration success.
-3. Direct requirements intake from Jira/Linear/Google Drive, and a unified guided requirements-creation workflow. Existing Jira/Linear status linking is not requirements extraction.
+3. Direct requirements intake from Jira/Linear/Google Drive. Existing Jira/Linear status linking is not requirements extraction. A follow-up now adds a source-first requirements wizard for manual/Markdown/repository input, editable extracted rows and acknowledged-write-aware retries. Repository extraction starts only on explicit confirmation. This follow-up is separate from the `707a0dd` release batch.
 4. Complete import provider branding, all-row/one-at-a-time repair across vendor formats, and real authenticated inbound test-case webhook/API connectors. Do not advertise notification webhooks as import pipelines.
 5. Review custom compliance reference tenancy: legacy framework/control definitions are globally shared. Project-local hiding avoids cross-project deletion but does not convert legacy custom definitions into private tenant-owned templates. Resolve ownership/migration before promising isolated custom compliance catalogs.
 6. Version-pinned, authoritative and license-appropriate expansion of regulated starter catalogs. Starter controls are not certification, regulatory advice or a complete standard. Instrument connectors, step-level evidence, signed regulated execution records and calibration enforcement remain separate work.
@@ -59,3 +59,9 @@ Artifacts and hashes are under ignored `dist/device-connector/<platform>-<arch>/
 ## Local evidence
 
 The accepted full API run is under `.local/ux-validation/vaettir_ux_test_1790647328555/`. That disposable database is retained for inspection. Earlier isolated attempts and failure logs are retained alongside it; no existing application database was migrated. Never commit local credentials or raw assistant history.
+
+## Requirements follow-up
+
+Source-first creation now guides manual entry through description and review; document/repository extraction flows retain editable rows until the user closes review. Empty selected titles block saving rather than dropping rows. Acknowledged successes are locked and excluded from retries, while uncertain network failures explicitly require reconciliation with the list. This is not durable server-side idempotency. Extraction/saving disables modal dismissal; merely opening repository extraction no longer spends credits.
+
+Verification: 33 web tests passed, web typecheck passed, focused lint had zero errors and one existing warning, and the supported local web build passed. Authenticated visual acceptance and deployment of this separate follow-up are still pending.
