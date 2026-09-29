@@ -37,3 +37,13 @@ Web-only commit `a8556f2771fde92ea3820b27e5bfaa1f20f3a20a` passed CodeBuild `vae
 Web commit `616d8e25144ef4c044cd937b87a83633b60ec043` passed CodeBuild `vaettir-web-build:036f20c0-9575-44b8-a771-01eb27f32012` and deployed as `vaettir-web:17`, digest `sha256:af1b3a7e0c17887f8737bc38c8151f501a6145b9cd8c592574dd7edc3c2b7d1a`. The runtime acceptance checker passes. Authenticated read-only inspection verified the file disclosure, file control, permission explanation and disabled preview until required input is supplied. No customer document was selected or uploaded. Native file-picker/full upload acceptance remains distinct from decoder tests and this rendered check. API remains revision 22.
 
 Scope and remaining limitations are recorded in [project-population-20260929.md](project-population-20260929.md). This is the saved-setup, reviewed-document, cited-requirement and evidence-snapshot slice, not completed multi-provider discovery or test/strategy generation.
+
+## Scanner transport release
+
+API commit `6b93254dc25f6e0b533e3045b897dd36427f0238` passed CodeBuild `vaettir-api-build:ab73ea60-ffd2-45be-a5b5-b235ad43ab02` and deployed as `vaettir-api:23`, digest `sha256:72e1d57ce807e3fc2698e5cb31f7a01e80321a3bc24d527c3ef2e03a433bbac8`. The previous API22 definition remains in ignored `.local/deploy-6b93254/`. The image now explicitly installs Git and checks its executable during construction. Legacy clones use the restricted transport described in the implementation ledger; internal pinned-document readers remain unexposed. No new migration occurred.
+
+Exact public API health confirms this commit/digest, healthy DB/workers; the new ALB target was healthy and authenticated read-only project assessment loaded. At 05:10 Pacific, ECS runtime acceptance completed with one running task, zero pending/failed tasks and one completed deployment. This does not establish live repository-provider acceptance; no customer repository was fetched.
+
+## Context update release candidate
+
+Both builds for `b7ecfa64042ab1bb7049872017a3dc2d4fe3257b` succeeded: API `233614d8-48e2-4c98-a616-4905ff221750`, web `c2f7f1aa-ea3a-4611-825c-5333a48bcb7e` in their existing build projects. API-first rollout is in progress; web remains 616d8e2 until the compatible API is accepted. Source proof: API371, core69, web39, typecheck7, focused lint and synthetic context-entry/review rendering. New context fields are optional draft notes, not approved project facts. Preserve context-bearing drafts during recovery; pre-context strict-schema APIs cannot read them.
