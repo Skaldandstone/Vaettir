@@ -1,6 +1,6 @@
 "use client";
 
-import { Fragment, useState } from "react";
+import { Fragment, useState, useSyncExternalStore } from "react";
 import { useParams } from "next/navigation";
 import { useRouter } from "next/navigation";
 import { trpcReact } from "@/lib/trpcReact";
@@ -13,6 +13,14 @@ const STATUS_COLORS: Record<string, string> = {
   FAILED: "#cf222e",
   PARTIAL: "#9a6700",
   RUNNING: "#0969da",
+};
+const subscribeRunHash = (notify: () => void) => {
+  window.addEventListener("hashchange", notify);
+  return () => window.removeEventListener("hashchange", notify);
+};
+const readRunHash = () => {
+  const match = window.location.hash.match(/^#run-([a-zA-Z0-9_-]+)$/);
+  return match?.[1] ?? null;
 };
 
 const RESULT_COLORS: Record<string, string> = {
@@ -495,7 +503,9 @@ export default function TestRunsPage() {
   const runs = runsQuery.data ?? [];
   const loading = runsQuery.isLoading;
   const error = runsQuery.error?.message ?? null;
-  const [openRunId, setOpenRunId] = useState<string | null>(null);
+  const linkedRunId = useSyncExternalStore(subscribeRunHash, readRunHash, () => null);
+  const [selectedRunId, setOpenRunId] = useState<string | null | undefined>(undefined);
+  const openRunId = selectedRunId === undefined ? linkedRunId : selectedRunId;
   const [manualOpen, setManualOpen] = useState(false);
   const [manualSearch, setManualSearch] = useState("");
   const [manualSelection, setManualSelection] = useState<Set<string>>(
@@ -613,6 +623,7 @@ export default function TestRunsPage() {
             {runs.map((r) => (
               <tr
                 key={r.id}
+                id={`run-${r.id}`}
                 style={{
                   borderBottom: "1px solid var(--line)",
                   cursor: "pointer",

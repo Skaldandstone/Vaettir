@@ -30,11 +30,13 @@ import { productionSignalsRouter } from "./routers/productionSignals.js";
 import { projectPopulationRouter } from "./routers/projectPopulation.js";
 import { populationDocumentsRouter } from "./routers/populationDocuments.js";
 import { populationRequirementsRouter } from "./routers/populationRequirements.js";
+import { populationAssessmentRouter } from "./routers/populationAssessment.js";
 
 export const appRouter = router({
   projectPopulation: projectPopulationRouter,
   populationDocuments: populationDocumentsRouter,
   populationRequirements: populationRequirementsRouter,
+  populationAssessment: populationAssessmentRouter,
   beta: betaRouter,
   testCases: testCasesRouter,
   testPlans: testPlansRouter,

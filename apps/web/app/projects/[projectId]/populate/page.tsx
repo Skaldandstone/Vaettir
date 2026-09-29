@@ -187,6 +187,7 @@ function Editor({
       )}
       <p><a className="btn-secondary" href={`/projects/${projectId}/populate/documents`}>Review document evidence</a></p>
       <p><a className="btn-secondary" href={`/projects/${projectId}/populate/requirements`}>Review requirement suggestions</a></p>
+      <p><a className="btn-primary" href={`/projects/${projectId}/populate/assessment`}>View project evidence snapshot</a></p>
     </div>
   );
 }

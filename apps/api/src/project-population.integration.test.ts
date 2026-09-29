@@ -87,6 +87,14 @@ describe.skipIf(!isolated)("population draft persistence", () => {
     ).toBe("");
   });
 
+  it("assesses project evidence without crossing tenants or inventing readiness",async()=>{
+    const result=await viewer.populationAssessment.current({projectId});
+    expect(result.overall).toBe("Readiness not established");
+    expect(result.stages).toHaveLength(4);
+    expect(result.uncertainty.join(" ")).toContain("deployed functionality");
+    await expect(otherOwner.populationAssessment.current({projectId})).rejects.toThrow();
+  });
+
   it("creates cited requirements once and preserves human edits and removals on rerun", async () => {
     const projectId = (await owner.project.create({organizationId,name:`Requirements ${randomUUID()}`})).id;
     const doc = {
