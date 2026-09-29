@@ -1046,6 +1046,7 @@ export function TestCaseDetailContent({
         {tc.confidence != null &&
           ` (confidence ${(tc.confidence * 100).toFixed(0)}%)`}
       </p>
+      <p><a href={`/projects/${projectId}/test-cases/${tc.id}/unreal`}>Unreal playtest (technical preview)</a></p>
 
       {Object.values(tc.verificationProfile).some(Boolean) && (
         <section className="panel">
