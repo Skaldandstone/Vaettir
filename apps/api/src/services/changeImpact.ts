@@ -3,7 +3,7 @@ import { promisify } from "node:util";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { assertScannableRepoUrl } from "./repoScan.js";
+import { assertScannableRepoUrl, cloneRepository } from "./repositoryTransport.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -14,7 +14,11 @@ const execFileAsync = promisify(execFile);
 export async function cloneFullRepo(repoUrl: string): Promise<{ dir: string; cleanup: () => Promise<void> }> {
   assertScannableRepoUrl(repoUrl);
   const dir = await mkdtemp(join(tmpdir(), "tci-diff-"));
-  await execFileAsync("git", ["clone", repoUrl, dir]);
+  try { await cloneRepository(repoUrl, dir); }
+  catch (error) {
+    await rm(dir, { recursive: true, force: true });
+    throw error;
+  }
   return { dir, cleanup: () => rm(dir, { recursive: true, force: true }) };
 }
 

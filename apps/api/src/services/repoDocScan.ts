@@ -1,11 +1,7 @@
-import { execFile } from "node:child_process";
-import { promisify } from "node:util";
 import { mkdtemp, readFile, rm, readdir, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
-import { assertScannableRepoUrl } from "./repoScan.js";
-
-const execFileAsync = promisify(execFile);
+import { assertScannableRepoUrl, cloneRepository } from "./repositoryTransport.js";
 
 // Requirements-from-repo (2026-08-28): the same shallow-clone-and-walk
 // shape repoScan.ts already uses for test files, but looking for
@@ -74,7 +70,7 @@ export async function scanRepoForRequirementDocs(repoUrl: string, ref: string): 
   assertScannableRepoUrl(repoUrl);
   const dir = await mkdtemp(join(tmpdir(), "vaettir-doc-scan-"));
   try {
-    await execFileAsync("git", ["clone", "--depth", "1", "--branch", ref, "--single-branch", repoUrl, dir]);
+    await cloneRepository(repoUrl, dir, ref);
     const files: ScannedDoc[] = [];
     await walkDocs(dir, dir, files);
     // README first, if it made the cut - the most likely single source

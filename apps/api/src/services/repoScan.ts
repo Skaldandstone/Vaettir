@@ -1,34 +1,18 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { mkdtemp, readFile, rm, readdir, stat } from "node:fs/promises";
+import { mkdtemp, readFile, rm, readdir, stat, lstat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
 import { createHash } from "node:crypto";
 import { isLikelyTestFile } from "@vaettir/core";
 import { cloneFullRepo, resolveRef } from "./changeImpact.js";
+import { assertScannableRepoUrl, cloneRepository } from "./repositoryTransport.js";
+export { assertScannableRepoUrl } from "./repositoryTransport.js";
 
 const execFileAsync = promisify(execFile);
 
 export function hashFileContent(content: string): string {
   return createHash("sha256").update(content).digest("hex");
-}
-
-// Repo scanning needs to fetch source from an arbitrary org-supplied URL, so
-// it's deliberately restrictive: only https:// (no file://, no ssh so we
-// don't have to worry about this box's own SSH keys being used against an
-// unintended host), and git itself is invoked with an explicit argv array
-// (execFile, not a shell string) so nothing in repoUrl/ref can be
-// interpreted as a shell command.
-export function assertScannableRepoUrl(repoUrl: string): void {
-  let parsed: URL;
-  try {
-    parsed = new URL(repoUrl);
-  } catch {
-    throw new Error("repoUrl must be a valid URL");
-  }
-  if (parsed.protocol !== "https:") {
-    throw new Error("Only https:// repo URLs are supported for scanning");
-  }
 }
 
 const IGNORED_DIRS = new Set(["node_modules", ".git", "dist", "build", ".next", ".turbo", "vendor", "venv", ".venv"]);
@@ -104,7 +88,7 @@ export async function scanRepoForTestFiles(
   assertScannableRepoUrl(repoUrl);
   const dir = await mkdtemp(join(tmpdir(), "tci-repo-scan-"));
   try {
-    await execFileAsync("git", ["clone", "--depth", "1", "--branch", ref, "--single-branch", repoUrl, dir]);
+    await cloneRepository(repoUrl, dir, ref);
     const files: ScannedTestFile[] = [];
     await walkTestFiles(dir, dir, files, knownHashes);
     const { stdout: headShaOut } = await execFileAsync("git", ["rev-parse", "HEAD"], { cwd: dir });
@@ -155,7 +139,7 @@ export async function scanChangedTestFiles(
       const absolutePath = join(dir, relativePath);
       let st;
       try {
-        st = await stat(absolutePath);
+        st = await lstat(absolutePath);
       } catch {
         continue; // file was deleted in this range -- nothing to scan
       }
