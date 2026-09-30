@@ -8,6 +8,7 @@ type Listing = RouterOutputs["repositoryConnections"]["list"];
 const field = { display: "grid", gap: 6 } as const;
 const inputStyle = { width: "100%", minWidth: 0, boxSizing: "border-box" } as const;
 const actions = { display: "flex", gap: 8, flexWrap: "wrap" } as const;
+const statusLabel = (status: string) => status.replaceAll("_", " ").toLowerCase();
 
 /** Render inside the existing Modal. Provider credentials never enter browser storage. */
 export function RepositoryOAuthConnection({ projectId, providerId, onConnected, onClose }: {
@@ -100,11 +101,11 @@ export function RepositoryOAuthConnection({ projectId, providerId, onConnected, 
         {recent.data.filter(connection => connection.provider === providerId).map(connection => <button type="button" className="source-connection-chip" key={connection.id} disabled={!configurations.data?.storageReady} onClick={() => {
           const config = configurations.data?.configurations.find(c => c.provider === providerId && c.origin === connection.origin);
           setConfigurationId(config?.id ?? ""); setConnectionId(connection.id); setStep("authorize");
-        }}><ProviderMark id={providerId}/><span style={{ overflowWrap: "anywhere" }}><strong>{connection.origin}</strong><small>{connection.accountLabel ?? "Your authorization"} · {connection.status.toLowerCase()}</small></span></button>)}
+        }}><ProviderMark id={providerId}/><span style={{ overflowWrap: "anywhere" }}><strong>{connection.origin}</strong><small>{connection.accountLabel ?? "Your authorization"} · {statusLabel(connection.status)}</small></span></button>)}
       </div></details>}
       {providerId === "github" && configurations.data?.canConfigure && Boolean(revocations.data?.length) && <details><summary>Review GitHub authorizations before removing the application ({revocations.data?.length})</summary><div style={{ display: "grid", gap: 8, marginTop: 8 }}>
         <p className="text-muted">A workspace administrator can cancel pending attempts or retry revocation of an abandoned member grant. Application credentials remain until every grant is cleared.</p>
-        {revocations.data?.map(grant => <div key={grant.id} style={{ ...actions, alignItems: "center" }}><span style={{ flex: "1 1 180px", overflowWrap: "anywhere" }}>{grant.projectName} · {grant.accountLabel ?? "Account not verified"} · {grant.status.toLowerCase()}</span><button type="button" className="btn-secondary" disabled={busy || Boolean(revokingId) || grant.status === "VERIFYING"} onClick={async () => {
+        {revocations.data?.map(grant => <div key={grant.id} style={{ ...actions, alignItems: "center" }}><span style={{ flex: "1 1 180px", overflowWrap: "anywhere" }}>{grant.projectName} · {grant.accountLabel ?? "Account not verified"} · {statusLabel(grant.status)}</span><button type="button" className="btn-secondary" disabled={busy || Boolean(revokingId) || grant.status === "VERIFYING"} onClick={async () => {
           setRevokingId(grant.id); setError("");
           try { await disconnect.mutateAsync({ id: grant.id }); await revocations.refetch(); await recent.refetch(); }
           catch { setError("GitHub did not confirm revocation. The encrypted grant remains in Vaettir; retry or inspect Authorized OAuth Apps in GitHub."); }

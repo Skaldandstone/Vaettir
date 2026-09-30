@@ -196,7 +196,7 @@ export const repositoryConnectionsRouter=router({
       }
     }
     await ctx.prisma.$transaction(async tx=>{
-      if(row.provider!=="github")await liveEditor(tx,row.organizationId,ctx.user.id,adminDisconnect);
+      if(row.provider!=="github" || !row.encryptedToken)await liveEditor(tx,row.organizationId,ctx.user.id,adminDisconnect);
       await tx.$queryRaw`SELECT id FROM "RepositoryConnection" WHERE id = ${row.id} FOR UPDATE`;
       const current=await tx.repositoryConnection.findUnique({where:{id:row.id}});
       if(!current || current.status!==row.status || JSON.stringify(current.encryptedToken)!==JSON.stringify(row.encryptedToken))

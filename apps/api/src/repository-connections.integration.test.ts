@@ -237,6 +237,15 @@ describe.skipIf(!isolated)("repository authorization and reviewed selection", ()
     expect(revokeGithubAuthorization).not.toHaveBeenCalled();
   });
 
+  it("rechecks administrator membership when canceling an unissued GitHub attempt", async () => {
+    const config = await owner.configureGithub({ projectId, clientId: "github-app-fixture", clientSecret });
+    const pending = await owner.begin({ projectId, configurationId: config.id, approveMetadataAccess: true });
+    const admin = await actor("ADMIN");
+    await prisma.membership.update({ where: { organizationId_userId: { organizationId, userId: admin.user.id } }, data: { role: "VIEWER" } });
+    await expect(admin.caller.disconnect({ id: pending.id })).rejects.toMatchObject({ code: "FORBIDDEN" });
+    expect(await prisma.repositoryConnection.findUniqueOrThrow({ where: { id: pending.id } })).toMatchObject({ status: "PENDING" });
+  });
+
   it("enforces tenant, role, full seat, and explicit metadata approval", async () => {
     await expect(outsider.configurations({ projectId })).rejects.toMatchObject({ code: "FORBIDDEN" });
     for (const caller of [editor, viewer, readOnlyAdmin]) {
