@@ -10,7 +10,7 @@
 
 ## Evidence
 
-- API suite: 386 tests passed on a fresh disposable local database; both additive migrations applied. Additional invitation-router authorization regression added afterward for the next validation run.
+- API suite: 389 tests passed across 69 files on a fresh disposable local database; both additive migrations applied. Includes invitation authorization, ambiguous credit-ledger acknowledgments and oversized-input rejection before charging.
 - Root typecheck: 7 tasks passed. Web contracts: 41 passed. AI design-review unit tests: 2 passed. Focused lint: no errors (two existing apostrophe warnings in the members page).
 - Rendered synthetic modal: evidence navigation, credit/balance preview, saved-result reuse, recommendation and retained-coverage presentation checked. Synthetic responses are not live AI/provider acceptance.
 - Read-only production mail configuration: SES enabled, production access enabled, enforcement healthy; production sender and web origin configured. No customer emails sent during validation.
@@ -18,4 +18,12 @@
 
 ## Remaining boundaries
 
-Repository discovery, automatic code selection, applying reviewed case edits, bulk design reviews, and an admin credit-request workflow are not included in this slice. Actual mail receipt and live paid-model output remain untested. Deployment evidence is recorded separately once rollout completes.
+Repository discovery, automatic code selection, applying reviewed case edits, bulk design reviews, and an admin credit-request workflow are not included in this slice. Actual mail receipt and live paid-model output remain untested.
+
+## Production release evidence
+
+- Verified September 29, 2026 at 18:15 Pacific. API `84b5a429a032e2a73f40e24c2cc8e256890f3911`, task revision 26, digest `sha256:4146fc7836b9b81a119b2aabc5a96ec1c249bc3fb00c92fe8e0f1297784e9aa6`. Web `bd7886c1ac931598368be31769a0e33f00884730`, task revision 20, digest `sha256:06c1209ed0f0720007012d8e8736dadff7314adfa940c764783fa7de3dc8b65e`.
+- Both CodeBuild releases succeeded and both ECS acceptance checks returned `ready: true` with no issues. Public API detailed health confirmed the exact commit/digest, database and workers healthy. Previous API25/web19 definitions are preserved locally for recovery.
+- Authenticated read-only smoke: test-design modal opens, navigates to the live cost/balance preview, requires unchecked processing/spend consent, disables confirmation without consent, and closes back to the unchanged case page. Pending invitations display “Email not sent.” and an explicit “Send email” action.
+- No customer emails, paid model calls, repository processing, invitation revocations or customer-record edits were performed during validation. Existing pending invitations remain unsent until an authorized user explicitly sends them.
+- API follow-up preserves reservations on ambiguous ledger failures and caps serialized review input at 64,000 UTF-8 bytes. Definitive insufficient-credit failures may safely release a reservation; ambiguous charged work may not silently retry.
