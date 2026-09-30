@@ -14,6 +14,7 @@ describe.skipIf(!isolated)("bulk case analysis authorization and risk reservatio
   let organizationId: string;
   let projectId: string;
   let caseId: string;
+  let ownerUserId: string;
   const result = { severity: "HIGH" as const, riskScore: 77, rationale: "A failed checkout calculation would charge the wrong amount." };
 
   beforeAll(async () => {
@@ -22,6 +23,7 @@ describe.skipIf(!isolated)("bulk case analysis authorization and risk reservatio
     const org = await prisma.organization.create({ data: { name: key, slug: key, planTierId: tier.id } });
     organizationId = org.id;
     const user = await prisma.user.create({ data: { email: `${key}@example.com`, clerkUserId: key, memberships: { create: { organizationId, role: "OWNER" } } }, include: { memberships: true } });
+    ownerUserId = user.id;
     const read = await prisma.user.create({ data: { email: `${key}-read@example.com`, clerkUserId: `${key}-read`, memberships: { create: { organizationId, role: "VIEWER" } } }, include: { memberships: true } });
     const other = await prisma.user.create({ data: { email: `${key}-other@example.com`, clerkUserId: `${key}-other` }, include: { memberships: true } });
     owner = appRouter.createCaller({ prisma, user }); viewer = appRouter.createCaller({ prisma, user: read }); outsider = appRouter.createCaller({ prisma, user: other });
@@ -46,6 +48,24 @@ describe.skipIf(!isolated)("bulk case analysis authorization and risk reservatio
     expect(await prisma.auditLog.count({ where: { entityType: "AiCreditUseRequest", entityId: request.id, action: "UPDATE" } })).toBe(1);
     expect((await viewer.testCases.riskPreview({ id: caseId })).canSpend).toBe(false);
     await expect(viewer.testCases.assessRisk({ id: caseId, expectedHash: "0".repeat(64), approved: true })).rejects.toMatchObject({ code: "FORBIDDEN" });
+  });
+
+  it("rechecks live full-seat administrator access before resolving a credit request", async () => {
+    const request = await viewer.creditUseRequests.create({ projectId, action: "TYPE_DESIGN", ids: [caseId] });
+    const key = `readonly-credit-${Date.now()}`;
+    const readOnlyUser = await prisma.user.create({ data: { email: `${key}@example.com`, clerkUserId: key,
+      memberships: { create: { organizationId, role: "ADMIN", seatType: "READ_ONLY" } } }, include: { memberships: true } });
+    const readOnlyAdmin = appRouter.createCaller({ prisma, user: readOnlyUser });
+    expect((await readOnlyAdmin.creditUseRequests.adminList({ organizationId })).some(row => row.id === request.id)).toBe(true);
+    await expect(readOnlyAdmin.creditUseRequests.resolve({ organizationId, id: request.id, decision: "ACKNOWLEDGED" })).rejects.toMatchObject({ code: "FORBIDDEN" });
+    await prisma.membership.update({ where: { organizationId_userId: { organizationId, userId: ownerUserId } }, data: { role: "VIEWER" } });
+    try {
+      await expect(owner.creditUseRequests.adminList({ organizationId })).rejects.toMatchObject({ code: "FORBIDDEN" });
+      await expect(owner.creditUseRequests.resolve({ organizationId, id: request.id, decision: "ACKNOWLEDGED" })).rejects.toMatchObject({ code: "FORBIDDEN" });
+    } finally {
+      await prisma.membership.update({ where: { organizationId_userId: { organizationId, userId: ownerUserId } }, data: { role: "OWNER" } });
+    }
+    expect((await prisma.aiCreditUseRequest.findUniqueOrThrow({ where: { id: request.id } })).status).toBe("PENDING");
   });
 
   it("requires explicit approval and rejects stale previews before any charge", async () => {

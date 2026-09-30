@@ -9,6 +9,16 @@ const actionSchema = z.enum(["RISK", "TYPE_DESIGN"]);
 const idsSchema = z.array(z.string().min(1)).min(1).max(20).refine(ids => new Set(ids).size === ids.length, "Duplicate case IDs are not allowed");
 const perCaseCost = (action: z.infer<typeof actionSchema>) => action === "RISK" ? AI_OPERATION_COSTS.assessTestCaseRisk : AI_OPERATION_COSTS.reviewTestDesign;
 
+async function liveCreditAdmin(tx: Prisma.TransactionClient, organizationId: string, userId: string, fullSeat = true) {
+  // Membership/seat mutations use the same organization row lock. Hold it
+  // through the approval write so a stale request context cannot approve.
+  const org = await tx.$queryRaw<Array<{ suspendedAt: Date | null }>>`SELECT "suspendedAt" FROM "Organization" WHERE "id"=${organizationId} FOR UPDATE`;
+  const member = await tx.membership.findUnique({ where: { organizationId_userId: { organizationId, userId } } });
+  if (!org[0] || org[0].suspendedAt || !member || (fullSeat && member.seatType !== "FULL") || !["OWNER", "ADMIN"].includes(member.role)) {
+    throw new TRPCError({ code: "FORBIDDEN", message: "Current workspace administrator access is required." });
+  }
+}
+
 export const creditUseRequestsRouter = router({
   create: protectedProcedure.input(z.object({ projectId: z.string(), action: actionSchema, ids: idsSchema, reason: z.string().trim().max(500).optional() }))
     .mutation(async ({ ctx, input }) => {
@@ -56,18 +66,21 @@ export const creditUseRequestsRouter = router({
   adminList: protectedProcedure.input(z.object({ organizationId: z.string() })).query(async ({ ctx, input }) => {
     requireOrgRole(ctx, input.organizationId, "ADMIN");
     await requireNotSuspended(ctx.prisma, input.organizationId);
-    const rows = await ctx.prisma.aiCreditUseRequest.findMany({ where: { organizationId: input.organizationId }, orderBy: { createdAt: "desc" }, take: 100 });
-    const userIds = [...new Set(rows.map(row => row.requestedById))];
-    const projectIds = [...new Set(rows.map(row => row.projectId))];
-    const [users, projects] = await Promise.all([
-      ctx.prisma.user.findMany({ where: { id: { in: userIds } }, select: { id: true, email: true } }),
-      ctx.prisma.project.findMany({ where: { id: { in: projectIds }, organizationId: input.organizationId }, select: { id: true, name: true } }),
-    ]);
-    const emails = new Map(users.map(user => [user.id, user.email]));
-    const names = new Map(projects.map(project => [project.id, project.name]));
-    return rows.map(row => ({ id: row.id, projectId: row.projectId, projectName: names.get(row.projectId) ?? "Unavailable project",
-      requestedByEmail: emails.get(row.requestedById) ?? "Former member", action: row.action, caseCount: row.caseCount,
-      estimatedCredits: row.estimatedCredits, reason: row.reason, status: row.status, resolutionNote: row.resolutionNote, createdAt: row.createdAt }));
+    return ctx.prisma.$transaction(async tx => {
+      await liveCreditAdmin(tx, input.organizationId, ctx.user.id, false);
+      const rows = await tx.aiCreditUseRequest.findMany({ where: { organizationId: input.organizationId }, orderBy: { createdAt: "desc" }, take: 100 });
+      const userIds = [...new Set(rows.map(row => row.requestedById))];
+      const projectIds = [...new Set(rows.map(row => row.projectId))];
+      const [users, projects] = await Promise.all([
+        tx.user.findMany({ where: { id: { in: userIds } }, select: { id: true, email: true } }),
+        tx.project.findMany({ where: { id: { in: projectIds }, organizationId: input.organizationId }, select: { id: true, name: true } }),
+      ]);
+      const emails = new Map(users.map(user => [user.id, user.email]));
+      const names = new Map(projects.map(project => [project.id, project.name]));
+      return rows.map(row => ({ id: row.id, projectId: row.projectId, projectName: names.get(row.projectId) ?? "Unavailable project",
+        requestedByEmail: emails.get(row.requestedById) ?? "Former member", action: row.action, caseCount: row.caseCount,
+        estimatedCredits: row.estimatedCredits, reason: row.reason, status: row.status, resolutionNote: row.resolutionNote, createdAt: row.createdAt }));
+    });
   }),
 
   resolve: protectedProcedure.input(z.object({ organizationId: z.string(), id: z.string(), decision: z.enum(["ACKNOWLEDGED", "DECLINED"]), note: z.string().trim().max(500).optional() }))
@@ -75,6 +88,7 @@ export const creditUseRequestsRouter = router({
       requireOrgRole(ctx, input.organizationId, "ADMIN");
       await requireNotSuspended(ctx.prisma, input.organizationId);
       return ctx.prisma.$transaction(async tx => {
+        await liveCreditAdmin(tx, input.organizationId, ctx.user.id);
         const row = await tx.aiCreditUseRequest.findFirst({ where: { id: input.id, organizationId: input.organizationId } });
         if (!row) throw new TRPCError({ code: "NOT_FOUND" });
         const changed = await tx.aiCreditUseRequest.updateMany({ where: { id: row.id, organizationId: input.organizationId, status: "PENDING" },
