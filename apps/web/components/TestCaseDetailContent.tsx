@@ -1280,7 +1280,9 @@ export function TestCaseDetailContent({
             </div>
           </details>}
           {priorityError && <p role="alert">{priorityError}</p>}
-        </> : <p>Assess this case’s risk to get a priority suggestion. Existing authored or imported priority stays unchanged.</p>}
+        </> : <p>{prioritySuggestion.data?.riskNeedsReview
+          ? "The saved risk review no longer matches this case. Reassess risk before using it to change priority; the current priority stays unchanged."
+          : "Assess this case’s risk to get a priority suggestion. Existing authored or imported priority stays unchanged."}</p>}
       </section>
 
       <Modal open={riskDialogOpen} title="Review risk assessment cost" onClose={() => setRiskDialogOpen(false)} dismissible={!assessingRisk}>

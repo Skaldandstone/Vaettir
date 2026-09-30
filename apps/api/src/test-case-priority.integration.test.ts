@@ -1,4 +1,5 @@
 import { beforeAll, describe, expect, it } from "vitest";
+import { createHash } from "node:crypto";
 import { prisma } from "@vaettir/db";
 import { appRouter } from "./router.js";
 
@@ -10,6 +11,7 @@ describe.skipIf(!isolated)("risk-derived priority decisions", () => {
   let viewer: ReturnType<typeof appRouter.createCaller>;
   let outsider: ReturnType<typeof appRouter.createCaller>;
   let caseId: string;
+  let adminId: string;
 
   beforeAll(async () => {
     const key = `priority-decision-${Date.now()}`;
@@ -17,6 +19,7 @@ describe.skipIf(!isolated)("risk-derived priority decisions", () => {
     const org = await prisma.organization.create({ data: { name: key, slug: key, planTierId: tier.id } });
     const admin = await prisma.user.create({ data: { email: `${key}@example.com`, clerkUserId: key,
       memberships: { create: { organizationId: org.id, role: "OWNER" } } }, include: { memberships: true } });
+    adminId = admin.id;
     const read = await prisma.user.create({ data: { email: `${key}-viewer@example.com`, clerkUserId: `${key}-viewer`,
       memberships: { create: { organizationId: org.id, role: "VIEWER" } } }, include: { memberships: true } });
     const other = await prisma.user.create({ data: { email: `${key}-outside@example.com`, clerkUserId: `${key}-outside` }, include: { memberships: true } });
@@ -93,5 +96,22 @@ describe.skipIf(!isolated)("risk-derived priority decisions", () => {
     await expect(owner.testCases.update({ ...staleForm, expectedPriority: undefined })).rejects.toMatchObject({ code: "CONFLICT" });
     expect((await owner.testCases.prioritySuggestion({ id: caseId })).currentPriority).toBe(next);
     await expect(owner.testCases.update({ ...staleForm, expectedPriority: next, priority: next })).resolves.toMatchObject({ priority: next });
+  });
+
+  it("does not recommend or accept an old paid risk review after the case changes", async () => {
+    const current = await prisma.testCase.findUniqueOrThrow({ where: { id: caseId }, include: { source: { select: { filePath: true } } } });
+    const hash = createHash("sha256").update(JSON.stringify({ title: current.title, given: current.given,
+      when: current.when, then: current.then, testType: current.testType,
+      sourceFilePath: current.source?.filePath ?? null })).digest("hex");
+    await prisma.testCaseRiskReview.create({ data: { testCaseId: caseId, inputHash: hash, status: "READY",
+      content: { severity: "LOW", riskScore: 18, rationale: "Synthetic reviewed case" }, createdById: adminId } });
+    expect((await owner.testCases.prioritySuggestion({ id: caseId })).riskNeedsReview).toBe(false);
+    await prisma.testCase.update({ where: { id: caseId }, data: { title: "Premium billing history has changed" } });
+    const preview = await owner.testCases.prioritySuggestion({ id: caseId });
+    expect(preview).toMatchObject({ riskNeedsReview: true, suggestedPriority: null });
+    await expect(owner.testCases.decidePriority({ id: caseId, mode: "MATCH_RISK",
+      expectedPriority: preview.currentPriority, expectedRiskSeverity: preview.riskSeverity,
+      expectedRiskScore: preview.riskScore })).rejects.toMatchObject({ code: "CONFLICT" });
+    expect((await prisma.testCase.findUniqueOrThrow({ where: { id: caseId } })).priority).toBe(preview.currentPriority);
   });
 });

@@ -483,8 +483,13 @@ export const testCasesRouter = router({
     .input(z.object({ id: z.string() }))
     .query(async ({ ctx, input }) => {
       const tc = await ctx.prisma.testCase.findUniqueOrThrow({ where: { id: input.id },
-        select: { projectId: true, priority: true, riskSeverity: true, riskScore: true, riskAssessedAt: true } });
+        include: { source: { select: { filePath: true } } } });
       const { project, membership } = await requireProjectAccess(ctx, tc.projectId);
+      const review = await ctx.prisma.testCaseRiskReview.findFirst({ where: { testCaseId: input.id, status: "READY" },
+        orderBy: { createdAt: "desc" }, select: { inputHash: true, content: true } });
+      const reviewContent = z.object({ severity: prioritySchema, riskScore: z.number() }).safeParse(review?.content);
+      const riskNeedsReview = !!review && (review.inputHash !== riskInput(tc).hash || !reviewContent.success ||
+        reviewContent.data.severity !== tc.riskSeverity || Math.round(reviewContent.data.riskScore) !== tc.riskScore);
       const decision = await ctx.prisma.auditLog.findFirst({ where: {
         organizationId: project.organizationId, projectId: tc.projectId,
         entityType: "TestCasePriority", entityId: input.id,
@@ -492,7 +497,8 @@ export const testCasesRouter = router({
       const parsed = priorityDecisionSchema.safeParse(decision?.metadata);
       return {
         currentPriority: tc.priority,
-        suggestedPriority: tc.riskScore === null ? null : tc.riskSeverity,
+        suggestedPriority: tc.riskScore === null || riskNeedsReview ? null : tc.riskSeverity,
+        riskNeedsReview,
         riskSeverity: tc.riskSeverity,
         riskScore: tc.riskScore,
         riskAssessedAt: tc.riskAssessedAt,
@@ -515,12 +521,21 @@ export const testCasesRouter = router({
       }
       const updated = await ctx.prisma.$transaction(async tx => {
         await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${caseRef.projectId}))::text`;
-        const current = await tx.testCase.findUniqueOrThrow({ where: { id: input.id }, include: { steps: true } });
+        const current = await tx.testCase.findUniqueOrThrow({ where: { id: input.id }, include: { steps: true, source: { select: { filePath: true } } } });
         if (current.priority !== input.expectedPriority || current.riskSeverity !== input.expectedRiskSeverity || current.riskScore !== input.expectedRiskScore) {
           throw new TRPCError({ code: "CONFLICT", message: "Priority or risk changed. Refresh the suggestion before deciding." });
         }
         if (current.riskScore === null || current.riskSeverity === null) {
           throw new TRPCError({ code: "BAD_REQUEST", message: "Assess risk before using its priority suggestion." });
+        }
+        const review = await tx.testCaseRiskReview.findFirst({ where: { testCaseId: input.id, status: "READY" },
+          orderBy: { createdAt: "desc" }, select: { inputHash: true, content: true } });
+        if (review) {
+          const saved = z.object({ severity: prioritySchema, riskScore: z.number() }).safeParse(review.content);
+          if (review.inputHash !== riskInput(current).hash || !saved.success ||
+            saved.data.severity !== current.riskSeverity || Math.round(saved.data.riskScore) !== current.riskScore) {
+            throw new TRPCError({ code: "CONFLICT", message: "The risk review is stale or differs from the case. Reassess risk before changing priority from it." });
+          }
         }
         const next = input.mode === "MATCH_RISK" ? current.riskSeverity : input.priority!;
         const changed = await tx.testCase.update({ where: { id: input.id }, data: { priority: next, updatedById: ctx.user.id } });
