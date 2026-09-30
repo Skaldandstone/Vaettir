@@ -38,13 +38,40 @@ function riskInput(tc: { title: string; given: string[]; when: string[]; then: s
   return { data, hash: createHash("sha256").update(serialized).digest("hex") };
 }
 
+const prioritySchema = z.enum(["CRITICAL", "HIGH", "MEDIUM", "LOW"]);
+const priorityDecisionSchema = z.object({
+  mode: z.enum(["MATCH_RISK", "BUSINESS_OVERRIDE", "MANUAL"]),
+  from: prioritySchema,
+  to: prioritySchema,
+  rationale: z.string().nullable().optional(),
+  riskSeverity: z.enum(["CRITICAL", "HIGH", "MEDIUM", "LOW"]).nullable().optional(),
+  riskScore: z.number().nullable().optional(),
+});
+
 const stepOutputSchema = z.object({
   order: z.number(),
   action: z.string(),
   expectedActionOrData: z.string().nullable(),
   expectedResult: z.string().nullable(),
   expectedResponse: z.string().nullable(),
+  mediaAttachmentIds: z.array(z.string()),
 });
+
+function stepMediaIds(steps: Array<{ mediaAttachmentIds?: string[] }>) {
+  return [...new Set(steps.flatMap(step => step.mediaAttachmentIds ?? []))];
+}
+
+function stepRevision(steps: Array<{
+  order: number; action: string; expectedActionOrData: string | null;
+  expectedResult: string | null; expectedResponse: string | null; mediaAttachmentIds: string[];
+}>) {
+  return createHash("sha256").update(JSON.stringify(steps.map(step => ({
+    order: step.order, action: step.action,
+    expectedActionOrData: step.expectedActionOrData,
+    expectedResult: step.expectedResult, expectedResponse: step.expectedResponse,
+    mediaAttachmentIds: step.mediaAttachmentIds,
+  })))).digest("hex");
+}
 
 // Shared by create and update: the fields that make up a test case's
 // content, independent of which record it belongs to.
@@ -209,6 +236,7 @@ export const testCasesRouter = router({
         when: z.array(z.string()),
         then: z.array(z.string()),
         steps: z.array(stepOutputSchema),
+        stepRevision: z.string(),
         sharedStepGroupId: z.string().nullable(),
         sharedStepGroupName: z.string().nullable(),
         stepFieldLabels: z.record(z.string()),
@@ -277,13 +305,14 @@ export const testCasesRouter = router({
             expectedActionOrData: string | null;
             expectedResult: string | null;
             expectedResponse: string | null;
-          }>)
+          }>).map(s => ({ ...s, mediaAttachmentIds: [] }))
         : tc.steps.map((s) => ({
             order: s.order,
             action: s.action,
             expectedActionOrData: s.expectedActionOrData,
             expectedResult: s.expectedResult,
             expectedResponse: s.expectedResponse,
+            mediaAttachmentIds: s.mediaAttachmentIds,
           }));
       return {
         id: tc.id,
@@ -293,6 +322,7 @@ export const testCasesRouter = router({
         when: tc.when,
         then: tc.then,
         steps: resolvedSteps,
+        stepRevision: stepRevision(tc.steps),
         validationDomain: tc.validationDomain,
         verificationProfile: verificationProfileSchema.parse(
           tc.verificationProfile,
@@ -447,6 +477,69 @@ export const testCasesRouter = router({
         metadata: input.note ? { note: input.note } : undefined,
       });
       return updated;
+    }),
+
+  prioritySuggestion: protectedProcedure
+    .input(z.object({ id: z.string() }))
+    .query(async ({ ctx, input }) => {
+      const tc = await ctx.prisma.testCase.findUniqueOrThrow({ where: { id: input.id },
+        select: { projectId: true, priority: true, riskSeverity: true, riskScore: true, riskAssessedAt: true } });
+      const { project, membership } = await requireProjectAccess(ctx, tc.projectId);
+      const decision = await ctx.prisma.auditLog.findFirst({ where: {
+        organizationId: project.organizationId, projectId: tc.projectId,
+        entityType: "TestCasePriority", entityId: input.id,
+      }, orderBy: { createdAt: "desc" }, select: { metadata: true, createdAt: true } });
+      const parsed = priorityDecisionSchema.safeParse(decision?.metadata);
+      return {
+        currentPriority: tc.priority,
+        suggestedPriority: tc.riskScore === null ? null : tc.riskSeverity,
+        riskSeverity: tc.riskSeverity,
+        riskScore: tc.riskScore,
+        riskAssessedAt: tc.riskAssessedAt,
+        canEdit: ["OWNER", "ADMIN", "EDITOR"].includes(membership.role),
+        latestDecision: parsed.success && parsed.data.to === tc.priority
+          ? { ...parsed.data, createdAt: decision!.createdAt } : null,
+      };
+    }),
+
+  decidePriority: protectedProcedure
+    .input(z.object({ id: z.string(), mode: z.enum(["MATCH_RISK", "BUSINESS_OVERRIDE"]),
+      priority: z.enum(["HIGH", "CRITICAL"]).optional(), rationale: z.string().trim().min(10).max(500).optional(),
+      expectedPriority: prioritySchema, expectedRiskSeverity: z.enum(["CRITICAL", "HIGH", "MEDIUM", "LOW"]).nullable(),
+      expectedRiskScore: z.number().int().min(0).max(100).nullable() }))
+    .mutation(async ({ ctx, input }) => {
+      const caseRef = await ctx.prisma.testCase.findUniqueOrThrow({ where: { id: input.id }, select: { projectId: true } });
+      const { project } = await requireProjectAccess(ctx, caseRef.projectId, "EDITOR");
+      if (input.mode === "BUSINESS_OVERRIDE" && (!input.priority || !input.rationale)) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Choose high or critical priority and explain the business need." });
+      }
+      const updated = await ctx.prisma.$transaction(async tx => {
+        await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${caseRef.projectId}))::text`;
+        const current = await tx.testCase.findUniqueOrThrow({ where: { id: input.id }, include: { steps: true } });
+        if (current.priority !== input.expectedPriority || current.riskSeverity !== input.expectedRiskSeverity || current.riskScore !== input.expectedRiskScore) {
+          throw new TRPCError({ code: "CONFLICT", message: "Priority or risk changed. Refresh the suggestion before deciding." });
+        }
+        if (current.riskScore === null || current.riskSeverity === null) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "Assess risk before using its priority suggestion." });
+        }
+        const next = input.mode === "MATCH_RISK" ? current.riskSeverity : input.priority!;
+        const changed = await tx.testCase.update({ where: { id: input.id }, data: { priority: next, updatedById: ctx.user.id } });
+        await tx.auditLog.create({ data: { organizationId: project.organizationId, projectId: caseRef.projectId,
+          actorId: ctx.user.id, entityType: "TestCasePriority", entityId: input.id, action: "UPDATE",
+          summary: input.mode === "MATCH_RISK" ? `Accepted risk-derived priority ${next}` : `Set business priority ${next}`,
+          metadata: { mode: input.mode, from: current.priority, to: next,
+            rationale: input.mode === "BUSINESS_OVERRIDE" ? input.rationale : null,
+            riskSeverity: current.riskSeverity, riskScore: current.riskScore },
+        } });
+        await snapshotTestCaseVersion(tx, { testCaseId: changed.id, title: changed.title,
+          background: changed.background, given: changed.given, when: changed.when, then: changed.then,
+          steps: current.steps.map(step => ({ order: step.order, action: step.action,
+            expectedActionOrData: step.expectedActionOrData, expectedResult: step.expectedResult,
+            expectedResponse: step.expectedResponse, mediaAttachmentIds: step.mediaAttachmentIds })),
+          tags: changed.tags, priority: changed.priority, testType: changed.testType, actorId: ctx.user.id });
+        return { ...changed, steps: current.steps };
+      });
+      return { priority: updated.priority };
     }),
 
   riskPreview: protectedProcedure
@@ -853,6 +946,9 @@ export const testCasesRouter = router({
         input.projectId,
         "EDITOR",
       );
+      if (stepMediaIds(input.steps).length > 0) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Save the case before linking image or video attachments to steps." });
+      }
       const created = await ctx.prisma.testCase.create({
         data: {
           projectId: input.projectId,
@@ -883,6 +979,7 @@ export const testCasesRouter = router({
                   expectedActionOrData: s.expectedActionOrData ?? undefined,
                   expectedResult: s.expectedResult ?? undefined,
                   expectedResponse: s.expectedResponse ?? undefined,
+                  mediaAttachmentIds: [],
                 })),
               },
         },
@@ -909,6 +1006,7 @@ export const testCasesRouter = router({
           expectedActionOrData: s.expectedActionOrData ?? null,
           expectedResult: s.expectedResult ?? null,
           expectedResponse: s.expectedResponse ?? null,
+          mediaAttachmentIds: [],
         })),
         tags: created.tags,
         priority: created.priority,
@@ -1015,7 +1113,7 @@ export const testCasesRouter = router({
   update: protectedProcedure
     .input(
       testCaseContentSchema
-        .extend({ id: z.string(), expectedSuitePath: z.string().nullable().optional() })
+        .extend({ id: z.string(), expectedSuitePath: z.string().nullable().optional(), expectedPriority: prioritySchema.optional(), expectedStepRevision: z.string().length(64).optional() })
         .refine(requireAtLeastOneFormat, {
           message: AT_LEAST_ONE_FORMAT_MESSAGE,
         }),
@@ -1026,6 +1124,7 @@ export const testCasesRouter = router({
         select: {
           projectId: true,
           origin: true,
+          priority: true,
           title: true,
           given: true,
           when: true,
@@ -1058,10 +1157,31 @@ export const testCasesRouter = router({
       // across an edit.
       const updated = await ctx.prisma.$transaction(async (tx) => {
         await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${existing.projectId}))::text`;
-        const currentPlacement = await tx.testCase.findUniqueOrThrow({ where: { id: input.id }, select: { suitePath: true } });
+        const currentPlacement = await tx.testCase.findUniqueOrThrow({ where: { id: input.id }, select: { suitePath: true, priority: true } });
         if (currentPlacement.suitePath !== existing.suitePath ||
           (input.expectedSuitePath !== undefined && currentPlacement.suitePath !== input.expectedSuitePath)) {
           throw new TRPCError({ code: "CONFLICT", message: "This case moved since it was opened. Refresh before saving." });
+        }
+        if (input.expectedPriority !== undefined && currentPlacement.priority !== input.expectedPriority) {
+          throw new TRPCError({ code: "CONFLICT", message: "Priority changed since this case was opened. Refresh before saving to preserve the newer decision." });
+        }
+        if (input.expectedPriority === undefined && input.priority !== currentPlacement.priority) {
+          throw new TRPCError({ code: "CONFLICT", message: "Refresh the case before changing priority so newer decisions are preserved." });
+        }
+        const priorSteps = await tx.testCaseStep.findMany({ where: { testCaseId: input.id }, orderBy: { order: "asc" } });
+        if ((input.expectedStepRevision && stepRevision(priorSteps) !== input.expectedStepRevision) ||
+          (!input.expectedStepRevision && priorSteps.some(step => step.mediaAttachmentIds.length > 0))) {
+          throw new TRPCError({ code: "CONFLICT", message: "This case's steps or media changed since it was opened. Refresh the editor before saving." });
+        }
+        const ids = stepMediaIds(input.steps);
+        if (ids.length > 0) {
+          const attachments = await tx.testCaseAttachment.findMany({
+            where: { id: { in: ids }, testCaseId: input.id },
+            select: { id: true, contentType: true },
+          });
+          if (attachments.length !== ids.length || attachments.some(a => !/^(image|video)\//i.test(a.contentType))) {
+            throw new TRPCError({ code: "BAD_REQUEST", message: "Each step image or video must be an attachment on this test case." });
+          }
         }
         if (shouldCaptureFeedback) {
           await tx.aiEditFeedback.create({
@@ -1081,7 +1201,7 @@ export const testCasesRouter = router({
           });
         }
         await tx.testCaseStep.deleteMany({ where: { testCaseId: input.id } });
-        return tx.testCase.update({
+        const changed = await tx.testCase.update({
           where: { id: input.id },
           data: {
             testPlanId: input.testPlanId,
@@ -1112,10 +1232,19 @@ export const testCasesRouter = router({
                     expectedActionOrData: s.expectedActionOrData ?? undefined,
                     expectedResult: s.expectedResult ?? undefined,
                     expectedResponse: s.expectedResponse ?? undefined,
+                    mediaAttachmentIds: s.mediaAttachmentIds ?? [],
                   })),
                 },
           },
         });
+        if (currentPlacement.priority !== changed.priority) await tx.auditLog.create({ data: {
+          organizationId: project.organizationId, projectId: existing.projectId, actorId: ctx.user.id,
+          entityType: "TestCasePriority", entityId: input.id, action: "UPDATE",
+          summary: `Manually set priority ${changed.priority}`,
+          metadata: { mode: "MANUAL", from: currentPlacement.priority, to: changed.priority,
+            rationale: null, riskSeverity: changed.riskSeverity, riskScore: changed.riskScore },
+        } });
+        return changed;
       });
       await recordAudit(ctx.prisma, {
         organizationId: project.organizationId,
@@ -1139,6 +1268,7 @@ export const testCasesRouter = router({
           expectedActionOrData: s.expectedActionOrData ?? null,
           expectedResult: s.expectedResult ?? null,
           expectedResponse: s.expectedResponse ?? null,
+          mediaAttachmentIds: s.mediaAttachmentIds ?? [],
         })),
         tags: updated.tags,
         priority: updated.priority,

@@ -54,7 +54,9 @@ export default function EditTestCasePage() {
                 expectedActionOrData: s.expectedActionOrData ?? "",
                 expectedResult: s.expectedResult ?? "",
                 expectedResponse: s.expectedResponse ?? "",
+                mediaAttachmentIds: s.mediaAttachmentIds,
               })),
+          stepRevision: tc.stepRevision,
           sharedStepGroupId: tc.sharedStepGroupId ?? "",
         }}
       />

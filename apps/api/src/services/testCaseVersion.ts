@@ -1,11 +1,15 @@
 import type { PrismaClient, TestCasePriority, TestCaseType } from "@vaettir/db";
 
+// Only these delegates are needed, so a Prisma transaction client can keep
+// the authored change and its history snapshot in one atomic commit.
+type VersionDb = Pick<PrismaClient, "testCase" | "testCaseVersion">;
+
 // Mirrors services/testPlanVersion.ts's snapshotTestPlanVersion exactly -
 // same "sequential per parent, computed from the max existing version so
 // a number is never reused" reasoning. Called after every create/update/
 // CSV-import of a TestCase.
 export async function snapshotTestCaseVersion(
-  prisma: PrismaClient,
+  prisma: VersionDb,
   args: {
     testCaseId: string;
     title: string;
@@ -19,6 +23,7 @@ export async function snapshotTestCaseVersion(
       expectedActionOrData: string | null;
       expectedResult: string | null;
       expectedResponse: string | null;
+      mediaAttachmentIds?: string[];
     }>;
     tags: string[];
     priority: TestCasePriority;

@@ -116,4 +116,22 @@ describe("repository provider HTTP boundary", () => {
     expect(response.destroy).toHaveBeenCalledOnce();
     expect(request).toHaveBeenCalledTimes(1);
   });
+  it("recovers a repeated disconnect only when GitHub independently confirms the token is invalid", async () => {
+    response.statusCode = 404;
+    const pending = repositoryProviderRevokeGithubToken("Iv1.fixture", "synthetic-secret", "synthetic-token");
+    await flushDns(); deliver();
+    await vi.waitFor(() => expect(request).toHaveBeenCalledTimes(2));
+    expect(transportOptions.method).toBe("POST");
+    response.statusCode = 404; deliver();
+    await expect(pending).resolves.toBeUndefined();
+  });
+  it("keeps a still-valid GitHub token when DELETE returns 404", async () => {
+    response.statusCode = 404;
+    const pending = repositoryProviderRevokeGithubToken("Iv1.fixture", "synthetic-secret", "synthetic-token");
+    const assertion = expect(pending).rejects.toThrow("404");
+    await flushDns(); deliver();
+    await vi.waitFor(() => expect(request).toHaveBeenCalledTimes(2));
+    response.statusCode = 200; deliver();
+    await assertion;
+  });
 });

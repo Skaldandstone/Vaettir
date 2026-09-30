@@ -986,6 +986,7 @@ export function TestCaseDetailContent({
   const utils = trpcReact.useUtils();
   const tcQuery = trpcReact.testCases.byId.useQuery({ id });
   const tc = tcQuery.data ?? null;
+  const stepAttachments = trpcReact.testCaseAttachments.list.useQuery({ testCaseId: id });
   const approveMutation = trpcReact.testCases.approve.useMutation();
   const rejectMutation = trpcReact.testCases.reject.useMutation();
   const assessRiskMutation = trpcReact.testCases.assessRisk.useMutation();
@@ -993,6 +994,13 @@ export function TestCaseDetailContent({
   const [riskApproved, setRiskApproved] = useState(false);
   const riskPreview = trpcReact.testCases.riskPreview.useQuery({ id }, { enabled: riskDialogOpen });
   const riskReviews = trpcReact.testCases.riskReviews.useQuery({ id });
+  const prioritySuggestion = trpcReact.testCases.prioritySuggestion.useQuery({ id });
+  const decidePriorityMutation = trpcReact.testCases.decidePriority.useMutation();
+  const [businessPriority, setBusinessPriority] = useState<"HIGH" | "CRITICAL">("HIGH");
+  const [businessRationale, setBusinessRationale] = useState("");
+  const [priorityBusy, setPriorityBusy] = useState(false);
+  const [priorityError, setPriorityError] = useState("");
+  const [stepMediaError, setStepMediaError] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [reviewNote, setReviewNote] = useState("");
   const [reviewing, setReviewing] = useState(false);
@@ -1030,12 +1038,42 @@ export function TestCaseDetailContent({
       load();
       await riskPreview.refetch();
       await riskReviews.refetch();
+      await prioritySuggestion.refetch();
       setRiskDialogOpen(false);
       setRiskApproved(false);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
       setAssessingRisk(false);
+    }
+  }
+
+  async function decidePriority(mode: "MATCH_RISK" | "BUSINESS_OVERRIDE") {
+    const suggestion = prioritySuggestion.data;
+    if (!suggestion) return;
+    setPriorityBusy(true); setPriorityError("");
+    try {
+      await decidePriorityMutation.mutateAsync({ id, mode,
+        expectedPriority: suggestion.currentPriority,
+        expectedRiskSeverity: suggestion.riskSeverity,
+        expectedRiskScore: suggestion.riskScore,
+        ...(mode === "BUSINESS_OVERRIDE" ? { priority: businessPriority, rationale: businessRationale.trim() } : {}),
+      });
+      load();
+      await prioritySuggestion.refetch();
+      onChanged?.();
+    } catch (cause) {
+      setPriorityError(cause instanceof Error ? cause.message : "Could not update priority.");
+    } finally { setPriorityBusy(false); }
+  }
+
+  async function viewStepMedia(attachmentId: string) {
+    setStepMediaError("");
+    try {
+      const { viewUrl } = await utils.testCaseAttachments.getViewUrl.fetch({ attachmentId });
+      window.open(viewUrl, "_blank", "noopener,noreferrer");
+    } catch (cause) {
+      setStepMediaError(cause instanceof Error ? cause.message : "Could not open step media.");
     }
   }
 
@@ -1100,7 +1138,17 @@ export function TestCaseDetailContent({
               {tc.steps.map((s) => (
                 <tr key={s.order}>
                   <td style={cellStyle}>{s.order + 1}</td>
-                  <td style={cellStyle}>{s.action}</td>
+                  <td style={cellStyle}>
+                    <div>{s.action}</div>
+                    {s.mediaAttachmentIds.length > 0 && <ul aria-label={`Media for step ${s.order + 1}`} style={{ margin: "6px 0 0", paddingLeft: 18 }}>
+                      {s.mediaAttachmentIds.map(attachmentId => {
+                        const attachment = stepAttachments.data?.find(item => item.id === attachmentId);
+                        return <li key={attachmentId}>{attachment
+                          ? <button type="button" className="btn-secondary" onClick={() => void viewStepMedia(attachmentId)}>{attachment.contentType.startsWith("video/") ? "Video" : "Image"}: {attachment.fileName}</button>
+                          : <span>{stepAttachments.isLoading ? "Loading media…" : `Media unavailable (${attachmentId.slice(0, 8)})`}</span>}</li>;
+                      })}
+                    </ul>}
+                  </td>
                   <td style={cellStyle}>{s.expectedActionOrData ?? "—"}</td>
                   <td style={cellStyle}>{s.expectedResult ?? "—"}</td>
                   <td style={cellStyle}>{s.expectedResponse ?? "—"}</td>
@@ -1108,6 +1156,7 @@ export function TestCaseDetailContent({
               ))}
             </tbody>
           </table>
+          {stepMediaError && <p role="alert">{stepMediaError}</p>}
         </section>
       )}
 
@@ -1206,6 +1255,33 @@ export function TestCaseDetailContent({
           </div>
         )}
       </div>
+
+      <section className="risk-assessment-panel" aria-label="Priority and business need">
+        <strong>Priority and business need</strong>
+        {prioritySuggestion.data?.suggestedPriority ? <>
+          <p>Current: {prioritySuggestion.data.currentPriority.toLowerCase()}. Risk suggests {prioritySuggestion.data.suggestedPriority.toLowerCase()}. Priority is scheduling intent; a high business need can justify a different choice.</p>
+          {prioritySuggestion.data.latestDecision?.mode === "BUSINESS_OVERRIDE" &&
+            <p>Business override: {prioritySuggestion.data.latestDecision.rationale}</p>}
+          {prioritySuggestion.data.latestDecision?.mode === "MANUAL" &&
+            <p>A person last set this priority in the case editor.</p>}
+          {!readOnly && prioritySuggestion.data.canEdit && <details>
+            <summary>Change priority</summary>
+            <div style={{ display: "grid", gap: 8, marginTop: 8 }}>
+              <button className="btn-secondary" disabled={priorityBusy || prioritySuggestion.data.currentPriority === prioritySuggestion.data.suggestedPriority} onClick={() => void decidePriority("MATCH_RISK")}>Use risk suggestion ({prioritySuggestion.data.suggestedPriority.toLowerCase()})</button>
+              <label>Business-critical priority
+                <select value={businessPriority} disabled={priorityBusy} onChange={event => setBusinessPriority(event.target.value as "HIGH" | "CRITICAL")} style={{ display: "block", width: "100%" }}>
+                  <option value="HIGH">High</option><option value="CRITICAL">Critical</option>
+                </select>
+              </label>
+              <label>Why does the business need this priority?
+                <textarea value={businessRationale} disabled={priorityBusy} maxLength={500} rows={2} onChange={event => setBusinessRationale(event.target.value)} style={{ display: "block", width: "100%" }} />
+              </label>
+              <button className="btn-secondary" disabled={priorityBusy || businessRationale.trim().length < 10} onClick={() => void decidePriority("BUSINESS_OVERRIDE")}>Save business override</button>
+            </div>
+          </details>}
+          {priorityError && <p role="alert">{priorityError}</p>}
+        </> : <p>Assess this case’s risk to get a priority suggestion. Existing authored or imported priority stays unchanged.</p>}
+      </section>
 
       <Modal open={riskDialogOpen} title="Review risk assessment cost" onClose={() => setRiskDialogOpen(false)} dismissible={!assessingRisk}>
         <p>Assess this case from its text and source-file path. No repository content is fetched. The result is saved with the case; an identical retry does not charge again.</p>

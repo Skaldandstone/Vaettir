@@ -10,6 +10,10 @@ export const TestCaseStepInputSchema = z.object({
   expectedActionOrData: z.string().nullable().optional(),
   expectedResult: z.string().nullable().optional(),
   expectedResponse: z.string().nullable().optional(),
+  // References only to image/video attachments owned by this same case.
+  // The API verifies ownership before persisting; bytes stay in object storage.
+  mediaAttachmentIds: z.array(z.string().min(1).max(128)).max(8)
+    .refine(ids => new Set(ids).size === ids.length, "Duplicate step media reference").optional(),
 });
 
 export type TestCaseStepInput = z.infer<typeof TestCaseStepInputSchema>;

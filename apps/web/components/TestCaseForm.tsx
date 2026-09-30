@@ -1,6 +1,6 @@
 "use client";
 
-import { useId, useMemo, useRef, useState } from "react";
+import { type ChangeEvent, useId, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { trpcReact, type RouterOutputs } from "@/lib/trpcReact";
 import { collectKnownSuitePaths } from "@/components/TestCaseTree";
@@ -31,6 +31,7 @@ interface StepRow {
   expectedActionOrData: string;
   expectedResult: string;
   expectedResponse: string;
+  mediaAttachmentIds: string[];
 }
 
 interface TestCaseFormValue {
@@ -45,6 +46,7 @@ interface TestCaseFormValue {
   when: string[];
   then: string[];
   steps: StepRow[];
+  stepRevision: string;
   sharedStepGroupId: string;
   validationDomain: RouterOutputs["testCases"]["byId"]["validationDomain"];
   verificationProfile: RouterOutputs["testCases"]["byId"]["verificationProfile"];
@@ -55,6 +57,7 @@ const EMPTY_STEP: StepRow = {
   expectedActionOrData: "",
   expectedResult: "",
   expectedResponse: "",
+  mediaAttachmentIds: [],
 };
 
 function defaultValue(): TestCaseFormValue {
@@ -70,6 +73,7 @@ function defaultValue(): TestCaseFormValue {
     when: [],
     then: [],
     steps: [],
+    stepRevision: "",
     sharedStepGroupId: "",
     validationDomain: "SOFTWARE",
     verificationProfile: {
@@ -158,7 +162,7 @@ export default function TestCaseForm({
   const [value, setValue] = useState<TestCaseFormValue>(() => ({
     ...defaultValue(),
     ...initial,
-    steps: (initial?.steps ?? []).map((step, i) => ({ ...step, editorKey: `${stepKeyPrefix}-${i}` })),
+    steps: (initial?.steps ?? []).map((step, i) => ({ ...step, mediaAttachmentIds: step.mediaAttachmentIds ?? [], editorKey: `${stepKeyPrefix}-${i}` })),
   }));
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -176,6 +180,14 @@ export default function TestCaseForm({
   const sharedGroups = sharedGroupsQuery.data ?? [];
   const createMutation = trpcReact.testCases.create.useMutation();
   const updateMutation = trpcReact.testCases.update.useMutation();
+  const attachmentsQuery = trpcReact.testCaseAttachments.list.useQuery(
+    { testCaseId: testCaseId ?? "" },
+    { enabled: mode === "edit" && Boolean(testCaseId) },
+  );
+  const requestMediaUpload = trpcReact.testCaseAttachments.requestUpload.useMutation();
+  const deleteAttachment = trpcReact.testCaseAttachments.delete.useMutation();
+  const [uploadingStepKey, setUploadingStepKey] = useState<string | null>(null);
+  const imageVideoAttachments = (attachmentsQuery.data ?? []).filter(a => /^(image|video)\//i.test(a.contentType));
 
   const selectedGroup = sharedGroups.find(
     (g) => g.id === value.sharedStepGroupId,
@@ -193,6 +205,43 @@ export default function TestCaseForm({
       ...v,
       steps: v.steps.map((s, j) => (j === i ? { ...s, ...patch } : s)),
     }));
+  }
+
+  async function uploadStepMedia(editorKey: string, event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file || !testCaseId) return;
+    if (!/^(image|video)\//i.test(file.type)) {
+      setError("Choose an image or video file for this step.");
+      return;
+    }
+    setUploadingStepKey(editorKey);
+    setError(null);
+    let attachmentId: string | null = null;
+    try {
+      const upload = await requestMediaUpload.mutateAsync({ testCaseId, fileName: file.name, contentType: file.type, sizeBytes: file.size });
+      attachmentId = upload.attachmentId;
+      const response = await fetch(upload.uploadUrl, { method: "PUT", headers: { "content-type": file.type }, body: file });
+      if (!response.ok) throw new Error(`Media upload failed (${response.status}).`);
+      setValue(current => ({ ...current, steps: current.steps.map(step => step.editorKey === editorKey
+        ? { ...step, mediaAttachmentIds: [...step.mediaAttachmentIds, upload.attachmentId] }
+        : step) }));
+      await utils.testCaseAttachments.list.invalidate({ testCaseId });
+    } catch (cause) {
+      if (attachmentId) await deleteAttachment.mutateAsync({ attachmentId }).catch(() => undefined);
+      setError(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setUploadingStepKey(null);
+    }
+  }
+
+  async function viewStepMedia(attachmentId: string) {
+    try {
+      const { viewUrl } = await utils.testCaseAttachments.getViewUrl.fetch({ attachmentId });
+      window.open(viewUrl, "_blank", "noopener,noreferrer");
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause));
+    }
   }
 
   async function submit() {
@@ -215,6 +264,7 @@ export default function TestCaseForm({
                 expectedActionOrData: s.expectedActionOrData || null,
                 expectedResult: s.expectedResult || null,
                 expectedResponse: s.expectedResponse || null,
+                mediaAttachmentIds: s.mediaAttachmentIds,
               })),
         sharedStepGroupId: value.sharedStepGroupId || null,
         tags: value.tags
@@ -231,7 +281,9 @@ export default function TestCaseForm({
       const result =
         mode === "create"
           ? await createMutation.mutateAsync({ ...payload, projectId })
-          : await updateMutation.mutateAsync({ ...payload, id: testCaseId!, expectedSuitePath: initial?.suitePath || null });
+          : await updateMutation.mutateAsync({ ...payload, id: testCaseId!, expectedSuitePath: initial?.suitePath || null,
+              expectedPriority: initial?.priority as "CRITICAL" | "HIGH" | "MEDIUM" | "LOW" | undefined,
+              expectedStepRevision: initial?.stepRevision || undefined });
 
       // The detail page + list read from the cache; make sure they see the
       // saved row rather than the pre-edit copy.
@@ -247,7 +299,7 @@ export default function TestCaseForm({
   }
 
   return (
-    <div style={{ maxWidth: 720 }}>
+    <div style={{ maxWidth: 720, minWidth: 0, overflowWrap: "anywhere" }}>
       <div style={{ display: "grid", gap: 8, marginBottom: 20 }}>
         <label>
           Title
@@ -271,7 +323,7 @@ export default function TestCaseForm({
             style={{ width: "100%" }}
           />
         </label>
-        <div style={{ display: "flex", gap: 16 }}>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 12 }}>
           <label>
             Validation domain
             <select
@@ -383,7 +435,7 @@ export default function TestCaseForm({
         <label>
           Suite{" "}
           <span style={{ color: "var(--muted-dim)" }}>
-            (optional, e.g. "auth/password-reset" — leave blank to stay
+            (optional, e.g. &ldquo;auth/password-reset&rdquo; — leave blank to stay
             unassigned)
           </span>
           <input
@@ -407,21 +459,11 @@ export default function TestCaseForm({
         Fill this in, or the structured step table below, or both — at least one
         is required.
       </p>
-      <StringListEditor
-        label="Given"
-        items={value.given}
-        onChange={(given) => setValue((v) => ({ ...v, given }))}
-      />
-      <StringListEditor
-        label="When"
-        items={value.when}
-        onChange={(when) => setValue((v) => ({ ...v, when }))}
-      />
-      <StringListEditor
-        label="Then"
-        items={value.then}
-        onChange={(then) => setValue((v) => ({ ...v, then }))}
-      />
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(210px, 1fr))", gap: 12 }}>
+        <StringListEditor label="Given" items={value.given} onChange={(given) => setValue((v) => ({ ...v, given }))} />
+        <StringListEditor label="When" items={value.when} onChange={(when) => setValue((v) => ({ ...v, when }))} />
+        <StringListEditor label="Then" items={value.then} onChange={(then) => setValue((v) => ({ ...v, then }))} />
+      </div>
 
       <h2>Structured steps</h2>
       {sharedGroups.length > 0 && (
@@ -471,10 +513,11 @@ export default function TestCaseForm({
           </ol>
         </div>
       )}
-      {!value.sharedStepGroupId &&
-        value.steps.map((step, i) => (
+      {!value.sharedStepGroupId && <div role="list" aria-label="Ordered test steps">
+        {value.steps.map((step, i) => (
           <div
             key={step.editorKey}
+            role="listitem"
             style={{
               border: "1px solid var(--line)",
               borderRadius: 8,
@@ -507,7 +550,7 @@ export default function TestCaseForm({
                 Remove step
               </button>
             </div>
-            <div style={{ display: "grid", gap: 6 }}>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(155px, 1fr))", gap: 8, alignItems: "start" }}>
               <label>
                 {labels.action}
                 <input
@@ -547,8 +590,42 @@ export default function TestCaseForm({
                 />
               </label>
             </div>
+            <details open={step.mediaAttachmentIds.length > 0} style={{ marginTop: 10 }}>
+              <summary>Step images and video ({step.mediaAttachmentIds.length})</summary>
+              {mode === "create" || !testCaseId ? (
+                <p className="text-muted" style={{ fontSize: 12 }}>Save the case first, then return to attach media to individual steps.</p>
+              ) : (
+                <div style={{ display: "grid", gap: 8, marginTop: 8 }}>
+                  <p className="text-muted" style={{ fontSize: 12, margin: 0 }}>Choose case files or upload a short clip/image (25 MB max). References are saved with this step.</p>
+                  <div style={{ maxHeight: 150, overflowY: "auto", display: "grid", gap: 4 }}>
+                    {imageVideoAttachments.map(attachment => (
+                      <div key={attachment.id} style={{ display: "flex", flexWrap: "wrap", gap: 6, alignItems: "center", minWidth: 0 }}>
+                        <label style={{ flex: "1 1 150px", minWidth: 0, overflowWrap: "anywhere" }}>
+                          <input type="checkbox" checked={step.mediaAttachmentIds.includes(attachment.id)} onChange={event => updateStep(i, {
+                            mediaAttachmentIds: event.target.checked
+                              ? [...step.mediaAttachmentIds, attachment.id]
+                              : step.mediaAttachmentIds.filter(id => id !== attachment.id),
+                          })} />{" "}{attachment.fileName} <span className="text-muted">({attachment.contentType.startsWith("video/") ? "video" : "image"})</span>
+                        </label>
+                        <button type="button" style={{ flexShrink: 0 }} onClick={() => void viewStepMedia(attachment.id)}>View</button>
+                      </div>
+                    ))}
+                    {imageVideoAttachments.length === 0 && <span className="text-muted" style={{ fontSize: 12 }}>No image or video files on this case yet.</span>}
+                    {step.mediaAttachmentIds.filter(id => !imageVideoAttachments.some(a => a.id === id)).map(id => (
+                      <div key={id} role="alert" style={{ color: "var(--ember)", fontSize: 12 }}>
+                        A previously linked file is unavailable. <button type="button" onClick={() => updateStep(i, { mediaAttachmentIds: step.mediaAttachmentIds.filter(value => value !== id) })}>Remove reference</button>
+                      </div>
+                    ))}
+                  </div>
+                  <label style={{ fontSize: 12 }}>Upload image or video for this step
+                    <input type="file" accept="image/*,video/*" style={{ display: "block", width: "100%", minWidth: 0 }} disabled={uploadingStepKey !== null} onChange={event => void uploadStepMedia(step.editorKey!, event)} />
+                  </label>
+                  {uploadingStepKey === step.editorKey && <span role="status">Uploading media…</span>}
+                </div>
+              )}
+            </details>
           </div>
-        ))}
+        ))}</div>}
       {!value.sharedStepGroupId && (
         <button
           type="button"

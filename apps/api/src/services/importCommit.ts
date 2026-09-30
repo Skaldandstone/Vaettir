@@ -26,6 +26,7 @@ const importedSnapshotSchema = z.object({
     order: z.number().int(), action: z.string(),
     expectedActionOrData: z.string().nullable(), expectedResult: z.string().nullable(),
     expectedResponse: z.string().nullable(),
+    mediaAttachmentIds: z.array(z.string()).default([]),
   })),
 }).strict();
 type ImportedSnapshot = z.infer<typeof importedSnapshotSchema>;
@@ -147,6 +148,7 @@ async function commitImportedTestCasesInTransaction(
       expectedActionOrData: s.expectedActionOrData,
       expectedResult: s.expectedResult,
       expectedResponse: null,
+      mediaAttachmentIds: [],
     }));
 
   const classification = (r: ImportedTestCaseRow) => ({
@@ -208,6 +210,7 @@ async function commitImportedTestCasesInTransaction(
           expectedActionOrData: step.expectedActionOrData,
           expectedResult: step.expectedResult,
           expectedResponse: step.expectedResponse,
+          mediaAttachmentIds: step.mediaAttachmentIds,
         })),
       });
       if (!sameSnapshot(live, baseline.data)) {

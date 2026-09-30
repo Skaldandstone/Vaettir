@@ -7,7 +7,7 @@ const disposable = url && ["localhost", "127.0.0.1"].includes(url.hostname) && /
 
 describe.skipIf(!disposable)("project report isolation and evidence totals", () => {
   const key = `report-${Date.now()}`;
-  let orgA = "", orgB = "", projectA = "", projectB = "", ownerId = "", outsiderId = "", caseId = "", planId = "", planTypeId = "", requirementId = "";
+  let orgA = "", orgB = "", projectA = "", projectB = "", ownerId = "", colleagueId = "", outsiderId = "", caseId = "", planId = "", planTypeId = "", requirementId = "";
   let caller: ReturnType<typeof reportsRouter.createCaller>;
   let outsider: ReturnType<typeof reportsRouter.createCaller>;
 
@@ -20,16 +20,17 @@ describe.skipIf(!disposable)("project report isolation and evidence totals", () 
       prisma.project.create({ data: { organizationId: orgB, name: "Other tenant", slug: "other" } }),
     ]);
     projectA = pa.id; projectB = pb.id;
-    const [owner, other] = await Promise.all([
+    const [owner, colleague, other] = await Promise.all([
       prisma.user.create({ data: { clerkUserId: `${key}-owner`, email: `${key}-owner@example.com`, memberships: { create: { organizationId: orgA, role: "VIEWER" } } }, include: { memberships: true } }),
+      prisma.user.create({ data: { clerkUserId: `${key}-colleague`, email: `${key}-colleague@example.com`, memberships: { create: { organizationId: orgA, role: "VIEWER" } } }, include: { memberships: true } }),
       prisma.user.create({ data: { clerkUserId: `${key}-other`, email: `${key}-other@example.com`, memberships: { create: { organizationId: orgB, role: "VIEWER" } } }, include: { memberships: true } }),
     ]);
-    ownerId = owner.id; outsiderId = other.id;
+    ownerId = owner.id; colleagueId = colleague.id; outsiderId = other.id;
     caller = reportsRouter.createCaller({ prisma, user: owner });
     outsider = reportsRouter.createCaller({ prisma, user: other });
-    const active = await prisma.testCase.create({ data: { projectId: projectA, title: "Login", testType: "FUNCTIONAL", given: [], when: [], then: [], tags: [], priority: "HIGH", riskAssessedAt: new Date(), riskScore: 80, riskSeverity: "HIGH" } });
+    const active = await prisma.testCase.create({ data: { projectId: projectA, title: "Login", testType: "FUNCTIONAL", given: [], when: [], then: [], tags: ["auth smoke"], priority: "HIGH", riskAssessedAt: new Date(), riskScore: 80, riskSeverity: "HIGH" } });
     caseId = active.id;
-    await prisma.testCase.create({ data: { projectId: projectA, title: "Old", testType: "FUNCTIONAL", given: [], when: [], then: [], tags: [], archived: true } });
+    await prisma.testCase.create({ data: { projectId: projectA, title: "Old", testType: "FUNCTIONAL", given: [], when: [], then: [], tags: ["legacy"], archived: true } });
     await prisma.testCaseSource.create({ data: { testCaseId: caseId, filePath: "tests/login.spec.ts", framework: "playwright" } });
     // A separate tenant's records must never appear in either totals or run references.
     await prisma.testCase.create({ data: { projectId: projectB, title: "Private", testType: "FUNCTIONAL", given: [], when: [], then: [], tags: [] } });
@@ -51,6 +52,7 @@ describe.skipIf(!disposable)("project report isolation and evidence totals", () 
     await prisma.testResult.deleteMany({ where: { testRun: { projectId: { in: [projectA, projectB] } } } });
     await prisma.testRun.deleteMany({ where: { projectId: { in: [projectA, projectB] } } });
     await prisma.testCaseSource.deleteMany({ where: { testCaseId: caseId } });
+    await prisma.testCaseView.deleteMany({ where: { projectId: { in: [projectA, projectB] } } });
     await prisma.acceptanceCriterion.deleteMany({ where: { testPlanId: planId } });
     await prisma.testPlan.deleteMany({ where: { id: planId } });
     await prisma.testPlanType.deleteMany({ where: { id: planTypeId } });
@@ -58,7 +60,7 @@ describe.skipIf(!disposable)("project report isolation and evidence totals", () 
     await prisma.testCase.deleteMany({ where: { projectId: { in: [projectA, projectB] } } });
     await prisma.project.deleteMany({ where: { id: { in: [projectA, projectB] } } });
     await prisma.membership.deleteMany({ where: { organizationId: { in: [orgA, orgB] } } });
-    await prisma.user.deleteMany({ where: { id: { in: [ownerId, outsiderId] } } });
+    await prisma.user.deleteMany({ where: { id: { in: [ownerId, colleagueId, outsiderId] } } });
     await prisma.organization.deleteMany({ where: { id: { in: [orgA, orgB] } } });
   });
 
@@ -79,5 +81,31 @@ describe.skipIf(!disposable)("project report isolation and evidence totals", () 
     await expect(outsider.overview({ projectId: projectA, windowDays: 30 })).rejects.toMatchObject({ code: "FORBIDDEN" });
     await expect(caller.overview({ projectId: projectB, windowDays: 30 })).rejects.toMatchObject({ code: "FORBIDDEN" });
     await expect(caller.overview({ projectId: "missing", windowDays: 30 })).rejects.toMatchObject({ code: "NOT_FOUND" });
+  });
+
+  it("previews a typed case query with tag substring, source-derived suite and archive policy", async () => {
+    const filters = { suitePath: "tests", search: "moke", type: "FUNCTIONAL", automation: "", priority: "HIGH",
+      review: "", origin: "", sortBy: "title" as const, sortDescending: false, showArchived: false };
+    const report = await caller.overview({ projectId: projectA, windowDays: 30, caseFilters: filters });
+    expect(report.caseQuery).toMatchObject({ source: "preview", name: null, total: 1, active: 1, archived: 0, withSource: 1,
+      sample: [{ id: caseId, title: "Login" }] });
+    expect(report.inventory.active).toBe(1); // project-wide and separate from the scoped case query
+    expect(report.execution.results).toBe(3); // execution is never silently narrowed by a case filter
+    const unassigned = await caller.overview({ projectId: projectA, windowDays: 30,
+      caseFilters: { ...filters, suitePath: "__unassigned__", search: "", priority: "", showArchived: true } });
+    expect(unassigned.caseQuery).toMatchObject({ total: 1, archived: 1, sample: [{ title: "Old" }] });
+    await expect(caller.overview({ projectId: projectA, windowDays: 30, caseFilters: { ...filters, unsafeWhere: projectB } })).rejects.toThrow();
+  });
+
+  it("uses only the current user's saved query in the authorized project", async () => {
+    const filters = { suitePath: null, search: "", type: "FUNCTIONAL", automation: "", priority: "", review: "", origin: "",
+      sortBy: "title", sortDescending: false, showArchived: true };
+    const owned = await prisma.testCaseView.create({ data: { projectId: projectA, userId: ownerId, name: "All functional", filters } });
+    const colleague = await prisma.testCaseView.create({ data: { projectId: projectA, userId: colleagueId, name: "Private colleague view", filters } });
+    const report = await caller.overview({ projectId: projectA, windowDays: 30, caseViewId: owned.id });
+    expect(report.caseQuery).toMatchObject({ source: "saved", name: "All functional", total: 2, active: 1, archived: 1 });
+    await expect(caller.overview({ projectId: projectA, windowDays: 30, caseViewId: colleague.id })).rejects.toMatchObject({ code: "NOT_FOUND" });
+    await expect(outsider.overview({ projectId: projectA, windowDays: 30, caseViewId: owned.id })).rejects.toMatchObject({ code: "FORBIDDEN" });
+    await expect(caller.overview({ projectId: projectA, windowDays: 30, caseViewId: owned.id, caseFilters: filters })).rejects.toThrow();
   });
 });

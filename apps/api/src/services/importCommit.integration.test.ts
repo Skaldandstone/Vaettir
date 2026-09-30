@@ -148,6 +148,20 @@ describe("commitImportedTestCases (real DB)", () => {
     expect(after.source?.importSnapshot).toMatchObject({ title: "Source original" });
   });
 
+  it("does not erase a media reference added to an imported step", async () => {
+    const base = { rowNumber: 22, title: "Media import", given: ["g"], when: ["w"], then: ["t"], priority: "LOW" as const,
+      tags: [], externalId: "MEDIA-1", steps: [{ action: "Inspect", expectedActionOrData: null, expectedResult: "Image visible" }] };
+    await commitImportedTestCases(prisma, { ...common(), rows: [base], skipped: [] });
+    const imported = await prisma.testCase.findFirstOrThrow({ where: { projectId, source: { externalTestId: `xray:${projectId}:MEDIA-1` } }, include: { steps: true } });
+    await prisma.testCaseStep.update({ where: { id: imported.steps[0]!.id }, data: { mediaAttachmentIds: ["human-image-reference"] } });
+    const result = await commitImportedTestCases(prisma, { ...common(), rows: [{ ...base, title: "Updated source" }], skipped: [] });
+    expect(result).toMatchObject({ updatedCount: 0, createdCount: 0 });
+    expect(result.skipped[0]?.reason).toContain("Case changed since its last import");
+    const after = await prisma.testCase.findUniqueOrThrow({ where: { id: imported.id }, include: { steps: true } });
+    expect(after.title).toBe("Media import");
+    expect(after.steps[0]?.mediaAttachmentIds).toEqual(["human-image-reference"]);
+  });
+
   it("fails closed for legacy imports with no source baseline", async () => {
     const legacy = await prisma.testCase.create({ data: {
       projectId, title: "Legacy edited case", testType: "FUNCTIONAL", origin: "IMPORTED",

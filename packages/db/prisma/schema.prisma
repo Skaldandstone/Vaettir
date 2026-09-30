@@ -1208,6 +1208,7 @@ model TestCaseStep {
   expectedActionOrData String? // what should happen internally: an API call fires, with what data/payload
   expectedResult       String? // the user-observable outcome, e.g. "The new page loads"
   expectedResponse     String? // the technical/API response, e.g. "200 with { token, userId }"
+  mediaAttachmentIds   String[] @default([]) // case-scoped image/video attachment IDs, validated on write
 
   @@unique([testCaseId, order])
   @@index([testCaseId])

@@ -91,7 +91,10 @@ export function BulkCaseAnalysis({ projectId, organizationId, selectedIds, onCom
     onCompleted();
     setProgress(`${succeeded} new ${action === "RISK" ? "risk assessments" : "type/design reviews"} saved. ${failures.length ? "Stopped after one failure; completed items remain saved." : ""}`);
     if (failures.length) setError(failures[0] ?? "One analysis failed.");
-    setDone(true); setBusy(false);
+    // Some cases may now be SAVED, while a failure may have changed the
+    // balance or input hash. Never reuse the pre-run price/selection.
+    setPlan(null); setApproved(false);
+    setDone(failures.length === 0); setBusy(false);
   }
 
   async function askAdmin() {

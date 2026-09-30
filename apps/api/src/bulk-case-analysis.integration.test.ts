@@ -38,10 +38,12 @@ describe.skipIf(!isolated)("bulk case analysis authorization and risk reservatio
     const request = await viewer.creditUseRequests.create({ projectId, action: "RISK", ids: [caseId], reason: "Need a checkout review" });
     expect(request.estimatedCredits).toBe(2);
     expect((await viewer.creditUseRequests.create({ projectId, action: "RISK", ids: [caseId] })).id).toBe(request.id);
+    expect(await prisma.auditLog.count({ where: { entityType: "AiCreditUseRequest", entityId: request.id, action: "CREATE" } })).toBe(1);
     await expect(viewer.creditUseRequests.adminList({ organizationId })).rejects.toMatchObject({ code: "FORBIDDEN" });
     expect((await owner.creditUseRequests.adminList({ organizationId }))[0]?.id).toBe(request.id);
     await owner.creditUseRequests.resolve({ organizationId, id: request.id, decision: "ACKNOWLEDGED" });
     expect((await viewer.creditUseRequests.mine({ projectId }))[0]?.status).toBe("ACKNOWLEDGED");
+    expect(await prisma.auditLog.count({ where: { entityType: "AiCreditUseRequest", entityId: request.id, action: "UPDATE" } })).toBe(1);
     expect((await viewer.testCases.riskPreview({ id: caseId })).canSpend).toBe(false);
     await expect(viewer.testCases.assessRisk({ id: caseId, expectedHash: "0".repeat(64), approved: true })).rejects.toMatchObject({ code: "FORBIDDEN" });
   });

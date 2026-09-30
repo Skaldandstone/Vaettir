@@ -96,7 +96,17 @@ export const testCaseAttachmentsRouter = router({
       include: { testCase: { select: { projectId: true } } },
     });
     await requireProjectAccess(ctx, attachment.testCase.projectId, "EDITOR");
-    await ctx.prisma.testCaseAttachment.delete({ where: { id: input.attachmentId } });
+    await ctx.prisma.$transaction(async tx => {
+      // The case editor uses the same project lock before replacing steps.
+      // Do not leave a saved step pointing at a deleted image/video.
+      await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${attachment.testCase.projectId}))::text`;
+      const referenced = await tx.testCaseStep.count({ where: {
+        testCaseId: attachment.testCaseId,
+        mediaAttachmentIds: { has: input.attachmentId },
+      } });
+      if (referenced) throw new TRPCError({ code: "CONFLICT", message: "This file is linked to a test step. Unlink it from the step before deleting it." });
+      await tx.testCaseAttachment.delete({ where: { id: input.attachmentId, testCaseId: attachment.testCaseId } });
+    });
     return { deleted: true };
   }),
 });
