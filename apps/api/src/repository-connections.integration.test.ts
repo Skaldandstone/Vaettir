@@ -256,8 +256,16 @@ describe.skipIf(!isolated)("repository authorization and reviewed selection", ()
     const config = await owner.configureGithub({ projectId, clientId: "github-app-fixture", clientSecret });
     const pending = await owner.begin({ projectId, configurationId: config.id, approveMetadataAccess: true });
     const admin = (await actor("ADMIN")).caller;
+    const foreignKey = randomUUID();
+    const foreignOrg = await prisma.organization.create({ data: { name: foreignKey, slug: foreignKey, planTierId: (await prisma.organization.findUniqueOrThrow({ where: { id: organizationId } })).planTierId } });
+    const foreignProject = await prisma.project.create({ data: { organizationId: foreignOrg.id, name: foreignKey, slug: foreignKey } });
+    const foreignActor = await prisma.user.create({ data: { email: `${foreignKey}@example.com`, clerkUserId: foreignKey, memberships: { create: { organizationId: foreignOrg.id, role: "OWNER", seatType: "FULL" } } } });
+    const foreignConfig = await prisma.repositoryProviderConfiguration.create({ data: { organizationId: foreignOrg.id, provider: "github", origin: "https://github.com", clientId: "foreign-fixture", encryptedSecret: {}, createdById: foreignActor.id } });
+    const foreignGrant = await prisma.repositoryConnection.create({ data: { projectId: foreignProject.id, organizationId: foreignOrg.id, actorId: foreignActor.id, configurationId: foreignConfig.id, provider: "github", origin: "https://github.com", stateHash: randomUUID(), authorizationExpiresAt: new Date(Date.now() + 600000) } });
     expect(await admin.revocableGrants({ projectId, provider: "github" })).toEqual([expect.objectContaining({ id: pending.id, status: "PENDING" })]);
     await expect(outsider.revocableGrants({ projectId, provider: "github" })).rejects.toMatchObject({ code: "FORBIDDEN" });
+    await expect(admin.disconnect({ id: foreignGrant.id })).rejects.toMatchObject({ code: "NOT_FOUND" });
+    expect(await prisma.repositoryConnection.findUniqueOrThrow({ where: { id: foreignGrant.id } })).toMatchObject({ status: "PENDING" });
     await admin.disconnect({ id: pending.id });
     expect(await prisma.repositoryConnection.findUniqueOrThrow({ where: { id: pending.id } })).toMatchObject({ status: "DISCONNECTED", encryptedToken: null });
     expect(revokeGithubAuthorization).not.toHaveBeenCalled();
