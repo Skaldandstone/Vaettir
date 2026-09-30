@@ -84,13 +84,29 @@ describe.skipIf(!isolated)("repository authorization and reviewed selection", ()
 
   it("keeps configuration secrets encrypted and out of customer responses", async () => {
     const response = await owner.configurations({ projectId });
-    expect(response).toMatchObject({ storageReady: true, canConfigure: true, configurations: [{ id: configurationId, provider: "gitlab", origin }] });
+    expect(response).toMatchObject({ storageReady: true, credentialStorageReady: true, callbackReady: true, canConfigure: true, configurations: [{ id: configurationId, provider: "gitlab", origin }] });
     expect(JSON.stringify(response)).not.toContain(clientSecret);
     expect(response.configurations[0]).not.toHaveProperty("encryptedSecret");
     const stored = await prisma.repositoryProviderConfiguration.findUniqueOrThrow({ where: { id: configurationId } });
     expect(JSON.stringify(stored.encryptedSecret)).not.toContain(clientSecret);
     expect(decryptToken(stored.encryptedSecret as unknown as EncryptedToken)).toBe(clientSecret);
     await expect(owner.configureGitlab({ projectId, origin, clientId: "replacement", clientSecret: "replacement-secret" })).rejects.toMatchObject({ code: "CONFLICT" });
+  });
+
+  it("reports the exact platform gate without exposing secrets or starting OAuth", async () => {
+    vi.stubEnv("PRODUCTION_SIGNAL_ENCRYPTION_KEY", "");
+    const missingKey = await owner.configurations({ projectId });
+    expect(missingKey).toMatchObject({ storageReady: false, credentialStorageReady: false, callbackReady: true });
+    expect(JSON.stringify(missingKey)).not.toContain(clientSecret);
+    await expect(owner.begin({ projectId, configurationId, approveMetadataAccess: true })).rejects.toMatchObject({ code: "PRECONDITION_FAILED" });
+    expect(await prisma.repositoryConnection.count({ where: { projectId } })).toBe(0);
+
+    vi.stubEnv("PRODUCTION_SIGNAL_ENCRYPTION_KEY", Buffer.alloc(32, 7).toString("base64"));
+    vi.stubEnv("WEB_APP_URL", "");
+    const missingCallback = await owner.configurations({ projectId });
+    expect(missingCallback).toMatchObject({ storageReady: false, credentialStorageReady: true, callbackReady: false, redirectUri: null });
+    await expect(owner.begin({ projectId, configurationId, approveMetadataAccess: true })).rejects.toMatchObject({ code: "PRECONDITION_FAILED" });
+    expect(await prisma.repositoryConnection.count({ where: { projectId } })).toBe(0);
   });
 
   it("configures hosted GitHub once and keeps its client secret encrypted", async () => {

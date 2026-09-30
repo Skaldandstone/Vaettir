@@ -17,8 +17,10 @@ async function revokeGrant(grant:RevocableGrant){
   if(grant.provider==="gitlab")return revokeGitlabAuthorization({origin:grant.origin,clientId,clientSecret,token});
   throw new Error("This provider has no revocation adapter");
 }
-const unavailable=()=>new TRPCError({code:"PRECONDITION_FAILED",message:"Repository authorization is not configured. An organization admin must finish provider setup."});
-function encryptionReady(){try{encryptToken("configuration-check");repositoryOAuthRedirect();repositoryOAuthRedirect(process.env,"github");return true;}catch{return false;}}
+const unavailable=()=>new TRPCError({code:"PRECONDITION_FAILED",message:"Repository authorization is not available on this Vaettir installation. Platform setup is required before a workspace can connect."});
+function credentialStorageReady(){try{encryptToken("configuration-check");return true;}catch{return false;}}
+function callbackReady(){try{repositoryOAuthRedirect();repositoryOAuthRedirect(process.env,"github");return true;}catch{return false;}}
+function encryptionReady(){return credentialStorageReady() && callbackReady();}
 function redirectUri(provider:"gitlab"|"github"="gitlab"){try{return repositoryOAuthRedirect(process.env,provider);}catch{return null;}}
 // Same organization lock used by membership/seat changes. Never keep it across provider I/O.
 async function liveEditor(tx:Prisma.TransactionClient,organizationId:string,userId:string,admin=false){
@@ -70,7 +72,9 @@ export const repositoryConnectionsRouter=router({
   configurations:protectedProcedure.input(projectInput).query(async({ctx,input})=>{
     const {project,membership}=await requireProjectAccess(ctx,input.projectId);
     const configurations=await ctx.prisma.repositoryProviderConfiguration.findMany({where:{organizationId:project.organizationId},select:{id:true,provider:true,origin:true}});
-    return{configurations,storageReady:encryptionReady(),canConfigure:membership.seatType==="FULL" && ["OWNER","ADMIN"].includes(membership.role),redirectUri:redirectUri(),githubRedirectUri:redirectUri("github")};
+    const storageReady=credentialStorageReady();
+    const redirectReady=callbackReady();
+    return{configurations,storageReady:storageReady && redirectReady,credentialStorageReady:storageReady,callbackReady:redirectReady,canConfigure:membership.seatType==="FULL" && ["OWNER","ADMIN"].includes(membership.role),redirectUri:redirectUri(),githubRedirectUri:redirectUri("github")};
   }),
   revocableGrants:protectedProcedure.input(projectInput.extend({provider:z.enum(["github","gitlab"])})).query(async({ctx,input})=>{
     const {project}=await editor(ctx,input.projectId);requireOrgRole(ctx,project.organizationId,"ADMIN");

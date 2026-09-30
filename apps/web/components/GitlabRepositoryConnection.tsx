@@ -35,6 +35,7 @@ export function RepositoryOAuthConnection({ projectId, providerId, onConnected, 
   const [selectedDetails, setSelectedDetails] = useState<Record<string, Listing["repositories"][number]>>({});
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [callbackCopied, setCallbackCopied] = useState(false);
   const [revokingId, setRevokingId] = useState("");
   const popup = useRef<Window | null>(null);
   const configureMutation = trpcReact.repositoryConnections.configureGitlab.useMutation();
@@ -47,6 +48,9 @@ export function RepositoryOAuthConnection({ projectId, providerId, onConnected, 
     refetchInterval: query => !query.state.error && (!query.state.data || ["PENDING", "VERIFYING"].includes(query.state.data.status)) ? 2000 : false,
   });
   const provider = configurations.data?.configurations.find(c => c.id === configurationId);
+  const availableConfigurations = configurations.data?.configurations.filter(c => c.provider === providerId) ?? [];
+  const connectionReady = configurations.data?.storageReady ?? false;
+  const showSetup = configure || (connectionReady && Boolean(configurations.data?.canConfigure) && availableConfigurations.length === 0);
   const busy = begin.isPending || configureMutation.isPending || configureGithub.isPending || connect.isPending || disconnect.isPending || loading;
   const failure = error || configurations.error?.message || status.error?.message;
   const selectedRepos = Object.values(selectedDetails).filter(repo => selected.includes(repo.id));
@@ -95,8 +99,18 @@ export function RepositoryOAuthConnection({ projectId, providerId, onConnected, 
     {failure && <p role="alert">{failure}</p>}
     {step === "instance" && <>
       {configurations.isLoading && <p role="status">Checking connection availability…</p>}
-      {configurations.data && !configurations.data.storageReady && <p role="alert">Secure credential storage or the callback URL is not configured. A platform administrator must enable it before {providerName} authorization is available.</p>}
-      <p>{providerId === "github" ? "Connect GitHub.com using your workspace’s registered OAuth application. GitHub’s repo permission grants the app read and write access to all repositories you can access and some organization resources. Your repository choices below limit only Vaettir’s project links, not GitHub’s token permission. Vaettir only lists metadata in this flow." : "Use GitLab.com or your organization’s publicly reachable self-hosted GitLab. Each instance needs its own registered OAuth application. GitLab’s read_api permission can read more than repository metadata; Vaettir does not read source files in this flow."}</p>
+      {configurations.data && !connectionReady && <section role="alert" style={{ display: "grid", gap: 8 }}>
+        <strong>{providerName} connection is not available yet</strong>
+        <p style={{ margin: 0 }}>This Vaettir installation cannot securely complete authorization. No {providerName} account or repository was connected. Changing the instance URL will not fix this.</p>
+        {configurations.data.canConfigure && <p style={{ margin: 0 }}>Vaettir platform setup needed: {[
+          !configurations.data.credentialStorageReady && "enable encrypted credential storage",
+          !configurations.data.callbackReady && "configure the public OAuth callback URL",
+        ].filter(Boolean).join(" and ")}. Your workspace OAuth application can be registered after that.</p>}
+        {!configurations.data.canConfigure && <p style={{ margin: 0 }}>Ask your workspace owner to contact Vaettir support about enabling repository connections.</p>}
+        <button type="button" className="btn-secondary" onClick={() => void configurations.refetch()}>Check again</button>
+      </section>}
+      {connectionReady && <>
+      <p>{providerId === "github" ? "Connect GitHub.com, verify your account, then choose the repositories for this project. GitHub’s OAuth permission is broader than those choices; review it before authorizing." : "Connect GitLab.com or a publicly reachable self-hosted GitLab, verify your account, then choose the repositories for this project. No source files are read in this flow."}</p>
       {!!recent.data?.some(connection => connection.provider === providerId) && <details><summary>Resume a recent connection</summary><div style={{ display: "grid", gap: 8, marginTop: 8 }}>
         {recent.data.filter(connection => connection.provider === providerId).map(connection => <button type="button" className="source-connection-chip" key={connection.id} disabled={!configurations.data?.storageReady} onClick={() => {
           const config = configurations.data?.configurations.find(c => c.provider === providerId && c.origin === connection.origin);
@@ -113,23 +127,29 @@ export function RepositoryOAuthConnection({ projectId, providerId, onConnected, 
         }}>{revokingId === grant.id ? "Clearing…" : grant.status === "VERIFYING" ? "Verification in progress" : grant.status === "PENDING" || grant.status === "EXPIRED" ? "Cancel / revoke" : "Revoke grant"}</button></div>)}
       </div></details>}
       <div className="source-chip-list" role="group" aria-label={`Configured ${providerName} instances`}>
-        {configurations.data?.configurations.filter(c => c.provider === providerId).map(c => <button type="button" key={c.id} className="source-connection-chip" aria-pressed={configurationId === c.id} onClick={() => { setConfigurationId(c.id); setConfigure(false); }}>
+        {availableConfigurations.map(c => <button type="button" key={c.id} className="source-connection-chip" aria-pressed={configurationId === c.id} onClick={() => { setConfigurationId(c.id); setConfigure(false); }}>
           <ProviderMark id={providerId}/><span style={{ overflowWrap: "anywhere" }}><strong>{new URL(c.origin).hostname}</strong><small>OAuth app configured · Select to authorize or resume</small></span>{configurationId === c.id && <span aria-hidden="true">✓</span>}
         </button>)}
       </div>
-      {configurations.data?.canConfigure ? <button type="button" className="btn-secondary" onClick={() => setConfigure(!configure)}>{configure ? "Hide application setup" : `Set up ${providerName} authorization`}</button> : <p className="text-muted">Ask a workspace owner or administrator to configure a missing application.</p>}
-      {configure && <form style={{ display: "grid", gap: 12 }} onSubmit={async e => {
+      {configurations.data?.canConfigure && availableConfigurations.length > 0 && providerId === "gitlab" ? <button type="button" className="btn-secondary" onClick={() => setConfigure(!configure)}>{configure ? "Hide application setup" : "Add another GitLab instance"}</button> : !configurations.data?.canConfigure && !availableConfigurations.length ? <p className="text-muted">A workspace owner or administrator must register the {providerName} OAuth application before you can authorize.</p> : null}
+      {showSetup && <form style={{ display: "grid", gap: 12 }} onSubmit={async e => {
         e.preventDefault(); setError("");
         try { const saved = providerId === "github" ? await configureGithub.mutateAsync({ projectId, clientId, clientSecret }) : await configureMutation.mutateAsync({ projectId, origin, clientId, clientSecret }); setClientSecret(""); setConfigurationId(saved.id); setConfigure(false); await configurations.refetch(); }
         catch { setError("Instance setup failed. Check the URL, application credentials and your administrator permissions."); }
       }}>
         {providerId === "gitlab" && <label style={field}>GitLab origin<input style={inputStyle} type="url" required value={origin} onChange={e => setOrigin(e.target.value)} placeholder="https://gitlab.company.com" maxLength={300}/></label>}
-        <details><summary>Register the {providerName} OAuth application</summary><p>{providerId === "github" ? "Create a GitHub OAuth app. Its repo scope grants full repository read/write access and can manage certain organization resources. A GitHub App with selected-repository, read-only permissions is the safer future integration. Set the callback URL exactly as shown and keep the secret private." : "In this GitLab instance, create an OAuth application with the read_api scope and this exact redirect URL. Keep the application secret private."}</p><code style={{ overflowWrap: "anywhere" }}>{providerId === "github" ? configurations.data?.githubRedirectUri ?? "Callback not configured" : configurations.data?.redirectUri ?? "Callback not configured"}</code><p>Private-network hosts are not supported by this connector. No source files are read in this flow.</p></details>
+        <div style={{ display: "grid", gap: 6 }}><strong>Register an OAuth application in {providerName}</strong><span>{providerId === "github" ? "In GitHub, open Settings → Developer settings → OAuth apps. Use the callback below. GitHub's repo scope grants broad read/write access, even though Vaettir only lists metadata here." : "In your GitLab instance, open Edit profile → Access → Applications. Create an application with read_api and the callback below. A group owner can instead use Settings → Applications. Private-network hosts are not supported."}</span><a href={providerId === "github" ? "https://docs.github.com/en/apps/oauth-apps/building-oauth-apps/creating-an-oauth-app" : "https://docs.gitlab.com/integration/oauth_provider/"} target="_blank" rel="noopener noreferrer">{providerName} application setup instructions ↗</a><code style={{ overflowWrap: "anywhere" }}>{providerId === "github" ? configurations.data?.githubRedirectUri : configurations.data?.redirectUri}</code><button type="button" className="btn-secondary" onClick={async () => {
+          const callback = providerId === "github" ? configurations.data?.githubRedirectUri : configurations.data?.redirectUri;
+          if (!callback) return;
+          try { await navigator.clipboard.writeText(callback); setCallbackCopied(true); }
+          catch { setError("Could not copy the callback URL. Select the URL above and copy it manually."); }
+        }}>Copy callback URL</button>{callbackCopied && <span role="status">Callback URL copied.</span>}</div>
         <label style={field}>Application ID<input style={inputStyle} required value={clientId} onChange={e => setClientId(e.target.value)} maxLength={300} autoComplete="off"/></label>
         <label style={field}>Application secret<input style={inputStyle} type="password" required value={clientSecret} onChange={e => setClientSecret(e.target.value)} maxLength={2000} autoComplete="new-password"/></label>
         <button type="submit" disabled={busy || !configurations.data?.storageReady}>{busy ? "Saving securely…" : "Save application configuration"}</button>
       </form>}
-      <div style={actions}><button type="button" className="btn-secondary" onClick={onClose}>Cancel</button><button type="button" disabled={!provider || !configurations.data?.storageReady || busy} onClick={() => setStep("authorize")}>Continue</button></div>
+      <div style={actions}><button type="button" className="btn-secondary" onClick={onClose}>Cancel</button><button type="button" disabled={!provider || busy} onClick={() => setStep("authorize")}>Continue to authorization</button></div>
+      </>}
     </>}
     {step === "authorize" && <>
       <p>Authorize your account on <strong>{provider?.origin}</strong>. You will sign in in a separate {providerName} window.</p>
