@@ -18,7 +18,7 @@ export function RepositoryOAuthConnection({ projectId, providerId, onConnected, 
   const utils = trpcReact.useUtils();
   const configurations = trpcReact.repositoryConnections.configurations.useQuery({ projectId });
   const recent = trpcReact.repositoryConnections.mine.useQuery({ projectId });
-  const revocations = trpcReact.repositoryConnections.revocableGrants.useQuery({ projectId }, { enabled: providerId === "github" && Boolean(configurations.data?.canConfigure) });
+  const revocations = trpcReact.repositoryConnections.revocableGrants.useQuery({ projectId, provider: providerId }, { enabled: Boolean(configurations.data?.canConfigure) });
   const [step, setStep] = useState<"instance" | "authorize" | "repositories" | "review" | "done">("instance");
   const [configurationId, setConfigurationId] = useState("");
   const [configure, setConfigure] = useState(false);
@@ -103,12 +103,12 @@ export function RepositoryOAuthConnection({ projectId, providerId, onConnected, 
           setConfigurationId(config?.id ?? ""); setConnectionId(connection.id); setStep("authorize");
         }}><ProviderMark id={providerId}/><span style={{ overflowWrap: "anywhere" }}><strong>{connection.origin}</strong><small>{connection.accountLabel ?? "Your authorization"} · {statusLabel(connection.status)}</small></span></button>)}
       </div></details>}
-      {providerId === "github" && configurations.data?.canConfigure && Boolean(revocations.data?.length) && <details><summary>Review GitHub authorizations before removing the application ({revocations.data?.length})</summary><div style={{ display: "grid", gap: 8, marginTop: 8 }}>
+      {configurations.data?.canConfigure && Boolean(revocations.data?.length) && <details><summary>Review {providerName} authorizations before removing the application ({revocations.data?.length})</summary><div style={{ display: "grid", gap: 8, marginTop: 8 }}>
         <p className="text-muted">A workspace administrator can cancel pending attempts or retry revocation of an abandoned member grant. Application credentials remain until every grant is cleared.</p>
-        {revocations.data?.map(grant => <div key={grant.id} style={{ ...actions, alignItems: "center" }}><span style={{ flex: "1 1 180px", overflowWrap: "anywhere" }}>{grant.projectName} · {grant.accountLabel ?? "Account not verified"} · {statusLabel(grant.status)}</span><button type="button" className="btn-secondary" disabled={busy || Boolean(revokingId) || grant.status === "VERIFYING"} onClick={async () => {
+        {revocations.data?.map(grant => <div key={grant.id} style={{ ...actions, alignItems: "center" }}><span style={{ flex: "1 1 180px", overflowWrap: "anywhere" }}>{grant.projectName} · {new URL(grant.origin).hostname} · {grant.accountLabel ?? "Account not verified"} · {statusLabel(grant.status)}</span><button type="button" className="btn-secondary" disabled={busy || Boolean(revokingId) || grant.status === "VERIFYING"} onClick={async () => {
           setRevokingId(grant.id); setError("");
           try { await disconnect.mutateAsync({ id: grant.id }); await revocations.refetch(); await recent.refetch(); }
-          catch { setError("GitHub did not confirm revocation. The encrypted grant remains in Vaettir; retry or inspect Authorized OAuth Apps in GitHub."); }
+          catch { setError(`${providerName} did not confirm revocation. The encrypted grant remains in Vaettir for retry.`); }
           finally { setRevokingId(""); }
         }}>{revokingId === grant.id ? "Clearing…" : grant.status === "VERIFYING" ? "Verification in progress" : grant.status === "PENDING" || grant.status === "EXPIRED" ? "Cancel / revoke" : "Revoke grant"}</button></div>)}
       </div></details>}
@@ -140,8 +140,8 @@ export function RepositoryOAuthConnection({ projectId, providerId, onConnected, 
       </> : <>
         <p role="status">{status.data?.status === "VERIFIED" ? `Verified as ${status.data.accountLabel ?? `your ${providerName} account`}. Load the repository list when you are ready.` : ["PENDING", "VERIFYING"].includes(status.data?.status ?? "PENDING") ? `Waiting for ${providerName} authorization. Keep this screen open; the connection status updates automatically.` : status.data?.status === "EXPIRED" || status.data?.status === "REVOCATION_PENDING" ? `This ${providerName} connection cannot be used. Revoke its grant before reconnecting; Vaettir retains the encrypted credential until cleanup is confirmed.` : `Connection ${status.data?.status?.toLowerCase() ?? "status unavailable"}. Start again to authorize.`}</p>
         {status.data?.status === "VERIFIED" && <button type="button" disabled={busy} onClick={() => void load()}>Load repositories</button>}
-        <div style={actions}><button type="button" className="btn-secondary" disabled={busy} onClick={() => void status.refetch()}>Refresh status</button><button type="button" className="btn-secondary" disabled={busy} onClick={() => void cancelConnection()}>{providerId === "github" ? "Revoke token and disconnect" : "Remove Vaettir connection / start again"}</button></div>
-        {providerId === "github" && <p className="text-muted">Explicit disconnect asks GitHub to revoke this token before Vaettir removes the connection. If GitHub rejects revocation, Vaettir retains the encrypted grant for retry. Local expiry does not revoke provider access, and application removal is blocked until grants are cleared.</p>}
+        <div style={actions}><button type="button" className="btn-secondary" disabled={busy} onClick={() => void status.refetch()}>Refresh status</button><button type="button" className="btn-secondary" disabled={busy} onClick={() => void cancelConnection()}>Revoke token and disconnect</button></div>
+        <p className="text-muted">Explicit disconnect asks {providerName} to revoke this token before Vaettir removes the connection. If the provider rejects revocation, Vaettir retains the encrypted grant for retry. Local expiry does not confirm upstream revocation, and application removal is blocked until grants are cleared.</p>
       </>}
     </>}
     {step === "repositories" && <>

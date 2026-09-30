@@ -1,10 +1,10 @@
 import { createHash } from "node:crypto";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { repositoryProviderJson } from "./repositoryProviderHttp.js";
-import { createGitlabAuthorization, listGitlabRepositories, verifyGitlabAuthorization } from "./gitlabRepositoryOAuth.js";
+import { repositoryProviderJson, repositoryProviderRevokeGitlabToken } from "./repositoryProviderHttp.js";
+import { createGitlabAuthorization, GitlabOAuthRevocationPendingError, listGitlabRepositories, revokeGitlabAuthorization, verifyGitlabAuthorization } from "./gitlabRepositoryOAuth.js";
 
 vi.mock("./repositoryProviderHttp.js", async importOriginal => ({
-  ...await importOriginal<typeof import("./repositoryProviderHttp.js")>(), repositoryProviderJson: vi.fn(),
+  ...await importOriginal<typeof import("./repositoryProviderHttp.js")>(), repositoryProviderJson: vi.fn(), repositoryProviderRevokeGitlabToken: vi.fn(),
 }));
 const input = { origin: "https://gitlab.example.com", clientId: "synthetic-client", clientSecret: "synthetic-secret", redirectUri: "https://app.example.com/connections/gitlab/callback", code: "synthetic-code", verifier: "synthetic-verifier" };
 const token = { access_token: "synthetic-token", token_type: "Bearer", expires_in: 7200, scope: "read_api" };
@@ -36,15 +36,40 @@ describe("GitLab repository OAuth contract", () => {
     vi.mocked(repositoryProviderJson).mockResolvedValue({ ...token, scope });
     await expect(verifyGitlabAuthorization(input)).rejects.toThrow();
     expect(repositoryProviderJson).toHaveBeenCalledTimes(1);
+    expect(repositoryProviderRevokeGitlabToken).toHaveBeenCalledWith(input.origin,input.clientId,input.clientSecret,token.access_token);
   });
   it.each([undefined, "Basic", "MAC"])("rejects non-Bearer token type %s", async token_type => {
     vi.mocked(repositoryProviderJson).mockResolvedValue({ ...token, token_type });
     await expect(verifyGitlabAuthorization(input)).rejects.toThrow();
     expect(repositoryProviderJson).toHaveBeenCalledTimes(1);
+    expect(repositoryProviderRevokeGitlabToken).toHaveBeenCalledWith(input.origin,input.clientId,input.clientSecret,token.access_token);
   });
   it.each([0, -1, 1.5])("rejects invalid provider account ID %s", async id => {
     vi.mocked(repositoryProviderJson).mockResolvedValueOnce(token).mockResolvedValueOnce({ id, username: "fixture-user" });
     await expect(verifyGitlabAuthorization(input)).rejects.toThrow();
+    expect(repositoryProviderRevokeGitlabToken).toHaveBeenCalledWith(input.origin,input.clientId,input.clientSecret,token.access_token);
+  });
+  it("revokes an issued token when account lookup fails", async () => {
+    vi.mocked(repositoryProviderJson).mockResolvedValueOnce(token).mockRejectedValueOnce(new Error("account unavailable"));
+    await expect(verifyGitlabAuthorization(input)).rejects.toThrow("account unavailable");
+    expect(repositoryProviderRevokeGitlabToken).toHaveBeenCalledWith(input.origin,input.clientId,input.clientSecret,token.access_token);
+  });
+  it("surfaces a non-enumerable issued token for quarantine when revocation fails", async () => {
+    vi.mocked(repositoryProviderJson).mockResolvedValueOnce(token).mockRejectedValueOnce(new Error("account unavailable"));
+    vi.mocked(repositoryProviderRevokeGitlabToken).mockRejectedValueOnce(new Error("provider unavailable"));
+    const failure=await verifyGitlabAuthorization(input).catch(error=>error);
+    expect(failure).toBeInstanceOf(GitlabOAuthRevocationPendingError);
+    expect(failure.token).toBe(token.access_token);
+    expect(JSON.stringify(failure)).not.toContain(token.access_token);
+  });
+  it("does not attempt revocation when the token exchange did not issue a usable token", async () => {
+    vi.mocked(repositoryProviderJson).mockRejectedValueOnce(new Error("exchange rejected"));
+    await expect(verifyGitlabAuthorization(input)).rejects.toThrow("exchange rejected");
+    expect(repositoryProviderRevokeGitlabToken).not.toHaveBeenCalled();
+  });
+  it("passes the exact instance and app credentials to GitLab revocation", async () => {
+    await revokeGitlabAuthorization({origin:input.origin,clientId:input.clientId,clientSecret:input.clientSecret,token:token.access_token});
+    expect(repositoryProviderRevokeGitlabToken).toHaveBeenCalledWith(input.origin,input.clientId,input.clientSecret,token.access_token);
   });
   it("requests bounded member metadata with encoded pagination and search", async () => {
     vi.mocked(repositoryProviderJson).mockResolvedValue([{ id: 19, path_with_namespace: "team/repo", web_url: `${input.origin}/team/repo`, default_branch: "main" }]);

@@ -2,7 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { prisma, type OrgRole, type SeatType } from "@vaettir/db";
 import { repositoryConnectionsRouter } from "./routers/repositoryConnections.js";
-import { hashOAuthState, listGitlabRepositories, verifyGitlabAuthorization } from "./services/gitlabRepositoryOAuth.js";
+import { GitlabOAuthRevocationPendingError, hashOAuthState, listGitlabRepositories, revokeGitlabAuthorization, verifyGitlabAuthorization } from "./services/gitlabRepositoryOAuth.js";
 import { GithubOAuthRevocationPendingError, listGithubRepositories, revokeGithubAuthorization, verifyGithubAuthorization } from "./services/githubRepositoryOAuth.js";
 import { decryptToken, type EncryptedToken } from "./services/tokenEncryption.js";
 
@@ -10,6 +10,7 @@ vi.mock("./services/gitlabRepositoryOAuth.js", async importOriginal => ({
   ...await importOriginal<typeof import("./services/gitlabRepositoryOAuth.js")>(),
   verifyGitlabAuthorization: vi.fn(),
   listGitlabRepositories: vi.fn(),
+  revokeGitlabAuthorization: vi.fn(),
 }));
 vi.mock("./services/githubRepositoryOAuth.js", async importOriginal => ({
   ...await importOriginal<typeof import("./services/githubRepositoryOAuth.js")>(),
@@ -167,6 +168,31 @@ describe.skipIf(!isolated)("repository authorization and reviewed selection", ()
     expect(await prisma.projectRepository.findUniqueOrThrow({ where: { id: link.id } })).toEqual(link);
   });
 
+  it("revokes a GitLab grant before disconnect and retains it when the instance cannot confirm revocation", async () => {
+    const pending = await verified();
+    const before = await prisma.repositoryConnection.findUniqueOrThrow({ where: { id: pending.id } });
+    vi.mocked(revokeGitlabAuthorization).mockRejectedValueOnce(new Error("synthetic instance unavailable"));
+    await expect(owner.disconnect({ id: pending.id })).rejects.toMatchObject({ code: "PRECONDITION_FAILED" });
+    expect(await prisma.repositoryConnection.findUniqueOrThrow({ where: { id: pending.id } })).toEqual(before);
+    await expect(owner.removeConfiguration({ projectId, configurationId, confirmed: true })).rejects.toMatchObject({ code: "PRECONDITION_FAILED" });
+    await owner.disconnect({ id: pending.id });
+    expect(revokeGitlabAuthorization).toHaveBeenCalledWith({ origin, clientId: "synthetic-client", clientSecret, token: accessToken });
+    expect(await prisma.repositoryConnection.findUniqueOrThrow({ where: { id: pending.id } })).toMatchObject({ status: "DISCONNECTED", encryptedToken: null });
+  });
+
+  it("quarantines a GitLab token when account verification and revocation both fail", async () => {
+    const pending = await begin();
+    vi.mocked(verifyGitlabAuthorization).mockRejectedValueOnce(new GitlabOAuthRevocationPendingError(accessToken));
+    await expect(owner.finish({ state: pending.state, code: "synthetic-code" })).rejects.toMatchObject({ code: "PRECONDITION_FAILED" });
+    const retained = await prisma.repositoryConnection.findUniqueOrThrow({ where: { id: pending.id } });
+    expect(retained.status).toBe("REVOCATION_PENDING");
+    expect(decryptToken(retained.encryptedToken as unknown as EncryptedToken)).toBe(accessToken);
+    await expect(owner.begin({ projectId, configurationId, approveMetadataAccess: true })).rejects.toMatchObject({ code: "PRECONDITION_FAILED" });
+    await expect(owner.removeConfiguration({ projectId, configurationId, confirmed: true })).rejects.toMatchObject({ code: "PRECONDITION_FAILED" });
+    await owner.disconnect({ id: pending.id });
+    expect(await prisma.repositoryConnection.findUniqueOrThrow({ where: { id: pending.id } })).toMatchObject({ status: "DISCONNECTED", encryptedToken: null });
+  });
+
   it("retains an expired local GitHub token until upstream revocation and blocks app removal", async () => {
     const config = await owner.configureGithub({ projectId, clientId: "github-app-fixture", clientSecret });
     const pending = await owner.begin({ projectId, configurationId: config.id, approveMetadataAccess: true });
@@ -221,7 +247,7 @@ describe.skipIf(!isolated)("repository authorization and reviewed selection", ()
     expect(retained.status).toBe("REVOCATION_PENDING");
     expect(decryptToken(retained.encryptedToken as unknown as EncryptedToken)).toBe(accessToken);
     await expect(admin.removeConfiguration({ projectId, configurationId: config.id, confirmed: true })).rejects.toMatchObject({ code: "PRECONDITION_FAILED" });
-    expect(await admin.revocableGrants({ projectId })).toEqual([expect.objectContaining({ id: pending.id, status: "REVOCATION_PENDING", projectId })]);
+    expect(await admin.revocableGrants({ projectId, provider: "github" })).toEqual([expect.objectContaining({ id: pending.id, status: "REVOCATION_PENDING", projectId })]);
     await admin.disconnect({ id: pending.id });
     expect(await prisma.repositoryConnection.findUniqueOrThrow({ where: { id: pending.id } })).toMatchObject({ status: "DISCONNECTED", encryptedToken: null });
   });
@@ -230,8 +256,8 @@ describe.skipIf(!isolated)("repository authorization and reviewed selection", ()
     const config = await owner.configureGithub({ projectId, clientId: "github-app-fixture", clientSecret });
     const pending = await owner.begin({ projectId, configurationId: config.id, approveMetadataAccess: true });
     const admin = (await actor("ADMIN")).caller;
-    expect(await admin.revocableGrants({ projectId })).toEqual([expect.objectContaining({ id: pending.id, status: "PENDING" })]);
-    await expect(outsider.revocableGrants({ projectId })).rejects.toMatchObject({ code: "FORBIDDEN" });
+    expect(await admin.revocableGrants({ projectId, provider: "github" })).toEqual([expect.objectContaining({ id: pending.id, status: "PENDING" })]);
+    await expect(outsider.revocableGrants({ projectId, provider: "github" })).rejects.toMatchObject({ code: "FORBIDDEN" });
     await admin.disconnect({ id: pending.id });
     expect(await prisma.repositoryConnection.findUniqueOrThrow({ where: { id: pending.id } })).toMatchObject({ status: "DISCONNECTED", encryptedToken: null });
     expect(revokeGithubAuthorization).not.toHaveBeenCalled();
@@ -263,8 +289,7 @@ describe.skipIf(!isolated)("repository authorization and reviewed selection", ()
 
   it("binds real unpredictable state and PKCE to the initiating actor", async () => {
     const pending = await begin();
-    const second = await begin();
-    expect(second.state).not.toBe(pending.state);
+    await expect(begin()).rejects.toMatchObject({ code: "PRECONDITION_FAILED" });
     const row = await prisma.repositoryConnection.findUniqueOrThrow({ where: { id: pending.id } });
     expect(row.stateHash).toBe(hashOAuthState(pending.state));
     const verifier = decryptToken(row.encryptedVerifier as unknown as EncryptedToken);
@@ -274,6 +299,9 @@ describe.skipIf(!isolated)("repository authorization and reviewed selection", ()
     await expect(editor.status({ id: pending.id })).rejects.toMatchObject({ code: "NOT_FOUND" });
     await expect(owner.finish({ state: "x".repeat(43), code: "synthetic-code" })).rejects.toMatchObject({ code: "NOT_FOUND" });
     expect(verifyGitlabAuthorization).not.toHaveBeenCalled();
+    await owner.disconnect({ id: pending.id });
+    const second = await begin();
+    expect(second.state).not.toBe(pending.state);
   });
 
   it("consumes denied authorization without exchange and rejects replay", async () => {
@@ -464,6 +492,8 @@ describe.skipIf(!isolated)("repository authorization and reviewed selection", ()
     await owner.connectSelected({ id: pending.id, repositoryIds: ["101"], catalogVersion: listing.catalogVersion, approved: true });
     const before = await prisma.projectRepository.findFirstOrThrow({ where: { projectId } });
     await expect(editor.removeConfiguration({ projectId, configurationId, confirmed: true })).rejects.toMatchObject({ code: "FORBIDDEN" });
+    await expect(owner.removeConfiguration({ projectId, configurationId, confirmed: true })).rejects.toMatchObject({ code: "PRECONDITION_FAILED" });
+    await owner.disconnect({ id: pending.id });
     await owner.removeConfiguration({ projectId, configurationId, confirmed: true });
     expect(await prisma.repositoryProviderConfiguration.findUnique({ where: { id: configurationId } })).toBeNull();
     expect(await prisma.repositoryConnection.findUnique({ where: { id: pending.id } })).toBeNull();

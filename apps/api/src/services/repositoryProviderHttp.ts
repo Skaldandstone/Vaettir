@@ -18,7 +18,7 @@ export function isPublicProviderIPv4(ip: string): boolean {
 }
 
 type GithubAppToken = { clientId: string; clientSecret: string; accessToken: string };
-type ProviderRequestOptions = { token?: string; form?: URLSearchParams; revoke?: GithubAppToken; check?: GithubAppToken };
+type ProviderRequestOptions = { token?: string; form?: URLSearchParams; revoke?: GithubAppToken; check?: GithubAppToken; gitlabRevoke?: boolean };
 class ProviderStatusError extends Error {
   constructor(readonly status: number) { super(`Provider request failed (${status}). Reconnect or check access.`); }
 }
@@ -58,11 +58,21 @@ async function repositoryProviderRequest(origin: string, path: string, options: 
         ...(body?{"Content-Type":appToken?"application/json":"application/x-www-form-urlencoded","Content-Length":Buffer.byteLength(body)}:{})},
     },res=>{
       if (options.check && (res.statusCode===200 || res.statusCode===404)) {res.destroy();resolve(res.statusCode===200);return;}
-      if (!res.statusCode || (options.revoke ? res.statusCode!==204 : res.statusCode<200 || res.statusCode>=300)) {res.destroy();reject(new ProviderStatusError(res.statusCode ?? 0));return;}
+      if (!res.statusCode || (options.revoke ? res.statusCode!==204 : options.gitlabRevoke ? res.statusCode!==200 : res.statusCode<200 || res.statusCode>=300)) {res.destroy();reject(new ProviderStatusError(res.statusCode ?? 0));return;}
       let size=0; const chunks:Buffer[]=[];
       res.on("data",chunk=>{size+=chunk.length;if(size>1024*1024){res.destroy();reject(new Error("Provider response exceeded the safe size limit"));}else chunks.push(Buffer.from(chunk));});
       res.on("error",()=>reject(new Error("Provider response interrupted")));
-      res.on("end",()=>{if(options.revoke){resolve(undefined);return;}try{resolve(JSON.parse(Buffer.concat(chunks).toString("utf8")));}catch{reject(new Error("Provider returned an invalid response"));}});
+      res.on("end",()=>{
+        if(options.revoke){resolve(undefined);return;}
+        try{
+          const parsed:unknown=JSON.parse(Buffer.concat(chunks).toString("utf8"));
+          if(options.gitlabRevoke){
+            if(!parsed || typeof parsed!=="object" || Array.isArray(parsed) || Object.keys(parsed).length!==0)throw new Error("GitLab did not confirm token revocation");
+            resolve(undefined);return;
+          }
+          resolve(parsed);
+        }catch{reject(new Error("Provider returned an invalid response"));}
+      });
     });
     req.on("error",()=>reject(new Error("Could not reach the provider securely. Try again.")));
     if(body)req.write(body);
@@ -78,6 +88,15 @@ async function repositoryProviderRequest(origin: string, path: string, options: 
 
 export function repositoryProviderJson(origin: string, path: string, options: {token?: string; form?: URLSearchParams} = {}): Promise<unknown> {
   return repositoryProviderRequest(origin, path, options);
+}
+
+/** Revoke a GitLab OAuth grant before discarding its local encrypted access token. */
+export async function repositoryProviderRevokeGitlabToken(origin: string, clientId: string, clientSecret: string, token: string): Promise<void> {
+  if (!clientId || !clientSecret || !token) throw new Error("GitLab revocation credentials are unavailable");
+  await repositoryProviderRequest(origin, "/oauth/revoke", {
+    form: new URLSearchParams({ client_id: clientId, client_secret: clientSecret, token }),
+    gitlabRevoke: true,
+  });
 }
 
 /** A GitHub token is cleared locally only after its upstream revocation is confirmed. */

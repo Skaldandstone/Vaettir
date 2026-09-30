@@ -3,7 +3,7 @@ import type { RequestOptions } from "node:https";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { lookup } from "node:dns/promises";
 import { request } from "node:https";
-import { isPublicProviderIPv4, repositoryProviderJson, repositoryProviderOrigin, repositoryProviderRevokeGithubToken } from "./repositoryProviderHttp.js";
+import { isPublicProviderIPv4, repositoryProviderJson, repositoryProviderOrigin, repositoryProviderRevokeGithubToken, repositoryProviderRevokeGitlabToken } from "./repositoryProviderHttp.js";
 
 vi.mock("node:dns/promises", () => ({ lookup: vi.fn() }));
 vi.mock("node:https", () => ({ request: vi.fn() }));
@@ -89,6 +89,40 @@ describe("repository provider HTTP boundary", () => {
     const assertion = expect(pending).rejects.toThrow("safe size limit");
     await flushDns(); deliver(); response.emit("data", Buffer.alloc(1024 * 1024 + 1)); await assertion;
     expect(response.destroy).toHaveBeenCalledOnce();
+  });
+  it("revokes a GitLab token at its own pinned HTTPS origin with form credentials", async () => {
+    const pending = repositoryProviderRevokeGitlabToken("https://gitlab.example.com", "fixture-id", "fixture-secret", "synthetic-token");
+    await flushDns();
+    const [url] = vi.mocked(request).mock.calls[0]!;
+    expect(url).toMatchObject({ origin: "https://gitlab.example.com", pathname: "/oauth/revoke" });
+    expect(transportOptions.method).toBe("POST");
+    expect(transportOptions.lookup).toBeTypeOf("function");
+    expect(transportOptions.signal).toBeDefined();
+    expect(transportOptions.headers).toMatchObject({ "Content-Type": "application/x-www-form-urlencoded" });
+    expect(new URLSearchParams(requestWrite.mock.calls[0]![0])).toEqual(new URLSearchParams({client_id:"fixture-id",client_secret:"fixture-secret",token:"synthetic-token"}));
+    expect(JSON.stringify(url)).not.toContain("synthetic-token");
+    deliver(); response.emit("data",Buffer.from("{}")); response.emit("end");
+    await expect(pending).resolves.toBeUndefined();
+  });
+  it("keeps a GitLab grant pending when revocation does not return documented HTTP 200", async () => {
+    response.statusCode=204;
+    const pending=repositoryProviderRevokeGitlabToken("https://gitlab.example.com","fixture-id","fixture-secret","synthetic-token");
+    const assertion=expect(pending).rejects.toThrow("204");
+    await flushDns(); deliver(); await assertion;
+    expect(response.destroy).toHaveBeenCalledOnce();
+  });
+  it("does not treat a GitLab login page as confirmed revocation", async () => {
+    const pending=repositoryProviderRevokeGitlabToken("https://gitlab.example.com","fixture-id","fixture-secret","synthetic-token");
+    const assertion=expect(pending).rejects.toThrow("invalid response");
+    await flushDns(); deliver(); response.emit("data",Buffer.from("<html>Sign in</html>")); response.emit("end");
+    await assertion;
+  });
+  it("does not follow a GitLab revocation redirect with credentials", async () => {
+    response.statusCode=302;
+    const pending=repositoryProviderRevokeGitlabToken("https://gitlab.example.com","fixture-id","fixture-secret","synthetic-token");
+    const assertion=expect(pending).rejects.toThrow("302");
+    await flushDns(); deliver(); await assertion;
+    expect(request).toHaveBeenCalledOnce();
   });
   it("revokes a GitHub token with pinned HTTPS, Basic app credentials and a bounded JSON body", async () => {
     response.statusCode = 204;
