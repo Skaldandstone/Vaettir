@@ -75,4 +75,21 @@ describe.skipIf(!isolated)("saved test design reviews", () => {
       expect(pending.find(x=>x.id===invitation.id)?.emailStatus).toBe("RECEIVED");
     } finally { vi.unstubAllEnvs(); }
   });
+  it("retains a reservation when the credit ledger outcome is ambiguous", async () => {
+    await prisma.testCase.update({where:{id},data:{title:"Check fractional tax"}});
+    const preview = await owner.testDesign.preview({id});
+    const input = {id,expectedHash:preview.inputHash,approved:true as const};
+    const ledger = vi.spyOn(prisma.aiCreditTransaction,"create").mockRejectedValueOnce(new Error("ledger acknowledgement timeout"));
+    try { await expect(owner.testDesign.review(input)).rejects.toThrow("ledger acknowledgement timeout"); }
+    finally { ledger.mockRestore(); }
+    await expect(owner.testDesign.review(input)).rejects.toMatchObject({code:"CONFLICT"});
+    expect((await owner.testDesign.preview({id})).reviews[0]?.status).toBe("NEEDS_RECONCILIATION");
+  });
+  it("rejects oversized case input before charging or calling AI", async () => {
+    const calls = vi.mocked(reviewTestDesign).mock.calls.length;
+    await prisma.testCase.update({where:{id},data:{background:"x".repeat(65000)}});
+    await expect(owner.testDesign.preview({id})).rejects.toMatchObject({code:"BAD_REQUEST"});
+    await expect(owner.testDesign.review({id,expectedHash:"unused",approved:true})).rejects.toMatchObject({code:"BAD_REQUEST"});
+    expect(vi.mocked(reviewTestDesign).mock.calls.length).toBe(calls);
+  });
 });

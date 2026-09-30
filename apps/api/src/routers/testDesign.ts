@@ -4,10 +4,14 @@ import { TRPCError } from "@trpc/server";
 import { Prisma } from "@vaettir/db";
 import { reviewTestDesign, TestDesignReviewSchema } from "@vaettir/ai-agent";
 import { router, protectedProcedure, requireProjectAccess } from "../trpc.js";
-import { AI_OPERATION_COSTS, chargeAiCredits, getAiCreditBalance, meterAiCall } from "../services/aiCredits.js";
+import { AI_OPERATION_COSTS, chargeAiCredits, getAiCreditBalance, meterAiCall, InsufficientAiCreditsError } from "../services/aiCredits.js";
 
 const inputSchema = z.object({ id: z.string(), evidence: z.object({ ref: z.string().trim().min(1).max(500), code: z.string().trim().min(1).max(12000) }).optional() });
-const hash = (value: unknown) => createHash("sha256").update(JSON.stringify(value)).digest("hex");
+const hash = (value: unknown) => {
+  const serialized = JSON.stringify(value);
+  if (Buffer.byteLength(serialized, "utf8") > 64000) throw new TRPCError({ code: "BAD_REQUEST", message: "This case exceeds the review size limit. Split it into focused cases before reviewing." });
+  return createHash("sha256").update(serialized).digest("hex");
+};
 // Explicit selection keeps timestamps and unrelated edits out of cache identity.
 const caseSelect = { id: true, projectId: true, title: true, background: true, given: true, when: true, then: true, testType: true, validationDomain: true,
   steps: { orderBy: { order: "asc" as const }, select: { action: true, expectedActionOrData: true, expectedResult: true, expectedResponse: true } },
@@ -40,15 +44,15 @@ export const testDesignRouter = router({
       if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2002") throw new TRPCError({ code: "CONFLICT", message: "A review for these inputs already exists. Refresh to see it." });
       throw e;
     });
-    let charged = false;
     try {
       const charge = await chargeAiCredits(ctx.prisma, project.organizationId, "reviewTestDesign", `Test design review ${row.id}`);
-      charged = true;
       const result = await meterAiCall(ctx.prisma, charge, () => reviewTestDesign({ caseData: tc, evidence: input.evidence }));
       await ctx.prisma.testDesignReview.update({ where: { id: row.id }, data: { status: "READY", content: result } });
       return result;
     } catch (error) {
-      if (!charged) await ctx.prisma.testDesignReview.delete({ where: { id: row.id } });
+      // Only a definitive balance refusal is safe to retry. A ledger write
+      // timeout could have committed: retain its reservation for reconciliation.
+      if (error instanceof InsufficientAiCreditsError) await ctx.prisma.testDesignReview.delete({ where: { id: row.id } });
       else await ctx.prisma.testDesignReview.update({ where: { id: row.id }, data: { status: "NEEDS_RECONCILIATION" } });
       throw error;
     }
