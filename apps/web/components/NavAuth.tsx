@@ -10,7 +10,7 @@ import {
   SignUpButton,
 } from "@clerk/nextjs";
 import { trpcReact } from "@/lib/trpcReact";
-import { canAdministerOrganization } from "@/lib/membership";
+import { canAdministerOrganization, organizationAccessMessage } from "@/lib/membership";
 import { Icon, type IconName } from "./ui/Workspace";
 
 const ORGANIZATION_ADMIN_LINKS: Array<{
@@ -34,7 +34,8 @@ function AccountMenu() {
   const clerk = useClerk();
   const orgsQuery = trpcReact.organization.mine.useQuery();
   const membership = orgsQuery.data?.[0];
-  const canAdmin = canAdministerOrganization(membership);
+  const canAdmin = !orgsQuery.isError && !orgsQuery.isPending && canAdministerOrganization(membership);
+  const accessMessage = organizationAccessMessage(orgsQuery);
   const [open, setOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
@@ -130,8 +131,13 @@ function AccountMenu() {
           >
             <div className="account-menu-heading">
               <span>Organization administration</span>
-              {!canAdmin && <small>Admin access required</small>}
+              {!canAdmin && <small role="status">{accessMessage}</small>}
             </div>
+            {orgsQuery.isError && (
+              <button type="button" disabled={orgsQuery.isFetching} onClick={() => void orgsQuery.refetch()}>
+                Retry workspace permissions
+              </button>
+            )}
             {ORGANIZATION_ADMIN_LINKS.map((item) =>
               canAdmin ? (
                 <Link
@@ -150,12 +156,12 @@ function AccountMenu() {
                   className="account-menu-disabled"
                   role="link"
                   aria-disabled="true"
-                  title="A full-seat Owner or Admin can access this area"
+                  title={accessMessage}
                 >
                   <Icon name={item.icon} size={16} />
                   <span>
                     <strong>{item.label}</strong>
-                    <small>Admin access required</small>
+                    <small>{accessMessage}</small>
                   </span>
                 </span>
               ),

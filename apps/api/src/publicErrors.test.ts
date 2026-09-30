@@ -3,9 +3,15 @@ import {
   PUBLIC_INTERNAL_ERROR_MESSAGE,
   publicHttpErrorMessage,
   publicTrpcErrorShape,
+  safeInternalErrorDetails,
 } from "./publicErrors.js";
 
 describe("public API errors", () => {
+  it("logs only allowlisted operational error classification", () => {
+    expect(safeInternalErrorDetails({name:"PrismaClientInitializationError",errorCode:"P1000",message:"postgres://private:secret@host/db"})).toEqual({errorType:"PrismaClientInitializationError",databaseCode:"P1000"});
+    expect(safeInternalErrorDetails({name:"secret",code:"token",stack:"private"})).toEqual({errorType:"UnknownError",databaseCode:undefined});
+    expect(safeInternalErrorDetails(null).errorType).toBe("UnknownError");
+  });
   it("removes internal tRPC messages and stack traces", () => {
     const shape = publicTrpcErrorShape("INTERNAL_SERVER_ERROR", {
       message: "Invalid prisma.user.create() invocation: Unique constraint failed on email",

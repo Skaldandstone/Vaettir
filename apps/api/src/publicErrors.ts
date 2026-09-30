@@ -1,6 +1,17 @@
 export const PUBLIC_INTERNAL_ERROR_MESSAGE =
   "Something went wrong while loading this data. Please try again. If it continues, contact beta support.";
 
+/** Operational classification only. Never log raw query arguments, URLs or tokens. */
+export function safeInternalErrorDetails(cause: unknown) {
+  const error = cause && typeof cause === "object" ? cause as { name?: unknown; code?: unknown; errorCode?: unknown } : {};
+  const names = ["Error", "TypeError", "PrismaClientKnownRequestError", "PrismaClientUnknownRequestError", "PrismaClientInitializationError", "PrismaClientValidationError"];
+  const code = error.code ?? error.errorCode;
+  return {
+    errorType: typeof error.name === "string" && names.includes(error.name) ? error.name : "UnknownError",
+    databaseCode: typeof code === "string" && /^P\d{4}$/.test(code) ? code : undefined,
+  };
+}
+
 type TrpcErrorShape = {
   message: string;
   data: {

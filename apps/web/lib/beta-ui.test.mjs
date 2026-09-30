@@ -7,12 +7,22 @@ import {
   canSignOffCompliance,
   isReadOnlySeat,
   roleLabel,
+  organizationAccessMessage,
 } from "./membership.ts";
 import { assertTestEnvironment } from "../e2e/test-environment.ts";
 import { saveRequirementDrafts } from "./requirement-drafts.ts";
 import { creditOperationLabel } from "./credit-labels.ts";
 import { nextPopulationStep } from "./population-navigation.ts";
 import { readDocumentFile } from "./document-file.ts";
+
+test("workspace lookup failures are not represented as role denials", () => {
+  assert.equal(organizationAccessMessage({isError:true,isPending:false}), "Workspace permissions unavailable");
+  assert.equal(organizationAccessMessage({isError:false,isPending:true}), "Checking workspace permissions");
+  assert.equal(organizationAccessMessage({isError:false,isPending:false}), "Admin access required");
+  const menu = readFileSync(new URL("../components/NavAuth.tsx", import.meta.url), "utf8");
+  assert.match(menu, /!orgsQuery.isError && !orgsQuery.isPending && canAdministerOrganization/);
+  assert.match(menu, /Retry workspace permissions/);
+});
 
 test("source connections are disclosure chips, not checkbox preferences", () => {
   const chips = readFileSync(new URL("../components/SourceConnectionChips.tsx", import.meta.url), "utf8");

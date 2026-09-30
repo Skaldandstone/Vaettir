@@ -31,9 +31,29 @@ import { verifyJiraWebhookSecret, type JiraWebhookPayload } from "./services/jir
 import { handleJiraWebhook } from "./services/jiraWebhook.js";
 import { verifyDatadogWebhookSecret, handleDatadogWebhook, type DatadogWebhookPayload } from "./services/datadogWebhook.js";
 import { getReleaseIdentity } from "./releaseIdentity.js";
-import { publicHttpErrorMessage } from "./publicErrors.js";
+import { publicHttpErrorMessage, safeInternalErrorDetails } from "./publicErrors.js";
 import { createCorsOriginPolicy } from "./corsPolicy.js";
 import { registerClerkEmailWebhookRoute } from "./clerkEmailWebhook.js";
+import { resolveDatabaseUrlFromManagedSecret } from "./resolveDatabaseUrl.js";
+import { createDatabaseCredentialMonitor, databaseCredentialLiveness } from "./services/databaseCredentialMonitor.js";
+
+const credentialMonitor = process.env.DB_SECRET_ID && process.env.DATABASE_URL
+  ? createDatabaseCredentialMonitor({
+      initialUrl: process.env.DATABASE_URL,
+      resolveUrl: () => resolveDatabaseUrlFromManagedSecret(),
+      onRotation: () => console.warn("Database credentials rotated; requesting task replacement through health checks"),
+      onCheckFailure: () => console.warn("Managed database credential check failed; retaining current task"),
+    })
+  : undefined;
+
+// Only a confirmed credential change withdraws this task. A Secrets Manager
+// outage does not trigger a restart loop. ECS starts a fresh pool using the
+// current secret; no business query, transaction or paid operation is retried.
+function livenessHandler(_request: unknown, reply: { code(status: number): unknown }) {
+  const result = databaseCredentialLiveness(credentialMonitor?.status().rotated ?? false);
+  reply.code(result.statusCode);
+  return result.body;
+}
 
 // P10-07: expected poller intervals, keyed by the same names each poller
 // calls recordHeartbeat with - the one place server.ts needs to know
@@ -46,9 +66,9 @@ const EXPECTED_POLLER_INTERVALS = {
 };
 
 // Deliberately separate from the plain `/health` liveness probe the ALB/
-// ECS health check uses (never touch that one's contract - a transient DB
-// blip cycling the whole task on every health-check poll would be worse
-// than serving degraded for a moment). This is for an external uptime
+// ECS health check uses (transient DB/secret-store failures must not cycle
+// the task; only a confirmed managed-credential rotation withdraws it).
+// This is for an external uptime
 // monitor to point at instead: real DB connectivity plus whether each
 // in-process job poller has ticked recently. Always 200 with a body
 // reporting `healthy: false` rather than ever 5xx-ing on its own
@@ -62,8 +82,9 @@ async function detailedHealthHandler() {
     dbOk = false;
   }
   const pollers = getHeartbeatStatuses(EXPECTED_POLLER_INTERVALS);
-  const healthy = dbOk && pollers.every((p) => !p.stale);
-  return { healthy, db: { ok: dbOk }, pollers, release: getReleaseIdentity() };
+  const credentials = credentialMonitor?.status() ?? { rotated: false, checkFailed: false };
+  const healthy = dbOk && !credentials.rotated && !credentials.checkFailed && pollers.every((p) => !p.stale);
+  return { healthy, db: { ok: dbOk }, credentials, pollers, release: getReleaseIdentity() };
 }
 
 // P6-01: registered in its own encapsulation context so the raw-body content
@@ -331,6 +352,7 @@ server.setErrorHandler((error: FastifyError, request, reply) => {
 // otherwise flood Sentry with noise that isn't a real incident.
 function reportUnexpectedTrpcError({ error }: { error: { code: string; cause?: unknown } }) {
   if (error.code === "INTERNAL_SERVER_ERROR") {
+    server.log.error(safeInternalErrorDetails(error.cause ?? error), "Unexpected tRPC error");
     Sentry.captureException(error.cause ?? error);
   }
 }
@@ -355,7 +377,7 @@ await server.register(fastifyTRPCPlugin, {
   },
 });
 
-server.get("/health", { config: { rateLimit: false } }, async () => ({ ok: true }));
+server.get("/health", { config: { rateLimit: false } }, livenessHandler);
 server.get("/health/detailed", { config: { rateLimit: false } }, async () => detailedHealthHandler());
 
 // P9-05: serves the hand-authored OpenAPI spec (docs/openapi.yaml) as a
@@ -399,7 +421,7 @@ await server.register(
       prefix: "/trpc",
       trpcOptions: { router: appRouter, createContext, onError: reportUnexpectedTrpcError },
     });
-    instance.get("/health", { config: { rateLimit: false } }, async () => ({ ok: true }));
+    instance.get("/health", { config: { rateLimit: false } }, livenessHandler);
     instance.get("/health/detailed", { config: { rateLimit: false } }, async () => detailedHealthHandler());
     instance.get("/openapi.yaml", { config: { rateLimit: false } }, async (_req, reply) => {
       try {
@@ -423,10 +445,17 @@ await server.register(
 );
 
 const port = Number(process.env.API_PORT ?? 4000);
+let credentialTimer: ReturnType<typeof setInterval> | undefined;
+server.addHook("onClose", async () => clearInterval(credentialTimer));
 server
   .listen({ port, host: "0.0.0.0" })
   .then(() => {
     server.log.info(`vaettir API listening on :${port}`);
+    if (credentialMonitor) {
+      void credentialMonitor.check();
+      credentialTimer = setInterval(() => void credentialMonitor.check(), 60000);
+      credentialTimer.unref();
+    }
     startReverseEngineerJobPoller();
     startReadinessDigestScheduler();
     startAiCreditGrantScheduler();

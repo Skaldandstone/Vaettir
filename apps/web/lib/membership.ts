@@ -26,6 +26,12 @@ export function canAdministerOrganization(member: Membership): boolean {
   return member?.seatType === "FULL" && ["OWNER", "ADMIN"].includes(member.role);
 }
 
+export function organizationAccessMessage(state: { isError: boolean; isPending: boolean }): string {
+  if (state.isError) return "Workspace permissions unavailable";
+  if (state.isPending) return "Checking workspace permissions";
+  return "Admin access required";
+}
+
 export function canSignOffCompliance(member: Membership): boolean {
   return member?.seatType === "FULL" && ["OWNER", "ADMIN", "COMPLIANCE_AUDITOR"].includes(member.role);
 }
