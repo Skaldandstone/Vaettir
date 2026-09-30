@@ -378,6 +378,24 @@ export default function ProjectsPage() {
                 ? testEnvironments.length > 0
                 : true
           }
+          validationMessage={
+            createStep === 0
+              ? !name.trim()
+                ? "Enter a project name to continue."
+                : !objective.trim()
+                  ? "Describe the objective to continue."
+                  : undefined
+              : createStep === 1 && testEnvironments.length === 0
+                ? "Choose at least one test environment to continue."
+                : undefined
+          }
+          onInvalid={() => {
+            if (createStep === 0) {
+              document.getElementById(name.trim() ? "new-project-objective" : "new-project-name")?.focus();
+            } else if (createStep === 1) {
+              document.querySelector<HTMLButtonElement>("#new-project-test-environments button")?.focus();
+            }
+          }}
           busy={createMutation.isPending}
           submitLabel="Create configured project"
           onStepChange={setCreateStep}
@@ -389,17 +407,21 @@ export default function ProjectsPage() {
               <label>
                 Project name
                 <input
+                  id="new-project-name"
                   value={name}
                   onChange={(e) => setName(e.target.value)}
                   autoFocus
+                  required
                 />
               </label>
               <label>
                 Objective
                 <textarea
+                  id="new-project-objective"
                   value={objective}
                   onChange={(e) => setObjective(e.target.value)}
                   rows={3}
+                  required
                   placeholder="For example: prove a medical-device controller and its mobile app are safe and ready for pilot production."
                 />
               </label>
@@ -458,6 +480,7 @@ export default function ProjectsPage() {
                 />
               )}
               <WizardChoices
+                id="new-project-test-environments"
                 title="Test environments"
                 options={TEST_ENVIRONMENTS}
                 selected={testEnvironments}

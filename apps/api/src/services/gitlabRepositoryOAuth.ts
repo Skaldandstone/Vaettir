@@ -5,9 +5,9 @@ import { repositoryProviderJson, repositoryProviderOrigin } from "./repositoryPr
 export const repositorySelectionSchema=z.object({id:z.string().max(100),name:z.string().max(500),url:z.string().max(1000),defaultBranch:z.string().max(200).nullable()});
 export type RepositorySelection=z.infer<typeof repositorySelectionSchema>;
 export const hashOAuthState=(state:string)=>createHash("sha256").update(state).digest("hex");
-export function repositoryOAuthRedirect(env:NodeJS.ProcessEnv=process.env) {
+export function repositoryOAuthRedirect(env:NodeJS.ProcessEnv=process.env, provider:"gitlab"|"github"="gitlab") {
   if (!env.WEB_APP_URL) throw new Error("Web application URL is not configured");
-  return `${repositoryProviderOrigin(env.WEB_APP_URL)}/connections/gitlab/callback`;
+  return `${repositoryProviderOrigin(env.WEB_APP_URL)}/connections/${provider}/callback`;
 }
 export function createGitlabAuthorization(origin:string,clientId:string,redirectUri:string) {
   const state=randomBytes(32).toString("base64url");

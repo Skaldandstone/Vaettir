@@ -40,38 +40,73 @@ export const manualExecutionRouter = router({
     .input(
       z.object({
         projectId: z.string(),
-        testCaseIds: z.array(z.string()).min(1),
+        testCaseIds: z.array(z.string()).min(1).max(500),
       }),
     )
     .output(z.object({ testRunId: z.string() }))
     .mutation(async ({ ctx, input }) => {
       await requireProjectAccess(ctx, input.projectId, "EDITOR");
-
-      const cases = await ctx.prisma.testCase.findMany({
-        where: { id: { in: input.testCaseIds }, projectId: input.projectId },
-        select: { id: true },
-      });
-      if (cases.length !== input.testCaseIds.length) {
-        throw new TRPCError({
-          code: "BAD_REQUEST",
-          message: "One or more test cases don't belong to this project",
-        });
+      if (new Set(input.testCaseIds).size !== input.testCaseIds.length) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Choose each test case only once." });
       }
-
-      const run = await ctx.prisma.testRun.create({
-        data: {
-          projectId: input.projectId,
-          ciProvider: "manual",
-          commitSha: "manual",
-          branch: "manual",
-          startedAt: new Date(),
-          status: "RUNNING",
-          manualTestCaseIds: input.testCaseIds,
-          startedById: ctx.user.id,
-        },
-        select: { id: true },
-      });
-      return { testRunId: run.id };
+      return ctx.prisma.$transaction(async (tx) => {
+        // Serialize with prerequisite edits, then freeze the graph for this
+        // run. Historical runs never change when a case's graph is edited.
+        await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${input.projectId}))::text`;
+        const links = await tx.testCasePrerequisite.findMany({
+          where: { projectId: input.projectId },
+          select: { dependentId: true, prerequisiteId: true },
+          take: 10001,
+        });
+        if (links.length > 10000) throw new TRPCError({ code: "BAD_REQUEST", message: "Project has too many prerequisite links to start safely." });
+        const graph = new Map<string, string[]>();
+        for (const link of links) graph.set(link.dependentId, [...(graph.get(link.dependentId) ?? []), link.prerequisiteId]);
+        const ordered: string[] = [];
+        const visited = new Set<string>();
+        const visiting = new Set<string>();
+        for (const rootId of input.testCaseIds) {
+          if (visited.has(rootId)) continue;
+          const stack = [{ id: rootId, nextIndex: 0 }];
+          while (stack.length) {
+            const frame = stack[stack.length - 1]!;
+            visiting.add(frame.id);
+            const next = (graph.get(frame.id) ?? [])[frame.nextIndex++];
+            if (next) {
+              if (visiting.has(next)) throw new TRPCError({ code: "CONFLICT", message: "Test case prerequisites contain a cycle." });
+              if (!visited.has(next)) stack.push({ id: next, nextIndex: 0 });
+              if (visited.size + stack.length > 500) throw new TRPCError({ code: "BAD_REQUEST", message: "Run would include more than 500 cases with prerequisites." });
+              continue;
+            }
+            stack.pop();
+            visiting.delete(frame.id);
+            visited.add(frame.id);
+            ordered.push(frame.id);
+          }
+        }
+        const cases = await tx.testCase.findMany({
+          where: { id: { in: ordered }, projectId: input.projectId, archived: false },
+          select: { id: true },
+        });
+        if (cases.length !== ordered.length) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "A selected case or prerequisite is missing, archived, or outside this project." });
+        }
+        const snapshot = Object.fromEntries(ordered.map(id => [id, graph.get(id) ?? []]));
+        const run = await tx.testRun.create({
+          data: {
+            projectId: input.projectId,
+            ciProvider: "manual",
+            commitSha: "manual",
+            branch: "manual",
+            startedAt: new Date(),
+            status: "RUNNING",
+            manualTestCaseIds: ordered,
+            manualPrerequisites: snapshot,
+            startedById: ctx.user.id,
+          },
+          select: { id: true },
+        });
+        return { testRunId: run.id };
+      }, { timeout: 20000 });
     }),
 
   // The execution screen's single data source: the run's planned cases,
@@ -90,6 +125,7 @@ export const manualExecutionRouter = router({
           z.object({
             testCaseId: z.string(),
             title: z.string(),
+            prerequisiteIds: z.array(z.string()),
             validationDomain: validationDomainSchema,
             verificationProfile: verificationProfileSchema,
             given: z.array(z.string()),
@@ -141,6 +177,7 @@ export const manualExecutionRouter = router({
       const resultByCase = new Map(
         results.map((r) => [r.testCaseId as string, r]),
       );
+      const prerequisites = z.record(z.array(z.string())).parse(run.manualPrerequisites);
 
       const overrides =
         (run.project.organization.stepFieldLabels as Partial<
@@ -160,6 +197,7 @@ export const manualExecutionRouter = router({
             return {
               testCaseId: c.id,
               title: c.title,
+              prerequisiteIds: prerequisites[c.id] ?? [],
               validationDomain: c.validationDomain,
               verificationProfile: verificationProfileSchema.parse(
                 c.verificationProfile,
@@ -241,6 +279,29 @@ export const manualExecutionRouter = router({
         const existing = await tx.testResult.findFirst({
           where: { testRunId: input.testRunId, testCaseId: input.testCaseId },
         });
+
+        const prerequisites = z.record(z.array(z.string())).parse(run.manualPrerequisites);
+        const requiredIds = prerequisites[input.testCaseId] ?? [];
+        if (input.status !== "BLOCKED" && input.status !== "SKIP" && requiredIds.length) {
+          const passed = await tx.testResult.findMany({
+            where: { testRunId: run.id, testCaseId: { in: requiredIds }, status: "PASS" },
+            select: { testCaseId: true },
+          });
+          if (passed.length !== requiredIds.length) {
+            throw new TRPCError({ code: "BAD_REQUEST", message: "Complete all prerequisite cases with Pass before executing this case." });
+          }
+        }
+        if (existing?.status === "PASS" && input.status !== "PASS") {
+          const dependents = Object.entries(prerequisites)
+            .filter(([, ids]) => ids.includes(input.testCaseId))
+            .map(([id]) => id);
+          const executedDependents = await tx.testResult.count({
+            where: { testRunId: run.id, testCaseId: { in: dependents }, status: { in: ["PASS", "FAIL"] } },
+          });
+          if (executedDependents) {
+            throw new TRPCError({ code: "CONFLICT", message: "A dependent case has already run. Correct or reset it before changing this prerequisite result." });
+          }
+        }
 
         const observations =
           input.observations ??

@@ -19,7 +19,9 @@ test("creation wizard sizes to the modal content instead of the viewport", () =>
 test("fields, fieldsets and chips have shrinkable widths rather than intrinsic overflow", () => {
   assert.match(css,/\.creation-wizard \.wizard-choice-group \{\s*min-width: 0;\s*max-width: 100%;/);
   assert.match(css,/\.creation-wizard select \{\s*width: 100%;\s*max-width: 100%;\s*min-width: 0;/);
-  assert.match(rule(".creation-wizard .wizard-choice-group label"),/white-space: normal/);
+  assert.match(rule(".creation-wizard .wizard-choice-group button"),/white-space: normal/);
+  assert.match(wizard,/aria-pressed=\{active\}/);
+  assert.doesNotMatch(wizard,/type=\{single \? "radio" : "checkbox"\}/);
   assert.match(rule(".creation-wizard-body > label"),/display: grid/);
 });
 test("objective textarea remains usable and resizes vertically only", () => {

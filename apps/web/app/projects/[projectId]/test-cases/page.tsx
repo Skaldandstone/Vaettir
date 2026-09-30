@@ -12,6 +12,7 @@ import {
 } from "@/components/TestCaseTree";
 import { Drawer } from "@/components/Drawer";
 import { TestCaseDetailContent } from "@/components/TestCaseDetailContent";
+import { BulkCaseAnalysis } from "@/components/BulkCaseAnalysis";
 import { downloadCsv } from "@/lib/csv";
 import { caseExportIds, scopeCaseExport, spreadsheetText } from "@/lib/test-case-export";
 
@@ -49,7 +50,8 @@ type CaseSort =
   | "priority"
   | "origin"
   | "review"
-  | "suite";
+  | "suite"
+  | "manual";
 const PRIORITY_RANK: Record<string, number> = {
   CRITICAL: 4,
   HIGH: 3,
@@ -73,7 +75,7 @@ function AssignSuiteControl({
 
   function assign() {
     if (!value.trim()) return;
-    setSuiteMutation.mutate({ id: caseId, suitePath: value.trim() });
+    setSuiteMutation.mutate({ id: caseId, suitePath: value.trim(), expectedSuitePath: null });
   }
 
   const saving = setSuiteMutation.isPending;
@@ -167,10 +169,13 @@ export default function TestCasesPage() {
     projectId,
     includeArchived: true,
   });
+  const structureQuery = trpcReact.testCaseStructure.list.useQuery({ projectId });
+  const moveMutation = trpcReact.testCaseStructure.move.useMutation();
   const viewsQuery = trpcReact.testCaseViews.list.useQuery({ projectId });
   const plansQuery = trpcReact.testPlans.list.useQuery({ projectId });
   const project = projectQuery.data ?? null;
   const cases = casesQuery.data ?? [];
+  const placements = useMemo(() => new Map(structureQuery.data?.cases.map(placement => [placement.id, placement]) ?? []), [structureQuery.data]);
   const plans = plansQuery.data ?? [];
 
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
@@ -264,6 +269,7 @@ export default function TestCasesPage() {
   // What the original load() refetched after every mutation.
   function reload() {
     void utils.testCases.list.invalidate({ projectId, includeArchived: true });
+    void utils.testCaseStructure.list.invalidate({ projectId });
     void utils.testPlans.list.invalidate({ projectId });
   }
 
@@ -304,6 +310,14 @@ export default function TestCasesPage() {
         (!originFilter || tc.origin === originFilter),
     );
     if (sortBy === "updated") return sortDescending ? filtered : [...filtered].reverse();
+    if (sortBy === "manual") return [...filtered].sort((a, b) => {
+      const leftSuite = a.suitePath ?? a.sourceFilePath ?? "";
+      const rightSuite = b.suitePath ?? b.sourceFilePath ?? "";
+      const suiteOrder = leftSuite.localeCompare(rightSuite, undefined, { sensitivity: "base", numeric: true });
+      if (suiteOrder) return suiteOrder;
+      const positionOrder = (placements.get(a.id)?.sortPosition ?? 0) - (placements.get(b.id)?.sortPosition ?? 0);
+      return positionOrder || a.title.localeCompare(b.title) || a.id.localeCompare(b.id);
+    });
     return [...filtered].sort((a, b) => {
       const direction = sortDescending ? -1 : 1;
       if (sortBy === "risk") return ((a.riskScore ?? -1) - (b.riskScore ?? -1)) * direction;
@@ -345,7 +359,27 @@ export default function TestCasesPage() {
     showArchived,
     sortBy,
     sortDescending,
+    placements,
   ]);
+
+  async function moveCase(caseId: string, targetSuitePath: string | null, beforeCaseId: string | null) {
+    const placement = placements.get(caseId);
+    if (!placement || readOnly) return;
+    setError(null);
+    try {
+      await moveMutation.mutateAsync({
+        projectId, caseId,
+        expectedSuitePath: placement.suitePath,
+        expectedSortPosition: placement.sortPosition,
+        targetSuitePath, beforeCaseId,
+      });
+      reload();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Could not move test case.");
+      await structureQuery.refetch();
+      await casesQuery.refetch();
+    }
+  }
 
   const knownPaths = collectKnownSuitePaths(cases);
 
@@ -653,6 +687,7 @@ export default function TestCasesPage() {
             cases={cases}
             selectedPath={selectedPath}
             onSelect={setSelectedPath}
+            onDropCase={readOnly ? undefined : (caseId, suitePath) => void moveCase(caseId, suitePath, null)}
           />
           <div className="test-case-list">
             <QuickAddRow
@@ -769,6 +804,7 @@ export default function TestCasesPage() {
                 <option value="priority">Priority high-low</option>
                 <option value="origin">Origin</option>
                 <option value="suite">Suite</option>
+                <option value="manual">Manual suite order</option>
                 <option value="review">Review</option>
               </select>
               <label
@@ -789,6 +825,12 @@ export default function TestCasesPage() {
               </label>
             </div>
 
+            {readOnly && selected.size > 0 && project && <div className="panel" style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 10, marginBottom: 10, padding: 10 }}>
+              <strong>{selected.size} selected</strong>
+              <BulkCaseAnalysis projectId={projectId} organizationId={project.organizationId} selectedIds={[...selected]} onCompleted={reload} />
+              <span className="text-muted">You can preview costs and request administrator access, but cannot run AI with this seat.</span>
+            </div>}
+
             {!readOnly && selected.size > 0 && (
               <div
                 className="panel"
@@ -802,6 +844,7 @@ export default function TestCasesPage() {
                 }}
               >
                 <strong>{selected.size} selected</strong>
+                {project && <BulkCaseAnalysis projectId={projectId} organizationId={project.organizationId} selectedIds={[...selected]} onCompleted={reload} />}
                 <button
                   className="btn-primary"
                   onClick={startManualRun}
@@ -941,8 +984,29 @@ export default function TestCasesPage() {
                               ? "medium"
                               : "low";
                       return (
-                        <tr key={tc.id}>
+                        <tr key={tc.id}
+                          onDragOver={(event) => {
+                            if (sortBy === "manual" && !readOnly && event.dataTransfer.types.includes("application/x-vaettir-test-case")) {
+                              event.preventDefault();
+                              event.dataTransfer.dropEffect = "move";
+                            }
+                          }}
+                          onDrop={(event) => {
+                            if (sortBy !== "manual" || readOnly) return;
+                            const caseId = event.dataTransfer.getData("application/x-vaettir-test-case");
+                            if (!caseId || caseId === tc.id) return;
+                            event.preventDefault();
+                            // A source-derived group has not been explicitly
+                            // curated yet. Assign into it first; row ordering
+                            // becomes available once cases have suite paths.
+                            void moveCase(caseId, tc.suitePath ?? tc.sourceFilePath ?? null, tc.suitePath ? tc.id : null);
+                          }}
+                        >
                           <td>
+                            {!readOnly && placements.has(tc.id) && <button type="button" draggable aria-label={`Drag ${tc.title} to reorder or move to a suite`}
+                              title="Drag to reorder or move to a suite"
+                              onDragStart={(event) => { event.dataTransfer.setData("application/x-vaettir-test-case", tc.id); event.dataTransfer.effectAllowed = "move"; }}
+                              style={{ marginRight: 6, cursor: "grab" }}>⠿</button>}
                             <input
                               type="checkbox"
                               checked={selected.has(tc.id)}
@@ -960,6 +1024,21 @@ export default function TestCasesPage() {
                             >
                               {tc.title}
                             </a>
+                            {!readOnly && sortBy === "manual" && selectedPath !== null && tc.suitePath === selectedPath && <span style={{ display: "inline-flex", gap: 2, marginLeft: 6 }}>
+                              <button type="button" aria-label={`Move ${tc.title} up`} disabled={visibleCases.findIndex(item => item.id === tc.id) === 0 || visibleCases[visibleCases.findIndex(item => item.id === tc.id) - 1]?.suitePath !== tc.suitePath || moveMutation.isPending}
+                                onClick={() => {
+                                  const index = visibleCases.findIndex(item => item.id === tc.id);
+                                  const before = visibleCases[index - 1];
+                                  if (before) void moveCase(tc.id, before.suitePath ?? before.sourceFilePath ?? null, before.id);
+                                }}>↑</button>
+                              <button type="button" aria-label={`Move ${tc.title} down`} disabled={visibleCases.findIndex(item => item.id === tc.id) === visibleCases.length - 1 || visibleCases[visibleCases.findIndex(item => item.id === tc.id) + 1]?.suitePath !== tc.suitePath || moveMutation.isPending}
+                                onClick={() => {
+                                  const index = visibleCases.findIndex(item => item.id === tc.id);
+                                  const after = visibleCases[index + 2];
+                                  const target = visibleCases[index + 1];
+                                  if (target) void moveCase(tc.id, target.suitePath ?? target.sourceFilePath ?? null, after?.id ?? null);
+                                }}>↓</button>
+                            </span>}
                             {tc.tags.length > 0 && (
                               <small>{tc.tags.slice(0, 3).join(" · ")}</small>
                             )}

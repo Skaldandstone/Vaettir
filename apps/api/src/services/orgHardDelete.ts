@@ -77,6 +77,7 @@ export async function previewOrgHardDelete(prisma: PrismaClient, organizationId:
     exploratorySessionNote,
     exploratorySession,
     aiCreditTransaction,
+    aiCreditUseRequest,
     apiKey,
     auditLog,
     invitation,
@@ -95,6 +96,7 @@ export async function previewOrgHardDelete(prisma: PrismaClient, organizationId:
     testCaseComplianceControl,
     testCaseDataset,
     testCaseSource,
+    testCasePrerequisite,
     testCaseStep,
     testCaseVersion,
     reverseEngineerJob,
@@ -117,6 +119,7 @@ export async function previewOrgHardDelete(prisma: PrismaClient, organizationId:
     prisma.exploratorySessionNote.count({ where: { sessionId: { in: scope.exploratorySessionIds } } }),
     prisma.exploratorySession.count({ where: { projectId: { in: scope.projectIds } } }),
     prisma.aiCreditTransaction.count({ where: { organizationId } }),
+    prisma.aiCreditUseRequest.count({ where: { organizationId } }),
     prisma.apiKey.count({ where: { organizationId } }),
     prisma.auditLog.count({ where: { organizationId } }),
     prisma.invitation.count({ where: { organizationId } }),
@@ -135,6 +138,7 @@ export async function previewOrgHardDelete(prisma: PrismaClient, organizationId:
     prisma.testCaseComplianceControl.count({ where: { testCaseId: { in: scope.testCaseIds } } }),
     prisma.testCaseDataset.count({ where: { testCaseId: { in: scope.testCaseIds } } }),
     prisma.testCaseSource.count({ where: { testCaseId: { in: scope.testCaseIds } } }),
+    prisma.testCasePrerequisite.count({ where: { projectId: { in: scope.projectIds } } }),
     prisma.testCaseStep.count({ where: { testCaseId: { in: scope.testCaseIds } } }),
     prisma.testCaseVersion.count({ where: { testCaseId: { in: scope.testCaseIds } } }),
     prisma.reverseEngineerJob.count({ where: { projectId: { in: scope.projectIds } } }),
@@ -164,6 +168,7 @@ export async function previewOrgHardDelete(prisma: PrismaClient, organizationId:
       ExploratorySessionNote: exploratorySessionNote,
       ExploratorySession: exploratorySession,
       AiCreditTransaction: aiCreditTransaction,
+      AiCreditUseRequest: aiCreditUseRequest,
       ApiKey: apiKey,
       AuditLog: auditLog,
       Invitation: invitation,
@@ -182,6 +187,7 @@ export async function previewOrgHardDelete(prisma: PrismaClient, organizationId:
       TestCaseComplianceControl: testCaseComplianceControl,
       TestCaseDataset: testCaseDataset,
       TestCaseSource: testCaseSource,
+      TestCasePrerequisite: testCasePrerequisite,
       TestCaseStep: testCaseStep,
       TestCaseVersion: testCaseVersion,
       ReverseEngineerJob: reverseEngineerJob,
@@ -230,6 +236,7 @@ export async function hardDeleteOrganization(
     );
     await del("ExploratorySession", () => tx.exploratorySession.deleteMany({ where: { projectId: { in: scope.projectIds } } }));
     await del("AiCreditTransaction", () => tx.aiCreditTransaction.deleteMany({ where: { organizationId } }));
+    await del("AiCreditUseRequest", () => tx.aiCreditUseRequest.deleteMany({ where: { organizationId } }));
     await del("ApiKey", () => tx.apiKey.deleteMany({ where: { organizationId } }));
     await del("AuditLog", () => tx.auditLog.deleteMany({ where: { organizationId } }));
     await del("Invitation", () => tx.invitation.deleteMany({ where: { organizationId } }));
@@ -254,6 +261,7 @@ export async function hardDeleteOrganization(
     );
     await del("TestCaseDataset", () => tx.testCaseDataset.deleteMany({ where: { testCaseId: { in: scope.testCaseIds } } }));
     await del("TestCaseSource", () => tx.testCaseSource.deleteMany({ where: { testCaseId: { in: scope.testCaseIds } } }));
+    await del("TestCasePrerequisite", () => tx.testCasePrerequisite.deleteMany({ where: { projectId: { in: scope.projectIds } } }));
     await del("TestCaseStep", () => tx.testCaseStep.deleteMany({ where: { testCaseId: { in: scope.testCaseIds } } }));
     await del("TestCaseVersion", () => tx.testCaseVersion.deleteMany({ where: { testCaseId: { in: scope.testCaseIds } } }));
     await del("ReverseEngineerJob", () => tx.reverseEngineerJob.deleteMany({ where: { projectId: { in: scope.projectIds } } }));

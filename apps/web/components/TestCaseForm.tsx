@@ -231,7 +231,7 @@ export default function TestCaseForm({
       const result =
         mode === "create"
           ? await createMutation.mutateAsync({ ...payload, projectId })
-          : await updateMutation.mutateAsync({ ...payload, id: testCaseId! });
+          : await updateMutation.mutateAsync({ ...payload, id: testCaseId!, expectedSuitePath: initial?.suitePath || null });
 
       // The detail page + list read from the cache; make sure they see the
       // saved row rather than the pre-edit copy.

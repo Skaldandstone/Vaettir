@@ -175,7 +175,6 @@ export default function TestStrategyPage() {
   const [result, setResult] = useState<RouterOutputs["riskAnalysis"]["recommendForChange"] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [aiResult, setAiResult] = useState<RouterOutputs["riskAnalysis"]["recommendTestPlansForDiff"] | null>(null);
-  const [bulkResult, setBulkResult] = useState<RouterOutputs["testCases"]["assessProjectRisk"] | null>(null);
   const [releaseId, setReleaseId] = useState("");
   const [newReleaseName, setNewReleaseName] = useState("");
 
@@ -191,7 +190,6 @@ export default function TestStrategyPage() {
   const createReleaseMutation = trpcReact.releases.create.useMutation();
   const analyzeMutation = trpcReact.riskAnalysis.recommendForChange.useMutation();
   const aiMutation = trpcReact.riskAnalysis.recommendTestPlansForDiff.useMutation();
-  const bulkMutation = trpcReact.testCases.assessProjectRisk.useMutation();
 
   async function createRelease() {
     if (!canEdit || !newReleaseName) return;
@@ -243,21 +241,8 @@ export default function TestStrategyPage() {
     }
   }
 
-  async function bulkAssess() {
-    if (!canEdit) return;
-    setError(null);
-    setBulkResult(null);
-    try {
-      const res = await bulkMutation.mutateAsync({ projectId });
-      setBulkResult(res);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-    }
-  }
-
   const analyzing = analyzeMutation.isPending;
   const aiAnalyzing = aiMutation.isPending;
-  const bulkAssessing = bulkMutation.isPending;
   const creatingRelease = createReleaseMutation.isPending;
 
   return (
@@ -271,16 +256,9 @@ export default function TestStrategyPage() {
       <div style={{ border: "1px solid var(--line)", borderRadius: 8, padding: 16, margin: "16px 0" }}>
         <h2 style={{ marginTop: 0 }}>Bulk-assess risk</h2>
         <p style={{ color: "var(--muted)", margin: "0 0 8px" }}>
-          AI-assess severity/risk for every test case in this project that hasn&apos;t been assessed yet (up to 20 at a time).
+          Select cases in the case list to review scope, current balance and credit cost before approving a bounded assessment batch.
         </p>
-        <button onClick={bulkAssess} disabled={!canEdit || bulkAssessing}>
-          {bulkAssessing ? "Assessing…" : "Assess unrated test cases"}
-        </button>
-        {bulkResult && (
-          <p style={{ color: "var(--frost)" }}>
-            Assessed {bulkResult.assessedCount}, {bulkResult.failedCount} failed.
-          </p>
-        )}
+        <a href={`/projects/${projectId}/test-cases`}>Select cases and review analysis…</a>
       </div>
 
       <div style={{ border: "1px solid var(--line)", borderRadius: 8, padding: 16, margin: "16px 0" }}>

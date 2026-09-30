@@ -55,6 +55,7 @@ function listAndroidDevices() {
     if (error?.cause?.code === "ENOENT") {
       throw new Error(
         "ADB is not installed or is not on PATH. Install Android Platform Tools, then restart the helper.",
+        { cause: error },
       );
     }
     throw error;

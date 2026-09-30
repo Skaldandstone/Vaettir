@@ -9,7 +9,7 @@ import {
   emptyPopulationDraft,
 } from "@/components/PopulationWizard";
 
-export function PopulationSetup({ projectId, onExit, onScreen }: { projectId: string; onExit: () => void; onScreen: (screen: "documents" | "requirements" | "assessment" | "gitlab") => void }) {
+export function PopulationSetup({ projectId, onExit, onScreen }: { projectId: string; onExit: () => void; onScreen: (screen: "documents" | "requirements" | "assessment" | "gitlab" | "github") => void }) {
   const permissions = useProjectPermissions(projectId);
   const query = trpcReact.projectPopulation.draft.useQuery(
     { projectId },
@@ -49,7 +49,7 @@ function Editor({
   initial: PopulationDraft;
   initialVersion: number;
   onExit: () => void;
-  onScreen: (screen: "documents" | "requirements" | "assessment" | "gitlab") => void;
+  onScreen: (screen: "documents" | "requirements" | "assessment" | "gitlab" | "github") => void;
 }) {
   const utils = trpcReact.useUtils();
   const mutation = trpcReact.projectPopulation.saveDraft.useMutation();
@@ -131,6 +131,7 @@ function Editor({
       <PopulationWizard
         onDocuments={() => onScreen("documents")}
         onGitlab={() => onScreen("gitlab")}
+        onGithub={() => onScreen("github")}
         key={display.key}
         initial={display.initial}
         locked={busy || pending !== null}

@@ -3,7 +3,7 @@ import { useState } from "react";
 import { trpcReact } from "@/lib/trpcReact";
 import { ProviderMark } from "./SourceConnectionChips";
 import { Modal } from "./Modal";
-import { GitlabRepositoryConnection } from "./GitlabRepositoryConnection";
+import { RepositoryOAuthConnection } from "./GitlabRepositoryConnection";
 const providers = [["github","GitHub"],["gitlab","GitLab"],["bitbucket","Bitbucket"],["azure-devops","Azure DevOps"],["git","Self-hosted Git"],["perforce","Perforce"],["svn","SVN"]] as const;
 type Provider = typeof providers[number][0];
 export function ProjectRepositories({projectId,canEdit}:{projectId:string;canEdit:boolean}) {
@@ -16,9 +16,9 @@ export function ProjectRepositories({projectId,canEdit}:{projectId:string;canEdi
    {query.error && <p role="alert">{query.error.message}</p>}
    {query.data?.length === 0 && <p className="text-muted">No repositories registered for this project yet.</p>}
    <div className="source-chip-list">{query.data?.map(repo=><span className="source-connection-chip" key={repo.id}><ProviderMark id={repo.provider}/><span><strong>{repo.url}</strong><small>{repo.accessVerified?"Access verified · Source not read":"Registered · Access unverified"}{repo.revision ? ` · ${repo.revision}` : ""}</small></span></span>)}</div>
-   {canEdit && <div className="source-chip-list">{providers.map(([id,label])=><button type="button" className="source-connection-chip" key={id} onClick={()=>{add.reset();setProvider(id);}}><ProviderMark id={id}/><span><strong>{label}</strong><small>{id==="gitlab"?"Authorize and choose repositories":"Connection options"}</small></span><span aria-hidden="true">+</span></button>)}</div>}
+   {canEdit && <div className="source-chip-list">{providers.map(([id,label])=><button type="button" className="source-connection-chip" key={id} onClick={()=>{add.reset();setProvider(id);}}><ProviderMark id={id}/><span><strong>{label}</strong><small>{id==="gitlab"||id==="github"?"Authorize and choose repositories":"Connection options"}</small></span><span aria-hidden="true">+</span></button>)}</div>}
    <Modal open={!!provider} onClose={()=>setProvider(null)} title={`Add ${providers.find(([id])=>id===provider)?.[1] ?? "repository"}`} dismissible={!add.isPending}>
-    {provider==="gitlab" ? <GitlabRepositoryConnection projectId={projectId} onConnected={()=>{void query.refetch();}} onClose={()=>setProvider(null)}/> : <>
+    {provider==="gitlab"||provider==="github" ? <RepositoryOAuthConnection providerId={provider} projectId={projectId} onConnected={()=>{void query.refetch();}} onClose={()=>setProvider(null)}/> : <>
     <p>Verified authorization and repository selection for this provider are not available yet. You can save a reference below without connecting or reading source.</p>
     <details><summary>Save a repository reference instead</summary>
     <label>Repository web URL<input type="url" value={url} onChange={e=>setUrl(e.target.value)} placeholder="https://host/organization/repository" /></label>

@@ -3,7 +3,7 @@ import type { RequestOptions } from "node:https";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { lookup } from "node:dns/promises";
 import { request } from "node:https";
-import { isPublicProviderIPv4, repositoryProviderJson, repositoryProviderOrigin } from "./repositoryProviderHttp.js";
+import { isPublicProviderIPv4, repositoryProviderJson, repositoryProviderOrigin, repositoryProviderRevokeGithubToken } from "./repositoryProviderHttp.js";
 
 vi.mock("node:dns/promises", () => ({ lookup: vi.fn() }));
 vi.mock("node:https", () => ({ request: vi.fn() }));
@@ -12,13 +12,14 @@ type Response = EventEmitter & { statusCode: number; destroy: ReturnType<typeof 
 let response: Response;
 let transportOptions: RequestOptions;
 let deliver: () => void;
+let requestWrite: ReturnType<typeof vi.fn>;
 beforeEach(() => {
   vi.resetAllMocks();
   vi.mocked(lookup).mockResolvedValue([{ address: "8.8.8.8", family: 4 }]);
   response = Object.assign(new EventEmitter(), { statusCode: 200, destroy: vi.fn() });
-  const req = Object.assign(new EventEmitter(), { write: vi.fn(), end: vi.fn() });
+  requestWrite = vi.fn();
+  const req = Object.assign(new EventEmitter(), { write: requestWrite, end: vi.fn() });
   vi.mocked(request).mockImplementation(((url: URL, options: RequestOptions, callback: (res: Response) => void) => {
-    expect(url.hostname).toBe("gitlab.example.com");
     transportOptions = options;
     deliver = () => callback(response);
     return req;
@@ -42,6 +43,7 @@ describe("repository provider HTTP boundary", () => {
   it("pins the checked address to the TLS socket and preserves hostname", async () => {
     const pending = repositoryProviderJson("https://gitlab.example.com", "/api/v4/user", { token: "synthetic" });
     await flushDns();
+    expect(vi.mocked(request).mock.calls[0]?.[0]).toMatchObject({ hostname: "gitlab.example.com" });
     const socketLookup = transportOptions.lookup as (host: string, options: object, cb: (...args: unknown[]) => void) => void;
     const callback = vi.fn();
     socketLookup("gitlab.example.com", {}, callback);
@@ -87,5 +89,31 @@ describe("repository provider HTTP boundary", () => {
     const assertion = expect(pending).rejects.toThrow("safe size limit");
     await flushDns(); deliver(); response.emit("data", Buffer.alloc(1024 * 1024 + 1)); await assertion;
     expect(response.destroy).toHaveBeenCalledOnce();
+  });
+  it("revokes a GitHub token with pinned HTTPS, Basic app credentials and a bounded JSON body", async () => {
+    response.statusCode = 204;
+    const pending = repositoryProviderRevokeGithubToken("Iv1.fixture", "synthetic-secret", "synthetic-token");
+    await flushDns();
+    const [url] = vi.mocked(request).mock.calls[0]!;
+    expect(url).toMatchObject({ origin: "https://api.github.com", pathname: "/applications/Iv1.fixture/token" });
+    expect(transportOptions.method).toBe("DELETE");
+    expect(transportOptions.lookup).toBeTypeOf("function");
+    expect(transportOptions.signal).toBeDefined();
+    expect(transportOptions.headers).toMatchObject({
+      Authorization: `Basic ${Buffer.from("Iv1.fixture:synthetic-secret").toString("base64")}`,
+      Accept: "application/vnd.github+json", "Content-Type": "application/json",
+    });
+    expect(requestWrite).toHaveBeenCalledWith('{"access_token":"synthetic-token"}');
+    expect(JSON.stringify(url)).not.toContain("synthetic-token");
+    deliver(); response.emit("end");
+    await expect(pending).resolves.toBeUndefined();
+  });
+  it("requires GitHub's 204 revocation confirmation and never follows a redirect", async () => {
+    response.statusCode = 302;
+    const pending = repositoryProviderRevokeGithubToken("Iv1.fixture", "synthetic-secret", "synthetic-token");
+    const assertion = expect(pending).rejects.toThrow("302");
+    await flushDns(); deliver(); await assertion;
+    expect(response.destroy).toHaveBeenCalledOnce();
+    expect(request).toHaveBeenCalledTimes(1);
   });
 });

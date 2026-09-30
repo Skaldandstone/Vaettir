@@ -54,6 +54,7 @@ export function PopulationWizard({
   documentsHref,
   onDocuments,
   onGitlab,
+  onGithub,
 }: {
   initial: PopulationDraft;
   locked: boolean;
@@ -63,6 +64,7 @@ export function PopulationWizard({
   documentsHref?: string;
   onDocuments?: () => void;
   onGitlab?: () => void;
+  onGithub?: () => void;
 }) {
   const [draft, setDraft] = useState(initial);
   const step = steps.indexOf(draft.step);
@@ -228,15 +230,11 @@ export function PopulationWizard({
               <p>
                 Open a source to see its available actions. Sources are never read without your approval.
               </p>
-              <SourceConnectionChips documentsHref={documentsHref} onDocuments={onDocuments} onGitlab={onGitlab} />
-              {draft.providers.length > 0 && <p className="text-muted">Previously saved preferences: {draft.providers.map((key) => providers[key]).join(", ")}. These are not connected accounts.</p>}
-              <button
-                type="button"
-                className="btn-secondary"
-                onClick={() => setDraft({ ...draft, step: "review" })}
-              >
-                Continue without connecting
-              </button>
+              <SourceConnectionChips documentsHref={documentsHref} onDocuments={onDocuments}
+                onGitlab={onGitlab && (() => { setDraft(current => ({ ...current, providers: current.providers.includes("gitlab") ? current.providers : [...current.providers, "gitlab"] })); onGitlab(); })}
+                onGithub={onGithub && (() => { setDraft(current => ({ ...current, providers: current.providers.includes("github") ? current.providers : [...current.providers, "github"] })); onGithub(); })} />
+              {draft.providers.length > 0 && <p className="text-muted">Source interests in this draft: {draft.providers.map((key) => providers[key]).join(", ")}. These are not connected accounts.</p>}
+              <p className="text-muted">Connections are optional. Continue to review this draft without adding one.</p>
             </>
           )}
           {step === 3 && (
@@ -262,7 +260,7 @@ export function PopulationWizard({
                     <dd>{draft.contextDetails.regulatory || "Not specified"}</dd>
                   </>
                 )}
-                <dt>Source preferences</dt>
+                <dt>Source interests (not connection status)</dt>
                 <dd>
                   {draft.providers.map((key) => providers[key]).join(", ") ||
                     "None selected"}

@@ -3,12 +3,19 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { prisma, type OrgRole, type SeatType } from "@vaettir/db";
 import { repositoryConnectionsRouter } from "./routers/repositoryConnections.js";
 import { hashOAuthState, listGitlabRepositories, verifyGitlabAuthorization } from "./services/gitlabRepositoryOAuth.js";
+import { listGithubRepositories, revokeGithubAuthorization, verifyGithubAuthorization } from "./services/githubRepositoryOAuth.js";
 import { decryptToken, type EncryptedToken } from "./services/tokenEncryption.js";
 
 vi.mock("./services/gitlabRepositoryOAuth.js", async importOriginal => ({
   ...await importOriginal<typeof import("./services/gitlabRepositoryOAuth.js")>(),
   verifyGitlabAuthorization: vi.fn(),
   listGitlabRepositories: vi.fn(),
+}));
+vi.mock("./services/githubRepositoryOAuth.js", async importOriginal => ({
+  ...await importOriginal<typeof import("./services/githubRepositoryOAuth.js")>(),
+  verifyGithubAuthorization: vi.fn(),
+  listGithubRepositories: vi.fn(),
+  revokeGithubAuthorization: vi.fn(),
 }));
 
 const databaseUrl = process.env.DATABASE_URL ? new URL(process.env.DATABASE_URL) : null;
@@ -69,6 +76,8 @@ describe.skipIf(!isolated)("repository authorization and reviewed selection", ()
     configurationId = (await owner.configureGitlab({ projectId, origin, clientId: "synthetic-client", clientSecret })).id;
     vi.mocked(verifyGitlabAuthorization).mockResolvedValue({ token: accessToken, expiresAt: new Date(Date.now() + 3600000), accountLabel: "synthetic-user" });
     vi.mocked(listGitlabRepositories).mockResolvedValue(repositories);
+    vi.mocked(verifyGithubAuthorization).mockResolvedValue({ token: accessToken, expiresAt: new Date(Date.now() + 3600000), accountLabel: "github-fixture" });
+    vi.mocked(listGithubRepositories).mockResolvedValue([{ id: "202", name: "team/hosted", url: "https://github.com/team/hosted", defaultBranch: "main" }]);
   });
   afterEach(() => vi.unstubAllEnvs());
 
@@ -81,6 +90,81 @@ describe.skipIf(!isolated)("repository authorization and reviewed selection", ()
     expect(JSON.stringify(stored.encryptedSecret)).not.toContain(clientSecret);
     expect(decryptToken(stored.encryptedSecret as unknown as EncryptedToken)).toBe(clientSecret);
     await expect(owner.configureGitlab({ projectId, origin, clientId: "replacement", clientSecret: "replacement-secret" })).rejects.toMatchObject({ code: "CONFLICT" });
+  });
+
+  it("configures hosted GitHub once and keeps its client secret encrypted", async () => {
+    const saved = await owner.configureGithub({ projectId, clientId: "github-app-fixture", clientSecret });
+    expect(saved).toMatchObject({ provider: "github", origin: "https://github.com" });
+    const stored = await prisma.repositoryProviderConfiguration.findUniqueOrThrow({ where: { id: saved.id } });
+    expect(JSON.stringify(stored.encryptedSecret)).not.toContain(clientSecret);
+    expect(decryptToken(stored.encryptedSecret as unknown as EncryptedToken)).toBe(clientSecret);
+    await expect(owner.configureGithub({ projectId, clientId: "another", clientSecret })).rejects.toMatchObject({ code: "CONFLICT" });
+    for (const caller of [editor, viewer, readOnlyAdmin, outsider])
+      await expect(caller.configureGithub({ projectId, clientId: "another", clientSecret })).rejects.toMatchObject({ code: "FORBIDDEN" });
+  });
+
+  it("binds GitHub authorization to the actor, verifies once and saves only reviewed repositories", async () => {
+    const config = await owner.configureGithub({ projectId, clientId: "github-app-fixture", clientSecret });
+    const pending = await owner.begin({ projectId, configurationId: config.id, approveMetadataAccess: true });
+    const url = new URL(pending.url);
+    const state = url.searchParams.get("state")!;
+    const stored = await prisma.repositoryConnection.findUniqueOrThrow({ where: { id: pending.id } });
+    expect(stored).toMatchObject({ provider: "github", origin: "https://github.com", stateHash: hashOAuthState(state) });
+    expect(url.searchParams.get("code_challenge")).toBe(createHash("sha256").update(decryptToken(stored.encryptedVerifier as unknown as EncryptedToken)).digest("base64url"));
+    await expect(editor.finish({ state, code: "synthetic-code" })).rejects.toMatchObject({ code: "NOT_FOUND" });
+    await owner.finish({ state, code: "synthetic-code" });
+    await expect(owner.finish({ state, code: "synthetic-code" })).rejects.toMatchObject({ code: "PRECONDITION_FAILED" });
+    expect(verifyGithubAuthorization).toHaveBeenCalledTimes(1);
+    expect(await owner.status({ id: pending.id })).toMatchObject({ status: "VERIFIED", accountLabel: "github-fixture" });
+    const listed = await owner.list({ id: pending.id });
+    expect(listed.repositories).toEqual([{ id: "202", name: "team/hosted", url: "https://github.com/team/hosted", defaultBranch: "main" }]);
+    await expect(owner.connectSelected({ id: pending.id, repositoryIds: ["missing"], catalogVersion: listed.catalogVersion, approved: true })).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    expect(await prisma.projectRepository.count({ where: { projectId } })).toBe(0);
+    await owner.connectSelected({ id: pending.id, repositoryIds: ["202", "202"], catalogVersion: listed.catalogVersion, approved: true });
+    await owner.connectSelected({ id: pending.id, repositoryIds: ["202"], catalogVersion: listed.catalogVersion, approved: true });
+    expect(await prisma.projectRepository.findMany({ where: { projectId } })).toEqual([expect.objectContaining({ provider: "github", externalId: "202", connectionId: pending.id })]);
+  });
+
+  it("filters only the current GitHub page and cannot approve a hidden repository ID", async () => {
+    const config = await owner.configureGithub({ projectId, clientId: "github-app-fixture", clientSecret });
+    const pending = await owner.begin({ projectId, configurationId: config.id, approveMetadataAccess: true });
+    await owner.finish({ state: new URL(pending.url).searchParams.get("state")!, code: "synthetic-code" });
+    vi.mocked(listGithubRepositories).mockResolvedValueOnce([
+      { id: "202", name: "team/hosted", url: "https://github.com/team/hosted", defaultBranch: "main" },
+      { id: "203", name: "team/hidden", url: "https://github.com/team/hidden", defaultBranch: "main" },
+    ]);
+    const listing = await owner.list({ id: pending.id, page: 2, search: "hosted" });
+    expect(listGithubRepositories).toHaveBeenCalledWith(accessToken, 2);
+    expect(listing.repositories.map(repo => repo.id)).toEqual(["202"]);
+    await expect(owner.connectSelected({ id: pending.id, repositoryIds: ["203"], catalogVersion: listing.catalogVersion, approved: true })).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    expect(await prisma.projectRepository.count({ where: { projectId } })).toBe(0);
+  });
+
+  it("revokes a GitHub token before clearing the local connection and repository link", async () => {
+    const config = await owner.configureGithub({ projectId, clientId: "github-app-fixture", clientSecret });
+    const pending = await owner.begin({ projectId, configurationId: config.id, approveMetadataAccess: true });
+    await owner.finish({ state: new URL(pending.url).searchParams.get("state")!, code: "synthetic-code" });
+    const listing = await owner.list({ id: pending.id });
+    await owner.connectSelected({ id: pending.id, repositoryIds: ["202"], catalogVersion: listing.catalogVersion, approved: true });
+    await expect(owner.disconnect({ id: pending.id })).resolves.toEqual({ disconnected: true });
+    expect(revokeGithubAuthorization).toHaveBeenCalledOnce();
+    expect(revokeGithubAuthorization).toHaveBeenCalledWith({ clientId: "github-app-fixture", clientSecret, token: accessToken });
+    expect(await prisma.repositoryConnection.findUniqueOrThrow({ where: { id: pending.id } })).toMatchObject({ status: "DISCONNECTED", encryptedToken: null });
+    expect(await prisma.projectRepository.findFirstOrThrow({ where: { projectId } })).toMatchObject({ connectionId: null, verifiedAt: null });
+  });
+
+  it("preserves the GitHub connection and repository link when upstream revocation fails", async () => {
+    const config = await owner.configureGithub({ projectId, clientId: "github-app-fixture", clientSecret });
+    const pending = await owner.begin({ projectId, configurationId: config.id, approveMetadataAccess: true });
+    await owner.finish({ state: new URL(pending.url).searchParams.get("state")!, code: "synthetic-code" });
+    const listing = await owner.list({ id: pending.id });
+    await owner.connectSelected({ id: pending.id, repositoryIds: ["202"], catalogVersion: listing.catalogVersion, approved: true });
+    const before = await prisma.repositoryConnection.findUniqueOrThrow({ where: { id: pending.id } });
+    const link = await prisma.projectRepository.findFirstOrThrow({ where: { projectId } });
+    vi.mocked(revokeGithubAuthorization).mockRejectedValueOnce(new Error("provider unavailable"));
+    await expect(owner.disconnect({ id: pending.id })).rejects.toMatchObject({ code: "PRECONDITION_FAILED" });
+    expect(await prisma.repositoryConnection.findUniqueOrThrow({ where: { id: pending.id } })).toEqual(before);
+    expect(await prisma.projectRepository.findUniqueOrThrow({ where: { id: link.id } })).toEqual(link);
   });
 
   it("enforces tenant, role, full seat, and explicit metadata approval", async () => {

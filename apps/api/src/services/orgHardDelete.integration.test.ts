@@ -66,6 +66,12 @@ async function seedEverything() {
       updatedById: owner.id,
     },
   });
+  const prerequisiteCase = await prisma.testCase.create({ data: {
+    projectId: project.id, title: "login prerequisite", testType: "FUNCTIONAL", createdById: owner.id,
+  } });
+  await prisma.testCasePrerequisite.create({ data: {
+    projectId: project.id, dependentId: testCase.id, prerequisiteId: prerequisiteCase.id, createdById: owner.id,
+  } });
   await prisma.testCaseStep.create({ data: { testCaseId: testCase.id, order: 0, action: "do a thing" } });
   await prisma.testCaseVersion.create({
     data: { testCaseId: testCase.id, versionNumber: 1, title: "case 1", given: ["g"], when: ["w"], then: ["t"], steps: [], tags: [], priority: "MEDIUM", testType: "FUNCTIONAL", createdById: owner.id },
@@ -130,6 +136,10 @@ async function seedEverything() {
   });
 
   await prisma.aiCreditTransaction.create({ data: { organizationId: orgId, type: "ADJUSTMENT", amount: 10, description: "test grant" } });
+  await prisma.aiCreditUseRequest.create({ data: {
+    organizationId: orgId, projectId: project.id, requestedById: owner.id,
+    action: "RISK", caseIds: [testCase.id], caseCount: 1, estimatedCredits: 10,
+  } });
   await prisma.apiKey.create({
     data: { organizationId: orgId, name: "key 1", keyPrefix: "vk_test", hashedKey: `hash-${RUN_ID}`, serviceUserId: apiKeyServiceUser.id, createdByUserId: owner.id },
   });
@@ -181,10 +191,10 @@ describe("hardDeleteOrganization (real DB, every model populated)", () => {
     // Every model actually seeded above should show up as exactly 1 (or
     // more, for the two-row cases) in the preview - not just "some number."
     for (const model of [
-      "AiCreditTransaction", "ApiKey", "AuditLog", "Invitation", "Membership",
+      "AiCreditTransaction", "AiCreditUseRequest", "ApiKey", "AuditLog", "Invitation", "Membership",
       "AiEditFeedback", "ComplianceEvidence", "ComplianceSignOff", "CustomFrameworkHeuristic",
       "HealingSuggestion", "ImportJob", "PrScanPolicy", "ReleaseReadinessSnapshot", "RiskFlag", "AcceptanceCriterion",
-      "TestCaseAttachment", "TestCaseComplianceControl", "TestCaseDataset", "TestCaseSource",
+      "TestCaseAttachment", "TestCaseComplianceControl", "TestCaseDataset", "TestCaseSource", "TestCasePrerequisite",
       "TestCaseStep", "TestCaseVersion", "ReverseEngineerJob", "TestResultArtifact", "TestResult",
       "TestSelectionRecommendation", "TestCase", "TestPlanVersion", "TestPlan", "Release",
       "Requirement", "SharedStepGroup", "TestRun", "TestSelectionRun", "WebhookDelivery",
@@ -214,7 +224,7 @@ describe("hardDeleteOrganization (real DB, every model populated)", () => {
     // counts matching what was actually removed.
     const log = await prisma.organizationDeletionLog.findUniqueOrThrow({ where: { id: result.deletionLogId } });
     expect(log.organizationId).toBe(orgId);
-    expect(log.rowCounts).toMatchObject({ TestCase: 1, TestPlan: 1, Release: 1, Project: 1 });
+    expect(log.rowCounts).toMatchObject({ TestCase: 2, TestCasePrerequisite: 1, TestPlan: 1, Release: 1, Project: 1 });
 
     // The shared ComplianceFramework/ComplianceControl this org's evidence
     // referenced must NOT have been touched - they're platform-wide

@@ -1,6 +1,6 @@
 "use client";
 
-import { useId, type ReactNode } from "react";
+import { useEffect, useId, useRef, type ReactNode } from "react";
 
 export function CreationWizard({
   step,
@@ -9,11 +9,13 @@ export function CreationWizard({
   description,
   children,
   canContinue = true,
+  validationMessage,
   busy = false,
   submitLabel,
   onStepChange,
   onCancel,
   onSubmit,
+  onInvalid,
 }: {
   step: number;
   steps: string[];
@@ -21,16 +23,25 @@ export function CreationWizard({
   description?: string;
   children: ReactNode;
   canContinue?: boolean;
+  validationMessage?: string;
   busy?: boolean;
   submitLabel: string;
   onStepChange: (step: number) => void;
   onCancel: () => void;
   onSubmit: () => void;
+  onInvalid?: () => void;
 }) {
   const finalStep = step === steps.length - 1;
+  const validationId = useId();
+  const bodyRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    bodyRef.current?.scrollTo({ top: 0 });
+  }, [step]);
+  const blocked = !canContinue;
+  const explainBlocked = blocked && Boolean(validationMessage);
   return (
     <div className="creation-wizard">
-      <div className="eyebrow">
+      <div className="eyebrow" aria-live="polite">
         Step {step + 1} of {steps.length} · {steps[step]}
       </div>
       <div
@@ -58,8 +69,13 @@ export function CreationWizard({
           </p>
         )}
       </div>
-      <div className="creation-wizard-body">{children}</div>
+      <div className="creation-wizard-body" ref={bodyRef}>{children}</div>
       <div className="form-actions creation-wizard-actions">
+        {explainBlocked && (
+          <p id={validationId} className="creation-wizard-validation" role="status">
+            {validationMessage}
+          </p>
+        )}
         <button
           className="btn-secondary"
           type="button"
@@ -72,8 +88,10 @@ export function CreationWizard({
           <button
             className="btn-primary"
             type="button"
-            onClick={onSubmit}
-            disabled={!canContinue || busy}
+            onClick={() => blocked ? onInvalid?.() : onSubmit()}
+            aria-disabled={blocked && !explainBlocked ? true : undefined}
+            aria-describedby={explainBlocked ? validationId : undefined}
+            disabled={busy || (blocked && !explainBlocked)}
           >
             {busy ? "Creating…" : submitLabel}
           </button>
@@ -81,8 +99,10 @@ export function CreationWizard({
           <button
             className="btn-primary"
             type="button"
-            onClick={() => onStepChange(step + 1)}
-            disabled={!canContinue || busy}
+            onClick={() => blocked ? onInvalid?.() : onStepChange(step + 1)}
+            aria-disabled={blocked && !explainBlocked ? true : undefined}
+            aria-describedby={explainBlocked ? validationId : undefined}
+            disabled={busy || (blocked && !explainBlocked)}
           >
             Continue
           </button>
@@ -93,35 +113,37 @@ export function CreationWizard({
 }
 
 export function WizardChoices({
+  id,
   title,
   options,
   selected,
   onToggle,
   single = false,
 }: {
+  id?: string;
   title: string;
   options: string[];
   selected: string[];
   onToggle: (option: string) => void;
   single?: boolean;
 }) {
-  const groupName = useId();
   return (
-    <fieldset className="wizard-choice-group">
+    <fieldset id={id} className="wizard-choice-group" aria-description={single ? "Choose one." : "Choose any that apply."}>
       <legend>{title}</legend>
       <div>
         {options.map((option) => {
           const active = selected.includes(option);
           return (
-            <label key={option} className={active ? "selected" : ""}>
-              <input
-                name={single ? groupName : undefined}
-                type={single ? "radio" : "checkbox"}
-                checked={active}
-                onChange={() => onToggle(option)}
-              />
+            <button
+              key={option}
+              type="button"
+              className={`wizard-choice-chip${active ? " selected" : ""}`}
+              aria-pressed={active}
+              onClick={() => onToggle(option)}
+            >
+              <span className="wizard-choice-chip-mark" aria-hidden="true">{active ? "✓" : ""}</span>
               <span>{option}</span>
-            </label>
+            </button>
           );
         })}
       </div>

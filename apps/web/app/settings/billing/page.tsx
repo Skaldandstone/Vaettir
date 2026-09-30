@@ -28,6 +28,10 @@ export default function BillingPage() {
     { organizationId: orgId! },
     options,
   );
+  const creditRequests = trpcReact.creditUseRequests.adminList.useQuery(
+    { organizationId: orgId! }, { enabled: !!orgId && canAdmin },
+  );
+  const resolveCreditRequest = trpcReact.creditUseRequests.resolve.useMutation();
   const tiers = trpcReact.organization.listPlanTiers.useQuery(
     undefined,
     options,
@@ -182,6 +186,20 @@ export default function BillingPage() {
           </details>
         </section>
       </div>
+      {canAdmin && <section className="panel" style={{ marginTop: 20 }}>
+        <h2>AI use requests</h2>
+        <p className="text-muted">Review requests from members who cannot run an analysis or need more credits. Acknowledging a request does not grant a seat, top up credits, or run AI.</p>
+        {creditRequests.error && <p role="alert">{creditRequests.error.message}</p>}
+        {creditRequests.data?.length === 0 && <p>No requests yet.</p>}
+        {(creditRequests.data ?? []).map(item => <div key={item.id} className="billing-catalog-row" style={{ alignItems: "flex-start", flexWrap: "wrap" }}>
+          <span><strong>{item.requestedByEmail}</strong> · {item.projectName}<small>{item.action === "RISK" ? "Risk assessment" : "Type and design review"} · {item.caseCount} cases · up to {item.estimatedCredits} initial credits · {item.status.toLowerCase()}</small>{item.reason && <small>Reason: {item.reason}</small>}</span>
+          {item.status === "PENDING" && <span style={{ display: "flex", gap: 6 }}>
+            <button className="btn-secondary" disabled={resolveCreditRequest.isPending} onClick={async () => { try { await resolveCreditRequest.mutateAsync({ organizationId: orgId, id: item.id, decision: "ACKNOWLEDGED" }); await creditRequests.refetch(); } catch (cause) { setError(cause instanceof Error ? cause.message : "Could not review request."); } }}>Acknowledge</button>
+            <button className="btn-secondary" disabled={resolveCreditRequest.isPending} onClick={async () => { try { await resolveCreditRequest.mutateAsync({ organizationId: orgId, id: item.id, decision: "DECLINED" }); await creditRequests.refetch(); } catch (cause) { setError(cause instanceof Error ? cause.message : "Could not review request."); } }}>Decline</button>
+          </span>}
+        </div>)}
+        <p><a href="/settings/members">Manage member seats</a> · Credit packs above require a separate authorized purchase.</p>
+      </section>}
       <section className="panel" style={{ marginTop: 20 }}>
         <h2>Current seats &amp; estimated cost</h2>
         {seats.data && (

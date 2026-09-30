@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 import {
@@ -18,6 +19,8 @@ import { router, protectedProcedure, requireProjectAccess } from "../trpc.js";
 import { recordAudit } from "../services/auditLog.js";
 import {
   chargeAiCredits,
+  AI_OPERATION_COSTS,
+  getAiCreditBalance,
   InsufficientAiCreditsError,
   meterAiCall,
 } from "../services/aiCredits.js";
@@ -27,6 +30,13 @@ import {
   validationDomainSchema,
   verificationProfileSchema,
 } from "../services/physicalValidation.js";
+
+function riskInput(tc: { title: string; given: string[]; when: string[]; then: string[]; testType: string; source?: { filePath: string } | null }) {
+  const data = { title: tc.title, given: tc.given, when: tc.when, then: tc.then, testType: tc.testType, sourceFilePath: tc.source?.filePath ?? null };
+  const serialized = JSON.stringify(data);
+  if (Buffer.byteLength(serialized, "utf8") > 64_000) throw new TRPCError({ code: "BAD_REQUEST", message: "This case exceeds the risk review size limit. Split it into focused cases before reviewing." });
+  return { data, hash: createHash("sha256").update(serialized).digest("hex") };
+}
 
 const stepOutputSchema = z.object({
   order: z.number(),
@@ -439,8 +449,50 @@ export const testCasesRouter = router({
       return updated;
     }),
 
-  assessRisk: protectedProcedure
+  riskPreview: protectedProcedure
     .input(z.object({ id: z.string() }))
+    .query(async ({ ctx, input }) => {
+      const tc = await ctx.prisma.testCase.findUniqueOrThrow({
+        where: { id: input.id }, include: { source: { select: { filePath: true } } },
+      });
+      const { project, membership } = await requireProjectAccess(ctx, tc.projectId);
+      const { hash } = riskInput(tc);
+      const saved = await ctx.prisma.testCaseRiskReview.findUnique({
+        where: { testCaseId_inputHash: { testCaseId: tc.id, inputHash: hash } },
+      });
+      return {
+        balance: await getAiCreditBalance(ctx.prisma, project.organizationId),
+        cost: AI_OPERATION_COSTS.assessTestCaseRisk,
+        canSpend: membership.seatType === "FULL" && ["OWNER", "ADMIN", "EDITOR"].includes(membership.role),
+        inputHash: hash,
+        savedStatus: saved?.status ?? null,
+        alreadyAssessed: tc.riskAssessedAt !== null,
+      };
+    }),
+
+  riskReviews: protectedProcedure
+    .input(z.object({ id: z.string() }))
+    .query(async ({ ctx, input }) => {
+      const testCase = await ctx.prisma.testCase.findUniqueOrThrow({ where: { id: input.id }, select: { projectId: true } });
+      await requireProjectAccess(ctx, testCase.projectId);
+      const reviews = await ctx.prisma.testCaseRiskReview.findMany({
+        where: { testCaseId: input.id },
+        select: { id: true, inputHash: true, status: true, content: true, createdAt: true, updatedAt: true },
+        orderBy: { createdAt: "desc" }, take: 10,
+      });
+      const savedSchema = z.object({ severity: z.string(), riskScore: z.number(), rationale: z.string() });
+      return reviews.map(review => {
+        const saved = savedSchema.safeParse(review.content);
+        return { id: review.id, inputHash: review.inputHash, status: review.status,
+          severity: saved.success ? saved.data.severity : null,
+          riskScore: saved.success ? saved.data.riskScore : null,
+          rationale: saved.success ? saved.data.rationale : null,
+          createdAt: review.createdAt, updatedAt: review.updatedAt };
+      });
+    }),
+
+  assessRisk: protectedProcedure
+    .input(z.object({ id: z.string(), expectedHash: z.string().length(64), approved: z.literal(true) }))
     .output(
       z.object({
         riskSeverity: z.string().nullable(),
@@ -453,49 +505,54 @@ export const testCasesRouter = router({
         where: { id: input.id },
         include: { source: { select: { filePath: true } } },
       });
-      const { project } = await requireProjectAccess(
+      const { project, membership } = await requireProjectAccess(
         ctx,
         tc.projectId,
         "EDITOR",
       );
-
-      const charge = await chargeAiCredits(
-        ctx.prisma,
-        project.organizationId,
-        "assessTestCaseRisk",
-      ).catch((e: unknown) => {
-        if (e instanceof InsufficientAiCreditsError) {
-          throw new TRPCError({ code: "BAD_REQUEST", message: e.message });
+      if (membership.seatType !== "FULL") throw new TRPCError({ code: "FORBIDDEN", message: "A full editor seat is required. Ask your workspace administrator for access." });
+      const { data, hash } = riskInput(tc);
+      if (hash !== input.expectedHash) throw new TRPCError({ code: "CONFLICT", message: "The case changed. Review the updated risk preview before continuing." });
+      const key = { testCaseId: tc.id, inputHash: hash };
+      const previous = await ctx.prisma.testCaseRiskReview.findUnique({ where: { testCaseId_inputHash: key } });
+      if (previous?.content) {
+        const saved = previous.content as { severity: string; riskScore: number; rationale: string };
+        return { riskSeverity: saved.severity, riskScore: Math.round(saved.riskScore), riskRationale: saved.rationale };
+      }
+      if (previous) throw new TRPCError({ code: "CONFLICT", message: "Risk review already started or needs reconciliation. No new credits were charged." });
+      const reservation = await ctx.prisma.testCaseRiskReview.create({
+        data: { testCaseId: tc.id, inputHash: hash, createdById: ctx.user.id },
+      }).catch((error: unknown) => {
+        if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") throw new TRPCError({ code: "CONFLICT", message: "Another risk review already started. No new credits were charged." });
+        throw error;
+      });
+      try {
+        const charge = await chargeAiCredits(ctx.prisma, project.organizationId, "assessTestCaseRisk", `Risk review ${reservation.id}`);
+        const assessment = await meterAiCall(ctx.prisma, charge, () => assessTestCaseRisk(data));
+        await ctx.prisma.$transaction(async (db) => {
+          await db.testCaseRiskReview.update({ where: { id: reservation.id }, data: { status: "READY", content: assessment } });
+          // A human may edit the case while the provider is working. Retain
+          // the paid review but never apply stale output over that edit.
+          const fresh = await db.testCase.findUniqueOrThrow({ where: { id: tc.id }, include: { source: { select: { filePath: true } } } });
+          if (riskInput(fresh).hash === hash) await db.testCase.updateMany({
+            // The snapshot predates the paid call. Any intervening human edit,
+            // including a risk-only override, keeps the review as a saved
+            // suggestion instead of silently replacing the case's fields.
+            where: { id: tc.id, updatedAt: tc.updatedAt, riskSeverity: tc.riskSeverity, riskScore: tc.riskScore,
+              riskRationale: tc.riskRationale, riskAssessedAt: tc.riskAssessedAt },
+            data: { riskSeverity: assessment.severity, riskScore: Math.round(assessment.riskScore),
+              riskRationale: assessment.rationale, riskAssessedAt: new Date(), updatedById: ctx.user.id },
+          });
+        });
+        return { riskSeverity: assessment.severity, riskScore: Math.round(assessment.riskScore), riskRationale: assessment.rationale };
+      } catch (error) {
+        if (error instanceof InsufficientAiCreditsError) {
+          await ctx.prisma.testCaseRiskReview.delete({ where: { id: reservation.id } });
+          throw new TRPCError({ code: "BAD_REQUEST", message: error.message });
         }
-        throw e;
-      });
-
-      const assessment = await meterAiCall(ctx.prisma, charge, () =>
-        assessTestCaseRisk({
-          title: tc.title,
-          given: tc.given,
-          when: tc.when,
-          then: tc.then,
-          testType: tc.testType,
-          sourceFilePath: tc.source?.filePath,
-        }),
-      );
-
-      const updated = await ctx.prisma.testCase.update({
-        where: { id: input.id },
-        data: {
-          riskSeverity: assessment.severity,
-          riskScore: Math.round(assessment.riskScore),
-          riskRationale: assessment.rationale,
-          riskAssessedAt: new Date(),
-          updatedById: ctx.user.id,
-        },
-      });
-      return {
-        riskSeverity: updated.riskSeverity,
-        riskScore: updated.riskScore,
-        riskRationale: updated.riskRationale,
-      };
+        await ctx.prisma.testCaseRiskReview.updateMany({ where: { id: reservation.id, status: "GENERATING" }, data: { status: "NEEDS_RECONCILIATION" } });
+        throw error;
+      }
     }),
 
   automationDraft: protectedProcedure
@@ -610,72 +667,6 @@ export const testCasesRouter = router({
       }
     }),
 
-  // Assesses every not-yet-assessed case in a project, sequentially (not
-  // Promise.all) to avoid firing a burst of concurrent LLM calls from one
-  // click -- this is a manual bulk action from a settings-style page, not
-  // latency-sensitive, so sequential + a sane cap is the simple, safe
-  // choice over adding real concurrency control for no real benefit yet.
-  assessProjectRisk: protectedProcedure
-    .input(
-      z.object({
-        projectId: z.string(),
-        limit: z.number().min(1).max(50).default(20),
-      }),
-    )
-    .output(z.object({ assessedCount: z.number(), failedCount: z.number() }))
-    .mutation(async ({ ctx, input }) => {
-      const { project } = await requireProjectAccess(
-        ctx,
-        input.projectId,
-        "EDITOR",
-      );
-      const unassessed = await ctx.prisma.testCase.findMany({
-        where: { projectId: input.projectId, riskAssessedAt: null },
-        include: { source: { select: { filePath: true } } },
-        take: input.limit,
-      });
-
-      let assessedCount = 0;
-      let failedCount = 0;
-      for (const tc of unassessed) {
-        try {
-          // Charge (and stop the batch, not just this case) the moment
-          // credits run out -- partial progress on the batch is kept
-          // rather than the whole mutation failing outright.
-          const charge = await chargeAiCredits(
-            ctx.prisma,
-            project.organizationId,
-            "assessTestCaseRisk",
-          );
-          const assessment = await meterAiCall(ctx.prisma, charge, () =>
-            assessTestCaseRisk({
-              title: tc.title,
-              given: tc.given,
-              when: tc.when,
-              then: tc.then,
-              testType: tc.testType,
-              sourceFilePath: tc.source?.filePath,
-            }),
-          );
-          await ctx.prisma.testCase.update({
-            where: { id: tc.id },
-            data: {
-              riskSeverity: assessment.severity,
-              riskScore: Math.round(assessment.riskScore),
-              riskRationale: assessment.rationale,
-              riskAssessedAt: new Date(),
-              updatedById: ctx.user.id,
-            },
-          });
-          assessedCount++;
-        } catch (e) {
-          failedCount++;
-          if (e instanceof InsufficientAiCreditsError) break;
-        }
-      }
-      return { assessedCount, failedCount };
-    }),
-
   // 2026-09-02: no procedure anywhere queried TestCase scoped to a
   // testPlanId before this - list() is project-wide only. Needed as its
   // own query (not just inlined into reviewPlanQuality below) since the
@@ -701,7 +692,7 @@ export const testCasesRouter = router({
   // Scans every (non-archived) case in a plan in a single AI call rather
   // than per-case, since the point is spotting patterns *across* cases
   // (near-duplicate coverage) that a one-case-at-a-time pass could never
-  // see - unlike assessProjectRisk above, this can't be a sequential loop.
+  // see - unlike selected-case risk assessment, this can't be a sequential loop.
   // Capped at 30 cases per call: keeps the prompt a reasonable size and
   // caps the cost of one click: a plan with more than 30 needs more than
   // one pass, surfaced via `truncated` rather than silently only
@@ -1024,7 +1015,7 @@ export const testCasesRouter = router({
   update: protectedProcedure
     .input(
       testCaseContentSchema
-        .extend({ id: z.string() })
+        .extend({ id: z.string(), expectedSuitePath: z.string().nullable().optional() })
         .refine(requireAtLeastOneFormat, {
           message: AT_LEAST_ONE_FORMAT_MESSAGE,
         }),
@@ -1039,6 +1030,7 @@ export const testCasesRouter = router({
           given: true,
           when: true,
           then: true,
+          suitePath: true,
         },
       });
       const { project } = await requireProjectAccess(
@@ -1065,6 +1057,12 @@ export const testCasesRouter = router({
       // if per-step history/comments ever need steps to persist identity
       // across an edit.
       const updated = await ctx.prisma.$transaction(async (tx) => {
+        await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${existing.projectId}))::text`;
+        const currentPlacement = await tx.testCase.findUniqueOrThrow({ where: { id: input.id }, select: { suitePath: true } });
+        if (currentPlacement.suitePath !== existing.suitePath ||
+          (input.expectedSuitePath !== undefined && currentPlacement.suitePath !== input.expectedSuitePath)) {
+          throw new TRPCError({ code: "CONFLICT", message: "This case moved since it was opened. Refresh before saving." });
+        }
         if (shouldCaptureFeedback) {
           await tx.aiEditFeedback.create({
             data: {
@@ -1154,16 +1152,23 @@ export const testCasesRouter = router({
   // tree's "Unassigned" bucket. Pass null/"" to clear back to unassigned
   // (or the derived source-file location, if it has one).
   setSuite: protectedProcedure
-    .input(z.object({ id: z.string(), suitePath: z.string().nullable() }))
+    .input(z.object({ id: z.string(), suitePath: z.string().nullable(), expectedSuitePath: z.string().nullable().optional() }))
     .mutation(async ({ ctx, input }) => {
       const existing = await ctx.prisma.testCase.findUniqueOrThrow({
         where: { id: input.id },
         select: { projectId: true },
       });
       await requireProjectAccess(ctx, existing.projectId, "EDITOR");
-      await ctx.prisma.testCase.update({
-        where: { id: input.id },
-        data: { suitePath: input.suitePath || null, updatedById: ctx.user.id },
+      await ctx.prisma.$transaction(async tx => {
+        await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${existing.projectId}))::text`;
+        const current = await tx.testCase.findUniqueOrThrow({ where: { id: input.id }, select: { suitePath: true } });
+        if (input.expectedSuitePath !== undefined && current.suitePath !== input.expectedSuitePath) {
+          throw new TRPCError({ code: "CONFLICT", message: "This case moved since it was loaded. Refresh before assigning it." });
+        }
+        await tx.testCase.update({
+          where: { id: input.id },
+          data: { suitePath: input.suitePath || null, updatedById: ctx.user.id },
+        });
       });
     }),
 
@@ -1189,7 +1194,7 @@ export const testCasesRouter = router({
           throw new TRPCError({
             code: "BAD_REQUEST",
             message:
-              "This test case is linked to a compliance control or a change-impact recommendation. Unlink those first.",
+              "This test case is linked to a prerequisite, compliance control, or change-impact recommendation. Unlink those first.",
           });
         }
         throw e;

@@ -10,9 +10,10 @@ const inputStyle = { width: "100%", minWidth: 0, boxSizing: "border-box" } as co
 const actions = { display: "flex", gap: 8, flexWrap: "wrap" } as const;
 
 /** Render inside the existing Modal. Provider credentials never enter browser storage. */
-export function GitlabRepositoryConnection({ projectId, onConnected, onClose }: {
-  projectId: string; onConnected: () => void; onClose: () => void;
+export function RepositoryOAuthConnection({ projectId, providerId, onConnected, onClose }: {
+  projectId: string; providerId: "github" | "gitlab"; onConnected: () => void; onClose: () => void;
 }) {
+  const providerName = providerId === "github" ? "GitHub" : "GitLab";
   const utils = trpcReact.useUtils();
   const configurations = trpcReact.repositoryConnections.configurations.useQuery({ projectId });
   const recent = trpcReact.repositoryConnections.mine.useQuery({ projectId });
@@ -33,6 +34,7 @@ export function GitlabRepositoryConnection({ projectId, onConnected, onClose }: 
   const [error, setError] = useState("");
   const popup = useRef<Window | null>(null);
   const configureMutation = trpcReact.repositoryConnections.configureGitlab.useMutation();
+  const configureGithub = trpcReact.repositoryConnections.configureGithub.useMutation();
   const begin = trpcReact.repositoryConnections.begin.useMutation();
   const connect = trpcReact.repositoryConnections.connectSelected.useMutation();
   const disconnect = trpcReact.repositoryConnections.disconnect.useMutation();
@@ -41,7 +43,7 @@ export function GitlabRepositoryConnection({ projectId, onConnected, onClose }: 
     refetchInterval: query => !query.state.error && (!query.state.data || ["PENDING", "VERIFYING"].includes(query.state.data.status)) ? 2000 : false,
   });
   const provider = configurations.data?.configurations.find(c => c.id === configurationId);
-  const busy = begin.isPending || configureMutation.isPending || connect.isPending || disconnect.isPending || loading;
+  const busy = begin.isPending || configureMutation.isPending || configureGithub.isPending || connect.isPending || disconnect.isPending || loading;
   const failure = error || configurations.error?.message || status.error?.message;
   const selectedRepos = listing?.repositories.filter(repo => selected.includes(repo.id)) ?? [];
 
@@ -79,61 +81,62 @@ export function GitlabRepositoryConnection({ projectId, onConnected, onClose }: 
   }
 
   return <div style={{ display: "grid", gap: 16, minWidth: 0 }}>
-    <p className="text-muted">{({ instance: "1. Choose your GitLab instance", authorize: "2. Authorize your account", repositories: "3. Choose repositories", review: "4. Review connections", done: "Repositories connected" })[step]}</p>
+    <p className="text-muted">{({ instance: `1. Choose your ${providerName} connection`, authorize: "2. Authorize your account", repositories: "3. Choose repositories", review: "4. Review connections", done: "Repositories connected" })[step]}</p>
     {failure && <p role="alert">{failure}</p>}
     {step === "instance" && <>
       {configurations.isLoading && <p role="status">Checking connection availability…</p>}
-      {configurations.data && !configurations.data.storageReady && <p role="alert">Secure credential storage or the callback URL is not configured. A platform administrator must enable it before GitLab authorization is available.</p>}
-      <p>Use GitLab.com or your organization’s publicly reachable self-hosted GitLab. Each instance needs its own registered OAuth application.</p>
-      {!!recent.data?.length && <details><summary>Resume a recent connection</summary><div style={{ display: "grid", gap: 8, marginTop: 8 }}>
-        {recent.data.map(connection => <button type="button" className="source-connection-chip" key={connection.id} disabled={!configurations.data?.storageReady || connection.status === "EXPIRED"} onClick={() => {
-          const config = configurations.data?.configurations.find(c => c.origin === connection.origin);
+      {configurations.data && !configurations.data.storageReady && <p role="alert">Secure credential storage or the callback URL is not configured. A platform administrator must enable it before {providerName} authorization is available.</p>}
+      <p>{providerId === "github" ? "Connect GitHub.com using your workspace’s registered OAuth application. GitHub’s repo permission grants the app read and write access to all repositories you can access and some organization resources. Your repository choices below limit only Vaettir’s project links, not GitHub’s token permission. Vaettir only lists metadata in this flow." : "Use GitLab.com or your organization’s publicly reachable self-hosted GitLab. Each instance needs its own registered OAuth application. GitLab’s read_api permission can read more than repository metadata; Vaettir does not read source files in this flow."}</p>
+      {!!recent.data?.some(connection => connection.provider === providerId) && <details><summary>Resume a recent connection</summary><div style={{ display: "grid", gap: 8, marginTop: 8 }}>
+        {recent.data.filter(connection => connection.provider === providerId).map(connection => <button type="button" className="source-connection-chip" key={connection.id} disabled={!configurations.data?.storageReady || connection.status === "EXPIRED"} onClick={() => {
+          const config = configurations.data?.configurations.find(c => c.provider === providerId && c.origin === connection.origin);
           setConfigurationId(config?.id ?? ""); setConnectionId(connection.id); setStep("authorize");
-        }}><ProviderMark id="gitlab"/><span style={{ overflowWrap: "anywhere" }}><strong>{connection.origin}</strong><small>{connection.accountLabel ?? "Your authorization"} · {connection.status.toLowerCase()}</small></span></button>)}
+        }}><ProviderMark id={providerId}/><span style={{ overflowWrap: "anywhere" }}><strong>{connection.origin}</strong><small>{connection.accountLabel ?? "Your authorization"} · {connection.status.toLowerCase()}</small></span></button>)}
       </div></details>}
-      <div className="source-chip-list" role="group" aria-label="Configured GitLab instances">
-        {configurations.data?.configurations.filter(c => c.provider === "gitlab").map(c => <button type="button" key={c.id} className="source-connection-chip" aria-pressed={configurationId === c.id} onClick={() => { setConfigurationId(c.id); setConfigure(false); }}>
-          <ProviderMark id="gitlab"/><span style={{ overflowWrap: "anywhere" }}><strong>{new URL(c.origin).hostname}</strong><small>Application configured · Account not yet authorized</small></span>{configurationId === c.id && <span aria-hidden="true">✓</span>}
+      <div className="source-chip-list" role="group" aria-label={`Configured ${providerName} instances`}>
+        {configurations.data?.configurations.filter(c => c.provider === providerId).map(c => <button type="button" key={c.id} className="source-connection-chip" aria-pressed={configurationId === c.id} onClick={() => { setConfigurationId(c.id); setConfigure(false); }}>
+          <ProviderMark id={providerId}/><span style={{ overflowWrap: "anywhere" }}><strong>{new URL(c.origin).hostname}</strong><small>OAuth app configured · Select to authorize or resume</small></span>{configurationId === c.id && <span aria-hidden="true">✓</span>}
         </button>)}
       </div>
-      {configurations.data?.canConfigure ? <button type="button" className="btn-secondary" onClick={() => setConfigure(!configure)}>{configure ? "Hide instance setup" : "Set up another GitLab instance"}</button> : <p className="text-muted">Ask a workspace owner or administrator to configure a missing instance.</p>}
+      {configurations.data?.canConfigure ? <button type="button" className="btn-secondary" onClick={() => setConfigure(!configure)}>{configure ? "Hide application setup" : `Set up ${providerName} authorization`}</button> : <p className="text-muted">Ask a workspace owner or administrator to configure a missing application.</p>}
       {configure && <form style={{ display: "grid", gap: 12 }} onSubmit={async e => {
         e.preventDefault(); setError("");
-        try { const saved = await configureMutation.mutateAsync({ projectId, origin, clientId, clientSecret }); setClientSecret(""); setConfigurationId(saved.id); setConfigure(false); await configurations.refetch(); }
+        try { const saved = providerId === "github" ? await configureGithub.mutateAsync({ projectId, clientId, clientSecret }) : await configureMutation.mutateAsync({ projectId, origin, clientId, clientSecret }); setClientSecret(""); setConfigurationId(saved.id); setConfigure(false); await configurations.refetch(); }
         catch { setError("Instance setup failed. Check the URL, application credentials and your administrator permissions."); }
       }}>
-        <label style={field}>GitLab origin<input style={inputStyle} type="url" required value={origin} onChange={e => setOrigin(e.target.value)} placeholder="https://gitlab.company.com" maxLength={300}/></label>
-        <details><summary>Register the GitLab OAuth application</summary><p>In this GitLab instance, create an OAuth application with the <code>read_api</code> scope and this exact redirect URL. Keep the application secret private.</p><code style={{ overflowWrap: "anywhere" }}>{configurations.data?.redirectUri ?? "Callback not configured"}</code><p>Private-network hosts are not supported by this connector. No source files are read in this flow.</p></details>
+        {providerId === "gitlab" && <label style={field}>GitLab origin<input style={inputStyle} type="url" required value={origin} onChange={e => setOrigin(e.target.value)} placeholder="https://gitlab.company.com" maxLength={300}/></label>}
+        <details><summary>Register the {providerName} OAuth application</summary><p>{providerId === "github" ? "Create a GitHub OAuth app. Its repo scope grants full repository read/write access and can manage certain organization resources. A GitHub App with selected-repository, read-only permissions is the safer future integration. Set the callback URL exactly as shown and keep the secret private." : "In this GitLab instance, create an OAuth application with the read_api scope and this exact redirect URL. Keep the application secret private."}</p><code style={{ overflowWrap: "anywhere" }}>{providerId === "github" ? configurations.data?.githubRedirectUri ?? "Callback not configured" : configurations.data?.redirectUri ?? "Callback not configured"}</code><p>Private-network hosts are not supported by this connector. No source files are read in this flow.</p></details>
         <label style={field}>Application ID<input style={inputStyle} required value={clientId} onChange={e => setClientId(e.target.value)} maxLength={300} autoComplete="off"/></label>
         <label style={field}>Application secret<input style={inputStyle} type="password" required value={clientSecret} onChange={e => setClientSecret(e.target.value)} maxLength={2000} autoComplete="new-password"/></label>
-        <button type="submit" disabled={busy || !configurations.data?.storageReady}>{configureMutation.isPending ? "Saving securely…" : "Save instance configuration"}</button>
+        <button type="submit" disabled={busy || !configurations.data?.storageReady}>{busy ? "Saving securely…" : "Save application configuration"}</button>
       </form>}
       <div style={actions}><button type="button" className="btn-secondary" onClick={onClose}>Cancel</button><button type="button" disabled={!provider || !configurations.data?.storageReady || busy} onClick={() => setStep("authorize")}>Continue</button></div>
     </>}
     {step === "authorize" && <>
-      <p>Authorize your account on <strong>{provider?.origin}</strong>. You will sign in in a separate GitLab window.</p>
+      <p>Authorize your account on <strong>{provider?.origin}</strong>. You will sign in in a separate {providerName} window.</p>
       {!connectionId ? <>
-        <label style={{ display: "flex", gap: 8, alignItems: "flex-start" }}><input type="checkbox" checked={consent} onChange={e => setConsent(e.target.checked)}/><span>I authorize account verification and repository metadata listing. This does not authorize reading source files or sending anything to AI.</span></label>
-        <button type="button" disabled={!consent || busy} onClick={() => void authorize()}>{begin.isPending ? "Opening authorization…" : "Authorize with GitLab"}</button>
+        <label style={{ display: "flex", gap: 8, alignItems: "flex-start" }}><input type="checkbox" checked={consent} onChange={e => setConsent(e.target.checked)}/><span>{providerId === "github" ? "I understand GitHub grants this OAuth app full read/write repository access and some organization management permissions, regardless of which repositories I select in Vaettir. I approve account verification and metadata listing only; source processing requires separate approval." : "I understand GitLab’s read_api grant is broader than metadata listing. I approve account verification and metadata listing only; source processing requires separate approval."}</span></label>
+        <button type="button" disabled={!consent || busy} onClick={() => void authorize()}>{begin.isPending ? "Opening authorization…" : `Authorize with ${providerName}`}</button>
         <button type="button" className="btn-secondary" disabled={busy} onClick={() => setStep("instance")}>Back</button>
       </> : <>
-        <p role="status">{status.data?.status === "VERIFIED" ? `Verified as ${status.data.accountLabel ?? "your GitLab account"}. Load the repository list when you are ready.` : ["PENDING", "VERIFYING"].includes(status.data?.status ?? "PENDING") ? "Waiting for GitLab authorization. Keep this screen open; the connection status updates automatically." : `Connection ${status.data?.status?.toLowerCase() ?? "status unavailable"}. Start again to authorize.`}</p>
+        <p role="status">{status.data?.status === "VERIFIED" ? `Verified as ${status.data.accountLabel ?? `your ${providerName} account`}. Load the repository list when you are ready.` : ["PENDING", "VERIFYING"].includes(status.data?.status ?? "PENDING") ? `Waiting for ${providerName} authorization. Keep this screen open; the connection status updates automatically.` : `Connection ${status.data?.status?.toLowerCase() ?? "status unavailable"}. Start again to authorize.`}</p>
         {status.data?.status === "VERIFIED" && <button type="button" disabled={busy} onClick={() => void load()}>Load repositories</button>}
-        <div style={actions}><button type="button" className="btn-secondary" disabled={busy} onClick={() => void status.refetch()}>Refresh status</button><button type="button" className="btn-secondary" disabled={busy} onClick={() => void cancelConnection()}>Disconnect / start again</button></div>
+        <div style={actions}><button type="button" className="btn-secondary" disabled={busy} onClick={() => void status.refetch()}>Refresh status</button><button type="button" className="btn-secondary" disabled={busy} onClick={() => void cancelConnection()}>{providerId === "github" ? "Revoke token and disconnect" : "Remove Vaettir connection / start again"}</button></div>
+        {providerId === "github" && <p className="text-muted">Explicit disconnect asks GitHub to revoke this token before Vaettir removes the connection. If GitHub rejects revocation, Vaettir leaves the connection in place; review the grant in GitHub Settings → Applications → Authorized OAuth Apps before retrying. Expiry or administrative removal may only clear Vaettir’s copy.</p>}
       </>}
     </>}
     {step === "repositories" && <>
-      <form style={actions} onSubmit={e => { e.preventDefault(); void load(1, search); }}><label style={{ ...field, flex: "1 1 180px" }}>Find repositories<input style={inputStyle} value={search} onChange={e => setSearch(e.target.value)} maxLength={100}/></label><button type="submit" disabled={busy}>Search</button></form>
-      <p className="text-muted">Page {page}. Select repositories on this page, then connect them. Changing pages or searching clears this selection.</p>
+      <form style={actions} onSubmit={e => { e.preventDefault(); void load(1, search); }}><label style={{ ...field, flex: "1 1 180px" }}>{providerId === "github" ? "Filter this page" : "Find repositories"}<input style={inputStyle} value={search} onChange={e => setSearch(e.target.value)} maxLength={100}/></label><button type="submit" disabled={busy}>{providerId === "github" ? "Filter" : "Search"}</button></form>
+      <p className="text-muted">Page {page}. {providerId === "github" ? "Search filters this page only. Browse other pages to find more repositories. " : ""}Select repositories on this page, then connect them. Changing pages or searching clears this selection.</p>
       <div className="source-chip-list" role="group" aria-label="Verified repositories" style={{ maxHeight: 300, overflowY: "auto" }}>
-        {listing?.repositories.map(repo => <button type="button" key={repo.id} className="source-connection-chip" aria-pressed={selected.includes(repo.id)} disabled={busy} onClick={() => setSelected(ids => ids.includes(repo.id) ? ids.filter(id => id !== repo.id) : [...ids, repo.id])} style={{ maxWidth: "100%", textAlign: "left" }}><ProviderMark id="gitlab"/><span style={{ minWidth: 0, overflowWrap: "anywhere" }}><strong>{repo.name}</strong><small>{repo.defaultBranch ?? "No default branch"} · Metadata only</small></span>{selected.includes(repo.id) && <span aria-hidden="true">✓</span>}</button>)}
+        {listing?.repositories.map(repo => <button type="button" key={repo.id} className="source-connection-chip" aria-pressed={selected.includes(repo.id)} disabled={busy} onClick={() => setSelected(ids => ids.includes(repo.id) ? ids.filter(id => id !== repo.id) : [...ids, repo.id])} style={{ maxWidth: "100%", textAlign: "left" }}><ProviderMark id={providerId}/><span style={{ minWidth: 0, overflowWrap: "anywhere" }}><strong>{repo.name}</strong><small>{repo.defaultBranch ?? "No default branch"} · Metadata only</small></span>{selected.includes(repo.id) && <span aria-hidden="true">✓</span>}</button>)}
       </div>
-      {listing && !listing.repositories.length && <p>No accessible repositories matched. Try a different search.</p>}
+      {listing && !listing.repositories.length && <p>{providerId === "github" ? "No repositories on this page matched. Change the filter or browse another page." : "No accessible repositories matched. Try a different search."}</p>}
       <div style={actions}><button type="button" className="btn-secondary" disabled={busy || page <= 1} onClick={() => void load(page - 1, activeSearch)}>Previous page</button><button type="button" className="btn-secondary" disabled={busy || !listing?.hasMore || page >= 100} onClick={() => void load(page + 1, activeSearch)}>Next page</button></div>
       <div style={actions}><button type="button" className="btn-secondary" disabled={busy} onClick={() => setStep("authorize")}>Back</button><button type="button" disabled={busy || !selected.length} onClick={() => setStep("review")}>Review {selected.length} selected</button></div>
     </>}
     {step === "review" && <>
-      <p>Connect {selectedRepos.length} {selectedRepos.length === 1 ? "repository" : "repositories"} to this project using your verified GitLab account.</p>
+      <p>Connect {selectedRepos.length} {selectedRepos.length === 1 ? "repository" : "repositories"} to this project using your verified {providerName} account.</p>
       <ul style={{ overflowWrap: "anywhere", maxHeight: 250, overflowY: "auto" }}>{selectedRepos.map(repo => <li key={repo.id}>{repo.name}</li>)}</ul>
       <p>Existing manual revision references stay unchanged. No source is fetched, no test cases are generated, and no AI credits are used.</p>
       <div style={actions}><button type="button" className="btn-secondary" disabled={busy} onClick={() => setStep("repositories")}>Back</button><button type="button" disabled={busy || !listing || !selected.length} onClick={async () => {

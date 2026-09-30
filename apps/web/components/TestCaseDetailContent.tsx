@@ -5,6 +5,8 @@ import type { CSSProperties, ChangeEvent } from "react";
 import { trpcReact, type RouterOutputs } from "@/lib/trpcReact";
 import { RiskMeter } from "@/components/MetricVisuals";
 import { TestDesignReview } from "@/components/TestDesignReview";
+import { TestCasePrerequisites } from "@/components/TestCasePrerequisites";
+import { Modal } from "@/components/Modal";
 
 const cellStyle: CSSProperties = {
   border: "1px solid var(--line)",
@@ -987,6 +989,10 @@ export function TestCaseDetailContent({
   const approveMutation = trpcReact.testCases.approve.useMutation();
   const rejectMutation = trpcReact.testCases.reject.useMutation();
   const assessRiskMutation = trpcReact.testCases.assessRisk.useMutation();
+  const [riskDialogOpen, setRiskDialogOpen] = useState(false);
+  const [riskApproved, setRiskApproved] = useState(false);
+  const riskPreview = trpcReact.testCases.riskPreview.useQuery({ id }, { enabled: riskDialogOpen });
+  const riskReviews = trpcReact.testCases.riskReviews.useQuery({ id });
   const [error, setError] = useState<string | null>(null);
   const [reviewNote, setReviewNote] = useState("");
   const [reviewing, setReviewing] = useState(false);
@@ -1016,11 +1022,16 @@ export function TestCaseDetailContent({
   }
 
   async function assessRisk() {
+    if (!riskPreview.data || !riskApproved) return;
     setAssessingRisk(true);
     setError(null);
     try {
-      await assessRiskMutation.mutateAsync({ id });
+      await assessRiskMutation.mutateAsync({ id, expectedHash: riskPreview.data.inputHash, approved: true });
       load();
+      await riskPreview.refetch();
+      await riskReviews.refetch();
+      setRiskDialogOpen(false);
+      setRiskApproved(false);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -1053,6 +1064,7 @@ export function TestCaseDetailContent({
       </dl>
 
       <p><strong>Suite:</strong> {tc.suitePath ? <a href={`/projects/${projectId}/test-cases?suite=${encodeURIComponent(tc.suitePath)}`} onClick={event => { if (onSuiteSelect && tc.suitePath) { event.preventDefault(); onSuiteSelect(tc.suitePath); } }}>{tc.suitePath}</a> : "Unassigned"}</p>
+      <TestCasePrerequisites projectId={projectId} caseId={tc.id} canEdit={!readOnly} />
 
       {tc.background && (
         <p>
@@ -1141,6 +1153,28 @@ export function TestCaseDetailContent({
       )}
       <div className="risk-assessment-panel">
         <strong>Risk assessment</strong>
+        {riskReviews.data && riskReviews.data.length > 0 && (
+          <details style={{ marginTop: 12 }}>
+            <summary>Saved AI risk suggestions ({riskReviews.data.length})</summary>
+            <p style={{ color: "var(--muted)" }}>Previous paid suggestions remain available, including when a case was edited before one could be applied. Viewing them does not replace the current assessment or use credits.</p>
+            {riskReviews.data.map((review) => {
+              return (
+                <article key={review.id} style={{ borderTop: "1px solid var(--line)", paddingBlock: 10 }}>
+                  <strong>{new Date(review.createdAt).toLocaleString()} · {review.status === "READY" ? "Saved suggestion" : review.status === "GENERATING" ? "Generating" : "Needs reconciliation"}</strong>
+                  {review.status === "READY" && (
+                    <p style={{ whiteSpace: "pre-wrap" }}>
+                      {review.severity ?? "Risk suggestion"}
+                      {review.riskScore != null ? ` · ${Math.round(review.riskScore)}/100` : ""}
+                      {review.rationale ? `\n${review.rationale}` : ""}
+                    </p>
+                  )}
+                  {review.status === "GENERATING" && <p>The approved review is still running. Starting an identical paid request is blocked.</p>}
+                  {review.status !== "READY" && review.status !== "GENERATING" && <p>No completed suggestion is available. An administrator may need to reconcile this request before it can be retried.</p>}
+                </article>
+              );
+            })}
+          </details>
+        )}
         {tc.riskScore != null ? (
           <>
             <RiskMeter
@@ -1162,16 +1196,30 @@ export function TestCaseDetailContent({
         )}
         {!readOnly && (
           <div style={{ marginTop: 8 }}>
-            <button onClick={assessRisk} disabled={assessingRisk}>
+            <button onClick={() => setRiskDialogOpen(true)} disabled={assessingRisk}>
               {assessingRisk
                 ? "Assessing…"
                 : tc.riskScore != null
-                  ? "Re-assess risk"
+                  ? "Review risk assessment"
                   : "Assess risk"}
             </button>
           </div>
         )}
       </div>
+
+      <Modal open={riskDialogOpen} title="Review risk assessment cost" onClose={() => setRiskDialogOpen(false)} dismissible={!assessingRisk}>
+        <p>Assess this case from its text and source-file path. No repository content is fetched. The result is saved with the case; an identical retry does not charge again.</p>
+        {riskPreview.error && <p role="alert">{riskPreview.error.message}</p>}
+        {riskPreview.data && <>
+          <p>Initial charge: {riskPreview.data.savedStatus === "READY" ? 0 : riskPreview.data.cost} AI credits. Current balance: {riskPreview.data.balance}. Final cost may differ after metering.</p>
+          {riskPreview.data.savedStatus === "READY" && <p role="status">A saved review for this unchanged case is available. Confirming returns that review without another charge or overwriting manual edits.</p>}
+          {riskPreview.data.savedStatus === "GENERATING" || riskPreview.data.savedStatus === "NEEDS_RECONCILIATION" ? <p role="status">This input already has a pending or interrupted review. No new charge is allowed until it is reconciled.</p> : <>
+            {!riskPreview.data.canSpend && <p role="alert">Ask your workspace administrator for a full editor seat to use AI credits.</p>}
+            <label><input type="checkbox" checked={riskApproved} onChange={event => setRiskApproved(event.target.checked)} /> I approve processing this case with the AI provider and the credit charge.</label>
+            <button disabled={!riskApproved || !riskPreview.data.canSpend || riskPreview.data.balance < (riskPreview.data.savedStatus === "READY" ? 0 : riskPreview.data.cost) || assessingRisk} onClick={() => void assessRisk()}>{assessingRisk ? "Assessing…" : "Confirm assessment"}</button>
+          </>}
+        </>}
+      </Modal>
 
       {tc.source && (
         <p>

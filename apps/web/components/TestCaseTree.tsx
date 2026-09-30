@@ -54,21 +54,50 @@ function TreeNodeView({
   depth,
   selectedPath,
   onSelect,
+  onDropCase,
 }: {
   node: TreeNode;
   depth: number;
   selectedPath: string | null;
   onSelect: (path: string | null) => void;
+  onDropCase?: (caseId: string, suitePath: string | null) => void;
 }) {
   const [open, setOpen] = useState(depth < 2);
+  const [dropTarget, setDropTarget] = useState(false);
   const totalCases = node.cases.length + [...node.children.values()].reduce((sum, c) => sum + countCases(c), 0);
   const hasChildren = node.children.size > 0;
 
   return (
     <div>
       <div
-        className={`tree-row${selectedPath === node.path ? " active" : ""}`}
+        className={`tree-row${selectedPath === node.path ? " active" : ""}${dropTarget ? " drop-target" : ""}`}
         style={{ paddingLeft: 8 + depth * 14 }}
+        role="button"
+        tabIndex={0}
+        aria-label={`${node.name} suite, ${totalCases} cases`}
+        onKeyDown={(event) => {
+          if (event.key === "Enter" || event.key === " ") {
+            event.preventDefault();
+            if (hasChildren) setOpen((value) => !value);
+            onSelect(node.path);
+          }
+        }}
+        onDragOver={(event) => {
+          if (!onDropCase || !event.dataTransfer.types.includes("application/x-vaettir-test-case")) return;
+          event.preventDefault();
+          event.stopPropagation();
+          event.dataTransfer.dropEffect = "move";
+          setDropTarget(true);
+        }}
+        onDragLeave={() => setDropTarget(false)}
+        onDrop={(event) => {
+          setDropTarget(false);
+          const caseId = event.dataTransfer.getData("application/x-vaettir-test-case");
+          if (!onDropCase || !caseId) return;
+          event.preventDefault();
+          event.stopPropagation();
+          onDropCase(caseId, node.path);
+        }}
         onClick={() => {
           if (hasChildren) setOpen((o) => !o);
           onSelect(node.path);
@@ -83,7 +112,7 @@ function TreeNodeView({
           {[...node.children.values()]
             .sort((a, b) => a.name.localeCompare(b.name))
             .map((child) => (
-              <TreeNodeView key={child.path} node={child} depth={depth + 1} selectedPath={selectedPath} onSelect={onSelect} />
+              <TreeNodeView key={child.path} node={child} depth={depth + 1} selectedPath={selectedPath} onSelect={onSelect} onDropCase={onDropCase} />
             ))}
         </>
       )}
@@ -101,10 +130,12 @@ export function TestCaseTree({
   cases,
   selectedPath,
   onSelect,
+  onDropCase,
 }: {
   cases: TreeCase[];
   selectedPath: string | null;
   onSelect: (path: string | null) => void;
+  onDropCase?: (caseId: string, suitePath: string | null) => void;
 }) {
   const tree = useMemo(() => buildTree(cases), [cases]);
   const unassignedCount = cases.filter((c) => !effectiveLocation(c)).length;
@@ -115,6 +146,9 @@ export function TestCaseTree({
       <div
         className={`tree-row${selectedPath === null ? " active" : ""}`}
         style={{ paddingLeft: 8 }}
+        role="button"
+        tabIndex={0}
+        onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); onSelect(null); } }}
         onClick={() => onSelect(null)}
       >
         <span className="tree-label">All test cases</span>
@@ -123,12 +157,20 @@ export function TestCaseTree({
       {[...tree.children.values()]
         .sort((a, b) => a.name.localeCompare(b.name))
         .map((child) => (
-          <TreeNodeView key={child.path} node={child} depth={0} selectedPath={selectedPath} onSelect={onSelect} />
+          <TreeNodeView key={child.path} node={child} depth={0} selectedPath={selectedPath} onSelect={onSelect} onDropCase={onDropCase} />
         ))}
-      {unassignedCount > 0 && (
+      {(unassignedCount > 0 || onDropCase) && (
         <div
           className={`tree-row${selectedPath === UNASSIGNED ? " active" : ""}`}
           style={{ paddingLeft: 8 }}
+          role="button"
+          tabIndex={0}
+          onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); onSelect(UNASSIGNED); } }}
+          onDragOver={(event) => { if (onDropCase && event.dataTransfer.types.includes("application/x-vaettir-test-case")) { event.preventDefault(); event.dataTransfer.dropEffect = "move"; } }}
+          onDrop={(event) => {
+            const caseId = event.dataTransfer.getData("application/x-vaettir-test-case");
+            if (onDropCase && caseId) { event.preventDefault(); onDropCase(caseId, null); }
+          }}
           onClick={() => onSelect(UNASSIGNED)}
         >
           <span className="tree-label">Unassigned</span>

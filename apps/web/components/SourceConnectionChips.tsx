@@ -31,19 +31,26 @@ export function ConnectionLink({ href, provider, label, status }: { href: string
   return <a className="source-connection-chip" href={href}><ProviderMark id={provider} /><span><strong>{label}</strong><small>{status}</small></span><span aria-hidden="true">→</span></a>;
 }
 
-export function SourceConnectionChips({ documentsHref, only, onDocuments, onGitlab }: { documentsHref?: string; only?: string[]; onDocuments?: () => void; onGitlab?: () => void }) {
+export function SourceConnectionChips({ documentsHref, only, onDocuments, onGitlab, onGithub }: { documentsHref?: string; only?: string[]; onDocuments?: () => void; onGitlab?: () => void; onGithub?: () => void }) {
   const [active, setActive] = useState<string | null>(null);
   const name = sources.find(([id]) => id === active)?.[1];
+  const filtered = sources.filter(([id]) => !only || only.includes(id));
+  const ready = ([id]: typeof sources[number]) => id === "github" && !!onGithub || id === "gitlab" && !!onGitlab || id === "document" && !!(onDocuments || documentsHref);
+  const chip = ([id, label]: typeof sources[number]) => <button key={id} type="button" className="source-connection-chip"
+    aria-expanded={id === "gitlab" && onGitlab || id === "github" && onGithub ? undefined : active === id}
+    aria-controls={id === "gitlab" && onGitlab || id === "github" && onGithub ? undefined : "source-connection-detail"}
+    onClick={() => id === "gitlab" && onGitlab ? onGitlab() : id === "github" && onGithub ? onGithub() : setActive(active === id ? null : id)}>
+    <ProviderMark id={id} />
+    <span><strong>{label}</strong><small>{id === "document" ? "File or text" : id === "gitlab" && onGitlab || id === "github" && onGithub ? "Authorize and select" : "Not available yet"}</small></span>
+    <span aria-hidden="true">{active === id ? "−" : "+"}</span>
+  </button>;
   return <div className="source-connections">
-    <div className="source-chip-list" role="group" aria-label="Source connections">
-      {sources.filter(([id]) => !only || only.includes(id)).map(([id, label]) => <button key={id} type="button" className="source-connection-chip"
-        aria-expanded={active === id} aria-controls="source-connection-detail"
-        onClick={() => id === "gitlab" && onGitlab ? onGitlab() : setActive(active === id ? null : id)}>
-        <ProviderMark id={id} />
-        <span><strong>{label}</strong><small>{id === "document" ? "File or text" : id === "gitlab" && onGitlab ? "Authorize and select" : "Not available yet"}</small></span>
-        <span aria-hidden="true">{active === id ? "−" : "+"}</span>
-      </button>)}
+    <div className="source-chip-list" role="group" aria-label="Available source actions">
+      {filtered.filter(ready).map(chip)}
     </div>
+    {!!filtered.filter(item => !ready(item)).length && <details><summary>Other providers (connection not available yet)</summary>
+      <div className="source-chip-list" role="group" aria-label="Other source options">{filtered.filter(item => !ready(item)).map(chip)}</div>
+    </details>}
     <div id="source-connection-detail" hidden={!active} className="source-connection-detail">
       <h4>{name}</h4>
       {active === "document" ? <><p>Upload Markdown or text, review the contents, then approve what to add. Nothing is imported automatically.</p>

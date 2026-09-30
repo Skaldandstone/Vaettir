@@ -13,7 +13,7 @@ export const caseViewFiltersSchema = z.object({
   priority: z.string().max(50).refine(value => ["", "CRITICAL", "HIGH", "MEDIUM", "LOW"].includes(value)),
   review: z.string().max(50).refine(value => ["", "APPROVED", "PENDING_REVIEW", "REJECTED"].includes(value)),
   origin: z.string().max(50).refine(value => ["", "AUTHORED", "AI_REVERSE_ENGINEERED", "IMPORTED"].includes(value)),
-  sortBy: z.enum(["updated", "title", "type", "automation", "risk", "priority", "origin", "review", "suite"]),
+  sortBy: z.enum(["updated", "title", "type", "automation", "risk", "priority", "origin", "review", "suite", "manual"]),
   sortDescending: z.boolean(),
   showArchived: z.boolean(),
 }).strict();

@@ -5,13 +5,14 @@ import { router,protectedProcedure,requireProjectAccess,requireOrgRole,type Cont
 import { encryptToken,decryptToken,type EncryptedToken } from "../services/tokenEncryption.js";
 import { repositoryProviderOrigin } from "../services/repositoryProviderHttp.js";
 import { createGitlabAuthorization,hashOAuthState,listGitlabRepositories,repositoryOAuthRedirect,repositorySelectionSchema,verifyGitlabAuthorization } from "../services/gitlabRepositoryOAuth.js";
+import { GITHUB_ORIGIN, createGithubAuthorization, listGithubRepositories, revokeGithubAuthorization, verifyGithubAuthorization } from "../services/githubRepositoryOAuth.js";
 
 const projectInput=z.object({projectId:z.string()});
 const jsonToken=(value:ReturnType<typeof encryptToken>)=>({...value});
 const decrypt=(value:unknown)=>decryptToken(z.object({ciphertext:z.string(),iv:z.string(),authTag:z.string()}).parse(value) as EncryptedToken);
 const unavailable=()=>new TRPCError({code:"PRECONDITION_FAILED",message:"Repository authorization is not configured. An organization admin must finish provider setup."});
-function encryptionReady(){try{encryptToken("configuration-check");repositoryOAuthRedirect();return true;}catch{return false;}}
-function redirectUri(){try{return repositoryOAuthRedirect();}catch{return null;}}
+function encryptionReady(){try{encryptToken("configuration-check");repositoryOAuthRedirect();repositoryOAuthRedirect(process.env,"github");return true;}catch{return false;}}
+function redirectUri(provider:"gitlab"|"github"="gitlab"){try{return repositoryOAuthRedirect(process.env,provider);}catch{return null;}}
 // Same organization lock used by membership/seat changes. Never keep it across provider I/O.
 async function liveEditor(tx:Prisma.TransactionClient,organizationId:string,userId:string,admin=false){
   const rows=await tx.$queryRaw<Array<{suspendedAt:Date|null}>>`SELECT "suspendedAt" FROM "Organization" WHERE "id"=${organizationId} FOR UPDATE`;
@@ -44,13 +45,13 @@ function publicStatus(row:{status:string;authorizationExpiresAt:Date;tokenExpire
 export const repositoryConnectionsRouter=router({
   mine:protectedProcedure.input(projectInput).query(async({ctx,input})=>{
     await editor(ctx,input.projectId);
-    const rows=await ctx.prisma.repositoryConnection.findMany({where:{projectId:input.projectId,actorId:ctx.user.id,status:{in:["PENDING","VERIFYING","VERIFIED"]}},orderBy:{createdAt:"desc"},take:20,select:{id:true,origin:true,status:true,accountLabel:true,authorizationExpiresAt:true,tokenExpiresAt:true}});
-    return rows.map(row=>({id:row.id,origin:row.origin,status:publicStatus(row),accountLabel:row.accountLabel}));
+    const rows=await ctx.prisma.repositoryConnection.findMany({where:{projectId:input.projectId,actorId:ctx.user.id,status:{in:["PENDING","VERIFYING","VERIFIED"]}},orderBy:{createdAt:"desc"},take:20,select:{id:true,provider:true,origin:true,status:true,accountLabel:true,authorizationExpiresAt:true,tokenExpiresAt:true}});
+    return rows.map(row=>({id:row.id,provider:row.provider,origin:row.origin,status:publicStatus(row),accountLabel:row.accountLabel}));
   }),
   configurations:protectedProcedure.input(projectInput).query(async({ctx,input})=>{
     const {project,membership}=await requireProjectAccess(ctx,input.projectId);
     const configurations=await ctx.prisma.repositoryProviderConfiguration.findMany({where:{organizationId:project.organizationId},select:{id:true,provider:true,origin:true}});
-    return{configurations,storageReady:encryptionReady(),canConfigure:membership.seatType==="FULL" && ["OWNER","ADMIN"].includes(membership.role),redirectUri:redirectUri()};
+    return{configurations,storageReady:encryptionReady(),canConfigure:membership.seatType==="FULL" && ["OWNER","ADMIN"].includes(membership.role),redirectUri:redirectUri(),githubRedirectUri:redirectUri("github")};
   }),
   configureGitlab:protectedProcedure.input(projectInput.extend({origin:z.string().max(300),clientId:z.string().trim().min(1).max(300),clientSecret:z.string().min(1).max(2000)})).mutation(async({ctx,input})=>{
     const {project}=await editor(ctx,input.projectId);
@@ -64,6 +65,18 @@ export const repositoryConnectionsRouter=router({
     return ctx.prisma.$transaction(async tx=>{
       await liveEditor(tx,project.organizationId,ctx.user.id,true);
       return tx.repositoryProviderConfiguration.create({data:{organizationId:project.organizationId,provider:"gitlab",origin,clientId:input.clientId,encryptedSecret,createdById:ctx.user.id},select:{id:true,origin:true,provider:true}});
+    });
+  }),
+  configureGithub:protectedProcedure.input(projectInput.extend({clientId:z.string().trim().min(1).max(300),clientSecret:z.string().min(1).max(2000)})).mutation(async({ctx,input})=>{
+    const {project}=await editor(ctx,input.projectId);
+    requireOrgRole(ctx,project.organizationId,"ADMIN");
+    if(!encryptionReady())throw unavailable();
+    const encryptedSecret=jsonToken(encryptToken(input.clientSecret));
+    const existing=await ctx.prisma.repositoryProviderConfiguration.findUnique({where:{organizationId_provider_origin:{organizationId:project.organizationId,provider:"github",origin:GITHUB_ORIGIN}}});
+    if(existing)throw new TRPCError({code:"CONFLICT",message:"GitHub is already configured. Contact your admin to rotate its application credentials."});
+    return ctx.prisma.$transaction(async tx=>{
+      await liveEditor(tx,project.organizationId,ctx.user.id,true);
+      return tx.repositoryProviderConfiguration.create({data:{organizationId:project.organizationId,provider:"github",origin:GITHUB_ORIGIN,clientId:input.clientId,encryptedSecret,createdById:ctx.user.id},select:{id:true,origin:true,provider:true}});
     });
   }),
   removeConfiguration:protectedProcedure.input(projectInput.extend({configurationId:z.string(),confirmed:z.literal(true)})).mutation(async({ctx,input})=>{
@@ -80,16 +93,16 @@ export const repositoryConnectionsRouter=router({
   begin:protectedProcedure.input(projectInput.extend({configurationId:z.string(),approveMetadataAccess:z.literal(true)})).mutation(async({ctx,input})=>{
     const {project}=await editor(ctx,input.projectId);
     if(!encryptionReady())throw unavailable();
-    const config=await ctx.prisma.repositoryProviderConfiguration.findFirst({where:{id:input.configurationId,organizationId:project.organizationId,provider:"gitlab"}});
+    const config=await ctx.prisma.repositoryProviderConfiguration.findFirst({where:{id:input.configurationId,organizationId:project.organizationId,provider:{in:["gitlab","github"]}}});
     if(!config)throw new TRPCError({code:"NOT_FOUND"});
     const recent=await ctx.prisma.repositoryConnection.count({where:{actorId:ctx.user.id,createdAt:{gt:new Date(Date.now()-3600000)}}});
     if(recent>=20)throw new TRPCError({code:"TOO_MANY_REQUESTS",message:"Too many authorization attempts. Try again later."});
-    const auth=createGitlabAuthorization(config.origin,config.clientId,repositoryOAuthRedirect());
+    const auth=config.provider==="github"?createGithubAuthorization(config.clientId,repositoryOAuthRedirect(process.env,"github")):createGitlabAuthorization(config.origin,config.clientId,repositoryOAuthRedirect());
     const row=await ctx.prisma.$transaction(async tx=>{
       await liveEditor(tx,project.organizationId,ctx.user.id);
       // Opportunistically erase expired credentials for this actor without deleting provenance.
       await tx.repositoryConnection.updateMany({where:{actorId:ctx.user.id,organizationId:project.organizationId,OR:[{status:"PENDING",authorizationExpiresAt:{lte:new Date()}},{status:"VERIFIED",tokenExpiresAt:{lte:new Date()}}]},data:{...clearCredentials,status:"EXPIRED"}});
-      return tx.repositoryConnection.create({data:{projectId:input.projectId,organizationId:project.organizationId,actorId:ctx.user.id,configurationId:config.id,provider:"gitlab",origin:config.origin,stateHash:hashOAuthState(auth.state),encryptedVerifier:jsonToken(encryptToken(auth.verifier)),authorizationExpiresAt:new Date(Date.now()+600000)}});
+      return tx.repositoryConnection.create({data:{projectId:input.projectId,organizationId:project.organizationId,actorId:ctx.user.id,configurationId:config.id,provider:config.provider,origin:config.origin,stateHash:hashOAuthState(auth.state),encryptedVerifier:jsonToken(encryptToken(auth.verifier)),authorizationExpiresAt:new Date(Date.now()+600000)}});
     });
     return{id:row.id,url:auth.url};
   }),
@@ -98,13 +111,16 @@ export const repositoryConnectionsRouter=router({
     if(!row || row.actorId!==ctx.user.id)throw new TRPCError({code:"NOT_FOUND"});
     await editor(ctx,row.projectId);
     if(row.status!=="PENDING" || row.authorizationExpiresAt.getTime()<=Date.now())throw new TRPCError({code:"PRECONDITION_FAILED",message:"Authorization expired or was already used. Start again."});
+    if(row.provider!=="gitlab" && row.provider!=="github")throw new TRPCError({code:"PRECONDITION_FAILED",message:"This provider does not support authorization."});
     const claim=await ctx.prisma.repositoryConnection.updateMany({where:{id:row.id,status:"PENDING",authorizationExpiresAt:{gt:new Date()}},data:{status:"VERIFYING",encryptedVerifier:Prisma.DbNull}});
     if(claim.count!==1)throw new TRPCError({code:"CONFLICT",message:"Authorization is already being verified."});
     try{
       if(input.denied || !input.code)throw new Error("Authorization canceled");
-      const config=await ctx.prisma.repositoryProviderConfiguration.findFirst({where:{id:row.configurationId,organizationId:row.organizationId}});
+      const config=await ctx.prisma.repositoryProviderConfiguration.findFirst({where:{id:row.configurationId,organizationId:row.organizationId,provider:row.provider}});
       if(!config)throw unavailable();
-      const verified=await verifyGitlabAuthorization({origin:config.origin,clientId:config.clientId,clientSecret:decrypt(config.encryptedSecret),redirectUri:repositoryOAuthRedirect(),code:input.code,verifier:decrypt(row.encryptedVerifier)});
+      const verified=row.provider==="github"
+        ? await verifyGithubAuthorization({clientId:config.clientId,clientSecret:decrypt(config.encryptedSecret),redirectUri:repositoryOAuthRedirect(process.env,"github"),code:input.code,verifier:decrypt(row.encryptedVerifier)})
+        : await verifyGitlabAuthorization({origin:config.origin,clientId:config.clientId,clientSecret:decrypt(config.encryptedSecret),redirectUri:repositoryOAuthRedirect(),code:input.code,verifier:decrypt(row.encryptedVerifier)});
       // Permissions may have changed while the provider was contacted.
       await ctx.prisma.$transaction(async tx=>{
         await liveEditor(tx,row.organizationId,ctx.user.id);
@@ -123,8 +139,24 @@ export const repositoryConnectionsRouter=router({
   }),
   disconnect:protectedProcedure.input(z.object({id:z.string()})).mutation(async({ctx,input})=>{
     const row=await ownConnection(ctx,input.id);
+    if(row.provider==="github" && row.encryptedToken){
+      const config=await ctx.prisma.repositoryProviderConfiguration.findFirst({where:{id:row.configurationId,organizationId:row.organizationId,provider:"github",origin:GITHUB_ORIGIN}});
+      if(!config)throw new TRPCError({code:"PRECONDITION_FAILED",message:"GitHub application settings are unavailable. The connection was not disconnected."});
+      // Check live authorization before provider I/O. If access changes during
+      // revocation, the confirmed token still needs to be cleared locally.
+      await ctx.prisma.$transaction(tx=>liveEditor(tx,row.organizationId,ctx.user.id));
+      try{
+        await revokeGithubAuthorization({clientId:config.clientId,clientSecret:decrypt(config.encryptedSecret),token:decrypt(row.encryptedToken)});
+      }catch{
+        throw new TRPCError({code:"PRECONDITION_FAILED",message:"GitHub did not confirm token revocation. The connection remains in Vaettir. Retry, or revoke the app in GitHub's Authorized OAuth Apps settings."});
+      }
+    }
     await ctx.prisma.$transaction(async tx=>{
-      await liveEditor(tx,row.organizationId,ctx.user.id);
+      if(row.provider!=="github")await liveEditor(tx,row.organizationId,ctx.user.id);
+      await tx.$queryRaw`SELECT id FROM "RepositoryConnection" WHERE id = ${row.id} FOR UPDATE`;
+      const current=await tx.repositoryConnection.findUnique({where:{id:row.id}});
+      if(!current || current.status!==row.status || JSON.stringify(current.encryptedToken)!==JSON.stringify(row.encryptedToken))
+        throw new TRPCError({code:"CONFLICT",message:"The connection changed while disconnecting. Refresh its status."});
       await tx.repositoryConnection.update({where:{id:row.id},data:{...clearCredentials,status:"DISCONNECTED"}});
       await tx.projectRepository.updateMany({where:{connectionId:row.id},data:{connectionId:null,verifiedAt:null}});
     });
@@ -132,14 +164,16 @@ export const repositoryConnectionsRouter=router({
   }),
   list:protectedProcedure.input(z.object({id:z.string(),page:z.number().int().min(1).max(100).default(1),search:z.string().trim().max(100).default("")})).query(async({ctx,input})=>{
     const row=await ownConnection(ctx,input.id);requireVerified(row);
-    let repositories;try{repositories=await listGitlabRepositories(row.origin,decrypt(row.encryptedToken),input.page,input.search);}catch{throw new TRPCError({code:"BAD_REQUEST",message:"Could not list repositories. Reconnect or check your access to this instance."});}
+    if(row.provider!=="gitlab" && row.provider!=="github")throw new TRPCError({code:"PRECONDITION_FAILED",message:"This provider does not support verified repository listing."});
+    let repositories;try{repositories=row.provider==="github"?await listGithubRepositories(decrypt(row.encryptedToken),input.page):await listGitlabRepositories(row.origin,decrypt(row.encryptedToken),input.page,input.search);}catch{throw new TRPCError({code:"BAD_REQUEST",message:"Could not list repositories. Reconnect or check your access to this instance."});}
+    const visible=row.provider==="github" && input.search?repositories.filter(repo=>repo.name.toLowerCase().includes(input.search.toLowerCase())):repositories;
     // A page is a bounded verified selection snapshot, not permission to read its source.
     await ctx.prisma.$transaction(async tx=>{
       await liveEditor(tx,row.organizationId,ctx.user.id);
-      const saved=await tx.repositoryConnection.updateMany({where:{id:row.id,status:"VERIFIED",tokenExpiresAt:{gt:new Date(Date.now()+30000)}},data:{catalog:repositories,catalogAt:new Date()}});
+      const saved=await tx.repositoryConnection.updateMany({where:{id:row.id,status:"VERIFIED",tokenExpiresAt:{gt:new Date(Date.now()+30000)}},data:{catalog:visible,catalogAt:new Date()}});
       if(saved.count!==1)throw new TRPCError({code:"PRECONDITION_FAILED",message:"Connection changed. Reconnect before selecting repositories."});
     });
-    return{repositories,hasMore:repositories.length===100,catalogVersion:catalogVersion(repositories)};
+    return{repositories:visible,hasMore:repositories.length===100,catalogVersion:catalogVersion(visible)};
   }),
   connectSelected:protectedProcedure.input(z.object({id:z.string(),repositoryIds:z.array(z.string()).min(1).max(100),catalogVersion:z.string().length(64),approved:z.literal(true)})).mutation(async({ctx,input})=>{
     const row=await ownConnection(ctx,input.id);requireVerified(row);
@@ -155,10 +189,10 @@ export const repositoryConnectionsRouter=router({
       if(catalogVersion(current.catalog)!==input.catalogVersion)throw new TRPCError({code:"CONFLICT",message:"Repository choices changed. Refresh and review again."});
       for(const repo of selected){
         if(!repo)continue;
-        const where={projectId_provider_url:{projectId:row.projectId,provider:"gitlab",url:repo.url}};
+        const where={projectId_provider_url:{projectId:row.projectId,provider:row.provider,url:repo.url}};
         const existing=await tx.projectRepository.findUnique({where,include:{connection:{select:{actorId:true,status:true,tokenExpiresAt:true}}}});
         if(existing?.connectionId && existing.connectionId!==row.id && existing.connection?.actorId!==ctx.user.id)throw new TRPCError({code:"CONFLICT",message:"A selected repository already has another member's connection. Ask them to disconnect it first."});
-        await tx.projectRepository.upsert({where,create:{projectId:row.projectId,provider:"gitlab",url:repo.url,externalId:repo.id,connectionId:row.id,verifiedAt:row.verifiedAt},update:{externalId:repo.id,connectionId:row.id,verifiedAt:row.verifiedAt}});
+        await tx.projectRepository.upsert({where,create:{projectId:row.projectId,provider:row.provider,url:repo.url,externalId:repo.id,connectionId:row.id,verifiedAt:row.verifiedAt},update:{externalId:repo.id,connectionId:row.id,verifiedAt:row.verifiedAt}});
       }
     });
     return{connected:ids.length};

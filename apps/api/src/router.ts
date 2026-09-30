@@ -1,6 +1,7 @@
 import { router } from "./trpc.js";
 import { repositoryConnectionsRouter } from "./routers/repositoryConnections.js";
 import { testDesignRouter } from "./routers/testDesign.js";
+import { creditUseRequestsRouter } from "./routers/creditUseRequests.js";
 import { testCasesRouter } from "./routers/testCases.js";
 import { testPlansRouter } from "./routers/testPlans.js";
 import { agentRouter } from "./routers/agent.js";
@@ -34,11 +35,13 @@ import { populationDocumentsRouter } from "./routers/populationDocuments.js";
 import { populationRequirementsRouter } from "./routers/populationRequirements.js";
 import { populationAssessmentRouter } from "./routers/populationAssessment.js";
 import { testCaseViewsRouter } from "./routers/testCaseViews.js";
+import { testCaseStructureRouter } from "./routers/testCaseStructure.js";
 import { reportsRouter } from "./routers/reports.js";
 
 export const appRouter = router({
   repositoryConnections: repositoryConnectionsRouter,
   testDesign: testDesignRouter,
+  creditUseRequests: creditUseRequestsRouter,
   projectPopulation: projectPopulationRouter,
   populationDocuments: populationDocumentsRouter,
   populationRequirements: populationRequirementsRouter,
@@ -46,6 +49,7 @@ export const appRouter = router({
   beta: betaRouter,
   testCases: testCasesRouter,
   testCaseViews: testCaseViewsRouter,
+  testCaseStructure: testCaseStructureRouter,
   reports: reportsRouter,
   testPlans: testPlansRouter,
   agent: agentRouter,

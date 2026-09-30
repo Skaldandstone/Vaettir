@@ -29,6 +29,8 @@ function CaseRow({
   stepFieldLabels,
   onRecord,
   disabled,
+  prerequisites,
+  blockedBy,
 }: {
   testCase: ExecutionCase;
   stepFieldLabels: Record<string, string>;
@@ -39,6 +41,8 @@ function CaseRow({
     observations: Observations,
   ) => Promise<void>;
   disabled: boolean;
+  prerequisites: { id: string; title: string; status: string | null }[];
+  blockedBy: string[];
 }) {
   const [expanded, setExpanded] = useState(false);
   const [note, setNote] = useState(testCase.currentResult?.note ?? "");
@@ -128,6 +132,13 @@ function CaseRow({
           </span>
         )}
       </div>
+
+      {prerequisites.length > 0 && <p className="text-muted" style={{ fontSize: 12, marginTop: 6 }}>
+        Prerequisites in this run: {prerequisites.map(({ id, title, status }) => <span key={id} style={{ marginRight: 10 }}>{title} ({status ?? "not run"})</span>)}
+      </p>}
+      {blockedBy.length > 0 && <p role="status" style={{ color: "var(--warning)", fontSize: 12, marginTop: 4 }}>
+        Complete {blockedBy.join(", ")} with Pass before recording Pass or Fail here. Blocked and Skip remain available.
+      </p>}
 
       {expanded && (
         <div style={{ marginTop: 10, fontSize: 13 }}>
@@ -305,14 +316,14 @@ function CaseRow({
         <button
           className="btn-secondary"
           onClick={() => record("PASS")}
-          disabled={disabled || busy}
+          disabled={disabled || busy || blockedBy.length > 0}
         >
           Pass
         </button>
         <button
           className="btn-secondary"
           onClick={() => record("FAIL")}
-          disabled={disabled || busy}
+          disabled={disabled || busy || blockedBy.length > 0}
         >
           Fail
         </button>
@@ -417,6 +428,11 @@ export default function ManualExecutionPage() {
         <CaseRow
           key={tc.testCaseId}
           testCase={tc}
+          prerequisites={tc.prerequisiteIds.map(id => {
+            const prerequisite = data.cases.find(candidate => candidate.testCaseId === id);
+            return { id, title: prerequisite?.title ?? "Unavailable case", status: prerequisite?.currentResult?.status ?? null };
+          })}
+          blockedBy={tc.prerequisiteIds.filter(id => data.cases.find(candidate => candidate.testCaseId === id)?.currentResult?.status !== "PASS").map(id => data.cases.find(candidate => candidate.testCaseId === id)?.title ?? "Unavailable case")}
           stepFieldLabels={data.stepFieldLabels}
           onRecord={handleRecord}
           disabled={
