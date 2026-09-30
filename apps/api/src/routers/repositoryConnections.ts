@@ -5,7 +5,7 @@ import { router,protectedProcedure,requireProjectAccess,requireOrgRole,type Cont
 import { encryptToken,decryptToken,type EncryptedToken } from "../services/tokenEncryption.js";
 import { repositoryProviderOrigin } from "../services/repositoryProviderHttp.js";
 import { createGitlabAuthorization,hashOAuthState,listGitlabRepositories,repositoryOAuthRedirect,repositorySelectionSchema,verifyGitlabAuthorization } from "../services/gitlabRepositoryOAuth.js";
-import { GITHUB_ORIGIN, createGithubAuthorization, listGithubRepositories, revokeGithubAuthorization, verifyGithubAuthorization } from "../services/githubRepositoryOAuth.js";
+import { GITHUB_ORIGIN, GithubOAuthRevocationPendingError, createGithubAuthorization, listGithubRepositories, revokeGithubAuthorization, verifyGithubAuthorization } from "../services/githubRepositoryOAuth.js";
 
 const projectInput=z.object({projectId:z.string()});
 const jsonToken=(value:ReturnType<typeof encryptToken>)=>({...value});
@@ -21,7 +21,9 @@ async function liveEditor(tx:Prisma.TransactionClient,organizationId:string,user
 }
 const clearCredentials={encryptedToken:Prisma.DbNull,encryptedVerifier:Prisma.DbNull,catalog:Prisma.DbNull,catalogAt:null,tokenExpiresAt:null,verifiedAt:null};
 // PostgreSQL JSONB reorders object keys. Hash a canonical field tuple, not raw JSON.
-const catalogVersion=(catalog:unknown)=>hashOAuthState(JSON.stringify(z.array(repositorySelectionSchema).parse(catalog).map(repo=>[repo.id,repo.name,repo.url,repo.defaultBranch])));
+const catalogVersion=(catalog:unknown,connectionId:string,catalogAt:Date)=>hashOAuthState(JSON.stringify([
+  connectionId,catalogAt.toISOString(),z.array(repositorySelectionSchema).parse(catalog).map(repo=>[repo.id,repo.name,repo.url,repo.defaultBranch]),
+]));
 async function editor(ctx:Context,projectId:string){
   if(!ctx.user)throw new TRPCError({code:"UNAUTHORIZED"});
   const access=await requireProjectAccess({...ctx,user:ctx.user},projectId,"EDITOR");
@@ -32,6 +34,16 @@ async function ownConnection(ctx:Context,id:string){
   const row=await ctx.prisma.repositoryConnection.findFirst({where:{id,actorId:ctx.user?.id}});
   if(!row)throw new TRPCError({code:"NOT_FOUND"});
   await editor(ctx,row.projectId);
+  return row;
+}
+async function disconnectableConnection(ctx:Context,id:string){
+  const row=await ctx.prisma.repositoryConnection.findUnique({where:{id}});
+  if(!row)throw new TRPCError({code:"NOT_FOUND"});
+  if(row.actorId===ctx.user!.id){await editor(ctx,row.projectId);return row;}
+  try{
+    const {project}=await editor(ctx,row.projectId);
+    requireOrgRole({...ctx,user:ctx.user!},project.organizationId,"ADMIN");
+  }catch{throw new TRPCError({code:"NOT_FOUND"});}
   return row;
 }
 function requireVerified(row:{status:string;tokenExpiresAt:Date|null;encryptedToken:unknown}){
@@ -45,13 +57,18 @@ function publicStatus(row:{status:string;authorizationExpiresAt:Date;tokenExpire
 export const repositoryConnectionsRouter=router({
   mine:protectedProcedure.input(projectInput).query(async({ctx,input})=>{
     await editor(ctx,input.projectId);
-    const rows=await ctx.prisma.repositoryConnection.findMany({where:{projectId:input.projectId,actorId:ctx.user.id,status:{in:["PENDING","VERIFYING","VERIFIED"]}},orderBy:{createdAt:"desc"},take:20,select:{id:true,provider:true,origin:true,status:true,accountLabel:true,authorizationExpiresAt:true,tokenExpiresAt:true}});
+    const rows=await ctx.prisma.repositoryConnection.findMany({where:{projectId:input.projectId,actorId:ctx.user.id,status:{in:["PENDING","VERIFYING","VERIFIED","REVOCATION_PENDING"]}},orderBy:{createdAt:"desc"},take:20,select:{id:true,provider:true,origin:true,status:true,accountLabel:true,authorizationExpiresAt:true,tokenExpiresAt:true}});
     return rows.map(row=>({id:row.id,provider:row.provider,origin:row.origin,status:publicStatus(row),accountLabel:row.accountLabel}));
   }),
   configurations:protectedProcedure.input(projectInput).query(async({ctx,input})=>{
     const {project,membership}=await requireProjectAccess(ctx,input.projectId);
     const configurations=await ctx.prisma.repositoryProviderConfiguration.findMany({where:{organizationId:project.organizationId},select:{id:true,provider:true,origin:true}});
     return{configurations,storageReady:encryptionReady(),canConfigure:membership.seatType==="FULL" && ["OWNER","ADMIN"].includes(membership.role),redirectUri:redirectUri(),githubRedirectUri:redirectUri("github")};
+  }),
+  revocableGrants:protectedProcedure.input(projectInput).query(async({ctx,input})=>{
+    const {project}=await editor(ctx,input.projectId);requireOrgRole(ctx,project.organizationId,"ADMIN");
+    const rows=await ctx.prisma.repositoryConnection.findMany({where:{organizationId:project.organizationId,provider:"github",OR:[{encryptedToken:{not:Prisma.DbNull}},{status:{in:["PENDING","VERIFYING"]}}]},orderBy:{createdAt:"desc"},take:100,select:{id:true,projectId:true,project:{select:{name:true}},accountLabel:true,status:true,tokenExpiresAt:true,authorizationExpiresAt:true}});
+    return rows.map(row=>({id:row.id,projectId:row.projectId,projectName:row.project.name,accountLabel:row.accountLabel,status:row.status}));
   }),
   configureGitlab:protectedProcedure.input(projectInput.extend({origin:z.string().max(300),clientId:z.string().trim().min(1).max(300),clientSecret:z.string().min(1).max(2000)})).mutation(async({ctx,input})=>{
     const {project}=await editor(ctx,input.projectId);
@@ -85,6 +102,12 @@ export const repositoryConnectionsRouter=router({
       await liveEditor(tx,project.organizationId,ctx.user.id,true);
       const config=await tx.repositoryProviderConfiguration.findFirst({where:{id:input.configurationId,organizationId:project.organizationId}});
       if(!config)throw new TRPCError({code:"NOT_FOUND"});
+      const authorizing=await tx.repositoryConnection.count({where:{configurationId:config.id,status:{in:["PENDING","VERIFYING"]}}});
+      if(authorizing)throw new TRPCError({code:"PRECONDITION_FAILED",message:"Finish or cancel in-progress authorizations before removing this application."});
+      if(config.provider==="github"){
+        const outstanding=await tx.repositoryConnection.count({where:{configurationId:config.id,encryptedToken:{not:Prisma.DbNull}}});
+        if(outstanding)throw new TRPCError({code:"PRECONDITION_FAILED",message:"Revoke every GitHub grant and finish in-progress authorizations before removing this application. No credentials were discarded."});
+      }
       await tx.projectRepository.updateMany({where:{connection:{configurationId:config.id}},data:{connectionId:null,verifiedAt:null}});
       await tx.repositoryProviderConfiguration.delete({where:{id:config.id}});
     });
@@ -100,8 +123,14 @@ export const repositoryConnectionsRouter=router({
     const auth=config.provider==="github"?createGithubAuthorization(config.clientId,repositoryOAuthRedirect(process.env,"github")):createGitlabAuthorization(config.origin,config.clientId,repositoryOAuthRedirect());
     const row=await ctx.prisma.$transaction(async tx=>{
       await liveEditor(tx,project.organizationId,ctx.user.id);
-      // Opportunistically erase expired credentials for this actor without deleting provenance.
-      await tx.repositoryConnection.updateMany({where:{actorId:ctx.user.id,organizationId:project.organizationId,OR:[{status:"PENDING",authorizationExpiresAt:{lte:new Date()}},{status:"VERIFIED",tokenExpiresAt:{lte:new Date()}}]},data:{...clearCredentials,status:"EXPIRED"}});
+      // Local expiry does not revoke a GitHub OAuth grant. Keep the encrypted
+      // token until explicit upstream revocation succeeds, even after eight hours.
+      await tx.repositoryConnection.updateMany({where:{actorId:ctx.user.id,organizationId:project.organizationId,status:"PENDING",authorizationExpiresAt:{lte:new Date()}},data:{...clearCredentials,status:"EXPIRED"}});
+      if(config.provider==="github"){
+        const existing=await tx.repositoryConnection.findFirst({where:{projectId:input.projectId,actorId:ctx.user.id,configurationId:config.id,
+          OR:[{encryptedToken:{not:Prisma.DbNull}},{status:{in:["PENDING","VERIFYING"]},authorizationExpiresAt:{gt:new Date()}}]}});
+        if(existing)throw new TRPCError({code:"PRECONDITION_FAILED",message:"Revoke the previous GitHub grant or finish its authorization before reconnecting this project."});
+      }
       return tx.repositoryConnection.create({data:{projectId:input.projectId,organizationId:project.organizationId,actorId:ctx.user.id,configurationId:config.id,provider:config.provider,origin:config.origin,stateHash:hashOAuthState(auth.state),encryptedVerifier:jsonToken(encryptToken(auth.verifier)),authorizationExpiresAt:new Date(Date.now()+600000)}});
     });
     return{id:row.id,url:auth.url};
@@ -114,13 +143,17 @@ export const repositoryConnectionsRouter=router({
     if(row.provider!=="gitlab" && row.provider!=="github")throw new TRPCError({code:"PRECONDITION_FAILED",message:"This provider does not support authorization."});
     const claim=await ctx.prisma.repositoryConnection.updateMany({where:{id:row.id,status:"PENDING",authorizationExpiresAt:{gt:new Date()}},data:{status:"VERIFYING",encryptedVerifier:Prisma.DbNull}});
     if(claim.count!==1)throw new TRPCError({code:"CONFLICT",message:"Authorization is already being verified."});
+    let githubGrant:{clientId:string;clientSecret:string;token:string}|null=null;
+    let githubCredentials:{clientId:string;clientSecret:string}|null=null;
     try{
       if(input.denied || !input.code)throw new Error("Authorization canceled");
       const config=await ctx.prisma.repositoryProviderConfiguration.findFirst({where:{id:row.configurationId,organizationId:row.organizationId,provider:row.provider}});
       if(!config)throw unavailable();
+      if(row.provider==="github")githubCredentials={clientId:config.clientId,clientSecret:decrypt(config.encryptedSecret)};
       const verified=row.provider==="github"
-        ? await verifyGithubAuthorization({clientId:config.clientId,clientSecret:decrypt(config.encryptedSecret),redirectUri:repositoryOAuthRedirect(process.env,"github"),code:input.code,verifier:decrypt(row.encryptedVerifier)})
+        ? await verifyGithubAuthorization({clientId:githubCredentials!.clientId,clientSecret:githubCredentials!.clientSecret,redirectUri:repositoryOAuthRedirect(process.env,"github"),code:input.code,verifier:decrypt(row.encryptedVerifier)})
         : await verifyGitlabAuthorization({origin:config.origin,clientId:config.clientId,clientSecret:decrypt(config.encryptedSecret),redirectUri:repositoryOAuthRedirect(),code:input.code,verifier:decrypt(row.encryptedVerifier)});
+      if(githubCredentials)githubGrant={...githubCredentials,token:verified.token};
       // Permissions may have changed while the provider was contacted.
       await ctx.prisma.$transaction(async tx=>{
         await liveEditor(tx,row.organizationId,ctx.user.id);
@@ -128,7 +161,16 @@ export const repositoryConnectionsRouter=router({
         if(saved.count!==1)throw new Error("Connection canceled");
       });
       return{id:row.id,status:"VERIFIED" as const};
-    }catch{
+    }catch(error){
+      let unrevokedToken:string|null=error instanceof GithubOAuthRevocationPendingError?error.token:null;
+      if(githubGrant){
+        try{await revokeGithubAuthorization(githubGrant);}catch{unrevokedToken=githubGrant.token;}
+      }
+      if(unrevokedToken){
+        const retained=await ctx.prisma.repositoryConnection.updateMany({where:{id:row.id,status:"VERIFYING"},data:{...clearCredentials,status:"REVOCATION_PENDING",encryptedToken:jsonToken(encryptToken(unrevokedToken))}});
+        if(retained.count!==1)throw new TRPCError({code:"PRECONDITION_FAILED",message:"GitHub revocation could not be confirmed. The authorization needs administrator review before this application can be removed."});
+        throw new TRPCError({code:"PRECONDITION_FAILED",message:"GitHub revocation could not be confirmed. Disconnect this connection to retry before reconnecting."});
+      }
       await ctx.prisma.repositoryConnection.updateMany({where:{id:row.id,status:"VERIFYING"},data:{...clearCredentials,status:input.denied?"CANCELED":"FAILED"}});
       throw new TRPCError({code:"BAD_REQUEST",message:input.denied?"Authorization canceled. Nothing was connected.":"Could not verify the provider connection. Start again or check the instance application settings."});
     }
@@ -138,13 +180,15 @@ export const repositoryConnectionsRouter=router({
     return{id:row.id,status:publicStatus(row),accountLabel:row.accountLabel,origin:row.origin};
   }),
   disconnect:protectedProcedure.input(z.object({id:z.string()})).mutation(async({ctx,input})=>{
-    const row=await ownConnection(ctx,input.id);
+    const row=await disconnectableConnection(ctx,input.id);
+    const adminDisconnect=row.actorId!==ctx.user.id;
+    if(row.status==="VERIFYING")throw new TRPCError({code:"PRECONDITION_FAILED",message:"Authorization is still being verified. Retry disconnect after it finishes."});
     if(row.provider==="github" && row.encryptedToken){
       const config=await ctx.prisma.repositoryProviderConfiguration.findFirst({where:{id:row.configurationId,organizationId:row.organizationId,provider:"github",origin:GITHUB_ORIGIN}});
       if(!config)throw new TRPCError({code:"PRECONDITION_FAILED",message:"GitHub application settings are unavailable. The connection was not disconnected."});
       // Check live authorization before provider I/O. If access changes during
       // revocation, the confirmed token still needs to be cleared locally.
-      await ctx.prisma.$transaction(tx=>liveEditor(tx,row.organizationId,ctx.user.id));
+      await ctx.prisma.$transaction(tx=>liveEditor(tx,row.organizationId,ctx.user.id,adminDisconnect));
       try{
         await revokeGithubAuthorization({clientId:config.clientId,clientSecret:decrypt(config.encryptedSecret),token:decrypt(row.encryptedToken)});
       }catch{
@@ -152,7 +196,7 @@ export const repositoryConnectionsRouter=router({
       }
     }
     await ctx.prisma.$transaction(async tx=>{
-      if(row.provider!=="github")await liveEditor(tx,row.organizationId,ctx.user.id);
+      if(row.provider!=="github")await liveEditor(tx,row.organizationId,ctx.user.id,adminDisconnect);
       await tx.$queryRaw`SELECT id FROM "RepositoryConnection" WHERE id = ${row.id} FOR UPDATE`;
       const current=await tx.repositoryConnection.findUnique({where:{id:row.id}});
       if(!current || current.status!==row.status || JSON.stringify(current.encryptedToken)!==JSON.stringify(row.encryptedToken))
@@ -170,7 +214,7 @@ export const repositoryConnectionsRouter=router({
     // Keep a bounded, short-lived catalog of pages this actor actually visited.
     // This permits reviewed multi-selection across pages without treating an
     // unlisted repository ID as verified or retaining a stale catalog forever.
-    const {catalog,catalogReset}=await ctx.prisma.$transaction(async tx=>{
+    const {catalog,catalogReset,catalogAt}=await ctx.prisma.$transaction(async tx=>{
       await liveEditor(tx,row.organizationId,ctx.user.id);
       await tx.$queryRaw`SELECT id FROM "RepositoryConnection" WHERE id = ${row.id} FOR UPDATE`;
       const current=await tx.repositoryConnection.findUniqueOrThrow({where:{id:row.id}});
@@ -183,16 +227,17 @@ export const repositoryConnectionsRouter=router({
       for(const repo of visible)combined.set(repo.id,repo);
       if(combined.size>500)throw new TRPCError({code:"PRECONDITION_FAILED",message:"This selection includes too many listed repositories. Connect a reviewed batch, then start a new authorization to continue."});
       const catalog=[...combined.values()];
-      await tx.repositoryConnection.update({where:{id:row.id},data:{catalog,catalogAt:fresh?current.catalogAt:new Date()}});
-      return {catalog,catalogReset:!fresh};
+      const catalogAt=fresh?current.catalogAt!:new Date();
+      await tx.repositoryConnection.update({where:{id:row.id},data:{catalog,catalogAt}});
+      return {catalog,catalogReset:!fresh,catalogAt};
     });
-    return{repositories:visible,hasMore:repositories.length===100,catalogVersion:catalogVersion(catalog),catalogReset};
+    return{repositories:visible,hasMore:repositories.length===100,catalogVersion:catalogVersion(catalog,row.id,catalogAt),catalogReset};
   }),
   connectSelected:protectedProcedure.input(z.object({id:z.string(),repositoryIds:z.array(z.string()).min(1).max(100),catalogVersion:z.string().length(64),approved:z.literal(true)})).mutation(async({ctx,input})=>{
     const row=await ownConnection(ctx,input.id);requireVerified(row);
     if(!row.catalogAt || row.catalogAt.getTime()<Date.now()-600000)throw new TRPCError({code:"PRECONDITION_FAILED",message:"Refresh the repository list before confirming."});
     const catalog=z.array(repositorySelectionSchema).parse(row.catalog);
-    if(catalogVersion(row.catalog)!==input.catalogVersion)throw new TRPCError({code:"CONFLICT",message:"Repository choices changed. Refresh the list and review again."});
+    if(catalogVersion(row.catalog,row.id,row.catalogAt)!==input.catalogVersion)throw new TRPCError({code:"CONFLICT",message:"Repository choices changed. Refresh the list and review again."});
     const ids=[...new Set(input.repositoryIds)];
     const selected=ids.map(id=>catalog.find(repo=>repo.id===id));
     if(selected.some(repo=>!repo))throw new TRPCError({code:"BAD_REQUEST",message:"Select repositories from the verified list."});
@@ -201,7 +246,7 @@ export const repositoryConnectionsRouter=router({
       await tx.$queryRaw`SELECT id FROM "RepositoryConnection" WHERE id = ${row.id} FOR UPDATE`;
       const current=await tx.repositoryConnection.findUniqueOrThrow({where:{id:row.id}});requireVerified(current);
       if(!current.catalogAt || current.catalogAt.getTime()<Date.now()-600000)throw new TRPCError({code:"PRECONDITION_FAILED",message:"Refresh the repository list before confirming."});
-      if(catalogVersion(current.catalog)!==input.catalogVersion)throw new TRPCError({code:"CONFLICT",message:"Repository choices changed. Refresh and review again."});
+      if(catalogVersion(current.catalog,current.id,current.catalogAt)!==input.catalogVersion)throw new TRPCError({code:"CONFLICT",message:"Repository choices changed. Refresh and review again."});
       for(const repo of selected){
         if(!repo)continue;
         const where={projectId_provider_url:{projectId:row.projectId,provider:row.provider,url:repo.url}};

@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { repositoryProviderJson, repositoryProviderRevokeGithubToken } from "./repositoryProviderHttp.js";
-import { createGithubAuthorization, listGithubRepositories, revokeGithubAuthorization, verifyGithubAuthorization } from "./githubRepositoryOAuth.js";
+import { GithubOAuthRevocationPendingError, createGithubAuthorization, listGithubRepositories, revokeGithubAuthorization, verifyGithubAuthorization } from "./githubRepositoryOAuth.js";
 
 vi.mock("./repositoryProviderHttp.js", async importOriginal => ({
   ...await importOriginal<typeof import("./repositoryProviderHttp.js")>(), repositoryProviderJson: vi.fn(), repositoryProviderRevokeGithubToken: vi.fn(),
@@ -40,12 +40,30 @@ describe("GitHub OAuth repository metadata contract", () => {
     vi.mocked(repositoryProviderJson).mockResolvedValue({ ...token, scope });
     await expect(verifyGithubAuthorization(input)).rejects.toThrow();
     expect(repositoryProviderJson).toHaveBeenCalledTimes(1);
+    expect(repositoryProviderRevokeGithubToken).toHaveBeenCalledWith(input.clientId, input.clientSecret, token.access_token);
   });
   it("requires a Bearer token and a real account", async () => {
     vi.mocked(repositoryProviderJson).mockResolvedValueOnce({ ...token, token_type: "MAC" });
     await expect(verifyGithubAuthorization(input)).rejects.toThrow();
     vi.mocked(repositoryProviderJson).mockResolvedValueOnce(token).mockResolvedValueOnce({ id: 0, login: "fixture-user" });
     await expect(verifyGithubAuthorization(input)).rejects.toThrow();
+    expect(repositoryProviderRevokeGithubToken).toHaveBeenCalledTimes(2);
+  });
+  it("quarantines an issued token if account verification and revocation both fail", async () => {
+    vi.mocked(repositoryProviderJson).mockResolvedValueOnce(token).mockRejectedValueOnce(new Error("provider unavailable"));
+    vi.mocked(repositoryProviderRevokeGithubToken).mockRejectedValueOnce(new Error("revocation unavailable"));
+    const failure = await verifyGithubAuthorization(input).catch(error => error);
+    expect(failure).toBeInstanceOf(GithubOAuthRevocationPendingError);
+    expect(failure.token).toBe(token.access_token);
+    expect(Object.keys(failure)).not.toContain("token");
+    expect(JSON.stringify(failure)).not.toContain(token.access_token);
+    expect(String(failure)).not.toContain(token.access_token);
+    expect(repositoryProviderRevokeGithubToken).toHaveBeenCalledWith(input.clientId, input.clientSecret, token.access_token);
+  });
+  it("does not attempt revocation when no access token was issued", async () => {
+    vi.mocked(repositoryProviderJson).mockResolvedValueOnce({ error: "bad_verification_code" });
+    await expect(verifyGithubAuthorization(input)).rejects.toThrow();
+    expect(repositoryProviderRevokeGithubToken).not.toHaveBeenCalled();
   });
   it("lists bounded pages of accessible repository metadata without reading source", async () => {
     vi.mocked(repositoryProviderJson).mockResolvedValue([{ id: 19, full_name: "team/repo", html_url: "https://github.com/team/repo", default_branch: "main" }]);

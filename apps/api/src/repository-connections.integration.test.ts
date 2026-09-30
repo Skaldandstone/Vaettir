@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { prisma, type OrgRole, type SeatType } from "@vaettir/db";
 import { repositoryConnectionsRouter } from "./routers/repositoryConnections.js";
 import { hashOAuthState, listGitlabRepositories, verifyGitlabAuthorization } from "./services/gitlabRepositoryOAuth.js";
-import { listGithubRepositories, revokeGithubAuthorization, verifyGithubAuthorization } from "./services/githubRepositoryOAuth.js";
+import { GithubOAuthRevocationPendingError, listGithubRepositories, revokeGithubAuthorization, verifyGithubAuthorization } from "./services/githubRepositoryOAuth.js";
 import { decryptToken, type EncryptedToken } from "./services/tokenEncryption.js";
 
 vi.mock("./services/gitlabRepositoryOAuth.js", async importOriginal => ({
@@ -167,6 +167,76 @@ describe.skipIf(!isolated)("repository authorization and reviewed selection", ()
     expect(await prisma.projectRepository.findUniqueOrThrow({ where: { id: link.id } })).toEqual(link);
   });
 
+  it("retains an expired local GitHub token until upstream revocation and blocks app removal", async () => {
+    const config = await owner.configureGithub({ projectId, clientId: "github-app-fixture", clientSecret });
+    const pending = await owner.begin({ projectId, configurationId: config.id, approveMetadataAccess: true });
+    await owner.finish({ state: new URL(pending.url).searchParams.get("state")!, code: "synthetic-code" });
+    await prisma.repositoryConnection.update({ where: { id: pending.id }, data: { tokenExpiresAt: new Date(Date.now() - 1000) } });
+    expect(await owner.status({ id: pending.id })).toMatchObject({ status: "EXPIRED" });
+    await expect(owner.begin({ projectId, configurationId: config.id, approveMetadataAccess: true })).rejects.toMatchObject({ code: "PRECONDITION_FAILED" });
+    await expect(owner.removeConfiguration({ projectId, configurationId: config.id, confirmed: true })).rejects.toMatchObject({ code: "PRECONDITION_FAILED" });
+    expect(decryptToken((await prisma.repositoryConnection.findUniqueOrThrow({ where: { id: pending.id } })).encryptedToken as unknown as EncryptedToken)).toBe(accessToken);
+    await owner.disconnect({ id: pending.id });
+    expect(revokeGithubAuthorization).toHaveBeenCalledWith({ clientId: "github-app-fixture", clientSecret, token: accessToken });
+    await owner.removeConfiguration({ projectId, configurationId: config.id, confirmed: true });
+  });
+
+  it("revokes an issued GitHub token if membership changes before persistence", async () => {
+    const config = await owner.configureGithub({ projectId, clientId: "github-app-fixture", clientSecret });
+    const pending = await owner.begin({ projectId, configurationId: config.id, approveMetadataAccess: true });
+    vi.mocked(verifyGithubAuthorization).mockImplementationOnce(async () => {
+      await prisma.membership.update({ where: { organizationId_userId: { organizationId, userId: ownerId } }, data: { role: "VIEWER" } });
+      return { token: accessToken, expiresAt: new Date(Date.now() + 3600000), accountLabel: "github-fixture" };
+    });
+    await expect(owner.finish({ state: new URL(pending.url).searchParams.get("state")!, code: "synthetic-code" })).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    expect(revokeGithubAuthorization).toHaveBeenCalledWith({ clientId: "github-app-fixture", clientSecret, token: accessToken });
+    expect(await prisma.repositoryConnection.findUniqueOrThrow({ where: { id: pending.id } })).toMatchObject({ status: "FAILED", encryptedToken: null });
+  });
+
+  it("quarantines an issued GitHub token when both verification and revocation fail, then retries disconnect", async () => {
+    const config = await owner.configureGithub({ projectId, clientId: "github-app-fixture", clientSecret });
+    const pending = await owner.begin({ projectId, configurationId: config.id, approveMetadataAccess: true });
+    vi.mocked(verifyGithubAuthorization).mockRejectedValueOnce(new GithubOAuthRevocationPendingError(accessToken));
+    await expect(owner.finish({ state: new URL(pending.url).searchParams.get("state")!, code: "synthetic-code" })).rejects.toMatchObject({ code: "PRECONDITION_FAILED" });
+    const retained = await prisma.repositoryConnection.findUniqueOrThrow({ where: { id: pending.id } });
+    expect(retained.status).toBe("REVOCATION_PENDING");
+    expect(decryptToken(retained.encryptedToken as unknown as EncryptedToken)).toBe(accessToken);
+    await expect(owner.removeConfiguration({ projectId, configurationId: config.id, confirmed: true })).rejects.toMatchObject({ code: "PRECONDITION_FAILED" });
+    await owner.disconnect({ id: pending.id });
+    expect(revokeGithubAuthorization).toHaveBeenCalledWith({ clientId: "github-app-fixture", clientSecret, token: accessToken });
+    expect(await prisma.repositoryConnection.findUniqueOrThrow({ where: { id: pending.id } })).toMatchObject({ status: "DISCONNECTED", encryptedToken: null });
+  });
+
+  it("quarantines a GitHub token when persistence fails and upstream revocation fails", async () => {
+    const config = await owner.configureGithub({ projectId, clientId: "github-app-fixture", clientSecret });
+    const admin = (await actor("ADMIN")).caller;
+    const pending = await owner.begin({ projectId, configurationId: config.id, approveMetadataAccess: true });
+    vi.mocked(verifyGithubAuthorization).mockImplementationOnce(async () => {
+      await prisma.membership.update({ where: { organizationId_userId: { organizationId, userId: ownerId } }, data: { role: "VIEWER" } });
+      return { token: accessToken, expiresAt: new Date(Date.now() + 3600000), accountLabel: "github-fixture" };
+    });
+    vi.mocked(revokeGithubAuthorization).mockRejectedValueOnce(new Error("synthetic provider failure"));
+    await expect(owner.finish({ state: new URL(pending.url).searchParams.get("state")!, code: "synthetic-code" })).rejects.toMatchObject({ code: "PRECONDITION_FAILED" });
+    const retained = await prisma.repositoryConnection.findUniqueOrThrow({ where: { id: pending.id } });
+    expect(retained.status).toBe("REVOCATION_PENDING");
+    expect(decryptToken(retained.encryptedToken as unknown as EncryptedToken)).toBe(accessToken);
+    await expect(admin.removeConfiguration({ projectId, configurationId: config.id, confirmed: true })).rejects.toMatchObject({ code: "PRECONDITION_FAILED" });
+    expect(await admin.revocableGrants({ projectId })).toEqual([expect.objectContaining({ id: pending.id, status: "REVOCATION_PENDING", projectId })]);
+    await admin.disconnect({ id: pending.id });
+    expect(await prisma.repositoryConnection.findUniqueOrThrow({ where: { id: pending.id } })).toMatchObject({ status: "DISCONNECTED", encryptedToken: null });
+  });
+
+  it("lets a full-seat administrator cancel an abandoned GitHub authorization without seeing another tenant", async () => {
+    const config = await owner.configureGithub({ projectId, clientId: "github-app-fixture", clientSecret });
+    const pending = await owner.begin({ projectId, configurationId: config.id, approveMetadataAccess: true });
+    const admin = (await actor("ADMIN")).caller;
+    expect(await admin.revocableGrants({ projectId })).toEqual([expect.objectContaining({ id: pending.id, status: "PENDING" })]);
+    await expect(outsider.revocableGrants({ projectId })).rejects.toMatchObject({ code: "FORBIDDEN" });
+    await admin.disconnect({ id: pending.id });
+    expect(await prisma.repositoryConnection.findUniqueOrThrow({ where: { id: pending.id } })).toMatchObject({ status: "DISCONNECTED", encryptedToken: null });
+    expect(revokeGithubAuthorization).not.toHaveBeenCalled();
+  });
+
   it("enforces tenant, role, full seat, and explicit metadata approval", async () => {
     await expect(outsider.configurations({ projectId })).rejects.toMatchObject({ code: "FORBIDDEN" });
     for (const caller of [editor, viewer, readOnlyAdmin]) {
@@ -307,15 +377,16 @@ describe.skipIf(!isolated)("repository authorization and reviewed selection", ()
     expect(listGitlabRepositories).toHaveBeenCalledTimes(calls);
   });
 
-  it("disconnect wins against a delayed authorization response", async () => {
+  it("blocks disconnect during verification so a delayed authorization is not orphaned", async () => {
     const pending = await begin();
     vi.mocked(verifyGitlabAuthorization).mockImplementationOnce(async () => {
-      await owner.disconnect({ id: pending.id });
+      await expect(owner.disconnect({ id: pending.id })).rejects.toMatchObject({ code: "PRECONDITION_FAILED" });
       return { token: accessToken, expiresAt: new Date(Date.now() + 3600000), accountLabel: "synthetic-user" };
     });
-    await expect(owner.finish({ state: pending.state, code: "synthetic-code" })).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    await owner.finish({ state: pending.state, code: "synthetic-code" });
     const stored = await prisma.repositoryConnection.findUniqueOrThrow({ where: { id: pending.id } });
-    expect(stored).toMatchObject({ status: "DISCONNECTED", encryptedToken: null, encryptedVerifier: null, catalog: null });
+    expect(stored).toMatchObject({ status: "VERIFIED", encryptedVerifier: null, catalog: null });
+    expect(decryptToken(stored.encryptedToken as unknown as EncryptedToken)).toBe(accessToken);
   });
 
   it("disconnect wins against a delayed repository list without deleting registered evidence", async () => {
@@ -367,6 +438,17 @@ describe.skipIf(!isolated)("repository authorization and reviewed selection", ()
       catalogVersion: renewed.catalogVersion, approved: true })).rejects.toMatchObject({ code: "BAD_REQUEST" });
   });
 
+  it("rejects a captured approval after an identical catalog is renewed", async () => {
+    const pending = await verified();
+    const first = await owner.list({ id: pending.id });
+    await prisma.repositoryConnection.update({ where: { id: pending.id }, data: { catalogAt: new Date(Date.now() - 660_000) } });
+    const renewed = await owner.list({ id: pending.id });
+    expect(renewed.repositories).toEqual(first.repositories);
+    expect(renewed.catalogVersion).not.toBe(first.catalogVersion);
+    await expect(owner.connectSelected({ id: pending.id, repositoryIds: ["101"],
+      catalogVersion: first.catalogVersion, approved: true })).rejects.toMatchObject({ code: "CONFLICT" });
+  });
+
   it("removes app credentials and connections only for an admin, retaining repository references", async () => {
     const pending = await verified();
     const listing = await owner.list({ id: pending.id });
@@ -379,14 +461,14 @@ describe.skipIf(!isolated)("repository authorization and reviewed selection", ()
     expect(await prisma.projectRepository.findUniqueOrThrow({ where: { id: before.id } })).toMatchObject({ id: before.id, url: before.url, connectionId: null, verifiedAt: null });
   });
 
-  it("config removal during verification cannot restore a credential", async () => {
+  it("blocks config removal during verification rather than discarding an issued credential", async () => {
     const pending = await begin();
     vi.mocked(verifyGitlabAuthorization).mockImplementationOnce(async () => {
-      await owner.removeConfiguration({ projectId, configurationId, confirmed: true });
+      await expect(owner.removeConfiguration({ projectId, configurationId, confirmed: true })).rejects.toMatchObject({ code: "PRECONDITION_FAILED" });
       return { token: accessToken, expiresAt: new Date(Date.now()+3600000), accountLabel: "synthetic-user" };
     });
-    await expect(owner.finish({ state: pending.state, code: "synthetic-code" })).rejects.toMatchObject({ code: "BAD_REQUEST" });
-    expect(await prisma.repositoryConnection.findUnique({ where: { id: pending.id } })).toBeNull();
+    await owner.finish({ state: pending.state, code: "synthetic-code" });
+    expect(await prisma.repositoryConnection.findUnique({ where: { id: pending.id } })).toMatchObject({ status: "VERIFIED" });
   });
 
   it("does not silently take over another actor's existing repository connection", async () => {

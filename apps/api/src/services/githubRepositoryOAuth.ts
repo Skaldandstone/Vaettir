@@ -6,6 +6,17 @@ import type { RepositorySelection } from "./gitlabRepositoryOAuth.js";
 export const GITHUB_ORIGIN = "https://github.com";
 const GITHUB_API_ORIGIN = "https://api.github.com";
 
+/** The router must retain this token for retry when upstream revocation fails. */
+export class GithubOAuthRevocationPendingError extends Error {
+  declare readonly token: string;
+
+  constructor(token: string) {
+    super("GitHub issued a token that could not be verified or revoked.");
+    this.name = "GithubOAuthRevocationPendingError";
+    Object.defineProperty(this, "token", { value: token, enumerable: false, writable: false });
+  }
+}
+
 export async function revokeGithubAuthorization(input: { clientId: string; clientSecret: string; token: string }): Promise<void> {
   await repositoryProviderRevokeGithubToken(input.clientId, input.clientSecret, input.token);
 }
@@ -25,30 +36,44 @@ export function createGithubAuthorization(clientId: string, redirectUri: string)
 }
 
 export async function verifyGithubAuthorization(input: { clientId: string; clientSecret: string; redirectUri: string; code: string; verifier: string }) {
-  const token = z.object({
-    access_token: z.string().min(1).max(10000),
-    token_type: z.string().refine(value => value.toLowerCase() === "bearer"),
-    scope: z.string(),
-    expires_in: z.number().int().positive().max(86400).optional(),
-  }).parse(await repositoryProviderJson(GITHUB_ORIGIN, "/login/oauth/access_token", {
+  const response = await repositoryProviderJson(GITHUB_ORIGIN, "/login/oauth/access_token", {
     form: new URLSearchParams({
       client_id: input.clientId, client_secret: input.clientSecret,
       redirect_uri: input.redirectUri, code: input.code,
       code_verifier: input.verifier,
     }),
-  }));
-  if (!token.scope.split(",").map(value => value.trim()).includes("repo"))
-    throw new Error("Repository scope was not granted");
-  const account = z.object({ id: z.number().int().positive(), login: z.string().min(1).max(200) })
-    .parse(await repositoryProviderJson(GITHUB_API_ORIGIN, "/user", { token: token.access_token }));
-  // GitHub OAuth apps can issue non-expiring tokens. Bound Vaettir's retained
-  // use of one to eight hours and require reauthorization; never claim the
-  // upstream token itself expires at this timestamp.
-  return {
-    token: token.access_token,
-    expiresAt: new Date(Date.now() + Math.min(token.expires_in ?? 28800, 28800) * 1000),
-    accountLabel: account.login,
-  };
+  });
+  // Once a token exists, every later verification failure must attempt to
+  // remove its upstream grant. Keep the token available to the router if
+  // revocation cannot be confirmed.
+  const issued = z.object({ access_token: z.string().min(1).max(10000) }).parse(response);
+  try {
+    const token = z.object({
+      access_token: z.string().min(1).max(10000),
+      token_type: z.string().refine(value => value.toLowerCase() === "bearer"),
+      scope: z.string(),
+      expires_in: z.number().int().positive().max(86400).optional(),
+    }).parse(response);
+    if (!token.scope.split(",").map(value => value.trim()).includes("repo"))
+      throw new Error("Repository scope was not granted");
+    const account = z.object({ id: z.number().int().positive(), login: z.string().min(1).max(200) })
+      .parse(await repositoryProviderJson(GITHUB_API_ORIGIN, "/user", { token: token.access_token }));
+    // GitHub OAuth apps can issue non-expiring tokens. Bound Vaettir's retained
+    // use of one to eight hours and require reauthorization; never claim the
+    // upstream token itself expires at this timestamp.
+    return {
+      token: token.access_token,
+      expiresAt: new Date(Date.now() + Math.min(token.expires_in ?? 28800, 28800) * 1000),
+      accountLabel: account.login,
+    };
+  } catch (error) {
+    try {
+      await revokeGithubAuthorization({ clientId: input.clientId, clientSecret: input.clientSecret, token: issued.access_token });
+    } catch {
+      throw new GithubOAuthRevocationPendingError(issued.access_token);
+    }
+    throw error;
+  }
 }
 
 export async function listGithubRepositories(token: string, page: number): Promise<RepositorySelection[]> {
