@@ -35,7 +35,7 @@ export function CreationWizard({
       </div>
       <div
         className="creation-wizard-progress"
-        style={{ gridTemplateColumns: `repeat(${steps.length}, 1fr)` }}
+        style={{ gridTemplateColumns: `repeat(${steps.length}, minmax(0, 1fr))` }}
         aria-label={`Step ${step + 1} of ${steps.length}`}
       >
         {steps.map((label, index) => (

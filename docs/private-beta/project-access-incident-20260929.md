@@ -19,4 +19,5 @@
 
 - Full isolated API suite: 393 passed across 70 files before the additional liveness-status test. Final focused suite: 16 passed, including that additional test. Web contracts: 42 passed. API/web typechecks passed; focused lint has no errors and two existing image-element warnings.
 - Production recovery was authenticated and read-only: projects listed and existing owner controls restored. No mail, paid generation or customer-record edits used for validation.
-- Prevention deployment acceptance will be recorded after immutable build and rollout checks. No live password rotation will be forced as a test.
+- Prevention deployed at commit `29352e2d539de09a049416502a388af6976f2640`: API task27 digest `sha256:c7fc9e8d0637571a0cced5d6dd34fef5d2fc2b42abedf76887227b5989b0631e`, web task21 digest `sha256:b22bcd8ee3ae99a6a1e8c376c6c584890f17131c0b768dd9ce2360100c4d80ae`. Both ECS acceptance checkers returned ready with no issues after predecessor draining completed.
+- Exact API commit/digest, healthy database/workers and successful credential check verified. Authenticated production projects list and owner administration links passed after fresh navigation. No live password rotation was forced as a test; rotation-trigger behavior is isolated-test evidence, not a production fault-injection claim.

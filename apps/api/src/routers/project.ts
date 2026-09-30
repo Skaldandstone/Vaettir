@@ -29,7 +29,8 @@ const qualityProfileSchema = z.object({
 export const projectRouter = router({
   repositories: protectedProcedure.input(z.object({projectId:z.string()})).query(async ({ctx,input}) => {
     await requireProjectAccess(ctx,input.projectId);
-    return ctx.prisma.projectRepository.findMany({where:{projectId:input.projectId},orderBy:{createdAt:"asc"}});
+    const rows=await ctx.prisma.projectRepository.findMany({where:{projectId:input.projectId},orderBy:{createdAt:"asc"},include:{connection:{select:{status:true,tokenExpiresAt:true}}}});
+    return rows.map(({connection,...row})=>({...row,accessVerified:connection?.status==="VERIFIED" && !!connection.tokenExpiresAt && connection.tokenExpiresAt.getTime()>Date.now()+30000}));
   }),
   addRepository: protectedProcedure.input(z.object({projectId:z.string(),provider:RepositoryProvider,url:z.string().max(1000),revision:z.string().trim().max(200).optional()})).mutation(async ({ctx,input}) => {
     const {membership} = await requireProjectAccess(ctx,input.projectId,"EDITOR");

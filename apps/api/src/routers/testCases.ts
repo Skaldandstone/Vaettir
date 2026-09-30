@@ -142,6 +142,7 @@ export const testCasesRouter = router({
     .output(
       z.array(
         z.object({
+          id: z.string(),
           title: z.string(),
           given: z.array(z.string()),
           when: z.array(z.string()),
@@ -166,6 +167,7 @@ export const testCasesRouter = router({
         },
         orderBy: { title: "asc" },
         select: {
+          id: true,
           title: true,
           given: true,
           when: true,

@@ -7,9 +7,10 @@ import { PopulationSetup } from "./PopulationSetup";
 import { PopulationDocuments } from "./PopulationDocuments";
 import { PopulationRequirements } from "./PopulationRequirements";
 import { PopulationAssessment } from "./PopulationAssessment";
-type Screen = "setup" | "documents" | "requirements" | "assessment";
+import { GitlabRepositoryConnection } from "./GitlabRepositoryConnection";
+type Screen = "setup" | "documents" | "requirements" | "assessment" | "gitlab";
 const screens: Screen[] = ["setup", "documents", "requirements", "assessment"];
-const labels = { setup: "Project setup", documents: "Add evidence", requirements: "Review suggestions", assessment: "Next actions" };
+const labels = { setup: "Project setup", documents: "Add evidence", requirements: "Review suggestions", assessment: "Next actions", gitlab: "Connect GitLab repositories" };
 
 export function ProjectPopulationModal({ projectId, onClose }: { projectId: string; onClose: () => void }) {
   const { loaded, canEdit } = useProjectPermissions(projectId);
@@ -32,7 +33,9 @@ export function ProjectPopulationModal({ projectId, onClose }: { projectId: stri
       {visited.includes("documents") && <div hidden={screen !== "documents"}><PopulationDocuments projectId={projectId} /></div>}
       {visited.includes("requirements") && <div hidden={screen !== "requirements"}><PopulationRequirements projectId={projectId} /></div>}
       {visited.includes("assessment") && <div hidden={screen !== "assessment"}><PopulationAssessment projectId={projectId} /></div>}
-      {screen !== "setup" && <footer className="population-modal-navigation"><button className="btn-secondary" onClick={() => go(screens[screens.indexOf(screen) - 1]!)}>Back</button><button className="btn-secondary" onClick={() => go("setup")}>Back to setup</button>{screen !== "assessment" && <button className="btn-primary" onClick={() => go(screens[screens.indexOf(screen) + 1]!)}>{screen === "documents" ? "Review requirement suggestions" : "Check evidence gaps"}</button>}</footer>}
+      {visited.includes("gitlab") && <div hidden={screen !== "gitlab"}><GitlabRepositoryConnection projectId={projectId} onConnected={() => {}} onClose={() => go("setup")} /></div>}
+      {screen === "gitlab" && <button className="btn-secondary" disabled={busy} onClick={() => go("setup")}>Back to setup</button>}
+      {screen !== "setup" && screen !== "gitlab" && <footer className="population-modal-navigation"><button className="btn-secondary" onClick={() => go(screens[screens.indexOf(screen) - 1]!)}>Back</button><button className="btn-secondary" onClick={() => go("setup")}>Back to setup</button>{screen !== "assessment" && <button className="btn-primary" onClick={() => go(screens[screens.indexOf(screen) + 1]!)}>{screen === "documents" ? "Review requirement suggestions" : "Check evidence gaps"}</button>}</footer>}
     </div>
   </Modal>;
 }

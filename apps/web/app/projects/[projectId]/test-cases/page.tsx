@@ -13,6 +13,7 @@ import {
 import { Drawer } from "@/components/Drawer";
 import { TestCaseDetailContent } from "@/components/TestCaseDetailContent";
 import { downloadCsv } from "@/lib/csv";
+import { caseExportIds, scopeCaseExport, spreadsheetText } from "@/lib/test-case-export";
 
 const TEST_TYPES = [
   "UNIT",
@@ -193,6 +194,7 @@ export default function TestCasesPage() {
   const [bulkBusy, setBulkBusy] = useState(false);
   const [bulkMovePlanId, setBulkMovePlanId] = useState("");
   const [bulkTag, setBulkTag] = useState("");
+  const [exporting, setExporting] = useState(false);
 
   // What the original load() refetched after every mutation.
   function reload() {
@@ -382,8 +384,15 @@ export default function TestCasesPage() {
     }
   }
 
-  async function exportCsv() {
-    const rows = await utils.testCases.exportCsv.fetch({ projectId });
+  const selectedExportCount = caseExportIds(visibleCases, selected, "selected").length;
+  async function exportCsv(scope: "filtered" | "selected") {
+    const ids = caseExportIds(visibleCases, selected, scope);
+    if (exporting || ids.length === 0) return;
+    setExporting(true);
+    setError(null);
+    try {
+    const available = await utils.testCases.exportCsv.fetch({ projectId, includeArchived: showArchived });
+    const rows = scopeCaseExport(available, ids);
     const header = [
       "title",
       "given",
@@ -412,7 +421,12 @@ export default function TestCasesPage() {
       r.suitePath ?? "",
       r.tags.join("|"),
     ]);
-    downloadCsv(`${project?.name ?? "test-cases"}.csv`, [header, ...body]);
+    downloadCsv(`${project?.name ?? "test-cases"}-${scope}-${rows.length}.csv`, [header, ...body.map(row => row.map(spreadsheetText))]);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Export failed. Please try again.");
+    } finally {
+      setExporting(false);
+    }
   }
 
   async function startManualRun() {
@@ -489,10 +503,17 @@ export default function TestCasesPage() {
           <button
             className="btn-secondary"
             style={{ fontSize: 13 }}
-            onClick={exportCsv}
+            onClick={() => void exportCsv("filtered")}
+            disabled={loading || exporting || visibleCases.length === 0}
           >
-            Export CSV
+            {exporting ? "Exporting…" : `Export filtered CSV (${visibleCases.length})`}
           </button>
+          {selectedExportCount > 0 && <button
+            className="btn-secondary"
+            style={{ fontSize: 13 }}
+            onClick={() => void exportCsv("selected")}
+            disabled={loading || exporting}
+          >Export selected CSV ({selectedExportCount})</button>}
           {!readOnly && (
             <a
               className="btn-secondary"

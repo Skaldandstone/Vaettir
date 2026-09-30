@@ -3387,11 +3387,46 @@ main.app-main {
 .creation-wizard {
   display: grid;
   gap: 14px;
-  width: min(680px, 78vw);
+  width: 100%;
+  max-width: 680px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.creation-wizard > *,
+.creation-wizard-body > *,
+.creation-wizard .wizard-choice-group {
+  min-width: 0;
+  max-width: 100%;
+}
+.creation-wizard-body > label {
+  display: grid;
+  gap: 6px;
+}
+.creation-wizard input:not([type="checkbox"]):not([type="radio"]),
+.creation-wizard textarea,
+.creation-wizard select {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+}
+.creation-wizard textarea {
+  min-height: 6em;
+  resize: vertical;
+}
+.creation-wizard .wizard-choice-group label {
+  min-width: 0;
+  max-width: 100%;
+  white-space: normal;
+}
+.creation-wizard .wizard-choice-group label span {
+  min-width: 0;
+}
+.creation-wizard .wizard-choice-group input {
+  flex-shrink: 0;
 }
 .creation-wizard-progress {
   display: grid;
-  grid-template-columns: repeat(var(--wizard-steps, 4), minmax(30px, 1fr));
+  grid-template-columns: repeat(var(--wizard-steps, 4), minmax(0, 1fr));
   gap: 5px;
 }
 .creation-wizard-progress button {
@@ -3412,6 +3447,23 @@ main.app-main {
 .creation-wizard-actions {
   justify-content: space-between;
   margin-top: 4px;
+  flex-wrap: wrap;
+}
+.creation-wizard-actions button {
+  max-width: 100%;
+  min-width: 0;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.modal-panel:has(.creation-wizard) .modal-header {
+  gap: 12px;
+}
+.modal-panel:has(.creation-wizard) .modal-header h2 {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.modal-panel:has(.creation-wizard) .modal-close {
+  flex-shrink: 0;
 }
 .wizard-choice-group {
   margin: 0;

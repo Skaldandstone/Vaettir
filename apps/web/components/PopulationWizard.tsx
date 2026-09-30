@@ -53,6 +53,7 @@ export function PopulationWizard({
   onExit,
   documentsHref,
   onDocuments,
+  onGitlab,
 }: {
   initial: PopulationDraft;
   locked: boolean;
@@ -61,6 +62,7 @@ export function PopulationWizard({
   onExit: () => void;
   documentsHref?: string;
   onDocuments?: () => void;
+  onGitlab?: () => void;
 }) {
   const [draft, setDraft] = useState(initial);
   const step = steps.indexOf(draft.step);
@@ -220,7 +222,7 @@ export function PopulationWizard({
               <p>
                 Open a source to see its available actions. Sources are never read without your approval.
               </p>
-              <SourceConnectionChips documentsHref={documentsHref} onDocuments={onDocuments} />
+              <SourceConnectionChips documentsHref={documentsHref} onDocuments={onDocuments} onGitlab={onGitlab} />
               {draft.providers.length > 0 && <p className="text-muted">Previously saved preferences: {draft.providers.map((key) => providers[key]).join(", ")}. These are not connected accounts.</p>}
               <button
                 type="button"

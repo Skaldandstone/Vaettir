@@ -1,9 +1,10 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useId, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { trpcReact, type RouterOutputs } from "@/lib/trpcReact";
 import { collectKnownSuitePaths } from "@/components/TestCaseTree";
+import { moveListItem } from "@/lib/move-list-item";
 
 const TEST_TYPES = [
   "UNIT",
@@ -25,6 +26,7 @@ const TEST_TYPES = [
 const PRIORITIES = ["CRITICAL", "HIGH", "MEDIUM", "LOW"];
 
 interface StepRow {
+  editorKey?: string;
   action: string;
   expectedActionOrData: string;
   expectedResult: string;
@@ -101,29 +103,43 @@ function StringListEditor({
   items: string[];
   onChange: (items: string[]) => void;
 }) {
+  const prefix = useId();
+  const nextKey = useRef(items.length);
+  const [keys, setKeys] = useState(() => items.map((_, i) => `${prefix}-${i}`));
+  const [announcement, setAnnouncement] = useState("");
+  function move(from: number, to: number) {
+    onChange(moveListItem(items, from, to));
+    setKeys(current => moveListItem(current, from, to));
+    setAnnouncement(`${label} item ${from + 1} moved to position ${to + 1}.`);
+  }
   return (
     <div style={{ marginBottom: 12 }}>
       <div style={{ fontWeight: 600, marginBottom: 4 }}>{label}</div>
       {items.map((item, i) => (
-        <div key={i} style={{ display: "flex", gap: 6, marginBottom: 4 }}>
+        <div key={keys[i]} style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 4 }}>
           <input
+            aria-label={`${label} item ${i + 1}`}
             value={item}
             onChange={(e) =>
               onChange(items.map((v, j) => (j === i ? e.target.value : v)))
             }
-            style={{ flex: 1 }}
+            style={{ flex: "1 1 180px", minWidth: 0 }}
           />
+          <button type="button" aria-label={`Move ${label} item ${i + 1} up`} disabled={i === 0} onClick={() => move(i, i - 1)}>Move up</button>
+          <button type="button" aria-label={`Move ${label} item ${i + 1} down`} disabled={i === items.length - 1} onClick={() => move(i, i + 1)}>Move down</button>
           <button
             type="button"
-            onClick={() => onChange(items.filter((_, j) => j !== i))}
+            aria-label={`Remove ${label} item ${i + 1}`}
+            onClick={() => { onChange(items.filter((_, j) => j !== i)); setKeys(current => current.filter((_, j) => j !== i)); }}
           >
             Remove
           </button>
         </div>
       ))}
-      <button type="button" onClick={() => onChange([...items, ""])}>
-        + Add {label.slice(0, -1) || label}
+      <button type="button" onClick={() => { const key = `${prefix}-${nextKey.current++}`; onChange([...items, ""]); setKeys(current => [...current, key]); }}>
+        + Add {label} item
       </button>
+      <span role="status" className="sr-only">{announcement}</span>
     </div>
   );
 }
@@ -136,10 +152,14 @@ export default function TestCaseForm({
   stepFieldLabels,
 }: TestCaseFormProps) {
   const router = useRouter();
-  const [value, setValue] = useState<TestCaseFormValue>({
+  const stepKeyPrefix = useId();
+  const nextStepKey = useRef(initial?.steps?.length ?? 0);
+  const [stepAnnouncement, setStepAnnouncement] = useState("");
+  const [value, setValue] = useState<TestCaseFormValue>(() => ({
     ...defaultValue(),
     ...initial,
-  });
+    steps: (initial?.steps ?? []).map((step, i) => ({ ...step, editorKey: `${stepKeyPrefix}-${i}` })),
+  }));
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   // P1-15: both reads share the cache with the test-cases list page and the
@@ -454,7 +474,7 @@ export default function TestCaseForm({
       {!value.sharedStepGroupId &&
         value.steps.map((step, i) => (
           <div
-            key={i}
+            key={step.editorKey}
             style={{
               border: "1px solid var(--line)",
               borderRadius: 8,
@@ -465,13 +485,18 @@ export default function TestCaseForm({
             <div
               style={{
                 display: "flex",
+                flexWrap: "wrap",
+                gap: 6,
                 justifyContent: "space-between",
                 marginBottom: 6,
               }}
             >
               <strong>Step {i + 1}</strong>
+              <button type="button" aria-label={`Move step ${i + 1} up`} disabled={i === 0} onClick={() => { setValue(v => ({ ...v, steps: moveListItem(v.steps, i, i - 1) })); setStepAnnouncement(`Step ${i + 1} moved to position ${i}.`); }}>Move up</button>
+              <button type="button" aria-label={`Move step ${i + 1} down`} disabled={i === value.steps.length - 1} onClick={() => { setValue(v => ({ ...v, steps: moveListItem(v.steps, i, i + 1) })); setStepAnnouncement(`Step ${i + 1} moved to position ${i + 2}.`); }}>Move down</button>
               <button
                 type="button"
+                aria-label={`Remove step ${i + 1}`}
                 onClick={() =>
                   setValue((v) => ({
                     ...v,
@@ -527,13 +552,15 @@ export default function TestCaseForm({
       {!value.sharedStepGroupId && (
         <button
           type="button"
-          onClick={() =>
-            setValue((v) => ({ ...v, steps: [...v.steps, { ...EMPTY_STEP }] }))
-          }
+          onClick={() => {
+            const editorKey = `${stepKeyPrefix}-${nextStepKey.current++}`;
+            setValue((v) => ({ ...v, steps: [...v.steps, { ...EMPTY_STEP, editorKey }] }));
+          }}
         >
           + Add step
         </button>
       )}
+      <span role="status" className="sr-only">{stepAnnouncement}</span>
 
       <div style={{ marginTop: 24 }}>
         <button onClick={submit} disabled={saving || !value.title}>

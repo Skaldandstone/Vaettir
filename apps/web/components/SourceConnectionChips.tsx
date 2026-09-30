@@ -31,16 +31,16 @@ export function ConnectionLink({ href, provider, label, status }: { href: string
   return <a className="source-connection-chip" href={href}><ProviderMark id={provider} /><span><strong>{label}</strong><small>{status}</small></span><span aria-hidden="true">→</span></a>;
 }
 
-export function SourceConnectionChips({ documentsHref, only, onDocuments }: { documentsHref?: string; only?: string[]; onDocuments?: () => void }) {
+export function SourceConnectionChips({ documentsHref, only, onDocuments, onGitlab }: { documentsHref?: string; only?: string[]; onDocuments?: () => void; onGitlab?: () => void }) {
   const [active, setActive] = useState<string | null>(null);
   const name = sources.find(([id]) => id === active)?.[1];
   return <div className="source-connections">
     <div className="source-chip-list" role="group" aria-label="Source connections">
       {sources.filter(([id]) => !only || only.includes(id)).map(([id, label]) => <button key={id} type="button" className="source-connection-chip"
         aria-expanded={active === id} aria-controls="source-connection-detail"
-        onClick={() => setActive(active === id ? null : id)}>
+        onClick={() => id === "gitlab" && onGitlab ? onGitlab() : setActive(active === id ? null : id)}>
         <ProviderMark id={id} />
-        <span><strong>{label}</strong><small>{id === "document" ? "File or text" : "Not available yet"}</small></span>
+        <span><strong>{label}</strong><small>{id === "document" ? "File or text" : id === "gitlab" && onGitlab ? "Authorize and select" : "Not available yet"}</small></span>
         <span aria-hidden="true">{active === id ? "−" : "+"}</span>
       </button>)}
     </div>

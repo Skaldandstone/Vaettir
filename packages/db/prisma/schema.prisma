@@ -20,6 +20,8 @@ datasource db {
 // ---------------------------------------------------------------------------
 
 model Organization {
+  repositoryConfigurations RepositoryProviderConfiguration[]
+  repositoryConnections RepositoryConnection[]
   id        String   @id @default(cuid())
   name      String
   slug      String   @unique
@@ -229,6 +231,7 @@ model WebhookDelivery {
 }
 
 model Project {
+  repositoryConnections RepositoryConnection[]
   id             String       @id @default(cuid())
   organizationId String
   organization   Organization @relation(fields: [organizationId], references: [id])
@@ -310,8 +313,56 @@ model ProjectRepository {
   provider String
   url String
   revision String?
+  connectionId String?
+  connection RepositoryConnection? @relation(fields: [connectionId], references: [id], onDelete: SetNull)
+  externalId String?
+  verifiedAt DateTime?
   createdAt DateTime @default(now())
   @@unique([projectId, provider, url])
+}
+
+// Per-organization provider instances, including separately registered self-hosted OAuth apps.
+model RepositoryProviderConfiguration {
+  id String @id @default(cuid())
+  organizationId String
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  connections RepositoryConnection[]
+  provider String
+  origin String
+  clientId String
+  encryptedSecret Json
+  createdById String
+  createdAt DateTime @default(now())
+  @@unique([organizationId, provider, origin])
+}
+
+// One actor-bound authorization attempt becomes a verified, encrypted connection.
+// No source code is stored or fetched by this metadata-only flow.
+model RepositoryConnection {
+  id String @id @default(cuid())
+  projectId String
+  organizationId String
+  actorId String
+  configurationId String
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  actor User @relation(fields: [actorId], references: [id], onDelete: Cascade)
+  configuration RepositoryProviderConfiguration @relation(fields: [configurationId], references: [id], onDelete: Cascade)
+  repositories ProjectRepository[]
+  provider String
+  origin String
+  stateHash String @unique
+  encryptedVerifier Json?
+  encryptedToken Json?
+  status String @default("PENDING")
+  accountLabel String?
+  authorizationExpiresAt DateTime
+  tokenExpiresAt DateTime?
+  verifiedAt DateTime?
+  catalog Json?
+  catalogAt DateTime?
+  createdAt DateTime @default(now())
+  @@index([projectId, actorId, createdAt])
 }
 
 model ProjectPopulationDraft {
@@ -393,6 +444,7 @@ model ProjectPopulationRequirement {
 // lazily on a new Clerk user's first authenticated request -- see
 // apps/api/src/trpc.ts.
 model User {
+  repositoryConnections RepositoryConnection[]
   id          String   @id @default(cuid())
   clerkUserId String   @unique
   email       String   @unique
