@@ -12,8 +12,9 @@ export function repositoryProviderOrigin(raw: string): string {
 export function isPublicProviderIPv4(ip: string): boolean {
   if (isIP(ip) !== 4) return false;
   const [a=0,b=0,c=0] = ip.split(".").map(Number);
+  // Include IANA's 192.0.0/24 protocol block and 192.0.2/24 TEST-NET-1.
   return !(a===0 || a===10 || a===127 || a>=224 || (a===100 && b>=64 && b<=127) ||
-    (a===169 && b===254) || (a===172 && b>=16 && b<=31) || (a===192 && (b===168 || b===0 || (b===88 && c===99))) ||
+    (a===169 && b===254) || (a===172 && b>=16 && b<=31) || (a===192 && (b===168 || b===0 || (b===0 && c===2) || (b===88 && c===99))) ||
     (a===198 && (b===18 || b===19 || (b===51 && c===100))) || (a===203 && b===0 && c===113));
 }
 

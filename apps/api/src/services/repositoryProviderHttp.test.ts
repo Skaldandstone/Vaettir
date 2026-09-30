@@ -32,8 +32,15 @@ describe("repository provider HTTP boundary", () => {
   it("rejects internal, non-HTTPS and credential-bearing origins", () => {
     for (const origin of ["http://gitlab.example.com", "https://127.0.0.1", "https://[::1]", "https://user:pass@gitlab.example.com", "https://gitlab.example.com/path", "https://gitlab.example.com:444"])
       expect(() => repositoryProviderOrigin(origin)).toThrow();
-    for (const ip of ["127.0.0.1", "169.254.169.254", "10.1.2.3", "172.16.0.1", "192.168.1.1", "100.64.0.1", "::1", "0.0.0.0", "224.0.0.1"])
+    for (const ip of ["127.0.0.1", "169.254.169.254", "10.1.2.3", "172.16.0.1", "192.0.0.1", "192.0.2.1", "192.168.1.1", "100.64.0.1", "::1", "0.0.0.0", "224.0.0.1"])
       expect(isPublicProviderIPv4(ip)).toBe(false);
+  });
+  it("rejects special-purpose DNS answers before opening a provider socket", async () => {
+    for (const address of ["192.0.0.1", "192.0.2.1"]) {
+      vi.mocked(lookup).mockResolvedValueOnce([{ address, family: 4 }]);
+      await expect(repositoryProviderJson("https://gitlab.example.com", "/api/v4/user")).rejects.toThrow("public HTTPS");
+    }
+    expect(request).not.toHaveBeenCalled();
   });
   it("rejects mixed public and private DNS without opening HTTPS", async () => {
     vi.mocked(lookup).mockResolvedValue([{ address: "8.8.8.8", family: 4 }, { address: "169.254.169.254", family: 4 }]);
