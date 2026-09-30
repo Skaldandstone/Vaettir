@@ -344,6 +344,29 @@ describe.skipIf(!isolated)("repository authorization and reviewed selection", ()
     expect(await owner.connectSelected({ id: pending.id, repositoryIds: ["101"], catalogVersion: second.catalogVersion, approved: true })).toEqual({ connected: 1 });
   });
 
+  it("keeps reviewed selections across verified pages and expires the accumulated catalog", async () => {
+    const pending = await verified();
+    const firstPage = Array.from({ length: 100 }, (_, index) => ({ id: String(101 + index),
+      name: `synthetic/repository-${index}`, url: `${origin}/synthetic/repository-${index}`, defaultBranch: "main" }));
+    const later = { id: "201", name: "synthetic/repository-100", url: `${origin}/synthetic/repository-100`, defaultBranch: "main" };
+    vi.mocked(listGitlabRepositories).mockResolvedValueOnce(firstPage).mockResolvedValueOnce([later]);
+    const first = await owner.list({ id: pending.id, page: 1 });
+    expect(first).toMatchObject({ hasMore: true, catalogReset: true });
+    const second = await owner.list({ id: pending.id, page: 2 });
+    expect(second).toMatchObject({ hasMore: false, catalogReset: false });
+    expect(second.catalogVersion).not.toBe(first.catalogVersion);
+    await expect(owner.connectSelected({ id: pending.id, repositoryIds: ["101", "201"],
+      catalogVersion: first.catalogVersion, approved: true })).rejects.toMatchObject({ code: "CONFLICT" });
+    expect(await owner.connectSelected({ id: pending.id, repositoryIds: ["101", "201"],
+      catalogVersion: second.catalogVersion, approved: true })).toEqual({ connected: 2 });
+    expect(await prisma.projectRepository.count({ where: { projectId } })).toBe(2);
+    await prisma.repositoryConnection.update({ where: { id: pending.id }, data: { catalogAt: new Date(Date.now() - 660_000) } });
+    const renewed = await owner.list({ id: pending.id, page: 1 });
+    expect(renewed.catalogReset).toBe(true);
+    await expect(owner.connectSelected({ id: pending.id, repositoryIds: ["201"],
+      catalogVersion: renewed.catalogVersion, approved: true })).rejects.toMatchObject({ code: "BAD_REQUEST" });
+  });
+
   it("removes app credentials and connections only for an admin, retaining repository references", async () => {
     const pending = await verified();
     const listing = await owner.list({ id: pending.id });

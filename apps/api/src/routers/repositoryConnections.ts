@@ -167,13 +167,26 @@ export const repositoryConnectionsRouter=router({
     if(row.provider!=="gitlab" && row.provider!=="github")throw new TRPCError({code:"PRECONDITION_FAILED",message:"This provider does not support verified repository listing."});
     let repositories;try{repositories=row.provider==="github"?await listGithubRepositories(decrypt(row.encryptedToken),input.page):await listGitlabRepositories(row.origin,decrypt(row.encryptedToken),input.page,input.search);}catch{throw new TRPCError({code:"BAD_REQUEST",message:"Could not list repositories. Reconnect or check your access to this instance."});}
     const visible=row.provider==="github" && input.search?repositories.filter(repo=>repo.name.toLowerCase().includes(input.search.toLowerCase())):repositories;
-    // A page is a bounded verified selection snapshot, not permission to read its source.
-    await ctx.prisma.$transaction(async tx=>{
+    // Keep a bounded, short-lived catalog of pages this actor actually visited.
+    // This permits reviewed multi-selection across pages without treating an
+    // unlisted repository ID as verified or retaining a stale catalog forever.
+    const {catalog,catalogReset}=await ctx.prisma.$transaction(async tx=>{
       await liveEditor(tx,row.organizationId,ctx.user.id);
-      const saved=await tx.repositoryConnection.updateMany({where:{id:row.id,status:"VERIFIED",tokenExpiresAt:{gt:new Date(Date.now()+30000)}},data:{catalog:visible,catalogAt:new Date()}});
-      if(saved.count!==1)throw new TRPCError({code:"PRECONDITION_FAILED",message:"Connection changed. Reconnect before selecting repositories."});
+      await tx.$queryRaw`SELECT id FROM "RepositoryConnection" WHERE id = ${row.id} FOR UPDATE`;
+      const current=await tx.repositoryConnection.findUniqueOrThrow({where:{id:row.id}});
+      requireVerified(current);
+      if(JSON.stringify(current.encryptedToken)!==JSON.stringify(row.encryptedToken))
+        throw new TRPCError({code:"CONFLICT",message:"Connection changed. Refresh before selecting repositories."});
+      const fresh=current.catalogAt && current.catalogAt.getTime()>=Date.now()-600000;
+      const previous=fresh && current.catalog ? z.array(repositorySelectionSchema).parse(current.catalog) : [];
+      const combined=new Map(previous.map(repo=>[repo.id,repo]));
+      for(const repo of visible)combined.set(repo.id,repo);
+      if(combined.size>500)throw new TRPCError({code:"PRECONDITION_FAILED",message:"This selection includes too many listed repositories. Connect a reviewed batch, then start a new authorization to continue."});
+      const catalog=[...combined.values()];
+      await tx.repositoryConnection.update({where:{id:row.id},data:{catalog,catalogAt:fresh?current.catalogAt:new Date()}});
+      return {catalog,catalogReset:!fresh};
     });
-    return{repositories:visible,hasMore:repositories.length===100,catalogVersion:catalogVersion(visible)};
+    return{repositories:visible,hasMore:repositories.length===100,catalogVersion:catalogVersion(catalog),catalogReset};
   }),
   connectSelected:protectedProcedure.input(z.object({id:z.string(),repositoryIds:z.array(z.string()).min(1).max(100),catalogVersion:z.string().length(64),approved:z.literal(true)})).mutation(async({ctx,input})=>{
     const row=await ownConnection(ctx,input.id);requireVerified(row);
@@ -185,7 +198,9 @@ export const repositoryConnectionsRouter=router({
     if(selected.some(repo=>!repo))throw new TRPCError({code:"BAD_REQUEST",message:"Select repositories from the verified list."});
     await ctx.prisma.$transaction(async tx=>{
       await liveEditor(tx,row.organizationId,ctx.user.id);
+      await tx.$queryRaw`SELECT id FROM "RepositoryConnection" WHERE id = ${row.id} FOR UPDATE`;
       const current=await tx.repositoryConnection.findUniqueOrThrow({where:{id:row.id}});requireVerified(current);
+      if(!current.catalogAt || current.catalogAt.getTime()<Date.now()-600000)throw new TRPCError({code:"PRECONDITION_FAILED",message:"Refresh the repository list before confirming."});
       if(catalogVersion(current.catalog)!==input.catalogVersion)throw new TRPCError({code:"CONFLICT",message:"Repository choices changed. Refresh and review again."});
       for(const repo of selected){
         if(!repo)continue;

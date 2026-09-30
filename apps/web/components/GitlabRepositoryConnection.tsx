@@ -30,6 +30,7 @@ export function RepositoryOAuthConnection({ projectId, providerId, onConnected, 
   const [page, setPage] = useState(1);
   const [listing, setListing] = useState<Listing | null>(null);
   const [selected, setSelected] = useState<string[]>([]);
+  const [selectedDetails, setSelectedDetails] = useState<Record<string, Listing["repositories"][number]>>({});
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const popup = useRef<Window | null>(null);
@@ -45,7 +46,7 @@ export function RepositoryOAuthConnection({ projectId, providerId, onConnected, 
   const provider = configurations.data?.configurations.find(c => c.id === configurationId);
   const busy = begin.isPending || configureMutation.isPending || configureGithub.isPending || connect.isPending || disconnect.isPending || loading;
   const failure = error || configurations.error?.message || status.error?.message;
-  const selectedRepos = listing?.repositories.filter(repo => selected.includes(repo.id)) ?? [];
+  const selectedRepos = Object.values(selectedDetails).filter(repo => selected.includes(repo.id));
 
   async function authorize() {
     setError("");
@@ -64,9 +65,15 @@ export function RepositoryOAuthConnection({ projectId, providerId, onConnected, 
   }
 
   async function load(nextPage = 1, nextSearch = search) {
-    setLoading(true); setError(""); setSelected([]); setListing(null);
+    setLoading(true); setError("");
     try {
       const result = await utils.repositoryConnections.list.fetch({ id: connectionId, page: nextPage, search: nextSearch });
+      if (result.catalogReset) { setSelected([]); setSelectedDetails({}); }
+      else setSelectedDetails(details => {
+        const next = { ...details };
+        for (const repo of result.repositories) if (next[repo.id]) next[repo.id] = repo;
+        return next;
+      });
       setListing(result); setPage(nextPage); setActiveSearch(nextSearch); setStep("repositories");
     } catch { setError("The repository list could not be verified. Check connection status or reconnect, then try again."); }
     finally { setLoading(false); }
@@ -76,7 +83,7 @@ export function RepositoryOAuthConnection({ projectId, providerId, onConnected, 
     setError("");
     try {
       await disconnect.mutateAsync({ id: connectionId });
-      popup.current?.close(); setConnectionId(""); setListing(null); setSelected([]); setConsent(false); setStep("authorize");
+      popup.current?.close(); setConnectionId(""); setListing(null); setSelected([]); setSelectedDetails({}); setConsent(false); setStep("authorize");
     } catch { setError("The connection could not be disconnected. Refresh its status before retrying."); }
   }
 
@@ -127,9 +134,14 @@ export function RepositoryOAuthConnection({ projectId, providerId, onConnected, 
     </>}
     {step === "repositories" && <>
       <form style={actions} onSubmit={e => { e.preventDefault(); void load(1, search); }}><label style={{ ...field, flex: "1 1 180px" }}>{providerId === "github" ? "Filter this page" : "Find repositories"}<input style={inputStyle} value={search} onChange={e => setSearch(e.target.value)} maxLength={100}/></label><button type="submit" disabled={busy}>{providerId === "github" ? "Filter" : "Search"}</button></form>
-      <p className="text-muted">Page {page}. {providerId === "github" ? "Search filters this page only. Browse other pages to find more repositories. " : ""}Select repositories on this page, then connect them. Changing pages or searching clears this selection.</p>
+      <p className="text-muted">Page {page}. {providerId === "github" ? "Search filters this page only. Browse other pages to find more repositories. " : ""}Selections stay in place as you browse pages or search. Review up to 100 repositories within this ten-minute verified listing session.</p>
+      <div style={actions}><span role="status">{selected.length} selected across visited pages</span><button type="button" className="btn-secondary" disabled={busy || !selected.length} onClick={() => { setSelected([]); setSelectedDetails({}); }}>Clear selection</button></div>
       <div className="source-chip-list" role="group" aria-label="Verified repositories" style={{ maxHeight: 300, overflowY: "auto" }}>
-        {listing?.repositories.map(repo => <button type="button" key={repo.id} className="source-connection-chip" aria-pressed={selected.includes(repo.id)} disabled={busy} onClick={() => setSelected(ids => ids.includes(repo.id) ? ids.filter(id => id !== repo.id) : [...ids, repo.id])} style={{ maxWidth: "100%", textAlign: "left" }}><ProviderMark id={providerId}/><span style={{ minWidth: 0, overflowWrap: "anywhere" }}><strong>{repo.name}</strong><small>{repo.defaultBranch ?? "No default branch"} · Metadata only</small></span>{selected.includes(repo.id) && <span aria-hidden="true">✓</span>}</button>)}
+        {listing?.repositories.map(repo => <button type="button" key={repo.id} className="source-connection-chip" aria-pressed={selected.includes(repo.id)} disabled={busy || (selected.length >= 100 && !selected.includes(repo.id))} onClick={() => {
+          const chosen = !selected.includes(repo.id);
+          setSelected(ids => chosen ? [...ids, repo.id] : ids.filter(id => id !== repo.id));
+          setSelectedDetails(details => { const next = { ...details }; if (chosen) next[repo.id] = repo; else delete next[repo.id]; return next; });
+        }} style={{ maxWidth: "100%", textAlign: "left" }}><ProviderMark id={providerId}/><span style={{ minWidth: 0, overflowWrap: "anywhere" }}><strong>{repo.name}</strong><small>{repo.defaultBranch ?? "No default branch"} · Metadata only</small></span>{selected.includes(repo.id) && <span aria-hidden="true">✓</span>}</button>)}
       </div>
       {listing && !listing.repositories.length && <p>{providerId === "github" ? "No repositories on this page matched. Change the filter or browse another page." : "No accessible repositories matched. Try a different search."}</p>}
       <div style={actions}><button type="button" className="btn-secondary" disabled={busy || page <= 1} onClick={() => void load(page - 1, activeSearch)}>Previous page</button><button type="button" className="btn-secondary" disabled={busy || !listing?.hasMore || page >= 100} onClick={() => void load(page + 1, activeSearch)}>Next page</button></div>
@@ -145,6 +157,6 @@ export function RepositoryOAuthConnection({ projectId, providerId, onConnected, 
         catch { setError("Connection could not be saved. Your permissions or repository list may have changed. Go back and refresh the list before reviewing again."); }
       }}>{connect.isPending ? "Connecting…" : "Approve and connect"}</button></div>
     </>}
-    {step === "done" && <><p role="status">Repository connections saved. Access was verified; source discovery has not run.</p><div style={actions}><button type="button" className="btn-secondary" onClick={() => { setSelected([]); setStep("repositories"); }}>Connect more repositories</button><button type="button" onClick={onClose}>Done</button></div></>}
+    {step === "done" && <><p role="status">Repository connections saved. Access was verified; source discovery has not run.</p><div style={actions}><button type="button" className="btn-secondary" onClick={() => { setSelected([]); setSelectedDetails({}); setStep("repositories"); }}>Connect more repositories</button><button type="button" onClick={onClose}>Done</button></div></>}
   </div>;
 }
