@@ -23,6 +23,7 @@ const qualityProfileSchema = z.object({
   testEnvironments: z.array(z.string()).max(20).default([]),
   qualityObjectives: z.array(z.string()).max(20).default([]),
   complianceNeeds: z.array(z.string()).max(30).default([]),
+  regulatoryNeeds: z.array(z.string()).max(30).default([]),
   executionSources: z.array(z.string()).max(20).default([]),
 });
 

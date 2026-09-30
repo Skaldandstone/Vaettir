@@ -299,6 +299,7 @@ model Project {
   populationDocuments         ProjectPopulationDocument[]
   populationDocumentRuns      ProjectPopulationDocumentRun[]
   populationRequirements      ProjectPopulationRequirement[]
+  testCaseViews               TestCaseView[]
 
   @@unique([organizationId, slug])
   @@unique([organizationId, datadogProjectTag])
@@ -319,6 +320,24 @@ model ProjectRepository {
   verifiedAt DateTime?
   createdAt DateTime @default(now())
   @@unique([projectId, provider, url])
+}
+
+// A private, reusable case-list query. Membership is rechecked on every
+// request; a view never confers access to its project or to another user.
+model TestCaseView {
+  id        String   @id @default(cuid())
+  projectId String
+  project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name      String
+  filters   Json
+  version   Int      @default(1)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([projectId, userId, name])
+  @@index([userId, projectId, updatedAt])
 }
 
 // Per-organization provider instances, including separately registered self-hosted OAuth apps.
@@ -460,6 +479,7 @@ model User {
   uploadedTestCaseAttachments TestCaseAttachment[]
   exploratorySessions         ExploratorySession[]
   startedTestRuns             TestRun[]
+  testCaseViews               TestCaseView[]
 
   // P1-07 audit columns: who created/last-updated each core record. Named
   // relations (Prisma requires it once a model has more than one FK to the

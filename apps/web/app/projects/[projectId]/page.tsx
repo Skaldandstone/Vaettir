@@ -11,6 +11,11 @@ import { ProjectRepositories } from "@/components/ProjectRepositories";
 // P1-15
 export default function ProjectOverviewPage() {
   const [populationOpen, setPopulationOpen] = useState(false);
+  useEffect(() => {
+    if (new URLSearchParams(window.location.search).get("setup") !== "1") return;
+    setPopulationOpen(true);
+    window.history.replaceState(null, "", window.location.pathname);
+  }, []);
   const { projectId } = useParams<{ projectId: string }>();
   const { canEdit } = useProjectPermissions(projectId);
   const utils = trpcReact.useUtils();
@@ -22,29 +27,6 @@ export default function ProjectOverviewPage() {
   const pendingReviewQuery = trpcReact.testCases.pendingReview.useQuery({
     projectId,
   });
-
-  const [connectRepoUrl, setConnectRepoUrl] = useState("");
-  const [connectError, setConnectError] = useState<string | null>(null);
-
-  const connectMutation = trpcReact.project.update.useMutation({
-    onSuccess: () => {
-      setConnectRepoUrl("");
-      void utils.project.byId.invalidate({ id: projectId });
-    },
-    onError: (e) => setConnectError(e.message),
-  });
-
-  function connectRepo() {
-    const project = projectQuery.data;
-    if (!canEdit || !project || !connectRepoUrl.trim()) return;
-    setConnectError(null);
-    connectMutation.mutate({
-      id: project.id,
-      name: project.name,
-      repoUrl: connectRepoUrl.trim(),
-      defaultBranch: project.defaultBranch,
-    });
-  }
 
   // P9-04: routes an inbound PagerDuty incident.triggered webhook to this
   // project - see server.ts's /webhooks/pagerduty and services/
@@ -119,7 +101,6 @@ export default function ProjectOverviewPage() {
   const requirementCount = requirementsQuery.data?.length ?? null;
   const pendingReviewCount = pendingReviewQuery.data?.length ?? null;
   const error =
-    connectError ??
     projectQuery.error?.message ??
     testCasesQuery.error?.message ??
     null;
@@ -133,53 +114,21 @@ export default function ProjectOverviewPage() {
       {canEdit && <button className="btn-secondary" onClick={() => setPopulationOpen(true)}>Update project understanding / Add sources</button>}
       {canEdit && populationOpen && <ProjectPopulationModal projectId={projectId} onClose={() => setPopulationOpen(false)} />}
       <ProjectRepositories projectId={projectId} canEdit={canEdit} />
-      <p
+      {project.repoUrl && <p
         className="text-muted"
-        style={{ marginBottom: project.repoUrl ? 24 : 8 }}
+        style={{ marginBottom: 24 }}
       >
-        {project.repoUrl ?? "No repo connected"}{" "}
-        {project.repoUrl && <>· branch {project.defaultBranch}</>}
-      </p>
+        Legacy repository reference: {project.repoUrl} · branch {project.defaultBranch}. Access is not verified here.
+      </p>}
 
       <div
         className="project-connection-chips"
         id="project-connections"
-        aria-label="Project connections"
+        aria-label="Production signal routing"
       >
         {project.repoUrl && (
           <ConnectionLink href={`/projects/${projectId}/reverse-engineer`} provider="git" label="Repository" status="URL linked · Review and scan" />
         )}
-        {canEdit && !project.repoUrl && (
-          <details className="connection-chip">
-            <summary><ProviderMark id="github" /><span><strong>GitHub</strong><small>Connect repository</small></span></summary>
-            <div className="connection-chip-form">
-              <strong>Connect a GitHub repo</strong>
-              <p
-                className="text-muted"
-                style={{ fontSize: 13, margin: "4px 0 10px" }}
-              >
-                Lets you scan the repo to reverse-engineer test cases, run PR
-                scanning, and link test cases back to real source files.
-              </p>
-              <div style={{ display: "flex", gap: 8 }}>
-                <input
-                  value={connectRepoUrl}
-                  onChange={(e) => setConnectRepoUrl(e.target.value)}
-                  placeholder="https://github.com/org/repo"
-                  style={{ flex: 1 }}
-                />
-                <button
-                  className="btn-primary"
-                  onClick={connectRepo}
-                  disabled={connectMutation.isPending || !connectRepoUrl.trim()}
-                >
-                  {connectMutation.isPending ? "Connecting…" : "Connect"}
-                </button>
-              </div>
-            </div>
-          </details>
-        )}
-
         <details className="connection-chip">
           <summary>
             <ProviderMark id="pagerduty" /><span><strong>PagerDuty</strong><small>

@@ -62,6 +62,12 @@ describe("project population reconciliation", () => {
       populationDraftSchema.parse({ ...legacy, contextDetails }).contextDetails,
     ).toEqual(contextDetails);
     expect(
+      populationDraftSchema.parse({
+        ...legacy,
+        contextDetails: { ...contextDetails, regulatory: "Investigate FAA applicability" },
+      }).contextDetails,
+    ).toEqual({ ...contextDetails, regulatory: "Investigate FAA applicability" });
+    expect(
       populationDraftSchema.safeParse({
         ...legacy,
         contextDetails: { ...contextDetails, hardware: "x".repeat(1001) },

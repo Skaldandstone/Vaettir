@@ -42,6 +42,9 @@ export const populationDraftSchema = z
         hardware: z.string().max(1000),
         software: z.string().max(1000),
         compliance: z.string().max(1000),
+        // Regulatory applicability is a separate question from voluntary
+        // frameworks and control mappings. Older saved drafts omit it.
+        regulatory: z.string().max(1000).optional(),
       })
       .strict()
       .optional(),

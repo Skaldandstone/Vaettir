@@ -507,7 +507,7 @@ export default function ReverseEngineerPage() {
               }}
             >
               <h2 style={{ margin: 0 }}>Scan the repository</h2>
-              {!projectRepoUrl && <ConnectionLink href={`/projects/${projectId}#project-connections`} provider="github" label="GitHub" status="Connect a project repository" />}
+              {!projectRepoUrl && <ConnectionLink href={`/projects/${projectId}#project-repositories`} provider="github" label="GitHub" status="Repository options" />}
               <p style={{ color: "var(--muted)", margin: 0 }}>
                 Clones a repo, finds test files by naming convention, and queues
                 one background job per file.

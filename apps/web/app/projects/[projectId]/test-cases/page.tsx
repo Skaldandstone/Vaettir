@@ -167,6 +167,7 @@ export default function TestCasesPage() {
     projectId,
     includeArchived: true,
   });
+  const viewsQuery = trpcReact.testCaseViews.list.useQuery({ projectId });
   const plansQuery = trpcReact.testPlans.list.useQuery({ projectId });
   const project = projectQuery.data ?? null;
   const cases = casesQuery.data ?? [];
@@ -185,11 +186,75 @@ export default function TestCasesPage() {
   const [originFilter, setOriginFilter] = useState("");
   const [sortBy, setSortBy] = useState<CaseSort>("updated");
   const [sortDescending, setSortDescending] = useState(true);
+  const [activeViewId, setActiveViewId] = useState("");
+  const [newViewName, setNewViewName] = useState("");
+  const createView = trpcReact.testCaseViews.create.useMutation();
+  const updateView = trpcReact.testCaseViews.update.useMutation();
+  const removeView = trpcReact.testCaseViews.remove.useMutation();
+  const currentView = viewsQuery.data?.find((view) => view.id === activeViewId);
+  const viewFilters = () => ({
+    suitePath: selectedPath,
+    search: search.trim(),
+    type: typeFilter,
+    automation: automationFilter,
+    priority: priorityFilter,
+    review: reviewFilter,
+    origin: originFilter,
+    sortBy,
+    sortDescending,
+    showArchived,
+  });
+  function applyView(id: string) {
+    setActiveViewId(id);
+    const saved = viewsQuery.data?.find((view) => view.id === id);
+    if (!saved) return;
+    const filters = saved.filters;
+    setSelectedPath(filters.suitePath);
+    setSearch(filters.search);
+    setTypeFilter(filters.type);
+    setAutomationFilter(filters.automation);
+    setPriorityFilter(filters.priority);
+    setReviewFilter(filters.review);
+    setOriginFilter(filters.origin);
+    setSortBy(filters.sortBy);
+    setSortDescending(filters.sortDescending);
+    setShowArchived(filters.showArchived);
+  }
+  async function saveNewView() {
+    if (!newViewName.trim()) return;
+    setError(null);
+    try {
+      const saved = await createView.mutateAsync({ projectId, name: newViewName.trim(), filters: viewFilters() });
+      await utils.testCaseViews.list.invalidate({ projectId });
+      setActiveViewId(saved.id);
+      setNewViewName("");
+    } catch (cause) { setError(cause instanceof Error ? cause.message : "Could not save view."); }
+  }
+  async function saveCurrentView() {
+    if (!currentView) return;
+    setError(null);
+    try {
+      await updateView.mutateAsync({ projectId, id: currentView.id, name: currentView.name, version: currentView.version, filters: viewFilters() });
+      await utils.testCaseViews.list.invalidate({ projectId });
+    } catch (cause) { setError(cause instanceof Error ? cause.message : "Could not update view."); }
+  }
+  async function deleteCurrentView() {
+    if (!currentView || !window.confirm(`Delete your saved view “${currentView.name}”?`)) return;
+    setError(null);
+    try {
+      await removeView.mutateAsync({ projectId, id: currentView.id, version: currentView.version });
+      setActiveViewId("");
+      await utils.testCaseViews.list.invalidate({ projectId });
+    } catch (cause) { setError(cause instanceof Error ? cause.message : "Could not delete view."); }
+  }
   function sortColumn(column: CaseSort) {
     setSortDescending(sortBy === column ? !sortDescending : column === "risk" || column === "priority" || column === "updated");
     setSortBy(column);
   }
   const [showArchived, setShowArchived] = useState(false);
+  const currentFilters = viewFilters();
+  const viewHasChanges = currentView != null && (Object.keys(currentFilters) as (keyof typeof currentFilters)[])
+    .some((key) => currentView.filters[key] !== currentFilters[key]);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [bulkBusy, setBulkBusy] = useState(false);
   const [bulkMovePlanId, setBulkMovePlanId] = useState("");
@@ -596,6 +661,31 @@ export default function TestCasesPage() {
               onAdded={reload}
             />
 
+            <details className="panel" style={{ marginBottom: 12, padding: "10px 12px" }}>
+              <summary style={{ cursor: "pointer", fontWeight: 600 }}>Saved views {viewsQuery.data?.length ? `(${viewsQuery.data.length})` : ""}</summary>
+              <p className="text-muted" style={{ fontSize: 12, margin: "8px 0" }}>Private to you. Save the current suite, filters and sort order for this project.</p>
+              {viewsQuery.error && <p role="alert" style={{ color: "var(--ember)" }}>Saved views could not be loaded: {viewsQuery.error.message}</p>}
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+                <label htmlFor="case-saved-view">View</label>
+                <select id="case-saved-view" value={activeViewId} onChange={(event) => applyView(event.target.value)} disabled={viewsQuery.isLoading}>
+                  <option value="">Current filters</option>
+                  {viewsQuery.data?.map((view) => <option key={view.id} value={view.id}>{view.name}</option>)}
+                </select>
+                {currentView && <>
+                  <span role="status" aria-live="polite" style={{ fontSize: 12, color: "var(--muted)" }}>
+                    {viewHasChanges ? "Unsaved filter changes" : "Saved view is up to date"}
+                  </span>
+                  <button type="button" className="btn-secondary" onClick={() => void saveCurrentView()} disabled={!viewHasChanges || updateView.isPending}>Save changes to {currentView.name}</button>
+                  <button type="button" className="btn-secondary" onClick={() => void deleteCurrentView()} disabled={removeView.isPending}>Delete view</button>
+                </>}
+              </div>
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", marginTop: 8 }}>
+                <label htmlFor="case-new-view-name">New view</label>
+                <input id="case-new-view-name" value={newViewName} onChange={(event) => setNewViewName(event.target.value)} maxLength={80} placeholder="e.g. High-risk regression" />
+                <button type="button" className="btn-secondary" onClick={() => void saveNewView()} disabled={!newViewName.trim() || createView.isPending || (viewsQuery.data?.length ?? 0) >= 50}>Save current filters</button>
+              </div>
+            </details>
+
             <div
               style={{
                 display: "flex",
@@ -607,6 +697,7 @@ export default function TestCasesPage() {
               <input
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
+                maxLength={160}
                 placeholder="Search title or tags…"
                 style={{ flex: 1, minWidth: 160 }}
               />

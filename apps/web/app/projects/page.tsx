@@ -55,17 +55,19 @@ const QUALITY_OBJECTIVES = [
 ];
 const COMPLIANCE_OPTIONS = [
   "NIST CSF",
-  "FAA Part 107",
-  "FAA Remote ID",
   "NIST manufacturing",
   "CISA Secure by Design",
-  "FDA 21 CFR Part 11",
-  "FDA CSA/QMSR",
-  "HIPAA",
   "PCI DSS",
-  "GDPR",
   "ISO 27001",
   "Other / not sure",
+];
+const REGULATORY_AREAS = [
+  "Health and medical",
+  "Aviation",
+  "Privacy and personal data",
+  "Financial services",
+  "Industrial and product safety",
+  "Other / applicability unknown",
 ];
 const EXECUTION_SOURCES = [
   "Manual procedures",
@@ -103,7 +105,6 @@ export default function ProjectsPage() {
 
   const [createOpen, setCreateOpen] = useState(false);
   const [name, setName] = useState("");
-  const [repoUrl, setRepoUrl] = useState("");
   const [createStep, setCreateStep] = useState(0);
   const [objective, setObjective] = useState("");
   const [systemScope, setSystemScope] = useState<
@@ -114,6 +115,7 @@ export default function ProjectsPage() {
   const [testEnvironments, setTestEnvironments] = useState<string[]>([]);
   const [qualityObjectives, setQualityObjectives] = useState<string[]>([]);
   const [complianceNeeds, setComplianceNeeds] = useState<string[]>([]);
+  const [regulatoryNeeds, setRegulatoryNeeds] = useState<string[]>([]);
   const [executionSources, setExecutionSources] = useState<string[]>([]);
   const [createError, setCreateError] = useState<string | null>(null);
 
@@ -134,9 +136,8 @@ export default function ProjectsPage() {
   }, [orgsQuery.data, router]);
 
   const createMutation = trpcReact.project.create.useMutation({
-    onSuccess: () => {
+    onSuccess: (project) => {
       setName("");
-      setRepoUrl("");
       setCreateStep(0);
       setObjective("");
       setSystemScope("SOFTWARE");
@@ -145,9 +146,11 @@ export default function ProjectsPage() {
       setTestEnvironments([]);
       setQualityObjectives([]);
       setComplianceNeeds([]);
+      setRegulatoryNeeds([]);
       setExecutionSources([]);
       setCreateOpen(false);
       void utils.project.list.invalidate();
+      router.push(`/projects/${project.id}?setup=1`);
     },
     onError: (e) => setCreateError(e.message),
   });
@@ -174,7 +177,6 @@ export default function ProjectsPage() {
     createMutation.mutate({
       organizationId: orgId,
       name,
-      repoUrl: repoUrl || undefined,
       qualityProfile: {
         objective,
         systemScope,
@@ -183,6 +185,7 @@ export default function ProjectsPage() {
         testEnvironments,
         qualityObjectives,
         complianceNeeds,
+        regulatoryNeeds,
         executionSources,
       },
     });
@@ -283,7 +286,7 @@ export default function ProjectsPage() {
             </h2>
             <p className="project-repository">
               <Icon name="branch" size={14} />
-              {p.repoUrl || "No repository connected"}
+              {p.repoUrl ? `Legacy reference: ${p.repoUrl}` : "Manage repository access from project overview"}
             </p>
             <nav
               className="project-card-links"
@@ -349,12 +352,13 @@ export default function ProjectsPage() {
       >
         <CreationWizard
           step={createStep}
-          steps={["Purpose", "System", "Assurance", "Review"]}
+          steps={["Purpose", "System", "Quality goals", "Obligations", "Review"]}
           title={
             [
               "What are you validating?",
               "Describe the system and test environment",
               "What must this project prove?",
+              "What obligations should be investigated?",
               "Review the workspace setup",
             ][createStep]!
           }
@@ -363,6 +367,7 @@ export default function ProjectsPage() {
               "This context lets Vaettir recommend useful templates instead of opening an empty software-only project.",
               "Choose everything that applies. Mixed hardware and software programs can use both sets of fields.",
               "Vaettir will recommend evidence and framework starters from these goals.",
+              "Regulatory applicability depends on jurisdiction and use. Select areas to investigate, not a compliance claim.",
               "Nothing is locked in. The profile remains editable as the program changes.",
             ][createStep]
           }
@@ -460,14 +465,7 @@ export default function ProjectsPage() {
                   setTestEnvironments((values) => toggleValue(values, item))
                 }
               />
-              <label>
-                Repository <span className="text-muted">(optional)</span>
-                <input
-                  value={repoUrl}
-                  onChange={(e) => setRepoUrl(e.target.value)}
-                  placeholder="https://github.com/organization/repository"
-                />
-              </label>
+              <p className="text-muted">After creating the project, Add sources opens with provider options. Only configured providers can verify access; references remain unverified.</p>
             </>
           )}
           {createStep === 2 && (
@@ -481,14 +479,6 @@ export default function ProjectsPage() {
                 }
               />
               <WizardChoices
-                title="Compliance and assurance"
-                options={COMPLIANCE_OPTIONS}
-                selected={complianceNeeds}
-                onToggle={(item) =>
-                  setComplianceNeeds((values) => toggleValue(values, item))
-                }
-              />
-              <WizardChoices
                 title="Evidence sources"
                 options={EXECUTION_SOURCES}
                 selected={executionSources}
@@ -499,6 +489,26 @@ export default function ProjectsPage() {
             </>
           )}
           {createStep === 3 && (
+            <>
+              <WizardChoices
+                title="Regulatory areas to investigate"
+                options={REGULATORY_AREAS}
+                selected={regulatoryNeeds}
+                onToggle={(item) =>
+                  setRegulatoryNeeds((values) => toggleValue(values, item))
+                }
+              />
+              <WizardChoices
+                title="Standards and control frameworks to review"
+                options={COMPLIANCE_OPTIONS}
+                selected={complianceNeeds}
+                onToggle={(item) =>
+                  setComplianceNeeds((values) => toggleValue(values, item))
+                }
+              />
+            </>
+          )}
+          {createStep === 4 && (
             <div className="panel" style={{ padding: 16 }}>
               <strong>{name}</strong>
               <p style={{ margin: "5px 0" }}>{objective}</p>
@@ -512,6 +522,7 @@ export default function ProjectsPage() {
               >
                 {qualityObjectives.length} quality objective(s) ·{" "}
                 {complianceNeeds.length} assurance need(s) ·{" "}
+                {regulatoryNeeds.length} regulatory area(s) to investigate ·{" "}
                 {executionSources.length} evidence source(s)
               </p>
             </div>
@@ -538,7 +549,7 @@ export default function ProjectsPage() {
             />
           </label>
           <label>
-            Repo URL
+            Legacy repository URL reference (access not verified)
             <input
               value={editRepoUrl}
               onChange={(e) => setEditRepoUrl(e.target.value)}

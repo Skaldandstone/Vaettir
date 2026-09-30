@@ -461,9 +461,14 @@ main.app-main {
 @media (max-width: 900px) {
   .test-case-layout {
     flex-direction: column;
+    align-items: stretch;
   }
   .test-case-tree {
     width: 100%;
+  }
+  .test-case-list {
+    width: 100%;
+    max-width: 100%;
   }
 }
 

@@ -33,6 +33,8 @@ import { projectPopulationRouter } from "./routers/projectPopulation.js";
 import { populationDocumentsRouter } from "./routers/populationDocuments.js";
 import { populationRequirementsRouter } from "./routers/populationRequirements.js";
 import { populationAssessmentRouter } from "./routers/populationAssessment.js";
+import { testCaseViewsRouter } from "./routers/testCaseViews.js";
+import { reportsRouter } from "./routers/reports.js";
 
 export const appRouter = router({
   repositoryConnections: repositoryConnectionsRouter,
@@ -43,6 +45,8 @@ export const appRouter = router({
   populationAssessment: populationAssessmentRouter,
   beta: betaRouter,
   testCases: testCasesRouter,
+  testCaseViews: testCaseViewsRouter,
+  reports: reportsRouter,
   testPlans: testPlansRouter,
   agent: agentRouter,
   organization: organizationRouter,

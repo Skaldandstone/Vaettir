@@ -34,7 +34,13 @@ test("source connections are disclosure chips, not checkbox preferences", () => 
   assert.match(wizard, /<SourceConnectionChips/);
   assert.doesNotMatch(wizard, /title="Source preferences/);
   for (const path of ["../app/projects/[projectId]/requirements/page.tsx", "../app/projects/[projectId]/reverse-engineer/page.tsx"])
-    assert.match(readFileSync(new URL(path, import.meta.url), "utf8"), /#project-connections/);
+    assert.match(readFileSync(new URL(path, import.meta.url), "utf8"), /#project-repositories/);
+  const overview = readFileSync(new URL("../app/projects/[projectId]/page.tsx", import.meta.url), "utf8");
+  assert.match(overview, /<ProjectRepositories/);
+  assert.doesNotMatch(overview, /Connect a GitHub repo|Connect repository/);
+  const projects = readFileSync(new URL("../app/projects/page.tsx", import.meta.url), "utf8");
+  assert.match(projects, /\?setup=1/);
+  assert.doesNotMatch(projects, /setRepoUrl|value=\{repoUrl\}/);
 });
 
 function documentFile(name, contents) {

@@ -11,9 +11,10 @@ export function ProjectRepositories({projectId,canEdit}:{projectId:string;canEdi
  const add=trpcReact.project.addRepository.useMutation({onSuccess:()=>{void query.refetch();setProvider(null);setUrl("");setRevision("");}});
  const [provider,setProvider]=useState<Provider|null>(null);
  const [url,setUrl]=useState(""); const [revision,setRevision]=useState("");
- return <section aria-label="Project repositories">
+ return <section id="project-repositories" aria-label="Project repositories">
    <h2>Repositories</h2><p className="text-muted">Connect repositories, then choose what belongs to this project. Source reading and revision review are separate approvals.</p>
    {query.error && <p role="alert">{query.error.message}</p>}
+   {query.data?.length === 0 && <p className="text-muted">No repositories registered for this project yet.</p>}
    <div className="source-chip-list">{query.data?.map(repo=><span className="source-connection-chip" key={repo.id}><ProviderMark id={repo.provider}/><span><strong>{repo.url}</strong><small>{repo.accessVerified?"Access verified · Source not read":"Registered · Access unverified"}{repo.revision ? ` · ${repo.revision}` : ""}</small></span></span>)}</div>
    {canEdit && <div className="source-chip-list">{providers.map(([id,label])=><button type="button" className="source-connection-chip" key={id} onClick={()=>{add.reset();setProvider(id);}}><ProviderMark id={id}/><span><strong>{label}</strong><small>{id==="gitlab"?"Authorize and choose repositories":"Connection options"}</small></span><span aria-hidden="true">+</span></button>)}</div>}
    <Modal open={!!provider} onClose={()=>setProvider(null)} title={`Add ${providers.find(([id])=>id===provider)?.[1] ?? "repository"}`} dismissible={!add.isPending}>

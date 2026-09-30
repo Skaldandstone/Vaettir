@@ -961,7 +961,7 @@ export default function RequirementsPage() {
                   before saving.
                 </p>
                 {creationSource === "Connected repository" && !repoUrl && (
-                  <ConnectionLink href={`/projects/${projectId}#project-connections`} provider="github" label="GitHub" status="Connect repository" />
+                  <ConnectionLink href={`/projects/${projectId}#project-repositories`} provider="github" label="GitHub" status="Repository options" />
                 )}
                 <SourceConnectionChips only={["drive", "jira", "linear"]} />
               </>

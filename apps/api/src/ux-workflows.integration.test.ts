@@ -54,6 +54,7 @@ describe.skipIf(!isolated)("assistive UX persistence and authorization", () => {
       qualityProfile: {
         objective: "Verify supply stability",
         systemScope: "BOTH",
+        regulatoryNeeds: ["Industrial and product safety"],
       },
     });
     projectId = project.id;
@@ -135,6 +136,12 @@ describe.skipIf(!isolated)("assistive UX persistence and authorization", () => {
     expect(
       (await owner.project.byId({ id: projectId })).qualityProfile.systemScope,
     ).toBe("BOTH");
+    expect(
+      (await owner.project.byId({ id: projectId })).qualityProfile.regulatoryNeeds,
+    ).toEqual(["Industrial and product safety"]);
+    expect(
+      (await owner.project.byId({ id: otherProjectId })).qualityProfile.regulatoryNeeds,
+    ).toEqual([]);
     const testCase = await owner.testCases.byId({ id: caseId });
     expect(testCase.validationDomain).toBe("HIL");
     expect(testCase.verificationProfile.safety).toBe(

@@ -167,7 +167,7 @@ export function PopulationWizard({
               </p>
               <details>
                 <summary>
-                  Hardware, software and compliance details (optional)
+                  Hardware, software, regulatory and compliance details (optional)
                 </summary>
                 <p className="text-muted">
                   Add only what you know. These notes stay in your setup draft;
@@ -187,8 +187,13 @@ export function PopulationWizard({
                     ],
                     [
                       "compliance",
-                      "Compliance needs to review",
-                      "List relevant frameworks, jurisdiction or validation needs. Uncertain applicability is fine.",
+                      "Standards and control frameworks to review",
+                      "For example: ISO 27001 or an internal quality framework. This is not an attestation.",
+                    ],
+                    [
+                      "regulatory",
+                      "Regulatory obligations to investigate",
+                      "For example: applicable jurisdiction, FDA, FAA, privacy or sector-specific rules. Record uncertainty; do not assume applicability.",
                     ],
                   ] as const
                 ).map(([key, label, placeholder]) => (
@@ -206,6 +211,7 @@ export function PopulationWizard({
                             hardware: "",
                             software: "",
                             compliance: "",
+                            regulatory: "",
                             ...draft.contextDetails,
                             [key]: event.target.value,
                           },
@@ -248,10 +254,12 @@ export function PopulationWizard({
                     <dd>{draft.contextDetails.hardware || "Not specified"}</dd>
                     <dt>Software and interfaces</dt>
                     <dd>{draft.contextDetails.software || "Not specified"}</dd>
-                    <dt>Compliance needs to review</dt>
+                    <dt>Standards and control frameworks to review</dt>
                     <dd>
                       {draft.contextDetails.compliance || "Not specified"}
                     </dd>
+                    <dt>Regulatory obligations to investigate</dt>
+                    <dd>{draft.contextDetails.regulatory || "Not specified"}</dd>
                   </>
                 )}
                 <dt>Source preferences</dt>
