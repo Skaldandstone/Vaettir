@@ -7,11 +7,11 @@ import { generateApiKey } from "../services/apiKeyAuth.js";
 const ROLES = z.enum(["VIEWER", "COMPLIANCE_AUDITOR", "EDITOR", "ADMIN"]);
 
 async function requireLiveKeyAdmin(tx: Prisma.TransactionClient, organizationId: string, userId: string, fullSeat: boolean) {
-  // Serialize with organization membership/seat changes before issuing or revoking
-  // a standing credential. The request's membership snapshot can be stale.
+  // Lock both rows through the credential write. Member removal and staff
+  // ownership transfers do not all take the organization lock.
   const org = await tx.$queryRaw<Array<{ suspendedAt: Date | null }>>`SELECT "suspendedAt" FROM "Organization" WHERE "id"=${organizationId} FOR UPDATE`;
-  const member = await tx.membership.findUnique({ where: { organizationId_userId: { organizationId, userId } } });
-  if (!org[0] || org[0].suspendedAt || !member || !["OWNER", "ADMIN"].includes(member.role) || (fullSeat && member.seatType !== "FULL")) {
+  const member = await tx.$queryRaw<Array<{ role: string; seatType: string }>>`SELECT "role", "seatType" FROM "Membership" WHERE "organizationId"=${organizationId} AND "userId"=${userId} FOR UPDATE`;
+  if (!org[0] || org[0].suspendedAt || !member[0] || !["OWNER", "ADMIN"].includes(member[0].role) || (fullSeat && member[0].seatType !== "FULL")) {
     throw new TRPCError({ code: "FORBIDDEN", message: "Current workspace administrator access is required." });
   }
 }

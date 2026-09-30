@@ -10,11 +10,11 @@ const idsSchema = z.array(z.string().min(1)).min(1).max(20).refine(ids => new Se
 const perCaseCost = (action: z.infer<typeof actionSchema>) => action === "RISK" ? AI_OPERATION_COSTS.assessTestCaseRisk : AI_OPERATION_COSTS.reviewTestDesign;
 
 async function liveCreditAdmin(tx: Prisma.TransactionClient, organizationId: string, userId: string, fullSeat = true) {
-  // Membership/seat mutations use the same organization row lock. Hold it
-  // through the approval write so a stale request context cannot approve.
+  // Lock both rows through approval. Member removal and staff ownership
+  // transfers do not all take the organization lock.
   const org = await tx.$queryRaw<Array<{ suspendedAt: Date | null }>>`SELECT "suspendedAt" FROM "Organization" WHERE "id"=${organizationId} FOR UPDATE`;
-  const member = await tx.membership.findUnique({ where: { organizationId_userId: { organizationId, userId } } });
-  if (!org[0] || org[0].suspendedAt || !member || (fullSeat && member.seatType !== "FULL") || !["OWNER", "ADMIN"].includes(member.role)) {
+  const member = await tx.$queryRaw<Array<{ role: string; seatType: string }>>`SELECT "role", "seatType" FROM "Membership" WHERE "organizationId"=${organizationId} AND "userId"=${userId} FOR UPDATE`;
+  if (!org[0] || org[0].suspendedAt || !member[0] || (fullSeat && member[0].seatType !== "FULL") || !["OWNER", "ADMIN"].includes(member[0].role)) {
     throw new TRPCError({ code: "FORBIDDEN", message: "Current workspace administrator access is required." });
   }
 }
