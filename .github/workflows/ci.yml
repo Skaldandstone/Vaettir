@@ -80,3 +80,12 @@ jobs:
 
       - name: Test
         run: pnpm test
+
+      # Exercise Next's production standalone output on Linux. Windows local
+      # builds cannot create pnpm's traced symlinks without developer mode;
+      # a small Docker Desktop VM can OOM during trace collection.
+      - name: Build production artifacts
+        env:
+          NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: pk_test_ZXhhbXBsZS5jb20k
+          NEXT_PUBLIC_API_URL: https://api.synthetic.example
+        run: pnpm build
