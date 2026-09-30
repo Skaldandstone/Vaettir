@@ -9,6 +9,13 @@ import { canAdministerOrganization } from "../../../lib/membership";
 
 const ROLES = ["ADMIN", "EDITOR", "VIEWER", "COMPLIANCE_AUDITOR"];
 const EDIT_ROLES = ["OWNER", "ADMIN", "EDITOR", "VIEWER", "COMPLIANCE_AUDITOR"];
+function deliveryLabel(status: string) {
+  if (status === "SENT") return "Email accepted by mail provider; inbox delivery is not confirmed.";
+  if (status === "SENDING" || status === "UNKNOWN" || status === "ALREADY_ATTEMPTED") return "Delivery attempted. Check delivery status before sending again.";
+  if (status === "NOT_CONFIGURED") return "Email delivery is not configured. Share the invitation link directly.";
+  if (status === "INACTIVE") return "Invitation expired or is no longer pending.";
+  return "Email not sent.";
+}
 
 // P1-15: the first page migrated off the manual useState/useEffect fetch
 // pattern every other page still uses, onto @trpc/react-query hooks - real
@@ -44,6 +51,7 @@ export default function MembersPage() {
   const [role, setRole] = useState("EDITOR");
   const [seatType, setSeatType] = useState<"FULL" | "READ_ONLY">("FULL");
   const [inviteLink, setInviteLink] = useState<string | null>(null);
+  const [deliveryNotice, setDeliveryNotice] = useState("");
   const [inviteError, setInviteError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [inviteOpen, setInviteOpen] = useState(false);
@@ -96,6 +104,7 @@ export default function MembersPage() {
   const inviteMutation = trpcReact.organization.inviteMember.useMutation({
     onSuccess: (result) => {
       setInviteLink(`${window.location.origin}/invite/${result.token}`);
+      setDeliveryNotice(deliveryLabel(result.delivery));
       setEmail("");
       void invalidateOrgData();
     },
@@ -103,6 +112,10 @@ export default function MembersPage() {
   });
   const revokeMutation = trpcReact.organization.revokeInvitation.useMutation({
     onSuccess: () => invalidateOrgData(),
+  });
+  const sendPendingMutation = trpcReact.organization.sendPendingInvitation.useMutation({
+    onSuccess: (result) => { setDeliveryNotice(deliveryLabel(result.delivery)); void invalidateOrgData(); },
+    onError: (error) => setActionError(error.message),
   });
   const updateMemberMutation = trpcReact.organization.updateMember.useMutation({
     onSuccess: () => invalidateOrgData(),
@@ -117,6 +130,7 @@ export default function MembersPage() {
     if (!orgId || !canManage) return;
     setInviteError(null);
     setInviteLink(null);
+    setDeliveryNotice("");
     inviteMutation.mutate({ organizationId: orgId, email, role: role as never, seatType });
   }
 
@@ -299,7 +313,7 @@ export default function MembersPage() {
 
           {inviteLink && (
             <p style={{ background: "var(--frost-dim)", padding: 10, borderRadius: 3 }}>
-              Invite created — copy this link and send it to them: <br />
+              {deliveryNotice} You can also share this invitation link: <br />
               <code>{inviteLink}</code>
             </p>
           )}
@@ -310,11 +324,12 @@ export default function MembersPage() {
       {canManage && (
         <>
           <h2>Pending invitations</h2>
+          {deliveryNotice && <p role="status">{deliveryNotice}</p>}
           {invitationsQuery.error && <p role="alert">Could not load invitations: {invitationsQuery.error.message}</p>}
           {revokeMutation.error && <p role="alert">{revokeMutation.error.message}</p>}
           <div className="member-table-scroll"><table aria-label="Pending invitations" style={{borderCollapse:"collapse",width:"100%"}}><thead>{headers(true)}</thead><tbody>
             {invitationsQuery.isLoading ? <tr><td colSpan={4} style={cellStyle}>Loading invitations…</td></tr> : !invitationsQuery.error && visibleInvitations.length === 0 ? <tr><td colSpan={4} style={cellStyle}>{search ? "No matching invitations." : "No pending invitations."}</td></tr> : null}
-            {visibleInvitations.map(inv => <tr key={inv.id}><td style={cellStyle}>{inv.email}<small style={{display:"block",color:"var(--muted)"}}>Awaiting acceptance</small></td><td style={cellStyle}>{roleLabel(inv.role)}</td><td style={cellStyle}>{inv.seatType === "READ_ONLY" ? "Read-only" : "Full"}</td><td style={cellStyle}><button className="btn-secondary" disabled={revokeMutation.isPending} aria-label={`Revoke invitation for ${inv.email}`} onClick={() => revokeMutation.mutate({invitationId:inv.id})}>Revoke</button></td></tr>)}
+            {visibleInvitations.map(inv => <tr key={inv.id}><td style={cellStyle}>{inv.email}<small style={{display:"block",color:"var(--muted)"}}>{deliveryLabel(inv.emailStatus)}</small></td><td style={cellStyle}>{roleLabel(inv.role)}</td><td style={cellStyle}>{inv.seatType === "READ_ONLY" ? "Read-only" : "Full"}</td><td style={cellStyle}>{["RECEIVED", "FAILED"].includes(inv.emailStatus) && <button className="btn-secondary" disabled={sendPendingMutation.isPending || new Date(inv.expiresAt) <= new Date()} onClick={() => sendPendingMutation.mutate({invitationId:inv.id})}>Send email</button>}<button className="btn-secondary" disabled={revokeMutation.isPending} aria-label={`Revoke invitation for ${inv.email}`} onClick={() => revokeMutation.mutate({invitationId:inv.id})}>Revoke</button></td></tr>)}
           </tbody></table></div>
         </>
       )}

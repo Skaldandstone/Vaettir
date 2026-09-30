@@ -29,6 +29,7 @@ export const AI_OPERATION_COSTS = {
   extractRequirementsFromMarkdown: 4,
   generateReleaseSummary: 6,
   reviewTestCaseQuality: 12,
+  reviewTestDesign: 12,
   // SSE-181: a genuine temp/guestimate cost, higher than any text-only
   // operation above - this is the only AI_OPERATION_COSTS entry that also
   // pays for real browser/crawl compute (a headless Chromium launch +

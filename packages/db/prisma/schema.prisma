@@ -513,6 +513,11 @@ model Invitation {
   createdAt      DateTime         @default(now())
   expiresAt      DateTime
   acceptedAt     DateTime?
+  // Existing invitations are not sent automatically on migration.
+  emailStatus    TransactionalEmailStatus @default(RECEIVED)
+  emailAttemptedAt DateTime?
+  emailSentAt    DateTime?
+  emailMessageId String?
 
   @@index([organizationId, status])
   @@index([email])
@@ -872,6 +877,7 @@ model TestCase {
   // rather than being forced into a guessed suite.
   suitePath String?
   automationDrafts AutomationDraft[]
+  designReviews TestDesignReview[]
 
   // Soft-hide, not soft-delete: an archived case stays fully intact (still
   // linked from past TestSelectionRecommendations, compliance controls,
@@ -979,6 +985,21 @@ model AutomationDraft {
   rejectedAt DateTime?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+  @@index([testCaseId, createdAt])
+}
+
+model TestDesignReview {
+  id String @id @default(cuid())
+  testCaseId String
+  testCase TestCase @relation(fields: [testCaseId], references: [id], onDelete: Cascade)
+  inputHash String
+  caseHash String
+  evidenceRef String?
+  status String @default("GENERATING")
+  content Json?
+  createdById String
+  createdAt DateTime @default(now())
+  @@unique([testCaseId, inputHash])
   @@index([testCaseId, createdAt])
 }
 

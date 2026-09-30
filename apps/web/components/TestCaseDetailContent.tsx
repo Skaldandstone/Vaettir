@@ -4,6 +4,7 @@ import { useState } from "react";
 import type { CSSProperties, ChangeEvent } from "react";
 import { trpcReact, type RouterOutputs } from "@/lib/trpcReact";
 import { RiskMeter } from "@/components/MetricVisuals";
+import { TestDesignReview } from "@/components/TestDesignReview";
 
 const cellStyle: CSSProperties = {
   border: "1px solid var(--line)",
@@ -172,6 +173,10 @@ function AutomationDraftSection({ testCaseId, readOnly = false }: { testCaseId: 
       }}
     >
       <strong>Automation draft</strong>
+      <div style={{margin:"10px 0"}}><TestDesignReview testCaseId={testCaseId} canUseDraft={!readOnly && !saved.data && !saved.isLoading && !saved.error} onUse={review => {
+        if (review.framework) setFramework(review.framework);
+        setProjectContext(JSON.stringify({ reviewedDesign: review }).slice(0,12000));
+      }} /></div>
       {saved.isLoading && <p role="status">Loading saved draft…</p>}
       {saved.error && <p role="alert">Could not load saved draft. <button onClick={() => void saved.refetch()}>Retry</button></p>}
       {saved.data?.status === "GENERATING" && <p role="status">Your draft is generating. You can close this panel and return. If this status persists, contact an administrator; starting another paid request is blocked.</p>}

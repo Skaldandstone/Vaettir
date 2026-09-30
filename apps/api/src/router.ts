@@ -1,4 +1,5 @@
 import { router } from "./trpc.js";
+import { testDesignRouter } from "./routers/testDesign.js";
 import { testCasesRouter } from "./routers/testCases.js";
 import { testPlansRouter } from "./routers/testPlans.js";
 import { agentRouter } from "./routers/agent.js";
@@ -33,6 +34,7 @@ import { populationRequirementsRouter } from "./routers/populationRequirements.j
 import { populationAssessmentRouter } from "./routers/populationAssessment.js";
 
 export const appRouter = router({
+  testDesign: testDesignRouter,
   projectPopulation: projectPopulationRouter,
   populationDocuments: populationDocumentsRouter,
   populationRequirements: populationRequirementsRouter,

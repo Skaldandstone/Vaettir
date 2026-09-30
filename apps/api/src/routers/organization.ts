@@ -42,6 +42,7 @@ import {
   TokenEncryptionNotConfiguredError,
 } from "../services/tokenEncryption.js";
 import { computeIntegrationsHealth } from "../services/integrationsHealth.js";
+import { sendInvitationEmail } from "../services/invitationEmail.js";
 
 const INVITATION_EXPIRY_DAYS = 7;
 
@@ -668,6 +669,8 @@ export const organizationRouter = router({
           seatType: z.string(),
           token: z.string(),
           expiresAt: z.date(),
+          emailStatus: z.string(),
+          emailSentAt: z.date().nullable(),
         }),
       ),
     )
@@ -692,11 +695,11 @@ export const organizationRouter = router({
       }),
     )
     .output(
-      z.object({ id: z.string(), token: z.string(), expiresAt: z.date() }),
+      z.object({ id: z.string(), token: z.string(), expiresAt: z.date(), delivery: z.string() }),
     )
     .mutation(async ({ ctx, input }) => {
       requireOrgRole(ctx, input.organizationId, "ADMIN");
-      return ctx.prisma.$transaction(async (tx) => {
+      const invitation = await ctx.prisma.$transaction(async (tx) => {
         await lockActiveOrganization(tx, input.organizationId);
         await requireTransactionAdmin(tx, input.organizationId, ctx.user.id);
         if (input.seatType === "READ_ONLY" && input.role !== "VIEWER") {
@@ -767,6 +770,20 @@ export const organizationRouter = router({
           select: { id: true, token: true, expiresAt: true },
         });
       });
+      const delivery = await sendInvitationEmail(ctx.prisma, invitation.id);
+      return { ...invitation, delivery };
+    }),
+
+  sendPendingInvitation: protectedProcedure
+    .input(z.object({ invitationId: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      const invitation = await ctx.prisma.invitation.findUniqueOrThrow({ where: { id: input.invitationId } });
+      requireOrgRole(ctx, invitation.organizationId, "ADMIN");
+      await ctx.prisma.$transaction(async tx => {
+        await lockActiveOrganization(tx, invitation.organizationId);
+        await requireTransactionAdmin(tx, invitation.organizationId, ctx.user.id);
+      });
+      return { delivery: await sendInvitationEmail(ctx.prisma, invitation.id) };
     }),
 
   // Changing role/seatType is checked the same way an invite is: the seat

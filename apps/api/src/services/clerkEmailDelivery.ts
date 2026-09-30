@@ -152,13 +152,15 @@ export function createSesTransactionalEmailSender(input: {
   replyTo?: string;
   configurationSet?: string;
   client?: SESv2Client;
+  maxAttempts?: number;
 }): TransactionalEmailSender {
   const from = requiredText(input.from, "from", 320);
   const replyTo = input.replyTo
     ? requiredText(input.replyTo, "reply_to", 320)
     : undefined;
   const client =
-    input.client ?? new SESv2Client({ region: input.region, maxAttempts: 3 });
+    input.client ?? new SESv2Client({ region: input.region, maxAttempts: input.maxAttempts ?? 3,
+      requestHandler: { connectionTimeout: 6000, requestTimeout: 15000 } });
 
   return {
     async send(message) {
