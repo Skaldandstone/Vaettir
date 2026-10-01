@@ -118,9 +118,10 @@ export const projectRouter = router({
       }),
     )
     .query(async ({ ctx, input }) => {
-      const project = await ctx.prisma.project.findUniqueOrThrow({
+      const project = await ctx.prisma.project.findUnique({
         where: { id: input.id },
       });
+      if (!project) throw new TRPCError({ code: "NOT_FOUND", message: "Project not found" });
       requireOrgRole(ctx, project.organizationId);
       return {
         ...project,
@@ -148,10 +149,11 @@ export const projectRouter = router({
     )
     .output(z.object({ id: z.string(), name: z.string(), slug: z.string() }))
     .mutation(async ({ ctx, input }) => {
-      const existing = await ctx.prisma.project.findUniqueOrThrow({
+      const existing = await ctx.prisma.project.findUnique({
         where: { id: input.id },
         select: { organizationId: true },
       });
+      if (!existing) throw new TRPCError({ code: "NOT_FOUND", message: "Project not found" });
       requireOrgRole(ctx, existing.organizationId, "EDITOR");
       try {
         return await ctx.prisma.project.update({
@@ -173,6 +175,9 @@ export const projectRouter = router({
           select: { id: true, name: true, slug: true },
         });
       } catch (e) {
+        if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2025") {
+          throw new TRPCError({ code: "NOT_FOUND", message: "Project not found" });
+        }
         if (
           e instanceof Prisma.PrismaClientKnownRequestError &&
           e.code === "P2002"
@@ -195,14 +200,18 @@ export const projectRouter = router({
   delete: protectedProcedure
     .input(z.object({ id: z.string() }))
     .mutation(async ({ ctx, input }) => {
-      const existing = await ctx.prisma.project.findUniqueOrThrow({
+      const existing = await ctx.prisma.project.findUnique({
         where: { id: input.id },
         select: { organizationId: true },
       });
+      if (!existing) throw new TRPCError({ code: "NOT_FOUND", message: "Project not found" });
       requireOrgRole(ctx, existing.organizationId, "ADMIN");
       try {
         await ctx.prisma.project.delete({ where: { id: input.id } });
       } catch (e) {
+        if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2025") {
+          throw new TRPCError({ code: "NOT_FOUND", message: "Project not found" });
+        }
         if (
           e instanceof Prisma.PrismaClientKnownRequestError &&
           e.code === "P2003"

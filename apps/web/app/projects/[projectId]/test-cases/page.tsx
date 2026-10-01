@@ -15,6 +15,7 @@ import { TestCaseDetailContent } from "@/components/TestCaseDetailContent";
 import { BulkCaseAnalysis } from "@/components/BulkCaseAnalysis";
 import { downloadCsv } from "@/lib/csv";
 import { caseExportIds, scopeCaseExport, spreadsheetText } from "@/lib/test-case-export";
+import { runCaseActionBatches } from "@/lib/case-action-batches";
 
 const TEST_TYPES = [
   "UNIT",
@@ -262,6 +263,7 @@ export default function TestCasesPage() {
     .some((key) => currentView.filters[key] !== currentFilters[key]);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [bulkBusy, setBulkBusy] = useState(false);
+  const [bulkError, setBulkError] = useState<string | null>(null);
   const [bulkMovePlanId, setBulkMovePlanId] = useState("");
   const [bulkTag, setBulkTag] = useState("");
   const [exporting, setExporting] = useState(false);
@@ -400,87 +402,68 @@ export default function TestCasesPage() {
     );
   }
 
-  async function bulkReview(decision: "approve" | "reject") {
+  async function runBulkAction<T>(execute: (ids: string[]) => Promise<T>) {
+    if (bulkBusy || selected.size === 0) return null;
     setBulkBusy(true);
+    setBulkError(null);
     try {
-      await bulkReviewMutation.mutateAsync({
-        projectId,
-        ids: [...selected],
-        decision,
-      });
-      setSelected(new Set());
+      const outcome = await runCaseActionBatches([...selected], execute);
+      const completedIds = new Set(outcome.completedIds);
+      setSelected(current => new Set([...current].filter(id => !completedIds.has(id))));
       reload();
+      if (outcome.error) {
+        setBulkError(`${outcome.completedIds.length} cases completed. ${outcome.remainingIds.length} were not confirmed and remain selected. Check their refreshed status before retrying; later batches were not sent.`);
+      }
+      return outcome;
     } finally {
       setBulkBusy(false);
     }
+  }
+
+  async function bulkReview(decision: "approve" | "reject") {
+    await runBulkAction(ids => bulkReviewMutation.mutateAsync({
+      projectId,
+      ids,
+      decision,
+    }));
   }
 
   async function bulkDelete() {
     if (!confirm(`Delete ${selected.size} test case(s)? This can't be undone.`))
       return;
-    setBulkBusy(true);
-    try {
-      const res = await bulkDeleteMutation.mutateAsync({
-        projectId,
-        ids: [...selected],
-      });
-      setSelected(new Set());
-      reload();
-      if (res.blockedCount > 0) {
-        alert(
-          `${res.deletedCount} deleted, ${res.blockedCount} couldn't be deleted (linked to compliance controls or risk analysis results).`,
-        );
+    const outcome = await runBulkAction(ids => bulkDeleteMutation.mutateAsync({ projectId, ids }));
+    if (outcome) {
+      const totals = outcome.results.reduce((sum, result) => ({
+        deletedCount: sum.deletedCount + result.deletedCount,
+        blockedCount: sum.blockedCount + result.blockedCount,
+      }), { deletedCount: 0, blockedCount: 0 });
+      if (totals.blockedCount > 0) {
+        alert(`${totals.deletedCount} deleted, ${totals.blockedCount} couldn't be deleted (linked to compliance controls or risk analysis results).`);
       }
-    } finally {
-      setBulkBusy(false);
     }
   }
 
   async function bulkArchive(archived: boolean) {
-    setBulkBusy(true);
-    try {
-      await bulkArchiveMutation.mutateAsync({
-        projectId,
-        ids: [...selected],
-        archived,
-      });
-      setSelected(new Set());
-      reload();
-    } finally {
-      setBulkBusy(false);
-    }
+    await runBulkAction(ids => bulkArchiveMutation.mutateAsync({ projectId, ids, archived }));
   }
 
   async function bulkMove() {
-    setBulkBusy(true);
-    try {
-      await bulkMoveMutation.mutateAsync({
-        projectId,
-        ids: [...selected],
-        testPlanId: bulkMovePlanId || null,
-      });
-      setBulkMovePlanId("");
-      setSelected(new Set());
-      reload();
-    } finally {
-      setBulkBusy(false);
-    }
+    const outcome = await runBulkAction(ids => bulkMoveMutation.mutateAsync({
+      projectId,
+      ids,
+      testPlanId: bulkMovePlanId || null,
+    }));
+    if (outcome && !outcome.error) setBulkMovePlanId("");
   }
 
   async function bulkAddTag() {
     if (!bulkTag.trim()) return;
-    setBulkBusy(true);
-    try {
-      await bulkTagMutation.mutateAsync({
-        projectId,
-        ids: [...selected],
-        tags: [bulkTag.trim()],
-      });
-      setBulkTag("");
-      reload();
-    } finally {
-      setBulkBusy(false);
-    }
+    const outcome = await runBulkAction(ids => bulkTagMutation.mutateAsync({
+      projectId,
+      ids,
+      tags: [bulkTag.trim()],
+    }));
+    if (outcome && !outcome.error) setBulkTag("");
   }
 
   const selectedExportCount = caseExportIds(visibleCases, selected, "selected").length;
@@ -830,6 +813,8 @@ export default function TestCasesPage() {
               <BulkCaseAnalysis projectId={projectId} organizationId={project.organizationId} selectedIds={[...selected]} onCompleted={reload} />
               <span className="text-muted">You can preview costs and request administrator access, but cannot run AI with this seat.</span>
             </div>}
+
+            {bulkError && <p role="alert" style={{ color: "var(--ember)" }}>{bulkError}</p>}
 
             {!readOnly && selected.size > 0 && (
               <div
