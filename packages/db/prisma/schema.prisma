@@ -304,6 +304,7 @@ model Project {
   populationDocumentRuns      ProjectPopulationDocumentRun[]
   populationRequirements      ProjectPopulationRequirement[]
   testCaseViews               TestCaseView[]
+  jiraIssueIdentities          JiraIssueIdentity[]
 
   @@unique([organizationId, slug])
   @@unique([organizationId, datadogProjectTag])
@@ -393,6 +394,7 @@ model RepositoryConnection {
 
 // Metadata-only ticket access. Approved scope survives access loss and token removal.
 model TicketSourceConnection {
+  issueRuns              JiraIssueImportRun[]
   id                     String       @id @default(cuid())
   projectId              String
   organizationId         String
@@ -418,6 +420,56 @@ model TicketSourceConnection {
   createdAt              DateTime     @default(now())
 
   @@index([projectId, actorId, provider, createdAt])
+}
+
+// Reviewed, bounded Jira summary intake. Page and import progress survives retries.
+model JiraIssueImportRun {
+  id                 String @id @default(cuid())
+  connectionId       String
+  connection         TicketSourceConnection @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+  projectId          String
+  organizationId     String
+  actorId            String
+  requestKey         String @unique
+  requestHash        String
+  status             String @default("PREVIEW")
+  selectedProjects   Json
+  issues             Json @default("[]")
+  nextCursor         String?
+  seenCursors        Json @default("[]")
+  pageCount          Int @default(0)
+  readAttempts       Int @default(0)
+  pageReceipts       Json @default("[]")
+  leaseRequestId     String?
+  leaseUntil         DateTime?
+  lastError          String?
+  approvedIssueIds   Json @default("[]")
+  approvalRequestId  String?
+  approvalHash       String?
+  results            Json @default("[]")
+  version            Int @default(1)
+  readApprovedAt     DateTime @default(now())
+  importApprovedAt   DateTime?
+  expiresAt          DateTime
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+  @@index([connectionId, actorId, createdAt])
+}
+
+// Site + native identity, not mutable issue key, prevents cross-run duplication.
+// A removed requirement leaves a tombstone; reruns never silently recreate it.
+model JiraIssueIdentity {
+  id              String @id @default(cuid())
+  projectId       String
+  project         Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  providerOrigin  String
+  externalId      String
+  requirementId   String?
+  requirement     Requirement? @relation(fields: [requirementId], references: [id], onDelete: SetNull)
+  importedSnapshot Json
+  importedRunId   String
+  createdAt      DateTime @default(now())
+  @@unique([projectId, providerOrigin, externalId])
 }
 
 model ProjectPopulationDraft {
@@ -878,6 +930,7 @@ enum TestPlanStatus {
 // ---------------------------------------------------------------------------
 
 model Requirement {
+  jiraImportIdentities JiraIssueIdentity[]
   populationEvidence ProjectPopulationRequirement[]
   id                 String                         @id @default(cuid())
   projectId          String

@@ -36,7 +36,7 @@ describe.skipIf(!isolated)("Jira native metadata connection",()=>{
     for(const caller of [viewer,readOnly,outsider])await expect(caller.verify(request())).rejects.toMatchObject({code:"FORBIDDEN"});
     await expect(owner.verify({...request(),approveMetadataAccess:false as never})).rejects.toMatchObject({code:"BAD_REQUEST"});
     expect(listJiraProjects).not.toHaveBeenCalled();
-    expect(await viewer.capabilities({projectId})).toMatchObject({canConnect:false,oauthAvailable:false,issueImportAvailable:false});
+    expect(await viewer.capabilities({projectId})).toMatchObject({canConnect:false,oauthAvailable:false,issueImportAvailable:true});
   });
   it("fails closed when encrypted storage is unconfigured",async()=>{
     vi.stubEnv("PRODUCTION_SIGNAL_ENCRYPTION_KEY","");

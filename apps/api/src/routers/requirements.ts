@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
+import {type Prisma} from "@vaettir/db";
 import { generateTestCasesFromRequirement, extractRequirementsFromMarkdown } from "@vaettir/ai-agent";
 import { randomBytes } from "node:crypto";
 import { router, protectedProcedure, publicProcedure, requireProjectAccess } from "../trpc.js";
@@ -31,6 +32,18 @@ const draftRequirementOutput = z.object({
   description: z.string(),
   sourceFile: z.string().nullable(),
 });
+
+// Same organization/member/project lock order as reviewed source imports.
+// Preserve the normal CRUD seat policy, but do not trust a cached membership
+// after waiting on another writer.
+async function lockedRequirementEditor(tx:Prisma.TransactionClient,organizationId:string,actorId:string,projectId:string){
+  const orgs=await tx.$queryRaw<Array<{suspendedAt:Date|null}>>`SELECT "suspendedAt" FROM "Organization" WHERE id=${organizationId} FOR UPDATE`;
+  await tx.$queryRaw`SELECT id FROM "Membership" WHERE "organizationId"=${organizationId} AND "userId"=${actorId} FOR UPDATE`;
+  const member=await tx.membership.findUnique({where:{organizationId_userId:{organizationId,userId:actorId}}});
+  if(!orgs[0]||orgs[0].suspendedAt||!member||!["OWNER","ADMIN","EDITOR"].includes(member.role))throw new TRPCError({code:"FORBIDDEN"});
+  const projects=await tx.$queryRaw<Array<{organizationId:string}>>`SELECT "organizationId" FROM "Project" WHERE id=${projectId} FOR UPDATE`;
+  if(projects[0]?.organizationId!==organizationId)throw new TRPCError({code:"FORBIDDEN"});
+}
 
 export const requirementsRouter = router({
   list: protectedProcedure
@@ -86,14 +99,19 @@ export const requirementsRouter = router({
       }),
     )
     .mutation(async ({ ctx, input }) => {
-      await requireProjectAccess(ctx, input.projectId, "EDITOR");
-      return ctx.prisma.requirement.create({
-        data: {
-          projectId: input.projectId,
-          title: input.title,
-          description: input.description,
-          externalRef: input.externalRef,
-        },
+      const access = await requireProjectAccess(ctx, input.projectId, "EDITOR");
+      // Serialize manual additions with reviewed Jira imports, so an import
+      // sees a preceding human link rather than racing its duplicate check.
+      return ctx.prisma.$transaction(async tx => {
+        await lockedRequirementEditor(tx,access.project.organizationId,ctx.user.id,input.projectId);
+        return tx.requirement.create({
+          data: {
+            projectId: input.projectId,
+            title: input.title,
+            description: input.description,
+            externalRef: input.externalRef,
+          },
+        });
       });
     }),
 
@@ -111,10 +129,13 @@ export const requirementsRouter = router({
         where: { id: input.id },
         select: { projectId: true },
       });
-      await requireProjectAccess(ctx, existing.projectId, "EDITOR");
-      return ctx.prisma.requirement.update({
-        where: { id: input.id },
-        data: { title: input.title, description: input.description, externalRef: input.externalRef },
+      const access = await requireProjectAccess(ctx, existing.projectId, "EDITOR");
+      return ctx.prisma.$transaction(async tx => {
+        await lockedRequirementEditor(tx,access.project.organizationId,ctx.user.id,existing.projectId);
+        return tx.requirement.update({
+          where: { id: input.id, projectId: existing.projectId },
+          data: { title: input.title, description: input.description, externalRef: input.externalRef },
+        });
       });
     }),
 
@@ -125,8 +146,11 @@ export const requirementsRouter = router({
         where: { id: input.id },
         select: { projectId: true },
       });
-      await requireProjectAccess(ctx, existing.projectId, "EDITOR");
-      await ctx.prisma.requirement.delete({ where: { id: input.id } });
+      const access = await requireProjectAccess(ctx, existing.projectId, "EDITOR");
+      await ctx.prisma.$transaction(async tx => {
+        await lockedRequirementEditor(tx,access.project.organizationId,ctx.user.id,existing.projectId);
+        await tx.requirement.delete({ where: { id: input.id, projectId: existing.projectId } });
+      });
     }),
 
   // P9-02: validates the Linear issue actually exists (and this org's API

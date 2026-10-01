@@ -13,34 +13,34 @@ const receiptsSchema=z.array(z.object({requestId:z.string().uuid(),hash:z.string
 const cipherSchema=z.object({ciphertext:z.string(),iv:z.string(),authTag:z.string()});
 const credentialSchema=z.object({siteUrl:z.string().max(300),email:z.string().email().max(254).refine(v=>!v.includes(":")),apiToken:z.string().min(1).max(10000).regex(/^[!-~]+$/)});
 const storageReady=()=>{try{encryptToken("availability-probe");return true;}catch{return false;}};
-async function editor(ctx:Context,projectId:string){
+export async function editor(ctx:Context,projectId:string){
   if(!ctx.user)throw new TRPCError({code:"UNAUTHORIZED"});
   const access=await requireProjectAccess({...ctx,user:ctx.user},projectId,"EDITOR");
   if(access.membership.seatType!=="FULL")throw new TRPCError({code:"FORBIDDEN",message:"A full editor seat is required."});
   return access;
 }
-async function liveEditor(tx:Prisma.TransactionClient,orgId:string,actorId:string){
+export async function liveEditor(tx:Prisma.TransactionClient,orgId:string,actorId:string){
   const orgs=await tx.$queryRaw<Array<{suspendedAt:Date|null}>>`SELECT "suspendedAt" FROM "Organization" WHERE id=${orgId} FOR UPDATE`;
   await tx.$queryRaw`SELECT id FROM "Membership" WHERE "organizationId"=${orgId} AND "userId"=${actorId} FOR UPDATE`;
   const member=await tx.membership.findUnique({where:{organizationId_userId:{organizationId:orgId,userId:actorId}}});
   if(!orgs[0]||orgs[0].suspendedAt||!member||member.seatType!=="FULL"||!["OWNER","ADMIN","EDITOR"].includes(member.role))throw new TRPCError({code:"FORBIDDEN",message:"Workspace access changed. Refresh before connecting."});
 }
-async function own(ctx:Context,id:string){
+export async function own(ctx:Context,id:string){
   const row=await ctx.prisma.ticketSourceConnection.findFirst({where:{id,provider:"jira",actorId:ctx.user!.id}});
   if(!row)throw new TRPCError({code:"NOT_FOUND"});
   const {project}=await editor(ctx,row.projectId);
   if(project.organizationId!==row.organizationId)throw new TRPCError({code:"NOT_FOUND"});
   return row;
 }
-function verified(row:{status:string;tokenExpiresAt:Date|null;encryptedToken:unknown}){
+export function verified(row:{status:string;tokenExpiresAt:Date|null;encryptedToken:unknown}){
   if(row.status!=="VERIFIED"||!row.encryptedToken||!row.tokenExpiresAt||row.tokenExpiresAt.getTime()<=Date.now()+30000)throw new TRPCError({code:"PRECONDITION_FAILED",message:"Verify Jira access again. Previously approved scope is retained."});
 }
-const decrypt=(token:unknown)=>credentialSchema.parse(JSON.parse(decryptToken(cipherSchema.parse(token))));
+export const decrypt=(token:unknown)=>credentialSchema.parse(JSON.parse(decryptToken(cipherSchema.parse(token))));
 
 export const jiraConnectionsRouter=router({
   capabilities:protectedProcedure.input(projectInput).query(async({ctx,input})=>{
     const {membership}=await requireProjectAccess(ctx,input.projectId);
-    return {credentialStorageReady:storageReady(),tokenImplemented:true,oauthAvailable:false,scopedTokensAvailable:false,selfHostedAvailable:false,issueImportAvailable:false,canConnect:membership.seatType==="FULL"&&["OWNER","ADMIN","EDITOR"].includes(membership.role)};
+    return {credentialStorageReady:storageReady(),tokenImplemented:true,oauthAvailable:false,scopedTokensAvailable:false,selfHostedAvailable:false,issueImportAvailable:true,canConnect:membership.seatType==="FULL"&&["OWNER","ADMIN","EDITOR"].includes(membership.role)};
   }),
   mine:protectedProcedure.input(projectInput).query(async({ctx,input})=>{
     await editor(ctx,input.projectId);
