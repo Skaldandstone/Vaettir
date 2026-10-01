@@ -6,6 +6,7 @@ import {
   SOFTWARE_KINDS,
   GAME_GENRES,
   GAME_PLATFORMS,
+  GAME_PLATFORM_GROUPS,
   MULTIPLAYER_MODES,
   HARDWARE_KINDS,
   PROCESS_KINDS,
@@ -319,7 +320,7 @@ export function QualityExperienceWizard({
           <p className="text-muted">{screen.help}</p>
           {screen.field && screen.choices && (
             <fieldset
-              className="wizard-choice-group"
+              className="experience-checklist"
               disabled={busy}
               style={{ marginBottom: 20 }}
             >
@@ -327,44 +328,59 @@ export function QualityExperienceWizard({
                 Select all that apply
                 {screen.id !== "offerings" ? " (optional)" : ""}
               </legend>
-              <div>
-                {screen.choices.map(({ id, label }) => {
+              {(screen.field === "gamePlatforms"
+                ? GAME_PLATFORM_GROUPS.map(group => ({
+                    label: group.label,
+                    choices: screen.choices!.filter(choice =>
+                      (group.ids as readonly string[]).includes(choice.id),
+                    ),
+                  }))
+                : [{ label: "", choices: screen.choices }]
+              ).map(group => (
+                <div key={group.label} className="experience-checklist-section">
+                  {group.label && <h4>{group.label}</h4>}
+                  <div className="experience-checklist-options">
+                {group.choices.map(({ id, label }) => {
                   const selected = draft[screen.field!].some(
                     (value) => value === id,
                   );
                   return (
-                    <button
+                    <label
                       key={id}
-                      type="button"
-                      aria-pressed={selected}
-                      className={`wizard-choice-chip${selected ? " selected" : ""}`}
-                      onClick={() => select(screen.field!, id)}
+                      className="experience-checklist-option"
                     >
-                      <span aria-hidden="true">{selected ? "✓" : "+"}</span>
-                      {label}
-                    </button>
+                      <input
+                        type="checkbox"
+                        checked={selected}
+                        onChange={() => select(screen.field!, id)}
+                      />
+                      <span>{label}</span>
+                    </label>
                   );
                 })}
-              </div>
+                  </div>
+                </div>
+              ))}
               {screen.field === "jurisdictions" &&
                 draft.jurisdictions
                   .filter(
                     (value) => !JURISDICTIONS.some(({ id }) => id === value),
                   )
                   .map((value) => (
-                    <button
+                    <label
                       key={value}
-                      type="button"
-                      className="wizard-choice-chip selected"
-                      aria-pressed="true"
-                      onClick={() => select("jurisdictions", value)}
-                      style={{ marginTop: 8 }}
+                      className="experience-checklist-option"
                     >
-                      {value} <span aria-hidden="true">✓</span>
-                    </button>
+                      <input
+                        type="checkbox"
+                        checked
+                        onChange={() => select("jurisdictions", value)}
+                      />
+                      <span>{value}</span>
+                    </label>
                   ))}
               {screen.field === "jurisdictions" && (
-                <div style={{ marginTop: 16, alignItems: "end" }}>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 16, alignItems: "end" }}>
                   <label style={{ flex: "1 1 180px" }}>
                     Another operating region
                     <input

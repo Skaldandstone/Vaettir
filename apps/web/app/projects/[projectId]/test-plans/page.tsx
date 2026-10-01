@@ -304,7 +304,7 @@ export default function TestPlansPage() {
       {workspace && <details style={{ marginBottom: 12 }}>
         <summary>{workspace.title}: reusable plan guidance</summary>
         <ul>{workspace.planGuidance.map(note => <li key={note}>{note}</li>)}</ul>
-        <p>Reuse a plan for separate executions with explicit configurations. Start selected cases from the case table; each new run keeps its own case definitions and configuration. Automatic recurring scheduling and domain-specific regulatory review are not enabled by this profile.</p>
+        <p>Open a plan to choose ordered cases and save named configurations, then review each repeat execution. Each run keeps its own case definitions and configuration. Automatic recurring scheduling and domain-specific regulatory review are not enabled.</p>
       </details>}
       {readOnly && (
         <p className="text-muted" style={{ fontSize: 13 }}>

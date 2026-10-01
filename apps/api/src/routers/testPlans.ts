@@ -11,6 +11,12 @@ import {
   meterAiCall,
 } from "../services/aiCredits.js";
 import { getCommitLog } from "../services/changeImpact.js";
+import {
+  executionTemplateHash,
+  readPlanExecutionTemplate,
+  requireCurrentPlanAccess,
+  testPlanExecutionTemplateSchema,
+} from "../services/testPlanExecution.js";
 
 const acceptanceCriterionOutput = z.object({
   id: z.string(),
@@ -37,6 +43,178 @@ const QA_STRATEGY_TYPE = {
 };
 
 export const testPlansRouter = router({
+  executionTemplate: protectedProcedure
+    .input(
+      z.object({
+        id: z.string(),
+        search: z.string().trim().max(200).optional(),
+        cursor: z.string().min(1).max(200).optional(),
+      }),
+    )
+    .output(
+      z.object({
+        projectId: z.string(),
+        template: testPlanExecutionTemplateSchema.nullable(),
+        templateHash: z.string(),
+        cases: z.array(z.object({ id: z.string(), title: z.string() })),
+        caseLimitReached: z.boolean(),
+        nextCursor: z.string().nullable(),
+      }),
+    )
+    .query(async ({ ctx, input }) => {
+      const plan = await ctx.prisma.testPlan.findUnique({
+        where: { id: input.id },
+        select: { projectId: true, executionTemplate: true },
+      });
+      if (!plan)
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Test plan not found",
+        });
+      await requireProjectAccess(ctx, plan.projectId);
+      await requireCurrentPlanAccess(ctx.prisma, ctx.user.id, plan.projectId);
+      const cases = await ctx.prisma.testCase.findMany({
+        where: {
+          projectId: plan.projectId,
+          archived: false,
+          title: input.search
+            ? { contains: input.search, mode: "insensitive" }
+            : undefined,
+          id: input.cursor ? { gt: input.cursor } : undefined,
+        },
+        select: { id: true, title: true },
+        orderBy: { id: "asc" },
+        take: 501,
+      });
+      const template = readPlanExecutionTemplate(plan.executionTemplate);
+      // Retain selected saved identities even if outside the bounded first page.
+      const visible = cases.slice(0, 500);
+      const missing =
+        template?.testCaseIds.filter(
+          (id) => !visible.some((c) => c.id === id),
+        ) ?? [];
+      const selected = missing.length
+        ? await ctx.prisma.testCase.findMany({
+            where: {
+              projectId: plan.projectId,
+              archived: false,
+              id: { in: missing },
+            },
+            select: { id: true, title: true },
+          })
+        : [];
+      return {
+        projectId: plan.projectId,
+        template,
+        templateHash: executionTemplateHash(plan.executionTemplate),
+        cases: [...visible, ...selected],
+        caseLimitReached: cases.length > 500,
+        nextCursor: cases.length > 500 ? visible[visible.length - 1]!.id : null,
+      };
+    }),
+
+  saveExecutionTemplate: protectedProcedure
+    .input(
+      z.object({
+        id: z.string(),
+        expectedTemplateHash: z.string().regex(/^[a-f0-9]{64}$/),
+        template: testPlanExecutionTemplateSchema,
+      }),
+    )
+    .output(
+      z.object({
+        template: testPlanExecutionTemplateSchema,
+        templateHash: z.string(),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const found = await ctx.prisma.testPlan.findUnique({
+        where: { id: input.id },
+        select: { projectId: true },
+      });
+      if (!found)
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Test plan not found",
+        });
+      const { membership, project } = await requireProjectAccess(
+        ctx,
+        found.projectId,
+        "EDITOR",
+      );
+      if (membership.seatType !== "FULL")
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "A full editor seat is required.",
+        });
+      return ctx.prisma.$transaction(
+        async (tx) => {
+          await tx.$queryRaw`SELECT id FROM "TestPlan" WHERE id = ${input.id} FOR UPDATE`;
+          const plan = await tx.testPlan.findUniqueOrThrow({
+            where: { id: input.id },
+          });
+          await requireCurrentPlanAccess(tx, ctx.user.id, plan.projectId, true);
+          if (plan.status === "ARCHIVED")
+            throw new TRPCError({
+              code: "BAD_REQUEST",
+              message:
+                "Archived plans cannot be reconfigured. Restore the plan before making changes.",
+            });
+          readPlanExecutionTemplate(plan.executionTemplate);
+          const currentHash = executionTemplateHash(plan.executionTemplate);
+          if (currentHash !== input.expectedTemplateHash)
+            throw new TRPCError({
+              code: "CONFLICT",
+              message:
+                "This plan's configuration changed. Refresh and review before saving; no changes were made.",
+            });
+          const cases = await tx.testCase.count({
+            where: {
+              projectId: found.projectId,
+              archived: false,
+              id: { in: input.template.testCaseIds },
+            },
+          });
+          if (cases !== input.template.testCaseIds.length)
+            throw new TRPCError({
+              code: "BAD_REQUEST",
+              message:
+                "A selected case is missing, archived, or outside this project. Nothing was saved.",
+            });
+          const templateHash = executionTemplateHash(input.template);
+          if (templateHash === currentHash)
+            return { template: input.template, templateHash };
+          const updated = await tx.testPlan.update({
+            where: { id: input.id },
+            data: {
+              executionTemplate: input.template,
+              updatedById: ctx.user.id,
+            },
+          });
+          await snapshotTestPlanVersion(tx, {
+            testPlanId: plan.id,
+            name: plan.name,
+            description: plan.description,
+            status: plan.status,
+            customFields: plan.customFields,
+            executionTemplate: updated.executionTemplate,
+            actorId: ctx.user.id,
+          });
+          await recordAudit(tx as never, {
+            organizationId: project.organizationId,
+            projectId: found.projectId,
+            actorId: ctx.user.id,
+            entityType: "TestPlan",
+            entityId: plan.id,
+            action: "UPDATE",
+            summary: `Updated reviewed execution configuration for test plan "${plan.name}"`,
+          });
+          return { template: input.template, templateHash };
+        },
+        { timeout: 20000 },
+      );
+    }),
+
   list: protectedProcedure
     .input(z.object({ projectId: z.string() }))
     .output(
@@ -228,16 +406,28 @@ export const testPlansRouter = router({
         input.projectId,
         "EDITOR",
       );
-      const created = await ctx.prisma.testPlan.create({
-        data: {
-          projectId: input.projectId,
-          testPlanTypeId: input.testPlanTypeId,
-          name: input.name,
-          description: input.description,
-          customFields: input.customFields as never,
-          createdById: ctx.user.id,
-          updatedById: ctx.user.id,
-        },
+      const created = await ctx.prisma.$transaction(async (tx) => {
+        const plan = await tx.testPlan.create({
+          data: {
+            projectId: input.projectId,
+            testPlanTypeId: input.testPlanTypeId,
+            name: input.name,
+            description: input.description,
+            customFields: input.customFields as never,
+            createdById: ctx.user.id,
+            updatedById: ctx.user.id,
+          },
+        });
+        await snapshotTestPlanVersion(tx, {
+          testPlanId: plan.id,
+          name: plan.name,
+          description: plan.description,
+          status: plan.status,
+          customFields: plan.customFields,
+          executionTemplate: plan.executionTemplate,
+          actorId: ctx.user.id,
+        });
+        return plan;
       });
       await recordAudit(ctx.prisma, {
         organizationId: project.organizationId,
@@ -247,14 +437,6 @@ export const testPlansRouter = router({
         entityId: created.id,
         action: "CREATE",
         summary: `Created test plan "${created.name}"`,
-      });
-      await snapshotTestPlanVersion(ctx.prisma, {
-        testPlanId: created.id,
-        name: created.name,
-        description: created.description,
-        status: created.status,
-        customFields: created.customFields,
-        actorId: ctx.user.id,
       });
       return created;
     }),
@@ -279,15 +461,28 @@ export const testPlansRouter = router({
         existing.projectId,
         "EDITOR",
       );
-      const updated = await ctx.prisma.testPlan.update({
-        where: { id: input.id },
-        data: {
-          name: input.name,
-          description: input.description,
-          status: input.status,
-          customFields: input.customFields as never,
-          updatedById: ctx.user.id,
-        },
+      const updated = await ctx.prisma.$transaction(async (tx) => {
+        await tx.$queryRaw`SELECT id FROM "TestPlan" WHERE id = ${input.id} FOR UPDATE`;
+        const plan = await tx.testPlan.update({
+          where: { id: input.id },
+          data: {
+            name: input.name,
+            description: input.description,
+            status: input.status,
+            customFields: input.customFields as never,
+            updatedById: ctx.user.id,
+          },
+        });
+        await snapshotTestPlanVersion(tx, {
+          testPlanId: plan.id,
+          name: plan.name,
+          description: plan.description,
+          status: plan.status,
+          customFields: plan.customFields,
+          executionTemplate: plan.executionTemplate,
+          actorId: ctx.user.id,
+        });
+        return plan;
       });
       await recordAudit(ctx.prisma, {
         organizationId: project.organizationId,
@@ -297,14 +492,6 @@ export const testPlansRouter = router({
         entityId: input.id,
         action: "UPDATE",
         summary: `Updated test plan "${updated.name}" (status: ${updated.status})`,
-      });
-      await snapshotTestPlanVersion(ctx.prisma, {
-        testPlanId: updated.id,
-        name: updated.name,
-        description: updated.description,
-        status: updated.status,
-        customFields: updated.customFields,
-        actorId: ctx.user.id,
       });
       return updated;
     }),
@@ -718,6 +905,7 @@ export const testPlansRouter = router({
           description: z.string().nullable(),
           status: z.string(),
           customFields: z.record(z.unknown()),
+          executionTemplate: z.unknown(),
           createdAt: z.date(),
           createdBy: z
             .object({
@@ -748,6 +936,7 @@ export const testPlansRouter = router({
         description: v.description,
         status: v.status,
         customFields: v.customFields as Record<string, unknown>,
+        executionTemplate: v.executionTemplate,
         createdAt: v.createdAt,
         createdBy: v.createdBy,
       }));

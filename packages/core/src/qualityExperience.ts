@@ -32,6 +32,16 @@ export const GAME_PLATFORMS = [
   { id: "ANDROID", label: "Android" }, { id: "WEB", label: "Browser" },
   { id: "OTHER", label: "Other platform" },
 ] as const;
+// Layout only: stable target IDs still persist independently of their family.
+// Keep every catalog target visible exactly once; grouping grants no platform access.
+export const GAME_PLATFORM_GROUPS = [
+  { label: "PC", ids: ["WINDOWS_PC", "MACOS", "LINUX_PC"] },
+  { label: "PlayStation", ids: ["PS5", "PS4"] },
+  { label: "Xbox", ids: ["XBOX_SERIES", "XBOX_ONE"] },
+  { label: "Nintendo", ids: ["SWITCH", "SWITCH_2"] },
+  { label: "Mobile", ids: ["IOS", "ANDROID"] },
+  { label: "Browser and other targets", ids: ["WEB", "OTHER"] },
+] as const;
 export const MULTIPLAYER_MODES = [
   { id: "SINGLE_PLAYER", label: "Single player" }, { id: "LOCAL", label: "Local multiplayer" },
   { id: "ONLINE_COOP", label: "Online co-op" }, { id: "ONLINE_COMPETITIVE", label: "Online competitive" },

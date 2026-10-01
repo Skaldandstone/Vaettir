@@ -7,8 +7,17 @@ import { recomputeFlaky } from "../services/flakyDetection.js";
 import { resolveHealingSuggestionsOnPass } from "../services/healingSuggestion.js";
 import { resolveStepFieldLabels } from "@vaettir/core";
 import {
-  boundedRunSnapshot, qualityProfileHash, readQualityExperience, readRunExperienceSnapshot,
-  runConfigurationSchema, runExperienceSnapshotSchema,
+  planReferenceSchema,
+  requireCurrentPlanAccess,
+  reviewPlanExecution,
+} from "../services/testPlanExecution.js";
+import {
+  boundedRunSnapshot,
+  qualityProfileHash,
+  readQualityExperience,
+  readRunExperienceSnapshot,
+  runConfigurationSchema,
+  runExperienceSnapshotSchema,
 } from "../services/qualityExperienceProfile.js";
 import {
   manualRunStatus,
@@ -47,32 +56,97 @@ export const manualExecutionRouter = router({
       z.object({
         projectId: z.string(),
         testCaseIds: z.array(z.string()).min(1).max(500),
-        expectedProfileHash: z.string().regex(/^[a-f0-9]{64}$/).optional(),
+        expectedProfileHash: z
+          .string()
+          .regex(/^[a-f0-9]{64}$/)
+          .optional(),
         executionContext: runConfigurationSchema.optional(),
         idempotencyKey: z.string().uuid().optional(),
+        planReference: planReferenceSchema.optional(),
       }),
     )
     .output(z.object({ testRunId: z.string() }))
     .mutation(async ({ ctx, input }) => {
-      const { membership } = await requireProjectAccess(ctx, input.projectId, "EDITOR");
-      if (membership.seatType !== "FULL") throw new TRPCError({ code: "FORBIDDEN", message: "A full editor seat is required." });
+      const { membership } = await requireProjectAccess(
+        ctx,
+        input.projectId,
+        "EDITOR",
+      );
+      if (membership.seatType !== "FULL")
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "A full editor seat is required.",
+        });
+      if (input.planReference)
+        await requireCurrentPlanAccess(
+          ctx.prisma,
+          ctx.user.id,
+          input.projectId,
+          true,
+        );
       if (new Set(input.testCaseIds).size !== input.testCaseIds.length) {
-        throw new TRPCError({ code: "BAD_REQUEST", message: "Choose each test case only once." });
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "Choose each test case only once.",
+        });
       }
-      const configuration = runConfigurationSchema.parse(input.executionContext ?? {});
+      const configuration = runConfigurationSchema.parse(
+        input.executionContext ?? {},
+      );
       const startRequestHash = qualityProfileHash({
-        testCaseIds: [...input.testCaseIds].sort(), expectedProfileHash: input.expectedProfileHash ?? null, configuration,
+        testCaseIds: input.planReference
+          ? input.testCaseIds
+          : [...input.testCaseIds].sort(),
+        expectedProfileHash: input.expectedProfileHash ?? null,
+        configuration,
+        ...(input.planReference ? { planReference: input.planReference } : {}),
       });
+      if (
+        input.planReference &&
+        (!input.idempotencyKey ||
+          !input.expectedProfileHash ||
+          !input.executionContext)
+      ) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message:
+            "Review project context and the saved plan configuration with a durable run-start key before starting.",
+        });
+      }
       const durableId = input.idempotencyKey
-        ? `manual_${createHash("sha256").update(JSON.stringify([input.projectId, ctx.user.id, input.idempotencyKey])).digest("hex")}`
+        ? `manual_${createHash("sha256")
+            .update(
+              JSON.stringify([
+                input.projectId,
+                ctx.user.id,
+                input.idempotencyKey,
+              ]),
+            )
+            .digest("hex")}`
         : undefined;
       async function previousRun() {
         if (!durableId) return null;
-        const existing = await ctx.prisma.testRun.findUnique({ where: { id: durableId }, select: { id: true, projectId: true, startedById: true, executionContext: true } });
+        const existing = await ctx.prisma.testRun.findUnique({
+          where: { id: durableId },
+          select: {
+            id: true,
+            projectId: true,
+            startedById: true,
+            executionContext: true,
+          },
+        });
         if (!existing) return null;
         const frozen = readRunExperienceSnapshot(existing.executionContext);
-        if (existing.projectId !== input.projectId || existing.startedById !== ctx.user.id || frozen?.startRequestHash !== startRequestHash) {
-          throw new TRPCError({ code: "CONFLICT", message: "This run-start key was used for a different request. Review the changed scope and start with a new key." });
+        if (
+          existing.projectId !== input.projectId ||
+          existing.startedById !== ctx.user.id ||
+          frozen?.startRequestHash !== startRequestHash
+        ) {
+          throw new TRPCError({
+            code: "CONFLICT",
+            message:
+              "This run-start key was used for a different request. Review the changed scope and start with a new key.",
+          });
         }
         return { testRunId: existing.id };
       }
@@ -81,93 +155,201 @@ export const manualExecutionRouter = router({
       const previous = await previousRun();
       if (previous) return previous;
       try {
-        return await ctx.prisma.$transaction(async (tx) => {
-        // Serialize with prerequisite edits, then freeze the graph for this
-        // run. Historical runs never change when a case's graph is edited.
-        await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${input.projectId}))::text`;
-        const project = await tx.project.findUnique({ where: { id: input.projectId }, select: { qualityProfile: true, organization: { select: { stepFieldLabels: true } } } });
-        if (!project) throw new TRPCError({ code: "NOT_FOUND", message: "Project not found" });
-        const experience = readQualityExperience(project.qualityProfile);
-        if (input.expectedProfileHash !== undefined && input.expectedProfileHash !== experience.profileHash) {
-          throw new TRPCError({ code: "CONFLICT", message: "Project context changed. Refresh and review the run configuration before starting." });
-        }
-        const links = await tx.testCasePrerequisite.findMany({
-          where: { projectId: input.projectId },
-          select: { dependentId: true, prerequisiteId: true },
-          take: 10001,
-        });
-        if (links.length > 10000) throw new TRPCError({ code: "BAD_REQUEST", message: "Project has too many prerequisite links to start safely." });
-        const graph = new Map<string, string[]>();
-        for (const link of links) graph.set(link.dependentId, [...(graph.get(link.dependentId) ?? []), link.prerequisiteId]);
-        const ordered: string[] = [];
-        const visited = new Set<string>();
-        const visiting = new Set<string>();
-        for (const rootId of input.testCaseIds) {
-          if (visited.has(rootId)) continue;
-          const stack = [{ id: rootId, nextIndex: 0 }];
-          while (stack.length) {
-            const frame = stack[stack.length - 1]!;
-            visiting.add(frame.id);
-            const next = (graph.get(frame.id) ?? [])[frame.nextIndex++];
-            if (next) {
-              if (visiting.has(next)) throw new TRPCError({ code: "CONFLICT", message: "Test case prerequisites contain a cycle." });
-              if (!visited.has(next)) stack.push({ id: next, nextIndex: 0 });
-              if (visited.size + stack.length > 500) throw new TRPCError({ code: "BAD_REQUEST", message: "Run would include more than 500 cases with prerequisites." });
-              continue;
+        return await ctx.prisma.$transaction(
+          async (tx) => {
+            // Serialize with prerequisite edits, then freeze the graph for this
+            // run. Historical runs never change when a case's graph is edited.
+            await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${input.projectId}))::text`;
+            if (input.planReference)
+              await requireCurrentPlanAccess(
+                tx,
+                ctx.user.id,
+                input.projectId,
+                true,
+              );
+            const project = await tx.project.findUnique({
+              where: { id: input.projectId },
+              select: {
+                qualityProfile: true,
+                organization: { select: { stepFieldLabels: true } },
+              },
+            });
+            if (!project)
+              throw new TRPCError({
+                code: "NOT_FOUND",
+                message: "Project not found",
+              });
+            const experience = readQualityExperience(project.qualityProfile);
+            if (
+              input.expectedProfileHash !== undefined &&
+              input.expectedProfileHash !== experience.profileHash
+            ) {
+              throw new TRPCError({
+                code: "CONFLICT",
+                message:
+                  "Project context changed. Refresh and review the run configuration before starting.",
+              });
             }
-            stack.pop();
-            visiting.delete(frame.id);
-            visited.add(frame.id);
-            ordered.push(frame.id);
-          }
-        }
-        const cases = await tx.testCase.findMany({
-          where: { id: { in: ordered }, projectId: input.projectId, archived: false },
-          include: { steps: { orderBy: { order: "asc" } }, sharedStepGroup: true },
-        });
-        if (cases.length !== ordered.length) {
-          throw new TRPCError({ code: "BAD_REQUEST", message: "A selected case or prerequisite is missing, archived, or outside this project." });
-        }
-        const snapshot = Object.fromEntries(ordered.map(id => [id, graph.get(id) ?? []]));
-        const casesById = new Map(cases.map(c => [c.id, c]));
-        const executionContext = boundedRunSnapshot({
-          version: 1, ...experience, startRequestHash, configuration,
-          stepFieldLabels: resolveStepFieldLabels((project.organization.stepFieldLabels ?? {}) as never),
-          caseDefinitions: ordered.map(id => {
-            const c = casesById.get(id)!;
-            const verification = verificationProfileSchema.safeParse(c.verificationProfile);
-            if (!verification.success) throw new TRPCError({ code: "BAD_REQUEST", message: "A selected case has invalid procedure metadata. Review the case before starting a run; nothing was started." });
-            return {
-              testCaseId: c.id, title: c.title, validationDomain: c.validationDomain, reviewStatus: c.reviewStatus,
-              background: c.background, given: c.given, when: c.when, then: c.then,
-              verificationProfile: verification.data,
-              steps: c.sharedStepGroup ? c.sharedStepGroup.steps : c.steps.map(s => ({
-                order: s.order, action: s.action, expectedActionOrData: s.expectedActionOrData,
-                expectedResult: s.expectedResult, expectedResponse: s.expectedResponse, mediaAttachmentIds: s.mediaAttachmentIds,
-              })),
-            };
-          }),
-        });
-        const run = await tx.testRun.create({
-          data: {
-            id: durableId,
-            projectId: input.projectId,
-            ciProvider: "manual",
-            commitSha: "manual",
-            branch: "manual",
-            startedAt: new Date(),
-            status: "RUNNING",
-            manualTestCaseIds: ordered,
-            manualPrerequisites: snapshot,
-            executionContext,
-            startedById: ctx.user.id,
+            const plan = input.planReference
+              ? await tx.testPlan.findUnique({
+                  where: { id: input.planReference.testPlanId },
+                })
+              : null;
+            if (input.planReference && !plan)
+              throw new TRPCError({
+                code: "NOT_FOUND",
+                message: "Test plan not found",
+              });
+            const planSnapshot =
+              input.planReference && plan
+                ? reviewPlanExecution(
+                    plan,
+                    input.projectId,
+                    input.planReference,
+                    input.testCaseIds,
+                    configuration,
+                  )
+                : undefined;
+            const links = await tx.testCasePrerequisite.findMany({
+              where: { projectId: input.projectId },
+              select: { dependentId: true, prerequisiteId: true },
+              take: 10001,
+            });
+            if (links.length > 10000)
+              throw new TRPCError({
+                code: "BAD_REQUEST",
+                message:
+                  "Project has too many prerequisite links to start safely.",
+              });
+            const graph = new Map<string, string[]>();
+            for (const link of links)
+              graph.set(link.dependentId, [
+                ...(graph.get(link.dependentId) ?? []),
+                link.prerequisiteId,
+              ]);
+            const ordered: string[] = [];
+            const visited = new Set<string>();
+            const visiting = new Set<string>();
+            for (const rootId of input.testCaseIds) {
+              if (visited.has(rootId)) continue;
+              const stack = [{ id: rootId, nextIndex: 0 }];
+              while (stack.length) {
+                const frame = stack[stack.length - 1]!;
+                visiting.add(frame.id);
+                const next = (graph.get(frame.id) ?? [])[frame.nextIndex++];
+                if (next) {
+                  if (visiting.has(next))
+                    throw new TRPCError({
+                      code: "CONFLICT",
+                      message: "Test case prerequisites contain a cycle.",
+                    });
+                  if (!visited.has(next))
+                    stack.push({ id: next, nextIndex: 0 });
+                  if (visited.size + stack.length > 500)
+                    throw new TRPCError({
+                      code: "BAD_REQUEST",
+                      message:
+                        "Run would include more than 500 cases with prerequisites.",
+                    });
+                  continue;
+                }
+                stack.pop();
+                visiting.delete(frame.id);
+                visited.add(frame.id);
+                ordered.push(frame.id);
+              }
+            }
+            const cases = await tx.testCase.findMany({
+              where: {
+                id: { in: ordered },
+                projectId: input.projectId,
+                archived: false,
+              },
+              include: {
+                steps: { orderBy: { order: "asc" } },
+                sharedStepGroup: true,
+              },
+            });
+            if (cases.length !== ordered.length) {
+              throw new TRPCError({
+                code: "BAD_REQUEST",
+                message:
+                  "A selected case or prerequisite is missing, archived, or outside this project.",
+              });
+            }
+            const snapshot = Object.fromEntries(
+              ordered.map((id) => [id, graph.get(id) ?? []]),
+            );
+            const casesById = new Map(cases.map((c) => [c.id, c]));
+            const executionContext = boundedRunSnapshot({
+              version: 1,
+              ...experience,
+              startRequestHash,
+              configuration,
+              ...(planSnapshot ? { plan: planSnapshot } : {}),
+              stepFieldLabels: resolveStepFieldLabels(
+                (project.organization.stepFieldLabels ?? {}) as never,
+              ),
+              caseDefinitions: ordered.map((id) => {
+                const c = casesById.get(id)!;
+                const verification = verificationProfileSchema.safeParse(
+                  c.verificationProfile,
+                );
+                if (!verification.success)
+                  throw new TRPCError({
+                    code: "BAD_REQUEST",
+                    message:
+                      "A selected case has invalid procedure metadata. Review the case before starting a run; nothing was started.",
+                  });
+                return {
+                  testCaseId: c.id,
+                  title: c.title,
+                  validationDomain: c.validationDomain,
+                  reviewStatus: c.reviewStatus,
+                  background: c.background,
+                  given: c.given,
+                  when: c.when,
+                  then: c.then,
+                  verificationProfile: verification.data,
+                  steps: c.sharedStepGroup
+                    ? c.sharedStepGroup.steps
+                    : c.steps.map((s) => ({
+                        order: s.order,
+                        action: s.action,
+                        expectedActionOrData: s.expectedActionOrData,
+                        expectedResult: s.expectedResult,
+                        expectedResponse: s.expectedResponse,
+                        mediaAttachmentIds: s.mediaAttachmentIds,
+                      })),
+                };
+              }),
+            });
+            const run = await tx.testRun.create({
+              data: {
+                id: durableId,
+                projectId: input.projectId,
+                ciProvider: "manual",
+                commitSha: "manual",
+                branch: "manual",
+                startedAt: new Date(),
+                status: "RUNNING",
+                manualTestCaseIds: ordered,
+                manualPrerequisites: snapshot,
+                executionContext,
+                startedById: ctx.user.id,
+              },
+              select: { id: true },
+            });
+            return { testRunId: run.id };
           },
-          select: { id: true },
-        });
-        return { testRunId: run.id };
-        }, { timeout: 20000, isolationLevel: "RepeatableRead" });
+          { timeout: 20000, isolationLevel: "RepeatableRead" },
+        );
       } catch (error) {
-        if (durableId && error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
+        if (
+          durableId &&
+          error instanceof Prisma.PrismaClientKnownRequestError &&
+          error.code === "P2002"
+        ) {
           const recovered = await previousRun();
           if (recovered) return recovered;
         }
@@ -229,7 +411,10 @@ export const manualExecutionRouter = router({
 
       const [cases, results] = await Promise.all([
         ctx.prisma.testCase.findMany({
-          where: { id: { in: run.manualTestCaseIds }, projectId: run.projectId },
+          where: {
+            id: { in: run.manualTestCaseIds },
+            projectId: run.projectId,
+          },
           include: {
             steps: { orderBy: { order: "asc" } },
             sharedStepGroup: true,
@@ -246,9 +431,13 @@ export const manualExecutionRouter = router({
       const resultByCase = new Map(
         results.map((r) => [r.testCaseId as string, r]),
       );
-      const prerequisites = z.record(z.array(z.string())).parse(run.manualPrerequisites);
+      const prerequisites = z
+        .record(z.array(z.string()))
+        .parse(run.manualPrerequisites);
       const executionContext = readRunExperienceSnapshot(run.executionContext);
-      const frozenCases = new Map(executionContext?.caseDefinitions.map(c => [c.testCaseId, c]) ?? []);
+      const frozenCases = new Map(
+        executionContext?.caseDefinitions.map((c) => [c.testCaseId, c]) ?? [],
+      );
 
       const overrides =
         (run.project.organization.stepFieldLabels as Partial<
@@ -259,7 +448,9 @@ export const manualExecutionRouter = router({
         testRunId: run.id,
         projectId: run.projectId,
         status: run.status,
-        stepFieldLabels: executionContext?.stepFieldLabels ?? resolveStepFieldLabels(overrides as never),
+        stepFieldLabels:
+          executionContext?.stepFieldLabels ??
+          resolveStepFieldLabels(overrides as never),
         executionContext,
         cases: run.manualTestCaseIds
           .map((id) => {
@@ -272,30 +463,36 @@ export const manualExecutionRouter = router({
               title: frozen ? frozen.title : c!.title,
               background: frozen ? frozen.background : c!.background,
               prerequisiteIds: prerequisites[id] ?? [],
-              validationDomain: frozen ? validationDomainSchema.parse(frozen.validationDomain) : c!.validationDomain,
-              verificationProfile: frozen ? frozen.verificationProfile : verificationProfileSchema.parse(c!.verificationProfile),
+              validationDomain: frozen
+                ? validationDomainSchema.parse(frozen.validationDomain)
+                : c!.validationDomain,
+              verificationProfile: frozen
+                ? frozen.verificationProfile
+                : verificationProfileSchema.parse(c!.verificationProfile),
               given: frozen ? frozen.given : c!.given,
               when: frozen ? frozen.when : c!.when,
               then: frozen ? frozen.then : c!.then,
               // Same shared-step-group resolution as testCases.ts's byId -
               // a case deferring to a group has no steps of its own.
-              steps: frozen ? frozen.steps : c!.sharedStepGroup
-                ? (c!.sharedStepGroup.steps as Array<{
-                    order: number;
-                    action: string;
-                    expectedActionOrData: string | null;
-                    expectedResult: string | null;
-                    expectedResponse: string | null;
-                    mediaAttachmentIds: string[];
-                  }>)
-                : c!.steps.map((s) => ({
-                    order: s.order,
-                    action: s.action,
-                    expectedActionOrData: s.expectedActionOrData,
-                    expectedResult: s.expectedResult,
-                    expectedResponse: s.expectedResponse,
-                    mediaAttachmentIds: s.mediaAttachmentIds,
-                  })),
+              steps: frozen
+                ? frozen.steps
+                : c!.sharedStepGroup
+                  ? (c!.sharedStepGroup.steps as Array<{
+                      order: number;
+                      action: string;
+                      expectedActionOrData: string | null;
+                      expectedResult: string | null;
+                      expectedResponse: string | null;
+                      mediaAttachmentIds: string[];
+                    }>)
+                  : c!.steps.map((s) => ({
+                      order: s.order,
+                      action: s.action,
+                      expectedActionOrData: s.expectedActionOrData,
+                      expectedResult: s.expectedResult,
+                      expectedResponse: s.expectedResponse,
+                      mediaAttachmentIds: s.mediaAttachmentIds,
+                    })),
               currentResult: result
                 ? {
                     status: result.status,
@@ -304,7 +501,8 @@ export const manualExecutionRouter = router({
                   }
                 : null,
             };
-          }).filter((c): c is NonNullable<typeof c> => c !== null),
+          })
+          .filter((c): c is NonNullable<typeof c> => c !== null),
       };
     }),
 
@@ -354,15 +552,29 @@ export const manualExecutionRouter = router({
           where: { testRunId: input.testRunId, testCaseId: input.testCaseId },
         });
 
-        const prerequisites = z.record(z.array(z.string())).parse(run.manualPrerequisites);
+        const prerequisites = z
+          .record(z.array(z.string()))
+          .parse(run.manualPrerequisites);
         const requiredIds = prerequisites[input.testCaseId] ?? [];
-        if (input.status !== "BLOCKED" && input.status !== "SKIP" && requiredIds.length) {
+        if (
+          input.status !== "BLOCKED" &&
+          input.status !== "SKIP" &&
+          requiredIds.length
+        ) {
           const passed = await tx.testResult.findMany({
-            where: { testRunId: run.id, testCaseId: { in: requiredIds }, status: "PASS" },
+            where: {
+              testRunId: run.id,
+              testCaseId: { in: requiredIds },
+              status: "PASS",
+            },
             select: { testCaseId: true },
           });
           if (passed.length !== requiredIds.length) {
-            throw new TRPCError({ code: "BAD_REQUEST", message: "Complete all prerequisite cases with Pass before executing this case." });
+            throw new TRPCError({
+              code: "BAD_REQUEST",
+              message:
+                "Complete all prerequisite cases with Pass before executing this case.",
+            });
           }
         }
         if (existing?.status === "PASS" && input.status !== "PASS") {
@@ -370,10 +582,18 @@ export const manualExecutionRouter = router({
             .filter(([, ids]) => ids.includes(input.testCaseId))
             .map(([id]) => id);
           const executedDependents = await tx.testResult.count({
-            where: { testRunId: run.id, testCaseId: { in: dependents }, status: { in: ["PASS", "FAIL"] } },
+            where: {
+              testRunId: run.id,
+              testCaseId: { in: dependents },
+              status: { in: ["PASS", "FAIL"] },
+            },
           });
           if (executedDependents) {
-            throw new TRPCError({ code: "CONFLICT", message: "A dependent case has already run. Correct or reset it before changing this prerequisite result." });
+            throw new TRPCError({
+              code: "CONFLICT",
+              message:
+                "A dependent case has already run. Correct or reset it before changing this prerequisite result.",
+            });
           }
         }
 

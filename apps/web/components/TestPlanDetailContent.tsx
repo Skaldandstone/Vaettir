@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { trpcReact, type RouterOutputs } from "@/lib/trpcReact";
+import { PlanExecutionModal } from "./PlanExecutionModal";
 
 type Plan = RouterOutputs["testPlans"]["byId"];
 type FieldSchema = { type?: string; properties?: Record<string, { type?: string; items?: { type?: string } }> };
@@ -240,6 +241,11 @@ function VersionHistorySection({ testPlanId }: { testPlanId: string }) {
   const historyQuery = trpcReact.testPlans.history.useQuery({ testPlanId });
   const versions = historyQuery.data ?? [];
   const loading = historyQuery.isPending;
+  function executionSummary(value: unknown): string | null {
+    if (!value || typeof value !== "object" || !("version" in value) || value.version !== 1 || !("testCaseIds" in value) || !Array.isArray(value.testCaseIds) || !("configurations" in value) || !Array.isArray(value.configurations) || value.testCaseIds.length > 500 || value.configurations.length > 20) return null;
+    const names = value.configurations.map(item => item && typeof item === "object" && "name" in item && typeof item.name === "string" ? item.name.slice(0, 120) : "Unnamed configuration");
+    return `${value.testCaseIds.length} execution cases; ${names.length} configurations${names.length ? `: ${names.join(", ")}` : ""}`;
+  }
 
   function changesFrom(version: RouterOutputs["testPlans"]["history"][number], index: number): string[] {
     const prev = versions[index + 1]; // desc order -- the next array entry is the prior version
@@ -248,6 +254,7 @@ function VersionHistorySection({ testPlanId }: { testPlanId: string }) {
     if (version.name !== prev.name) changes.push(`name: "${prev.name}" → "${version.name}"`);
     if (version.description !== prev.description) changes.push("description changed");
     if (version.status !== prev.status) changes.push(`status: ${prev.status} → ${version.status}`);
+    if (JSON.stringify(version.executionTemplate) !== JSON.stringify(prev.executionTemplate)) changes.push("execution cases/configurations changed");
     const allKeys = new Set([...Object.keys(version.customFields), ...Object.keys(prev.customFields)]);
     for (const k of allKeys) {
       if (JSON.stringify(version.customFields[k]) !== JSON.stringify(prev.customFields[k])) {
@@ -277,6 +284,7 @@ function VersionHistorySection({ testPlanId }: { testPlanId: string }) {
                   <li key={j}>{c}</li>
                 ))}
               </ul>
+              {executionSummary(v.executionTemplate) && <p className="text-muted" style={{ fontSize: 12, overflowWrap: "anywhere" }}>{executionSummary(v.executionTemplate)}</p>}
             </li>
           ))}
           {versions.length === 0 && <p className="text-muted">No history yet.</p>}
@@ -602,6 +610,7 @@ export function TestPlanDetailContent({
 
   const [newCriterion, setNewCriterion] = useState("");
   const [newCriterionRequirementId, setNewCriterionRequirementId] = useState("");
+  const [executionOpen, setExecutionOpen] = useState(false);
 
   function load() {
     void utils.testPlans.byId.invalidate({ id });
@@ -659,6 +668,9 @@ export function TestPlanDetailContent({
     <div>
       <h1 style={{ marginBottom: 2 }}>{plan.name}</h1>
       <p style={{ color: "var(--muted)" }}>{plan.testPlanType.name} plan</p>
+
+      {!readOnly && <button className="btn-secondary" style={{ marginBottom: 16 }} onClick={() => setExecutionOpen(true)}>Configure cases / repeat execution</button>}
+      <PlanExecutionModal key={id} open={executionOpen} onClose={() => setExecutionOpen(false)} id={id} projectId={plan.projectId} onSaved={() => { load(); onChanged?.(); }} />
 
       {readOnly ? (
         <div style={{ display: "grid", gap: 6, marginBottom: 24 }}>

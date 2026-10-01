@@ -3,15 +3,19 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
 const source = path => readFileSync(new URL(path, import.meta.url), "utf8");
-test("experience wizard reviews bounded chips and retains drafts on conflict", () => {
+test("experience wizard uses labelled multi-select checklists and retains drafts on conflict", () => {
   const wizard = source("../components/QualityExperienceWizard.tsx");
   assert.match(wizard, /<Modal/);
-  assert.match(wizard, /aria-pressed=\{selected\}/);
+  assert.match(wizard, /type="checkbox"/);
+  assert.match(wizard, /checked=\{selected\}/);
+  assert.match(wizard, /onChange=\{\(\) => select\(screen.field!, id\)\}/);
+  assert.match(wizard, /<label\s+key=\{id\}/);
+  assert.match(wizard, /GAME_PLATFORM_GROUPS.map/);
   assert.match(wizard, /expectedProfileHash: baselineHash/);
   assert.match(wizard, /Your draft is retained/);
   assert.match(wizard, /Save testing context/);
   assert.match(wizard, /GAME_PLATFORMS/);
-  assert.doesNotMatch(wizard, /type="checkbox"|generateAutomationDraft|repoSource/);
+  assert.doesNotMatch(wizard, /aria-pressed|wizard-choice-chip|generateAutomationDraft|repoSource/);
 });
 test("manual runs open reviewed configuration and render frozen evidence", () => {
   const cases = source("../app/projects/[projectId]/test-cases/page.tsx");
@@ -23,6 +27,10 @@ test("manual runs open reviewed configuration and render frozen evidence", () =>
   assert.match(execution, /data.executionContext.configuration/);
   assert.match(execution, /Later profile or case edits do not rewrite this run/);
   assert.match(execution, /Legacy run: no saved profile\/configuration snapshot/);
+  assert.match(execution, /Frozen plan definition/);
+  assert.match(execution, /data.executionContext.plan.templateHash/);
+  assert.match(execution, /link opens the current plan/);
+  assert.match(execution, /repeating it creates a separate run/);
 });
 test("automation uses linked framework family and never blindly defaults to Maestro", () => {
   const detail = source("../components/TestCaseDetailContent.tsx");

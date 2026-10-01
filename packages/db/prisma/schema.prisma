@@ -912,6 +912,7 @@ model TestPlan {
   description  String?
   status       TestPlanStatus @default(DRAFT)
   customFields Json           @default("{}") // validated against testPlanType.fieldSchema
+  executionTemplate Json      @default("{}") // bounded ordered scope and reusable reviewed configurations
 
   // P4-04: lets a QUALITY_STRATEGY-category plan act as a real coordination
   // hub instead of just a document -- a concrete plan (e.g. "regression
@@ -949,6 +950,7 @@ model TestPlanVersion {
   description   String?
   status        TestPlanStatus
   customFields  Json
+  executionTemplate Json       @default("{}")
   createdById   String?
   createdBy     User?          @relation(fields: [createdById], references: [id])
   createdAt     DateTime       @default(now())

@@ -1,7 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { automationTargetForFramework, experienceProfileSchema, resolveQualityExperience } from "./qualityExperience";
+import { automationTargetForFramework, experienceProfileSchema, resolveQualityExperience, GAME_PLATFORMS, GAME_PLATFORM_GROUPS } from "./qualityExperience";
 
 describe("quality experience", () => {
+  it("groups every exact platform once without replacing its stable identity", () => {
+    const grouped = GAME_PLATFORM_GROUPS.flatMap(group => [...group.ids]);
+    expect(new Set(grouped).size).toBe(grouped.length);
+    expect([...grouped].sort()).toEqual(GAME_PLATFORMS.map(choice => choice.id).sort());
+    expect(GAME_PLATFORM_GROUPS.find(group => group.label === "Nintendo")?.ids).toEqual(["SWITCH", "SWITCH_2"]);
+  });
   it("keeps granular mixed profiles and hidden selections without inferring applicability", () => {
     const profile = experienceProfileSchema.parse({ version: 1, offerings: ["GAME", "HIL", "FOOD_SAFETY"], gameGenres: ["RPG"], gamePlatforms: ["PS5", "SWITCH_2", "WINDOWS_PC"], multiplayerModes: ["CROSS_PLAY"], hardwareKinds: ["CONTROLLER"], processKinds: ["MONITORING", "VERIFICATION"], jurisdictions: ["United States"] });
     expect(profile.gamePlatforms).toEqual(["PS5", "SWITCH_2", "WINDOWS_PC"]);

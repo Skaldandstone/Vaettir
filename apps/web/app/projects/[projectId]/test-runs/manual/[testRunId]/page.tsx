@@ -428,6 +428,18 @@ export default function ManualExecutionPage() {
       {data.executionContext ? <details style={{ marginBottom: 16 }}>
         <summary>Saved execution context{data.executionContext.experience ? `: ${resolveQualityExperience(data.executionContext.experience).title}` : ""}</summary>
         <p>These case definitions and configuration were saved when this run started. Later profile or case edits do not rewrite this run. Recorded results remain separate evidence; this context does not certify safety or compliance.</p>
+        {data.executionContext.plan && <section style={{ marginBottom: 12 }}>
+          <h2 style={{ fontSize: 16 }}>Frozen plan definition</h2>
+          <dl>
+            <dt>Plan</dt>
+            <dd style={{ marginLeft: 0 }}><a href={`/projects/${projectId}/test-plans/${data.executionContext.plan.testPlanId}`}>{data.executionContext.plan.name}</a> <span className="text-muted">(link opens the current plan)</span></dd>
+            <dt>Saved configuration</dt>
+            <dd style={{ marginLeft: 0 }}>{data.executionContext.plan.template.configurations.find(configuration => configuration.id === data.executionContext!.plan!.configurationId)?.name ?? data.executionContext.plan.configurationId}</dd>
+            <dt>Definition fingerprint</dt>
+            <dd style={{ marginLeft: 0, overflowWrap: "anywhere" }}><code>{data.executionContext.plan.templateHash}</code></dd>
+          </dl>
+          <p className="text-muted">This execution retains the reviewed plan and preset. Editing the current plan does not change this record; repeating it creates a separate run.</p>
+        </section>}
         <dl>{Object.entries(data.executionContext.configuration).filter(([, value]) => value).map(([key, value]) => <div key={key} style={{ marginBottom: 8 }}><dt>{key.replace(/([A-Z])/g, " $1")}</dt><dd style={{ margin: 0, whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>{value}</dd></div>)}</dl>
         {data.executionContext.experience && <ul>{resolveQualityExperience(data.executionContext.experience).runGuidance.map(note => <li key={note}>{note}</li>)}</ul>}
       </details> : <p className="text-muted">Legacy run: no saved profile/configuration snapshot. The displayed procedure may reflect later case edits.</p>}

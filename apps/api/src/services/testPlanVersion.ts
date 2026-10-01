@@ -1,4 +1,4 @@
-import type { PrismaClient, TestPlanStatus } from "@vaettir/db";
+import type { Prisma, PrismaClient, TestPlanStatus } from "@vaettir/db";
 
 // P4-05: called after every create/update so a strategy that evolves
 // release to release has a real history to look back at, not just the
@@ -6,13 +6,14 @@ import type { PrismaClient, TestPlanStatus } from "@vaettir/db";
 // creation); computed from the max existing version rather than counting
 // rows, so a version is never reused if one were ever deleted.
 export async function snapshotTestPlanVersion(
-  prisma: PrismaClient,
+  prisma: PrismaClient | Prisma.TransactionClient,
   args: {
     testPlanId: string;
     name: string;
     description: string | null;
     status: TestPlanStatus;
     customFields: unknown;
+    executionTemplate?: unknown;
     actorId: string;
   },
 ) {
@@ -29,6 +30,7 @@ export async function snapshotTestPlanVersion(
       description: args.description,
       status: args.status,
       customFields: args.customFields as never,
+      executionTemplate: (args.executionTemplate ?? {}) as never,
       createdById: args.actorId,
     },
   });

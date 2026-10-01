@@ -3563,6 +3563,15 @@ main.app-main {
   line-height: 1;
 }
 .wizard-choice-chip.selected .wizard-choice-chip-mark { background: var(--frost); color: var(--ink); border-color: var(--frost); }
+.experience-checklist { margin: 0; padding: 0; border: 0; min-width: 0; }
+.experience-checklist legend { margin-bottom: 8px; font-size: 13px; }
+.experience-checklist-section { margin-bottom: 12px; }
+.experience-checklist-section h4 { margin: 0 0 4px; font-size: 13px; }
+.experience-checklist-options { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 190px), 1fr)); gap: 2px 12px; }
+.experience-checklist-option { display: flex; gap: 10px; align-items: center; min-height: 44px; padding: 6px 0; cursor: pointer; overflow-wrap: anywhere; }
+.experience-checklist-option input { flex: 0 0 auto; width: 16px; height: 16px; accent-color: var(--frost); }
+.experience-checklist-option:has(input:focus-visible) { outline: 2px solid var(--frost); outline-offset: 2px; border-radius: 4px; }
+.experience-checklist:disabled .experience-checklist-option { cursor: default; opacity: .65; }
 .import-method-grid,
 .import-provider-grid {
   display: grid;
