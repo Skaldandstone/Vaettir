@@ -4,6 +4,7 @@ import { useState } from "react";
 import type { PopulationDraft } from "@vaettir/core";
 import { CreationWizard, WizardChoices } from "./CreationWizard";
 import { SourceConnectionChips } from "./SourceConnectionChips";
+import type {RepositoryProvider} from "./RepositoryConnectionContent";
 import {
   nextPopulationStep,
   populationSteps as steps,
@@ -55,6 +56,8 @@ export function PopulationWizard({
   onDocuments,
   onGitlab,
   onGithub,
+  onRepository,
+  projectId,
 }: {
   initial: PopulationDraft;
   locked: boolean;
@@ -65,6 +68,8 @@ export function PopulationWizard({
   onDocuments?: () => void;
   onGitlab?: () => void;
   onGithub?: () => void;
+  onRepository?: (provider:RepositoryProvider) => void;
+  projectId?:string;
 }) {
   const [draft, setDraft] = useState(initial);
   const step = steps.indexOf(draft.step);
@@ -230,7 +235,8 @@ export function PopulationWizard({
               <p>
                 Open a source to see its available actions. Sources are never read without your approval.
               </p>
-              <SourceConnectionChips documentsHref={documentsHref} onDocuments={onDocuments}
+              <SourceConnectionChips projectId={projectId} documentsHref={documentsHref} onDocuments={onDocuments}
+                onRepository={onRepository && (provider=>{setDraft(current=>({...current,providers:current.providers.includes(provider)?current.providers:[...current.providers,provider]}));onRepository(provider);})}
                 onGitlab={onGitlab && (() => { setDraft(current => ({ ...current, providers: current.providers.includes("gitlab") ? current.providers : [...current.providers, "gitlab"] })); onGitlab(); })}
                 onGithub={onGithub && (() => { setDraft(current => ({ ...current, providers: current.providers.includes("github") ? current.providers : [...current.providers, "github"] })); onGithub(); })} />
               {draft.providers.length > 0 && <p className="text-muted">Source interests in this draft: {draft.providers.map((key) => providers[key]).join(", ")}. These are not connected accounts.</p>}

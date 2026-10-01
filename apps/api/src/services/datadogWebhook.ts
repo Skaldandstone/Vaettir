@@ -3,6 +3,7 @@ import type { PrismaClient } from "@vaettir/db";
 import { refreshReleaseReadiness } from "./releaseReadiness.js";
 import { dispatchWebhookEvent } from "./webhookDelivery.js";
 import { notifySlackEvent } from "./slackEventNotify.js";
+import { findProductionIncidentReceipt, productionIncidentKey, recordProductionIncident } from "./productionIncidentReceipt.js";
 
 /**
  * P9-04 (Datadog half): closes the same incident -> coverage-gap loop
@@ -38,6 +39,8 @@ export function verifyDatadogWebhookSecret(headerValue: string | undefined, secr
 }
 
 export interface DatadogWebhookPayload {
+  // Datadog's $ID is an event identity, unlike a reusable monitor/alert ID.
+  eventId?: string;
   alertId?: string;
   title?: string;
   // Datadog's $ALERT_TRANSITION: "Triggered" | "Re-Triggered" | "Recovered"
@@ -53,6 +56,7 @@ export interface DatadogWebhookResult {
   handled: boolean;
   reason?: string;
   riskFlagId?: string;
+  duplicate?: boolean;
 }
 
 const TRIGGERING_TRANSITIONS = new Set(["Triggered", "Re-Triggered"]);
@@ -79,6 +83,11 @@ export async function handleDatadogWebhook(
     return { handled: false, reason: "payload has no projectTag to route by" };
   }
 
+  const key = productionIncidentKey("datadog", organizationId, payload.eventId,
+    [transition, projectTag, payload.alertId, payload.priority, payload.title]);
+  const previous = await findProductionIncidentReceipt(prisma, key);
+  if (previous) return { handled: true, riskFlagId: previous.riskFlagId, duplicate: true };
+
   const project = await prisma.project.findFirst({ where: { organizationId, datadogProjectTag: projectTag } });
   if (!project) {
     return { handled: false, reason: `no project in this org has datadogProjectTag ${projectTag} configured` };
@@ -96,9 +105,9 @@ export async function handleDatadogWebhook(
   const title = payload.title ?? "Untitled Datadog alert";
   const description = `Datadog alert: ${title}`;
 
-  const flag = await prisma.riskFlag.create({
-    data: { releaseId: release.id, severity, source: "PRODUCTION_INCIDENT", description },
-  });
+  const flag = await recordProductionIncident(prisma, { key, provider: "datadog", organizationId,
+    projectId: project.id, releaseId: release.id, severity, description });
+  if (!flag.created) return { handled: true, riskFlagId: flag.riskFlagId, duplicate: true };
 
   refreshReleaseReadiness(prisma, release.id);
 
@@ -116,5 +125,5 @@ export async function handleDatadogWebhook(
     files: [],
   }).catch(() => undefined);
 
-  return { handled: true, riskFlagId: flag.id };
+  return { handled: true, riskFlagId: flag.riskFlagId };
 }

@@ -6,6 +6,8 @@ import { encryptToken,decryptToken,type EncryptedToken } from "../services/token
 import { repositoryProviderOrigin } from "../services/repositoryProviderHttp.js";
 import { GitlabOAuthRevocationPendingError,createGitlabAuthorization,hashOAuthState,listGitlabRepositories,repositoryOAuthRedirect,repositorySelectionSchema,revokeGitlabAuthorization,verifyGitlabAuthorization } from "../services/gitlabRepositoryOAuth.js";
 import { GITHUB_ORIGIN, GithubOAuthRevocationPendingError, createGithubAuthorization, listGithubRepositories, revokeGithubAuthorization, verifyGithubAuthorization } from "../services/githubRepositoryOAuth.js";
+import { verifyBitbucketAuthorization, listBitbucketRepositories } from "../services/bitbucketRepositoryConnection.js";
+import { azureOrganizationUrl, listAzureRepositories } from "../services/azureRepositoryConnection.js";
 
 const projectInput=z.object({projectId:z.string()});
 const jsonToken=(value:ReturnType<typeof encryptToken>)=>({...value});
@@ -25,6 +27,7 @@ function redirectUri(provider:"gitlab"|"github"="gitlab"){try{return repositoryO
 // Same organization lock used by membership/seat changes. Never keep it across provider I/O.
 async function liveEditor(tx:Prisma.TransactionClient,organizationId:string,userId:string,admin=false){
   const rows=await tx.$queryRaw<Array<{suspendedAt:Date|null}>>`SELECT "suspendedAt" FROM "Organization" WHERE "id"=${organizationId} FOR UPDATE`;
+  await tx.$queryRaw`SELECT id FROM "Membership" WHERE "organizationId"=${organizationId} AND "userId"=${userId} FOR UPDATE`;
   const member=await tx.membership.findUnique({where:{organizationId_userId:{organizationId,userId}}});
   if(!rows[0] || rows[0].suspendedAt || !member || member.seatType!=="FULL" || !(admin?["OWNER","ADMIN"]:["OWNER","ADMIN","EDITOR"]).includes(member.role))throw new TRPCError({code:"FORBIDDEN",message:"Your workspace permissions changed. Refresh and try again."});
 }
@@ -63,7 +66,75 @@ function publicStatus(row:{status:string;authorizationExpiresAt:Date;tokenExpire
   const expired=(row.status==="VERIFIED" && (!row.tokenExpiresAt || row.tokenExpiresAt.getTime()<=Date.now()+30000)) || (["PENDING","VERIFYING"].includes(row.status) && row.authorizationExpiresAt.getTime()<=Date.now());
   return expired?"EXPIRED":row.status;
 }
+const tokenCredentials=z.object({token:z.string().min(1).max(10000),email:z.string().max(320),workspace:z.string().max(100)});
+async function tokenRepositories(provider:string,origin:string,credentials:z.infer<typeof tokenCredentials>,page:number,search:string){
+  if(provider==="bitbucket")return listBitbucketRepositories({...credentials,page,search});
+  if(provider==="azure-devops")return listAzureRepositories(origin,credentials.token,page,search);
+  throw new Error("This provider has no token adapter");
+}
 export const repositoryConnectionsRouter=router({
+  connectToken:protectedProcedure.input(projectInput.extend({
+    provider:z.enum(["bitbucket","azure-devops"]),requestId:z.string().uuid(),
+    token:z.string().min(1).max(10000),email:z.string().trim().max(320).default(""),
+    workspace:z.string().trim().max(100).default(""),organizationUrl:z.string().max(300).default(""),
+    approveMetadataAccess:z.literal(true),
+  })).mutation(async({ctx,input})=>{
+    const {project}=await editor(ctx,input.projectId);
+    if(!credentialStorageReady())throw unavailable();
+    let origin:string;
+    try{
+      if(input.provider==="bitbucket"){
+        z.string().email().parse(input.email);z.string().regex(/^[a-zA-Z0-9][a-zA-Z0-9_-]{0,99}$/).parse(input.workspace);
+        origin="https://bitbucket.org";
+      }else origin=azureOrganizationUrl(input.organizationUrl).url;
+    }catch{throw new TRPCError({code:"BAD_REQUEST",message:"Check the workspace, account email or Azure organization URL."});}
+    const requestHash=hashOAuthState(JSON.stringify([input.provider,origin,input.token,input.email,input.workspace]));
+    const stateHash=hashOAuthState(JSON.stringify([ctx.user.id,input.projectId,input.requestId]));
+    const row=await ctx.prisma.$transaction(async tx=>{
+      await liveEditor(tx,project.organizationId,ctx.user.id);
+      const prior=await tx.repositoryConnection.findUnique({where:{stateHash}});
+      if(prior){
+        if(z.object({requestHash:z.string()}).safeParse(prior.encryptedVerifier).data?.requestHash!==requestHash)
+          throw new TRPCError({code:"CONFLICT",message:"This verification request changed. Start a new attempt."});
+        if(prior.status==="VERIFIED")return prior;
+        throw new TRPCError({code:"PRECONDITION_FAILED",message:prior.status==="VERIFYING"?"Verification is still running. Retry this request shortly.":"Start a new verification attempt."});
+      }
+      const recent=await tx.repositoryConnection.count({where:{actorId:ctx.user.id,createdAt:{gt:new Date(Date.now()-3600000)}}});
+      if(recent>=20)throw new TRPCError({code:"TOO_MANY_REQUESTS",message:"Too many connection attempts. Try again later."});
+      const active=await tx.repositoryConnection.count({where:{projectId:input.projectId,actorId:ctx.user.id,provider:input.provider,origin,status:{in:["VERIFYING","VERIFIED"]},tokenExpiresAt:{gt:new Date()}}});
+      if(active)throw new TRPCError({code:"CONFLICT",message:"Resume or remove your existing saved access before reconnecting."});
+      return tx.repositoryConnection.create({data:{projectId:input.projectId,organizationId:project.organizationId,actorId:ctx.user.id,provider:input.provider,origin,stateHash,status:"VERIFYING",encryptedVerifier:{requestHash},authorizationExpiresAt:new Date(Date.now()+600000),tokenExpiresAt:new Date(Date.now()+28800000)}});
+    });
+    if(row.status==="VERIFIED")return{id:row.id,accountLabel:row.accountLabel};
+    try{
+      const credentials={token:input.token,email:input.email,workspace:input.workspace};
+      const accountLabel=input.provider==="bitbucket"?(await verifyBitbucketAuthorization(credentials)).accountLabel:azureOrganizationUrl(origin).organization;
+      const listing=await tokenRepositories(input.provider,origin,credentials,1,"");
+      const catalog=z.array(repositorySelectionSchema).max(100).parse(listing.repositories);
+      await ctx.prisma.$transaction(async tx=>{
+        await liveEditor(tx,project.organizationId,ctx.user.id);
+        const saved=await tx.repositoryConnection.updateMany({where:{id:row.id,status:"VERIFYING",authorizationExpiresAt:{gt:new Date()}},data:{status:"VERIFIED",encryptedToken:jsonToken(encryptToken(JSON.stringify(credentials))),accountLabel,verifiedAt:new Date(),catalog,catalogAt:new Date()}});
+        if(saved.count!==1)throw new Error("Connection changed");
+      });
+      return{id:row.id,accountLabel};
+    }catch{
+      await ctx.prisma.repositoryConnection.updateMany({where:{id:row.id,status:"VERIFYING"},data:{...clearCredentials,status:"FAILED"}});
+      throw new TRPCError({code:"BAD_REQUEST",message:"Provider access could not be verified. Check the read-only token, workspace and account permissions."});
+    }
+  }),
+  forgetToken:protectedProcedure.input(z.object({id:z.string(),confirmed:z.literal(true)})).mutation(async({ctx,input})=>{
+    const row=await disconnectableConnection(ctx,input.id);
+    if(!["bitbucket","azure-devops"].includes(row.provider))throw new TRPCError({code:"BAD_REQUEST",message:"Use provider revocation for this authorization."});
+    await ctx.prisma.$transaction(async tx=>{
+      await liveEditor(tx,row.organizationId,ctx.user.id,row.actorId!==ctx.user.id);
+      await tx.$queryRaw`SELECT id FROM "RepositoryConnection" WHERE id = ${row.id} FOR UPDATE`;
+      const current=await tx.repositoryConnection.findUniqueOrThrow({where:{id:row.id}});
+      if(current.status==="VERIFYING"&&current.authorizationExpiresAt.getTime()>Date.now())throw new TRPCError({code:"PRECONDITION_FAILED",message:"Wait for verification to finish before removing saved access."});
+      await tx.repositoryConnection.update({where:{id:row.id},data:{...clearCredentials,status:"DISCONNECTED"}});
+      await tx.projectRepository.updateMany({where:{connectionId:row.id},data:{connectionId:null,verifiedAt:null}});
+    });
+    return{removed:true,providerRevocationRequired:true};
+  }),
   mine:protectedProcedure.input(projectInput).query(async({ctx,input})=>{
     await editor(ctx,input.projectId);
     const rows=await ctx.prisma.repositoryConnection.findMany({where:{projectId:input.projectId,actorId:ctx.user.id,status:{in:["PENDING","VERIFYING","VERIFIED","REVOCATION_PENDING"]}},orderBy:{createdAt:"desc"},take:20,select:{id:true,provider:true,origin:true,status:true,accountLabel:true,authorizationExpiresAt:true,tokenExpiresAt:true}});
@@ -153,6 +224,7 @@ export const repositoryConnectionsRouter=router({
     let issuedGrant:RevocableGrant|null=null;
     try{
       if(input.denied || !input.code)throw new Error("Authorization canceled");
+      if(!row.configurationId)throw unavailable();
       const config=await ctx.prisma.repositoryProviderConfiguration.findFirst({where:{id:row.configurationId,organizationId:row.organizationId,provider:row.provider}});
       if(!config)throw unavailable();
       const providerCredentials={clientId:config.clientId,clientSecret:decrypt(config.encryptedSecret)};
@@ -189,7 +261,9 @@ export const repositoryConnectionsRouter=router({
     const row=await disconnectableConnection(ctx,input.id);
     const adminDisconnect=row.actorId!==ctx.user.id;
     if(row.status==="VERIFYING")throw new TRPCError({code:"PRECONDITION_FAILED",message:"Authorization is still being verified. Retry disconnect after it finishes."});
+    if(["bitbucket","azure-devops"].includes(row.provider))throw new TRPCError({code:"BAD_REQUEST",message:"Remove saved token access, then revoke the token in your provider."});
     if(row.encryptedToken){
+      if(!row.configurationId)throw unavailable();
       const config=await ctx.prisma.repositoryProviderConfiguration.findFirst({where:{id:row.configurationId,organizationId:row.organizationId,provider:row.provider,origin:row.origin}});
       if(!config)throw new TRPCError({code:"PRECONDITION_FAILED",message:"Provider application settings are unavailable. The connection was not disconnected."});
       // Check live authorization before provider I/O. If access changes during
@@ -214,8 +288,18 @@ export const repositoryConnectionsRouter=router({
   }),
   list:protectedProcedure.input(z.object({id:z.string(),page:z.number().int().min(1).max(100).default(1),search:z.string().trim().max(100).default("")})).query(async({ctx,input})=>{
     const row=await ownConnection(ctx,input.id);requireVerified(row);
-    if(row.provider!=="gitlab" && row.provider!=="github")throw new TRPCError({code:"PRECONDITION_FAILED",message:"This provider does not support verified repository listing."});
-    let repositories;try{repositories=row.provider==="github"?await listGithubRepositories(decrypt(row.encryptedToken),input.page):await listGitlabRepositories(row.origin,decrypt(row.encryptedToken),input.page,input.search);}catch{throw new TRPCError({code:"BAD_REQUEST",message:"Could not list repositories. Reconnect or check your access to this instance."});}
+    await ctx.prisma.$transaction(async tx=>{await liveEditor(tx,row.organizationId,ctx.user.id);const current=await tx.repositoryConnection.findUniqueOrThrow({where:{id:row.id}});requireVerified(current);if(JSON.stringify(current.encryptedToken)!==JSON.stringify(row.encryptedToken))throw new TRPCError({code:"CONFLICT",message:"Connection changed. Refresh before listing."});});
+    if(!["gitlab","github","bitbucket","azure-devops"].includes(row.provider))throw new TRPCError({code:"PRECONDITION_FAILED",message:"This provider does not support verified repository listing."});
+    let repositories;let hasMore;
+    try{
+      if(["bitbucket","azure-devops"].includes(row.provider)){
+        const listing=await tokenRepositories(row.provider,row.origin,tokenCredentials.parse(JSON.parse(decrypt(row.encryptedToken))),input.page,input.search);
+        repositories=listing.repositories;hasMore=listing.hasMore;
+      }else{
+        repositories=row.provider==="github"?await listGithubRepositories(decrypt(row.encryptedToken),input.page):await listGitlabRepositories(row.origin,decrypt(row.encryptedToken),input.page,input.search);
+        hasMore=repositories.length===100;
+      }
+    }catch{throw new TRPCError({code:"BAD_REQUEST",message:"Could not list repositories. Reconnect or check your access to this instance."});}
     const visible=row.provider==="github" && input.search?repositories.filter(repo=>repo.name.toLowerCase().includes(input.search.toLowerCase())):repositories;
     // Keep a bounded, short-lived catalog of pages this actor actually visited.
     // This permits reviewed multi-selection across pages without treating an
@@ -237,7 +321,7 @@ export const repositoryConnectionsRouter=router({
       await tx.repositoryConnection.update({where:{id:row.id},data:{catalog,catalogAt}});
       return {catalog,catalogReset:!fresh,catalogAt};
     });
-    return{repositories:visible,hasMore:repositories.length===100,catalogVersion:catalogVersion(catalog,row.id,catalogAt),catalogReset};
+    return{repositories:visible,hasMore,catalogVersion:catalogVersion(catalog,row.id,catalogAt),catalogReset};
   }),
   connectSelected:protectedProcedure.input(z.object({id:z.string(),repositoryIds:z.array(z.string()).min(1).max(100),catalogVersion:z.string().length(64),approved:z.literal(true)})).mutation(async({ctx,input})=>{
     const row=await ownConnection(ctx,input.id);requireVerified(row);
@@ -256,9 +340,15 @@ export const repositoryConnectionsRouter=router({
       for(const repo of selected){
         if(!repo)continue;
         const where={projectId_provider_url:{projectId:row.projectId,provider:row.provider,url:repo.url}};
-        const existing=await tx.projectRepository.findUnique({where,include:{connection:{select:{actorId:true,status:true,tokenExpiresAt:true}}}});
+        const urlMatch=await tx.projectRepository.findUnique({where,include:{connection:{select:{actorId:true,status:true,tokenExpiresAt:true}}}});
+        const nativeMatches=await tx.projectRepository.findMany({where:{projectId:row.projectId,provider:row.provider,externalId:repo.id},take:2,include:{connection:{select:{actorId:true,status:true,tokenExpiresAt:true}}}});
+        if(nativeMatches.length>1||nativeMatches[0]&&urlMatch&&nativeMatches[0].id!==urlMatch.id)throw new TRPCError({code:"CONFLICT",message:"This native repository identity conflicts with an existing reference. Review those references before connecting."});
+        const existing=nativeMatches[0]??urlMatch;
+        if(existing?.externalId&&existing.externalId!==repo.id)throw new TRPCError({code:"CONFLICT",message:"The repository at this URL changed identity. Review the existing reference first."});
         if(existing?.connectionId && existing.connectionId!==row.id && existing.connection?.actorId!==ctx.user.id)throw new TRPCError({code:"CONFLICT",message:"A selected repository already has another member's connection. Ask them to disconnect it first."});
-        await tx.projectRepository.upsert({where,create:{projectId:row.projectId,provider:row.provider,url:repo.url,externalId:repo.id,connectionId:row.id,verifiedAt:row.verifiedAt},update:{externalId:repo.id,connectionId:row.id,verifiedAt:row.verifiedAt}});
+        const data={url:repo.url,externalId:repo.id,connectionId:row.id,verifiedAt:row.verifiedAt};
+        if(existing)await tx.projectRepository.update({where:{id:existing.id},data});
+        else await tx.projectRepository.create({data:{projectId:row.projectId,provider:row.provider,...data}});
       }
     });
     return{connected:ids.length};

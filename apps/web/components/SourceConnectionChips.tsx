@@ -1,6 +1,10 @@
 "use client";
 
 import { useState } from "react";
+import {useIsMutating} from "@tanstack/react-query";
+import {Modal} from "./Modal";
+import {PopulationDocuments} from "./PopulationDocuments";
+import type {RepositoryProvider} from "./RepositoryConnectionContent";
 
 const sources = [
   ["github", "GitHub"], ["gitlab", "GitLab"], ["bitbucket", "Bitbucket"],
@@ -31,32 +35,26 @@ export function ConnectionLink({ href, provider, label, status }: { href: string
   return <a className="source-connection-chip" href={href}><ProviderMark id={provider} /><span><strong>{label}</strong><small>{status}</small></span><span aria-hidden="true">→</span></a>;
 }
 
-export function SourceConnectionChips({ documentsHref, only, onDocuments, onGitlab, onGithub }: { documentsHref?: string; only?: string[]; onDocuments?: () => void; onGitlab?: () => void; onGithub?: () => void }) {
-  const [active, setActive] = useState<string | null>(null);
-  const name = sources.find(([id]) => id === active)?.[1];
-  const filtered = sources.filter(([id]) => !only || only.includes(id));
-  const ready = ([id]: typeof sources[number]) => id === "github" && !!onGithub || id === "gitlab" && !!onGitlab || id === "document" && !!(onDocuments || documentsHref);
-  const chip = ([id, label]: typeof sources[number]) => <button key={id} type="button" className="source-connection-chip"
-    aria-expanded={id === "gitlab" && onGitlab || id === "github" && onGithub ? undefined : active === id}
-    aria-controls={id === "gitlab" && onGitlab || id === "github" && onGithub ? undefined : "source-connection-detail"}
-    onClick={() => id === "gitlab" && onGitlab ? onGitlab() : id === "github" && onGithub ? onGithub() : setActive(active === id ? null : id)}>
-    <ProviderMark id={id} />
-    <span><strong>{label}</strong><small>{id === "document" ? "File or text" : id === "gitlab" && onGitlab || id === "github" && onGithub ? "Authorize and select" : "Not available yet"}</small></span>
-    <span aria-hidden="true">{active === id ? "−" : "+"}</span>
-  </button>;
+export function SourceConnectionChips({documentsHref,only,onDocuments,onGitlab,onGithub,onRepository,projectId}:{documentsHref?:string;only?:string[];onDocuments?:()=>void;onGitlab?:()=>void;onGithub?:()=>void;onRepository?:(provider:RepositoryProvider)=>void;projectId?:string}){
+  const [active,setActive]=useState<string|null>(null);
+  const busy=useIsMutating()>0;
+  const filtered=sources.filter(([id])=>!only||only.includes(id));
+  const repoIds=["github","gitlab","bitbucket","azure-devops","git","perforce","svn"];
+  function open(id:string){
+    if(repoIds.includes(id)&&onRepository){onRepository(id as RepositoryProvider);return;}
+    if(id==="github"&&onGithub){onGithub();return;}
+    if(id==="gitlab"&&onGitlab){onGitlab();return;}
+    if(id==="document"&&onDocuments){onDocuments();return;}
+    setActive(id);
+  }
+  const name=sources.find(([id])=>id===active)?.[1];
   return <div className="source-connections">
-    <div className="source-chip-list" role="group" aria-label="Available source actions">
-      {filtered.filter(ready).map(chip)}
-    </div>
-    {!!filtered.filter(item => !ready(item)).length && <details><summary>Other providers (connection not available yet)</summary>
-      <div className="source-chip-list" role="group" aria-label="Other source options">{filtered.filter(item => !ready(item)).map(chip)}</div>
-    </details>}
-    <div id="source-connection-detail" hidden={!active} className="source-connection-detail">
-      <h4>{name}</h4>
-      {active === "document" ? <><p>Upload Markdown or text, review the contents, then approve what to add. Nothing is imported automatically.</p>
-        {onDocuments ? <button type="button" className="btn-primary" onClick={onDocuments}>Add document evidence</button> : documentsHref ? <a className="btn-primary" href={documentsHref}>Review document evidence</a> : <p>Open document evidence from the project to add a file.</p>}</>
-        : <p>{name} discovery is not available in this wizard yet. No account is connected and no source data will be read. You can add exported Markdown or text through Documents.</p>}
-      <button type="button" className="btn-secondary" onClick={() => setActive(null)}>Close details</button>
-    </div>
+    <div className="source-chip-list" role="group" aria-label="Available source actions">{filtered.map(([id,label])=><button key={id} type="button" className="source-connection-chip" onClick={()=>open(id)}>
+      <ProviderMark id={id}/><span><strong>{label}</strong><small>{id==="document"?"Add file or text":(id==="github"&&(onRepository||onGithub)||id==="gitlab"&&(onRepository||onGitlab))?"Authorize and select":(id==="bitbucket"||id==="azure-devops")&&onRepository?"Verify access and select":id==="jira"||id==="linear"?"Add exported tickets":"Add exported evidence"}</small></span><span aria-hidden="true">+</span>
+    </button>)}</div>
+    <Modal open={!!active} dismissible={!busy} title={active==="document"?"Add document evidence":`Add ${name??"source"} evidence`} onClose={()=>setActive(null)}>
+      {active&&active!=="document"&&<p>{name} account discovery is not available in this intake. Add an exported specification or ticket as Markdown or text, then review the proposed changes.</p>}
+      {projectId&&active?<PopulationDocuments projectId={projectId}/>:onDocuments?<button type="button" onClick={onDocuments}>Add file or text</button>:documentsHref?<a className="btn-primary" href={documentsHref}>Add document evidence</a>:<p>Open project evidence to add a file.</p>}
+    </Modal>
   </div>;
 }

@@ -24,11 +24,12 @@ test("workspace lookup failures are not represented as role denials", () => {
   assert.match(menu, /Retry workspace permissions/);
 });
 
-test("source connections are disclosure chips, not checkbox preferences", () => {
+test("source chips open modal actions and keep unsupported provider status honest", () => {
   const chips = readFileSync(new URL("../components/SourceConnectionChips.tsx", import.meta.url), "utf8");
   assert.doesNotMatch(chips, /type="checkbox"/);
-  assert.match(chips, /aria-expanded/);
-  assert.match(chips, /Not available yet/);
+  assert.match(chips, /<Modal/);
+  assert.match(chips, /account discovery is not available/);
+  assert.match(chips, /<PopulationDocuments/);
   assert.match(chips, /ProviderMark/);
   const wizard = readFileSync(new URL("../components/PopulationWizard.tsx", import.meta.url), "utf8");
   assert.match(wizard, /<SourceConnectionChips/);
@@ -41,6 +42,15 @@ test("source connections are disclosure chips, not checkbox preferences", () => 
   const projects = readFileSync(new URL("../app/projects/page.tsx", import.meta.url), "utf8");
   assert.match(projects, /\?setup=1/);
   assert.doesNotMatch(projects, /setRepoUrl|value=\{repoUrl\}/);
+});
+
+test("token chips review metadata without source access and routing freezes the approved baseline",()=>{
+  const token=readFileSync(new URL("../components/TokenRepositoryConnection.tsx",import.meta.url),"utf8");
+  assert.match(token,/approveMetadataAccess:true/);assert.match(token,/catalogVersion:listing.catalogVersion/);
+  assert.match(token,/Source files have not been read/);assert.match(token,/setToken\(""\)/);
+  const signals=readFileSync(new URL("../components/ProductionSignalChips.tsx",import.meta.url),"utf8");
+  assert.match(signals,/const \[baseline\]=useState/);assert.match(signals,/expectedRoute:baseline!.route/);
+  assert.match(signals,/eventId:"\$ID"/);assert.match(signals,/does not contact the provider or verify delivery/);
 });
 
 function documentFile(name, contents) {

@@ -19,7 +19,7 @@ export function isPublicProviderIPv4(ip: string): boolean {
 }
 
 type GithubAppToken = { clientId: string; clientSecret: string; accessToken: string };
-type ProviderRequestOptions = { token?: string; form?: URLSearchParams; revoke?: GithubAppToken; check?: GithubAppToken; gitlabRevoke?: boolean };
+type ProviderRequestOptions = { token?: string; basic?: {username:string;password:string}; form?: URLSearchParams; revoke?: GithubAppToken; check?: GithubAppToken; gitlabRevoke?: boolean };
 class ProviderStatusError extends Error {
   constructor(readonly status: number) { super(`Provider request failed (${status}). Reconnect or check access.`); }
 }
@@ -27,6 +27,9 @@ class ProviderStatusError extends Error {
 /** Pin public DNS to the actual TLS socket; never follow redirects with credentials. */
 async function repositoryProviderRequest(origin: string, path: string, options: ProviderRequestOptions): Promise<unknown> {
   const base = repositoryProviderOrigin(origin);
+  if (options.token && options.basic) throw new Error("Choose one provider authentication method");
+  if (options.basic && (options.basic.username.includes(":") || /[\r\n]/.test(options.basic.username + options.basic.password)))
+    throw new Error("Invalid provider credentials");
   const url = new URL(path, base);
   if (url.origin !== base) throw new Error("Invalid provider endpoint");
   // One wall-clock budget covers DNS, TLS, headers and the complete response.
@@ -54,6 +57,7 @@ async function repositoryProviderRequest(origin: string, path: string, options: 
       lookup: (_host,_opts,callback)=>callback(null,address,4),
       headers: {Accept:appToken?"application/vnd.github+json":"application/json","User-Agent":"Vaettir-Repository-Connector",
         ...(options.token?{Authorization:`Bearer ${options.token}`}:{ }),
+        ...(options.basic?{Authorization:`Basic ${Buffer.from(`${options.basic.username}:${options.basic.password}`).toString("base64")}`}:{ }),
         ...(appToken?{Authorization:`Basic ${Buffer.from(`${appToken.clientId}:${appToken.clientSecret}`).toString("base64")}`,
           "X-GitHub-Api-Version":"2022-11-28"}:{ }),
         ...(body?{"Content-Type":appToken?"application/json":"application/x-www-form-urlencoded","Content-Length":Buffer.byteLength(body)}:{})},
@@ -87,7 +91,7 @@ async function repositoryProviderRequest(origin: string, path: string, options: 
   }
 }
 
-export function repositoryProviderJson(origin: string, path: string, options: {token?: string; form?: URLSearchParams} = {}): Promise<unknown> {
+export function repositoryProviderJson(origin: string, path: string, options: {token?: string; basic?: {username:string;password:string}; form?: URLSearchParams} = {}): Promise<unknown> {
   return repositoryProviderRequest(origin, path, options);
 }
 

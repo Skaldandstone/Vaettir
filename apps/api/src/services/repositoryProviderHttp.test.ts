@@ -29,6 +29,20 @@ afterEach(() => { vi.useRealTimers(); });
 const flushDns = async () => { await Promise.resolve(); await Promise.resolve(); };
 
 describe("repository provider HTTP boundary", () => {
+  it("sends Basic credentials only in the pinned provider header", async () => {
+    const pending=repositoryProviderJson("https://api.bitbucket.org","/2.0/user",{basic:{username:"fixture@example.com",password:"synthetic-token"}});
+    await flushDns();
+    expect(transportOptions.headers).toMatchObject({Authorization:`Basic ${Buffer.from("fixture@example.com:synthetic-token").toString("base64")}`});
+    expect(String(vi.mocked(request).mock.calls[0]?.[0])).not.toContain("synthetic-token");
+    deliver();response.emit("data",Buffer.from("{}"));response.emit("end");
+    await expect(pending).resolves.toEqual({});
+  });
+  it("rejects ambiguous or malformed Basic credentials before network intake", async () => {
+    for(const options of [{token:"fixture",basic:{username:"user",password:"token"}},{basic:{username:"user:other",password:"token"}},{basic:{username:"user",password:"token\r\nheader"}}]){
+      await expect(repositoryProviderJson("https://api.bitbucket.org","/2.0/user",options)).rejects.toThrow();
+    }
+    expect(lookup).not.toHaveBeenCalled();expect(request).not.toHaveBeenCalled();
+  });
   it("rejects internal, non-HTTPS and credential-bearing origins", () => {
     for (const origin of ["http://gitlab.example.com", "https://127.0.0.1", "https://[::1]", "https://user:pass@gitlab.example.com", "https://gitlab.example.com/path", "https://gitlab.example.com:444"])
       expect(() => repositoryProviderOrigin(origin)).toThrow();

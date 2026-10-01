@@ -4,7 +4,8 @@ import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import { trpcReact } from "@/lib/trpcReact";
 import { useProjectPermissions } from "@/lib/use-project-permissions";
-import { ConnectionLink, ProviderMark } from "@/components/SourceConnectionChips";
+import { ConnectionLink } from "@/components/SourceConnectionChips";
+import {ProductionSignalChips} from "@/components/ProductionSignalChips";
 import { ProjectPopulationModal } from "@/components/ProjectPopulationModal";
 import { ProjectRepositories } from "@/components/ProjectRepositories";
 
@@ -18,7 +19,6 @@ export default function ProjectOverviewPage() {
   }, []);
   const { projectId } = useParams<{ projectId: string }>();
   const { canEdit } = useProjectPermissions(projectId);
-  const utils = trpcReact.useUtils();
 
   const projectQuery = trpcReact.project.byId.useQuery({ id: projectId });
   const testCasesQuery = trpcReact.testCases.list.useQuery({ projectId });
@@ -27,73 +27,6 @@ export default function ProjectOverviewPage() {
   const pendingReviewQuery = trpcReact.testCases.pendingReview.useQuery({
     projectId,
   });
-
-  // P9-04: routes an inbound PagerDuty incident.triggered webhook to this
-  // project - see server.ts's /webhooks/pagerduty and services/
-  // pagerdutyWebhook.ts. Configuring it here is what makes that routing
-  // possible at all; PagerDuty's own webhook payload carries a service id
-  // and nothing else Vaettir-specific to match against.
-  const [pagerdutyServiceId, setPagerdutyServiceId] = useState("");
-  const [pagerdutyError, setPagerdutyError] = useState<string | null>(null);
-  const pagerdutyMutation = trpcReact.project.update.useMutation({
-    onSuccess: () => {
-      setPagerdutyServiceId("");
-      void utils.project.byId.invalidate({ id: projectId });
-    },
-    onError: (e) => setPagerdutyError(e.message),
-  });
-
-  function savePagerdutyServiceId() {
-    const project = projectQuery.data;
-    if (!canEdit || !project) return;
-    setPagerdutyError(null);
-    pagerdutyMutation.mutate({
-      id: project.id,
-      name: project.name,
-      defaultBranch: project.defaultBranch,
-      pagerdutyServiceId,
-    });
-  }
-
-  // Seeds the input from the real saved value once it loads, so an
-  // untouched Save can't accidentally clear an already-configured id -
-  // clearing only happens if the user actually empties the field on
-  // purpose.
-  useEffect(() => {
-    if (projectQuery.data)
-      setPagerdutyServiceId(projectQuery.data.pagerdutyServiceId ?? "");
-  }, [projectQuery.data]);
-
-  // P9-04 (Datadog half): the tag value this project's Datadog monitors
-  // should carry (vaettir_project:<this value>) - see server.ts's
-  // /webhooks/datadog and the org settings page for the webhook secret +
-  // full payload template this pairs with.
-  const [datadogProjectTag, setDatadogProjectTag] = useState("");
-  const [datadogError, setDatadogError] = useState<string | null>(null);
-  const datadogMutation = trpcReact.project.update.useMutation({
-    onSuccess: () => {
-      setDatadogProjectTag("");
-      void utils.project.byId.invalidate({ id: projectId });
-    },
-    onError: (e) => setDatadogError(e.message),
-  });
-
-  function saveDatadogProjectTag() {
-    const project = projectQuery.data;
-    if (!canEdit || !project) return;
-    setDatadogError(null);
-    datadogMutation.mutate({
-      id: project.id,
-      name: project.name,
-      defaultBranch: project.defaultBranch,
-      datadogProjectTag,
-    });
-  }
-
-  useEffect(() => {
-    if (projectQuery.data)
-      setDatadogProjectTag(projectQuery.data.datadogProjectTag ?? "");
-  }, [projectQuery.data]);
 
   const project = projectQuery.data;
   const testCaseCount = testCasesQuery.data?.length ?? null;
@@ -129,99 +62,7 @@ export default function ProjectOverviewPage() {
         {project.repoUrl && (
           <ConnectionLink href={`/projects/${projectId}/reverse-engineer`} provider="git" label="Repository" status="URL linked · Review and scan" />
         )}
-        <details className="connection-chip">
-          <summary>
-            <ProviderMark id="pagerduty" /><span><strong>PagerDuty</strong><small>
-            {project.pagerdutyServiceId
-              ? "Routing configured"
-              : "Set up routing"}</small></span>
-          </summary>
-          <div className="connection-chip-form">
-            <strong>PagerDuty incident linkage</strong>
-            <p
-              className="text-muted"
-              style={{ fontSize: 13, margin: "4px 0 10px" }}
-            >
-              {project.pagerdutyServiceId
-                ? `Connected to PagerDuty service ${project.pagerdutyServiceId}. A triggered incident on that service creates a risk flag on this project's most recently shipped release.`
-                : "Paste this project's PagerDuty Service ID to have a triggered incident automatically create a risk flag on the most recently shipped release."}
-            </p>
-            <div style={{ display: "flex", gap: 8 }}>
-              <input
-                value={pagerdutyServiceId}
-                disabled={!canEdit}
-                onChange={(e) => setPagerdutyServiceId(e.target.value)}
-                placeholder="PXXXXXX"
-                style={{ flex: 1 }}
-              />
-              <button
-                className="btn-secondary"
-                onClick={savePagerdutyServiceId}
-                disabled={!canEdit || pagerdutyMutation.isPending}
-              >
-                {pagerdutyMutation.isPending
-                  ? "Saving…"
-                  : project.pagerdutyServiceId
-                    ? "Update"
-                    : "Connect"}
-              </button>
-            </div>
-            {pagerdutyError && (
-              <p style={{ color: "var(--ember)", fontSize: 13, marginTop: 6 }}>
-                {pagerdutyError}
-              </p>
-            )}
-            <a href="/settings/integrations">
-              Review organization integration setup
-            </a>
-          </div>
-        </details>
-
-        <details className="connection-chip">
-          <summary>
-            <ProviderMark id="datadog" /><span><strong>Datadog</strong><small>
-            {project.datadogProjectTag ? "Routing configured" : "Set up routing"}</small></span>
-          </summary>
-          <div className="connection-chip-form">
-            <strong>Datadog incident linkage</strong>
-            <p
-              className="text-muted"
-              style={{ fontSize: 13, margin: "4px 0 10px" }}
-            >
-              {project.datadogProjectTag
-                ? `Tag Datadog monitors with vaettir_project:${project.datadogProjectTag} to have a triggered alert automatically create a risk flag on this project's most recently shipped release.`
-                : "Choose a tag value, then tag this project's Datadog monitors with vaettir_project:<that value> to have a triggered alert automatically create a risk flag."}
-            </p>
-            <div style={{ display: "flex", gap: 8 }}>
-              <input
-                value={datadogProjectTag}
-                disabled={!canEdit}
-                onChange={(e) => setDatadogProjectTag(e.target.value)}
-                placeholder="e.g. checkout-service"
-                style={{ flex: 1 }}
-              />
-              <button
-                className="btn-secondary"
-                onClick={saveDatadogProjectTag}
-                disabled={!canEdit || datadogMutation.isPending}
-              >
-                {datadogMutation.isPending
-                  ? "Saving…"
-                  : project.datadogProjectTag
-                    ? "Update"
-                    : "Save"}
-              </button>
-            </div>
-            {datadogError && (
-              <p style={{ color: "var(--ember)", fontSize: 13, marginTop: 6 }}>
-                {datadogError}
-              </p>
-            )}
-            <a href="/settings/integrations">
-              Review organization integration setup
-            </a>
-          </div>
-        </details>
+        <ProductionSignalChips projectId={projectId}/>
       </div>
 
       <section className="panel" style={{ marginBottom: 20 }}>

@@ -130,6 +130,7 @@ model Organization {
   // like jiraWebhookSecret, not a computed signature - Datadog has no
   // built-in HMAC signing for a generic webhook integration either.
   datadogWebhookSecret String?
+  encryptedDatadogWebhookSecret Json?
 
   projects             Project[]
   memberships          Membership[]
@@ -365,11 +366,11 @@ model RepositoryConnection {
   projectId              String
   organizationId         String
   actorId                String
-  configurationId        String
+  configurationId        String?
   project                Project                         @relation(fields: [projectId], references: [id], onDelete: Cascade)
   organization           Organization                    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   actor                  User                            @relation(fields: [actorId], references: [id], onDelete: Cascade)
-  configuration          RepositoryProviderConfiguration @relation(fields: [configurationId], references: [id], onDelete: Cascade)
+  configuration          RepositoryProviderConfiguration? @relation(fields: [configurationId], references: [id], onDelete: Cascade)
   repositories           ProjectRepository[]
   provider               String
   origin                 String
@@ -2157,6 +2158,17 @@ enum PrScanCommentMode {
 
 // A detected gap or risk feeding the release-readiness dashboard, e.g. from
 // PR scanning finding changed files with no mapped test coverage.
+// No customer payload is retained. A retry cannot recreate a deleted risk flag.
+model ProductionIncidentReceipt {
+  key String @id
+  provider String
+  organizationId String
+  projectId String
+  riskFlagId String
+  createdAt DateTime @default(now())
+  @@index([organizationId,projectId])
+}
+
 model RiskFlag {
   id              String       @id @default(cuid())
   releaseId       String

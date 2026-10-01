@@ -14,7 +14,7 @@ import {
   requireOrgRole,
   isStaffEmail,
 } from "../trpc.js";
-import type { Prisma, PrismaClient } from "@vaettir/db";
+import { Prisma,type PrismaClient } from "@vaettir/db";
 import { sendReadinessDigestForOrg } from "../jobs/readinessDigestScheduler.js";
 import {
   AI_OPERATION_COSTS,
@@ -246,6 +246,7 @@ export const organizationRouter = router({
           jiraEncryptedApiToken: true,
           jiraWebhookSecret: true,
           datadogWebhookSecret: true,
+          encryptedDatadogWebhookSecret:true,
         },
       });
       const overrides =
@@ -277,7 +278,7 @@ export const organizationRouter = router({
         jiraWebhookConfigured: org.jiraWebhookSecret !== null,
         jiraBaseUrl: org.jiraBaseUrl,
         jiraEmail: org.jiraEmail,
-        datadogWebhookConfigured: org.datadogWebhookSecret !== null,
+        datadogWebhookConfigured: Boolean(org.datadogWebhookSecret||org.encryptedDatadogWebhookSecret),
       };
     }),
 
@@ -533,16 +534,18 @@ export const organizationRouter = router({
       });
     }),
 
-  // P9-04 (Datadog half): a plain shared secret, same posture as Jira's
-  // above - Datadog's webhook integration has no built-in request signing.
+  // Datadog uses a shared header secret; new values are encrypted at rest.
   updateDatadogWebhookSecret: protectedProcedure
-    .input(z.object({ organizationId: z.string(), webhookSecret: z.string() }))
+    .input(z.object({ organizationId: z.string(), webhookSecret: z.string().max(2000) }))
     .mutation(async ({ ctx, input }) => {
       requireOrgRole(ctx, input.organizationId, "ADMIN");
       const trimmed = input.webhookSecret.trim();
-      await ctx.prisma.organization.update({
-        where: { id: input.organizationId },
-        data: { datadogWebhookSecret: trimmed.length > 0 ? trimmed : null },
+      await ctx.prisma.$transaction(async tx=>{
+        const rows=await tx.$queryRaw<Array<{suspendedAt:Date|null}>>`SELECT "suspendedAt" FROM "Organization" WHERE id=${input.organizationId} FOR UPDATE`;
+        await tx.$queryRaw`SELECT id FROM "Membership" WHERE "organizationId"=${input.organizationId} AND "userId"=${ctx.user.id} FOR UPDATE`;
+        const member=await tx.membership.findUnique({where:{organizationId_userId:{organizationId:input.organizationId,userId:ctx.user.id}}});
+        if(!rows[0]||rows[0].suspendedAt||!member||member.seatType!=="FULL"||!["OWNER","ADMIN"].includes(member.role))throw new TRPCError({code:"FORBIDDEN",message:"A current full-seat workspace administrator is required."});
+        await tx.organization.update({where:{id:input.organizationId},data:{datadogWebhookSecret:null,encryptedDatadogWebhookSecret:trimmed.length>0?{...encryptToken(trimmed)}:Prisma.DbNull}});
       });
     }),
 

@@ -5,6 +5,11 @@ import { repositoryConnectionsRouter } from "./routers/repositoryConnections.js"
 import { GitlabOAuthRevocationPendingError, hashOAuthState, listGitlabRepositories, revokeGitlabAuthorization, verifyGitlabAuthorization } from "./services/gitlabRepositoryOAuth.js";
 import { GithubOAuthRevocationPendingError, listGithubRepositories, revokeGithubAuthorization, verifyGithubAuthorization } from "./services/githubRepositoryOAuth.js";
 import { decryptToken, type EncryptedToken } from "./services/tokenEncryption.js";
+import {verifyBitbucketAuthorization,listBitbucketRepositories} from "./services/bitbucketRepositoryConnection.js";
+import {listAzureRepositories} from "./services/azureRepositoryConnection.js";
+import {signalRoutingRouter} from "./routers/signalRouting.js";
+vi.mock("./services/bitbucketRepositoryConnection.js",async original=>({...await original<typeof import("./services/bitbucketRepositoryConnection.js")>(),verifyBitbucketAuthorization:vi.fn(),listBitbucketRepositories:vi.fn()}));
+vi.mock("./services/azureRepositoryConnection.js",async original=>({...await original<typeof import("./services/azureRepositoryConnection.js")>(),listAzureRepositories:vi.fn()}));
 
 vi.mock("./services/gitlabRepositoryOAuth.js", async importOriginal => ({
   ...await importOriginal<typeof import("./services/gitlabRepositoryOAuth.js")>(),
@@ -79,8 +84,122 @@ describe.skipIf(!isolated)("repository authorization and reviewed selection", ()
     vi.mocked(listGitlabRepositories).mockResolvedValue(repositories);
     vi.mocked(verifyGithubAuthorization).mockResolvedValue({ token: accessToken, expiresAt: new Date(Date.now() + 3600000), accountLabel: "github-fixture" });
     vi.mocked(listGithubRepositories).mockResolvedValue([{ id: "202", name: "team/hosted", url: "https://github.com/team/hosted", defaultBranch: "main" }]);
+    vi.mocked(verifyBitbucketAuthorization).mockResolvedValue({accountId:"{fixture}",accountLabel:"Fixture Bitbucket account"});
+    vi.mocked(listBitbucketRepositories).mockResolvedValue({repositories:[{id:"{repo-fixture}",name:"team/service",url:"https://bitbucket.org/team/service",defaultBranch:"main"}],hasMore:false,limitReached:false});
+    vi.mocked(listAzureRepositories).mockResolvedValue({repositories:[{id:"azure-repo-fixture",name:"Project/service",url:"https://dev.azure.com/team/Project/_git/service",defaultBranch:"refs/heads/main",projectId:"azure-project-fixture",projectName:"Project"}],hasMore:false});
   });
   afterEach(() => vi.unstubAllEnvs());
+
+  const tokenRequest=()=>({projectId,provider:"bitbucket" as const,requestId:randomUUID(),email:"fixture@example.com",workspace:"team",token:accessToken,approveMetadataAccess:true as const});
+  it("verifies token access only after explicit consent and full editor authority",async()=>{
+    const request=tokenRequest();
+    await expect(viewer.connectToken(request)).rejects.toMatchObject({code:"FORBIDDEN"});
+    await expect(readOnlyAdmin.connectToken(request)).rejects.toMatchObject({code:"FORBIDDEN"});
+    await expect(outsider.connectToken(request)).rejects.toMatchObject({code:"FORBIDDEN"});
+    await expect(owner.connectToken({...request,approveMetadataAccess:false as never})).rejects.toMatchObject({code:"BAD_REQUEST"});
+    expect(verifyBitbucketAuthorization).not.toHaveBeenCalled();
+    expect(listBitbucketRepositories).not.toHaveBeenCalled();
+  });
+  it("keeps tokens encrypted, actor-bound and idempotent without requiring an OAuth callback",async()=>{
+    vi.stubEnv("WEB_APP_URL","");
+    const request=tokenRequest();const result=await owner.connectToken(request);
+    const row=await prisma.repositoryConnection.findUniqueOrThrow({where:{id:result.id}});
+    expect(row.configurationId).toBeNull();expect(row.status).toBe("VERIFIED");
+    expect(JSON.stringify(row.encryptedToken)).not.toContain(accessToken);
+    expect(JSON.parse(decryptToken(row.encryptedToken as unknown as EncryptedToken))).toMatchObject({token:accessToken,email:request.email,workspace:"team"});
+    expect(JSON.stringify(await owner.mine({projectId}))).not.toContain(accessToken);
+    expect(await owner.connectToken(request)).toEqual(result);
+    expect(verifyBitbucketAuthorization).toHaveBeenCalledOnce();
+    await expect(owner.connectToken({...request,token:"changed-fixture"})).rejects.toMatchObject({code:"CONFLICT"});
+    await expect(editor.list({id:result.id})).rejects.toMatchObject({code:"NOT_FOUND"});
+  });
+  it("reviews token catalogs, preserves manual pins and removes only saved access",async()=>{
+    const result=await owner.connectToken(tokenRequest());
+    const list=await owner.list({id:result.id});
+    const manual=await prisma.projectRepository.create({data:{projectId,provider:"bitbucket",url:list.repositories[0]!.url,revision:"manual-native-commit"}});
+    await expect(owner.connectSelected({id:result.id,repositoryIds:["not-listed"],catalogVersion:list.catalogVersion,approved:true})).rejects.toMatchObject({code:"BAD_REQUEST"});
+    const approval={id:result.id,repositoryIds:[list.repositories[0]!.id],catalogVersion:list.catalogVersion,approved:true as const};
+    await owner.connectSelected(approval);await owner.connectSelected(approval);
+    expect(await prisma.projectRepository.count({where:{projectId,provider:"bitbucket"}})).toBe(1);
+    expect(await prisma.projectRepository.findUnique({where:{id:manual.id}})).toMatchObject({revision:"manual-native-commit",connectionId:result.id});
+    await expect(owner.disconnect({id:result.id})).rejects.toMatchObject({code:"BAD_REQUEST"});
+    expect(await owner.forgetToken({id:result.id,confirmed:true})).toMatchObject({removed:true,providerRevocationRequired:true});
+    expect(await prisma.projectRepository.findUnique({where:{id:manual.id}})).toMatchObject({revision:"manual-native-commit",connectionId:null,verifiedAt:null});
+    expect((await prisma.repositoryConnection.findUniqueOrThrow({where:{id:result.id}})).encryptedToken).toBeNull();
+    expect(revokeGithubAuthorization).not.toHaveBeenCalled();expect(revokeGitlabAuthorization).not.toHaveBeenCalled();
+  });
+  it("drops a token result when membership changes during provider verification",async()=>{
+    const user=await prisma.user.findUniqueOrThrow({where:{id:ownerId},include:{memberships:true}});
+    vi.mocked(verifyBitbucketAuthorization).mockImplementationOnce(async()=>{
+      await prisma.membership.update({where:{organizationId_userId:{organizationId,userId:ownerId}},data:{role:"VIEWER"}});
+      return{accountId:"{fixture}",accountLabel:"Fixture"};
+    });
+    await expect(owner.connectToken(tokenRequest())).rejects.toMatchObject({code:"BAD_REQUEST"});
+    const stored=await prisma.repositoryConnection.findFirstOrThrow({where:{projectId,provider:"bitbucket"}});
+    expect(stored.status).toBe("FAILED");expect(stored.encryptedToken).toBeNull();
+    await prisma.membership.update({where:{organizationId_userId:{organizationId,userId:user.id}},data:{role:"OWNER"}});
+  });
+  it("recovers interrupted token verification after its deadline without saving a late result",async()=>{
+    vi.mocked(verifyBitbucketAuthorization).mockImplementationOnce(async()=>{
+      const pending=await prisma.repositoryConnection.findFirstOrThrow({where:{projectId,provider:"bitbucket",status:"VERIFYING"}});
+      await expect(owner.forgetToken({id:pending.id,confirmed:true})).rejects.toMatchObject({code:"PRECONDITION_FAILED"});
+      await prisma.repositoryConnection.update({where:{id:pending.id},data:{authorizationExpiresAt:new Date(Date.now()-1000)}});
+      expect((await owner.mine({projectId}))[0]?.status).toBe("EXPIRED");
+      await owner.forgetToken({id:pending.id,confirmed:true});
+      return{accountId:"{fixture}",accountLabel:"Late result"};
+    });
+    await expect(owner.connectToken(tokenRequest())).rejects.toMatchObject({code:"BAD_REQUEST"});
+    const expired=await prisma.repositoryConnection.findFirstOrThrow({where:{projectId,provider:"bitbucket"}});
+    expect(expired.status).toBe("DISCONNECTED");expect(expired.encryptedToken).toBeNull();
+    const retry=await owner.connectToken(tokenRequest());
+    expect(retry.id).not.toBe(expired.id);
+  });
+  it("enriches renamed native repositories without duplicating or losing manual revisions",async()=>{
+    const result=await owner.connectToken(tokenRequest());let list=await owner.list({id:result.id});
+    await owner.connectSelected({id:result.id,repositoryIds:[list.repositories[0]!.id],catalogVersion:list.catalogVersion,approved:true});
+    const original=await prisma.projectRepository.findFirstOrThrow({where:{projectId,provider:"bitbucket"}});
+    await prisma.projectRepository.update({where:{id:original.id},data:{revision:"manual-business-release"}});
+    vi.mocked(listBitbucketRepositories).mockResolvedValueOnce({repositories:[{...list.repositories[0]!,name:"team/renamed",url:"https://bitbucket.org/team/renamed"}],hasMore:false,limitReached:false});
+    list=await owner.list({id:result.id});
+    const approval={id:result.id,repositoryIds:[list.repositories[0]!.id],catalogVersion:list.catalogVersion,approved:true as const};
+    await owner.connectSelected(approval);await owner.connectSelected(approval);
+    expect(await prisma.projectRepository.count({where:{projectId,provider:"bitbucket"}})).toBe(1);
+    expect(await prisma.projectRepository.findUnique({where:{id:original.id}})).toMatchObject({url:"https://bitbucket.org/team/renamed",revision:"manual-business-release"});
+  });
+  it("rejects private or unrelated Azure organization URLs before credentials leave Vaettir",async()=>{
+    for(const organizationUrl of ["https://169.254.169.254/team","https://other.example/team","https://dev.azure.com/team?redirect=private"]){
+      await expect(owner.connectToken({projectId,provider:"azure-devops",organizationUrl,requestId:randomUUID(),token:accessToken,approveMetadataAccess:true})).rejects.toMatchObject({code:"BAD_REQUEST"});
+    }
+    expect(listAzureRepositories).not.toHaveBeenCalled();
+    const result=await owner.connectToken({projectId,provider:"azure-devops",organizationUrl:"https://dev.azure.com/team",requestId:randomUUID(),token:accessToken,approveMetadataAccess:true});
+    expect((await owner.list({id:result.id})).repositories[0]).toMatchObject({id:"azure-repo-fixture",defaultBranch:"refs/heads/main"});
+  });
+  async function signalActor(role:OrgRole,seatType:SeatType="FULL"){
+    const created=await actor(role,seatType);
+    return{user:created.user,caller:signalRoutingRouter.createCaller({prisma,user:created.user,staff:null,securityLogger:undefined,staffAttempt:{tokenConfigured:false,tokenPresented:false,actorHeaderPresented:false}})};
+  }
+  it("saves a reviewed signal route atomically without overwriting project edits",async()=>{
+    const {caller}=await signalActor("OWNER");
+    await prisma.project.update({where:{id:projectId},data:{name:"Human renamed project",defaultBranch:"human-release"}});
+    await caller.save({projectId,provider:"datadog",route:"checkout",expectedRoute:null,newDatadogSecret:"synthetic-signing-secret"});
+    const saved=await prisma.project.findUniqueOrThrow({where:{id:projectId}});
+    expect(saved).toMatchObject({name:"Human renamed project",defaultBranch:"human-release",datadogProjectTag:"checkout"});
+    await expect(caller.save({projectId,provider:"datadog",route:"other",expectedRoute:null})).rejects.toMatchObject({code:"CONFLICT"});
+    expect((await caller.readiness({projectId})).deliveryVerified).toBe(false);
+  });
+  it("checks live authority for routing and refuses secret replacement or partial route writes",async()=>{
+    const admin=await signalActor("ADMIN");const editorSignal=await signalActor("EDITOR");
+    await expect(editorSignal.caller.save({projectId,provider:"datadog",route:"checkout",expectedRoute:null,newDatadogSecret:"synthetic-signing-secret"})).rejects.toMatchObject({code:"FORBIDDEN"});
+    expect((await prisma.project.findUniqueOrThrow({where:{id:projectId}})).datadogProjectTag).toBeNull();
+    await admin.caller.save({projectId,provider:"datadog",route:"checkout",expectedRoute:null,newDatadogSecret:"synthetic-signing-secret"});
+    await expect(admin.caller.save({projectId,provider:"datadog",route:"other",expectedRoute:"checkout",newDatadogSecret:"replacement-signing-secret"})).rejects.toMatchObject({code:"CONFLICT"});
+    await prisma.membership.update({where:{organizationId_userId:{organizationId,userId:admin.user.id}},data:{seatType:"READ_ONLY"}});
+    await expect(admin.caller.save({projectId,provider:"datadog",route:"other",expectedRoute:"checkout"})).rejects.toMatchObject({code:"FORBIDDEN"});
+    const secret=await prisma.organization.findUniqueOrThrow({where:{id:organizationId}});
+    expect(secret.datadogWebhookSecret).toBeNull();expect(JSON.stringify(secret.encryptedDatadogWebhookSecret)).not.toContain("synthetic-signing-secret");
+    expect(decryptToken(secret.encryptedDatadogWebhookSecret as unknown as EncryptedToken)).toBe("synthetic-signing-secret");
+    expect((await prisma.project.findUniqueOrThrow({where:{id:projectId}})).datadogProjectTag).toBe("checkout");
+  });
 
   it("keeps configuration secrets encrypted and out of customer responses", async () => {
     const response = await owner.configurations({ projectId });

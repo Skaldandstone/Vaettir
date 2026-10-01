@@ -963,7 +963,7 @@ export default function RequirementsPage() {
                 {creationSource === "Connected repository" && !repoUrl && (
                   <ConnectionLink href={`/projects/${projectId}#project-repositories`} provider="github" label="GitHub" status="Repository options" />
                 )}
-                <SourceConnectionChips only={["drive", "jira", "linear"]} />
+                <SourceConnectionChips projectId={projectId} only={["drive", "jira", "linear"]} />
               </>
             )}
             {creationStep === 1 && (

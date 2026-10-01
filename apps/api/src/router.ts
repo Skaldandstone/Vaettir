@@ -1,5 +1,6 @@
 import { router } from "./trpc.js";
 import { repositoryConnectionsRouter } from "./routers/repositoryConnections.js";
+import { signalRoutingRouter } from "./routers/signalRouting.js";
 import { testDesignRouter } from "./routers/testDesign.js";
 import { creditUseRequestsRouter } from "./routers/creditUseRequests.js";
 import { testCasesRouter } from "./routers/testCases.js";
@@ -40,6 +41,7 @@ import { reportsRouter } from "./routers/reports.js";
 
 export const appRouter = router({
   repositoryConnections: repositoryConnectionsRouter,
+  signalRouting: signalRoutingRouter,
   testDesign: testDesignRouter,
   creditUseRequests: creditUseRequestsRouter,
   projectPopulation: projectPopulationRouter,

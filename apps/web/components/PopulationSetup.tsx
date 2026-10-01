@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import type {RepositoryProvider} from "./RepositoryConnectionContent";
 import type { PopulationDraft } from "@vaettir/core";
 import { trpcReact } from "@/lib/trpcReact";
 import { useProjectPermissions } from "@/lib/use-project-permissions";
@@ -9,7 +10,7 @@ import {
   emptyPopulationDraft,
 } from "@/components/PopulationWizard";
 
-export function PopulationSetup({ projectId, onExit, onScreen }: { projectId: string; onExit: () => void; onScreen: (screen: "documents" | "requirements" | "assessment" | "gitlab" | "github") => void }) {
+export function PopulationSetup({ projectId, onExit, onScreen }: { projectId: string; onExit: () => void; onScreen: (screen: "documents" | "requirements" | "assessment" | RepositoryProvider) => void }) {
   const permissions = useProjectPermissions(projectId);
   const query = trpcReact.projectPopulation.draft.useQuery(
     { projectId },
@@ -49,7 +50,7 @@ function Editor({
   initial: PopulationDraft;
   initialVersion: number;
   onExit: () => void;
-  onScreen: (screen: "documents" | "requirements" | "assessment" | "gitlab" | "github") => void;
+  onScreen: (screen: "documents" | "requirements" | "assessment" | RepositoryProvider) => void;
 }) {
   const utils = trpcReact.useUtils();
   const mutation = trpcReact.projectPopulation.saveDraft.useMutation();
@@ -129,6 +130,8 @@ function Editor({
   return (
     <div>
       <PopulationWizard
+        projectId={projectId}
+        onRepository={provider=>onScreen(provider)}
         onDocuments={() => onScreen("documents")}
         onGitlab={() => onScreen("gitlab")}
         onGithub={() => onScreen("github")}

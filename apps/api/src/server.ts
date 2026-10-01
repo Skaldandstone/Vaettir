@@ -30,6 +30,7 @@ import { handleLinearWebhook } from "./services/linearWebhook.js";
 import { verifyJiraWebhookSecret, type JiraWebhookPayload } from "./services/jiraApi.js";
 import { handleJiraWebhook } from "./services/jiraWebhook.js";
 import { verifyDatadogWebhookSecret, handleDatadogWebhook, type DatadogWebhookPayload } from "./services/datadogWebhook.js";
+import {readDatadogSecret} from "./services/datadogSecret.js";
 import { getReleaseIdentity } from "./releaseIdentity.js";
 import { publicHttpErrorMessage, safeInternalErrorDetails } from "./publicErrors.js";
 import { createCorsOriginPolicy } from "./corsPolicy.js";
@@ -272,16 +273,17 @@ async function registerDatadogWebhookRoute(instance: FastifyInstance) {
     async (req, reply) => {
       const org = await prisma.organization.findUnique({
         where: { id: req.params.organizationId },
-        select: { id: true, datadogWebhookSecret: true },
+        select: { id: true, datadogWebhookSecret: true,encryptedDatadogWebhookSecret:true },
       });
-      if (!org?.datadogWebhookSecret) return reply.send({ handled: false, reason: "Datadog integration not configured for this organization" });
+      const storedSecret=org?readDatadogSecret(org):null;
+      if (!storedSecret) return reply.send({ handled: false, reason: "Datadog integration not configured for this organization" });
 
       const secretHeader = req.headers["x-vaettir-datadog-secret"] as string | undefined;
-      if (!verifyDatadogWebhookSecret(secretHeader, org.datadogWebhookSecret)) {
+      if (!verifyDatadogWebhookSecret(secretHeader, storedSecret)) {
         return reply.code(401).send({ error: "invalid or missing X-Vaettir-Datadog-Secret header" });
       }
 
-      const result = await handleDatadogWebhook(prisma, org.id, req.body);
+      const result = await handleDatadogWebhook(prisma, org!.id, req.body);
       return reply.send(result);
     },
   );

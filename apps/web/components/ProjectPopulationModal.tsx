@@ -7,10 +7,10 @@ import { PopulationSetup } from "./PopulationSetup";
 import { PopulationDocuments } from "./PopulationDocuments";
 import { PopulationRequirements } from "./PopulationRequirements";
 import { PopulationAssessment } from "./PopulationAssessment";
-import { RepositoryOAuthConnection } from "./GitlabRepositoryConnection";
-type Screen = "setup" | "documents" | "requirements" | "assessment" | "gitlab" | "github";
+import {RepositoryConnectionContent,repositoryProviders,type RepositoryProvider} from "./RepositoryConnectionContent";
+type Screen = "setup" | "documents" | "requirements" | "assessment" | RepositoryProvider;
 const screens: Screen[] = ["setup", "documents", "requirements", "assessment"];
-const labels = { setup: "Project setup", documents: "Add evidence", requirements: "Review suggestions", assessment: "Next actions", gitlab: "Connect GitLab repositories", github: "Connect GitHub repositories" };
+const labels = { setup: "Project setup", documents: "Add evidence", requirements: "Review suggestions", assessment: "Next actions", gitlab: "Connect GitLab repositories", github: "Connect GitHub repositories",bitbucket:"Connect Bitbucket repositories","azure-devops":"Connect Azure DevOps repositories",git:"Self-hosted Git evidence",perforce:"Perforce evidence",svn:"SVN evidence" };
 
 export function ProjectPopulationModal({ projectId, onClose }: { projectId: string; onClose: () => void }) {
   const { loaded, canEdit } = useProjectPermissions(projectId);
@@ -39,10 +39,9 @@ export function ProjectPopulationModal({ projectId, onClose }: { projectId: stri
       {visited.includes("documents") && <div hidden={screen !== "documents"}><PopulationDocuments projectId={projectId} /></div>}
       {visited.includes("requirements") && <div hidden={screen !== "requirements"}><PopulationRequirements projectId={projectId} /></div>}
       {visited.includes("assessment") && <div hidden={screen !== "assessment"}><PopulationAssessment projectId={projectId} /></div>}
-      {visited.includes("gitlab") && <div hidden={screen !== "gitlab"}><RepositoryOAuthConnection providerId="gitlab" projectId={projectId} onConnected={() => {}} onClose={() => go("setup")} /></div>}
-      {visited.includes("github") && <div hidden={screen !== "github"}><RepositoryOAuthConnection providerId="github" projectId={projectId} onConnected={() => {}} onClose={() => go("setup")} /></div>}
-      {(screen === "gitlab" || screen === "github") && <button className="btn-secondary" disabled={busy} onClick={() => go("setup")}>Back to setup</button>}
-      {screen !== "setup" && screen !== "gitlab" && screen !== "github" && <footer className="population-modal-navigation"><button className="btn-secondary" onClick={() => go(screens[screens.indexOf(screen) - 1]!)}>Back</button><button className="btn-secondary" onClick={() => go("setup")}>Back to setup</button>{screen !== "assessment" && <button className="btn-primary" onClick={() => go(screens[screens.indexOf(screen) + 1]!)}>{screen === "documents" ? "Review requirement suggestions" : "Check evidence gaps"}</button>}</footer>}
+      {repositoryProviders.map(([provider])=>visited.includes(provider)&&<div key={provider} hidden={screen!==provider}><RepositoryConnectionContent provider={provider} projectId={projectId} onConnected={()=>{}} onClose={()=>go("setup")}/></div>)}
+      {repositoryProviders.some(([provider])=>screen===provider)&&<button className="btn-secondary" disabled={busy} onClick={()=>go("setup")}>Back to setup</button>}
+      {screen!=="setup"&&screens.includes(screen)&&<footer className="population-modal-navigation"><button className="btn-secondary" onClick={() => go(screens[screens.indexOf(screen) - 1]!)}>Back</button><button className="btn-secondary" onClick={() => go("setup")}>Back to setup</button>{screen !== "assessment" && <button className="btn-primary" onClick={() => go(screens[screens.indexOf(screen) + 1]!)}>{screen === "documents" ? "Review requirement suggestions" : "Check evidence gaps"}</button>}</footer>}
     </div>
   </Modal>;
 }
