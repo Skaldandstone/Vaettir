@@ -4,6 +4,8 @@
 
 The project Overview and population modal share the same repository connection screens. GitHub and GitLab retain native OAuth popup authorization. Bitbucket Cloud and Azure DevOps Services now verify read-only token access, list searchable repository metadata, retain multi-selection across visited pages, and require review before registering repositories. No source files or AI processing occur in these flows.
 
+Requirements intake and Reverse Engineer also open the shared connection screens in place, rather than navigating away to Overview. Generic project source chips use the same provider-specific screens without requiring caller-supplied callbacks. Successful repository approvals refresh the project and repository queries; ticket/document exports remain distinct from authenticated repository access.
+
 Bitbucket uses an Atlassian account API token, account email and selected workspace. Azure uses an organization-scoped Code (Read) PAT and an active authenticated principal, not anonymous public repository visibility. Credentials are encrypted with the existing integration key and retained for at most eight hours of local connector use. Removing local saved access does not revoke provider credentials. Expired interrupted verification can be removed and retried; late results cannot restore it.
 
 Repository native identity survives renamed URLs, repeated selection and manual revision edits. Conflicting native identities or another actor's connection require explicit reconciliation rather than silent replacement. Provider default branches are metadata, not deployed revisions. Listing rechecks live tenant membership before and after provider I/O; persistence checks current full-seat editor access and suspension.

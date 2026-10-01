@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
-import { ConnectionLink } from "@/components/SourceConnectionChips";
+import { SourceConnectionChips } from "@/components/SourceConnectionChips";
 import {
   trpcReact,
   useReadOnlySeat,
@@ -507,7 +507,7 @@ export default function ReverseEngineerPage() {
               }}
             >
               <h2 style={{ margin: 0 }}>Scan the repository</h2>
-              {!projectRepoUrl && <ConnectionLink href={`/projects/${projectId}#project-repositories`} provider="github" label="GitHub" status="Repository options" />}
+              {!projectRepoUrl && <SourceConnectionChips projectId={projectId} only={["github", "gitlab", "bitbucket", "azure-devops", "git", "perforce", "svn"]} />}
               <p style={{ color: "var(--muted)", margin: 0 }}>
                 Clones a repo, finds test files by naming convention, and queues
                 one background job per file.

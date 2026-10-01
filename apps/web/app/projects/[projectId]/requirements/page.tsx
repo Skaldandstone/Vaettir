@@ -5,7 +5,7 @@ import type { ChangeEvent } from "react";
 import { useParams } from "next/navigation";
 import { trpcReact, type RouterOutputs } from "@/lib/trpcReact";
 import { Modal } from "@/components/Modal";
-import { ConnectionLink, SourceConnectionChips } from "@/components/SourceConnectionChips";
+import { SourceConnectionChips } from "@/components/SourceConnectionChips";
 import { CreationWizard, WizardChoices } from "@/components/CreationWizard";
 import { useProjectPermissions } from "@/lib/use-project-permissions";
 import { saveRequirementDrafts } from "@/lib/requirement-drafts";
@@ -961,7 +961,7 @@ export default function RequirementsPage() {
                   before saving.
                 </p>
                 {creationSource === "Connected repository" && !repoUrl && (
-                  <ConnectionLink href={`/projects/${projectId}#project-repositories`} provider="github" label="GitHub" status="Repository options" />
+                  <SourceConnectionChips projectId={projectId} only={["github", "gitlab", "bitbucket", "azure-devops", "git", "perforce", "svn"]} />
                 )}
                 <SourceConnectionChips projectId={projectId} only={["drive", "jira", "linear"]} />
               </>
