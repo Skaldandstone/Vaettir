@@ -7,6 +7,7 @@ node_modules
 dist
 **/dist
 .git
+.local
 .env
 .env.local
 **/.env.local

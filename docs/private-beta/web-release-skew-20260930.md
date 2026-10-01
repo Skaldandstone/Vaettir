@@ -1,0 +1,11 @@
+# Web release skew correction
+
+A signed-in smoke check during the b17caff ECS web rollout failed with `ChunkLoadError` for chunk `3881-a9e6f7603f1c8ef2.js`. Both web24 and web25 were then serving traffic. The same chunk returned HTTP 200 after web25 became the sole deployment, confirming a mixed-version asset request, not a tenant/authentication failure. The failure evidence stays under `.local/`.
+
+The web target group now uses 300-second ALB cookie affinity. Existing CloudFront Managed-AllViewer already forwards all cookies, and Managed-CachingDisabled has all TTLs at zero. Those CDN policies, authentication, IAM, schedules and health thresholds are unchanged. Affinity reduces new-page-to-old-task mismatches; it cannot preserve assets when a target is retired.
+
+`buildspec.web.yml` therefore exports only versioned `.next/static` from the previous immutable web image. The bounded helper validates file hashes, rejects collisions/symlinks/unsafe paths, and retains the current plus two previous cohorts before standalone startup. Old server code, server manifests and unversioned `public` files are never imported. Defaults limit the retained tree to 12,000 files and 512 MiB, 32 MiB per file. Optional initial extra predecessor intake bridges pre-manifest releases. Build failure prevents image publication. `.release-assets/` is generated build intake, ignored by Git.
+
+The standard release script supplies the prior image digest and commit explicitly. `deploymentId` uses the exact build SHA for cache-busting identity; it is not origin routing. Clients older than retained cohorts may still need an explicit reload, and cookie-disabled clients do not receive affinity. Runtime acceptance includes old-chunk success, current asset responses, already-open and fresh-page navigation during overlap, stable ECS identities and signed-in project/admin checks. Do not claim runtime acceptance from source tests alone.
+
+References: [Next standalone output](https://nextjs.org/docs/app/api-reference/config/next-config-js/output), [Next deployment identity](https://nextjs.org/docs/app/api-reference/config/next-config-js/deploymentId), [Next 15 self-hosting](https://nextjs.org/docs/15/app/guides/self-hosting), [ALB duration-based affinity](https://docs.aws.amazon.com/elasticloadbalancing/latest/application/edit-target-group-attributes.html#sticky-sessions).

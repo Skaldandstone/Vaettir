@@ -2,6 +2,7 @@ import { withSentryConfig } from "@sentry/nextjs";
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  deploymentId: process.env.NEXT_PUBLIC_RELEASE_COMMIT,
   transpilePackages: ["@vaettir/core"],
   async headers() {
     return ["gitlab", "github"].map(provider => ({ source: `/connections/${provider}/callback`, headers: [

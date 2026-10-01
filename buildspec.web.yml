@@ -1,0 +1,39 @@
+version: 0.2
+phases:
+  pre_build:
+    commands:
+      - aws ecr get-login-password --region us-east-2 | docker login --username AWS --password-stdin 051722405355.dkr.ecr.us-east-2.amazonaws.com
+      - test -n "$VAETTIR_PREVIOUS_WEB_IMAGE"
+      - printf '%s' "$VAETTIR_PREVIOUS_WEB_IMAGE" | grep -Eq '^051722405355\.dkr\.ecr\.us-east-2\.amazonaws\.com/vaettir-web@sha256:[a-f0-9]{64}$'
+      - printf '%s' "$VAETTIR_PREVIOUS_WEB_COMMIT" | grep -Eq '^[a-f0-9]{40}$'
+      - docker pull "$VAETTIR_PREVIOUS_WEB_IMAGE"
+      - docker create --name vaettir-previous-web "$VAETTIR_PREVIOUS_WEB_IMAGE"
+      - mkdir -p .release-assets/previous
+      - docker cp vaettir-previous-web:/app/apps/web/.next/static .release-assets/previous/static
+      - |
+        set -e
+        previous_manifest_version=$(docker image inspect --format '{{ index .Config.Labels "vaettir.next-static-cohorts" }}' "$VAETTIR_PREVIOUS_WEB_IMAGE")
+        if [ "$previous_manifest_version" = "1" ]; then
+          docker cp vaettir-previous-web:/app/apps/web/.next/static-cohorts.json .release-assets/previous/static-cohorts.json
+        fi
+      - docker rm vaettir-previous-web
+      - |
+        set -e
+        if [ -n "$VAETTIR_EXTRA_PREVIOUS_WEB_IMAGE" ]; then
+          printf '%s' "$VAETTIR_EXTRA_PREVIOUS_WEB_IMAGE" | grep -Eq '^051722405355\.dkr\.ecr\.us-east-2\.amazonaws\.com/vaettir-web@sha256:[a-f0-9]{64}$'
+          printf '%s' "$VAETTIR_EXTRA_PREVIOUS_WEB_COMMIT" | grep -Eq '^[a-f0-9]{40}$'
+          docker pull "$VAETTIR_EXTRA_PREVIOUS_WEB_IMAGE"
+          docker create --name vaettir-extra-previous-web "$VAETTIR_EXTRA_PREVIOUS_WEB_IMAGE"
+          mkdir -p .release-assets/extra
+          docker cp vaettir-extra-previous-web:/app/apps/web/.next/static .release-assets/extra/static
+          docker rm vaettir-extra-previous-web
+          node scripts/retain-next-static-assets.mjs --current-dir .release-assets/previous/static --previous-dir .release-assets/extra/static --cohort "$VAETTIR_PREVIOUS_WEB_COMMIT" --previous-cohort "$VAETTIR_EXTRA_PREVIOUS_WEB_COMMIT"
+        fi
+  build:
+    commands:
+      - docker build -f Dockerfile.web -t 051722405355.dkr.ecr.us-east-2.amazonaws.com/vaettir-web:latest -t 051722405355.dkr.ecr.us-east-2.amazonaws.com/vaettir-web:$VAETTIR_RELEASE_COMMIT --build-arg NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=$NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY --build-arg NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL --build-arg NEXT_PUBLIC_SENTRY_DSN=$NEXT_PUBLIC_SENTRY_DSN --build-arg VAETTIR_RELEASE_COMMIT=$VAETTIR_RELEASE_COMMIT --build-arg VAETTIR_PREVIOUS_WEB_COMMIT=$VAETTIR_PREVIOUS_WEB_COMMIT .
+  post_build:
+    commands:
+      - test "$CODEBUILD_BUILD_SUCCEEDING" = "1"
+      - docker push 051722405355.dkr.ecr.us-east-2.amazonaws.com/vaettir-web:$VAETTIR_RELEASE_COMMIT
+      - docker push 051722405355.dkr.ecr.us-east-2.amazonaws.com/vaettir-web:latest

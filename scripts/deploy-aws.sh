@@ -51,9 +51,20 @@ RELEASE_COMMIT="$(git rev-parse HEAD)"
 
 start_build() {
   local project=$1
+  local overrides=("name=VAETTIR_RELEASE_COMMIT,value=$RELEASE_COMMIT,type=PLAINTEXT")
+  local buildspec=()
+  if [[ "$project" == "vaettir-web-build${ENV_SUFFIX}" ]]; then
+    local task image previous_commit
+    task=$(aws ecs describe-services --cluster "vaettir-cluster${ENV_SUFFIX}" --services "vaettir-web${ENV_SUFFIX}" --profile "$PROFILE" --region "$REGION" --query 'services[0].taskDefinition' --output text)
+    image=$(aws ecs describe-task-definition --task-definition "$task" --profile "$PROFILE" --region "$REGION" --query "taskDefinition.containerDefinitions[?name=='vaettir-web${ENV_SUFFIX}'].image | [0]" --output text)
+    previous_commit=$(aws ecs describe-task-definition --task-definition "$task" --profile "$PROFILE" --region "$REGION" --query "taskDefinition.containerDefinitions[?name=='vaettir-web${ENV_SUFFIX}'].environment[] | [?name=='VAETTIR_RELEASE_COMMIT'].value | [0]" --output text)
+    [[ "$image" =~ @sha256:[a-f0-9]{64}$ && "$previous_commit" =~ ^[a-f0-9]{40}$ ]] || { echo "Previous immutable web identity is required" >&2; return 1; }
+    overrides+=("name=VAETTIR_PREVIOUS_WEB_IMAGE,value=$image,type=PLAINTEXT" "name=VAETTIR_PREVIOUS_WEB_COMMIT,value=$previous_commit,type=PLAINTEXT")
+    buildspec=(--buildspec-override buildspec.web.yml)
+  fi
   echo "==> Starting $project" >&2
   aws codebuild start-build --project-name "$project" --profile "$PROFILE" --region "$REGION" \
-    --environment-variables-override "name=VAETTIR_RELEASE_COMMIT,value=$RELEASE_COMMIT,type=PLAINTEXT" \
+    "${buildspec[@]}" --environment-variables-override "${overrides[@]}" \
     --query "build.id" --output text
 }
 
