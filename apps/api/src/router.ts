@@ -1,4 +1,5 @@
 import { router } from "./trpc.js";
+import {driveConnectionsRouter} from "./routers/driveConnections.js";
 import {linearConnectionsRouter} from "./routers/linearConnections.js";
 import {jiraConnectionsRouter} from "./routers/jiraConnections.js";
 import {jiraIssueIntakeRouter} from "./routers/jiraIssueIntake.js";
@@ -43,6 +44,7 @@ import { testCaseStructureRouter } from "./routers/testCaseStructure.js";
 import { reportsRouter } from "./routers/reports.js";
 
 export const appRouter = router({
+  driveConnections:driveConnectionsRouter,
   linearConnections:linearConnectionsRouter,
   jiraConnections:jiraConnectionsRouter,
   jiraIssueIntake:jiraIssueIntakeRouter,

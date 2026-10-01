@@ -8,6 +8,7 @@ import {RepositoryConnectionContent,type RepositoryProvider} from "./RepositoryC
 import {trpcReact} from "@/lib/trpcReact";
 import {LinearSourceConnection} from "./LinearSourceConnection";
 import {JiraSourceConnection} from "./JiraSourceConnection";
+import {GoogleDriveSourceConnection} from "./GoogleDriveSourceConnection";
 
 const sources = [
   ["github", "GitHub"], ["gitlab", "GitLab"], ["bitbucket", "Bitbucket"],
@@ -54,10 +55,10 @@ export function SourceConnectionChips({documentsHref,only,onDocuments,onGitlab,o
   const name=sources.find(([id])=>id===active)?.[1];
   return <div className="source-connections">
     <div className="source-chip-list" role="group" aria-label="Available source actions">{filtered.map(([id,label])=><button key={id} type="button" className="source-connection-chip" aria-haspopup="dialog" onClick={()=>open(id)}>
-      <ProviderMark id={id}/><span><strong>{label}</strong><small>{id==="document"?"Add file or text":(id==="github"&&(projectId||onRepository||onGithub)||id==="gitlab"&&(projectId||onRepository||onGitlab))?"Authorize and select":((id==="bitbucket"||id==="azure-devops")&&(projectId||onRepository)||(id==="linear"||id==="jira")&&projectId)?"Verify access and select":id==="jira"||id==="linear"?"Add exported tickets":"Export intake only"}</small></span><span aria-hidden="true">+</span>
+      <ProviderMark id={id}/><span><strong>{label}</strong><small>{id==="document"?"Add file or text":(id==="github"&&(projectId||onRepository||onGithub)||id==="gitlab"&&(projectId||onRepository||onGitlab)||id==="drive"&&projectId)?"Authorize and select":((id==="bitbucket"||id==="azure-devops")&&(projectId||onRepository)||(id==="linear"||id==="jira")&&projectId)?"Verify access and select":id==="jira"||id==="linear"?"Add exported tickets":"Export intake only"}</small></span><span aria-hidden="true">+</span>
     </button>)}</div>
-    <Modal open={!!active} dismissible={!busy} title={active==="linear"&&projectId?"Connect Linear":active==="jira"&&projectId?"Connect Jira":active==="document"?"Add document evidence":active&&repoIds.includes(active)?`Add ${name}`:`Add ${name??"source"} evidence`} onClose={()=>setActive(null)}>
-      {active==="linear"&&projectId?<LinearSourceConnection key={active} projectId={projectId} onClose={()=>setActive(null)}/>:active==="jira"&&projectId?<JiraSourceConnection key={active} projectId={projectId} onClose={()=>setActive(null)}/>:active&&projectId&&repoIds.includes(active)?<RepositoryConnectionContent key={active} projectId={projectId} provider={active as RepositoryProvider} onConnected={()=>{void utils.project.repositories.invalidate({projectId});void utils.project.byId.invalidate({id:projectId});}} onClose={()=>setActive(null)}/>:<>
+    <Modal open={!!active} dismissible={active==="drive"||!busy} title={active==="drive"&&projectId?"Connect Google Drive":active==="linear"&&projectId?"Connect Linear":active==="jira"&&projectId?"Connect Jira":active==="document"?"Add document evidence":active&&repoIds.includes(active)?`Add ${name}`:`Add ${name??"source"} evidence`} onClose={()=>setActive(null)}>
+      {active==="drive"&&projectId?<GoogleDriveSourceConnection key={active} projectId={projectId} onClose={()=>setActive(null)}/>:active==="linear"&&projectId?<LinearSourceConnection key={active} projectId={projectId} onClose={()=>setActive(null)}/>:active==="jira"&&projectId?<JiraSourceConnection key={active} projectId={projectId} onClose={()=>setActive(null)}/>:active&&projectId&&repoIds.includes(active)?<RepositoryConnectionContent key={active} projectId={projectId} provider={active as RepositoryProvider} onConnected={()=>{void utils.project.repositories.invalidate({projectId});void utils.project.byId.invalidate({id:projectId});}} onClose={()=>setActive(null)}/>:<>
         {active&&active!=="document"&&<p>{name} account discovery is not available in this intake. Add an exported specification or ticket as Markdown or text, then review the proposed changes.</p>}
         {projectId&&active?<PopulationDocuments projectId={projectId}/>:onDocuments?<button type="button" onClick={onDocuments}>Add file or text</button>:documentsHref?<a className="btn-primary" href={documentsHref}>Add document evidence</a>:<p>Open project evidence to add a file.</p>}
       </>}

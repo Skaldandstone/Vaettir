@@ -20,6 +20,7 @@ datasource db {
 // ---------------------------------------------------------------------------
 
 model Organization {
+  driveSourceConnections DriveSourceConnection[]
   ticketSourceConnections  TicketSourceConnection[]
   repositoryConfigurations RepositoryProviderConfiguration[]
   repositoryConnections    RepositoryConnection[]
@@ -234,6 +235,7 @@ model WebhookDelivery {
 }
 
 model Project {
+  driveSourceConnections       DriveSourceConnection[]
   ticketSourceConnections      TicketSourceConnection[]
   repositoryConnections        RepositoryConnection[]
   id                           String                 @id @default(cuid())
@@ -388,6 +390,43 @@ model RepositoryConnection {
   catalog                Json?
   catalogAt              DateTime?
   createdAt              DateTime                        @default(now())
+
+  @@index([projectId, actorId, createdAt])
+}
+
+// Actor-bound metadata-only Drive access. Approved file identities survive
+// cancellation/access expiry; no contents or refresh tokens are collected.
+model DriveSourceConnection {
+  id String @id @default(cuid())
+  projectId String
+  organizationId String
+  actorId String
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  actor User @relation(fields: [actorId], references: [id], onDelete: Cascade)
+  requestKey String @unique
+  stateHash String @unique
+  configurationHash String
+  encryptedVerifier Json?
+  encryptedAuthorization Json?
+  encryptedToken Json?
+  status String @default("PENDING")
+  authorizationExpiresAt DateTime
+  tokenExpiresAt DateTime?
+  account Json?
+  catalog Json?
+  catalogAt DateTime?
+  version Int @default(0)
+  readAttempts Int @default(0)
+  readLeaseRequestId String?
+  readLeaseUntil DateTime?
+  listReceipts Json @default("[]")
+  approvedFiles Json @default("[]")
+  approvalReceipts Json @default("[]")
+  approvedAt DateTime?
+  metadataApprovedAt DateTime @default(now())
+  verifiedAt DateTime?
+  createdAt DateTime @default(now())
 
   @@index([projectId, actorId, createdAt])
 }
@@ -555,6 +594,7 @@ model ProjectPopulationRequirement {
 // lazily on a new Clerk user's first authenticated request -- see
 // apps/api/src/trpc.ts.
 model User {
+  driveSourceConnections DriveSourceConnection[]
   ticketSourceConnections TicketSourceConnection[]
   repositoryConnections RepositoryConnection[]
   id                    String                 @id @default(cuid())
