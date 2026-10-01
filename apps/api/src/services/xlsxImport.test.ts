@@ -2,7 +2,7 @@ import AdmZip from "adm-zip";
 import { describe, expect, it } from "vitest";
 import { parseXlsxWorkbook, previewXlsxSheet } from "./xlsxImport.js";
 
-function workbookFixture() {
+function workbookFixture(sheetOverride?: string) {
   const zip = new AdmZip();
   zip.addFile(
     "xl/workbook.xml",
@@ -18,7 +18,7 @@ function workbookFixture() {
   );
   zip.addFile(
     "xl/worksheets/sheet1.xml",
-    Buffer.from(`
+    Buffer.from(sheetOverride ?? `
       <worksheet><sheetData>
         <row r="1"><c r="A1" t="inlineStr"><is><t>Imported from Qase</t></is></c></row>
         <row r="2">
@@ -79,5 +79,55 @@ describe("XLSX smart import", () => {
     expect(() => parseXlsxWorkbook(Buffer.from("not a workbook"))).toThrow(
       "not a valid .xlsx",
     );
+  });
+
+  it("preserves ordinary escaped XML text and Unicode in imported case titles", () => {
+    const sheet = '<worksheet><sheetData><row><c r="A1" t="inlineStr"><is><t>Title</t></is></c></row><row><c r="A2" t="inlineStr"><is><t>Login &amp; upgrade &quot;Premium&quot; &#x2713;</t></is></c></row></sheetData></worksheet>';
+    const parsed = parseXlsxWorkbook(workbookFixture(sheet))[0]!;
+    expect(previewXlsxSheet(parsed).rows[0]?.title).toBe('Login & upgrade "Premium" ✓');
+  });
+
+  it.each([
+    ['&amp;amp;', '&amp;'],
+    ['<![CDATA[Login &amp; upgrade]]>', 'Login &amp; upgrade'],
+    ['A &#128512; user', 'A 😀 user'],
+  ])("decodes ordinary XML text once without changing CDATA (%s)", (source, expected) => {
+    const sheet = `<worksheet><sheetData><row><c r="A1" t="inlineStr"><is><t>Title</t></is></c></row><row><c r="A2" t="inlineStr"><is><t>${source}</t></is></c></row></sheetData></worksheet>`;
+    expect(previewXlsxSheet(parseXlsxWorkbook(workbookFixture(sheet))[0]!).rows[0]?.title).toBe(expected);
+  });
+
+  it("rejects oversized declared entries before decompression", () => {
+    const zip = new AdmZip();
+    zip.addFile("xl/workbook.xml", Buffer.from("<workbook/>"));
+    const buffer = zip.toBuffer();
+    const central = buffer.indexOf(Buffer.from([0x50, 0x4b, 0x01, 0x02]));
+    buffer.writeUInt32LE(64 * 1024 * 1024, central + 24);
+    buffer.writeUInt32LE(64 * 1024 * 1024, 22);
+    expect(() => parseXlsxWorkbook(buffer)).toThrow("10 MB expanded limit");
+  });
+
+  it("rejects falsified zero-size deflated XML without unbounded inflation", () => {
+    const zip = new AdmZip();
+    zip.addFile("xl/workbook.xml", Buffer.from("<workbook/>"));
+    const buffer = zip.toBuffer();
+    const central = buffer.indexOf(Buffer.from([0x50, 0x4b, 0x01, 0x02]));
+    buffer.writeUInt32LE(0, central + 24);
+    buffer.writeUInt32LE(0, 22);
+    expect(() => parseXlsxWorkbook(buffer)).toThrow("invalid zero-size compressed entry");
+  });
+
+  it("rejects an out-of-range sparse column without creating a large array", () => {
+    const sheet = '<worksheet><sheetData><row r="1"><c r="IW1" t="inlineStr"><is><t>Title</t></is></c></row></sheetData></worksheet>';
+    expect(() => parseXlsxWorkbook(workbookFixture(sheet))).toThrow("256 column limit");
+  });
+
+  it("rejects custom XML entities before parsing", () => {
+    const sheet = '<!DOCTYPE worksheet [<!ENTITY custom "synthetic">]><worksheet><sheetData/></worksheet>';
+    expect(() => parseXlsxWorkbook(workbookFixture(sheet))).toThrow("XML declarations are not supported");
+  });
+
+  it("bounds cell text rather than silently truncating it", () => {
+    const sheet = `<worksheet><sheetData><row r="1"><c r="A1" t="inlineStr"><is><t>${"x".repeat(16_385)}</t></is></c></row></sheetData></worksheet>`;
+    expect(() => parseXlsxWorkbook(workbookFixture(sheet))).toThrow("cell text exceeds");
   });
 });

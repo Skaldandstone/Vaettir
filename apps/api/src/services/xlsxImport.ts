@@ -9,13 +9,43 @@ import {
 } from "./csvFieldMapping.js";
 
 const MAX_XLSX_BYTES = 10 * 1024 * 1024;
+const MAX_XML_BYTES = 10 * 1024 * 1024;
+const MAX_WORKBOOK_XML_BYTES = 50 * 1024 * 1024;
+const MAX_ARCHIVE_ENTRIES = 20_000;
 const MAX_SHEETS = 50;
 const MAX_ROWS_PER_SHEET = 10_000;
+const MAX_WORKBOOK_ROWS = 20_000;
+const MAX_COLUMNS = 256;
+const MAX_WORKBOOK_CELLS = 200_000;
+const MAX_CELL_CHARACTERS = 16_384;
+const MAX_CSV_BYTES = 20 * 1024 * 1024;
+const XML_ESCAPES: Record<string, string> = { amp: "&", lt: "<", gt: ">", quot: '"', apos: "'" };
+function decodeXmlEscapes(text: string): string {
+  if (text.length > MAX_CELL_CHARACTERS) throw new Error("Excel cell text exceeds the supported limit");
+  return text.replace(/&(amp|lt|gt|quot|apos|#x[0-9a-fA-F]{1,6}|#[0-9]{1,7});/g, (_match, entity: string) => {
+    if (!entity.startsWith("#")) return XML_ESCAPES[entity]!;
+    const code = entity.startsWith("#x") ? Number.parseInt(entity.slice(2), 16) : Number(entity.slice(1));
+    if (!(code === 9 || code === 10 || code === 13 || (code >= 0x20 && code <= 0xd7ff)
+      || (code >= 0xe000 && code <= 0xfffd) || (code >= 0x10000 && code <= 0x10ffff)))
+      throw new Error("Excel XML character reference is invalid");
+    return String.fromCodePoint(code);
+  });
+}
 const parser = new XMLParser({
   ignoreAttributes: false,
   attributeNamePrefix: "@_",
   textNodeName: "#text",
   trimValues: false,
+  // Preserve ordinary Excel XML escapes. zipText rejects custom declaration
+  // syntax before parsing; only built-in/numeric XML escapes are supported.
+  processEntities: true,
+  entityDecoder: {
+    decode: decodeXmlEscapes,
+    reset() {},
+    setXmlVersion(version) { if (version !== "1.0") throw new Error("Excel XML version is not supported"); },
+    setExternalEntities(entities) { if (Object.keys(entities).length) throw new Error("Excel XML declarations are not supported"); },
+    addInputEntities() { throw new Error("Excel XML declarations are not supported"); },
+  },
 });
 
 type CellValue = string | number | boolean | null;
@@ -42,29 +72,42 @@ function recordOf(value: unknown): XmlRecord {
 }
 
 function textOf(value: unknown): string {
-  if (value === null || value === undefined) return "";
-  if (
-    typeof value === "string" ||
-    typeof value === "number" ||
-    typeof value === "boolean"
-  )
-    return String(value);
-  if (Array.isArray(value)) return value.map(textOf).join("");
-  if (typeof value === "object") {
-    const record = value as Record<string, unknown>;
-    return textOf(record["#text"] ?? record.t ?? record.r);
+  const pending = [value];
+  const parts: string[] = [];
+  let visited = 0;
+  let length = 0;
+  while (pending.length) {
+    if (++visited > 512) throw new Error("Excel cell structure exceeds the supported limit");
+    const next = pending.pop();
+    if (next === null || next === undefined) continue;
+    if (typeof next === "string" || typeof next === "number" || typeof next === "boolean") {
+      const part = String(next);
+      length += part.length;
+      if (length > MAX_CELL_CHARACTERS) throw new Error("Excel cell text exceeds the supported limit");
+      parts.push(part);
+    } else if (Array.isArray(next)) {
+      if (pending.length + next.length > 512) throw new Error("Excel cell structure exceeds the supported limit");
+      for (let index = next.length - 1; index >= 0; index--) pending.push(next[index]);
+    } else if (typeof next === "object") {
+      const record = next as Record<string, unknown>;
+      pending.push(record["#text"] ?? record.t ?? record.r);
+    }
   }
-  return "";
+  return parts.join("");
 }
 
 function columnIndex(reference: string): number {
-  const letters = reference.match(/^[A-Z]+/i)?.[0]?.toUpperCase() ?? "A";
-  return (
+  const match = reference.match(/^([A-Z]{1,3})[1-9]\d{0,6}$/i);
+  if (!match) throw new Error("Excel cell reference is invalid");
+  const letters = match[1]!.toUpperCase();
+  const index = (
     [...letters].reduce(
       (index, letter) => index * 26 + letter.charCodeAt(0) - 64,
       0,
     ) - 1
   );
+  if (index >= MAX_COLUMNS) throw new Error("Excel worksheet exceeds the 256 column limit");
+  return index;
 }
 
 function csvField(value: CellValue): string {
@@ -75,7 +118,31 @@ function csvField(value: CellValue): string {
 function zipText(zip: AdmZip, path: string): string {
   const entry = zip.getEntry(path);
   if (!entry) throw new Error(`Invalid XLSX workbook: missing ${path}`);
-  return entry.getData().toString("utf8");
+  const data = entry.getData();
+  if (data.byteLength > MAX_XML_BYTES) throw new Error("Excel archive entry exceeds the 10 MB expanded limit");
+  const text = data.toString("utf8");
+  if (/<!DOCTYPE|<!ENTITY/i.test(text)) throw new Error("Excel XML declarations are not supported");
+  return text;
+}
+
+function validateWorkbookArchive(zip: AdmZip): void {
+  const entries = zip.getEntries();
+  if (entries.length > MAX_ARCHIVE_ENTRIES)
+    throw new Error("Excel archive has too many entries");
+  let total = 0;
+  for (const entry of entries) {
+    if (entry.isDirectory) continue;
+    const size = entry.header.size;
+    if (!Number.isSafeInteger(size) || size < 0 || size > MAX_XML_BYTES)
+      throw new Error("Excel archive entry exceeds the 10 MB expanded limit");
+    // Zero-size deflated entries cannot contain meaningful workbook XML.
+    // Reject before decoding so a false zero never disables the inflate cap.
+    if (size === 0 && entry.header.compressedSize > 0 && entry.header.method === 8)
+      throw new Error("Excel archive has an invalid zero-size compressed entry");
+    total += size;
+    if (total > MAX_WORKBOOK_XML_BYTES)
+      throw new Error("Excel archive exceeds the 50 MB expanded limit");
+  }
 }
 
 function normalizeTarget(target: string): string {
@@ -104,6 +171,7 @@ export function parseXlsxWorkbook(buffer: Buffer): ParsedWorkbookSheet[] {
     throw new Error("File is not a valid .xlsx workbook");
 
   const zip = new AdmZip(buffer);
+  validateWorkbookArchive(zip);
   const workbook = recordOf(parser.parse(zipText(zip, "xl/workbook.xml")));
   const relationships = recordOf(
     parser.parse(zipText(zip, "xl/_rels/workbook.xml.rels")),
@@ -119,16 +187,22 @@ export function parseXlsxWorkbook(buffer: Buffer): ParsedWorkbookSheet[] {
 
   const sharedEntry = zip.getEntry("xl/sharedStrings.xml");
   const sharedRoot = sharedEntry
-    ? recordOf(parser.parse(sharedEntry.getData().toString("utf8")))
+    ? recordOf(parser.parse(zipText(zip, "xl/sharedStrings.xml")))
     : {};
+  const sharedValues = arrayOf(recordOf(sharedRoot.sst).si);
+  if (sharedValues.length > MAX_WORKBOOK_CELLS) throw new Error("Excel shared strings exceed the supported limit");
   const sharedStrings = sharedEntry
-    ? arrayOf(recordOf(sharedRoot.sst).si).map(textOf)
+    ? sharedValues.map(textOf)
     : [];
 
   const workbookRoot = recordOf(workbook.workbook);
   const sheetsRoot = recordOf(workbookRoot.sheets);
-  return arrayOf(sheetsRoot.sheet)
-    .slice(0, MAX_SHEETS)
+  const sourceSheets = arrayOf(sheetsRoot.sheet);
+  if (sourceSheets.length > MAX_SHEETS) throw new Error("Excel workbook exceeds the 50 worksheet limit");
+  let totalRows = 0;
+  let totalCells = 0;
+  let totalCsvBytes = 0;
+  return sourceSheets
     .map((sheetValue) => {
       const sheet = recordOf(sheetValue);
       const name = textOf(sheet["@_name"]) || "Sheet";
@@ -148,11 +222,18 @@ export function parseXlsxWorkbook(buffer: Buffer): ParsedWorkbookSheet[] {
       const document = recordOf(parser.parse(zipText(zip, target)));
       const worksheet = recordOf(document.worksheet);
       const sheetData = recordOf(worksheet.sheetData);
-      const sourceRows = arrayOf(sheetData.row).slice(0, MAX_ROWS_PER_SHEET);
+      const sourceRows = arrayOf(sheetData.row);
+      totalRows += sourceRows.length;
+      if (sourceRows.length > MAX_ROWS_PER_SHEET || totalRows > MAX_WORKBOOK_ROWS)
+        throw new Error("Excel workbook exceeds the supported row limit");
       const rows = sourceRows.map((rowValue) => {
         const row = recordOf(rowValue);
         const cells: CellValue[] = [];
-        for (const cellValue of arrayOf(row.c)) {
+        const sourceCells = arrayOf(row.c);
+        totalCells += sourceCells.length;
+        if (sourceCells.length > MAX_COLUMNS || totalCells > MAX_WORKBOOK_CELLS)
+          throw new Error("Excel workbook exceeds the supported cell limit");
+        for (const cellValue of sourceCells) {
           const cell = recordOf(cellValue);
           const index = columnIndex(String(cell["@_r"] ?? "A1"));
           const type = cell["@_t"];
@@ -192,6 +273,8 @@ export function parseXlsxWorkbook(buffer: Buffer): ParsedWorkbookSheet[] {
       const csvText = normalized
         .map((row) => row.map(csvField).join(","))
         .join("\r\n");
+      totalCsvBytes += Buffer.byteLength(csvText, "utf8");
+      if (totalCsvBytes > MAX_CSV_BYTES) throw new Error("Excel workbook exceeds the 20 MB converted limit");
       const inspected = inspectCsv(csvText);
       return {
         name,

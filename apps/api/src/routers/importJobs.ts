@@ -13,7 +13,8 @@ import { parseXrayExport } from "../services/xrayImport.js";
 import { parseTestRailXml } from "../services/testrailImport.js";
 import { scanQTestProject } from "../services/qtestImport.js";
 import { scanZephyrProject } from "../services/zephyrImport.js";
-import { parseXlsxWorkbook, previewXlsxSheet } from "../services/xlsxImport.js";
+import { previewXlsxSheet } from "../services/xlsxImport.js";
+import { parseXlsxWorkbookIsolated } from "../services/xlsxImportIsolation.js";
 
 const fieldMappingSchema = z
   .record(z.enum(TARGET_FIELDS), z.string())
@@ -96,6 +97,21 @@ function requireReviewedManifest(expected: z.infer<typeof liveSourceManifestSche
   }
 }
 
+async function requireFreshXlsxAccess(
+  ctx: Parameters<typeof requireProjectAccess>[0],
+  projectId: string,
+  minRole: "VIEWER" | "EDITOR" = "VIEWER",
+) {
+  // The worker creates an async boundary. Request-start memberships are not
+  // proof that access still exists when parsing finishes.
+  const user = await ctx.prisma.user.findUnique({
+    where: { id: ctx.user.id },
+    include: { memberships: true },
+  });
+  if (!user) throw new TRPCError({ code: "UNAUTHORIZED", message: "Project access changed. Sign in again." });
+  return requireProjectAccess({ ...ctx, user }, projectId, minRole);
+}
+
 function toFilePreviewRow(
   c: ReturnType<typeof parseXrayExport>["cases"][number],
 ): z.infer<typeof filePreviewRow> {
@@ -134,12 +150,14 @@ export const importJobsRouter = router({
         ),
       }),
     )
-    .mutation(async ({ ctx, input }) => {
+    .mutation(async ({ ctx, input, signal }) => {
       await requireProjectAccess(ctx, input.projectId);
       try {
-        const sheets = parseXlsxWorkbook(
+        const sheets = await parseXlsxWorkbookIsolated(
           Buffer.from(input.fileBase64, "base64"),
+          signal,
         );
+        await requireFreshXlsxAccess(ctx, input.projectId);
         return {
           sheets: sheets.map((sheet) => {
             const preview = sheet.suggestedMapping.title
@@ -159,6 +177,7 @@ export const importJobsRouter = router({
           }),
         };
       } catch (error) {
+        if (error instanceof TRPCError) throw error;
         throw new TRPCError({
           code: "BAD_REQUEST",
           message: error instanceof Error ? error.message : String(error),
@@ -183,12 +202,15 @@ export const importJobsRouter = router({
         skippedCount: z.number(),
       }),
     )
-    .mutation(async ({ ctx, input }) => {
+    .mutation(async ({ ctx, input, signal }) => {
       await requireProjectAccess(ctx, input.projectId);
       try {
-        const sheet = parseXlsxWorkbook(
+        const workbook = await parseXlsxWorkbookIsolated(
           Buffer.from(input.fileBase64, "base64"),
-        ).find((candidate) => candidate.name === input.sheetName);
+          signal,
+        );
+        await requireFreshXlsxAccess(ctx, input.projectId);
+        const sheet = workbook.find((candidate) => candidate.name === input.sheetName);
         if (!sheet)
           throw new Error("Worksheet was not found in the uploaded workbook");
         const preview = previewXlsxSheet(sheet, input.mapping, input.overrides);
@@ -198,6 +220,7 @@ export const importJobsRouter = router({
           skippedCount: preview.skipped.length,
         };
       } catch (error) {
+        if (error instanceof TRPCError) throw error;
         throw new TRPCError({
           code: "BAD_REQUEST",
           message: error instanceof Error ? error.message : String(error),
@@ -232,16 +255,20 @@ export const importJobsRouter = router({
         ),
       }),
     )
-    .mutation(async ({ ctx, input }) => {
+    .mutation(async ({ ctx, input, signal }) => {
       const { project } = await requireProjectAccess(
         ctx,
         input.projectId,
         "EDITOR",
       );
       try {
-        const workbook = parseXlsxWorkbook(
+        const workbook = await parseXlsxWorkbookIsolated(
           Buffer.from(input.fileBase64, "base64"),
+          signal,
         );
+        const refreshed = await requireFreshXlsxAccess(ctx, input.projectId, "EDITOR");
+        if (refreshed.project.organizationId !== project.organizationId)
+          throw new Error("Project access changed. Refresh before importing.");
         const selected = new Map(
           input.sheets.map((sheet) => [sheet.name, sheet]),
         );
@@ -278,6 +305,7 @@ export const importJobsRouter = router({
           throw new Error(
             "No importable test cases were found in the selected worksheets",
           );
+        if (signal?.aborted) throw new Error("Excel processing was cancelled.");
         return commitImportedTestCases(ctx.prisma, {
           projectId: input.projectId,
           organizationId: project.organizationId,
@@ -296,6 +324,7 @@ export const importJobsRouter = router({
           framework: "xlsx",
         });
       } catch (error) {
+        if (error instanceof TRPCError) throw error;
         throw new TRPCError({
           code: "BAD_REQUEST",
           message: error instanceof Error ? error.message : String(error),

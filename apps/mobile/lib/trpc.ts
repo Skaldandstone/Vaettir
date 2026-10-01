@@ -1,6 +1,6 @@
 import { createTRPCProxyClient, httpBatchLink } from "@trpc/client";
 import Constants from "expo-constants";
-import type { AppRouter } from "@vaettir/api/src/router";
+import type { AppRouter } from "@vaettir/api/dist/router";
 import { containsExpiredSession } from "./recovery";
 
 const API_URL =

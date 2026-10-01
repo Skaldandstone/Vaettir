@@ -4,7 +4,8 @@ import { recommendTestPlansForDiff } from "@vaettir/ai-agent";
 import { router, protectedProcedure, requireProjectAccess } from "../trpc.js";
 import { getChangedFiles, getDiffContent } from "../services/changeImpact.js";
 import { matchChangedFilesToTestCases } from "../services/changeMatch.js";
-import { getPathSeverityRules, severityForPath, parsePathSeverityRules } from "../services/prScanPolicy.js";
+import { getPathSeverityRules, severityForPath, parsePathSeverityRules, validatePathSeverityPattern } from "../services/prScanPolicy.js";
+import { PATH_GLOB_LIMITS } from "../services/boundedPathGlob.js";
 import { refreshReleaseReadiness } from "../services/releaseReadiness.js";
 import { chargeAiCredits, InsufficientAiCreditsError, meterAiCall } from "../services/aiCredits.js";
 import { dispatchWebhookEvent } from "../services/webhookDelivery.js";
@@ -212,6 +213,8 @@ export const riskAnalysisRouter = router({
       await requireProjectAccess(ctx, input.projectId);
       const policy = await ctx.prisma.prScanPolicy.findUnique({ where: { projectId: input.projectId } });
       if (!policy) return { triggerBranches: ["main"], commentMode: "COMMENT", pathSeverityRules: [] };
+      if (Array.isArray(policy.pathSeverityRules) && policy.pathSeverityRules.length > PATH_GLOB_LIMITS.rules)
+        throw new TRPCError({ code: "CONFLICT", message: "The saved risk policy exceeds the supported rule limit. Contact support to review it without removing existing rules." });
       return {
         triggerBranches: policy.triggerBranches,
         commentMode: policy.commentMode,
@@ -225,7 +228,12 @@ export const riskAnalysisRouter = router({
         projectId: z.string(),
         triggerBranches: z.array(z.string()).min(1),
         commentMode: z.enum(["COMMENT", "SILENT_FLAG_ONLY"]),
-        pathSeverityRules: z.array(z.object({ pattern: z.string().min(1), severity: z.enum(["CRITICAL", "HIGH", "MEDIUM", "LOW"]) })),
+        pathSeverityRules: z.array(z.object({
+          pattern: z.string().min(1).max(PATH_GLOB_LIMITS.patternLength).refine(validatePathSeverityPattern, {
+            message: "Use a bounded path glob with *, **, ?, character classes or small brace alternatives. Advanced or over-complex patterns are not supported.",
+          }),
+          severity: z.enum(["CRITICAL", "HIGH", "MEDIUM", "LOW"]),
+        })).max(PATH_GLOB_LIMITS.rules),
       }),
     )
     .mutation(async ({ ctx, input }) => {
