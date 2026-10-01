@@ -1,5 +1,6 @@
 import { router } from "./trpc.js";
 import {linearConnectionsRouter} from "./routers/linearConnections.js";
+import {jiraConnectionsRouter} from "./routers/jiraConnections.js";
 import { repositoryConnectionsRouter } from "./routers/repositoryConnections.js";
 import { signalRoutingRouter } from "./routers/signalRouting.js";
 import { testDesignRouter } from "./routers/testDesign.js";
@@ -42,6 +43,7 @@ import { reportsRouter } from "./routers/reports.js";
 
 export const appRouter = router({
   linearConnections:linearConnectionsRouter,
+  jiraConnections:jiraConnectionsRouter,
   repositoryConnections: repositoryConnectionsRouter,
   signalRouting: signalRoutingRouter,
   testDesign: testDesignRouter,

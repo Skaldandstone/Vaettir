@@ -401,6 +401,7 @@ model TicketSourceConnection {
   organization           Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   actor                  User         @relation(fields: [actorId], references: [id], onDelete: Cascade)
   provider               String
+  providerOrigin         String?
   requestKey             String       @unique
   requestHash            String
   status                 String       @default("VERIFYING")

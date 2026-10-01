@@ -60,7 +60,7 @@ export default function ProjectOverviewPage() {
         aria-label="Production signal routing"
       >
         {project.repoUrl && (
-          <ConnectionLink href={`/projects/${projectId}/reverse-engineer`} provider="git" label="Repository" status="URL linked · Review and scan" />
+          <ConnectionLink href={`/projects/${projectId}/reverse-engineer`} provider="git" label="Repository" status="Legacy reference · Review scope" />
         )}
         <ProductionSignalChips projectId={projectId}/>
       </div>
