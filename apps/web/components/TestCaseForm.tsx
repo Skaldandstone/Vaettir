@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { trpcReact, type RouterOutputs } from "@/lib/trpcReact";
 import { collectKnownSuitePaths } from "@/components/TestCaseTree";
 import { moveListItem } from "@/lib/move-list-item";
+import { resolveQualityExperience } from "@vaettir/core";
 
 const TEST_TYPES = [
   "UNIT",
@@ -169,6 +170,9 @@ export default function TestCaseForm({
   // P1-15: both reads share the cache with the test-cases list page and the
   // shared-steps page, so opening the form right after either is free.
   const utils = trpcReact.useUtils();
+  const experienceQuery = trpcReact.project.experience.useQuery({ projectId });
+  const experience = experienceQuery.data?.experience;
+  const workspace = experience ? resolveQualityExperience(experience) : null;
   const casesQuery = trpcReact.testCases.list.useQuery({ projectId });
   const knownSuitePaths = useMemo(
     () => (casesQuery.data ? collectKnownSuitePaths(casesQuery.data) : []),
@@ -390,6 +394,10 @@ export default function TestCaseForm({
             or visual setup references to the saved case. This does not certify
             a regulated process.
           </p>
+          {workspace && <details><summary>{workspace.title}: procedure guidance</summary>
+            <ul>{workspace.caseGuidance.map(note => <li key={note}>{note}</li>)}</ul>
+            <p className="text-muted">The project profile does not change this case's domain or human-written criteria. Food/process procedures can use Other until a dedicated case domain is available.</p>
+          </details>}
           {(
             [
               ["setup", "System under test and fixture setup"],
@@ -405,7 +413,7 @@ export default function TestCaseForm({
             ] as const
           ).map(([key, label]) => (
             <label key={key} style={{ display: "block", marginBottom: 10 }}>
-              {label}
+              {workspace && experience?.offerings.length === 1 && workspace.physical ? workspace.caseFieldLabels[key] : label}
               <textarea
                 style={{ width: "100%" }}
                 rows={3}

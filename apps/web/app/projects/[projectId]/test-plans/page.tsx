@@ -10,6 +10,7 @@ import {
 import { Drawer } from "@/components/Drawer";
 import { Modal } from "@/components/Modal";
 import { TestPlanDetailContent } from "@/components/TestPlanDetailContent";
+import { resolveQualityExperience } from "@vaettir/core";
 
 const STATUSES = ["DRAFT", "ACTIVE", "IN_REVIEW", "APPROVED"];
 
@@ -243,6 +244,8 @@ export default function TestPlansPage() {
   const utils = trpcReact.useUtils();
   const readOnly = useReadOnlySeat(projectId);
   const projectQuery = trpcReact.project.byId.useQuery({ id: projectId });
+  const experienceQuery = trpcReact.project.experience.useQuery({ projectId });
+  const workspace = experienceQuery.data?.experience ? resolveQualityExperience(experienceQuery.data.experience) : null;
   const typesQuery = trpcReact.testPlans.types.useQuery();
   const plansQuery = trpcReact.testPlans.list.useQuery({ projectId });
   const plans = plansQuery.data ?? [];
@@ -298,6 +301,11 @@ export default function TestPlansPage() {
   return (
     <div>
       <h1>Test Plans</h1>
+      {workspace && <details style={{ marginBottom: 12 }}>
+        <summary>{workspace.title}: reusable plan guidance</summary>
+        <ul>{workspace.planGuidance.map(note => <li key={note}>{note}</li>)}</ul>
+        <p>Reuse a plan for separate executions with explicit configurations. Start selected cases from the case table; each new run keeps its own case definitions and configuration. Automatic recurring scheduling and domain-specific regulatory review are not enabled by this profile.</p>
+      </details>}
       {readOnly && (
         <p className="text-muted" style={{ fontSize: 13 }}>
           You have read-only access to this organization — creating and editing

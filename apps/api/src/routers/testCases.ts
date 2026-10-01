@@ -263,6 +263,7 @@ export const testCasesRouter = router({
             filePath: z.string(),
             functionName: z.string().nullable(),
             framework: z.string(),
+            frameworkFamily: z.string().nullable(),
           })
           .nullable(),
         // The frozen AI output this case last got from the agent -- see the
@@ -357,6 +358,7 @@ export const testCasesRouter = router({
               filePath: tc.source.filePath,
               functionName: tc.source.functionName,
               framework: tc.source.framework,
+              frameworkFamily: tc.source.frameworkFamily,
             }
           : null,
         aiSnapshot: tc.aiSnapshot as {

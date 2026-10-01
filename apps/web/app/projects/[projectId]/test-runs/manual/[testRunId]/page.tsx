@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useParams, useRouter } from "next/navigation";
+import { resolveQualityExperience } from "@vaettir/core";
 import { trpcReact, type RouterOutputs } from "@/lib/trpcReact";
 import { useProjectPermissions } from "@/lib/use-project-permissions";
 
@@ -142,6 +143,7 @@ function CaseRow({
 
       {expanded && (
         <div style={{ marginTop: 10, fontSize: 13 }}>
+          {testCase.background && <p style={{ whiteSpace: "pre-wrap" }}>{testCase.background}</p>}
           <p>
             <strong>{testCase.validationDomain.replace(/_/g, " ")}</strong>
           </p>
@@ -423,6 +425,12 @@ export default function ManualExecutionPage() {
       <p className="text-muted" style={{ fontSize: 13 }}>
         {recordedCount} / {data.cases.length} recorded · status: {data.status}
       </p>
+      {data.executionContext ? <details style={{ marginBottom: 16 }}>
+        <summary>Saved execution context{data.executionContext.experience ? `: ${resolveQualityExperience(data.executionContext.experience).title}` : ""}</summary>
+        <p>These case definitions and configuration were saved when this run started. Later profile or case edits do not rewrite this run. Recorded results remain separate evidence; this context does not certify safety or compliance.</p>
+        <dl>{Object.entries(data.executionContext.configuration).filter(([, value]) => value).map(([key, value]) => <div key={key} style={{ marginBottom: 8 }}><dt>{key.replace(/([A-Z])/g, " $1")}</dt><dd style={{ margin: 0, whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>{value}</dd></div>)}</dl>
+        {data.executionContext.experience && <ul>{resolveQualityExperience(data.executionContext.experience).runGuidance.map(note => <li key={note}>{note}</li>)}</ul>}
+      </details> : <p className="text-muted">Legacy run: no saved profile/configuration snapshot. The displayed procedure may reflect later case edits.</p>}
 
       {data.cases.map((tc) => (
         <CaseRow

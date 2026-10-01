@@ -7,6 +7,7 @@ import { RiskMeter } from "@/components/MetricVisuals";
 import { TestDesignReview } from "@/components/TestDesignReview";
 import { TestCasePrerequisites } from "@/components/TestCasePrerequisites";
 import { Modal } from "@/components/Modal";
+import { automationTargetForFramework } from "@vaettir/core";
 
 const cellStyle: CSSProperties = {
   border: "1px solid var(--line)",
@@ -115,8 +116,10 @@ const AUTOMATION_FRAMEWORKS: Array<{
   { value: "GODOT_GDUNIT4", label: "Godot GdUnit4" },
 ];
 
-function AutomationDraftSection({ testCaseId, readOnly = false }: { testCaseId: string; readOnly?: boolean }) {
-  const [framework, setFramework] = useState<AutomationFramework>("MAESTRO");
+function AutomationDraftSection({ testCaseId, sourceFramework, readOnly = false }: { testCaseId: string; sourceFramework?: string; readOnly?: boolean }) {
+  const linkedTarget = automationTargetForFramework(sourceFramework);
+  const suggested = AUTOMATION_FRAMEWORKS.find(option => option.value === linkedTarget);
+  const [framework, setFramework] = useState<AutomationFramework | "">(suggested?.value ?? "");
   const [projectContext, setProjectContext] = useState("");
   const saved = trpcReact.testCases.automationDraft.useQuery({ id: testCaseId }, { refetchInterval: query => query.state.data?.status === "GENERATING" ? 3000 : false });
   const draft = saved.data?.content;
@@ -128,6 +131,7 @@ function AutomationDraftSection({ testCaseId, readOnly = false }: { testCaseId: 
     trpcReact.testCases.generateAutomationDraft.useMutation();
 
   async function generate() {
+    if (!framework) return;
     setError(null);
     setCopied(false);
     try {
@@ -202,12 +206,14 @@ function AutomationDraftSection({ testCaseId, readOnly = false }: { testCaseId: 
             }
             style={{ width: "100%" }}
           >
+            <option value="">Choose a framework</option>
             {AUTOMATION_FRAMEWORKS.map((option) => (
               <option key={option.value} value={option.value}>
                 {option.label}
               </option>
             ))}
           </select>
+          <small className="text-muted">{suggested ? `Suggested from this case's linked ${sourceFramework} test metadata. Confirm it fits the current stack and test level.` : "No supported framework is verified for this case. Choose deliberately; project type alone is not stack evidence."}</small>
         </label>
         <label>
           <span
@@ -226,7 +232,7 @@ function AutomationDraftSection({ testCaseId, readOnly = false }: { testCaseId: 
           />
         </label>
         <div>
-          <button onClick={generate} disabled={generateMutation.isPending}>
+          <button onClick={generate} disabled={generateMutation.isPending || !framework}>
             {generateMutation.isPending
               ? "Generating…"
               : "Generate review draft"}
@@ -1307,7 +1313,7 @@ export function TestCaseDetailContent({
         </p>
       )}
 
-      <AutomationDraftSection key={tc.id} testCaseId={tc.id} readOnly={readOnly} />
+      <AutomationDraftSection key={tc.id} testCaseId={tc.id} sourceFramework={tc.source?.frameworkFamily ?? undefined} readOnly={readOnly} />
       <ComplianceControlsSection
         testCaseId={tc.id}
         projectId={projectId}

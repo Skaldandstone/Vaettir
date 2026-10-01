@@ -5,15 +5,21 @@ import { useParams } from "next/navigation";
 import { trpcReact } from "@/lib/trpcReact";
 import { useProjectPermissions } from "@/lib/use-project-permissions";
 import { ConnectionLink } from "@/components/SourceConnectionChips";
-import {ProductionSignalChips} from "@/components/ProductionSignalChips";
+import { ProductionSignalChips } from "@/components/ProductionSignalChips";
 import { ProjectPopulationModal } from "@/components/ProjectPopulationModal";
 import { ProjectRepositories } from "@/components/ProjectRepositories";
+import {
+  QualityExperienceSummary,
+  QualityExperienceWizard,
+} from "@/components/QualityExperienceWizard";
 
 // P1-15
 export default function ProjectOverviewPage() {
   const [populationOpen, setPopulationOpen] = useState(false);
+  const [experienceOpen, setExperienceOpen] = useState(false);
   useEffect(() => {
-    if (new URLSearchParams(window.location.search).get("setup") !== "1") return;
+    if (new URLSearchParams(window.location.search).get("setup") !== "1")
+      return;
     setPopulationOpen(true);
     window.history.replaceState(null, "", window.location.pathname);
   }, []);
@@ -34,9 +40,7 @@ export default function ProjectOverviewPage() {
   const requirementCount = requirementsQuery.data?.length ?? null;
   const pendingReviewCount = pendingReviewQuery.data?.length ?? null;
   const error =
-    projectQuery.error?.message ??
-    testCasesQuery.error?.message ??
-    null;
+    projectQuery.error?.message ?? testCasesQuery.error?.message ?? null;
 
   if (error) return <p style={{ color: "var(--ember)" }}>{error}</p>;
   if (!project) return <p>Loading…</p>;
@@ -44,15 +48,44 @@ export default function ProjectOverviewPage() {
   return (
     <div>
       <h1 style={{ marginBottom: 2 }}>{project.name}</h1>
-      {canEdit && <button className="btn-secondary" onClick={() => setPopulationOpen(true)}>Update project understanding / Add sources</button>}
-      {canEdit && populationOpen && <ProjectPopulationModal projectId={projectId} onClose={() => setPopulationOpen(false)} />}
+      {canEdit && (
+        <button
+          className="btn-secondary"
+          onClick={() => setPopulationOpen(true)}
+        >
+          Update project understanding / Add sources
+        </button>
+      )}
+      {canEdit && (
+        <button
+          className="btn-secondary"
+          aria-haspopup="dialog"
+          style={{ marginLeft: 8, marginTop: 8 }}
+          onClick={() => setExperienceOpen(true)}
+        >
+          Customize testing workflow
+        </button>
+      )}
+      <QualityExperienceWizard
+        key={projectId}
+        projectId={projectId}
+        open={experienceOpen}
+        onClose={() => setExperienceOpen(false)}
+      />
+      {canEdit && populationOpen && (
+        <ProjectPopulationModal
+          projectId={projectId}
+          onClose={() => setPopulationOpen(false)}
+        />
+      )}
+      <QualityExperienceSummary projectId={projectId} />
       <ProjectRepositories projectId={projectId} canEdit={canEdit} />
-      {project.repoUrl && <p
-        className="text-muted"
-        style={{ marginBottom: 24 }}
-      >
-        Legacy repository reference: {project.repoUrl} · branch {project.defaultBranch}. Access is not verified here.
-      </p>}
+      {project.repoUrl && (
+        <p className="text-muted" style={{ marginBottom: 24 }}>
+          Legacy repository reference: {project.repoUrl} · branch{" "}
+          {project.defaultBranch}. Access is not verified here.
+        </p>
+      )}
 
       <div
         className="project-connection-chips"
@@ -60,9 +93,14 @@ export default function ProjectOverviewPage() {
         aria-label="Production signal routing"
       >
         {project.repoUrl && (
-          <ConnectionLink href={`/projects/${projectId}/reverse-engineer`} provider="git" label="Repository" status="Legacy reference · Review scope" />
+          <ConnectionLink
+            href={`/projects/${projectId}/reverse-engineer`}
+            provider="git"
+            label="Repository"
+            status="Legacy reference · Review scope"
+          />
         )}
-        <ProductionSignalChips projectId={projectId}/>
+        <ProductionSignalChips projectId={projectId} />
       </div>
 
       <section className="panel" style={{ marginBottom: 20 }}>

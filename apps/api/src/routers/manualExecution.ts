@@ -1,9 +1,15 @@
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
+import { createHash } from "node:crypto";
+import { Prisma } from "@vaettir/db";
 import { router, protectedProcedure, requireProjectAccess } from "../trpc.js";
 import { recomputeFlaky } from "../services/flakyDetection.js";
 import { resolveHealingSuggestionsOnPass } from "../services/healingSuggestion.js";
 import { resolveStepFieldLabels } from "@vaettir/core";
+import {
+  boundedRunSnapshot, qualityProfileHash, readQualityExperience, readRunExperienceSnapshot,
+  runConfigurationSchema, runExperienceSnapshotSchema,
+} from "../services/qualityExperienceProfile.js";
 import {
   manualRunStatus,
   measurementVerdict,
@@ -41,18 +47,50 @@ export const manualExecutionRouter = router({
       z.object({
         projectId: z.string(),
         testCaseIds: z.array(z.string()).min(1).max(500),
+        expectedProfileHash: z.string().regex(/^[a-f0-9]{64}$/).optional(),
+        executionContext: runConfigurationSchema.optional(),
+        idempotencyKey: z.string().uuid().optional(),
       }),
     )
     .output(z.object({ testRunId: z.string() }))
     .mutation(async ({ ctx, input }) => {
-      await requireProjectAccess(ctx, input.projectId, "EDITOR");
+      const { membership } = await requireProjectAccess(ctx, input.projectId, "EDITOR");
+      if (membership.seatType !== "FULL") throw new TRPCError({ code: "FORBIDDEN", message: "A full editor seat is required." });
       if (new Set(input.testCaseIds).size !== input.testCaseIds.length) {
         throw new TRPCError({ code: "BAD_REQUEST", message: "Choose each test case only once." });
       }
-      return ctx.prisma.$transaction(async (tx) => {
+      const configuration = runConfigurationSchema.parse(input.executionContext ?? {});
+      const startRequestHash = qualityProfileHash({
+        testCaseIds: [...input.testCaseIds].sort(), expectedProfileHash: input.expectedProfileHash ?? null, configuration,
+      });
+      const durableId = input.idempotencyKey
+        ? `manual_${createHash("sha256").update(JSON.stringify([input.projectId, ctx.user.id, input.idempotencyKey])).digest("hex")}`
+        : undefined;
+      async function previousRun() {
+        if (!durableId) return null;
+        const existing = await ctx.prisma.testRun.findUnique({ where: { id: durableId }, select: { id: true, projectId: true, startedById: true, executionContext: true } });
+        if (!existing) return null;
+        const frozen = readRunExperienceSnapshot(existing.executionContext);
+        if (existing.projectId !== input.projectId || existing.startedById !== ctx.user.id || frozen?.startRequestHash !== startRequestHash) {
+          throw new TRPCError({ code: "CONFLICT", message: "This run-start key was used for a different request. Review the changed scope and start with a new key." });
+        }
+        return { testRunId: existing.id };
+      }
+      // A lost response must not produce another execution or replace the
+      // original baseline with newer project/case data on retry.
+      const previous = await previousRun();
+      if (previous) return previous;
+      try {
+        return await ctx.prisma.$transaction(async (tx) => {
         // Serialize with prerequisite edits, then freeze the graph for this
         // run. Historical runs never change when a case's graph is edited.
         await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${input.projectId}))::text`;
+        const project = await tx.project.findUnique({ where: { id: input.projectId }, select: { qualityProfile: true, organization: { select: { stepFieldLabels: true } } } });
+        if (!project) throw new TRPCError({ code: "NOT_FOUND", message: "Project not found" });
+        const experience = readQualityExperience(project.qualityProfile);
+        if (input.expectedProfileHash !== undefined && input.expectedProfileHash !== experience.profileHash) {
+          throw new TRPCError({ code: "CONFLICT", message: "Project context changed. Refresh and review the run configuration before starting." });
+        }
         const links = await tx.testCasePrerequisite.findMany({
           where: { projectId: input.projectId },
           select: { dependentId: true, prerequisiteId: true },
@@ -85,14 +123,34 @@ export const manualExecutionRouter = router({
         }
         const cases = await tx.testCase.findMany({
           where: { id: { in: ordered }, projectId: input.projectId, archived: false },
-          select: { id: true },
+          include: { steps: { orderBy: { order: "asc" } }, sharedStepGroup: true },
         });
         if (cases.length !== ordered.length) {
           throw new TRPCError({ code: "BAD_REQUEST", message: "A selected case or prerequisite is missing, archived, or outside this project." });
         }
         const snapshot = Object.fromEntries(ordered.map(id => [id, graph.get(id) ?? []]));
+        const casesById = new Map(cases.map(c => [c.id, c]));
+        const executionContext = boundedRunSnapshot({
+          version: 1, ...experience, startRequestHash, configuration,
+          stepFieldLabels: resolveStepFieldLabels((project.organization.stepFieldLabels ?? {}) as never),
+          caseDefinitions: ordered.map(id => {
+            const c = casesById.get(id)!;
+            const verification = verificationProfileSchema.safeParse(c.verificationProfile);
+            if (!verification.success) throw new TRPCError({ code: "BAD_REQUEST", message: "A selected case has invalid procedure metadata. Review the case before starting a run; nothing was started." });
+            return {
+              testCaseId: c.id, title: c.title, validationDomain: c.validationDomain, reviewStatus: c.reviewStatus,
+              background: c.background, given: c.given, when: c.when, then: c.then,
+              verificationProfile: verification.data,
+              steps: c.sharedStepGroup ? c.sharedStepGroup.steps : c.steps.map(s => ({
+                order: s.order, action: s.action, expectedActionOrData: s.expectedActionOrData,
+                expectedResult: s.expectedResult, expectedResponse: s.expectedResponse, mediaAttachmentIds: s.mediaAttachmentIds,
+              })),
+            };
+          }),
+        });
         const run = await tx.testRun.create({
           data: {
+            id: durableId,
             projectId: input.projectId,
             ciProvider: "manual",
             commitSha: "manual",
@@ -101,12 +159,20 @@ export const manualExecutionRouter = router({
             status: "RUNNING",
             manualTestCaseIds: ordered,
             manualPrerequisites: snapshot,
+            executionContext,
             startedById: ctx.user.id,
           },
           select: { id: true },
         });
         return { testRunId: run.id };
-      }, { timeout: 20000 });
+        }, { timeout: 20000, isolationLevel: "RepeatableRead" });
+      } catch (error) {
+        if (durableId && error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
+          const recovered = await previousRun();
+          if (recovered) return recovered;
+        }
+        throw error;
+      }
     }),
 
   // The execution screen's single data source: the run's planned cases,
@@ -121,10 +187,12 @@ export const manualExecutionRouter = router({
         projectId: z.string(),
         status: z.string(),
         stepFieldLabels: z.record(z.string()),
+        executionContext: runExperienceSnapshotSchema.nullable(),
         cases: z.array(
           z.object({
             testCaseId: z.string(),
             title: z.string(),
+            background: z.string().nullable(),
             prerequisiteIds: z.array(z.string()),
             validationDomain: validationDomainSchema,
             verificationProfile: verificationProfileSchema,
@@ -138,6 +206,7 @@ export const manualExecutionRouter = router({
                 expectedActionOrData: z.string().nullable(),
                 expectedResult: z.string().nullable(),
                 expectedResponse: z.string().nullable(),
+                mediaAttachmentIds: z.array(z.string()).default([]),
               }),
             ),
             currentResult: z
@@ -160,7 +229,7 @@ export const manualExecutionRouter = router({
 
       const [cases, results] = await Promise.all([
         ctx.prisma.testCase.findMany({
-          where: { id: { in: run.manualTestCaseIds } },
+          where: { id: { in: run.manualTestCaseIds }, projectId: run.projectId },
           include: {
             steps: { orderBy: { order: "asc" } },
             sharedStepGroup: true,
@@ -178,6 +247,8 @@ export const manualExecutionRouter = router({
         results.map((r) => [r.testCaseId as string, r]),
       );
       const prerequisites = z.record(z.array(z.string())).parse(run.manualPrerequisites);
+      const executionContext = readRunExperienceSnapshot(run.executionContext);
+      const frozenCases = new Map(executionContext?.caseDefinitions.map(c => [c.testCaseId, c]) ?? []);
 
       const overrides =
         (run.project.organization.stepFieldLabels as Partial<
@@ -188,39 +259,42 @@ export const manualExecutionRouter = router({
         testRunId: run.id,
         projectId: run.projectId,
         status: run.status,
-        stepFieldLabels: resolveStepFieldLabels(overrides as never),
+        stepFieldLabels: executionContext?.stepFieldLabels ?? resolveStepFieldLabels(overrides as never),
+        executionContext,
         cases: run.manualTestCaseIds
-          .map((id) => casesById.get(id))
-          .filter((c): c is NonNullable<typeof c> => Boolean(c))
-          .map((c) => {
-            const result = resultByCase.get(c.id);
+          .map((id) => {
+            const c = casesById.get(id);
+            const frozen = frozenCases.get(id);
+            if (!c && !frozen) return null;
+            const result = resultByCase.get(id);
             return {
-              testCaseId: c.id,
-              title: c.title,
-              prerequisiteIds: prerequisites[c.id] ?? [],
-              validationDomain: c.validationDomain,
-              verificationProfile: verificationProfileSchema.parse(
-                c.verificationProfile,
-              ),
-              given: c.given,
-              when: c.when,
-              then: c.then,
+              testCaseId: id,
+              title: frozen ? frozen.title : c!.title,
+              background: frozen ? frozen.background : c!.background,
+              prerequisiteIds: prerequisites[id] ?? [],
+              validationDomain: frozen ? validationDomainSchema.parse(frozen.validationDomain) : c!.validationDomain,
+              verificationProfile: frozen ? frozen.verificationProfile : verificationProfileSchema.parse(c!.verificationProfile),
+              given: frozen ? frozen.given : c!.given,
+              when: frozen ? frozen.when : c!.when,
+              then: frozen ? frozen.then : c!.then,
               // Same shared-step-group resolution as testCases.ts's byId -
               // a case deferring to a group has no steps of its own.
-              steps: c.sharedStepGroup
-                ? (c.sharedStepGroup.steps as Array<{
+              steps: frozen ? frozen.steps : c!.sharedStepGroup
+                ? (c!.sharedStepGroup.steps as Array<{
                     order: number;
                     action: string;
                     expectedActionOrData: string | null;
                     expectedResult: string | null;
                     expectedResponse: string | null;
+                    mediaAttachmentIds: string[];
                   }>)
-                : c.steps.map((s) => ({
+                : c!.steps.map((s) => ({
                     order: s.order,
                     action: s.action,
                     expectedActionOrData: s.expectedActionOrData,
                     expectedResult: s.expectedResult,
                     expectedResponse: s.expectedResponse,
+                    mediaAttachmentIds: s.mediaAttachmentIds,
                   })),
               currentResult: result
                 ? {
@@ -230,7 +304,7 @@ export const manualExecutionRouter = router({
                   }
                 : null,
             };
-          }),
+          }).filter((c): c is NonNullable<typeof c> => c !== null),
       };
     }),
 

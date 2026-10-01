@@ -16,6 +16,7 @@ import { BulkCaseAnalysis } from "@/components/BulkCaseAnalysis";
 import { downloadCsv } from "@/lib/csv";
 import { caseExportIds, scopeCaseExport, spreadsheetText } from "@/lib/test-case-export";
 import { runCaseActionBatches } from "@/lib/case-action-batches";
+import { RunConfigurationModal } from "@/components/RunConfigurationModal";
 
 const TEST_TYPES = [
   "UNIT",
@@ -164,6 +165,8 @@ export default function TestCasesPage() {
   const router = useRouter();
   const utils = trpcReact.useUtils();
   const readOnly = useReadOnlySeat(projectId);
+  const [runConfigurationOpen, setRunConfigurationOpen] = useState(false);
+  const [runSelection, setRunSelection] = useState<string[]>([]);
 
   const projectQuery = trpcReact.project.byId.useQuery({ id: projectId });
   const casesQuery = trpcReact.testCases.list.useQuery({
@@ -511,16 +514,18 @@ export default function TestCasesPage() {
     }
   }
 
-  async function startManualRun() {
-    if (selected.size === 0) return;
+  async function startManualRun(context: { idempotencyKey: string; expectedProfileHash: string; executionContext: { configuration?: string; platform?: string; build?: string; hardwareRevision?: string; firmwareVersion?: string; rig?: string; batchOrLot?: string; environment?: string; calibrationReference?: string; protocolReference?: string } }) {
+    if (runSelection.length === 0) throw new Error("No cases were selected for this execution record.");
     try {
       const { testRunId } = await startRunMutation.mutateAsync({
         projectId,
-        testCaseIds: [...selected],
+        testCaseIds: runSelection,
+        ...context,
       });
       router.push(`/projects/${projectId}/test-runs/manual/${testRunId}`);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
+      throw e;
     }
   }
 
@@ -832,7 +837,7 @@ export default function TestCasesPage() {
                 {project && <BulkCaseAnalysis projectId={projectId} organizationId={project.organizationId} selectedIds={[...selected]} onCompleted={reload} />}
                 <button
                   className="btn-primary"
-                  onClick={startManualRun}
+                  onClick={() => { setRunSelection([...selected]); setRunConfigurationOpen(true); }}
                   disabled={startingRun}
                 >
                   {startingRun ? "Starting…" : "Run manually"}
@@ -1095,6 +1100,7 @@ export default function TestCasesPage() {
           />
         )}
       </Drawer>
+      {runConfigurationOpen && <RunConfigurationModal projectId={projectId} caseCount={runSelection.length} onClose={() => setRunConfigurationOpen(false)} onStart={startManualRun} />}
     </div>
   );
 }

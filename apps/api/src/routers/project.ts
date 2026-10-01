@@ -3,6 +3,8 @@ import { TRPCError } from "@trpc/server";
 import { Prisma } from "@vaettir/db";
 import { router, protectedProcedure, requireOrgRole, requireProjectAccess } from "../trpc.js";
 import { RepositoryProvider, validateRepositoryLocation } from "../services/projectRepository.js";
+import { experienceProfileSchema } from "@vaettir/core";
+import { qualityProfileRecord, readQualityExperience } from "../services/qualityExperienceProfile.js";
 
 function slugify(name: string): string {
   return (
@@ -25,9 +27,39 @@ const qualityProfileSchema = z.object({
   complianceNeeds: z.array(z.string()).max(30).default([]),
   regulatoryNeeds: z.array(z.string()).max(30).default([]),
   executionSources: z.array(z.string()).max(20).default([]),
-});
+  experience: experienceProfileSchema.optional(),
+}).passthrough();
+
+// Old clients may update only familiar fields. They cannot mutate the approved
+// experience through this route or erase future fields by round-tripping JSON.
+const qualityProfileUpdateSchema = qualityProfileSchema.omit({ experience: true }).partial().strict();
 
 export const projectRouter = router({
+  experience: protectedProcedure.input(z.object({ projectId: z.string() })).query(async ({ ctx, input }) => {
+    const { project } = await requireProjectAccess(ctx, input.projectId);
+    const row = await ctx.prisma.project.findUnique({ where: { id: project.id }, select: { organizationId: true, qualityProfile: true } });
+    if (!row) throw new TRPCError({ code: "NOT_FOUND", message: "Project not found" });
+    requireOrgRole(ctx, row.organizationId);
+    return readQualityExperience(row.qualityProfile);
+  }),
+  saveExperience: protectedProcedure.input(z.object({
+    projectId: z.string(), expectedProfileHash: z.string().regex(/^[a-f0-9]{64}$/), experience: experienceProfileSchema,
+  }).strict()).mutation(async ({ ctx, input }) => {
+    const { project, membership } = await requireProjectAccess(ctx, input.projectId, "EDITOR");
+    if (membership.seatType !== "FULL") throw new TRPCError({ code: "FORBIDDEN", message: "A full editor seat is required." });
+    const row = await ctx.prisma.project.findUnique({ where: { id: project.id }, select: { organizationId: true, qualityProfile: true } });
+    if (!row) throw new TRPCError({ code: "NOT_FOUND", message: "Project not found" });
+    requireOrgRole(ctx, row.organizationId, "EDITOR");
+    const current = readQualityExperience(row.qualityProfile);
+    if (current.profileHash !== input.expectedProfileHash) throw new TRPCError({ code: "CONFLICT", message: "Project context changed. Refresh and review before saving." });
+    const qualityProfile = { ...qualityProfileRecord(row.qualityProfile), experience: input.experience } as Prisma.InputJsonObject;
+    const written = await ctx.prisma.project.updateMany({
+      where: { id: project.id, organizationId: row.organizationId, qualityProfile: { equals: row.qualityProfile as Prisma.InputJsonValue } },
+      data: { qualityProfile },
+    });
+    if (!written.count) throw new TRPCError({ code: "CONFLICT", message: "Project context changed. Refresh and review before saving." });
+    return readQualityExperience(qualityProfile);
+  }),
   repositories: protectedProcedure.input(z.object({projectId:z.string()})).query(async ({ctx,input}) => {
     await requireProjectAccess(ctx,input.projectId);
     const rows=await ctx.prisma.projectRepository.findMany({where:{projectId:input.projectId},orderBy:{createdAt:"asc"},include:{connection:{select:{status:true,tokenExpiresAt:true}}}});
@@ -74,7 +106,8 @@ export const projectRouter = router({
     )
     .output(z.object({ id: z.string(), name: z.string(), slug: z.string() }))
     .mutation(async ({ ctx, input }) => {
-      requireOrgRole(ctx, input.organizationId, "EDITOR");
+      const membership = requireOrgRole(ctx, input.organizationId, "EDITOR");
+      if (input.qualityProfile.experience !== undefined && membership.seatType !== "FULL") throw new TRPCError({ code: "FORBIDDEN", message: "A full editor seat is required." });
 
       const baseSlug = slugify(input.name);
       let slug = baseSlug;
@@ -96,7 +129,7 @@ export const projectRouter = router({
           slug,
           repoUrl: input.repoUrl,
           defaultBranch: input.defaultBranch,
-          qualityProfile: input.qualityProfile,
+          qualityProfile: input.qualityProfile as Prisma.InputJsonObject,
         },
         select: { id: true, name: true, slug: true },
       });
@@ -144,18 +177,34 @@ export const projectRouter = router({
         // Same undefined/""-clears-to-null convention; unique per-org only
         // (see the schema comment on Project.datadogProjectTag).
         datadogProjectTag: z.string().optional(),
-        qualityProfile: qualityProfileSchema.optional(),
+        qualityProfile: qualityProfileUpdateSchema.optional(),
       }),
     )
     .output(z.object({ id: z.string(), name: z.string(), slug: z.string() }))
     .mutation(async ({ ctx, input }) => {
       const existing = await ctx.prisma.project.findUnique({
         where: { id: input.id },
-        select: { organizationId: true },
+        select: { organizationId: true, qualityProfile: true },
       });
       if (!existing) throw new TRPCError({ code: "NOT_FOUND", message: "Project not found" });
       requireOrgRole(ctx, existing.organizationId, "EDITOR");
       try {
+        if (input.qualityProfile !== undefined) {
+          const qualityProfile = { ...qualityProfileRecord(existing.qualityProfile), ...input.qualityProfile } as Prisma.InputJsonObject;
+          const written = await ctx.prisma.project.updateMany({
+            where: { id: input.id, organizationId: existing.organizationId, qualityProfile: { equals: existing.qualityProfile as Prisma.InputJsonValue } },
+            data: {
+              name: input.name, repoUrl: input.repoUrl, defaultBranch: input.defaultBranch,
+              pagerdutyServiceId: input.pagerdutyServiceId === undefined ? undefined : input.pagerdutyServiceId.trim() || null,
+              datadogProjectTag: input.datadogProjectTag === undefined ? undefined : input.datadogProjectTag.trim() || null,
+              qualityProfile,
+            },
+          });
+          if (!written.count) throw new TRPCError({ code: "CONFLICT", message: "Project context changed. Refresh and review before saving." });
+          const updated = await ctx.prisma.project.findUnique({ where: { id: input.id }, select: { id: true, name: true, slug: true } });
+          if (!updated) throw new TRPCError({ code: "NOT_FOUND", message: "Project not found" });
+          return updated;
+        }
         return await ctx.prisma.project.update({
           where: { id: input.id },
           data: {

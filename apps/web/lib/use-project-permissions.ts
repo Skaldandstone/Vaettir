@@ -10,6 +10,8 @@ export function useProjectPermissions(projectId: string) {
   const loaded = projectQuery.isSuccess && orgsQuery.isSuccess;
 
   return {
+    accessError: projectQuery.error?.message ?? orgsQuery.error?.message ?? null,
+    retryAccess: () => { void projectQuery.refetch(); void orgsQuery.refetch(); },
     canEdit: loaded && canEditProject(member),
     canSignOff: loaded && canSignOffCompliance(member),
     canAdmin: loaded && canAdministerOrganization(member),
