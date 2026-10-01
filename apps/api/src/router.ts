@@ -1,4 +1,5 @@
 import { router } from "./trpc.js";
+import {linearConnectionsRouter} from "./routers/linearConnections.js";
 import { repositoryConnectionsRouter } from "./routers/repositoryConnections.js";
 import { signalRoutingRouter } from "./routers/signalRouting.js";
 import { testDesignRouter } from "./routers/testDesign.js";
@@ -40,6 +41,7 @@ import { testCaseStructureRouter } from "./routers/testCaseStructure.js";
 import { reportsRouter } from "./routers/reports.js";
 
 export const appRouter = router({
+  linearConnections:linearConnectionsRouter,
   repositoryConnections: repositoryConnectionsRouter,
   signalRouting: signalRoutingRouter,
   testDesign: testDesignRouter,

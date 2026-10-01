@@ -3,7 +3,7 @@ import type { RequestOptions } from "node:https";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { lookup } from "node:dns/promises";
 import { request } from "node:https";
-import { isPublicProviderIPv4, repositoryProviderJson, repositoryProviderOrigin, repositoryProviderRevokeGithubToken, repositoryProviderRevokeGitlabToken } from "./repositoryProviderHttp.js";
+import { isPublicProviderIPv4, repositoryProviderJson, repositoryProviderOrigin, repositoryProviderRevokeGithubToken, repositoryProviderRevokeGitlabToken,linearProviderGraphql } from "./repositoryProviderHttp.js";
 
 vi.mock("node:dns/promises", () => ({ lookup: vi.fn() }));
 vi.mock("node:https", () => ({ request: vi.fn() }));
@@ -29,6 +29,20 @@ afterEach(() => { vi.useRealTimers(); });
 const flushDns = async () => { await Promise.resolve(); await Promise.resolve(); };
 
 describe("repository provider HTTP boundary", () => {
+  it("posts Linear JSON only to the pinned host with raw-key authorization",async()=>{
+    const pending=linearProviderGraphql("synthetic-linear-key","query Metadata { viewer { id } }",{after:null});
+    await flushDns();
+    expect(vi.mocked(request).mock.calls[0]?.[0]).toMatchObject({origin:"https://api.linear.app",pathname:"/graphql"});
+    expect(transportOptions.method).toBe("POST");expect(transportOptions.headers).toMatchObject({Authorization:"synthetic-linear-key","Content-Type":"application/json"});
+    expect(JSON.parse(requestWrite.mock.calls[0]![0])).toEqual({query:"query Metadata { viewer { id } }",variables:{after:null}});
+    deliver();response.emit("data",Buffer.from("{}"));response.emit("end");await expect(pending).resolves.toEqual({});
+  });
+  it("rejects malformed Linear keys and direct mutations before DNS",async()=>{
+    for(const key of ["","token\r\nother:header","token space"]){await expect(linearProviderGraphql(key,"query Metadata { viewer { id } }")).rejects.toThrow();}
+    await expect(linearProviderGraphql("synthetic","mutation Change { x }")).rejects.toThrow();
+    await expect(linearProviderGraphql("synthetic","query Metadata { viewer { id } } mutation Change { x }")).rejects.toThrow();
+    expect(lookup).not.toHaveBeenCalled();expect(request).not.toHaveBeenCalled();
+  });
   it("sends Basic credentials only in the pinned provider header", async () => {
     const pending=repositoryProviderJson("https://api.bitbucket.org","/2.0/user",{basic:{username:"fixture@example.com",password:"synthetic-token"}});
     await flushDns();
