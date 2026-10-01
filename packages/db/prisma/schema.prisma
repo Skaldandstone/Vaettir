@@ -1624,10 +1624,45 @@ model CustomFrameworkHeuristic {
 
 // A unit of work for the AI agent: "read this source and produce BDD test
 // cases." Tracks status so long repo scans can run async.
+// Explicit per-run permission. Metadata authorization alone never permits source
+// cloning or sending source to AI. Paid partial results remain available on retry.
+model RepositoryProcessingApproval {
+  id String @id @default(cuid())
+  projectId String
+  organizationId String
+  actorId String
+  requestId String
+  purpose String
+  repositoryUrl String
+  ref String
+  pathPrefixes String[]
+  scopeHash String
+  unitCreditEstimate Int
+  maxItems Int
+  sourceApprovedAt DateTime
+  aiApprovedAt DateTime
+  costApprovedAt DateTime
+  expiresAt DateTime
+  status String @default("READING")
+  resolvedCommitSha String?
+  results Json?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  jobs ReverseEngineerJob[]
+  @@unique([projectId,actorId,requestId])
+  @@index([organizationId,actorId,createdAt])
+}
+
 model ReverseEngineerJob {
   id        String  @id @default(cuid())
   projectId String
   project   Project @relation(fields: [projectId], references: [id])
+  processingApprovalId String?
+  processingApproval RepositoryProcessingApproval? @relation(fields: [processingApprovalId], references: [id])
+  // Persistent marker: a reclaimed repo job cannot spend again after an
+  // ambiguous crash. Saved outcomes/charges require explicit reconciliation.
+  aiProcessingStartedAt DateTime?
+  paidProcessingResult Json?
 
   inputType ReverseEngineerInputType
   inputRef  String // file path, repo+glob, or opaque paste id
@@ -1653,6 +1688,7 @@ model ReverseEngineerJob {
   createdAt   DateTime  @default(now())
   startedAt   DateTime?
   completedAt DateTime?
+  @@unique([processingApprovalId,inputRef])
 }
 
 enum ReverseEngineerInputType {

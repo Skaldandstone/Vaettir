@@ -47,3 +47,28 @@ test("registered repository chips open existing provider flows only for editors"
   assert.match(component, /<RepositoryConnectionContent key=\{provider\} projectId=\{projectId\}/);
   assert.match(component, /query\.refetch\(\)/);
 });
+
+test("repository and alert chips do not offer cached access after a failed refresh", () => {
+  const repositories = readFileSync(new URL("../components/ProjectRepositories.tsx", import.meta.url), "utf8");
+  assert.match(repositories, /repositories=query\.isSuccess\?query\.data:undefined/);
+  assert.match(repositories, /canEdit&&query\.isSuccess&&/);
+  assert.match(repositories, /hidden=\{!query\.isSuccess\}/);
+  assert.match(repositories, /Retry repository access/);
+  assert.doesNotMatch(repositories, /query\.data\?\.map/);
+  const signals = readFileSync(new URL("../components/ProductionSignalChips.tsx", import.meta.url), "utf8");
+  assert.match(signals, /ready = readiness\.isSuccess \? readiness\.data : undefined/);
+  assert.match(signals, /disabled=\{!ready\}/);
+  assert.match(signals, /Retry signal setup/);
+  assert.match(signals, /Setup unavailable/);
+  assert.match(signals, /available=\{Boolean\(ready\)\}/);
+  assert.match(signals, /if \(!available\) return <Modal/);
+  assert.match(signals, /canSave = Boolean\(available &&/);
+});
+
+test("selectable provider chips have a visible selected state and wrap at mobile widths", () => {
+  const css = readFileSync(new URL("../app/globals.css", import.meta.url), "utf8");
+  assert.match(css, /\.source-connection-chip\[aria-pressed="true"\].*background: var\(--frost-dim\)/);
+  assert.match(css, /\.source-connection-chip \{ max-width: 100%; min-width: 0; box-sizing: border-box; \}/);
+  assert.match(css, /\.source-connection-chip > span:not\(\.source-provider-mark\).*overflow-wrap: anywhere/);
+  assert.match(css, /\.source-connection-chip:disabled.*cursor: not-allowed/);
+});

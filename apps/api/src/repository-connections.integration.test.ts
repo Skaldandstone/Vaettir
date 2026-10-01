@@ -91,6 +91,17 @@ describe.skipIf(!isolated)("repository authorization and reviewed selection", ()
   afterEach(() => vi.unstubAllEnvs());
 
   const tokenRequest=()=>({projectId,provider:"bitbucket" as const,requestId:randomUUID(),email:"fixture@example.com",workspace:"team",token:accessToken,approveMetadataAccess:true as const});
+  it("reports connection authority separately from application administration and storage readiness",async()=>{
+    expect(await owner.configurations({projectId})).toMatchObject({canConnect:true,canConfigure:true});
+    expect(await editor.configurations({projectId})).toMatchObject({canConnect:true,canConfigure:false});
+    expect(await viewer.configurations({projectId})).toMatchObject({canConnect:false,canConfigure:false});
+    expect(await readOnlyAdmin.configurations({projectId})).toMatchObject({canConnect:false,canConfigure:false});
+    vi.stubEnv("PRODUCTION_SIGNAL_ENCRYPTION_KEY","");
+    expect(await editor.configurations({projectId})).toMatchObject({canConnect:true,credentialStorageReady:false});
+    await expect(outsider.configurations({projectId})).rejects.toMatchObject({code:"FORBIDDEN"});
+    expect(verifyBitbucketAuthorization).not.toHaveBeenCalled();
+    expect(verifyGitlabAuthorization).not.toHaveBeenCalled();
+  });
   it("verifies token access only after explicit consent and full editor authority",async()=>{
     const request=tokenRequest();
     await expect(viewer.connectToken(request)).rejects.toMatchObject({code:"FORBIDDEN"});

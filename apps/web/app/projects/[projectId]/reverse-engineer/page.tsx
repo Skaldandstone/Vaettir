@@ -1,8 +1,10 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useParams } from "next/navigation";
 import { SourceConnectionChips } from "@/components/SourceConnectionChips";
+import { Modal } from "@/components/Modal";
+import { RepositoryProcessingReview } from "@/components/RepositoryProcessingReview";
 import {
   trpcReact,
   useReadOnlySeat,
@@ -166,8 +168,7 @@ export default function ReverseEngineerPage() {
 
   const [submittingJob, setSubmittingJob] = useState(false);
 
-  const [repoUrl, setRepoUrl] = useState("");
-  const [repoRef, setRepoRef] = useState("main");
+  const [repoReview,setRepoReview]=useState(false);
   const [scanning, setScanning] = useState(false);
   const [scanResult, setScanResult] = useState<
     RouterOutputs["agent"]["scanRepo"] | null
@@ -219,9 +220,6 @@ export default function ReverseEngineerPage() {
   // to go look it up on /projects again.
   const projectQuery = trpcReact.project.byId.useQuery({ id: projectId });
   const projectRepoUrl = projectQuery.data?.repoUrl ?? null;
-  useEffect(() => {
-    if (projectRepoUrl) setRepoUrl(projectRepoUrl);
-  }, [projectRepoUrl]);
 
   // Poll while any job is PENDING/RUNNING so status updates without a
   // manual refresh; stops polling once nothing's in flight.
@@ -401,20 +399,21 @@ export default function ReverseEngineerPage() {
     }
   }
 
-  async function scanRepo() {
+  async function scanRepo(scope:Parameters<typeof scanRepoMutation.mutateAsync>[0]["scope"],consent:Parameters<typeof scanRepoMutation.mutateAsync>[0]["consent"]) {
     setScanning(true);
     setError(null);
     setScanResult(null);
     try {
       const res = await scanRepoMutation.mutateAsync({
         projectId,
-        repoUrl: repoUrl || undefined,
-        ref: repoRef,
+        scope,consent,
       });
       setScanResult(res);
+      setRepoReview(false);
       loadJobs();
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
+      throw e;
     } finally {
       setScanning(false);
     }
@@ -422,6 +421,9 @@ export default function ReverseEngineerPage() {
 
   return (
     <div>
+      <Modal open={repoReview} onClose={()=>setRepoReview(false)} title="Review repository processing" dismissible={!scanning}>
+        {repoReview&&<RepositoryProcessingReview projectId={projectId} purpose="TEST_CASES" initialUrl={projectRepoUrl??undefined} onApprove={scanRepo}/>}
+      </Modal>
       <h1>Turn automation into managed test cases</h1>
       <p>
         Choose where the tests live. Vaettir will guide you through that source,
@@ -508,34 +510,8 @@ export default function ReverseEngineerPage() {
             >
               <h2 style={{ margin: 0 }}>Scan the repository</h2>
               {!projectRepoUrl && <SourceConnectionChips projectId={projectId} only={["github", "gitlab", "bitbucket", "azure-devops", "git", "perforce", "svn"]} />}
-              <p style={{ color: "var(--muted)", margin: 0 }}>
-                Clones a repo, finds test files by naming convention, and queues
-                one background job per file.
-              </p>
-              <label>
-                Repo URL{" "}
-                <span style={{ color: "var(--muted-dim)" }}>
-                  (https only; falls back to the project&apos;s repo URL if
-                  blank)
-                </span>
-                <input
-                  value={repoUrl}
-                  onChange={(e) => setRepoUrl(e.target.value)}
-                  placeholder="https://github.com/org/repo.git"
-                  style={{ width: "100%" }}
-                />
-              </label>
-              <label>
-                Branch
-                <input
-                  value={repoRef}
-                  onChange={(e) => setRepoRef(e.target.value)}
-                  style={{ width: 200 }}
-                />
-              </label>
-              <button onClick={scanRepo} disabled={scanning}>
-                {scanning ? "Cloning + scanning…" : "Scan repository"}
-              </button>
+              <p className="text-muted">Choose a registered or public hosted repository, review the exact file scope and credit estimate, then approve reading and AI processing. Private and self-hosted source discovery is not enabled by a metadata connection.</p>
+              <button type="button" onClick={()=>setRepoReview(true)} disabled={scanning}>Choose repository and review processing</button>
               {scanResult && (
                 <p style={{ color: "var(--frost)" }}>
                   Found {scanResult.scannedFileCount} test file(s), queued{" "}
@@ -999,7 +975,7 @@ export default function ReverseEngineerPage() {
               >
                 <strong>{j.status}</strong> — {j.inputRef}
                 {j.status === "SUCCEEDED" &&
-                  ` — ${j.resultTestCaseIds.length} test case(s) created`}
+                  ` — ${j.resultTestCaseIds.length} test case(s) linked${j.processingApprovalId?"; existing cases and approvals preserved":""}`}
                 {j.status === "FAILED" && j.error && (
                   <span style={{ color: "var(--ember)" }}> — {j.error}</span>
                 )}
@@ -1011,6 +987,7 @@ export default function ReverseEngineerPage() {
                     </a>
                   </>
                 )}
+                {j.processingApprovalId&&Boolean(j.paidProcessingResult)&&<details><summary>Retained paid test proposals</summary><p className="text-muted">Existing cases are unchanged. These proposals are retained for review; they were not applied to previously edited or approved cases.</p><pre style={{overflowX:"auto",whiteSpace:"pre-wrap",overflowWrap:"anywhere",fontSize:12}}>{JSON.stringify(j.paidProcessingResult,null,2)}</pre></details>}
               </li>
             ))}
           </ul>

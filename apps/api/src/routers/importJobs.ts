@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { createHash } from "node:crypto";
 import { TRPCError } from "@trpc/server";
 import { router, protectedProcedure, requireProjectAccess } from "../trpc.js";
 import {
@@ -74,6 +75,26 @@ const filePreviewRow = z.object({
   then: z.array(z.string()),
   stepCount: z.number(),
 });
+
+const liveSourceManifestSchema = z.object({
+  digest: z.string().regex(/^[a-f0-9]{64}$/),
+  caseCount: z.number().int().min(0),
+});
+
+function liveSourceManifest(scope: { projectId: string; provider: string; sourceProject: string }, scan: Awaited<ReturnType<typeof scanQTestProject>>) {
+  // Hash the full parsed input, including ordered rows/steps and skipped dispositions,
+  // not the twenty-row display sample. Never include provider credentials.
+  return {
+    digest: createHash("sha256").update(JSON.stringify({ scope, cases: scan.cases, skipped: scan.skipped })).digest("hex"),
+    caseCount: scan.cases.length,
+  };
+}
+
+function requireReviewedManifest(expected: z.infer<typeof liveSourceManifestSchema>, current: z.infer<typeof liveSourceManifestSchema>) {
+  if (expected.digest !== current.digest || expected.caseCount !== current.caseCount) {
+    throw new TRPCError({ code: "CONFLICT", message: "Source changed since preview. Nothing was imported. Refresh the preview and review the new scope before importing." });
+  }
+}
 
 function toFilePreviewRow(
   c: ReturnType<typeof parseXrayExport>["cases"][number],
@@ -648,6 +669,7 @@ export const importJobsRouter = router({
       z.object({
         format: z.literal("qtest-api"),
         caseCount: z.number(),
+        sourceManifest: liveSourceManifestSchema,
         previewRows: z.array(filePreviewRow),
         skipped: z.array(
           z.object({ rowNumber: z.number(), reason: z.string() }),
@@ -671,6 +693,7 @@ export const importJobsRouter = router({
       return {
         format: "qtest-api" as const,
         caseCount: scan.cases.length,
+        sourceManifest: liveSourceManifest({projectId:input.projectId,provider:"qtest",sourceProject:JSON.stringify([input.baseUrl,input.qtestProjectId])},scan),
         previewRows: scan.cases.slice(0, 20).map(toFilePreviewRow),
         skipped: scan.skipped,
       };
@@ -683,6 +706,7 @@ export const importJobsRouter = router({
         baseUrl: z.string().min(1),
         apiToken: z.string().min(1),
         qtestProjectId: z.number(),
+        expectedManifest: liveSourceManifestSchema,
         testPlanId: z.string().optional(),
         sourceLabel: z.string().optional(),
       }),
@@ -715,6 +739,8 @@ export const importJobsRouter = router({
           message: e instanceof Error ? e.message : String(e),
         });
       }
+      const manifest=liveSourceManifest({projectId:input.projectId,provider:"qtest",sourceProject:JSON.stringify([input.baseUrl,input.qtestProjectId])},scan);
+      requireReviewedManifest(input.expectedManifest,manifest);
       return commitImportedTestCases(ctx.prisma, {
         projectId: input.projectId,
         organizationId: project.organizationId,
@@ -738,6 +764,8 @@ export const importJobsRouter = router({
         fieldMapping: {
           format: "qtest-api",
           qtestProjectId: String(input.qtestProjectId),
+          reviewedManifestDigest: manifest.digest,
+          reviewedManifestCaseCount: String(manifest.caseCount),
         },
         keyPrefix: "qtest",
         framework: "qtest",
@@ -761,6 +789,7 @@ export const importJobsRouter = router({
       z.object({
         format: z.literal("zephyr-api"),
         caseCount: z.number(),
+        sourceManifest: liveSourceManifestSchema,
         previewRows: z.array(filePreviewRow),
         skipped: z.array(
           z.object({ rowNumber: z.number(), reason: z.string() }),
@@ -784,6 +813,7 @@ export const importJobsRouter = router({
       return {
         format: "zephyr-api" as const,
         caseCount: scan.cases.length,
+        sourceManifest: liveSourceManifest({projectId:input.projectId,provider:"zephyr",sourceProject:input.zephyrProjectKey},scan),
         previewRows: scan.cases.slice(0, 20).map(toFilePreviewRow),
         skipped: scan.skipped,
       };
@@ -795,6 +825,7 @@ export const importJobsRouter = router({
         projectId: z.string(),
         apiToken: z.string().min(1),
         zephyrProjectKey: z.string().min(1),
+        expectedManifest: liveSourceManifestSchema,
         testPlanId: z.string().optional(),
         sourceLabel: z.string().optional(),
       }),
@@ -827,6 +858,8 @@ export const importJobsRouter = router({
           message: e instanceof Error ? e.message : String(e),
         });
       }
+      const manifest=liveSourceManifest({projectId:input.projectId,provider:"zephyr",sourceProject:input.zephyrProjectKey},scan);
+      requireReviewedManifest(input.expectedManifest,manifest);
       return commitImportedTestCases(ctx.prisma, {
         projectId: input.projectId,
         organizationId: project.organizationId,
@@ -850,6 +883,8 @@ export const importJobsRouter = router({
         fieldMapping: {
           format: "zephyr-api",
           zephyrProjectKey: input.zephyrProjectKey,
+          reviewedManifestDigest: manifest.digest,
+          reviewedManifestCaseCount: String(manifest.caseCount),
         },
         keyPrefix: "zephyr",
         framework: "zephyr",

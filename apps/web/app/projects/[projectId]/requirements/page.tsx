@@ -9,6 +9,7 @@ import { SourceConnectionChips } from "@/components/SourceConnectionChips";
 import { CreationWizard, WizardChoices } from "@/components/CreationWizard";
 import { useProjectPermissions } from "@/lib/use-project-permissions";
 import { saveRequirementDrafts } from "@/lib/requirement-drafts";
+import { RepositoryProcessingReview } from "@/components/RepositoryProcessingReview";
 
 // 2026-08-27 competitor parity audit: draft-and-review, same shape as
 // P4-02's strategy generation - nothing here creates a real TestCase
@@ -717,7 +718,7 @@ function ExtractFromRepoModal({
   onCreated,
 }: {
   projectId: string;
-  repoUrl: string;
+  repoUrl: string | null;
   onClose: () => void;
   onCreated: () => void;
 }) {
@@ -727,7 +728,7 @@ function ExtractFromRepoModal({
   const [savingDrafts, setSavingDrafts] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  async function scan() {
+  async function scan(scope:Parameters<typeof utils.client.requirements.extractFromRepo.mutate>[0]["scope"],consent:Parameters<typeof utils.client.requirements.extractFromRepo.mutate>[0]["consent"]) {
     if (scanning) return;
     setScanning(true);
     setError(null);
@@ -735,11 +736,12 @@ function ExtractFromRepoModal({
       setDrafts(
         await utils.client.requirements.extractFromRepo.mutate({
           projectId,
-          repoUrl,
+          scope,consent,
         }),
       );
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
+      throw e;
     } finally {
       setScanning(false);
     }
@@ -749,25 +751,10 @@ function ExtractFromRepoModal({
     <Modal
       open
       onClose={onClose}
-      title={`Extract requirements from ${repoUrl}`}
+      title="Review repository requirement extraction"
       dismissible={!scanning && !savingDrafts}
     >
-      {!drafts && !scanning && (
-        <div>
-          <p>
-            Scan the connected repository for specification documents, then edit
-            and select the proposed requirements. No requirements are saved
-            until you confirm them.
-          </p>
-          <p className="text-muted">
-            This uses AI credits. Review the operation costs in Billing before
-            starting.
-          </p>
-          <button className="btn-primary" onClick={scan}>
-            Scan repository and draft requirements
-          </button>
-        </div>
-      )}
+      {!drafts&&<RepositoryProcessingReview projectId={projectId} purpose="REQUIREMENTS" initialUrl={repoUrl??undefined} onApprove={scan} onRecovered={value=>{if(value&&typeof value==="object"&&"drafts" in value&&Array.isArray(value.drafts)){const valid=value.drafts.filter((draft):draft is DraftRequirement=>!!draft&&typeof draft==="object"&&typeof draft.title==="string"&&typeof draft.description==="string"&&(draft.sourceFile===null||typeof draft.sourceFile==="string"));setDrafts(valid);}}}/>}
       {scanning && <p>Scanning repo for requirements/spec docs…</p>}
       {error && <p style={{ color: "var(--ember)" }}>{error}</p>}
       {drafts && (
@@ -802,7 +789,7 @@ export default function RequirementsPage() {
   const [creationSource, setCreationSource] = useState("Write a requirement");
 
   const listQuery = trpcReact.requirements.list.useQuery({ projectId });
-  const requirements = listQuery.data ?? [];
+  const requirements = useMemo(()=>listQuery.data??[],[listQuery.data]);
   const loading = listQuery.isPending;
   const projectQuery = trpcReact.project.byId.useQuery({ id: projectId });
   const repoUrl = projectQuery.data?.repoUrl ?? null;
@@ -924,7 +911,7 @@ export default function RequirementsPage() {
             submitLabel="Create requirement"
             canContinue={
               creationStep === 0
-                ? creationSource !== "Connected repository" || !!repoUrl
+                ? true
                 : !!title.trim()
             }
             onCancel={() => setCreationStep(null)}
@@ -1132,7 +1119,7 @@ export default function RequirementsPage() {
           onCreated={reload}
         />
       )}
-      {canEdit && repoModalOpen && repoUrl && (
+      {canEdit && repoModalOpen && (
         <ExtractFromRepoModal
           projectId={projectId}
           repoUrl={repoUrl}

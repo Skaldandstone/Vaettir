@@ -3,6 +3,8 @@
 import { useRef, useState } from "react";
 import { trpcReact, type RouterOutputs } from "@/lib/trpcReact";
 import { ProviderMark } from "./SourceConnectionChips";
+import { connectionAccessState } from "@/lib/connection-access";
+import { ConnectionAccessGate } from "./ConnectionAccessGate";
 
 type Listing = RouterOutputs["repositoryConnections"]["list"];
 const field = { display: "grid", gap: 6 } as const;
@@ -17,8 +19,8 @@ export function RepositoryOAuthConnection({ projectId, providerId, onConnected, 
   const providerName = providerId === "github" ? "GitHub" : "GitLab";
   const utils = trpcReact.useUtils();
   const configurations = trpcReact.repositoryConnections.configurations.useQuery({ projectId });
-  const recent = trpcReact.repositoryConnections.mine.useQuery({ projectId });
-  const revocations = trpcReact.repositoryConnections.revocableGrants.useQuery({ projectId, provider: providerId }, { enabled: Boolean(configurations.data?.canConfigure) });
+  const recent = trpcReact.repositoryConnections.mine.useQuery({ projectId }, { enabled: configurations.isSuccess && configurations.data.canConnect });
+  const revocations = trpcReact.repositoryConnections.revocableGrants.useQuery({ projectId, provider: providerId }, { enabled: configurations.isSuccess && configurations.data.canConfigure });
   const [step, setStep] = useState<"instance" | "authorize" | "repositories" | "review" | "done">("instance");
   const [configurationId, setConfigurationId] = useState("");
   const [configure, setConfigure] = useState(false);
@@ -44,7 +46,7 @@ export function RepositoryOAuthConnection({ projectId, providerId, onConnected, 
   const connect = trpcReact.repositoryConnections.connectSelected.useMutation();
   const disconnect = trpcReact.repositoryConnections.disconnect.useMutation();
   const status = trpcReact.repositoryConnections.status.useQuery({ id: connectionId }, {
-    enabled: Boolean(connectionId), retry: false,
+    enabled: Boolean(connectionId) && configurations.isSuccess && configurations.data.canConnect, retry: false,
     refetchInterval: query => !query.state.error && (!query.state.data || ["PENDING", "VERIFYING"].includes(query.state.data.status)) ? 2000 : false,
   });
   const provider = configurations.data?.configurations.find(c => c.id === configurationId);
@@ -94,6 +96,8 @@ export function RepositoryOAuthConnection({ projectId, providerId, onConnected, 
     } catch { setError("The connection could not be disconnected. Refresh its status before retrying."); }
   }
 
+  const accessState = connectionAccessState(configurations, recent);
+  if (accessState !== "ready") return <ConnectionAccessGate state={accessState} busy={busy || configurations.isFetching || recent.isFetching} onClose={onClose} onRetry={() => void (async () => { const refreshed = await configurations.refetch(); if (refreshed.isSuccess && refreshed.data.canConnect) await recent.refetch(); })()}/>;
   return <div style={{ display: "grid", gap: 16, minWidth: 0 }}>
     <p className="text-muted">{({ instance: `1. Choose your ${providerName} connection`, authorize: "2. Authorize your account", repositories: "3. Choose repositories", review: "4. Review connections", done: "Repositories connected" })[step]}</p>
     {failure && <p role="alert">{failure}</p>}
@@ -117,7 +121,8 @@ export function RepositoryOAuthConnection({ projectId, providerId, onConnected, 
           setConfigurationId(config?.id ?? ""); setConnectionId(connection.id); setStep("authorize");
         }}><ProviderMark id={providerId}/><span style={{ overflowWrap: "anywhere" }}><strong>{connection.origin}</strong><small>{connection.accountLabel ?? "Your authorization"} · {statusLabel(connection.status)}</small></span></button>)}
       </div></details>}
-      {configurations.data?.canConfigure && Boolean(revocations.data?.length) && <details><summary>Review {providerName} authorizations before removing the application ({revocations.data?.length})</summary><div style={{ display: "grid", gap: 8, marginTop: 8 }}>
+      {configurations.data?.canConfigure && revocations.error && <div role="alert"><p>Workspace authorizations could not be refreshed. Retry before revoking a saved grant.</p><button type="button" className="btn-secondary" disabled={busy || revocations.isFetching} onClick={() => void revocations.refetch()}>Retry authorization list</button></div>}
+      {configurations.data?.canConfigure && revocations.isSuccess && Boolean(revocations.data?.length) && <details><summary>Review {providerName} authorizations before removing the application ({revocations.data?.length})</summary><div style={{ display: "grid", gap: 8, marginTop: 8 }}>
         <p className="text-muted">A workspace administrator can cancel pending attempts or retry revocation of an abandoned member grant. Application credentials remain until every grant is cleared.</p>
         {revocations.data?.map(grant => <div key={grant.id} style={{ ...actions, alignItems: "center" }}><span style={{ flex: "1 1 180px", overflowWrap: "anywhere" }}>{grant.projectName} · {new URL(grant.origin).hostname} · {grant.accountLabel ?? "Account not verified"} · {statusLabel(grant.status)}</span><button type="button" className="btn-secondary" disabled={busy || Boolean(revokingId) || grant.status === "VERIFYING"} onClick={async () => {
           setRevokingId(grant.id); setError("");
@@ -158,8 +163,8 @@ export function RepositoryOAuthConnection({ projectId, providerId, onConnected, 
         <button type="button" disabled={!consent || busy} onClick={() => void authorize()}>{begin.isPending ? "Opening authorization…" : `Authorize with ${providerName}`}</button>
         <button type="button" className="btn-secondary" disabled={busy} onClick={() => setStep("instance")}>Back</button>
       </> : <>
-        <p role="status">{status.data?.status === "VERIFIED" ? `Verified as ${status.data.accountLabel ?? `your ${providerName} account`}. Load the repository list when you are ready.` : ["PENDING", "VERIFYING"].includes(status.data?.status ?? "PENDING") ? `Waiting for ${providerName} authorization. Keep this screen open; the connection status updates automatically.` : status.data?.status === "EXPIRED" || status.data?.status === "REVOCATION_PENDING" ? `This ${providerName} connection cannot be used. Revoke its grant before reconnecting; Vaettir retains the encrypted credential until cleanup is confirmed.` : `Connection ${status.data?.status?.toLowerCase() ?? "status unavailable"}. Start again to authorize.`}</p>
-        {status.data?.status === "VERIFIED" && <button type="button" disabled={busy} onClick={() => void load()}>Load repositories</button>}
+        {!status.isSuccess ? <p role={status.error ? "alert" : "status"}>{status.error ? "Connection status could not be refreshed. Retry before loading repositories." : "Checking authorization status…"}</p> : <p role="status">{status.data.status === "VERIFIED" ? `Verified as ${status.data.accountLabel ?? `your ${providerName} account`}. Load the repository list when you are ready.` : ["PENDING", "VERIFYING"].includes(status.data.status) ? `Waiting for ${providerName} authorization. Keep this screen open; the connection status updates automatically.` : status.data.status === "EXPIRED" || status.data.status === "REVOCATION_PENDING" ? `This ${providerName} connection cannot be used. Revoke its grant before reconnecting; Vaettir retains the encrypted credential until cleanup is confirmed.` : `Connection ${status.data.status.toLowerCase()}. Start again to authorize.`}</p>}
+        {status.isSuccess && status.data.status === "VERIFIED" && <button type="button" disabled={busy} onClick={() => void load()}>Load repositories</button>}
         <div style={actions}><button type="button" className="btn-secondary" disabled={busy} onClick={() => void status.refetch()}>Refresh status</button><button type="button" className="btn-secondary" disabled={busy} onClick={() => void cancelConnection()}>Revoke token and disconnect</button></div>
         <p className="text-muted">Explicit disconnect asks {providerName} to revoke this token before Vaettir removes the connection. If the provider rejects revocation, Vaettir retains the encrypted grant for retry. Local expiry does not confirm upstream revocation, and application removal is blocked until grants are cleared.</p>
       </>}

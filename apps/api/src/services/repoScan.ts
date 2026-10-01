@@ -7,6 +7,7 @@ import { createHash } from "node:crypto";
 import { isLikelyTestFile } from "@vaettir/core";
 import { cloneFullRepo, resolveRef } from "./changeImpact.js";
 import { assertScannableRepoUrl, cloneRepository } from "./repositoryTransport.js";
+import { sourcePathInScope,safeRepositoryText } from "./repositorySourceSafety.js";
 export { assertScannableRepoUrl } from "./repositoryTransport.js";
 
 const execFileAsync = promisify(execFile);
@@ -43,23 +44,27 @@ async function walkTestFiles(
   dir: string,
   out: ScannedTestFile[],
   knownHashes: Map<string, string>,
+  pathPrefixes: readonly string[],
+  maxFiles: number,
 ): Promise<void> {
-  if (out.length >= MAX_FILES) return;
+  if (out.length >= maxFiles) return;
   const entries = await readdir(dir, { withFileTypes: true });
   for (const entry of entries) {
-    if (out.length >= MAX_FILES) return;
+    if (out.length >= maxFiles) return;
     if (entry.isDirectory()) {
       if (IGNORED_DIRS.has(entry.name)) continue;
-      await walkTestFiles(rootDir, join(dir, entry.name), out, knownHashes);
+      await walkTestFiles(rootDir, join(dir, entry.name), out, knownHashes, pathPrefixes, maxFiles);
     } else if (entry.isFile() && isLikelyTestFile(entry.name)) {
       const absolutePath = join(dir, entry.name);
       const relativePath = relative(rootDir, absolutePath).split("\\").join("/");
+      if (!sourcePathInScope(relativePath, pathPrefixes)) continue;
       const st = await stat(absolutePath);
       // Generated fixtures/snapshots occasionally masquerade as test files
       // and blow up an LLM call for no benefit -- skip, don't count against
       // MAX_FILES either, same reasoning as the hash-match skip above.
       if (st.size > MAX_FILE_BYTES) continue;
       const content = await readFile(absolutePath, "utf-8");
+      if (!safeRepositoryText(content)) continue;
       const contentHash = hashFileContent(content);
       if (knownHashes.get(relativePath) === contentHash) continue;
       out.push({ relativePath, content, contentHash });
@@ -84,13 +89,15 @@ export async function scanRepoForTestFiles(
   repoUrl: string,
   ref: string,
   knownHashes: Map<string, string> = new Map(),
+  pathPrefixes: readonly string[] = ["."],
+  maxFiles = MAX_FILES,
 ): Promise<ChangedFileScanResult> {
   assertScannableRepoUrl(repoUrl);
   const dir = await mkdtemp(join(tmpdir(), "tci-repo-scan-"));
   try {
     await cloneRepository(repoUrl, dir, ref);
     const files: ScannedTestFile[] = [];
-    await walkTestFiles(dir, dir, files, knownHashes);
+    await walkTestFiles(dir, dir, files, knownHashes, pathPrefixes, Math.min(MAX_FILES, maxFiles));
     const { stdout: headShaOut } = await execFileAsync("git", ["rev-parse", "HEAD"], { cwd: dir });
     return { files, headSha: headShaOut.trim() };
   } finally {
@@ -114,6 +121,8 @@ export async function scanChangedTestFiles(
   sinceCommitSha: string,
   ref: string,
   knownHashes: Map<string, string> = new Map(),
+  pathPrefixes: readonly string[] = ["."],
+  maxFiles = MAX_FILES,
 ): Promise<ChangedFileScanResult> {
   assertScannableRepoUrl(repoUrl);
   const { dir, cleanup } = await cloneFullRepo(repoUrl);
@@ -131,11 +140,12 @@ export async function scanChangedTestFiles(
       .split("\n")
       .map((line) => line.trim())
       .filter(Boolean)
+      .filter((p) => sourcePathInScope(p, pathPrefixes))
       .filter((p) => isLikelyTestFile(p));
 
     const files: ScannedTestFile[] = [];
     for (const relativePath of changedPaths) {
-      if (files.length >= MAX_FILES) break;
+      if (files.length >= Math.min(MAX_FILES, maxFiles)) break;
       const absolutePath = join(dir, relativePath);
       let st;
       try {
@@ -145,6 +155,7 @@ export async function scanChangedTestFiles(
       }
       if (!st.isFile() || st.size > MAX_FILE_BYTES) continue;
       const content = await readFile(absolutePath, "utf-8");
+      if (!safeRepositoryText(content)) continue;
       const contentHash = hashFileContent(content);
       if (knownHashes.get(relativePath) === contentHash) continue;
       files.push({ relativePath, content, contentHash });

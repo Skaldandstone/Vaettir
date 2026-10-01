@@ -2,13 +2,15 @@ import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 import {type Prisma} from "@vaettir/db";
 import { generateTestCasesFromRequirement, extractRequirementsFromMarkdown } from "@vaettir/ai-agent";
-import { randomBytes } from "node:crypto";
+import { randomBytes,createHash } from "node:crypto";
 import { router, protectedProcedure, publicProcedure, requireProjectAccess } from "../trpc.js";
-import { chargeAiCredits, InsufficientAiCreditsError, meterAiCall, type AiCharge } from "../services/aiCredits.js";
+import { chargeAiCredits, InsufficientAiCreditsError, meterAiCall } from "../services/aiCredits.js";
 import { scanRepoForRequirementDocs } from "../services/repoDocScan.js";
 import { fetchLinearIssue, getOrgLinearApiKey, LinearApiError, LinearNotConfiguredError } from "../services/linearApi.js";
 import { fetchJiraIssue, getOrgJiraConnection, JiraApiError, JiraNotConfiguredError } from "../services/jiraApi.js";
 import { computeRequirementTestSummary } from "../services/requirementTestSummary.js";
+import { repositoryProcessingScope, repositoryProcessingConsent, beginRepositoryProcessing, assertRepositoryProcessingApproval } from "../services/repositoryProcessingApproval.js";
+import {publicRepositoryProcessingError} from "../services/repositoryProcessingErrors.js";
 
 const testSummaryOutput = z.object({
   requirementId: z.string(),
@@ -421,37 +423,62 @@ export const requirementsRouter = router({
   // credit charge per document actually scanned, so a doc-light repo
   // costs less than a doc-heavy one rather than a flat fee either way.
   extractFromRepo: protectedProcedure
-    .input(z.object({ projectId: z.string(), repoUrl: z.string().optional(), ref: z.string().default("main") }))
+    .input(z.object({ projectId: z.string(), scope:repositoryProcessingScope, consent:repositoryProcessingConsent }))
     .output(z.array(draftRequirementOutput))
     .mutation(async ({ ctx, input }) => {
-      const { project } = await requireProjectAccess(ctx, input.projectId, "EDITOR");
-      const projectRow = await ctx.prisma.project.findUniqueOrThrow({ where: { id: input.projectId } });
-      const repoUrl = input.repoUrl ?? projectRow.repoUrl;
-      if (!repoUrl) {
-        throw new TRPCError({ code: "BAD_REQUEST", message: "No repo URL provided and the project has none configured" });
+      const {approval,replayed}=await beginRepositoryProcessing(ctx,input.projectId,"REQUIREMENTS",input.scope,input.consent);
+      const processedFileSchema=z.object({path:z.string(),hash:z.string(),drafts:z.array(draftRequirementOutput)});
+      const receiptSchema=z.object({drafts:z.array(draftRequirementOutput),inFlightPath:z.string().nullable(),inFlightHash:z.string().nullable(),processedPaths:z.array(z.string()),processedFiles:z.array(processedFileSchema)});
+      if(replayed){
+        if(approval.results)return receiptSchema.parse(approval.results).drafts;
+        throw new TRPCError({code:"PRECONDITION_FAILED",message:"This approved run is in progress or needs recovery. Review its saved status; retrying cannot reread or recharge it."});
       }
-
-      const docs = await scanRepoForRequirementDocs(repoUrl, input.ref);
-      if (docs.length === 0) {
-        return [];
-      }
-
       const results: Array<{ title: string; description: string; sourceFile: string | null }> = [];
-      for (const doc of docs) {
-        let charge: AiCharge;
-        try {
-          charge = await chargeAiCredits(ctx.prisma, project.organizationId, "extractRequirementsFromMarkdown");
-        } catch (e) {
-          if (e instanceof InsufficientAiCreditsError) {
-            // Stop here, keep whatever was already extracted - a partial
-            // result is still useful, unlike failing the whole scan.
-            break;
-          }
-          throw e;
+      const processedPaths:string[]=[];
+      const processedFiles:Array<z.infer<typeof processedFileSchema>>=[];
+      try{
+        await ctx.prisma.$transaction(tx=>assertRepositoryProcessingApproval(tx,approval.id,input.projectId,"REQUIREMENTS"));
+        const {files:docs,headSha}=await scanRepoForRequirementDocs(input.scope.repoUrl,input.scope.ref,input.scope.pathPrefixes,input.scope.maxItems);
+        if(!/^[a-f0-9]{40}$/i.test(headSha))throw new TRPCError({code:"PRECONDITION_FAILED",message:"The repository revision could not be pinned."});
+        await ctx.prisma.$transaction(async tx=>{
+          await assertRepositoryProcessingApproval(tx,approval.id,input.projectId,"REQUIREMENTS");
+          await tx.repositoryProcessingApproval.update({where:{id:approval.id},data:{resolvedCommitSha:headSha,results:{drafts:results,processedPaths,processedFiles,inFlightPath:null,inFlightHash:null}}});
+        });
+        for(const doc of docs){
+          const hash=createHash("sha256").update(doc.content).digest("hex");
+          const retained=await ctx.prisma.$transaction(async tx=>{
+            await assertRepositoryProcessingApproval(tx,approval.id,input.projectId,"REQUIREMENTS");
+            const prior=await tx.repositoryProcessingApproval.findFirst({where:{id:{not:approval.id},projectId:input.projectId,organizationId:approval.organizationId,purpose:"REQUIREMENTS",repositoryUrl:input.scope.repoUrl,results:{path:["processedFiles"],array_contains:[{path:doc.relativePath,hash}]}},orderBy:{createdAt:"desc"}});
+            if(prior){const receipt=receiptSchema.parse(prior.results);const file=receipt.processedFiles.find(item=>item.path===doc.relativePath&&item.hash===hash);if(file)return {retained:file.drafts};}
+            const pending=await tx.repositoryProcessingApproval.findFirst({where:{id:{not:approval.id},projectId:input.projectId,organizationId:approval.organizationId,purpose:"REQUIREMENTS",repositoryUrl:input.scope.repoUrl,AND:[{results:{path:["inFlightPath"],equals:doc.relativePath}},{results:{path:["inFlightHash"],equals:hash}}]}});
+            if(pending)throw new TRPCError({code:"PRECONDITION_FAILED",message:"This document already has an approved paid attempt in progress or requiring recovery. Review the saved run; automatic repeated charges are blocked."});
+            await tx.repositoryProcessingApproval.update({where:{id:approval.id},data:{results:{drafts:results,processedPaths,processedFiles,inFlightPath:doc.relativePath,inFlightHash:hash}}});
+            const charge=await chargeAiCredits(tx as unknown as typeof ctx.prisma,approval.organizationId,"extractRequirementsFromMarkdown");
+            return {charge};
+          });
+          if("retained" in retained&&retained.retained){results.push(...retained.retained);processedPaths.push(doc.relativePath);processedFiles.push({path:doc.relativePath,hash,drafts:retained.retained});await ctx.prisma.repositoryProcessingApproval.update({where:{id:approval.id},data:{results:{drafts:results,processedPaths,processedFiles,inFlightPath:null,inFlightHash:null}}});continue;}
+          if(!("charge" in retained)||!retained.charge)throw new Error("Processing charge could not be reserved");
+          const drafts=await meterAiCall(ctx.prisma,retained.charge,()=>extractRequirementsFromMarkdown(doc.content,doc.relativePath));
+          const fileDrafts=drafts.map(draft=>({...draft,sourceFile:doc.relativePath}));
+          results.push(...fileDrafts);processedPaths.push(doc.relativePath);processedFiles.push({path:doc.relativePath,hash,drafts:fileDrafts});
+          // Retain paid outputs even if the actor loses access while AI is in
+          // flight. Access is checked again before returning or continuing.
+          await ctx.prisma.repositoryProcessingApproval.update({where:{id:approval.id},data:{results:{drafts:results,processedPaths,processedFiles,inFlightPath:null,inFlightHash:null}}});
+          await ctx.prisma.$transaction(tx=>assertRepositoryProcessingApproval(tx,approval.id,input.projectId,"REQUIREMENTS"));
         }
-        const drafts = await meterAiCall(ctx.prisma, charge, () => extractRequirementsFromMarkdown(doc.content, doc.relativePath));
-        results.push(...drafts.map((d) => ({ ...d, sourceFile: doc.relativePath })));
+        await ctx.prisma.$transaction(async tx=>{
+          await assertRepositoryProcessingApproval(tx,approval.id,input.projectId,"REQUIREMENTS");
+          await tx.repositoryProcessingApproval.update({where:{id:approval.id},data:{status:"COMPLETED"}});
+        });
+        return results;
+      }catch(error){
+        await ctx.prisma.repositoryProcessingApproval.updateMany({where:{id:approval.id,status:"READING"},data:{status:"FAILED"}});
+        if(error instanceof InsufficientAiCreditsError){
+          // Retain previous paid drafts; the stored status exposes partial
+          // failure without automatically repeating any provider operation.
+          await requireProjectAccess(ctx,input.projectId,"EDITOR");return results;
+          }
+        throw publicRepositoryProcessingError(error);
       }
-      return results;
     }),
 });

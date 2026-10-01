@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import {useIsMutating} from "@tanstack/react-query";
+import {isConnectionMutation} from "@/lib/connection-mutation";
 import {Modal} from "./Modal";
 import {PopulationDocuments} from "./PopulationDocuments";
 import {RepositoryConnectionContent,type RepositoryProvider} from "./RepositoryConnectionContent";
@@ -42,7 +43,7 @@ export function ConnectionLink({ href, provider, label, status }: { href: string
 export function SourceConnectionChips({documentsHref,only,onDocuments,onGitlab,onGithub,onRepository,projectId}:{documentsHref?:string;only?:string[];onDocuments?:()=>void;onGitlab?:()=>void;onGithub?:()=>void;onRepository?:(provider:RepositoryProvider)=>void;projectId?:string}){
   const [active,setActive]=useState<string|null>(null);
   const utils=trpcReact.useUtils();
-  const busy=useIsMutating()>0;
+  const busy=useIsMutating({predicate:mutation=>isConnectionMutation(mutation.options.mutationKey)})>0;
   const filtered=sources.filter(([id])=>!only||only.includes(id));
   const repoIds=["github","gitlab","bitbucket","azure-devops","git","perforce","svn"];
   function open(id:string){

@@ -341,9 +341,11 @@ export function MigrationWizard({
     format: string;
     formatLabel: string;
     caseCount: number;
+    sourceManifest?: RouterOutputs["importJobs"]["previewQTest"]["sourceManifest"];
     previewRows: FilePreviewRow[];
     skipped: { rowNumber: number; reason: string }[];
   } | null>(null);
+  const [manifestNeedsRefresh, setManifestNeedsRefresh] = useState(false);
 
   // qTest-only connection state - a live API, not a file, so there's no
   // rawContent to hold; the connection details are re-sent to commitQTest
@@ -395,6 +397,7 @@ export function MigrationWizard({
     setXlsxMappings({});
     setXlsxRowOverrides({});
     setFilePreview(null);
+    setManifestNeedsRefresh(false);
     setResult(null);
     setQtestBaseUrl("");
     setQtestApiToken("");
@@ -508,6 +511,7 @@ export function MigrationWizard({
       return;
     setError(null);
     setLoading(true);
+    setManifestNeedsRefresh(true);
     try {
       const res = await previewQTestMutation.mutateAsync({
         projectId,
@@ -519,9 +523,11 @@ export function MigrationWizard({
         format: res.format,
         formatLabel: "qTest project",
         caseCount: res.caseCount,
+        sourceManifest: res.sourceManifest,
         previewRows: res.previewRows,
         skipped: res.skipped,
       });
+      setManifestNeedsRefresh(false);
       setStep("review");
     } catch (e) {
       setError(importErrorMessage(e));
@@ -534,6 +540,7 @@ export function MigrationWizard({
     if (!zephyrApiToken.trim() || !zephyrProjectKey.trim()) return;
     setError(null);
     setLoading(true);
+    setManifestNeedsRefresh(true);
     try {
       const res = await previewZephyrMutation.mutateAsync({
         projectId,
@@ -544,9 +551,11 @@ export function MigrationWizard({
         format: res.format,
         formatLabel: "Zephyr Scale project",
         caseCount: res.caseCount,
+        sourceManifest: res.sourceManifest,
         previewRows: res.previewRows,
         skipped: res.skipped,
       });
+      setManifestNeedsRefresh(false);
       setStep("review");
     } catch (e) {
       setError(importErrorMessage(e));
@@ -703,19 +712,22 @@ export function MigrationWizard({
         });
       } else if (source === "qtest") {
         const parsedProjectId = Number(qtestProjectId);
-        if (!Number.isFinite(parsedProjectId)) return;
+        if (!Number.isFinite(parsedProjectId) || !filePreview?.sourceManifest || manifestNeedsRefresh || loading) return;
         res = await commitQTestMutation.mutateAsync({
           projectId,
           baseUrl: qtestBaseUrl.trim(),
           apiToken: qtestApiToken.trim(),
           qtestProjectId: parsedProjectId,
+          expectedManifest: filePreview.sourceManifest,
           sourceLabel: `qTest project ${qtestProjectId}`,
         });
       } else {
+        if (!filePreview?.sourceManifest || manifestNeedsRefresh || loading) return;
         res = await commitZephyrMutation.mutateAsync({
           projectId,
           apiToken: zephyrApiToken.trim(),
           zephyrProjectKey: zephyrProjectKey.trim(),
+          expectedManifest: filePreview.sourceManifest,
           sourceLabel: `Zephyr project ${zephyrProjectKey}`,
         });
       }
@@ -723,6 +735,7 @@ export function MigrationWizard({
       setStep("done");
       onCommitted();
     } catch (e) {
+      if ((source === "qtest" || source === "zephyr") && typeof e === "object" && e !== null && "data" in e && (e.data as {code?: string} | undefined)?.code === "CONFLICT") setManifestNeedsRefresh(true);
       setError(importErrorMessage(e));
     }
   }
@@ -1350,7 +1363,9 @@ export function MigrationWizard({
               `, ${filePreview.skipped.length} row(s) skipped`}
             . Nothing is written until you confirm.
           </p>
-          <div style={{ overflowX: "auto" }}>
+          {(source === "qtest" || source === "zephyr") && <p className="text-muted" style={{fontSize:13}}>The full {filePreview.caseCount}-case source manifest is frozen for this review; the table below is a display sample only. Import rechecks the entire source and stops without writes if cases, steps, order or skipped rows changed. Refreshing preview requires a new review.</p>}
+          {source === "qtest" && <p role="note" className="text-muted" style={{fontSize:13}}>qTest scope: cases inside modules only. Root-level or unfiled test cases are not fetched or included in this count. Import those separately with a supported export.</p>}
+          <div style={{ overflowX: "auto", overflowY: "auto", maxHeight: 320 }}>
             <table
               style={{
                 width: "100%",
@@ -1388,7 +1403,7 @@ export function MigrationWizard({
           {filePreview.caseCount > filePreview.previewRows.length && (
             <p className="text-muted" style={{ fontSize: 12 }}>
               Showing the first {filePreview.previewRows.length} of{" "}
-              {filePreview.caseCount}.
+              {filePreview.caseCount}. This sample is not a full case-by-case preview.
             </p>
           )}
           {filePreview.skipped.length > 0 && (
@@ -1403,6 +1418,7 @@ export function MigrationWizard({
             </p>
           )}
           <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
+            {(source === "qtest" || source === "zephyr") && <button type="button" className="btn-secondary" disabled={committing || loading} onClick={()=>void (source === "qtest" ? connectQTest() : connectZephyr())}>{loading ? "Refreshing preview…" : "Refresh preview"}</button>}
             <button className="btn-secondary" onClick={() => setStep("upload")}>
               {source === "qtest" || source === "zephyr"
                 ? "Change connection"
@@ -1410,7 +1426,7 @@ export function MigrationWizard({
             </button>
             <button
               onClick={commit}
-              disabled={committing || filePreview.caseCount === 0}
+              disabled={committing || loading || filePreview.caseCount === 0 || ((source === "qtest" || source === "zephyr") && (manifestNeedsRefresh || !filePreview.sourceManifest))}
             >
               {committing
                 ? "Importing…"
@@ -1437,7 +1453,7 @@ export function MigrationWizard({
         </div>
       )}
 
-      {error && <p style={{ color: "var(--ember)" }}>{error}</p>}
+      {error && <p role="alert" style={{ color: "var(--ember)" }}>{error}</p>}
     </div>
   );
 }

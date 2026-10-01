@@ -56,7 +56,32 @@ This follow-up is source-only until exact-commit migration/build/release and aut
 - [PagerDuty webhook setup](https://support.pagerduty.com/main/docs/webhooks)
 - [Datadog webhook variables and custom headers](https://docs.datadoghq.com/integrations/webhooks/)
 
+## Other-chip follow-up - 2026-10-01 (source work)
+
+The all-surface audit includes overview registrations, project population, requirements intake, reverse engineering, integration settings, alerts and test migration. Repository and alert chips now require a successful current access/setup lookup; failed refreshes do not expose cached verified controls. Retry stays in place and preserves saved references. Selection chips share a visible pressed state, disabled affordance and narrow-width wrapping.
+
+Source capability inventory, not deployment or provider acceptance:
+
+| Chip | Implemented workflow | Remaining gate |
+| --- | --- | --- |
+| GitHub / GitLab | Configured OAuth popup, account verification, repository selection/review | App registration and scoped live acceptance; private-network/source discovery separate |
+| Bitbucket / Azure DevOps | Encrypted read-token verification, hosted repository catalog and reviewed selection | Native OAuth and Server variants not implemented; no source-file discovery from metadata approval |
+| Jira / Linear | Account/workspace verification and reviewed project scope | Jira bounded summary intake implemented; Linear issue intake and broader sync remain |
+| Google Drive | Configured OAuth, verified account, bounded folder/search file metadata and additive review | Restricted-scope approval; contents/imports/shared drives not enabled |
+| Self-hosted Git / Perforce / SVN | Exported document/test intake and optional unverified reference | Native authentication/catalog adapters remain unimplemented |
+| PagerDuty / Datadog | In-page route, signing setup and final routing review | Real signed delivery requires separate provider setup/acceptance |
+| Slack / Outbound webhooks | Existing setup and historical delivery review | In-page native authorization/configuration remains separate work |
+| qTest / Zephyr | Scoped preview, full-source digest/count review, revalidation before import | Live provider acceptance separate; qTest root/unfiled cases explicitly excluded |
+
+Legacy repository processing now has a separate persisted source/AI/credit approval review, previous-run recovery and bounded path/file selection. Metadata approval never becomes permission to clone, read or send source to AI. The reader currently accepts public hosted credential-free repositories only and explains that cloning transfers a revision before selected paths are read. Paid outputs are retained for recovery; identical scoped jobs and document drafts reuse prior work, while uncertain paid failures require reconciliation. Existing cases and human edits are preserved. These are source implementations pending the combined regression and exact-commit CI checkpoint, not deployed capabilities. Downstream requirement saving is not yet a durable idempotent reviewed import.
+
+qTest and Zephyr approvals bind the complete parsed source, ordered steps, skipped-row dispositions, provider and project scope to a SHA256 digest and count. A changed, added, deleted or reordered row rejects import before writes. The modal then requires refreshed preview and explicit reapproval. Its bounded sample table is labelled as a sample, not the entire reviewed dataset. No provider credentials enter the manifest.
+
+Fresh permission/credit lookups fail closed even when stale cached data exists. Repository, source and signal modals retain drafts across access refresh failures. Unrelated AI or case mutations no longer prevent closing connection modals. Read-only users retain saved source references without edit controls.
+
 ## Validation boundaries
+
+The 2026-10-01 follow-up passed fresh disposable PostgreSQL migration/seed,145 focused tests,990 full API tests,90 web contracts,33 operations contracts, workspace typechecks and lint (zero errors), and API compilation. A final27-test focused rerun covered the late paid-job tenant guard and sanitized error reporting. Independent static review and synthetic rendered desktop/mobile role, stale-cache, draft-retention and import-reapproval flows passed. Two initial database failures were fixture defects: an invalid framework enum and a missing required test type; both were diagnosed and corrected without weakening assertions. Exact-commit Linux production-build CI is recorded in the linked tracker checkpoint, independently of deployment.
 
 Synthetic adapter/network tests, disposable PostgreSQL migrations and integration tests cover consent, tenant isolation, encryption, retries, catalog approval, native rename preservation, live membership changes, route conflicts, encrypted/legacy secret compatibility and alert replay recovery. Rendered real components against synthetic metadata cover multi-page selection, back/review/save, guided alert setup and export intake at desktop/mobile widths. A fixture initially lacked import mutation hooks; diagnostic evidence identified the fixture omission and the corrected fixture renders the real import screen.
 

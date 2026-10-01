@@ -2,6 +2,8 @@
 import {useState} from "react";
 import {trpcReact} from "@/lib/trpcReact";
 import {ProviderMark} from "./SourceConnectionChips";
+import {connectionAccessState} from "@/lib/connection-access";
+import {ConnectionAccessGate} from "./ConnectionAccessGate";
 
 type ProjectChoice={id:string;name:string;url:string};
 type Listing={workspace:{id:string;name:string};account:{id:string;name:string};projects:ProjectChoice[];version:number;catalogReset:boolean;nextCursor:string|null;bounded:boolean};
@@ -12,7 +14,7 @@ const inputStyle={width:"100%",minWidth:0,boxSizing:"border-box"} as const;
 export function LinearSourceConnection({projectId,onClose}:{projectId:string;onClose:()=>void}){
   const utils=trpcReact.useUtils();
   const capabilities=trpcReact.linearConnections.capabilities.useQuery({projectId});
-  const recent=trpcReact.linearConnections.mine.useQuery({projectId},{enabled:capabilities.data?.canConnect===true});
+  const recent=trpcReact.linearConnections.mine.useQuery({projectId},{enabled:capabilities.isSuccess&&capabilities.data.canConnect});
   const verify=trpcReact.linearConnections.verify.useMutation();
   const approve=trpcReact.linearConnections.approve.useMutation();
   const forget=trpcReact.linearConnections.forget.useMutation();
@@ -34,6 +36,8 @@ export function LinearSourceConnection({projectId,onClose}:{projectId:string;onC
     }catch{setError("Could not refresh Linear projects. Check access and retry. Previously approved scope is retained.");}
     finally{setLoading(false);}
   }
+  const accessState=connectionAccessState(capabilities,recent);
+  if(accessState!=="ready")return <ConnectionAccessGate state={accessState} busy={busy||capabilities.isFetching||recent.isFetching} onClose={onClose} onRetry={()=>void (async()=>{const refreshed=await capabilities.refetch();if(refreshed.isSuccess&&refreshed.data.canConnect)await recent.refetch();})()}/>;
   return <div style={{display:"grid",gap:16,minWidth:0}}>
     <p role="status">{{access:"1. Verify Linear access",projects:"2. Choose Linear projects",review:"3. Review source scope",done:"Source scope saved"}[step]}</p>
     {(error||capabilities.error)&&<p role="alert">{error||"Connection availability could not be checked. Retry before entering a key."}</p>}
@@ -53,7 +57,7 @@ export function LinearSourceConnection({projectId,onClose}:{projectId:string;onC
         <p className="text-muted">Choose read-only permissions and the required teams when creating the key. Vaettir sends only metadata read queries; it cannot prove a supplied key has no write permissions.</p>
         <label style={field}>Linear API key<input style={inputStyle} disabled={busy} type="password" autoComplete="new-password" required maxLength={10000} value={apiKey} onChange={e=>{setApiKey(e.target.value);setRequestId(null);}}/></label>
         <p className="text-muted">Access is encrypted and expires in Vaettir after eight hours. Do not paste a key into project documents.</p>
-        <label style={{display:"flex",gap:8,alignItems:"flex-start"}}><input type="checkbox" disabled={busy} checked={consent} onChange={e=>setConsent(e.target.checked)}/><span>I approve checking this key's account, workspace and project metadata.</span></label>
+        <label style={{display:"flex",gap:8,alignItems:"flex-start"}}><input type="checkbox" disabled={busy} checked={consent} onChange={e=>setConsent(e.target.checked)}/><span>I approve checking this key&apos;s account, workspace and project metadata.</span></label>
         <button type="submit" disabled={busy||!consent||!apiKey.trim()}>{verify.isPending?"Verifying…":"Verify and choose projects"}</button>
         {requestId&&error&&<button type="button" className="btn-secondary" disabled={busy} onClick={()=>{setRequestId(null);setError("");}}>Start new verification attempt</button>}
       </form>}
@@ -70,7 +74,7 @@ export function LinearSourceConnection({projectId,onClose}:{projectId:string;onC
       <div style={actions}><button type="button" className="btn-secondary" disabled={busy} onClick={()=>setStep("access")}>Back</button><button type="button" disabled={busy||!choices.length} onClick={()=>setStep("review")}>Review {choices.length} selected</button></div>
     </>}
     {step==="review"&&listing&&<>
-      <p>Add {choices.length} selected project{choices.length===1?"":"s"} from <strong>{listing.workspace.name}</strong> to this project's source scope?</p>
+      <p>Add {choices.length} selected project{choices.length===1?"":"s"} from <strong>{listing.workspace.name}</strong> to this project&apos;s source scope?</p>
       <ul style={{maxHeight:240,overflowY:"auto",overflowWrap:"anywhere"}}>{choices.map(p=><li key={p.id}><a href={p.url} target="_blank" rel="noopener noreferrer">{p.name}</a>{existing.some(x=>x.id===p.id)?" · already approved":" · new"}</li>)}</ul>
       <p>{existing.length} previously approved project{existing.length===1?"":"s"} will be retained. Nothing is removed when an input disappears or access fails.</p>
       <p>Save scope only. Issue import and automatic sync are not implemented by this connection flow; no requirements or test cases will be created or changed. Cost: 0 AI credits.</p>

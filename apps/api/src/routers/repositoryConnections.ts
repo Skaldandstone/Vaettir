@@ -145,7 +145,7 @@ export const repositoryConnectionsRouter=router({
     const configurations=await ctx.prisma.repositoryProviderConfiguration.findMany({where:{organizationId:project.organizationId},select:{id:true,provider:true,origin:true}});
     const storageReady=credentialStorageReady();
     const redirectReady=callbackReady();
-    return{configurations,storageReady:storageReady && redirectReady,credentialStorageReady:storageReady,callbackReady:redirectReady,canConfigure:membership.seatType==="FULL" && ["OWNER","ADMIN"].includes(membership.role),redirectUri:redirectUri(),githubRedirectUri:redirectUri("github")};
+    return{configurations,storageReady:storageReady && redirectReady,credentialStorageReady:storageReady,callbackReady:redirectReady,canConnect:membership.seatType==="FULL" && ["OWNER","ADMIN","EDITOR"].includes(membership.role),canConfigure:membership.seatType==="FULL" && ["OWNER","ADMIN"].includes(membership.role),redirectUri:redirectUri(),githubRedirectUri:redirectUri("github")};
   }),
   revocableGrants:protectedProcedure.input(projectInput.extend({provider:z.enum(["github","gitlab"])})).query(async({ctx,input})=>{
     const {project}=await editor(ctx,input.projectId);requireOrgRole(ctx,project.organizationId,"ADMIN");

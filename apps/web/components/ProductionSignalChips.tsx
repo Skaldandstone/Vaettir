@@ -23,20 +23,20 @@ function publicEndpoint(path: string) {
 export function ProductionSignalChips({ projectId }: { projectId: string }) {
   const readiness = trpcReact.signalRouting.readiness.useQuery({ projectId });
   const [provider, setProvider] = useState<Provider | null>(null);
-  const ready = readiness.data;
+  const ready = readiness.isSuccess ? readiness.data : undefined;
   return <section aria-label="Production signal routing">
-    {readiness.error && <p role="alert">Could not load signal setup: {readiness.error.message}</p>}
+    {readiness.error && <><p role="alert">Could not load signal setup: {readiness.error.message}</p><button type="button" className="btn-secondary" onClick={()=>void readiness.refetch()}>Retry signal setup</button></>}
     <div className="source-chip-list">
-      {(["pagerduty", "datadog"] as const).map(id => <button type="button" key={id} className="source-connection-chip" onClick={() => setProvider(id)}>
-        <ProviderMark id={id} /><span><strong>{labels[id]}</strong><small>{!ready ? "Checking setup…" : !ready[id].route ? "Set up alerts" : !ready[id].secretConfigured ? "Webhook setup needed" : "Routing saved · Delivery unverified"}</small></span><span aria-hidden="true">+</span>
+      {(["pagerduty", "datadog"] as const).map(id => <button type="button" key={id} className="source-connection-chip" aria-haspopup="dialog" disabled={!ready} onClick={() => setProvider(id)}>
+        <ProviderMark id={id} /><span><strong>{labels[id]}</strong><small>{readiness.error?"Setup unavailable":!ready ? "Checking setup…" : !ready[id].route ? "Set up alerts" : !ready[id].secretConfigured ? "Webhook setup needed" : "Routing saved · Delivery unverified"}</small></span><span aria-hidden="true">+</span>
       </button>)}
     </div>
-    {provider && (ready?<SignalSetup key={provider} projectId={projectId} provider={provider} readiness={ready} onClose={() => setProvider(null)} onRefresh={() => void readiness.refetch()} />:<Modal open title={`${labels[provider]} alerts`} onClose={()=>setProvider(null)}><p role={readiness.error?"alert":"status"}>{readiness.error?.message??"Loading workspace and release setup…"}</p></Modal>)}
+    {provider && readiness.data && <SignalSetup key={provider} projectId={projectId} provider={provider} readiness={readiness.data} available={Boolean(ready)} onClose={() => setProvider(null)} onRefresh={() => void readiness.refetch()} />}
   </section>;
 }
 
-function SignalSetup({ projectId, provider, readiness, onClose, onRefresh }: {
-  projectId: string; provider: Provider; readiness: Readiness; onClose: () => void; onRefresh: () => void;
+function SignalSetup({ projectId, provider, readiness, available, onClose, onRefresh }: {
+  projectId: string; provider: Provider; readiness: Readiness; available: boolean; onClose: () => void; onRefresh: () => void;
 }) {
   const utils = trpcReact.useUtils();
   const saveRoute = trpcReact.signalRouting.save.useMutation();
@@ -55,7 +55,7 @@ function SignalSetup({ projectId, provider, readiness, onClose, onRefresh }: {
   const trimmedRoute = route.trim();
   const endpoint = configuration ? publicEndpoint(configuration.endpointPath) : null;
   const hasSecret = Boolean(configuration?.secretConfigured || secretSaved);
-  const canSave = Boolean(baseline && readiness?.canEdit && endpoint && trimmedRoute && (hasSecret || provider === "datadog" && readiness.canConfigureSecret && secret.trim().length >= 16));
+  const canSave = Boolean(available && baseline && readiness?.canEdit && endpoint && trimmedRoute && (hasSecret || provider === "datadog" && readiness.canConfigureSecret && secret.trim().length >= 16));
   async function copy(value: string, name: string) {
     try { await navigator.clipboard.writeText(value); setMessage(`${name} copied.`); }
     catch { setMessage(`Copy was unavailable. Select and copy the ${name.toLowerCase()} below.`); }
@@ -78,6 +78,7 @@ function SignalSetup({ projectId, provider, readiness, onClose, onRefresh }: {
       setMessage(detail);
     }
   }
+  if (!available) return <Modal open onClose={onClose} title={`${labels[provider]} alerts`} dismissible={!busy}><p role="alert">Signal setup could not be refreshed. Your routing draft is retained; retry before continuing.</p><button type="button" className="btn-secondary" onClick={onRefresh}>Retry signal setup</button></Modal>;
   return <Modal open onClose={onClose} title={`${labels[provider]} alerts`} dismissible={!busy}>
     {saved ? <>
       <h3>Routing is configured</h3><p>Delivery is unverified. This screen does not confirm a received provider webhook.</p>

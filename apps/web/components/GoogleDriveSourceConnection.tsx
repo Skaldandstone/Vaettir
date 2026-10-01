@@ -4,6 +4,8 @@ import {useEffect,useRef,useState} from "react";
 import {trpcReact} from "@/lib/trpcReact";
 import {ProviderMark} from "./SourceConnectionChips";
 import {PopulationDocuments} from "./PopulationDocuments";
+import {connectionAccessState} from "@/lib/connection-access";
+import {ConnectionAccessGate} from "./ConnectionAccessGate";
 
 type DriveFile={id:string;name:string;mimeType:string;url:string;modifiedTime:string|null;parents:string[]};
 type Catalog={account:{id:string;name:string;email:string|null}|null;files:DriveFile[];version:number;nextCursor:string|null;bounded:boolean};
@@ -14,7 +16,7 @@ const inputStyle={width:"100%",minWidth:0,boxSizing:"border-box"} as const;
 
 export function GoogleDriveSourceConnection({projectId,onClose}:{projectId:string;onClose:()=>void}){
   const capabilities=trpcReact.driveConnections.capabilities.useQuery({projectId});
-  const recent=trpcReact.driveConnections.mine.useQuery({projectId},{enabled:capabilities.data?.canConnect===true});
+  const recent=trpcReact.driveConnections.mine.useQuery({projectId},{enabled:capabilities.isSuccess&&capabilities.data.canConnect});
   const begin=trpcReact.driveConnections.begin.useMutation();
   const list=trpcReact.driveConnections.list.useMutation();
   const approve=trpcReact.driveConnections.approve.useMutation();
@@ -30,7 +32,7 @@ export function GoogleDriveSourceConnection({projectId,onClose}:{projectId:strin
   const [beginRequest,setBeginRequest]=useState<string|null>(null);const [approvalRequest,setApprovalRequest]=useState<string|null>(null);
   const [pageRequest,setPageRequest]=useState<{requestId:string;folderId:string|null;search:string;after:string|null;version?:number}|null>(null);
   const popup=useRef<Window|null>(null);const alive=useRef(true);const generation=useRef(0);const connection=useRef("");
-  const snapshot=trpcReact.driveConnections.snapshot.useQuery({id},{enabled:!!id,refetchInterval:step==="authorize"&&!!id?2000:false});
+  const snapshot=trpcReact.driveConnections.snapshot.useQuery({id},{enabled:!!id&&capabilities.isSuccess&&capabilities.data.canConnect,refetchInterval:step==="authorize"&&!!id?2000:false});
   const busy=begin.isPending||list.isPending||approve.isPending||forget.isPending;
   const choices=Object.values(selected);
   useEffect(()=>{alive.current=true;return()=>{alive.current=false;popup.current?.close();};},[]);
@@ -39,13 +41,14 @@ export function GoogleDriveSourceConnection({projectId,onClose}:{projectId:strin
     function received(event:MessageEvent){
       if(event.origin!==window.location.origin||event.source!==popup.current||event.data?.channel!=="vaettir-drive-authorization")return;
       if(event.data.id&&event.data.id!==connection.current)return;
+      if(!capabilities.isSuccess||!capabilities.data.canConnect)return;
       if(event.data.status==="success")void snapshot.refetch();
       else if(event.data.status==="error")setError("Google authorization was canceled or could not be verified. Start a new authorization attempt.");
     }
     window.addEventListener("message",received);return()=>window.removeEventListener("message",received);
-  },[snapshot]);
+  },[snapshot,capabilities.isSuccess,capabilities.data?.canConnect]);
   useEffect(()=>{
-    const saved=snapshot.data;if(!saved)return;
+    const saved=snapshot.isSuccess&&capabilities.isSuccess&&capabilities.data.canConnect?snapshot.data:undefined;if(!saved)return;
     // Reconcile external authorization/polling on the next task; cleanup cancels stale snapshots.
     const timer=setTimeout(()=>{
       if(!alive.current||saved.id!==connection.current)return;
@@ -56,7 +59,7 @@ export function GoogleDriveSourceConnection({projectId,onClose}:{projectId:strin
       }
     },0);
     return()=>clearTimeout(timer);
-  },[snapshot.data,step]);
+  },[snapshot.data,snapshot.isSuccess,capabilities.isSuccess,capabilities.data?.canConnect,step]);
   async function load(connectionId:string,targetFolder:string|null,query:string,after:string|null=null,retry=false){
     const attempt=retry&&pageRequest?pageRequest:{requestId:crypto.randomUUID(),folderId:targetFolder,search:query,after,...(catalog?{version:catalog.version}:{})};
     const current=++generation.current;setPageRequest(attempt);setError("");
@@ -69,7 +72,8 @@ export function GoogleDriveSourceConnection({projectId,onClose}:{projectId:strin
   }
   async function refreshSaved(){
     const current=++generation.current;const result=await snapshot.refetch();
-    if(!alive.current||current!==generation.current||!result.data)return;
+    if(!alive.current||current!==generation.current)return;
+    if(!result.isSuccess||!result.data){setError("Saved authorization status could not be refreshed. Your unapproved selections and approved files are retained; retry before continuing.");return;}
     if(result.data.status!=="VERIFIED"){setError("Saved access is no longer verified. Remove access and authorize again; approved files are retained.");return;}
     setCatalog(result.data);setExisting(result.data.approvedFiles);setFolderId(result.data.folderId);setFolderName(result.data.folderId?"saved folder":"My Drive");setSearch(result.data.search);setActiveSearch(result.data.search);setSelected({});setPageRequest(null);setApprovalRequest(null);setError("");
   }
@@ -89,6 +93,11 @@ export function GoogleDriveSourceConnection({projectId,onClose}:{projectId:strin
       connection.current=result.id;setId(result.id);setExisting([]);setSelected({});setCatalog(null);opened.location.href=url.href;
     }catch{opened.close();if(alive.current&&current===generation.current){setError("Authorization could not start. Check saved connections and retry, or cancel a pending attempt. No files were selected.");await recent.refetch();}}
   }
+  // Exported evidence needs current editor authority, but does not need a working Drive grant.
+  const accessState=connectionAccessState(capabilities,step==="exports"?{isSuccess:true,error:null}:recent);
+  if(accessState!=="ready")return <div style={{display:"grid",gap:16}}><ConnectionAccessGate state={accessState} busy={busy||capabilities.isFetching||recent.isFetching} onClose={onClose} onRetry={()=>void (async()=>{const refreshed=await capabilities.refetch();if(refreshed.isSuccess&&refreshed.data.canConnect)await recent.refetch();})()}/>{capabilities.isSuccess&&capabilities.data.canConnect&&<button type="button" className="btn-secondary" disabled={busy} onClick={()=>setStep("exports")}>Use an export instead</button>}</div>;
+  if(id&&step!=="exports"&&step!=="done"&&!snapshot.isSuccess)return <div style={{display:"grid",gap:16}}><ConnectionAccessGate state={snapshot.error?"connection-error":"checking-connections"} busy={busy||snapshot.isFetching} onClose={onClose} onRetry={()=>void snapshot.refetch()}/><button type="button" className="btn-secondary" disabled={busy} onClick={()=>setStep("exports")}>Use an export instead</button></div>;
+  if(id&&(step==="files"||step==="review")&&snapshot.data?.status!=="VERIFIED")return <div style={{display:"grid",gap:16}}><p role="alert">Saved Drive access is no longer verified. Previously approved files and your selections are retained. Check or replace your connection before continuing.</p><button type="button" className="btn-secondary" disabled={busy} onClick={()=>{setId("");setStep("authorize");}}>Back to connection</button><button type="button" className="btn-secondary" onClick={onClose}>Close and resume later</button></div>;
   return <div style={{display:"grid",gap:16,minWidth:0}}>
     <p role="status">{{authorize:"1. Authorize Google Drive",files:"2. Choose files",review:"3. Review file scope",done:"File scope saved",exports:"Add exported documents"}[step]}</p>
     {(error||capabilities.error)&&<p role="alert">{error||"Connection availability could not be checked. Retry before authorizing."}</p>}

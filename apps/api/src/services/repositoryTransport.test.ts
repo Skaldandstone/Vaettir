@@ -31,4 +31,8 @@ describe("legacy repository transport guard", () => {
       expect(() => cloneInvocation("https://github.com/org/repo", "fixture-dir", ref)).toThrow();
     expect(cloneInvocation("https://github.com/org/repo", "fixture-dir").args).not.toContain("--depth");
   });
+  it("pins exact commits without treating a SHA as a branch name",()=>{
+    const {args}=cloneInvocation("https://github.com/org/repo","fixture-dir","a".repeat(40));
+    expect(args).toContain("--no-checkout");expect(args).not.toContain("--branch");expect(args).toContain("--single-branch");
+  });
 });

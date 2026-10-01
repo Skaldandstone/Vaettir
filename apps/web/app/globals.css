@@ -3908,6 +3908,10 @@ main.app-main {
 .source-connection-chip { display: inline-flex; align-items: center; gap: 10px; border: 1px solid var(--line); border-radius: 999px; padding: 9px 16px 9px 10px; background: var(--panel); color: var(--text); text-align: left; cursor: pointer; min-height: 54px; }
 .source-connection-chip:hover, .source-connection-chip[aria-expanded="true"] { border-color: var(--frost); background: var(--bg); }
 .source-connection-chip:focus-visible { outline: 2px solid var(--frost); outline-offset: 3px; }
+.source-connection-chip { max-width: 100%; min-width: 0; box-sizing: border-box; }
+.source-connection-chip > span:not(.source-provider-mark) { min-width: 0; overflow-wrap: anywhere; }
+.source-connection-chip[aria-pressed="true"] { border-color: var(--frost); background: var(--frost-dim); box-shadow: inset 0 0 0 1px var(--frost); }
+.source-connection-chip:disabled { cursor: not-allowed; opacity: .6; }
 .source-connection-chip strong, .source-connection-chip small { display: block; }
 .source-connection-chip small { color: var(--muted); font-size: 11px; margin-top: 2px; }
 .source-provider-mark { display: grid; place-items: center; width: 30px; height: 30px; flex: 0 0 30px; font-size: 11px; font-weight: 700; }

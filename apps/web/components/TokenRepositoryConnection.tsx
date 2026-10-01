@@ -2,6 +2,8 @@
 import {useState} from "react";
 import {trpcReact,type RouterOutputs} from "@/lib/trpcReact";
 import {ProviderMark} from "./SourceConnectionChips";
+import {connectionAccessState} from "@/lib/connection-access";
+import {ConnectionAccessGate} from "./ConnectionAccessGate";
 
 type Listing=RouterOutputs["repositoryConnections"]["list"];
 const field={display:"grid",gap:6} as const;
@@ -12,7 +14,7 @@ export function TokenRepositoryConnection({projectId,providerId,onConnected,onCl
   const name=providerId==="bitbucket"?"Bitbucket":"Azure DevOps";
   const utils=trpcReact.useUtils();
   const capabilities=trpcReact.repositoryConnections.configurations.useQuery({projectId});
-  const recent=trpcReact.repositoryConnections.mine.useQuery({projectId});
+  const recent=trpcReact.repositoryConnections.mine.useQuery({projectId},{enabled:capabilities.isSuccess&&capabilities.data.canConnect});
   const verify=trpcReact.repositoryConnections.connectToken.useMutation();
   const forget=trpcReact.repositoryConnections.forgetToken.useMutation();
   const connect=trpcReact.repositoryConnections.connectSelected.useMutation();
@@ -42,6 +44,8 @@ export function TokenRepositoryConnection({projectId,providerId,onConnected,onCl
     }catch{setError("Could not refresh repository access. Check your saved connection or verify a new token.");}
     finally{setLoading(false);}
   }
+  const accessState=connectionAccessState(capabilities,recent);
+  if(accessState!=="ready")return <ConnectionAccessGate state={accessState} busy={busy||capabilities.isFetching||recent.isFetching} onClose={onClose} onRetry={()=>void (async()=>{const refreshed=await capabilities.refetch();if(refreshed.isSuccess&&refreshed.data.canConnect)await recent.refetch();})()}/>;
   return <div style={{display:"grid",gap:16,minWidth:0}}>
     <p role="status">{{access:"1. Verify repository access",repositories:"2. Choose repositories",review:"3. Review connections",done:"Connections saved"}[step]}</p>
     {(error||capabilities.error) && <p role="alert">{error||capabilities.error?.message}</p>}

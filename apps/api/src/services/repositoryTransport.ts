@@ -4,6 +4,16 @@ import { devNull } from "node:os";
 
 const execFileAsync = promisify(execFile);
 const hosts = new Set(["github.com", "gitlab.com", "bitbucket.org", "dev.azure.com"]);
+export function canonicalProcessingRepositoryUrl(value:string){
+  try{
+    const url=new URL(value);
+    if(!hosts.has(url.hostname)||url.protocol!=="https:"||url.username||url.password||url.port||url.search||url.hash)return value;
+    url.pathname=url.pathname.replace(/\/+$/,"");
+    if(url.hostname!=="dev.azure.com")url.pathname=url.pathname.replace(/\.git$/,"");
+    if(url.hostname==="github.com")url.pathname=url.pathname.toLowerCase();
+    return url.toString().replace(/\/$/,"");
+  }catch{return value;}
+}
 
 export function assertScannableRepoUrl(repoUrl: string): void {
   let url: URL;
@@ -31,12 +41,19 @@ export function cloneInvocation(repoUrl: string, dir: string, ref?: string) {
   const args = ["-c", "http.followRedirects=false", "-c", "credential.helper=",
     "-c", `core.hooksPath=${devNull}`, "-c", "protocol.allow=never", "-c", "protocol.https.allow=always",
     "clone", "--template=", "--no-recurse-submodules",
-    ...(ref === undefined ? [] : ["--depth", "1", "--branch", ref, "--single-branch"]), "--", repoUrl, dir];
+    ...(ref === undefined ? [] : /^[a-f0-9]{40}$/i.test(ref) ? ["--depth","1","--no-checkout","--single-branch"] : ["--depth", "1", "--branch", ref, "--single-branch"]), "--", repoUrl, dir];
   return { args, options: { cwd: dir, env, timeout: 120_000, maxBuffer: 1024 * 1024, windowsHide: true } };
 }
 
 export async function cloneRepository(repoUrl: string, dir: string, ref?: string) {
   const { args, options } = cloneInvocation(repoUrl, dir, ref);
-  try { await execFileAsync("git", args, options); }
+  try {
+    await execFileAsync("git", args, options);
+    if(ref && /^[a-f0-9]{40}$/i.test(ref)){
+      const safeConfig=args.slice(0,args.indexOf("clone"));
+      await execFileAsync("git",[...safeConfig,"fetch","--depth","1","--no-tags","--","origin",ref],options);
+      await execFileAsync("git",[...safeConfig,"checkout","--detach","--force","FETCH_HEAD"],options);
+    }
+  }
   catch { throw new Error("Repository clone failed or timed out. Verify the hosted URL and access; redirects and implicit credentials are not supported."); }
 }

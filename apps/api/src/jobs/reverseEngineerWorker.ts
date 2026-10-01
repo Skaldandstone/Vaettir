@@ -1,5 +1,5 @@
 import * as Sentry from "@sentry/node";
-import { prisma } from "@vaettir/db";
+import { prisma,type PrismaClient } from "@vaettir/db";
 import { reverseEngineerTestFile } from "@vaettir/ai-agent";
 import { persistReverseEngineerResult } from "../services/reverseEngineerPersist.js";
 import { hashFileContent } from "../services/repoScan.js";
@@ -8,6 +8,9 @@ import { chargeAiCredits, InsufficientAiCreditsError, meterAiCall } from "../ser
 import { recordHeartbeat } from "../services/heartbeat.js";
 import { linkExternalTestResult, validateTriggeringResult } from "../services/externalTestMapping.js";
 import { createSafeSchedulerRunner } from "./safeSchedulerRunner.js";
+import { ReverseEngineerResultSchema } from "@vaettir/core";
+import { assertRepositoryProcessingApproval, sourcePathInScope } from "../services/repositoryProcessingApproval.js";
+import {repositoryProcessingFailure} from "../services/repositoryProcessingErrors.js";
 
 // Single-instance, in-process poller -- no Redis/queue infra exists yet, and
 // running one API instance is the actual current deployment shape (see
@@ -55,15 +58,34 @@ export async function runReverseEngineerJob(jobId: string): Promise<void> {
       : null;
     const content = job.content;
     const project = await prisma.project.findUniqueOrThrow({ where: { id: job.projectId }, select: { organizationId: true } });
-    const charge = await chargeAiCredits(prisma, project.organizationId, "reverseEngineerTestFile", `job ${job.id} (${job.inputRef})`);
+    let processingOrganizationId=project.organizationId;
+    if(job.inputType==="REPO_SCAN"){
+      if(!job.processingApprovalId)throw new Error("Explicit source-processing approval is required for repository jobs.");
+      await prisma.$transaction(async tx=>{
+        const approval=await assertRepositoryProcessingApproval(tx,job.processingApprovalId!,job.projectId,"TEST_CASES");
+        processingOrganizationId=approval.organizationId;
+        if(!approval.resolvedCommitSha||!sourcePathInScope(job.inputRef,approval.pathPrefixes))throw new Error("Repository job is outside its approved pinned scope.");
+      });
+    }
     const heuristic = await getMostRecentHeuristic(prisma, job.projectId);
-    const result = await meterAiCall(prisma, charge, () =>
-      reverseEngineerTestFile({
-        filePath: job.inputRef,
-        content,
-        customFrameworkHint: heuristic?.description,
-      }),
-    );
+    // Keep the paid result before materializing cases. If the database write
+    // fails, a later retry can reuse it without charging or invoking AI again.
+    const result = job.inputType==="REPO_SCAN" && job.paidProcessingResult
+      ? ReverseEngineerResultSchema.parse(job.paidProcessingResult)
+      : await (async()=>{
+          const charge = job.inputType==="REPO_SCAN"?await prisma.$transaction(async tx=>{
+            const approval=await assertRepositoryProcessingApproval(tx,job.processingApprovalId!,job.projectId,"TEST_CASES");
+            const started=await tx.reverseEngineerJob.updateMany({where:{id:job.id,processingApprovalId:approval.id,aiProcessingStartedAt:null},data:{aiProcessingStartedAt:new Date()}});
+            if(!started.count)throw new Error("A paid attempt already started. Review recovery status before another AI call; automatic recharging is blocked.");
+            // Marker and initial ledger charge commit together. A provably
+            // unpaid insufficiency rolls both back and remains recoverable.
+            return chargeAiCredits(tx as unknown as PrismaClient,approval.organizationId,"reverseEngineerTestFile",`job ${job.id} (${job.inputRef})`);
+          }):await chargeAiCredits(prisma, processingOrganizationId, "reverseEngineerTestFile", `job ${job.id} (${job.inputRef})`);
+          const value=await meterAiCall(prisma,charge,()=>reverseEngineerTestFile({filePath:job.inputRef,content,customFrameworkHint:heuristic?.description}));
+          if(job.inputType==="REPO_SCAN")await prisma.reverseEngineerJob.update({where:{id:job.id},data:{paidProcessingResult:value}});
+          return value;
+        })();
+    if(job.inputType==="REPO_SCAN")await prisma.$transaction(tx=>assertRepositoryProcessingApproval(tx,job.processingApprovalId!,job.projectId,"TEST_CASES"));
     if (heuristic && result.detectedFrameworkFamily === "CUSTOM") {
       await recordHeuristicUsage(prisma, heuristic.id);
     }
@@ -72,12 +94,14 @@ export async function runReverseEngineerJob(jobId: string): Promise<void> {
       filePath: job.inputRef,
       contentHash: hashFileContent(job.content),
       result,
+      ...(job.inputType==="REPO_SCAN"?{preserveExisting:true,processingApprovalId:job.processingApprovalId!,repoUrl:(await prisma.repositoryProcessingApproval.findUniqueOrThrow({where:{id:job.processingApprovalId!}})).repositoryUrl,commitSha:(await prisma.repositoryProcessingApproval.findUniqueOrThrow({where:{id:job.processingApprovalId!}})).resolvedCommitSha??undefined}:{}),
     });
     await prisma.reverseEngineerJob.update({
       where: { id: job.id },
       data: {
         resultTestCaseIds: created.map((tc) => tc.id),
         framework: result.detectedFramework,
+        ...(job.inputType==="REPO_SCAN"?{paidProcessingResult:{...result,preservedCaseIds:created.filter(tc=>"preservedExisting" in tc).map(tc=>tc.id)}}:{}),
       },
     });
 
@@ -112,10 +136,13 @@ export async function runReverseEngineerJob(jobId: string): Promise<void> {
     // Insufficient credits is an expected, user-actionable outcome (the org
     // ran out, not a bug) -- everything else here (a bad LLM response, a DB
     // failure, malformed job content) is worth alerting on.
-    if (!(e instanceof InsufficientAiCreditsError)) Sentry.captureException(e);
+    const failure=job.inputType==="REPO_SCAN"?repositoryProcessingFailure(e):null;
+    if(failure){
+      if(!failure.expected)Sentry.captureException(new Error("Scoped repository processing failed"),{extra:{jobId:job.id,...failure.details}});
+    }else if (!(e instanceof InsufficientAiCreditsError)) Sentry.captureException(e);
     await prisma.reverseEngineerJob.update({
       where: { id: job.id },
-      data: { status: "FAILED", completedAt: new Date(), error: e instanceof Error ? e.message : String(e) },
+      data: { status: "FAILED", completedAt: new Date(), error: failure?.message??(e instanceof Error ? e.message : String(e)) },
     });
   }
 }

@@ -4,6 +4,8 @@ import {trpcReact} from "@/lib/trpcReact";
 import {ProviderMark} from "./SourceConnectionChips";
 import {PopulationDocuments} from "./PopulationDocuments";
 import {JiraIssueIntake} from "./JiraIssueIntake";
+import {connectionAccessState} from "@/lib/connection-access";
+import {ConnectionAccessGate} from "./ConnectionAccessGate";
 
 type ProjectChoice={id:string;key:string;name:string;url:string};
 type Listing={workspace:{id:string;name:string};account:{id:string;name:string};projects:ProjectChoice[];version:number;catalogReset:boolean;nextCursor:number|null;bounded:boolean};
@@ -14,7 +16,7 @@ const inputStyle={width:"100%",minWidth:0,boxSizing:"border-box"} as const;
 export function JiraSourceConnection({projectId,onClose}:{projectId:string;onClose:()=>void}){
   const utils=trpcReact.useUtils();
   const capabilities=trpcReact.jiraConnections.capabilities.useQuery({projectId});
-  const recent=trpcReact.jiraConnections.mine.useQuery({projectId},{enabled:capabilities.data?.canConnect===true});
+  const recent=trpcReact.jiraConnections.mine.useQuery({projectId},{enabled:capabilities.isSuccess&&capabilities.data.canConnect});
   const verify=trpcReact.jiraConnections.verify.useMutation();
   const approve=trpcReact.jiraConnections.approve.useMutation();
   const forget=trpcReact.jiraConnections.forget.useMutation();
@@ -37,6 +39,8 @@ export function JiraSourceConnection({projectId,onClose}:{projectId:string;onClo
     }catch{setError("Could not refresh Jira projects. Check access and retry. Previously approved scope is retained.");}
     finally{setLoading(false);}
   }
+  const accessState=connectionAccessState(capabilities,recent);
+  if(accessState!=="ready")return <ConnectionAccessGate state={accessState} busy={busy||capabilities.isFetching||recent.isFetching} onClose={onClose} onRetry={()=>void (async()=>{const refreshed=await capabilities.refetch();if(refreshed.isSuccess&&refreshed.data.canConnect)await recent.refetch();})()}/>;
   return <div style={{display:"grid",gap:16,minWidth:0}}>
     <p role="status">{{access:"1. Verify Jira Cloud access",projects:"2. Choose Jira projects",review:"3. Review source scope",done:"Source scope saved",exports:"Add exported Jira evidence",issues:"Review Jira issue intake"}[step]}</p>
     {(error||capabilities.error)&&<p role="alert">{error||"Connection availability could not be checked. Retry before entering a token."}</p>}

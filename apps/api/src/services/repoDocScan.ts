@@ -2,6 +2,10 @@ import { mkdtemp, readFile, rm, readdir, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
 import { assertScannableRepoUrl, cloneRepository } from "./repositoryTransport.js";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
+import { sourcePathInScope,safeRepositoryText } from "./repositorySourceSafety.js";
+const execFileAsync = promisify(execFile);
 
 // Requirements-from-repo (2026-08-28): the same shallow-clone-and-walk
 // shape repoScan.ts already uses for test files, but looking for
@@ -42,21 +46,22 @@ function isLikelyRequirementsDoc(relativePath: string): boolean {
   return segments.slice(0, -1).some((seg) => REQUIREMENTS_DIR_HINTS.includes(seg));
 }
 
-async function walkDocs(rootDir: string, dir: string, out: ScannedDoc[]): Promise<void> {
-  if (out.length >= MAX_FILES) return;
+async function walkDocs(rootDir: string, dir: string, out: ScannedDoc[], pathPrefixes: readonly string[], maxFiles: number): Promise<void> {
+  if (out.length >= maxFiles) return;
   const entries = await readdir(dir, { withFileTypes: true });
   for (const entry of entries) {
-    if (out.length >= MAX_FILES) return;
+    if (out.length >= maxFiles) return;
     if (entry.isDirectory()) {
       if (IGNORED_DIRS.has(entry.name)) continue;
-      await walkDocs(rootDir, join(dir, entry.name), out);
+      await walkDocs(rootDir, join(dir, entry.name), out, pathPrefixes, maxFiles);
     } else if (entry.isFile()) {
       const absolutePath = join(dir, entry.name);
       const relativePath = relative(rootDir, absolutePath).split("\\").join("/");
-      if (!isLikelyRequirementsDoc(relativePath)) continue;
+      if (!sourcePathInScope(relativePath, pathPrefixes) || !isLikelyRequirementsDoc(relativePath)) continue;
       const st = await stat(absolutePath);
       if (st.size > MAX_FILE_BYTES || st.size === 0) continue;
       const content = await readFile(absolutePath, "utf-8");
+      if (!safeRepositoryText(content)) continue;
       out.push({ relativePath, content });
     }
   }
@@ -66,18 +71,19 @@ async function walkDocs(rootDir: string, dir: string, out: ScannedDoc[]): Promis
 // likely-requirements markdown docs (README always first if present),
 // always cleaning up the clone afterward even if reading throws partway
 // through.
-export async function scanRepoForRequirementDocs(repoUrl: string, ref: string): Promise<ScannedDoc[]> {
+export async function scanRepoForRequirementDocs(repoUrl: string, ref: string, pathPrefixes: readonly string[] = ["."], maxFiles = MAX_FILES): Promise<{files:ScannedDoc[];headSha:string}> {
   assertScannableRepoUrl(repoUrl);
   const dir = await mkdtemp(join(tmpdir(), "vaettir-doc-scan-"));
   try {
     await cloneRepository(repoUrl, dir, ref);
     const files: ScannedDoc[] = [];
-    await walkDocs(dir, dir, files);
+    await walkDocs(dir, dir, files, pathPrefixes, Math.min(MAX_FILES,maxFiles));
     // README first, if it made the cut - the most likely single source
     // of real requirements in a typical repo, worth prioritizing when
     // MAX_FILES would otherwise cut it off in a doc-heavy repo.
     files.sort((a, b) => (a.relativePath.toLowerCase() === "readme.md" ? -1 : b.relativePath.toLowerCase() === "readme.md" ? 1 : 0));
-    return files;
+    const {stdout} = await execFileAsync("git",["rev-parse","HEAD"],{cwd:dir});
+    return {files,headSha:stdout.trim()};
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
