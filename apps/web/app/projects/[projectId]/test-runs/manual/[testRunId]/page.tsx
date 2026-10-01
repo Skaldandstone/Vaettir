@@ -5,6 +5,7 @@ import { useParams, useRouter } from "next/navigation";
 import { resolveQualityExperience } from "@vaettir/core";
 import { trpcReact, type RouterOutputs } from "@/lib/trpcReact";
 import { useProjectPermissions } from "@/lib/use-project-permissions";
+import { StepExecutionPanel } from "@/components/StepExecutionPanel";
 
 type ExecutionCase =
   RouterOutputs["manualExecution"]["getForExecution"]["cases"][number];
@@ -32,6 +33,9 @@ function CaseRow({
   disabled,
   prerequisites,
   blockedBy,
+  testRunId,
+  onStepsChanged,
+  onUnconfirmedStep,
 }: {
   testCase: ExecutionCase;
   stepFieldLabels: Record<string, string>;
@@ -44,11 +48,16 @@ function CaseRow({
   disabled: boolean;
   prerequisites: { id: string; title: string; status: string | null }[];
   blockedBy: string[];
+  testRunId: string;
+  onStepsChanged: () => Promise<unknown>;
+  onUnconfirmedStep: (pending: boolean) => void;
 }) {
   const [expanded, setExpanded] = useState(false);
   const [note, setNote] = useState(testCase.currentResult?.note ?? "");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [stepModeChosen, setStepModeChosen] = useState(false);
+  const stepMode = stepModeChosen || testCase.stepResults.some(step => step.current);
   const [context, setContext] = useState({
     specimen: testCase.currentResult?.observations.specimen ?? "",
     hardwareRevision:
@@ -165,6 +174,7 @@ function CaseRow({
                 </div>
               ),
           )}
+          {!stepMode && <>
           {testCase.given.length > 0 && (
             <div style={{ marginBottom: 8 }}>
               <div className="eyebrow" style={{ fontSize: 11 }}>
@@ -311,10 +321,15 @@ function CaseRow({
               Add measurement
             </button>
           </details>
+          </>}
         </div>
       )}
 
-      <div style={{ display: "flex", gap: 6, marginTop: 8 }}>
+      <div hidden={!expanded}>
+        <StepExecutionPanel testRunId={testRunId} testCase={testCase} stepFieldLabels={stepFieldLabels} active={stepMode} disabled={disabled || busy} blockedBy={blockedBy} onModeActive={() => setStepModeChosen(true)} onChanged={onStepsChanged} onUnconfirmedChange={onUnconfirmedStep} />
+      </div>
+
+      {!stepMode && <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 8 }}>
         <button
           className="btn-secondary"
           onClick={() => record("PASS")}
@@ -343,7 +358,7 @@ function CaseRow({
         >
           Skip
         </button>
-      </div>
+      </div>}
       {error && <p role="alert">{error}</p>}
     </div>
   );
@@ -362,6 +377,7 @@ export default function ManualExecutionPage() {
     testRunId,
   });
   const [error, setError] = useState<string | null>(null);
+  const [unconfirmedStepCases, setUnconfirmedStepCases] = useState<Set<string>>(() => new Set());
 
   const recordMutation = trpcReact.manualExecution.recordResult.useMutation();
   const completeMutation = trpcReact.manualExecution.complete.useMutation({
@@ -388,13 +404,14 @@ export default function ManualExecutionPage() {
   const data = dataQuery.data;
   const pageError = error ?? dataQuery.error?.message ?? null;
 
-  if (pageError) return <p style={{ color: "var(--ember)" }}>{pageError}</p>;
-  if (!data) return <p>Loading…</p>;
+  if (!data) return pageError ? <div><p role="alert" style={{ color: "var(--ember)" }}>{pageError}</p><button className="btn-secondary" onClick={() => void dataQuery.refetch()}>Retry loading run</button></div> : <p>Loading…</p>;
 
   const recordedCount = data.cases.filter((c) => c.currentResult).length;
 
   return (
     <div style={{ maxWidth: 800 }}>
+      {pageError && <div><p role="alert" style={{ color: "var(--ember)" }}>{pageError} Displayed evidence and open drafts are retained.</p><button className="btn-secondary" onClick={() => { setError(null); void dataQuery.refetch(); }}>Refresh run without discarding drafts</button></div>}
+      {unconfirmedStepCases.size > 0 && <p role="status">Confirm pending step responses before completing this run. Retry receipts and entered evidence remain retained.</p>}
       <div
         style={{
           display: "flex",
@@ -416,6 +433,7 @@ export default function ManualExecutionPage() {
             !canEdit ||
             completeMutation.isPending ||
             recordMutation.isPending ||
+            unconfirmedStepCases.size > 0 ||
             data.status !== "RUNNING"
           }
         >
@@ -448,6 +466,9 @@ export default function ManualExecutionPage() {
         <CaseRow
           key={tc.testCaseId}
           testCase={tc}
+          testRunId={testRunId}
+          onStepsChanged={() => utils.manualExecution.getForExecution.invalidate({ testRunId })}
+          onUnconfirmedStep={pending => setUnconfirmedStepCases(current => { const next = new Set(current); if (pending) next.add(tc.testCaseId); else next.delete(tc.testCaseId); return next; })}
           prerequisites={tc.prerequisiteIds.map(id => {
             const prerequisite = data.cases.find(candidate => candidate.testCaseId === id);
             return { id, title: prerequisite?.title ?? "Unavailable case", status: prerequisite?.currentResult?.status ?? null };

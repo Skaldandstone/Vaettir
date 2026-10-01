@@ -612,6 +612,7 @@ model User {
   uploadedTestCaseAttachments TestCaseAttachment[]
   exploratorySessions         ExploratorySession[]
   startedTestRuns             TestRun[]
+  manualStepResultRevisions   ManualStepResultRevision[]
   testCaseViews               TestCaseView[]
 
   // P1-07 audit columns: who created/last-updated each core record. Named
@@ -1174,6 +1175,8 @@ model TestCase {
   source                   TestCaseSource?
   complianceControls       TestCaseComplianceControl[]
   results                  TestResult[]
+  manualStepResultRevisions ManualStepResultRevision[]
+  manualStepResultHeads     ManualStepResultHead[]
   healingSuggestions       HealingSuggestion[]
   complianceEvidence       ComplianceEvidence[]
   aiEditFeedback           AiEditFeedback[]
@@ -1288,6 +1291,7 @@ model TestSelectionRun {
   headRef      String
   changedFiles String[]
   createdAt    DateTime @default(now())
+
 
   recommendations TestSelectionRecommendation[]
 }
@@ -1482,6 +1486,9 @@ model TestCaseAttachment {
   uploadedById String?
   uploadedBy   User?    @relation(fields: [uploadedById], references: [id])
   createdAt    DateTime @default(now())
+  // Null means not independently confirmed, including legacy rows.
+  uploadCompletedAt DateTime?
+  uploadVerification Json @default("{}")
 
   @@index([testCaseId])
 }
@@ -2015,6 +2022,8 @@ model TestRun {
   startedBy   User?   @relation(fields: [startedById], references: [id])
 
   results        TestResult[]
+  manualStepResultRevisions ManualStepResultRevision[]
+  manualStepResultHeads ManualStepResultHead[]
   coverageReport CoverageReport?
 }
 
@@ -2073,6 +2082,54 @@ enum CoverageTool {
   ISTANBUL
   COBERTURA
   JACOCO
+}
+
+// Append-only revisions: the mutable head below is a pointer, never a rewritten
+// observation. This is justified edit history, not a qualified electronic signature.
+model ManualStepResultRevision {
+  id String @id @default(cuid())
+  testRunId String
+  testRun TestRun @relation(fields: [testRunId], references: [id])
+  testCaseId String
+  testCase TestCase @relation(fields: [testCaseId], references: [id])
+  stepIndex Int
+  revisionNumber Int
+  status TestResultStatus
+  caseStatusAtRecord TestResultStatus?
+  note String?
+  observations Json @default("{}")
+  evidenceAttachmentIds String[] @default([])
+  evidenceAttachments Json @default("[]")
+  actorId String
+  actor User @relation(fields: [actorId], references: [id])
+  actorName String
+  recordedAt DateTime @default(now())
+  correctionReason String?
+  previousRevisionId String? @unique
+  previousRevision ManualStepResultRevision? @relation("ManualStepPreviousRevision", fields: [previousRevisionId], references: [id])
+  nextRevision ManualStepResultRevision? @relation("ManualStepPreviousRevision")
+  idempotencyKey String
+  requestHash String
+  currentHead ManualStepResultHead?
+
+  @@unique([testRunId, testCaseId, stepIndex, revisionNumber], map: "ManualStepResultRevision_scope_revision_key")
+  @@unique([testRunId, actorId, idempotencyKey])
+  @@index([testRunId, testCaseId, stepIndex, revisionNumber], map: "ManualStepResultRevision_scope_revision_idx")
+  @@index([evidenceAttachmentIds], type: Gin)
+}
+
+model ManualStepResultHead {
+  testRunId String
+  testRun TestRun @relation(fields: [testRunId], references: [id])
+  testCaseId String
+  testCase TestCase @relation(fields: [testCaseId], references: [id])
+  stepIndex Int
+  currentRevisionId String @unique
+  currentRevision ManualStepResultRevision @relation(fields: [currentRevisionId], references: [id])
+  revisionCount Int
+  currentPayloadBytes Int
+
+  @@id([testRunId, testCaseId, stepIndex])
 }
 
 model TestResult {

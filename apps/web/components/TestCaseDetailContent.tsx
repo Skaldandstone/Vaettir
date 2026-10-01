@@ -747,8 +747,7 @@ function DatasetSection({
 // 2026-08-27 competitor parity audit: attachments on the test case's own
 // authoring record - a reference mockup, a log, a spec doc. Two-step
 // upload matching P5-15's proven pattern: get a presigned PUT, upload
-// bytes directly to S3 (never through this API server), then refresh -
-// the row is already recorded by the time requestUpload returns.
+// bytes directly to S3, then verify stored metadata before offering evidence.
 function AttachmentsSection({
   testCaseId,
   readOnly,
@@ -764,6 +763,7 @@ function AttachmentsSection({
   const requestUploadMutation =
     trpcReact.testCaseAttachments.requestUpload.useMutation();
   const deleteMutation = trpcReact.testCaseAttachments.delete.useMutation();
+  const confirmMutation = trpcReact.testCaseAttachments.confirmUpload.useMutation();
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -778,7 +778,7 @@ function AttachmentsSection({
     setUploading(true);
     setError(null);
     try {
-      const { uploadUrl } = await requestUploadMutation.mutateAsync({
+      const { uploadUrl, attachmentId } = await requestUploadMutation.mutateAsync({
         testCaseId,
         fileName: file.name,
         contentType: file.type || "application/octet-stream",
@@ -790,10 +790,12 @@ function AttachmentsSection({
         body: file,
       });
       if (!res.ok) throw new Error(`Upload failed (${res.status})`);
+      await confirmMutation.mutateAsync({ attachmentId });
       load();
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
+      load();
       setUploading(false);
     }
   }
@@ -848,6 +850,12 @@ function AttachmentsSection({
               <span className="text-muted" style={{ marginRight: 8 }}>
                 {(a.sizeBytes / 1024).toFixed(0)} KB
               </span>
+              {!a.uploadCompletedAt && <span className="text-muted">Not verified for execution evidence </span>}
+              {!readOnly && !a.uploadCompletedAt && <button className="btn-secondary" disabled={confirmMutation.isPending} onClick={async () => {
+                setError(null);
+                try { await confirmMutation.mutateAsync({ attachmentId: a.id }); load(); }
+                catch (cause) { setError(cause instanceof Error ? cause.message : "Verification failed. Retry after upload completes."); }
+              }}>Verify uploaded file</button>}
               {!readOnly && (
                 <button
                   className="btn-secondary"

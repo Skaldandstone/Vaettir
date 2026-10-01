@@ -189,6 +189,7 @@ export default function TestCaseForm({
     { enabled: mode === "edit" && Boolean(testCaseId) },
   );
   const requestMediaUpload = trpcReact.testCaseAttachments.requestUpload.useMutation();
+  const confirmMediaUpload = trpcReact.testCaseAttachments.confirmUpload.useMutation();
   const deleteAttachment = trpcReact.testCaseAttachments.delete.useMutation();
   const [uploadingStepKey, setUploadingStepKey] = useState<string | null>(null);
   const imageVideoAttachments = (attachmentsQuery.data ?? []).filter(a => /^(image|video)\//i.test(a.contentType));
@@ -227,6 +228,7 @@ export default function TestCaseForm({
       attachmentId = upload.attachmentId;
       const response = await fetch(upload.uploadUrl, { method: "PUT", headers: { "content-type": file.type }, body: file });
       if (!response.ok) throw new Error(`Media upload failed (${response.status}).`);
+      await confirmMediaUpload.mutateAsync({ attachmentId: upload.attachmentId });
       setValue(current => ({ ...current, steps: current.steps.map(step => step.editorKey === editorKey
         ? { ...step, mediaAttachmentIds: [...step.mediaAttachmentIds, upload.attachmentId] }
         : step) }));

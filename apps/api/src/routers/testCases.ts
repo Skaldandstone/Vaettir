@@ -26,15 +26,36 @@ import {
 } from "../services/aiCredits.js";
 import { parseTestCaseCsv } from "../services/testCaseCsvImport.js";
 import { snapshotTestCaseVersion } from "../services/testCaseVersion.js";
+import { ensureCaseEvidenceNotRetained } from "../services/caseEvidenceRetention.js";
+import { requireCurrentPlanAccess } from "../services/testPlanExecution.js";
 import {
   validationDomainSchema,
   verificationProfileSchema,
 } from "../services/physicalValidation.js";
 
-function riskInput(tc: { title: string; given: string[]; when: string[]; then: string[]; testType: string; source?: { filePath: string } | null }) {
-  const data = { title: tc.title, given: tc.given, when: tc.when, then: tc.then, testType: tc.testType, sourceFilePath: tc.source?.filePath ?? null };
+function riskInput(tc: {
+  title: string;
+  given: string[];
+  when: string[];
+  then: string[];
+  testType: string;
+  source?: { filePath: string } | null;
+}) {
+  const data = {
+    title: tc.title,
+    given: tc.given,
+    when: tc.when,
+    then: tc.then,
+    testType: tc.testType,
+    sourceFilePath: tc.source?.filePath ?? null,
+  };
   const serialized = JSON.stringify(data);
-  if (Buffer.byteLength(serialized, "utf8") > 64_000) throw new TRPCError({ code: "BAD_REQUEST", message: "This case exceeds the risk review size limit. Split it into focused cases before reviewing." });
+  if (Buffer.byteLength(serialized, "utf8") > 64_000)
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message:
+        "This case exceeds the risk review size limit. Split it into focused cases before reviewing.",
+    });
   return { data, hash: createHash("sha256").update(serialized).digest("hex") };
 }
 
@@ -44,7 +65,10 @@ const priorityDecisionSchema = z.object({
   from: prioritySchema,
   to: prioritySchema,
   rationale: z.string().nullable().optional(),
-  riskSeverity: z.enum(["CRITICAL", "HIGH", "MEDIUM", "LOW"]).nullable().optional(),
+  riskSeverity: z
+    .enum(["CRITICAL", "HIGH", "MEDIUM", "LOW"])
+    .nullable()
+    .optional(),
   riskScore: z.number().nullable().optional(),
 });
 
@@ -58,19 +82,33 @@ const stepOutputSchema = z.object({
 });
 
 function stepMediaIds(steps: Array<{ mediaAttachmentIds?: string[] }>) {
-  return [...new Set(steps.flatMap(step => step.mediaAttachmentIds ?? []))];
+  return [...new Set(steps.flatMap((step) => step.mediaAttachmentIds ?? []))];
 }
 
-function stepRevision(steps: Array<{
-  order: number; action: string; expectedActionOrData: string | null;
-  expectedResult: string | null; expectedResponse: string | null; mediaAttachmentIds: string[];
-}>) {
-  return createHash("sha256").update(JSON.stringify(steps.map(step => ({
-    order: step.order, action: step.action,
-    expectedActionOrData: step.expectedActionOrData,
-    expectedResult: step.expectedResult, expectedResponse: step.expectedResponse,
-    mediaAttachmentIds: step.mediaAttachmentIds,
-  })))).digest("hex");
+function stepRevision(
+  steps: Array<{
+    order: number;
+    action: string;
+    expectedActionOrData: string | null;
+    expectedResult: string | null;
+    expectedResponse: string | null;
+    mediaAttachmentIds: string[];
+  }>,
+) {
+  return createHash("sha256")
+    .update(
+      JSON.stringify(
+        steps.map((step) => ({
+          order: step.order,
+          action: step.action,
+          expectedActionOrData: step.expectedActionOrData,
+          expectedResult: step.expectedResult,
+          expectedResponse: step.expectedResponse,
+          mediaAttachmentIds: step.mediaAttachmentIds,
+        })),
+      ),
+    )
+    .digest("hex");
 }
 
 // Shared by create and update: the fields that make up a test case's
@@ -300,13 +338,15 @@ export const testCasesRouter = router({
       // resolved live here, not duplicated onto the case, so an edit to
       // the group is instantly reflected on every case that uses it.
       const resolvedSteps = tc.sharedStepGroup
-        ? (tc.sharedStepGroup.steps as Array<{
-            order: number;
-            action: string;
-            expectedActionOrData: string | null;
-            expectedResult: string | null;
-            expectedResponse: string | null;
-          }>).map(s => ({ ...s, mediaAttachmentIds: [] }))
+        ? (
+            tc.sharedStepGroup.steps as Array<{
+              order: number;
+              action: string;
+              expectedActionOrData: string | null;
+              expectedResult: string | null;
+              expectedResponse: string | null;
+            }>
+          ).map((s) => ({ ...s, mediaAttachmentIds: [] }))
         : tc.steps.map((s) => ({
             order: s.order,
             action: s.action,
@@ -484,76 +524,183 @@ export const testCasesRouter = router({
   prioritySuggestion: protectedProcedure
     .input(z.object({ id: z.string() }))
     .query(async ({ ctx, input }) => {
-      const tc = await ctx.prisma.testCase.findUniqueOrThrow({ where: { id: input.id },
-        include: { source: { select: { filePath: true } } } });
-      const { project, membership } = await requireProjectAccess(ctx, tc.projectId);
-      const review = await ctx.prisma.testCaseRiskReview.findFirst({ where: { testCaseId: input.id, status: "READY" },
-        orderBy: { createdAt: "desc" }, select: { inputHash: true, content: true } });
-      const reviewContent = z.object({ severity: prioritySchema, riskScore: z.number() }).safeParse(review?.content);
-      const riskNeedsReview = !!review && (review.inputHash !== riskInput(tc).hash || !reviewContent.success ||
-        reviewContent.data.severity !== tc.riskSeverity || Math.round(reviewContent.data.riskScore) !== tc.riskScore);
-      const decision = await ctx.prisma.auditLog.findFirst({ where: {
-        organizationId: project.organizationId, projectId: tc.projectId,
-        entityType: "TestCasePriority", entityId: input.id,
-      }, orderBy: { createdAt: "desc" }, select: { metadata: true, createdAt: true } });
+      const tc = await ctx.prisma.testCase.findUniqueOrThrow({
+        where: { id: input.id },
+        include: { source: { select: { filePath: true } } },
+      });
+      const { project, membership } = await requireProjectAccess(
+        ctx,
+        tc.projectId,
+      );
+      const review = await ctx.prisma.testCaseRiskReview.findFirst({
+        where: { testCaseId: input.id, status: "READY" },
+        orderBy: { createdAt: "desc" },
+        select: { inputHash: true, content: true },
+      });
+      const reviewContent = z
+        .object({ severity: prioritySchema, riskScore: z.number() })
+        .safeParse(review?.content);
+      const riskNeedsReview =
+        !!review &&
+        (review.inputHash !== riskInput(tc).hash ||
+          !reviewContent.success ||
+          reviewContent.data.severity !== tc.riskSeverity ||
+          Math.round(reviewContent.data.riskScore) !== tc.riskScore);
+      const decision = await ctx.prisma.auditLog.findFirst({
+        where: {
+          organizationId: project.organizationId,
+          projectId: tc.projectId,
+          entityType: "TestCasePriority",
+          entityId: input.id,
+        },
+        orderBy: { createdAt: "desc" },
+        select: { metadata: true, createdAt: true },
+      });
       const parsed = priorityDecisionSchema.safeParse(decision?.metadata);
       return {
         currentPriority: tc.priority,
-        suggestedPriority: tc.riskScore === null || riskNeedsReview ? null : tc.riskSeverity,
+        suggestedPriority:
+          tc.riskScore === null || riskNeedsReview ? null : tc.riskSeverity,
         riskNeedsReview,
         riskSeverity: tc.riskSeverity,
         riskScore: tc.riskScore,
         riskAssessedAt: tc.riskAssessedAt,
         canEdit: ["OWNER", "ADMIN", "EDITOR"].includes(membership.role),
-        latestDecision: parsed.success && parsed.data.to === tc.priority
-          ? { ...parsed.data, createdAt: decision!.createdAt } : null,
+        latestDecision:
+          parsed.success && parsed.data.to === tc.priority
+            ? { ...parsed.data, createdAt: decision!.createdAt }
+            : null,
       };
     }),
 
   decidePriority: protectedProcedure
-    .input(z.object({ id: z.string(), mode: z.enum(["MATCH_RISK", "BUSINESS_OVERRIDE"]),
-      priority: z.enum(["HIGH", "CRITICAL"]).optional(), rationale: z.string().trim().min(10).max(500).optional(),
-      expectedPriority: prioritySchema, expectedRiskSeverity: z.enum(["CRITICAL", "HIGH", "MEDIUM", "LOW"]).nullable(),
-      expectedRiskScore: z.number().int().min(0).max(100).nullable() }))
+    .input(
+      z.object({
+        id: z.string(),
+        mode: z.enum(["MATCH_RISK", "BUSINESS_OVERRIDE"]),
+        priority: z.enum(["HIGH", "CRITICAL"]).optional(),
+        rationale: z.string().trim().min(10).max(500).optional(),
+        expectedPriority: prioritySchema,
+        expectedRiskSeverity: z
+          .enum(["CRITICAL", "HIGH", "MEDIUM", "LOW"])
+          .nullable(),
+        expectedRiskScore: z.number().int().min(0).max(100).nullable(),
+      }),
+    )
     .mutation(async ({ ctx, input }) => {
-      const caseRef = await ctx.prisma.testCase.findUniqueOrThrow({ where: { id: input.id }, select: { projectId: true } });
-      const { project } = await requireProjectAccess(ctx, caseRef.projectId, "EDITOR");
-      if (input.mode === "BUSINESS_OVERRIDE" && (!input.priority || !input.rationale)) {
-        throw new TRPCError({ code: "BAD_REQUEST", message: "Choose high or critical priority and explain the business need." });
+      const caseRef = await ctx.prisma.testCase.findUniqueOrThrow({
+        where: { id: input.id },
+        select: { projectId: true },
+      });
+      const { project } = await requireProjectAccess(
+        ctx,
+        caseRef.projectId,
+        "EDITOR",
+      );
+      if (
+        input.mode === "BUSINESS_OVERRIDE" &&
+        (!input.priority || !input.rationale)
+      ) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message:
+            "Choose high or critical priority and explain the business need.",
+        });
       }
-      const updated = await ctx.prisma.$transaction(async tx => {
+      const updated = await ctx.prisma.$transaction(async (tx) => {
         await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${caseRef.projectId}))::text`;
-        const current = await tx.testCase.findUniqueOrThrow({ where: { id: input.id }, include: { steps: true, source: { select: { filePath: true } } } });
-        if (current.priority !== input.expectedPriority || current.riskSeverity !== input.expectedRiskSeverity || current.riskScore !== input.expectedRiskScore) {
-          throw new TRPCError({ code: "CONFLICT", message: "Priority or risk changed. Refresh the suggestion before deciding." });
+        const current = await tx.testCase.findUniqueOrThrow({
+          where: { id: input.id },
+          include: { steps: true, source: { select: { filePath: true } } },
+        });
+        if (
+          current.priority !== input.expectedPriority ||
+          current.riskSeverity !== input.expectedRiskSeverity ||
+          current.riskScore !== input.expectedRiskScore
+        ) {
+          throw new TRPCError({
+            code: "CONFLICT",
+            message:
+              "Priority or risk changed. Refresh the suggestion before deciding.",
+          });
         }
         if (current.riskScore === null || current.riskSeverity === null) {
-          throw new TRPCError({ code: "BAD_REQUEST", message: "Assess risk before using its priority suggestion." });
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "Assess risk before using its priority suggestion.",
+          });
         }
-        const review = await tx.testCaseRiskReview.findFirst({ where: { testCaseId: input.id, status: "READY" },
-          orderBy: { createdAt: "desc" }, select: { inputHash: true, content: true } });
+        const review = await tx.testCaseRiskReview.findFirst({
+          where: { testCaseId: input.id, status: "READY" },
+          orderBy: { createdAt: "desc" },
+          select: { inputHash: true, content: true },
+        });
         if (review) {
-          const saved = z.object({ severity: prioritySchema, riskScore: z.number() }).safeParse(review.content);
-          if (review.inputHash !== riskInput(current).hash || !saved.success ||
-            saved.data.severity !== current.riskSeverity || Math.round(saved.data.riskScore) !== current.riskScore) {
-            throw new TRPCError({ code: "CONFLICT", message: "The risk review is stale or differs from the case. Reassess risk before changing priority from it." });
+          const saved = z
+            .object({ severity: prioritySchema, riskScore: z.number() })
+            .safeParse(review.content);
+          if (
+            review.inputHash !== riskInput(current).hash ||
+            !saved.success ||
+            saved.data.severity !== current.riskSeverity ||
+            Math.round(saved.data.riskScore) !== current.riskScore
+          ) {
+            throw new TRPCError({
+              code: "CONFLICT",
+              message:
+                "The risk review is stale or differs from the case. Reassess risk before changing priority from it.",
+            });
           }
         }
-        const next = input.mode === "MATCH_RISK" ? current.riskSeverity : input.priority!;
-        const changed = await tx.testCase.update({ where: { id: input.id }, data: { priority: next, updatedById: ctx.user.id } });
-        await tx.auditLog.create({ data: { organizationId: project.organizationId, projectId: caseRef.projectId,
-          actorId: ctx.user.id, entityType: "TestCasePriority", entityId: input.id, action: "UPDATE",
-          summary: input.mode === "MATCH_RISK" ? `Accepted risk-derived priority ${next}` : `Set business priority ${next}`,
-          metadata: { mode: input.mode, from: current.priority, to: next,
-            rationale: input.mode === "BUSINESS_OVERRIDE" ? input.rationale : null,
-            riskSeverity: current.riskSeverity, riskScore: current.riskScore },
-        } });
-        await snapshotTestCaseVersion(tx, { testCaseId: changed.id, title: changed.title,
-          background: changed.background, given: changed.given, when: changed.when, then: changed.then,
-          steps: current.steps.map(step => ({ order: step.order, action: step.action,
-            expectedActionOrData: step.expectedActionOrData, expectedResult: step.expectedResult,
-            expectedResponse: step.expectedResponse, mediaAttachmentIds: step.mediaAttachmentIds })),
-          tags: changed.tags, priority: changed.priority, testType: changed.testType, actorId: ctx.user.id });
+        const next =
+          input.mode === "MATCH_RISK" ? current.riskSeverity : input.priority!;
+        const changed = await tx.testCase.update({
+          where: { id: input.id },
+          data: { priority: next, updatedById: ctx.user.id },
+        });
+        await tx.auditLog.create({
+          data: {
+            organizationId: project.organizationId,
+            projectId: caseRef.projectId,
+            actorId: ctx.user.id,
+            entityType: "TestCasePriority",
+            entityId: input.id,
+            action: "UPDATE",
+            summary:
+              input.mode === "MATCH_RISK"
+                ? `Accepted risk-derived priority ${next}`
+                : `Set business priority ${next}`,
+            metadata: {
+              mode: input.mode,
+              from: current.priority,
+              to: next,
+              rationale:
+                input.mode === "BUSINESS_OVERRIDE" ? input.rationale : null,
+              riskSeverity: current.riskSeverity,
+              riskScore: current.riskScore,
+            },
+          },
+        });
+        await snapshotTestCaseVersion(tx, {
+          testCaseId: changed.id,
+          title: changed.title,
+          background: changed.background,
+          given: changed.given,
+          when: changed.when,
+          then: changed.then,
+          steps: current.steps.map((step) => ({
+            order: step.order,
+            action: step.action,
+            expectedActionOrData: step.expectedActionOrData,
+            expectedResult: step.expectedResult,
+            expectedResponse: step.expectedResponse,
+            mediaAttachmentIds: step.mediaAttachmentIds,
+          })),
+          tags: changed.tags,
+          priority: changed.priority,
+          testType: changed.testType,
+          actorId: ctx.user.id,
+        });
         return { ...changed, steps: current.steps };
       });
       return { priority: updated.priority };
@@ -563,9 +710,13 @@ export const testCasesRouter = router({
     .input(z.object({ id: z.string() }))
     .query(async ({ ctx, input }) => {
       const tc = await ctx.prisma.testCase.findUniqueOrThrow({
-        where: { id: input.id }, include: { source: { select: { filePath: true } } },
+        where: { id: input.id },
+        include: { source: { select: { filePath: true } } },
       });
-      const { project, membership } = await requireProjectAccess(ctx, tc.projectId);
+      const { project, membership } = await requireProjectAccess(
+        ctx,
+        tc.projectId,
+      );
       const { hash } = riskInput(tc);
       const saved = await ctx.prisma.testCaseRiskReview.findUnique({
         where: { testCaseId_inputHash: { testCaseId: tc.id, inputHash: hash } },
@@ -573,7 +724,9 @@ export const testCasesRouter = router({
       return {
         balance: await getAiCreditBalance(ctx.prisma, project.organizationId),
         cost: AI_OPERATION_COSTS.assessTestCaseRisk,
-        canSpend: membership.seatType === "FULL" && ["OWNER", "ADMIN", "EDITOR"].includes(membership.role),
+        canSpend:
+          membership.seatType === "FULL" &&
+          ["OWNER", "ADMIN", "EDITOR"].includes(membership.role),
         inputHash: hash,
         savedStatus: saved?.status ?? null,
         alreadyAssessed: tc.riskAssessedAt !== null,
@@ -583,26 +736,52 @@ export const testCasesRouter = router({
   riskReviews: protectedProcedure
     .input(z.object({ id: z.string() }))
     .query(async ({ ctx, input }) => {
-      const testCase = await ctx.prisma.testCase.findUniqueOrThrow({ where: { id: input.id }, select: { projectId: true } });
+      const testCase = await ctx.prisma.testCase.findUniqueOrThrow({
+        where: { id: input.id },
+        select: { projectId: true },
+      });
       await requireProjectAccess(ctx, testCase.projectId);
       const reviews = await ctx.prisma.testCaseRiskReview.findMany({
         where: { testCaseId: input.id },
-        select: { id: true, inputHash: true, status: true, content: true, createdAt: true, updatedAt: true },
-        orderBy: { createdAt: "desc" }, take: 10,
+        select: {
+          id: true,
+          inputHash: true,
+          status: true,
+          content: true,
+          createdAt: true,
+          updatedAt: true,
+        },
+        orderBy: { createdAt: "desc" },
+        take: 10,
       });
-      const savedSchema = z.object({ severity: z.string(), riskScore: z.number(), rationale: z.string() });
-      return reviews.map(review => {
+      const savedSchema = z.object({
+        severity: z.string(),
+        riskScore: z.number(),
+        rationale: z.string(),
+      });
+      return reviews.map((review) => {
         const saved = savedSchema.safeParse(review.content);
-        return { id: review.id, inputHash: review.inputHash, status: review.status,
+        return {
+          id: review.id,
+          inputHash: review.inputHash,
+          status: review.status,
           severity: saved.success ? saved.data.severity : null,
           riskScore: saved.success ? saved.data.riskScore : null,
           rationale: saved.success ? saved.data.rationale : null,
-          createdAt: review.createdAt, updatedAt: review.updatedAt };
+          createdAt: review.createdAt,
+          updatedAt: review.updatedAt,
+        };
       });
     }),
 
   assessRisk: protectedProcedure
-    .input(z.object({ id: z.string(), expectedHash: z.string().length(64), approved: z.literal(true) }))
+    .input(
+      z.object({
+        id: z.string(),
+        expectedHash: z.string().length(64),
+        approved: z.literal(true),
+      }),
+    )
     .output(
       z.object({
         riskSeverity: z.string().nullable(),
@@ -620,47 +799,120 @@ export const testCasesRouter = router({
         tc.projectId,
         "EDITOR",
       );
-      if (membership.seatType !== "FULL") throw new TRPCError({ code: "FORBIDDEN", message: "A full editor seat is required. Ask your workspace administrator for access." });
+      if (membership.seatType !== "FULL")
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message:
+            "A full editor seat is required. Ask your workspace administrator for access.",
+        });
       const { data, hash } = riskInput(tc);
-      if (hash !== input.expectedHash) throw new TRPCError({ code: "CONFLICT", message: "The case changed. Review the updated risk preview before continuing." });
+      if (hash !== input.expectedHash)
+        throw new TRPCError({
+          code: "CONFLICT",
+          message:
+            "The case changed. Review the updated risk preview before continuing.",
+        });
       const key = { testCaseId: tc.id, inputHash: hash };
-      const previous = await ctx.prisma.testCaseRiskReview.findUnique({ where: { testCaseId_inputHash: key } });
-      if (previous?.content) {
-        const saved = previous.content as { severity: string; riskScore: number; rationale: string };
-        return { riskSeverity: saved.severity, riskScore: Math.round(saved.riskScore), riskRationale: saved.rationale };
-      }
-      if (previous) throw new TRPCError({ code: "CONFLICT", message: "Risk review already started or needs reconciliation. No new credits were charged." });
-      const reservation = await ctx.prisma.testCaseRiskReview.create({
-        data: { testCaseId: tc.id, inputHash: hash, createdById: ctx.user.id },
-      }).catch((error: unknown) => {
-        if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") throw new TRPCError({ code: "CONFLICT", message: "Another risk review already started. No new credits were charged." });
-        throw error;
+      const previous = await ctx.prisma.testCaseRiskReview.findUnique({
+        where: { testCaseId_inputHash: key },
       });
+      if (previous?.content) {
+        const saved = previous.content as {
+          severity: string;
+          riskScore: number;
+          rationale: string;
+        };
+        return {
+          riskSeverity: saved.severity,
+          riskScore: Math.round(saved.riskScore),
+          riskRationale: saved.rationale,
+        };
+      }
+      if (previous)
+        throw new TRPCError({
+          code: "CONFLICT",
+          message:
+            "Risk review already started or needs reconciliation. No new credits were charged.",
+        });
+      const reservation = await ctx.prisma.testCaseRiskReview
+        .create({
+          data: {
+            testCaseId: tc.id,
+            inputHash: hash,
+            createdById: ctx.user.id,
+          },
+        })
+        .catch((error: unknown) => {
+          if (
+            error instanceof Prisma.PrismaClientKnownRequestError &&
+            error.code === "P2002"
+          )
+            throw new TRPCError({
+              code: "CONFLICT",
+              message:
+                "Another risk review already started. No new credits were charged.",
+            });
+          throw error;
+        });
       try {
-        const charge = await chargeAiCredits(ctx.prisma, project.organizationId, "assessTestCaseRisk", `Risk review ${reservation.id}`);
-        const assessment = await meterAiCall(ctx.prisma, charge, () => assessTestCaseRisk(data));
+        const charge = await chargeAiCredits(
+          ctx.prisma,
+          project.organizationId,
+          "assessTestCaseRisk",
+          `Risk review ${reservation.id}`,
+        );
+        const assessment = await meterAiCall(ctx.prisma, charge, () =>
+          assessTestCaseRisk(data),
+        );
         await ctx.prisma.$transaction(async (db) => {
-          await db.testCaseRiskReview.update({ where: { id: reservation.id }, data: { status: "READY", content: assessment } });
+          await db.testCaseRiskReview.update({
+            where: { id: reservation.id },
+            data: { status: "READY", content: assessment },
+          });
           // A human may edit the case while the provider is working. Retain
           // the paid review but never apply stale output over that edit.
-          const fresh = await db.testCase.findUniqueOrThrow({ where: { id: tc.id }, include: { source: { select: { filePath: true } } } });
-          if (riskInput(fresh).hash === hash) await db.testCase.updateMany({
-            // The snapshot predates the paid call. Any intervening human edit,
-            // including a risk-only override, keeps the review as a saved
-            // suggestion instead of silently replacing the case's fields.
-            where: { id: tc.id, updatedAt: tc.updatedAt, riskSeverity: tc.riskSeverity, riskScore: tc.riskScore,
-              riskRationale: tc.riskRationale, riskAssessedAt: tc.riskAssessedAt },
-            data: { riskSeverity: assessment.severity, riskScore: Math.round(assessment.riskScore),
-              riskRationale: assessment.rationale, riskAssessedAt: new Date(), updatedById: ctx.user.id },
+          const fresh = await db.testCase.findUniqueOrThrow({
+            where: { id: tc.id },
+            include: { source: { select: { filePath: true } } },
           });
+          if (riskInput(fresh).hash === hash)
+            await db.testCase.updateMany({
+              // The snapshot predates the paid call. Any intervening human edit,
+              // including a risk-only override, keeps the review as a saved
+              // suggestion instead of silently replacing the case's fields.
+              where: {
+                id: tc.id,
+                updatedAt: tc.updatedAt,
+                riskSeverity: tc.riskSeverity,
+                riskScore: tc.riskScore,
+                riskRationale: tc.riskRationale,
+                riskAssessedAt: tc.riskAssessedAt,
+              },
+              data: {
+                riskSeverity: assessment.severity,
+                riskScore: Math.round(assessment.riskScore),
+                riskRationale: assessment.rationale,
+                riskAssessedAt: new Date(),
+                updatedById: ctx.user.id,
+              },
+            });
         });
-        return { riskSeverity: assessment.severity, riskScore: Math.round(assessment.riskScore), riskRationale: assessment.rationale };
+        return {
+          riskSeverity: assessment.severity,
+          riskScore: Math.round(assessment.riskScore),
+          riskRationale: assessment.rationale,
+        };
       } catch (error) {
         if (error instanceof InsufficientAiCreditsError) {
-          await ctx.prisma.testCaseRiskReview.delete({ where: { id: reservation.id } });
+          await ctx.prisma.testCaseRiskReview.delete({
+            where: { id: reservation.id },
+          });
           throw new TRPCError({ code: "BAD_REQUEST", message: error.message });
         }
-        await ctx.prisma.testCaseRiskReview.updateMany({ where: { id: reservation.id, status: "GENERATING" }, data: { status: "NEEDS_RECONCILIATION" } });
+        await ctx.prisma.testCaseRiskReview.updateMany({
+          where: { id: reservation.id, status: "GENERATING" },
+          data: { status: "NEEDS_RECONCILIATION" },
+        });
         throw error;
       }
     }),
@@ -668,26 +920,55 @@ export const testCasesRouter = router({
   automationDraft: protectedProcedure
     .input(z.object({ id: z.string() }))
     .query(async ({ ctx, input }) => {
-      const tc = await ctx.prisma.testCase.findUniqueOrThrow({ where: { id: input.id } });
+      const tc = await ctx.prisma.testCase.findUniqueOrThrow({
+        where: { id: input.id },
+      });
       await requireProjectAccess(ctx, tc.projectId);
       const saved = await ctx.prisma.automationDraft.findFirst({
         where: { testCaseId: tc.id, status: { in: ["GENERATING", "READY"] } },
       });
-      return saved ? { id: saved.id, status: saved.status, createdAt: saved.createdAt,
-        content: saved.content ? AutomationDraftSchema.parse(saved.content) : null } : null;
+      return saved
+        ? {
+            id: saved.id,
+            status: saved.status,
+            createdAt: saved.createdAt,
+            content: saved.content
+              ? AutomationDraftSchema.parse(saved.content)
+              : null,
+          }
+        : null;
     }),
 
   rejectAutomationDraft: protectedProcedure
     .input(z.object({ id: z.string(), draftId: z.string() }))
     .mutation(async ({ ctx, input }) => {
-      const tc = await ctx.prisma.testCase.findUniqueOrThrow({ where: { id: input.id } });
-      const { membership } = await requireProjectAccess(ctx, tc.projectId, "EDITOR");
-      if (membership.seatType !== "FULL") throw new TRPCError({ code: "FORBIDDEN", message: "A full editor seat is required." });
+      const tc = await ctx.prisma.testCase.findUniqueOrThrow({
+        where: { id: input.id },
+      });
+      const { membership } = await requireProjectAccess(
+        ctx,
+        tc.projectId,
+        "EDITOR",
+      );
+      if (membership.seatType !== "FULL")
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "A full editor seat is required.",
+        });
       const result = await ctx.prisma.automationDraft.updateMany({
         where: { id: input.draftId, testCaseId: tc.id, status: "READY" },
-        data: { status: "REJECTED", rejectedById: ctx.user.id, rejectedAt: new Date() },
+        data: {
+          status: "REJECTED",
+          rejectedById: ctx.user.id,
+          rejectedAt: new Date(),
+        },
       });
-      if (!result.count) throw new TRPCError({ code: "CONFLICT", message: "Draft changed or is still generating. Refresh before rejecting." });
+      if (!result.count)
+        throw new TRPCError({
+          code: "CONFLICT",
+          message:
+            "Draft changed or is still generating. Refresh before rejecting.",
+        });
       return { rejected: true };
     }),
 
@@ -710,69 +991,102 @@ export const testCasesRouter = router({
           project: { select: { id: true, name: true, organizationId: true } },
         },
       });
-      const { membership } = await requireProjectAccess(ctx, tc.projectId, "EDITOR");
-      if (membership.seatType !== "FULL") throw new TRPCError({ code: "FORBIDDEN", message: "A full editor seat is required." });
+      const { membership } = await requireProjectAccess(
+        ctx,
+        tc.projectId,
+        "EDITOR",
+      );
+      if (membership.seatType !== "FULL")
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "A full editor seat is required.",
+        });
       const existing = await ctx.prisma.automationDraft.findFirst({
         where: { testCaseId: tc.id, status: { in: ["GENERATING", "READY"] } },
       });
-      if (existing?.content) return AutomationDraftSchema.parse(existing.content);
-      if (existing) throw new TRPCError({ code: "CONFLICT", message: "A draft is already generating. Reopen this case to check it; no new credits were charged." });
-      const saved = await ctx.prisma.automationDraft.create({
-        data: { testCaseId: tc.id, framework: input.framework, createdById: ctx.user.id },
-      }).catch((error: unknown) => {
-        if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
-          throw new TRPCError({ code: "CONFLICT", message: "Another request already started this draft. No new credits were charged." });
-        }
-        throw error;
-      });
+      if (existing?.content)
+        return AutomationDraftSchema.parse(existing.content);
+      if (existing)
+        throw new TRPCError({
+          code: "CONFLICT",
+          message:
+            "A draft is already generating. Reopen this case to check it; no new credits were charged.",
+        });
+      const saved = await ctx.prisma.automationDraft
+        .create({
+          data: {
+            testCaseId: tc.id,
+            framework: input.framework,
+            createdById: ctx.user.id,
+          },
+        })
+        .catch((error: unknown) => {
+          if (
+            error instanceof Prisma.PrismaClientKnownRequestError &&
+            error.code === "P2002"
+          ) {
+            throw new TRPCError({
+              code: "CONFLICT",
+              message:
+                "Another request already started this draft. No new credits were charged.",
+            });
+          }
+          throw error;
+        });
       let generated = false;
       try {
-      const charge = await chargeAiCredits(
-        ctx.prisma,
-        tc.project.organizationId,
-        "generateAutomationDraft",
-        `${input.framework} draft for TestCase ${tc.id}`,
-      ).catch((error: unknown) => {
-        if (error instanceof InsufficientAiCreditsError) {
-          throw new TRPCError({ code: "BAD_REQUEST", message: error.message });
-        }
-        throw error;
-      });
-      const sharedSteps = tc.sharedStepGroup
-        ? (tc.sharedStepGroup.steps as Array<{
-            action: string;
-            expectedActionOrData?: string | null;
-            expectedResult?: string | null;
-            expectedResponse?: string | null;
-          }>)
-        : tc.steps;
-      const draft = await meterAiCall(ctx.prisma, charge, () =>
-        generateAutomationDraft({
-          framework: input.framework,
-          automationId: `VAE-${tc.id}`,
-          projectName: tc.project.name,
-          title: tc.title,
-          background: tc.background,
-          given: tc.given,
-          when: tc.when,
-          then: tc.then,
-          structuredSteps: sharedSteps,
-          sourceFilePath: tc.source?.filePath,
-          projectContext: input.projectContext,
-        }),
-      );
-      generated = true;
-      await ctx.prisma.automationDraft.update({
-        where: { id: saved.id }, data: { status: "READY", content: draft },
-      });
-      return draft;
+        const charge = await chargeAiCredits(
+          ctx.prisma,
+          tc.project.organizationId,
+          "generateAutomationDraft",
+          `${input.framework} draft for TestCase ${tc.id}`,
+        ).catch((error: unknown) => {
+          if (error instanceof InsufficientAiCreditsError) {
+            throw new TRPCError({
+              code: "BAD_REQUEST",
+              message: error.message,
+            });
+          }
+          throw error;
+        });
+        const sharedSteps = tc.sharedStepGroup
+          ? (tc.sharedStepGroup.steps as Array<{
+              action: string;
+              expectedActionOrData?: string | null;
+              expectedResult?: string | null;
+              expectedResponse?: string | null;
+            }>)
+          : tc.steps;
+        const draft = await meterAiCall(ctx.prisma, charge, () =>
+          generateAutomationDraft({
+            framework: input.framework,
+            automationId: `VAE-${tc.id}`,
+            projectName: tc.project.name,
+            title: tc.title,
+            background: tc.background,
+            given: tc.given,
+            when: tc.when,
+            then: tc.then,
+            structuredSteps: sharedSteps,
+            sourceFilePath: tc.source?.filePath,
+            projectContext: input.projectContext,
+          }),
+        );
+        generated = true;
+        await ctx.prisma.automationDraft.update({
+          where: { id: saved.id },
+          data: { status: "READY", content: draft },
+        });
+        return draft;
       } catch (error) {
         // Never remove an already persisted paid result.
         // If storage failed after generation, keep the reservation to prevent
         // a retry from charging again. An operator must reconcile that failure.
-        if (!generated) await ctx.prisma.automationDraft.updateMany({
-          where: { id: saved.id, status: "GENERATING" }, data: { status: "FAILED" },
-        });
+        if (!generated)
+          await ctx.prisma.automationDraft.updateMany({
+            where: { id: saved.id, status: "GENERATING" },
+            data: { status: "FAILED" },
+          });
         throw error;
       }
     }),
@@ -964,7 +1278,11 @@ export const testCasesRouter = router({
         "EDITOR",
       );
       if (stepMediaIds(input.steps).length > 0) {
-        throw new TRPCError({ code: "BAD_REQUEST", message: "Save the case before linking image or video attachments to steps." });
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message:
+            "Save the case before linking image or video attachments to steps.",
+        });
       }
       const created = await ctx.prisma.testCase.create({
         data: {
@@ -1130,7 +1448,12 @@ export const testCasesRouter = router({
   update: protectedProcedure
     .input(
       testCaseContentSchema
-        .extend({ id: z.string(), expectedSuitePath: z.string().nullable().optional(), expectedPriority: prioritySchema.optional(), expectedStepRevision: z.string().length(64).optional() })
+        .extend({
+          id: z.string(),
+          expectedSuitePath: z.string().nullable().optional(),
+          expectedPriority: prioritySchema.optional(),
+          expectedStepRevision: z.string().length(64).optional(),
+        })
         .refine(requireAtLeastOneFormat, {
           message: AT_LEAST_ONE_FORMAT_MESSAGE,
         }),
@@ -1174,21 +1497,56 @@ export const testCasesRouter = router({
       // across an edit.
       const updated = await ctx.prisma.$transaction(async (tx) => {
         await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${existing.projectId}))::text`;
-        const currentPlacement = await tx.testCase.findUniqueOrThrow({ where: { id: input.id }, select: { suitePath: true, priority: true } });
-        if (currentPlacement.suitePath !== existing.suitePath ||
-          (input.expectedSuitePath !== undefined && currentPlacement.suitePath !== input.expectedSuitePath)) {
-          throw new TRPCError({ code: "CONFLICT", message: "This case moved since it was opened. Refresh before saving." });
+        const currentPlacement = await tx.testCase.findUniqueOrThrow({
+          where: { id: input.id },
+          select: { suitePath: true, priority: true },
+        });
+        if (
+          currentPlacement.suitePath !== existing.suitePath ||
+          (input.expectedSuitePath !== undefined &&
+            currentPlacement.suitePath !== input.expectedSuitePath)
+        ) {
+          throw new TRPCError({
+            code: "CONFLICT",
+            message:
+              "This case moved since it was opened. Refresh before saving.",
+          });
         }
-        if (input.expectedPriority !== undefined && currentPlacement.priority !== input.expectedPriority) {
-          throw new TRPCError({ code: "CONFLICT", message: "Priority changed since this case was opened. Refresh before saving to preserve the newer decision." });
+        if (
+          input.expectedPriority !== undefined &&
+          currentPlacement.priority !== input.expectedPriority
+        ) {
+          throw new TRPCError({
+            code: "CONFLICT",
+            message:
+              "Priority changed since this case was opened. Refresh before saving to preserve the newer decision.",
+          });
         }
-        if (input.expectedPriority === undefined && input.priority !== currentPlacement.priority) {
-          throw new TRPCError({ code: "CONFLICT", message: "Refresh the case before changing priority so newer decisions are preserved." });
+        if (
+          input.expectedPriority === undefined &&
+          input.priority !== currentPlacement.priority
+        ) {
+          throw new TRPCError({
+            code: "CONFLICT",
+            message:
+              "Refresh the case before changing priority so newer decisions are preserved.",
+          });
         }
-        const priorSteps = await tx.testCaseStep.findMany({ where: { testCaseId: input.id }, orderBy: { order: "asc" } });
-        if ((input.expectedStepRevision && stepRevision(priorSteps) !== input.expectedStepRevision) ||
-          (!input.expectedStepRevision && priorSteps.some(step => step.mediaAttachmentIds.length > 0))) {
-          throw new TRPCError({ code: "CONFLICT", message: "This case's steps or media changed since it was opened. Refresh the editor before saving." });
+        const priorSteps = await tx.testCaseStep.findMany({
+          where: { testCaseId: input.id },
+          orderBy: { order: "asc" },
+        });
+        if (
+          (input.expectedStepRevision &&
+            stepRevision(priorSteps) !== input.expectedStepRevision) ||
+          (!input.expectedStepRevision &&
+            priorSteps.some((step) => step.mediaAttachmentIds.length > 0))
+        ) {
+          throw new TRPCError({
+            code: "CONFLICT",
+            message:
+              "This case's steps or media changed since it was opened. Refresh the editor before saving.",
+          });
         }
         const ids = stepMediaIds(input.steps);
         if (ids.length > 0) {
@@ -1196,8 +1554,15 @@ export const testCasesRouter = router({
             where: { id: { in: ids }, testCaseId: input.id },
             select: { id: true, contentType: true },
           });
-          if (attachments.length !== ids.length || attachments.some(a => !/^(image|video)\//i.test(a.contentType))) {
-            throw new TRPCError({ code: "BAD_REQUEST", message: "Each step image or video must be an attachment on this test case." });
+          if (
+            attachments.length !== ids.length ||
+            attachments.some((a) => !/^(image|video)\//i.test(a.contentType))
+          ) {
+            throw new TRPCError({
+              code: "BAD_REQUEST",
+              message:
+                "Each step image or video must be an attachment on this test case.",
+            });
           }
         }
         if (shouldCaptureFeedback) {
@@ -1254,13 +1619,26 @@ export const testCasesRouter = router({
                 },
           },
         });
-        if (currentPlacement.priority !== changed.priority) await tx.auditLog.create({ data: {
-          organizationId: project.organizationId, projectId: existing.projectId, actorId: ctx.user.id,
-          entityType: "TestCasePriority", entityId: input.id, action: "UPDATE",
-          summary: `Manually set priority ${changed.priority}`,
-          metadata: { mode: "MANUAL", from: currentPlacement.priority, to: changed.priority,
-            rationale: null, riskSeverity: changed.riskSeverity, riskScore: changed.riskScore },
-        } });
+        if (currentPlacement.priority !== changed.priority)
+          await tx.auditLog.create({
+            data: {
+              organizationId: project.organizationId,
+              projectId: existing.projectId,
+              actorId: ctx.user.id,
+              entityType: "TestCasePriority",
+              entityId: input.id,
+              action: "UPDATE",
+              summary: `Manually set priority ${changed.priority}`,
+              metadata: {
+                mode: "MANUAL",
+                from: currentPlacement.priority,
+                to: changed.priority,
+                rationale: null,
+                riskSeverity: changed.riskSeverity,
+                riskScore: changed.riskScore,
+              },
+            },
+          });
         return changed;
       });
       await recordAudit(ctx.prisma, {
@@ -1299,22 +1677,41 @@ export const testCasesRouter = router({
   // tree's "Unassigned" bucket. Pass null/"" to clear back to unassigned
   // (or the derived source-file location, if it has one).
   setSuite: protectedProcedure
-    .input(z.object({ id: z.string(), suitePath: z.string().nullable(), expectedSuitePath: z.string().nullable().optional() }))
+    .input(
+      z.object({
+        id: z.string(),
+        suitePath: z.string().nullable(),
+        expectedSuitePath: z.string().nullable().optional(),
+      }),
+    )
     .mutation(async ({ ctx, input }) => {
       const existing = await ctx.prisma.testCase.findUniqueOrThrow({
         where: { id: input.id },
         select: { projectId: true },
       });
       await requireProjectAccess(ctx, existing.projectId, "EDITOR");
-      await ctx.prisma.$transaction(async tx => {
+      await ctx.prisma.$transaction(async (tx) => {
         await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${existing.projectId}))::text`;
-        const current = await tx.testCase.findUniqueOrThrow({ where: { id: input.id }, select: { suitePath: true } });
-        if (input.expectedSuitePath !== undefined && current.suitePath !== input.expectedSuitePath) {
-          throw new TRPCError({ code: "CONFLICT", message: "This case moved since it was loaded. Refresh before assigning it." });
+        const current = await tx.testCase.findUniqueOrThrow({
+          where: { id: input.id },
+          select: { suitePath: true },
+        });
+        if (
+          input.expectedSuitePath !== undefined &&
+          current.suitePath !== input.expectedSuitePath
+        ) {
+          throw new TRPCError({
+            code: "CONFLICT",
+            message:
+              "This case moved since it was loaded. Refresh before assigning it.",
+          });
         }
         await tx.testCase.update({
           where: { id: input.id },
-          data: { suitePath: input.suitePath || null, updatedById: ctx.user.id },
+          data: {
+            suitePath: input.suitePath || null,
+            updatedById: ctx.user.id,
+          },
         });
       });
     }),
@@ -1332,7 +1729,19 @@ export const testCasesRouter = router({
         "EDITOR",
       );
       try {
-        await ctx.prisma.testCase.delete({ where: { id: input.id } });
+        await ctx.prisma.$transaction(async (tx) => {
+          await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${existing.projectId}))::text`;
+          await requireCurrentPlanAccess(
+            tx,
+            ctx.user.id,
+            existing.projectId,
+            true,
+          );
+          await ensureCaseEvidenceNotRetained(tx, existing.projectId, input.id);
+          await tx.testCase.delete({
+            where: { id: input.id, projectId: existing.projectId },
+          });
+        });
       } catch (e) {
         if (
           e instanceof Prisma.PrismaClientKnownRequestError &&
@@ -1341,7 +1750,7 @@ export const testCasesRouter = router({
           throw new TRPCError({
             code: "BAD_REQUEST",
             message:
-              "This test case is linked to a prerequisite, compliance control, or change-impact recommendation. Unlink those first.",
+              "This test case is linked to a prerequisite, compliance control, change-impact recommendation, or retained execution history. Archive it instead, or unlink editable relationships before deleting it. Recorded history must be preserved.",
           });
         }
         throw e;
@@ -1377,12 +1786,28 @@ export const testCasesRouter = router({
       let blockedCount = 0;
       for (const id of input.ids) {
         try {
-          await ctx.prisma.testCase.delete({
-            where: { id, projectId: input.projectId },
+          await ctx.prisma.$transaction(async (tx) => {
+            await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${input.projectId}))::text`;
+            await requireCurrentPlanAccess(
+              tx,
+              ctx.user.id,
+              input.projectId,
+              true,
+            );
+            await ensureCaseEvidenceNotRetained(tx, input.projectId, id);
+            await tx.testCase.delete({
+              where: { id, projectId: input.projectId },
+            });
           });
           deletedCount++;
-        } catch {
-          blockedCount++;
+        } catch (error) {
+          if (
+            (error instanceof TRPCError && error.code === "CONFLICT") ||
+            (error instanceof Prisma.PrismaClientKnownRequestError &&
+              ["P2003", "P2025"].includes(error.code))
+          )
+            blockedCount++;
+          else throw error;
         }
       }
       return { deletedCount, blockedCount };

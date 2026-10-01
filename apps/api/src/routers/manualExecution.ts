@@ -26,6 +26,18 @@ import {
   verificationProfileSchema,
   validationDomainSchema,
 } from "../services/physicalValidation.js";
+import {
+  boundedCurrentStepBytes,
+  frozenStructuredCase,
+  protectExecutedDependents,
+  recordManualStepResult,
+  recordStepResultInputSchema,
+  safeEvidenceFileName,
+  stepEvidenceSchema,
+  stepRevisionOutput,
+  stepRevisionOutputSchema,
+  stepStatusSchema,
+} from "../services/manualStepExecution.js";
 
 // Closes the single biggest gap found in the 2026-08-27 competitor parity
 // audit (see COMPETITIVE_ANALYSIS.md): every competitor researched
@@ -51,6 +63,140 @@ import {
 // step-by-step pass/fail within a single case (which some competitors
 // also support) is a real, separate increment, not attempted here.
 export const manualExecutionRouter = router({
+  recordStepResult: protectedProcedure
+    .input(recordStepResultInputSchema)
+    .output(
+      z.object({
+        revisionId: z.string(),
+        caseStatus: stepStatusSchema.nullable(),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const result = await recordManualStepResult(ctx.prisma, ctx.user, input);
+      if (!result.recovered) {
+        await recomputeFlaky(ctx.prisma, input.testCaseId);
+        if (result.caseStatus === "PASS")
+          await resolveHealingSuggestionsOnPass(ctx.prisma, input.testCaseId);
+      }
+      return result;
+    }),
+
+  stepResultHistory: protectedProcedure
+    .input(
+      z.object({
+        testRunId: z.string().min(1).max(200),
+        testCaseId: z.string().min(1).max(200),
+        stepIndex: z.number().int().min(0).max(499),
+        cursor: z.string().min(1).max(200).optional(),
+        limit: z.number().int().min(1).max(25).default(25),
+      }),
+    )
+    .output(
+      z.object({
+        revisions: z.array(stepRevisionOutputSchema).max(25),
+        nextCursor: z.string().nullable(),
+      }),
+    )
+    .query(async ({ ctx, input }) => {
+      const run = await ctx.prisma.testRun.findUnique({
+        where: { id: input.testRunId },
+      });
+      if (!run)
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Test run not found",
+        });
+      await requireProjectAccess(ctx, run.projectId);
+      await requireCurrentPlanAccess(ctx.prisma, ctx.user.id, run.projectId);
+      const definition = frozenStructuredCase(run, input.testCaseId);
+      if (input.stepIndex >= definition.steps.length)
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "That step is not part of this run's frozen procedure.",
+        });
+      const scope = {
+        testRunId: run.id,
+        testCaseId: input.testCaseId,
+        stepIndex: input.stepIndex,
+      };
+      const cursor = input.cursor
+        ? await ctx.prisma.manualStepResultRevision.findFirst({
+            where: { ...scope, id: input.cursor },
+            select: { revisionNumber: true },
+          })
+        : null;
+      if (input.cursor && !cursor)
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "This history cursor does not belong to the selected step.",
+        });
+      const rows = await ctx.prisma.manualStepResultRevision.findMany({
+        where: {
+          ...scope,
+          revisionNumber: cursor ? { lt: cursor.revisionNumber } : undefined,
+        },
+        orderBy: { revisionNumber: "desc" },
+        take: input.limit + 1,
+      });
+      const revisions = rows.slice(0, input.limit).map(stepRevisionOutput);
+      return {
+        revisions,
+        nextCursor:
+          rows.length > input.limit
+            ? revisions[revisions.length - 1]!.id
+            : null,
+      };
+    }),
+
+  listStepEvidence: protectedProcedure
+    .input(
+      z.object({
+        testRunId: z.string().min(1).max(200),
+        search: z.string().trim().max(200).optional(),
+        cursor: z.string().min(1).max(200).optional(),
+      }),
+    )
+    .output(
+      z.object({
+        attachments: z.array(stepEvidenceSchema).max(25),
+        nextCursor: z.string().nullable(),
+      }),
+    )
+    .query(async ({ ctx, input }) => {
+      const run = await ctx.prisma.testRun.findUnique({
+        where: { id: input.testRunId },
+        select: { projectId: true },
+      });
+      if (!run)
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Test run not found",
+        });
+      await requireProjectAccess(ctx, run.projectId);
+      await requireCurrentPlanAccess(ctx.prisma, ctx.user.id, run.projectId);
+      const rows = await ctx.prisma.testCaseAttachment.findMany({
+        where: {
+          testCase: { projectId: run.projectId },
+          uploadCompletedAt: { not: null },
+          id: input.cursor ? { gt: input.cursor } : undefined,
+          fileName: input.search
+            ? { contains: input.search, mode: "insensitive" }
+            : undefined,
+        },
+        orderBy: { id: "asc" },
+        select: { id: true, fileName: true },
+        take: 26,
+      });
+      const attachments = rows
+        .slice(0, 25)
+        .map((a) => ({ id: a.id, fileName: safeEvidenceFileName(a.fileName) }));
+      return {
+        attachments,
+        nextCursor:
+          rows.length > 25 ? attachments[attachments.length - 1]!.id : null,
+      };
+    }),
+
   start: protectedProcedure
     .input(
       z.object({
@@ -391,6 +537,16 @@ export const manualExecutionRouter = router({
                 mediaAttachmentIds: z.array(z.string()).default([]),
               }),
             ),
+            stepExecutionAvailable: z.boolean(),
+            stepResults: z
+              .array(
+                z.object({
+                  stepIndex: z.number(),
+                  current: stepRevisionOutputSchema.nullable(),
+                  revisionCount: z.number(),
+                }),
+              )
+              .max(500),
             currentResult: z
               .object({
                 status: z.string(),
@@ -403,107 +559,146 @@ export const manualExecutionRouter = router({
       }),
     )
     .query(async ({ ctx, input }) => {
-      const run = await ctx.prisma.testRun.findUniqueOrThrow({
-        where: { id: input.testRunId },
-        include: { project: { include: { organization: true } } },
-      });
-      await requireProjectAccess(ctx, run.projectId);
+      return ctx.prisma.$transaction(
+        async (tx) => {
+          const run = await tx.testRun.findUniqueOrThrow({
+            where: { id: input.testRunId },
+            include: { project: { include: { organization: true } } },
+          });
+          await requireProjectAccess(ctx, run.projectId);
+          await requireCurrentPlanAccess(tx, ctx.user.id, run.projectId);
 
-      const [cases, results] = await Promise.all([
-        ctx.prisma.testCase.findMany({
-          where: {
-            id: { in: run.manualTestCaseIds },
-            projectId: run.projectId,
-          },
-          include: {
-            steps: { orderBy: { order: "asc" } },
-            sharedStepGroup: true,
-          },
-        }),
-        ctx.prisma.testResult.findMany({
-          where: {
+          const [cases, results] = await Promise.all([
+            tx.testCase.findMany({
+              where: {
+                id: { in: run.manualTestCaseIds },
+                projectId: run.projectId,
+              },
+              include: {
+                steps: { orderBy: { order: "asc" } },
+                sharedStepGroup: true,
+              },
+            }),
+            tx.testResult.findMany({
+              where: {
+                testRunId: run.id,
+                testCaseId: { in: run.manualTestCaseIds },
+              },
+            }),
+          ]);
+          const casesById = new Map(cases.map((c) => [c.id, c]));
+          const resultByCase = new Map(
+            results.map((r) => [r.testCaseId as string, r]),
+          );
+          const prerequisites = z
+            .record(z.array(z.string()))
+            .parse(run.manualPrerequisites);
+          const executionContext = readRunExperienceSnapshot(
+            run.executionContext,
+          );
+          const frozenCases = new Map(
+            executionContext?.caseDefinitions.map((c) => [c.testCaseId, c]) ??
+              [],
+          );
+          await boundedCurrentStepBytes(tx, run.id);
+          const stepHeads = await tx.manualStepResultHead.findMany({
+            where: {
+              testRunId: run.id,
+              testCaseId: { in: run.manualTestCaseIds },
+            },
+            include: { currentRevision: true },
+          });
+          const stepsByCase = new Map<string, typeof stepHeads>();
+          for (const head of stepHeads)
+            stepsByCase.set(head.testCaseId, [
+              ...(stepsByCase.get(head.testCaseId) ?? []),
+              head,
+            ]);
+
+          const overrides =
+            (run.project.organization.stepFieldLabels as Partial<
+              Record<string, string>
+            > | null) ?? {};
+
+          return {
             testRunId: run.id,
-            testCaseId: { in: run.manualTestCaseIds },
-          },
-        }),
-      ]);
-      const casesById = new Map(cases.map((c) => [c.id, c]));
-      const resultByCase = new Map(
-        results.map((r) => [r.testCaseId as string, r]),
+            projectId: run.projectId,
+            status: run.status,
+            stepFieldLabels:
+              executionContext?.stepFieldLabels ??
+              resolveStepFieldLabels(overrides as never),
+            executionContext,
+            cases: run.manualTestCaseIds
+              .map((id) => {
+                const c = casesById.get(id);
+                const frozen = frozenCases.get(id);
+                if (!c && !frozen) return null;
+                const result = resultByCase.get(id);
+                const heads = stepsByCase.get(id) ?? [];
+                return {
+                  testCaseId: id,
+                  title: frozen ? frozen.title : c!.title,
+                  background: frozen ? frozen.background : c!.background,
+                  prerequisiteIds: prerequisites[id] ?? [],
+                  validationDomain: frozen
+                    ? validationDomainSchema.parse(frozen.validationDomain)
+                    : c!.validationDomain,
+                  verificationProfile: frozen
+                    ? frozen.verificationProfile
+                    : verificationProfileSchema.parse(c!.verificationProfile),
+                  given: frozen ? frozen.given : c!.given,
+                  when: frozen ? frozen.when : c!.when,
+                  then: frozen ? frozen.then : c!.then,
+                  stepExecutionAvailable:
+                    !!frozen?.steps.length && (!result || heads.length > 0),
+                  stepResults:
+                    frozen?.steps.map((_, stepIndex) => {
+                      const head = heads.find((h) => h.stepIndex === stepIndex);
+                      return {
+                        stepIndex,
+                        current: head
+                          ? stepRevisionOutput(head.currentRevision)
+                          : null,
+                        revisionCount: head?.revisionCount ?? 0,
+                      };
+                    }) ?? [],
+                  // Same shared-step-group resolution as testCases.ts's byId -
+                  // a case deferring to a group has no steps of its own.
+                  steps: frozen
+                    ? frozen.steps
+                    : c!.sharedStepGroup
+                      ? (c!.sharedStepGroup.steps as Array<{
+                          order: number;
+                          action: string;
+                          expectedActionOrData: string | null;
+                          expectedResult: string | null;
+                          expectedResponse: string | null;
+                          mediaAttachmentIds: string[];
+                        }>)
+                      : c!.steps.map((s) => ({
+                          order: s.order,
+                          action: s.action,
+                          expectedActionOrData: s.expectedActionOrData,
+                          expectedResult: s.expectedResult,
+                          expectedResponse: s.expectedResponse,
+                          mediaAttachmentIds: s.mediaAttachmentIds,
+                        })),
+                  currentResult: result
+                    ? {
+                        status: result.status,
+                        note: result.note,
+                        observations: observationsSchema.parse(
+                          result.observations,
+                        ),
+                      }
+                    : null,
+                };
+              })
+              .filter((c): c is NonNullable<typeof c> => c !== null),
+          };
+        },
+        { isolationLevel: "RepeatableRead", timeout: 20000 },
       );
-      const prerequisites = z
-        .record(z.array(z.string()))
-        .parse(run.manualPrerequisites);
-      const executionContext = readRunExperienceSnapshot(run.executionContext);
-      const frozenCases = new Map(
-        executionContext?.caseDefinitions.map((c) => [c.testCaseId, c]) ?? [],
-      );
-
-      const overrides =
-        (run.project.organization.stepFieldLabels as Partial<
-          Record<string, string>
-        > | null) ?? {};
-
-      return {
-        testRunId: run.id,
-        projectId: run.projectId,
-        status: run.status,
-        stepFieldLabels:
-          executionContext?.stepFieldLabels ??
-          resolveStepFieldLabels(overrides as never),
-        executionContext,
-        cases: run.manualTestCaseIds
-          .map((id) => {
-            const c = casesById.get(id);
-            const frozen = frozenCases.get(id);
-            if (!c && !frozen) return null;
-            const result = resultByCase.get(id);
-            return {
-              testCaseId: id,
-              title: frozen ? frozen.title : c!.title,
-              background: frozen ? frozen.background : c!.background,
-              prerequisiteIds: prerequisites[id] ?? [],
-              validationDomain: frozen
-                ? validationDomainSchema.parse(frozen.validationDomain)
-                : c!.validationDomain,
-              verificationProfile: frozen
-                ? frozen.verificationProfile
-                : verificationProfileSchema.parse(c!.verificationProfile),
-              given: frozen ? frozen.given : c!.given,
-              when: frozen ? frozen.when : c!.when,
-              then: frozen ? frozen.then : c!.then,
-              // Same shared-step-group resolution as testCases.ts's byId -
-              // a case deferring to a group has no steps of its own.
-              steps: frozen
-                ? frozen.steps
-                : c!.sharedStepGroup
-                  ? (c!.sharedStepGroup.steps as Array<{
-                      order: number;
-                      action: string;
-                      expectedActionOrData: string | null;
-                      expectedResult: string | null;
-                      expectedResponse: string | null;
-                      mediaAttachmentIds: string[];
-                    }>)
-                  : c!.steps.map((s) => ({
-                      order: s.order,
-                      action: s.action,
-                      expectedActionOrData: s.expectedActionOrData,
-                      expectedResult: s.expectedResult,
-                      expectedResponse: s.expectedResponse,
-                      mediaAttachmentIds: s.mediaAttachmentIds,
-                    })),
-              currentResult: result
-                ? {
-                    status: result.status,
-                    note: result.note,
-                    observations: observationsSchema.parse(result.observations),
-                  }
-                : null,
-            };
-          })
-          .filter((c): c is NonNullable<typeof c> => c !== null),
-      };
     }),
 
   // Idempotent by design: re-recording a case already executed in this
@@ -533,6 +728,7 @@ export const manualExecutionRouter = router({
         const run = await tx.testRun.findUniqueOrThrow({
           where: { id: input.testRunId },
         });
+        await requireCurrentPlanAccess(tx, ctx.user.id, run.projectId, true);
 
         if (run.ciProvider !== "manual" || run.status !== "RUNNING") {
           throw new TRPCError({
@@ -551,6 +747,16 @@ export const manualExecutionRouter = router({
         const existing = await tx.testResult.findFirst({
           where: { testRunId: input.testRunId, testCaseId: input.testCaseId },
         });
+        if (
+          await tx.manualStepResultHead.count({
+            where: { testRunId: run.id, testCaseId: input.testCaseId },
+          })
+        )
+          throw new TRPCError({
+            code: "CONFLICT",
+            message:
+              "This case is being executed per step. Record or correct its step outcomes; the derived case verdict cannot be overwritten.",
+          });
 
         const prerequisites = z
           .record(z.array(z.string()))
@@ -578,6 +784,7 @@ export const manualExecutionRouter = router({
           }
         }
         if (existing?.status === "PASS" && input.status !== "PASS") {
+          await protectExecutedDependents(tx, run, input.testCaseId);
           const dependents = Object.entries(prerequisites)
             .filter(([, ids]) => ids.includes(input.testCaseId))
             .map(([id]) => id);
@@ -663,6 +870,7 @@ export const manualExecutionRouter = router({
         const run = await tx.testRun.findUniqueOrThrow({
           where: { id: input.testRunId },
         });
+        await requireCurrentPlanAccess(tx, ctx.user.id, run.projectId, true);
 
         if (run.ciProvider !== "manual" || run.status !== "RUNNING") {
           throw new TRPCError({
@@ -679,10 +887,17 @@ export const manualExecutionRouter = router({
           select: { status: true },
         });
 
-        const status = manualRunStatus(
-          run.manualTestCaseIds.length,
-          results.map((r) => r.status),
-        );
+        const observedFailures = await tx.manualStepResultHead.findMany({
+          where: {
+            testRunId: run.id,
+            currentRevision: { status: { in: ["FAIL", "BLOCKED"] } },
+          },
+          select: { currentRevision: { select: { status: true } } },
+        });
+        const status = manualRunStatus(run.manualTestCaseIds.length, [
+          ...results.map((r) => r.status),
+          ...observedFailures.map((h) => h.currentRevision.status),
+        ]);
 
         await tx.testRun.update({
           where: { id: input.testRunId },

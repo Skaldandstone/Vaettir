@@ -36,22 +36,60 @@ export interface OrgDeletionPreview {
 }
 
 async function scopeIds(prisma: PrismaClient, organizationId: string) {
-  const projects = await prisma.project.findMany({ where: { organizationId }, select: { id: true } });
+  const projects = await prisma.project.findMany({
+    where: { organizationId },
+    select: { id: true },
+  });
   const projectIds = projects.map((p) => p.id);
 
-  const [testCases, testPlans, testRuns, releases, testSelectionRuns, coverageReports, exploratorySessions, webhookEndpoints] =
-    await Promise.all([
-      prisma.testCase.findMany({ where: { projectId: { in: projectIds } }, select: { id: true } }),
-      prisma.testPlan.findMany({ where: { projectId: { in: projectIds } }, select: { id: true } }),
-      prisma.testRun.findMany({ where: { projectId: { in: projectIds } }, select: { id: true } }),
-      prisma.release.findMany({ where: { projectId: { in: projectIds } }, select: { id: true } }),
-      prisma.testSelectionRun.findMany({ where: { projectId: { in: projectIds } }, select: { id: true } }),
-      prisma.coverageReport.findMany({ where: { projectId: { in: projectIds } }, select: { id: true } }),
-      prisma.exploratorySession.findMany({ where: { projectId: { in: projectIds } }, select: { id: true } }),
-      prisma.webhookEndpoint.findMany({ where: { organizationId }, select: { id: true } }),
-    ]);
+  const [
+    testCases,
+    testPlans,
+    testRuns,
+    releases,
+    testSelectionRuns,
+    coverageReports,
+    exploratorySessions,
+    webhookEndpoints,
+  ] = await Promise.all([
+    prisma.testCase.findMany({
+      where: { projectId: { in: projectIds } },
+      select: { id: true },
+    }),
+    prisma.testPlan.findMany({
+      where: { projectId: { in: projectIds } },
+      select: { id: true },
+    }),
+    prisma.testRun.findMany({
+      where: { projectId: { in: projectIds } },
+      select: { id: true },
+    }),
+    prisma.release.findMany({
+      where: { projectId: { in: projectIds } },
+      select: { id: true },
+    }),
+    prisma.testSelectionRun.findMany({
+      where: { projectId: { in: projectIds } },
+      select: { id: true },
+    }),
+    prisma.coverageReport.findMany({
+      where: { projectId: { in: projectIds } },
+      select: { id: true },
+    }),
+    prisma.exploratorySession.findMany({
+      where: { projectId: { in: projectIds } },
+      select: { id: true },
+    }),
+    prisma.webhookEndpoint.findMany({
+      where: { organizationId },
+      select: { id: true },
+    }),
+  ]);
   const testRunIds = testRuns.map((r) => r.id);
-  const testResults = await prisma.testResult.findMany({ where: { testRunId: { in: testRunIds } }, select: { id: true } });
+  const testResults = await prisma.testResult.findMany({
+    where: { testRunId: { in: testRunIds } },
+    select: { id: true },
+  });
 
   return {
     projectIds,
@@ -67,8 +105,13 @@ async function scopeIds(prisma: PrismaClient, organizationId: string) {
   };
 }
 
-export async function previewOrgHardDelete(prisma: PrismaClient, organizationId: string): Promise<OrgDeletionPreview> {
-  const org = await prisma.organization.findUniqueOrThrow({ where: { id: organizationId } });
+export async function previewOrgHardDelete(
+  prisma: PrismaClient,
+  organizationId: string,
+): Promise<OrgDeletionPreview> {
+  const org = await prisma.organization.findUniqueOrThrow({
+    where: { id: organizationId },
+  });
   const scope = await scopeIds(prisma, organizationId);
 
   const [
@@ -102,6 +145,8 @@ export async function previewOrgHardDelete(prisma: PrismaClient, organizationId:
     reverseEngineerJob,
     testResultArtifact,
     testResult,
+    manualStepResultHead,
+    manualStepResultRevision,
     testSelectionRecommendation,
     testCase,
     testPlanVersion,
@@ -114,46 +159,106 @@ export async function previewOrgHardDelete(prisma: PrismaClient, organizationId:
     webhookDelivery,
     webhookEndpoint,
   ] = await Promise.all([
-    prisma.coverageFileEntry.count({ where: { reportId: { in: scope.coverageReportIds } } }),
-    prisma.coverageReport.count({ where: { projectId: { in: scope.projectIds } } }),
-    prisma.exploratorySessionNote.count({ where: { sessionId: { in: scope.exploratorySessionIds } } }),
-    prisma.exploratorySession.count({ where: { projectId: { in: scope.projectIds } } }),
+    prisma.coverageFileEntry.count({
+      where: { reportId: { in: scope.coverageReportIds } },
+    }),
+    prisma.coverageReport.count({
+      where: { projectId: { in: scope.projectIds } },
+    }),
+    prisma.exploratorySessionNote.count({
+      where: { sessionId: { in: scope.exploratorySessionIds } },
+    }),
+    prisma.exploratorySession.count({
+      where: { projectId: { in: scope.projectIds } },
+    }),
     prisma.aiCreditTransaction.count({ where: { organizationId } }),
     prisma.aiCreditUseRequest.count({ where: { organizationId } }),
     prisma.apiKey.count({ where: { organizationId } }),
     prisma.auditLog.count({ where: { organizationId } }),
     prisma.invitation.count({ where: { organizationId } }),
     prisma.membership.count({ where: { organizationId } }),
-    prisma.aiEditFeedback.count({ where: { projectId: { in: scope.projectIds } } }),
-    prisma.complianceEvidence.count({ where: { projectId: { in: scope.projectIds } } }),
-    prisma.complianceSignOff.count({ where: { projectId: { in: scope.projectIds } } }),
-    prisma.customFrameworkHeuristic.count({ where: { projectId: { in: scope.projectIds } } }),
-    prisma.healingSuggestion.count({ where: { projectId: { in: scope.projectIds } } }),
+    prisma.aiEditFeedback.count({
+      where: { projectId: { in: scope.projectIds } },
+    }),
+    prisma.complianceEvidence.count({
+      where: { projectId: { in: scope.projectIds } },
+    }),
+    prisma.complianceSignOff.count({
+      where: { projectId: { in: scope.projectIds } },
+    }),
+    prisma.customFrameworkHeuristic.count({
+      where: { projectId: { in: scope.projectIds } },
+    }),
+    prisma.healingSuggestion.count({
+      where: { projectId: { in: scope.projectIds } },
+    }),
     prisma.importJob.count({ where: { projectId: { in: scope.projectIds } } }),
-    prisma.prScanPolicy.count({ where: { projectId: { in: scope.projectIds } } }),
-    prisma.releaseReadinessSnapshot.count({ where: { releaseId: { in: scope.releaseIds } } }),
+    prisma.prScanPolicy.count({
+      where: { projectId: { in: scope.projectIds } },
+    }),
+    prisma.releaseReadinessSnapshot.count({
+      where: { releaseId: { in: scope.releaseIds } },
+    }),
     prisma.riskFlag.count({ where: { releaseId: { in: scope.releaseIds } } }),
-    prisma.acceptanceCriterion.count({ where: { testPlanId: { in: scope.testPlanIds } } }),
-    prisma.testCaseAttachment.count({ where: { testCaseId: { in: scope.testCaseIds } } }),
-    prisma.testCaseComplianceControl.count({ where: { testCaseId: { in: scope.testCaseIds } } }),
-    prisma.testCaseDataset.count({ where: { testCaseId: { in: scope.testCaseIds } } }),
-    prisma.testCaseSource.count({ where: { testCaseId: { in: scope.testCaseIds } } }),
-    prisma.testCasePrerequisite.count({ where: { projectId: { in: scope.projectIds } } }),
-    prisma.testCaseStep.count({ where: { testCaseId: { in: scope.testCaseIds } } }),
-    prisma.testCaseVersion.count({ where: { testCaseId: { in: scope.testCaseIds } } }),
-    prisma.reverseEngineerJob.count({ where: { projectId: { in: scope.projectIds } } }),
-    prisma.testResultArtifact.count({ where: { testResultId: { in: scope.testResultIds } } }),
+    prisma.acceptanceCriterion.count({
+      where: { testPlanId: { in: scope.testPlanIds } },
+    }),
+    prisma.testCaseAttachment.count({
+      where: { testCaseId: { in: scope.testCaseIds } },
+    }),
+    prisma.testCaseComplianceControl.count({
+      where: { testCaseId: { in: scope.testCaseIds } },
+    }),
+    prisma.testCaseDataset.count({
+      where: { testCaseId: { in: scope.testCaseIds } },
+    }),
+    prisma.testCaseSource.count({
+      where: { testCaseId: { in: scope.testCaseIds } },
+    }),
+    prisma.testCasePrerequisite.count({
+      where: { projectId: { in: scope.projectIds } },
+    }),
+    prisma.testCaseStep.count({
+      where: { testCaseId: { in: scope.testCaseIds } },
+    }),
+    prisma.testCaseVersion.count({
+      where: { testCaseId: { in: scope.testCaseIds } },
+    }),
+    prisma.reverseEngineerJob.count({
+      where: { projectId: { in: scope.projectIds } },
+    }),
+    prisma.testResultArtifact.count({
+      where: { testResultId: { in: scope.testResultIds } },
+    }),
     prisma.testResult.count({ where: { testRunId: { in: scope.testRunIds } } }),
-    prisma.testSelectionRecommendation.count({ where: { testSelectionRunId: { in: scope.testSelectionRunIds } } }),
+    prisma.manualStepResultHead.count({
+      where: { testRunId: { in: scope.testRunIds } },
+    }),
+    prisma.manualStepResultRevision.count({
+      where: { testRunId: { in: scope.testRunIds } },
+    }),
+    prisma.testSelectionRecommendation.count({
+      where: { testSelectionRunId: { in: scope.testSelectionRunIds } },
+    }),
     prisma.testCase.count({ where: { projectId: { in: scope.projectIds } } }),
-    prisma.testPlanVersion.count({ where: { testPlanId: { in: scope.testPlanIds } } }),
+    prisma.testPlanVersion.count({
+      where: { testPlanId: { in: scope.testPlanIds } },
+    }),
     prisma.testPlan.count({ where: { projectId: { in: scope.projectIds } } }),
     prisma.release.count({ where: { projectId: { in: scope.projectIds } } }),
-    prisma.requirement.count({ where: { projectId: { in: scope.projectIds } } }),
-    prisma.sharedStepGroup.count({ where: { projectId: { in: scope.projectIds } } }),
+    prisma.requirement.count({
+      where: { projectId: { in: scope.projectIds } },
+    }),
+    prisma.sharedStepGroup.count({
+      where: { projectId: { in: scope.projectIds } },
+    }),
     prisma.testRun.count({ where: { projectId: { in: scope.projectIds } } }),
-    prisma.testSelectionRun.count({ where: { projectId: { in: scope.projectIds } } }),
-    prisma.webhookDelivery.count({ where: { webhookEndpointId: { in: scope.webhookEndpointIds } } }),
+    prisma.testSelectionRun.count({
+      where: { projectId: { in: scope.projectIds } },
+    }),
+    prisma.webhookDelivery.count({
+      where: { webhookEndpointId: { in: scope.webhookEndpointIds } },
+    }),
     prisma.webhookEndpoint.count({ where: { organizationId } }),
   ]);
 
@@ -193,6 +298,8 @@ export async function previewOrgHardDelete(prisma: PrismaClient, organizationId:
       ReverseEngineerJob: reverseEngineerJob,
       TestResultArtifact: testResultArtifact,
       TestResult: testResult,
+      ManualStepResultHead: manualStepResultHead,
+      ManualStepResultRevision: manualStepResultRevision,
       TestSelectionRecommendation: testSelectionRecommendation,
       TestCase: testCase,
       TestPlanVersion: testPlanVersion,
@@ -220,7 +327,9 @@ export async function hardDeleteOrganization(
   actorId: string,
   reason: string,
 ): Promise<OrgHardDeleteResult> {
-  const org = await prisma.organization.findUniqueOrThrow({ where: { id: organizationId } });
+  const org = await prisma.organization.findUniqueOrThrow({
+    where: { id: organizationId },
+  });
   const scope = await scopeIds(prisma, organizationId);
 
   const rowCounts = await prisma.$transaction(async (tx) => {
@@ -229,59 +338,216 @@ export async function hardDeleteOrganization(
       counts[name] = (await fn()).count;
     };
 
-    await del("CoverageFileEntry", () => tx.coverageFileEntry.deleteMany({ where: { reportId: { in: scope.coverageReportIds } } }));
-    await del("CoverageReport", () => tx.coverageReport.deleteMany({ where: { projectId: { in: scope.projectIds } } }));
+    await del("CoverageFileEntry", () =>
+      tx.coverageFileEntry.deleteMany({
+        where: { reportId: { in: scope.coverageReportIds } },
+      }),
+    );
+    await del("CoverageReport", () =>
+      tx.coverageReport.deleteMany({
+        where: { projectId: { in: scope.projectIds } },
+      }),
+    );
     await del("ExploratorySessionNote", () =>
-      tx.exploratorySessionNote.deleteMany({ where: { sessionId: { in: scope.exploratorySessionIds } } }),
+      tx.exploratorySessionNote.deleteMany({
+        where: { sessionId: { in: scope.exploratorySessionIds } },
+      }),
     );
-    await del("ExploratorySession", () => tx.exploratorySession.deleteMany({ where: { projectId: { in: scope.projectIds } } }));
-    await del("AiCreditTransaction", () => tx.aiCreditTransaction.deleteMany({ where: { organizationId } }));
-    await del("AiCreditUseRequest", () => tx.aiCreditUseRequest.deleteMany({ where: { organizationId } }));
-    await del("ApiKey", () => tx.apiKey.deleteMany({ where: { organizationId } }));
-    await del("AuditLog", () => tx.auditLog.deleteMany({ where: { organizationId } }));
-    await del("Invitation", () => tx.invitation.deleteMany({ where: { organizationId } }));
-    await del("Membership", () => tx.membership.deleteMany({ where: { organizationId } }));
-    await del("AiEditFeedback", () => tx.aiEditFeedback.deleteMany({ where: { projectId: { in: scope.projectIds } } }));
-    await del("ComplianceEvidence", () => tx.complianceEvidence.deleteMany({ where: { projectId: { in: scope.projectIds } } }));
-    await del("ComplianceSignOff", () => tx.complianceSignOff.deleteMany({ where: { projectId: { in: scope.projectIds } } }));
+    await del("ExploratorySession", () =>
+      tx.exploratorySession.deleteMany({
+        where: { projectId: { in: scope.projectIds } },
+      }),
+    );
+    await del("AiCreditTransaction", () =>
+      tx.aiCreditTransaction.deleteMany({ where: { organizationId } }),
+    );
+    await del("AiCreditUseRequest", () =>
+      tx.aiCreditUseRequest.deleteMany({ where: { organizationId } }),
+    );
+    await del("ApiKey", () =>
+      tx.apiKey.deleteMany({ where: { organizationId } }),
+    );
+    await del("AuditLog", () =>
+      tx.auditLog.deleteMany({ where: { organizationId } }),
+    );
+    await del("Invitation", () =>
+      tx.invitation.deleteMany({ where: { organizationId } }),
+    );
+    await del("Membership", () =>
+      tx.membership.deleteMany({ where: { organizationId } }),
+    );
+    await del("AiEditFeedback", () =>
+      tx.aiEditFeedback.deleteMany({
+        where: { projectId: { in: scope.projectIds } },
+      }),
+    );
+    await del("ComplianceEvidence", () =>
+      tx.complianceEvidence.deleteMany({
+        where: { projectId: { in: scope.projectIds } },
+      }),
+    );
+    await del("ComplianceSignOff", () =>
+      tx.complianceSignOff.deleteMany({
+        where: { projectId: { in: scope.projectIds } },
+      }),
+    );
     await del("CustomFrameworkHeuristic", () =>
-      tx.customFrameworkHeuristic.deleteMany({ where: { projectId: { in: scope.projectIds } } }),
+      tx.customFrameworkHeuristic.deleteMany({
+        where: { projectId: { in: scope.projectIds } },
+      }),
     );
-    await del("HealingSuggestion", () => tx.healingSuggestion.deleteMany({ where: { projectId: { in: scope.projectIds } } }));
-    await del("ImportJob", () => tx.importJob.deleteMany({ where: { projectId: { in: scope.projectIds } } }));
-    await del("PrScanPolicy", () => tx.prScanPolicy.deleteMany({ where: { projectId: { in: scope.projectIds } } }));
+    await del("HealingSuggestion", () =>
+      tx.healingSuggestion.deleteMany({
+        where: { projectId: { in: scope.projectIds } },
+      }),
+    );
+    await del("ImportJob", () =>
+      tx.importJob.deleteMany({
+        where: { projectId: { in: scope.projectIds } },
+      }),
+    );
+    await del("PrScanPolicy", () =>
+      tx.prScanPolicy.deleteMany({
+        where: { projectId: { in: scope.projectIds } },
+      }),
+    );
     await del("ReleaseReadinessSnapshot", () =>
-      tx.releaseReadinessSnapshot.deleteMany({ where: { releaseId: { in: scope.releaseIds } } }),
+      tx.releaseReadinessSnapshot.deleteMany({
+        where: { releaseId: { in: scope.releaseIds } },
+      }),
     );
-    await del("RiskFlag", () => tx.riskFlag.deleteMany({ where: { releaseId: { in: scope.releaseIds } } }));
-    await del("AcceptanceCriterion", () => tx.acceptanceCriterion.deleteMany({ where: { testPlanId: { in: scope.testPlanIds } } }));
-    await del("TestCaseAttachment", () => tx.testCaseAttachment.deleteMany({ where: { testCaseId: { in: scope.testCaseIds } } }));
+    await del("RiskFlag", () =>
+      tx.riskFlag.deleteMany({
+        where: { releaseId: { in: scope.releaseIds } },
+      }),
+    );
+    await del("AcceptanceCriterion", () =>
+      tx.acceptanceCriterion.deleteMany({
+        where: { testPlanId: { in: scope.testPlanIds } },
+      }),
+    );
+    await del("TestCaseAttachment", () =>
+      tx.testCaseAttachment.deleteMany({
+        where: { testCaseId: { in: scope.testCaseIds } },
+      }),
+    );
     await del("TestCaseComplianceControl", () =>
-      tx.testCaseComplianceControl.deleteMany({ where: { testCaseId: { in: scope.testCaseIds } } }),
+      tx.testCaseComplianceControl.deleteMany({
+        where: { testCaseId: { in: scope.testCaseIds } },
+      }),
     );
-    await del("TestCaseDataset", () => tx.testCaseDataset.deleteMany({ where: { testCaseId: { in: scope.testCaseIds } } }));
-    await del("TestCaseSource", () => tx.testCaseSource.deleteMany({ where: { testCaseId: { in: scope.testCaseIds } } }));
-    await del("TestCasePrerequisite", () => tx.testCasePrerequisite.deleteMany({ where: { projectId: { in: scope.projectIds } } }));
-    await del("TestCaseStep", () => tx.testCaseStep.deleteMany({ where: { testCaseId: { in: scope.testCaseIds } } }));
-    await del("TestCaseVersion", () => tx.testCaseVersion.deleteMany({ where: { testCaseId: { in: scope.testCaseIds } } }));
-    await del("ReverseEngineerJob", () => tx.reverseEngineerJob.deleteMany({ where: { projectId: { in: scope.projectIds } } }));
-    await del("TestResultArtifact", () => tx.testResultArtifact.deleteMany({ where: { testResultId: { in: scope.testResultIds } } }));
-    await del("TestResult", () => tx.testResult.deleteMany({ where: { testRunId: { in: scope.testRunIds } } }));
+    await del("TestCaseDataset", () =>
+      tx.testCaseDataset.deleteMany({
+        where: { testCaseId: { in: scope.testCaseIds } },
+      }),
+    );
+    await del("TestCaseSource", () =>
+      tx.testCaseSource.deleteMany({
+        where: { testCaseId: { in: scope.testCaseIds } },
+      }),
+    );
+    await del("TestCasePrerequisite", () =>
+      tx.testCasePrerequisite.deleteMany({
+        where: { projectId: { in: scope.projectIds } },
+      }),
+    );
+    await del("TestCaseStep", () =>
+      tx.testCaseStep.deleteMany({
+        where: { testCaseId: { in: scope.testCaseIds } },
+      }),
+    );
+    await del("TestCaseVersion", () =>
+      tx.testCaseVersion.deleteMany({
+        where: { testCaseId: { in: scope.testCaseIds } },
+      }),
+    );
+    await del("ReverseEngineerJob", () =>
+      tx.reverseEngineerJob.deleteMany({
+        where: { projectId: { in: scope.projectIds } },
+      }),
+    );
+    await del("TestResultArtifact", () =>
+      tx.testResultArtifact.deleteMany({
+        where: { testResultId: { in: scope.testResultIds } },
+      }),
+    );
+    await del("TestResult", () =>
+      tx.testResult.deleteMany({
+        where: { testRunId: { in: scope.testRunIds } },
+      }),
+    );
+    // Only this explicit organization-erasure workflow removes recorded history.
+    // Heads first, then leaf revisions before parents to preserve normal restrictive FKs.
+    await del("ManualStepResultHead", () =>
+      tx.manualStepResultHead.deleteMany({
+        where: { testRunId: { in: scope.testRunIds } },
+      }),
+    );
+    let revisionCount = 0;
+    for (let revision = 100; revision >= 1; revision--) {
+      revisionCount += (
+        await tx.manualStepResultRevision.deleteMany({
+          where: {
+            testRunId: { in: scope.testRunIds },
+            revisionNumber: revision,
+          },
+        })
+      ).count;
+    }
+    counts.ManualStepResultRevision = revisionCount;
     await del("TestSelectionRecommendation", () =>
-      tx.testSelectionRecommendation.deleteMany({ where: { testSelectionRunId: { in: scope.testSelectionRunIds } } }),
+      tx.testSelectionRecommendation.deleteMany({
+        where: { testSelectionRunId: { in: scope.testSelectionRunIds } },
+      }),
     );
-    await del("TestCase", () => tx.testCase.deleteMany({ where: { projectId: { in: scope.projectIds } } }));
-    await del("TestPlanVersion", () => tx.testPlanVersion.deleteMany({ where: { testPlanId: { in: scope.testPlanIds } } }));
-    await del("TestPlan", () => tx.testPlan.deleteMany({ where: { projectId: { in: scope.projectIds } } }));
-    await del("Release", () => tx.release.deleteMany({ where: { projectId: { in: scope.projectIds } } }));
-    await del("Requirement", () => tx.requirement.deleteMany({ where: { projectId: { in: scope.projectIds } } }));
-    await del("SharedStepGroup", () => tx.sharedStepGroup.deleteMany({ where: { projectId: { in: scope.projectIds } } }));
-    await del("TestRun", () => tx.testRun.deleteMany({ where: { projectId: { in: scope.projectIds } } }));
-    await del("TestSelectionRun", () => tx.testSelectionRun.deleteMany({ where: { projectId: { in: scope.projectIds } } }));
-    await del("WebhookDelivery", () => tx.webhookDelivery.deleteMany({ where: { webhookEndpointId: { in: scope.webhookEndpointIds } } }));
-    await del("WebhookEndpoint", () => tx.webhookEndpoint.deleteMany({ where: { organizationId } }));
+    await del("TestCase", () =>
+      tx.testCase.deleteMany({
+        where: { projectId: { in: scope.projectIds } },
+      }),
+    );
+    await del("TestPlanVersion", () =>
+      tx.testPlanVersion.deleteMany({
+        where: { testPlanId: { in: scope.testPlanIds } },
+      }),
+    );
+    await del("TestPlan", () =>
+      tx.testPlan.deleteMany({
+        where: { projectId: { in: scope.projectIds } },
+      }),
+    );
+    await del("Release", () =>
+      tx.release.deleteMany({ where: { projectId: { in: scope.projectIds } } }),
+    );
+    await del("Requirement", () =>
+      tx.requirement.deleteMany({
+        where: { projectId: { in: scope.projectIds } },
+      }),
+    );
+    await del("SharedStepGroup", () =>
+      tx.sharedStepGroup.deleteMany({
+        where: { projectId: { in: scope.projectIds } },
+      }),
+    );
+    await del("TestRun", () =>
+      tx.testRun.deleteMany({ where: { projectId: { in: scope.projectIds } } }),
+    );
+    await del("TestSelectionRun", () =>
+      tx.testSelectionRun.deleteMany({
+        where: { projectId: { in: scope.projectIds } },
+      }),
+    );
+    await del("WebhookDelivery", () =>
+      tx.webhookDelivery.deleteMany({
+        where: { webhookEndpointId: { in: scope.webhookEndpointIds } },
+      }),
+    );
+    await del("WebhookEndpoint", () =>
+      tx.webhookEndpoint.deleteMany({ where: { organizationId } }),
+    );
 
-    counts.Project = (await tx.project.deleteMany({ where: { organizationId } })).count;
+    counts.Project = (
+      await tx.project.deleteMany({ where: { organizationId } })
+    ).count;
     await tx.organization.delete({ where: { id: organizationId } });
 
     return counts;
