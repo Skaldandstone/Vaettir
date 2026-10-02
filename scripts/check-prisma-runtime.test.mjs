@@ -127,3 +127,31 @@ test("all image stages pin the same Trixie base and install patched Perl/OpenSSL
   );
   assert.match(runtime, /USER nextjs/);
 });
+
+test("HTTPS backports are enabled only after CA bootstrap and updates fail closed", () => {
+  const api = readFileSync(
+    new URL("../Dockerfile.api", import.meta.url),
+    "utf8",
+  );
+  const runtime = api.split(" AS runtime")[1];
+  const trust = runtime.indexOf(
+    "apt-get install -y --no-install-recommends ca-certificates",
+  );
+  const source = runtime.indexOf("COPY scripts/debian-backports.sources");
+  assert.ok(trust >= 0 && trust < source);
+  assert.match(runtime.slice(0, trust), /apt-get update --error-on=any/);
+  assert.match(runtime.slice(source), /RUN apt-get update --error-on=any/);
+  assert.doesNotMatch(
+    runtime,
+    /Verify-Peer=false|allow-unauthenticated|allow-insecure-repositories|trusted=yes/,
+  );
+  const backports = readFileSync(
+    new URL("./debian-backports.sources", import.meta.url),
+    "utf8",
+  );
+  assert.match(backports, /URIs: https:\/\/deb\.debian\.org\/debian/);
+  assert.match(
+    backports,
+    /Signed-By: \/usr\/share\/keyrings\/debian-archive-keyring\.gpg/,
+  );
+});

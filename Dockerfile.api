@@ -30,10 +30,15 @@ RUN node -e "if(!/^[a-f0-9]{40}$/.test(process.argv[1]))process.exit(1)" "$VAETT
 # Prisma's query/schema engine binaries link against OpenSSL, which the
 # slim base image doesn't ship -- without it Prisma fails with an opaque
 # "Schema engine error: undefined" rather than a clear missing-lib error.
+# Bootstrap trust from the base's signed Debian repository before enabling
+# HTTPS backports. Do not ignore a failed repository update or bypass TLS.
+RUN apt-get update --error-on=any \
+    && apt-get install -y --no-install-recommends ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
 COPY scripts/debian-backports.sources /etc/apt/sources.list.d/vaettir-backports.sources
 COPY --from=vendor-build /build/libexpat1_2.8.5-2_*.deb /tmp/vaettir-vendor/
 COPY --from=vendor-build /build/runtime-sources/source-manifest.json /usr/share/vaettir/runtime-source-manifest.json
-RUN apt-get update \
+RUN apt-get update --error-on=any \
     && apt-get install -y --no-install-recommends openssl ca-certificates git perl-base libpcre2-8-0 /tmp/vaettir-vendor/*.deb \
     && apt-get install -y --no-install-recommends -t trixie-backports libcurl3t64-gnutls libcurl4-gnutls \
     && apt-get install -y --no-install-recommends libasound2t64 libatk-bridge2.0-0t64 libatk1.0-0t64 libatspi2.0-0t64 libdbus-1-3 libdrm2 libgbm1 libglib2.0-0t64 libnspr4 libnss3 libx11-6 libxcb1 libxcomposite1 libxdamage1 libxext6 libxfixes3 libxkbcommon0 libxrandr2 libfontconfig1 libfreetype6 fonts-liberation fonts-noto-color-emoji fonts-dejavu-core \
