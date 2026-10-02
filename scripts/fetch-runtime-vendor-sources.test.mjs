@@ -72,7 +72,7 @@ test("unapproved origins, path traversal and invalid pins never fetch", async ()
   }
 });
 
-test("API vendor build verifies Debian signature, preserves packaging and runs both upstream test variants", () => {
+test("API vendor build verifies signature, preserves packaging and validates both shipped Unicode ABIs", () => {
   const docker = readFileSync(
     new URL("../Dockerfile.api", import.meta.url),
     "utf8",
@@ -90,7 +90,15 @@ test("API vendor build verifies Debian signature, preserves packaging and runs b
     /gpgv --keyring \/usr\/share\/keyrings\/debian-keyring.gpg expat_2.8.5-2.dsc/,
   );
   assert.match(docker, /timeout 600 make -C build check/);
-  assert.match(docker, /timeout 600 make -C buildw check/);
+  assert.match(docker, /gcc -std=c11 -Wall -Wextra -Werror[^\n]+-lexpatw/);
+  assert.match(docker, /timeout 10 \/build\/check-expat-wide/);
+  const wide = readFileSync(
+    new URL("./check-expat-wide-runtime.c", import.meta.url),
+    "utf8",
+  );
+  assert.match(wide, /sizeof\(XML_Char\) == 2/);
+  assert.match(wide, /XML_ERROR_INVALID_TOKEN/);
+  assert.match(wide, /0xd83d, 0xde00/);
   assert.match(
     docker,
     /COPY --from=vendor-build \/build\/libexpat1_2.8.5-2_\*.deb/,

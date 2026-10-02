@@ -11,6 +11,7 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 WORKDIR /build
 COPY scripts/fetch-runtime-vendor-sources.mjs scripts/runtime-vendor-sources.json /build/scripts/
+COPY scripts/check-expat-wide-runtime.c /build/scripts/
 RUN node /build/scripts/fetch-runtime-vendor-sources.mjs /build/runtime-sources \
     && cd /build/runtime-sources \
     && gpgv --keyring /usr/share/keyrings/debian-keyring.gpg expat_2.8.5-2.dsc \
@@ -18,7 +19,8 @@ RUN node /build/scripts/fetch-runtime-vendor-sources.mjs /build/runtime-sources 
     && cd /build/expat \
     && timeout 900 env DEB_BUILD_OPTIONS=parallel=2 dpkg-buildpackage -b -us -uc \
     && timeout 600 make -C build check \
-    && timeout 600 make -C buildw check
+    && gcc -std=c11 -Wall -Wextra -Werror -I/build/expat/srcw/lib /build/scripts/check-expat-wide-runtime.c -L/build/expat/buildw/lib/.libs -Wl,-rpath,/build/expat/buildw/lib/.libs -lexpatw -o /build/check-expat-wide \
+    && timeout 10 /build/check-expat-wide
 
 FROM public.ecr.aws/docker/library/node:22-trixie-slim@sha256:b26b04c123d9ff8ab646ceb18b9d75a1173acf64b9a401094b906d27b29338d4 AS runtime
 
@@ -56,6 +58,7 @@ RUN pnpm install --frozen-lockfile \
 # Verify the shipped browser against a synthetic in-memory fixture, with
 # networking disabled at the container layer as well as the browser context.
 RUN --network=none node scripts/check-browser-runtime.mjs
+RUN --network=none node scripts/check-git-runtime.mjs
 
 ENV NODE_ENV=production \
     API_PORT=8000 \
