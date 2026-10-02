@@ -43,7 +43,7 @@ test("registered repository chips open existing provider flows only for editors"
   const component = readFileSync(new URL("../components/ProjectRepositories.tsx", import.meta.url), "utf8");
   assert.match(component, /canEdit&&knownProvider\?<button/);
   assert.match(component, /onClick=\{\(\)=>chooseProvider\(knownProvider\)\}/);
-  assert.match(component, /if\(busy\|\|!canEdit\|\|!query\.isSuccess\)return/);
+  assert.match(component, /if\(busy\|\|!canEdit\|\|!query\.isSuccess\)\{cancelRepositoryAuthorization\(intent\);return/);
   assert.match(component, /Registered · Access unverified/);
   assert.match(component, /visited\.map\(id=><div key=\{id\} hidden=\{provider!==id\}><RepositoryConnectionContent projectId=\{projectId\} provider=\{id\}/);
   assert.match(component, /query\.refetch\(\)/);

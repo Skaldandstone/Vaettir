@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import type {RepositoryProvider} from "./RepositoryConnectionContent";
+import type {RepositoryAuthorizationIntent} from "./RepositoryProviderPicker";
 import type { PopulationDraft } from "@vaettir/core";
 import { trpcReact } from "@/lib/trpcReact";
 import { useProjectPermissions } from "@/lib/use-project-permissions";
@@ -10,7 +11,7 @@ import {
   emptyPopulationDraft,
 } from "@/components/PopulationWizard";
 
-export function PopulationSetup({ projectId, onExit, onScreen }: { projectId: string; onExit: () => void; onScreen: (screen: "documents" | "requirements" | "assessment" | RepositoryProvider) => void }) {
+export function PopulationSetup({ projectId, onExit, onScreen }: { projectId: string; onExit: () => void; onScreen: (screen: "documents" | "requirements" | "assessment" | RepositoryProvider,intent?:RepositoryAuthorizationIntent) => void }) {
   const permissions = useProjectPermissions(projectId);
   const query = trpcReact.projectPopulation.draft.useQuery(
     { projectId },
@@ -50,7 +51,7 @@ function Editor({
   initial: PopulationDraft;
   initialVersion: number;
   onExit: () => void;
-  onScreen: (screen: "documents" | "requirements" | "assessment" | RepositoryProvider) => void;
+  onScreen: (screen: "documents" | "requirements" | "assessment" | RepositoryProvider,intent?:RepositoryAuthorizationIntent) => void;
 }) {
   const utils = trpcReact.useUtils();
   const mutation = trpcReact.projectPopulation.saveDraft.useMutation();
@@ -131,10 +132,10 @@ function Editor({
     <div>
       <PopulationWizard
         projectId={projectId}
-        onRepository={provider=>onScreen(provider)}
+        onRepository={(provider,intent)=>onScreen(provider,intent)}
         onDocuments={() => onScreen("documents")}
-        onGitlab={() => onScreen("gitlab")}
-        onGithub={() => onScreen("github")}
+        onGitlab={intent => onScreen("gitlab",intent)}
+        onGithub={intent => onScreen("github",intent)}
         key={display.key}
         initial={display.initial}
         locked={busy || pending !== null}

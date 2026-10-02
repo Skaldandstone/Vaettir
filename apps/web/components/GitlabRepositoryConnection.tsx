@@ -6,6 +6,8 @@ import { trpcReact, type RouterOutputs } from "@/lib/trpcReact";
 import { ProviderMark } from "./SourceConnectionChips";
 import { connectionAccessState } from "@/lib/connection-access";
 import { ConnectionAccessGate } from "./ConnectionAccessGate";
+import {cancelRepositoryAuthorization,type RepositoryAuthorizationIntent} from "./RepositoryProviderPicker";
+import {authorizeRepositoryAccount} from "@/lib/repository-authorization";
 
 type Listing = RouterOutputs["repositoryConnections"]["list"];
 const field = { display: "grid", gap: 6 } as const;
@@ -14,8 +16,9 @@ const actions = { display: "flex", gap: 8, flexWrap: "wrap" } as const;
 const statusLabel = (status: string) => status.replaceAll("_", " ").toLowerCase();
 
 /** Render inside the existing Modal. Provider credentials never enter browser storage. */
-export function RepositoryOAuthConnection({ projectId, providerId, onConnected, onClose }: {
+export function RepositoryOAuthConnection({ projectId, providerId, onConnected, onClose, initialAuthorization, active=true }: {
   projectId: string; providerId: "github" | "gitlab"; onConnected: () => void; onClose: () => void;
+  initialAuthorization?:RepositoryAuthorizationIntent;active?:boolean;
 }) {
   const providerName = providerId === "github" ? "GitHub" : "GitLab";
   const utils = trpcReact.useUtils();
@@ -60,22 +63,35 @@ export function RepositoryOAuthConnection({ projectId, providerId, onConnected, 
   const failure = error || configurations.error?.message || status.error?.message;
   const selectedRepos = Object.values(selectedDetails).filter(repo => selected.includes(repo.id));
 
-  async function authorize() {
-    if (!provider || !connectionReady || busy || !configurations.isSuccess || !configurations.data.canConnect) return;
+  const accessState = connectionAccessState(configurations, recent);
+  const providerConfigurationId=provider?.id;
+  const canConnect=configurations.isSuccess&&configurations.data?.canConnect===true;
+  const beginAuthorization=begin.mutateAsync;
+  function authorize() {
+    if (!providerConfigurationId || !connectionReady || busy || !canConnect) return;
     setError("");
-    // Open synchronously from the user's click, before awaiting the server (popup blockers).
-    const opened = window.open("about:blank", "_blank", "popup,width=650,height=760");
-    if (!opened) { setError(`Allow popups for Vaettir, then select Connect ${providerName} again.`); return; }
-    popup.current = opened;
-    // Status polling is authoritative; the provider never receives an opener handle.
-    opened.opener = null;
-    try {
-      const result = await begin.mutateAsync({ projectId, configurationId: provider.id, approveMetadataAccess: true });
-      setConnectionId(result.id);
-      if (opened.closed) { setError("The authorization window was closed. Cancel this attempt and try again."); return; }
-      opened.location.replace(result.url);
-    } catch { opened.close(); setError("Authorization could not start. Check your permissions and provider configuration, then try again."); }
+    void authorizeRepositoryAccount({providerName,
+      begin:()=>beginAuthorization({projectId,configurationId:providerConfigurationId,approveMetadataAccess:true}),
+      onStarted:setConnectionId,onError:setError,onPopup:opened=>{popup.current=opened;},
+    });
   }
+
+  // Consume the explicit Connect click only after fresh access/configuration checks.
+  // Closure-owned one-use capability prevents starts after retries/remounts/StrictMode.
+  useEffect(()=>{
+    if(!initialAuthorization)return;
+    if(!active||initialAuthorization.isCancelled()){cancelRepositoryAuthorization(initialAuthorization);return;}
+    if(accessState==="checking-permissions"||accessState==="checking-connections"||busy)return;
+    if(!initialAuthorization.claim())return;
+    if(accessState!=="ready"||!connectionReady||!providerConfigurationId||connectionId){
+      cancelRepositoryAuthorization(initialAuthorization);
+      return;
+    }
+    void authorizeRepositoryAccount({providerName,preopened:initialAuthorization.window(),
+      begin:()=>beginAuthorization({projectId,configurationId:providerConfigurationId,approveMetadataAccess:true}),
+      onStarted:setConnectionId,onError:setError,onPopup:opened=>{popup.current=opened;},
+    });
+  },[initialAuthorization,active,accessState,busy,connectionReady,providerConfigurationId,connectionId,providerName,beginAuthorization,projectId]);
 
   const load = useCallback(async (nextPage = 1, nextSearch = "") => {
     setLoading(true); setError("");
@@ -112,7 +128,6 @@ export function RepositoryOAuthConnection({ projectId, providerId, onConnected, 
     } catch { setError("The connection could not be disconnected. Refresh its status before retrying."); }
   }
 
-  const accessState = connectionAccessState(configurations, recent);
   if (accessState !== "ready") return <ConnectionAccessGate state={accessState} busy={busy || configurations.isFetching || recent.isFetching} onClose={onClose} onRetry={() => void (async () => { const refreshed = await configurations.refetch(); if (refreshed.isSuccess && refreshed.data.canConnect) await recent.refetch(); })()}/>;
   return <div style={{ display: "grid", gap: 16, minWidth: 0 }}>
     <p ref={screenHeading} tabIndex={-1} className="text-muted" role="status" aria-live="polite">{({ authorize: "1. Connect your account", repositories: "2. Choose repositories", review: "3. Review connections", done: "Repositories connected" })[step]}</p>

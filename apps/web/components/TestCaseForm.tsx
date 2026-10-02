@@ -91,6 +91,7 @@ interface TestCaseFormProps {
   projectId: string;
   testCaseId?: string;
   initial?: Partial<TestCaseFormValue>;
+  locked?: boolean;
   stepFieldLabels?: {
     action: string;
     expectedActionOrData: string;
@@ -154,8 +155,11 @@ export default function TestCaseForm({
   projectId,
   testCaseId,
   initial,
+  locked = false,
   stepFieldLabels,
 }: TestCaseFormProps) {
+  // Keep the concurrency baseline bound to this draft, not a later refetch.
+  const [baseline] = useState(initial);
   const router = useRouter();
   const stepKeyPrefix = useId();
   const nextStepKey = useRef(initial?.steps?.length ?? 0);
@@ -213,6 +217,7 @@ export default function TestCaseForm({
   }
 
   async function uploadStepMedia(editorKey: string, event: ChangeEvent<HTMLInputElement>) {
+    if (locked || saving || uploadingStepKey !== null) return;
     const file = event.target.files?.[0];
     event.target.value = "";
     if (!file || !testCaseId) return;
@@ -251,6 +256,7 @@ export default function TestCaseForm({
   }
 
   async function submit() {
+    if (locked || saving || uploadingStepKey !== null || !value.title.trim()) return;
     setSaving(true);
     setError(null);
     try {
@@ -287,9 +293,9 @@ export default function TestCaseForm({
       const result =
         mode === "create"
           ? await createMutation.mutateAsync({ ...payload, projectId })
-          : await updateMutation.mutateAsync({ ...payload, id: testCaseId!, expectedSuitePath: initial?.suitePath || null,
-              expectedPriority: initial?.priority as "CRITICAL" | "HIGH" | "MEDIUM" | "LOW" | undefined,
-              expectedStepRevision: initial?.stepRevision || undefined });
+          : await updateMutation.mutateAsync({ ...payload, id: testCaseId!, expectedSuitePath: baseline?.suitePath || null,
+              expectedPriority: baseline?.priority as "CRITICAL" | "HIGH" | "MEDIUM" | "LOW" | undefined,
+              expectedStepRevision: baseline?.stepRevision || undefined });
 
       // The detail page + list read from the cache; make sure they see the
       // saved row rather than the pre-edit copy.
@@ -305,7 +311,7 @@ export default function TestCaseForm({
   }
 
   return (
-    <div style={{ maxWidth: 720, minWidth: 0, overflowWrap: "anywhere" }}>
+    <fieldset disabled={locked || saving || uploadingStepKey !== null} aria-label={mode === "edit" ? "Edit test case draft" : "New test case draft"} style={{ border: 0, padding: 0, margin: 0, maxWidth: 720, minWidth: 0, overflowWrap: "anywhere" }}>
       <div style={{ display: "grid", gap: 8, marginBottom: 20 }}>
         <label>
           Title
@@ -334,6 +340,7 @@ export default function TestCaseForm({
             Validation domain
             <select
               value={value.validationDomain}
+              style={{ width: "100%", minWidth: 0 }}
               onChange={(e) =>
                 setValue((v) => ({
                   ...v,
@@ -362,6 +369,7 @@ export default function TestCaseForm({
             Type
             <select
               value={value.testType}
+              style={{ width: "100%", minWidth: 0 }}
               onChange={(e) =>
                 setValue((v) => ({ ...v, testType: e.target.value }))
               }
@@ -377,6 +385,7 @@ export default function TestCaseForm({
             Priority
             <select
               value={value.priority}
+              style={{ width: "100%", minWidth: 0 }}
               onChange={(e) =>
                 setValue((v) => ({ ...v, priority: e.target.value }))
               }
@@ -398,7 +407,7 @@ export default function TestCaseForm({
           </p>
           {workspace && <details><summary>{workspace.title}: procedure guidance</summary>
             <ul>{workspace.caseGuidance.map(note => <li key={note}>{note}</li>)}</ul>
-            <p className="text-muted">The project profile does not change this case's domain or human-written criteria. Food/process procedures can use Other until a dedicated case domain is available.</p>
+            <p className="text-muted">The project profile does not change this case&apos;s domain or human-written criteria. Food/process procedures can use Other until a dedicated case domain is available.</p>
           </details>}
           {(
             [
@@ -657,8 +666,8 @@ export default function TestCaseForm({
               ? "Create test case"
               : "Save changes"}
         </button>
-        {error && <p style={{ color: "var(--ember)" }}>{error}</p>}
+        {error && <p role="alert" style={{ color: "var(--ember)" }}>{error}</p>}
       </div>
-    </div>
+    </fieldset>
   );
 }

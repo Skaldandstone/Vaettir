@@ -5,7 +5,8 @@ import {useIsMutating} from "@tanstack/react-query";
 import {isConnectionMutation} from "@/lib/connection-mutation";
 import {Modal} from "./Modal";
 import {PopulationDocuments} from "./PopulationDocuments";
-import {RepositoryConnectionContent,type RepositoryProvider} from "./RepositoryConnectionContent";
+import {RepositoryConnectionContent,repositoryProviders,type RepositoryProvider} from "./RepositoryConnectionContent";
+import {RepositoryProviderPicker,cancelRepositoryAuthorization,type RepositoryAuthorizationIntent} from "./RepositoryProviderPicker";
 import {trpcReact} from "@/lib/trpcReact";
 import {LinearSourceConnection} from "./LinearSourceConnection";
 import {JiraSourceConnection} from "./JiraSourceConnection";
@@ -40,9 +41,11 @@ export function ConnectionLink({ href, provider, label, status }: { href: string
   return <a className="source-connection-chip" href={href}><ProviderMark id={provider} /><span><strong>{label}</strong><small>{status}</small></span><span aria-hidden="true">→</span></a>;
 }
 
-export function SourceConnectionChips({documentsHref,only,onDocuments,onGitlab,onGithub,onRepository,projectId}:{documentsHref?:string;only?:string[];onDocuments?:()=>void;onGitlab?:()=>void;onGithub?:()=>void;onRepository?:(provider:RepositoryProvider)=>void;projectId?:string}){
+export function SourceConnectionChips({documentsHref,only,onDocuments,onGitlab,onGithub,onRepository,projectId}:{documentsHref?:string;only?:string[];onDocuments?:()=>void;onGitlab?:(intent?:RepositoryAuthorizationIntent)=>void;onGithub?:(intent?:RepositoryAuthorizationIntent)=>void;onRepository?:(provider:RepositoryProvider,intent?:RepositoryAuthorizationIntent)=>void;projectId?:string}){
   const [active,setActive]=useState<string|null>(null);
   const [selectedRepository,setSelectedRepository]=useState<RepositoryProvider|null>(null);
+  const [repositoryChoice,setRepositoryChoice]=useState<RepositoryProvider|"">("");
+  const [authorizations,setAuthorizations]=useState<Partial<Record<RepositoryProvider,RepositoryAuthorizationIntent>>>({});
   const [visitedRepositories,setVisitedRepositories]=useState<RepositoryProvider[]>([]);
   const repositoryHeading=useRef<HTMLHeadingElement>(null);
   useLayoutEffect(()=>{
@@ -61,18 +64,23 @@ export function SourceConnectionChips({documentsHref,only,onDocuments,onGitlab,o
   }})>0;
   const filtered=sources.filter(([id])=>!only||only.includes(id));
   const repoIds=["github","gitlab","bitbucket","azure-devops","git","perforce","svn"];
-  const repositoryChoices=filtered.filter(([id])=>repoIds.includes(id));
+  // `only` controls entry categories, not which providers a Connect repo offers.
+  const hasRepositoryEntry=filtered.some(([id])=>repoIds.includes(id));
   const otherSources=filtered.filter(([id])=>!repoIds.includes(id));
   function close(){
     if(busy)return;
+    Object.values(authorizations).forEach(cancelRepositoryAuthorization);
+    setAuthorizations({});
     setActive(null);
     setSelectedRepository(null);
+    setRepositoryChoice("");
     setVisitedRepositories([]);
   }
-  function chooseRepository(provider:RepositoryProvider){
-    if(busy||!repositoryChoices.some(([id])=>id===provider))return;
-    const callback=onRepository?()=>onRepository(provider):provider==="github"?onGithub:provider==="gitlab"?onGitlab:undefined;
+  function chooseRepository(provider:RepositoryProvider,intent?:RepositoryAuthorizationIntent){
+    if(busy||!hasRepositoryEntry||!repositoryProviders.some(([id])=>id===provider)){cancelRepositoryAuthorization(intent);return;}
+    const callback=onRepository?()=>onRepository(provider,intent):provider==="github"&&onGithub?()=>onGithub(intent):provider==="gitlab"&&onGitlab?()=>onGitlab(intent):undefined;
     if(callback){close();callback();return;}
+    if(intent)setAuthorizations(current=>({...current,[provider]:intent}));
     setSelectedRepository(provider);
     setVisitedRepositories(current=>current.includes(provider)?current:[...current,provider]);
   }
@@ -85,7 +93,7 @@ export function SourceConnectionChips({documentsHref,only,onDocuments,onGitlab,o
   const repositoryName=sources.find(([id])=>id===selectedRepository)?.[1];
   return <div className="source-connections">
     <div className="source-chip-list" role="group" aria-label="Available source actions">
-      {repositoryChoices.length>0&&<button type="button" className="source-connection-chip" aria-haspopup="dialog" disabled={busy} onClick={()=>open("repository")}>
+      {hasRepositoryEntry&&<button type="button" className="source-connection-chip" aria-haspopup="dialog" disabled={busy} onClick={()=>open("repository")}>
         <span className="source-provider-mark" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M6 6v12m12-12v4a4 4 0 0 1-4 4H6"/><circle cx="6" cy="4" r="2"/><circle cx="6" cy="20" r="2"/><circle cx="18" cy="4" r="2"/></svg></span>
         <span><strong>Connect repo</strong><small>Choose a provider</small></span><span aria-hidden="true">+</span>
       </button>}
@@ -95,12 +103,12 @@ export function SourceConnectionChips({documentsHref,only,onDocuments,onGitlab,o
     <Modal open={!!active} dismissible={!busy} title={active==="repository"?(selectedRepository?`Connect ${repositoryName}`:"Connect repo"):active==="drive"&&projectId?"Connect Google Drive":active==="linear"&&projectId?"Connect Linear":active==="jira"&&projectId?"Connect Jira":active==="document"?"Add document evidence":`Add ${name??"source"} evidence`} onClose={close}>
       {active==="repository"?<fieldset disabled={busy} style={{border:0,padding:0,margin:0,minWidth:0}}>
         <h3 ref={repositoryHeading} tabIndex={-1} style={{marginTop:0}}>{selectedRepository?`${repositoryName} connection options`:"Choose a repository provider"}</h3>
-        {!selectedRepository&&<><p>Which repository provider do you use? Selecting one opens its available connection options; it does not read source.</p><div className="source-chip-list" role="group" aria-label="Repository providers">{repositoryChoices.map(([id,label])=><button key={id} type="button" className="source-connection-chip" onClick={()=>chooseRepository(id as RepositoryProvider)}><ProviderMark id={id}/><span><strong>{label}</strong></span><span aria-hidden="true">→</span></button>)}</div></>}
+        {!selectedRepository&&<RepositoryProviderPicker value={repositoryChoice} onChange={setRepositoryChoice} onConnect={chooseRepository} disabled={busy} authorize={Boolean(projectId)}/>}
         {projectId&&visitedRepositories.map(provider=><div key={`${projectId}:${provider}`} hidden={selectedRepository!==provider}>
-          <RepositoryConnectionContent projectId={projectId} provider={provider} onConnected={()=>{void utils.project.repositories.invalidate({projectId});void utils.project.byId.invalidate({id:projectId});}} onClose={close}/>
+          <RepositoryConnectionContent projectId={projectId} provider={provider} initialAuthorization={authorizations[provider]} active={active==="repository"&&selectedRepository===provider} onConnected={()=>{void utils.project.repositories.invalidate({projectId});void utils.project.byId.invalidate({id:projectId});}} onClose={close}/>
         </div>)}
         {selectedRepository&&!projectId&&<><p>{repositoryName} account discovery is not available in this intake. Open a project to authorize a provider, or add an exported specification or ticket as Markdown or text.</p>{onDocuments?<button type="button" onClick={()=>{close();onDocuments();}}>Add file or text</button>:documentsHref?<a className="btn-primary" href={documentsHref}>Add document evidence</a>:<p>No account connection has been made.</p>}</>}
-        {selectedRepository&&<button type="button" className="btn-secondary" disabled={busy} onClick={()=>{if(!busy)setSelectedRepository(null);}}>Back to providers</button>}
+        {selectedRepository&&<button type="button" className="btn-secondary" disabled={busy} onClick={()=>{if(!busy){cancelRepositoryAuthorization(authorizations[selectedRepository]);setRepositoryChoice(selectedRepository);setSelectedRepository(null);}}}>Back to providers</button>}
         {busy&&<p role="status">Connection update in progress. Wait before switching providers or closing.</p>}
       </fieldset>:active==="drive"&&projectId?<GoogleDriveSourceConnection key={active} projectId={projectId} onClose={close}/>:active==="linear"&&projectId?<LinearSourceConnection key={active} projectId={projectId} onClose={close}/>:active==="jira"&&projectId?<JiraSourceConnection key={active} projectId={projectId} onClose={close}/>:<>
         {active&&active!=="document"&&<p>{name} account discovery is not available in this intake. Add an exported specification or ticket as Markdown or text, then review the proposed changes.</p>}

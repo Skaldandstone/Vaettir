@@ -4,6 +4,7 @@ import { readFileSync } from "node:fs";
 
 const customer = readFileSync(new URL("../components/GitlabRepositoryConnection.tsx", import.meta.url), "utf8");
 const admin = readFileSync(new URL("../components/RepositoryOAuthApplicationSetup.tsx", import.meta.url), "utf8");
+const authorization=readFileSync(new URL("./repository-authorization.ts",import.meta.url),"utf8");
 
 test("customer Connect flow never collects OAuth application or account credentials", () => {
   assert.doesNotMatch(customer, /Application ID|Application secret|configureGitlab|configureGithub|setClientSecret|type="password"/);
@@ -15,13 +16,14 @@ test("customer Connect flow never collects OAuth application or account credenti
 });
 
 test("blocked popup does not start OAuth; popup isolates opener before server-approved authorization", () => {
-  const open = customer.indexOf('window.open("about:blank"');
-  const blocked = customer.indexOf("if (!opened)");
-  const isolate = customer.indexOf("opened.opener = null");
-  const begin = customer.indexOf("await begin.mutateAsync");
+  const open = authorization.indexOf('window.open("about:blank"');
+  const blocked = authorization.indexOf("if(!opened)");
+  const isolate = authorization.indexOf("opened.opener=null");
+  const begin = authorization.indexOf("await begin()");
   assert.ok(open > 0 && blocked > open && isolate > blocked && begin > isolate);
-  assert.match(customer.slice(blocked, isolate), /return;/);
-  assert.match(customer, /configurationId: provider.id, approveMetadataAccess: true/);
+  assert.match(authorization.slice(blocked, isolate), /return;/);
+  assert.match(customer, /configurationId:providerConfigurationId,approveMetadataAccess:true/);
+  assert.match(customer,/if \(!providerConfigurationId \|\| !connectionReady \|\| busy \|\| !canConnect\) return/);
 });
 
 test("verified authorization automatically lists once, errors stay retryable and writes require review", () => {

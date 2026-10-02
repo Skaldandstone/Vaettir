@@ -5,6 +5,7 @@ import type { PopulationDraft } from "@vaettir/core";
 import { CreationWizard, WizardChoices } from "./CreationWizard";
 import { SourceConnectionChips } from "./SourceConnectionChips";
 import type { RepositoryProvider } from "./RepositoryConnectionContent";
+import type {RepositoryAuthorizationIntent} from "./RepositoryProviderPicker";
 import {
   nextPopulationStep,
   populationSteps as steps,
@@ -66,9 +67,9 @@ export function PopulationWizard({
   onExit: () => void;
   documentsHref?: string;
   onDocuments?: () => void;
-  onGitlab?: () => void;
-  onGithub?: () => void;
-  onRepository?: (provider: RepositoryProvider) => void;
+  onGitlab?: (intent?:RepositoryAuthorizationIntent) => void;
+  onGithub?: (intent?:RepositoryAuthorizationIntent) => void;
+  onRepository?: (provider: RepositoryProvider,intent?:RepositoryAuthorizationIntent) => void;
   projectId?: string;
 }) {
   const [draft, setDraft] = useState(initial);
@@ -254,38 +255,38 @@ export function PopulationWizard({
                 onDocuments={onDocuments}
                 onRepository={
                   onRepository &&
-                  ((provider) => {
+                  ((provider,intent) => {
                     setDraft((current) => ({
                       ...current,
                       providers: current.providers.includes(provider)
                         ? current.providers
                         : [...current.providers, provider],
                     }));
-                    onRepository(provider);
+                    onRepository(provider,intent);
                   })
                 }
                 onGitlab={
                   onGitlab &&
-                  (() => {
+                  ((intent) => {
                     setDraft((current) => ({
                       ...current,
                       providers: current.providers.includes("gitlab")
                         ? current.providers
                         : [...current.providers, "gitlab"],
                     }));
-                    onGitlab();
+                    onGitlab(intent);
                   })
                 }
                 onGithub={
                   onGithub &&
-                  (() => {
+                  ((intent) => {
                     setDraft((current) => ({
                       ...current,
                       providers: current.providers.includes("github")
                         ? current.providers
                         : [...current.providers, "github"],
                     }));
-                    onGithub();
+                    onGithub(intent);
                   })
                 }
               />

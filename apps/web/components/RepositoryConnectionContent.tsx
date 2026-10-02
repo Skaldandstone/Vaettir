@@ -5,11 +5,12 @@ import {RepositoryOAuthConnection} from "./GitlabRepositoryConnection";
 import {TokenRepositoryConnection} from "./TokenRepositoryConnection";
 import {PopulationDocuments} from "./PopulationDocuments";
 import {MigrationWizard} from "./MigrationWizard";
+import type {RepositoryAuthorizationIntent} from "./RepositoryProviderPicker";
 export const repositoryProviders=[["github","GitHub"],["gitlab","GitLab"],["bitbucket","Bitbucket"],["azure-devops","Azure DevOps"],["git","Self-hosted Git"],["perforce","Perforce"],["svn","SVN"]] as const;
 export type RepositoryProvider=typeof repositoryProviders[number][0];
 
-export function RepositoryConnectionContent({projectId,provider,onConnected,onClose}:{projectId:string;provider:RepositoryProvider;onConnected:()=>void;onClose:()=>void}){
-  if(provider==="github"||provider==="gitlab")return <RepositoryOAuthConnection projectId={projectId} providerId={provider} onConnected={onConnected} onClose={onClose}/>;
+export function RepositoryConnectionContent({projectId,provider,onConnected,onClose,initialAuthorization,active=true}:{projectId:string;provider:RepositoryProvider;onConnected:()=>void;onClose:()=>void;initialAuthorization?:RepositoryAuthorizationIntent;active?:boolean}){
+  if(provider==="github"||provider==="gitlab")return <RepositoryOAuthConnection projectId={projectId} providerId={provider} onConnected={onConnected} onClose={onClose} initialAuthorization={initialAuthorization} active={active}/>;
   if(provider==="bitbucket"||provider==="azure-devops")return <TokenRepositoryConnection projectId={projectId} providerId={provider} onConnected={onConnected} onClose={onClose}/>;
   return <RepositoryExportConnection projectId={projectId} provider={provider} onConnected={onConnected} onClose={onClose}/>;
 }
