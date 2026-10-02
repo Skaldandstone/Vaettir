@@ -286,7 +286,9 @@ export default function ProjectsPage() {
             </h2>
             <p className="project-repository">
               <Icon name="branch" size={14} />
-              {p.repoUrl ? `Legacy reference: ${p.repoUrl}` : "Manage repository access from project overview"}
+              {p.repoUrl
+                ? `Legacy reference: ${p.repoUrl}`
+                : "Manage repository access from project overview"}
             </p>
             <nav
               className="project-card-links"
@@ -352,7 +354,13 @@ export default function ProjectsPage() {
       >
         <CreationWizard
           step={createStep}
-          steps={["Purpose", "System", "Quality goals", "Obligations", "Review"]}
+          steps={[
+            "Purpose",
+            "System",
+            "Quality goals",
+            "Obligations",
+            "Review",
+          ]}
           title={
             [
               "What are you validating?",
@@ -373,7 +381,7 @@ export default function ProjectsPage() {
           }
           canContinue={
             createStep === 0
-              ? Boolean(name.trim() && objective.trim())
+              ? Boolean(name.trim())
               : createStep === 1
                 ? testEnvironments.length > 0
                 : true
@@ -382,18 +390,20 @@ export default function ProjectsPage() {
             createStep === 0
               ? !name.trim()
                 ? "Enter a project name to continue."
-                : !objective.trim()
-                  ? "Describe the objective to continue."
-                  : undefined
+                : undefined
               : createStep === 1 && testEnvironments.length === 0
                 ? "Choose at least one test environment to continue."
                 : undefined
           }
           onInvalid={() => {
             if (createStep === 0) {
-              document.getElementById(name.trim() ? "new-project-objective" : "new-project-name")?.focus();
+              document.getElementById("new-project-name")?.focus();
             } else if (createStep === 1) {
-              document.querySelector<HTMLButtonElement>("#new-project-test-environments button")?.focus();
+              document
+                .querySelector<HTMLButtonElement>(
+                  "#new-project-test-environments button",
+                )
+                ?.focus();
             }
           }}
           busy={createMutation.isPending}
@@ -415,16 +425,31 @@ export default function ProjectsPage() {
                 />
               </label>
               <label>
-                Objective
+                Objective (optional)
                 <textarea
                   id="new-project-objective"
                   value={objective}
                   onChange={(e) => setObjective(e.target.value)}
                   rows={3}
-                  required
+                  maxLength={1000}
+                  aria-describedby="new-project-objective-help"
                   placeholder="For example: prove a medical-device controller and its mobile app are safe and ready for pilot production."
                 />
               </label>
+              <p id="new-project-objective-help" className="text-muted">
+                Add what you know, or leave this blank. You can revisit your
+                objective in Update project understanding later.
+              </p>
+              {!objective.trim() && (
+                <button
+                  type="button"
+                  className="btn-secondary"
+                  disabled={createMutation.isPending || !name.trim()}
+                  onClick={() => setCreateStep(1)}
+                >
+                  Not sure yet · continue without an objective
+                </button>
+              )}
               <WizardChoices
                 title="Project scope"
                 options={[
@@ -488,7 +513,11 @@ export default function ProjectsPage() {
                   setTestEnvironments((values) => toggleValue(values, item))
                 }
               />
-              <p className="text-muted">After creating the project, Add sources opens with provider options. Only configured providers can verify access; references remain unverified.</p>
+              <p className="text-muted">
+                After creating the project, Add sources opens with provider
+                options. Only configured providers can verify access; references
+                remain unverified.
+              </p>
             </>
           )}
           {createStep === 2 && (
@@ -534,7 +563,9 @@ export default function ProjectsPage() {
           {createStep === 4 && (
             <div className="panel" style={{ padding: 16 }}>
               <strong>{name}</strong>
-              <p style={{ margin: "5px 0" }}>{objective}</p>
+              <p style={{ margin: "5px 0" }}>
+                Objective: {objective.trim() ? objective : "Not specified yet"}
+              </p>
               <p className="text-muted" style={{ margin: 0, fontSize: 12 }}>
                 {systemScope.replaceAll("_", " ")} ·{" "}
                 {testEnvironments.join(", ") || "No environment selected"}

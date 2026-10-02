@@ -2,6 +2,56 @@
 
 ## Same-page actions
 
+### Customer connection correction, 2026-10-02 (source only)
+
+Overview now offers one compact **Connect repo** action, followed by an in-page
+provider picker. Population, requirements intake and reverse engineering use the
+same compact entry. Existing registered repositories and status remain visible.
+Provider switching retains visited connector selections; failed access refreshes
+and revoked editor access hide actionable controls without discarding drafts.
+
+GitLab/GitHub account connection no longer collects instance origins, application
+IDs or secrets from ordinary users. It selects the hosted or sole configured
+instance automatically; multiple configured instances use buttons. Connect opens
+the provider popup with an isolated opener. The provider uses its own existing
+sign-in session, or asks the user to sign in. Vaettir does not inspect browser
+cookies or collect provider passwords. An explicit Connect click approves only
+account verification and repository metadata listing. Native OAuth scope is
+broader, and the user must review the provider authorization screen.
+
+Successful current verification automatically opens a bounded repository list
+once. Errors stop automatic retries and expose a manual retry. Multi-page
+selection and a separate review precede any repository registration. Source
+files, revision discovery, generation, AI processing and credit charges remain
+separate approvals; this connection flow performs none of them.
+
+Hosted application setup belongs to the Vaettir installation: server-only
+`GITLAB_OAUTH_CLIENT_ID`/`GITLAB_OAUTH_CLIENT_SECRET` and the corresponding
+`GITHUB_OAUTH_CLIENT_ID`/`GITHUB_OAUTH_CLIENT_SECRET`, encrypted credential storage,
+and registered HTTPS callbacks. Availability queries are read-only and return
+no application credentials. Approved authorization materializes an immutable,
+encrypted, tenant-local configuration under fresh role/seat/organization/project
+locks. Existing workspace hosted or self-hosted applications are never replaced
+by environment changes. Pending callback and grant revocation retain their
+original credentials. The callback identity must remain stable through pending
+authorizations.
+
+Self-hosted GitLab applications are configured once per publicly reachable
+instance in **Settings → Integrations → Repository application administration**,
+not the customer Connect screen. A GitLab.com application cannot authorize
+another instance. Full Owner/Admin access controls configuration, outstanding
+grant cleanup and reviewed removal; failed revocations retain recovery secrets,
+and removing an application never deletes repository records. Blank platform
+credentials show honest unavailability, not an enabled authorization button or
+fake connection. Bitbucket/Azure still use their implemented token adapters;
+self-hosted Git/Perforce/SVN retain export intake, not fabricated native OAuth.
+
+Synthetic rendered desktop/mobile/role/popup/retry checks and disposable-database
+tests establish source behavior only. Hosted applications were not registered,
+production credentials were not injected, customer accounts were not authorized,
+and this increment was not deployed. Production setup and authenticated native
+provider acceptance require separate evidence.
+
 The project Overview and population modal share the same repository connection screens. GitHub and GitLab retain native OAuth popup authorization. Bitbucket Cloud and Azure DevOps Services now verify read-only token access, list searchable repository metadata, retain multi-selection across visited pages, and require review before registering repositories. No source files or AI processing occur in these flows.
 
 Requirements intake and Reverse Engineer also open the shared connection screens in place, rather than navigating away to Overview. Generic project source chips use the same provider-specific screens without requiring caller-supplied callbacks. Successful repository approvals refresh the project and repository queries; ticket/document exports remain distinct from authenticated repository access.

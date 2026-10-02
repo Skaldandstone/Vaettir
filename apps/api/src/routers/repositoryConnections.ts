@@ -8,6 +8,7 @@ import { GitlabOAuthRevocationPendingError,createGitlabAuthorization,hashOAuthSt
 import { GITHUB_ORIGIN, GithubOAuthRevocationPendingError, createGithubAuthorization, listGithubRepositories, revokeGithubAuthorization, verifyGithubAuthorization } from "../services/githubRepositoryOAuth.js";
 import { verifyBitbucketAuthorization, listBitbucketRepositories } from "../services/bitbucketRepositoryConnection.js";
 import { azureOrganizationUrl, listAzureRepositories } from "../services/azureRepositoryConnection.js";
+import {availablePlatformRepositoryConfigurations,platformRepositoryApplication,platformRepositoryProvider} from "../services/platformRepositoryOAuth.js";
 
 const projectInput=z.object({projectId:z.string()});
 const jsonToken=(value:ReturnType<typeof encryptToken>)=>({...value});
@@ -145,7 +146,8 @@ export const repositoryConnectionsRouter=router({
     const configurations=await ctx.prisma.repositoryProviderConfiguration.findMany({where:{organizationId:project.organizationId},select:{id:true,provider:true,origin:true}});
     const storageReady=credentialStorageReady();
     const redirectReady=callbackReady();
-    return{configurations,storageReady:storageReady && redirectReady,credentialStorageReady:storageReady,callbackReady:redirectReady,canConnect:membership.seatType==="FULL" && ["OWNER","ADMIN","EDITOR"].includes(membership.role),canConfigure:membership.seatType==="FULL" && ["OWNER","ADMIN"].includes(membership.role),redirectUri:redirectUri(),githubRedirectUri:redirectUri("github")};
+    const visibleConfigurations=[...configurations,...availablePlatformRepositoryConfigurations(configurations,storageReady&&redirectReady)];
+    return{configurations:visibleConfigurations,storageReady:storageReady && redirectReady,credentialStorageReady:storageReady,callbackReady:redirectReady,canConnect:membership.seatType==="FULL" && ["OWNER","ADMIN","EDITOR"].includes(membership.role),canConfigure:membership.seatType==="FULL" && ["OWNER","ADMIN"].includes(membership.role),redirectUri:redirectUri(),githubRedirectUri:redirectUri("github")};
   }),
   revocableGrants:protectedProcedure.input(projectInput.extend({provider:z.enum(["github","gitlab"])})).query(async({ctx,input})=>{
     const {project}=await editor(ctx,input.projectId);requireOrgRole(ctx,project.organizationId,"ADMIN");
@@ -196,22 +198,41 @@ export const repositoryConnectionsRouter=router({
   begin:protectedProcedure.input(projectInput.extend({configurationId:z.string(),approveMetadataAccess:z.literal(true)})).mutation(async({ctx,input})=>{
     const {project}=await editor(ctx,input.projectId);
     if(!encryptionReady())throw unavailable();
-    const config=await ctx.prisma.repositoryProviderConfiguration.findFirst({where:{id:input.configurationId,organizationId:project.organizationId,provider:{in:["gitlab","github"]}}});
-    if(!config)throw new TRPCError({code:"NOT_FOUND"});
-    const recent=await ctx.prisma.repositoryConnection.count({where:{actorId:ctx.user.id,createdAt:{gt:new Date(Date.now()-3600000)}}});
-    if(recent>=20)throw new TRPCError({code:"TOO_MANY_REQUESTS",message:"Too many authorization attempts. Try again later."});
-    const auth=config.provider==="github"?createGithubAuthorization(config.clientId,repositoryOAuthRedirect(process.env,"github")):createGitlabAuthorization(config.origin,config.clientId,repositoryOAuthRedirect());
-    const row=await ctx.prisma.$transaction(async tx=>{
+    return ctx.prisma.$transaction(async tx=>{
       await liveEditor(tx,project.organizationId,ctx.user.id);
+      // The hourly limit is actor-wide, including simultaneous attempts in
+      // different workspaces. Serialize that count without provider I/O.
+      await tx.$queryRaw`SELECT id FROM "User" WHERE id=${ctx.user.id} FOR UPDATE`;
+      const projects=await tx.$queryRaw<Array<{organizationId:string}>>`SELECT "organizationId" FROM "Project" WHERE id=${input.projectId} FOR UPDATE`;
+      if(projects[0]?.organizationId!==project.organizationId)throw new TRPCError({code:"FORBIDDEN",message:"The project workspace changed. Refresh before authorizing."});
+      const recent=await tx.repositoryConnection.count({where:{actorId:ctx.user.id,createdAt:{gt:new Date(Date.now()-3600000)}}});
+      if(recent>=20)throw new TRPCError({code:"TOO_MANY_REQUESTS",message:"Too many authorization attempts. Try again later."});
+      const platformProvider=platformRepositoryProvider(input.configurationId);
+      let config;
+      if(platformProvider){
+        const origin=platformProvider==="github"?GITHUB_ORIGIN:"https://gitlab.com";
+        config=await tx.repositoryProviderConfiguration.findUnique({where:{organizationId_provider_origin:{organizationId:project.organizationId,provider:platformProvider,origin}}});
+        if(!config){
+          if(!encryptionReady())throw unavailable();
+          const application=platformRepositoryApplication(platformProvider);
+          if(!application)throw unavailable();
+          // Explicit approval creates a tenant-local immutable snapshot. Env
+          // rotation never changes a pending finish or retained grant's secret.
+          // WEB_APP_URL/callback identity must remain stable through callbacks.
+          config=await tx.repositoryProviderConfiguration.create({data:{organizationId:project.organizationId,provider:application.provider,origin:application.origin,clientId:application.clientId,encryptedSecret:jsonToken(encryptToken(application.clientSecret)),createdById:ctx.user.id}});
+        }
+      }else config=await tx.repositoryProviderConfiguration.findFirst({where:{id:input.configurationId,organizationId:project.organizationId,provider:{in:["gitlab","github"]}}});
+      if(!config)throw new TRPCError({code:"NOT_FOUND"});
+      const auth=config.provider==="github"?createGithubAuthorization(config.clientId,repositoryOAuthRedirect(process.env,"github")):createGitlabAuthorization(config.origin,config.clientId,repositoryOAuthRedirect());
       // Local expiry does not revoke an upstream OAuth grant. Keep encrypted
       // credentials until explicit revocation succeeds.
       await tx.repositoryConnection.updateMany({where:{actorId:ctx.user.id,organizationId:project.organizationId,status:"PENDING",authorizationExpiresAt:{lte:new Date()}},data:{...clearCredentials,status:"EXPIRED"}});
       const existing=await tx.repositoryConnection.findFirst({where:{projectId:input.projectId,actorId:ctx.user.id,configurationId:config.id,
         OR:[{encryptedToken:{not:Prisma.DbNull}},{status:{in:["PENDING","VERIFYING"]},authorizationExpiresAt:{gt:new Date()}}]}});
       if(existing)throw new TRPCError({code:"PRECONDITION_FAILED",message:"Revoke the previous provider grant or finish its authorization before reconnecting this project."});
-      return tx.repositoryConnection.create({data:{projectId:input.projectId,organizationId:project.organizationId,actorId:ctx.user.id,configurationId:config.id,provider:config.provider,origin:config.origin,stateHash:hashOAuthState(auth.state),encryptedVerifier:jsonToken(encryptToken(auth.verifier)),authorizationExpiresAt:new Date(Date.now()+600000)}});
+      const row=await tx.repositoryConnection.create({data:{projectId:input.projectId,organizationId:project.organizationId,actorId:ctx.user.id,configurationId:config.id,provider:config.provider,origin:config.origin,stateHash:hashOAuthState(auth.state),encryptedVerifier:jsonToken(encryptToken(auth.verifier)),authorizationExpiresAt:new Date(Date.now()+600000)}});
+      return{id:row.id,url:auth.url};
     });
-    return{id:row.id,url:auth.url};
   }),
   finish:protectedProcedure.input(z.object({state:z.string().min(32).max(200),code:z.string().max(2000).optional(),denied:z.boolean().default(false)})).mutation(async({ctx,input})=>{
     const row=await ctx.prisma.repositoryConnection.findUnique({where:{stateHash:hashOAuthState(input.state)}});

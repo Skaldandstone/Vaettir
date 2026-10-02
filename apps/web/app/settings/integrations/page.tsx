@@ -146,6 +146,7 @@ export default function IntegrationsHealthPage() {
         title="Integrations"
         description="Connect delivery, incident, and collaboration systems so readiness is based on real evidence rather than manual status chasing."
       />
+      <p><Link className="btn-secondary" href="/settings/integrations/repositories">Manage repository applications</Link> <span className="text-muted">Workspace administrators only; members connect inside their project.</span></p>
       <div className="integration-summary" role="status">
         <strong>{rows.filter((row) => row.configured).length}</strong>
         <span>of {rows.length} legacy integration types configured; saved setup is not verified access</span>

@@ -1,6 +1,7 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import Link from "next/link";
 import { trpcReact, type RouterOutputs } from "@/lib/trpcReact";
 import { ProviderMark } from "./SourceConnectionChips";
 import { connectionAccessState } from "@/lib/connection-access";
@@ -20,14 +21,8 @@ export function RepositoryOAuthConnection({ projectId, providerId, onConnected, 
   const utils = trpcReact.useUtils();
   const configurations = trpcReact.repositoryConnections.configurations.useQuery({ projectId });
   const recent = trpcReact.repositoryConnections.mine.useQuery({ projectId }, { enabled: configurations.isSuccess && configurations.data.canConnect });
-  const revocations = trpcReact.repositoryConnections.revocableGrants.useQuery({ projectId, provider: providerId }, { enabled: configurations.isSuccess && configurations.data.canConfigure });
-  const [step, setStep] = useState<"instance" | "authorize" | "repositories" | "review" | "done">("instance");
+  const [step, setStep] = useState<"authorize" | "repositories" | "review" | "done">("authorize");
   const [configurationId, setConfigurationId] = useState("");
-  const [configure, setConfigure] = useState(false);
-  const [origin, setOrigin] = useState("https://gitlab.com");
-  const [clientId, setClientId] = useState("");
-  const [clientSecret, setClientSecret] = useState("");
-  const [consent, setConsent] = useState(false);
   const [connectionId, setConnectionId] = useState("");
   const [search, setSearch] = useState("");
   const [activeSearch, setActiveSearch] = useState("");
@@ -37,11 +32,18 @@ export function RepositoryOAuthConnection({ projectId, providerId, onConnected, 
   const [selectedDetails, setSelectedDetails] = useState<Record<string, Listing["repositories"][number]>>({});
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
-  const [callbackCopied, setCallbackCopied] = useState(false);
-  const [revokingId, setRevokingId] = useState("");
   const popup = useRef<Window | null>(null);
-  const configureMutation = trpcReact.repositoryConnections.configureGitlab.useMutation();
-  const configureGithub = trpcReact.repositoryConnections.configureGithub.useMutation();
+  const automaticallyLoaded = useRef("");
+  const screenHeading = useRef<HTMLParagraphElement>(null);
+  useLayoutEffect(() => {
+    const heading = screenHeading.current;
+    const dialog = heading?.closest("dialog");
+    // Do not steal opener focus on mount or focus a retained, hidden provider.
+    if (dialog?.open && heading?.getClientRects().length) {
+      dialog.scrollTo({ top: 0 });
+      heading.focus();
+    }
+  }, [step]);
   const begin = trpcReact.repositoryConnections.begin.useMutation();
   const connect = trpcReact.repositoryConnections.connectSelected.useMutation();
   const disconnect = trpcReact.repositoryConnections.disconnect.useMutation();
@@ -49,31 +51,33 @@ export function RepositoryOAuthConnection({ projectId, providerId, onConnected, 
     enabled: Boolean(connectionId) && configurations.isSuccess && configurations.data.canConnect, retry: false,
     refetchInterval: query => !query.state.error && (!query.state.data || ["PENDING", "VERIFYING"].includes(query.state.data.status)) ? 2000 : false,
   });
-  const provider = configurations.data?.configurations.find(c => c.id === configurationId);
   const availableConfigurations = configurations.data?.configurations.filter(c => c.provider === providerId) ?? [];
+  const provider = availableConfigurations.find(c => c.id === configurationId)
+    ?? availableConfigurations.find(c => c.origin === (providerId === "gitlab" ? "https://gitlab.com" : "https://github.com"))
+    ?? (availableConfigurations.length === 1 ? availableConfigurations[0] : undefined);
   const connectionReady = configurations.data?.storageReady ?? false;
-  const showSetup = configure || (connectionReady && Boolean(configurations.data?.canConfigure) && availableConfigurations.length === 0);
-  const busy = begin.isPending || configureMutation.isPending || configureGithub.isPending || connect.isPending || disconnect.isPending || loading;
+  const busy = begin.isPending || connect.isPending || disconnect.isPending || loading;
   const failure = error || configurations.error?.message || status.error?.message;
   const selectedRepos = Object.values(selectedDetails).filter(repo => selected.includes(repo.id));
 
   async function authorize() {
+    if (!provider || !connectionReady || busy || !configurations.isSuccess || !configurations.data.canConnect) return;
     setError("");
     // Open synchronously from the user's click, before awaiting the server (popup blockers).
     const opened = window.open("about:blank", "_blank", "popup,width=650,height=760");
-    if (!opened) { setError("Allow popups for Vaettir, then select Authorize again."); return; }
+    if (!opened) { setError(`Allow popups for Vaettir, then select Connect ${providerName} again.`); return; }
     popup.current = opened;
     // Status polling is authoritative; the provider never receives an opener handle.
     opened.opener = null;
     try {
-      const result = await begin.mutateAsync({ projectId, configurationId, approveMetadataAccess: true });
+      const result = await begin.mutateAsync({ projectId, configurationId: provider.id, approveMetadataAccess: true });
       setConnectionId(result.id);
       if (opened.closed) { setError("The authorization window was closed. Cancel this attempt and try again."); return; }
       opened.location.replace(result.url);
     } catch { opened.close(); setError("Authorization could not start. Check your permissions and provider configuration, then try again."); }
   }
 
-  async function load(nextPage = 1, nextSearch = search) {
+  const load = useCallback(async (nextPage = 1, nextSearch = "") => {
     setLoading(true); setError("");
     try {
       const result = await utils.repositoryConnections.list.fetch({ id: connectionId, page: nextPage, search: nextSearch });
@@ -86,87 +90,64 @@ export function RepositoryOAuthConnection({ projectId, providerId, onConnected, 
       setListing(result); setPage(nextPage); setActiveSearch(nextSearch); setStep("repositories");
     } catch { setError("The repository list could not be verified. Check connection status or reconnect, then try again."); }
     finally { setLoading(false); }
-  }
+  }, [connectionId, utils]);
+
+  // One automatic metadata listing per verified attempt. Failed requests stay retryable,
+  // not an effect loop. Back/review never restarts authorization or writes repositories.
+  useEffect(() => {
+    if (step !== "authorize" || !connectionId || automaticallyLoaded.current === connectionId
+      || !configurations.isSuccess || !configurations.data.canConnect || !recent.isSuccess
+      || !status.isSuccess || status.data.status !== "VERIFIED") return;
+    automaticallyLoaded.current = connectionId;
+    popup.current?.close();
+    void load(1, "");
+  }, [step, connectionId, configurations.isSuccess, configurations.data?.canConnect, recent.isSuccess, status.isSuccess, status.data?.status, load]);
 
   async function cancelConnection() {
     setError("");
     try {
       await disconnect.mutateAsync({ id: connectionId });
-      popup.current?.close(); setConnectionId(""); setListing(null); setSelected([]); setSelectedDetails({}); setConsent(false); setStep("authorize");
+      popup.current?.close(); setConnectionId(""); setListing(null); setSelected([]); setSelectedDetails({}); setStep("authorize");
+      await recent.refetch();
     } catch { setError("The connection could not be disconnected. Refresh its status before retrying."); }
   }
 
   const accessState = connectionAccessState(configurations, recent);
   if (accessState !== "ready") return <ConnectionAccessGate state={accessState} busy={busy || configurations.isFetching || recent.isFetching} onClose={onClose} onRetry={() => void (async () => { const refreshed = await configurations.refetch(); if (refreshed.isSuccess && refreshed.data.canConnect) await recent.refetch(); })()}/>;
   return <div style={{ display: "grid", gap: 16, minWidth: 0 }}>
-    <p className="text-muted">{({ instance: `1. Choose your ${providerName} connection`, authorize: "2. Authorize your account", repositories: "3. Choose repositories", review: "4. Review connections", done: "Repositories connected" })[step]}</p>
+    <p ref={screenHeading} tabIndex={-1} className="text-muted" role="status" aria-live="polite">{({ authorize: "1. Connect your account", repositories: "2. Choose repositories", review: "3. Review connections", done: "Repositories connected" })[step]}</p>
     {failure && <p role="alert">{failure}</p>}
-    {step === "instance" && <>
-      {configurations.isLoading && <p role="status">Checking connection availability…</p>}
-      {configurations.data && !connectionReady && <section role="alert" style={{ display: "grid", gap: 8 }}>
-        <strong>{providerName} connection is not available yet</strong>
-        <p style={{ margin: 0 }}>This Vaettir installation cannot securely complete authorization. No {providerName} account or repository was connected. Changing the instance URL will not fix this.</p>
-        {configurations.data.canConfigure && <p style={{ margin: 0 }}>Vaettir platform setup needed: {[
-          !configurations.data.credentialStorageReady && "enable encrypted credential storage",
-          !configurations.data.callbackReady && "configure the public OAuth callback URL",
-        ].filter(Boolean).join(" and ")}. Your workspace OAuth application can be registered after that.</p>}
-        {!configurations.data.canConfigure && <p style={{ margin: 0 }}>Ask your workspace owner to contact Vaettir support about enabling repository connections.</p>}
-        <button type="button" className="btn-secondary" onClick={() => void configurations.refetch()}>Check again</button>
-      </section>}
-      {connectionReady && <>
-      <p>{providerId === "github" ? "Connect GitHub.com, verify your account, then choose the repositories for this project. GitHub’s OAuth permission is broader than those choices; review it before authorizing." : "Connect GitLab.com or a publicly reachable self-hosted GitLab, verify your account, then choose the repositories for this project. No source files are read in this flow."}</p>
-      {!!recent.data?.some(connection => connection.provider === providerId) && <details><summary>Resume a recent connection</summary><div style={{ display: "grid", gap: 8, marginTop: 8 }}>
-        {recent.data.filter(connection => connection.provider === providerId).map(connection => <button type="button" className="source-connection-chip" key={connection.id} disabled={!configurations.data?.storageReady} onClick={() => {
-          const config = configurations.data?.configurations.find(c => c.provider === providerId && c.origin === connection.origin);
-          setConfigurationId(config?.id ?? ""); setConnectionId(connection.id); setStep("authorize");
-        }}><ProviderMark id={providerId}/><span style={{ overflowWrap: "anywhere" }}><strong>{connection.origin}</strong><small>{connection.accountLabel ?? "Your authorization"} · {statusLabel(connection.status)}</small></span></button>)}
-      </div></details>}
-      {configurations.data?.canConfigure && revocations.error && <div role="alert"><p>Workspace authorizations could not be refreshed. Retry before revoking a saved grant.</p><button type="button" className="btn-secondary" disabled={busy || revocations.isFetching} onClick={() => void revocations.refetch()}>Retry authorization list</button></div>}
-      {configurations.data?.canConfigure && revocations.isSuccess && Boolean(revocations.data?.length) && <details><summary>Review {providerName} authorizations before removing the application ({revocations.data?.length})</summary><div style={{ display: "grid", gap: 8, marginTop: 8 }}>
-        <p className="text-muted">A workspace administrator can cancel pending attempts or retry revocation of an abandoned member grant. Application credentials remain until every grant is cleared.</p>
-        {revocations.data?.map(grant => <div key={grant.id} style={{ ...actions, alignItems: "center" }}><span style={{ flex: "1 1 180px", overflowWrap: "anywhere" }}>{grant.projectName} · {new URL(grant.origin).hostname} · {grant.accountLabel ?? "Account not verified"} · {statusLabel(grant.status)}</span><button type="button" className="btn-secondary" disabled={busy || Boolean(revokingId) || grant.status === "VERIFYING"} onClick={async () => {
-          setRevokingId(grant.id); setError("");
-          try { await disconnect.mutateAsync({ id: grant.id }); await revocations.refetch(); await recent.refetch(); }
-          catch { setError(`${providerName} did not confirm revocation. The encrypted grant remains in Vaettir for retry.`); }
-          finally { setRevokingId(""); }
-        }}>{revokingId === grant.id ? "Clearing…" : grant.status === "VERIFYING" ? "Verification in progress" : grant.status === "PENDING" || grant.status === "EXPIRED" ? "Cancel / revoke" : "Revoke grant"}</button></div>)}
-      </div></details>}
-      <div className="source-chip-list" role="group" aria-label={`Configured ${providerName} instances`}>
-        {availableConfigurations.map(c => <button type="button" key={c.id} className="source-connection-chip" aria-pressed={configurationId === c.id} onClick={() => { setConfigurationId(c.id); setConfigure(false); }}>
-          <ProviderMark id={providerId}/><span style={{ overflowWrap: "anywhere" }}><strong>{new URL(c.origin).hostname}</strong><small>OAuth app configured · Select to authorize or resume</small></span>{configurationId === c.id && <span aria-hidden="true">✓</span>}
-        </button>)}
-      </div>
-      {configurations.data?.canConfigure && availableConfigurations.length > 0 && providerId === "gitlab" ? <button type="button" className="btn-secondary" onClick={() => setConfigure(!configure)}>{configure ? "Hide application setup" : "Add another GitLab instance"}</button> : !configurations.data?.canConfigure && !availableConfigurations.length ? <p className="text-muted">A workspace owner or administrator must register the {providerName} OAuth application before you can authorize.</p> : null}
-      {showSetup && <form style={{ display: "grid", gap: 12 }} onSubmit={async e => {
-        e.preventDefault(); setError("");
-        try { const saved = providerId === "github" ? await configureGithub.mutateAsync({ projectId, clientId, clientSecret }) : await configureMutation.mutateAsync({ projectId, origin, clientId, clientSecret }); setClientSecret(""); setConfigurationId(saved.id); setConfigure(false); await configurations.refetch(); }
-        catch { setError("Instance setup failed. Check the URL, application credentials and your administrator permissions."); }
-      }}>
-        {providerId === "gitlab" && <label style={field}>GitLab origin<input style={inputStyle} type="url" required value={origin} onChange={e => setOrigin(e.target.value)} placeholder="https://gitlab.company.com" maxLength={300}/></label>}
-        <div style={{ display: "grid", gap: 6 }}><strong>Register an OAuth application in {providerName}</strong><span>{providerId === "github" ? "In GitHub, open Settings → Developer settings → OAuth apps. Use the callback below. GitHub's repo scope grants broad read/write access, even though Vaettir only lists metadata here." : "In your GitLab instance, open Edit profile → Access → Applications. Create an application with read_api and the callback below. A group owner can instead use Settings → Applications. Private-network hosts are not supported."}</span><a href={providerId === "github" ? "https://docs.github.com/en/apps/oauth-apps/building-oauth-apps/creating-an-oauth-app" : "https://docs.gitlab.com/integration/oauth_provider/"} target="_blank" rel="noopener noreferrer">{providerName} application setup instructions ↗</a><code style={{ overflowWrap: "anywhere" }}>{providerId === "github" ? configurations.data?.githubRedirectUri : configurations.data?.redirectUri}</code><button type="button" className="btn-secondary" onClick={async () => {
-          const callback = providerId === "github" ? configurations.data?.githubRedirectUri : configurations.data?.redirectUri;
-          if (!callback) return;
-          try { await navigator.clipboard.writeText(callback); setCallbackCopied(true); }
-          catch { setError("Could not copy the callback URL. Select the URL above and copy it manually."); }
-        }}>Copy callback URL</button>{callbackCopied && <span role="status">Callback URL copied.</span>}</div>
-        <label style={field}>Application ID<input style={inputStyle} required value={clientId} onChange={e => setClientId(e.target.value)} maxLength={300} autoComplete="off"/></label>
-        <label style={field}>Application secret<input style={inputStyle} type="password" required value={clientSecret} onChange={e => setClientSecret(e.target.value)} maxLength={2000} autoComplete="new-password"/></label>
-        <button type="submit" disabled={busy || !configurations.data?.storageReady}>{busy ? "Saving securely…" : "Save application configuration"}</button>
-      </form>}
-      <div style={actions}><button type="button" className="btn-secondary" onClick={onClose}>Cancel</button><button type="button" disabled={!provider || busy} onClick={() => setStep("authorize")}>Continue to authorization</button></div>
-      </>}
-    </>}
     {step === "authorize" && <>
-      <p>Authorize your account on <strong>{provider?.origin}</strong>. You will sign in in a separate {providerName} window.</p>
       {!connectionId ? <>
-        <label style={{ display: "flex", gap: 8, alignItems: "flex-start" }}><input type="checkbox" checked={consent} onChange={e => setConsent(e.target.checked)}/><span>{providerId === "github" ? "I understand GitHub grants this OAuth app full read/write repository access and some organization management permissions, regardless of which repositories I select in Vaettir. I approve account verification and metadata listing only; source processing requires separate approval." : "I understand GitLab’s read_api grant is broader than metadata listing. I approve account verification and metadata listing only; source processing requires separate approval."}</span></label>
-        <button type="button" disabled={!consent || busy} onClick={() => void authorize()}>{begin.isPending ? "Opening authorization…" : `Authorize with ${providerName}`}</button>
-        <button type="button" className="btn-secondary" disabled={busy} onClick={() => setStep("instance")}>Back</button>
+        {!connectionReady ? <section role="alert">
+          <strong>{providerName} authorization is unavailable</strong>
+          <p>Vaettir platform setup is incomplete. No account or repository was connected.</p>
+          <button type="button" className="btn-secondary" onClick={() => void configurations.refetch()}>Check again</button>
+        </section> : !availableConfigurations.length ? <section role="status">
+          <strong>{providerName} authorization is not enabled yet</strong>
+          <p>The application must be enabled once before users can connect. You do not need to enter application credentials here.</p>
+          <button type="button" className="btn-secondary" onClick={() => void configurations.refetch()}>Check again</button>
+        </section> : <>
+          {availableConfigurations.length > 1 && <div role="group" aria-label={`Choose ${providerName} instance`} style={{ display: "grid", gap: 8 }}>
+            {availableConfigurations.map(c => <button type="button" key={c.id} className="btn-secondary" aria-pressed={provider?.id === c.id} disabled={busy} onClick={() => setConfigurationId(c.id)}>{new URL(c.origin).hostname}</button>)}
+          </div>}
+          <p>{provider ? <>Connect to <strong>{new URL(provider.origin).hostname}</strong>.</> : "Choose your GitLab instance above."} {providerName} opens in a separate window and uses your existing sign-in, or asks you to sign in there.</p>
+          <p className="text-muted">{providerId === "github" ? "GitHub grants broad repository read/write and some organization management permissions." : "GitLab’s read_api permission is broader than repository listing."} Review the provider’s authorization screen. By connecting, you approve account verification and repository metadata listing only. No source files are read or sent to AI.</p>
+          <button type="button" disabled={!provider || busy} onClick={() => void authorize()}>{begin.isPending ? "Opening authorization…" : `Connect ${providerName}`}</button>
+        </>}
+        {!!recent.data?.some(connection => connection.provider === providerId) && <details><summary>Resume saved access</summary><div style={{ display: "grid", gap: 8, marginTop: 8 }}>
+          {recent.data.filter(connection => connection.provider === providerId).map(connection => <button type="button" className="btn-secondary" key={connection.id} disabled={busy || !connectionReady} onClick={() => {
+            const config = configurations.data?.configurations.find(c => c.provider === providerId && c.origin === connection.origin);
+            setConfigurationId(config?.id ?? ""); setConnectionId(connection.id); setStep("authorize");
+          }}><strong>{new URL(connection.origin).hostname}</strong> · {connection.accountLabel ?? "Your authorization"} · {statusLabel(connection.status)}</button>)}
+        </div></details>}
+        {configurations.data?.canConfigure && <Link className="text-muted" href={`/settings/integrations/repositories?projectId=${encodeURIComponent(projectId)}&provider=${providerId}`}>Manage workspace applications and saved grants</Link>}
+        <div style={actions}><button type="button" className="btn-secondary" onClick={onClose}>Cancel</button></div>
       </> : <>
-        {!status.isSuccess ? <p role={status.error ? "alert" : "status"}>{status.error ? "Connection status could not be refreshed. Retry before loading repositories." : "Checking authorization status…"}</p> : <p role="status">{status.data.status === "VERIFIED" ? `Verified as ${status.data.accountLabel ?? `your ${providerName} account`}. Load the repository list when you are ready.` : ["PENDING", "VERIFYING"].includes(status.data.status) ? `Waiting for ${providerName} authorization. Keep this screen open; the connection status updates automatically.` : status.data.status === "EXPIRED" || status.data.status === "REVOCATION_PENDING" ? `This ${providerName} connection cannot be used. Revoke its grant before reconnecting; Vaettir retains the encrypted credential until cleanup is confirmed.` : `Connection ${status.data.status.toLowerCase()}. Start again to authorize.`}</p>}
-        {status.isSuccess && status.data.status === "VERIFIED" && <button type="button" disabled={busy} onClick={() => void load()}>Load repositories</button>}
-        <div style={actions}><button type="button" className="btn-secondary" disabled={busy} onClick={() => void status.refetch()}>Refresh status</button><button type="button" className="btn-secondary" disabled={busy} onClick={() => void cancelConnection()}>Revoke token and disconnect</button></div>
-        <p className="text-muted">Explicit disconnect asks {providerName} to revoke this token before Vaettir removes the connection. If the provider rejects revocation, Vaettir retains the encrypted grant for retry. Local expiry does not confirm upstream revocation, and application removal is blocked until grants are cleared.</p>
+        {!status.isSuccess ? <p role={status.error ? "alert" : "status"}>{status.error ? "Connection status could not be refreshed. Retry before loading repositories." : "Checking authorization status…"}</p> : <p role="status">{status.data.status === "VERIFIED" ? `Verified as ${status.data.accountLabel ?? `your ${providerName} account`}. ${loading ? "Loading repositories…" : "Choose repositories next."}` : ["PENDING", "VERIFYING"].includes(status.data.status) ? `Waiting for ${providerName} authorization. Complete it in the popup; this screen updates automatically.` : status.data.status === "EXPIRED" || status.data.status === "REVOCATION_PENDING" ? `This ${providerName} connection cannot be used. Revoke its grant before reconnecting; the encrypted credential is retained until cleanup is confirmed.` : `Connection ${status.data.status.toLowerCase()}. Start again to authorize.`}</p>}
+        {status.isSuccess && status.data.status === "VERIFIED" && <button type="button" disabled={busy} onClick={() => void load(1, "")}>{listing ? "Choose repositories" : "Retry repository list"}</button>}
+        <div style={actions}><button type="button" className="btn-secondary" disabled={busy} onClick={() => void status.refetch()}>Refresh status</button><button type="button" className="btn-secondary" disabled={busy} onClick={() => void cancelConnection()}>Revoke token and disconnect</button><button type="button" className="btn-secondary" onClick={onClose}>Close</button></div>
+        <p className="text-muted">Disconnect revokes the provider grant before removing saved access. If revocation fails, Vaettir retains it for retry.</p>
       </>}
     </>}
     {step === "repositories" && <>

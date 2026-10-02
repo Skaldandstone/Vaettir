@@ -42,9 +42,10 @@ test("integration project actions open scoped source modules in place with hones
 test("registered repository chips open existing provider flows only for editors", () => {
   const component = readFileSync(new URL("../components/ProjectRepositories.tsx", import.meta.url), "utf8");
   assert.match(component, /canEdit&&knownProvider\?<button/);
-  assert.match(component, /onClick=\{\(\)=>setProvider\(knownProvider\)\}/);
+  assert.match(component, /onClick=\{\(\)=>chooseProvider\(knownProvider\)\}/);
+  assert.match(component, /if\(busy\|\|!canEdit\|\|!query\.isSuccess\)return/);
   assert.match(component, /Registered · Access unverified/);
-  assert.match(component, /<RepositoryConnectionContent key=\{provider\} projectId=\{projectId\}/);
+  assert.match(component, /visited\.map\(id=><div key=\{id\} hidden=\{provider!==id\}><RepositoryConnectionContent projectId=\{projectId\} provider=\{id\}/);
   assert.match(component, /query\.refetch\(\)/);
 });
 
@@ -52,7 +53,7 @@ test("repository and alert chips do not offer cached access after a failed refre
   const repositories = readFileSync(new URL("../components/ProjectRepositories.tsx", import.meta.url), "utf8");
   assert.match(repositories, /repositories=query\.isSuccess\?query\.data:undefined/);
   assert.match(repositories, /canEdit&&query\.isSuccess&&/);
-  assert.match(repositories, /hidden=\{!query\.isSuccess\}/);
+  assert.match(repositories, /hidden=\{!canEdit\|\|!query\.isSuccess\}/);
   assert.match(repositories, /Retry repository access/);
   assert.doesNotMatch(repositories, /query\.data\?\.map/);
   const signals = readFileSync(new URL("../components/ProductionSignalChips.tsx", import.meta.url), "utf8");

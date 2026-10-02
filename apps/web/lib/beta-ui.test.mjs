@@ -34,7 +34,9 @@ test("source chips open modal actions and keep unsupported provider status hones
   const wizard = readFileSync(new URL("../components/PopulationWizard.tsx", import.meta.url), "utf8");
   assert.match(wizard, /<SourceConnectionChips/);
   assert.doesNotMatch(wizard, /title="Source preferences/);
-  assert.match(chips, /repoIds.includes\(active\)\?\s*<RepositoryConnectionContent/);
+  assert.match(chips, /projectId&&visitedRepositories.map/);
+  assert.match(chips, /hidden=\{selectedRepository!==provider\}/);
+  assert.match(chips, /<RepositoryConnectionContent projectId=\{projectId\} provider=\{provider\}/);
   assert.match(chips, /utils.project.repositories.invalidate\(\{projectId\}\)/);
   for (const path of ["../app/projects/[projectId]/requirements/page.tsx", "../app/projects/[projectId]/reverse-engineer/page.tsx"]) {
     const page = readFileSync(new URL(path, import.meta.url), "utf8");

@@ -44,6 +44,10 @@ test("Drive snapshot recovery requires successful fresh permission and snapshot 
 test("OAuth status and administrator revocation chips do not trust failed cached reads", () => {
   const source = readFileSync(new URL("../components/GitlabRepositoryConnection.tsx", import.meta.url), "utf8");
   assert.match(source, /status\.isSuccess && status\.data\.status === "VERIFIED" && <button/);
-  assert.match(source, /revocations\.isSuccess && Boolean\(revocations\.data\?\.length\)/);
-  assert.match(source, /Retry authorization list/);
+  const administration = readFileSync(new URL("../components/RepositoryOAuthApplicationSetup.tsx", import.meta.url), "utf8");
+  assert.match(administration, /revocations\.isSuccess && Boolean\(revocations\.data\?\.length\)/);
+  assert.match(administration, /Retry authorization list/);
+  assert.match(administration, /if \(!configurations\.isSuccess\) return/);
+  assert.match(administration, /if \(!configurations\.data\.canConfigure\) return/);
+  assert.match(administration, /enabled: configurations\.isSuccess && configurations\.data\.canConfigure/);
 });

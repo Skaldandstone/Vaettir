@@ -4,7 +4,7 @@ import { useState } from "react";
 import type { PopulationDraft } from "@vaettir/core";
 import { CreationWizard, WizardChoices } from "./CreationWizard";
 import { SourceConnectionChips } from "./SourceConnectionChips";
-import type {RepositoryProvider} from "./RepositoryConnectionContent";
+import type { RepositoryProvider } from "./RepositoryConnectionContent";
 import {
   nextPopulationStep,
   populationSteps as steps,
@@ -68,8 +68,8 @@ export function PopulationWizard({
   onDocuments?: () => void;
   onGitlab?: () => void;
   onGithub?: () => void;
-  onRepository?: (provider:RepositoryProvider) => void;
-  projectId?:string;
+  onRepository?: (provider: RepositoryProvider) => void;
+  projectId?: string;
 }) {
   const [draft, setDraft] = useState(initial);
   const step = steps.indexOf(draft.step);
@@ -157,7 +157,7 @@ export function PopulationWizard({
                 </select>
               </label>
               <label>
-                What should this project establish?
+                What should this project establish? (optional)
                 <textarea
                   rows={5}
                   maxLength={2000}
@@ -169,12 +169,24 @@ export function PopulationWizard({
                 />
               </label>
               <p className="text-muted">
-                Optional. Keep secrets and customer data out of this
+                Add what you know, or leave this blank. You can return to this
+                draft later. Saving a setup draft does not change your approved
+                project objective. Keep secrets and customer data out of this
                 description.
               </p>
+              <button
+                type="button"
+                className="btn-secondary"
+                onClick={() => move(step + 1)}
+              >
+                {draft.objective.trim()
+                  ? "Keep this objective and continue"
+                  : "Not sure yet · continue without an objective"}
+              </button>
               <details>
                 <summary>
-                  Hardware, software, regulatory and compliance details (optional)
+                  Hardware, software, regulatory and compliance details
+                  (optional)
                 </summary>
                 <p className="text-muted">
                   Add only what you know. These notes stay in your setup draft;
@@ -233,14 +245,61 @@ export function PopulationWizard({
           {step === 2 && (
             <>
               <p>
-                Open a source to see its available actions. Sources are never read without your approval.
+                Open a source to see its available actions. Sources are never
+                read without your approval.
               </p>
-              <SourceConnectionChips projectId={projectId} documentsHref={documentsHref} onDocuments={onDocuments}
-                onRepository={onRepository && (provider=>{setDraft(current=>({...current,providers:current.providers.includes(provider)?current.providers:[...current.providers,provider]}));onRepository(provider);})}
-                onGitlab={onGitlab && (() => { setDraft(current => ({ ...current, providers: current.providers.includes("gitlab") ? current.providers : [...current.providers, "gitlab"] })); onGitlab(); })}
-                onGithub={onGithub && (() => { setDraft(current => ({ ...current, providers: current.providers.includes("github") ? current.providers : [...current.providers, "github"] })); onGithub(); })} />
-              {draft.providers.length > 0 && <p className="text-muted">Source interests in this draft: {draft.providers.map((key) => providers[key]).join(", ")}. These are not connected accounts.</p>}
-              <p className="text-muted">Connections are optional. Continue to review this draft without adding one.</p>
+              <SourceConnectionChips
+                projectId={projectId}
+                documentsHref={documentsHref}
+                onDocuments={onDocuments}
+                onRepository={
+                  onRepository &&
+                  ((provider) => {
+                    setDraft((current) => ({
+                      ...current,
+                      providers: current.providers.includes(provider)
+                        ? current.providers
+                        : [...current.providers, provider],
+                    }));
+                    onRepository(provider);
+                  })
+                }
+                onGitlab={
+                  onGitlab &&
+                  (() => {
+                    setDraft((current) => ({
+                      ...current,
+                      providers: current.providers.includes("gitlab")
+                        ? current.providers
+                        : [...current.providers, "gitlab"],
+                    }));
+                    onGitlab();
+                  })
+                }
+                onGithub={
+                  onGithub &&
+                  (() => {
+                    setDraft((current) => ({
+                      ...current,
+                      providers: current.providers.includes("github")
+                        ? current.providers
+                        : [...current.providers, "github"],
+                    }));
+                    onGithub();
+                  })
+                }
+              />
+              {draft.providers.length > 0 && (
+                <p className="text-muted">
+                  Source interests in this draft:{" "}
+                  {draft.providers.map((key) => providers[key]).join(", ")}.
+                  These are not connected accounts.
+                </p>
+              )}
+              <p className="text-muted">
+                Connections are optional. Continue to review this draft without
+                adding one.
+              </p>
             </>
           )}
           {step === 3 && (
@@ -263,7 +322,9 @@ export function PopulationWizard({
                       {draft.contextDetails.compliance || "Not specified"}
                     </dd>
                     <dt>Regulatory obligations to investigate</dt>
-                    <dd>{draft.contextDetails.regulatory || "Not specified"}</dd>
+                    <dd>
+                      {draft.contextDetails.regulatory || "Not specified"}
+                    </dd>
                   </>
                 )}
                 <dt>Source interests (not connection status)</dt>
