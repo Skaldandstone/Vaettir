@@ -68,7 +68,10 @@ test("API image verifies its pinned browser with container networking disabled",
     new URL("../Dockerfile.api", import.meta.url),
     "utf8",
   );
-  assert.match(source, /playwright install --with-deps chromium/);
+  assert.match(source, /playwright install --only-shell chromium/);
+  assert.doesNotMatch(source, /playwright install --with-deps/);
+  assert.match(source, /libgbm1[^\n]+libnss3/);
+  assert.match(source, /libfontconfig1[^\n]+fonts-noto-color-emoji/);
   assert.match(
     source,
     /^RUN --network=none node scripts\/check-browser-runtime\.mjs$/m,
@@ -173,6 +176,28 @@ test("a context cleanup error does not prevent browser cleanup", async () => {
     /context cleanup failed/,
   );
   assert.ok(calls.some(([name]) => name === "close-browser"));
+});
+
+test("browser cleanup waits for context cleanup instead of invalidating it", async () => {
+  let browserClosed = false;
+  let contextClosed = false;
+  const { chromium } = fixture({
+    context: {
+      close: async () => {
+        await new Promise((resolve) => setImmediate(resolve));
+        assert.equal(browserClosed, false, "browser invalidated its context");
+        contextClosed = true;
+      },
+    },
+    browser: {
+      close: async () => {
+        assert.equal(contextClosed, true);
+        browserClosed = true;
+      },
+    },
+  });
+  await checkBrowserRuntime({ chromium });
+  assert.equal(browserClosed, true);
 });
 
 test("browser acquired after launch timeout receives bounded late cleanup", async () => {

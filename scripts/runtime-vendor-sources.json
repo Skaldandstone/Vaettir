@@ -1,0 +1,23 @@
+{
+  "expat": {
+    "version": "2.8.5-2",
+    "origin": "https://deb.debian.org/debian/pool/main/e/expat/",
+    "files": [
+      {
+        "name": "expat_2.8.5-2.dsc",
+        "sha256": "1093b599a1245827eca68383371a3b3a1991fd3c7f9537506e4e557a3c0523d4",
+        "maxBytes": 20000
+      },
+      {
+        "name": "expat_2.8.5.orig.tar.gz",
+        "sha256": "fd022c541a189bd5bee042a22188351b31e39b9389c2525fa98c28bd05c9ef21",
+        "maxBytes": 10000000
+      },
+      {
+        "name": "expat_2.8.5-2.debian.tar.xz",
+        "sha256": "1c4354bc84ba14b4269e72e41192655c1d0df48a661c6362d4349e0133ee67a5",
+        "maxBytes": 30000
+      }
+    ]
+  }
+}

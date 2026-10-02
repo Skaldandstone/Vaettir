@@ -120,10 +120,17 @@ export async function checkBrowserRuntime({
       throw new Error("Browser fixture screenshot invalid");
     return "network-free Chromium DOM/screenshot";
   } finally {
-    const cleanup = await Promise.allSettled([
-      ...(context ? [bounded(() => context.close(), { timeout: 5_000 })] : []),
-      ...(browser ? [bounded(() => browser.close(), { timeout: 5_000 })] : []),
-    ]);
+    // Closing the browser invalidates its contexts. Await context cleanup
+    // first, but still close the browser if context cleanup rejects or hangs.
+    const cleanup = [];
+    for (const resource of [context, browser]) {
+      if (!resource) continue;
+      cleanup.push(
+        ...(await Promise.allSettled([
+          bounded(() => resource.close(), { timeout: 5_000 }),
+        ])),
+      );
+    }
     const failed = cleanup.find((result) => result.status === "rejected");
     if (failed) throw failed.reason;
   }
