@@ -1,0 +1,716 @@
+import { createHash } from "node:crypto";
+import { z } from "zod";
+import { TRPCError } from "@trpc/server";
+import { Prisma } from "@vaettir/db";
+import {
+  protectedProcedure,
+  requireProjectAccess,
+  router,
+  type Context,
+} from "../trpc.js";
+import { liveEditor } from "./jiraConnections.js";
+
+const hash = (value: unknown) =>
+  createHash("sha256").update(JSON.stringify(value)).digest("hex");
+const projectInput = z
+  .object({ projectId: z.string().min(1).max(120) })
+  .strict();
+export const reportDefinitionSchema = z
+  .object({
+    audience: z.enum(["stakeholders", "engineering", "quality"]),
+    windowDays: z.union([z.literal(7), z.literal(30), z.literal(90)]),
+    sections: z
+      .array(
+        z.enum([
+          "inventory",
+          "execution",
+          "traceability",
+          "defects",
+          "automation",
+        ]),
+      )
+      .min(1)
+      .max(5)
+      .refine(
+        (values) => new Set(values).size === values.length,
+        "Choose each section once",
+      ),
+    summary: z.string().trim().max(1500),
+    risks: z.string().trim().max(1500),
+    nextActions: z.string().trim().max(1500),
+  })
+  .strict();
+const counts = z.array(
+  z.object({ key: z.string(), count: z.number().int().nonnegative() }),
+);
+const payloadSchema = z.object({
+  state: z.enum(["preview", "approved"]),
+  projectName: z.string(),
+  title: z.string(),
+  definition: reportDefinitionSchema,
+  asOf: z.string().datetime(),
+  windowStart: z.string().datetime(),
+  inventory: z.object({
+    active: z.number(),
+    riskAssessed: z.number(),
+    flaky: z.number(),
+    automation: counts,
+    priority: counts,
+  }),
+  execution: z.object({
+    runs: z.number(),
+    results: z.number(),
+    outcomes: counts,
+    distinctCases: z.number(),
+    highPriorityCases: z.number(),
+    highPriorityExecuted: z.number(),
+  }),
+  traceability: z.object({
+    requirements: z.number(),
+    coveredRequirements: z.number(),
+    casesWithLinks: z.number(),
+    links: z.number(),
+  }),
+  defects: z
+    .object({
+      clusters: z.number(),
+      confirmed: z.number(),
+      suggested: z.number(),
+      unavailableSources: z.number(),
+    })
+    .nullable(),
+  cohort: z.array(z.object({ id: z.string(), status: z.string() })).max(20000),
+  automationChange: z
+    .object({
+      baselineId: z.string(),
+      baselineAsOf: z.string(),
+      commonCases: z.number(),
+      becameAutomated: z.number(),
+      noLongerAutomated: z.number(),
+      addedCases: z.number(),
+      removedCases: z.number(),
+      elapsedDays: z.number(),
+    })
+    .nullable(),
+  limitations: z.array(z.string()),
+});
+export type FrozenReportPayload = z.infer<typeof payloadSchema>;
+type Actor = Context & { user: NonNullable<Context["user"]> };
+const conflict = () =>
+  new TRPCError({
+    code: "CONFLICT",
+    message: "The report changed. Refresh before saving.",
+  });
+
+async function access<T>(
+  ctx: Actor,
+  projectId: string,
+  write: boolean,
+  action: (tx: Prisma.TransactionClient, orgId: string) => Promise<T>,
+) {
+  const { project } = await requireProjectAccess(
+    ctx,
+    projectId,
+    write ? "EDITOR" : "VIEWER",
+  );
+  return ctx.prisma.$transaction(
+    async (tx) => {
+      if (write) await liveEditor(tx, project.organizationId, ctx.user.id);
+      else {
+        await tx.$queryRaw`SELECT id FROM "Organization" WHERE id=${project.organizationId} FOR UPDATE`;
+        await tx.$queryRaw`SELECT id FROM "Membership" WHERE "organizationId"=${project.organizationId} AND "userId"=${ctx.user.id} FOR UPDATE`;
+        const member = await tx.membership.findUnique({
+          where: {
+            organizationId_userId: {
+              organizationId: project.organizationId,
+              userId: ctx.user.id,
+            },
+          },
+        });
+        const org = await tx.organization.findUnique({
+          where: { id: project.organizationId },
+          select: { suspendedAt: true },
+        });
+        if (!member || !org || org.suspendedAt)
+          throw new TRPCError({ code: "FORBIDDEN" });
+      }
+      const rows = await tx.$queryRaw<
+        Array<{ organizationId: string }>
+      >`SELECT "organizationId" FROM "Project" WHERE id=${projectId} FOR UPDATE`;
+      if (rows[0]?.organizationId !== project.organizationId)
+        throw new TRPCError({ code: "FORBIDDEN" });
+      return action(tx, project.organizationId);
+    },
+    { isolationLevel: "RepeatableRead", timeout: 20000 },
+  );
+}
+function buckets(
+  rows: Array<{
+    _count: { _all: number };
+    status?: string;
+    priority?: string;
+    automationStatus?: string;
+  }>,
+  field: "status" | "priority" | "automationStatus",
+) {
+  return rows
+    .map((row) => ({ key: row[field]!, count: row._count._all }))
+    .sort((a, b) => a.key.localeCompare(b.key));
+}
+const output = (row: {
+  id: string;
+  payload: Prisma.JsonValue;
+  asOf: Date;
+}) => ({
+  id: row.id,
+  asOf: row.asOf,
+  payload: payloadSchema.parse(row.payload),
+});
+
+export const reportSnapshotsRouter = router({
+  definitions: protectedProcedure.input(projectInput).query(({ ctx, input }) =>
+    access(ctx, input.projectId, false, async (tx, orgId) => {
+      const rows = await tx.projectReportDefinition.findMany({
+        where: {
+          projectId: input.projectId,
+          organizationId: orgId,
+          userId: ctx.user.id,
+        },
+        orderBy: { updatedAt: "desc" },
+        take: 50,
+      });
+      return rows.map((row) => ({
+        id: row.id,
+        name: row.name,
+        version: row.version,
+        definition: reportDefinitionSchema.parse(row.definition),
+      }));
+    }),
+  ),
+  saveDefinition: protectedProcedure
+    .input(
+      projectInput
+        .extend({
+          requestId: z.string().uuid(),
+          id: z.string().optional(),
+          version: z.number().int().positive().optional(),
+          name: z.string().trim().min(1).max(80),
+          definition: reportDefinitionSchema,
+        })
+        .refine(
+          (v) => !!v.id === !!v.version,
+          "Updating needs the original version",
+        ),
+    )
+    .mutation(({ ctx, input }) =>
+      access(ctx, input.projectId, true, async (tx, orgId) => {
+        const key = hash([input.projectId, ctx.user.id, input.requestId]);
+        const requestHash = hash([
+          input.id ?? null,
+          input.version ?? null,
+          input.name,
+          input.definition,
+        ]);
+        const receipt = await tx.projectReportDefinitionWrite.findUnique({
+          where: { key },
+        });
+        if (receipt) {
+          if (
+            receipt.organizationId !== orgId ||
+            receipt.requestHash !== requestHash
+          )
+            throw conflict();
+          return { id: receipt.definitionId, version: receipt.appliedVersion };
+        }
+        if (
+          (await tx.projectReportDefinitionWrite.count({
+            where: { projectId: input.projectId },
+          })) >= 2000
+        )
+          throw new TRPCError({
+            code: "PRECONDITION_FAILED",
+            message:
+              "Definition retry retention limit reached. Existing definitions remain saved.",
+          });
+        const record = async (id: string, version: number) => {
+          await tx.projectReportDefinitionWrite.create({
+            data: {
+              key,
+              projectId: input.projectId,
+              organizationId: orgId,
+              actorId: ctx.user.id,
+              requestHash,
+              definitionId: id,
+              appliedVersion: version,
+            },
+          });
+          return { id, version };
+        };
+        if (input.id) {
+          const changed = await tx.projectReportDefinition.updateMany({
+            where: {
+              id: input.id,
+              projectId: input.projectId,
+              organizationId: orgId,
+              userId: ctx.user.id,
+              version: input.version,
+            },
+            data: {
+              name: input.name,
+              definition: input.definition,
+              version: { increment: 1 },
+            },
+          });
+          if (changed.count !== 1) throw conflict();
+          return record(input.id, input.version! + 1);
+        }
+        const id = hash([
+          "definition",
+          input.projectId,
+          ctx.user.id,
+          input.requestId,
+        ]);
+        const prior = await tx.projectReportDefinition.findUnique({
+          where: { id },
+        });
+        if (prior) {
+          if (
+            prior.organizationId !== orgId ||
+            prior.name !== input.name ||
+            hash(reportDefinitionSchema.parse(prior.definition)) !==
+              hash(input.definition)
+          )
+            throw conflict();
+          return record(id, prior.version);
+        }
+        if (
+          (await tx.projectReportDefinition.count({
+            where: { projectId: input.projectId, userId: ctx.user.id },
+          })) >= 50
+        )
+          throw new TRPCError({
+            code: "PRECONDITION_FAILED",
+            message: "Keep at most 50 reusable report definitions.",
+          });
+        await tx.projectReportDefinition.create({
+          data: {
+            id,
+            projectId: input.projectId,
+            organizationId: orgId,
+            userId: ctx.user.id,
+            name: input.name,
+            definition: input.definition,
+          },
+        });
+        return record(id, 1);
+      }),
+    ),
+  drafts: protectedProcedure.input(projectInput).query(({ ctx, input }) =>
+    access(ctx, input.projectId, false, async (tx, orgId) =>
+      tx.projectReportSnapshot.findMany({
+        where: {
+          projectId: input.projectId,
+          organizationId: orgId,
+          createdById: ctx.user.id,
+          payload: { path: ["state"], equals: "preview" },
+        },
+        orderBy: [{ createdAt: "desc" }, { id: "asc" }],
+        take: 25,
+        select: { id: true, title: true, asOf: true },
+      }),
+    ),
+  ),
+  list: protectedProcedure.input(projectInput).query(({ ctx, input }) =>
+    access(ctx, input.projectId, false, async (tx, orgId) =>
+      tx.projectReportSnapshot.findMany({
+        where: {
+          projectId: input.projectId,
+          organizationId: orgId,
+          payload: { path: ["state"], equals: "approved" },
+        },
+        orderBy: [{ createdAt: "desc" }, { id: "asc" }],
+        take: 50,
+        select: { id: true, title: true, asOf: true, createdAt: true },
+      }),
+    ),
+  ),
+  get: protectedProcedure
+    .input(projectInput.extend({ id: z.string().max(64) }))
+    .query(({ ctx, input }) =>
+      access(ctx, input.projectId, false, async (tx, orgId) => {
+        const row = await tx.projectReportSnapshot.findFirst({
+          where: {
+            id: input.id,
+            projectId: input.projectId,
+            organizationId: orgId,
+          },
+        });
+        if (!row) throw new TRPCError({ code: "NOT_FOUND" });
+        const result = output(row);
+        if (
+          result.payload.state === "preview" &&
+          row.createdById !== ctx.user.id
+        )
+          throw new TRPCError({ code: "NOT_FOUND" });
+        return result;
+      }),
+    ),
+  preview: protectedProcedure
+    .input(
+      projectInput.extend({
+        requestId: z.string().uuid(),
+        title: z.string().trim().min(1).max(120),
+        definition: reportDefinitionSchema,
+        definitionId: z.string().optional(),
+      }),
+    )
+    .mutation(({ ctx, input }) =>
+      access(ctx, input.projectId, true, async (tx, orgId) => {
+        const id = hash([input.projectId, ctx.user.id, input.requestId]);
+        const inputHash = hash([
+          input.title,
+          input.definition,
+          input.definitionId ?? null,
+        ]);
+        const prior = await tx.projectReportSnapshot.findUnique({
+          where: { id },
+        });
+        if (prior) {
+          if (prior.organizationId !== orgId || prior.inputHash !== inputHash)
+            throw conflict();
+          return output(prior);
+        }
+        if (
+          (await tx.projectReportSnapshot.count({
+            where: { projectId: input.projectId },
+          })) >= 500
+        )
+          throw new TRPCError({
+            code: "PRECONDITION_FAILED",
+            message:
+              "This project reached its 500 retained preview/snapshot limit. Existing reports are retained.",
+          });
+        if (input.definitionId) {
+          const saved = await tx.projectReportDefinition.findFirst({
+            where: {
+              id: input.definitionId,
+              projectId: input.projectId,
+              organizationId: orgId,
+              userId: ctx.user.id,
+            },
+          });
+          if (
+            !saved ||
+            hash(reportDefinitionSchema.parse(saved.definition)) !==
+              hash(input.definition)
+          )
+            throw conflict();
+        }
+        const [clock] = await tx.$queryRaw<
+          Array<{ asOf: Date }>
+        >`SELECT transaction_timestamp() AS "asOf"`;
+        if (!clock) throw new Error("Report clock unavailable");
+        const asOf = clock.asOf;
+        const traceState = await tx.caseTraceabilityState.findUnique({
+          where: { projectId: input.projectId },
+          select: { organizationId: true },
+        });
+        if (traceState && traceState.organizationId !== orgId)
+          throw new TRPCError({
+            code: "FORBIDDEN",
+            message: "Traceability evidence belongs to a previous workspace.",
+          });
+        const windowStart = new Date(
+          asOf.getTime() - input.definition.windowDays * 86400000,
+        );
+        const where = { projectId: input.projectId, archived: false };
+        const runWhere = {
+          projectId: input.projectId,
+          startedAt: { gte: windowStart, lte: asOf },
+        };
+        const [
+          project,
+          cohort,
+          riskAssessed,
+          flaky,
+          priority,
+          runs,
+          results,
+          outcomes,
+          executed,
+          highPriorityCases,
+          highPriorityExecuted,
+          requirements,
+          coveredRequirements,
+          links,
+          linkedCases,
+          defectState,
+          baseline,
+        ] = await Promise.all([
+          tx.project.findUniqueOrThrow({
+            where: { id: input.projectId },
+            select: { name: true },
+          }),
+          tx.testCase.findMany({
+            where,
+            orderBy: { id: "asc" },
+            take: 20001,
+            select: { id: true, automationStatus: true },
+          }),
+          tx.testCase.count({
+            where: { ...where, riskAssessedAt: { not: null } },
+          }),
+          tx.testCase.count({ where: { ...where, isFlaky: true } }),
+          tx.testCase.groupBy({
+            by: ["priority"],
+            where,
+            _count: { _all: true },
+          }),
+          tx.testRun.count({ where: runWhere }),
+          tx.testResult.count({ where: { testRun: runWhere } }),
+          tx.testResult.groupBy({
+            by: ["status"],
+            where: { testRun: runWhere },
+            _count: { _all: true },
+          }),
+          tx.testCase.count({
+            where: {
+              ...where,
+              results: {
+                some: {
+                  testRun: runWhere,
+                  status: { in: ["PASS", "FAIL", "FLAKY"] },
+                },
+              },
+            },
+          }),
+          tx.testCase.count({
+            where: { ...where, priority: { in: ["CRITICAL", "HIGH"] } },
+          }),
+          tx.testCase.count({
+            where: {
+              ...where,
+              priority: { in: ["CRITICAL", "HIGH"] },
+              results: {
+                some: {
+                  testRun: runWhere,
+                  status: { in: ["PASS", "FAIL", "FLAKY"] },
+                },
+              },
+            },
+          }),
+          tx.requirement.count({ where: { projectId: input.projectId } }),
+          tx.requirement.count({
+            where: {
+              projectId: input.projectId,
+              caseTraceabilityLinks: {
+                some: { removedAt: null, testCase: { archived: false } },
+              },
+            },
+          }),
+          tx.caseTraceabilityLink.count({
+            where: {
+              projectId: input.projectId,
+              removedAt: null,
+              testCase: { archived: false },
+            },
+          }),
+          tx.testCase.count({
+            where: {
+              ...where,
+              traceabilityLinks: { some: { removedAt: null } },
+            },
+          }),
+          tx.defectMapState.findUnique({
+            where: { projectId: input.projectId },
+          }),
+          tx.projectReportSnapshot.findFirst({
+            where: {
+              projectId: input.projectId,
+              organizationId: orgId,
+              payload: { path: ["state"], equals: "approved" },
+            },
+            orderBy: [{ createdAt: "desc" }, { id: "asc" }],
+          }),
+        ]);
+        if (cohort.length > 20000)
+          throw new TRPCError({
+            code: "PRECONDITION_FAILED",
+            message:
+              "Snapshot case limit exceeded; no partial report was retained.",
+          });
+        const statusCounts = new Map<string, number>();
+        for (const row of cohort)
+          statusCounts.set(
+            row.automationStatus,
+            (statusCounts.get(row.automationStatus) ?? 0) + 1,
+          );
+        const old = baseline ? payloadSchema.parse(baseline.payload) : null;
+        const oldStatuses = new Map(
+          old?.cohort.map((row) => [row.id, row.status]) ?? [],
+        );
+        const common = cohort.filter((row) => oldStatuses.has(row.id));
+        // Comparable stable identities, not a difference between drifting totals.
+        const automationChange = old
+          ? {
+              baselineId: baseline!.id,
+              baselineAsOf: old.asOf,
+              commonCases: common.length,
+              becameAutomated: common.filter(
+                (row) =>
+                  row.automationStatus === "AUTOMATED" &&
+                  oldStatuses.get(row.id) !== "AUTOMATED",
+              ).length,
+              noLongerAutomated: common.filter(
+                (row) =>
+                  row.automationStatus !== "AUTOMATED" &&
+                  oldStatuses.get(row.id) === "AUTOMATED",
+              ).length,
+              addedCases: cohort.length - common.length,
+              removedCases: old.cohort.length - common.length,
+              elapsedDays: Math.max(
+                0,
+                (asOf.getTime() - Date.parse(old.asOf)) / 86400000,
+              ),
+            }
+          : null;
+        let defects: FrozenReportPayload["defects"] = null;
+        if (defectState) {
+          if (defectState.organizationId !== orgId)
+            throw new TRPCError({
+              code: "FORBIDDEN",
+              message: "Defect evidence belongs to a previous workspace.",
+            });
+          const { buildDefectMap, defectDocumentSchema } =
+            await import("@vaettir/core");
+          const map = buildDefectMap(
+            defectDocumentSchema.parse(defectState.document),
+          );
+          defects = {
+            clusters: map.clusters.length,
+            confirmed: map.clusters.filter((row) => row.tracking === "tracked")
+              .length,
+            suggested: map.suggested,
+            unavailableSources: map.unavailableSources,
+          };
+        }
+        const payload = payloadSchema.parse({
+          state: "preview",
+          projectName: project.name,
+          title: input.title,
+          definition: input.definition,
+          asOf: asOf.toISOString(),
+          windowStart: windowStart.toISOString(),
+          inventory: {
+            active: cohort.length,
+            riskAssessed,
+            flaky,
+            automation: [...statusCounts].map(([key, count]) => ({
+              key,
+              count,
+            })),
+            priority: buckets(priority, "priority"),
+          },
+          execution: {
+            runs,
+            results,
+            outcomes: buckets(outcomes, "status"),
+            distinctCases: executed,
+            highPriorityCases,
+            highPriorityExecuted,
+          },
+          traceability: {
+            requirements,
+            coveredRequirements,
+            links,
+            casesWithLinks: linkedCases,
+          },
+          defects,
+          cohort: cohort.map((row) => ({
+            id: row.id,
+            status: row.automationStatus,
+          })),
+          automationChange,
+          limitations: [
+            "Project-wide metrics from one database snapshot; execution is limited to the selected window. Inventory and links are current at capture.",
+            "An executed case has PASS, FAIL or FLAKY recorded in the window. SKIP and BLOCKED do not count as executed. Coverage does not imply passing or readiness.",
+            "Automation changes compare the same active case identities between approved snapshots. Labels are recorded inventory, not verified automation runs or time saved.",
+            "Defect metadata is a reviewed export, not live synchronization. Closed tasks and traceability links do not prove deployed fixes.",
+            "Escape rate, reopened defects, code coverage, planned-versus-actual effort and root-cause resolution time are unavailable without the corresponding evidence.",
+          ],
+        });
+        return output(
+          await tx.projectReportSnapshot.create({
+            data: {
+              id,
+              projectId: input.projectId,
+              organizationId: orgId,
+              createdById: ctx.user.id,
+              inputHash,
+              title: input.title,
+              definitionId: input.definitionId,
+              asOf,
+              payload,
+            },
+          }),
+        );
+      }),
+    ),
+  approve: protectedProcedure
+    .input(
+      projectInput.extend({
+        previewId: z.string().length(64),
+        approveSharing: z.literal(true),
+      }),
+    )
+    .mutation(({ ctx, input }) =>
+      access(ctx, input.projectId, true, async (tx, orgId) => {
+        const preview = await tx.projectReportSnapshot.findFirst({
+          where: {
+            id: input.previewId,
+            projectId: input.projectId,
+            organizationId: orgId,
+            createdById: ctx.user.id,
+          },
+        });
+        if (
+          !preview ||
+          payloadSchema.parse(preview.payload).state !== "preview"
+        )
+          throw new TRPCError({ code: "NOT_FOUND" });
+        const id = hash([preview.id, "approved"]);
+        const prior = await tx.projectReportSnapshot.findUnique({
+          where: { id },
+        });
+        if (prior) return output(prior);
+        if (
+          (await tx.projectReportSnapshot.count({
+            where: { projectId: input.projectId },
+          })) >= 500
+        )
+          throw new TRPCError({
+            code: "PRECONDITION_FAILED",
+            message: "Report retention limit reached. Preview remains saved.",
+          });
+        const payload = payloadSchema.parse({
+          ...payloadSchema.parse(preview.payload),
+          state: "approved",
+        });
+        return output(
+          await tx.projectReportSnapshot.create({
+            data: {
+              id,
+              projectId: input.projectId,
+              organizationId: orgId,
+              createdById: ctx.user.id,
+              inputHash: preview.inputHash,
+              title: preview.title,
+              definitionId: preview.definitionId,
+              asOf: preview.asOf,
+              payload,
+            },
+          }),
+        );
+      }),
+    ),
+});

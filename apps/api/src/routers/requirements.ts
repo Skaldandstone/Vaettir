@@ -151,6 +151,7 @@ export const requirementsRouter = router({
       const access = await requireProjectAccess(ctx, existing.projectId, "EDITOR");
       await ctx.prisma.$transaction(async tx => {
         await lockedRequirementEditor(tx,access.project.organizationId,ctx.user.id,existing.projectId);
+        if (await tx.caseTraceabilityLink.count({ where: { projectId: existing.projectId, requirementId: input.id } })) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "This requirement has retained test coverage references, including removed-link history. Keep the requirement and update its details; its recorded traceability must be preserved." });
         await tx.requirement.delete({ where: { id: input.id, projectId: existing.projectId } });
       });
     }),

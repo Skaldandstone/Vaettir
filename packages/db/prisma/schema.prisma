@@ -238,19 +238,19 @@ model Project {
   driveSourceConnections       DriveSourceConnection[]
   ticketSourceConnections      TicketSourceConnection[]
   repositoryConnections        RepositoryConnection[]
-  id                           String                 @id @default(cuid())
+  id                           String                   @id @default(cuid())
   organizationId               String
-  organization                 Organization           @relation(fields: [organizationId], references: [id])
+  organization                 Organization             @relation(fields: [organizationId], references: [id])
   name                         String
   slug                         String
   repoUrl                      String?
-  defaultBranch                String                 @default("main")
-  createdAt                    DateTime               @default(now())
+  defaultBranch                String                   @default("main")
+  createdAt                    DateTime                 @default(now())
   // Captured by project setup so navigation, templates, dashboards and
   // compliance suggestions can adapt to software, hardware, HIL,
   // manufacturing, medical-device and laboratory work.
-  qualityProfile               Json                   @default("{}")
-  hiddenComplianceFrameworkIds String[]               @default([])
+  qualityProfile               Json                     @default("{}")
+  hiddenComplianceFrameworkIds String[]                 @default([])
 
   // The commit SHA the most recent successful repo scan resolved `ref` to
   // (P2-05). When set, the next scan diffs from here to HEAD instead of
@@ -300,13 +300,18 @@ model Project {
   productionSignalConnections ProductionSignalConnection[]
   productionSignals           ProductionSignal[]
   populationDraft             ProjectPopulationDraft?
+  defectMap                   DefectMapState?
+  caseTraceability            CaseTraceabilityState?
+  reportDefinitions           ProjectReportDefinition[]
+  reportDefinitionWrites      ProjectReportDefinitionWrite[]
+  reportSnapshots             ProjectReportSnapshot[]
   repositories                ProjectRepository[]
   populationDraftWrites       ProjectPopulationDraftWrite[]
   populationDocuments         ProjectPopulationDocument[]
   populationDocumentRuns      ProjectPopulationDocumentRun[]
   populationRequirements      ProjectPopulationRequirement[]
   testCaseViews               TestCaseView[]
-  jiraIssueIdentities          JiraIssueIdentity[]
+  jiraIssueIdentities         JiraIssueIdentity[]
 
   @@unique([organizationId, slug])
   @@unique([organizationId, datadogProjectTag])
@@ -346,6 +351,100 @@ model TestCaseView {
 
   @@unique([projectId, userId, name])
   @@index([userId, projectId, updatedAt])
+}
+
+// Explicit metadata references are distinct from imported-code provenance.
+// Tombstones and durable receipts preserve human decisions through retries.
+model CaseTraceabilityState {
+  projectId      String                  @id
+  project        Project                 @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  organizationId String
+  version        Int                     @default(0)
+  links          CaseTraceabilityLink[]
+  writes         CaseTraceabilityWrite[]
+}
+
+model CaseTraceabilityLink {
+  id             String                @id
+  projectId      String
+  state          CaseTraceabilityState @relation(fields: [projectId], references: [projectId], onDelete: Cascade)
+  caseId         String
+  testCase       TestCase              @relation(fields: [caseId, projectId], references: [id, projectId], onDelete: Restrict)
+  provider       String
+  providerOrigin String
+  nativeId       String
+  kind           String
+  title          String
+  url            String?
+  requirementId  String?
+  requirement    Requirement?          @relation(fields: [requirementId, projectId], references: [id, projectId], onDelete: Restrict)
+  createdById    String
+  updatedById    String
+  createdAt      DateTime              @default(now())
+  updatedAt      DateTime              @updatedAt
+  removedAt      DateTime?
+
+  @@index([projectId, caseId, removedAt])
+  @@index([projectId, provider, providerOrigin, nativeId])
+}
+
+model CaseTraceabilityWrite {
+  key            String                @id
+  projectId      String
+  state          CaseTraceabilityState @relation(fields: [projectId], references: [projectId], onDelete: Cascade)
+  actorId        String
+  requestHash    String
+  appliedVersion Int
+  createdAt      DateTime              @default(now())
+
+  @@index([projectId, createdAt])
+}
+
+model ProjectReportDefinition {
+  id             String                  @id @default(cuid())
+  organizationId String
+  projectId      String
+  project        Project                 @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  userId         String
+  name           String
+  definition     Json
+  version        Int                     @default(1)
+  createdAt      DateTime                @default(now())
+  updatedAt      DateTime                @updatedAt
+  snapshots      ProjectReportSnapshot[]
+
+  @@index([projectId, updatedAt])
+}
+
+model ProjectReportDefinitionWrite {
+  key            String   @id
+  projectId      String
+  project        Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  organizationId String
+  actorId        String
+  requestHash    String
+  definitionId   String
+  appliedVersion Int
+  createdAt      DateTime @default(now())
+
+  @@index([projectId, createdAt])
+}
+
+model ProjectReportSnapshot {
+  id             String                   @id
+  projectId      String
+  project        Project                  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  definitionId   String?
+  definition     ProjectReportDefinition? @relation(fields: [definitionId], references: [id], onDelete: SetNull)
+  organizationId String
+  createdById    String
+  inputHash      String
+  title          String
+  payload        Json
+  asOf           DateTime
+  createdAt      DateTime                 @default(now())
+
+  @@index([projectId, createdAt])
 }
 
 // Per-organization provider instances, including separately registered self-hosted OAuth apps.
@@ -518,6 +617,31 @@ model ProjectPopulationDraft {
   document        Json
   updatedByUserId String
   updatedAt       DateTime @updatedAt
+}
+
+// Bounded metadata map. Imports are reviewed, incremental and never delete absent evidence.
+model DefectMapState {
+  projectId      String           @id
+  project        Project          @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  organizationId String
+  version        Int              @default(0)
+  document       Json
+  updatedAt      DateTime         @updatedAt
+  writes         DefectMapWrite[]
+}
+
+// Actor/project-bound durable retry receipts; no raw payload or credentials.
+model DefectMapWrite {
+  key            String         @id
+  projectId      String
+  state          DefectMapState @relation(fields: [projectId], references: [projectId], onDelete: Cascade)
+  actorId        String
+  requestHash    String
+  operation      String
+  appliedVersion Int
+  createdAt      DateTime       @default(now())
+
+  @@index([projectId, createdAt])
 }
 
 // Durable receipts make a retried save safe even after another subsequent save.
@@ -974,14 +1098,14 @@ enum TestPlanStatus {
 
 model Requirement {
   jiraImportIdentities JiraIssueIdentity[]
-  populationEvidence ProjectPopulationRequirement[]
-  id                 String                         @id @default(cuid())
-  projectId          String
-  project            Project                        @relation(fields: [projectId], references: [id])
-  title              String
-  description        String?
-  externalRef        String? // e.g. Jira key, Linear issue id, doc URL
-  createdAt          DateTime                       @default(now())
+  populationEvidence   ProjectPopulationRequirement[]
+  id                   String                         @id @default(cuid())
+  projectId            String
+  project              Project                        @relation(fields: [projectId], references: [id])
+  title                String
+  description          String?
+  externalRef          String? // e.g. Jira key, Linear issue id, doc URL
+  createdAt            DateTime                       @default(now())
 
   // P9-02: unambiguous, Linear-specific fields rather than overloading the
   // generic externalRef above - a bare "ABC-123" could be a Jira key OR a
@@ -1014,7 +1138,10 @@ model Requirement {
   // publicly by default, and generating a new one invalidates the old.
   shareToken String? @unique
 
-  acceptanceCriteria AcceptanceCriterion[]
+  acceptanceCriteria    AcceptanceCriterion[]
+  caseTraceabilityLinks CaseTraceabilityLink[]
+
+  @@unique([id, projectId])
 }
 
 model AcceptanceCriterion {
@@ -1109,16 +1236,17 @@ model TestCase {
   // unassigned case (common right after manual authoring) still needs
   // somewhere to render, so it falls into a distinct "Unassigned" bucket
   // rather than being forced into a guessed suite.
-  suitePath        String?
+  suitePath         String?
   // Explicit order within a suite. Legacy cases start at zero and are
   // normalized only when a person reorders a suite; no bulk migration of
   // customer-authored cases is needed.
-  sortPosition     Int                    @default(0)
-  prerequisites    TestCasePrerequisite[] @relation("DependentPrerequisites")
-  requiredBy       TestCasePrerequisite[] @relation("RequiredByPrerequisites")
-  automationDrafts AutomationDraft[]
-  designReviews    TestDesignReview[]
-  riskReviews      TestCaseRiskReview[]
+  sortPosition      Int                    @default(0)
+  prerequisites     TestCasePrerequisite[] @relation("DependentPrerequisites")
+  requiredBy        TestCasePrerequisite[] @relation("RequiredByPrerequisites")
+  automationDrafts  AutomationDraft[]
+  designReviews     TestDesignReview[]
+  riskReviews       TestCaseRiskReview[]
+  traceabilityLinks CaseTraceabilityLink[]
 
   // Soft-hide, not soft-delete: an archived case stays fully intact (still
   // linked from past TestSelectionRecommendations, compliance controls,
@@ -1172,21 +1300,21 @@ model TestCase {
   isFlaky         Boolean   @default(false)
   flakyDetectedAt DateTime?
 
-  source                   TestCaseSource?
-  complianceControls       TestCaseComplianceControl[]
-  results                  TestResult[]
+  source                    TestCaseSource?
+  complianceControls        TestCaseComplianceControl[]
+  results                   TestResult[]
   manualStepResultRevisions ManualStepResultRevision[]
   manualStepResultHeads     ManualStepResultHead[]
-  healingSuggestions       HealingSuggestion[]
-  complianceEvidence       ComplianceEvidence[]
-  aiEditFeedback           AiEditFeedback[]
+  healingSuggestions        HealingSuggestion[]
+  complianceEvidence        ComplianceEvidence[]
+  aiEditFeedback            AiEditFeedback[]
   // The structured step-table authoring format -- an alternative (or
   // complement) to given/when/then above. A TestCase can carry either,
   // both, or neither populated; the UI renders whichever has content. See
   // TestCaseStep for why this exists alongside BDD rather than replacing it.
-  steps                    TestCaseStep[]
-  selectionRecommendations TestSelectionRecommendation[]
-  versions                 TestCaseVersion[]
+  steps                     TestCaseStep[]
+  selectionRecommendations  TestSelectionRecommendation[]
+  versions                  TestCaseVersion[]
 
   // 2026-08-27 competitor parity audit: TestRail/qTest/Zephyr/Xray all let
   // a step sequence be authored once and reused across many cases,

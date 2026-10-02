@@ -7,11 +7,11 @@ import {
   detailsPanelWidth,
 } from "./workbench-navigation.ts";
 
-test("all fourteen project destinations remain available exactly once", () => {
+test("all fifteen project destinations remain available exactly once", () => {
   const paths = PROJECT_NAVIGATION.flatMap((group) =>
     group.links.map((link) => link.path),
   );
-  assert.equal(new Set(paths).size, 14);
+  assert.equal(new Set(paths).size, 15);
   assert.deepEqual(
     [...paths].sort(),
     [
@@ -22,6 +22,7 @@ test("all fourteen project destinations remain available exactly once", () => {
       "/test-runs",
       "/reports",
       "/requirements",
+      "/defect-map",
       "/compliance",
       "/audit-log",
       "/reverse-engineer",

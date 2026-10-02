@@ -1,0 +1,247 @@
+.root {
+  width: 100%;
+  min-width: 0;
+  max-width: 1440px;
+  margin-inline: auto;
+}
+.root > [role="note"] {
+  font-size: 13px;
+  line-height: 1.5;
+}
+.toolbar,
+.actions,
+.statusLine,
+.detailNavigation {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: end;
+}
+.toolbar {
+  margin-block: 16px;
+  gap: 12px;
+}
+.toolbar label {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+.search {
+  flex: 1 1 240px;
+}
+.toolbar input,
+.toolbar select,
+.manualTask select,
+.file input,
+.json textarea {
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+}
+.statusLine {
+  align-items: center;
+  justify-content: space-between;
+  font-size: 13px;
+  color: var(--muted);
+}
+.metrics {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+  margin-block: 16px;
+}
+.metrics > div {
+  display: grid;
+  gap: 4px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+}
+.metrics strong {
+  font-size: 22px;
+  color: var(--sage);
+}
+.metrics span {
+  font-size: 12px;
+  color: var(--muted);
+}
+.workbench {
+  display: grid;
+  grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr);
+  gap: 16px;
+  align-items: start;
+  width: 100%;
+}
+.inventory {
+  min-width: 0;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  overflow: hidden;
+}
+.inventory table {
+  width: 100%;
+  table-layout: fixed;
+}
+.inventory th:last-child {
+  width: 100px;
+}
+.inventory td {
+  padding: 8px;
+  vertical-align: top;
+}
+.selected {
+  background: color-mix(in srgb, var(--sage) 12%, transparent);
+}
+.clusterButton {
+  width: 100%;
+  min-width: 0;
+  display: grid;
+  text-align: left;
+  background: transparent;
+  border: 0;
+  padding: 4px;
+  color: var(--text);
+  gap: 5px;
+  overflow-wrap: anywhere;
+}
+.clusterButton small,
+.clusterButton span {
+  color: var(--muted);
+  font-size: 12px;
+}
+.clusterButton[aria-pressed="true"] strong {
+  color: var(--sage);
+}
+.volume {
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+.volume small,
+.changeList small {
+  display: block;
+  font-size: 11px;
+  color: var(--muted);
+}
+.detail {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.detail h2 {
+  font-size: 20px;
+  margin: 0 0 8px;
+}
+.detail h3 {
+  font-size: 16px;
+  margin-block: 18px 8px;
+}
+.detailNavigation {
+  align-items: center;
+  margin-block: 16px;
+}
+.detailNavigation [aria-pressed="true"] {
+  border-color: var(--sage);
+}
+.task {
+  padding-block: 12px;
+  border-bottom: 1px solid var(--line);
+}
+.taskSnapshot {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  justify-items: start;
+}
+.taskSnapshot p {
+  margin: 0;
+}
+.taskSnapshot a {
+  font-size: 13px;
+}
+.manualTask {
+  display: grid;
+  gap: 4px;
+  margin-block: 12px;
+}
+.nextAction {
+  padding: 12px;
+  margin-top: 16px;
+  background: var(--panel);
+  border-radius: 6px;
+}
+.fieldset {
+  border: 0;
+  padding: 0;
+  margin: 0;
+  min-width: 0;
+}
+.permission {
+  display: flex;
+  align-items: start;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+.permission input {
+  flex-shrink: 0;
+}
+.json,
+.file {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  margin-block: 12px;
+}
+.json textarea {
+  font-family: monospace;
+  resize: vertical;
+}
+.changeList {
+  max-height: 280px;
+  overflow-y: auto;
+  margin-block: 16px;
+}
+.changeList table {
+  width: 100%;
+  table-layout: fixed;
+}
+.changeList th:first-child {
+  width: 100px;
+}
+.changeList td {
+  overflow-wrap: anywhere;
+}
+.recovery {
+  margin-block: 12px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  overflow-wrap: anywhere;
+}
+@media (max-width: 700px) {
+  .workbench {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .metrics {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+  }
+  .metrics > div {
+    padding: 8px;
+    gap: 2px;
+  }
+  .metrics strong {
+    font-size: 18px;
+  }
+  .inventory th:last-child {
+    width: 86px;
+  }
+  .detail {
+    padding: 16px;
+  }
+  .toolbar {
+    gap: 8px;
+  }
+  .toolbar label {
+    flex: 1 1 150px;
+  }
+}

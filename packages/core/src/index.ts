@@ -10,3 +10,4 @@ export * from "./featureFlags.js";
 export * from "./datasetSubstitution.js";
 export * from "./projectPopulation.js";
 export * from "./qualityExperience.js";
+export * from "./defectMap.js";

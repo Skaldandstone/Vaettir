@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useState } from "react";
 import { Modal } from "@/components/Modal";
+import { ReportBuilder } from "@/components/ReportBuilder";
 import { trpcReact } from "@/lib/trpcReact";
 import { DEFAULT_REPORT_CASE_FILTERS, outcomePassShare, renderProjectReportCsv, renderProjectReportMarkdown, reportCaseFilterLabels, type ReportBucket, type ReportCaseFilters } from "@/lib/project-report";
 
@@ -91,6 +92,7 @@ export default function ProjectReportsPage() {
         <button type="button" className="btn-secondary" onClick={() => downloadReport("csv")} disabled={!data || !project.data}>Download CSV</button>
       </div>
     </div>
+    <ReportBuilder projectId={projectId} />
     <section className="panel" aria-label="Case report query" style={{ marginBottom: 16 }}>
       <div style={{ display: "flex", flexWrap: "wrap", gap: 12, alignItems: "end", justifyContent: "space-between" }}>
         <label style={{ display: "grid", gap: 4, minWidth: "min(100%, 260px)" }}><span>Saved case query</span>

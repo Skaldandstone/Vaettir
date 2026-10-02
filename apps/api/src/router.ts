@@ -1,4 +1,7 @@
 import { router } from "./trpc.js";
+import { defectMapRouter } from "./routers/defectMap.js";
+import { caseTraceabilityRouter } from "./routers/caseTraceability.js";
+import { reportSnapshotsRouter } from "./routers/reportSnapshots.js";
 import {driveConnectionsRouter} from "./routers/driveConnections.js";
 import {linearConnectionsRouter} from "./routers/linearConnections.js";
 import {jiraConnectionsRouter} from "./routers/jiraConnections.js";
@@ -44,6 +47,9 @@ import { testCaseStructureRouter } from "./routers/testCaseStructure.js";
 import { reportsRouter } from "./routers/reports.js";
 
 export const appRouter = router({
+  defectMap: defectMapRouter,
+  caseTraceability: caseTraceabilityRouter,
+  reportSnapshots: reportSnapshotsRouter,
   driveConnections:driveConnectionsRouter,
   linearConnections:linearConnectionsRouter,
   jiraConnections:jiraConnectionsRouter,

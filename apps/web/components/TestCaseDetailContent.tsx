@@ -6,6 +6,7 @@ import { trpcReact, type RouterOutputs } from "@/lib/trpcReact";
 import { RiskMeter } from "@/components/MetricVisuals";
 import { TestDesignReview } from "@/components/TestDesignReview";
 import { TestCasePrerequisites } from "@/components/TestCasePrerequisites";
+import { CaseTraceabilityPanel } from "@/components/CaseTraceabilityPanel";
 import { Modal } from "@/components/Modal";
 import { automationTargetForFramework } from "@vaettir/core";
 import {
@@ -1888,6 +1889,7 @@ function TestCaseInspector({
         aria-labelledby={`${sectionId}-tab-Evidence`}
         hidden={section !== "Evidence"}
       >
+        <CaseTraceabilityPanel key={tc.id} projectId={projectId} caseId={tc.id} canEdit={!readOnly} />
         {tc.source && (
           <p>
             <strong>Source:</strong> {tc.source.filePath}

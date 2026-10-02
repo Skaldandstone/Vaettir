@@ -9,6 +9,7 @@ import { SourceConnectionChips } from "@/components/SourceConnectionChips";
 import { CreationWizard, WizardChoices } from "@/components/CreationWizard";
 import { useProjectPermissions } from "@/lib/use-project-permissions";
 import { saveRequirementDrafts } from "@/lib/requirement-drafts";
+import { CoveredTestCasesPanel } from "@/components/CaseTraceabilityPanel";
 import { RepositoryProcessingReview } from "@/components/RepositoryProcessingReview";
 
 // 2026-08-27 competitor parity audit: draft-and-review, same shape as
@@ -787,6 +788,7 @@ export default function RequirementsPage() {
   const [repoModalOpen, setRepoModalOpen] = useState(false);
   const [creationStep, setCreationStep] = useState<number | null>(null);
   const [creationSource, setCreationSource] = useState("Write a requirement");
+  const [coverageId, setCoverageId] = useState<string | null>(null);
 
   const listQuery = trpcReact.requirements.list.useQuery({ projectId });
   const requirements = useMemo(()=>listQuery.data??[],[listQuery.data]);
@@ -1053,6 +1055,7 @@ export default function RequirementsPage() {
         {visibleRequirements.map((r) => (
           <li
             key={r.id}
+            id={`requirement-${r.id}`}
             style={{
               marginBottom: 10,
               borderBottom: "1px solid var(--line)",
@@ -1071,6 +1074,10 @@ export default function RequirementsPage() {
             <div style={{ fontSize: 12, color: "var(--muted-dim)" }}>
               {r.acceptanceCriteriaCount} linked acceptance criteria
             </div>
+            <button type="button" className="btn-secondary" aria-expanded={coverageId === r.id} aria-controls={`coverage-${r.id}`} onClick={() => setCoverageId(coverageId === r.id ? null : r.id)} style={{ marginTop: 8 }}>
+              {coverageId === r.id ? "Hide test coverage" : "View test coverage"}
+            </button>
+            {coverageId === r.id && <div id={`coverage-${r.id}`}><CoveredTestCasesPanel projectId={projectId} target={{ provider: "requirement", providerOrigin: "vaettir", nativeId: r.id, kind: "requirement" }} canEdit={canEdit} /></div>}
             {canEdit && (
               <LinearLinkControl requirement={r} onChanged={reload} />
             )}

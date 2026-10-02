@@ -1738,6 +1738,7 @@ export const testCasesRouter = router({
             true,
           );
           await ensureCaseEvidenceNotRetained(tx, existing.projectId, input.id);
+          if (await tx.caseTraceabilityLink.count({ where: { projectId: existing.projectId, caseId: input.id } })) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "This case has retained test coverage references, including removed-link history. Archive the case instead of deleting its evidence." });
           await tx.testCase.delete({
             where: { id: input.id, projectId: existing.projectId },
           });
