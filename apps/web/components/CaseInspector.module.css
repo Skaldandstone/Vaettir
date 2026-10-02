@@ -1,0 +1,234 @@
+.inspector {
+  min-width: 0;
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+.inspector *,
+.inspector *::before,
+.inspector *::after {
+  box-sizing: border-box;
+}
+.header {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+.header h1 {
+  font-size: 20px;
+  line-height: 1.35;
+  margin: 0;
+  font-weight: 650;
+}
+.titleBlock {
+  min-width: 0;
+  flex: 1;
+}
+.title[data-expanded="false"] {
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.titleToggle {
+  padding: 3px 0;
+  background: transparent;
+  color: var(--muted);
+  border: 0;
+  font-size: 11px;
+}
+.header a {
+  flex-shrink: 0;
+  font-size: 12px;
+}
+.identity {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px 12px;
+  color: var(--muted);
+  margin-bottom: 12px;
+  font-size: 12px;
+}
+.identity code {
+  font-size: 11px;
+}
+.metadata {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 14px;
+  margin: 0 0 14px;
+}
+.metadata > div {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 5px;
+}
+.metadata dt {
+  color: var(--muted);
+  font-size: 11px;
+}
+.metadata dd {
+  margin: 0;
+  font-size: 12px;
+}
+.tabs {
+  display: flex;
+  gap: 2px;
+  border-bottom: 1px solid var(--line);
+  margin-bottom: 14px;
+  overflow-x: auto;
+}
+.tabs button {
+  background: transparent;
+  color: var(--muted);
+  border: 0;
+  border-radius: 0;
+  border-bottom: 2px solid transparent;
+  padding: 9px 10px;
+  font-size: 12px;
+  flex-shrink: 0;
+}
+.tabs button[aria-selected="true"] {
+  color: var(--frost);
+  border-bottom-color: var(--frost);
+}
+.tabs button:focus-visible {
+  outline: 2px solid var(--frost);
+  outline-offset: -3px;
+}
+.section[hidden] {
+  display: none;
+}
+.section h3 {
+  font-size: 14px;
+  margin: 12px 0 8px;
+}
+.section :global(.case-step-table) {
+  overflow-x: auto;
+  margin-bottom: 16px;
+}
+.section :global(.case-step-table) table {
+  min-width: 430px;
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+.section :global(.case-step-table) th {
+  color: var(--muted);
+  font-size: 11px;
+}
+.section :global(.case-step-table) td {
+  vertical-align: top;
+}
+.inspector input:not([type="checkbox"]),
+.inspector textarea,
+.inspector select {
+  max-width: 100%;
+  min-width: 0;
+}
+.inspector :global(.case-draft-toolbar) {
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.inspector :global(.case-draft-toolbar) > strong {
+  min-width: 0;
+  flex: 1 1 180px;
+}
+.inspector :global(.risk-assessment-panel) {
+  margin-bottom: 14px;
+}
+.inspector details > summary {
+  cursor: pointer;
+  color: var(--muted);
+  padding-block: 8px;
+}
+.prerequisites {
+  border-top: 1px solid var(--line);
+  padding-top: 10px;
+  margin-block: 14px;
+}
+.row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.row h3 {
+  margin: 0;
+}
+.selection {
+  padding: 0;
+  margin: 8px 0;
+  list-style: none;
+  display: grid;
+  gap: 6px;
+}
+.selection li {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+}
+.selection a {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.matches {
+  list-style: none;
+  padding: 0;
+  margin: 8px 0;
+  display: grid;
+  gap: 4px;
+  max-height: 280px;
+  overflow-y: auto;
+}
+.matches li {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  padding: 6px;
+  border-bottom: 1px solid var(--line);
+}
+.matches li span {
+  flex: 1;
+  min-width: 0;
+}
+.matches small {
+  display: block;
+  color: var(--muted);
+  font-size: 10px;
+}
+.muted {
+  color: var(--muted);
+  font-size: 12px;
+}
+.tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  padding: 0;
+  list-style: none;
+}
+.tags li {
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  padding: 2px 6px;
+  font-size: 11px;
+}
+@media (max-width: 480px) {
+  .header {
+    flex-wrap: wrap;
+  }
+  .header h1 {
+    font-size: 18px;
+  }
+  .tabs button {
+    padding-inline: 8px;
+  }
+  .metadata {
+    gap: 6px 10px;
+  }
+}

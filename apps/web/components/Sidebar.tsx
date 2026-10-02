@@ -7,6 +7,11 @@ import { trpcReact } from "@/lib/trpcReact";
 import { GlobalSearch } from "./GlobalSearch";
 import { Icon, type IconName } from "./ui/Workspace";
 import { isNavigationActive } from "../lib/usability";
+import {
+  PROJECT_NAVIGATION,
+  navigationGroupIsActive,
+} from "../lib/workbench-navigation";
+import styles from "./WorkbenchNavigation.module.css";
 
 // Ported 2026-09-11 from codex/private-beta-readiness: functional icons per
 // link, exact matching for the overview links so "/projects/x" isn't
@@ -92,6 +97,7 @@ function SidebarFrame({
 
 function ProjectSidebar({ projectId }: { projectId: string }) {
   const router = useRouter();
+  const pathname = usePathname();
   // P1-15: project.byId is shared with every page under /projects/[id] via
   // the react-query cache, so the sidebar no longer issues its own copy of
   // that request on every navigation.
@@ -103,32 +109,6 @@ function ProjectSidebar({ projectId }: { projectId: string }) {
   );
   const projects = listQuery.data ?? [];
   const currentName = projectQuery.data?.name ?? "";
-
-  const links = [
-    { href: `/projects/${projectId}`, label: "Overview" },
-    { href: `/projects/${projectId}/test-cases`, label: "Test Cases" },
-    { href: `/projects/${projectId}/test-strategy`, label: "Test Strategy" },
-    { href: `/projects/${projectId}/test-plans`, label: "Test Plans" },
-    { href: `/projects/${projectId}/test-runs`, label: "Test Runs" },
-    { href: `/projects/${projectId}/reports`, label: "Reports" },
-    { href: `/projects/${projectId}/requirements`, label: "Requirements" },
-    { href: `/projects/${projectId}/compliance`, label: "Compliance" },
-    { href: `/projects/${projectId}/audit-log`, label: "Audit Log" },
-    {
-      href: `/projects/${projectId}/reverse-engineer`,
-      label: "Reverse Engineer",
-    },
-    {
-      href: `/projects/${projectId}/live-app-generation`,
-      label: "Live App Generation",
-    },
-    {
-      href: `/projects/${projectId}/production-signals`,
-      label: "Production Signals",
-    },
-    { href: `/projects/${projectId}/import`, label: "Import" },
-    { href: `/projects/${projectId}/releases`, label: "Release Readiness" },
-  ];
 
   return (
     <SidebarFrame
@@ -158,17 +138,35 @@ function ProjectSidebar({ projectId }: { projectId: string }) {
       <div className="sidebar-group">
         <GlobalSearch projectId={projectId} />
       </div>
-      <div className="sidebar-group">
-        <div className="eyebrow sidebar-group-label">Project</div>
-        {links.map((link) => (
-          <SidebarLink
-            key={link.href}
-            href={link.href}
-            label={link.label}
-            exact={link.label === "Overview"}
-          />
-        ))}
-      </div>
+      <nav aria-label="Project">
+        {PROJECT_NAVIGATION.map((group) => {
+          const links = group.links.map((link) => (
+            <SidebarLink
+              key={link.path}
+              href={`/projects/${projectId}${link.path}`}
+              label={link.label}
+              exact={link.path === ""}
+            />
+          ));
+          return group.collapsible ? (
+            <details
+              key={group.label}
+              className={styles.group}
+              open={navigationGroupIsActive(pathname, projectId, group.links)}
+            >
+              <summary>{group.label}</summary>
+              <div className={styles.links}>{links}</div>
+            </details>
+          ) : (
+            <div key={group.label} className={styles.group}>
+              <div className={`eyebrow sidebar-group-label ${styles.label}`}>
+                {group.label}
+              </div>
+              {links}
+            </div>
+          );
+        })}
+      </nav>
     </SidebarFrame>
   );
 }

@@ -48,6 +48,45 @@ export function DialogFrame({
       aria-label={label}
       aria-labelledby={labelledBy}
       onKeyDown={(event) => {
+        // Portalled nested dialogs bubble through React ancestors. Only the
+        // dialog which owns the focused control may handle its navigation.
+        if (
+          event.target instanceof Element &&
+          event.target.closest("dialog") !== event.currentTarget
+        )
+          return;
+        if (event.key === "Tab") {
+          // Native modality keeps the background inert. Explicit endpoint
+          // wrapping also keeps focus in the dialog across browser variants.
+          const controls = Array.from(
+            event.currentTarget.querySelectorAll<HTMLElement>(
+              "button, [href], input, select, textarea, summary, iframe, audio[controls], video[controls], [tabindex]",
+            ),
+          ).filter(
+            (control) =>
+              control.tabIndex >= 0 &&
+              !control.matches(":disabled") &&
+              control.getClientRects().length > 0 &&
+              !control.closest('[hidden], [inert], [aria-hidden="true"]'),
+          );
+          const first = controls[0];
+          const last = controls[controls.length - 1];
+          if (!first || !last) {
+            event.preventDefault();
+            event.currentTarget.focus();
+          } else if (
+            event.shiftKey &&
+            (document.activeElement === first ||
+              document.activeElement === event.currentTarget)
+          ) {
+            event.preventDefault();
+            last.focus();
+          } else if (!event.shiftKey && document.activeElement === last) {
+            event.preventDefault();
+            first.focus();
+          }
+          return;
+        }
         if (event.key !== "Escape") return;
         // Keep Escape local to the topmost dialog, including embedded browsers.
         event.preventDefault();

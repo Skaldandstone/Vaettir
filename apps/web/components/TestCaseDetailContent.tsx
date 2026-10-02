@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useId, useState } from "react";
 import type { CSSProperties, ChangeEvent } from "react";
 import { trpcReact, type RouterOutputs } from "@/lib/trpcReact";
 import { RiskMeter } from "@/components/MetricVisuals";
@@ -8,6 +8,13 @@ import { TestDesignReview } from "@/components/TestDesignReview";
 import { TestCasePrerequisites } from "@/components/TestCasePrerequisites";
 import { Modal } from "@/components/Modal";
 import { automationTargetForFramework } from "@vaettir/core";
+import {
+  INSPECTOR_SECTIONS,
+  inspectorLabel,
+  inspectorSectionForKey,
+  type InspectorSection,
+} from "@/lib/case-inspector";
+import styles from "./CaseInspector.module.css";
 
 const cellStyle: CSSProperties = {
   border: "1px solid var(--line)",
@@ -116,15 +123,34 @@ const AUTOMATION_FRAMEWORKS: Array<{
   { value: "GODOT_GDUNIT4", label: "Godot GdUnit4" },
 ];
 
-function AutomationDraftSection({ testCaseId, sourceFramework, readOnly = false }: { testCaseId: string; sourceFramework?: string; readOnly?: boolean }) {
+function AutomationDraftSection({
+  testCaseId,
+  sourceFramework,
+  readOnly = false,
+}: {
+  testCaseId: string;
+  sourceFramework?: string;
+  readOnly?: boolean;
+}) {
   const linkedTarget = automationTargetForFramework(sourceFramework);
-  const suggested = AUTOMATION_FRAMEWORKS.find(option => option.value === linkedTarget);
-  const [framework, setFramework] = useState<AutomationFramework | "">(suggested?.value ?? "");
+  const suggested = AUTOMATION_FRAMEWORKS.find(
+    (option) => option.value === linkedTarget,
+  );
+  const [framework, setFramework] = useState<AutomationFramework | "">(
+    suggested?.value ?? "",
+  );
   const [projectContext, setProjectContext] = useState("");
-  const saved = trpcReact.testCases.automationDraft.useQuery({ id: testCaseId }, { refetchInterval: query => query.state.data?.status === "GENERATING" ? 3000 : false });
+  const saved = trpcReact.testCases.automationDraft.useQuery(
+    { id: testCaseId },
+    {
+      refetchInterval: (query) =>
+        query.state.data?.status === "GENERATING" ? 3000 : false,
+    },
+  );
   const draft = saved.data?.content;
   const [confirmReject, setConfirmReject] = useState(false);
-  const rejectMutation = trpcReact.testCases.rejectAutomationDraft.useMutation();
+  const rejectMutation =
+    trpcReact.testCases.rejectAutomationDraft.useMutation();
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const generateMutation =
@@ -179,69 +205,106 @@ function AutomationDraftSection({ testCaseId, sourceFramework, readOnly = false 
       }}
     >
       <strong>Automation draft</strong>
-      <div style={{margin:"10px 0"}}><TestDesignReview testCaseId={testCaseId} canUseDraft={!readOnly && !saved.data && !saved.isLoading && !saved.error} onUse={review => {
-        if (review.framework) setFramework(review.framework);
-        setProjectContext(JSON.stringify({ reviewedDesign: review }).slice(0,12000));
-      }} /></div>
+      <div style={{ margin: "10px 0" }}>
+        <TestDesignReview
+          testCaseId={testCaseId}
+          readOnly={readOnly}
+          canUseDraft={
+            !readOnly && !saved.data && !saved.isLoading && !saved.error
+          }
+          onUse={(review) => {
+            if (review.framework) setFramework(review.framework);
+            setProjectContext(
+              JSON.stringify({ reviewedDesign: review }).slice(0, 12000),
+            );
+          }}
+        />
+      </div>
       {saved.isLoading && <p role="status">Loading saved draft…</p>}
-      {saved.error && <p role="alert">Could not load saved draft. <button onClick={() => void saved.refetch()}>Retry</button></p>}
-      {saved.data?.status === "GENERATING" && <p role="status">Your draft is generating. You can close this panel and return. If this status persists, contact an administrator; starting another paid request is blocked.</p>}
+      {saved.error && (
+        <p role="alert">
+          Could not load saved draft.{" "}
+          <button onClick={() => void saved.refetch()}>Retry</button>
+        </p>
+      )}
+      {saved.data?.status === "GENERATING" && (
+        <p role="status">
+          Your draft is generating. You can close this panel and return. If this
+          status persists, contact an administrator; starting another paid
+          request is blocked.
+        </p>
+      )}
       <p className="text-muted" style={{ fontSize: 13, margin: "5px 0 12px" }}>
         Turn this reviewed case into framework-specific source. Vaettir returns
         a draft for human review and never writes to your repository or claims
         that the source was executed.
       </p>
-      {!readOnly && !saved.data && !saved.isLoading && !saved.error && <div style={{ display: "grid", gap: 10 }}>
-        <label>
-          <span
-            className="eyebrow"
-            style={{ display: "block", marginBottom: 4 }}
-          >
-            Framework
-          </span>
-          <select
-            value={framework}
-            onChange={(event) =>
-              setFramework(event.target.value as AutomationFramework)
-            }
-            style={{ width: "100%" }}
-          >
-            <option value="">Choose a framework</option>
-            {AUTOMATION_FRAMEWORKS.map((option) => (
-              <option key={option.value} value={option.value}>
-                {option.label}
-              </option>
-            ))}
-          </select>
-          <small className="text-muted">{suggested ? `Suggested from this case's linked ${sourceFramework} test metadata. Confirm it fits the current stack and test level.` : "No supported framework is verified for this case. Choose deliberately; project type alone is not stack evidence."}</small>
-        </label>
-        <label>
-          <span
-            className="eyebrow"
-            style={{ display: "block", marginBottom: 4 }}
-          >
-            Project context (optional)
-          </span>
-          <textarea
-            value={projectContext}
-            onChange={(event) => setProjectContext(event.target.value)}
-            maxLength={12_000}
-            rows={4}
-            placeholder="Add known app IDs, accessibility identifiers, resource IDs, routes, or existing test helpers. Missing details remain explicit TODOs."
-            style={{ width: "100%", resize: "vertical" }}
-          />
-        </label>
-        <div>
-          <button onClick={generate} disabled={generateMutation.isPending || !framework}>
-            {generateMutation.isPending
-              ? "Generating…"
-              : "Generate review draft"}
-          </button>
-          <span className="text-muted" style={{ fontSize: 12, marginLeft: 8 }}>
-            Starts at 10 AI credits; final cost is reconciled to usage.
-          </span>
-        </div>
-      </div>}
+      {!readOnly && !saved.data && !saved.isLoading && !saved.error && (
+        <details>
+          <summary>Prepare an automation draft</summary>
+          <div style={{ display: "grid", gap: 10 }}>
+            <label>
+              <span
+                className="eyebrow"
+                style={{ display: "block", marginBottom: 4 }}
+              >
+                Framework
+              </span>
+              <select
+                value={framework}
+                onChange={(event) =>
+                  setFramework(event.target.value as AutomationFramework)
+                }
+                style={{ width: "100%" }}
+              >
+                <option value="">Choose a framework</option>
+                {AUTOMATION_FRAMEWORKS.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+              <small className="text-muted">
+                {suggested
+                  ? `Suggested from this case's linked ${sourceFramework} test metadata. Confirm it fits the current stack and test level.`
+                  : "No supported framework is verified for this case. Choose deliberately; project type alone is not stack evidence."}
+              </small>
+            </label>
+            <label>
+              <span
+                className="eyebrow"
+                style={{ display: "block", marginBottom: 4 }}
+              >
+                Project context (optional)
+              </span>
+              <textarea
+                value={projectContext}
+                onChange={(event) => setProjectContext(event.target.value)}
+                maxLength={12_000}
+                rows={4}
+                placeholder="Add known app IDs, accessibility identifiers, resource IDs, routes, or existing test helpers. Missing details remain explicit TODOs."
+                style={{ width: "100%", resize: "vertical" }}
+              />
+            </label>
+            <div>
+              <button
+                onClick={generate}
+                disabled={generateMutation.isPending || !framework}
+              >
+                {generateMutation.isPending
+                  ? "Generating…"
+                  : "Generate review draft"}
+              </button>
+              <span
+                className="text-muted"
+                style={{ fontSize: 12, marginLeft: 8 }}
+              >
+                Starts at 10 AI credits; final cost is reconciled to usage.
+              </span>
+            </div>
+          </div>
+        </details>
+      )}
 
       {error && <p style={{ color: "var(--ember)" }}>{error}</p>}
       {draft && (
@@ -252,18 +315,53 @@ function AutomationDraftSection({ testCaseId, sourceFramework, readOnly = false 
             paddingTop: 14,
           }}
         >
-          <p className="text-muted">Saved with this test case. Reopening, copying or downloading does not use credits.</p>
-          {!readOnly && (!confirmReject ? <button className="btn-secondary" onClick={() => setConfirmReject(true)}>Reject draft…</button> : <div role="group" aria-label="Confirm draft rejection">
-            <p>Reject this saved draft? Creating a replacement uses credits. Rejection does not refund the original generation.</p>
-            <button disabled={rejectMutation.isPending} onClick={async () => {
-              if (!saved.data) return;
-              try {
-                await rejectMutation.mutateAsync({ id: testCaseId, draftId: saved.data.id });
-                await saved.refetch(); setConfirmReject(false);
-              } catch (cause) { setError(cause instanceof Error ? cause.message : String(cause)); }
-            }}>Reject draft</button>
-            <button className="btn-secondary" disabled={rejectMutation.isPending} onClick={() => setConfirmReject(false)}>Keep draft</button>
-          </div>)}
+          <p className="text-muted">
+            Saved with this test case. Reopening, copying or downloading does
+            not use credits.
+          </p>
+          {!readOnly &&
+            (!confirmReject ? (
+              <button
+                className="btn-secondary"
+                onClick={() => setConfirmReject(true)}
+              >
+                Reject draft…
+              </button>
+            ) : (
+              <div role="group" aria-label="Confirm draft rejection">
+                <p>
+                  Reject this saved draft? Creating a replacement uses credits.
+                  Rejection does not refund the original generation.
+                </p>
+                <button
+                  disabled={rejectMutation.isPending}
+                  onClick={async () => {
+                    if (!saved.data) return;
+                    try {
+                      await rejectMutation.mutateAsync({
+                        id: testCaseId,
+                        draftId: saved.data.id,
+                      });
+                      await saved.refetch();
+                      setConfirmReject(false);
+                    } catch (cause) {
+                      setError(
+                        cause instanceof Error ? cause.message : String(cause),
+                      );
+                    }
+                  }}
+                >
+                  Reject draft
+                </button>
+                <button
+                  className="btn-secondary"
+                  disabled={rejectMutation.isPending}
+                  onClick={() => setConfirmReject(false)}
+                >
+                  Keep draft
+                </button>
+              </div>
+            ))}
           <p style={{ fontSize: 13 }}>
             <strong>Stable ID:</strong> <code>{draft.automationId}</code>
           </p>
@@ -438,39 +536,46 @@ function ComplianceControlsSection({
         </ul>
       )}
       {!readOnly && frameworks.length > 0 && (
-        <div style={{ display: "flex", gap: 6, marginTop: 6 }}>
-          <select
-            value={frameworkId}
-            onChange={(e) => setFrameworkId(e.target.value)}
-            style={{ fontSize: 12 }}
+        <details>
+          <summary>Map a compliance control</summary>
+          <div
+            style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 6 }}
           >
-            {frameworks.map((f) => (
-              <option key={f.id} value={f.id}>
-                {f.name}
-              </option>
-            ))}
-          </select>
-          <select
-            value={controlId}
-            onChange={(e) => setControlId(e.target.value)}
-            style={{ fontSize: 12, flex: 1 }}
-          >
-            <option value="">Map to a control…</option>
-            {unmappedCandidates.map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.code} — {c.title}
-              </option>
-            ))}
-          </select>
-          <button
-            className="btn-secondary"
-            style={{ fontSize: 12 }}
-            onClick={addMapping}
-            disabled={busy || !controlId}
-          >
-            Map
-          </button>
-        </div>
+            <select
+              aria-label="Compliance framework"
+              value={frameworkId}
+              onChange={(e) => setFrameworkId(e.target.value)}
+              style={{ fontSize: 12 }}
+            >
+              {frameworks.map((f) => (
+                <option key={f.id} value={f.id}>
+                  {f.name}
+                </option>
+              ))}
+            </select>
+            <select
+              aria-label="Compliance control"
+              value={controlId}
+              onChange={(e) => setControlId(e.target.value)}
+              style={{ fontSize: 12, flex: 1 }}
+            >
+              <option value="">Map to a control…</option>
+              {unmappedCandidates.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.code} — {c.title}
+                </option>
+              ))}
+            </select>
+            <button
+              className="btn-secondary"
+              style={{ fontSize: 12 }}
+              onClick={addMapping}
+              disabled={busy || !controlId}
+            >
+              Map
+            </button>
+          </div>
+        </details>
       )}
     </div>
   );
@@ -763,7 +868,8 @@ function AttachmentsSection({
   const requestUploadMutation =
     trpcReact.testCaseAttachments.requestUpload.useMutation();
   const deleteMutation = trpcReact.testCaseAttachments.delete.useMutation();
-  const confirmMutation = trpcReact.testCaseAttachments.confirmUpload.useMutation();
+  const confirmMutation =
+    trpcReact.testCaseAttachments.confirmUpload.useMutation();
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -778,12 +884,13 @@ function AttachmentsSection({
     setUploading(true);
     setError(null);
     try {
-      const { uploadUrl, attachmentId } = await requestUploadMutation.mutateAsync({
-        testCaseId,
-        fileName: file.name,
-        contentType: file.type || "application/octet-stream",
-        sizeBytes: file.size,
-      });
+      const { uploadUrl, attachmentId } =
+        await requestUploadMutation.mutateAsync({
+          testCaseId,
+          fileName: file.name,
+          contentType: file.type || "application/octet-stream",
+          sizeBytes: file.size,
+        });
       const res = await fetch(uploadUrl, {
         method: "PUT",
         headers: { "content-type": file.type || "application/octet-stream" },
@@ -850,12 +957,32 @@ function AttachmentsSection({
               <span className="text-muted" style={{ marginRight: 8 }}>
                 {(a.sizeBytes / 1024).toFixed(0)} KB
               </span>
-              {!a.uploadCompletedAt && <span className="text-muted">Not verified for execution evidence </span>}
-              {!readOnly && !a.uploadCompletedAt && <button className="btn-secondary" disabled={confirmMutation.isPending} onClick={async () => {
-                setError(null);
-                try { await confirmMutation.mutateAsync({ attachmentId: a.id }); load(); }
-                catch (cause) { setError(cause instanceof Error ? cause.message : "Verification failed. Retry after upload completes."); }
-              }}>Verify uploaded file</button>}
+              {!a.uploadCompletedAt && (
+                <span className="text-muted">
+                  Not verified for execution evidence{" "}
+                </span>
+              )}
+              {!readOnly && !a.uploadCompletedAt && (
+                <button
+                  className="btn-secondary"
+                  disabled={confirmMutation.isPending}
+                  onClick={async () => {
+                    setError(null);
+                    try {
+                      await confirmMutation.mutateAsync({ attachmentId: a.id });
+                      load();
+                    } catch (cause) {
+                      setError(
+                        cause instanceof Error
+                          ? cause.message
+                          : "Verification failed. Retry after upload completes.",
+                      );
+                    }
+                  }}
+                >
+                  Verify uploaded file
+                </button>
+              )}
               {!readOnly && (
                 <button
                   className="btn-secondary"
@@ -875,10 +1002,16 @@ function AttachmentsSection({
         )}
       </ul>
       {!readOnly && (
-        <div style={{ marginTop: 8 }}>
-          <input type="file" onChange={handleFile} disabled={uploading} />
+        <details style={{ marginTop: 8 }}>
+          <summary>Add an attachment</summary>
+          <input
+            aria-label="Upload case attachment"
+            type="file"
+            onChange={handleFile}
+            disabled={uploading}
+          />
           {uploading && <span style={{ fontSize: 12 }}> Uploading…</span>}
-        </div>
+        </details>
       )}
     </div>
   );
@@ -982,35 +1115,71 @@ function TestCaseVersionHistorySection({ testCaseId }: { testCaseId: string }) {
 // page navigation for the common "look at / triage a case" action when a
 // pop-out view will do, matching how TestRail/Qase's own case repository
 // works (a side panel, not a page hop, for viewing/light editing).
-export function TestCaseDetailContent({
-  id,
-  projectId,
-  onEditHref,
-  onChanged,
-  onSuiteSelect,
-  readOnly,
-}: {
+type TestCaseDetailProps = {
   id: string;
   projectId: string;
   onEditHref?: string;
   onChanged?: () => void;
   onSuiteSelect?: (path: string) => void;
   readOnly?: boolean;
-}) {
+};
+
+export function TestCaseDetailContent(props: TestCaseDetailProps) {
+  // Switching records must not carry mutation notes or draft context into another case.
+  // Within a record, all section panels remain mounted across tab changes.
+  return <TestCaseInspector key={props.id} {...props} />;
+}
+
+function TestCaseInspector({
+  id,
+  projectId,
+  onEditHref,
+  onChanged,
+  onSuiteSelect,
+  readOnly,
+}: TestCaseDetailProps) {
+  const sectionId = useId();
+  const [sectionState, setSectionState] = useState<{
+    caseId: string;
+    section: InspectorSection;
+  }>({ caseId: id, section: "Procedure" });
+  const section =
+    sectionState.caseId === id ? sectionState.section : "Procedure";
+  function setSection(next: InspectorSection) {
+    setSectionState({ caseId: id, section: next });
+  }
+  const [expandedTitleFor, setExpandedTitleFor] = useState<string | null>(null);
   const utils = trpcReact.useUtils();
   const tcQuery = trpcReact.testCases.byId.useQuery({ id });
   const tc = tcQuery.data ?? null;
-  const stepAttachments = trpcReact.testCaseAttachments.list.useQuery({ testCaseId: id });
+  const savedAutomation = trpcReact.testCases.automationDraft.useQuery(
+    { id },
+    {
+      refetchInterval: (query) =>
+        query.state.data?.status === "GENERATING" ? 3000 : false,
+    },
+  );
+  const stepAttachments = trpcReact.testCaseAttachments.list.useQuery({
+    testCaseId: id,
+  });
   const approveMutation = trpcReact.testCases.approve.useMutation();
   const rejectMutation = trpcReact.testCases.reject.useMutation();
   const assessRiskMutation = trpcReact.testCases.assessRisk.useMutation();
   const [riskDialogOpen, setRiskDialogOpen] = useState(false);
   const [riskApproved, setRiskApproved] = useState(false);
-  const riskPreview = trpcReact.testCases.riskPreview.useQuery({ id }, { enabled: riskDialogOpen });
+  const riskPreview = trpcReact.testCases.riskPreview.useQuery(
+    { id },
+    { enabled: riskDialogOpen },
+  );
   const riskReviews = trpcReact.testCases.riskReviews.useQuery({ id });
-  const prioritySuggestion = trpcReact.testCases.prioritySuggestion.useQuery({ id });
-  const decidePriorityMutation = trpcReact.testCases.decidePriority.useMutation();
-  const [businessPriority, setBusinessPriority] = useState<"HIGH" | "CRITICAL">("HIGH");
+  const prioritySuggestion = trpcReact.testCases.prioritySuggestion.useQuery({
+    id,
+  });
+  const decidePriorityMutation =
+    trpcReact.testCases.decidePriority.useMutation();
+  const [businessPriority, setBusinessPriority] = useState<"HIGH" | "CRITICAL">(
+    "HIGH",
+  );
   const [businessRationale, setBusinessRationale] = useState("");
   const [priorityBusy, setPriorityBusy] = useState(false);
   const [priorityError, setPriorityError] = useState("");
@@ -1048,7 +1217,11 @@ export function TestCaseDetailContent({
     setAssessingRisk(true);
     setError(null);
     try {
-      await assessRiskMutation.mutateAsync({ id, expectedHash: riskPreview.data.inputHash, approved: true });
+      await assessRiskMutation.mutateAsync({
+        id,
+        expectedHash: riskPreview.data.inputHash,
+        approved: true,
+      });
       load();
       await riskPreview.refetch();
       await riskReviews.refetch();
@@ -1065,426 +1238,833 @@ export function TestCaseDetailContent({
   async function decidePriority(mode: "MATCH_RISK" | "BUSINESS_OVERRIDE") {
     const suggestion = prioritySuggestion.data;
     if (!suggestion) return;
-    setPriorityBusy(true); setPriorityError("");
+    setPriorityBusy(true);
+    setPriorityError("");
     try {
-      await decidePriorityMutation.mutateAsync({ id, mode,
+      await decidePriorityMutation.mutateAsync({
+        id,
+        mode,
         expectedPriority: suggestion.currentPriority,
         expectedRiskSeverity: suggestion.riskSeverity,
         expectedRiskScore: suggestion.riskScore,
-        ...(mode === "BUSINESS_OVERRIDE" ? { priority: businessPriority, rationale: businessRationale.trim() } : {}),
+        ...(mode === "BUSINESS_OVERRIDE"
+          ? { priority: businessPriority, rationale: businessRationale.trim() }
+          : {}),
       });
       load();
       await prioritySuggestion.refetch();
       onChanged?.();
     } catch (cause) {
-      setPriorityError(cause instanceof Error ? cause.message : "Could not update priority.");
-    } finally { setPriorityBusy(false); }
+      setPriorityError(
+        cause instanceof Error ? cause.message : "Could not update priority.",
+      );
+    } finally {
+      setPriorityBusy(false);
+    }
   }
 
   async function viewStepMedia(attachmentId: string) {
     setStepMediaError("");
     try {
-      const { viewUrl } = await utils.testCaseAttachments.getViewUrl.fetch({ attachmentId });
+      const { viewUrl } = await utils.testCaseAttachments.getViewUrl.fetch({
+        attachmentId,
+      });
       window.open(viewUrl, "_blank", "noopener,noreferrer");
     } catch (cause) {
-      setStepMediaError(cause instanceof Error ? cause.message : "Could not open step media.");
+      setStepMediaError(
+        cause instanceof Error ? cause.message : "Could not open step media.",
+      );
     }
   }
 
-  if (error ?? tcQuery.error)
+  if (!tc && tcQuery.error)
     return (
-      <p style={{ color: "var(--ember)" }}>{error ?? String(tcQuery.error)}</p>
+      <p role="alert" style={{ color: "var(--ember)" }}>
+        {tcQuery.error.message}{" "}
+        <button onClick={() => void tcQuery.refetch()}>Retry</button>
+      </p>
     );
   if (!tc) return <p>Loading…</p>;
 
   return (
-    <div className="test-case-details-content">
-      <div className="case-detail-heading">
-        <h1 style={{ margin: 0 }}>{tc.title}</h1>
+    <div className={`test-case-details-content ${styles.inspector}`}>
+      {(error || tcQuery.error) && (
+        <p role="alert" style={{ color: "var(--ember)" }}>
+          {error ?? tcQuery.error?.message}{" "}
+          <button
+            className="btn-secondary"
+            onClick={() => {
+              setError(null);
+              void tcQuery.refetch();
+            }}
+          >
+            Retry
+          </button>
+        </p>
+      )}
+      <div className={styles.header}>
+        <div className={styles.titleBlock}>
+          <h1
+            className={styles.title}
+            data-expanded={tc.title.length <= 110 || expandedTitleFor === tc.id}
+          >
+            {tc.title}
+          </h1>
+          {tc.title.length > 110 && (
+            <button
+              type="button"
+              className={styles.titleToggle}
+              aria-expanded={expandedTitleFor === tc.id}
+              onClick={() =>
+                setExpandedTitleFor(expandedTitleFor === tc.id ? null : tc.id)
+              }
+            >
+              {expandedTitleFor === tc.id ? "Compact title" : "Show full title"}
+            </button>
+          )}
+        </div>
         {!readOnly && (
           <a
             href={
               onEditHref ?? `/projects/${projectId}/test-cases/${tc.id}/edit`
             }
           >
-            Edit
+            Edit case
           </a>
         )}
       </div>
-      <dl className="case-metadata">
-        {([["Domain", tc.validationDomain], ["Type", tc.testType], ["Priority", tc.priority], ["Origin", tc.origin]] as const).map(([label, value]) => <div key={label}><dt>{label}</dt><dd>{value.replaceAll("_", " ").toLowerCase()}</dd></div>)}
-      </dl>
-
-      <p><strong>Suite:</strong> {tc.suitePath ? <a href={`/projects/${projectId}/test-cases?suite=${encodeURIComponent(tc.suitePath)}`} onClick={event => { if (onSuiteSelect && tc.suitePath) { event.preventDefault(); onSuiteSelect(tc.suitePath); } }}>{tc.suitePath}</a> : "Unassigned"}</p>
-      <TestCasePrerequisites projectId={projectId} caseId={tc.id} canEdit={!readOnly} />
-
-      {tc.background && (
-        <p>
-          <strong>Background:</strong> {tc.background}
-        </p>
-      )}
-
-      {(tc.given.length > 0 || tc.when.length > 0 || tc.then.length > 0) && (
-        <section className="case-step-table" aria-label="Scenario steps">
-          <h3>Steps · Given / When / Then</h3>
-          <table><thead><tr><th style={cellStyle}>#</th><th style={cellStyle}>Phase</th><th style={cellStyle}>Action or precondition</th><th style={cellStyle}>Expected outcome</th></tr></thead>
-            <tbody>{[...tc.given.map(text => ({ phase: "Given", text })), ...tc.when.map(text => ({ phase: "When", text })), ...tc.then.map(text => ({ phase: "Then", text }))].map((step, index) => <tr key={index}><td style={cellStyle}>{index + 1}</td><td style={cellStyle}>{step.phase}</td><td style={cellStyle}>{step.phase !== "Then" ? step.text : "—"}</td><td style={cellStyle}>{step.phase === "Then" ? step.text : "—"}</td></tr>)}</tbody>
-          </table>
-        </section>
-      )}
-
-      {tc.steps.length > 0 && (
-        <section className="case-step-table">
-          <h3>Steps</h3>
-          <table style={{ borderCollapse: "collapse", width: "100%" }}>
-            <thead>
-              <tr>
-                <th style={cellStyle}>#</th>
-                <th style={cellStyle}>{tc.stepFieldLabels.action}</th>
-                <th style={cellStyle}>
-                  {tc.stepFieldLabels.expectedActionOrData}
-                </th>
-                <th style={cellStyle}>{tc.stepFieldLabels.expectedResult}</th>
-                <th style={cellStyle}>{tc.stepFieldLabels.expectedResponse}</th>
-              </tr>
-            </thead>
-            <tbody>
-              {tc.steps.map((s) => (
-                <tr key={s.order}>
-                  <td style={cellStyle}>{s.order + 1}</td>
-                  <td style={cellStyle}>
-                    <div>{s.action}</div>
-                    {s.mediaAttachmentIds.length > 0 && <ul aria-label={`Media for step ${s.order + 1}`} style={{ margin: "6px 0 0", paddingLeft: 18 }}>
-                      {s.mediaAttachmentIds.map(attachmentId => {
-                        const attachment = stepAttachments.data?.find(item => item.id === attachmentId);
-                        return <li key={attachmentId}>{attachment
-                          ? <button type="button" className="btn-secondary" onClick={() => void viewStepMedia(attachmentId)}>{attachment.contentType.startsWith("video/") ? "Video" : "Image"}: {attachment.fileName}</button>
-                          : <span>{stepAttachments.isLoading ? "Loading media…" : `Media unavailable (${attachmentId.slice(0, 8)})`}</span>}</li>;
-                      })}
-                    </ul>}
-                  </td>
-                  <td style={cellStyle}>{s.expectedActionOrData ?? "—"}</td>
-                  <td style={cellStyle}>{s.expectedResult ?? "—"}</td>
-                  <td style={cellStyle}>{s.expectedResponse ?? "—"}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          {stepMediaError && <p role="alert">{stepMediaError}</p>}
-        </section>
-      )}
-
-      {tc.given.length === 0 &&
-        tc.when.length === 0 &&
-        tc.then.length === 0 &&
-        tc.steps.length === 0 && (
-          <p className="text-muted">
-            No content yet — this case was quick-added with just a title.{" "}
+      <div className={styles.identity}>
+        <span>
+          <strong>Suite:</strong>{" "}
+          {tc.suitePath ? (
             <a
-              href={
-                onEditHref ?? `/projects/${projectId}/test-cases/${tc.id}/edit`
-              }
+              href={`/projects/${projectId}/test-cases?suite=${encodeURIComponent(tc.suitePath)}`}
+              onClick={(event) => {
+                if (onSuiteSelect && tc.suitePath) {
+                  event.preventDefault();
+                  onSuiteSelect(tc.suitePath);
+                }
+              }}
             >
-              Fill it in
+              {tc.suitePath}
             </a>
-            .
+          ) : (
+            "Unassigned"
+          )}
+        </span>
+        <span>
+          Case ID: <code>{tc.id}</code>
+        </span>
+      </div>
+      <dl className={styles.metadata}>
+        {(
+          [
+            ["Domain", tc.validationDomain],
+            ["Type", tc.testType],
+            ["Priority", tc.priority],
+            ["Origin", tc.origin],
+          ] as const
+        ).map(([label, value]) => (
+          <div key={label}>
+            <dt>{label}</dt>
+            <dd>{inspectorLabel(value)}</dd>
+          </div>
+        ))}
+        <div>
+          <dt>Risk</dt>
+          <dd>
+            {tc.riskScore == null
+              ? "Not assessed"
+              : `${inspectorLabel(tc.riskSeverity ?? "UNKNOWN")} · ${Math.round(tc.riskScore)}/100`}
+          </dd>
+        </div>
+        <div>
+          <dt>Review</dt>
+          <dd>{inspectorLabel(tc.reviewStatus)}</dd>
+        </div>
+      </dl>
+      {(tc.reviewStatus === "PENDING_REVIEW" || savedAutomation.data) && (
+        <div className={styles.row} style={{ marginBottom: 10 }}>
+          {tc.reviewStatus === "PENDING_REVIEW" && (
+            <button
+              type="button"
+              className="btn-secondary"
+              onClick={() => setSection("History")}
+            >
+              Review case
+            </button>
+          )}
+          {savedAutomation.data && (
+            <button
+              type="button"
+              className="btn-secondary"
+              onClick={() => setSection("Intelligence")}
+            >
+              {savedAutomation.data.status === "GENERATING"
+                ? "Automation draft generating"
+                : "Open saved automation draft"}
+            </button>
+          )}
+        </div>
+      )}
+      <div
+        role="tablist"
+        aria-label="Test case sections"
+        className={styles.tabs}
+      >
+        {INSPECTOR_SECTIONS.map((name) => (
+          <button
+            key={name}
+            type="button"
+            role="tab"
+            id={`${sectionId}-tab-${name}`}
+            aria-controls={`${sectionId}-panel-${name}`}
+            aria-selected={section === name}
+            tabIndex={section === name ? 0 : -1}
+            onClick={() => setSection(name)}
+            onKeyDown={(event) => {
+              const next = inspectorSectionForKey(name, event.key);
+              if (!next) return;
+              event.preventDefault();
+              setSection(next);
+              document.getElementById(`${sectionId}-tab-${next}`)?.focus();
+            }}
+          >
+            {name}
+          </button>
+        ))}
+      </div>
+      {/* Panels stay mounted: tab changes must not discard paid outputs or local drafts. */}
+      <section
+        className={styles.section}
+        role="tabpanel"
+        id={`${sectionId}-panel-Procedure`}
+        aria-labelledby={`${sectionId}-tab-Procedure`}
+        hidden={section !== "Procedure"}
+      >
+        {(tc.given.length > 0 || tc.when.length > 0 || tc.then.length > 0) && (
+          <section className="case-step-table" aria-label="Scenario steps">
+            <h3>Steps · Given / When / Then</h3>
+            <table>
+              <thead>
+                <tr>
+                  <th style={cellStyle}>#</th>
+                  <th style={cellStyle}>Phase</th>
+                  <th style={cellStyle}>Action or precondition</th>
+                  <th style={cellStyle}>Expected outcome</th>
+                </tr>
+              </thead>
+              <tbody>
+                {[
+                  ...tc.given.map((text) => ({ phase: "Given", text })),
+                  ...tc.when.map((text) => ({ phase: "When", text })),
+                  ...tc.then.map((text) => ({ phase: "Then", text })),
+                ].map((step, index) => (
+                  <tr key={index}>
+                    <td style={cellStyle}>{index + 1}</td>
+                    <td style={cellStyle}>{step.phase}</td>
+                    <td style={cellStyle}>
+                      {step.phase !== "Then" ? step.text : "—"}
+                    </td>
+                    <td style={cellStyle}>
+                      {step.phase === "Then" ? step.text : "—"}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </section>
+        )}
+
+        {tc.steps.length > 0 && (
+          <section className="case-step-table">
+            <h3>Steps</h3>
+            <table style={{ borderCollapse: "collapse", width: "100%" }}>
+              <thead>
+                <tr>
+                  <th style={cellStyle}>#</th>
+                  <th style={cellStyle}>{tc.stepFieldLabels.action}</th>
+                  <th style={cellStyle}>
+                    {tc.stepFieldLabels.expectedActionOrData}
+                  </th>
+                  <th style={cellStyle}>{tc.stepFieldLabels.expectedResult}</th>
+                  <th style={cellStyle}>
+                    {tc.stepFieldLabels.expectedResponse}
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {tc.steps.map((s) => (
+                  <tr key={s.order}>
+                    <td style={cellStyle}>{s.order + 1}</td>
+                    <td style={cellStyle}>
+                      <div>{s.action}</div>
+                      {s.mediaAttachmentIds.length > 0 && (
+                        <ul
+                          aria-label={`Media for step ${s.order + 1}`}
+                          style={{ margin: "6px 0 0", paddingLeft: 18 }}
+                        >
+                          {s.mediaAttachmentIds.map((attachmentId) => {
+                            const attachment = stepAttachments.data?.find(
+                              (item) => item.id === attachmentId,
+                            );
+                            return (
+                              <li key={attachmentId}>
+                                {attachment ? (
+                                  <button
+                                    type="button"
+                                    className="btn-secondary"
+                                    onClick={() =>
+                                      void viewStepMedia(attachmentId)
+                                    }
+                                  >
+                                    {attachment.contentType.startsWith("video/")
+                                      ? "Video"
+                                      : "Image"}
+                                    : {attachment.fileName}
+                                  </button>
+                                ) : (
+                                  <span>
+                                    {stepAttachments.isLoading
+                                      ? "Loading media…"
+                                      : `Media unavailable (${attachmentId.slice(0, 8)})`}
+                                  </span>
+                                )}
+                              </li>
+                            );
+                          })}
+                        </ul>
+                      )}
+                    </td>
+                    <td style={cellStyle}>{s.expectedActionOrData ?? "—"}</td>
+                    <td style={cellStyle}>{s.expectedResult ?? "—"}</td>
+                    <td style={cellStyle}>{s.expectedResponse ?? "—"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            {stepMediaError && <p role="alert">{stepMediaError}</p>}
+          </section>
+        )}
+
+        {tc.given.length === 0 &&
+          tc.when.length === 0 &&
+          tc.then.length === 0 &&
+          tc.steps.length === 0 && (
+            <p className="text-muted">
+              No content yet — this case was quick-added with just a title.{" "}
+              {!readOnly && (
+                <a
+                  href={
+                    onEditHref ??
+                    `/projects/${projectId}/test-cases/${tc.id}/edit`
+                  }
+                >
+                  Fill it in
+                </a>
+              )}
+              .
+            </p>
+          )}
+
+        {tc.background && (
+          <details>
+            <summary>Background</summary>
+            <p style={{ whiteSpace: "pre-wrap" }}>{tc.background}</p>
+          </details>
+        )}
+        <TestCasePrerequisites
+          projectId={projectId}
+          caseId={tc.id}
+          canEdit={!readOnly}
+        />
+        <DatasetSection testCaseId={tc.id} readOnly={readOnly} />
+        {Object.values(tc.verificationProfile).some(Boolean) && (
+          <section className="panel">
+            <h3>Physical verification procedure</h3>
+            {(
+              [
+                ["setup", "Fixture and setup"],
+                ["safety", "Safety and stop conditions"],
+                ["instruments", "Instruments and calibration"],
+                ["acceptanceCriteria", "Measurement acceptance criteria"],
+              ] as const
+            ).map(
+              ([key, label]) =>
+                tc.verificationProfile[key] && (
+                  <div key={key}>
+                    <strong>{label}</strong>
+                    <p style={{ whiteSpace: "pre-wrap" }}>
+                      {tc.verificationProfile[key]}
+                    </p>
+                  </div>
+                ),
+            )}
+          </section>
+        )}
+        {tc.tags.length > 0 && (
+          <ul className={styles.tags} aria-label="Case tags">
+            {tc.tags.map((tag) => (
+              <li key={tag}>{tag}</li>
+            ))}
+          </ul>
+        )}
+      </section>
+      <section
+        className={styles.section}
+        role="tabpanel"
+        id={`${sectionId}-panel-Intelligence`}
+        aria-labelledby={`${sectionId}-tab-Intelligence`}
+        hidden={section !== "Intelligence"}
+      >
+        <div className="risk-assessment-panel">
+          <strong>Risk assessment</strong>
+          {riskReviews.data && riskReviews.data.length > 0 && (
+            <details style={{ marginTop: 12 }}>
+              <summary>
+                Saved AI risk suggestions ({riskReviews.data.length})
+              </summary>
+              <p style={{ color: "var(--muted)" }}>
+                Previous paid suggestions remain available, including when a
+                case was edited before one could be applied. Viewing them does
+                not replace the current assessment or use credits.
+              </p>
+              {riskReviews.data.map((review) => {
+                return (
+                  <article
+                    key={review.id}
+                    style={{
+                      borderTop: "1px solid var(--line)",
+                      paddingBlock: 10,
+                    }}
+                  >
+                    <strong>
+                      {new Date(review.createdAt).toLocaleString()} ·{" "}
+                      {review.status === "READY"
+                        ? "Saved suggestion"
+                        : review.status === "GENERATING"
+                          ? "Generating"
+                          : "Needs reconciliation"}
+                    </strong>
+                    {review.status === "READY" && (
+                      <p style={{ whiteSpace: "pre-wrap" }}>
+                        {review.severity ?? "Risk suggestion"}
+                        {review.riskScore != null
+                          ? ` · ${Math.round(review.riskScore)}/100`
+                          : ""}
+                        {review.rationale ? `\n${review.rationale}` : ""}
+                      </p>
+                    )}
+                    {review.status === "GENERATING" && (
+                      <p>
+                        The approved review is still running. Starting an
+                        identical paid request is blocked.
+                      </p>
+                    )}
+                    {review.status !== "READY" &&
+                      review.status !== "GENERATING" && (
+                        <p>
+                          No completed suggestion is available. An administrator
+                          may need to reconcile this request before it can be
+                          retried.
+                        </p>
+                      )}
+                  </article>
+                );
+              })}
+            </details>
+          )}
+          {tc.riskScore != null ? (
+            <>
+              <RiskMeter
+                score={tc.riskScore}
+                severity={tc.riskSeverity ?? "UNKNOWN"}
+              >
+                {tc.riskRationale && (
+                  <p className="risk-rationale">{tc.riskRationale}</p>
+                )}
+                {tc.riskAssessedAt && (
+                  <p className="risk-assessed-at">
+                    Assessed {new Date(tc.riskAssessedAt).toLocaleDateString()}
+                  </p>
+                )}
+              </RiskMeter>
+            </>
+          ) : (
+            <span style={{ color: "var(--muted-dim)" }}>Not yet assessed</span>
+          )}
+          {!readOnly && (
+            <div style={{ marginTop: 8 }}>
+              <button
+                onClick={() => setRiskDialogOpen(true)}
+                disabled={assessingRisk}
+              >
+                {assessingRisk
+                  ? "Assessing…"
+                  : tc.riskScore != null
+                    ? "Review risk assessment"
+                    : "Assess risk"}
+              </button>
+            </div>
+          )}
+        </div>
+
+        <section
+          className="risk-assessment-panel"
+          aria-label="Priority and business need"
+        >
+          <strong>Priority and business need</strong>
+          {prioritySuggestion.data?.suggestedPriority ? (
+            <>
+              <p>
+                Current: {prioritySuggestion.data.currentPriority.toLowerCase()}
+                . Risk suggests{" "}
+                {prioritySuggestion.data.suggestedPriority.toLowerCase()}.
+                Priority is scheduling intent; a high business need can justify
+                a different choice.
+              </p>
+              {prioritySuggestion.data.latestDecision?.mode ===
+                "BUSINESS_OVERRIDE" && (
+                <p>
+                  Business override:{" "}
+                  {prioritySuggestion.data.latestDecision.rationale}
+                </p>
+              )}
+              {prioritySuggestion.data.latestDecision?.mode === "MANUAL" && (
+                <p>A person last set this priority in the case editor.</p>
+              )}
+              {!readOnly && prioritySuggestion.data.canEdit && (
+                <details>
+                  <summary>Change priority</summary>
+                  <div style={{ display: "grid", gap: 8, marginTop: 8 }}>
+                    <button
+                      className="btn-secondary"
+                      disabled={
+                        priorityBusy ||
+                        prioritySuggestion.data.currentPriority ===
+                          prioritySuggestion.data.suggestedPriority
+                      }
+                      onClick={() => void decidePriority("MATCH_RISK")}
+                    >
+                      Use risk suggestion (
+                      {prioritySuggestion.data.suggestedPriority.toLowerCase()})
+                    </button>
+                    <label>
+                      Business-critical priority
+                      <select
+                        value={businessPriority}
+                        disabled={priorityBusy}
+                        onChange={(event) =>
+                          setBusinessPriority(
+                            event.target.value as "HIGH" | "CRITICAL",
+                          )
+                        }
+                        style={{ display: "block", width: "100%" }}
+                      >
+                        <option value="HIGH">High</option>
+                        <option value="CRITICAL">Critical</option>
+                      </select>
+                    </label>
+                    <label>
+                      Why does the business need this priority?
+                      <textarea
+                        value={businessRationale}
+                        disabled={priorityBusy}
+                        maxLength={500}
+                        rows={2}
+                        onChange={(event) =>
+                          setBusinessRationale(event.target.value)
+                        }
+                        style={{ display: "block", width: "100%" }}
+                      />
+                    </label>
+                    <button
+                      className="btn-secondary"
+                      disabled={
+                        priorityBusy || businessRationale.trim().length < 10
+                      }
+                      onClick={() => void decidePriority("BUSINESS_OVERRIDE")}
+                    >
+                      Save business override
+                    </button>
+                  </div>
+                </details>
+              )}
+              {priorityError && <p role="alert">{priorityError}</p>}
+            </>
+          ) : (
+            <p>
+              {prioritySuggestion.data?.riskNeedsReview
+                ? "The saved risk review no longer matches this case. Reassess risk before using it to change priority; the current priority stays unchanged."
+                : "Assess this case’s risk to get a priority suggestion. Existing authored or imported priority stays unchanged."}
+            </p>
+          )}
+        </section>
+
+        <AutomationDraftSection
+          key={tc.id}
+          testCaseId={tc.id}
+          sourceFramework={tc.source?.frameworkFamily ?? undefined}
+          readOnly={readOnly}
+        />
+      </section>
+
+      <Modal
+        open={riskDialogOpen}
+        title="Review risk assessment cost"
+        onClose={() => setRiskDialogOpen(false)}
+        dismissible={!assessingRisk}
+      >
+        <p>
+          Assess this case from its text and source-file path. No repository
+          content is fetched. The result is saved with the case; an identical
+          retry does not charge again.
+        </p>
+        {riskPreview.error && <p role="alert">{riskPreview.error.message}</p>}
+        {riskPreview.data && (
+          <>
+            <p>
+              Initial charge:{" "}
+              {riskPreview.data.savedStatus === "READY"
+                ? 0
+                : riskPreview.data.cost}{" "}
+              AI credits. Current balance: {riskPreview.data.balance}. Final
+              cost may differ after metering.
+            </p>
+            {riskPreview.data.savedStatus === "READY" && (
+              <p role="status">
+                A saved review for this unchanged case is available. Confirming
+                returns that review without another charge or overwriting manual
+                edits.
+              </p>
+            )}
+            {riskPreview.data.savedStatus === "GENERATING" ||
+            riskPreview.data.savedStatus === "NEEDS_RECONCILIATION" ? (
+              <p role="status">
+                This input already has a pending or interrupted review. No new
+                charge is allowed until it is reconciled.
+              </p>
+            ) : (
+              <>
+                {!riskPreview.data.canSpend && (
+                  <p role="alert">
+                    Ask your workspace administrator for a full editor seat to
+                    use AI credits.
+                  </p>
+                )}
+                <label>
+                  <input
+                    type="checkbox"
+                    checked={riskApproved}
+                    onChange={(event) => setRiskApproved(event.target.checked)}
+                  />{" "}
+                  I approve processing this case with the AI provider and the
+                  credit charge.
+                </label>
+                <button
+                  disabled={
+                    !riskApproved ||
+                    !riskPreview.data.canSpend ||
+                    riskPreview.data.balance <
+                      (riskPreview.data.savedStatus === "READY"
+                        ? 0
+                        : riskPreview.data.cost) ||
+                    assessingRisk
+                  }
+                  onClick={() => void assessRisk()}
+                >
+                  {assessingRisk ? "Assessing…" : "Confirm assessment"}
+                </button>
+              </>
+            )}
+          </>
+        )}
+      </Modal>
+
+      <section
+        className={styles.section}
+        role="tabpanel"
+        id={`${sectionId}-panel-Evidence`}
+        aria-labelledby={`${sectionId}-tab-Evidence`}
+        hidden={section !== "Evidence"}
+      >
+        {tc.source && (
+          <p>
+            <strong>Source:</strong> {tc.source.filePath}
+            {tc.source.functionName && ` :: ${tc.source.functionName}`} (
+            {tc.source.framework})
           </p>
         )}
 
-      {Object.values(tc.verificationProfile).some(Boolean) && (
-        <section className="panel">
-          <h3>Physical verification procedure</h3>
-          {(
-            [
-              ["setup", "Fixture and setup"],
-              ["safety", "Safety and stop conditions"],
-              ["instruments", "Instruments and calibration"],
-              ["acceptanceCriteria", "Measurement acceptance criteria"],
-            ] as const
-          ).map(
-            ([key, label]) =>
-              tc.verificationProfile[key] && (
-                <div key={key}>
-                  <strong>{label}</strong>
-                  <p style={{ whiteSpace: "pre-wrap" }}>
-                    {tc.verificationProfile[key]}
-                  </p>
-                </div>
-              ),
-          )}
-        </section>
-      )}
-      <div className="risk-assessment-panel">
-        <strong>Risk assessment</strong>
-        {riskReviews.data && riskReviews.data.length > 0 && (
-          <details style={{ marginTop: 12 }}>
-            <summary>Saved AI risk suggestions ({riskReviews.data.length})</summary>
-            <p style={{ color: "var(--muted)" }}>Previous paid suggestions remain available, including when a case was edited before one could be applied. Viewing them does not replace the current assessment or use credits.</p>
-            {riskReviews.data.map((review) => {
-              return (
-                <article key={review.id} style={{ borderTop: "1px solid var(--line)", paddingBlock: 10 }}>
-                  <strong>{new Date(review.createdAt).toLocaleString()} · {review.status === "READY" ? "Saved suggestion" : review.status === "GENERATING" ? "Generating" : "Needs reconciliation"}</strong>
-                  {review.status === "READY" && (
-                    <p style={{ whiteSpace: "pre-wrap" }}>
-                      {review.severity ?? "Risk suggestion"}
-                      {review.riskScore != null ? ` · ${Math.round(review.riskScore)}/100` : ""}
-                      {review.rationale ? `\n${review.rationale}` : ""}
+        <a href={`/projects/${projectId}/populate/documents`}>
+          Review project document evidence
+        </a>
+        <ComplianceControlsSection
+          testCaseId={tc.id}
+          projectId={projectId}
+          readOnly={readOnly}
+        />
+        <AttachmentsSection testCaseId={tc.id} readOnly={readOnly} />
+      </section>
+      <section
+        className={styles.section}
+        role="tabpanel"
+        id={`${sectionId}-panel-History`}
+        aria-labelledby={`${sectionId}-tab-History`}
+        hidden={section !== "History"}
+      >
+        <TestCaseVersionHistorySection testCaseId={tc.id} />
+
+        {tc.origin === "AI_REVERSE_ENGINEERED" && (
+          <div
+            style={{
+              border: "1px solid var(--line)",
+              borderRadius: 8,
+              padding: 12,
+              marginBottom: 16,
+              background:
+                tc.reviewStatus === "PENDING_REVIEW"
+                  ? "var(--ember-dim)"
+                  : tc.reviewStatus === "REJECTED"
+                    ? "var(--ember-dim)"
+                    : "var(--frost-dim)",
+            }}
+          >
+            <strong>Review status:</strong> {inspectorLabel(tc.reviewStatus)}
+            {tc.reviewedByName && (
+              <span style={{ color: "var(--muted)" }}>
+                {" "}
+                — {tc.reviewStatus === "REJECTED"
+                  ? "rejected"
+                  : "reviewed"} by {tc.reviewedByName}
+                {tc.reviewedAt &&
+                  ` on ${new Date(tc.reviewedAt).toLocaleDateString()}`}
+              </span>
+            )}
+            {tc.reviewNote && (
+              <p style={{ fontStyle: "italic", margin: "6px 0" }}>
+                &ldquo;{tc.reviewNote}&rdquo;
+              </p>
+            )}
+            {!readOnly && tc.reviewStatus === "PENDING_REVIEW" && (
+              <div style={{ marginTop: 8 }}>
+                <input
+                  value={reviewNote}
+                  onChange={(e) => setReviewNote(e.target.value)}
+                  placeholder="Optional note"
+                  style={{ width: "50%", marginRight: 8 }}
+                />
+                <button
+                  onClick={() => review("approve")}
+                  disabled={reviewing}
+                  style={{ marginRight: 8 }}
+                >
+                  Approve
+                </button>
+                <button onClick={() => review("reject")} disabled={reviewing}>
+                  Reject
+                </button>
+              </div>
+            )}
+            {tc.aiSnapshot &&
+              (() => {
+                const snap = tc.aiSnapshot;
+                const changed =
+                  snap.title !== tc.title ||
+                  (snap.background ?? "") !== (tc.background ?? "") ||
+                  !arraysEqual(snap.given, tc.given) ||
+                  !arraysEqual(snap.when, tc.when) ||
+                  !arraysEqual(snap.then, tc.then) ||
+                  !arraysEqual(snap.tags, tc.tags);
+                if (!changed) {
+                  return (
+                    <p
+                      className="text-muted"
+                      style={{ fontSize: 12, marginTop: 8 }}
+                    >
+                      Matches what the AI originally generated — no human edits
+                      since.
                     </p>
-                  )}
-                  {review.status === "GENERATING" && <p>The approved review is still running. Starting an identical paid request is blocked.</p>}
-                  {review.status !== "READY" && review.status !== "GENERATING" && <p>No completed suggestion is available. An administrator may need to reconcile this request before it can be retried.</p>}
-                </article>
-              );
-            })}
-          </details>
-        )}
-        {tc.riskScore != null ? (
-          <>
-            <RiskMeter
-              score={tc.riskScore}
-              severity={tc.riskSeverity ?? "UNKNOWN"}
-            >
-              {tc.riskRationale && (
-                <p className="risk-rationale">{tc.riskRationale}</p>
-              )}
-              {tc.riskAssessedAt && (
-                <p className="risk-assessed-at">
-                  Assessed {new Date(tc.riskAssessedAt).toLocaleDateString()}
-                </p>
-              )}
-            </RiskMeter>
-          </>
-        ) : (
-          <span style={{ color: "var(--muted-dim)" }}>Not yet assessed</span>
-        )}
-        {!readOnly && (
-          <div style={{ marginTop: 8 }}>
-            <button onClick={() => setRiskDialogOpen(true)} disabled={assessingRisk}>
-              {assessingRisk
-                ? "Assessing…"
-                : tc.riskScore != null
-                  ? "Review risk assessment"
-                  : "Assess risk"}
-            </button>
+                  );
+                }
+                return (
+                  <div style={{ marginTop: 10 }}>
+                    <button
+                      className="btn-secondary"
+                      style={{ fontSize: 12 }}
+                      onClick={() => setShowDiff((v) => !v)}
+                    >
+                      {showDiff ? "Hide" : "Show"} changes since AI generated
+                      this
+                    </button>
+                    {showDiff && (
+                      <div
+                        style={{
+                          marginTop: 10,
+                          borderTop: "1px solid var(--line)",
+                          paddingTop: 10,
+                        }}
+                      >
+                        <p
+                          className="text-muted"
+                          style={{ fontSize: 11, margin: "0 0 8px" }}
+                        >
+                          <span style={{ color: "var(--ember)" }}>
+                            AI original
+                          </span>{" "}
+                          vs{" "}
+                          <span style={{ color: "var(--frost)" }}>current</span>
+                        </p>
+                        {snap.title !== tc.title && (
+                          <DiffField
+                            label="Title"
+                            before={snap.title}
+                            after={tc.title}
+                          />
+                        )}
+                        {(snap.background ?? "") !== (tc.background ?? "") && (
+                          <DiffField
+                            label="Background"
+                            before={snap.background ?? ""}
+                            after={tc.background ?? ""}
+                          />
+                        )}
+                        {!arraysEqual(snap.given, tc.given) && (
+                          <DiffField
+                            label="Given"
+                            before={snap.given.join(" / ")}
+                            after={tc.given.join(" / ")}
+                          />
+                        )}
+                        {!arraysEqual(snap.when, tc.when) && (
+                          <DiffField
+                            label="When"
+                            before={snap.when.join(" / ")}
+                            after={tc.when.join(" / ")}
+                          />
+                        )}
+                        {!arraysEqual(snap.then, tc.then) && (
+                          <DiffField
+                            label="Then"
+                            before={snap.then.join(" / ")}
+                            after={tc.then.join(" / ")}
+                          />
+                        )}
+                        {!arraysEqual(snap.tags, tc.tags) && (
+                          <DiffField
+                            label="Tags"
+                            before={snap.tags.join(", ")}
+                            after={tc.tags.join(", ")}
+                          />
+                        )}
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
           </div>
         )}
-      </div>
-
-      <section className="risk-assessment-panel" aria-label="Priority and business need">
-        <strong>Priority and business need</strong>
-        {prioritySuggestion.data?.suggestedPriority ? <>
-          <p>Current: {prioritySuggestion.data.currentPriority.toLowerCase()}. Risk suggests {prioritySuggestion.data.suggestedPriority.toLowerCase()}. Priority is scheduling intent; a high business need can justify a different choice.</p>
-          {prioritySuggestion.data.latestDecision?.mode === "BUSINESS_OVERRIDE" &&
-            <p>Business override: {prioritySuggestion.data.latestDecision.rationale}</p>}
-          {prioritySuggestion.data.latestDecision?.mode === "MANUAL" &&
-            <p>A person last set this priority in the case editor.</p>}
-          {!readOnly && prioritySuggestion.data.canEdit && <details>
-            <summary>Change priority</summary>
-            <div style={{ display: "grid", gap: 8, marginTop: 8 }}>
-              <button className="btn-secondary" disabled={priorityBusy || prioritySuggestion.data.currentPriority === prioritySuggestion.data.suggestedPriority} onClick={() => void decidePriority("MATCH_RISK")}>Use risk suggestion ({prioritySuggestion.data.suggestedPriority.toLowerCase()})</button>
-              <label>Business-critical priority
-                <select value={businessPriority} disabled={priorityBusy} onChange={event => setBusinessPriority(event.target.value as "HIGH" | "CRITICAL")} style={{ display: "block", width: "100%" }}>
-                  <option value="HIGH">High</option><option value="CRITICAL">Critical</option>
-                </select>
-              </label>
-              <label>Why does the business need this priority?
-                <textarea value={businessRationale} disabled={priorityBusy} maxLength={500} rows={2} onChange={event => setBusinessRationale(event.target.value)} style={{ display: "block", width: "100%" }} />
-              </label>
-              <button className="btn-secondary" disabled={priorityBusy || businessRationale.trim().length < 10} onClick={() => void decidePriority("BUSINESS_OVERRIDE")}>Save business override</button>
-            </div>
-          </details>}
-          {priorityError && <p role="alert">{priorityError}</p>}
-        </> : <p>{prioritySuggestion.data?.riskNeedsReview
-          ? "The saved risk review no longer matches this case. Reassess risk before using it to change priority; the current priority stays unchanged."
-          : "Assess this case’s risk to get a priority suggestion. Existing authored or imported priority stays unchanged."}</p>}
       </section>
-
-      <Modal open={riskDialogOpen} title="Review risk assessment cost" onClose={() => setRiskDialogOpen(false)} dismissible={!assessingRisk}>
-        <p>Assess this case from its text and source-file path. No repository content is fetched. The result is saved with the case; an identical retry does not charge again.</p>
-        {riskPreview.error && <p role="alert">{riskPreview.error.message}</p>}
-        {riskPreview.data && <>
-          <p>Initial charge: {riskPreview.data.savedStatus === "READY" ? 0 : riskPreview.data.cost} AI credits. Current balance: {riskPreview.data.balance}. Final cost may differ after metering.</p>
-          {riskPreview.data.savedStatus === "READY" && <p role="status">A saved review for this unchanged case is available. Confirming returns that review without another charge or overwriting manual edits.</p>}
-          {riskPreview.data.savedStatus === "GENERATING" || riskPreview.data.savedStatus === "NEEDS_RECONCILIATION" ? <p role="status">This input already has a pending or interrupted review. No new charge is allowed until it is reconciled.</p> : <>
-            {!riskPreview.data.canSpend && <p role="alert">Ask your workspace administrator for a full editor seat to use AI credits.</p>}
-            <label><input type="checkbox" checked={riskApproved} onChange={event => setRiskApproved(event.target.checked)} /> I approve processing this case with the AI provider and the credit charge.</label>
-            <button disabled={!riskApproved || !riskPreview.data.canSpend || riskPreview.data.balance < (riskPreview.data.savedStatus === "READY" ? 0 : riskPreview.data.cost) || assessingRisk} onClick={() => void assessRisk()}>{assessingRisk ? "Assessing…" : "Confirm assessment"}</button>
-          </>}
-        </>}
-      </Modal>
-
-      {tc.source && (
-        <p>
-          <strong>Source:</strong> {tc.source.filePath}
-          {tc.source.functionName && ` :: ${tc.source.functionName}`} (
-          {tc.source.framework})
-        </p>
-      )}
-
-      <AutomationDraftSection key={tc.id} testCaseId={tc.id} sourceFramework={tc.source?.frameworkFamily ?? undefined} readOnly={readOnly} />
-      <ComplianceControlsSection
-        testCaseId={tc.id}
-        projectId={projectId}
-        readOnly={readOnly}
-      />
-      <AttachmentsSection testCaseId={tc.id} readOnly={readOnly} />
-      <DatasetSection testCaseId={tc.id} readOnly={readOnly} />
-      <TestCaseVersionHistorySection testCaseId={tc.id} />
-
-      {tc.origin === "AI_REVERSE_ENGINEERED" && (
-        <div
-          style={{
-            border: "1px solid var(--line)",
-            borderRadius: 8,
-            padding: 12,
-            marginBottom: 16,
-            background:
-              tc.reviewStatus === "PENDING_REVIEW"
-                ? "var(--ember-dim)"
-                : tc.reviewStatus === "REJECTED"
-                  ? "var(--ember-dim)"
-                  : "var(--frost-dim)",
-          }}
-        >
-          <strong>Review status:</strong> {tc.reviewStatus}
-          {tc.reviewedByName && (
-            <span style={{ color: "var(--muted)" }}>
-              {" "}
-              — {tc.reviewStatus === "REJECTED"
-                ? "rejected"
-                : "reviewed"} by {tc.reviewedByName}
-              {tc.reviewedAt &&
-                ` on ${new Date(tc.reviewedAt).toLocaleDateString()}`}
-            </span>
-          )}
-          {tc.reviewNote && (
-            <p style={{ fontStyle: "italic", margin: "6px 0" }}>
-              &ldquo;{tc.reviewNote}&rdquo;
-            </p>
-          )}
-          {!readOnly && tc.reviewStatus === "PENDING_REVIEW" && (
-            <div style={{ marginTop: 8 }}>
-              <input
-                value={reviewNote}
-                onChange={(e) => setReviewNote(e.target.value)}
-                placeholder="Optional note"
-                style={{ width: "50%", marginRight: 8 }}
-              />
-              <button
-                onClick={() => review("approve")}
-                disabled={reviewing}
-                style={{ marginRight: 8 }}
-              >
-                Approve
-              </button>
-              <button onClick={() => review("reject")} disabled={reviewing}>
-                Reject
-              </button>
-            </div>
-          )}
-          {tc.aiSnapshot &&
-            (() => {
-              const snap = tc.aiSnapshot;
-              const changed =
-                snap.title !== tc.title ||
-                (snap.background ?? "") !== (tc.background ?? "") ||
-                !arraysEqual(snap.given, tc.given) ||
-                !arraysEqual(snap.when, tc.when) ||
-                !arraysEqual(snap.then, tc.then) ||
-                !arraysEqual(snap.tags, tc.tags);
-              if (!changed) {
-                return (
-                  <p
-                    className="text-muted"
-                    style={{ fontSize: 12, marginTop: 8 }}
-                  >
-                    Matches what the AI originally generated — no human edits
-                    since.
-                  </p>
-                );
-              }
-              return (
-                <div style={{ marginTop: 10 }}>
-                  <button
-                    className="btn-secondary"
-                    style={{ fontSize: 12 }}
-                    onClick={() => setShowDiff((v) => !v)}
-                  >
-                    {showDiff ? "Hide" : "Show"} changes since AI generated this
-                  </button>
-                  {showDiff && (
-                    <div
-                      style={{
-                        marginTop: 10,
-                        borderTop: "1px solid var(--line)",
-                        paddingTop: 10,
-                      }}
-                    >
-                      <p
-                        className="text-muted"
-                        style={{ fontSize: 11, margin: "0 0 8px" }}
-                      >
-                        <span style={{ color: "var(--ember)" }}>
-                          AI original
-                        </span>{" "}
-                        vs{" "}
-                        <span style={{ color: "var(--frost)" }}>current</span>
-                      </p>
-                      {snap.title !== tc.title && (
-                        <DiffField
-                          label="Title"
-                          before={snap.title}
-                          after={tc.title}
-                        />
-                      )}
-                      {(snap.background ?? "") !== (tc.background ?? "") && (
-                        <DiffField
-                          label="Background"
-                          before={snap.background ?? ""}
-                          after={tc.background ?? ""}
-                        />
-                      )}
-                      {!arraysEqual(snap.given, tc.given) && (
-                        <DiffField
-                          label="Given"
-                          before={snap.given.join(" / ")}
-                          after={tc.given.join(" / ")}
-                        />
-                      )}
-                      {!arraysEqual(snap.when, tc.when) && (
-                        <DiffField
-                          label="When"
-                          before={snap.when.join(" / ")}
-                          after={tc.when.join(" / ")}
-                        />
-                      )}
-                      {!arraysEqual(snap.then, tc.then) && (
-                        <DiffField
-                          label="Then"
-                          before={snap.then.join(" / ")}
-                          after={tc.then.join(" / ")}
-                        />
-                      )}
-                      {!arraysEqual(snap.tags, tc.tags) && (
-                        <DiffField
-                          label="Tags"
-                          before={snap.tags.join(", ")}
-                          after={tc.tags.join(", ")}
-                        />
-                      )}
-                    </div>
-                  )}
-                </div>
-              );
-            })()}
-        </div>
-      )}
-
-      {tc.tags.length > 0 && (
-        <p>
-          <strong>Tags:</strong> {tc.tags.join(", ")}
-        </p>
-      )}
     </div>
   );
 }

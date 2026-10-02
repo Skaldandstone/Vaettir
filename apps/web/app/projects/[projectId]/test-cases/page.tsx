@@ -3,7 +3,8 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
-import { trpcReact, useReadOnlySeat } from "@/lib/trpcReact";
+import { trpcReact } from "@/lib/trpcReact";
+import { useProjectPermissions } from "@/lib/use-project-permissions";
 import {
   TestCaseTree,
   filterCasesByPath,
@@ -14,9 +15,17 @@ import { Drawer } from "@/components/Drawer";
 import { TestCaseDetailContent } from "@/components/TestCaseDetailContent";
 import { BulkCaseAnalysis } from "@/components/BulkCaseAnalysis";
 import { downloadCsv } from "@/lib/csv";
-import { caseExportIds, scopeCaseExport, spreadsheetText } from "@/lib/test-case-export";
+import {
+  caseExportIds,
+  scopeCaseExport,
+  spreadsheetText,
+} from "@/lib/test-case-export";
 import { runCaseActionBatches } from "@/lib/case-action-batches";
 import { RunConfigurationModal } from "@/components/RunConfigurationModal";
+import { Modal } from "@/components/Modal";
+import { PageHeading } from "@/components/ui/Workspace";
+import { caseLabel, suiteChoices } from "@/lib/case-workbench";
+import styles from "@/components/CaseWorkbench.module.css";
 
 const TEST_TYPES = [
   "UNIT",
@@ -77,7 +86,11 @@ function AssignSuiteControl({
 
   function assign() {
     if (!value.trim()) return;
-    setSuiteMutation.mutate({ id: caseId, suitePath: value.trim(), expectedSuitePath: null });
+    setSuiteMutation.mutate({
+      id: caseId,
+      suitePath: value.trim(),
+      expectedSuitePath: null,
+    });
   }
 
   const saving = setSuiteMutation.isPending;
@@ -131,7 +144,7 @@ function QuickAddRow({
   });
 
   function submit() {
-    if (!title.trim()) return;
+    if (quickCreateMutation.isPending || !title.trim()) return;
     quickCreateMutation.mutate({
       projectId,
       title: title.trim(),
@@ -142,9 +155,13 @@ function QuickAddRow({
   const saving = quickCreateMutation.isPending;
 
   return (
-    <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
+    <div
+      style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 12 }}
+    >
       <input
         value={title}
+        aria-label="New test case title"
+        maxLength={500}
         onChange={(e) => setTitle(e.target.value)}
         onKeyDown={(e) => e.key === "Enter" && submit()}
         placeholder={
@@ -152,9 +169,21 @@ function QuickAddRow({
             ? `+ Quick-add a case in ${suitePath}…`
             : "+ Quick-add a case, press Enter…"
         }
-        style={{ flex: 1 }}
+        style={{ flex: 1, minWidth: 0 }}
         disabled={saving}
       />
+      <button
+        className="btn-primary"
+        disabled={saving || !title.trim()}
+        onClick={submit}
+      >
+        {saving ? "Adding…" : "Add"}
+      </button>
+      {quickCreateMutation.error && (
+        <p role="alert" style={{ width: "100%", overflowWrap: "anywhere" }}>
+          {quickCreateMutation.error.message}
+        </p>
+      )}
     </div>
   );
 }
@@ -164,7 +193,8 @@ export default function TestCasesPage() {
   const { projectId } = useParams<{ projectId: string }>();
   const router = useRouter();
   const utils = trpcReact.useUtils();
-  const readOnly = useReadOnlySeat(projectId);
+  const permissions = useProjectPermissions(projectId);
+  const readOnly = !permissions.canEdit || Boolean(permissions.accessError);
   const [runConfigurationOpen, setRunConfigurationOpen] = useState(false);
   const [runSelection, setRunSelection] = useState<string[]>([]);
 
@@ -173,17 +203,30 @@ export default function TestCasesPage() {
     projectId,
     includeArchived: true,
   });
-  const structureQuery = trpcReact.testCaseStructure.list.useQuery({ projectId });
+  const structureQuery = trpcReact.testCaseStructure.list.useQuery({
+    projectId,
+  });
   const moveMutation = trpcReact.testCaseStructure.move.useMutation();
   const viewsQuery = trpcReact.testCaseViews.list.useQuery({ projectId });
   const plansQuery = trpcReact.testPlans.list.useQuery({ projectId });
   const project = projectQuery.data ?? null;
   const cases = casesQuery.data ?? [];
-  const placements = useMemo(() => new Map(structureQuery.data?.cases.map(placement => [placement.id, placement]) ?? []), [structureQuery.data]);
+  const placements = useMemo(
+    () =>
+      new Map(
+        structureQuery.data?.cases.map((placement) => [
+          placement.id,
+          placement,
+        ]) ?? [],
+      ),
+    [structureQuery.data],
+  );
   const plans = plansQuery.data ?? [];
 
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
-  useEffect(() => { setSelectedPath(new URLSearchParams(window.location.search).get("suite")); }, []);
+  useEffect(() => {
+    setSelectedPath(new URLSearchParams(window.location.search).get("suite"));
+  }, []);
   const [openCaseId, setOpenCaseId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -233,43 +276,87 @@ export default function TestCasesPage() {
     if (!newViewName.trim()) return;
     setError(null);
     try {
-      const saved = await createView.mutateAsync({ projectId, name: newViewName.trim(), filters: viewFilters() });
+      const saved = await createView.mutateAsync({
+        projectId,
+        name: newViewName.trim(),
+        filters: viewFilters(),
+      });
       await utils.testCaseViews.list.invalidate({ projectId });
       setActiveViewId(saved.id);
       setNewViewName("");
-    } catch (cause) { setError(cause instanceof Error ? cause.message : "Could not save view."); }
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Could not save view.");
+    }
   }
   async function saveCurrentView() {
     if (!currentView) return;
     setError(null);
     try {
-      await updateView.mutateAsync({ projectId, id: currentView.id, name: currentView.name, version: currentView.version, filters: viewFilters() });
+      await updateView.mutateAsync({
+        projectId,
+        id: currentView.id,
+        name: currentView.name,
+        version: currentView.version,
+        filters: viewFilters(),
+      });
       await utils.testCaseViews.list.invalidate({ projectId });
-    } catch (cause) { setError(cause instanceof Error ? cause.message : "Could not update view."); }
+    } catch (cause) {
+      setError(
+        cause instanceof Error ? cause.message : "Could not update view.",
+      );
+    }
   }
   async function deleteCurrentView() {
-    if (!currentView || !window.confirm(`Delete your saved view “${currentView.name}”?`)) return;
+    if (
+      !currentView ||
+      !window.confirm(`Delete your saved view “${currentView.name}”?`)
+    )
+      return;
     setError(null);
     try {
-      await removeView.mutateAsync({ projectId, id: currentView.id, version: currentView.version });
+      await removeView.mutateAsync({
+        projectId,
+        id: currentView.id,
+        version: currentView.version,
+      });
       setActiveViewId("");
       await utils.testCaseViews.list.invalidate({ projectId });
-    } catch (cause) { setError(cause instanceof Error ? cause.message : "Could not delete view."); }
+    } catch (cause) {
+      setError(
+        cause instanceof Error ? cause.message : "Could not delete view.",
+      );
+    }
   }
   function sortColumn(column: CaseSort) {
-    setSortDescending(sortBy === column ? !sortDescending : column === "risk" || column === "priority" || column === "updated");
+    setSortDescending(
+      sortBy === column
+        ? !sortDescending
+        : column === "risk" || column === "priority" || column === "updated",
+    );
     setSortBy(column);
   }
   const [showArchived, setShowArchived] = useState(false);
   const currentFilters = viewFilters();
-  const viewHasChanges = currentView != null && (Object.keys(currentFilters) as (keyof typeof currentFilters)[])
-    .some((key) => currentView.filters[key] !== currentFilters[key]);
+  const viewHasChanges =
+    currentView != null &&
+    (Object.keys(currentFilters) as (keyof typeof currentFilters)[]).some(
+      (key) => currentView.filters[key] !== currentFilters[key],
+    );
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [bulkBusy, setBulkBusy] = useState(false);
   const [bulkError, setBulkError] = useState<string | null>(null);
   const [bulkMovePlanId, setBulkMovePlanId] = useState("");
   const [bulkTag, setBulkTag] = useState("");
   const [exporting, setExporting] = useState(false);
+  const [filtersOpen, setFiltersOpen] = useState(false);
+  const [moreOpen, setMoreOpen] = useState(false);
+  const [addOpen, setAddOpen] = useState(false);
+  const [organizeOpen, setOrganizeOpen] = useState(false);
+  const [selectionMoreOpen, setSelectionMoreOpen] = useState(false);
+  const [reviewAction, setReviewAction] = useState<{
+    kind: "archive" | "restore" | "delete";
+    ids: string[];
+  } | null>(null);
 
   // What the original load() refetched after every mutation.
   function reload() {
@@ -314,23 +401,38 @@ export default function TestCasesPage() {
         (!reviewFilter || tc.reviewStatus === reviewFilter) &&
         (!originFilter || tc.origin === originFilter),
     );
-    if (sortBy === "updated") return sortDescending ? filtered : [...filtered].reverse();
-    if (sortBy === "manual") return [...filtered].sort((a, b) => {
-      const leftSuite = a.suitePath ?? a.sourceFilePath ?? "";
-      const rightSuite = b.suitePath ?? b.sourceFilePath ?? "";
-      const suiteOrder = leftSuite.localeCompare(rightSuite, undefined, { sensitivity: "base", numeric: true });
-      if (suiteOrder) return suiteOrder;
-      const positionOrder = (placements.get(a.id)?.sortPosition ?? 0) - (placements.get(b.id)?.sortPosition ?? 0);
-      return positionOrder || a.title.localeCompare(b.title) || a.id.localeCompare(b.id);
-    });
+    if (sortBy === "updated")
+      return sortDescending ? filtered : [...filtered].reverse();
+    if (sortBy === "manual")
+      return [...filtered].sort((a, b) => {
+        const leftSuite = a.suitePath ?? a.sourceFilePath ?? "";
+        const rightSuite = b.suitePath ?? b.sourceFilePath ?? "";
+        const suiteOrder = leftSuite.localeCompare(rightSuite, undefined, {
+          sensitivity: "base",
+          numeric: true,
+        });
+        if (suiteOrder) return suiteOrder;
+        const positionOrder =
+          (placements.get(a.id)?.sortPosition ?? 0) -
+          (placements.get(b.id)?.sortPosition ?? 0);
+        return (
+          positionOrder ||
+          a.title.localeCompare(b.title) ||
+          a.id.localeCompare(b.id)
+        );
+      });
     return [...filtered].sort((a, b) => {
       const direction = sortDescending ? -1 : 1;
-      if (sortBy === "risk") return ((a.riskScore ?? -1) - (b.riskScore ?? -1)) * direction;
+      if (sortBy === "risk")
+        return ((a.riskScore ?? -1) - (b.riskScore ?? -1)) * direction;
       if (sortBy === "priority")
         return (
-          (PRIORITY_RANK[a.priority] ?? 0) - (PRIORITY_RANK[b.priority] ?? 0)
-        ) * direction;
-      if (sortBy === "review") return a.reviewStatus.localeCompare(b.reviewStatus) * direction;
+          ((PRIORITY_RANK[a.priority] ?? 0) -
+            (PRIORITY_RANK[b.priority] ?? 0)) *
+          direction
+        );
+      if (sortBy === "review")
+        return a.reviewStatus.localeCompare(b.reviewStatus) * direction;
       const left =
         sortBy === "title"
           ? a.title
@@ -351,7 +453,12 @@ export default function TestCasesPage() {
               : sortBy === "origin"
                 ? b.origin
                 : (b.suitePath ?? "");
-      return left.localeCompare(right, undefined, {sensitivity:"base",numeric:true}) * direction;
+      return (
+        left.localeCompare(right, undefined, {
+          sensitivity: "base",
+          numeric: true,
+        }) * direction
+      );
     });
   }, [
     pathFiltered,
@@ -367,20 +474,28 @@ export default function TestCasesPage() {
     placements,
   ]);
 
-  async function moveCase(caseId: string, targetSuitePath: string | null, beforeCaseId: string | null) {
+  async function moveCase(
+    caseId: string,
+    targetSuitePath: string | null,
+    beforeCaseId: string | null,
+  ) {
     const placement = placements.get(caseId);
     if (!placement || readOnly) return;
     setError(null);
     try {
       await moveMutation.mutateAsync({
-        projectId, caseId,
+        projectId,
+        caseId,
         expectedSuitePath: placement.suitePath,
         expectedSortPosition: placement.sortPosition,
-        targetSuitePath, beforeCaseId,
+        targetSuitePath,
+        beforeCaseId,
       });
       reload();
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Could not move test case.");
+      setError(
+        cause instanceof Error ? cause.message : "Could not move test case.",
+      );
       await structureQuery.refetch();
       await casesQuery.refetch();
     }
@@ -399,23 +514,31 @@ export default function TestCasesPage() {
 
   function toggleAllVisible() {
     setSelected((s) =>
-      s.size === visibleCases.length
+      visibleCases.every((item) => s.has(item.id))
         ? new Set()
         : new Set(visibleCases.map((tc) => tc.id)),
     );
   }
 
-  async function runBulkAction<T>(execute: (ids: string[]) => Promise<T>) {
-    if (bulkBusy || selected.size === 0) return null;
+  async function runBulkAction<T>(
+    execute: (ids: string[]) => Promise<T>,
+    reviewedIds = [...selected],
+  ) {
+    if (readOnly || bulkBusy || reviewedIds.length === 0) return null;
     setBulkBusy(true);
     setBulkError(null);
     try {
-      const outcome = await runCaseActionBatches([...selected], execute);
+      const outcome = await runCaseActionBatches(reviewedIds, execute);
       const completedIds = new Set(outcome.completedIds);
-      setSelected(current => new Set([...current].filter(id => !completedIds.has(id))));
+      setSelected(
+        (current) =>
+          new Set([...current].filter((id) => !completedIds.has(id))),
+      );
       reload();
       if (outcome.error) {
-        setBulkError(`${outcome.completedIds.length} cases completed. ${outcome.remainingIds.length} were not confirmed and remain selected. Check their refreshed status before retrying; later batches were not sent.`);
+        setBulkError(
+          `${outcome.completedIds.length} cases completed. ${outcome.remainingIds.length} were not confirmed and remain selected. Check their refreshed status before retrying; later batches were not sent.`,
+        );
       }
       return outcome;
     } finally {
@@ -424,98 +547,141 @@ export default function TestCasesPage() {
   }
 
   async function bulkReview(decision: "approve" | "reject") {
-    await runBulkAction(ids => bulkReviewMutation.mutateAsync({
-      projectId,
-      ids,
-      decision,
-    }));
+    await runBulkAction((ids) =>
+      bulkReviewMutation.mutateAsync({
+        projectId,
+        ids,
+        decision,
+      }),
+    );
   }
 
-  async function bulkDelete() {
-    if (!confirm(`Delete ${selected.size} test case(s)? This can't be undone.`))
-      return;
-    const outcome = await runBulkAction(ids => bulkDeleteMutation.mutateAsync({ projectId, ids }));
+  async function bulkDelete(reviewedIds: string[]) {
+    const outcome = await runBulkAction(
+      (ids) => bulkDeleteMutation.mutateAsync({ projectId, ids }),
+      reviewedIds,
+    );
     if (outcome) {
-      const totals = outcome.results.reduce((sum, result) => ({
-        deletedCount: sum.deletedCount + result.deletedCount,
-        blockedCount: sum.blockedCount + result.blockedCount,
-      }), { deletedCount: 0, blockedCount: 0 });
+      const totals = outcome.results.reduce(
+        (sum, result) => ({
+          deletedCount: sum.deletedCount + result.deletedCount,
+          blockedCount: sum.blockedCount + result.blockedCount,
+        }),
+        { deletedCount: 0, blockedCount: 0 },
+      );
       if (totals.blockedCount > 0) {
-        alert(`${totals.deletedCount} deleted, ${totals.blockedCount} couldn't be deleted (linked to compliance controls or risk analysis results).`);
+        alert(
+          `${totals.deletedCount} deleted, ${totals.blockedCount} couldn't be deleted (linked to compliance controls or risk analysis results).`,
+        );
       }
     }
   }
 
-  async function bulkArchive(archived: boolean) {
-    await runBulkAction(ids => bulkArchiveMutation.mutateAsync({ projectId, ids, archived }));
+  async function bulkArchive(archived: boolean, reviewedIds: string[]) {
+    await runBulkAction(
+      (ids) => bulkArchiveMutation.mutateAsync({ projectId, ids, archived }),
+      reviewedIds,
+    );
   }
 
   async function bulkMove() {
-    const outcome = await runBulkAction(ids => bulkMoveMutation.mutateAsync({
-      projectId,
-      ids,
-      testPlanId: bulkMovePlanId || null,
-    }));
+    const outcome = await runBulkAction((ids) =>
+      bulkMoveMutation.mutateAsync({
+        projectId,
+        ids,
+        testPlanId: bulkMovePlanId || null,
+      }),
+    );
     if (outcome && !outcome.error) setBulkMovePlanId("");
   }
 
   async function bulkAddTag() {
     if (!bulkTag.trim()) return;
-    const outcome = await runBulkAction(ids => bulkTagMutation.mutateAsync({
-      projectId,
-      ids,
-      tags: [bulkTag.trim()],
-    }));
+    const outcome = await runBulkAction((ids) =>
+      bulkTagMutation.mutateAsync({
+        projectId,
+        ids,
+        tags: [bulkTag.trim()],
+      }),
+    );
     if (outcome && !outcome.error) setBulkTag("");
   }
 
-  const selectedExportCount = caseExportIds(visibleCases, selected, "selected").length;
+  const selectedExportCount = caseExportIds(
+    visibleCases,
+    selected,
+    "selected",
+  ).length;
   async function exportCsv(scope: "filtered" | "selected") {
     const ids = caseExportIds(visibleCases, selected, scope);
     if (exporting || ids.length === 0) return;
     setExporting(true);
     setError(null);
     try {
-    const available = await utils.testCases.exportCsv.fetch({ projectId, includeArchived: showArchived });
-    const rows = scopeCaseExport(available, ids);
-    const header = [
-      "title",
-      "given",
-      "when",
-      "then",
-      "testType",
-      "automationStatus",
-      "priority",
-      "riskScore",
-      "riskSeverity",
-      "origin",
-      "suite",
-      "tags",
-    ];
-    const body = rows.map((r) => [
-      r.title,
-      r.given.join("|"),
-      r.when.join("|"),
-      r.then.join("|"),
-      r.testType,
-      r.automationStatus,
-      r.priority,
-      r.riskScore == null ? "" : String(r.riskScore),
-      r.riskSeverity ?? "",
-      r.origin,
-      r.suitePath ?? "",
-      r.tags.join("|"),
-    ]);
-    downloadCsv(`${project?.name ?? "test-cases"}-${scope}-${rows.length}.csv`, [header, ...body.map(row => row.map(spreadsheetText))]);
+      const available = await utils.testCases.exportCsv.fetch({
+        projectId,
+        includeArchived: showArchived,
+      });
+      const rows = scopeCaseExport(available, ids);
+      const header = [
+        "title",
+        "given",
+        "when",
+        "then",
+        "testType",
+        "automationStatus",
+        "priority",
+        "riskScore",
+        "riskSeverity",
+        "origin",
+        "suite",
+        "tags",
+      ];
+      const body = rows.map((r) => [
+        r.title,
+        r.given.join("|"),
+        r.when.join("|"),
+        r.then.join("|"),
+        r.testType,
+        r.automationStatus,
+        r.priority,
+        r.riskScore == null ? "" : String(r.riskScore),
+        r.riskSeverity ?? "",
+        r.origin,
+        r.suitePath ?? "",
+        r.tags.join("|"),
+      ]);
+      downloadCsv(
+        `${project?.name ?? "test-cases"}-${scope}-${rows.length}.csv`,
+        [header, ...body.map((row) => row.map(spreadsheetText))],
+      );
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Export failed. Please try again.");
+      setError(
+        e instanceof Error ? e.message : "Export failed. Please try again.",
+      );
     } finally {
       setExporting(false);
     }
   }
 
-  async function startManualRun(context: { idempotencyKey: string; expectedProfileHash: string; executionContext: { configuration?: string; platform?: string; build?: string; hardwareRevision?: string; firmwareVersion?: string; rig?: string; batchOrLot?: string; environment?: string; calibrationReference?: string; protocolReference?: string } }) {
-    if (runSelection.length === 0) throw new Error("No cases were selected for this execution record.");
+  async function startManualRun(context: {
+    idempotencyKey: string;
+    expectedProfileHash: string;
+    executionContext: {
+      configuration?: string;
+      platform?: string;
+      build?: string;
+      hardwareRevision?: string;
+      firmwareVersion?: string;
+      rig?: string;
+      batchOrLot?: string;
+      environment?: string;
+      calibrationReference?: string;
+      protocolReference?: string;
+    };
+  }) {
+    if (runSelection.length === 0)
+      throw new Error("No cases were selected for this execution record.");
     try {
       const { testRunId } = await startRunMutation.mutateAsync({
         projectId,
@@ -539,402 +705,304 @@ export default function TestCasesPage() {
     plansQuery.error?.message ??
     null;
 
-  return (
-    <div>
-      <div
-        style={{
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "space-between",
-        }}
-      >
-        <div>
-          <h1 style={{ marginBottom: 2 }}>
-            {project ? `${project.name} — Test Cases` : "Test Cases"}
-          </h1>
-          {project && (
-            <p className="text-muted" style={{ margin: 0, fontSize: 13 }}>
-              {project.repoUrl ?? "No repo connected"}
-            </p>
-          )}
-        </div>
-        <div
-          style={{
-            display: "flex",
-            gap: 8,
-            alignItems: "center",
-            flexWrap: "wrap",
-          }}
-        >
-          <a
-            className="btn-secondary"
-            style={{ fontSize: 13 }}
-            href={`/projects/${projectId}/test-cases/review`}
-          >
-            Review queue
-          </a>
-          <a
-            className="btn-secondary"
-            style={{ fontSize: 13 }}
-            href={`/projects/${projectId}/shared-steps`}
-          >
-            Shared step libraries
-          </a>
-          <a
-            className="btn-secondary"
-            style={{ fontSize: 13 }}
-            href={`/projects/${projectId}/exploratory`}
-          >
-            Exploratory testing
-          </a>
-          <button
-            className="btn-secondary"
-            style={{ fontSize: 13 }}
-            onClick={() => void exportCsv("filtered")}
-            disabled={loading || exporting || visibleCases.length === 0}
-          >
-            {exporting ? "Exporting…" : `Export filtered CSV (${visibleCases.length})`}
-          </button>
-          {selectedExportCount > 0 && <button
-            className="btn-secondary"
-            style={{ fontSize: 13 }}
-            onClick={() => void exportCsv("selected")}
-            disabled={loading || exporting}
-          >Export selected CSV ({selectedExportCount})</button>}
-          {!readOnly && (
-            <a
-              className="btn-secondary"
-              style={{ fontSize: 13 }}
-              href={`/projects/${projectId}/test-cases/new`}
-            >
-              Full editor
-            </a>
-          )}
-          {!readOnly && (
-            <Link
-              className="btn-primary"
-              style={{ fontSize: 13 }}
-              href={`/projects/${projectId}/import`}
-            >
-              Smart import
-            </Link>
-          )}
-        </div>
-      </div>
+  const selectedCases = visibleCases.filter((item) => selected.has(item.id));
+  const activeSelectedIds = selectedCases
+    .filter((item) => !item.archived)
+    .map((item) => item.id);
+  const archivedSelectedIds = selectedCases
+    .filter((item) => item.archived)
+    .map((item) => item.id);
+  const selectableSuites = suiteChoices(cases);
+  const filters = [
+    { name: "Type", value: typeFilter, clear: () => setTypeFilter("") },
+    {
+      name: "Automation",
+      value: automationFilter,
+      clear: () => setAutomationFilter(""),
+    },
+    {
+      name: "Priority",
+      value: priorityFilter,
+      clear: () => setPriorityFilter(""),
+    },
+    { name: "Review", value: reviewFilter, clear: () => setReviewFilter("") },
+    { name: "Origin", value: originFilter, clear: () => setOriginFilter("") },
+  ].filter((item) => item.value);
+  function resetFilters() {
+    setSearch("");
+    setTypeFilter("");
+    setAutomationFilter("");
+    setPriorityFilter("");
+    setReviewFilter("");
+    setOriginFilter("");
+    setShowArchived(false);
+    setActiveViewId("");
+  }
+  function requestReview(kind: "archive" | "restore" | "delete") {
+    setSelectionMoreOpen(false);
+    setReviewAction({
+      kind,
+      ids:
+        kind === "archive"
+          ? activeSelectedIds
+          : kind === "restore"
+            ? archivedSelectedIds
+            : [...selected],
+    });
+  }
+  async function confirmReviewedAction() {
+    if (!reviewAction || readOnly || bulkBusy) return;
+    if (reviewAction.kind === "delete") await bulkDelete(reviewAction.ids);
+    else await bulkArchive(reviewAction.kind === "archive", reviewAction.ids);
+    setReviewAction(null);
+  }
 
-      {readOnly && (
-        <p className="text-muted" style={{ fontSize: 13 }}>
-          You have read-only access to this organization — editing, creating,
-          and bulk actions are hidden.
+  return (
+    <div className={styles.workbench}>
+      <PageHeading
+        eyebrow={project?.name ?? "Project"}
+        title="Test cases"
+        description={
+          loading
+            ? "Loading case library…"
+            : `${cases.filter((item) => !item.archived).length} active cases`
+        }
+      />
+      <div
+        className={styles.toolbar}
+        role="region"
+        aria-label="Case library tools"
+      >
+        <input
+          className={styles.search}
+          aria-label="Search test cases"
+          value={search}
+          onChange={(event) => setSearch(event.target.value)}
+          maxLength={160}
+          placeholder="Search title or tags…"
+        />
+        <select
+          aria-label="Saved view"
+          value={activeViewId}
+          onChange={(event) => applyView(event.target.value)}
+          disabled={viewsQuery.isLoading}
+        >
+          <option value="">Current view</option>
+          {viewsQuery.data?.map((view) => (
+            <option key={view.id} value={view.id}>
+              {view.name}
+            </option>
+          ))}
+        </select>
+        <button className="btn-secondary" onClick={() => setFiltersOpen(true)}>
+          Filters{filters.length ? ` (${filters.length})` : ""}
+        </button>
+        {!readOnly && (
+          <button className="btn-primary" onClick={() => setAddOpen(true)}>
+            Add case
+          </button>
+        )}
+        <button
+          className="btn-secondary"
+          onClick={() => setMoreOpen(true)}
+          aria-label="More library actions"
+        >
+          More
+        </button>
+      </div>
+      {(filters.length > 0 || showArchived || search.trim()) && (
+        <div className={styles.filterSummary} aria-label="Active filters">
+          {search.trim() && (
+            <button
+              className="btn-secondary"
+              onClick={() => setSearch("")}
+              aria-label="Remove search filter"
+            >
+              Search: {search.trim()} ×
+            </button>
+          )}
+          {filters.map((filter) => (
+            <button
+              key={filter.name}
+              className="btn-secondary"
+              onClick={filter.clear}
+              aria-label={`Remove ${filter.name.toLowerCase()} filter`}
+            >
+              {filter.name}: {caseLabel(filter.value)} ×
+            </button>
+          ))}
+          {showArchived && (
+            <button
+              className="btn-secondary"
+              onClick={() => setShowArchived(false)}
+              aria-label="Remove archived filter"
+            >
+              Including archived ×
+            </button>
+          )}
+          <button className="btn-secondary" onClick={resetFilters}>
+            Reset filters
+          </button>
+        </div>
+      )}
+      {viewsQuery.error && (
+        <p role="alert">
+          Saved views could not be loaded. Current filters are retained.
         </p>
       )}
-
-      {loading && <p>Loading…</p>}
-      {pageError && <p style={{ color: "var(--ember)" }}>{pageError}</p>}
-
+      {currentView && viewHasChanges && (
+        <p className="text-muted" style={{ fontSize: 12, margin: "6px 0" }}>
+          Unsaved changes to {currentView.name}. Manage views under More.
+        </p>
+      )}
+      {readOnly && (
+        <p className="text-muted" style={{ fontSize: 12 }}>
+          Read-only library. Select cases to preview analysis costs or request
+          administrator access.
+        </p>
+      )}
+      {loading && <p role="status">Loading case library…</p>}
+      {pageError && (
+        <p role="alert" style={{ color: "var(--ember)" }}>
+          {pageError}
+        </p>
+      )}
+      {bulkError && (
+        <p role="alert" style={{ color: "var(--ember)" }}>
+          {bulkError}
+        </p>
+      )}
       {!loading && !pageError && cases.length === 0 && (
-        <div className="panel">
-          <p style={{ marginBottom: project?.repoUrl ? 12 : 0 }}>
-            No test cases tracked for this project yet.
+        <div className={styles.empty}>
+          <h2>No test cases yet</h2>
+          <p className="text-muted">
+            Add a case or import existing procedures to start this library.
           </p>
-          {project?.repoUrl ? (
-            <>
-              <p className="text-muted" style={{ fontSize: 13 }}>
-                Connecting a repo doesn&apos;t scan it automatically —
-                reverse-engineer its test files to populate this list.
-              </p>
-              {!readOnly && (
-                <a
-                  className="btn-primary"
-                  href={`/projects/${projectId}/reverse-engineer`}
-                >
-                  Scan {project.repoUrl}
-                </a>
-              )}
-            </>
-          ) : (
-            <p className="text-muted" style={{ fontSize: 13 }}>
-              Connect a repo on the{" "}
-              <Link href="/projects">project settings</Link> page and scan it,
-              or type a title below.
-            </p>
+          {!readOnly && (
+            <div className={styles.dialogActions}>
+              <button className="btn-primary" onClick={() => setAddOpen(true)}>
+                Add first case
+              </button>
+              <Link
+                className="btn-secondary"
+                href={`/projects/${projectId}/import`}
+              >
+                Import cases
+              </Link>
+            </div>
           )}
-          <div style={{ marginTop: 12 }}>
-            <QuickAddRow
-              projectId={projectId}
-              suitePath={null}
-              onAdded={reload}
-            />
-          </div>
         </div>
       )}
-
-      {!loading && !pageError && cases.length > 0 && (
-        <div className="test-case-layout">
-          <TestCaseTree
-            cases={cases}
-            selectedPath={selectedPath}
-            onSelect={setSelectedPath}
-            onDropCase={readOnly ? undefined : (caseId, suitePath) => void moveCase(caseId, suitePath, null)}
-          />
-          <div className="test-case-list">
-            <QuickAddRow
-              projectId={projectId}
-              suitePath={selectedPath}
-              onAdded={reload}
+      {!loading && cases.length > 0 && (
+        <div className={styles.layout}>
+          <aside className={styles.suites} aria-label="Test suites">
+            <h2>Suites</h2>
+            <TestCaseTree
+              cases={cases}
+              selectedPath={selectedPath}
+              onSelect={setSelectedPath}
+              onDropCase={
+                readOnly
+                  ? undefined
+                  : (caseId, suitePath) =>
+                      void moveCase(caseId, suitePath, null)
+              }
             />
-
-            <details className="panel" style={{ marginBottom: 12, padding: "10px 12px" }}>
-              <summary style={{ cursor: "pointer", fontWeight: 600 }}>Saved views {viewsQuery.data?.length ? `(${viewsQuery.data.length})` : ""}</summary>
-              <p className="text-muted" style={{ fontSize: 12, margin: "8px 0" }}>Private to you. Save the current suite, filters and sort order for this project.</p>
-              {viewsQuery.error && <p role="alert" style={{ color: "var(--ember)" }}>Saved views could not be loaded: {viewsQuery.error.message}</p>}
-              <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
-                <label htmlFor="case-saved-view">View</label>
-                <select id="case-saved-view" value={activeViewId} onChange={(event) => applyView(event.target.value)} disabled={viewsQuery.isLoading}>
-                  <option value="">Current filters</option>
-                  {viewsQuery.data?.map((view) => <option key={view.id} value={view.id}>{view.name}</option>)}
-                </select>
-                {currentView && <>
-                  <span role="status" aria-live="polite" style={{ fontSize: 12, color: "var(--muted)" }}>
-                    {viewHasChanges ? "Unsaved filter changes" : "Saved view is up to date"}
-                  </span>
-                  <button type="button" className="btn-secondary" onClick={() => void saveCurrentView()} disabled={!viewHasChanges || updateView.isPending}>Save changes to {currentView.name}</button>
-                  <button type="button" className="btn-secondary" onClick={() => void deleteCurrentView()} disabled={removeView.isPending}>Delete view</button>
-                </>}
-              </div>
-              <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", marginTop: 8 }}>
-                <label htmlFor="case-new-view-name">New view</label>
-                <input id="case-new-view-name" value={newViewName} onChange={(event) => setNewViewName(event.target.value)} maxLength={80} placeholder="e.g. High-risk regression" />
-                <button type="button" className="btn-secondary" onClick={() => void saveNewView()} disabled={!newViewName.trim() || createView.isPending || (viewsQuery.data?.length ?? 0) >= 50}>Save current filters</button>
-              </div>
-            </details>
-
-            <div
-              style={{
-                display: "flex",
-                gap: 8,
-                marginBottom: 10,
-                flexWrap: "wrap",
-              }}
-            >
-              <input
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                maxLength={160}
-                placeholder="Search title or tags…"
-                style={{ flex: 1, minWidth: 160 }}
-              />
+          </aside>
+          <div className={styles.inventory}>
+            <label className={styles.mobileSuite}>
+              Suite
               <select
-                value={typeFilter}
-                onChange={(e) => setTypeFilter(e.target.value)}
+                aria-label="Choose suite"
+                value={selectedPath ?? ""}
+                onChange={(event) =>
+                  setSelectedPath(event.target.value || null)
+                }
               >
-                <option value="">All types</option>
-                {TEST_TYPES.map((t) => (
-                  <option key={t} value={t}>
-                    {t}
+                <option value="">All test cases ({cases.length})</option>
+                {selectableSuites.map((path) => (
+                  <option key={path} value={path}>
+                    {path} ({filterCasesByPath(cases, path).length})
                   </option>
                 ))}
+                <option value={UNASSIGNED}>
+                  Unassigned ({filterCasesByPath(cases, UNASSIGNED).length})
+                </option>
               </select>
-              <select
-                value={automationFilter}
-                onChange={(e) => setAutomationFilter(e.target.value)}
-              >
-                <option value="">All automation</option>
-                {AUTOMATION_STATUSES.map((status) => (
-                  <option key={status} value={status}>
-                    {status.replaceAll("_", " ")}
-                  </option>
-                ))}
-              </select>
-              <select
-                value={priorityFilter}
-                onChange={(e) => setPriorityFilter(e.target.value)}
-              >
-                <option value="">All priorities</option>
-                {PRIORITIES.map((priority) => (
-                  <option key={priority} value={priority}>
-                    {priority}
-                  </option>
-                ))}
-              </select>
-              <select
-                value={reviewFilter}
-                onChange={(e) => setReviewFilter(e.target.value)}
-              >
-                <option value="">All review statuses</option>
-                {REVIEW_STATUSES.map((s) => (
-                  <option key={s} value={s}>
-                    {s}
-                  </option>
-                ))}
-              </select>
-              <select
-                value={originFilter}
-                onChange={(e) => setOriginFilter(e.target.value)}
-              >
-                <option value="">All origins</option>
-                {ORIGINS.map((o) => (
-                  <option key={o} value={o}>
-                    {o}
-                  </option>
-                ))}
-              </select>
-              <select
-                aria-label="Sort test cases"
-                value={sortBy}
-                onChange={(e) => {const value=e.target.value as CaseSort;setSortBy(value);setSortDescending(["updated","risk","priority"].includes(value));}}
-              >
-                <option value="updated">Newest activity</option>
-                <option value="title">Title A-Z</option>
-                <option value="type">Type</option>
-                <option value="automation">Automation</option>
-                <option value="risk">Risk high-low</option>
-                <option value="priority">Priority high-low</option>
-                <option value="origin">Origin</option>
-                <option value="suite">Suite</option>
-                <option value="manual">Manual suite order</option>
-                <option value="review">Review</option>
-              </select>
-              <label
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 4,
-                  fontSize: 13,
-                  color: "var(--muted)",
-                }}
-              >
-                <input
-                  type="checkbox"
-                  checked={showArchived}
-                  onChange={(e) => setShowArchived(e.target.checked)}
-                />
-                Show archived
-              </label>
-            </div>
-
-            {readOnly && selected.size > 0 && project && <div className="panel" style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 10, marginBottom: 10, padding: 10 }}>
-              <strong>{selected.size} selected</strong>
-              <BulkCaseAnalysis projectId={projectId} organizationId={project.organizationId} selectedIds={[...selected]} onCompleted={reload} />
-              <span className="text-muted">You can preview costs and request administrator access, but cannot run AI with this seat.</span>
-            </div>}
-
-            {bulkError && <p role="alert" style={{ color: "var(--ember)" }}>{bulkError}</p>}
-
-            {!readOnly && selected.size > 0 && (
+            </label>
+            {selected.size > 0 && (
               <div
-                className="panel"
-                style={{
-                  display: "flex",
-                  flexWrap: "wrap",
-                  alignItems: "center",
-                  gap: 10,
-                  marginBottom: 10,
-                  padding: 10,
-                }}
+                className={styles.selection}
+                role="region"
+                aria-label="Selected case actions"
               >
                 <strong>{selected.size} selected</strong>
-                {project && <BulkCaseAnalysis projectId={projectId} organizationId={project.organizationId} selectedIds={[...selected]} onCompleted={reload} />}
-                <button
-                  className="btn-primary"
-                  onClick={() => { setRunSelection([...selected]); setRunConfigurationOpen(true); }}
-                  disabled={startingRun}
-                >
-                  {startingRun ? "Starting…" : "Run manually"}
-                </button>
-                <button
-                  className="btn-secondary"
-                  onClick={() => bulkReview("approve")}
-                  disabled={bulkBusy}
-                >
-                  Approve
-                </button>
-                <button
-                  className="btn-secondary"
-                  onClick={() => bulkReview("reject")}
-                  disabled={bulkBusy}
-                >
-                  Reject
-                </button>
-                <button
-                  className="btn-secondary"
-                  onClick={() => bulkArchive(true)}
-                  disabled={bulkBusy}
-                >
-                  Archive
-                </button>
-                <button
-                  className="btn-secondary"
-                  onClick={() => bulkArchive(false)}
-                  disabled={bulkBusy}
-                >
-                  Restore
-                </button>
-                <span style={{ display: "flex", alignItems: "center", gap: 4 }}>
-                  <select
-                    value={bulkMovePlanId}
-                    onChange={(e) => setBulkMovePlanId(e.target.value)}
-                    style={{ fontSize: 13 }}
-                  >
-                    <option value="">Move to plan…</option>
-                    {plans.map((p) => (
-                      <option key={p.id} value={p.id}>
-                        {p.name}
-                      </option>
-                    ))}
-                  </select>
+                {selectedCases.length !== selected.size && (
+                  <span className="text-muted">
+                    {selected.size - selectedCases.length} outside the current
+                    view; export and Run use eligible visible cases.
+                  </span>
+                )}
+                {!readOnly && (
                   <button
-                    className="btn-secondary"
-                    onClick={bulkMove}
-                    disabled={bulkBusy || !bulkMovePlanId}
-                    style={{ fontSize: 13 }}
+                    className="btn-primary"
+                    disabled={startingRun || activeSelectedIds.length === 0}
+                    onClick={() => {
+                      setRunSelection(activeSelectedIds);
+                      setRunConfigurationOpen(true);
+                    }}
                   >
-                    Move
+                    Run ({activeSelectedIds.length})
                   </button>
-                </span>
-                <span style={{ display: "flex", alignItems: "center", gap: 4 }}>
-                  <input
-                    value={bulkTag}
-                    onChange={(e) => setBulkTag(e.target.value)}
-                    onKeyDown={(e) => e.key === "Enter" && bulkAddTag()}
-                    placeholder="add tag…"
-                    style={{ fontSize: 13, width: 100 }}
+                )}
+                {project && (
+                  <BulkCaseAnalysis
+                    projectId={projectId}
+                    organizationId={project.organizationId}
+                    selectedIds={[...selected]}
+                    onCompleted={reload}
                   />
-                  <button
-                    className="btn-secondary"
-                    onClick={bulkAddTag}
-                    disabled={bulkBusy || !bulkTag.trim()}
-                    style={{ fontSize: 13 }}
-                  >
-                    Tag
-                  </button>
-                </span>
+                )}
+                {!readOnly && (
+                  <>
+                    <button
+                      className="btn-secondary"
+                      disabled={bulkBusy}
+                      onClick={() => setOrganizeOpen(true)}
+                    >
+                      Organize
+                    </button>
+                    <button
+                      className="btn-secondary"
+                      disabled={bulkBusy}
+                      onClick={() => setSelectionMoreOpen(true)}
+                      aria-label="More selected case actions"
+                    >
+                      More
+                    </button>
+                  </>
+                )}
                 <button
                   className="btn-secondary"
-                  onClick={bulkDelete}
                   disabled={bulkBusy}
-                  style={{ color: "var(--ember)" }}
-                >
-                  Delete
-                </button>
-                <button
-                  className="btn-secondary"
                   onClick={() => setSelected(new Set())}
-                  disabled={bulkBusy}
-                  style={{ marginLeft: "auto" }}
                 >
-                  Clear
+                  Clear selection
                 </button>
               </div>
             )}
-
-            {selectedPath === UNASSIGNED && (
-              <p className="text-muted" style={{ fontSize: 13 }}>
-                These cases have no suite yet — assign one below, or leave them
-                here.
-              </p>
-            )}
-
+            <div className={styles.scope}>
+              <span>
+                {visibleCases.length} shown ·{" "}
+                {selectedPath === UNASSIGNED
+                  ? "Unassigned"
+                  : (selectedPath ?? "All suites")}{" "}
+                ·{" "}
+                {sortBy === "manual"
+                  ? "Manual suite order"
+                  : `Sorted by ${sortBy}`}
+              </span>
+            </div>
             {visibleCases.length > 0 && (
               <label
                 style={{
@@ -948,19 +1016,55 @@ export default function TestCasesPage() {
               >
                 <input
                   type="checkbox"
-                  checked={selected.size === visibleCases.length}
+                  checked={visibleCases.every((item) => selected.has(item.id))}
                   onChange={toggleAllVisible}
                 />
                 Select all ({visibleCases.length})
               </label>
             )}
             {visibleCases.length > 0 ? (
-              <div className="table-scroll test-case-inventory">
+              <div
+                className={`table-scroll test-case-inventory ${styles.table}`}
+              >
                 <table className="workspace-table">
                   <thead>
                     <tr>
                       <th aria-label="Select" />
-                      {([["title","Test case"],["type","Type"],["automation","Automation"],["risk","Risk"],["priority","Priority"],["origin","Origin"],["review","Review"]] as const).map(([key,label]) => <th key={key} scope="col" aria-sort={sortBy === key ? sortDescending ? "descending" : "ascending" : "none"}><button className="member-sort" onClick={() => sortColumn(key)}>{label} {sortBy === key ? sortDescending ? "↓" : "↑" : "↕"}</button></th>)}
+                      {(
+                        [
+                          ["title", "Test case"],
+                          ["type", "Type"],
+                          ["automation", "Automation"],
+                          ["risk", "Risk"],
+                          ["priority", "Priority"],
+                          ["origin", "Origin"],
+                          ["review", "Review"],
+                        ] as const
+                      ).map(([key, label]) => (
+                        <th
+                          key={key}
+                          scope="col"
+                          aria-sort={
+                            sortBy === key
+                              ? sortDescending
+                                ? "descending"
+                                : "ascending"
+                              : "none"
+                          }
+                        >
+                          <button
+                            className="member-sort"
+                            onClick={() => sortColumn(key)}
+                          >
+                            {label}{" "}
+                            {sortBy === key
+                              ? sortDescending
+                                ? "↓"
+                                : "↑"
+                              : "↕"}
+                          </button>
+                        </th>
+                      ))}
                     </tr>
                   </thead>
                   <tbody>
@@ -974,29 +1078,63 @@ export default function TestCasesPage() {
                               ? "medium"
                               : "low";
                       return (
-                        <tr key={tc.id}
+                        <tr
+                          key={tc.id}
                           onDragOver={(event) => {
-                            if (sortBy === "manual" && !readOnly && event.dataTransfer.types.includes("application/x-vaettir-test-case")) {
+                            if (
+                              sortBy === "manual" &&
+                              !readOnly &&
+                              event.dataTransfer.types.includes(
+                                "application/x-vaettir-test-case",
+                              )
+                            ) {
                               event.preventDefault();
                               event.dataTransfer.dropEffect = "move";
                             }
                           }}
                           onDrop={(event) => {
                             if (sortBy !== "manual" || readOnly) return;
-                            const caseId = event.dataTransfer.getData("application/x-vaettir-test-case");
+                            const caseId = event.dataTransfer.getData(
+                              "application/x-vaettir-test-case",
+                            );
                             if (!caseId || caseId === tc.id) return;
                             event.preventDefault();
                             // A source-derived group has not been explicitly
                             // curated yet. Assign into it first; row ordering
                             // becomes available once cases have suite paths.
-                            void moveCase(caseId, tc.suitePath ?? tc.sourceFilePath ?? null, tc.suitePath ? tc.id : null);
+                            void moveCase(
+                              caseId,
+                              tc.suitePath ?? tc.sourceFilePath ?? null,
+                              tc.suitePath ? tc.id : null,
+                            );
                           }}
                         >
                           <td>
-                            {!readOnly && placements.has(tc.id) && <button type="button" draggable aria-label={`Drag ${tc.title} to reorder or move to a suite`}
-                              title="Drag to reorder or move to a suite"
-                              onDragStart={(event) => { event.dataTransfer.setData("application/x-vaettir-test-case", tc.id); event.dataTransfer.effectAllowed = "move"; }}
-                              style={{ marginRight: 6, cursor: "grab" }}>⠿</button>}
+                            {!readOnly && placements.has(tc.id) && (
+                              <button
+                                type="button"
+                                className="btn-secondary"
+                                draggable
+                                aria-label={`Drag ${tc.title} to reorder or move to a suite`}
+                                title="Drag to reorder or move to a suite"
+                                onDragStart={(event) => {
+                                  event.dataTransfer.setData(
+                                    "application/x-vaettir-test-case",
+                                    tc.id,
+                                  );
+                                  event.dataTransfer.effectAllowed = "move";
+                                }}
+                                style={{
+                                  marginRight: 6,
+                                  cursor: "grab",
+                                  padding: "2px 4px",
+                                  minWidth: 24,
+                                  color: "var(--muted)",
+                                }}
+                              >
+                                ⠿
+                              </button>
+                            )}
                             <input
                               type="checkbox"
                               checked={selected.has(tc.id)}
@@ -1014,25 +1152,87 @@ export default function TestCasesPage() {
                             >
                               {tc.title}
                             </a>
-                            {!readOnly && sortBy === "manual" && selectedPath !== null && tc.suitePath === selectedPath && <span style={{ display: "inline-flex", gap: 2, marginLeft: 6 }}>
-                              <button type="button" aria-label={`Move ${tc.title} up`} disabled={visibleCases.findIndex(item => item.id === tc.id) === 0 || visibleCases[visibleCases.findIndex(item => item.id === tc.id) - 1]?.suitePath !== tc.suitePath || moveMutation.isPending}
-                                onClick={() => {
-                                  const index = visibleCases.findIndex(item => item.id === tc.id);
-                                  const before = visibleCases[index - 1];
-                                  if (before) void moveCase(tc.id, before.suitePath ?? before.sourceFilePath ?? null, before.id);
-                                }}>↑</button>
-                              <button type="button" aria-label={`Move ${tc.title} down`} disabled={visibleCases.findIndex(item => item.id === tc.id) === visibleCases.length - 1 || visibleCases[visibleCases.findIndex(item => item.id === tc.id) + 1]?.suitePath !== tc.suitePath || moveMutation.isPending}
-                                onClick={() => {
-                                  const index = visibleCases.findIndex(item => item.id === tc.id);
-                                  const after = visibleCases[index + 2];
-                                  const target = visibleCases[index + 1];
-                                  if (target) void moveCase(tc.id, target.suitePath ?? target.sourceFilePath ?? null, after?.id ?? null);
-                                }}>↓</button>
-                            </span>}
+                            {!readOnly &&
+                              sortBy === "manual" &&
+                              selectedPath !== null &&
+                              tc.suitePath === selectedPath && (
+                                <span
+                                  style={{
+                                    display: "inline-flex",
+                                    gap: 2,
+                                    marginLeft: 6,
+                                  }}
+                                >
+                                  <button
+                                    type="button"
+                                    aria-label={`Move ${tc.title} up`}
+                                    disabled={
+                                      visibleCases.findIndex(
+                                        (item) => item.id === tc.id,
+                                      ) === 0 ||
+                                      visibleCases[
+                                        visibleCases.findIndex(
+                                          (item) => item.id === tc.id,
+                                        ) - 1
+                                      ]?.suitePath !== tc.suitePath ||
+                                      moveMutation.isPending
+                                    }
+                                    onClick={() => {
+                                      const index = visibleCases.findIndex(
+                                        (item) => item.id === tc.id,
+                                      );
+                                      const before = visibleCases[index - 1];
+                                      if (before)
+                                        void moveCase(
+                                          tc.id,
+                                          before.suitePath ??
+                                            before.sourceFilePath ??
+                                            null,
+                                          before.id,
+                                        );
+                                    }}
+                                  >
+                                    ↑
+                                  </button>
+                                  <button
+                                    type="button"
+                                    aria-label={`Move ${tc.title} down`}
+                                    disabled={
+                                      visibleCases.findIndex(
+                                        (item) => item.id === tc.id,
+                                      ) ===
+                                        visibleCases.length - 1 ||
+                                      visibleCases[
+                                        visibleCases.findIndex(
+                                          (item) => item.id === tc.id,
+                                        ) + 1
+                                      ]?.suitePath !== tc.suitePath ||
+                                      moveMutation.isPending
+                                    }
+                                    onClick={() => {
+                                      const index = visibleCases.findIndex(
+                                        (item) => item.id === tc.id,
+                                      );
+                                      const after = visibleCases[index + 2];
+                                      const target = visibleCases[index + 1];
+                                      if (target)
+                                        void moveCase(
+                                          tc.id,
+                                          target.suitePath ??
+                                            target.sourceFilePath ??
+                                            null,
+                                          after?.id ?? null,
+                                        );
+                                    }}
+                                  >
+                                    ↓
+                                  </button>
+                                </span>
+                              )}
                             {tc.tags.length > 0 && (
                               <small>{tc.tags.slice(0, 3).join(" · ")}</small>
                             )}
-                            {selectedPath === UNASSIGNED && (
+                            {!readOnly && selectedPath === UNASSIGNED && (
                               <AssignSuiteControl
                                 caseId={tc.id}
                                 knownPaths={knownPaths}
@@ -1040,13 +1240,15 @@ export default function TestCasesPage() {
                               />
                             )}
                           </td>
-                          <td>
+                          <td data-label="Type">
                             <span className="status-pill status-info">
-                              {tc.testType}
+                              {caseLabel(tc.testType)}
                             </span>
                           </td>
-                          <td>{tc.automationStatus.replaceAll("_", " ")}</td>
-                          <td>
+                          <td data-label="Automation">
+                            {caseLabel(tc.automationStatus)}
+                          </td>
+                          <td data-label="Risk">
                             <div
                               className={`case-risk case-risk-${riskTone}`}
                               title={
@@ -1069,10 +1271,12 @@ export default function TestCasesPage() {
                               </i>
                             </div>
                           </td>
-                          <td>{tc.priority}</td>
-                          <td>{tc.origin.replaceAll("_", " ")}</td>
-                          <td>
-                            {tc.reviewStatus.replaceAll("_", " ")}
+                          <td data-label="Priority">
+                            {caseLabel(tc.priority)}
+                          </td>
+                          <td data-label="Origin">{caseLabel(tc.origin)}</td>
+                          <td data-label="Review">
+                            {caseLabel(tc.reviewStatus)}
                             {tc.isFlaky && " · Flaky"}
                             {tc.archived && " · Archived"}
                           </td>
@@ -1083,24 +1287,450 @@ export default function TestCasesPage() {
                 </table>
               </div>
             ) : (
-              <p className="text-muted">No test cases match.</p>
+              <div className={styles.empty}>
+                <h2>No matching cases</h2>
+                <p className="text-muted">
+                  Try another suite or clear the current filters.
+                </p>
+                <button className="btn-secondary" onClick={resetFilters}>
+                  Reset filters
+                </button>
+                {selectedPath !== null && (
+                  <button
+                    className="btn-secondary"
+                    onClick={() => setSelectedPath(null)}
+                  >
+                    Show all suites
+                  </button>
+                )}
+              </div>
             )}
           </div>
         </div>
       )}
 
-      <Drawer open={openCaseId !== null} onClose={() => setOpenCaseId(null)}>
+      <Modal
+        open={filtersOpen}
+        title="Filter and sort cases"
+        onClose={() => setFiltersOpen(false)}
+      >
+        <div className={styles.filters}>
+          {[
+            {
+              name: "Type",
+              value: typeFilter,
+              values: TEST_TYPES,
+              set: setTypeFilter,
+            },
+            {
+              name: "Automation",
+              value: automationFilter,
+              values: AUTOMATION_STATUSES,
+              set: setAutomationFilter,
+            },
+            {
+              name: "Priority",
+              value: priorityFilter,
+              values: PRIORITIES,
+              set: setPriorityFilter,
+            },
+            {
+              name: "Review",
+              value: reviewFilter,
+              values: REVIEW_STATUSES,
+              set: setReviewFilter,
+            },
+            {
+              name: "Origin",
+              value: originFilter,
+              values: ORIGINS,
+              set: setOriginFilter,
+            },
+          ].map((filter) => (
+            <label key={filter.name}>
+              {filter.name}
+              <select
+                value={filter.value}
+                onChange={(event) => filter.set(event.target.value)}
+              >
+                <option value="">All {filter.name.toLowerCase()}</option>
+                {filter.values.map((value) => (
+                  <option key={value} value={value}>
+                    {caseLabel(value)}
+                  </option>
+                ))}
+              </select>
+            </label>
+          ))}
+          <label>
+            Sort test cases
+            <select
+              value={sortBy}
+              onChange={(event) => {
+                const value = event.target.value as CaseSort;
+                setSortBy(value);
+                setSortDescending(
+                  ["updated", "risk", "priority"].includes(value),
+                );
+              }}
+            >
+              {(
+                [
+                  "updated",
+                  "title",
+                  "type",
+                  "automation",
+                  "risk",
+                  "priority",
+                  "origin",
+                  "suite",
+                  "manual",
+                  "review",
+                ] as const
+              ).map((value) => (
+                <option key={value} value={value}>
+                  {value === "updated"
+                    ? "Recent activity"
+                    : value === "manual"
+                      ? "Manual suite order"
+                      : caseLabel(value)}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label>
+            Direction
+            <select
+              value={sortDescending ? "descending" : "ascending"}
+              onChange={(event) =>
+                setSortDescending(event.target.value === "descending")
+              }
+              disabled={sortBy === "manual"}
+            >
+              <option value="descending">Descending</option>
+              <option value="ascending">Ascending</option>
+            </select>
+          </label>
+        </div>
+        <label style={{ display: "flex", gap: 8 }}>
+          <input
+            type="checkbox"
+            checked={showArchived}
+            onChange={(event) => setShowArchived(event.target.checked)}
+          />
+          Include archived cases
+        </label>
+        <div className={styles.dialogActions}>
+          <button className="btn-secondary" onClick={resetFilters}>
+            Reset filters
+          </button>
+          <button className="btn-primary" onClick={() => setFiltersOpen(false)}>
+            Show {visibleCases.length} cases
+          </button>
+        </div>
+      </Modal>
+      <Modal
+        open={moreOpen}
+        title="Library actions"
+        onClose={() => setMoreOpen(false)}
+      >
+        <div className={styles.menu}>
+          <a
+            className="btn-secondary"
+            href={`/projects/${projectId}/test-cases/review`}
+          >
+            Review queue
+          </a>
+          <a
+            className="btn-secondary"
+            href={`/projects/${projectId}/shared-steps`}
+          >
+            Shared step libraries
+          </a>
+          <a
+            className="btn-secondary"
+            href={`/projects/${projectId}/exploratory`}
+          >
+            Exploratory testing
+          </a>
+          {!readOnly && (
+            <Link
+              className="btn-secondary"
+              href={`/projects/${projectId}/import`}
+            >
+              Import cases
+            </Link>
+          )}
+          <button
+            className="btn-secondary"
+            disabled={loading || exporting || visibleCases.length === 0}
+            onClick={() => void exportCsv("filtered")}
+          >
+            {exporting
+              ? "Exporting…"
+              : `Export shown cases (${visibleCases.length})`}
+          </button>
+          <details>
+            <summary>Manage saved views</summary>
+            <p className="text-muted">
+              Private to you. Saved views retain this project&apos;s suite,
+              filters and sorting.
+            </p>
+            {currentView && (
+              <div className={styles.dialogActions}>
+                <button
+                  className="btn-secondary"
+                  onClick={() => void saveCurrentView()}
+                  disabled={!viewHasChanges || updateView.isPending}
+                >
+                  Save changes to {currentView.name}
+                </button>
+                <button
+                  className="btn-secondary"
+                  onClick={() => void deleteCurrentView()}
+                  disabled={removeView.isPending}
+                >
+                  Delete view
+                </button>
+              </div>
+            )}
+            <label style={{ display: "block", marginTop: 12 }}>
+              New view name
+              <input
+                value={newViewName}
+                onChange={(event) => setNewViewName(event.target.value)}
+                maxLength={80}
+                placeholder="High-risk regression"
+                style={{ width: "100%", display: "block", marginTop: 6 }}
+              />
+            </label>
+            <button
+              className="btn-secondary"
+              style={{ marginTop: 8 }}
+              onClick={() => void saveNewView()}
+              disabled={
+                !newViewName.trim() ||
+                createView.isPending ||
+                (viewsQuery.data?.length ?? 0) >= 50
+              }
+            >
+              Save current view
+            </button>
+          </details>
+        </div>
+      </Modal>
+      {!readOnly && (
+        <Modal
+          open={addOpen}
+          title="Add a test case"
+          onClose={() => setAddOpen(false)}
+        >
+          <p className="text-muted">
+            {selectedPath && selectedPath !== UNASSIGNED
+              ? `Add to ${selectedPath}.`
+              : "Capture a case title, then fill in its procedure."}
+          </p>
+          <QuickAddRow
+            projectId={projectId}
+            suitePath={selectedPath}
+            onAdded={() => {
+              reload();
+              setAddOpen(false);
+            }}
+          />
+          <a
+            className="btn-secondary"
+            href={`/projects/${projectId}/test-cases/new`}
+          >
+            Open full editor
+          </a>
+        </Modal>
+      )}
+      {!readOnly && (
+        <Modal
+          open={organizeOpen}
+          title={`Organize ${selected.size} selected cases`}
+          onClose={() => setOrganizeOpen(false)}
+          dismissible={!bulkBusy}
+        >
+          <p className="text-muted">
+            Selected cases only. Changes run sequentially in batches of up to
+            200; failures retain unconfirmed selections.
+          </p>
+          <label>
+            Test plan
+            <select
+              value={bulkMovePlanId}
+              onChange={(event) => setBulkMovePlanId(event.target.value)}
+              style={{ width: "100%", display: "block", marginTop: 6 }}
+            >
+              <option value="">Choose a plan</option>
+              {plans.map((plan) => (
+                <option key={plan.id} value={plan.id}>
+                  {plan.name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <button
+            className="btn-secondary"
+            disabled={bulkBusy || !bulkMovePlanId}
+            onClick={() => void bulkMove()}
+          >
+            Move selected to plan
+          </button>
+          <label style={{ display: "block", marginTop: 14 }}>
+            Tag
+            <input
+              value={bulkTag}
+              onChange={(event) => setBulkTag(event.target.value)}
+              placeholder="regression"
+              style={{ width: "100%", display: "block", marginTop: 6 }}
+            />
+          </label>
+          <button
+            className="btn-secondary"
+            disabled={bulkBusy || !bulkTag.trim()}
+            onClick={() => void bulkAddTag()}
+          >
+            Add tag to selected
+          </button>
+          {bulkError && <p role="alert">{bulkError}</p>}
+        </Modal>
+      )}
+      {!readOnly && (
+        <Modal
+          open={selectionMoreOpen}
+          title={`${selected.size} selected cases`}
+          onClose={() => setSelectionMoreOpen(false)}
+          dismissible={!bulkBusy}
+        >
+          <div className={styles.menu}>
+            <button
+              className="btn-secondary"
+              disabled={bulkBusy}
+              onClick={() => void bulkReview("approve")}
+            >
+              Approve selected
+            </button>
+            <button
+              className="btn-secondary"
+              disabled={bulkBusy}
+              onClick={() => void bulkReview("reject")}
+            >
+              Reject selected
+            </button>
+            <button
+              className="btn-secondary"
+              disabled={exporting || selectedExportCount === 0}
+              onClick={() => void exportCsv("selected")}
+            >
+              Export selected ({selectedExportCount})
+            </button>
+            {activeSelectedIds.length > 0 && (
+              <button
+                className="btn-secondary"
+                disabled={bulkBusy}
+                onClick={() => requestReview("archive")}
+              >
+                Review archive ({activeSelectedIds.length} active)
+              </button>
+            )}
+            {archivedSelectedIds.length > 0 && (
+              <button
+                className="btn-secondary"
+                disabled={bulkBusy}
+                onClick={() => requestReview("restore")}
+              >
+                Review restore ({archivedSelectedIds.length} archived)
+              </button>
+            )}
+            <button
+              className="btn-secondary"
+              disabled={bulkBusy}
+              onClick={() => requestReview("delete")}
+            >
+              Review permanent deletion
+            </button>
+          </div>
+          {bulkError && <p role="alert">{bulkError}</p>}
+        </Modal>
+      )}
+      {!readOnly && (
+        <Modal
+          open={reviewAction !== null}
+          title={`Review ${reviewAction?.kind ?? "action"}`}
+          onClose={() => setReviewAction(null)}
+          dismissible={!bulkBusy}
+        >
+          {reviewAction && (
+            <>
+              <p>
+                {reviewAction.ids.length} cases will be{" "}
+                {reviewAction.kind === "delete"
+                  ? "permanently deleted where permitted. This cannot be undone"
+                  : reviewAction.kind === "archive"
+                    ? "archived, preserving history"
+                    : "restored to the active library"}
+                .
+              </p>
+              <ul className={styles.reviewList}>
+                {reviewAction.ids.map((id) => (
+                  <li key={id}>
+                    {cases.find((item) => item.id === id)?.title ?? id}
+                  </li>
+                ))}
+              </ul>
+              <p className="text-muted">
+                Selected scope only. Up to 200 cases per sequential batch; later
+                batches stop on an unconfirmed result.
+              </p>
+              <div className={styles.dialogActions}>
+                <button
+                  className="btn-secondary"
+                  disabled={bulkBusy}
+                  onClick={() => setReviewAction(null)}
+                >
+                  Cancel
+                </button>
+                <button
+                  className="btn-primary"
+                  disabled={bulkBusy || reviewAction.ids.length === 0}
+                  onClick={() => void confirmReviewedAction()}
+                >
+                  {bulkBusy ? "Applying…" : `Confirm ${reviewAction.kind}`}
+                </button>
+              </div>
+            </>
+          )}
+        </Modal>
+      )}
+      <Drawer
+        open={openCaseId !== null}
+        onClose={() => setOpenCaseId(null)}
+        title="Test case inspector"
+      >
         {openCaseId && (
           <TestCaseDetailContent
             id={openCaseId}
             projectId={projectId}
             onChanged={reload}
-            onSuiteSelect={(path) => { setSelectedPath(path); setOpenCaseId(null); }}
+            onSuiteSelect={(path) => {
+              setSelectedPath(path);
+              setOpenCaseId(null);
+            }}
             readOnly={readOnly}
           />
         )}
       </Drawer>
-      {runConfigurationOpen && <RunConfigurationModal projectId={projectId} caseCount={runSelection.length} onClose={() => setRunConfigurationOpen(false)} onStart={startManualRun} />}
+      {runConfigurationOpen && (
+        <RunConfigurationModal
+          projectId={projectId}
+          caseCount={runSelection.length}
+          onClose={() => setRunConfigurationOpen(false)}
+          onStart={startManualRun}
+        />
+      )}
     </div>
   );
 }

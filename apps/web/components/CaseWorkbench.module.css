@@ -1,0 +1,269 @@
+.workbench {
+  min-width: 0;
+}
+.toolbar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 14px 0 10px;
+}
+.search {
+  flex: 1 1 250px;
+  min-width: 140px;
+}
+.toolbar select {
+  max-width: 220px;
+}
+.layout {
+  display: grid;
+  grid-template-columns: 220px minmax(0, 1fr);
+  gap: 20px;
+  align-items: start;
+}
+.suites {
+  min-width: 0;
+}
+.suites :global(.test-case-tree) {
+  width: 100%;
+}
+.suites h2 {
+  font-size: 13px;
+  margin: 0 0 8px;
+  color: var(--muted);
+}
+.mobileSuite {
+  display: none;
+}
+.inventory {
+  min-width: 0;
+}
+.scope {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 8px;
+  color: var(--muted);
+  font-size: 12px;
+  margin: 8px 0;
+}
+.scope label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.filters {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin: 12px 0;
+}
+.filters label {
+  min-width: 0;
+  font-size: 13px;
+}
+.filters select,
+.filters input {
+  width: 100%;
+  display: block;
+  margin-top: 6px;
+}
+.filterSummary {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 8px 0;
+}
+.filterSummary button {
+  font-size: 12px;
+  padding: 4px 8px;
+}
+.selection {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  border: 1px solid var(--line);
+  background: var(--panel);
+  border-radius: 6px;
+  padding: 10px;
+  margin: 10px 0;
+}
+.selection strong {
+  margin-right: 4px;
+  font-size: 13px;
+}
+.selection :global(button) {
+  font-size: 13px;
+}
+.selection :global(.btn-secondary) {
+  padding: 7px 10px;
+}
+.dialogActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 16px;
+}
+.menu {
+  display: grid;
+  gap: 10px;
+}
+.menu a,
+.menu button {
+  text-align: left;
+}
+.reviewList {
+  max-height: 200px;
+  overflow: auto;
+  padding-left: 20px;
+  overflow-wrap: anywhere;
+}
+.table :global(.workspace-table) {
+  min-width: 900px;
+}
+.table :global(.workspace-table th),
+.table :global(.workspace-table td) {
+  font-size: 12px;
+  padding: 10px;
+}
+.table :global(.test-case-title-cell) {
+  min-width: 260px;
+}
+.empty {
+  padding: 24px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+}
+@media (max-width: 900px) {
+  .layout {
+    grid-template-columns: 190px minmax(0, 1fr);
+    gap: 12px;
+  }
+}
+@media (max-width: 700px) {
+  .workbench :global(.workspace-heading) {
+    display: block;
+    margin-bottom: 8px;
+  }
+  .workbench :global(.workspace-heading h1) {
+    font-size: 26px;
+    line-height: 1.15;
+  }
+  .workbench :global(.workspace-heading p) {
+    margin-bottom: 6px;
+  }
+  .toolbar {
+    display: grid;
+    grid-template-columns: 1fr auto auto;
+    gap: 7px;
+    margin: 10px 0;
+  }
+  .search {
+    grid-column: 1/-1;
+    width: 100%;
+  }
+  .toolbar select {
+    min-width: 0;
+    width: 100%;
+    max-width: none;
+  }
+  .toolbar > :last-child {
+    grid-column: 3;
+  }
+  .layout {
+    display: block;
+  }
+  .suites {
+    display: none;
+  }
+  .mobileSuite {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    margin-bottom: 10px;
+    font-size: 13px;
+  }
+  .mobileSuite select {
+    min-width: 0;
+    flex: 1;
+  }
+  .filters {
+    grid-template-columns: 1fr;
+  }
+  .scope {
+    font-size: 12px;
+  }
+  .table {
+    overflow: visible;
+    border: none;
+  }
+  .table :global(.workspace-table) {
+    min-width: 0;
+    display: block;
+    width: 100%;
+  }
+  .table :global(thead) {
+    display: none;
+  }
+  .table :global(tbody) {
+    display: grid;
+    gap: 10px;
+  }
+  .table :global(tr) {
+    display: grid;
+    grid-template-columns: 32px repeat(2, minmax(0, 1fr));
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    padding: 10px;
+    background: var(--panel);
+  }
+  .table :global(td) {
+    padding: 4px !important;
+    border: none;
+    font-size: 12px !important;
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+  .table :global(td:first-child) {
+    grid-column: 1;
+    grid-row: 1;
+  }
+  .table :global(td:first-child button[draggable]) {
+    display: none;
+  }
+  .table :global(.test-case-title-cell) {
+    grid-column: 2/-1;
+    min-width: 0;
+    max-width: none;
+  }
+  .table :global(.test-case-title-cell > a) {
+    font-size: 14px;
+    font-weight: 600;
+    line-height: 1.45;
+  }
+  .table :global(td:nth-child(n + 3)) {
+    grid-column: span 1;
+  }
+  .table :global(td:nth-child(3)),
+  .table :global(td:nth-child(5)),
+  .table :global(td:nth-child(7)) {
+    grid-column: 2;
+  }
+  .table :global(td:nth-child(n + 3)::before) {
+    content: attr(data-label);
+    display: block;
+    font-size: 10px;
+    color: var(--muted);
+    margin-bottom: 3px;
+  }
+  .selection {
+    padding: 8px;
+    gap: 6px;
+  }
+  .selection strong {
+    width: 100%;
+  }
+}

@@ -10,8 +10,10 @@ Recommended direction: a compact quality workbench with guided overlays for
 occasional decisions. Daily work should be visible immediately; configuration,
 advanced options and evidence limitations should appear where relevant.
 
-This is a review and proposed acceptance contract, not an implemented redesign or
-a claim of production readiness.
+This document records the review and proposed acceptance contract. James approved
+the first library/inspector slice; its separate source implementation and remaining
+scope are recorded in [the workbench checkpoint](workbench-implementation-20261001.md).
+Neither document claims production readiness or deployment.
 
 ## What was reviewed
 
