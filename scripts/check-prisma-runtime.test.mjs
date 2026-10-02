@@ -101,6 +101,14 @@ test("all image stages pin the same Trixie base and install patched Perl/OpenSSL
   assert.equal(new Set(bases).size, 1);
   assert.match(bases[0], /node:22-trixie-slim@sha256:[a-f0-9]{64}$/);
   assert.doesNotMatch(api + web, /43ac6c60b8f89723/);
+  assert.equal(
+    (api + web).match(/apt-get install[^\n]+libpcre2-8-0/g)?.length,
+    3,
+  );
+  assert.equal(
+    (api + web).match(/libpcre2-8-0\)" ge '10\.46-1~deb13u3'/g)?.length,
+    3,
+  );
   for (const source of [api, web]) {
     assert.ok(
       source.indexOf("openssl ca-certificates") <

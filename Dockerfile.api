@@ -10,8 +10,9 @@ RUN node -e "if(!/^[a-f0-9]{40}$/.test(process.argv[1]))process.exit(1)" "$VAETT
 # slim base image doesn't ship -- without it Prisma fails with an opaque
 # "Schema engine error: undefined" rather than a clear missing-lib error.
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends openssl ca-certificates git perl-base \
+    && apt-get install -y --no-install-recommends openssl ca-certificates git perl-base libpcre2-8-0 \
     && dpkg --compare-versions "$(dpkg-query -W -f='${Version}' perl-base)" ge '5.40.1-6+deb13u1' \
+    && dpkg --compare-versions "$(dpkg-query -W -f='${Version}' libpcre2-8-0)" ge '10.46-1~deb13u3' \
     && git --version \
     && rm -rf /var/lib/apt/lists/*
 
