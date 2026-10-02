@@ -26,6 +26,10 @@ RUN pnpm install --frozen-lockfile \
     && node scripts/check-prisma-runtime.mjs \
     && pnpm turbo run build --filter=@vaettir/api...
 
+# Verify the shipped browser against a synthetic in-memory fixture, with
+# networking disabled at the container layer as well as the browser context.
+RUN --network=none node scripts/check-browser-runtime.mjs
+
 ENV NODE_ENV=production \
     API_PORT=8000 \
     VAETTIR_RELEASE_COMMIT=$VAETTIR_RELEASE_COMMIT

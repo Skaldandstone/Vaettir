@@ -12,7 +12,7 @@
     "lint": "turbo run lint",
     "typecheck": "turbo run typecheck",
     "test": "turbo run test",
-    "test:operations": "node --test scripts/private-beta-service-window.test.mjs scripts/render-ecs-task-definition.test.mjs scripts/render-ecs-rollback-config.test.mjs scripts/pin-ecs-release.test.mjs scripts/check-ecs-release.test.mjs scripts/retain-next-static-assets.test.mjs scripts/web-release-contract.test.mjs scripts/check-prisma-runtime.test.mjs scripts/check-repository-oauth-readiness.test.mjs",
+    "test:operations": "node --test scripts/private-beta-service-window.test.mjs scripts/render-ecs-task-definition.test.mjs scripts/render-ecs-rollback-config.test.mjs scripts/pin-ecs-release.test.mjs scripts/check-ecs-release.test.mjs scripts/retain-next-static-assets.test.mjs scripts/web-release-contract.test.mjs scripts/check-prisma-runtime.test.mjs scripts/check-browser-runtime.test.mjs scripts/check-repository-oauth-readiness.test.mjs",
     "test:restore": "node --test scripts/local-restore-drill.test.mjs",
     "test:device-capture": "node --experimental-strip-types --test scripts/device-capture.test.mjs scripts/device-connector.test.mjs scripts/device-connector-launcher.test.mjs",
     "test:invitation-email": "node --test scripts/clerk-invitation-template.test.mjs",
