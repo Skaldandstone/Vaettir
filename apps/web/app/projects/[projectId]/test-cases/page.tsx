@@ -14,6 +14,7 @@ import {
 import { Drawer } from "@/components/Drawer";
 import { TestCaseDetailContent } from "@/components/TestCaseDetailContent";
 import { BulkCaseAnalysis } from "@/components/BulkCaseAnalysis";
+import { CaseQueryExplorer } from "@/components/CaseQueryExplorer";
 import { downloadCsv } from "@/lib/csv";
 import { downloadFile } from "@/lib/download";
 import { encodeCaseProcedureExport } from "@vaettir/core";
@@ -830,6 +831,7 @@ export default function TestCasesPage() {
         <button className="btn-secondary" onClick={() => setFiltersOpen(true)}>
           Filters{filters.length ? ` (${filters.length})` : ""}
         </button>
+        <CaseQueryExplorer projectId={projectId} />
         {!readOnly && (
           <button className="btn-primary" onClick={() => setAddOpen(true)}>
             Add case
