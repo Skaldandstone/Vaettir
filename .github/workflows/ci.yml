@@ -2,6 +2,12 @@ name: CI
 
 on:
   workflow_dispatch:
+    inputs:
+      llvm_configure_only:
+        description: "Measure LLVM configurations only (no full compilation, package or deployment)"
+        type: boolean
+        required: false
+        default: false
   push:
     branches: [main]
     paths-ignore:
@@ -98,3 +104,78 @@ jobs:
 
       - name: Verify standalone native image receipt packaging
         run: node scripts/retain-sharp-version-receipt.mjs
+
+  llvm-configure-diagnostic:
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.llvm_configure_only == true }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Measure LLVM configuration on GitHub runner (not CodeBuild acceptance)
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$GITHUB_SHA" =~ ^[a-f0-9]{40}$ ]]
+          [[ "$GITHUB_RUN_ID" =~ ^[0-9]+$ ]]
+          [[ "$GITHUB_RUN_ATTEMPT" =~ ^[0-9]+$ ]]
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test -n "$RUNNER_TEMP"
+          available_kib=$(df -Pk "$RUNNER_TEMP" | awk 'NR == 2 { print $4 }')
+          [[ "$available_kib" =~ ^[0-9]+$ ]]
+          if (( available_kib < 8388608 )); then
+            printf '%s\n' 'LLVM configuration diagnostic needs at least 8 GiB free; no runner data will be removed.' >&2
+            exit 1
+          fi
+          diagnostic_dir=$(mktemp -d "$RUNNER_TEMP/vaettir-llvm-config.XXXXXX")
+          diagnostic_image="vaettir-llvm-config:$GITHUB_SHA"
+          container_id=
+          cleanup() {
+            if [[ "$container_id" =~ ^[a-f0-9]{64}$ ]]; then
+              timeout 20s docker rm -f "$container_id" >/dev/null
+            fi
+          }
+          trap cleanup EXIT
+          if ! timeout --signal=TERM --kill-after=15s 750s docker build --progress=plain --target llvm-configure-only -f Dockerfile.api -t "$diagnostic_image" . >"$diagnostic_dir/build.log" 2>&1; then
+            printf '%s\n' 'LLVM configure-only diagnostic failed or reached its 750-second bound; bounded public build diagnostic follows.' >&2
+            tail -c 8192 "$diagnostic_dir/build.log" >&2
+            exit 1
+          fi
+          container_id=$(timeout 30s docker create "$diagnostic_image")
+          [[ "$container_id" =~ ^[a-f0-9]{64}$ ]]
+          timeout 30s docker cp "$container_id:/build/llvm-configure-only-measurement.json" "$diagnostic_dir/measurement.json"
+          node - "$diagnostic_dir/measurement.json" <<'NODE'
+          const assert = require('node:assert/strict');
+          const fs = require('node:fs');
+          const { createHash } = require('node:crypto');
+          const file = process.argv[2];
+          assert.ok(fs.statSync(file).size <= 8192, 'Bounded diagnostic receipt required');
+          const receipt = JSON.parse(fs.readFileSync(file, 'utf8'));
+          assert.equal(receipt.schemaVersion, 1);
+          assert.equal(receipt.purpose, 'llvm-configure-only-measurement');
+          assert.equal(receipt.mode, 'configure-only');
+          for (const key of ['compileAcceptance', 'unitAcceptance', 'candidateAbiAcceptance', 'packageCreated', 'runtimeAcceptance', 'authenticatedAcceptance']) assert.equal(receipt[key], false, 'Diagnostic cannot establish ' + key);
+          assert.ok(Number.isSafeInteger(receipt.elapsedSeconds) && receipt.elapsedSeconds >= 0 && receipt.elapsedSeconds <= 750);
+          assert.ok(Number.isSafeInteger(receipt.boundedCompilerJobs) && receipt.boundedCompilerJobs >= 1 && receipt.boundedCompilerJobs <= 12);
+          for (const variant of ['release', 'assertions']) {
+            const graph = receipt.graphs[variant];
+            assert.equal(graph.acceptance, false);
+            assert.ok(Number.isSafeInteger(graph.scheduledCommands) && graph.scheduledCommands >= 100 && graph.scheduledCommands <= 200000);
+            assert.ok(Number.isSafeInteger(graph.compilationCommands) && graph.compilationCommands >= 100 && graph.compilationCommands <= graph.scheduledCommands);
+          }
+          for (const key of ['diskAvailableBytes', 'diskTotalBytes']) assert.match(receipt[key], /^\d+$/);
+          for (const key of ['recipeSha256', 'sourceManifestSha256', 'releaseCacheSha256', 'assertionsCacheSha256']) assert.match(receipt[key], /^[a-f0-9]{64}$/);
+          const sha256 = (bytes) => createHash('sha256').update(bytes).digest('hex');
+          assert.equal(receipt.recipeSha256, sha256(fs.readFileSync('scripts/build-llvm-runtime.sh')));
+          const pins = JSON.parse(fs.readFileSync('scripts/runtime-vendor-sources.json', 'utf8'));
+          assert.equal(receipt.sourceManifestSha256, sha256(JSON.stringify({ llvm: pins.llvm }, null, 2) + '\n'));
+          for (const key of ['GITHUB_SHA', 'GITHUB_RUN_ID', 'GITHUB_RUN_ATTEMPT']) assert.match(process.env[key], key === 'GITHUB_SHA' ? /^[a-f0-9]{40}$/ : /^\d+$/);
+          const provenance = { executionEnvironment: 'github-hosted-linux-diagnostic-not-codebuild', checkoutSha: process.env.GITHUB_SHA, githubRunId: process.env.GITHUB_RUN_ID, githubRunAttempt: process.env.GITHUB_RUN_ATTEMPT, recipeSha256: receipt.recipeSha256, dockerfileSha256: sha256(fs.readFileSync('Dockerfile.api')), deploymentAcceptance: false };
+          const output = JSON.stringify({ provenance, measurement: receipt });
+          assert.ok(Buffer.byteLength(output) <= 12288, 'Bounded diagnostic log required');
+          console.log('VAETTIR_GITHUB_LLVM_CONFIG_DIAGNOSTIC=' + output);
+          NODE
