@@ -1,13 +1,120 @@
 import assert from "node:assert/strict";
 import { constants } from "node:fs";
-import { lstat, open, realpath } from "node:fs/promises";
-import { createHash } from "node:crypto";
+import { lstat, open, realpath, link, unlink } from "node:fs/promises";
+import { createHash, randomUUID } from "node:crypto";
 import { createRequire } from "node:module";
 import { dirname, isAbsolute, relative, resolve, sep } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 const BUNDLE = "@img/sharp-libvips-linux-x64";
 const MAX = 64 * 1024;
+const NATIVE = "lib/libvips-cpp.so.8.18.7";
+const NATIVE_SHA =
+  "4aa73553408c3964071728f4a231a8e86918e39bc49f1fbae75355f7ea933ea9";
+
+export async function nativeDigest(path, boundary) {
+  await checkedPath(path, boundary);
+  const file = await open(
+    path,
+    constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0),
+  );
+  try {
+    const info = await file.stat();
+    if (!info.isFile() || info.size < 1 || info.size > 32 * 1024 * 1024)
+      throw new Error("Native dependency size invalid");
+    const buffer = Buffer.alloc(MAX);
+    const hash = createHash("sha256");
+    let bytes = 0;
+    for (;;) {
+      const read = await file.read(buffer, 0, buffer.length, bytes);
+      if (!read.bytesRead) break;
+      bytes += read.bytesRead;
+      if (bytes > 32 * 1024 * 1024)
+        throw new Error("Native dependency exceeds bound");
+      hash.update(buffer.subarray(0, read.bytesRead));
+    }
+    if (bytes !== info.size)
+      throw new Error("Native dependency changed while hashing");
+    return { bytes, sha256: hash.digest("hex") };
+  } finally {
+    await file.close();
+  }
+}
+
+async function existingIdentical(path, bytes, boundary) {
+  try {
+    if (!(await boundedRead(path, boundary)).equals(bytes))
+      throw new Error(
+        "Standalone receipt collision differs from published bytes",
+      );
+    return true;
+  } catch (error) {
+    if (error.code === "ENOENT") {
+      // A dangling symlink is not a missing destination.
+      try {
+        await lstat(path);
+      } catch (missing) {
+        if (missing.code === "ENOENT") return false;
+        throw missing;
+      }
+    }
+    throw error;
+  }
+}
+
+async function retainFile(path, bytes, boundary) {
+  if (await existingIdentical(path, bytes, boundary)) return false;
+  const parent = await realpath(dirname(path));
+  if (!isWithin(boundary, parent))
+    throw new Error("Standalone receipt parent escapes boundary");
+  const temporary = resolve(parent, `.vaettir-receipt-${randomUUID()}.tmp`);
+  let file;
+  let ownsTemporary = false;
+  let failure;
+  let copied = false;
+  try {
+    file = await open(
+      temporary,
+      constants.O_WRONLY |
+        constants.O_CREAT |
+        constants.O_EXCL |
+        (constants.O_NOFOLLOW ?? 0),
+      0o644,
+    );
+    ownsTemporary = true;
+    await checkedPath(temporary, boundary);
+    await file.writeFile(bytes);
+    await file.sync();
+    await file.close();
+    file = undefined;
+    // Same-directory hard link is atomic and cannot overwrite an existing
+    // destination. A killed writer never exposes partial JSON to the runtime.
+    try {
+      await link(temporary, path);
+      copied = true;
+    } catch (error) {
+      if (error.code !== "EEXIST") throw error;
+      await existingIdentical(path, bytes, boundary);
+    }
+    if (!(await boundedRead(path, boundary)).equals(bytes))
+      throw new Error("Retained receipt byte verification failed");
+  } catch (error) {
+    failure = error;
+  } finally {
+    try {
+      if (file) await file.close();
+    } catch (error) {
+      failure ??= error;
+    }
+    try {
+      if (ownsTemporary) await unlink(temporary);
+    } catch (error) {
+      if (error.code !== "ENOENT") failure ??= error;
+    }
+  }
+  if (failure) throw failure;
+  return copied;
+}
 
 export function isWithin(root, path) {
   const remainder = relative(root, path);
@@ -89,104 +196,158 @@ function samePackage(source, target) {
 
 export async function retainSharpVersionReceipt({
   root = fileURLToPath(new URL("../", import.meta.url)),
+  nativeDigestImpl = nativeDigest,
 } = {}) {
-  const canonicalRoot = await realpath(root);
-  const sourceBoundary = await realpath(resolve(canonicalRoot, "node_modules"));
-  if (sourceBoundary !== resolve(canonicalRoot, "node_modules"))
-    throw new Error("Source dependencies escape repository");
-  const standalone = await realpath(
-    resolve(canonicalRoot, "apps/web/.next/standalone"),
-  );
-  if (standalone !== resolve(canonicalRoot, "apps/web/.next/standalone"))
-    throw new Error("Standalone directory escapes repository");
-  const entries = [];
-  for (const [base, boundary] of [
-    [canonicalRoot, sourceBoundary],
-    [standalone, standalone],
-  ]) {
-    const webRequire = createRequire(resolve(base, "apps/web/package.json"));
-    const nextPackage = webRequire.resolve("next/package.json");
-    const next = await metadata(nextPackage, boundary);
-    if (next.name !== "next" || typeof next.version !== "string")
-      throw new Error("Unexpected resolved Next package");
-    const nextRequire = createRequire(nextPackage);
-    const sharpEntry = nextRequire.resolve("sharp");
-    const sharp = await sharpMetadata(sharpEntry, boundary);
-    const sharpRequire = createRequire(sharpEntry);
-    const bundlePackage = sharpRequire.resolve(`${BUNDLE}/package`);
-    const bundle = await metadata(bundlePackage, boundary);
+  let stage = "canonical-boundaries";
+  try {
+    const canonicalRoot = await realpath(root);
+    const sourceBoundary = await realpath(
+      resolve(canonicalRoot, "node_modules"),
+    );
+    if (sourceBoundary !== resolve(canonicalRoot, "node_modules"))
+      throw new Error("Source dependencies escape repository");
+    const standalone = await realpath(
+      resolve(canonicalRoot, "apps/web/.next/standalone"),
+    );
+    if (standalone !== resolve(canonicalRoot, "apps/web/.next/standalone"))
+      throw new Error("Standalone directory escapes repository");
+    const entries = [];
+    for (const [base, boundary] of [
+      [canonicalRoot, sourceBoundary],
+      [standalone, standalone],
+    ]) {
+      const prefix = base === canonicalRoot ? "source" : "standalone";
+      stage = `${prefix}-next`;
+      const webRequire = createRequire(resolve(base, "apps/web/package.json"));
+      const nextPackage = webRequire.resolve("next/package.json");
+      const next = await metadata(nextPackage, boundary);
+      if (next.name !== "next" || typeof next.version !== "string")
+        throw new Error("Unexpected resolved Next package");
+      const nextRequire = createRequire(nextPackage);
+      stage = `${prefix}-sharp`;
+      const sharpEntry = nextRequire.resolve("sharp");
+      const sharp = await sharpMetadata(sharpEntry, boundary);
+      const sharpRequire = createRequire(sharpEntry);
+      entries.push({
+        next,
+        sharp,
+        sharpEntry,
+        sharpRequire,
+        boundary,
+      });
+    }
+    const [source, target] = entries;
+    stage = "package-equality";
+    samePackage(source.next, target.next);
+    samePackage(source.sharp, target.sharp);
+    stage = "source-bundle";
+    source.bundlePackage = await checkedPath(
+      source.sharpRequire.resolve(`${BUNDLE}/package`),
+      source.boundary,
+    );
+    const packageBytes = await boundedRead(
+      source.bundlePackage,
+      source.boundary,
+    );
+    source.bundle = JSON.parse(packageBytes.toString("utf8"));
     if (
-      bundle.name !== BUNDLE ||
-      bundle.version !== "1.3.4" ||
-      bundle.exports?.["./versions"] !== "./versions.json" ||
-      bundle.exports?.["./package"] !== "./package.json"
+      source.bundle.name !== BUNDLE ||
+      source.bundle.version !== "1.3.4" ||
+      source.bundle.exports?.["./versions"] !== "./versions.json" ||
+      source.bundle.exports?.["./package"] !== "./package.json" ||
+      source.bundle.exports?.["./binary"] !== `./${NATIVE}`
     )
       throw new Error("Unexpected libvips bundle identity/exports");
-    entries.push({
-      next,
-      sharp,
-      bundle,
-      bundlePackage,
-      sharpRequire,
-      boundary,
-    });
-  }
-  const [source, target] = entries;
-  samePackage(source.next, target.next);
-  samePackage(source.sharp, target.sharp);
-  samePackage(source.bundle, target.bundle);
-  const sourcePath = source.sharpRequire.resolve(`${BUNDLE}/versions`);
-  if (sourcePath !== resolve(dirname(source.bundlePackage), "versions.json"))
-    throw new Error("Bundle version export is not adjacent published receipt");
-  const bytes = await boundedRead(sourcePath, source.boundary);
-  const versions = JSON.parse(bytes.toString("utf8"));
-  if (
-    versions.vips !== "8.18.7" ||
-    versions.xml2 !== "2.15.4" ||
-    versions.expat !== "2.8.5"
-  )
-    throw new Error(
-      "Published libvips receipt versions do not match maintained bundle",
+    const targetPackage = resolve(
+      standalone,
+      relative(canonicalRoot, source.bundlePackage),
     );
-  const targetPath = resolve(dirname(target.bundlePackage), "versions.json");
-  const parent = await realpath(dirname(targetPath));
-  if (!isWithin(standalone, parent))
-    throw new Error("Standalone receipt parent escapes boundary");
-  let copied = false;
-  let handle;
-  try {
-    handle = await open(
-      targetPath,
-      constants.O_WRONLY |
-        constants.O_CREAT |
-        constants.O_EXCL |
-        (constants.O_NOFOLLOW ?? 0),
-      0o644,
-    );
-    await checkedPath(targetPath, standalone);
-    await handle.writeFile(bytes);
-    copied = true;
-  } catch (error) {
-    if (error.code !== "EEXIST") throw error;
-    if (!(await boundedRead(targetPath, standalone)).equals(bytes))
+    const targetDirectory = await realpath(dirname(targetPackage));
+    if (
+      !isWithin(standalone, targetDirectory) ||
+      targetDirectory !== dirname(targetPackage)
+    )
       throw new Error(
-        "Standalone receipt collision differs from published bytes",
-        { cause: error },
+        "Standalone bundle directory escapes boundary or aliases another package",
       );
-  } finally {
-    if (handle) await handle.close();
+    stage = "native-identity";
+    const sourceNative = source.sharpRequire.resolve(`${BUNDLE}/binary`);
+    if (sourceNative !== resolve(dirname(source.bundlePackage), NATIVE))
+      throw new Error("Native export path differs from published bundle");
+    const before = await nativeDigestImpl(sourceNative, source.boundary);
+    const after = await nativeDigestImpl(
+      resolve(targetDirectory, NATIVE),
+      standalone,
+    );
+    if (
+      before.sha256 !== NATIVE_SHA ||
+      after.sha256 !== before.sha256 ||
+      after.bytes !== before.bytes
+    )
+      throw new Error(
+        "Standalone native bundle differs from pinned published bytes",
+      );
+    stage = "source-receipt";
+    const sourcePath = source.sharpRequire.resolve(`${BUNDLE}/versions`);
+    if (sourcePath !== resolve(dirname(source.bundlePackage), "versions.json"))
+      throw new Error(
+        "Bundle version export is not adjacent published receipt",
+      );
+    const bytes = await boundedRead(sourcePath, source.boundary);
+    const versions = JSON.parse(bytes.toString("utf8"));
+    if (
+      versions.vips !== "8.18.7" ||
+      versions.xml2 !== "2.15.4" ||
+      versions.expat !== "2.8.5"
+    )
+      throw new Error(
+        "Published libvips receipt versions do not match maintained bundle",
+      );
+    const targetPath = resolve(targetDirectory, "versions.json");
+    stage = "target-receipt";
+    const parent = await realpath(dirname(targetPath));
+    if (!isWithin(standalone, parent))
+      throw new Error("Standalone receipt parent escapes boundary");
+    // Preflight both collisions before either write. An interrupted two-file
+    // operation safely retries exact existing bytes and completes the other.
+    if (await existingIdentical(targetPackage, packageBytes, standalone))
+      samePackage(source.bundle, await metadata(targetPackage, standalone));
+    await existingIdentical(targetPath, bytes, standalone);
+    stage = "target-package";
+    const packageCopied = await retainFile(
+      targetPackage,
+      packageBytes,
+      standalone,
+    );
+    stage = "target-receipt";
+    const copied = await retainFile(targetPath, bytes, standalone);
+    stage = "standalone-resolution";
+    const standaloneRequire = createRequire(target.sharpEntry);
+    for (const [subpath, expected] of [
+      ["package", targetPackage],
+      ["versions", targetPath],
+    ]) {
+      const resolved = standaloneRequire.resolve(`${BUNDLE}/${subpath}`);
+      if ((await checkedPath(resolved, standalone)) !== expected)
+        throw new Error(
+          "Standalone dependency resolution differs from verified counterpart",
+        );
+    }
+    return {
+      copied,
+      packageCopied,
+      native: after,
+      package: BUNDLE,
+      version: "1.3.4",
+      bytes: bytes.length,
+      sha256: createHash("sha256").update(bytes).digest("hex"),
+      scope:
+        "Published dependency receipt retention only; final image runtime checks remain required",
+    };
+  } catch (error) {
+    error.retentionStage = stage;
+    throw error;
   }
-  if (!(await boundedRead(targetPath, standalone)).equals(bytes))
-    throw new Error("Retained receipt byte verification failed");
-  return {
-    copied,
-    package: BUNDLE,
-    version: "1.3.4",
-    bytes: bytes.length,
-    sha256: createHash("sha256").update(bytes).digest("hex"),
-    scope:
-      "Published dependency receipt retention only; final image runtime checks remain required",
-  };
 }
 
 if (
@@ -211,9 +372,19 @@ if (
     .then((proof) =>
       console.log(`Published Sharp receipt retained: ${JSON.stringify(proof)}`),
     )
-    .catch(() => {
+    .catch((error) => {
+      const code = [
+        "ENOENT",
+        "EEXIST",
+        "EACCES",
+        "ERR_ASSERTION",
+        "MODULE_NOT_FOUND",
+        "ERR_PACKAGE_PATH_NOT_EXPORTED",
+      ].includes(error.code)
+        ? error.code
+        : "OTHER";
       console.error(
-        "Published Sharp receipt retention failed; verify package identity, boundary and byte equality. No credentials logged.",
+        `Published Sharp receipt retention failed at ${error.retentionStage ?? "unknown"} (${code}); verify package identity, boundary and byte equality. No credentials logged.`,
       );
       process.exitCode = 1;
     })

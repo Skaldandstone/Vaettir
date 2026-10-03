@@ -12,14 +12,39 @@ import {
 import { tmpdir } from "node:os";
 import { resolve, dirname } from "node:path";
 import {
-  retainSharpVersionReceipt,
+  retainSharpVersionReceipt as retainActual,
+  nativeDigest,
   isWithin,
 } from "./retain-sharp-version-receipt.mjs";
+import { createHash } from "node:crypto";
+import { createRequire } from "node:module";
+const nativeBytes = Buffer.from(
+  "Authored synthetic native identity fixture; never executed",
+);
+const syntheticHash = createHash("sha256").update(nativeBytes).digest("hex");
+const retainSharpVersionReceipt = (options) =>
+  retainActual({
+    ...options,
+    nativeDigestImpl: async (path, boundary) => {
+      const result = await nativeDigest(path, boundary);
+      return {
+        ...result,
+        sha256:
+          result.sha256 === syntheticHash
+            ? "4aa73553408c3964071728f4a231a8e86918e39bc49f1fbae75355f7ea933ea9"
+            : result.sha256,
+      };
+    },
+  });
 
 const bundle = {
   name: "@img/sharp-libvips-linux-x64",
   version: "1.3.4",
-  exports: { "./package": "./package.json", "./versions": "./versions.json" },
+  exports: {
+    "./package": "./package.json",
+    "./versions": "./versions.json",
+    "./binary": "./lib/libvips-cpp.so.8.18.7",
+  },
 };
 const sharp = {
   name: "sharp",
@@ -44,7 +69,7 @@ async function fixture(t) {
       resolve(base, "node_modules/next/package.json"),
       JSON.stringify({
         name: "next",
-        version: "15.5.24",
+        version: "15.5.26",
         exports: { "./package.json": "./package.json" },
       }),
     );
@@ -59,6 +84,13 @@ async function fixture(t) {
     await put(
       resolve(base, "node_modules/@img/sharp-libvips-linux-x64/package.json"),
       JSON.stringify(bundle),
+    );
+    await put(
+      resolve(
+        base,
+        "node_modules/@img/sharp-libvips-linux-x64/lib/libvips-cpp.so.8.18.7",
+      ),
+      nativeBytes,
     );
   }
   const source = resolve(
@@ -187,4 +219,163 @@ test("root node_modules cannot relocate outside the canonical dependency boundar
     retainSharpVersionReceipt({ root: f.root }),
     /Source dependencies escape/,
   );
+});
+
+test("missing standalone package metadata is retained exactly only after native equality, then partial retry is idempotent", async (t) => {
+  const f = await fixture(t);
+  const targetPackage = resolve(dirname(f.target), "package.json");
+  const sourcePackage = await readFile(
+    resolve(dirname(f.source), "package.json"),
+  );
+  await rm(targetPackage);
+  const proof = await retainSharpVersionReceipt({ root: f.root });
+  assert.equal(proof.packageCopied, true);
+  assert.deepEqual(await readFile(targetPackage), sourcePackage);
+  assert.deepEqual(await readFile(f.target), bytes);
+  await rm(f.target);
+  const retried = await retainSharpVersionReceipt({ root: f.root });
+  assert.equal(retried.packageCopied, false);
+  assert.equal(retried.copied, true);
+  await rm(targetPackage);
+  const reverseRetry = await retainSharpVersionReceipt({ root: f.root });
+  assert.equal(reverseRetry.packageCopied, true);
+  assert.equal(reverseRetry.copied, false);
+});
+
+test("missing or mismatched native library prevents retention of either metadata file", async (t) => {
+  const f = await fixture(t);
+  const targetPackage = resolve(dirname(f.target), "package.json");
+  const native = resolve(dirname(f.target), "lib/libvips-cpp.so.8.18.7");
+  await rm(targetPackage);
+  await rm(native);
+  await assert.rejects(retainSharpVersionReceipt({ root: f.root }));
+  await assert.rejects(readFile(targetPackage), { code: "ENOENT" });
+  await put(native, "wrong library");
+  await assert.rejects(
+    retainSharpVersionReceipt({ root: f.root }),
+    /native bundle differs/,
+  );
+  await assert.rejects(readFile(targetPackage), { code: "ENOENT" });
+  await assert.rejects(readFile(f.target), { code: "ENOENT" });
+});
+
+test("present package bytes conflict even if logical JSON identity matches", async (t) => {
+  const f = await fixture(t);
+  const targetPackage = resolve(dirname(f.target), "package.json");
+  const original = JSON.stringify(bundle, null, 2);
+  await put(targetPackage, original);
+  await assert.rejects(
+    retainSharpVersionReceipt({ root: f.root }),
+    /collision/,
+  );
+  assert.equal(await readFile(targetPackage, "utf8"), original);
+  await assert.rejects(readFile(f.target), { code: "ENOENT" });
+});
+
+test("real pnpm nested layout and dependency links resolve copied exports inside standalone", async (t) => {
+  const f = await fixture(t);
+  const storeSharp = "node_modules/.pnpm/sharp@0.35.5/node_modules/sharp";
+  const storeBundle =
+    "node_modules/.pnpm/@img+sharp-libvips-linux-x64@1.3.4/node_modules/@img/sharp-libvips-linux-x64";
+  const directoryLink = async (target, path) => {
+    await mkdir(dirname(path), { recursive: true });
+    await symlink(
+      target,
+      path,
+      process.platform === "win32" ? "junction" : "dir",
+    );
+  };
+  for (const base of [f.root, f.standalone]) {
+    const oldSharp = resolve(base, "node_modules/sharp");
+    const nestedSharp = resolve(base, storeSharp);
+    await mkdir(dirname(nestedSharp), { recursive: true });
+    await rename(oldSharp, nestedSharp);
+    await directoryLink(nestedSharp, oldSharp);
+    const oldBundle = resolve(
+      base,
+      "node_modules/@img/sharp-libvips-linux-x64",
+    );
+    const nestedBundle = resolve(base, storeBundle);
+    await mkdir(dirname(nestedBundle), { recursive: true });
+    await rename(oldBundle, nestedBundle);
+    await rm(dirname(oldBundle), { recursive: true });
+    await directoryLink(
+      nestedBundle,
+      resolve(dirname(nestedSharp), "@img/sharp-libvips-linux-x64"),
+    );
+  }
+  const counterpart = resolve(f.standalone, storeBundle);
+  await rm(resolve(counterpart, "package.json"));
+  const result = await retainSharpVersionReceipt({ root: f.root });
+  assert.equal(result.packageCopied, true);
+  assert.deepEqual(
+    await readFile(resolve(counterpart, "versions.json")),
+    bytes,
+  );
+  const require = createRequire(
+    resolve(f.standalone, storeSharp, "dist/index.cjs"),
+  );
+  assert.equal(
+    require.resolve(`${bundle.name}/versions`),
+    resolve(counterpart, "versions.json"),
+  );
+  assert.equal(
+    (await retainSharpVersionReceipt({ root: f.root })).copied,
+    false,
+  );
+});
+
+test("missing standalone dependency link cannot use builder-root fallback", async (t) => {
+  const f = await fixture(t);
+  const counterpart = resolve(
+    f.standalone,
+    "node_modules/.pnpm/@img+sharp-libvips-linux-x64@1.3.4/node_modules/@img/sharp-libvips-linux-x64",
+  );
+  // Move both source and counterpart to matching pnpm stores, but deliberately
+  // link only the source. The stored target native DSO still exists.
+  for (const base of [f.root, f.standalone]) {
+    const original = resolve(base, "node_modules/@img/sharp-libvips-linux-x64");
+    const nested = resolve(
+      base,
+      "node_modules/.pnpm/@img+sharp-libvips-linux-x64@1.3.4/node_modules/@img/sharp-libvips-linux-x64",
+    );
+    await mkdir(dirname(nested), { recursive: true });
+    await rename(original, nested);
+    if (base === f.root)
+      await symlink(
+        nested,
+        original,
+        process.platform === "win32" ? "junction" : "dir",
+      );
+  }
+  await rm(resolve(counterpart, "package.json"));
+  await assert.rejects(
+    retainSharpVersionReceipt({ root: f.root }),
+    (error) => error.retentionStage === "standalone-resolution",
+  );
+});
+
+test("unrecognized source native export cannot authorize metadata retention", async (t) => {
+  const f = await fixture(t);
+  await put(
+    resolve(dirname(f.source), "package.json"),
+    JSON.stringify({
+      ...bundle,
+      exports: { ...bundle.exports, "./binary": "./lib/other.so" },
+    }),
+  );
+  await assert.rejects(
+    retainSharpVersionReceipt({ root: f.root }),
+    /identity\/exports/,
+  );
+  await assert.rejects(readFile(f.target), { code: "ENOENT" });
+});
+
+test("production hashing rejects synthetic native bytes without an injected fixture digest", async (t) => {
+  const f = await fixture(t);
+  const packagePath = resolve(dirname(f.target), "package.json");
+  await rm(packagePath);
+  await assert.rejects(retainActual({ root: f.root }), /pinned published bytes/);
+  await assert.rejects(readFile(packagePath), { code: "ENOENT" });
+  await assert.rejects(readFile(f.target), { code: "ENOENT" });
 });

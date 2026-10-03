@@ -1,6 +1,6 @@
 # Native runtime release gates
 
-Next standalone must retain the maintained native bundle's actual version receipt. Sharp's dynamic optional require otherwise falls back to reporting only libvips, hiding embedded XML/Expat provenance. Next15 route tracing includes do not repair the core server trace and skip static/edge pages. After building, copy the actual resolved published bundle's bounded version JSON to its corresponding verified standalone dependency path. Reject escapes, mismatched packages, different-content collisions and missing metadata; never generate replacement version values. The isolated final-image guard still checks all exact versions and pixels. See [Next output tracing documentation](https://nextjs.org/docs/app/api-reference/config/next-config-js/output).
+Next standalone must retain the maintained native bundle's actual package metadata and version receipt. Sharp's dynamic optional require otherwise falls back to reporting only libvips, hiding embedded XML/Expat provenance. Next15 route tracing includes do not repair the core server trace and skip static/edge pages. After building, verify the original and standalone native libraries against the pinned published digest, then atomically retain both original bounded JSON files at the corresponding canonical pnpm dependency path. Require post-copy exports to resolve there inside standalone; reject missing dependency links, escapes, mismatched libraries, different-content collisions and missing metadata. Exact partial copies safely resume, but no replacement version values or package exports are generated. The isolated final-image guard still checks all exact versions and pixels. See [Next output tracing documentation](https://nextjs.org/docs/app/api-reference/config/next-config-js/output).
 
 These are implementation and validation contracts, not a deployment or whole-product security certification.
 
@@ -15,6 +15,8 @@ Primary references: [Sharp0.35.5](https://github.com/lovell/sharp/releases/tag/v
 ## LLVM and Mesa compatibility
 
 The signed maintained LLVM19 source rebuild disables only the supported optional Windows-manifest XML integration. All existing targets and Polly remain configured. Assertions remain enabled; the actual CMake input is `LLVM_ABI_BREAKING_CHECKS=FORCE_OFF`, not `LLVM_ENABLE_ABI_BREAKING_CHECKS`. Before compilation, both the cache and generated header must confirm the intended ABI configuration.
+
+The full target compile remains bounded to two hours with two compiler jobs and a separate 30-minute fail-hard unit budget. Release requests must leave sufficient build time and verify the actual returned CodeBuild timeout/compute settings; a prepared request or reused idempotency receipt is not proof of the applied limits. No assertions, target exports, unit tests or final-image checks are removed to fit an undersized build window.
 
 Exact SONAME, all baseline exports, data/TLS storage and remaining shared dependencies must match before honest package generation. The final image checks package ownership, installed library hashes, Mesa/LLVM/JIT loader relocations, exact LLVM resolution and an authored fixed-input native integer JIT. No builder RPATH, substituted runtime library or inherited credential/loader environment is allowed.
 

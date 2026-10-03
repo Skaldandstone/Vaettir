@@ -38,7 +38,9 @@ cmake -S llvm -B /build/llvm-build -G Ninja \
 # ENABLE_ABI_BREAKING_CHECKS is the output macro, not the input option name.
 grep -Fx 'LLVM_ABI_BREAKING_CHECKS:STRING=FORCE_OFF' /build/llvm-build/CMakeCache.txt
 grep -Fx '#define LLVM_ENABLE_ABI_BREAKING_CHECKS 0' /build/llvm-build/include/llvm/Config/abi-breaking.h
-timeout 5400 cmake --build /build/llvm-build --parallel 2 --target LLVM llvm-config
+# The complete maintained target set needs a bounded two-hour compile budget;
+# keep conservative memory concurrency and a separate fail-hard unit deadline.
+timeout 7200 cmake --build /build/llvm-build --parallel 2 --target LLVM llvm-config
 timeout 1800 cmake --build /build/llvm-build --parallel 2 --target check-llvm-unit
 test "$(/build/llvm-build/bin/llvm-config --version)" = '19.1.7'
 node /build/scripts/check-llvm-package.mjs \
