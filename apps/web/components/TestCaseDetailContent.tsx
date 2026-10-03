@@ -8,6 +8,7 @@ import { TestDesignReview } from "@/components/TestDesignReview";
 import { TestCasePrerequisites } from "@/components/TestCasePrerequisites";
 import { TestCaseExecutionHistory } from "@/components/TestCaseExecutionHistory";
 import { TestCaseVersionReview } from "@/components/TestCaseVersionReview";
+import { TestCaseClone } from "@/components/TestCaseClone";
 import { CaseTraceabilityPanel } from "@/components/CaseTraceabilityPanel";
 import { Modal } from "@/components/Modal";
 import { automationTargetForFramework } from "@vaettir/core";
@@ -1235,13 +1236,10 @@ function TestCaseInspector({
           )}
         </div>
         {!readOnly && (
-          <a
-            href={
-              onEditHref ?? `/projects/${projectId}/test-cases/${tc.id}/edit`
-            }
-          >
-            Edit case
-          </a>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+            <a href={onEditHref ?? `/projects/${projectId}/test-cases/${tc.id}/edit`}>Edit case</a>
+            <TestCaseClone key={tc.id} projectId={projectId} caseId={tc.id} onChanged={onChanged} />
+          </div>
         )}
       </div>
       <div className={styles.identity}>
