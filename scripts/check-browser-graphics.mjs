@@ -2,6 +2,8 @@ import { createRequire } from "node:module";
 import { pathToFileURL } from "node:url";
 import { bounded, browserChildEnvironment } from "./check-browser-runtime.mjs";
 
+/* global document */
+
 // Only this authored synthetic function executes. No URL, file, caller script,
 // repository source or provider credential is accepted by this guard.
 export function syntheticGraphicsFixture() {
@@ -93,6 +95,8 @@ export async function checkBrowserGraphics({
     bounded(() => resource.close(), { timeout: 5_000 });
   let browser;
   let context;
+  let operationError;
+  let cleanupError;
   let attemptedRequests = 0;
   try {
     // No graphics-disable, unsafe shader, renderer-selection or TLS bypass args.
@@ -138,7 +142,8 @@ export async function checkBrowserGraphics({
     );
     if (attemptedRequests !== 0)
       throw new Error("Synthetic graphics attempted network access");
-    return "network-free authored synthetic Canvas2D/WebGL shader/pixel readback";
+  } catch (error) {
+    operationError = error;
   } finally {
     const failures = [];
     for (const resource of [context, browser]) {
@@ -146,8 +151,11 @@ export async function checkBrowserGraphics({
         failures.push(...(await Promise.allSettled([lateClose(resource)])));
     }
     const failure = failures.find((value) => value.status === "rejected");
-    if (failure) throw failure.reason;
+    if (failure) cleanupError = failure.reason;
   }
+  if (operationError) throw operationError;
+  if (cleanupError) throw cleanupError;
+  return "network-free authored synthetic Canvas2D/WebGL shader/pixel readback";
 }
 
 if (

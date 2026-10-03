@@ -150,6 +150,23 @@ test("context cleanup rejection never prevents bounded browser cleanup", async (
   );
   assert.deepEqual(current.calls.at(-1), ["close-browser"]);
 });
+
+test("primary graphics failure is preserved when ordered cleanup also fails", async () => {
+  const primary = new Error("primary graphics failure");
+  const current = fixture({
+    evaluate: async () => {
+      throw primary;
+    },
+    contextClose: async () => {
+      throw new Error("secondary cleanup failure");
+    },
+  });
+  await assert.rejects(
+    checkBrowserGraphics({ chromium: current.chromium }),
+    (error) => error === primary,
+  );
+  assert.deepEqual(current.calls.at(-1), ["close-browser"]);
+});
 test("both actual pixel outputs and shader error are mandatory, not context-presence only", () => {
   validateGraphicsResult(green);
   for (const bad of [

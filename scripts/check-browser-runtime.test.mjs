@@ -178,6 +178,27 @@ test("a context cleanup error does not prevent browser cleanup", async () => {
   assert.ok(calls.some(([name]) => name === "close-browser"));
 });
 
+test("primary DOM failure is preserved when ordered cleanup also fails", async () => {
+  const primary = new Error("primary DOM failure");
+  const { chromium, calls } = fixture({
+    page: {
+      setContent: async () => {
+        throw primary;
+      },
+    },
+    context: {
+      close: async () => {
+        throw new Error("secondary cleanup failure");
+      },
+    },
+  });
+  await assert.rejects(
+    checkBrowserRuntime({ chromium }),
+    (error) => error === primary,
+  );
+  assert.ok(calls.some(([name]) => name === "close-browser"));
+});
+
 test("browser cleanup waits for context cleanup instead of invalidating it", async () => {
   let browserClosed = false;
   let contextClosed = false;

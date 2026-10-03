@@ -57,6 +57,8 @@ export async function checkBrowserRuntime({
   const options = { signal, timeout };
   let browser;
   let context;
+  let operationError;
+  let cleanupError;
   try {
     browser = await bounded(
       () =>
@@ -121,7 +123,8 @@ export async function checkBrowserRuntime({
       !image.subarray(0, 8).equals(PNG_SIGNATURE)
     )
       throw new Error("Browser fixture screenshot invalid");
-    return "network-free Chromium DOM/screenshot";
+  } catch (error) {
+    operationError = error;
   } finally {
     // Closing the browser invalidates its contexts. Await context cleanup
     // first, but still close the browser if context cleanup rejects or hangs.
@@ -135,8 +138,11 @@ export async function checkBrowserRuntime({
       );
     }
     const failed = cleanup.find((result) => result.status === "rejected");
-    if (failed) throw failed.reason;
+    if (failed) cleanupError = failed.reason;
   }
+  if (operationError) throw operationError;
+  if (cleanupError) throw cleanupError;
+  return "network-free Chromium DOM/screenshot";
 }
 
 if (
