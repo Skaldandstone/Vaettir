@@ -2,13 +2,14 @@
 
 import { useId, useState } from "react";
 import type { CSSProperties, ChangeEvent } from "react";
-import { trpcReact, type RouterOutputs } from "@/lib/trpcReact";
+import { trpcReact } from "@/lib/trpcReact";
 import { RiskMeter } from "@/components/MetricVisuals";
 import { TestDesignReview } from "@/components/TestDesignReview";
 import { TestCasePrerequisites } from "@/components/TestCasePrerequisites";
 import { TestCaseExecutionHistory } from "@/components/TestCaseExecutionHistory";
 import { TestCaseVersionReview } from "@/components/TestCaseVersionReview";
 import { TestCaseClone } from "@/components/TestCaseClone";
+import { DatasetExecutionWizard } from "@/components/DatasetExecutionWizard";
 import { CaseTraceabilityPanel } from "@/components/CaseTraceabilityPanel";
 import { Modal } from "@/components/Modal";
 import { automationTargetForFramework } from "@vaettir/core";
@@ -599,9 +600,11 @@ type DatasetRow = { name: string; values: Record<string, string> };
 // in-progress edits and cancelling the editor drops the draft.
 function DatasetSection({
   testCaseId,
+  projectId,
   readOnly,
 }: {
   testCaseId: string;
+  projectId: string;
   readOnly?: boolean;
 }) {
   const utils = trpcReact.useUtils();
@@ -621,6 +624,7 @@ function DatasetSection({
   const parameterNames = draft?.parameterNames ?? savedParameterNames;
   const rows = draft?.rows ?? savedRows;
   const [editingState, setEditingState] = useState(false);
+  const [executionOpen, setExecutionOpen] = useState(false);
   const editing = editingState;
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -715,6 +719,23 @@ function DatasetSection({
         )}
       </div>
       {error && <p style={{ color: "var(--ember)", fontSize: 12 }}>{error}</p>}
+      <DatasetExecutionWizard
+        key={`${projectId}:${testCaseId}`}
+        open={executionOpen}
+        onClose={() => setExecutionOpen(false)}
+        projectId={projectId}
+        testCaseId={testCaseId}
+      />
+      {!readOnly && !editing && savedRows.length > 0 && (
+        <button
+          type="button"
+          className="btn-secondary"
+          style={{ marginTop: 8 }}
+          onClick={() => setExecutionOpen(true)}
+        >
+          Run dataset rows…
+        </button>
+      )}
 
       {!editing && preview.length > 0 && (
         <div style={{ marginTop: 8 }}>
@@ -1502,7 +1523,11 @@ function TestCaseInspector({
           caseId={tc.id}
           canEdit={!readOnly}
         />
-        <DatasetSection testCaseId={tc.id} readOnly={readOnly} />
+        <DatasetSection
+          testCaseId={tc.id}
+          projectId={projectId}
+          readOnly={readOnly}
+        />
         {Object.values(tc.verificationProfile).some(Boolean) && (
           <section className="panel">
             <h3>Physical verification procedure</h3>

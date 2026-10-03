@@ -2,6 +2,13 @@ import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 import { createHash } from "node:crypto";
 import { Prisma } from "@vaettir/db";
+import {
+  datasetPreviewInputSchema,
+  datasetStartInputSchema,
+  prepareDatasetExecution,
+  datasetPreviewOutput,
+  startDatasetExecution,
+} from "../services/datasetExecution.js";
 import { router, protectedProcedure, requireProjectAccess } from "../trpc.js";
 import { recomputeFlaky } from "../services/flakyDetection.js";
 import { resolveHealingSuggestionsOnPass } from "../services/healingSuggestion.js";
@@ -63,6 +70,22 @@ import {
 // step-by-step pass/fail within a single case (which some competitors
 // also support) is a real, separate increment, not attempted here.
 export const manualExecutionRouter = router({
+  previewDatasetExecution: protectedProcedure
+    .input(datasetPreviewInputSchema)
+    .query(({ ctx, input }) =>
+      ctx.prisma.$transaction(
+        async (tx) =>
+          datasetPreviewOutput(
+            await prepareDatasetExecution(tx, ctx.user.id, input),
+          ),
+        { isolationLevel: "RepeatableRead", timeout: 20000 },
+      ),
+    ),
+  startDatasetExecution: protectedProcedure
+    .input(datasetStartInputSchema)
+    .mutation(({ ctx, input }) =>
+      startDatasetExecution(ctx.prisma, ctx.user.id, input),
+    ),
   recordStepResult: protectedProcedure
     .input(recordStepResultInputSchema)
     .output(
@@ -414,6 +437,7 @@ export const manualExecutionRouter = router({
               include: {
                 steps: { orderBy: { order: "asc" } },
                 sharedStepGroup: true,
+                dataset: { select: { id: true } },
               },
             });
             if (cases.length !== ordered.length) {
@@ -423,6 +447,12 @@ export const manualExecutionRouter = router({
                   "A selected case or prerequisite is missing, archived, or outside this project.",
               });
             }
+            if (cases.some((c) => c.dataset))
+              throw new TRPCError({
+                code: "BAD_REQUEST",
+                message:
+                  "A selected case or prerequisite has a dataset. Use Run dataset rows to review concrete procedures and create independently recorded row runs; nothing was started.",
+              });
             const snapshot = Object.fromEntries(
               ordered.map((id) => [id, graph.get(id) ?? []]),
             );
@@ -516,6 +546,17 @@ export const manualExecutionRouter = router({
         status: z.string(),
         stepFieldLabels: z.record(z.string()),
         executionContext: runExperienceSnapshotSchema.nullable(),
+        datasetBatchRuns: z
+          .array(
+            z.object({
+              testRunId: z.string(),
+              rowIndex: z.number().int(),
+              rowName: z.string(),
+              status: z.string(),
+            }),
+          )
+          .max(50)
+          .default([]),
         cases: z.array(
           z.object({
             testCaseId: z.string(),
@@ -601,6 +642,59 @@ export const manualExecutionRouter = router({
             executionContext?.caseDefinitions.map((c) => [c.testCaseId, c]) ??
               [],
           );
+          const datasetScope = executionContext?.datasetExecution;
+          const datasetBatchRuns = [];
+          if (datasetScope) {
+            if (run.id !== `${datasetScope.batchId}_${datasetScope.rowIndex}`)
+              throw new TRPCError({
+                code: "BAD_REQUEST",
+                message: "This row's frozen batch identity is inconsistent.",
+              });
+            const siblings = await tx.testRun.findMany({
+              where: {
+                projectId: run.projectId,
+                id: {
+                  in: Array.from(
+                    { length: datasetScope.rowCount },
+                    (_, index) => `${datasetScope.batchId}_${index}`,
+                  ),
+                },
+              },
+              select: { id: true, status: true, executionContext: true },
+            });
+            if (siblings.length !== datasetScope.rowCount)
+              throw new TRPCError({
+                code: "BAD_REQUEST",
+                message:
+                  "Some saved batch rows are unavailable. Existing execution evidence has not been replaced.",
+              });
+            for (const sibling of siblings) {
+              const receipt = readRunExperienceSnapshot(
+                sibling.executionContext,
+              )?.datasetExecution;
+              if (
+                !receipt ||
+                receipt.batchId !== datasetScope.batchId ||
+                receipt.expansionHash !== datasetScope.expansionHash ||
+                receipt.testCaseId !== datasetScope.testCaseId ||
+                receipt.configurationHash !== datasetScope.configurationHash ||
+                receipt.rowCount !== datasetScope.rowCount ||
+                sibling.id !== `${receipt.batchId}_${receipt.rowIndex}`
+              )
+                throw new TRPCError({
+                  code: "BAD_REQUEST",
+                  message:
+                    "Saved batch row provenance is inconsistent. No unrelated run was linked.",
+                });
+              datasetBatchRuns.push({
+                testRunId: sibling.id,
+                rowIndex: receipt.rowIndex,
+                rowName: receipt.rowName,
+                status: sibling.status,
+              });
+            }
+            datasetBatchRuns.sort((a, b) => a.rowIndex - b.rowIndex);
+          }
           await boundedCurrentStepBytes(tx, run.id);
           const stepHeads = await tx.manualStepResultHead.findMany({
             where: {
@@ -629,6 +723,7 @@ export const manualExecutionRouter = router({
               executionContext?.stepFieldLabels ??
               resolveStepFieldLabels(overrides as never),
             executionContext,
+            datasetBatchRuns,
             cases: run.manualTestCaseIds
               .map((id) => {
                 const c = casesById.get(id);

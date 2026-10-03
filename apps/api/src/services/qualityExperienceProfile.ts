@@ -154,6 +154,25 @@ export const runExperienceSnapshotSchema = z.object({
   stepFieldLabels: z.record(z.string().max(200)),
   caseDefinitions: z.array(runCaseDefinitionSchema).max(500),
   plan: runPlanSnapshotSchema.optional(),
+  // One independently identified manual run per reviewed dataset row. Legacy
+  // snapshots omit this field; result identities and their SQL guards stay intact.
+  datasetExecution: z
+    .object({
+      version: z.literal(1),
+      batchId: z.string().regex(/^dataset_[a-f0-9]{64}$/),
+      expansionHash: z.string().regex(/^[a-f0-9]{64}$/),
+      datasetId: z.string().max(200),
+      datasetHash: z.string().regex(/^[a-f0-9]{64}$/),
+      testCaseId: z.string().max(200),
+      sourceDisplayId: z.string().max(200),
+      rowIndex: z.number().int().min(0).max(49),
+      rowName: z.string().min(1).max(200),
+      values: z.record(z.string().max(10000)),
+      configurationHash: z.string().regex(/^[a-f0-9]{64}$/),
+      rowCount: z.number().int().min(1).max(50),
+    })
+    .strict()
+    .optional(),
 });
 
 export function readRunExperienceSnapshot(value: unknown) {

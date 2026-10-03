@@ -443,6 +443,12 @@ export default function ManualExecutionPage() {
       <p className="text-muted" style={{ fontSize: 13 }}>
         {recordedCount} / {data.cases.length} recorded · status: {data.status}
       </p>
+      {data.executionContext?.datasetExecution && <section style={{border:"1px solid var(--line)",padding:12,marginBottom:16}}>
+        <h2 style={{fontSize:18}}>Dataset row {data.executionContext.datasetExecution.rowIndex + 1}: {data.executionContext.datasetExecution.rowName}</h2>
+        <p>{data.executionContext.datasetExecution.sourceDisplayId} · one independently recorded row run. Prerequisites must pass within this run, not in a sibling row or another configuration.</p>
+        <details><summary>Frozen parameter values</summary><dl>{Object.entries(data.executionContext.datasetExecution.values).map(([key,value]) => <div key={key}><dt>{key}</dt><dd style={{marginLeft:0,whiteSpace:"pre-wrap",overflowWrap:"anywhere"}}>{value || "(empty text)"}</dd></div>)}</dl></details>
+        <details><summary>Other rows in this reviewed batch</summary><ul>{data.datasetBatchRuns.map(row => <li key={row.testRunId}>{row.testRunId === testRunId ? <strong>Current row: {row.rowName}</strong> : <a href={`/projects/${projectId}/test-runs/manual/${row.testRunId}`}>Row {row.rowIndex + 1}: {row.rowName}</a>} <span className="text-muted">({row.status.toLowerCase()})</span></li>)}</ul></details>
+      </section>}
       {data.executionContext ? <details style={{ marginBottom: 16 }}>
         <summary>Saved execution context{data.executionContext.experience ? `: ${resolveQualityExperience(data.executionContext.experience).title}` : ""}</summary>
         <p>These case definitions and configuration were saved when this run started. Later profile or case edits do not rewrite this run. Recorded results remain separate evidence; this context does not certify safety or compliance.</p>
