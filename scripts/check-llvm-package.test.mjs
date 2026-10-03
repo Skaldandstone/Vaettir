@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
+import { spawnSync } from "node:child_process";
 import {
   verifyLlvmCompatibility,
   exportedSymbols,
@@ -16,6 +17,125 @@ const candidate = {
   needed: ["libffi.so.8", "libstdc++.so.6"],
   symbols: "LLVMVersion@@LLVM_19.1 T 456 18\nLLVMGlobal@@LLVM_19.1 D 789 8\n",
 };
+test("LLVM mode preflight accepts only default or exact configure-only before system access", () => {
+  const script = readFileSync(
+    new URL("./build-llvm-runtime.sh", import.meta.url),
+    "utf8",
+  );
+  const boundary = 'test "$(dpkg --print-architecture)" = amd64';
+  assert.equal(script.split(boundary).length, 2);
+  // Execute the real argument parser alone, before any dpkg, source or network
+  // command. This synthetic parser test does not claim a Linux build ran.
+  const parser =
+    script.slice(0, script.indexOf(boundary)).replaceAll("\r\n", "\n") +
+    '\nprintf "%s\\n" "$build_mode"\n';
+  const shell =
+    process.platform === "win32"
+      ? "C:/Program Files/Git/bin/bash.exe"
+      : "/bin/sh";
+  for (const [args, expected] of [
+    [[], "complete"],
+    [["--configure-only"], "configure-only"],
+  ]) {
+    const result = spawnSync(
+      shell,
+      ["-c", parser, "llvm-mode-fixture", ...args],
+      { timeout: 5000, maxBuffer: 4096, encoding: "utf8", env: {} },
+    );
+    assert.ifError(result.error);
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(result.stdout, expected + "\n");
+  }
+  for (const args of [
+    ["--skip-units"],
+    ["--configure-only=yes"],
+    ["configure-only"],
+    ["--configure-only", "extra"],
+    ["--configure-only", "--configure-only"],
+    [""],
+  ]) {
+    const result = spawnSync(
+      shell,
+      ["-c", parser, "llvm-mode-fixture", ...args],
+      { timeout: 5000, maxBuffer: 4096, encoding: "utf8", env: {} },
+    );
+    assert.ifError(result.error);
+    assert.equal(result.status, 64);
+    assert.equal(result.stdout, "");
+    assert.match(result.stderr, /Unsupported LLVM build/);
+  }
+});
+test("configure-only measures both real policies and graphs but cannot feed runtime packaging", () => {
+  const script = readFileSync(
+    new URL("./build-llvm-runtime.sh", import.meta.url),
+    "utf8",
+  ).replaceAll("\r\n", "\n");
+  const stop = script.indexOf('if test "$build_mode" = configure-only; then');
+  assert.ok(stop > 0);
+  for (const required of [
+    "verify_llvm_configuration release",
+    "verify_llvm_configuration assertions",
+    "reconcile-llvm-arm-unit-fixture.mjs --signed-debian-image-build",
+    "timeout 60 ninja -C /build/llvm-build -n",
+    "timeout 60 ninja -C /build/llvm-assert-build -n",
+    "LLVM_CONFIGURE_ONLY_MEASUREMENT=",
+  ])
+    assert.ok(
+      script.indexOf(required) >= 0 && script.indexOf(required) < stop,
+      required,
+    );
+  assert.match(
+    script.slice(stop),
+    /^if test "\$build_mode" = configure-only; then\n\s+printf [^\n]+\n\s+exit 0\nfi/,
+  );
+  for (const gate of [
+    "timeout 7200 cmake --build /build/llvm-build",
+    "timeout 1800 cmake --build /build/llvm-build",
+    "timeout 7200 cmake --build /build/llvm-assert-build",
+    "cmp /build/llvm-arm-baseline.txt /build/llvm-arm-candidate.txt",
+    "node /build/scripts/check-llvm-package.mjs",
+    "dpkg-deb --root-owner-group --build",
+  ])
+    assert.ok(script.indexOf(gate) > stop, gate);
+  assert.match(
+    script,
+    /timeout 30 node - "\$build_mode" "\$native_jobs" "\$measurement_started"/,
+  );
+  assert.match(
+    script,
+    /spawnSync\('\/usr\/bin\/du',[^\n]+timeout: 10000, maxBuffer: 4096/,
+  );
+  for (const field of [
+    "compileAcceptance",
+    "unitAcceptance",
+    "candidateAbiAcceptance",
+    "packageCreated",
+    "runtimeAcceptance",
+    "authenticatedAcceptance",
+  ])
+    assert.ok(script.includes(field + ": false"), field);
+  const docker = readFileSync(
+    new URL("../Dockerfile.api", import.meta.url),
+    "utf8",
+  ).replaceAll("\r\n", "\n");
+  assert.match(docker, /^FROM [^\n]+ AS llvm-build-inputs$/m);
+  assert.match(
+    docker,
+    /^FROM llvm-build-inputs AS llvm-configure-only\nLABEL vaettir.artifact-purpose="llvm-configure-only" vaettir.runtime-eligible="false"\nRUN sh \/build\/scripts\/build-llvm-runtime.sh --configure-only$/m,
+  );
+  assert.match(
+    docker,
+    /^FROM llvm-build-inputs AS llvm-build\nRUN sh \/build\/scripts\/build-llvm-runtime.sh$/m,
+  );
+  assert.doesNotMatch(
+    docker,
+    /(?:COPY --from=|^FROM )llvm-configure-only(?:\s|$)/m,
+  );
+  assert.match(
+    docker,
+    /COPY --from=llvm-build \/build\/libllvm19_19.1.7-3\+vaettir1_amd64.deb/,
+  );
+});
 test("LLVM package preserves exact SONAME, exports, object storage and remaining native dependencies", () => {
   assert.equal(verifyLlvmCompatibility(baseline, candidate).baselineExports, 2);
   for (const bad of [

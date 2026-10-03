@@ -28,7 +28,7 @@ RUN node /build/scripts/fetch-runtime-vendor-sources.mjs /build/dash-sources das
 # Rebuild only the maintained shared LLVM package with its supported optional
 # Windows-manifest XML feature off. Keep all LLVM targets/Polly and Mesa, and
 # reject SONAME/export/data ABI changes instead of forcing apt dependencies.
-FROM public.ecr.aws/docker/library/node:22-trixie-slim@sha256:b26b04c123d9ff8ab646ceb18b9d75a1173acf64b9a401094b906d27b29338d4 AS llvm-build
+FROM public.ecr.aws/docker/library/node:22-trixie-slim@sha256:b26b04c123d9ff8ab646ceb18b9d75a1173acf64b9a401094b906d27b29338d4 AS llvm-build-inputs
 RUN apt-get update --error-on=any \
     && apt-get install -y --no-install-recommends openssl ca-certificates perl-base libpcre2-8-0 build-essential clang-19 binutils-gold patch xz-utils cmake ninja-build python3 libffi-dev libedit-dev libncurses-dev libz3-dev libpfm4-dev zlib1g-dev libzstd-dev libllvm19 gpgv debian-keyring \
     && dpkg --compare-versions "$(dpkg-query -W -f='${Version}' perl-base)" ge '5.40.1-6+deb13u1' \
@@ -36,8 +36,18 @@ RUN apt-get update --error-on=any \
     && rm -rf /var/lib/apt/lists/*
 WORKDIR /build
 COPY scripts/fetch-runtime-vendor-sources.mjs scripts/runtime-vendor-sources.json scripts/build-llvm-runtime.sh scripts/native-build-concurrency.mjs scripts/check-llvm-package.mjs scripts/check-llvm-jit.c scripts/check-llvm-arm-defaults.cpp scripts/reconcile-llvm-arm-unit-fixture.mjs /build/scripts/
-RUN node /build/scripts/fetch-runtime-vendor-sources.mjs /build/llvm-sources llvm \
-    && sh /build/scripts/build-llvm-runtime.sh
+RUN node /build/scripts/fetch-runtime-vendor-sources.mjs /build/llvm-sources llvm
+
+# Explicit non-runtime diagnostic target. Measure both configurations and dry
+# graphs within a short existing build job before deciding compiler phase splits.
+FROM llvm-build-inputs AS llvm-configure-only
+LABEL vaettir.artifact-purpose="llvm-configure-only" vaettir.runtime-eligible="false"
+RUN sh /build/scripts/build-llvm-runtime.sh --configure-only
+
+# Default runtime packaging still requires the entire fail-hard dual build.
+# It does not inherit the diagnostic target or any diagnostic-only acceptance.
+FROM llvm-build-inputs AS llvm-build
+RUN sh /build/scripts/build-llvm-runtime.sh
 
 # Build the maintained native zlib package with the pinned upstream recovery
 # patch. Signed source, original ABI and fail-hard checks gate the artifact.

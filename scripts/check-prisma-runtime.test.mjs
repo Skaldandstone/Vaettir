@@ -85,6 +85,50 @@ test("missing query libraries, schema failures, wrong output and timeout fail cl
   }
 });
 
+function assertPatchedPinnedStages(source, names, base) {
+  const stages = [
+    ...source.matchAll(
+      /^FROM (\S+) AS (\S+)\r?\n([\s\S]*?)(?=^FROM |$(?![\s\S]))/gm,
+    ),
+  ];
+  assert.deepEqual(
+    stages.map((stage) => stage[2]),
+    names,
+  );
+  const verifiedBaseStages = new Set();
+  for (const [, image, name, content] of stages) {
+    if (name === "llvm-configure-only" || name === "llvm-build") {
+      assert.equal(
+        image,
+        "llvm-build-inputs",
+        `${name} must inherit only its exact maintained inputs`,
+      );
+      assert.ok(
+        verifiedBaseStages.has(image),
+        `${name} parent must already have verified pinned base/package gates`,
+      );
+      continue;
+    }
+    assert.equal(image, base, `${name} must retain the immutable base`);
+    assert.match(
+      content,
+      /apt-get install[^\n]+openssl ca-certificates[^\n]+perl-base[^\n]+libpcre2-8-0/,
+    );
+    assert.match(
+      content,
+      /&& dpkg --compare-versions [^\n]+perl-base\)" ge '5\.40\.1-6\+deb13u1'/,
+    );
+    assert.match(
+      content,
+      /&& dpkg --compare-versions [^\n]+libpcre2-8-0\)" ge '10\.46-1~deb13u3'/,
+    );
+    const updates = [...content.matchAll(/apt-get update([^\n]*)/g)];
+    assert.ok(updates.length > 0, `${name} must acquire package metadata`);
+    for (const update of updates) assert.match(update[1], /--error-on=any/);
+    verifiedBaseStages.add(name);
+  }
+}
+
 test("all image stages pin the same Trixie base and install patched Perl/OpenSSL before generation", () => {
   const api = readFileSync(
     new URL("../Dockerfile.api", import.meta.url),
@@ -97,30 +141,20 @@ test("all image stages pin the same Trixie base and install patched Perl/OpenSSL
   const base =
     "public.ecr.aws/docker/library/node:22-trixie-slim@sha256:b26b04c123d9ff8ab646ceb18b9d75a1173acf64b9a401094b906d27b29338d4";
   for (const [source, names] of [
-    [api, ["vendor-build", "llvm-build", "zlib-build", "runtime"]],
+    [
+      api,
+      [
+        "vendor-build",
+        "llvm-build-inputs",
+        "llvm-configure-only",
+        "llvm-build",
+        "zlib-build",
+        "runtime",
+      ],
+    ],
     [web, ["native-build", "builder", "runtime"]],
   ]) {
-    const stages = [
-      ...source.matchAll(
-        /^FROM (\S+) AS (\S+)\r?\n([\s\S]*?)(?=^FROM |$(?![\s\S]))/gm,
-      ),
-    ];
-    assert.deepEqual(
-      stages.map((stage) => stage[2]),
-      names,
-    );
-    for (const [, image, name, content] of stages) {
-      assert.equal(image, base, `${name} must retain the immutable base`);
-      assert.match(
-        content,
-        /apt-get install[^\n]+openssl ca-certificates[^\n]+perl-base[^\n]+libpcre2-8-0/,
-      );
-      assert.match(content, /perl-base\)" ge '5\.40\.1-6\+deb13u1'/);
-      assert.match(content, /libpcre2-8-0\)" ge '10\.46-1~deb13u3'/);
-      const updates = [...content.matchAll(/apt-get update([^\n]*)/g)];
-      assert.ok(updates.length > 0, `${name} must acquire package metadata`);
-      for (const update of updates) assert.match(update[1], /--error-on=any/);
-    }
+    assertPatchedPinnedStages(source, names, base);
   }
   assert.doesNotMatch(api + web, /43ac6c60b8f89723/);
   for (const source of [api, web]) {
@@ -140,6 +174,75 @@ test("all image stages pin the same Trixie base and install patched Perl/OpenSSL
     /apt-get install[^\n]+openssl ca-certificates perl-base/,
   );
   assert.match(runtime, /USER nextjs/);
+});
+test("derived LLVM stages reject unpinned, unrelated, forward and incompletely gated parents", () => {
+  const source = readFileSync(
+    new URL("../Dockerfile.api", import.meta.url),
+    "utf8",
+  );
+  const base =
+    "public.ecr.aws/docker/library/node:22-trixie-slim@sha256:b26b04c123d9ff8ab646ceb18b9d75a1173acf64b9a401094b906d27b29338d4";
+  const names = [
+    "vendor-build",
+    "llvm-build-inputs",
+    "llvm-configure-only",
+    "llvm-build",
+    "zlib-build",
+    "runtime",
+  ];
+  assertPatchedPinnedStages(source, names, base);
+  const inputs = source.match(
+    /^FROM [^\n]+ AS llvm-build-inputs\r?\n[\s\S]*?(?=^FROM )/m,
+  )?.[0];
+  assert.ok(inputs);
+  const mutateInputs = (transform) => source.replace(inputs, transform(inputs));
+  for (const malformed of [
+    source.replace(
+      "FROM llvm-build-inputs AS llvm-configure-only",
+      "FROM node:22-trixie-slim AS llvm-configure-only",
+    ),
+    source.replace(
+      "FROM llvm-build-inputs AS llvm-configure-only",
+      "FROM vendor-build AS llvm-configure-only",
+    ),
+    source.replace(
+      "FROM llvm-build-inputs AS llvm-configure-only",
+      "FROM llvm-build AS llvm-configure-only",
+    ),
+    source.replace(
+      "FROM llvm-build-inputs AS llvm-build",
+      "FROM llvm-configure-only AS llvm-build",
+    ),
+    source.replace(
+      `${base} AS llvm-build-inputs`,
+      "node:22-trixie-slim AS llvm-build-inputs",
+    ),
+    source.replace("AS llvm-build-inputs", "AS unexpected-llvm-inputs"),
+    source.replace(
+      "&& dpkg --compare-versions",
+      "&& dpkg --unverified-versions",
+    ),
+    mutateInputs((stage) =>
+      stage.replace(
+        "&& dpkg --compare-versions",
+        "&& dpkg --unverified-versions",
+      ),
+    ),
+    mutateInputs((stage) =>
+      stage.replace('libpcre2-8-0)" ge', 'libpcre2-8-0)" unverified'),
+    ),
+    mutateInputs((stage) => stage.replace("5.40.1-6+deb13u1", "5.40.1-6")),
+    mutateInputs((stage) => stage.replace("10.46-1~deb13u3", "10.46-1")),
+    mutateInputs((stage) =>
+      stage.replace("apt-get install", "apt-get suppressed-install"),
+    ),
+    mutateInputs((stage) =>
+      stage.replace("apt-get update --error-on=any", "apt-get update"),
+    ),
+  ]) {
+    assert.notEqual(malformed, source);
+    assert.throws(() => assertPatchedPinnedStages(malformed, names, base));
+  }
 });
 
 test("HTTPS backports are enabled only after CA bootstrap and updates fail closed", () => {

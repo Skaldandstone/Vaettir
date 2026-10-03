@@ -1,6 +1,22 @@
 #!/bin/sh
 # Isolated signed Debian source rebuild. No prebuilt library rewriting or aliases.
 set -eu
+build_mode=complete
+case "$#" in
+  0) ;;
+  1)
+    if test "$1" = '--configure-only'; then
+      build_mode=configure-only
+    else
+      printf '%s\n' 'Unsupported LLVM build mode' >&2
+      exit 64
+    fi
+    ;;
+  *)
+    printf '%s\n' 'Unsupported LLVM build arguments' >&2
+    exit 64
+    ;;
+esac
 test "$(dpkg --print-architecture)" = amd64
 test "$(dpkg-query -W -f='${Version}' libllvm19)" = '1:19.1.7-3+b1'
 test "$(dpkg-query -W -f='${Version}' clang-19)" = '1:19.1.7-3+b1'
@@ -16,6 +32,7 @@ export DEB_CXXFLAGS_MAINT_STRIP='-g -O2'
 export DEB_CFLAGS_MAINT_APPEND='-O2 -g1'
 export DEB_CXXFLAGS_MAINT_APPEND='-O2 -g1'
 native_jobs=$(node /build/scripts/native-build-concurrency.mjs)
+measurement_started=$(date +%s)
 printf 'LLVM bounded compiler jobs: %s\n' "$native_jobs"
 configure_llvm() {
   build_dir=$1
@@ -128,6 +145,71 @@ for (const variant of ['release', 'assertions']) {
 fs.writeFileSync('/build/llvm-build-graphs.json', JSON.stringify(graphs) + '\n');
 console.log('Bounded LLVM dry-run dependency graphs (not acceptance): ' + JSON.stringify(graphs));
 NODE
+# This bounded receipt measures only configuration/scheduling/storage. It cannot
+# certify any compiled unit, candidate DSO, package, runtime or deployment.
+timeout 30 node - "$build_mode" "$native_jobs" "$measurement_started" <<'NODE'
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const os = require('node:os');
+const { createHash } = require('node:crypto');
+const { spawnSync } = require('node:child_process');
+const [mode, jobs, started] = process.argv.slice(2);
+assert.ok(['complete', 'configure-only'].includes(mode));
+assert.ok(/^\d+$/.test(jobs) && Number(jobs) >= 1 && Number(jobs) <= 12);
+assert.ok(/^\d+$/.test(started));
+const hash = (path, bound) => {
+  assert.ok(fs.statSync(path).size <= bound, 'Bounded measurement input required');
+  return createHash('sha256').update(fs.readFileSync(path)).digest('hex');
+};
+const paths = ['/build/llvm-source', '/build/llvm-build', '/build/llvm-assert-build'];
+const usage = spawnSync('/usr/bin/du', ['-sk', '--', ...paths], { timeout: 10000, maxBuffer: 4096, encoding: 'utf8', env: { LC_ALL: 'C' } });
+assert.ifError(usage.error);
+assert.equal(usage.status, 0, 'Storage measurement failed');
+const usageLines = usage.stdout.trimEnd().split('\n');
+assert.equal(usageLines.length, paths.length);
+const directoryKiB = {};
+usageLines.forEach((line, index) => {
+  const fields = line.split('\t');
+  assert.equal(fields.length, 2);
+  assert.ok(/^\d+$/.test(fields[0]));
+  assert.equal(fields[1], paths[index]);
+  directoryKiB[paths[index]] = fields[0];
+});
+const disk = fs.statfsSync('/build', { bigint: true });
+assert.ok(fs.statSync('/build/llvm-build-graphs.json').size <= 16384);
+const receipt = {
+  schemaVersion: 1,
+  purpose: 'llvm-configure-only-measurement',
+  mode,
+  elapsedSeconds: Math.floor(Date.now() / 1000) - Number(started),
+  boundedCompilerJobs: Number(jobs),
+  availableParallelism: os.availableParallelism(),
+  effectiveMemoryBytes: Math.min(os.totalmem(), process.constrainedMemory() || os.totalmem()),
+  diskAvailableBytes: String(disk.bavail * disk.bsize),
+  diskTotalBytes: String(disk.blocks * disk.bsize),
+  directoryKiB,
+  sourceManifestSha256: hash('/build/llvm-sources/source-manifest.json', 65536),
+  recipeSha256: hash('/build/scripts/build-llvm-runtime.sh', 65536),
+  releaseCacheSha256: hash('/build/llvm-build/CMakeCache.txt', 1024 * 1024),
+  assertionsCacheSha256: hash('/build/llvm-assert-build/CMakeCache.txt', 1024 * 1024),
+  graphs: JSON.parse(fs.readFileSync('/build/llvm-build-graphs.json', 'utf8')),
+  compileAcceptance: false,
+  unitAcceptance: false,
+  candidateAbiAcceptance: false,
+  packageCreated: false,
+  runtimeAcceptance: false,
+  authenticatedAcceptance: false,
+};
+assert.ok(Number.isSafeInteger(receipt.elapsedSeconds) && receipt.elapsedSeconds >= 0);
+const serialized = JSON.stringify(receipt);
+assert.ok(Buffer.byteLength(serialized) <= 8192, 'Bounded diagnostic receipt required');
+fs.writeFileSync('/build/llvm-configure-only-measurement.json', serialized + '\n');
+console.log('LLVM_CONFIGURE_ONLY_MEASUREMENT=' + serialized);
+NODE
+if test "$build_mode" = configure-only; then
+  printf '%s\n' 'LLVM configure-only diagnostic complete; no LLVM target compilation, unit acceptance or package'
+  exit 0
+fi
 # Resource-aware compiler concurrency remains bounded independently from link
 # concurrency. All targets and unit checks stay fail-hard within their deadlines.
 timeout 7200 cmake --build /build/llvm-build --parallel "$native_jobs" --target LLVM llvm-config
