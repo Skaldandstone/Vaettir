@@ -1,0 +1,13 @@
+# Native builder continuation, October 3, 2026
+
+This is a builder-only continuation framework, not an accepted runtime image or deployment. The existing complete LLVM build remains the default runtime donor. Optional checkpoint and diagnostic stages cannot donate packages to that graph.
+
+Explicit phases are prepare, release core, release units, three assertion-compilation partitions, and final. The partitions are derived from the complete generated Ninja UnitTests object graph and do not establish unit acceptance. Final reruns both original complete unit suites, then the unchanged strict ABI, ARM policy, CPU/JIT, dependency, stripping and Debian package gates. The default complete recipe runs each full suite once without checkpoint hashing or partition overhead.
+
+Each continuation requires the exact predecessor receipt hash and verifies the complete ancestry plus bounded source, recipe, compiler, installed-package, configuration, object graph and build-tree inventories. Missing, replaced, oversized, out-of-order, replayed or mixed-source receipts fail closed. Only generated package-output paths are excluded from source identity. Generated object targets reject traversal, absolute paths and leading option characters. Failed or in-flight phases cannot silently resume.
+
+Receipts distinguish unit/package proof from runtime, authenticated and deployment acceptance. Candidate ABI receipts are checked against actual library bytes. Immutable external image/source digests, trusted transport, available storage, transfer duration and measured per-phase deadlines are separate mandatory release gates. A source hash chain is not a substitute for authenticating an imported builder image.
+
+Validation uses synthetic files and mocked shell commands for adverse receipt cases, default complete-suite counts and fail-hard sequencing. The operational suite explicitly includes the new checkpoint tests. Initial operational failures were investigated: invalid-argument diagnostics, a test slice cutting through a new shell guard, and exact stage contracts. Corrections preserve refusal and acceptance assertions. This source evidence does not prove a phase fits the observed 45-minute CodeBuild window, that registry caching works, or that complete native suites/package/runtime/security gates have passed.
+
+Use only the existing authorized build infrastructure. Do not substitute an earlier binary, consume the release-core diagnostic as a package, waive unit assertions, provision new workers, or change production until all independent release gates pass. Current service timeout behavior and larger-worker quotas remain separate investigated constraints.

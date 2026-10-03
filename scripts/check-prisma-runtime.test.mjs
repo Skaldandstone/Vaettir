@@ -85,6 +85,21 @@ test("missing query libraries, schema failures, wrong output and timeout fail cl
   }
 });
 
+const checkpointParents = new Map([
+  ["llvm-checkpoint-prepare", "llvm-build-inputs"],
+  ["llvm-checkpoint-release-core", "llvm-checkpoint-prepare"],
+  ["llvm-checkpoint-release-units", "llvm-checkpoint-release-core"],
+  ["llvm-checkpoint-assertion-compile-1", "llvm-checkpoint-release-units"],
+  [
+    "llvm-checkpoint-assertion-compile-2",
+    "llvm-checkpoint-assertion-compile-1",
+  ],
+  [
+    "llvm-checkpoint-assertion-compile-3",
+    "llvm-checkpoint-assertion-compile-2",
+  ],
+  ["llvm-checkpoint-final", "llvm-checkpoint-assertion-compile-3"],
+]);
 function assertPatchedPinnedStages(source, names, base) {
   const stages = [
     ...source.matchAll(
@@ -97,6 +112,43 @@ function assertPatchedPinnedStages(source, names, base) {
   );
   const verifiedBaseStages = new Set();
   for (const [, image, name, content] of stages) {
+    if (checkpointParents.has(name)) {
+      assert.equal(
+        image,
+        checkpointParents.get(name),
+        "Checkpoint must inherit only its exact predecessor",
+      );
+      assert.ok(
+        verifiedBaseStages.has(image),
+        "Checkpoint predecessor must already be verified",
+      );
+      const phase = name.slice("llvm-checkpoint-".length);
+      assert.match(
+        content,
+        new RegExp(
+          `RUN sh /build/scripts/build-llvm-runtime\\.sh --phase ${phase}(?:[ \\r\\n])`,
+        ),
+      );
+      if (phase === "prepare") {
+        assert.match(
+          content,
+          /vaettir\.artifact-purpose="llvm-builder-checkpoint" vaettir\.runtime-eligible="false"/,
+        );
+        assert.doesNotMatch(content, /--predecessor-sha256/);
+      } else {
+        const previous = checkpointParents
+          .get(name)
+          .slice("llvm-checkpoint-".length);
+        assert.ok(
+          content.includes(
+            `--predecessor-sha256 "$(node /build/scripts/native-llvm-checkpoint.mjs hash ${previous})"`,
+          ),
+          "Exact predecessor receipt hash must be supplied",
+        );
+      }
+      verifiedBaseStages.add(name);
+      continue;
+    }
     if (
       name === "llvm-configure-only" ||
       name === "llvm-release-core-only" ||
@@ -153,6 +205,7 @@ test("all image stages pin the same Trixie base and install patched Perl/OpenSSL
         "llvm-configure-only",
         "llvm-release-core-only",
         "llvm-build",
+        ...checkpointParents.keys(),
         "zlib-build",
         "runtime",
       ],
@@ -193,10 +246,58 @@ test("derived LLVM stages reject unpinned, unrelated, forward and incompletely g
     "llvm-configure-only",
     "llvm-release-core-only",
     "llvm-build",
+    ...checkpointParents.keys(),
     "zlib-build",
     "runtime",
   ];
   assertPatchedPinnedStages(source, names, base);
+  for (const [name, parent] of checkpointParents) {
+    for (const invalidParent of [
+      "node:22-trixie-slim",
+      "llvm-release-core-only",
+      "vendor-build",
+      "llvm-checkpoint-final",
+    ]) {
+      if (invalidParent === parent) continue;
+      assert.throws(() =>
+        assertPatchedPinnedStages(
+          source.replace(
+            `FROM ${parent} AS ${name}`,
+            `FROM ${invalidParent} AS ${name}`,
+          ),
+          names,
+          base,
+        ),
+      );
+    }
+  }
+  assert.throws(() =>
+    assertPatchedPinnedStages(
+      source.replace(
+        "--phase assertion-compile-2",
+        "--phase assertion-compile-3",
+      ),
+      names,
+      base,
+    ),
+  );
+  assert.throws(() =>
+    assertPatchedPinnedStages(
+      source.replace("hash assertion-compile-3", "hash release-core"),
+      names,
+      base,
+    ),
+  );
+  assert.throws(() =>
+    assertPatchedPinnedStages(
+      source.replace(
+        'vaettir.runtime-eligible="false"\nRUN sh /build/scripts/build-llvm-runtime.sh --phase prepare',
+        'vaettir.runtime-eligible="true"\nRUN sh /build/scripts/build-llvm-runtime.sh --phase prepare',
+      ),
+      names,
+      base,
+    ),
+  );
   const inputs = source.match(
     /^FROM [^\n]+ AS llvm-build-inputs\r?\n[\s\S]*?(?=^FROM )/m,
   )?.[0];

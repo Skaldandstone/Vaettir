@@ -2,6 +2,12 @@
 # Isolated signed Debian source rebuild. No prebuilt library rewriting or aliases.
 set -eu
 build_mode=complete
+checkpoint_phase=
+checkpoint_predecessor=
+reject_checkpoint_arguments() {
+  printf '%s\n' 'Unsupported LLVM build checkpoint arguments' >&2
+  exit 64
+}
 case "$#" in
   0) ;;
   1)
@@ -14,6 +20,21 @@ case "$#" in
       exit 64
     fi
     ;;
+  2|4)
+    test "$1" = '--phase' || reject_checkpoint_arguments
+    checkpoint_phase=$2
+    case "$checkpoint_phase" in
+      prepare) test "$#" = 2 || reject_checkpoint_arguments ;;
+      release-core|release-units|assertion-compile-1|assertion-compile-2|assertion-compile-3|final)
+        test "$#" = 4 && test "$3" = '--predecessor-sha256' || reject_checkpoint_arguments
+        checkpoint_predecessor=$4
+        test "${#checkpoint_predecessor}" = 64 || reject_checkpoint_arguments
+        case "$checkpoint_predecessor" in *[!0-9a-f]*) reject_checkpoint_arguments ;; esac
+        ;;
+      *) reject_checkpoint_arguments ;;
+    esac
+    build_mode=checkpoint
+    ;;
   *)
     printf '%s\n' 'Unsupported LLVM build arguments' >&2
     exit 64
@@ -22,6 +43,16 @@ esac
 test "$(dpkg --print-architecture)" = amd64
 test "$(dpkg-query -W -f='${Version}' libllvm19)" = '1:19.1.7-3+b1'
 test "$(dpkg-query -W -f='${Version}' clang-19)" = '1:19.1.7-3+b1'
+native_jobs=$(node /build/scripts/native-build-concurrency.mjs)
+checkpoint=/build/scripts/native-llvm-checkpoint.mjs
+if test "$build_mode" = checkpoint && test "$checkpoint_phase" != prepare; then
+  # Validate a pinned predecessor before any command can mutate build inputs.
+  node "$checkpoint" begin --phase "$checkpoint_phase" --predecessor-sha256 "$checkpoint_predecessor"
+fi
+if test "$build_mode" = checkpoint && test "$checkpoint_phase" = prepare; then
+  node "$checkpoint" begin --phase prepare
+fi
+if test "$build_mode" != checkpoint || test "$checkpoint_phase" = prepare; then
 cd /build/llvm-sources
 gpgv --keyring /usr/share/keyrings/debian-keyring.gpg llvm-toolchain-19_19.1.7-3.dsc
 dpkg-source -x llvm-toolchain-19_19.1.7-3.dsc /build/llvm-source
@@ -33,7 +64,6 @@ export DEB_CFLAGS_MAINT_STRIP='-g -O2'
 export DEB_CXXFLAGS_MAINT_STRIP='-g -O2'
 export DEB_CFLAGS_MAINT_APPEND='-O2 -g1'
 export DEB_CXXFLAGS_MAINT_APPEND='-O2 -g1'
-native_jobs=$(node /build/scripts/native-build-concurrency.mjs)
 measurement_started=$(date +%s)
 printf 'LLVM bounded compiler jobs: %s\n' "$native_jobs"
 configure_llvm() {
@@ -161,7 +191,7 @@ const os = require('node:os');
 const { createHash } = require('node:crypto');
 const { spawnSync } = require('node:child_process');
 const [mode, jobs, started] = process.argv.slice(2);
-assert.ok(['complete', 'configure-only', 'release-core-only'].includes(mode));
+assert.ok(['complete', 'configure-only', 'release-core-only', 'checkpoint'].includes(mode));
 assert.ok(/^\d+$/.test(jobs) && Number(jobs) >= 1 && Number(jobs) <= 24);
 assert.ok(/^\d+$/.test(started));
 const hash = (path, bound) => {
@@ -217,6 +247,14 @@ if test "$build_mode" = configure-only; then
   printf '%s\n' 'LLVM configure-only diagnostic complete; no LLVM target compilation, unit acceptance or package'
   exit 0
 fi
+if test "$build_mode" = checkpoint; then
+  cp /usr/lib/x86_64-linux-gnu/libLLVM.so.19.1 /build/llvm-baseline-library
+  node "$checkpoint" plan
+  node "$checkpoint" finish prepare
+  exit 0
+fi
+fi
+if test "$build_mode" != checkpoint || test "$checkpoint_phase" = release-core; then
 # Resource-aware compiler concurrency remains bounded independently from link
 # concurrency. All targets and unit checks stay fail-hard within their deadlines.
 timeout 7200 cmake --build /build/llvm-build --parallel "$native_jobs" --target LLVM llvm-config
@@ -263,11 +301,40 @@ NODE
   printf '%s\n' 'LLVM release-core diagnostic only; complete units, package, runtime and deployment NOT accepted'
   exit 0
 fi
+if test "$build_mode" = checkpoint; then
+  node "$checkpoint" finish release-core
+  exit 0
+fi
+fi
 
+if test "$build_mode" = complete || test "$checkpoint_phase" = release-units; then
 timeout 1800 cmake --build /build/llvm-build --parallel "$native_jobs" --target check-llvm-unit
+if test "$build_mode" = checkpoint; then
+  node "$checkpoint" finish release-units
+  exit 0
+fi
+fi
+# Fixed partitions are derived from the complete generated UnitTests object
+# graph. They only precompile; the complete suite is compulsory in final.
+for partition in 1 2 3; do
+  phase=assertion-compile-$partition
+  if test "$build_mode" = checkpoint && test "$checkpoint_phase" = "$phase"; then
+    node "$checkpoint" compile "$partition" "$native_jobs"
+    node "$checkpoint" finish "$phase"
+    if test "$build_mode" = checkpoint; then exit 0; fi
+  fi
+done
+test "$build_mode" = complete || test "$checkpoint_phase" = final
+cd /build/llvm-source
+# Rerun BOTH complete suites on the same pinned final builder. No checkpoint,
+# individual object or older unit receipt substitutes for these gates.
+if test "$build_mode" = checkpoint; then
+  timeout 1800 cmake --build /build/llvm-build --parallel "$native_jobs" --target check-llvm-unit
+fi
 # Static asserted objects/tests are confined to this separate directory. Running
 # the complete asserted suite is compulsory, not a fallback for ABI failure.
 timeout 7200 cmake --build /build/llvm-assert-build --parallel "$native_jobs" --target check-llvm-unit
+if test "$build_mode" = checkpoint; then node "$checkpoint" record-units; fi
 timeout 10 /lib64/ld-linux-x86-64.so.2 --library-path /build/llvm-build/lib /build/llvm-arm-policy > /build/llvm-arm-candidate.txt
 cmp /build/llvm-arm-baseline.txt /build/llvm-arm-candidate.txt
 printf '%s\n' 'Independent LLVM ARM parser policy preserved: 33 baseline/candidate vectors; complete release and assertion-enabled unit suites passed'
@@ -312,3 +379,4 @@ printf '%s\n' 'libLLVM 19.1 libllvm19 (>= 1:19.1.7-3+vaettir1)' > "$root/DEBIAN/
 printf '%s\n' 'activate-noawait ldconfig' > "$root/DEBIAN/triggers"
 dpkg-deb --root-owner-group --build "$root" /build/libllvm19_19.1.7-3+vaettir1_amd64.deb
 test "$(dpkg-deb -f /build/libllvm19_19.1.7-3+vaettir1_amd64.deb Source)" = 'llvm-toolchain-19 (1:19.1.7-3)'
+if test "$build_mode" = checkpoint; then node "$checkpoint" finish final; fi

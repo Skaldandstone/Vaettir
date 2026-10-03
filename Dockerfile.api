@@ -35,7 +35,7 @@ RUN apt-get update --error-on=any \
     && dpkg --compare-versions "$(dpkg-query -W -f='${Version}' libpcre2-8-0)" ge '10.46-1~deb13u3' \
     && rm -rf /var/lib/apt/lists/*
 WORKDIR /build
-COPY scripts/fetch-runtime-vendor-sources.mjs scripts/runtime-vendor-sources.json scripts/build-llvm-runtime.sh scripts/native-build-concurrency.mjs scripts/check-llvm-package.mjs scripts/check-llvm-jit.c scripts/check-llvm-arm-defaults.cpp scripts/reconcile-llvm-arm-unit-fixture.mjs /build/scripts/
+COPY scripts/fetch-runtime-vendor-sources.mjs scripts/runtime-vendor-sources.json scripts/build-llvm-runtime.sh scripts/native-build-concurrency.mjs scripts/native-llvm-checkpoint.mjs scripts/check-llvm-package.mjs scripts/check-llvm-jit.c scripts/check-llvm-arm-defaults.cpp scripts/reconcile-llvm-arm-unit-fixture.mjs /build/scripts/
 RUN node /build/scripts/fetch-runtime-vendor-sources.mjs /build/llvm-sources llvm
 
 # Explicit non-runtime diagnostic target. Measure both configurations and dry
@@ -53,6 +53,32 @@ RUN sh /build/scripts/build-llvm-runtime.sh --release-core-only
 # It does not inherit the diagnostic target or any diagnostic-only acceptance.
 FROM llvm-build-inputs AS llvm-build
 RUN sh /build/scripts/build-llvm-runtime.sh
+
+# Explicit builder-only continuation targets. Registry transport, immutable
+# digest verification, storage and transfer budgets must be accepted separately.
+# None of these optional targets is a donor for the default runtime graph.
+# A continuation inherits only the preceding checkpoint, never a diagnostic.
+FROM llvm-build-inputs AS llvm-checkpoint-prepare
+LABEL vaettir.artifact-purpose="llvm-builder-checkpoint" vaettir.runtime-eligible="false"
+RUN sh /build/scripts/build-llvm-runtime.sh --phase prepare
+
+FROM llvm-checkpoint-prepare AS llvm-checkpoint-release-core
+RUN sh /build/scripts/build-llvm-runtime.sh --phase release-core --predecessor-sha256 "$(node /build/scripts/native-llvm-checkpoint.mjs hash prepare)"
+
+FROM llvm-checkpoint-release-core AS llvm-checkpoint-release-units
+RUN sh /build/scripts/build-llvm-runtime.sh --phase release-units --predecessor-sha256 "$(node /build/scripts/native-llvm-checkpoint.mjs hash release-core)"
+
+FROM llvm-checkpoint-release-units AS llvm-checkpoint-assertion-compile-1
+RUN sh /build/scripts/build-llvm-runtime.sh --phase assertion-compile-1 --predecessor-sha256 "$(node /build/scripts/native-llvm-checkpoint.mjs hash release-units)"
+
+FROM llvm-checkpoint-assertion-compile-1 AS llvm-checkpoint-assertion-compile-2
+RUN sh /build/scripts/build-llvm-runtime.sh --phase assertion-compile-2 --predecessor-sha256 "$(node /build/scripts/native-llvm-checkpoint.mjs hash assertion-compile-1)"
+
+FROM llvm-checkpoint-assertion-compile-2 AS llvm-checkpoint-assertion-compile-3
+RUN sh /build/scripts/build-llvm-runtime.sh --phase assertion-compile-3 --predecessor-sha256 "$(node /build/scripts/native-llvm-checkpoint.mjs hash assertion-compile-2)"
+
+FROM llvm-checkpoint-assertion-compile-3 AS llvm-checkpoint-final
+RUN sh /build/scripts/build-llvm-runtime.sh --phase final --predecessor-sha256 "$(node /build/scripts/native-llvm-checkpoint.mjs hash assertion-compile-3)"
 
 # Build the maintained native zlib package with the pinned upstream recovery
 # patch. Signed source, original ABI and fail-hard checks gate the artifact.

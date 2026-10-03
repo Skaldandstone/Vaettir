@@ -17,7 +17,7 @@ const candidate = {
   needed: ["libffi.so.8", "libstdc++.so.6"],
   symbols: "LLVMVersion@@LLVM_19.1 T 456 18\nLLVMGlobal@@LLVM_19.1 D 789 8\n",
 };
-test("LLVM mode preflight accepts only explicit diagnostic modes or complete before system access", () => {
+test("LLVM mode preflight accepts only explicit diagnostics, complete or pinned checkpoints before system access", () => {
   const script = readFileSync(
     new URL("./build-llvm-runtime.sh", import.meta.url),
     "utf8",
@@ -37,6 +37,11 @@ test("LLVM mode preflight accepts only explicit diagnostic modes or complete bef
     [[], "complete"],
     [["--configure-only"], "configure-only"],
     [["--release-core-only"], "release-core-only"],
+    [["--phase", "prepare"], "checkpoint"],
+    [
+      ["--phase", "release-core", "--predecessor-sha256", "a".repeat(64)],
+      "checkpoint",
+    ],
   ]) {
     const result = spawnSync(
       shell,
@@ -56,6 +61,12 @@ test("LLVM mode preflight accepts only explicit diagnostic modes or complete bef
     ["--release-core-only=1"],
     ["--release-core-only", "--configure-only"],
     [""],
+    ["--phase", "unknown"],
+    ["--phase", "final"],
+    ["--phase", "prepare", "--predecessor-sha256", "a".repeat(64)],
+    ["--phase", "final", "--predecessor-sha256", "not-a-hash"],
+    ["--phase", "final", "--predecessor-sha256", "A".repeat(64)],
+    ["--phase", "final", "--predecessor-sha256", "a".repeat(65)],
   ]) {
     const result = spawnSync(
       shell,
@@ -346,7 +357,7 @@ test("strict early ABI failure stops the real builder sequence before either uni
     "utf8",
   ).replaceAll("\r\n", "\n");
   const start = script.indexOf(
-    'timeout 7200 cmake --build /build/llvm-build --parallel "$native_jobs" --target LLVM llvm-config',
+    'if test "$build_mode" != checkpoint || test "$checkpoint_phase" = release-core; then',
   );
   const end = script.indexOf("# Static asserted objects/tests", start);
   assert.ok(start > 0 && end > start);
@@ -361,6 +372,8 @@ test("strict early ABI failure stops the real builder sequence before either uni
   const fixture = `set -eu
 native_jobs=2
 build_mode=complete
+checkpoint_phase=
+cd() { return 0; }
 timeout() {
   printf '%s\\n' "timeout:$*"
   case "$*" in
