@@ -1,0 +1,3 @@
+# Git archive honors these attributes even when a Windows checkout uses CRLF.
+# Shell entrypoints must be portable to the Linux build and release containers.
+*.sh text eol=lf
