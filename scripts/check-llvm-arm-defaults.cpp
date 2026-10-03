@@ -33,9 +33,14 @@ static constexpr PolicyCase policy[] = {
     {"arm-none-eabi", "", "arm926ej-s"},
     {"arm-unknown-linux-gnueabi", "", "arm926ej-s"},
     {"armeb-unknown-linux-gnueabi", "", "arm926ej-s"},
-    {"arm-none-eabihf", "", "cortex-a8"},
-    {"thumb-none-eabihf", "", "cortex-a8"},
-    {"armeb-none-eabihf", "", "cortex-a8"},
+    // Raw three-component triples have no environment. Keep these controls,
+    // and explicitly supply vendor/OS for the separate hard-float fixtures.
+    {"arm-none-eabihf", "", "arm926ej-s"},
+    {"thumb-none-eabihf", "", "arm926ej-s"},
+    {"armeb-none-eabihf", "", "arm926ej-s"},
+    {"arm-unknown-none-eabihf", "", "cortex-a8"},
+    {"thumb-unknown-none-eabihf", "", "cortex-a8"},
+    {"armeb-unknown-none-eabihf", "", "cortex-a8"},
     {"arm-unknown-linux-gnueabihf", "", "cortex-a8"},
     {"thumb-unknown-linux-gnueabihf", "", "cortex-a8"},
     {"armeb-unknown-linux-gnueabihf", "", "cortex-a8"},
@@ -48,17 +53,29 @@ static constexpr PolicyCase policy[] = {
 };
 
 static constexpr std::size_t policyCount = sizeof(policy) / sizeof(policy[0]);
-static_assert(policyCount == 30, "Every frozen policy vector must be retained");
+static_assert(policyCount == 33, "Every frozen policy vector must be retained");
 
 int main() {
   // Emit no success receipt until every exact baseline-policy assertion passed.
   for (const PolicyCase &entry : policy) {
     const llvm::Triple triple(entry.triple);
+    const bool hardFloatEnvironment =
+        triple.getEnvironment() == llvm::Triple::EABIHF ||
+        triple.getEnvironment() == llvm::Triple::GNUEABIHF ||
+        triple.getEnvironment() == llvm::Triple::GNUEABIHFT64 ||
+        triple.getEnvironment() == llvm::Triple::MuslEABIHF;
+    const bool intendedHardFloat = llvm::StringRef(entry.triple).contains("eabi") &&
+                                   llvm::StringRef(entry.expected) == "cortex-a8";
+    if (intendedHardFloat != hardFloatEnvironment) {
+      std::fprintf(stderr, "LLVM ARM fixture environment mismatch: %s\n", entry.triple);
+      return 1;
+    }
     const llvm::StringRef actual =
         llvm::ARM::getARMCPUForArch(triple, entry.march);
     if (actual != entry.expected) {
-      std::fprintf(stderr, "LLVM ARM policy mismatch: %s march=%s expected=%s\n",
-                   entry.triple, entry.march, entry.expected);
+      std::fprintf(stderr, "LLVM ARM policy mismatch: %s march=%s expected=%s actual=%.*s\n",
+                   entry.triple, entry.march, entry.expected,
+                   static_cast<int>(actual.size()), actual.data());
       return 1;
     }
   }

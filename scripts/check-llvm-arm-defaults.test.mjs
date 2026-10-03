@@ -10,13 +10,13 @@ const rows = [...source.matchAll(/\{"([^"]+)", "([^"]*)", "([^"]*)"\}/g)].map(
   ([, triple, march, cpu]) => ({ triple, march, cpu }),
 );
 
-test("authored fixed probe preserves all 30 exact distro policies with unchanged controls", () => {
-  assert.equal(rows.length, 30);
+test("authored fixed probe preserves all 33 exact distro policies with unchanged controls", () => {
+  assert.equal(rows.length, 33);
   assert.equal(
     new Set(rows.map((row) => `${row.triple}\0${row.march}`)).size,
-    30,
+    33,
   );
-  assert.match(source, /static_assert\(policyCount == 30/);
+  assert.match(source, /static_assert\(policyCount == 33/);
   for (const triple of [
     "arm-none-eabi",
     "armeb-none-eabi",
@@ -29,7 +29,7 @@ test("authored fixed probe preserves all 30 exact distro policies with unchanged
     );
   for (const arch of ["arm", "thumb", "armeb"])
     for (const suffix of [
-      "none-eabihf",
+      "unknown-none-eabihf",
       "unknown-linux-gnueabihf",
       "unknown-linux-gnueabihft64",
       "unknown-linux-musleabihf",
@@ -39,7 +39,13 @@ test("authored fixed probe preserves all 30 exact distro policies with unchanged
         rows.find((row) => row.triple === triple),
         { triple, march: "", cpu: "cortex-a8" },
       );
+      assert.equal(triple.split("-").length, 4);
     }
+  for (const arch of ["arm", "thumb", "armeb"])
+    assert.deepEqual(
+      rows.find((row) => row.triple === `${arch}-none-eabihf`),
+      { triple: `${arch}-none-eabihf`, march: "", cpu: "arm926ej-s" },
+    );
   for (const [triple, march, cpu] of [
     ["arm--nacl", "", "cortex-a8"],
     ["arm--openbsd", "", "cortex-a8"],
@@ -68,6 +74,8 @@ test("source contract requires real public parser call, fail-hard exact match be
   assert.match(source, /#include "llvm\/TargetParser\/ARMTargetParser.h"/);
   assert.match(source, /#include "llvm\/TargetParser\/Triple.h"/);
   assert.match(source, /const llvm::Triple triple\(entry.triple\)/);
+  assert.match(source, /triple.getEnvironment\(\) == llvm::Triple::EABIHF/);
+  assert.match(source, /if \(intendedHardFloat != hardFloatEnvironment\)/);
   assert.match(source, /llvm::ARM::getARMCPUForArch\(triple, entry.march\)/);
   assert.match(source, /if \(actual != entry.expected\)[\s\S]*?return 1;/);
   assert.ok(

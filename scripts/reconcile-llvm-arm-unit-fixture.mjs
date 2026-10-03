@@ -37,7 +37,7 @@ export function reconcileKnownAssertion(source) {
 
 // The signed distro patches intentionally change runtime policy but omit one
 // upstream fixture. Never infer a new expected value from a candidate result.
-// The separately authored 30-vector probe must first validate the authenticated
+// The separately authored 33-vector probe must first validate the authenticated
 // installed Debian baseline; production/parser code and every other assertion
 // stay byte-for-byte unchanged. This is our fixture repair, not a Debian fix.
 export function reconcileFixture(source, baselineProof) {
@@ -50,14 +50,14 @@ export function reconcileFixture(source, baselineProof) {
   const lines = baselineProof.trimEnd().split("\n");
   assert.equal(
     lines.length,
-    31,
+    34,
     "Complete independent baseline proof required",
   );
-  assert.equal(lines.at(-1), "VAETTIR_LLVM_ARM_POLICY_VECTORS=30");
-  assert.equal(new Set(lines).size, 31);
+  assert.equal(lines.at(-1), "VAETTIR_LLVM_ARM_POLICY_VECTORS=33");
+  assert.equal(new Set(lines).size, 34);
   assert.ok(
     lines
-      .slice(0, 30)
+      .slice(0, 33)
       .every((line) =>
         /^VAETTIR_LLVM_ARM_POLICY [a-z0-9-]+ march=[a-z0-9-]* cpu=[a-z0-9-]*$/.test(
           line,
@@ -71,7 +71,7 @@ export function reconcileFixture(source, baselineProof) {
   );
   assert.ok(
     lines.includes(
-      "VAETTIR_LLVM_ARM_POLICY arm-none-eabihf march= cpu=cortex-a8",
+      "VAETTIR_LLVM_ARM_POLICY arm-unknown-none-eabihf march= cpu=cortex-a8",
     ),
   );
   const repaired = reconcileKnownAssertion(source);

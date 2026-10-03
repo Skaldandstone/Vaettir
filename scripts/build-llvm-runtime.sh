@@ -58,7 +58,7 @@ timeout 7200 cmake --build /build/llvm-build --parallel "$native_jobs" --target 
 timeout 1800 cmake --build /build/llvm-build --parallel "$native_jobs" --target check-llvm-unit
 timeout 10 /lib64/ld-linux-x86-64.so.2 --library-path /build/llvm-build/lib /build/llvm-arm-policy > /build/llvm-arm-candidate.txt
 cmp /build/llvm-arm-baseline.txt /build/llvm-arm-candidate.txt
-printf '%s\n' 'Independent LLVM ARM parser policy preserved: 30 baseline/candidate vectors; all unit assertions retained'
+printf '%s\n' 'Independent LLVM ARM parser policy preserved: 33 baseline/candidate vectors; all unit assertions retained'
 test "$(/build/llvm-build/bin/llvm-config --version)" = '19.1.7'
 node /build/scripts/check-llvm-package.mjs \
   /usr/lib/x86_64-linux-gnu/libLLVM.so.19.1 \
