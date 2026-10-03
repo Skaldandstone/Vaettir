@@ -2,6 +2,7 @@ import { router } from "./trpc.js";
 import { defectMapRouter } from "./routers/defectMap.js";
 import { caseTraceabilityRouter } from "./routers/caseTraceability.js";
 import { caseExecutionHistoryRouter } from "./routers/caseExecutionHistory.js";
+import { caseVersionReviewRouter } from "./routers/caseVersionReview.js";
 import { reportSnapshotsRouter } from "./routers/reportSnapshots.js";
 import {driveConnectionsRouter} from "./routers/driveConnections.js";
 import {linearConnectionsRouter} from "./routers/linearConnections.js";
@@ -51,6 +52,7 @@ export const appRouter = router({
   defectMap: defectMapRouter,
   caseTraceability: caseTraceabilityRouter,
   caseExecutionHistory: caseExecutionHistoryRouter,
+  caseVersionReview: caseVersionReviewRouter,
   reportSnapshots: reportSnapshotsRouter,
   driveConnections:driveConnectionsRouter,
   linearConnections:linearConnectionsRouter,

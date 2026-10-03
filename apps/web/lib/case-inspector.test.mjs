@@ -13,8 +13,14 @@ const source = (path) => readFileSync(new URL(path, import.meta.url), "utf8");
 test("inspector reserves close-button space and keeps scenario phases legible on mobile", () => {
   const css = source("../components/CaseInspector.module.css");
   assert.match(css, /\.header\s*\{[^}]*padding-right:\s*44px/s);
-  assert.match(css, /Scenario steps[^}]*min-width:\s*72px;[^}]*white-space:\s*nowrap/s);
-  assert.match(css, /@media \(max-width: 480px\)[\s\S]*\.titleBlock\s*\{\s*flex-basis:\s*100%/);
+  assert.match(
+    css,
+    /Scenario steps[^}]*min-width:\s*72px;[^}]*white-space:\s*nowrap/s,
+  );
+  assert.match(
+    css,
+    /@media \(max-width: 480px\)[\s\S]*\.titleBlock\s*\{\s*flex-basis:\s*100%/,
+  );
 });
 
 test("inspector labels preserve acronyms and make domain values readable without changing values", () => {
@@ -101,13 +107,24 @@ test("prerequisite search excludes self, archived and selected cases without mut
 });
 
 test("prerequisites are found by project case key, while retaining internal relation identity", () => {
-  const cases = [{ id: "internal-login", displayId: "atwist-01", title: "Login", archived: false }];
-  assert.deepEqual(prerequisitePage(cases, "dependent", [], "ATWIST-01", 0).items, cases);
+  const cases = [
+    {
+      id: "internal-login",
+      displayId: "atwist-01",
+      title: "Login",
+      archived: false,
+    },
+  ];
+  assert.deepEqual(
+    prerequisitePage(cases, "dependent", [], "ATWIST-01", 0).items,
+    cases,
+  );
   assert.equal(cases[0].id, "internal-login");
 });
 
 test("procedure comes before on-demand editing and all tab panels remain mounted", () => {
   const detail = source("../components/TestCaseDetailContent.tsx");
+  const versions = source("../components/TestCaseVersionReview.tsx");
   assert.ok(
     detail.indexOf('aria-label="Scenario steps"') <
       detail.indexOf("<TestCasePrerequisites"),
@@ -133,7 +150,10 @@ test("procedure comes before on-demand editing and all tab panels remain mounted
     /<TestDesignReview\s+testCaseId=\{testCaseId\}\s+readOnly=\{readOnly\}/,
   );
   assert.match(detail, /<AutomationDraftSection/);
-  assert.match(detail, /<TestCaseVersionHistorySection/);
+  assert.match(
+    detail,
+    /<TestCaseVersionReview[\s\S]*?key=\{tc.id\}[\s\S]*?projectId=\{projectId\}[\s\S]*?testCaseId=\{tc.id\}[\s\S]*?active=\{section === "History"\}[\s\S]*?readOnly=\{readOnly\}/,
+  );
   assert.match(detail, /Case ID: <code>\{tc.displayId\}<\/code>/);
   assert.match(detail, /\.\.\.tc.given.map/);
   assert.match(detail, /\.\.\.tc.when.map/);
@@ -141,9 +161,51 @@ test("procedure comes before on-demand editing and all tab panels remain mounted
   assert.match(detail, /tc.steps.map/);
   assert.match(detail, /Prerequisites do not replace scenario/);
   assert.match(detail, /View case history/);
-  assert.match(detail, /View saved procedure/);
-  assert.match(detail, /Not recorded in this version/);
+  assert.match(versions, /Compare current case with v/);
+  assert.match(
+    versions,
+    /<ComparisonValue\s+value=\{field.current\}\s+field=\{field.key\}/,
+  );
+  assert.match(
+    versions,
+    /<ComparisonValue\s+value=\{field.saved\}\s+field=\{field.key\}/,
+  );
+  assert.match(versions, /Not recorded/);
+  assert.match(versions, /Expected action \/ data/);
+  assert.match(versions, /Expected result/);
+  assert.match(versions, /Expected response/);
+  assert.match(versions, /Recorded image\/video references/);
   assert.match(detail, /Background \/ setup context/);
+});
+
+test("case version comparison retains reviewed requests and gates selected-field restores", () => {
+  const versions = source("../components/TestCaseVersionReview.tsx");
+  assert.match(versions, /caseVersionReview.list.useQuery/);
+  assert.match(versions, /enabled: active/);
+  assert.match(
+    versions,
+    /enabled: open && version !== null && !baseline && !pending/,
+  );
+  assert.match(versions, /f.changed && f.restorable/);
+  assert.match(versions, /expectedCaseRevision: baseline.expectedCaseRevision/);
+  assert.match(
+    versions,
+    /expectedVersionRevision: baseline.expectedVersionRevision/,
+  );
+  assert.match(versions, /requestId: crypto.randomUUID\(\)/);
+  assert.match(versions, /const attempt = pending \?\?/);
+  assert.match(versions, /retainedTraceabilityReceipt\(attempt, error\)/);
+  assert.match(versions, /Retry reviewed restore/);
+  assert.match(
+    versions,
+    /!confirmed \|\| !reason.trim\(\) \|\| !fields.length/,
+  );
+  assert.match(versions, /readOnly \|\| !baseline.canRestore/);
+  assert.match(versions, /restorationNotice/);
+  assert.match(versions, /current profile/);
+  assert.match(versions, /v.restoration.reason/);
+  assert.match(versions, /No credits are used/);
+  assert.match(versions, /size="wide"/);
 });
 
 test("viewer can browse paid design recommendations without evidence intake, charge or apply controls", () => {
@@ -173,7 +235,10 @@ test("prerequisite edits retain expected baseline, unavailable selections and ex
   assert.match(prerequisites, /Cancel changes/);
   assert.match(prerequisites, /Save prerequisites/);
   assert.match(prerequisites, /Execution prerequisites/);
-  assert.match(prerequisites, /does not replace Given, When, Then or any steps/);
+  assert.match(
+    prerequisites,
+    /does not replace Given, When, Then or any steps/,
+  );
   assert.match(prerequisites, /\{item.displayId\}/);
   assert.doesNotMatch(prerequisites, /<select/);
 });
