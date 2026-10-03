@@ -65,6 +65,12 @@ cc -O2 -Wall -Wextra -Werror -I "$build_root/source" "$regression" "$library" -o
 timeout 30 node "$checker" "$library" "$baseline" "$build_root/zlib-runtime-regression" > "$build_root/zlib-runtime-proof.json"
 
 # Instrument zlib itself, not just a caller linked to an uninstrumented DSO.
+# dpkg-buildpackage's --after-build un-applies quilt patches. Restore the
+# maintained series and our exact upstream fix before making an instrumented
+# source copy; require reverse-patch context as proof the fix is present.
+cd "$build_root/source"
+dpkg-source --before-build .
+patch --batch --fuzz=0 -R -p1 --dry-run < debian/patches/vaettir-gzwrite-recovery.patch
 for variant in unpatched instrumented; do
   if test "$variant" = instrumented; then cp -a "$build_root/source" "$build_root/instrumented"; fi
   cd "$build_root/$variant"

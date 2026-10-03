@@ -308,6 +308,22 @@ test("sanitizers instrument the library and require the exact vulnerable negativ
     /requireZlibNegativeControl\(\{diagnostic,status:error.status,signal:error.signal\}\)/,
   );
   assert.match(builder, /timeout:20000,maxBuffer:32768/);
+  const packaged = builder.indexOf("dpkg-buildpackage -b -us -uc");
+  const restored = builder.indexOf("dpkg-source --before-build .", packaged);
+  const patchVerified = builder.indexOf(
+    "patch --batch --fuzz=0 -R -p1 --dry-run",
+    restored,
+  );
+  const instrumentedCopy = builder.indexOf(
+    'cp -a "$build_root/source" "$build_root/instrumented"',
+  );
+  assert.ok(
+    packaged >= 0 &&
+      restored > packaged &&
+      patchVerified > restored &&
+      instrumentedCopy > patchVerified,
+    "Sanitizer source must restore and verify the patch after Debian package cleanup, before copying",
+  );
   const fixture = readFileSync(
     new URL("./zlib-runtime-regression.c", import.meta.url),
     "utf8",
