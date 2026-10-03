@@ -208,6 +208,22 @@ test("case version comparison retains reviewed requests and gates selected-field
   assert.match(versions, /size="wide"/);
 });
 
+test("version restore review rejects stale cached refresh failures and paused queries", () => {
+  const versions = source("../components/TestCaseVersionReview.tsx");
+  assert.match(versions, /currentCaseVersionPreview\(compare, version\)/);
+  assert.match(versions, /staleTime: 0/);
+  assert.match(
+    versions,
+    /if \(\s*open &&\s*!baseline &&\s*!pending &&\s*fromVersion === null &&\s*freshPreview\s*\)/,
+  );
+  assert.match(versions, /setBaseline\(freshPreview\)/);
+  assert.match(versions, /compare.isPaused && !baseline/);
+  assert.match(versions, /Waiting for a connection to refresh the comparison/);
+  assert.match(versions, /compare.error && !baseline/);
+  assert.match(versions, /Retry comparison/);
+  assert.doesNotMatch(versions, /setBaseline\(compare.data\)/);
+});
+
 test("historical version pairs stay read-only and require a separate current-case restore baseline", () => {
   const versions = source("../components/TestCaseVersionReview.tsx");
   assert.match(versions, /caseVersionReview.compareHistorical.useQuery/);

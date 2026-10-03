@@ -8,6 +8,7 @@ import {
 } from "@/lib/trpcReact";
 import { Modal } from "./Modal";
 import { inspectorLabel } from "@/lib/case-inspector";
+import { currentCaseVersionPreview } from "@/lib/case-version-baseline";
 import {
   retainedTraceabilityReceipt,
   type TraceabilityReceipt,
@@ -173,6 +174,7 @@ export function TestCaseVersionReview({
         !baseline &&
         !pending,
       retry: false,
+      staleTime: 0,
       refetchOnWindowFocus: false,
     },
   );
@@ -189,30 +191,17 @@ export function TestCaseVersionReview({
       refetchOnWindowFocus: false,
     },
   );
+  const freshPreview = currentCaseVersionPreview(compare, version);
   useEffect(() => {
-    if (
-      !baseline &&
-      !pending &&
-      fromVersion === null &&
-      !compare.isFetching &&
-      compare.data &&
-      compare.data.versionNumber === version
-    ) {
-      setBaseline(compare.data);
+    if (open && !baseline && !pending && fromVersion === null && freshPreview) {
+      setBaseline(freshPreview);
       setFields(
-        compare.data.fields
+        freshPreview.fields
           .filter((f) => f.changed && f.restorable)
           .map((f) => f.key),
       );
     }
-  }, [
-    baseline,
-    pending,
-    compare.data,
-    compare.isFetching,
-    version,
-    fromVersion,
-  ]);
+  }, [open, baseline, pending, freshPreview, fromVersion]);
   const restore = trpcReact.caseVersionReview.restore.useMutation();
   function changeComparison(nextVersion: number, nextFrom: number | null) {
     if (pending || restore.isPending) return;
@@ -531,6 +520,12 @@ export function TestCaseVersionReview({
         )}
         {fromVersion === null && compare.isFetching && !baseline && (
           <p role="status">Loading comparison…</p>
+        )}
+        {fromVersion === null && compare.isPaused && !baseline && (
+          <p role="status">
+            Waiting for a connection to refresh the comparison. Restore is
+            unavailable until a current comparison succeeds.
+          </p>
         )}
         {fromVersion === null && compare.error && !baseline && (
           <div role="alert">
