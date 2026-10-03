@@ -44,6 +44,11 @@ FROM llvm-build-inputs AS llvm-configure-only
 LABEL vaettir.artifact-purpose="llvm-configure-only" vaettir.runtime-eligible="false"
 RUN sh /build/scripts/build-llvm-runtime.sh --configure-only
 
+# Actual release-core/ABI diagnosis cannot feed the runtime package graph.
+FROM llvm-build-inputs AS llvm-release-core-only
+LABEL vaettir.artifact-purpose="llvm-release-core-only" vaettir.runtime-eligible="false"
+RUN sh /build/scripts/build-llvm-runtime.sh --release-core-only
+
 # Default runtime packaging still requires the entire fail-hard dual build.
 # It does not inherit the diagnostic target or any diagnostic-only acceptance.
 FROM llvm-build-inputs AS llvm-build

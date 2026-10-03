@@ -97,7 +97,11 @@ function assertPatchedPinnedStages(source, names, base) {
   );
   const verifiedBaseStages = new Set();
   for (const [, image, name, content] of stages) {
-    if (name === "llvm-configure-only" || name === "llvm-build") {
+    if (
+      name === "llvm-configure-only" ||
+      name === "llvm-release-core-only" ||
+      name === "llvm-build"
+    ) {
       assert.equal(
         image,
         "llvm-build-inputs",
@@ -147,6 +151,7 @@ test("all image stages pin the same Trixie base and install patched Perl/OpenSSL
         "vendor-build",
         "llvm-build-inputs",
         "llvm-configure-only",
+        "llvm-release-core-only",
         "llvm-build",
         "zlib-build",
         "runtime",
@@ -186,6 +191,7 @@ test("derived LLVM stages reject unpinned, unrelated, forward and incompletely g
     "vendor-build",
     "llvm-build-inputs",
     "llvm-configure-only",
+    "llvm-release-core-only",
     "llvm-build",
     "zlib-build",
     "runtime",
@@ -197,6 +203,18 @@ test("derived LLVM stages reject unpinned, unrelated, forward and incompletely g
   assert.ok(inputs);
   const mutateInputs = (transform) => source.replace(inputs, transform(inputs));
   for (const malformed of [
+    source.replace(
+      "FROM llvm-build-inputs AS llvm-release-core-only",
+      "FROM node:22-trixie-slim AS llvm-release-core-only",
+    ),
+    source.replace(
+      "FROM llvm-build-inputs AS llvm-release-core-only",
+      "FROM llvm-build AS llvm-release-core-only",
+    ),
+    source.replace(
+      "FROM llvm-build-inputs AS llvm-release-core-only",
+      "FROM vendor-build AS llvm-release-core-only",
+    ),
     source.replace(
       "FROM llvm-build-inputs AS llvm-configure-only",
       "FROM node:22-trixie-slim AS llvm-configure-only",

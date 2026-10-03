@@ -7,6 +7,8 @@ case "$#" in
   1)
     if test "$1" = '--configure-only'; then
       build_mode=configure-only
+    elif test "$1" = '--release-core-only'; then
+      build_mode=release-core-only
     else
       printf '%s\n' 'Unsupported LLVM build mode' >&2
       exit 64
@@ -154,7 +156,7 @@ const os = require('node:os');
 const { createHash } = require('node:crypto');
 const { spawnSync } = require('node:child_process');
 const [mode, jobs, started] = process.argv.slice(2);
-assert.ok(['complete', 'configure-only'].includes(mode));
+assert.ok(['complete', 'configure-only', 'release-core-only'].includes(mode));
 assert.ok(/^\d+$/.test(jobs) && Number(jobs) >= 1 && Number(jobs) <= 12);
 assert.ok(/^\d+$/.test(started));
 const hash = (path, bound) => {
@@ -219,6 +221,44 @@ timeout 7200 cmake --build /build/llvm-build --parallel "$native_jobs" --target 
 node /build/scripts/check-llvm-package.mjs \
   /usr/lib/x86_64-linux-gnu/libLLVM.so.19.1 \
   /build/llvm-build/lib/libLLVM.so.19.1 /build/llvm-early-abi.json
+# Explicit non-runtime diagnosis of the actual core/strict ABI, within the
+# observed build deadline. No package or complete-unit acceptance follows.
+if test "$build_mode" = release-core-only; then
+  timeout 30 node - "$measurement_started" <<'NODE'
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const { createHash } = require('node:crypto');
+const hash = (path) => createHash('sha256').update(fs.readFileSync(path)).digest('hex');
+const path = '/build/llvm-early-abi.json';
+assert.ok(fs.statSync(path).size <= 65536, 'Bounded strict ABI receipt required');
+const receipt = {
+  schemaVersion: 1,
+  purpose: 'llvm-release-core-only',
+  recipeSha256: hash('/build/scripts/build-llvm-runtime.sh'),
+  sourceManifestSha256: hash('/build/llvm-sources/source-manifest.json'),
+  releaseCacheSha256: hash('/build/llvm-build/CMakeCache.txt'),
+  baselineSha256: hash('/usr/lib/x86_64-linux-gnu/libLLVM.so.19.1'),
+  candidateSha256: hash('/build/llvm-build/lib/libLLVM.so.19.1'),
+  elapsedSeconds: Math.floor(Date.now() / 1000) - Number(process.argv[2]),
+  strictAbi: JSON.parse(fs.readFileSync(path, 'utf8')),
+  releaseCoreCompiled: true,
+  earlyAbiAcceptance: true,
+  unitAcceptance: false,
+  packageCreated: false,
+  runtimeAcceptance: false,
+  authenticatedAcceptance: false,
+  deploymentAcceptance: false,
+};
+assert.ok(Number.isSafeInteger(receipt.elapsedSeconds) && receipt.elapsedSeconds >= 0);
+const serialized = JSON.stringify(receipt);
+assert.ok(Buffer.byteLength(serialized) <= 73728, 'Bounded diagnostic receipt required');
+fs.writeFileSync('/build/llvm-release-core-only.json', serialized + '\n');
+console.log('LLVM_RELEASE_CORE_ONLY=' + serialized);
+NODE
+  printf '%s\n' 'LLVM release-core diagnostic only; complete units, package, runtime and deployment NOT accepted'
+  exit 0
+fi
+
 timeout 1800 cmake --build /build/llvm-build --parallel "$native_jobs" --target check-llvm-unit
 # Static asserted objects/tests are confined to this separate directory. Running
 # the complete asserted suite is compulsory, not a fallback for ABI failure.

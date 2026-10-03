@@ -17,7 +17,7 @@ const candidate = {
   needed: ["libffi.so.8", "libstdc++.so.6"],
   symbols: "LLVMVersion@@LLVM_19.1 T 456 18\nLLVMGlobal@@LLVM_19.1 D 789 8\n",
 };
-test("LLVM mode preflight accepts only default or exact configure-only before system access", () => {
+test("LLVM mode preflight accepts only explicit diagnostic modes or complete before system access", () => {
   const script = readFileSync(
     new URL("./build-llvm-runtime.sh", import.meta.url),
     "utf8",
@@ -36,6 +36,7 @@ test("LLVM mode preflight accepts only default or exact configure-only before sy
   for (const [args, expected] of [
     [[], "complete"],
     [["--configure-only"], "configure-only"],
+    [["--release-core-only"], "release-core-only"],
   ]) {
     const result = spawnSync(
       shell,
@@ -52,6 +53,8 @@ test("LLVM mode preflight accepts only default or exact configure-only before sy
     ["configure-only"],
     ["--configure-only", "extra"],
     ["--configure-only", "--configure-only"],
+    ["--release-core-only=1"],
+    ["--release-core-only", "--configure-only"],
     [""],
   ]) {
     const result = spawnSync(
@@ -313,6 +316,7 @@ test("strict early ABI failure stops the real builder sequence before either uni
   // No compiler, ELF, source download, database, cloud or unit runner is invoked.
   const fixture = `set -eu
 native_jobs=2
+build_mode=complete
 timeout() {
   printf '%s\\n' "timeout:$*"
   case "$*" in
@@ -389,6 +393,50 @@ ${sequence}`;
     script.slice(0, start),
     /if test "\$build_mode" = configure-only;/,
   );
+});
+
+test("release-core diagnosis cannot run units, produce packages or feed runtime images", () => {
+  const script = readFileSync(
+    new URL("./build-llvm-runtime.sh", import.meta.url),
+    "utf8",
+  ).replaceAll("\r\n", "\n");
+  const early = script.indexOf("/build/llvm-early-abi.json");
+  const stop = script.indexOf(
+    'if test "$build_mode" = release-core-only; then',
+  );
+  const units = script.indexOf("timeout 1800 cmake --build /build/llvm-build");
+  assert.ok(early > 0 && stop > early && units > stop);
+  const branch = script.slice(stop, units);
+  assert.match(branch, /exit 0\nfi/);
+  assert.match(branch, /releaseCoreCompiled: true/);
+  assert.match(branch, /earlyAbiAcceptance: true/);
+  for (const key of [
+    "unitAcceptance",
+    "packageCreated",
+    "runtimeAcceptance",
+    "authenticatedAcceptance",
+    "deploymentAcceptance",
+  ]) {
+    assert.ok(branch.includes(key + ": false"), key);
+  }
+  assert.doesNotMatch(branch, /dpkg-deb|check-llvm-unit|docker push/);
+  const docker = readFileSync(
+    new URL("../Dockerfile.api", import.meta.url),
+    "utf8",
+  ).replaceAll("\r\n", "\n");
+  assert.match(
+    docker,
+    /^FROM llvm-build-inputs AS llvm-release-core-only\nLABEL vaettir.artifact-purpose="llvm-release-core-only" vaettir.runtime-eligible="false"\nRUN sh \/build\/scripts\/build-llvm-runtime.sh --release-core-only$/m,
+  );
+  assert.doesNotMatch(
+    docker,
+    /(?:COPY --from=|^FROM )llvm-release-core-only(?:\s|$)/m,
+  );
+  assert.match(
+    docker,
+    /^FROM llvm-build-inputs AS llvm-build\nRUN sh \/build\/scripts\/build-llvm-runtime.sh$/m,
+  );
+  assert.match(docker, /COPY --from=llvm-build \/build\/libllvm19/);
 });
 
 test("weak template functions and weak virtual-table storage remain strictly ABI guarded", () => {
