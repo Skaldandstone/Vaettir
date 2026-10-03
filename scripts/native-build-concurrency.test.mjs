@@ -4,6 +4,7 @@ import { readFileSync } from "node:fs";
 import {
   nativeBuildConcurrency,
   cgroupCpuLimit,
+  MAX_NATIVE_BUILD_JOBS,
 } from "./native-build-concurrency.mjs";
 const gib = 1024 ** 3;
 test("compiler concurrency respects CPU reserve, memory budget and hard ceiling", () => {
@@ -11,8 +12,12 @@ test("compiler concurrency respects CPU reserve, memory budget and hard ceiling"
     [2, 4, 1],
     [4, 8, 2],
     [8, 16, 6],
-    [72, 144, 12],
-    [36, 72, 12],
+    [72, 144, 24],
+    [36, 72, 24],
+    [36, 16, 6],
+    [8, 72, 6],
+    [36, 32, 14],
+    [16, 32, 14],
     [8, 4, 1],
     [1, 1, 1],
   ]) {
@@ -27,6 +32,34 @@ test("compiler concurrency respects CPU reserve, memory budget and hard ceiling"
     );
   for (const memoryBytes of [0, -1, NaN, Infinity, 1.5])
     assert.throws(() => nativeBuildConcurrency({ cpus: 8, memoryBytes }));
+});
+test("larger workers cannot bypass reserves or the absolute compiler ceiling", () => {
+  assert.equal(MAX_NATIVE_BUILD_JOBS, 24);
+  for (const cpus of [1, 2, 4, 8, 16, 36, 72, 1024]) {
+    for (const memory of [1, 4, 8, 16, 32, 48, 72, 144, 1024]) {
+      const jobs = nativeBuildConcurrency({ cpus, memoryBytes: memory * gib });
+      assert.ok(
+        Number.isSafeInteger(jobs) &&
+          jobs >= 1 &&
+          jobs <= MAX_NATIVE_BUILD_JOBS,
+      );
+      if (jobs > 1) {
+        assert.ok(jobs + 2 <= cpus, "Two CPUs stay reserved");
+        assert.ok(
+          jobs * 2 + 4 <= memory,
+          "Compiler memory and reserve fit the worker",
+        );
+      }
+    }
+  }
+  const script = readFileSync(
+    new URL("./build-llvm-runtime.sh", import.meta.url),
+    "utf8",
+  );
+  assert.match(
+    script,
+    new RegExp(`Number\\(jobs\\) <= ${MAX_NATIVE_BUILD_JOBS}`),
+  );
 });
 test("both compile and all unit gates use bounded resource jobs with one linker", () => {
   const script = readFileSync(

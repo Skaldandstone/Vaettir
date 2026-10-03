@@ -162,7 +162,7 @@ const { createHash } = require('node:crypto');
 const { spawnSync } = require('node:child_process');
 const [mode, jobs, started] = process.argv.slice(2);
 assert.ok(['complete', 'configure-only', 'release-core-only'].includes(mode));
-assert.ok(/^\d+$/.test(jobs) && Number(jobs) >= 1 && Number(jobs) <= 12);
+assert.ok(/^\d+$/.test(jobs) && Number(jobs) >= 1 && Number(jobs) <= 24);
 assert.ok(/^\d+$/.test(started));
 const hash = (path, bound) => {
   assert.ok(fs.statSync(path).size <= bound, 'Bounded measurement input required');

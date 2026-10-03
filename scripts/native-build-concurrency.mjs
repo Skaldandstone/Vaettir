@@ -2,6 +2,8 @@ import { availableParallelism, totalmem } from "node:os";
 import { pathToFileURL } from "node:url";
 import { readFileSync } from "node:fs";
 
+export const MAX_NATIVE_BUILD_JOBS = 24;
+
 export function nativeBuildConcurrency({ cpus, memoryBytes }) {
   if (
     !Number.isSafeInteger(cpus) ||
@@ -14,10 +16,15 @@ export function nativeBuildConcurrency({ cpus, memoryBytes }) {
   }
   const gib = 1024 ** 3;
   // Reserve two CPUs and 4GiB for other build stages. Budget 2GiB per compiler
-  // job and never exceed twelve, even on an unusually large host.
+  // job. Larger existing build workers may use up to 24 jobs, but smaller
+  // workers retain the exact same resource budget. Link concurrency is one.
   return Math.max(
     1,
-    Math.min(12, cpus - 2, Math.floor((memoryBytes - 4 * gib) / (2 * gib))),
+    Math.min(
+      MAX_NATIVE_BUILD_JOBS,
+      cpus - 2,
+      Math.floor((memoryBytes - 4 * gib) / (2 * gib)),
+    ),
   );
 }
 
