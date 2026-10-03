@@ -139,6 +139,9 @@ export async function previewOrgHardDelete(
     testCaseComplianceControl,
     testCaseDataset,
     testCaseSource,
+    caseTraceabilityLink,
+    caseTraceabilityWrite,
+    caseTraceabilityState,
     testCasePrerequisite,
     testCaseStep,
     testCaseVersion,
@@ -214,6 +217,15 @@ export async function previewOrgHardDelete(
     }),
     prisma.testCaseSource.count({
       where: { testCaseId: { in: scope.testCaseIds } },
+    }),
+    prisma.caseTraceabilityLink.count({
+      where: { projectId: { in: scope.projectIds } },
+    }),
+    prisma.caseTraceabilityWrite.count({
+      where: { projectId: { in: scope.projectIds } },
+    }),
+    prisma.caseTraceabilityState.count({
+      where: { projectId: { in: scope.projectIds } },
     }),
     prisma.testCasePrerequisite.count({
       where: { projectId: { in: scope.projectIds } },
@@ -292,6 +304,9 @@ export async function previewOrgHardDelete(
       TestCaseComplianceControl: testCaseComplianceControl,
       TestCaseDataset: testCaseDataset,
       TestCaseSource: testCaseSource,
+      CaseTraceabilityLink: caseTraceabilityLink,
+      CaseTraceabilityWrite: caseTraceabilityWrite,
+      CaseTraceabilityState: caseTraceabilityState,
       TestCasePrerequisite: testCasePrerequisite,
       TestCaseStep: testCaseStep,
       TestCaseVersion: testCaseVersion,
@@ -448,6 +463,24 @@ export async function hardDeleteOrganization(
     );
     await del("TestCasePrerequisite", () =>
       tx.testCasePrerequisite.deleteMany({
+        where: { projectId: { in: scope.projectIds } },
+      }),
+    );
+    // Active and removed traceability links both restrict case/requirement
+    // deletion. Count the leaves explicitly before the state would cascade
+    // them, and scope by owned projects, never the caller-provided native IDs.
+    await del("CaseTraceabilityLink", () =>
+      tx.caseTraceabilityLink.deleteMany({
+        where: { projectId: { in: scope.projectIds } },
+      }),
+    );
+    await del("CaseTraceabilityWrite", () =>
+      tx.caseTraceabilityWrite.deleteMany({
+        where: { projectId: { in: scope.projectIds } },
+      }),
+    );
+    await del("CaseTraceabilityState", () =>
+      tx.caseTraceabilityState.deleteMany({
         where: { projectId: { in: scope.projectIds } },
       }),
     );
