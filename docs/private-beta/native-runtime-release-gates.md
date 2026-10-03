@@ -1,6 +1,6 @@
 # Native runtime release gates
 
-Next standalone must retain the maintained native bundle's actual version receipt. Sharp's dynamic optional require otherwise falls back to reporting only libvips, hiding embedded XML/Expat provenance. A narrow monorepo tracing include preserves `@img/sharp-libvips-linux-x64@1.3.4/versions.json`; missing metadata still fails the exact runtime guard. See [Next output tracing documentation](https://nextjs.org/docs/app/api-reference/config/next-config-js/output).
+Next standalone must retain the maintained native bundle's actual version receipt. Sharp's dynamic optional require otherwise falls back to reporting only libvips, hiding embedded XML/Expat provenance. Next15 route tracing includes do not repair the core server trace and skip static/edge pages. After building, copy the actual resolved published bundle's bounded version JSON to its corresponding verified standalone dependency path. Reject escapes, mismatched packages, different-content collisions and missing metadata; never generate replacement version values. The isolated final-image guard still checks all exact versions and pixels. See [Next output tracing documentation](https://nextjs.org/docs/app/api-reference/config/next-config-js/output).
 
 These are implementation and validation contracts, not a deployment or whole-product security certification.
 

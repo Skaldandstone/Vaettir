@@ -67,7 +67,9 @@ jobs:
         run: pnpm --filter @vaettir/db run seed
 
       - name: Verify operations contracts
-        run: pnpm test:operations
+        run: |
+          pnpm test:operations
+          node --test scripts/retain-sharp-version-receipt.test.mjs
 
       - name: Verify installed native image-processing runtime
         run: node scripts/check-image-runtime.mjs
@@ -92,3 +94,6 @@ jobs:
           NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: pk_test_ZXhhbXBsZS5jb20k
           NEXT_PUBLIC_API_URL: https://api.synthetic.example
         run: pnpm build
+
+      - name: Verify standalone native image receipt packaging
+        run: node scripts/retain-sharp-version-receipt.mjs

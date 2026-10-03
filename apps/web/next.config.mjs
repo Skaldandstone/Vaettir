@@ -19,14 +19,6 @@ const nextConfig = {
   // artifact produced by CI and Docker builds.
   output: process.env.VAETTIR_LOCAL_BUILD === "1" ? undefined : "standalone",
   outputFileTracingRoot: fileURLToPath(new URL("../../", import.meta.url)),
-  // Sharp loads this native bundle's version receipt through a dynamic require.
-  // Keep the actual package receipt in standalone, not a hand-written copy or
-  // an assertion fallback that hides missing embedded-library provenance.
-  outputFileTracingIncludes: {
-    "/*": [
-      "../../node_modules/.pnpm/@img+sharp-libvips-linux-x64@1.3.4/node_modules/@img/sharp-libvips-linux-x64/versions.json",
-    ],
-  },
 };
 
 // P10-05: withSentryConfig also uploads source maps on build, which needs
