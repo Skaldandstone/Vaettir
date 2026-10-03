@@ -283,7 +283,9 @@ test("release ABI policy is independent from a mandatory complete assertion-enab
   const asserted = script.indexOf(
     'timeout 7200 cmake --build /build/llvm-assert-build --parallel "$native_jobs" --target check-llvm-unit',
   );
-  const abi = script.indexOf("node /build/scripts/check-llvm-package.mjs");
+  const abi = script.indexOf(
+    "/build/llvm-build/lib/libLLVM.so.19.1 /build/llvm-abi.json",
+  );
   assert.ok(release > 0 && asserted > release && abi > asserted);
   assert.match(
     script,
@@ -291,6 +293,104 @@ test("release ABI policy is independent from a mandatory complete assertion-enab
   );
   assert.doesNotMatch(script, /-DCMAKE_BUILD_TYPE=Release(?:\s|$)/);
 });
+test("strict early ABI failure stops the real builder sequence before either unit graph", () => {
+  const script = readFileSync(
+    new URL("./build-llvm-runtime.sh", import.meta.url),
+    "utf8",
+  ).replaceAll("\r\n", "\n");
+  const start = script.indexOf(
+    'timeout 7200 cmake --build /build/llvm-build --parallel "$native_jobs" --target LLVM llvm-config',
+  );
+  const end = script.indexOf("# Static asserted objects/tests", start);
+  assert.ok(start > 0 && end > start);
+  const sequence = script.slice(start, end);
+  assert.equal(
+    sequence.match(/node \/build\/scripts\/check-llvm-package\.mjs/g)?.length,
+    1,
+  );
+  assert.match(sequence, /\/build\/llvm-early-abi.json/);
+  // Exercise the actual shell sequence with synthetic command implementations.
+  // No compiler, ELF, source download, database, cloud or unit runner is invoked.
+  const fixture = `set -eu
+native_jobs=2
+timeout() {
+  printf '%s\\n' "timeout:$*"
+  case "$*" in
+    *'--target LLVM llvm-config')
+      if test "$FAILURE" = core; then return 38; fi ;;
+    *'--target check-llvm-unit')
+      if test "$FAILURE" = unit; then return 39; fi ;;
+    *) return 40 ;;
+  esac
+}
+node() {
+  printf '%s\\n' "node:$*"
+  if test "$FAILURE" = abi; then return 37; fi
+}
+${sequence}`;
+  const shell =
+    process.platform === "win32"
+      ? "C:/Program Files/Git/bin/bash.exe"
+      : "/bin/sh";
+  const run = (failure) =>
+    spawnSync(shell, ["-s"], {
+      input: fixture,
+      encoding: "utf8",
+      timeout: 10000,
+      maxBuffer: 8192,
+      windowsHide: true,
+      env: {
+        ...(process.env.SystemRoot
+          ? { SystemRoot: process.env.SystemRoot }
+          : {}),
+        FAILURE: failure,
+      },
+    });
+  for (const [failure, expectedStatus, expectedCalls] of [
+    ["core", 38, 1],
+    ["abi", 37, 2],
+    ["unit", 39, 3],
+    ["none", 0, 3],
+  ]) {
+    const result = run(failure);
+    assert.ifError(result.error);
+    assert.equal(result.status, expectedStatus, result.stderr);
+    const calls = result.stdout.trim().split("\n");
+    assert.equal(calls.length, expectedCalls);
+    assert.match(calls[0], /--target LLVM llvm-config$/);
+    if (calls.length > 1)
+      assert.equal(
+        calls[1],
+        "node:/build/scripts/check-llvm-package.mjs /usr/lib/x86_64-linux-gnu/libLLVM.so.19.1 /build/llvm-build/lib/libLLVM.so.19.1 /build/llvm-early-abi.json",
+      );
+    if (calls.length > 2) assert.match(calls[2], /--target check-llvm-unit$/);
+  }
+  const early = script.indexOf("/build/llvm-early-abi.json");
+  const releaseUnit = script.indexOf(
+    'timeout 1800 cmake --build /build/llvm-build --parallel "$native_jobs" --target check-llvm-unit',
+  );
+  const assertedUnit = script.indexOf(
+    'timeout 7200 cmake --build /build/llvm-assert-build --parallel "$native_jobs" --target check-llvm-unit',
+  );
+  const final = script.indexOf(
+    "/build/llvm-build/lib/libLLVM.so.19.1 /build/llvm-abi.json",
+  );
+  const stripped = script.indexOf("/build/llvm-stripped-abi.json");
+  const packaged = script.indexOf("dpkg-deb --root-owner-group --build");
+  assert.ok(
+    early > start &&
+      releaseUnit > early &&
+      assertedUnit > releaseUnit &&
+      final > assertedUnit &&
+      stripped > final &&
+      packaged > stripped,
+  );
+  assert.match(
+    script.slice(0, start),
+    /if test "\$build_mode" = configure-only;/,
+  );
+});
+
 test("weak template functions and weak virtual-table storage remain strictly ABI guarded", () => {
   const release = {
     ...baseline,

@@ -213,6 +213,12 @@ fi
 # Resource-aware compiler concurrency remains bounded independently from link
 # concurrency. All targets and unit checks stay fail-hard within their deadlines.
 timeout 7200 cmake --build /build/llvm-build --parallel "$native_jobs" --target LLVM llvm-config
+# Reject the known release blocker before compiling either complete unit graph.
+# This is an additional fail-hard check, not unit or package acceptance; repeat
+# compatibility after both suites and again on the final stripped package below.
+node /build/scripts/check-llvm-package.mjs \
+  /usr/lib/x86_64-linux-gnu/libLLVM.so.19.1 \
+  /build/llvm-build/lib/libLLVM.so.19.1 /build/llvm-early-abi.json
 timeout 1800 cmake --build /build/llvm-build --parallel "$native_jobs" --target check-llvm-unit
 # Static asserted objects/tests are confined to this separate directory. Running
 # the complete asserted suite is compulsory, not a fallback for ABI failure.
