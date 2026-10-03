@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { spawnSync } from "node:child_process";
 import { renderImmutableTaskDefinition } from "./render-ecs-task-definition.mjs";
 
 const commit = "a".repeat(40);
@@ -208,4 +209,42 @@ test("rejects all repository tags, schemes and malformed references, not only la
     }).containerDefinitions[0].image,
     `localhost:5000/vaettir/api@${imageDigest}`,
   );
+});
+
+test("CLI parse and validation failures never echo potentially sensitive input", () => {
+  for (const input of [
+    '{"sensitive": "synthetic-secret-marker",broken',
+    JSON.stringify({
+      containerDefinitions: [{ name: "synthetic-secret-marker" }],
+    }),
+  ]) {
+    const result = spawnSync(
+      process.execPath,
+      [
+        "scripts/render-ecs-task-definition.mjs",
+        "--input",
+        "-",
+        "--output",
+        "-",
+        "--container",
+        "api",
+        "--repository",
+        release.repositoryUri,
+        "--commit",
+        commit,
+        "--digest",
+        imageDigest,
+      ],
+      {
+        input,
+        encoding: "utf8",
+        timeout: 5000,
+        env: { PATH: process.env.PATH, SystemRoot: process.env.SystemRoot },
+      },
+    );
+    assert.equal(result.status, 1);
+    assert.equal(result.stdout, "");
+    assert.match(result.stderr, /Input values were not logged/);
+    assert.doesNotMatch(result.stderr, /synthetic-secret-marker|SyntaxError/);
+  }
 });

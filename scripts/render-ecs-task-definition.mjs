@@ -96,25 +96,34 @@ function readArg(name) {
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
-  const input = readArg("--input");
-  const output = readArg("--output");
-  const rendered = renderImmutableTaskDefinition(
-    JSON.parse(readFileSync(input === "-" ? 0 : input, "utf8")),
-    {
-      containerName: readArg("--container"),
-      repositoryUri: readArg("--repository"),
-      commit: readArg("--commit"),
-      imageDigest: readArg("--digest"),
-      ...(process.argv.includes("--secret-bindings")
-        ? {
-            secretBindings: JSON.parse(
-              readFileSync(readArg("--secret-bindings"), "utf8"),
-            ),
-          }
-        : {}),
-    },
-  );
-  const serialized = `${JSON.stringify(rendered, null, 2)}\n`;
-  if (output === "-") process.stdout.write(serialized);
-  else writeFileSync(output, serialized);
+  try {
+    const input = readArg("--input");
+    const output = readArg("--output");
+    const rendered = renderImmutableTaskDefinition(
+      JSON.parse(readFileSync(input === "-" ? 0 : input, "utf8")),
+      {
+        containerName: readArg("--container"),
+        repositoryUri: readArg("--repository"),
+        commit: readArg("--commit"),
+        imageDigest: readArg("--digest"),
+        ...(process.argv.includes("--secret-bindings")
+          ? {
+              secretBindings: JSON.parse(
+                readFileSync(readArg("--secret-bindings"), "utf8"),
+              ),
+            }
+          : {}),
+      },
+    );
+    const serialized = `${JSON.stringify(rendered, null, 2)}\n`;
+    if (output === "-") process.stdout.write(serialized);
+    else writeFileSync(output, serialized);
+  } catch {
+    // JSON parse errors can contain input excerpts. Task metadata may carry
+    // environment values; never echo input, paths or binding values on failure.
+    console.error(
+      "Task rendering failed: verify release identity, container and nonconflicting secret references. Input values were not logged.",
+    );
+    process.exitCode = 1;
+  }
 }
