@@ -33,8 +33,24 @@ export function verifyLlvmCompatibility(baseline, candidate) {
       !actual ||
       actual.type !== expected.type ||
       actual.size !== expected.size
-    )
-      throw new Error("LLVM exported ABI changed: " + name);
+    ) {
+      const error = new Error(
+        "LLVM exported ABI changed: " +
+          name +
+          "; expected=" +
+          JSON.stringify(expected) +
+          "; actual=" +
+          JSON.stringify(actual ?? null),
+      );
+      error.llvmAbiMismatch = {
+        symbol: name,
+        expected,
+        actual: actual ?? null,
+        baselineExports: before.size,
+        candidateExports: after.size,
+      };
+      throw error;
+    }
   }
   if (!baseline.needed.includes("libxml2.so.2"))
     throw new Error("Unexpected LLVM baseline");
@@ -84,7 +100,38 @@ if (
     throw new Error("LLVM ABI paths required");
   const baseline = inspect(baselinePath);
   const candidate = inspect(candidatePath);
-  const proof = verifyLlvmCompatibility(baseline, candidate);
+  // Builder-local only: a failed Docker layer is not a durable external artifact.
+  // Small, hash-bound mismatch details below are retained in the build log.
+  writeFileSync(
+    receipt + ".inputs.json",
+    JSON.stringify({ baseline, candidate }, null, 2) + "\n",
+    { flag: "wx" },
+  );
+  let proof;
+  try {
+    proof = verifyLlvmCompatibility(baseline, candidate);
+  } catch (error) {
+    console.error(
+      "LLVM ABI failure diagnostic: " +
+        JSON.stringify({
+          baselineSha256: baseline.sha256,
+          candidateSha256: candidate.sha256,
+          baselineSymbolsSha256: createHash("sha256")
+            .update(baseline.symbols)
+            .digest("hex"),
+          candidateSymbolsSha256: createHash("sha256")
+            .update(candidate.symbols)
+            .digest("hex"),
+          baselineSoname: baseline.soname,
+          candidateSoname: candidate.soname,
+          baselineNeeded: baseline.needed,
+          candidateNeeded: candidate.needed,
+          mismatch: error.llvmAbiMismatch ?? null,
+          fullInventoriesBuilderLocalOnly: true,
+        }),
+    );
+    throw error;
+  }
   const compiler = execFileSync("clang++-19", ["--version"], {
     encoding: "utf8",
     timeout: 10_000,
