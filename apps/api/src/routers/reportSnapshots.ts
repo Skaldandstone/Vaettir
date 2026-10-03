@@ -16,6 +16,10 @@ import {
   reportWindow,
 } from "./reportSnapshotScope.js";
 import { testPlanExecutionTemplateSchema } from "../services/qualityExperienceProfile.js";
+import {
+  capturedReportEvidence,
+  reportEvidenceSchema,
+} from "./reportSnapshotEvidence.js";
 
 const hash = (value: unknown) =>
   createHash("sha256").update(JSON.stringify(value)).digest("hex");
@@ -103,6 +107,7 @@ const payloadSchema = z.object({
     })
     .nullable(),
   cohort: z.array(z.object({ id: z.string(), status: z.string() })).max(20000),
+  evidence: reportEvidenceSchema.optional(),
   automationChange: z
     .object({
       baselineId: z.string(),
@@ -414,6 +419,97 @@ export const reportSnapshotsRouter = router({
         return result;
       }),
     ),
+  evidence: protectedProcedure
+    .input(
+      projectInput.extend({
+        id: z.string().length(64),
+        kind: z.enum(["cases", "runs"]),
+        page: z.number().int().min(0).max(400).default(0),
+      }),
+    )
+    .query(({ ctx, input }) =>
+      access(ctx, input.projectId, false, async (tx, orgId) => {
+        const row = await tx.projectReportSnapshot.findFirst({
+          where: {
+            id: input.id,
+            projectId: input.projectId,
+            organizationId: orgId,
+          },
+        });
+        if (!row) throw new TRPCError({ code: "NOT_FOUND" });
+        const payload = payloadSchema.parse(row.payload);
+        if (payload.state === "preview" && row.createdById !== ctx.user.id)
+          throw new TRPCError({ code: "NOT_FOUND" });
+        const start = input.page * 50;
+        if (input.kind === "cases") {
+          const all =
+            payload.evidence?.cases ??
+            payload.cohort.map((c) => ({
+              id: c.id,
+              displayId: "",
+              automationStatus: c.status,
+              priority: null,
+              outcomes: null,
+              plannedRuns: null,
+              notRecordedRuns: null,
+            }));
+          const items = all.slice(start, start + 50);
+          const current = await tx.testCase.findMany({
+            where: {
+              projectId: input.projectId,
+              id: { in: items.map((c) => c.id) },
+            },
+            select: { id: true },
+          });
+          const available = new Set(current.map((c) => c.id));
+          return {
+            kind: "cases" as const,
+            total: all.length,
+            page: input.page,
+            complete: !!payload.evidence,
+            asOf: payload.asOf,
+            items: items.map((c, index) => ({
+              ...c,
+              id: available.has(c.id) ? c.id : null,
+              referenceIndex: start + index + 1,
+              available: available.has(c.id),
+            })),
+          };
+        }
+        const all =
+          payload.evidence?.runs ??
+          (payload.scope?.contributingRunIds ?? []).map((id) => ({
+            id,
+            startedAt: null,
+            provider: null,
+            outcomes: null,
+            plannedCases: null,
+            notRecordedCases: null,
+          }));
+        const items = all.slice(start, start + 50);
+        const current = await tx.testRun.findMany({
+          where: {
+            projectId: input.projectId,
+            id: { in: items.map((r) => r.id) },
+          },
+          select: { id: true },
+        });
+        const available = new Set(current.map((r) => r.id));
+        return {
+          kind: "runs" as const,
+          total: all.length,
+          page: input.page,
+          complete: !!payload.evidence,
+          asOf: payload.asOf,
+          items: items.map((r, index) => ({
+            ...r,
+            id: available.has(r.id) ? r.id : null,
+            referenceIndex: start + index + 1,
+            available: available.has(r.id),
+          })),
+        };
+      }),
+    ),
   preview: protectedProcedure
     .input(
       projectInput.extend({
@@ -540,10 +636,16 @@ export const reportSnapshotsRouter = router({
           });
         const runIds = matchingRuns.map((row) => row.id);
         const plannedSize = runIds.length
-          ? await tx.$queryRaw<Array<{ count: bigint }>>(
-              Prisma.sql`SELECT COALESCE(sum(cardinality("manualTestCaseIds")), 0)::bigint AS count FROM "TestRun" WHERE id IN (${Prisma.join(runIds)})`,
+          ? await tx.$queryRaw<Array<{ count: bigint; providerBytes: number }>>(
+              Prisma.sql`SELECT COALESCE(sum(cardinality("manualTestCaseIds")), 0)::bigint AS count, COALESCE(max(octet_length("ciProvider")),0)::integer AS "providerBytes" FROM "TestRun" WHERE id IN (${Prisma.join(runIds)})`,
             )
-          : [{ count: 0n }];
+          : [{ count: 0n, providerBytes: 0 }];
+        if (plannedSize[0]!.providerBytes > 200)
+          throw new TRPCError({
+            code: "PRECONDITION_FAILED",
+            message:
+              "Recorded provider label exceeds the report evidence bound. Review the imported metadata; no partial report retained.",
+          });
         if (plannedSize[0]!.count > 100000n)
           throw new TRPCError({
             code: "PRECONDITION_FAILED",
@@ -552,7 +654,12 @@ export const reportSnapshotsRouter = router({
           });
         const contributingRuns = await tx.testRun.findMany({
           where: { projectId: input.projectId, id: { in: runIds } },
-          select: { id: true, manualTestCaseIds: true },
+          select: {
+            id: true,
+            manualTestCaseIds: true,
+            startedAt: true,
+            ciProvider: true,
+          },
           orderBy: { id: "asc" },
         });
         const scopedIds = new Set(
@@ -662,7 +769,12 @@ export const reportSnapshotsRouter = router({
             where,
             orderBy: { id: "asc" },
             take: 20001,
-            select: { id: true, automationStatus: true },
+            select: {
+              id: true,
+              automationStatus: true,
+              displayId: true,
+              priority: true,
+            },
           }),
           tx.testCase.count({
             where: { ...where, riskAssessedAt: { not: null } },
@@ -810,6 +922,28 @@ export const reportSnapshotsRouter = router({
             unavailableSources: map.unavailableSources,
           };
         }
+        const [caseOutcomes, runOutcomes] = await Promise.all([
+          tx.testResult.groupBy({
+            by: ["testCaseId", "status"],
+            where: { testRun: runWhere, testCase: where },
+            _count: { _all: true },
+            orderBy: [{ testCaseId: "asc" }, { status: "asc" }],
+            take: 200001,
+          }),
+          tx.testResult.groupBy({
+            by: ["testRunId", "status"],
+            where: { testRun: runWhere },
+            _count: { _all: true },
+            orderBy: [{ testRunId: "asc" }, { status: "asc" }],
+            take: 200001,
+          }),
+        ]);
+        if (caseOutcomes.length > 200000 || runOutcomes.length > 200000)
+          throw new TRPCError({
+            code: "PRECONDITION_FAILED",
+            message:
+              "Evidence scope exceeds bounded outcome groups; narrow the report. No partial report retained.",
+          });
         const payload = payloadSchema.parse({
           state: "preview",
           projectName: project.name,
@@ -875,6 +1009,13 @@ export const reportSnapshotsRouter = router({
             id: row.id,
             status: row.automationStatus,
           })),
+          evidence: capturedReportEvidence(
+            cohort,
+            contributingRuns,
+            caseOutcomes,
+            runOutcomes,
+            recordedPairs,
+          ),
           automationChange,
           limitations: [
             scope
@@ -893,6 +1034,15 @@ export const reportSnapshotsRouter = router({
             "Escape rate, reopened defects, code coverage, planned-versus-actual effort and root-cause resolution time are unavailable without the corresponding evidence.",
           ],
         });
+        if (
+          Buffer.byteLength(JSON.stringify(payload), "utf8") >
+          8 * 1024 * 1024
+        )
+          throw new TRPCError({
+            code: "PRECONDITION_FAILED",
+            message:
+              "Captured report exceeds 8 MiB; narrow the scope. No partial report retained.",
+          });
         return output(
           await tx.projectReportSnapshot.create({
             data: {

@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { TRPCError } from "@trpc/server";
 import { experienceProfileSchema } from "@vaettir/core";
 import { z } from "zod";
+import { manualRetestMetadataSchema } from "./manualRetestSchema.js";
 
 function canonicalJson(value: unknown): string {
   if (Array.isArray(value)) return `[${value.map(canonicalJson).join(",")}]`;
@@ -154,6 +155,7 @@ export const runExperienceSnapshotSchema = z.object({
   stepFieldLabels: z.record(z.string().max(200)),
   caseDefinitions: z.array(runCaseDefinitionSchema).max(500),
   plan: runPlanSnapshotSchema.optional(),
+  retest: manualRetestMetadataSchema.optional(),
   // One independently identified manual run per reviewed dataset row. Legacy
   // snapshots omit this field; result identities and their SQL guards stay intact.
   datasetExecution: z

@@ -4,6 +4,7 @@ import { caseTraceabilityRouter } from "./routers/caseTraceability.js";
 import { caseExecutionHistoryRouter } from "./routers/caseExecutionHistory.js";
 import { caseVersionReviewRouter } from "./routers/caseVersionReview.js";
 import { caseCloneRouter } from "./routers/caseClone.js";
+import { manualRetestRouter } from "./routers/manualRetest.js";
 import { reportSnapshotsRouter } from "./routers/reportSnapshots.js";
 import {driveConnectionsRouter} from "./routers/driveConnections.js";
 import {linearConnectionsRouter} from "./routers/linearConnections.js";
@@ -55,6 +56,7 @@ export const appRouter = router({
   caseExecutionHistory: caseExecutionHistoryRouter,
   caseVersionReview: caseVersionReviewRouter,
   caseClone: caseCloneRouter,
+  manualRetest: manualRetestRouter,
   reportSnapshots: reportSnapshotsRouter,
   driveConnections:driveConnectionsRouter,
   linearConnections:linearConnectionsRouter,

@@ -62,6 +62,8 @@ export default function ReportSnapshotPage() {
           {message && <p role="status">{message}</p>}
           <FrozenReport
             report={snapshot.data.payload}
+            projectId={projectId}
+            snapshotId={snapshotId}
             allowExport={snapshot.data.payload.state === "approved"}
           />
         </div>

@@ -54,7 +54,7 @@ configure_llvm() {
   -DLLVM_ENABLE_RTTI=ON -DLLVM_ENABLE_DUMP=ON \
   -DLLVM_ABI_BREAKING_CHECKS=FORCE_OFF \
   -DLLVM_ENABLE_FFI=ON -DLLVM_ENABLE_LIBEDIT=ON -DLLVM_ENABLE_Z3_SOLVER=ON \
-  -DLLVM_ENABLE_LIBPFM=ON \
+  -DLLVM_ENABLE_LIBPFM=ON -DLLVM_USE_PERF=ON \
   -DLLVM_ENABLE_ZLIB=FORCE_ON -DLLVM_ENABLE_ZSTD=FORCE_ON \
   -DLLVM_ENABLE_LIBXML2=OFF \
   -DLLVM_DYLIB_COMPONENTS=all -DLLVM_PARALLEL_LINK_JOBS=1 -DLLVM_PARALLEL_COMPILE_JOBS="$native_jobs" \
@@ -83,6 +83,8 @@ verify_llvm_configuration() {
   grep -Fx "LLVM_ENABLE_ASSERTIONS:BOOL=$assertions" "$build_dir/CMakeCache.txt"
   grep -Fx "LLVM_BUILD_LLVM_DYLIB:BOOL=$dylib" "$build_dir/CMakeCache.txt"
   grep -Fx "LLVM_LINK_LLVM_DYLIB:BOOL=$dylib" "$build_dir/CMakeCache.txt"
+  grep -Fx 'LLVM_USE_PERF:BOOL=ON' "$build_dir/CMakeCache.txt"
+  grep -Fx '#define LLVM_USE_PERF 1' "$build_dir/include/llvm/Config/llvm-config.h"
   grep -Fx 'LLVM_ABI_BREAKING_CHECKS:STRING=FORCE_OFF' "$build_dir/CMakeCache.txt"
   grep -Fx '#define LLVM_ENABLE_ABI_BREAKING_CHECKS 0' "$build_dir/include/llvm/Config/abi-breaking.h"
   timeout 30 node - "$variant" "$build_dir" "$assertions" <<'NODE'
@@ -98,6 +100,9 @@ assert.ok(Array.isArray(commands));
 const relevant = commands.filter(entry => /^\/build\/llvm-source\/llvm\/(lib|unittests)\/.+\.(c|cc|cpp|cxx)$/.test(entry.file));
 assert.ok(relevant.filter(entry => entry.file.includes('/llvm/lib/')).length >= 100);
 assert.ok(relevant.filter(entry => entry.file.includes('/llvm/unittests/')).length >= 10);
+// Debian enables this real component. Omitting its TU also omitted legitimate
+// exported template definitions; never substitute aliases or relaxed ABI checks.
+assert.equal(relevant.filter(entry => entry.file === '/build/llvm-source/llvm/lib/ExecutionEngine/PerfJITEvents/PerfJITEventListener.cpp').length, 1, 'Maintained PERF JIT translation unit required');
 for (const entry of relevant) {
   assert.equal(typeof entry.command, 'string');
   const flags = entry.command.split(/\s+/);
@@ -107,7 +112,7 @@ for (const entry of relevant) {
   assert.equal(ndebug.at(-1), assertions === 'ON' ? '-UNDEBUG' : '-DNDEBUG', 'Effective NDEBUG policy mismatch');
   if (assertions === 'OFF') assert.ok(!flags.includes('-UNDEBUG'), 'Release ABI must not include assertion-on objects');
 }
-const receipt = { variant, buildType: 'RelWithDebInfo', assertions, sharedDylib: assertions === 'OFF', abiBreakingChecks: false, verifiedTranslationUnits: relevant.length, flags: '-O2 -DNDEBUG -g1', effectiveNdebug: assertions === 'ON' ? 'undefined' : 'defined' };
+const receipt = { variant, buildType: 'RelWithDebInfo', assertions, sharedDylib: assertions === 'OFF', abiBreakingChecks: false, perfJitComponent: true, verifiedTranslationUnits: relevant.length, flags: '-O2 -DNDEBUG -g1', effectiveNdebug: assertions === 'ON' ? 'undefined' : 'defined' };
 fs.writeFileSync('/build/llvm-' + variant + '-configuration.json', JSON.stringify(receipt) + '\n');
 console.log('Verified LLVM generated configuration: ' + JSON.stringify(receipt));
 NODE

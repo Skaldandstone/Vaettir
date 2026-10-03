@@ -7,13 +7,18 @@ import {
   reportScopeSummary,
   type FrozenReportPayload,
 } from "@/lib/frozen-report";
+import { ReportSnapshotEvidence } from "./ReportSnapshotEvidence";
 
 export function FrozenReport({
   report,
   allowExport = false,
+  projectId,
+  snapshotId,
 }: {
   report: FrozenReportPayload;
   allowExport?: boolean;
+  projectId?: string;
+  snapshotId?: string;
 }) {
   const rows = reportMetricRows(report);
   function download() {
@@ -66,27 +71,35 @@ export function FrozenReport({
         {report.scope && (
           <p className="text-muted">{report.scope.cohortBasis}</p>
         )}
-        {report.scope && (
-          <details>
-            <summary>
-              Contributing recorded runs (
-              {report.scope.contributingRunIds.length})
-            </summary>
-            <p className="text-muted">
-              Stable run references captured with this snapshot. Later run
-              observations do not change this report. First 50 references shown.
-            </p>
-            <ul>
-              {report.scope.contributingRunIds.slice(0, 50).map((id) => (
-                <li key={id} style={{ overflowWrap: "anywhere" }}>
-                  {id}
-                </li>
-              ))}
-            </ul>
-            {!report.scope.contributingRunIds.length && (
-              <p>No matching recorded runs. This is not a passing result.</p>
-            )}
-          </details>
+        {projectId && snapshotId ? (
+          <ReportSnapshotEvidence
+            projectId={projectId}
+            snapshotId={snapshotId}
+          />
+        ) : (
+          report.scope && (
+            <details>
+              <summary>
+                Contributing recorded runs (
+                {report.scope.contributingRunIds.length})
+              </summary>
+              <p className="text-muted">
+                Stable run references captured with this snapshot. Later run
+                observations do not change this report. First 50 references
+                shown.
+              </p>
+              <ul>
+                {report.scope.contributingRunIds.slice(0, 50).map((id) => (
+                  <li key={id} style={{ overflowWrap: "anywhere" }}>
+                    {id}
+                  </li>
+                ))}
+              </ul>
+              {!report.scope.contributingRunIds.length && (
+                <p>No matching recorded runs. This is not a passing result.</p>
+              )}
+            </details>
+          )
         )}
         {allowExport && (
           <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>

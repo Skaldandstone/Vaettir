@@ -4,6 +4,7 @@ import { useState } from "react";
 import Link from "next/link";
 import type { CaseExecutionHistoryItem } from "@vaettir/core";
 import { trpcReact } from "@/lib/trpcReact";
+import { ManualRetestActions } from "./ManualRetestWizard";
 
 const outcomes = {
   PASS: "Passed",
@@ -175,6 +176,7 @@ function ExecutionEntry({
           </Link>
         )}
       </details>
+      {item.source === "MANUAL" && <ManualRetestActions key={`${projectId}:${item.runId}:${item.definition.originalCaseId}`} projectId={projectId} sourceRunId={item.runId} testCaseId={item.definition.originalCaseId} canRetest={item.outcome === "FAIL" || item.outcome === "BLOCKED"} />}
     </article>
   );
 }

@@ -6,6 +6,7 @@ import { resolveQualityExperience } from "@vaettir/core";
 import { trpcReact, type RouterOutputs } from "@/lib/trpcReact";
 import { useProjectPermissions } from "@/lib/use-project-permissions";
 import { StepExecutionPanel } from "@/components/StepExecutionPanel";
+import { ManualRetestActions } from "@/components/ManualRetestWizard";
 
 type ExecutionCase =
   RouterOutputs["manualExecution"]["getForExecution"]["cases"][number];
@@ -443,6 +444,7 @@ export default function ManualExecutionPage() {
       <p className="text-muted" style={{ fontSize: 13 }}>
         {recordedCount} / {data.cases.length} recorded · status: {data.status}
       </p>
+      {data.cases.filter(tc => tc.currentResult?.status === "FAIL" || tc.currentResult?.status === "BLOCKED" || data.executionContext?.retest?.sourceCaseId === tc.testCaseId).map(tc => <section key={`retest:${tc.testCaseId}`} style={{border:"1px solid var(--line)",padding:12,marginBottom:12,minWidth:0}}><h2 style={{fontSize:16}}>Retest relationships · {tc.displayId ?? tc.title}</h2><ManualRetestActions key={`${projectId}:${testRunId}:${tc.testCaseId}`} projectId={projectId} sourceRunId={testRunId} testCaseId={tc.testCaseId} canRetest={canEdit && (tc.currentResult?.status === "FAIL" || tc.currentResult?.status === "BLOCKED")} /></section>)}
       {data.executionContext?.datasetExecution && <section style={{border:"1px solid var(--line)",padding:12,marginBottom:16}}>
         <h2 style={{fontSize:18}}>Dataset row {data.executionContext.datasetExecution.rowIndex + 1}: {data.executionContext.datasetExecution.rowName}</h2>
         <p>{data.executionContext.datasetExecution.sourceDisplayId} · one independently recorded row run. Prerequisites must pass within this run, not in a sibling row or another configuration.</p>

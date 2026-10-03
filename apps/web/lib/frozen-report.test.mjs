@@ -112,3 +112,39 @@ test("scoped snapshot exports exact UTC end and exclusions without claiming proj
     2,
   );
 });
+test("portable export omits captured native entity identities and internal links", () => {
+  const scoped = {
+    ...payload,
+    scope: {
+      kind: "recorded-execution",
+      filters: { planId: "private-plan-native", runId: "private-run-native" },
+      planName: null,
+      contributingRunIds: ["private-run-native"],
+      cohortBasis: "Saved active denominator",
+    },
+    evidence: {
+      version: 1,
+      cases: [
+        {
+          id: "private-case-native",
+          displayId: "SYN-1",
+          priority: "HIGH",
+          automationStatus: "MANUAL",
+          outcomes: [],
+          plannedRuns: 0,
+          notRecordedRuns: 0,
+        },
+      ],
+      runs: [],
+    },
+  };
+  const html = renderFrozenReportHtml(scoped);
+  for (const id of [
+    "private-plan-native",
+    "private-run-native",
+    "private-case-native",
+  ])
+    assert.ok(!html.includes(id));
+  assert.ok(!html.includes("/test-cases/") && !html.includes("/test-runs"));
+  assert.ok(html.includes("Selected recorded run"));
+});

@@ -18,6 +18,22 @@ const pins = readFileSync(
 const dockerfile = readFileSync(new URL("../Dockerfile.api", import.meta.url));
 const sha256 = (bytes) => createHash("sha256").update(bytes).digest("hex");
 
+test("both runtime configurations preserve the maintained PERF component and unchanged ABI gates", () => {
+  const text = recipe.toString("utf8").replaceAll("\r\n", "\n");
+  const functionStart = text.indexOf("configure_llvm() {");
+  const functionEnd = text.indexOf("\n}", functionStart);
+  assert.ok(functionStart >= 0 && functionEnd > functionStart);
+  assert.match(text.slice(functionStart, functionEnd), /-DLLVM_ENABLE_LIBPFM=ON -DLLVM_USE_PERF=ON/);
+  assert.match(text, /grep -Fx 'LLVM_USE_PERF:BOOL=ON' "\$build_dir\/CMakeCache.txt"/);
+  assert.match(text, /grep -Fx '#define LLVM_USE_PERF 1' "\$build_dir\/include\/llvm\/Config\/llvm-config.h"/);
+  assert.match(text, /assert\.equal\(relevant\.filter\(entry => entry\.file === '\/build\/llvm-source\/llvm\/lib\/ExecutionEngine\/PerfJITEvents\/PerfJITEventListener\.cpp'\)\.length, 1/);
+  assert.match(text, /verify_llvm_configuration release \/build\/llvm-build OFF ON/);
+  assert.match(text, /verify_llvm_configuration assertions \/build\/llvm-assert-build ON OFF/);
+  assert.equal((text.match(/node \/build\/scripts\/check-llvm-package\.mjs/g) ?? []).length, 3);
+  assert.match(text, /timeout 1800 cmake --build \/build\/llvm-build --parallel "\$native_jobs" --target check-llvm-unit/);
+  assert.match(text, /timeout 7200 cmake --build \/build\/llvm-assert-build --parallel "\$native_jobs" --target check-llvm-unit/);
+});
+
 test("LLVM diagnostic is manual opt-in, isolated read-only and explicitly bounded", () => {
   assert.ok(workflow.includes("  llvm-configure-diagnostic:"));
   assert.match(
