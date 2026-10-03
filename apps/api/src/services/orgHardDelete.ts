@@ -471,15 +471,16 @@ export async function hardDeleteOrganization(
         where: { testResultId: { in: scope.testResultIds } },
       }),
     );
-    await del("TestResult", () =>
-      tx.testResult.deleteMany({
+    // Only this explicit organization-erasure workflow removes recorded history.
+    // Heads before derived results satisfy mixed-version write guards; then
+    // leaf revisions before parents preserve normal restrictive FKs.
+    await del("ManualStepResultHead", () =>
+      tx.manualStepResultHead.deleteMany({
         where: { testRunId: { in: scope.testRunIds } },
       }),
     );
-    // Only this explicit organization-erasure workflow removes recorded history.
-    // Heads first, then leaf revisions before parents to preserve normal restrictive FKs.
-    await del("ManualStepResultHead", () =>
-      tx.manualStepResultHead.deleteMany({
+    await del("TestResult", () =>
+      tx.testResult.deleteMany({
         where: { testRunId: { in: scope.testRunIds } },
       }),
     );

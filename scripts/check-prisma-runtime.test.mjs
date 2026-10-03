@@ -94,21 +94,35 @@ test("all image stages pin the same Trixie base and install patched Perl/OpenSSL
     new URL("../Dockerfile.web", import.meta.url),
     "utf8",
   );
-  const bases = [...(api + "\n" + web).matchAll(/^FROM (\S+)/gm)].map(
-    (match) => match[1],
-  );
-  assert.equal(bases.length, 4);
-  assert.equal(new Set(bases).size, 1);
-  assert.match(bases[0], /node:22-trixie-slim@sha256:[a-f0-9]{64}$/);
+  const base =
+    "public.ecr.aws/docker/library/node:22-trixie-slim@sha256:b26b04c123d9ff8ab646ceb18b9d75a1173acf64b9a401094b906d27b29338d4";
+  for (const [source, names] of [
+    [api, ["vendor-build", "llvm-build", "zlib-build", "runtime"]],
+    [web, ["native-build", "builder", "runtime"]],
+  ]) {
+    const stages = [
+      ...source.matchAll(
+        /^FROM (\S+) AS (\S+)\r?\n([\s\S]*?)(?=^FROM |$(?![\s\S]))/gm,
+      ),
+    ];
+    assert.deepEqual(
+      stages.map((stage) => stage[2]),
+      names,
+    );
+    for (const [, image, name, content] of stages) {
+      assert.equal(image, base, `${name} must retain the immutable base`);
+      assert.match(
+        content,
+        /apt-get install[^\n]+openssl ca-certificates[^\n]+perl-base[^\n]+libpcre2-8-0/,
+      );
+      assert.match(content, /perl-base\)" ge '5\.40\.1-6\+deb13u1'/);
+      assert.match(content, /libpcre2-8-0\)" ge '10\.46-1~deb13u3'/);
+      const updates = [...content.matchAll(/apt-get update([^\n]*)/g)];
+      assert.ok(updates.length > 0, `${name} must acquire package metadata`);
+      for (const update of updates) assert.match(update[1], /--error-on=any/);
+    }
+  }
   assert.doesNotMatch(api + web, /43ac6c60b8f89723/);
-  assert.equal(
-    (api + web).match(/apt-get install[^\n]+libpcre2-8-0/g)?.length,
-    4,
-  );
-  assert.equal(
-    (api + web).match(/libpcre2-8-0\)" ge '10\.46-1~deb13u3'/g)?.length,
-    4,
-  );
   for (const source of [api, web]) {
     assert.ok(
       source.indexOf("openssl ca-certificates") <

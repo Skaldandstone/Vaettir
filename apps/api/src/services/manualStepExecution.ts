@@ -438,12 +438,22 @@ export async function recordManualStepResult(
           note: `Derived from ${definition.steps.length} recorded step outcomes. Per-step measurements and evidence remain on their immutable revisions.`,
           observations: {},
         };
+        // Mixed-version database protection. This local selector is scoped to
+        // this exact derived write, not an actor authorization substitute.
+        await tx.$queryRaw`SELECT set_config('vaettir.manual_step_projection', ${JSON.stringify([run.id, input.testCaseId])}, true)`;
         if (caseResult)
           await tx.testResult.update({ where: { id: caseResult.id }, data });
         else
           await tx.testResult.create({
-            data: { testRunId: run.id, testCaseId: input.testCaseId, ...data },
+            data: {
+              testRunId: run.id,
+              testCaseId: input.testCaseId,
+              ...data,
+            },
           });
+        // Failed SQL aborts the transaction; rollback clears SET LOCAL. A
+        // finally reset would mask the original failure with PostgreSQL 25P02.
+        await tx.$queryRaw`SELECT set_config('vaettir.manual_step_projection', '', true)`;
       }
       return { revisionId: revision.id, caseStatus, recovered: false };
     },

@@ -26,6 +26,112 @@ test("public vendor downloads are host pinned, redirect disabled and hash verifi
   assert.deepEqual(actual, data);
 });
 
+test("LLVM source pins use only the official source pool and bounded signed-source inputs", async () => {
+  const llvm = { ...file, name: "llvm-toolchain-19_19.1.7-3.dsc" };
+  const host = "https://deb.debian.org/debian/pool/main/l/llvm-toolchain-19/";
+  assert.deepEqual(
+    await fetchVerifiedSource(llvm, {
+      origin: host,
+      fetchImpl: async () => new Response(data),
+    }),
+    data,
+  );
+  for (const invalid of [
+    file,
+    { ...llvm, name: "llvm-toolchain-19_../secret.dsc" },
+    { ...llvm, maxBytes: 166_000_000 },
+  ]) {
+    await assert.rejects(
+      fetchVerifiedSource(invalid, {
+        origin: host,
+        fetchImpl: () => assert.fail("bad pin fetched"),
+      }),
+      /Invalid vendor/,
+    );
+  }
+  const manifest = JSON.parse(
+    readFileSync(
+      new URL("./runtime-vendor-sources.json", import.meta.url),
+      "utf8",
+    ),
+  );
+  assert.equal(manifest.llvm.version, "1:19.1.7-3");
+  assert.equal(manifest.llvm.files.length, 3);
+  assert.ok(
+    manifest.llvm.files.every((pin) => /^[a-f0-9]{64}$/.test(pin.sha256)),
+  );
+});
+
+test("Dash sources use independent pool, bounds and exact maintained package pins", async () => {
+  const pin = { ...file, name: "dash_0.5.12-12.dsc" };
+  const host = "https://deb.debian.org/debian/pool/main/d/dash/";
+  assert.deepEqual(
+    await fetchVerifiedSource(pin, {
+      origin: host,
+      fetchImpl: async () => new Response(data),
+    }),
+    data,
+  );
+  for (const bad of [
+    file,
+    { ...pin, maxBytes: 300001 },
+    { ...pin, name: "dash_../secret.dsc" },
+  ])
+    await assert.rejects(
+      fetchVerifiedSource(bad, {
+        origin: host,
+        fetchImpl: () => assert.fail("invalid Dash pin fetched"),
+      }),
+      /Invalid vendor/,
+    );
+  const manifest = JSON.parse(
+    readFileSync(
+      new URL("./runtime-vendor-sources.json", import.meta.url),
+      "utf8",
+    ),
+  );
+  assert.equal(manifest.dash.version, "0.5.12-12");
+  assert.equal(manifest.dash.files.length, 3);
+});
+
+test("zlib repair fetches only maintained source pool plus one immutable upstream fix", async () => {
+  const manifest = JSON.parse(
+    readFileSync(
+      new URL("./runtime-vendor-sources.json", import.meta.url),
+      "utf8",
+    ),
+  );
+  assert.equal(manifest.zlib.version, "1:1.3.dfsg+really1.3.2-3");
+  const patch = manifest.zlib.files.find((pin) => pin.origin);
+  assert.equal(patch.name, "df84af25dc1942490e1d1c899a07619152a46148.patch");
+  assert.equal(
+    patch.sha256,
+    "110ff14375733173d8aa54574473424fbd7dfe4b81f1ca34a759c6fe14b15b14",
+  );
+  const synthetic = { ...patch, sha256: file.sha256 };
+  assert.deepEqual(
+    await fetchVerifiedSource(synthetic, {
+      origin: patch.origin,
+      fetchImpl: async (_, options) => {
+        assert.equal(options.redirect, "error");
+        return new Response(data);
+      },
+    }),
+    data,
+  );
+  for (const pin of [
+    { ...synthetic, name: "other.patch" },
+    { ...synthetic, maxBytes: 10001 },
+  ])
+    await assert.rejects(
+      fetchVerifiedSource(pin, {
+        origin: patch.origin,
+        fetchImpl: () => assert.fail("unapproved fix fetched"),
+      }),
+      /Invalid vendor/,
+    );
+});
+
 test("checksum, bounds, HTTP failure and cancellation fail closed", async () => {
   for (const [pin, response, message] of [
     [

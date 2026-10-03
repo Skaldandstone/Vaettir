@@ -1,10 +1,26 @@
-# Docker Official Image via ECR Public; keep builder/runtime on the same digest.
+# Docker Official Image via ECR Public; keep every stage on the same digest.
+# Repair the shipped shell using maintained signed sources, retaining the
+# package's configuration and honest local version. No compiler reaches runtime.
+FROM public.ecr.aws/docker/library/node:22-trixie-slim@sha256:b26b04c123d9ff8ab646ceb18b9d75a1173acf64b9a401094b906d27b29338d4 AS native-build
+RUN apt-get update --error-on=any \
+    && apt-get install -y --no-install-recommends openssl ca-certificates perl-base libpcre2-8-0 build-essential binutils patch autoconf automake libtool debhelper po-debconf gpgv debian-keyring \
+    && dpkg --compare-versions "$(dpkg-query -W -f='${Version}' perl-base)" ge '5.40.1-6+deb13u1' \
+    && dpkg --compare-versions "$(dpkg-query -W -f='${Version}' libpcre2-8-0)" ge '10.46-1~deb13u3' \
+    && rm -rf /var/lib/apt/lists/*
+WORKDIR /build
+COPY scripts/fetch-runtime-vendor-sources.mjs scripts/runtime-vendor-sources.json scripts/build-dash-runtime.sh scripts/check-dash-runtime.mjs /build/scripts/
+RUN node /build/scripts/fetch-runtime-vendor-sources.mjs /build/dash-sources dash \
+    && sh /build/scripts/build-dash-runtime.sh /build/dash-sources /build/dash-build /build/scripts/check-dash-runtime.mjs
+COPY scripts/build-zlib-runtime.sh scripts/check-zlib-runtime.mjs scripts/zlib-runtime-regression.c /build/scripts/
+RUN node /build/scripts/fetch-runtime-vendor-sources.mjs /build/zlib-sources zlib \
+    && sh /build/scripts/build-zlib-runtime.sh /build/zlib-sources /build/zlib-build /build/scripts/check-zlib-runtime.mjs /build/scripts/zlib-runtime-regression.c
+
 # Trixie carries the release-blocking Perl fixes; enforce the package floor
 # in every stage. Source/base metadata is not a substitute for final ECR scans.
 FROM public.ecr.aws/docker/library/node:22-trixie-slim@sha256:b26b04c123d9ff8ab646ceb18b9d75a1173acf64b9a401094b906d27b29338d4 AS builder
 # Native Prisma engines are generated while building dependency types, even
 # though the web app does not connect to the database. Install OpenSSL first.
-RUN apt-get update \
+RUN apt-get update --error-on=any \
     && apt-get install -y --no-install-recommends openssl ca-certificates perl-base libpcre2-8-0 \
     && dpkg --compare-versions "$(dpkg-query -W -f='${Version}' perl-base)" ge '5.40.1-6+deb13u1' \
     && dpkg --compare-versions "$(dpkg-query -W -f='${Version}' libpcre2-8-0)" ge '10.46-1~deb13u3' \
@@ -47,10 +63,25 @@ ENV NODE_ENV=production \
     PORT=3000 \
     HOSTNAME=0.0.0.0
 
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends openssl ca-certificates perl-base libpcre2-8-0 \
+COPY --from=native-build /build/dash-build/dash_0.5.12-12+vaettir1_amd64.deb /tmp/vaettir-vendor/
+COPY --from=native-build /build/dash-build/dash-source-signature.status /usr/share/vaettir/dash-source-signature.status
+COPY --from=native-build /build/dash-build/dash-runtime-proof.txt /usr/share/vaettir/dash-builder-runtime-proof.txt
+COPY --from=native-build /build/dash-sources/source-manifest.json /usr/share/vaettir/dash-source-manifest.json
+COPY --from=native-build /build/zlib-build/zlib1g_1.3.dfsg+really1.3.2-3+vaettir1_amd64.deb /tmp/vaettir-vendor/
+COPY --from=native-build /build/zlib-build/zlib-source-signature.status /usr/share/vaettir/zlib-source-signature.status
+COPY --from=native-build /build/zlib-build/zlib-runtime-proof.json /usr/share/vaettir/zlib-runtime-proof.json
+COPY --from=native-build /build/zlib-build/zlib-sanitizer-proof.txt /usr/share/vaettir/zlib-sanitizer-proof.txt
+COPY --from=native-build /build/zlib-build/zlib-runtime-regression /usr/share/vaettir/zlib-runtime-regression
+COPY --from=native-build /build/zlib-sources/source-manifest.json /usr/share/vaettir/zlib-source-manifest.json
+COPY scripts/check-dash-runtime.mjs scripts/check-zlib-runtime.mjs /app/scripts/
+RUN apt-get update --error-on=any \
+    && apt-get install -y --no-install-recommends openssl ca-certificates perl-base libpcre2-8-0 /tmp/vaettir-vendor/*.deb \
     && dpkg --compare-versions "$(dpkg-query -W -f='${Version}' perl-base)" ge '5.40.1-6+deb13u1' \
     && dpkg --compare-versions "$(dpkg-query -W -f='${Version}' libpcre2-8-0)" ge '10.46-1~deb13u3' \
+    && test "$(dpkg-query -W -f='${Version}' dash)" = '0.5.12-12+vaettir1' \
+    && test "$(dpkg-query -W -f='${Version}' zlib1g)" = '1:1.3.dfsg+really1.3.2-3+vaettir1' \
+    && rm /tmp/vaettir-vendor/dash_0.5.12-12+vaettir1_amd64.deb \
+    && rm /tmp/vaettir-vendor/zlib1g_1.3.dfsg+really1.3.2-3+vaettir1_amd64.deb \
     && rm -rf /var/lib/apt/lists/* \
     && groupadd --system --gid 1001 nodejs \
     && useradd --system --uid 1001 --gid nodejs nextjs
@@ -64,6 +95,8 @@ COPY --from=builder --chown=nextjs:nodejs /app/apps/web/.next/static-cohorts.jso
 COPY --from=builder --chown=nextjs:nodejs /app/apps/web/public ./apps/web/public
 
 USER nextjs
+RUN --network=none node scripts/check-dash-runtime.mjs
+RUN --network=none node scripts/check-zlib-runtime.mjs --installed /usr/lib/x86_64-linux-gnu/libz.so.1 /usr/share/vaettir/zlib-runtime-proof.json /usr/share/vaettir/zlib-runtime-regression
 EXPOSE 3000
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \

@@ -899,10 +899,15 @@ export const manualExecutionRouter = router({
           ...observedFailures.map((h) => h.currentRevision.status),
         ]);
 
+        // Allow only this reviewed aggregation path to finalize step-mode runs.
+        // Transaction-local state is cleared immediately, never pooled globally.
+        await tx.$queryRaw`SELECT set_config('vaettir.manual_step_finalize', ${run.id}, true)`;
         await tx.testRun.update({
           where: { id: input.testRunId },
           data: { status, finishedAt: new Date() },
         });
+        // SQL failure propagates unchanged; enclosing rollback clears SET LOCAL.
+        await tx.$queryRaw`SELECT set_config('vaettir.manual_step_finalize', '', true)`;
         return { status };
       });
     }),
