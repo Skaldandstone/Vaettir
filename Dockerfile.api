@@ -35,7 +35,7 @@ RUN apt-get update --error-on=any \
     && dpkg --compare-versions "$(dpkg-query -W -f='${Version}' libpcre2-8-0)" ge '10.46-1~deb13u3' \
     && rm -rf /var/lib/apt/lists/*
 WORKDIR /build
-COPY scripts/fetch-runtime-vendor-sources.mjs scripts/runtime-vendor-sources.json scripts/build-llvm-runtime.sh scripts/native-build-concurrency.mjs scripts/check-llvm-package.mjs scripts/check-llvm-jit.c /build/scripts/
+COPY scripts/fetch-runtime-vendor-sources.mjs scripts/runtime-vendor-sources.json scripts/build-llvm-runtime.sh scripts/native-build-concurrency.mjs scripts/check-llvm-package.mjs scripts/check-llvm-jit.c scripts/check-llvm-arm-defaults.cpp scripts/reconcile-llvm-arm-unit-fixture.mjs /build/scripts/
 RUN node /build/scripts/fetch-runtime-vendor-sources.mjs /build/llvm-sources llvm \
     && sh /build/scripts/build-llvm-runtime.sh
 
@@ -112,6 +112,9 @@ RUN pnpm install --frozen-lockfile \
 # Verify the shipped browser against a synthetic in-memory fixture, with
 # networking disabled at the container layer as well as the browser context.
 RUN --network=none node scripts/prune-runtime-package-manager.mjs --image-build
+RUN --network=none /usr/share/vaettir/llvm-arm-policy > /tmp/vaettir-llvm-arm-policy.txt \
+    && cmp /usr/share/vaettir/llvm-arm-policy-baseline.txt /tmp/vaettir-llvm-arm-policy.txt \
+    && rm /tmp/vaettir-llvm-arm-policy.txt
 RUN --network=none node scripts/check-browser-runtime.mjs
 RUN --network=none node scripts/check-browser-graphics.mjs
 RUN --network=none node scripts/check-git-runtime.mjs

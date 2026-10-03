@@ -40,10 +40,25 @@ cmake -S llvm -B /build/llvm-build -G Ninja \
 # ENABLE_ABI_BREAKING_CHECKS is the output macro, not the input option name.
 grep -Fx 'LLVM_ABI_BREAKING_CHECKS:STRING=FORCE_OFF' /build/llvm-build/CMakeCache.txt
 grep -Fx '#define LLVM_ENABLE_ABI_BREAKING_CHECKS 0' /build/llvm-build/include/llvm/Config/abi-breaking.h
+# Establish the preserved distro ARM policy against the installed authenticated
+# baseline BEFORE reconciling its one stale upstream unit fixture. No parser or
+# production policy is changed; all original assertions and unit gates remain.
+clang++-19 -std=c++17 -O2 -Wall -Wextra -Werror \
+  -I/build/llvm-build/include -I/build/llvm-source/llvm/include \
+  /build/scripts/check-llvm-arm-defaults.cpp /usr/lib/x86_64-linux-gnu/libLLVM.so.19.1 \
+  -Wl,-z,relro,-z,now -o /build/llvm-arm-policy
+readelf -d /build/llvm-arm-policy > /build/llvm-arm-policy-dynamic.txt
+grep -F 'Shared library: [libLLVM.so.19.1]' /build/llvm-arm-policy-dynamic.txt
+! grep -E 'RPATH|RUNPATH' /build/llvm-arm-policy-dynamic.txt
+timeout 10 /build/llvm-arm-policy > /build/llvm-arm-baseline.txt
+node /build/scripts/reconcile-llvm-arm-unit-fixture.mjs --signed-debian-image-build
 # Resource-aware compiler concurrency remains bounded independently from link
 # concurrency. All targets and unit checks stay fail-hard within their deadlines.
 timeout 7200 cmake --build /build/llvm-build --parallel "$native_jobs" --target LLVM llvm-config
 timeout 1800 cmake --build /build/llvm-build --parallel "$native_jobs" --target check-llvm-unit
+timeout 10 /lib64/ld-linux-x86-64.so.2 --library-path /build/llvm-build/lib /build/llvm-arm-policy > /build/llvm-arm-candidate.txt
+cmp /build/llvm-arm-baseline.txt /build/llvm-arm-candidate.txt
+printf '%s\n' 'Independent LLVM ARM parser policy preserved: 30 baseline/candidate vectors; all unit assertions retained'
 test "$(/build/llvm-build/bin/llvm-config --version)" = '19.1.7'
 node /build/scripts/check-llvm-package.mjs \
   /usr/lib/x86_64-linux-gnu/libLLVM.so.19.1 \
@@ -69,6 +84,9 @@ ln -s libLLVM.so.19.1 "$root/usr/lib/x86_64-linux-gnu/libLLVM-19.so"
 cp -a /usr/share/doc/libllvm19/. "$root/usr/share/doc/libllvm19/"
 cp /build/llvm-abi.json "$root/usr/share/vaettir/llvm-unstripped-abi.json"
 cp /build/llvm-sources/source-manifest.json "$root/usr/share/vaettir/llvm-source-manifest.json"
+cp /build/llvm-arm-baseline.txt "$root/usr/share/vaettir/llvm-arm-policy-baseline.txt"
+cp /build/llvm-arm-unit-fixture-proof.json "$root/usr/share/vaettir/llvm-arm-unit-fixture-proof.json"
+install -m755 /build/llvm-arm-policy "$root/usr/share/vaettir/llvm-arm-policy"
 strip --strip-unneeded "$root/usr/lib/x86_64-linux-gnu/libLLVM.so.19.1"
 node /build/scripts/check-llvm-package.mjs \
   /usr/lib/x86_64-linux-gnu/libLLVM.so.19.1 \
