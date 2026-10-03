@@ -185,6 +185,50 @@ test("failed LLVM exports identify absent symbols versus binding or storage drif
   }
   assert.equal(verifyLlvmCompatibility(baseline, candidate).baselineExports, 2);
 });
+test("ABI diagnostics retain complete drift counts with bounded samples and still reject", () => {
+  const symbols = Array.from(
+    { length: 40 },
+    (_, index) => `Required${index} W 0 1`,
+  ).join("\n");
+  assert.throws(
+    () =>
+      verifyLlvmCompatibility(
+        { ...baseline, symbols },
+        { ...candidate, symbols: "Required0 T 0 1\nExtra W 0 1\n" },
+      ),
+    (error) => {
+      assert.match(error.message, /^LLVM exported ABI changed: Required0;/);
+      assert.equal(error.llvmAbiDifferences.missing, 39);
+      assert.equal(error.llvmAbiDifferences.changed, 1);
+      assert.equal(error.llvmAbiDifferences.extra, 1);
+      assert.equal(error.llvmAbiDifferences.samples.length, 32);
+      assert.equal(error.llvmAbiDifferences.truncated, true);
+      assert.deepEqual(error.llvmAbiDifferences.samples[0], {
+        symbol: "Required0",
+        symbolTruncated: false,
+        expected: { type: "W", size: undefined },
+        actual: { type: "T", size: undefined },
+      });
+      return true;
+    },
+  );
+  const longSymbol = "Required" + "x".repeat(2000);
+  assert.throws(
+    () =>
+      verifyLlvmCompatibility(
+        { ...baseline, symbols: `${longSymbol} W 0 1` },
+        candidate,
+      ),
+    (error) => {
+      assert.equal(error.llvmAbiMismatch.symbol, longSymbol);
+      assert.equal(error.llvmAbiDifferences.samples[0].symbol.length, 1024);
+      assert.equal(error.llvmAbiDifferences.samples[0].symbolTruncated, true);
+      assert.equal(error.llvmAbiDifferences.truncated, false);
+      return true;
+    },
+  );
+  assert.equal(verifyLlvmCompatibility(baseline, candidate).baselineExports, 2);
+});
 test("maintained LLVM source build has signatures, honest packaging, complete target/ABI and unit gates", () => {
   const script = readFileSync(
     new URL("./build-llvm-runtime.sh", import.meta.url),

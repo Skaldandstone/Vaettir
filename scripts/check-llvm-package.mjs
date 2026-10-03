@@ -27,6 +27,26 @@ export function verifyLlvmCompatibility(baseline, candidate) {
     throw new Error("LLVM SONAME changed");
   const before = exportedSymbols(baseline.symbols);
   const after = exportedSymbols(candidate.symbols);
+  const differences = { missing: 0, changed: 0, extra: 0, samples: [] };
+  for (const [name, expected] of before) {
+    const actual = after.get(name);
+    if (
+      !actual ||
+      actual.type !== expected.type ||
+      actual.size !== expected.size
+    ) {
+      if (!actual) differences.missing++;
+      else differences.changed++;
+      if (differences.samples.length < 32)
+        differences.samples.push({
+          symbol: name.slice(0, 1024),
+          symbolTruncated: name.length > 1024,
+          expected,
+          actual: actual ?? null,
+        });
+    }
+  }
+  for (const name of after.keys()) if (!before.has(name)) differences.extra++;
   for (const [name, expected] of before) {
     const actual = after.get(name);
     if (
@@ -48,6 +68,14 @@ export function verifyLlvmCompatibility(baseline, candidate) {
         actual: actual ?? null,
         baselineExports: before.size,
         candidateExports: after.size,
+      };
+      // Keep every original rejection. Bounded samples expose further drift
+      // without relying on an inaccessible failed Docker layer's inventory.
+      error.llvmAbiDifferences = {
+        ...differences,
+        truncated:
+          differences.missing + differences.changed >
+          differences.samples.length,
       };
       throw error;
     }
@@ -127,6 +155,7 @@ if (
           baselineNeeded: baseline.needed,
           candidateNeeded: candidate.needed,
           mismatch: error.llvmAbiMismatch ?? null,
+          differences: error.llvmAbiDifferences ?? null,
           fullInventoriesBuilderLocalOnly: true,
         }),
     );
