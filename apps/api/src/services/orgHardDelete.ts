@@ -114,6 +114,11 @@ export async function previewOrgHardDelete(
   });
   const scope = await scopeIds(prisma, organizationId);
 
+  const [caseAnalysisQueueItem, caseAnalysisQueue] = await Promise.all([
+    prisma.caseAnalysisQueueItem.count({ where: { queue: { organizationId } } }),
+    prisma.caseAnalysisQueue.count({ where: { organizationId } }),
+  ]);
+
   const [
     coverageFileEntry,
     coverageReport,
@@ -157,6 +162,7 @@ export async function previewOrgHardDelete(
     release,
     requirement,
     sharedStepGroup,
+    sharedStepGroupRevision,
     testRun,
     testSelectionRun,
     webhookDelivery,
@@ -264,6 +270,9 @@ export async function previewOrgHardDelete(
     prisma.sharedStepGroup.count({
       where: { projectId: { in: scope.projectIds } },
     }),
+    prisma.sharedStepGroupRevision.count({
+      where: { group: { projectId: { in: scope.projectIds } } },
+    }),
     prisma.testRun.count({ where: { projectId: { in: scope.projectIds } } }),
     prisma.testSelectionRun.count({
       where: { projectId: { in: scope.projectIds } },
@@ -280,6 +289,8 @@ export async function previewOrgHardDelete(
     organizationSlug: org.slug,
     projectCount: scope.projectIds.length,
     rowCounts: {
+      CaseAnalysisQueueItem: caseAnalysisQueueItem,
+      CaseAnalysisQueue: caseAnalysisQueue,
       CoverageFileEntry: coverageFileEntry,
       CoverageReport: coverageReport,
       ExploratorySessionNote: exploratorySessionNote,
@@ -322,6 +333,7 @@ export async function previewOrgHardDelete(
       Release: release,
       Requirement: requirement,
       SharedStepGroup: sharedStepGroup,
+      SharedStepGroupRevision: sharedStepGroupRevision,
       TestRun: testRun,
       TestSelectionRun: testSelectionRun,
       WebhookDelivery: webhookDelivery,
@@ -372,6 +384,12 @@ export async function hardDeleteOrganization(
       tx.exploratorySession.deleteMany({
         where: { projectId: { in: scope.projectIds } },
       }),
+    );
+    await del("CaseAnalysisQueueItem", () =>
+      tx.caseAnalysisQueueItem.deleteMany({ where: { queue: { organizationId } } }),
+    );
+    await del("CaseAnalysisQueue", () =>
+      tx.caseAnalysisQueue.deleteMany({ where: { organizationId } }),
     );
     await del("AiCreditTransaction", () =>
       tx.aiCreditTransaction.deleteMany({ where: { organizationId } }),
@@ -555,6 +573,13 @@ export async function hardDeleteOrganization(
     await del("Requirement", () =>
       tx.requirement.deleteMany({
         where: { projectId: { in: scope.projectIds } },
+      }),
+    );
+    // Explicit retained-library erasure scope, never another organization's rows.
+    await tx.$queryRaw`SELECT set_config('vaettir.shared_library_erasure',${organizationId},true)`;
+    await del("SharedStepGroupRevision", () =>
+      tx.sharedStepGroupRevision.deleteMany({
+        where: { group: { projectId: { in: scope.projectIds } } },
       }),
     );
     await del("SharedStepGroup", () =>

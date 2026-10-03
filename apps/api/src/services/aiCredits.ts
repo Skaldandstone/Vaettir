@@ -1,5 +1,9 @@
-import type { PrismaClient } from "@vaettir/db";
+import type { PrismaClient, Prisma } from "@vaettir/db";
 import { captureAiUsage } from "@vaettir/ai-agent";
+import {
+  currentApprovedAnalysisSpend,
+  ApprovedAnalysisSpendRefusal,
+} from "./approvedAnalysisSpend.js";
 
 // Flat per-operation costs, charged up front as a pre-authorization: the
 // balance has to be checked and something charged before the AI call runs
@@ -48,7 +52,9 @@ export class InsufficientAiCreditsError extends Error {
     public readonly required: number,
     public readonly balance: number,
   ) {
-    super(`Insufficient AI credits for "${operation}": needs ${required}, org has ${balance}.`);
+    super(
+      `Insufficient AI credits for "${operation}": needs ${required}, org has ${balance}.`,
+    );
     this.name = "InsufficientAiCreditsError";
   }
 }
@@ -56,7 +62,10 @@ export class InsufficientAiCreditsError extends Error {
 // Balance is the sum of the org's ledger, not a stored counter -- see the
 // schema comment on AiCreditTransaction for why (auditability, matches the
 // AuditLog pattern already used elsewhere in this codebase).
-export async function getAiCreditBalance(prisma: PrismaClient, organizationId: string): Promise<number> {
+export async function getAiCreditBalance(
+  prisma: PrismaClient,
+  organizationId: string,
+): Promise<number> {
   const result = await prisma.aiCreditTransaction.aggregate({
     where: { organizationId },
     _sum: { amount: true },
@@ -64,12 +73,9 @@ export async function getAiCreditBalance(prisma: PrismaClient, organizationId: s
   return result._sum.amount ?? 0;
 }
 
-// Checks balance and records the CONSUMPTION transaction atomically enough
-// for this scale (an aggregate read + a create, not wrapped in a DB
-// transaction) -- a race between two simultaneous AI calls on the same org
-// could theoretically both pass the check and slightly overdraw the
-// balance. Acceptable for now: the cost of a rare few-credit overdraw is
-// far lower than the complexity of serializing every AI call per org.
+// Serialize the affordability read and ledger insertion under the organization
+// row lock. Existing callers inside a Prisma transaction reuse it rather than
+// opening a nested transaction. No database lock spans a provider request.
 // Throws InsufficientAiCreditsError (not a generic Error) so callers can
 // surface a specific, actionable message rather than a generic failure.
 export interface AiCharge {
@@ -83,15 +89,47 @@ export async function chargeAiCredits(
   description?: string,
 ): Promise<AiCharge> {
   const cost = AI_OPERATION_COSTS[operation];
-  const balance = await getAiCreditBalance(prisma, organizationId);
-  if (balance < cost) {
-    throw new InsufficientAiCreditsError(operation, cost, balance);
-  }
-  const tx = await prisma.aiCreditTransaction.create({
-    data: { organizationId, type: "CONSUMPTION", amount: -cost, operation, description },
-    select: { id: true },
-  });
-  return { transactionId: tx.id };
+  const scope = currentApprovedAnalysisSpend();
+  const perform = async (db: Prisma.TransactionClient) => {
+    await db.$queryRaw`SELECT id FROM "Organization" WHERE id=${organizationId} FOR UPDATE`;
+    if (scope) {
+      if (
+        scope.organizationId !== organizationId ||
+        scope.operation !== operation ||
+        cost > scope.maximumCredits ||
+        scope.chargeId
+      )
+        throw new ApprovedAnalysisSpendRefusal(
+          "BUDGET",
+          "This debit is outside the persisted approved analysis allowance.",
+        );
+      await scope.validate(db, "CHARGE");
+    }
+    const balance = await getAiCreditBalance(
+      db as unknown as PrismaClient,
+      organizationId,
+    );
+    if (balance < cost)
+      throw new InsufficientAiCreditsError(operation, cost, balance);
+    const row = await db.aiCreditTransaction.create({
+      data: {
+        organizationId,
+        type: "CONSUMPTION",
+        amount: -cost,
+        operation,
+        description,
+      },
+      select: { id: true },
+    });
+    if (scope) await scope.recordCharge(db, row.id, cost);
+    return { transactionId: row.id };
+  };
+  const result =
+    typeof prisma.$transaction === "function"
+      ? await prisma.$transaction(perform)
+      : await perform(prisma as unknown as Prisma.TransactionClient);
+  if (scope) scope.chargeId = result.transactionId;
+  return result;
 }
 
 // Guestimate conversion from real token usage to credits, matching
@@ -110,8 +148,13 @@ const CREDITS_PER_OUTPUT_TOKEN = 15 / 1_000_000 / 0.01;
 // ceiling'd to 4, silently overcharging by a full credit on otherwise-exact
 // inputs. A real, reproducible bug caught while writing this function's own
 // tests, not a theoretical one.
-function realCostCredits(usage: { inputTokens: number; outputTokens: number }): number {
-  const raw = usage.inputTokens * CREDITS_PER_INPUT_TOKEN + usage.outputTokens * CREDITS_PER_OUTPUT_TOKEN;
+function realCostCredits(usage: {
+  inputTokens: number;
+  outputTokens: number;
+}): number {
+  const raw =
+    usage.inputTokens * CREDITS_PER_INPUT_TOKEN +
+    usage.outputTokens * CREDITS_PER_OUTPUT_TOKEN;
   return Math.ceil(Math.round(raw * 1_000_000) / 1_000_000);
 }
 
@@ -129,10 +172,65 @@ function realCostCredits(usage: { inputTokens: number; outputTokens: number }): 
 // rather than thrown. If the AI call itself throws, nothing is stamped or
 // adjusted -- the row keeps its flat charge with null usage, which is
 // exactly the "charged but failed" signal the pricing review wants to see.
-export async function meterAiCall<T>(prisma: PrismaClient, charge: AiCharge, fn: () => Promise<T>): Promise<T> {
+export async function meterAiCall<T>(
+  prisma: PrismaClient,
+  charge: AiCharge,
+  fn: () => Promise<T>,
+): Promise<T> {
   const { result, usage } = await captureAiUsage(fn);
   if (usage.calls > 0) {
     try {
+      const scope = currentApprovedAnalysisSpend();
+      if (scope) {
+        if (scope.chargeId !== charge.transactionId)
+          throw new Error(
+            "Metering receipt differs from approved analysis charge",
+          );
+        await prisma.$transaction(async (db) => {
+          await db.$queryRaw`SELECT id FROM "Organization" WHERE id=${scope.organizationId} FOR UPDATE`;
+          const row = await db.aiCreditTransaction.findFirstOrThrow({
+            where: {
+              id: charge.transactionId,
+              organizationId: scope.organizationId,
+              type: "CONSUMPTION",
+              operation: scope.operation,
+            },
+            select: { amount: true },
+          });
+          const flatCharge = -row.amount,
+            actualCredits = realCostCredits(usage);
+          if (flatCharge > scope.maximumCredits)
+            throw new Error("Approved analysis debit exceeded its bound");
+          const refund = Math.max(0, flatCharge - actualCredits),
+            excessNotCharged = Math.max(0, actualCredits - flatCharge);
+          const first = await scope.recordMeter(db, charge.transactionId, {
+            actualCredits,
+            refund,
+            excessNotCharged,
+          });
+          if (!first) return;
+          await db.aiCreditTransaction.update({
+            where: { id: charge.transactionId },
+            data: {
+              inputTokens: usage.inputTokens,
+              outputTokens: usage.outputTokens,
+              aiCalls: usage.calls,
+              model: usage.model,
+            },
+          });
+          if (refund)
+            await db.aiCreditTransaction.create({
+              data: {
+                organizationId: scope.organizationId,
+                type: "ADJUSTMENT",
+                amount: refund,
+                operation: scope.operation,
+                description: `Approved analysis refund for charge ${charge.transactionId}; actual ${actualCredits}, maximum ${flatCharge}`,
+              },
+            });
+        });
+        return result;
+      }
       const row = await prisma.aiCreditTransaction.update({
         where: { id: charge.transactionId },
         data: {
@@ -158,7 +256,10 @@ export async function meterAiCall<T>(prisma: PrismaClient, charge: AiCharge, fn:
         });
       }
     } catch (e) {
-      console.error(`[aiCredits] failed to record/reconcile token usage on ${charge.transactionId}:`, e);
+      console.error(
+        `[aiCredits] failed to record/reconcile token usage on ${charge.transactionId}:`,
+        e,
+      );
     }
   }
   return result;
@@ -171,15 +272,22 @@ export async function meterAiCall<T>(prisma: PrismaClient, charge: AiCharge, fn:
 // (skipped below since a 0-amount ledger row is pure noise) -- Free tier
 // orgs simply have no GRANT rows and a correspondingly-usable balance of 0
 // plus whatever they've bought via TOPUP.
-export async function grantMonthlyCreditsIfNeeded(prisma: PrismaClient, organizationId: string): Promise<void> {
+export async function grantMonthlyCreditsIfNeeded(
+  prisma: PrismaClient,
+  organizationId: string,
+): Promise<void> {
   const org = await prisma.organization.findUniqueOrThrow({
     where: { id: organizationId },
-    include: { planTier: { select: { key: true, includedAiCreditsPerMonth: true } } },
+    include: {
+      planTier: { select: { key: true, includedAiCreditsPerMonth: true } },
+    },
   });
   if (org.planTier.includedAiCreditsPerMonth <= 0) return;
 
   const now = new Date();
-  const monthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
+  const monthStart = new Date(
+    Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1),
+  );
   const alreadyGranted = await prisma.aiCreditTransaction.findFirst({
     where: { organizationId, type: "GRANT", createdAt: { gte: monthStart } },
   });

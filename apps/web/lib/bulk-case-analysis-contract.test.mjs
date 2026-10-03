@@ -2,11 +2,28 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
-const component = readFileSync(new URL("../components/BulkCaseAnalysis.tsx", import.meta.url), "utf8");
+const component = readFileSync(
+  new URL("../components/DurableCaseAnalysis.tsx", import.meta.url),
+  "utf8",
+);
 
-test("bulk analysis retries require a fresh preview and explicit approval", () => {
-  assert.match(component, /setPlan\(null\); setApproved\(false\);\s*setDone\(failures\.length === 0\)/);
-  assert.match(component, /!plan && <button[^\n]*Review cases and cost/);
-  assert.match(component, /newItems\.map\(item => item\.id\)/);
-  assert.match(component, /disabled=\{busy \|\| !newItems\.length\}[^\n]*Make a request/);
+test("durable bulk analysis reviews the whole bounded scope and retains exact uncertain requests", () => {
+  assert.match(component, /ids: \[\.\.\.selectedIds\]/);
+  assert.match(component, /reviewRequest \?\?/);
+  assert.match(component, /approvalRequest \?\?/);
+  assert.match(component, /allowCaseProcessing: true/);
+  assert.match(component, /saved\.balance >= saved\.maximumCredits &&\s+consent/);
+  assert.match(
+    component,
+    /!state\.error &&\s+!state\.isFetching &&\s+!state\.isPaused/,
+  );
+  assert.match(component, /Maximum approved spend/);
+  assert.match(component, /No cached scope can\s+authorize spending/);
+  assert.match(component, /Make a request/);
+  assert.match(component, /Cancel remaining work/);
+  assert.match(component, /Saved analysis queues/);
+  assert.doesNotMatch(
+    component,
+    /assessRisk\.useMutation|reviewTestDesign|selectedIds\.slice/,
+  );
 });

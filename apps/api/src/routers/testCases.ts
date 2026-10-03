@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { assertApprovedAnalysisReservation, isDefinitiveAnalysisSpendRefusal, currentApprovedAnalysisSpend } from "../services/approvedAnalysisSpend.js";
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 import {
@@ -926,6 +927,7 @@ export const testCasesRouter = router({
           message:
             "Risk review already started or needs reconciliation. No new credits were charged.",
         });
+      await assertApprovedAnalysisReservation(ctx.prisma,tc.id,hash);
       const reservation = await ctx.prisma.testCaseRiskReview
         .create({
           data: {
@@ -954,7 +956,7 @@ export const testCasesRouter = router({
           `Risk review ${reservation.id}`,
         );
         const assessment = await meterAiCall(ctx.prisma, charge, () =>
-          assessTestCaseRisk(data),
+          assessTestCaseRisk(data, currentApprovedAnalysisSpend() ? { timeout: 90000, maxRetries: 0 } : undefined),
         );
         await ctx.prisma.$transaction(async (db) => {
           await db.testCaseRiskReview.update({
@@ -995,11 +997,11 @@ export const testCasesRouter = router({
           riskRationale: assessment.rationale,
         };
       } catch (error) {
-        if (error instanceof InsufficientAiCreditsError) {
+        if (error instanceof InsufficientAiCreditsError || isDefinitiveAnalysisSpendRefusal(error)) {
           await ctx.prisma.testCaseRiskReview.delete({
             where: { id: reservation.id },
           });
-          throw new TRPCError({ code: "BAD_REQUEST", message: error.message });
+          throw new TRPCError({ code: "BAD_REQUEST", message: error instanceof Error ? error.message : "Approved analysis spending was refused.", cause: error });
         }
         await ctx.prisma.testCaseRiskReview.updateMany({
           where: { id: reservation.id, status: "GENERATING" },
@@ -1404,7 +1406,7 @@ export const testCasesRouter = router({
         if (
           input.sharedStepGroupId &&
           !(await tx.sharedStepGroup.findFirst({
-            where: { id: input.sharedStepGroupId, projectId: input.projectId },
+            where: { id: input.sharedStepGroupId, projectId: input.projectId, archivedAt: null },
             select: { id: true },
           }))
         ) {
@@ -1750,6 +1752,7 @@ export const testCasesRouter = router({
             where: {
               id: input.sharedStepGroupId,
               projectId: existing.projectId,
+              archivedAt: null,
             },
             select: { id: true },
           }))

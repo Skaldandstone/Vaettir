@@ -50,6 +50,7 @@ import { populationAssessmentRouter } from "./routers/populationAssessment.js";
 import { testCaseViewsRouter } from "./routers/testCaseViews.js";
 import { testCaseStructureRouter } from "./routers/testCaseStructure.js";
 import { reportsRouter } from "./routers/reports.js";
+import { caseAnalysisQueueRouter } from "./routers/caseAnalysisQueue.js";
 
 export const appRouter = router({
   defectMap: defectMapRouter,
@@ -67,6 +68,7 @@ export const appRouter = router({
   repositoryConnections: repositoryConnectionsRouter,
   signalRouting: signalRoutingRouter,
   testDesign: testDesignRouter,
+  caseAnalysisQueue: caseAnalysisQueueRouter,
   creditUseRequests: creditUseRequestsRouter,
   projectPopulation: projectPopulationRouter,
   populationDocuments: populationDocumentsRouter,

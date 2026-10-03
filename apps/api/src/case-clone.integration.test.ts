@@ -335,10 +335,8 @@ describe.skipIf(!isolated)("reviewed non-destructive case duplication", () => {
     const input = await attempt(source.id),
       preview = await owner.caseClone.preview({ projectId, caseId: source.id });
     expect(preview.sharedProcedureMaterialized).toBe(true);
-    await prisma.sharedStepGroup.update({
-      where: { id: group.id },
-      data: { steps: [{ order: 0, action: "Human-edited shared action" }] },
-    });
+    const libraryReview = await owner.sharedStepGroups.review({ projectId, id: group.id });
+    await owner.sharedStepGroups.update({ projectId, id: group.id, action: "UPDATE", expectedRevisionHash: libraryReview.revisionHash, requestId: randomUUID(), confirmed: true, reason: "Synthetic concurrent library edit", content: { name: libraryReview.snapshot.name, description: libraryReview.snapshot.description, steps: [{ order: 0, action: "Human-edited shared action" }] } });
     await expect(owner.caseClone.create(input)).rejects.toMatchObject({
       code: "CONFLICT",
     });

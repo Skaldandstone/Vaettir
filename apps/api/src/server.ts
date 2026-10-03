@@ -13,6 +13,7 @@ import { prisma } from "@vaettir/db";
 import { appRouter } from "./router.js";
 import { createContext } from "./trpc.js";
 import { startReverseEngineerJobPoller, POLL_INTERVAL_MS as REVERSE_ENGINEER_POLL_MS } from "./jobs/reverseEngineerWorker.js";
+import { startCaseAnalysisQueuePoller, ANALYSIS_POLL_INTERVAL_MS } from "./jobs/caseAnalysisQueueWorker.js";
 import { startReadinessDigestScheduler, CHECK_INTERVAL_MS as DIGEST_CHECK_MS } from "./jobs/readinessDigestScheduler.js";
 import { startAiCreditGrantScheduler, CHECK_INTERVAL_MS as CREDIT_GRANT_CHECK_MS } from "./jobs/aiCreditGrantScheduler.js";
 import { startReadinessChangeScheduler, CHECK_INTERVAL_MS as READINESS_CHANGE_CHECK_MS } from "./jobs/readinessChangeScheduler.js";
@@ -61,6 +62,7 @@ function livenessHandler(_request: unknown, reply: { code(status: number): unkno
 // about all four, so /health/detailed can flag one that's gone quiet.
 const EXPECTED_POLLER_INTERVALS = {
   reverseEngineerWorker: REVERSE_ENGINEER_POLL_MS,
+  caseAnalysisQueueWorker: ANALYSIS_POLL_INTERVAL_MS,
   readinessDigestScheduler: DIGEST_CHECK_MS,
   aiCreditGrantScheduler: CREDIT_GRANT_CHECK_MS,
   readinessChangeScheduler: READINESS_CHANGE_CHECK_MS,
@@ -459,6 +461,7 @@ server
       credentialTimer.unref();
     }
     startReverseEngineerJobPoller();
+    startCaseAnalysisQueuePoller();
     startReadinessDigestScheduler();
     startAiCreditGrantScheduler();
     startReadinessChangeScheduler();

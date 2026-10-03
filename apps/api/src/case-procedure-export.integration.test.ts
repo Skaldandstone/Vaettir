@@ -119,8 +119,11 @@ describe("tenant-safe case procedure export", () => {
       await prisma.testCase.deleteMany({
         where: { projectId: { in: projects } },
       });
-      await prisma.sharedStepGroup.deleteMany({
-        where: { projectId: { in: projects } },
+      // Erase only this suite's disposable libraries and retained snapshots.
+      for (const organizationId of organizations) await prisma.$transaction(async tx => {
+        await tx.$queryRaw`SELECT set_config('vaettir.shared_library_erasure',${organizationId},true)`;
+        await tx.sharedStepGroupRevision.deleteMany({ where: { group: { project: { organizationId } } } });
+        await tx.sharedStepGroup.deleteMany({ where: { project: { organizationId } } });
       });
       await prisma.project.deleteMany({ where: { id: { in: projects } } });
     }

@@ -79,9 +79,18 @@ describe.skipIf(!isolated)("saved test design reviews", () => {
     await prisma.testCase.update({where:{id},data:{title:"Check fractional tax"}});
     const preview = await owner.testDesign.preview({id});
     const input = {id,expectedHash:preview.inputHash,approved:true as const};
-    const ledger = vi.spyOn(prisma.aiCreditTransaction,"create").mockRejectedValueOnce(new Error("ledger acknowledgement timeout"));
-    try { await expect(owner.testDesign.review(input)).rejects.toThrow("ledger acknowledgement timeout"); }
-    finally { ledger.mockRestore(); }
+    // Exercise the actual ledger insertion inside the interactive transaction.
+    const ledgerFailure = vi.fn(() => { throw new Error("ledger acknowledgement timeout"); });
+    const faultDb = prisma.$extends({ query: { aiCreditTransaction: {
+      async create({ args, query }) {
+        if (args.data.type === "CONSUMPTION") ledgerFailure();
+        return query(args);
+      },
+    } } });
+    const user = await prisma.user.findFirstOrThrow({ where: { memberships: { some: { organizationId, role: "OWNER" } } }, include: { memberships: true } });
+    const faultOwner = appRouter.createCaller({ prisma: faultDb as unknown as typeof prisma, user });
+    await expect(faultOwner.testDesign.review(input)).rejects.toThrow("ledger acknowledgement timeout");
+    expect(ledgerFailure).toHaveBeenCalledTimes(1);
     await expect(owner.testDesign.review(input)).rejects.toMatchObject({code:"CONFLICT"});
     expect((await owner.testDesign.preview({id})).reviews[0]?.status).toBe("NEEDS_RECONCILIATION");
   });

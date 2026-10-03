@@ -94,9 +94,19 @@ describe.skipIf(!isolated)("bulk case analysis authorization and risk reservatio
   it("keeps an ambiguous charge reservation and never retries the provider blindly", async () => {
     await prisma.testCase.update({ where: { id: caseId }, data: { title: "Calculate checkout after credits" } });
     const p = await owner.testCases.riskPreview({ id: caseId });
-    const tx = vi.spyOn(prisma.aiCreditTransaction, "create").mockRejectedValueOnce(new Error("ledger timeout"));
-    try { await expect(owner.testCases.assessRisk({ id: caseId, expectedHash: p.inputHash, approved: true })).rejects.toThrow("ledger timeout"); }
-    finally { tx.mockRestore(); }
+    // Query extensions also intercept the interactive transaction delegate;
+    // spying on the outer client would not exercise the real debit boundary.
+    const ledgerFailure = vi.fn(() => { throw new Error("ledger timeout"); });
+    const faultDb = prisma.$extends({ query: { aiCreditTransaction: {
+      async create({ args, query }) {
+        if (args.data.type === "CONSUMPTION") ledgerFailure();
+        return query(args);
+      },
+    } } });
+    const user = await prisma.user.findUniqueOrThrow({ where: { id: ownerUserId }, include: { memberships: true } });
+    const faultOwner = appRouter.createCaller({ prisma: faultDb as unknown as typeof prisma, user });
+    await expect(faultOwner.testCases.assessRisk({ id: caseId, expectedHash: p.inputHash, approved: true })).rejects.toThrow("ledger timeout");
+    expect(ledgerFailure).toHaveBeenCalledTimes(1);
     expect((await owner.testCases.riskPreview({ id: caseId })).savedStatus).toBe("NEEDS_RECONCILIATION");
     await expect(owner.testCases.assessRisk({ id: caseId, expectedHash: p.inputHash, approved: true })).rejects.toMatchObject({ code: "CONFLICT" });
     expect(assessTestCaseRisk).not.toHaveBeenCalled();

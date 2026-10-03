@@ -58,7 +58,7 @@ export interface AssessRiskInput {
   sourceFilePath?: string | null;
 }
 
-export async function assessTestCaseRisk(input: AssessRiskInput): Promise<TestCaseRiskAssessment> {
+export async function assessTestCaseRisk(input: AssessRiskInput, queueOptions?: { timeout: 90000; maxRetries: 0 }): Promise<TestCaseRiskAssessment> {
   const bdd = [
     ...input.given.map((s) => `Given ${s}`),
     ...input.when.map((s) => `When ${s}`),
@@ -78,7 +78,7 @@ export async function assessTestCaseRisk(input: AssessRiskInput): Promise<TestCa
           content: `Title: ${input.title}\nType: ${input.testType}${input.sourceFilePath ? `\nSource: ${input.sourceFilePath}` : ""}\n\n${bdd}\n\nAssess the risk of this test case.`,
         },
       ],
-    }),
+    }, queueOptions),
   );
 
   const toolUse = message.content.find((block): block is Anthropic.ToolUseBlock => block.type === "tool_use");

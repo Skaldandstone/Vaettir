@@ -41,6 +41,12 @@ test("compact workbench preserves scoped reviewed actions and mounted bounded an
     new URL("../components/BulkCaseAnalysis.tsx", import.meta.url),
     "utf8",
   );
-  assert.match(analysis, /selectedIds.slice\(offset, offset \+ 20\)/);
-  assert.match(analysis, /!approved \|\| !canSpend/);
+  assert.match(analysis, /DurableCaseAnalysis[^>]*selectedIds=\{selectedIds\}/);
+  const durable = readFileSync(
+    new URL("../components/DurableCaseAnalysis.tsx", import.meta.url),
+    "utf8",
+  );
+  assert.match(durable, /Maximum approved spend/);
+  assert.match(durable, /saved\.balance >= saved\.maximumCredits &&\s+consent/);
+  assert.match(durable, /selectedIds\.length > 1000/);
 });

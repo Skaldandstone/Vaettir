@@ -139,6 +139,7 @@ model Organization {
   invitations          Invitation[]
   aiCreditTransactions AiCreditTransaction[]
   aiCreditUseRequests  AiCreditUseRequest[]
+  caseAnalysisQueues   CaseAnalysisQueue[]
   apiKeys              ApiKey[]
   auditLogs            AuditLog[]
   webhookEndpoints     WebhookEndpoint[]
@@ -316,6 +317,7 @@ model Project {
   populationDocumentRuns      ProjectPopulationDocumentRun[]
   populationRequirements      ProjectPopulationRequirement[]
   testCaseViews               TestCaseView[]
+  caseAnalysisQueues          CaseAnalysisQueue[]
   jiraIssueIdentities         JiraIssueIdentity[]
 
   @@unique([organizationId, slug])
@@ -325,6 +327,63 @@ model Project {
 
 // Saved wizard preferences only. Approved evidence and generated records have
 // separate lifecycles; saving or rerunning a draft must not overwrite them.
+// A reviewed paid scope and its individual durable receipts. Procedures/source
+// are not copied here; fresh hashes and current authorization gate each debit.
+model CaseAnalysisQueue {
+  id String @id @default(cuid())
+  organizationId String
+  organization Organization @relation(fields: [organizationId], references: [id])
+  projectId String
+  project Project @relation(fields: [projectId], references: [id])
+  requestedById String
+  action String
+  requestId String
+  selectionHash String
+  scopeHash String
+  maximumCredits Int
+  caseCount Int
+  status String @default("REVIEW")
+  approvedAt DateTime?
+  cancelledAt DateTime?
+  leaseOwner String?
+  leaseExpiresAt DateTime?
+  activeItemId String?
+  reason String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  items CaseAnalysisQueueItem[]
+  @@unique([projectId, requestedById, requestId])
+  @@index([status, createdAt])
+  @@index([organizationId, projectId, requestedById, createdAt])
+}
+
+model CaseAnalysisQueueItem {
+  id String @id @default(cuid())
+  queueId String
+  queue CaseAnalysisQueue @relation(fields: [queueId], references: [id], onDelete: Cascade)
+  // Retained original identity, never a substitute for current case access.
+  caseId String
+  displayId String
+  position Int
+  inputHash String
+  contentRevision String
+  sourceRevision String
+  caseUpdatedAt DateTime
+  maximumCredits Int
+  status String
+  reason String?
+  chargeId String? @unique
+  actualCredits Int?
+  refund Int?
+  excessNotCharged Int?
+  meteredAt DateTime?
+  startedAt DateTime?
+  completedAt DateTime?
+  @@unique([queueId, caseId])
+  @@unique([queueId, position])
+  @@index([queueId, status, position])
+}
+
 model ProjectRepository {
   id           String                @id @default(cuid())
   projectId    String
@@ -1537,10 +1596,35 @@ model SharedStepGroup {
   createdBy   User?    @relation(fields: [createdById], references: [id])
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
+  revision    Int      @default(1)
+  archivedAt  DateTime?
+  revisions   SharedStepGroupRevision[]
 
   testCases TestCase[]
 
   @@index([projectId])
+}
+
+// Exact retained library snapshots. A restore appends rather than rewrites.
+// Actor identity is a historical scalar, not a cascading user relation.
+model SharedStepGroupRevision {
+  id             String @id @default(cuid())
+  groupId        String
+  group          SharedStepGroup @relation(fields: [groupId], references: [id], onDelete: Restrict)
+  revision       Int
+  kind           String
+  snapshot       Json
+  actorId        String?
+  actorName      String?
+  recordedAt     DateTime @default(now())
+  reason         String?
+  sourceRevision Int?
+  requestId      String?
+  requestHash    String?
+
+  @@unique([groupId, revision])
+  @@unique([groupId, actorId, requestId])
+  @@index([groupId, revision])
 }
 
 // 2026-08-27 competitor parity audit: session-based exploratory testing -

@@ -114,7 +114,8 @@ describe.skipIf(!isolated)("saved experiences and immutable repeated run definit
     const group = await owner.sharedStepGroups.create({ projectId, name: "Synthetic shared procedure", steps: [{ action: "Original shared action", expectedResult: "Original shared result" }] });
     await prisma.testCase.update({ where: { id: caseId }, data: { sharedStepGroupId: group.id } });
     const run = await owner.manualExecution.start({ projectId, testCaseIds: [caseId] });
-    await owner.sharedStepGroups.update({ id: group.id, name: "Synthetic shared procedure", steps: [{ action: "Changed shared action", expectedResult: "Changed shared result" }] });
+    const libraryReview = await owner.sharedStepGroups.review({ projectId, id: group.id });
+    await owner.sharedStepGroups.update({ projectId, id: group.id, action: "UPDATE", expectedRevisionHash: libraryReview.revisionHash, requestId: randomUUID(), confirmed: true, reason: "Synthetic frozen-run regression", content: { name: "Synthetic shared procedure", description: null, steps: [{ order: 0, action: "Changed shared action", expectedResult: "Changed shared result" }] } });
     const execution = await owner.manualExecution.getForExecution(run);
     expect(execution.cases[0]?.steps).toEqual([{ order: 0, action: "Original shared action", expectedActionOrData: null, expectedResult: "Original shared result", expectedResponse: null, mediaAttachmentIds: [] }]);
   });

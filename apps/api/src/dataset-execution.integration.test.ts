@@ -217,10 +217,8 @@ describe.skipIf(!isolated)(
         "Shared action Mobile",
       );
       const batch = await owner.manualExecution.startDatasetExecution(start);
-      await prisma.sharedStepGroup.update({
-        where: { id: group.id },
-        data: { steps: [{ order: 0, action: "Later human library edit" }] },
-      });
+      const libraryReview = await owner.sharedStepGroups.review({ projectId, id: group.id });
+      await owner.sharedStepGroups.update({ projectId, id: group.id, action: "UPDATE", expectedRevisionHash: libraryReview.revisionHash, requestId: randomUUID(), confirmed: true, reason: "Synthetic frozen dataset procedure regression", content: { name: libraryReview.snapshot.name, description: libraryReview.snapshot.description, steps: [{ order: 0, action: "Later human library edit" }] } });
       expect(
         (await owner.manualExecution.getForExecution(batch.runs[0]!)).cases[0]!
           .steps[0]!.action,

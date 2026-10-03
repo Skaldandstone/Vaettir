@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { assertApprovedAnalysisReservation, isDefinitiveAnalysisSpendRefusal } from "../services/approvedAnalysisSpend.js";
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 import { Prisma } from "@vaettir/db";
@@ -40,6 +41,7 @@ export const testDesignRouter = router({
     const existing = await ctx.prisma.testDesignReview.findUnique({ where: { testCaseId_inputHash: { testCaseId: tc.id, inputHash } } });
     if (existing?.content) return TestDesignReviewSchema.parse(existing.content);
     if (existing) throw new TRPCError({ code: "CONFLICT", message: "This review was already requested. No new credits were charged. Check its saved status; an interrupted review needs administrator reconciliation." });
+    await assertApprovedAnalysisReservation(ctx.prisma,tc.id,inputHash);
     const row = await ctx.prisma.testDesignReview.create({ data: { testCaseId: tc.id, inputHash, caseHash: hash(tc), evidenceRef: input.evidence?.ref, createdById: ctx.user.id } }).catch((e: unknown) => {
       if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2002") throw new TRPCError({ code: "CONFLICT", message: "A review for these inputs already exists. Refresh to see it." });
       throw e;
@@ -52,7 +54,7 @@ export const testDesignRouter = router({
     } catch (error) {
       // Only a definitive balance refusal is safe to retry. A ledger write
       // timeout could have committed: retain its reservation for reconciliation.
-      if (error instanceof InsufficientAiCreditsError) await ctx.prisma.testDesignReview.delete({ where: { id: row.id } });
+      if (error instanceof InsufficientAiCreditsError || isDefinitiveAnalysisSpendRefusal(error)) await ctx.prisma.testDesignReview.delete({ where: { id: row.id } });
       else await ctx.prisma.testDesignReview.update({ where: { id: row.id }, data: { status: "NEEDS_RECONCILIATION" } });
       throw error;
     }

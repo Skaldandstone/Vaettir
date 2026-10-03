@@ -832,6 +832,9 @@ export default function TestCasesPage() {
           Filters{filters.length ? ` (${filters.length})` : ""}
         </button>
         <CaseQueryExplorer projectId={projectId} />
+        {project && (
+          <BulkCaseAnalysis projectId={projectId} organizationId={project.organizationId} selectedIds={[...selected]} onCompleted={reload} />
+        )}
         {!readOnly && (
           <button className="btn-primary" onClick={() => setAddOpen(true)}>
             Add case
@@ -989,14 +992,6 @@ export default function TestCasesPage() {
                   >
                     Run ({activeSelectedIds.length})
                   </button>
-                )}
-                {project && (
-                  <BulkCaseAnalysis
-                    projectId={projectId}
-                    organizationId={project.organizationId}
-                    selectedIds={[...selected]}
-                    onCompleted={reload}
-                  />
                 )}
                 {!readOnly && (
                   <>
