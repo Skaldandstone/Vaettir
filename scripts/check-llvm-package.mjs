@@ -111,7 +111,7 @@ if (
         source: "Debian llvm-toolchain-19 1:19.1.7-3",
         packageVersion: "1:19.1.7-3+vaettir1",
         change:
-          "Supported optional Windows manifest XML integration disabled; all targets, Polly, Mesa functionality retained",
+          "Supported optional Windows manifest XML integration disabled; all targets/Polly configured and exported ABI preserved; Mesa runtime verification is separate",
         runtimeAccepted: false,
       },
       null,

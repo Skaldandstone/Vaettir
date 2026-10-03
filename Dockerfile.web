@@ -73,7 +73,7 @@ COPY --from=native-build /build/zlib-build/zlib-runtime-proof.json /usr/share/va
 COPY --from=native-build /build/zlib-build/zlib-sanitizer-proof.txt /usr/share/vaettir/zlib-sanitizer-proof.txt
 COPY --from=native-build /build/zlib-build/zlib-runtime-regression /usr/share/vaettir/zlib-runtime-regression
 COPY --from=native-build /build/zlib-sources/source-manifest.json /usr/share/vaettir/zlib-source-manifest.json
-COPY scripts/check-dash-runtime.mjs scripts/check-zlib-runtime.mjs /app/scripts/
+COPY scripts/check-dash-runtime.mjs scripts/check-zlib-runtime.mjs scripts/check-image-runtime.mjs /app/scripts/
 RUN apt-get update --error-on=any \
     && apt-get install -y --no-install-recommends openssl ca-certificates perl-base libpcre2-8-0 /tmp/vaettir-vendor/*.deb \
     && dpkg --compare-versions "$(dpkg-query -W -f='${Version}' perl-base)" ge '5.40.1-6+deb13u1' \
@@ -97,6 +97,7 @@ COPY --from=builder --chown=nextjs:nodejs /app/apps/web/public ./apps/web/public
 USER nextjs
 RUN --network=none node scripts/check-dash-runtime.mjs
 RUN --network=none node scripts/check-zlib-runtime.mjs --installed /usr/lib/x86_64-linux-gnu/libz.so.1 /usr/share/vaettir/zlib-runtime-proof.json /usr/share/vaettir/zlib-runtime-regression
+RUN --network=none node scripts/check-image-runtime.mjs
 EXPOSE 3000
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \

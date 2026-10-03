@@ -35,7 +35,7 @@ RUN apt-get update --error-on=any \
     && dpkg --compare-versions "$(dpkg-query -W -f='${Version}' libpcre2-8-0)" ge '10.46-1~deb13u3' \
     && rm -rf /var/lib/apt/lists/*
 WORKDIR /build
-COPY scripts/fetch-runtime-vendor-sources.mjs scripts/runtime-vendor-sources.json scripts/build-llvm-runtime.sh scripts/check-llvm-package.mjs /build/scripts/
+COPY scripts/fetch-runtime-vendor-sources.mjs scripts/runtime-vendor-sources.json scripts/build-llvm-runtime.sh scripts/check-llvm-package.mjs scripts/check-llvm-jit.c /build/scripts/
 RUN node /build/scripts/fetch-runtime-vendor-sources.mjs /build/llvm-sources llvm \
     && sh /build/scripts/build-llvm-runtime.sh
 
@@ -72,6 +72,7 @@ COPY --from=vendor-build /build/dash-build/dash-source-signature.status /usr/sha
 COPY --from=vendor-build /build/dash-build/dash-runtime-proof.txt /usr/share/vaettir/dash-builder-runtime-proof.txt
 COPY --from=vendor-build /build/dash-sources/source-manifest.json /usr/share/vaettir/dash-source-manifest.json
 COPY --from=llvm-build /build/libllvm19_19.1.7-3+vaettir1_amd64.deb /tmp/vaettir-vendor/
+COPY --from=llvm-build /build/llvm-cpu-jit /usr/share/vaettir/llvm-cpu-jit
 COPY --from=zlib-build /build/zlib-build/zlib1g_1.3.dfsg+really1.3.2-3+vaettir1_amd64.deb /tmp/vaettir-vendor/
 COPY --from=zlib-build /build/zlib-build/zlib-source-signature.status /usr/share/vaettir/zlib-source-signature.status
 COPY --from=zlib-build /build/zlib-build/zlib-runtime-proof.json /usr/share/vaettir/zlib-runtime-proof.json
@@ -115,6 +116,8 @@ RUN --network=none node scripts/check-browser-graphics.mjs
 RUN --network=none node scripts/check-git-runtime.mjs
 RUN --network=none node scripts/check-dash-runtime.mjs
 RUN --network=none node scripts/check-zlib-runtime.mjs --installed /usr/lib/x86_64-linux-gnu/libz.so.1 /usr/share/vaettir/zlib-runtime-proof.json /usr/share/vaettir/zlib-runtime-regression
+RUN --network=none node scripts/check-image-runtime.mjs
+RUN --network=none node scripts/check-mesa-runtime.mjs
 
 ENV NODE_ENV=production \
     API_PORT=8000 \

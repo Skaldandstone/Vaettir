@@ -52,10 +52,22 @@ test("maintained LLVM source build has signatures, honest packaging, complete ta
   assert.match(script, /LLVM_ENABLE_Z3_SOLVER=ON/);
   assert.match(script, /LLVM_POLLY_LINK_INTO_TOOLS=ON/);
   assert.match(script, /LLVM_ENABLE_ASSERTIONS=ON/);
+  assert.match(script, /-DLLVM_ABI_BREAKING_CHECKS=FORCE_OFF/);
+  assert.doesNotMatch(script, /-DLLVM_ENABLE_ABI_BREAKING_CHECKS=/);
+  assert.match(script, /LLVM_ABI_BREAKING_CHECKS:STRING=FORCE_OFF/);
+  assert.match(script, /#define LLVM_ENABLE_ABI_BREAKING_CHECKS 0/);
+  assert.ok(
+    script.indexOf("#define LLVM_ENABLE_ABI_BREAKING_CHECKS 0") <
+      script.indexOf("timeout 5400"),
+  );
   assert.match(script, /timeout 1800[^\n]+check-llvm-unit/);
   assert.match(script, /dpkg-shlibdeps -O/);
   assert.match(script, /dpkg-gencontrol[^\n]+vaettir1/);
   assert.match(script, /check-llvm-package.mjs/g);
+  assert.match(script, /clang-19 -std=c11 -O2 -Wall -Wextra -Werror/);
+  assert.match(script, /readelf -d \/build\/llvm-cpu-jit/);
+  assert.match(script, /! grep -E 'RPATH\|RUNPATH'/);
+  assert.match(script, /timeout 10 \/build\/llvm-cpu-jit/);
   assert.doesNotMatch(
     script,
     /--force-depends|--allow-unauthenticated|nocheck|\|\| true|libxml.*\.so.*ln/,
@@ -72,5 +84,13 @@ test("maintained LLVM source build has signatures, honest packaging, complete ta
   assert.match(
     docker,
     /^RUN --network=none node scripts\/check-browser-graphics.mjs$/m,
+  );
+  assert.match(
+    docker,
+    /COPY --from=llvm-build \/build\/llvm-cpu-jit \/usr\/share\/vaettir\/llvm-cpu-jit/,
+  );
+  assert.match(
+    docker,
+    /^RUN --network=none node scripts\/check-mesa-runtime.mjs$/m,
   );
 });

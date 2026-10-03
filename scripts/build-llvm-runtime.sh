@@ -25,7 +25,7 @@ cmake -S llvm -B /build/llvm-build -G Ninja \
   '-DLLVM_EXPERIMENTAL_TARGETS_TO_BUILD=M68k;Xtensa' \
   -DLLVM_ENABLE_PROJECTS=polly -DLLVM_POLLY_LINK_INTO_TOOLS=ON \
   -DLLVM_ENABLE_RTTI=ON -DLLVM_ENABLE_DUMP=ON \
-  -DLLVM_ENABLE_ASSERTIONS=ON -DLLVM_ENABLE_ABI_BREAKING_CHECKS=FORCE_OFF \
+  -DLLVM_ENABLE_ASSERTIONS=ON -DLLVM_ABI_BREAKING_CHECKS=FORCE_OFF \
   -DLLVM_ENABLE_FFI=ON -DLLVM_ENABLE_LIBEDIT=ON -DLLVM_ENABLE_Z3_SOLVER=ON \
   -DLLVM_ENABLE_LIBPFM=ON \
   -DLLVM_ENABLE_ZLIB=FORCE_ON -DLLVM_ENABLE_ZSTD=FORCE_ON \
@@ -34,12 +34,27 @@ cmake -S llvm -B /build/llvm-build -G Ninja \
   -DLLVM_DYLIB_COMPONENTS=all -DLLVM_PARALLEL_LINK_JOBS=1 \
   -DLLVM_USE_LINKER=gold \
   -DLLVM_INCLUDE_TESTS=ON -DLLVM_BUILD_TESTS=ON
+# Check the generated configuration, not merely the requested CMake argument.
+# ENABLE_ABI_BREAKING_CHECKS is the output macro, not the input option name.
+grep -Fx 'LLVM_ABI_BREAKING_CHECKS:STRING=FORCE_OFF' /build/llvm-build/CMakeCache.txt
+grep -Fx '#define LLVM_ENABLE_ABI_BREAKING_CHECKS 0' /build/llvm-build/include/llvm/Config/abi-breaking.h
 timeout 5400 cmake --build /build/llvm-build --parallel 2 --target LLVM llvm-config
 timeout 1800 cmake --build /build/llvm-build --parallel 2 --target check-llvm-unit
 test "$(/build/llvm-build/bin/llvm-config --version)" = '19.1.7'
 node /build/scripts/check-llvm-package.mjs \
   /usr/lib/x86_64-linux-gnu/libLLVM.so.19.1 \
   /build/llvm-build/lib/libLLVM.so.19.1 /build/llvm-abi.json
+
+# Author-created fixed-input CPU codegen probe. No builder RPATH may hide a
+# runtime dependency problem; run first with Debian's baseline shared library.
+clang-19 -std=c11 -O2 -Wall -Wextra -Werror \
+  -I/build/llvm-build/include -I/build/llvm-source/llvm/include \
+  /build/scripts/check-llvm-jit.c /build/llvm-build/lib/libLLVM.so.19.1 \
+  -Wl,-z,relro,-z,now -o /build/llvm-cpu-jit
+readelf -d /build/llvm-cpu-jit > /build/llvm-cpu-jit-dynamic.txt
+grep -F 'Shared library: [libLLVM.so.19.1]' /build/llvm-cpu-jit-dynamic.txt
+! grep -E 'RPATH|RUNPATH' /build/llvm-cpu-jit-dynamic.txt
+timeout 10 /build/llvm-cpu-jit
 
 # Produce a real libllvm19 package with recalculated actual shared dependencies.
 # Retain upstream package metadata/docs/license; annotate our local revision.
