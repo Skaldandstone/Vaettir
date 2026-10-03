@@ -12,3 +12,4 @@ export * from "./projectPopulation.js";
 export * from "./qualityExperience.js";
 export * from "./defectMap.js";
 export * from "./caseProcedureExport.js";
+export * from "./caseExecutionHistory.js";

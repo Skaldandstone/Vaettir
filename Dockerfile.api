@@ -111,6 +111,7 @@ RUN pnpm install --frozen-lockfile \
 
 # Verify the shipped browser against a synthetic in-memory fixture, with
 # networking disabled at the container layer as well as the browser context.
+RUN --network=none node scripts/prune-runtime-package-manager.mjs --image-build
 RUN --network=none node scripts/check-browser-runtime.mjs
 RUN --network=none node scripts/check-browser-graphics.mjs
 RUN --network=none node scripts/check-git-runtime.mjs

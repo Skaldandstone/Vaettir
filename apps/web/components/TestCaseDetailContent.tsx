@@ -6,6 +6,7 @@ import { trpcReact, type RouterOutputs } from "@/lib/trpcReact";
 import { RiskMeter } from "@/components/MetricVisuals";
 import { TestDesignReview } from "@/components/TestDesignReview";
 import { TestCasePrerequisites } from "@/components/TestCasePrerequisites";
+import { TestCaseExecutionHistory } from "@/components/TestCaseExecutionHistory";
 import { CaseTraceabilityPanel } from "@/components/CaseTraceabilityPanel";
 import { Modal } from "@/components/Modal";
 import { automationTargetForFramework } from "@vaettir/core";
@@ -1062,7 +1063,7 @@ function TestCaseVersionHistorySection({ testCaseId }: { testCaseId: string }) {
         marginBottom: 16,
       }}
     >
-      <strong>History</strong>
+      <strong>Case changes</strong>
       {loading && <p>Loading…</p>}
       {!loading && (
         <ul style={{ listStyle: "none", padding: 0, margin: "6px 0 0" }}>
@@ -1947,6 +1948,12 @@ function TestCaseInspector({
         aria-labelledby={`${sectionId}-tab-History`}
         hidden={section !== "History"}
       >
+        <TestCaseExecutionHistory
+          key={tc.id}
+          projectId={projectId}
+          testCaseId={tc.id}
+          active={section === "History"}
+        />
         <TestCaseVersionHistorySection testCaseId={tc.id} />
 
         {tc.origin === "AI_REVERSE_ENGINEERED" && (

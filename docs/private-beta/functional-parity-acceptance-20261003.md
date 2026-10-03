@@ -169,3 +169,15 @@ Source validation on October 3, before production deployment:
 - Older/newer run navigation uses project-pinned stable keyset ordering. Actual router tests read all 45 synthetic runs, including equal timestamps, without gaps or duplicates. This does not yet supply a case-centric execution timeline.
 
 The full actual API suite passes 1,220 tests across 123 files; web contracts pass 168 tests and core passes 95 tests. Workspace typechecks pass; lint has zero errors and 44 warnings. These receipts establish source/fixture behavior only. Comparative task timings, remaining acceptance tasks and authenticated production acceptance are still required before claiming functional superiority.
+
+## Subsequent functional slice: case execution history
+
+The inspector's History tab now separates executions from authored case changes. It reads one entry per linked/planned run for the selected stable case identity, with older/newer navigation. Case outcomes remain separate from overall run status. Multiple reported results and Flaky outcomes are explicit; planned but unrecorded and partial observations are not passes. Saved manual-definition metadata, recorded platform/build and step observers are shown where available. A run starter's current profile is labelled as current, not a historical name snapshot.
+
+Corrections remain inside their original execution. The existing manual-run link opens the frozen procedure and step revision evidence. A later passing run is not an explicitly linked retest or proof of a verified defect fix. Legacy whole-case result changes lack earlier observation history; the UI states that limitation instead of manufacturing events or substituting current case content.
+
+The new endpoint is read-only, project/case pinned and bounded to 25 runs per page. It rechecks current membership and suspension within its transaction; foreign/deleted cursors fail explicitly. Snapshot metadata is projected without loading full procedures or artifact URLs. No source reading, AI generation, credits or customer writes are involved.
+
+Actual disposable PostgreSQL regressions pass for pagination with equal timestamps, tenant/case/cursor isolation, archived cases, membership revocation, reparenting, suspension, unsupported metadata, frozen-content preservation, correction attribution and mixed results. The subsequent full suite passes 1,231 API tests across 124 files; core passes 98 and web 168. Workspace typechecks and lint pass with zero errors and 44 warnings. Actual-component desktop/mobile fixtures verify lazy queries, case isolation, keyboard expansion, older/newer/latest navigation and retry recovery without presenting errors as empty history.
+
+This closes the basic case-centric read-history gap in source and fixtures, not all FPA-06 execution requirements. Explicit retest relationships, immutable whole-case observation events, parameter-row execution and production acceptance remain separate work. No measured competitor-superiority claim or deployment claim follows from this slice.
