@@ -4,6 +4,7 @@ import {
   REPORT_SECTIONS,
   readableMetric,
   renderFrozenReportHtml,
+  reportScopeSummary,
   type FrozenReportPayload,
 } from "@/lib/frozen-report";
 
@@ -58,10 +59,35 @@ export function FrozenReport({
           {new Date(report.asOf).toLocaleString()}
         </p>
         <p className="text-muted">
-          Project-wide scope. Execution:{" "}
-          {new Date(report.windowStart).toLocaleDateString()} to{" "}
-          {new Date(report.asOf).toLocaleDateString()}.
+          {reportScopeSummary(report)}. Execution (UTC):{" "}
+          {report.windowStart.slice(0, 10)} to{" "}
+          {(report.windowEnd ?? report.asOf).slice(0, 10)}.
         </p>
+        {report.scope && (
+          <p className="text-muted">{report.scope.cohortBasis}</p>
+        )}
+        {report.scope && (
+          <details>
+            <summary>
+              Contributing recorded runs (
+              {report.scope.contributingRunIds.length})
+            </summary>
+            <p className="text-muted">
+              Stable run references captured with this snapshot. Later run
+              observations do not change this report. First 50 references shown.
+            </p>
+            <ul>
+              {report.scope.contributingRunIds.slice(0, 50).map((id) => (
+                <li key={id} style={{ overflowWrap: "anywhere" }}>
+                  {id}
+                </li>
+              ))}
+            </ul>
+            {!report.scope.contributingRunIds.length && (
+              <p>No matching recorded runs. This is not a passing result.</p>
+            )}
+          </details>
+        )}
         {allowExport && (
           <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
             <button className="btn-secondary" type="button" onClick={download}>

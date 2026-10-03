@@ -7,6 +7,20 @@ export const REPORT_SECTIONS = [
   "defects",
   "automation",
 ] as const;
+export function reportScopeSummary(report: FrozenReportPayload) {
+  if (!report.scope || report.scope.kind === "project")
+    return "Project-wide scope";
+  const filters = report.scope.filters;
+  return [
+    filters?.planId ? `Plan: ${report.scope.planName ?? filters.planId}` : null,
+    filters?.runId ? `Run: ${filters.runId}` : null,
+    filters?.platform ? `Platform: ${filters.platform}` : null,
+    filters?.environment ? `Environment: ${filters.environment}` : null,
+    filters?.build ? `Build: ${filters.build}` : null,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+}
 export function readableMetric(value: string) {
   return value
     .replaceAll("_", " ")
@@ -45,6 +59,32 @@ export function reportMetricRows(report: FrozenReportPayload) {
     add("inventory", `${readableMetric(row.key)} priority`, row.count);
   add("execution", "Runs in window", report.execution.runs);
   add("execution", "Recorded results", report.execution.results);
+  if (report.execution.matchedResults !== undefined)
+    add(
+      "execution",
+      "Results linked to project cases",
+      report.execution.matchedResults,
+    );
+  if (report.execution.unmatchedResults !== undefined)
+    add(
+      "execution",
+      "Unmatched / foreign case results",
+      report.execution.unmatchedResults,
+      "Retained in outcome totals; excluded from active-case execution coverage.",
+    );
+  if (report.execution.plannedCaseRunPairs !== undefined)
+    add(
+      "execution",
+      "Planned manual case / run pairs",
+      report.execution.plannedCaseRunPairs,
+    );
+  if (report.execution.notRecordedCaseRunPairs !== undefined)
+    add(
+      "execution",
+      "Planned pairs without a result",
+      report.execution.notRecordedCaseRunPairs,
+      "No recorded outcome is not PASS, SKIP or BLOCKED. Repeated runs count separately.",
+    );
   add(
     "execution",
     "Distinct active cases executed",
@@ -63,7 +103,9 @@ export function reportMetricRows(report: FrozenReportPayload) {
     "traceability",
     "Requirements with an active covering case",
     `${report.traceability.coveredRequirements} / ${report.traceability.requirements}`,
-    "Explicit case links only; no execution claim.",
+    report.scope?.kind === "recorded-execution"
+      ? "Denominator includes only requirements explicitly linked to the scoped active cases. Unlinked project requirements are excluded, not declared covered."
+      : "Explicit case links only; no execution claim.",
   );
   add(
     "traceability",
@@ -88,7 +130,9 @@ export function reportMetricRows(report: FrozenReportPayload) {
     add(
       "defects",
       "Defect evidence",
-      "Not imported",
+      report.scope?.kind === "recorded-execution"
+        ? "Excluded from this scope"
+        : "Not imported",
       "No data is not zero defects.",
     );
   for (const row of report.inventory.automation)
@@ -129,7 +173,9 @@ export function reportMetricRows(report: FrozenReportPayload) {
     add(
       "automation",
       "Automation change baseline",
-      "No earlier approved snapshot",
+      report.scope?.kind === "recorded-execution"
+        ? "No comparable earlier approved snapshot"
+        : "No earlier approved snapshot",
       "Capture another snapshot to compare the same case identities.",
     );
   return rows;
@@ -147,7 +193,7 @@ export function renderFrozenReportHtml(report: FrozenReportPayload): string {
     report.definition.sections.includes(section),
   );
   const rows = reportMetricRows(report);
-  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>${escape(report.title)}</title><style>body{font:16px/1.5 system-ui;color:#182225;background:#fff;max-width:1100px;margin:40px auto;padding:0 24px}h1{line-height:1.15}small,p{overflow-wrap:anywhere}table{width:100%;border-collapse:collapse}th,td{text-align:left;padding:12px;border-bottom:1px solid #c7d0ce}td{font-variant-numeric:tabular-nums}small{display:block;color:#52625c}.note{border-left:4px solid #70957e;padding:12px;background:#edf3ee}section{break-inside:avoid}pre{font:inherit;white-space:pre-wrap;overflow-wrap:anywhere}@media print{body{margin:0;max-width:none;padding:0}button{display:none}}</style></head><body><header><small>VAETTIR · ${escape(report.projectName)} · ${escape(report.state)}</small><h1>${escape(report.title)}</h1><p>${escape(readableMetric(report.definition.audience))} review · Snapshot ${escape(report.asOf)}</p><p>Execution window: ${escape(report.windowStart)} to ${escape(report.asOf)}. Project-wide scope.</p></header>${[
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>${escape(report.title)}</title><style>body{font:16px/1.5 system-ui;color:#182225;background:#fff;max-width:1100px;margin:40px auto;padding:0 24px}h1{line-height:1.15}small,p{overflow-wrap:anywhere}table{width:100%;border-collapse:collapse}th,td{text-align:left;padding:12px;border-bottom:1px solid #c7d0ce}td{font-variant-numeric:tabular-nums}small{display:block;color:#52625c}.note{border-left:4px solid #70957e;padding:12px;background:#edf3ee}section{break-inside:avoid}pre{font:inherit;white-space:pre-wrap;overflow-wrap:anywhere}@media print{body{margin:0;max-width:none;padding:0}button{display:none}}</style></head><body><header><small>VAETTIR · ${escape(report.projectName)} · ${escape(report.state)}</small><h1>${escape(report.title)}</h1><p>${escape(readableMetric(report.definition.audience))} review · Snapshot ${escape(report.asOf)}</p><p>Execution window (UTC): ${escape(report.windowStart)} to ${escape(report.windowEnd ?? report.asOf)}. ${escape(reportScopeSummary(report))}.</p>${report.scope ? `<p>${escape(report.scope.cohortBasis)}</p>` : ""}</header>${[
     ["Summary", report.definition.summary],
     ["Risks and impediments", report.definition.risks],
     ["Next actions", report.definition.nextActions],

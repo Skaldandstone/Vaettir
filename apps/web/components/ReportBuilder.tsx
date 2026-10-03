@@ -23,11 +23,16 @@ const freshDefinition = (): Definition => ({
   nextActions: "",
 });
 export function ReportBuilder({ projectId }: { projectId: string }) {
+  return <ProjectReportBuilder key={projectId} projectId={projectId} />;
+}
+function ProjectReportBuilder({ projectId }: { projectId: string }) {
   const project = trpcReact.project.byId.useQuery({ id: projectId });
   const organizations = trpcReact.organization.mine.useQuery();
   const readOnly =
     project.isFetching ||
     organizations.isFetching ||
+    project.isPaused ||
+    organizations.isPaused ||
     !!project.error ||
     !!organizations.error ||
     !canEditProject(
@@ -41,6 +46,17 @@ export function ReportBuilder({ projectId }: { projectId: string }) {
   const snapshots = trpcReact.reportSnapshots.list.useQuery({ projectId });
   const drafts = trpcReact.reportSnapshots.drafts.useQuery({ projectId });
   const [open, setOpen] = useState(false);
+  const scopeOptions = trpcReact.reportSnapshots.scopeOptions.useQuery(
+    { projectId },
+    { enabled: open, staleTime: 0 },
+  );
+  const scopeChoices =
+    open &&
+    !scopeOptions.error &&
+    !scopeOptions.isFetching &&
+    !scopeOptions.isPaused
+      ? scopeOptions.data
+      : undefined;
   const [step, setStep] = useState(0);
   const [title, setTitle] = useState("Quality status review");
   const [definition, setDefinition] = useState<Definition>(freshDefinition);
@@ -56,12 +72,41 @@ export function ReportBuilder({ projectId }: { projectId: string }) {
   const save = trpcReact.reportSnapshots.saveDefinition.useMutation();
   const resume = trpcReact.reportSnapshots.get.useQuery(
     { projectId, id: resumeId },
-    { enabled: !!resumeId },
+    { enabled: open && !!resumeId, staleTime: 0 },
   );
   const busy = preview.isPending || approve.isPending || save.isPending;
   const current =
-    review ?? (resume.data?.payload.state === "preview" ? resume.data : null);
+    review ??
+    (open &&
+    !resume.error &&
+    !resume.isFetching &&
+    !resume.isPaused &&
+    resume.data?.id === resumeId &&
+    resume.data.payload.state === "preview"
+      ? resume.data
+      : null);
   const frozen = !!request || !!current || !!saveRequest;
+  const invalidInterval =
+    !!definition.dateInterval &&
+    (!definition.dateInterval.start ||
+      !definition.dateInterval.end ||
+      definition.dateInterval.start > definition.dateInterval.end ||
+      definition.dateInterval.end > new Date().toISOString().slice(0, 10) ||
+      Date.parse(definition.dateInterval.end) -
+        Date.parse(definition.dateInterval.start) >=
+        366 * 86400000);
+  function setScope(
+    key: "planId" | "runId" | "platform" | "environment" | "build",
+    value: string,
+  ) {
+    const scope = { ...definition.executionScope };
+    if (value.trim()) scope[key] = value;
+    else delete scope[key];
+    setDefinition({
+      ...definition,
+      executionScope: Object.keys(scope).length ? scope : undefined,
+    });
+  }
   function begin() {
     if (request || saveRequest) {
       setOpen(true);
@@ -90,7 +135,20 @@ export function ReportBuilder({ projectId }: { projectId: string }) {
       setReview(result);
       setStep(3);
       await drafts.refetch();
-    } catch {
+    } catch (error) {
+      const code = (error as { data?: { code?: string } }).data?.code;
+      if (
+        !request &&
+        (code === "BAD_REQUEST" ||
+          code === "NOT_FOUND" ||
+          code === "PRECONDITION_FAILED")
+      ) {
+        setRequest(null);
+        setMessage(
+          "The server rejected these report settings before capture. Review the dates and existing project scope, then try again.",
+        );
+        return;
+      }
       setMessage(
         "Preview response unavailable. Retry uses the same request and scope. Do not start a different capture until this is recovered.",
       );
@@ -345,9 +403,9 @@ export function ReportBuilder({ projectId }: { projectId: string }) {
               </select>
             </label>
             <p className="text-muted">
-              Project-wide scope. This builder does not apply the case-query
-              filters on the page behind it. Audience presets suggest sections;
-              you can adjust them next.
+              Project-wide scope by default. Choose report scope next. This
+              builder does not apply the case-query filters on the page behind
+              it. Audience presets suggest sections; you can adjust them next.
             </p>
           </div>
         )}
@@ -357,21 +415,205 @@ export function ReportBuilder({ projectId }: { projectId: string }) {
               Execution window
               <select
                 disabled={frozen}
-                value={definition.windowDays}
-                onChange={(event) =>
+                value={
+                  definition.dateInterval ? "custom" : definition.windowDays
+                }
+                onChange={(event) => {
+                  if (event.target.value === "custom") {
+                    setDefinition({
+                      ...definition,
+                      dateInterval: { start: "", end: "" },
+                    });
+                    return;
+                  }
                   setDefinition({
                     ...definition,
+                    dateInterval: undefined,
                     windowDays: Number(
                       event.target.value,
                     ) as Definition["windowDays"],
-                  })
-                }
+                  });
+                }}
               >
                 <option value="7">Last 7 days</option>
                 <option value="30">Last 30 days</option>
                 <option value="90">Last 90 days</option>
+                <option value="custom">Custom UTC dates</option>
               </select>
             </label>
+            {definition.dateInterval && (
+              <div
+                style={{
+                  display: "flex",
+                  flexWrap: "wrap",
+                  gap: 12,
+                  marginBlock: 12,
+                }}
+              >
+                {(["start", "end"] as const).map((key) => (
+                  <label key={key}>
+                    {key === "start"
+                      ? "Start date (UTC)"
+                      : "End date (UTC, inclusive)"}
+                    <input
+                      type="date"
+                      max={new Date().toISOString().slice(0, 10)}
+                      disabled={frozen}
+                      value={definition.dateInterval![key]}
+                      onChange={(event) =>
+                        setDefinition({
+                          ...definition,
+                          dateInterval: {
+                            ...definition.dateInterval!,
+                            [key]: event.target.value,
+                          },
+                        })
+                      }
+                    />
+                  </label>
+                ))}
+                {invalidInterval && (
+                  <p role="status">
+                    Choose both dates, with start on or before end, no future
+                    dates and no more than 366 calendar days.
+                  </p>
+                )}
+              </div>
+            )}
+            <details style={{ marginBlock: 16 }}>
+              <summary>Limit to recorded execution scope (optional)</summary>
+              <p className="text-muted">
+                Filters combine with AND. Unrecorded platform/environment labels
+                do not match. Inventory uses current active cases planned or
+                linked in matching runs, plus the selected plan&apos;s saved
+                case selection.
+              </p>
+              <div style={{ display: "grid", gap: 12 }}>
+                <label>
+                  Plan
+                  <select
+                    disabled={
+                      frozen ||
+                      scopeOptions.isFetching ||
+                      scopeOptions.isPaused ||
+                      !!scopeOptions.error
+                    }
+                    value={definition.executionScope?.planId ?? ""}
+                    onChange={(event) => setScope("planId", event.target.value)}
+                  >
+                    <option value="">All plans</option>
+                    {definition.executionScope?.planId &&
+                      !scopeChoices?.plans.some(
+                        (plan) => plan.id === definition.executionScope?.planId,
+                      ) && (
+                        <option value={definition.executionScope.planId}>
+                          Stored plan · {definition.executionScope.planId}
+                        </option>
+                      )}
+                    {scopeChoices?.plans.map((plan) => (
+                      <option key={plan.id} value={plan.id}>
+                        {plan.name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label>
+                  Recorded run
+                  <select
+                    disabled={
+                      frozen ||
+                      scopeOptions.isFetching ||
+                      scopeOptions.isPaused ||
+                      !!scopeOptions.error
+                    }
+                    value={definition.executionScope?.runId ?? ""}
+                    onChange={(event) => setScope("runId", event.target.value)}
+                  >
+                    <option value="">All matching runs</option>
+                    {definition.executionScope?.runId &&
+                      !scopeChoices?.runs.some(
+                        (run) => run.id === definition.executionScope?.runId,
+                      ) && (
+                        <option value={definition.executionScope.runId}>
+                          {definition.executionScope.runId}
+                        </option>
+                      )}
+                    {scopeChoices?.runs.map((run) => (
+                      <option key={run.id} value={run.id}>
+                        {new Date(run.startedAt).toLocaleDateString()} ·{" "}
+                        {run.ciProvider} · {run.id}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                {(["platform", "environment", "build"] as const).map((key) => (
+                  <label key={key}>
+                    {readableMetric(key)} (exact recorded value)
+                    <input
+                      disabled={frozen}
+                      maxLength={key === "environment" ? 2000 : 300}
+                      list={`report-${projectId}-${key}`}
+                      value={definition.executionScope?.[key] ?? ""}
+                      onChange={(event) => setScope(key, event.target.value)}
+                    />
+                    <datalist id={`report-${projectId}-${key}`}>
+                      {[
+                        ...new Set(
+                          scopeChoices?.runs
+                            .map((run) => run[key])
+                            .filter((value): value is string => !!value) ?? [],
+                        ),
+                      ].map((value) => (
+                        <option key={value} value={value} />
+                      ))}
+                    </datalist>
+                  </label>
+                ))}
+                <details>
+                  <summary>Exact plan / older run identity</summary>
+                  <p className="text-muted">
+                    Choices show at most 100 plans and latest 100 runs. You can
+                    use an existing project identity not shown here; the server
+                    verifies it belongs to this project.
+                  </p>
+                  {(["planId", "runId"] as const).map((key) => (
+                    <label key={key}>
+                      {key === "planId" ? "Exact plan ID" : "Exact run ID"}
+                      <input
+                        disabled={frozen}
+                        maxLength={200}
+                        value={definition.executionScope?.[key] ?? ""}
+                        onChange={(event) => setScope(key, event.target.value)}
+                      />
+                    </label>
+                  ))}
+                </details>
+              </div>
+              {scopeOptions.error && (
+                <p role="alert">
+                  Recorded choices could not load.{" "}
+                  <button
+                    type="button"
+                    className="btn-secondary"
+                    onClick={() => void scopeOptions.refetch()}
+                  >
+                    Retry scope choices
+                  </button>
+                </p>
+              )}
+              {scopeOptions.isPaused && (
+                <p role="status">
+                  Waiting for a connection to refresh recorded scope choices.
+                  Existing exact selections stay unchanged.
+                </p>
+              )}
+              <p className="text-muted">
+                Scoped defect counts are excluded without matching imported
+                evidence. Scoped requirements include only explicit links to the
+                selected case cohort, not all project requirements. Capture is
+                private until approval.
+              </p>
+            </details>
             <fieldset disabled={frozen}>
               <legend>Include metrics</legend>
               {REPORT_SECTIONS.map((section) => (
@@ -439,7 +681,9 @@ export function ReportBuilder({ projectId }: { projectId: string }) {
             <p role={resume.error ? "alert" : "status"}>
               {resume.error
                 ? "Saved preview could not be loaded. Restore access and try again."
-                : "Loading saved preview…"}
+                : resume.isPaused
+                  ? "Waiting for a connection to verify this saved preview. Approval is unavailable."
+                  : "Loading saved preview…"}
             </p>
           ))}
         {message && <p role="status">{message}</p>}
@@ -487,7 +731,7 @@ export function ReportBuilder({ projectId }: { projectId: string }) {
           {(!frozen || saveRequest) && (
             <button
               className="btn-secondary"
-              disabled={busy || readOnly || !title.trim()}
+              disabled={busy || readOnly || !title.trim() || invalidInterval}
               type="button"
               onClick={() => void saveDefinition()}
             >
@@ -499,7 +743,11 @@ export function ReportBuilder({ projectId }: { projectId: string }) {
               className="btn-primary"
               type="button"
               disabled={
-                busy || frozen || !title.trim() || !definition.sections.length
+                busy ||
+                frozen ||
+                !title.trim() ||
+                !definition.sections.length ||
+                invalidInterval
               }
               onClick={() => setStep(step + 1)}
             >
@@ -515,7 +763,8 @@ export function ReportBuilder({ projectId }: { projectId: string }) {
                 readOnly ||
                 !!saveRequest ||
                 !title.trim() ||
-                !definition.sections.length
+                !definition.sections.length ||
+                invalidInterval
               }
               onClick={() => void capture()}
             >

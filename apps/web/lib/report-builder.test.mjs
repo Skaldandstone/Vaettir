@@ -9,6 +9,39 @@ const builder = read("../components/ReportBuilder.tsx"),
   route = read(
     "../app/projects/[projectId]/reports/snapshots/[snapshotId]/page.tsx",
   );
+test("custom UTC interval and exact recorded scopes are progressively exposed, validated and frozen", () => {
+  assert.match(builder, /Custom UTC dates/);
+  assert.match(builder, /Start date \(UTC\)/);
+  assert.match(builder, /End date \(UTC, inclusive\)/);
+  assert.match(builder, /366 \* 86400000/);
+  assert.match(builder, /Limit to recorded execution scope \(optional\)/);
+  assert.match(builder, /scopeOptions.useQuery\([\s\S]*enabled: open/);
+  assert.match(builder, /Exact plan \/ older run identity/);
+  assert.match(builder, /runId.*platform.*environment.*build/);
+  assert.match(builder, /Scoped defect counts are excluded/);
+  assert.match(builder, /invalidInterval/);
+});
+test("cached access and saved previews cannot authorize paused, failed or wrong-project report review", () => {
+  assert.match(builder, /ProjectReportBuilder key=\{projectId\}/);
+  assert.match(builder, /project.isPaused[\s\S]*organizations.isPaused/);
+  assert.match(
+    builder,
+    /open && !resume.error && !resume.isFetching && !resume.isPaused && resume.data\?\.id === resumeId/,
+  );
+  assert.match(builder, /enabled: open && !!resumeId, staleTime: 0/);
+  assert.match(
+    builder,
+    /open && !scopeOptions.error && !scopeOptions.isFetching && !scopeOptions.isPaused \? scopeOptions.data/,
+  );
+  assert.match(
+    builder,
+    /Waiting for a connection to verify this saved preview/,
+  );
+  assert.match(
+    builder,
+    /code === "BAD_REQUEST"[\s\S]*code === "NOT_FOUND"[\s\S]*code === "PRECONDITION_FAILED"/,
+  );
+});
 test("report creation requires fresh editor membership and explicit access recovery retains pending requests", () => {
   assert.match(
     builder,
@@ -45,6 +78,10 @@ test("capture and reusable definition retry frozen exact payloads after uncertai
   );
   assert.match(builder, /Resume pending report/);
   assert.match(builder, /Retry same definition save/);
+  assert.match(
+    builder,
+    /if \(\s*!request && \(code === "BAD_REQUEST" \|\| code === "NOT_FOUND" \|\| code === "PRECONDITION_FAILED"\)\s*\)/,
+  );
   assert.match(builder, /disabled=\{\s*busy \|\| readOnly \|\| !!saveRequest/);
 });
 test("approval pins the frozen private preview and selected sections use no providers or credits", () => {

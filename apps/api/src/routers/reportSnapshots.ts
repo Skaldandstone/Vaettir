@@ -9,6 +9,13 @@ import {
   type Context,
 } from "../trpc.js";
 import { liveEditor } from "./jiraConnections.js";
+import {
+  reportDateIntervalSchema,
+  reportExecutionScopeSchema,
+  reportRunWhere,
+  reportWindow,
+} from "./reportSnapshotScope.js";
+import { testPlanExecutionTemplateSchema } from "../services/qualityExperienceProfile.js";
 
 const hash = (value: unknown) =>
   createHash("sha256").update(JSON.stringify(value)).digest("hex");
@@ -19,6 +26,8 @@ export const reportDefinitionSchema = z
   .object({
     audience: z.enum(["stakeholders", "engineering", "quality"]),
     windowDays: z.union([z.literal(7), z.literal(30), z.literal(90)]),
+    dateInterval: reportDateIntervalSchema.optional(),
+    executionScope: reportExecutionScopeSchema.optional(),
     sections: z
       .array(
         z.enum([
@@ -50,6 +59,16 @@ const payloadSchema = z.object({
   definition: reportDefinitionSchema,
   asOf: z.string().datetime(),
   windowStart: z.string().datetime(),
+  windowEnd: z.string().datetime().optional(),
+  scope: z
+    .object({
+      kind: z.enum(["project", "recorded-execution"]),
+      filters: reportExecutionScopeSchema.optional(),
+      planName: z.string().nullable(),
+      contributingRunIds: z.array(z.string()).max(20000),
+      cohortBasis: z.string(),
+    })
+    .optional(),
   inventory: z.object({
     active: z.number(),
     riskAssessed: z.number(),
@@ -64,6 +83,10 @@ const payloadSchema = z.object({
     distinctCases: z.number(),
     highPriorityCases: z.number(),
     highPriorityExecuted: z.number(),
+    matchedResults: z.number().optional(),
+    unmatchedResults: z.number().optional(),
+    plannedCaseRunPairs: z.number().optional(),
+    notRecordedCaseRunPairs: z.number().optional(),
   }),
   traceability: z.object({
     requirements: z.number(),
@@ -168,6 +191,42 @@ const output = (row: {
 });
 
 export const reportSnapshotsRouter = router({
+  scopeOptions: protectedProcedure.input(projectInput).query(({ ctx, input }) =>
+    access(ctx, input.projectId, false, async (tx) => {
+      const [plans, runs] = await Promise.all([
+        tx.testPlan.findMany({
+          where: { projectId: input.projectId },
+          select: { id: true, name: true },
+          orderBy: [{ name: "asc" }, { id: "asc" }],
+          take: 101,
+        }),
+        tx.$queryRaw<
+          Array<{
+            id: string;
+            startedAt: Date;
+            ciProvider: string;
+            build: string | null;
+            platform: string | null;
+            environment: string | null;
+          }>
+        >`
+          SELECT id, "startedAt", "ciProvider",
+            CASE WHEN "ciProvider" = 'manual' THEN
+              CASE WHEN "executionContext"->'version' = '1'::jsonb THEN left("executionContext"->'configuration'->>'build', 300) END
+              ELSE left("commitSha", 300) END AS build,
+            CASE WHEN "executionContext"->'version' = '1'::jsonb THEN left("executionContext"->'configuration'->>'platform', 300) END AS platform,
+            CASE WHEN "executionContext"->'version' = '1'::jsonb THEN left("executionContext"->'configuration'->>'environment', 2000) END AS environment
+          FROM "TestRun" WHERE "projectId" = ${input.projectId}
+          ORDER BY "startedAt" DESC, id DESC LIMIT 101`,
+      ]);
+      return {
+        plans: plans.slice(0, 100),
+        runs: runs.slice(0, 100),
+        plansLimited: plans.length > 100,
+        runsLimited: runs.length > 100,
+      };
+    }),
+  ),
   definitions: protectedProcedure.input(projectInput).query(({ ctx, input }) =>
     access(ctx, input.projectId, false, async (tx, orgId) => {
       const rows = await tx.projectReportDefinition.findMany({
@@ -420,13 +479,161 @@ export const reportSnapshotsRouter = router({
             code: "FORBIDDEN",
             message: "Traceability evidence belongs to a previous workspace.",
           });
-        const windowStart = new Date(
-          asOf.getTime() - input.definition.windowDays * 86400000,
+        let window;
+        try {
+          window = reportWindow(
+            asOf,
+            input.definition.windowDays,
+            input.definition.dateInterval,
+          );
+        } catch {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "Report dates cannot be in the future.",
+          });
+        }
+        const windowStart = window.start;
+        const scope = input.definition.executionScope;
+        const selectedPlan = scope?.planId
+          ? await tx.testPlan.findFirst({
+              where: { id: scope.planId, projectId: input.projectId },
+              select: {
+                name: true,
+                executionTemplate: true,
+                testCases: { select: { id: true }, take: 20001 },
+              },
+            })
+          : null;
+        if (scope?.planId && !selectedPlan)
+          throw new TRPCError({
+            code: "NOT_FOUND",
+            message: "Plan not found in this project.",
+          });
+        if (
+          scope?.runId &&
+          !(await tx.testRun.findFirst({
+            where: { id: scope.runId, projectId: input.projectId },
+            select: { id: true },
+          }))
+        )
+          throw new TRPCError({
+            code: "NOT_FOUND",
+            message: "Run not found in this project.",
+          });
+        const runWhere = reportRunWhere(
+          input.projectId,
+          window.start,
+          window.end,
+          scope,
         );
-        const where = { projectId: input.projectId, archived: false };
-        const runWhere = {
+        const matchingRuns = await tx.testRun.findMany({
+          where: runWhere,
+          select: { id: true },
+          orderBy: { id: "asc" },
+          take: 20001,
+        });
+        if (matchingRuns.length > 20000)
+          throw new TRPCError({
+            code: "PRECONDITION_FAILED",
+            message:
+              "Run scope exceeds 20,000 runs; narrow the window. No partial report retained.",
+          });
+        const runIds = matchingRuns.map((row) => row.id);
+        const plannedSize = runIds.length
+          ? await tx.$queryRaw<Array<{ count: bigint }>>(
+              Prisma.sql`SELECT COALESCE(sum(cardinality("manualTestCaseIds")), 0)::bigint AS count FROM "TestRun" WHERE id IN (${Prisma.join(runIds)})`,
+            )
+          : [{ count: 0n }];
+        if (plannedSize[0]!.count > 100000n)
+          throw new TRPCError({
+            code: "PRECONDITION_FAILED",
+            message:
+              "Planned case scope exceeds 100,000 pairs; narrow the window.",
+          });
+        const contributingRuns = await tx.testRun.findMany({
+          where: { projectId: input.projectId, id: { in: runIds } },
+          select: { id: true, manualTestCaseIds: true },
+          orderBy: { id: "asc" },
+        });
+        const scopedIds = new Set(
+          contributingRuns.flatMap((run) => run.manualTestCaseIds),
+        );
+        if (scope) {
+          const linked = await tx.testResult.groupBy({
+            by: ["testCaseId"],
+            where: {
+              testRun: runWhere,
+              testCase: { projectId: input.projectId },
+            },
+            orderBy: { testCaseId: "asc" },
+            take: 20001,
+          });
+          for (const row of linked)
+            if (row.testCaseId) scopedIds.add(row.testCaseId);
+          if (selectedPlan) {
+            for (const row of selectedPlan.testCases) scopedIds.add(row.id);
+            const template = testPlanExecutionTemplateSchema.safeParse(
+              selectedPlan.executionTemplate,
+            );
+            if (template.success)
+              for (const id of template.data.testCaseIds) scopedIds.add(id);
+            else if (
+              !selectedPlan.executionTemplate ||
+              typeof selectedPlan.executionTemplate !== "object" ||
+              Array.isArray(selectedPlan.executionTemplate) ||
+              Object.keys(selectedPlan.executionTemplate).length > 0
+            )
+              throw new TRPCError({
+                code: "PRECONDITION_FAILED",
+                message:
+                  "The selected plan's saved case scope is unsupported; review it before reporting.",
+              });
+          }
+          if (scopedIds.size > 20000 || linked.length > 20000)
+            throw new TRPCError({
+              code: "PRECONDITION_FAILED",
+              message:
+                "Case scope exceeds 20,000 identities; no partial report retained.",
+            });
+        }
+        const where: Prisma.TestCaseWhereInput = {
           projectId: input.projectId,
-          startedAt: { gte: windowStart, lte: asOf },
+          archived: false,
+          ...(scope ? { id: { in: [...scopedIds] } } : {}),
+        };
+        const resultIdentities = await tx.testResult.groupBy({
+          by: ["testRunId", "testCaseId"],
+          where: { testRun: runWhere, testCaseId: { not: null } },
+          orderBy: [{ testRunId: "asc" }, { testCaseId: "asc" }],
+          take: 100001,
+        });
+        if (resultIdentities.length > 100000)
+          throw new TRPCError({
+            code: "PRECONDITION_FAILED",
+            message:
+              "Planned-result scope exceeds 100,000 pairs; narrow the window.",
+          });
+        const recordedPairs = new Set(
+          resultIdentities.map((row) => `${row.testRunId}:${row.testCaseId}`),
+        );
+        const plannedPairs = contributingRuns.flatMap((run) =>
+          [...new Set(run.manualTestCaseIds)].map((id) => `${run.id}:${id}`),
+        );
+        if (plannedPairs.length > 100000)
+          throw new TRPCError({
+            code: "PRECONDITION_FAILED",
+            message:
+              "Planned case scope exceeds 100,000 pairs; narrow the window.",
+          });
+        const requirementWhere: Prisma.RequirementWhereInput = {
+          projectId: input.projectId,
+          ...(scope
+            ? {
+                caseTraceabilityLinks: {
+                  some: { removedAt: null, testCase: where },
+                },
+              }
+            : {}),
         };
         const [
           project,
@@ -499,12 +706,12 @@ export const reportSnapshotsRouter = router({
               },
             },
           }),
-          tx.requirement.count({ where: { projectId: input.projectId } }),
+          tx.requirement.count({ where: requirementWhere }),
           tx.requirement.count({
             where: {
-              projectId: input.projectId,
+              ...requirementWhere,
               caseTraceabilityLinks: {
-                some: { removedAt: null, testCase: { archived: false } },
+                some: { removedAt: null, testCase: where },
               },
             },
           }),
@@ -512,7 +719,7 @@ export const reportSnapshotsRouter = router({
             where: {
               projectId: input.projectId,
               removedAt: null,
-              testCase: { archived: false },
+              testCase: where,
             },
           }),
           tx.testCase.count({
@@ -524,14 +731,14 @@ export const reportSnapshotsRouter = router({
           tx.defectMapState.findUnique({
             where: { projectId: input.projectId },
           }),
-          tx.projectReportSnapshot.findFirst({
-            where: {
-              projectId: input.projectId,
-              organizationId: orgId,
-              payload: { path: ["state"], equals: "approved" },
-            },
-            orderBy: [{ createdAt: "desc" }, { id: "asc" }],
-          }),
+          tx.$queryRaw<Array<{ id: string; payload: Prisma.JsonValue }>>`
+            SELECT id, payload FROM "ProjectReportSnapshot"
+            WHERE "projectId" = ${input.projectId} AND "organizationId" = ${orgId}
+              AND payload->>'state' = 'approved'
+              AND COALESCE(payload->'definition'->'executionScope', 'null'::jsonb) = ${JSON.stringify(scope ?? null)}::jsonb
+            ORDER BY "createdAt" DESC, id ASC LIMIT 1`.then(
+            (rows) => rows[0] ?? null,
+          ),
         ]);
         if (cohort.length > 20000)
           throw new TRPCError({
@@ -545,7 +752,16 @@ export const reportSnapshotsRouter = router({
             row.automationStatus,
             (statusCounts.get(row.automationStatus) ?? 0) + 1,
           );
-        const old = baseline ? payloadSchema.parse(baseline.payload) : null;
+        const previous = baseline
+          ? payloadSchema.parse(baseline.payload)
+          : null;
+        // Never call a change of case selection an automation gain/loss.
+        const old =
+          previous &&
+          hash(previous.definition.executionScope ?? null) ===
+            hash(scope ?? null)
+            ? previous
+            : null;
         const oldStatuses = new Map(
           old?.cohort.map((row) => [row.id, row.status]) ?? [],
         );
@@ -575,7 +791,7 @@ export const reportSnapshotsRouter = router({
             }
           : null;
         let defects: FrozenReportPayload["defects"] = null;
-        if (defectState) {
+        if (defectState && !scope) {
           if (defectState.organizationId !== orgId)
             throw new TRPCError({
               code: "FORBIDDEN",
@@ -601,6 +817,16 @@ export const reportSnapshotsRouter = router({
           definition: input.definition,
           asOf: asOf.toISOString(),
           windowStart: windowStart.toISOString(),
+          windowEnd: window.end.toISOString(),
+          scope: {
+            kind: scope ? "recorded-execution" : "project",
+            ...(scope ? { filters: scope } : {}),
+            planName: selectedPlan?.name ?? null,
+            contributingRunIds: contributingRuns.map((row) => row.id),
+            cohortBasis: scope
+              ? "Current active cases in the selected plan's saved/linked case scope plus planned or linked identities in matching recorded runs. Cases without results remain in the denominator."
+              : "All current active project cases.",
+          },
           inventory: {
             active: cohort.length,
             riskAssessed,
@@ -618,6 +844,25 @@ export const reportSnapshotsRouter = router({
             distinctCases: executed,
             highPriorityCases,
             highPriorityExecuted,
+            matchedResults: await tx.testResult.count({
+              where: {
+                testRun: runWhere,
+                testCase: { projectId: input.projectId },
+              },
+            }),
+            unmatchedResults: await tx.testResult.count({
+              where: {
+                testRun: runWhere,
+                OR: [
+                  { testCaseId: null },
+                  { testCase: { projectId: { not: input.projectId } } },
+                ],
+              },
+            }),
+            plannedCaseRunPairs: plannedPairs.length,
+            notRecordedCaseRunPairs: plannedPairs.filter(
+              (pair) => !recordedPairs.has(pair),
+            ).length,
           },
           traceability: {
             requirements,
@@ -632,7 +877,16 @@ export const reportSnapshotsRouter = router({
           })),
           automationChange,
           limitations: [
-            "Project-wide metrics from one database snapshot; execution is limited to the selected window. Inventory and links are current at capture.",
+            scope
+              ? "Scoped metrics from one database snapshot. Execution uses exact recorded filters and run start times in the UTC window. Inventory, priority and plan case selection are current at capture, not historical inventory."
+              : "Project-wide metrics from one database snapshot; execution is limited to the selected window. Inventory and links are current at capture.",
+            "UTC dates are inclusive calendar days; today's end is capped at capture. Runs are selected by start time, not result observation time. Planned not-recorded case/run pairs are distinct from SKIP, BLOCKED and unmatched results.",
+            ...(scope
+              ? [
+                  "Platform, environment and manual build filters use recorded version-1 execution context; missing/unsupported context does not match. CI build uses the exact recorded commit reference. Labels are not provider/device verification.",
+                  "Scoped traceability includes only requirements with explicit active-case links in the scoped cohort; project requirements without such links are excluded, not declared covered. Defect aggregates are excluded because imported signals lack a verified matching run scope.",
+                ]
+              : []),
             "An executed case has PASS, FAIL or FLAKY recorded in the window. SKIP and BLOCKED do not count as executed. Coverage does not imply passing or readiness.",
             "Automation changes compare the same active case identities between approved snapshots. Labels are recorded inventory, not verified automation runs or time saved.",
             "Defect metadata is a reviewed export, not live synchronization. Closed tasks and traceability links do not prove deployed fixes.",
