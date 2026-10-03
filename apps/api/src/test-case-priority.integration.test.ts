@@ -95,7 +95,8 @@ describe.skipIf(!isolated)("risk-derived priority decisions", () => {
     await expect(owner.testCases.update(staleForm)).rejects.toMatchObject({ code: "CONFLICT" });
     await expect(owner.testCases.update({ ...staleForm, expectedPriority: undefined })).rejects.toMatchObject({ code: "CONFLICT" });
     expect((await owner.testCases.prioritySuggestion({ id: caseId })).currentPriority).toBe(next);
-    await expect(owner.testCases.update({ ...staleForm, expectedPriority: next, priority: next })).resolves.toMatchObject({ priority: next });
+    const refreshed = await owner.testCases.byId({ id: caseId });
+    await expect(owner.testCases.update({ ...staleForm, expectedPriority: next, priority: next, expectedCaseRevision: refreshed.caseRevision })).resolves.toMatchObject({ priority: next });
   });
 
   it("does not recommend or accept an old paid risk review after the case changes", async () => {

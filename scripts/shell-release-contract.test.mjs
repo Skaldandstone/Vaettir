@@ -3,6 +3,7 @@ import test from "node:test";
 import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
+import { createHash } from "node:crypto";
 
 const require = createRequire(
   new URL("../apps/api/package.json", import.meta.url),
@@ -42,5 +43,42 @@ test("Linux shell source remains LF in Git archives even with Windows autocrlf e
       `${entry.entryName} contains a carriage return`,
     );
     assert.ok(bytes.includes(10), `${entry.entryName} has no LF line endings`);
+  }
+});
+
+test("migration archive bytes match immutable Git blobs under Windows autocrlf", () => {
+  const attributes = readFileSync(
+    new URL("../.gitattributes", import.meta.url),
+    "utf8",
+  );
+  assert.match(attributes, /^\*\.sql text eol=lf$/m);
+  const archive = execFileSync(
+    "git",
+    [
+      "-c",
+      "core.autocrlf=true",
+      "archive",
+      "--worktree-attributes",
+      "--format=zip",
+      "HEAD",
+      "packages/db/prisma/migrations",
+    ],
+    { timeout: 10000, maxBuffer: 10 * 1024 * 1024 },
+  );
+  const migrations = new Zip(archive)
+    .getEntries()
+    .filter((entry) => entry.entryName.endsWith("/migration.sql"));
+  assert.ok(migrations.length >= 83);
+  const hash = (bytes) => createHash("sha256").update(bytes).digest("hex");
+  for (const entry of migrations) {
+    const source = execFileSync("git", ["show", `HEAD:${entry.entryName}`], {
+      timeout: 10000,
+      maxBuffer: 1024 * 1024,
+    });
+    assert.equal(
+      hash(entry.getData()),
+      hash(source),
+      `${entry.entryName} archive differs from rehearsed source`,
+    );
   }
 });

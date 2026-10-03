@@ -519,6 +519,7 @@ export const manualExecutionRouter = router({
         cases: z.array(
           z.object({
             testCaseId: z.string(),
+            displayId: z.string().nullable(),
             title: z.string(),
             background: z.string().nullable(),
             prerequisiteIds: z.array(z.string()),
@@ -637,6 +638,7 @@ export const manualExecutionRouter = router({
                 const heads = stepsByCase.get(id) ?? [];
                 return {
                   testCaseId: id,
+                  displayId: c?.displayId ?? null,
                   title: frozen ? frozen.title : c!.title,
                   background: frozen ? frozen.background : c!.background,
                   prerequisiteIds: prerequisites[id] ?? [],

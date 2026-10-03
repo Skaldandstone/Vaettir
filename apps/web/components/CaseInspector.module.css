@@ -14,6 +14,8 @@
   gap: 12px;
   justify-content: space-between;
   margin-bottom: 8px;
+  /* The drawer's close button occupies the top-right corner. */
+  padding-right: 44px;
 }
 .header h1 {
   font-size: 20px;
@@ -122,6 +124,12 @@
 .section :global(.case-step-table) td {
   vertical-align: top;
 }
+.section :global([aria-label="Scenario steps"]) th:nth-child(2),
+.section :global([aria-label="Scenario steps"]) td:nth-child(2) {
+  min-width: 72px;
+  white-space: nowrap;
+  overflow-wrap: normal;
+}
 .inspector input:not([type="checkbox"]),
 .inspector textarea,
 .inspector select {
@@ -224,6 +232,9 @@
   }
   .header h1 {
     font-size: 18px;
+  }
+  .titleBlock {
+    flex-basis: 100%;
   }
   .tabs button {
     padding-inline: 8px;

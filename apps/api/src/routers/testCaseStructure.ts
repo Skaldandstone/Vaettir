@@ -18,7 +18,7 @@ export const testCaseStructureRouter = router({
     const [cases, links] = await Promise.all([
       ctx.prisma.testCase.findMany({
         where: { projectId: input.projectId, archived: false },
-        select: { id: true, suitePath: true, sortPosition: true },
+        select: { id: true, displayId: true, caseNumber: true, suitePath: true, sortPosition: true },
         orderBy: [{ suitePath: "asc" }, { sortPosition: "asc" }, { createdAt: "asc" }, { id: "asc" }],
       }),
       ctx.prisma.testCasePrerequisite.findMany({

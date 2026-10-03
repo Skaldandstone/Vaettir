@@ -80,11 +80,11 @@ describe.skipIf(!isolated)("attachment upload confirmation", () => {
   it("retains media referenced by a frozen run after it is unlinked from the live case", async () => {
     const { attachmentId } = await request();
     const current = await owner.testCases.byId({ id: testCaseId });
-    await owner.testCases.update({ id: testCaseId, title: current.title, testType: "FUNCTIONAL", expectedStepRevision: current.stepRevision, steps: [{ action: "Synthetic observation", mediaAttachmentIds: [attachmentId] }] });
+    await owner.testCases.update({ id: testCaseId, title: current.title, testType: "FUNCTIONAL", expectedStepRevision: current.stepRevision, expectedCaseRevision: current.caseRevision, steps: [{ action: "Synthetic observation", mediaAttachmentIds: [attachmentId] }] });
     const tc = await prisma.testCase.findUniqueOrThrow({ where: { id: testCaseId } });
     const run = await owner.manualExecution.start({ projectId: tc.projectId, testCaseIds: [testCaseId] });
     const linked = await owner.testCases.byId({ id: testCaseId });
-    await owner.testCases.update({ id: testCaseId, title: linked.title, testType: "FUNCTIONAL", expectedStepRevision: linked.stepRevision, steps: [{ action: "Synthetic observation", mediaAttachmentIds: [] }] });
+    await owner.testCases.update({ id: testCaseId, title: linked.title, testType: "FUNCTIONAL", expectedStepRevision: linked.stepRevision, expectedCaseRevision: linked.caseRevision, steps: [{ action: "Synthetic observation", mediaAttachmentIds: [] }] });
     await expect(owner.testCaseAttachments.delete({ attachmentId })).rejects.toThrow("saved run procedure");
     expect(await prisma.testCaseAttachment.findUnique({ where: { id: attachmentId } })).not.toBeNull();
     expect((await owner.manualExecution.getForExecution({ testRunId: run.testRunId })).cases[0]?.steps[0]?.mediaAttachmentIds).toEqual([attachmentId]);

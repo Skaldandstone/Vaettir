@@ -15,6 +15,8 @@ import { Drawer } from "@/components/Drawer";
 import { TestCaseDetailContent } from "@/components/TestCaseDetailContent";
 import { BulkCaseAnalysis } from "@/components/BulkCaseAnalysis";
 import { downloadCsv } from "@/lib/csv";
+import { downloadFile } from "@/lib/download";
+import { encodeCaseProcedureExport } from "@vaettir/core";
 import {
   caseExportIds,
   scopeCaseExport,
@@ -393,6 +395,7 @@ export default function TestCasesPage() {
       (tc) =>
         (showArchived || !tc.archived) &&
         (!q ||
+          tc.displayId.toLowerCase().includes(q) ||
           tc.title.toLowerCase().includes(q) ||
           tc.tags.some((t) => t.toLowerCase().includes(q))) &&
         (!typeFilter || tc.testType === typeFilter) &&
@@ -624,6 +627,7 @@ export default function TestCasesPage() {
       });
       const rows = scopeCaseExport(available, ids);
       const header = [
+        "caseId",
         "title",
         "given",
         "when",
@@ -638,6 +642,7 @@ export default function TestCasesPage() {
         "tags",
       ];
       const body = rows.map((r) => [
+        r.displayId,
         r.title,
         r.given.join("|"),
         r.when.join("|"),
@@ -658,6 +663,34 @@ export default function TestCasesPage() {
     } catch (e) {
       setError(
         e instanceof Error ? e.message : "Export failed. Please try again.",
+      );
+    } finally {
+      setExporting(false);
+    }
+  }
+
+  async function exportProcedure(scope: "filtered" | "selected") {
+    const ids = caseExportIds(visibleCases, selected, scope);
+    if (exporting || ids.length === 0) return;
+    setExporting(true);
+    setError(null);
+    try {
+      const bundle = await utils.testCases.exportProcedure.fetch({
+        projectId,
+        ids,
+        scope,
+        includeArchived: showArchived,
+      });
+      downloadFile(
+        `${bundle.project.caseKey}-${scope}-${bundle.cases.length}-procedures.json`,
+        encodeCaseProcedureExport(bundle),
+        "application/json",
+      );
+    } catch (cause) {
+      setError(
+        cause instanceof Error
+          ? cause.message
+          : "Procedure export failed. No file was downloaded.",
       );
     } finally {
       setExporting(false);
@@ -779,7 +812,7 @@ export default function TestCasesPage() {
           value={search}
           onChange={(event) => setSearch(event.target.value)}
           maxLength={160}
-          placeholder="Search title or tags…"
+          placeholder="Search case ID, title or tags…"
         />
         <select
           aria-label="Saved view"
@@ -1139,7 +1172,7 @@ export default function TestCasesPage() {
                               type="checkbox"
                               checked={selected.has(tc.id)}
                               onChange={() => toggle(tc.id)}
-                              aria-label={`Select ${tc.title}`}
+                              aria-label={`Select ${tc.displayId}: ${tc.title}`}
                             />
                           </td>
                           <td className="test-case-title-cell">
@@ -1150,6 +1183,11 @@ export default function TestCasesPage() {
                                 setOpenCaseId(tc.id);
                               }}
                             >
+                              <code
+                                style={{ marginRight: 8, whiteSpace: "nowrap" }}
+                              >
+                                {tc.displayId}
+                              </code>
                               {tc.title}
                             </a>
                             {!readOnly &&
@@ -1468,8 +1506,21 @@ export default function TestCasesPage() {
           >
             {exporting
               ? "Exporting…"
-              : `Export shown cases (${visibleCases.length})`}
+              : `Spreadsheet CSV (${visibleCases.length} shown)`}
           </button>
+          <button
+            className="btn-secondary"
+            disabled={loading || exporting || visibleCases.length === 0}
+            onClick={() => void exportProcedure("filtered")}
+          >
+            Case procedures JSON ({visibleCases.length} shown)
+          </button>
+          <p className="text-muted">
+            CSV is a spreadsheet summary, not a lossless reimport format. JSON
+            preserves procedures, conditions, case IDs and reference labels. It
+            excludes attachment files, datasets, paid drafts and history; it is
+            not a full backup and cannot yet be reimported.
+          </p>
           <details>
             <summary>Manage saved views</summary>
             <p className="text-muted">
@@ -1625,7 +1676,14 @@ export default function TestCasesPage() {
               disabled={exporting || selectedExportCount === 0}
               onClick={() => void exportCsv("selected")}
             >
-              Export selected ({selectedExportCount})
+              Selected spreadsheet CSV ({selectedExportCount})
+            </button>
+            <button
+              className="btn-secondary"
+              disabled={exporting || selectedExportCount === 0}
+              onClick={() => void exportProcedure("selected")}
+            >
+              Selected procedures JSON ({selectedExportCount})
             </button>
             {activeSelectedIds.length > 0 && (
               <button

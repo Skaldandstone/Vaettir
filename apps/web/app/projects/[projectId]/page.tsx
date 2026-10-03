@@ -8,6 +8,7 @@ import { ConnectionLink } from "@/components/SourceConnectionChips";
 import { ProductionSignalChips } from "@/components/ProductionSignalChips";
 import { ProjectPopulationModal } from "@/components/ProjectPopulationModal";
 import { ProjectRepositories } from "@/components/ProjectRepositories";
+import { ProjectCaseKey } from "@/components/ProjectCaseKey";
 import {
   QualityExperienceSummary,
   QualityExperienceWizard,
@@ -48,6 +49,7 @@ export default function ProjectOverviewPage() {
   return (
     <div>
       <h1 style={{ marginBottom: 2 }}>{project.name}</h1>
+      <ProjectCaseKey projectId={projectId} canEdit={canEdit} />
       {canEdit && (
         <button
           className="btn-secondary"

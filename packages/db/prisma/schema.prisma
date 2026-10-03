@@ -243,6 +243,11 @@ model Project {
   organization                 Organization             @relation(fields: [organizationId], references: [id])
   name                         String
   slug                         String
+  // Human-readable case identity prefix, independent of the project name.
+  // Database allocation covers imports and older clients too. Once a number
+  // has been allocated the prefix cannot change, so references stay stable.
+  caseKey                      String                   @default("")
+  nextCaseNumber               Int                      @default(0)
   repoUrl                      String?
   defaultBranch                String                   @default("main")
   createdAt                    DateTime                 @default(now())
@@ -314,6 +319,7 @@ model Project {
   jiraIssueIdentities         JiraIssueIdentity[]
 
   @@unique([organizationId, slug])
+  @@unique([organizationId, caseKey])
   @@unique([organizationId, datadogProjectTag])
 }
 
@@ -1206,6 +1212,10 @@ enum ValidationDomain {
 // the same BDD-normalized shape.
 model TestCase {
   id             String        @id @default(cuid())
+  // Database-assigned, never accepted from content edits or import IDs.
+  // Internal IDs remain the foreign keys; displayId is the user's reference.
+  caseNumber     Int           @default(0)
+  displayId      String        @default("")
   projectId      String
   project        Project       @relation(fields: [projectId], references: [id])
   testPlanId     String?
@@ -1340,6 +1350,8 @@ model TestCase {
   // Composite identity lets the prerequisite relation enforce same-project
   // membership at the database layer as well as in the API.
   @@unique([id, projectId])
+  @@unique([projectId, caseNumber])
+  @@unique([projectId, displayId])
 }
 
 model TestCasePrerequisite {

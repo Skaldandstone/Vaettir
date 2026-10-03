@@ -72,8 +72,14 @@ test("page binds export to visible identity scope, archive state and explicit co
   assert.match(page, /caseExportIds\(visibleCases, selected, scope\)/);
   assert.match(page, /scopeCaseExport\(available, ids\)/);
   assert.match(page, /includeArchived: showArchived/);
-  assert.match(page, /Export shown cases \(\$\{visibleCases.length\}\)/);
-  assert.match(page, /Export selected \(\{selectedExportCount\}\)/);
+  assert.match(page, /Spreadsheet CSV \(\$\{visibleCases.length\} shown\)/);
+  assert.match(page, /Selected spreadsheet CSV \(\{selectedExportCount\}\)/);
+  assert.match(page, /Case procedures JSON \(\{visibleCases.length\} shown\)/);
+  assert.match(page, /Selected procedures JSON \(\{selectedExportCount\}\)/);
+  assert.match(page, /utils.testCases.exportProcedure.fetch\(\{/);
+  assert.match(page, /encodeCaseProcedureExport\(bundle\)/);
+  assert.match(page, /not a full backup and cannot yet be reimported/);
+  assert.match(page, /r.displayId/);
   assert.match(page, /row.map\(spreadsheetText\)/);
 });
 test("export API exposes stable IDs and retains project authorization", () => {
@@ -87,6 +93,8 @@ test("export API exposes stable IDs and retains project authorization", () => {
   );
   assert.match(endpoint, /id: z.string\(\)/);
   assert.match(endpoint, /id: true/);
+  assert.match(endpoint, /displayId: z.string\(\)/);
+  assert.match(endpoint, /displayId: true/);
   assert.match(endpoint, /requireProjectAccess\(ctx, input.projectId\)/);
   assert.match(endpoint, /projectId: input.projectId/);
 });

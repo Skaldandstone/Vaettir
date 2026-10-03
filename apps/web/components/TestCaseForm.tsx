@@ -48,6 +48,7 @@ interface TestCaseFormValue {
   then: string[];
   steps: StepRow[];
   stepRevision: string;
+  caseRevision: string;
   sharedStepGroupId: string;
   validationDomain: RouterOutputs["testCases"]["byId"]["validationDomain"];
   verificationProfile: RouterOutputs["testCases"]["byId"]["verificationProfile"];
@@ -75,6 +76,7 @@ function defaultValue(): TestCaseFormValue {
     then: [],
     steps: [],
     stepRevision: "",
+    caseRevision: "",
     sharedStepGroupId: "",
     validationDomain: "SOFTWARE",
     verificationProfile: {
@@ -295,7 +297,8 @@ export default function TestCaseForm({
           ? await createMutation.mutateAsync({ ...payload, projectId })
           : await updateMutation.mutateAsync({ ...payload, id: testCaseId!, expectedSuitePath: baseline?.suitePath || null,
               expectedPriority: baseline?.priority as "CRITICAL" | "HIGH" | "MEDIUM" | "LOW" | undefined,
-              expectedStepRevision: baseline?.stepRevision || undefined });
+              expectedStepRevision: baseline?.stepRevision || undefined,
+              expectedCaseRevision: baseline?.caseRevision || undefined });
 
       // The detail page + list read from the cache; make sure they see the
       // saved row rather than the pre-edit copy.

@@ -10,6 +10,13 @@ import {
 
 const source = (path) => readFileSync(new URL(path, import.meta.url), "utf8");
 
+test("inspector reserves close-button space and keeps scenario phases legible on mobile", () => {
+  const css = source("../components/CaseInspector.module.css");
+  assert.match(css, /\.header\s*\{[^}]*padding-right:\s*44px/s);
+  assert.match(css, /Scenario steps[^}]*min-width:\s*72px;[^}]*white-space:\s*nowrap/s);
+  assert.match(css, /@media \(max-width: 480px\)[\s\S]*\.titleBlock\s*\{\s*flex-basis:\s*100%/);
+});
+
 test("inspector labels preserve acronyms and make domain values readable without changing values", () => {
   assert.equal(
     inspectorLabel("AI_REVERSE_ENGINEERED"),
@@ -19,6 +26,10 @@ test("inspector labels preserve acronyms and make domain values readable without
   assert.equal(inspectorLabel("FOOD_SAFETY"), "Food safety");
   assert.equal(inspectorLabel("API"), "API");
   assert.equal(inspectorLabel("PENDING_REVIEW"), "Pending review");
+  assert.equal(inspectorLabel("software"), "Software");
+  assert.equal(inspectorLabel("FUNCTIONAL"), "Functional");
+  assert.equal(inspectorLabel("MEDIUM"), "Medium");
+  assert.equal(inspectorLabel("IMPORTED"), "Imported");
 });
 
 test("four-section tab keyboard navigation wraps and supports endpoints", () => {
@@ -89,6 +100,12 @@ test("prerequisite search excludes self, archived and selected cases without mut
   assert.deepEqual(selected, ["selected", "unavailable"]);
 });
 
+test("prerequisites are found by project case key, while retaining internal relation identity", () => {
+  const cases = [{ id: "internal-login", displayId: "atwist-01", title: "Login", archived: false }];
+  assert.deepEqual(prerequisitePage(cases, "dependent", [], "ATWIST-01", 0).items, cases);
+  assert.equal(cases[0].id, "internal-login");
+});
+
 test("procedure comes before on-demand editing and all tab panels remain mounted", () => {
   const detail = source("../components/TestCaseDetailContent.tsx");
   assert.ok(
@@ -117,6 +134,16 @@ test("procedure comes before on-demand editing and all tab panels remain mounted
   );
   assert.match(detail, /<AutomationDraftSection/);
   assert.match(detail, /<TestCaseVersionHistorySection/);
+  assert.match(detail, /Case ID: <code>\{tc.displayId\}<\/code>/);
+  assert.match(detail, /\.\.\.tc.given.map/);
+  assert.match(detail, /\.\.\.tc.when.map/);
+  assert.match(detail, /\.\.\.tc.then.map/);
+  assert.match(detail, /tc.steps.map/);
+  assert.match(detail, /Prerequisites do not replace scenario/);
+  assert.match(detail, /View case history/);
+  assert.match(detail, /View saved procedure/);
+  assert.match(detail, /Not recorded in this version/);
+  assert.match(detail, /Background \/ setup context/);
 });
 
 test("viewer can browse paid design recommendations without evidence intake, charge or apply controls", () => {
@@ -145,5 +172,8 @@ test("prerequisite edits retain expected baseline, unavailable selections and ex
   assert.match(prerequisites, /Unavailable case/);
   assert.match(prerequisites, /Cancel changes/);
   assert.match(prerequisites, /Save prerequisites/);
+  assert.match(prerequisites, /Execution prerequisites/);
+  assert.match(prerequisites, /does not replace Given, When, Then or any steps/);
+  assert.match(prerequisites, /\{item.displayId\}/);
   assert.doesNotMatch(prerequisites, /<select/);
 });

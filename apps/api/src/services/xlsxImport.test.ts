@@ -44,6 +44,14 @@ function workbookFixture(sheetOverride?: string) {
 }
 
 describe("XLSX smart import", () => {
+  it("preserves Given and When with whitespace-padded workbook headers", () => {
+    const xml = '<worksheet><sheetData><row><c r="A1" t="inlineStr"><is><t>Title</t></is></c><c r="B1" t="inlineStr"><is><t> Given </t></is></c><c r="C1" t="inlineStr"><is><t>When&#10;</t></is></c><c r="D1" t="inlineStr"><is><t>Then</t></is></c></row><row><c r="A2" t="inlineStr"><is><t>Delete own comment</t></is></c><c r="B2" t="inlineStr"><is><t>Signed in as comment owner</t></is></c><c r="C2" t="inlineStr"><is><t>Choose Delete</t></is></c><c r="D2" t="inlineStr"><is><t>Comment removed</t></is></c></row></sheetData></worksheet>';
+    const sheet = parseXlsxWorkbook(workbookFixture(xml))[0]!;
+    expect(previewXlsxSheet(sheet).rows[0]).toMatchObject({
+      given: ["Signed in as comment owner"], when: ["Choose Delete"], then: ["Comment removed"],
+    });
+  });
+
   it("detects a non-first header row and maps common vendor columns", () => {
     const [sheet] = parseXlsxWorkbook(workbookFixture());
     expect(sheet).toMatchObject({

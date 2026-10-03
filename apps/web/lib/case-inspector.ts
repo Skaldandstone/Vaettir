@@ -44,7 +44,7 @@ export function inspectorSectionForKey(
 }
 
 export function prerequisitePage<
-  T extends { id: string; title: string; archived: boolean },
+  T extends { id: string; title: string; archived: boolean; displayId?: string | null },
 >(
   cases: T[],
   caseId: string,
@@ -59,7 +59,7 @@ export function prerequisitePage<
       item.id !== caseId &&
       !selected.includes(item.id) &&
       (!query ||
-        `${item.title} ${item.id}`.toLocaleLowerCase().includes(query)),
+        `${item.title} ${item.displayId ?? ""} ${item.id}`.toLocaleLowerCase().includes(query)),
   );
   const pageCount = Math.max(1, Math.ceil(matches.length / 20));
   const safePage = Math.max(0, Math.min(page, pageCount - 1));

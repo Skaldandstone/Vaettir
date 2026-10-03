@@ -41,7 +41,7 @@ export function TestCasePrerequisites({
   const baselineKey = [...baseline].sort().join("\u0000");
   const dirty = [...selected].sort().join("\u0000") !== baselineKey;
   const known = new Map(
-    cases.data?.map((testCase) => [testCase.id, testCase.title]) ?? [],
+    cases.data?.map((testCase) => [testCase.id, `${testCase.displayId} · ${testCase.title}`]) ?? [],
   );
   const matches = prerequisitePage(
     cases.data ?? [],
@@ -90,7 +90,7 @@ export function TestCasePrerequisites({
     >
       <div className={styles.row}>
         <h3>
-          Prerequisites{selected.length > 0 ? ` (${selected.length})` : ""}
+          Execution prerequisites{selected.length > 0 ? ` (${selected.length})` : ""}
         </h3>
         {canEdit && !editing && (
           <button
@@ -102,6 +102,10 @@ export function TestCasePrerequisites({
           </button>
         )}
       </div>
+      <p className={styles.muted}>
+        Conditions required before this case can run. Linking a case adds a
+        required prior Pass; it does not replace Given, When, Then or any steps.
+      </p>
       {structure.isLoading && (
         <p role="status" className={styles.muted}>
           Loading prerequisites…
@@ -188,12 +192,12 @@ export function TestCasePrerequisites({
                   <li key={item.id}>
                     <span>
                       {item.title}
-                      <small>Case {item.id.slice(-8)}</small>
+                      <small>{item.displayId}</small>
                     </span>
                     <button
                       type="button"
                       className="btn-secondary"
-                      aria-label={`Add prerequisite ${item.title} (${item.id.slice(-8)})`}
+                      aria-label={`Add prerequisite ${item.displayId} ${item.title}`}
                       disabled={save.isPending || selected.length >= 50}
                       onClick={() => select([...selected, item.id])}
                     >

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { inferTestCaseType, mapCsvRows } from "./csvFieldMapping.js";
+import { inferTestCaseType, inspectCsv, mapCsvRows } from "./csvFieldMapping.js";
 
 const CSV = `Id,Title,Preconditions,Steps,Expected,Priority,Tags
 TC-1,Login succeeds,Account exists,Open login|Choose OAuth,Dashboard opens,High,auth|smoke
@@ -17,6 +17,26 @@ const MAPPING = {
 };
 
 describe("mapped CSV row repair", () => {
+  it("uses the same trimmed header identity in inspection and commit, preserving all BDD phases", () => {
+    const csv = 'Title, Given ,"When\n",Then\nDelete own comment,Signed in as comment owner,Choose Delete,Comment removed\n';
+    const mapping = inspectCsv(csv).suggestedMapping;
+    expect(mapping).toMatchObject({ given: "Given", when: "When", then: "Then" });
+    expect(mapCsvRows(csv, mapping).rows[0]).toMatchObject({
+      given: ["Signed in as comment owner"],
+      when: ["Choose Delete"],
+      then: ["Comment removed"],
+    });
+  });
+
+  it("rejects stale or ambiguous confirmed columns instead of silently omitting imported steps", () => {
+    expect(() => mapCsvRows('Title,Then\nDelete comment,Removed\n', {
+      title: "Title", given: "Preconditions", then: "Then",
+    })).toThrow('mapped "given" column was not found');
+    expect(() => mapCsvRows('Title,Given, Given ,Then\nDelete comment,A,B,Removed\n', {
+      title: "Title", given: "Given", then: "Then",
+    })).toThrow('mapped "given" column is ambiguous');
+  });
+
   it("retains incomplete source rows with their mapped fields", () => {
     const result = mapCsvRows(CSV, MAPPING);
 

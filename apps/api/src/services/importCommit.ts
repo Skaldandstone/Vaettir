@@ -96,7 +96,9 @@ export async function commitImportedTestCases(
   );
 }
 
-async function commitImportedTestCasesInTransaction(
+// For callers that must atomically validate additional scope and retain a
+// durable operation receipt. The caller must already own a DB transaction.
+export async function commitImportedTestCasesInTransaction(
   prisma: PrismaClient,
   args: CommitImportArgs,
 ): Promise<CommitImportResult> {

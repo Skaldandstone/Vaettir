@@ -69,7 +69,7 @@ describe.skipIf(!isolated)("ordered step media references", () => {
 
   it("saves media on the ordered step and snapshots its version", async () => {
     const before = await owner.testCases.byId({ id: caseId });
-    await owner.testCases.update({ id: caseId, title: "Media case", testType: "FUNCTIONAL", expectedStepRevision: before.stepRevision,
+    await owner.testCases.update({ id: caseId, title: "Media case", testType: "FUNCTIONAL", expectedStepRevision: before.stepRevision, expectedCaseRevision: before.caseRevision,
       steps: [{ action: "Submit", mediaAttachmentIds: [imageId] }, { action: "Open", mediaAttachmentIds: [] }],
     });
     const detail = await owner.testCases.byId({ id: caseId });
@@ -81,8 +81,8 @@ describe.skipIf(!isolated)("ordered step media references", () => {
   });
 
   it("rejects old editors, wrong-case files, non-media files and read-only actors", async () => {
-    const revision = (await owner.testCases.byId({ id: caseId })).stepRevision;
-    const base = { id: caseId, title: "Media case", testType: "FUNCTIONAL", expectedStepRevision: revision, steps: [{ action: "Submit", mediaAttachmentIds: [imageId] }] };
+    const current = await owner.testCases.byId({ id: caseId });
+    const base = { id: caseId, title: "Media case", testType: "FUNCTIONAL", expectedStepRevision: current.stepRevision, expectedCaseRevision: current.caseRevision, steps: [{ action: "Submit", mediaAttachmentIds: [imageId] }] };
     await expect(viewer.testCases.update(base)).rejects.toThrow();
     await expect(owner.testCases.update({ ...base, expectedStepRevision: undefined })).rejects.toThrow("steps or media changed");
     await expect(owner.testCases.update({ ...base, steps: [{ action: "Submit", mediaAttachmentIds: [foreignId] }] })).rejects.toThrow("this test case");
@@ -92,10 +92,10 @@ describe.skipIf(!isolated)("ordered step media references", () => {
 
   it("rejects a stale editor after another editor adds step media", async () => {
     const stale = await owner.testCases.byId({ id: caseId });
-    await owner.testCases.update({ id: caseId, title: "Media case", testType: "FUNCTIONAL", expectedStepRevision: stale.stepRevision,
+    await owner.testCases.update({ id: caseId, title: "Media case", testType: "FUNCTIONAL", expectedStepRevision: stale.stepRevision, expectedCaseRevision: stale.caseRevision,
       steps: [{ action: "Submit", mediaAttachmentIds: [imageId, videoId] }, { action: "Open", mediaAttachmentIds: [] }],
     });
-    await expect(owner.testCases.update({ id: caseId, title: "Stale overwrite", testType: "FUNCTIONAL", expectedStepRevision: stale.stepRevision,
+    await expect(owner.testCases.update({ id: caseId, title: "Stale overwrite", testType: "FUNCTIONAL", expectedStepRevision: stale.stepRevision, expectedCaseRevision: stale.caseRevision,
       steps: [{ action: "Submit", mediaAttachmentIds: [imageId] }],
     })).rejects.toThrow("steps or media changed");
     const after = await owner.testCases.byId({ id: caseId });
@@ -108,6 +108,7 @@ describe.skipIf(!isolated)("ordered step media references", () => {
     const current = await owner.testCases.byId({ id: caseId });
     await owner.testCases.update({ id: caseId, title: current.title, testType: current.testType,
       expectedStepRevision: current.stepRevision,
+      expectedCaseRevision: current.caseRevision,
       steps: current.steps.map(step => ({ action: step.action, mediaAttachmentIds: step.mediaAttachmentIds.filter(id => id !== imageId) })),
     });
     await owner.testCaseAttachments.delete({ attachmentId: imageId });

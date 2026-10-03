@@ -6,8 +6,18 @@ import { recomputeFlaky } from "../services/flakyDetection.js";
 import { autoEnqueueUnmatchedResult } from "../services/continuousListening.js";
 import { refreshProjectReadiness } from "../services/releaseReadiness.js";
 import { resolveHealingSuggestionsOnPass } from "../services/healingSuggestion.js";
-import { buildArtifactKey, createUploadUrl, createViewUrl, canonicalUrl, keyFromCanonicalUrl } from "../services/artifactStorage.js";
-import { linkExternalTestResult, lockMappingProject, projectMappings } from "../services/externalTestMapping.js";
+import {
+  buildArtifactKey,
+  createUploadUrl,
+  createViewUrl,
+  canonicalUrl,
+  keyFromCanonicalUrl,
+} from "../services/artifactStorage.js";
+import {
+  linkExternalTestResult,
+  lockMappingProject,
+  projectMappings,
+} from "../services/externalTestMapping.js";
 
 // P5-01: the actual data pipeline several other roadmap items (P4-03, P4-06,
 // P3-05, P3-07, P7-02) are blocked on -- they all need real TestResult rows
@@ -66,49 +76,60 @@ export const testRunsRouter = router({
       // unmatched results for manual linking, is P5-04's job, not this
       // ticket's -- this endpoint's job is getting real results into the
       // system at all.
-      const { testCaseIdByExternalId, testRun } = await ctx.prisma.$transaction(async (tx) => {
-        await lockMappingProject(tx, input.projectId);
-        const { mapping: testCaseIdByExternalId } = await projectMappings(tx, input.projectId, parsed.map((p) => p.externalTestId));
-        const status = parsed.some((p) => p.status === "FAIL")
-          ? "FAILED"
-          : parsed.every((p) => p.status === "SKIP")
-            ? "PARTIAL"
-            : parsed.some((p) => p.status === "SKIP")
+      const { testCaseIdByExternalId, testRun } = await ctx.prisma.$transaction(
+        async (tx) => {
+          await lockMappingProject(tx, input.projectId);
+          const { mapping: testCaseIdByExternalId } = await projectMappings(
+            tx,
+            input.projectId,
+            parsed.map((p) => p.externalTestId),
+          );
+          const status = parsed.some((p) => p.status === "FAIL")
+            ? "FAILED"
+            : parsed.every((p) => p.status === "SKIP")
               ? "PARTIAL"
-              : "PASSED";
-        const testRun = await tx.testRun.create({
-          data: {
-            projectId: input.projectId,
-            ciProvider: input.ciProvider,
-            ciRunUrl: input.ciRunUrl,
-            commitSha: input.commitSha,
-            branch: input.branch,
-            startedAt: input.startedAt ?? new Date(),
-            finishedAt: input.finishedAt ?? new Date(),
-            status,
-            results: {
-              create: parsed.map((p) => ({
-                testCaseId: testCaseIdByExternalId.get(p.externalTestId) ?? null,
-                externalTestId: p.externalTestId,
-                externalFilePath: p.externalFilePath,
-                status: p.status,
-                durationMs: p.durationMs,
-                errorMessage: p.errorMessage,
-              })),
+              : parsed.some((p) => p.status === "SKIP")
+                ? "PARTIAL"
+                : "PASSED";
+          const testRun = await tx.testRun.create({
+            data: {
+              projectId: input.projectId,
+              ciProvider: input.ciProvider,
+              ciRunUrl: input.ciRunUrl,
+              commitSha: input.commitSha,
+              branch: input.branch,
+              startedAt: input.startedAt ?? new Date(),
+              finishedAt: input.finishedAt ?? new Date(),
+              status,
+              results: {
+                create: parsed.map((p) => ({
+                  testCaseId:
+                    testCaseIdByExternalId.get(p.externalTestId) ?? null,
+                  externalTestId: p.externalTestId,
+                  externalFilePath: p.externalFilePath,
+                  status: p.status,
+                  durationMs: p.durationMs,
+                  errorMessage: p.errorMessage,
+                })),
+              },
             },
-          },
-          select: { id: true },
-        });
-        return { testCaseIdByExternalId, testRun };
-      });
+            select: { id: true },
+          });
+          return { testCaseIdByExternalId, testRun };
+        },
+      );
 
-      const matchedCount = parsed.filter((p) => testCaseIdByExternalId.has(p.externalTestId)).length;
+      const matchedCount = parsed.filter((p) =>
+        testCaseIdByExternalId.has(p.externalTestId),
+      ).length;
 
       // P5-05: recompute flakiness for every matched test case this run
       // touched -- fresh data just landed for it, so this is the moment a
       // newly-alternating (or newly-stabilized) pattern would show up.
       const touchedTestCaseIds = [...new Set(testCaseIdByExternalId.values())];
-      await Promise.all(touchedTestCaseIds.map((id) => recomputeFlaky(ctx.prisma, id)));
+      await Promise.all(
+        touchedTestCaseIds.map((id) => recomputeFlaky(ctx.prisma, id)),
+      );
 
       // P6.5-04: a matched test case that just came back PASS closes out
       // any of its still-open healing suggestions -- this is the "did the
@@ -117,11 +138,19 @@ export const testRunsRouter = router({
       const passedTestCaseIds = [
         ...new Set(
           parsed
-            .filter((p) => p.status === "PASS" && testCaseIdByExternalId.has(p.externalTestId))
+            .filter(
+              (p) =>
+                p.status === "PASS" &&
+                testCaseIdByExternalId.has(p.externalTestId),
+            )
             .map((p) => testCaseIdByExternalId.get(p.externalTestId)!),
         ),
       ];
-      await Promise.all(passedTestCaseIds.map((id) => resolveHealingSuggestionsOnPass(ctx.prisma, id)));
+      await Promise.all(
+        passedTestCaseIds.map((id) =>
+          resolveHealingSuggestionsOnPass(ctx.prisma, id),
+        ),
+      );
       // P8-04: auto-computed acceptance criteria follow test results, so a
       // run can flip a release's readiness - recompute every active release
       // of the project now rather than waiting for the 5-minute sweep.
@@ -136,14 +165,24 @@ export const testRunsRouter = router({
       // never get slower because of a background enrichment step. Failures
       // inside it never throw regardless, but .catch is here too as a
       // second line of defense against an unhandled rejection.
-      const unmatchedWithFile = parsed.filter((p) => !testCaseIdByExternalId.has(p.externalTestId) && p.externalFilePath);
+      const unmatchedWithFile = parsed.filter(
+        (p) =>
+          !testCaseIdByExternalId.has(p.externalTestId) && p.externalFilePath,
+      );
       if (unmatchedWithFile.length > 0) {
         void (async () => {
           const createdResults = await ctx.prisma.testResult.findMany({
-            where: { testRunId: testRun.id, externalTestId: { in: unmatchedWithFile.map((p) => p.externalTestId) } },
+            where: {
+              testRunId: testRun.id,
+              externalTestId: {
+                in: unmatchedWithFile.map((p) => p.externalTestId),
+              },
+            },
             select: { id: true, externalTestId: true },
           });
-          const resultIdByExternalId = new Map(createdResults.map((r) => [r.externalTestId as string, r.id]));
+          const resultIdByExternalId = new Map(
+            createdResults.map((r) => [r.externalTestId as string, r.id]),
+          );
           await Promise.all(
             unmatchedWithFile.map((p) => {
               const testResultId = resultIdByExternalId.get(p.externalTestId);
@@ -171,7 +210,18 @@ export const testRunsRouter = router({
     }),
 
   list: protectedProcedure
-    .input(z.object({ projectId: z.string(), take: z.number().min(1).max(100).default(20) }))
+    .input(
+      z.object({
+        projectId: z.string(),
+        take: z.number().int().min(1).max(100).default(20),
+        before: z
+          .object({
+            startedAt: z.coerce.date(),
+            id: z.string().min(1).max(100),
+          })
+          .optional(),
+      }),
+    )
     .output(
       z.array(
         z.object({
@@ -190,9 +240,25 @@ export const testRunsRouter = router({
     .query(async ({ ctx, input }) => {
       await requireProjectAccess(ctx, input.projectId);
       const runs = await ctx.prisma.testRun.findMany({
-        where: { projectId: input.projectId },
-        include: { _count: { select: { results: true } }, startedBy: { select: { email: true } } },
-        orderBy: { startedAt: "desc" },
+        where: {
+          projectId: input.projectId,
+          ...(input.before
+            ? {
+                OR: [
+                  { startedAt: { lt: input.before.startedAt } },
+                  {
+                    startedAt: input.before.startedAt,
+                    id: { lt: input.before.id },
+                  },
+                ],
+              }
+            : {}),
+        },
+        include: {
+          _count: { select: { results: true } },
+          startedBy: { select: { email: true } },
+        },
+        orderBy: [{ startedAt: "desc" }, { id: "desc" }],
         take: input.take,
       });
       return runs.map((r) => ({
@@ -226,6 +292,7 @@ export const testRunsRouter = router({
             id: z.string(),
             externalTestId: z.string().nullable(),
             testCaseId: z.string().nullable(),
+            testCaseDisplayId: z.string().nullable(),
             testCaseTitle: z.string().nullable(),
             status: z.string(),
             durationMs: z.number().nullable(),
@@ -240,7 +307,14 @@ export const testRunsRouter = router({
       const run = await ctx.prisma.testRun.findUniqueOrThrow({
         where: { id: input.id },
         include: {
-          results: { include: { testCase: { select: { title: true, projectId: true } }, artifacts: true } },
+          results: {
+            include: {
+              testCase: {
+                select: { title: true, displayId: true, projectId: true },
+              },
+              artifacts: true,
+            },
+          },
           startedBy: { select: { email: true } },
         },
       });
@@ -258,8 +332,14 @@ export const testRunsRouter = router({
         results: run.results.map((r) => ({
           id: r.id,
           externalTestId: r.externalTestId,
-          testCaseId: r.testCase?.projectId === run.projectId ? r.testCaseId : null,
-          testCaseTitle: r.testCase?.projectId === run.projectId ? r.testCase.title : null,
+          testCaseId:
+            r.testCase?.projectId === run.projectId ? r.testCaseId : null,
+          testCaseDisplayId:
+            r.testCase?.projectId === run.projectId
+              ? r.testCase.displayId
+              : null,
+          testCaseTitle:
+            r.testCase?.projectId === run.projectId ? r.testCase.title : null,
           status: r.status,
           durationMs: r.durationMs,
           errorMessage: r.errorMessage,
@@ -287,7 +367,10 @@ export const testRunsRouter = router({
       });
       await requireProjectAccess(ctx, result.testRun.projectId, "EDITOR");
 
-      const updated = await linkExternalTestResult(ctx.prisma, { ...input, projectId: result.testRun.projectId });
+      const updated = await linkExternalTestResult(ctx.prisma, {
+        ...input,
+        projectId: result.testRun.projectId,
+      });
       await recomputeFlaky(ctx.prisma, input.testCaseId);
       return updated;
     }),
@@ -300,7 +383,13 @@ export const testRunsRouter = router({
   // immediately with the eventual object's canonical (non-presigned) URL,
   // matching how every other artifact record in this schema already works.
   requestArtifactUpload: protectedProcedure
-    .input(z.object({ testResultId: z.string(), type: z.enum(["SCREENSHOT", "VIDEO"]), durationMs: z.number().optional() }))
+    .input(
+      z.object({
+        testResultId: z.string(),
+        type: z.enum(["SCREENSHOT", "VIDEO"]),
+        durationMs: z.number().optional(),
+      }),
+    )
     .output(z.object({ artifactId: z.string(), uploadUrl: z.string() }))
     .mutation(async ({ ctx, input }) => {
       const result = await ctx.prisma.testResult.findUniqueOrThrow({
@@ -309,10 +398,17 @@ export const testRunsRouter = router({
       });
       await requireProjectAccess(ctx, result.testRun.projectId, "EDITOR");
       if (result.status !== "FAIL") {
-        throw new TRPCError({ code: "BAD_REQUEST", message: "Artifacts are only accepted for a FAIL result" });
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "Artifacts are only accepted for a FAIL result",
+        });
       }
 
-      const key = buildArtifactKey(result.testRun.projectId, input.testResultId, input.type);
+      const key = buildArtifactKey(
+        result.testRun.projectId,
+        input.testResultId,
+        input.type,
+      );
       const [uploadUrl, artifact] = await Promise.all([
         createUploadUrl(key, input.type),
         ctx.prisma.testResultArtifact.create({
@@ -337,10 +433,14 @@ export const testRunsRouter = router({
     .query(async ({ ctx, input }) => {
       const artifact = await ctx.prisma.testResultArtifact.findUniqueOrThrow({
         where: { id: input.artifactId },
-        include: { testResult: { include: { testRun: { select: { projectId: true } } } } },
+        include: {
+          testResult: { include: { testRun: { select: { projectId: true } } } },
+        },
       });
       await requireProjectAccess(ctx, artifact.testResult.testRun.projectId);
-      const viewUrl = await createViewUrl(keyFromCanonicalUrl(artifact.storageUrl));
+      const viewUrl = await createViewUrl(
+        keyFromCanonicalUrl(artifact.storageUrl),
+      );
       return { viewUrl };
     }),
 });

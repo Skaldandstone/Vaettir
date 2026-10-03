@@ -59,9 +59,7 @@ function EditCaseSession({
   if (!tc) return <p>Loading test case…</p>;
   const savedChanged =
     tcQuery.data &&
-    (tcQuery.data.stepRevision !== tc.stepRevision ||
-      tcQuery.data.priority !== tc.priority ||
-      tcQuery.data.suitePath !== tc.suitePath);
+    tcQuery.data.caseRevision !== tc.caseRevision;
 
   return (
     <div>
@@ -134,6 +132,7 @@ function EditCaseSession({
                 mediaAttachmentIds: s.mediaAttachmentIds,
               })),
           stepRevision: tc.stepRevision,
+          caseRevision: tc.caseRevision,
           sharedStepGroupId: tc.sharedStepGroupId ?? "",
         }}
       />

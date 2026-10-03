@@ -53,6 +53,9 @@ describe("manually confirmed case traceability", () => {
           organizationId: orgId,
           name: "Synthetic feature coverage",
           slug: stamp,
+          // Distinct stable keys let the later reparenting fixture reach its
+          // tenant-isolation assertions instead of a key uniqueness failure.
+          caseKey: "trace-primary",
         },
       })
     ).id;
@@ -62,6 +65,7 @@ describe("manually confirmed case traceability", () => {
           organizationId: otherOrgId,
           name: "Other",
           slug: `${stamp}-other`,
+          caseKey: "trace-other",
         },
       })
     ).id;

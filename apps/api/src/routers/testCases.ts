@@ -5,6 +5,8 @@ import {
   TestCaseStepInputSchema,
   resolveStepFieldLabels,
   type StepFieldKey,
+  caseProcedureExportSchema,
+  MAX_PROCEDURE_EXPORT_CASES,
 } from "@vaettir/core";
 import {
   assessTestCaseRisk,
@@ -25,6 +27,9 @@ import {
   meterAiCall,
 } from "../services/aiCredits.js";
 import { parseTestCaseCsv } from "../services/testCaseCsvImport.js";
+import { captureCaseProcedureExport } from "../services/caseProcedureExport.js";
+import { commitImportedTestCasesInTransaction } from "../services/importCommit.js";
+import { testCaseContentRevision } from "../services/testCaseContentRevision.js";
 import { snapshotTestCaseVersion } from "../services/testCaseVersion.js";
 import { ensureCaseEvidenceNotRetained } from "../services/caseEvidenceRetention.js";
 import { requireCurrentPlanAccess } from "../services/testPlanExecution.js";
@@ -83,6 +88,19 @@ const stepOutputSchema = z.object({
 
 function stepMediaIds(steps: Array<{ mediaAttachmentIds?: string[] }>) {
   return [...new Set(steps.flatMap((step) => step.mediaAttachmentIds ?? []))];
+}
+
+function assertSharedStepProject(tc: {
+  projectId: string;
+  sharedStepGroup: { projectId: string } | null;
+}) {
+  if (tc.sharedStepGroup && tc.sharedStepGroup.projectId !== tc.projectId) {
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message:
+        "This case references a shared step group from another project. Review the case's step library before continuing.",
+    });
+  }
 }
 
 function stepRevision(
@@ -155,6 +173,8 @@ export const testCasesRouter = router({
       z.array(
         z.object({
           id: z.string(),
+          displayId: z.string(),
+          caseNumber: z.number().int(),
           title: z.string(),
           testType: z.string(),
           automationStatus: z.string(),
@@ -183,6 +203,8 @@ export const testCasesRouter = router({
       });
       return cases.map((tc) => ({
         id: tc.id,
+        displayId: tc.displayId,
+        caseNumber: tc.caseNumber,
         title: tc.title,
         testType: tc.testType,
         automationStatus: tc.automationStatus,
@@ -199,14 +221,9 @@ export const testCasesRouter = router({
       }));
     }),
 
-  // P11-07-adjacent (2026-08-27 competitor parity audit): importCsv existed
-  // with no matching export - every competitor researched supports both
-  // directions. Returns the exact same field shape importCsv's header set
-  // expects (title/given/when/then/priority/tags), so export -> import is
-  // genuinely round-trippable, not just "data out" with no way back in.
-  // The actual CSV string construction happens client-side (same pattern
-  // P3-04's compliance report export already uses) - this returns
-  // structured data, not a pre-formatted file.
+  // Spreadsheet summary only, not a lossless backup/interchange: structured
+  // steps, shared procedures and some metadata are not represented by this
+  // legacy CSV. exportProcedure preserves the supported procedure content.
   exportCsv: protectedProcedure
     .input(
       z.object({
@@ -218,6 +235,8 @@ export const testCasesRouter = router({
       z.array(
         z.object({
           id: z.string(),
+          displayId: z.string(),
+          caseNumber: z.number().int().positive(),
           title: z.string(),
           given: z.array(z.string()),
           when: z.array(z.string()),
@@ -243,6 +262,8 @@ export const testCasesRouter = router({
         orderBy: { title: "asc" },
         select: {
           id: true,
+          displayId: true,
+          caseNumber: true,
           title: true,
           given: true,
           when: true,
@@ -260,6 +281,36 @@ export const testCasesRouter = router({
       return cases;
     }),
 
+  exportProcedure: protectedProcedure
+    .input(
+      z
+        .object({
+          projectId: z.string().min(1),
+          ids: z
+            .array(z.string().min(1))
+            .min(1)
+            .max(MAX_PROCEDURE_EXPORT_CASES)
+            .refine(
+              (ids) => new Set(ids).size === ids.length,
+              "Choose each case once",
+            ),
+          scope: z.enum(["selected", "filtered"]),
+          includeArchived: z.boolean().default(false),
+        })
+        .strict(),
+    )
+    .output(caseProcedureExportSchema)
+    .query(async ({ ctx, input }) => {
+      await requireProjectAccess(ctx, input.projectId);
+      return ctx.prisma.$transaction(
+        (db) => captureCaseProcedureExport(db, input),
+        {
+          isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead,
+          timeout: 30_000,
+        },
+      );
+    }),
+
   // .output() bounds the inferred type to this schema instead of Prisma's
   // deeply-nested `include` payload type, which otherwise blows past tsc's
   // structural inference limit (TS2589) for consumers of the AppRouter type.
@@ -268,6 +319,8 @@ export const testCasesRouter = router({
     .output(
       z.object({
         id: z.string(),
+        displayId: z.string(),
+        caseNumber: z.number().int(),
         title: z.string(),
         background: z.string().nullable(),
         given: z.array(z.string()),
@@ -275,6 +328,7 @@ export const testCasesRouter = router({
         then: z.array(z.string()),
         steps: z.array(stepOutputSchema),
         stepRevision: z.string(),
+        caseRevision: z.string().length(64),
         sharedStepGroupId: z.string().nullable(),
         sharedStepGroupName: z.string().nullable(),
         stepFieldLabels: z.record(z.string()),
@@ -333,6 +387,7 @@ export const testCasesRouter = router({
         },
       });
       await requireProjectAccess(ctx, tc.projectId);
+      assertSharedStepProject(tc);
       // A case linked to a shared step group defers entirely to its
       // steps (see the schema comment on TestCase.sharedStepGroupId) -
       // resolved live here, not duplicated onto the case, so an edit to
@@ -357,6 +412,8 @@ export const testCasesRouter = router({
           }));
       return {
         id: tc.id,
+        displayId: tc.displayId,
+        caseNumber: tc.caseNumber,
         title: tc.title,
         background: tc.background,
         given: tc.given,
@@ -364,6 +421,7 @@ export const testCasesRouter = router({
         then: tc.then,
         steps: resolvedSteps,
         stepRevision: stepRevision(tc.steps),
+        caseRevision: testCaseContentRevision(tc),
         validationDomain: tc.validationDomain,
         verificationProfile: verificationProfileSchema.parse(
           tc.verificationProfile,
@@ -410,6 +468,40 @@ export const testCasesRouter = router({
           tags: string[];
         } | null,
       };
+    }),
+
+  // Human references are project-scoped. Never look up an ID globally and
+  // disclose a case from another workspace or infer access from the prefix.
+  byDisplayId: protectedProcedure
+    .input(
+      z
+        .object({
+          projectId: z.string().min(1),
+          displayId: z
+            .string()
+            .trim()
+            .toLowerCase()
+            .regex(/^[a-z][a-z0-9-]{0,23}-[0-9]{2,}$/),
+        })
+        .strict(),
+    )
+    .query(async ({ ctx, input }) => {
+      await requireProjectAccess(ctx, input.projectId);
+      const found = await ctx.prisma.testCase.findUnique({
+        where: {
+          projectId_displayId: {
+            projectId: input.projectId,
+            displayId: input.displayId,
+          },
+        },
+        select: { id: true, displayId: true, title: true, archived: true },
+      });
+      if (!found)
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Test case not found in this project.",
+        });
+      return found;
     }),
 
   // Test cases can be authored two ways -- BDD (given/when/then) and/or the
@@ -1001,6 +1093,7 @@ export const testCasesRouter = router({
           code: "FORBIDDEN",
           message: "A full editor seat is required.",
         });
+      assertSharedStepProject(tc);
       const existing = await ctx.prisma.automationDraft.findFirst({
         where: { testCaseId: tc.id, status: { in: ["GENERATING", "READY"] } },
       });
@@ -1106,7 +1199,11 @@ export const testCasesRouter = router({
       });
       await requireProjectAccess(ctx, plan.projectId);
       const cases = await ctx.prisma.testCase.findMany({
-        where: { testPlanId: input.testPlanId, archived: false },
+        where: {
+          testPlanId: input.testPlanId,
+          projectId: plan.projectId,
+          archived: false,
+        },
         select: { id: true, title: true },
         orderBy: { createdAt: "asc" },
       });
@@ -1163,6 +1260,7 @@ export const testCasesRouter = router({
       });
       const truncated = allCases.length > REVIEW_LIMIT;
       const cases = allCases.slice(0, REVIEW_LIMIT);
+      for (const tc of cases) assertSharedStepProject(tc);
       if (cases.length === 0) {
         throw new TRPCError({
           code: "BAD_REQUEST",
@@ -1240,27 +1338,32 @@ export const testCasesRouter = router({
         input.projectId,
         "EDITOR",
       );
-      const created = await ctx.prisma.testCase.create({
-        data: {
-          projectId: input.projectId,
-          title: input.title,
-          testType: "FUNCTIONAL",
-          suitePath: input.suitePath || undefined,
-          createdById: ctx.user.id,
-          updatedById: ctx.user.id,
-        },
-        select: { id: true },
+      return ctx.prisma.$transaction(async (tx) => {
+        await requireCurrentPlanAccess(tx, ctx.user.id, input.projectId, true);
+        const created = await tx.testCase.create({
+          data: {
+            projectId: input.projectId,
+            title: input.title,
+            testType: "FUNCTIONAL",
+            suitePath: input.suitePath || undefined,
+            createdById: ctx.user.id,
+            updatedById: ctx.user.id,
+          },
+          select: { id: true },
+        });
+        await tx.auditLog.create({
+          data: {
+            organizationId: project.organizationId,
+            projectId: input.projectId,
+            actorId: ctx.user.id,
+            entityType: "TestCase",
+            entityId: created.id,
+            action: "CREATE",
+            summary: `Created test case "${input.title}"`,
+          },
+        });
+        return created;
       });
-      await recordAudit(ctx.prisma, {
-        organizationId: project.organizationId,
-        projectId: input.projectId,
-        actorId: ctx.user.id,
-        entityType: "TestCase",
-        entityId: created.id,
-        action: "CREATE",
-        summary: `Created test case "${input.title}"`,
-      });
-      return created;
     }),
 
   create: protectedProcedure
@@ -1284,71 +1387,100 @@ export const testCasesRouter = router({
             "Save the case before linking image or video attachments to steps.",
         });
       }
-      const created = await ctx.prisma.testCase.create({
-        data: {
-          projectId: input.projectId,
-          testPlanId: input.testPlanId,
-          title: input.title,
-          background: input.background,
-          given: input.given,
-          when: input.when,
-          then: input.then,
-          tags: input.tags,
-          testType: input.testType as never,
-          validationDomain: input.validationDomain,
-          verificationProfile: input.verificationProfile,
-          priority: input.priority,
-          suitePath: input.suitePath || undefined,
-          createdById: ctx.user.id,
-          updatedById: ctx.user.id,
-          sharedStepGroupId: input.sharedStepGroupId || undefined,
-          // A case linked to a shared group defers entirely to it - see
-          // the schema comment on sharedStepGroupId - so it owns no
-          // structured steps of its own.
-          steps: input.sharedStepGroupId
-            ? undefined
-            : {
-                create: input.steps.map((s, i) => ({
-                  order: i,
-                  action: s.action,
-                  expectedActionOrData: s.expectedActionOrData ?? undefined,
-                  expectedResult: s.expectedResult ?? undefined,
-                  expectedResponse: s.expectedResponse ?? undefined,
-                  mediaAttachmentIds: [],
-                })),
-              },
-        },
+      return ctx.prisma.$transaction(async (tx) => {
+        await requireCurrentPlanAccess(tx, ctx.user.id, input.projectId, true);
+        if (
+          input.testPlanId &&
+          !(await tx.testPlan.findFirst({
+            where: { id: input.testPlanId, projectId: input.projectId },
+            select: { id: true },
+          }))
+        ) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "Choose a test plan in this project.",
+          });
+        }
+        if (
+          input.sharedStepGroupId &&
+          !(await tx.sharedStepGroup.findFirst({
+            where: { id: input.sharedStepGroupId, projectId: input.projectId },
+            select: { id: true },
+          }))
+        ) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "Choose a shared step library in this project.",
+          });
+        }
+        const created = await tx.testCase.create({
+          data: {
+            projectId: input.projectId,
+            testPlanId: input.testPlanId,
+            title: input.title,
+            background: input.background,
+            given: input.given,
+            when: input.when,
+            then: input.then,
+            tags: input.tags,
+            testType: input.testType as never,
+            validationDomain: input.validationDomain,
+            verificationProfile: input.verificationProfile,
+            priority: input.priority,
+            suitePath: input.suitePath || undefined,
+            createdById: ctx.user.id,
+            updatedById: ctx.user.id,
+            sharedStepGroupId: input.sharedStepGroupId || undefined,
+            // A case linked to a shared group defers entirely to it - see
+            // the schema comment on sharedStepGroupId - so it owns no
+            // structured steps of its own.
+            steps: input.sharedStepGroupId
+              ? undefined
+              : {
+                  create: input.steps.map((s, i) => ({
+                    order: i,
+                    action: s.action,
+                    expectedActionOrData: s.expectedActionOrData ?? undefined,
+                    expectedResult: s.expectedResult ?? undefined,
+                    expectedResponse: s.expectedResponse ?? undefined,
+                    mediaAttachmentIds: [],
+                  })),
+                },
+          },
+        });
+        await tx.auditLog.create({
+          data: {
+            organizationId: project.organizationId,
+            projectId: input.projectId,
+            actorId: ctx.user.id,
+            entityType: "TestCase",
+            entityId: created.id,
+            action: "CREATE",
+            summary: `Created test case "${created.title}"`,
+          },
+        });
+        await snapshotTestCaseVersion(tx, {
+          testCaseId: created.id,
+          title: created.title,
+          background: created.background,
+          given: created.given,
+          when: created.when,
+          then: created.then,
+          steps: input.steps.map((s, i) => ({
+            order: i,
+            action: s.action,
+            expectedActionOrData: s.expectedActionOrData ?? null,
+            expectedResult: s.expectedResult ?? null,
+            expectedResponse: s.expectedResponse ?? null,
+            mediaAttachmentIds: [],
+          })),
+          tags: created.tags,
+          priority: created.priority,
+          testType: created.testType,
+          actorId: ctx.user.id,
+        });
+        return created;
       });
-      await recordAudit(ctx.prisma, {
-        organizationId: project.organizationId,
-        projectId: input.projectId,
-        actorId: ctx.user.id,
-        entityType: "TestCase",
-        entityId: created.id,
-        action: "CREATE",
-        summary: `Created test case "${created.title}"`,
-      });
-      await snapshotTestCaseVersion(ctx.prisma, {
-        testCaseId: created.id,
-        title: created.title,
-        background: created.background,
-        given: created.given,
-        when: created.when,
-        then: created.then,
-        steps: input.steps.map((s, i) => ({
-          order: i,
-          action: s.action,
-          expectedActionOrData: s.expectedActionOrData ?? null,
-          expectedResult: s.expectedResult ?? null,
-          expectedResponse: s.expectedResponse ?? null,
-          mediaAttachmentIds: [],
-        })),
-        tags: created.tags,
-        priority: created.priority,
-        testType: created.testType,
-        actorId: ctx.user.id,
-      });
-      return created;
     }),
 
   // P11-07: the generic catch-all importer for a spreadsheet-tracked suite
@@ -1363,7 +1495,7 @@ export const testCasesRouter = router({
     .input(
       z.object({
         projectId: z.string(),
-        csvText: z.string().min(1),
+        csvText: z.string().min(1).max(10_000_000),
         testPlanId: z.string().optional(),
       }),
     )
@@ -1392,57 +1524,84 @@ export const testCasesRouter = router({
         });
       }
 
-      const created = await ctx.prisma.$transaction(
-        parsed.cases.map((c) =>
-          ctx.prisma.testCase.create({
-            data: {
-              projectId: input.projectId,
-              testPlanId: input.testPlanId,
-              title: c.title,
-              given: c.given,
-              when: c.when,
-              then: c.then,
-              tags: c.tags,
-              testType: "FUNCTIONAL",
-              priority: c.priority,
-              origin: "IMPORTED",
-              createdById: ctx.user.id,
-              updatedById: ctx.user.id,
-            },
-          }),
-        ),
-      );
-
-      if (created.length > 0) {
-        await recordAudit(ctx.prisma, {
-          organizationId: project.organizationId,
-          projectId: input.projectId,
-          actorId: ctx.user.id,
-          entityType: "TestCase",
-          entityId: created[0]!.id,
-          action: "CREATE",
-          summary: `Imported ${created.length} test case(s) from CSV`,
+      if (parsed.cases.length > 2_500)
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message:
+            "Import exceeds the 2,500-case batch limit; split the file and retry.",
         });
-        await Promise.all(
-          created.map((c) =>
-            snapshotTestCaseVersion(ctx.prisma, {
-              testCaseId: c.id,
-              title: c.title,
-              background: c.background,
-              given: c.given,
-              when: c.when,
-              then: c.then,
-              steps: [],
-              tags: c.tags,
-              priority: c.priority,
-              testType: c.testType,
+      const requestHash = createHash("sha256")
+        .update(
+          JSON.stringify({
+            actorId: ctx.user.id,
+            projectId: input.projectId,
+            testPlanId: input.testPlanId ?? null,
+            csvText: input.csvText,
+          }),
+        )
+        .digest("hex");
+      return ctx.prisma.$transaction(
+        async (tx) => {
+          // Serialize same-project retries, then recheck current authorization and
+          // plan tenancy before looking up a receipt or creating any records.
+          await tx.$queryRaw`SELECT id FROM "Project" WHERE id = ${input.projectId} FOR UPDATE`;
+          await requireCurrentPlanAccess(
+            tx,
+            ctx.user.id,
+            input.projectId,
+            true,
+          );
+          if (input.testPlanId) {
+            const plan = await tx.testPlan.findFirst({
+              where: { id: input.testPlanId, projectId: input.projectId },
+              select: { id: true },
+            });
+            if (!plan)
+              throw new TRPCError({
+                code: "FORBIDDEN",
+                message: "The test plan must belong to this project.",
+              });
+          }
+          const previous = await tx.importJob.findFirst({
+            where: {
+              projectId: input.projectId,
+              source: "CSV",
+              createdById: ctx.user.id,
+              fieldMapping: { path: ["legacyRetryHash"], equals: requestHash },
+            },
+            orderBy: { createdAt: "desc" },
+          });
+          if (previous)
+            return {
+              createdCount: previous.createdCount,
+              skipped: z
+                .array(z.object({ rowNumber: z.number(), reason: z.string() }))
+                .parse(previous.errors),
+            };
+          const result = await commitImportedTestCasesInTransaction(
+            tx as unknown as typeof ctx.prisma,
+            {
+              projectId: input.projectId,
+              organizationId: project.organizationId,
               actorId: ctx.user.id,
-            }),
-          ),
-        );
-      }
-
-      return { createdCount: created.length, skipped: parsed.skipped };
+              rows: parsed.cases.map((row) => ({
+                ...row,
+                testType: "FUNCTIONAL",
+                externalId: `${requestHash}:${row.rowNumber}`,
+              })),
+              skipped: parsed.skipped,
+              source: "CSV",
+              sourceLabel: "CSV import",
+              keyPrefix: "legacy-csv",
+              framework: "csv",
+              testPlanId: input.testPlanId,
+              fieldMapping: { legacyRetryHash: requestHash },
+            },
+          );
+          return { createdCount: result.createdCount, skipped: result.skipped };
+        },
+        { timeout: 120_000 },
+      );
     }),
 
   update: protectedProcedure
@@ -1453,6 +1612,7 @@ export const testCasesRouter = router({
           expectedSuitePath: z.string().nullable().optional(),
           expectedPriority: prioritySchema.optional(),
           expectedStepRevision: z.string().length(64).optional(),
+          expectedCaseRevision: z.string().length(64).optional(),
         })
         .refine(requireAtLeastOneFormat, {
           message: AT_LEAST_ONE_FORMAT_MESSAGE,
@@ -1548,6 +1708,57 @@ export const testCasesRouter = router({
               "This case's steps or media changed since it was opened. Refresh the editor before saving.",
           });
         }
+        await tx.$queryRaw`SELECT id FROM "TestCase" WHERE id = ${input.id} FOR UPDATE`;
+        const currentContent = await tx.testCase.findUniqueOrThrow({
+          where: { id: input.id },
+          include: {
+            steps: { orderBy: { order: "asc" } },
+            sharedStepGroup: true,
+          },
+        });
+        if (
+          !input.expectedCaseRevision ||
+          testCaseContentRevision(currentContent) !== input.expectedCaseRevision
+        ) {
+          throw new TRPCError({
+            code: "CONFLICT",
+            message:
+              "This case's content changed or this editor has no full comparison baseline. Refresh the editor before saving; your draft has not been applied.",
+          });
+        }
+        await requireCurrentPlanAccess(
+          tx,
+          ctx.user.id,
+          existing.projectId,
+          true,
+        );
+        if (
+          input.testPlanId &&
+          !(await tx.testPlan.findFirst({
+            where: { id: input.testPlanId, projectId: existing.projectId },
+            select: { id: true },
+          }))
+        ) {
+          throw new TRPCError({
+            code: "FORBIDDEN",
+            message: "The test plan must belong to this project.",
+          });
+        }
+        if (
+          input.sharedStepGroupId &&
+          !(await tx.sharedStepGroup.findFirst({
+            where: {
+              id: input.sharedStepGroupId,
+              projectId: existing.projectId,
+            },
+            select: { id: true },
+          }))
+        ) {
+          throw new TRPCError({
+            code: "FORBIDDEN",
+            message: "The shared step library must belong to this project.",
+          });
+        }
         const ids = stepMediaIds(input.steps);
         if (ids.length > 0) {
           const attachments = await tx.testCaseAttachment.findMany({
@@ -1639,36 +1850,36 @@ export const testCasesRouter = router({
               },
             },
           });
+        await recordAudit(tx as unknown as typeof ctx.prisma, {
+          organizationId: project.organizationId,
+          projectId: existing.projectId,
+          actorId: ctx.user.id,
+          entityType: "TestCase",
+          entityId: input.id,
+          action: "UPDATE",
+          summary: `Updated test case "${changed.title}"`,
+        });
+        await snapshotTestCaseVersion(tx, {
+          testCaseId: changed.id,
+          title: changed.title,
+          background: changed.background,
+          given: changed.given,
+          when: changed.when,
+          then: changed.then,
+          steps: input.steps.map((s, i) => ({
+            order: i,
+            action: s.action,
+            expectedActionOrData: s.expectedActionOrData ?? null,
+            expectedResult: s.expectedResult ?? null,
+            expectedResponse: s.expectedResponse ?? null,
+            mediaAttachmentIds: s.mediaAttachmentIds ?? [],
+          })),
+          tags: changed.tags,
+          priority: changed.priority,
+          testType: changed.testType,
+          actorId: ctx.user.id,
+        });
         return changed;
-      });
-      await recordAudit(ctx.prisma, {
-        organizationId: project.organizationId,
-        projectId: existing.projectId,
-        actorId: ctx.user.id,
-        entityType: "TestCase",
-        entityId: input.id,
-        action: "UPDATE",
-        summary: `Updated test case "${updated.title}"`,
-      });
-      await snapshotTestCaseVersion(ctx.prisma, {
-        testCaseId: updated.id,
-        title: updated.title,
-        background: updated.background,
-        given: updated.given,
-        when: updated.when,
-        then: updated.then,
-        steps: input.steps.map((s, i) => ({
-          order: i,
-          action: s.action,
-          expectedActionOrData: s.expectedActionOrData ?? null,
-          expectedResult: s.expectedResult ?? null,
-          expectedResponse: s.expectedResponse ?? null,
-          mediaAttachmentIds: s.mediaAttachmentIds ?? [],
-        })),
-        tags: updated.tags,
-        priority: updated.priority,
-        testType: updated.testType,
-        actorId: ctx.user.id,
       });
       return updated;
     }),
@@ -1738,7 +1949,16 @@ export const testCasesRouter = router({
             true,
           );
           await ensureCaseEvidenceNotRetained(tx, existing.projectId, input.id);
-          if (await tx.caseTraceabilityLink.count({ where: { projectId: existing.projectId, caseId: input.id } })) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "This case has retained test coverage references, including removed-link history. Archive the case instead of deleting its evidence." });
+          if (
+            await tx.caseTraceabilityLink.count({
+              where: { projectId: existing.projectId, caseId: input.id },
+            })
+          )
+            throw new TRPCError({
+              code: "PRECONDITION_FAILED",
+              message:
+                "This case has retained test coverage references, including removed-link history. Archive the case instead of deleting its evidence.",
+            });
           await tx.testCase.delete({
             where: { id: input.id, projectId: existing.projectId },
           });

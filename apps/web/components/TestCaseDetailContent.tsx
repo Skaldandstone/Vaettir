@@ -1037,11 +1037,11 @@ function TestCaseVersionHistorySection({ testCaseId }: { testCaseId: string }) {
     if (version.title !== prev.title)
       changes.push(`title: "${prev.title}" → "${version.title}"`);
     if (JSON.stringify(version.given) !== JSON.stringify(prev.given))
-      changes.push("given changed");
+      changes.push("Given changed");
     if (JSON.stringify(version.when) !== JSON.stringify(prev.when))
-      changes.push("when changed");
+      changes.push("When changed");
     if (JSON.stringify(version.then) !== JSON.stringify(prev.then))
-      changes.push("then changed");
+      changes.push("Then changed");
     if (JSON.stringify(version.steps) !== JSON.stringify(prev.steps))
       changes.push("structured steps changed");
     if (version.priority !== prev.priority)
@@ -1099,6 +1099,23 @@ function TestCaseVersionHistorySection({ testCaseId }: { testCaseId: string }) {
                   <li key={j}>{c}</li>
                 ))}
               </ul>
+              <details style={{ marginTop: 8 }}>
+                <summary>View saved procedure</summary>
+                <p><strong>{v.title}</strong></p>
+                {v.background && <p style={{ whiteSpace: "pre-wrap" }}>{v.background}</p>}
+                {(["given", "when", "then"] as const).map(phase => (
+                  <div key={phase}>
+                    <strong>{inspectorLabel(phase)}</strong>
+                    {v[phase].length ? <ol>{v[phase].map((text, index) => <li key={index} style={{ whiteSpace: "pre-wrap" }}>{text}</li>)}</ol> : <p className="text-muted">Not recorded in this version.</p>}
+                  </div>
+                ))}
+                {Array.isArray(v.steps) && v.steps.length > 0 && (
+                  <div>
+                    <strong>Structured steps (saved snapshot)</strong>
+                    <pre style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere", fontSize: 12 }}>{JSON.stringify(v.steps, null, 2)}</pre>
+                  </div>
+                )}
+              </details>
             </li>
           ))}
           {versions.length === 0 && (
@@ -1354,7 +1371,7 @@ function TestCaseInspector({
           )}
         </span>
         <span>
-          Case ID: <code>{tc.id}</code>
+          Case ID: <code>{tc.displayId}</code>
         </span>
       </div>
       <dl className={styles.metadata}>
@@ -1451,7 +1468,7 @@ function TestCaseInspector({
                 <tr>
                   <th style={cellStyle}>#</th>
                   <th style={cellStyle}>Phase</th>
-                  <th style={cellStyle}>Action or precondition</th>
+                  <th style={cellStyle}>Condition or action</th>
                   <th style={cellStyle}>Expected outcome</th>
                 </tr>
               </thead>
@@ -1474,6 +1491,21 @@ function TestCaseInspector({
                 ))}
               </tbody>
             </table>
+            {tc.steps.length === 0 &&
+              [tc.given, tc.when, tc.then].some((phase) => phase.length === 0) && (
+                <p role="status" className="text-muted">
+                  {[
+                    ...(tc.given.length === 0 ? ["Given"] : []),
+                    ...(tc.when.length === 0 ? ["When"] : []),
+                    ...(tc.then.length === 0 ? ["Then"] : []),
+                  ].join(" / ")} not recorded. Prerequisites do not replace scenario
+                  steps. Review the original source or{" "}
+                  <button type="button" className="btn-secondary" onClick={() => setSection("History")}>
+                    View case history
+                  </button>
+                  {!readOnly && <> before using Edit case to complete the procedure.</>}
+                </p>
+              )}
           </section>
         )}
 
@@ -1570,7 +1602,7 @@ function TestCaseInspector({
 
         {tc.background && (
           <details>
-            <summary>Background</summary>
+            <summary>Background / setup context</summary>
             <p style={{ whiteSpace: "pre-wrap" }}>{tc.background}</p>
           </details>
         )}

@@ -7,6 +7,7 @@ import { trpcReact } from "@/lib/trpcReact";
 import { Drawer } from "@/components/Drawer";
 import { Modal } from "@/components/Modal";
 import { useProjectPermissions } from "@/lib/use-project-permissions";
+import { inspectorLabel } from "@/lib/case-inspector";
 
 const STATUS_COLORS: Record<string, string> = {
   PASSED: "#1a7f37",
@@ -340,10 +341,14 @@ function TestRunDetail({ id, canEdit }: { id: string; canEdit: boolean }) {
                     fontWeight: 600,
                   }}
                 >
-                  {r.status}
+                  {inspectorLabel(r.status)}
                 </td>
                 <td style={{ padding: "6px 8px", fontSize: 13 }}>
-                  {r.testCaseTitle ?? (
+                  {r.testCaseTitle ? (
+                    <span>
+                      <code>{r.testCaseDisplayId}</code> {r.testCaseTitle}
+                    </span>
+                  ) : (
                     <div
                       style={{
                         display: "flex",
@@ -499,12 +504,26 @@ export default function TestRunsPage() {
   const { projectId } = useParams<{ projectId: string }>();
   const router = useRouter();
   const { canEdit } = useProjectPermissions(projectId);
-  const runsQuery = trpcReact.testRuns.list.useQuery({ projectId });
-  const runs = runsQuery.data ?? [];
+  const [historyCursors, setHistoryCursors] = useState<
+    Array<{ startedAt: Date; id: string }>
+  >([]);
+  const runsQuery = trpcReact.testRuns.list.useQuery({
+    projectId,
+    take: 21,
+    before: historyCursors.at(-1),
+  });
+  const runs = (runsQuery.data ?? []).slice(0, 20);
+  const hasOlderRuns = (runsQuery.data?.length ?? 0) > 20;
   const loading = runsQuery.isLoading;
   const error = runsQuery.error?.message ?? null;
-  const linkedRunId = useSyncExternalStore(subscribeRunHash, readRunHash, () => null);
-  const [selectedRunId, setOpenRunId] = useState<string | null | undefined>(undefined);
+  const linkedRunId = useSyncExternalStore(
+    subscribeRunHash,
+    readRunHash,
+    () => null,
+  );
+  const [selectedRunId, setOpenRunId] = useState<string | null | undefined>(
+    undefined,
+  );
   const openRunId = selectedRunId === undefined ? linkedRunId : selectedRunId;
   const [manualOpen, setManualOpen] = useState(false);
   const [manualSearch, setManualSearch] = useState("");
@@ -518,7 +537,9 @@ export default function TestRunsPage() {
   );
   const startManualMutation = trpcReact.manualExecution.start.useMutation();
   const manualCases = (casesQuery.data ?? []).filter((testCase) =>
-    testCase.title.toLowerCase().includes(manualSearch.trim().toLowerCase()),
+    `${testCase.displayId} ${testCase.title}`
+      .toLowerCase()
+      .includes(manualSearch.trim().toLowerCase()),
   );
 
   function toggleManualCase(id: string) {
@@ -575,31 +596,37 @@ export default function TestRunsPage() {
       {loading && <p>Loading…</p>}
       {error && <p style={{ color: "var(--ember)" }}>{error}</p>}
 
-      {!loading && !error && runs.length === 0 && (
-        <div className="panel">
-          <h2 style={{ marginTop: 0 }}>Choose how this project runs tests</h2>
-          <p className="text-muted">
-            Record a guided manual session, connect CI, or import historical
-            JUnit results.
-          </p>
-          <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
-            {canEdit && (
-              <button
-                className="btn-primary"
-                onClick={() => setManualOpen(true)}
+      {!loading &&
+        !error &&
+        runs.length === 0 &&
+        historyCursors.length === 0 && (
+          <div className="panel">
+            <h2 style={{ marginTop: 0 }}>Choose how this project runs tests</h2>
+            <p className="text-muted">
+              Record a guided manual session, connect CI, or import historical
+              JUnit results.
+            </p>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+              {canEdit && (
+                <button
+                  className="btn-primary"
+                  onClick={() => setManualOpen(true)}
+                >
+                  Start manual run
+                </button>
+              )}
+              <a
+                className="btn-secondary"
+                href={`/projects/${projectId}/import`}
               >
-                Start manual run
-              </button>
-            )}
-            <a className="btn-secondary" href={`/projects/${projectId}/import`}>
-              Import historical results
-            </a>
-            <a className="btn-secondary" href="/settings/integrations">
-              Configure CI and integrations
-            </a>
+                Import historical results
+              </a>
+              <a className="btn-secondary" href="/settings/integrations">
+                Configure CI and integrations
+              </a>
+            </div>
           </div>
-        </div>
-      )}
+        )}
 
       {!loading && runs.length > 0 && (
         <table style={{ width: "100%", borderCollapse: "collapse" }}>
@@ -670,6 +697,17 @@ export default function TestRunsPage() {
                   {new Date(r.startedAt).toLocaleString()}
                 </td>
                 <td style={{ padding: "6px 8px", fontSize: 12 }}>
+                  <button
+                    type="button"
+                    className="btn-secondary"
+                    aria-label={`View run from ${new Date(r.startedAt).toLocaleString()}`}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      setOpenRunId(r.id);
+                    }}
+                  >
+                    View run
+                  </button>
                   {canEdit &&
                     r.ciProvider === "manual" &&
                     r.status === "RUNNING" && (
@@ -685,6 +723,53 @@ export default function TestRunsPage() {
             ))}
           </tbody>
         </table>
+      )}
+
+      {!loading && !error && (runs.length > 0 || historyCursors.length > 0) && (
+        <nav
+          aria-label="Run history pages"
+          style={{
+            display: "flex",
+            flexWrap: "wrap",
+            alignItems: "center",
+            gap: 10,
+            marginTop: 16,
+          }}
+        >
+          <button
+            type="button"
+            className="btn-secondary"
+            disabled={historyCursors.length === 0}
+            onClick={() => setHistoryCursors((current) => current.slice(0, -1))}
+          >
+            Newer runs
+          </button>
+          <span role="status">Page {historyCursors.length + 1}</span>
+          <button
+            type="button"
+            className="btn-secondary"
+            disabled={!hasOlderRuns}
+            onClick={() => {
+              const last = runs.at(-1);
+              if (last)
+                setHistoryCursors((current) => [
+                  ...current,
+                  { id: last.id, startedAt: new Date(last.startedAt) },
+                ]);
+            }}
+          >
+            Older runs
+          </button>
+          {historyCursors.length > 0 && (
+            <button
+              type="button"
+              className="btn-secondary"
+              onClick={() => setHistoryCursors([])}
+            >
+              Latest runs
+            </button>
+          )}
+        </nav>
       )}
 
       <Drawer open={openRunId !== null} onClose={() => setOpenRunId(null)}>
@@ -740,7 +825,9 @@ export default function TestRunsPage() {
                   checked={manualSelection.has(testCase.id)}
                   onChange={() => toggleManualCase(testCase.id)}
                 />
-                <span>{testCase.title}</span>
+                <span>
+                  <code>{testCase.displayId}</code> {testCase.title}
+                </span>
               </label>
             ))}
           </div>

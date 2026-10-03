@@ -305,10 +305,19 @@ export function mapCsvRows(
 ): MapCsvResult {
   const rows = splitCsvRows(text);
   if (rows.length < 2) return { rows: [], skipped: [], incompleteRows: [] };
-  const header = rows[0] ?? [];
+  // inspectCsv exposes trimmed header labels to the mapping UI. Resolve the
+  // confirmed labels with the same normalization here, or whitespace in an
+  // Excel/CSV header silently turns a mapped Given/When column into no steps.
+  const header = (rows[0] ?? []).map((value) => value.trim());
   const colIndex = (field: TargetField): number => {
     const col = mapping[field];
-    return col ? header.indexOf(col) : -1;
+    if (!col) return -1;
+    const label = col.trim();
+    const matches = header.flatMap((value, index) => value === label ? [index] : []);
+    if (matches.length !== 1) {
+      throw new Error(`The mapped "${field}" column ${matches.length ? "is ambiguous" : "was not found"}; review the column mapping before importing.`);
+    }
+    return matches[0]!;
   };
   const idx: Record<TargetField, number> = {
     title: colIndex("title"),
