@@ -4,7 +4,82 @@ import { readFileSync } from "node:fs";
 import {
   validateRemovalSimulation,
   pruneRuntimePackageManager,
+  assertReadOnlyBuildSource,
 } from "./prune-runtime-package-manager.mjs";
+
+const mountRecord =
+  "42 35 0:64 / /run/vaettir-image-build ro,relatime - overlay overlay rw\n";
+const buildProof = {
+  cwd: "/app",
+  read: (path) =>
+    path === "/proc/self/mountinfo"
+      ? mountRecord
+      : Buffer.from("synthetic helper bytes"),
+};
+
+test("build-context guard rejects plain hosts, forged directories, writable/duplicate mounts and altered source", () => {
+  assertReadOnlyBuildSource(buildProof.read);
+  for (const inventory of [
+    "",
+    mountRecord.replace("ro,", "rw,"),
+    mountRecord + mountRecord,
+    mountRecord.replace("ro,", "ro,rw,"),
+    "x".repeat(1024 * 1024 + 1),
+    mountRecord.replace(
+      "/run/vaettir-image-build",
+      "/run/vaettir-image-build\\040forged",
+    ),
+    mountRecord.replace(
+      "/run/vaettir-image-build",
+      "/run/vaettir-image-build\\777",
+    ),
+    mountRecord.replace(" - overlay overlay rw", " - overlay"),
+    mountRecord.replace("42 35 0:64", "forged forged not-a-device"),
+    mountRecord.replace(
+      "/run/vaettir-image-build",
+      "/run/not-the-build-context",
+    ),
+  ])
+    assert.throws(() =>
+      assertReadOnlyBuildSource((path) =>
+        path === "/proc/self/mountinfo"
+          ? inventory
+          : Buffer.from("synthetic helper bytes"),
+      ),
+    );
+  assert.throws(() =>
+    assertReadOnlyBuildSource((path) =>
+      path === "/proc/self/mountinfo"
+        ? mountRecord
+        : Buffer.from(
+            path.startsWith("/run/") ? "altered source" : "actual source",
+          ),
+    ),
+  );
+  assert.throws(() =>
+    pruneRuntimePackageManager({
+      ...buildProof,
+      cwd: "/",
+      platform: "linux",
+      uid: 0,
+      exists: () => true,
+      run: () => assert.fail("must not execute"),
+    }),
+  );
+  assert.throws(() =>
+    pruneRuntimePackageManager({
+      ...buildProof,
+      read: (path) =>
+        path === "/proc/self/mountinfo"
+          ? ""
+          : Buffer.from("synthetic helper bytes"),
+      platform: "linux",
+      uid: 0,
+      exists: () => true,
+      run: () => assert.fail("must not execute"),
+    }),
+  );
+});
 
 test("only the exact two build-only package payloads may be removed", () => {
   for (const operation of ["Remv", "Purg"])
@@ -33,6 +108,7 @@ test("refuses host, non-Linux and non-root operations before commands", () => {
   ])
     assert.throws(() =>
       pruneRuntimePackageManager({
+        ...buildProof,
         ...options,
         run() {
           throw Error("Must not execute");
@@ -49,6 +125,7 @@ test("removal failure or unexpected simulation is fatal; no retries or autoremov
     let calls = 0;
     assert.throws(() =>
       pruneRuntimePackageManager({
+        ...buildProof,
         platform: "linux",
         uid: 0,
         exists: () => true,
@@ -75,7 +152,7 @@ test("Docker runtime pruning precedes native acceptance without removing checks"
       "utf8",
     );
     const position = source.indexOf(
-      "RUN --network=none node scripts/prune-runtime-package-manager.mjs --image-build",
+      "RUN --network=none --mount=type=bind,source=scripts,target=/run/vaettir-image-build,readonly node scripts/prune-runtime-package-manager.mjs --image-build",
     );
     assert.ok(position > source.indexOf(" AS runtime"));
     for (const check of [
@@ -103,6 +180,7 @@ test("successful pruning verifies real package absence and retained runtime prer
   let removal = false;
   const calls = [];
   const result = pruneRuntimePackageManager({
+    ...buildProof,
     platform: "linux",
     uid: 0,
     exists: (path) => (path === "/usr/bin/apt-get" ? !removal : true),

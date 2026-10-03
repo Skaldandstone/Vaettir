@@ -111,8 +111,8 @@ RUN pnpm install --frozen-lockfile \
 
 # Verify the shipped browser against a synthetic in-memory fixture, with
 # networking disabled at the container layer as well as the browser context.
-RUN --network=none node scripts/prune-runtime-package-manager.mjs --image-build
-RUN --network=none /usr/share/vaettir/llvm-arm-policy > /tmp/vaettir-llvm-arm-policy.txt \
+RUN --network=none --mount=type=bind,source=scripts,target=/run/vaettir-image-build,readonly node scripts/prune-runtime-package-manager.mjs --image-build
+RUN --network=none timeout 10 /usr/share/vaettir/llvm-arm-policy > /tmp/vaettir-llvm-arm-policy.txt \
     && cmp /usr/share/vaettir/llvm-arm-policy-baseline.txt /tmp/vaettir-llvm-arm-policy.txt \
     && rm /tmp/vaettir-llvm-arm-policy.txt
 RUN --network=none node scripts/check-browser-runtime.mjs

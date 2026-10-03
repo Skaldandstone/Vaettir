@@ -1,6 +1,13 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
-import { existsSync } from "node:fs";
+import {
+  existsSync,
+  openSync,
+  readSync,
+  closeSync,
+  fstatSync,
+  constants,
+} from "node:fs";
 import http from "node:http";
 import net from "node:net";
 import { fileURLToPath } from "node:url";
@@ -10,6 +17,81 @@ import { fileURLToPath } from "node:url";
 export const SYNTHETIC_CLERK_SETTING =
   "sk_test_synthetic_offline_diagnostic_not_a_credential";
 export const PUBLIC_WEB_URL = "http://127.0.0.1:3000/";
+
+function readBoundedBuildFile(path, encoding) {
+  const fd = openSync(path, constants.O_RDONLY | constants.O_NOFOLLOW);
+  try {
+    assert.ok(
+      fstatSync(fd).isFile(),
+      "Image-build proof must be a regular file",
+    );
+    const bytes = Buffer.alloc(1024 * 1024 + 1);
+    let length = 0;
+    while (length < bytes.length) {
+      const count = readSync(fd, bytes, length, bytes.length - length, null);
+      if (count === 0) break;
+      length += count;
+    }
+    assert.ok(length <= 1024 * 1024, "Image-build proof file exceeds bound");
+    return encoding
+      ? bytes.subarray(0, length).toString(encoding)
+      : bytes.subarray(0, length);
+  } finally {
+    closeSync(fd);
+  }
+}
+
+export function assertReadOnlyBuildSource(read = readBoundedBuildFile) {
+  const target = "/run/vaettir-image-build";
+  const mountInfo = read("/proc/self/mountinfo", "utf8");
+  assert.ok(
+    typeof mountInfo === "string" &&
+      Buffer.byteLength(mountInfo) <= 1024 * 1024,
+    "Invalid image-build mount inventory",
+  );
+  assert.doesNotMatch(
+    mountInfo,
+    /\\(?!040|011|012|134)/,
+    "Malformed kernel mount-path escaping",
+  );
+  const mounts = mountInfo
+    .split("\n")
+    .filter(Boolean)
+    .map((line) => line.split(" "))
+    .filter((fields) => fields[4] === target);
+  assert.equal(
+    mounts.length,
+    1,
+    "Require the dedicated read-only build-context mount",
+  );
+  const fields = mounts[0];
+  const separator = fields.indexOf("-");
+  assert.ok(
+    /^\d+$/.test(fields[0]) &&
+      /^\d+$/.test(fields[1]) &&
+      /^\d+:\d+$/.test(fields[2]) &&
+      fields[3].startsWith("/") &&
+      separator >= 6 &&
+      fields.length === separator + 4,
+    "Invalid build-context mount record",
+  );
+  const flags = fields[5].split(",");
+  assert.ok(
+    flags.includes("ro") && !flags.includes("rw"),
+    "Build-context source mount must be read-only",
+  );
+  const mounted = read(`${target}/check-web-startup.mjs`);
+  const executing = read(fileURLToPath(import.meta.url));
+  assert.ok(
+    Buffer.isBuffer(mounted) &&
+      Buffer.isBuffer(executing) &&
+      mounted.length > 0 &&
+      mounted.length <= 1024 * 1024 &&
+      executing.length <= 1024 * 1024 &&
+      mounted.equals(executing),
+    "Mounted build-context helper must exactly match the executing source",
+  );
+}
 
 export function webStartupEnvironment() {
   // Never spread process.env: no real Clerk, Sentry, AWS, source or network
@@ -239,11 +321,15 @@ export function assertOfflineImageRuntime({
   platform = process.platform,
   uid = process.getuid?.(),
   exists = existsSync,
+  read = readBoundedBuildFile,
+  cwd = process.cwd(),
 } = {}) {
   assert.equal(platform, "linux", "Run only inside the Linux web image build");
   assert.equal(uid, 1001, "Run as the existing nextjs runtime user");
+  assert.equal(cwd, "/app", "Run only from the packaged application directory");
+  assertReadOnlyBuildSource(read);
   assert.ok(
-    exists("/.dockerenv") && exists("/app/apps/web/server.js"),
+    exists("/app/apps/web/server.js"),
     "Refuse public startup checks outside the packaged image",
   );
 }

@@ -10,6 +10,21 @@ const rows = [...source.matchAll(/\{"([^"]+)", "([^"]*)", "([^"]*)"\}/g)].map(
   ([, triple, march, cpu]) => ({ triple, march, cpu }),
 );
 
+test("final packaged ARM policy executes offline within a ten-second bound and compares exact baseline", () => {
+  const docker = readFileSync(
+    new URL("../Dockerfile.api", import.meta.url),
+    "utf8",
+  );
+  assert.match(
+    docker,
+    /RUN --network=none timeout 10 \/usr\/share\/vaettir\/llvm-arm-policy > \/tmp\/vaettir-llvm-arm-policy.txt/,
+  );
+  assert.match(
+    docker,
+    /&& cmp \/usr\/share\/vaettir\/llvm-arm-policy-baseline.txt \/tmp\/vaettir-llvm-arm-policy.txt/,
+  );
+});
+
 test("authored fixed probe preserves all 33 exact distro policies with unchanged controls", () => {
   assert.equal(rows.length, 33);
   assert.equal(

@@ -9,9 +9,82 @@ import {
   verifyPublicWebPage,
   webStartupEnvironment,
   assertOfflineImageRuntime,
+  assertReadOnlyBuildSource,
   PUBLIC_WEB_URL,
   SYNTHETIC_CLERK_SETTING,
 } from "./check-web-startup.mjs";
+
+const mountRecord =
+  "42 35 0:64 / /run/vaettir-image-build ro,relatime - overlay overlay rw\n";
+const buildProof = {
+  cwd: "/app",
+  read: (path) =>
+    path === "/proc/self/mountinfo"
+      ? mountRecord
+      : Buffer.from("synthetic helper bytes"),
+};
+
+test("offline startup accepts only a real read-only exact-source context mount, never a marker or forged directory", () => {
+  assertReadOnlyBuildSource(buildProof.read);
+  for (const inventory of [
+    "",
+    mountRecord.replace("ro,", "rw,"),
+    mountRecord + mountRecord,
+    mountRecord.replace("ro,", "ro,rw,"),
+    "x".repeat(1024 * 1024 + 1),
+    mountRecord.replace(
+      "/run/vaettir-image-build",
+      "/run/vaettir-image-build\\040forged",
+    ),
+    mountRecord.replace(
+      "/run/vaettir-image-build",
+      "/run/vaettir-image-build\\777",
+    ),
+    mountRecord.replace(" - overlay overlay rw", " - overlay"),
+    mountRecord.replace("42 35 0:64", "forged forged not-a-device"),
+    mountRecord.replace(
+      "/run/vaettir-image-build",
+      "/run/not-the-build-context",
+    ),
+  ])
+    assert.throws(() =>
+      assertReadOnlyBuildSource((path) =>
+        path === "/proc/self/mountinfo"
+          ? inventory
+          : Buffer.from("synthetic helper bytes"),
+      ),
+    );
+  assert.throws(() =>
+    assertReadOnlyBuildSource((path) =>
+      path === "/proc/self/mountinfo"
+        ? mountRecord
+        : Buffer.from(
+            path.startsWith("/run/") ? "altered source" : "actual source",
+          ),
+    ),
+  );
+  assert.throws(() =>
+    assertOfflineImageRuntime({
+      ...buildProof,
+      cwd: "/",
+      platform: "linux",
+      uid: 1001,
+      exists: () => true,
+    }),
+  );
+  assert.throws(() =>
+    assertOfflineImageRuntime({
+      ...buildProof,
+      read: (path) =>
+        path === "/proc/self/mountinfo"
+          ? ""
+          : Buffer.from("synthetic helper bytes"),
+      platform: "linux",
+      uid: 1001,
+      exists: () => true,
+    }),
+  );
+});
 
 test("HTTP request stays loopback-only with no authorization, bounded cancellation and body size", async () => {
   const originalGet = http.get;
@@ -254,8 +327,11 @@ test("CLI guard refuses host/root runtime, and Docker gate stays offline after n
     { platform: "linux", uid: 0, exists: () => true },
     { platform: "linux", uid: 1001, exists: () => false },
   ])
-    assert.throws(() => assertOfflineImageRuntime(options));
+    assert.throws(() =>
+      assertOfflineImageRuntime({ ...buildProof, ...options }),
+    );
   assertOfflineImageRuntime({
+    ...buildProof,
     platform: "linux",
     uid: 1001,
     exists: () => true,
@@ -265,7 +341,7 @@ test("CLI guard refuses host/root runtime, and Docker gate stays offline after n
     "utf8",
   );
   const check = source.indexOf(
-    "RUN --network=none node scripts/check-web-startup.mjs --image-build",
+    "RUN --network=none --mount=type=bind,source=scripts,target=/run/vaettir-image-build,readonly node scripts/check-web-startup.mjs --image-build",
   );
   for (const token of [
     "USER nextjs",
