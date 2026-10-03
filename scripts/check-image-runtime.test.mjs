@@ -116,3 +116,12 @@ test("both real final images run the isolated native image check", () => {
   );
   assert.match(workspace, /'sharp@>=0\.34\.0 <0\.35\.5': '0\.35\.5'/);
 });
+
+test("standalone retains the actual native version receipt rather than weakening runtime checks", () => {
+  const config = readFileSync(new URL("../apps/web/next.config.mjs", import.meta.url), "utf8");
+  assert.match(config, /outputFileTracingRoot:\s*fileURLToPath\(new URL\("\.\.\/\.\.\/", import\.meta\.url\)\)/);
+  assert.match(config, /outputFileTracingIncludes:\s*\{\s*"\/\*":/);
+  assert.ok(config.includes("../../node_modules/.pnpm/@img+sharp-libvips-linux-x64@1.3.4/node_modules/@img/sharp-libvips-linux-x64/versions.json"));
+  const missingReceiptVersions = { sharp: "0.35.5", vips: "8.18.7" };
+  assert.throws(() => verifyImageLibraryVersions(missingReceiptVersions), /Embedded XML runtime is not patched/);
+});
