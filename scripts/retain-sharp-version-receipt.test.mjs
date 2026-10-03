@@ -8,9 +8,11 @@ import {
   rm,
   rename,
   symlink,
+  realpath,
+  readlink,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { resolve, dirname } from "node:path";
+import { resolve, dirname, relative } from "node:path";
 import {
   retainSharpVersionReceipt as retainActual,
   nativeDigest,
@@ -280,7 +282,7 @@ test("real pnpm nested layout and dependency links resolve copied exports inside
   const directoryLink = async (target, path) => {
     await mkdir(dirname(path), { recursive: true });
     await symlink(
-      target,
+      process.platform === "win32" ? target : relative(dirname(path), target),
       path,
       process.platform === "win32" ? "junction" : "dir",
     );
@@ -325,7 +327,7 @@ test("real pnpm nested layout and dependency links resolve copied exports inside
   );
 });
 
-test("missing standalone dependency link cannot use builder-root fallback", async (t) => {
+async function missingLinkFixture(t) {
   const f = await fixture(t);
   const counterpart = resolve(
     f.standalone,
@@ -343,16 +345,110 @@ test("missing standalone dependency link cannot use builder-root fallback", asyn
     await rename(original, nested);
     if (base === f.root)
       await symlink(
-        nested,
+        process.platform === "win32"
+          ? nested
+          : relative(dirname(original), nested),
         original,
         process.platform === "win32" ? "junction" : "dir",
       );
   }
   await rm(resolve(counterpart, "package.json"));
+  return {
+    ...f,
+    counterpart,
+    link: resolve(f.standalone, "node_modules/@img/sharp-libvips-linux-x64"),
+  };
+}
+
+test("missing standalone dependency link is safely restored without builder-root fallback", async (t) => {
+  const f = await missingLinkFixture(t);
+  const result = await retainSharpVersionReceipt({ root: f.root });
+  assert.equal(result.linkCopied, true);
+  assert.equal(await realpath(f.link), f.counterpart);
+  if (process.platform !== "win32")
+    assert.equal(
+      await readlink(f.link),
+      relative(dirname(f.link), f.counterpart),
+    );
+  const require = createRequire(
+    resolve(f.standalone, "node_modules/sharp/dist/index.cjs"),
+  );
+  assert.equal(
+    require.resolve(`${bundle.name}/versions`),
+    resolve(f.counterpart, "versions.json"),
+  );
+  assert.equal(
+    (await retainSharpVersionReceipt({ root: f.root })).linkCopied,
+    false,
+  );
+});
+
+test("wrong, outside or dangling standalone dependency links are rejected without overwrite", async (t) => {
+  for (const kind of ["wrong", "outside", "dangling"]) {
+    const f = await missingLinkFixture(t);
+    const destination =
+      kind === "outside"
+        ? resolve(f.root, "outside")
+        : resolve(f.standalone, `wrong-${kind}`);
+    if (kind !== "dangling") await mkdir(destination);
+    await symlink(
+      destination,
+      f.link,
+      process.platform === "win32" ? "junction" : "dir",
+    );
+    const before = await readlink(f.link);
+    await assert.rejects(
+      retainSharpVersionReceipt({ root: f.root }),
+      /conflicts|dangling/,
+    );
+    assert.equal(await readlink(f.link), before);
+    await assert.rejects(readFile(resolve(f.counterpart, "package.json")), {
+      code: "ENOENT",
+    });
+  }
+});
+
+test("missing bounded link parent is created, while a conflicting regular directory is preserved", async (t) => {
+  const f = await missingLinkFixture(t);
+  await rm(dirname(f.link), { recursive: true });
+  assert.equal(
+    (await retainSharpVersionReceipt({ root: f.root })).linkCopied,
+    true,
+  );
+  const conflict = await missingLinkFixture(t);
+  await mkdir(conflict.link);
+  await put(resolve(conflict.link, "keep.txt"), "original");
+  await assert.rejects(
+    retainSharpVersionReceipt({ root: conflict.root }),
+    /verified symlink/,
+  );
+  assert.equal(
+    await readFile(resolve(conflict.link, "keep.txt"), "utf8"),
+    "original",
+  );
+});
+
+test("higher-priority invalid source dependency link cannot authorize restoration", async (t) => {
+  const f = await missingLinkFixture(t);
+  const earlier = resolve(
+    f.root,
+    "node_modules/sharp/node_modules/@img/sharp-libvips-linux-x64",
+  );
+  await mkdir(dirname(earlier), { recursive: true });
+  const invalid = resolve(f.root, "node_modules/wrong-bundle");
+  await mkdir(invalid);
+  await symlink(
+    invalid,
+    earlier,
+    process.platform === "win32" ? "junction" : "dir",
+  );
   await assert.rejects(
     retainSharpVersionReceipt({ root: f.root }),
-    (error) => error.retentionStage === "standalone-resolution",
+    /Source dependency lookup conflicts/,
   );
+  await assert.rejects(readFile(resolve(f.counterpart, "package.json")), {
+    code: "ENOENT",
+  });
 });
 
 test("unrecognized source native export cannot authorize metadata retention", async (t) => {
@@ -375,7 +471,10 @@ test("production hashing rejects synthetic native bytes without an injected fixt
   const f = await fixture(t);
   const packagePath = resolve(dirname(f.target), "package.json");
   await rm(packagePath);
-  await assert.rejects(retainActual({ root: f.root }), /pinned published bytes/);
+  await assert.rejects(
+    retainActual({ root: f.root }),
+    /pinned published bytes/,
+  );
   await assert.rejects(readFile(packagePath), { code: "ENOENT" });
   await assert.rejects(readFile(f.target), { code: "ENOENT" });
 });

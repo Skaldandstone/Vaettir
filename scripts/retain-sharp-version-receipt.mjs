@@ -1,6 +1,15 @@
 import assert from "node:assert/strict";
 import { constants } from "node:fs";
-import { lstat, open, realpath, link, unlink } from "node:fs/promises";
+import {
+  lstat,
+  open,
+  realpath,
+  link,
+  unlink,
+  readlink,
+  symlink,
+  mkdir,
+} from "node:fs/promises";
 import { createHash, randomUUID } from "node:crypto";
 import { createRequire } from "node:module";
 import { dirname, isAbsolute, relative, resolve, sep } from "node:path";
@@ -113,6 +122,152 @@ async function retainFile(path, bytes, boundary) {
     }
   }
   if (failure) throw failure;
+  return copied;
+}
+
+async function existingDependencyLink(plan, standalone) {
+  let info;
+  try {
+    info = await lstat(plan.path);
+  } catch (error) {
+    if (error.code === "ENOENT") return false;
+    throw error;
+  }
+  if (!info.isSymbolicLink())
+    throw new Error(
+      "Existing standalone dependency link is not the verified symlink",
+    );
+  let actual;
+  try {
+    actual = await realpath(plan.path);
+  } catch (error) {
+    throw new Error("Existing standalone dependency link is dangling", {
+      cause: error,
+    });
+  }
+  if (!isWithin(standalone, actual) || actual !== plan.destination)
+    throw new Error(
+      "Existing standalone dependency link conflicts or escapes boundary",
+    );
+  if (
+    process.platform !== "win32" &&
+    (await readlink(plan.path)) !== plan.relativeTarget
+  )
+    throw new Error(
+      "Existing standalone dependency link has different target text",
+    );
+  return true;
+}
+
+async function dependencyLinkPlan(
+  source,
+  canonicalRoot,
+  standalone,
+  destination,
+) {
+  const paths = source.sharpRequire.resolve.paths(BUNDLE);
+  if (!paths || paths.length > 32)
+    throw new Error("Dependency lookup exceeds bounded source paths");
+  for (const path of paths) {
+    const candidate = resolve(path, BUNDLE);
+    if (!isWithin(source.boundary, candidate)) continue;
+    let info;
+    try {
+      info = await lstat(candidate);
+    } catch (error) {
+      if (error.code === "ENOENT") continue;
+      throw error;
+    }
+    const actual = await checkedPath(candidate, source.boundary, false);
+    if (actual !== dirname(source.bundlePackage))
+      throw new Error(
+        "Source dependency lookup conflicts with verified bundle",
+      );
+    if (info.isDirectory() && !info.isSymbolicLink()) return null;
+    if (!info.isSymbolicLink())
+      throw new Error("Source dependency lookup is not a pnpm directory link");
+    const original = await readlink(candidate);
+    if (
+      process.platform !== "win32" &&
+      (isAbsolute(original) || resolve(dirname(candidate), original) !== actual)
+    )
+      throw new Error(
+        "Source dependency link is not the original bounded relative pnpm link",
+      );
+    const counterpart = resolve(standalone, relative(canonicalRoot, candidate));
+    // Linux keeps the actual pnpm link text, not a newly invented dependency
+    // route. Windows fixtures use junctions whose readlink text is absolute.
+    const relativeTarget =
+      process.platform === "win32"
+        ? relative(dirname(counterpart), destination)
+        : original;
+    if (
+      !isWithin(standalone, counterpart) ||
+      isAbsolute(relativeTarget) ||
+      resolve(dirname(counterpart), relativeTarget) !== destination
+    )
+      throw new Error("Standalone dependency link target escapes boundary");
+    const plan = { path: counterpart, destination, relativeTarget };
+    await existingDependencyLink(plan, standalone);
+    return plan;
+  }
+  throw new Error("No verified original source dependency link found");
+}
+
+async function retainDependencyLink(plan, standalone) {
+  if (!plan || (await existingDependencyLink(plan, standalone))) return false;
+  const missing = [];
+  let parent = dirname(plan.path);
+  for (;;) {
+    if (parent !== standalone && !isWithin(standalone, parent))
+      throw new Error("Dependency link parent escapes standalone");
+    try {
+      const info = await lstat(parent);
+      if (
+        !info.isDirectory() ||
+        info.isSymbolicLink() ||
+        (await realpath(parent)) !== parent
+      )
+        throw new Error("Dependency link parent aliases another directory");
+      break;
+    } catch (error) {
+      if (error.code !== "ENOENT") throw error;
+      missing.push(parent);
+      if (missing.length > 8)
+        throw new Error("Dependency link parent creation exceeds bound", {
+          cause: error,
+        });
+      parent = dirname(parent);
+    }
+  }
+  for (const path of missing.reverse()) {
+    try {
+      await mkdir(path, { mode: 0o755 });
+    } catch (error) {
+      if (error.code !== "EEXIST") throw error;
+    }
+    const info = await lstat(path);
+    if (
+      !info.isDirectory() ||
+      info.isSymbolicLink() ||
+      (await realpath(path)) !== path
+    )
+      throw new Error(
+        "Created dependency link parent aliases another directory",
+      );
+  }
+  let copied = false;
+  try {
+    await symlink(
+      process.platform === "win32" ? plan.destination : plan.relativeTarget,
+      plan.path,
+      process.platform === "win32" ? "junction" : "dir",
+    );
+    copied = true;
+  } catch (error) {
+    if (error.code !== "EEXIST") throw error;
+  }
+  await existingDependencyLink(plan, standalone);
   return copied;
 }
 
@@ -303,6 +458,13 @@ export async function retainSharpVersionReceipt({
       throw new Error(
         "Published libvips receipt versions do not match maintained bundle",
       );
+    stage = "dependency-link-preflight";
+    const linkPlan = await dependencyLinkPlan(
+      source,
+      canonicalRoot,
+      standalone,
+      targetDirectory,
+    );
     const targetPath = resolve(targetDirectory, "versions.json");
     stage = "target-receipt";
     const parent = await realpath(dirname(targetPath));
@@ -321,6 +483,8 @@ export async function retainSharpVersionReceipt({
     );
     stage = "target-receipt";
     const copied = await retainFile(targetPath, bytes, standalone);
+    stage = "dependency-link-retention";
+    const linkCopied = await retainDependencyLink(linkPlan, standalone);
     stage = "standalone-resolution";
     const standaloneRequire = createRequire(target.sharpEntry);
     for (const [subpath, expected] of [
@@ -336,6 +500,7 @@ export async function retainSharpVersionReceipt({
     return {
       copied,
       packageCopied,
+      linkCopied,
       native: after,
       package: BUNDLE,
       version: "1.3.4",

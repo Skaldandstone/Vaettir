@@ -15,6 +15,8 @@ export DEB_CFLAGS_MAINT_STRIP='-g -O2'
 export DEB_CXXFLAGS_MAINT_STRIP='-g -O2'
 export DEB_CFLAGS_MAINT_APPEND='-O2 -g1'
 export DEB_CXXFLAGS_MAINT_APPEND='-O2 -g1'
+native_jobs=$(node /build/scripts/native-build-concurrency.mjs)
+printf 'LLVM bounded compiler jobs: %s\n' "$native_jobs"
 cmake -S llvm -B /build/llvm-build -G Ninja \
   -DCMAKE_C_COMPILER=clang-19 -DCMAKE_CXX_COMPILER=clang++-19 \
   -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/usr/lib/llvm-19 \
@@ -31,17 +33,17 @@ cmake -S llvm -B /build/llvm-build -G Ninja \
   -DLLVM_ENABLE_ZLIB=FORCE_ON -DLLVM_ENABLE_ZSTD=FORCE_ON \
   -DLLVM_ENABLE_LIBXML2=OFF \
   -DLLVM_BUILD_LLVM_DYLIB=ON -DLLVM_LINK_LLVM_DYLIB=ON \
-  -DLLVM_DYLIB_COMPONENTS=all -DLLVM_PARALLEL_LINK_JOBS=1 \
+  -DLLVM_DYLIB_COMPONENTS=all -DLLVM_PARALLEL_LINK_JOBS=1 -DLLVM_PARALLEL_COMPILE_JOBS="$native_jobs" \
   -DLLVM_USE_LINKER=gold \
   -DLLVM_INCLUDE_TESTS=ON -DLLVM_BUILD_TESTS=ON
 # Check the generated configuration, not merely the requested CMake argument.
 # ENABLE_ABI_BREAKING_CHECKS is the output macro, not the input option name.
 grep -Fx 'LLVM_ABI_BREAKING_CHECKS:STRING=FORCE_OFF' /build/llvm-build/CMakeCache.txt
 grep -Fx '#define LLVM_ENABLE_ABI_BREAKING_CHECKS 0' /build/llvm-build/include/llvm/Config/abi-breaking.h
-# The complete maintained target set needs a bounded two-hour compile budget;
-# keep conservative memory concurrency and a separate fail-hard unit deadline.
-timeout 7200 cmake --build /build/llvm-build --parallel 2 --target LLVM llvm-config
-timeout 1800 cmake --build /build/llvm-build --parallel 2 --target check-llvm-unit
+# Resource-aware compiler concurrency remains bounded independently from link
+# concurrency. All targets and unit checks stay fail-hard within their deadlines.
+timeout 7200 cmake --build /build/llvm-build --parallel "$native_jobs" --target LLVM llvm-config
+timeout 1800 cmake --build /build/llvm-build --parallel "$native_jobs" --target check-llvm-unit
 test "$(/build/llvm-build/bin/llvm-config --version)" = '19.1.7'
 node /build/scripts/check-llvm-package.mjs \
   /usr/lib/x86_64-linux-gnu/libLLVM.so.19.1 \

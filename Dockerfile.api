@@ -35,7 +35,7 @@ RUN apt-get update --error-on=any \
     && dpkg --compare-versions "$(dpkg-query -W -f='${Version}' libpcre2-8-0)" ge '10.46-1~deb13u3' \
     && rm -rf /var/lib/apt/lists/*
 WORKDIR /build
-COPY scripts/fetch-runtime-vendor-sources.mjs scripts/runtime-vendor-sources.json scripts/build-llvm-runtime.sh scripts/check-llvm-package.mjs scripts/check-llvm-jit.c /build/scripts/
+COPY scripts/fetch-runtime-vendor-sources.mjs scripts/runtime-vendor-sources.json scripts/build-llvm-runtime.sh scripts/native-build-concurrency.mjs scripts/check-llvm-package.mjs scripts/check-llvm-jit.c /build/scripts/
 RUN node /build/scripts/fetch-runtime-vendor-sources.mjs /build/llvm-sources llvm \
     && sh /build/scripts/build-llvm-runtime.sh
 

@@ -70,6 +70,7 @@ jobs:
         run: |
           pnpm test:operations
           node --test scripts/retain-sharp-version-receipt.test.mjs
+          node --test scripts/native-build-concurrency.test.mjs
 
       - name: Verify installed native image-processing runtime
         run: node scripts/check-image-runtime.mjs

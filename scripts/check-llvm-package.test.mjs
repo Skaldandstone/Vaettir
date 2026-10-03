@@ -61,7 +61,7 @@ test("maintained LLVM source build has signatures, honest packaging, complete ta
       script.indexOf("timeout 7200"),
   );
   assert.match(script, /timeout 1800[^\n]+check-llvm-unit/);
-  assert.match(script, /timeout 7200[^\n]+--parallel 2 --target LLVM llvm-config/);
+  assert.match(script, /timeout 7200[^\n]+--parallel "\$native_jobs" --target LLVM llvm-config/);
   assert.match(script, /dpkg-shlibdeps -O/);
   assert.match(script, /dpkg-gencontrol[^\n]+vaettir1/);
   assert.match(script, /check-llvm-package.mjs/g);
