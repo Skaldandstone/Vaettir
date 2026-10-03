@@ -13,7 +13,10 @@ export function browserChildEnvironment(env = process.env) {
   );
 }
 
-async function bounded(action, { signal, timeout = 10_000, onLateResolve }) {
+export async function bounded(
+  action,
+  { signal, timeout = 10_000, onLateResolve },
+) {
   if (signal?.aborted) throw new Error("Browser runtime check cancelled");
   let timer;
   let cancel;
