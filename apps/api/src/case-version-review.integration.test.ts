@@ -768,6 +768,266 @@ describe.skipIf(!isolated)(
         await prisma.testCaseVersion.count({ where: { testCaseId: c.id } }),
       ).toBe(3);
     });
+    it("compares arbitrary saved pairs without reading current content or creating writes", async () => {
+      const c = await newCase();
+      await change(c.id);
+      for (let i = 0; i < 23; i++) await snapshot(c.id);
+      await prisma.testCase.update({
+        where: { id: c.id },
+        data: { title: "Unsaved newest title", background: "x".repeat(524289) },
+      });
+      const original = await prisma.testCase.findUniqueOrThrow({
+        where: { id: c.id },
+      });
+      const versionsBefore = await prisma.testCaseVersion.findMany({
+        where: { testCaseId: c.id },
+        orderBy: { versionNumber: "asc" },
+      });
+      const auditBefore = await prisma.auditLog.count({
+        where: { projectId, entityId: c.id },
+      });
+      const comparison = await viewer.caseVersionReview.compareHistorical({
+        projectId,
+        testCaseId: c.id,
+        fromVersionNumber: 1,
+        toVersionNumber: 25,
+      });
+      expect(comparison).toMatchObject({
+        caseId: c.id,
+        displayId: c.displayId,
+        from: { versionNumber: 1 },
+        to: { versionNumber: 25 },
+      });
+      expect(comparison.fields.find((f) => f.key === "title")).toMatchObject({
+        changed: true,
+        from: '"Original title"',
+        to: '"Later title"',
+      });
+      expect(comparison.fields.find((f) => f.key === "given")).toMatchObject({
+        from: '[\n  "Given original"\n]',
+        to: '[\n  "Given later"\n]',
+      });
+      expect(comparison.fields.find((f) => f.key === "steps")!.from).toContain(
+        "Original action",
+      );
+      expect(comparison.fields.find((f) => f.key === "steps")!.to).toContain(
+        "Later expected",
+      );
+      expect(JSON.stringify(comparison)).not.toContain("Unsaved newest title");
+      expect(comparison).not.toHaveProperty("expectedCaseRevision");
+      expect(comparison).not.toHaveProperty("expectedVersionRevision");
+      expect(comparison).not.toHaveProperty("canRestore");
+      const reversed = await owner.caseVersionReview.compareHistorical({
+        projectId,
+        testCaseId: c.id,
+        fromVersionNumber: 25,
+        toVersionNumber: 1,
+      });
+      expect(reversed.fields.find((f) => f.key === "title")).toMatchObject({
+        from: '"Later title"',
+        to: '"Original title"',
+      });
+      const identical = await viewer.caseVersionReview.compareHistorical({
+        projectId,
+        testCaseId: c.id,
+        fromVersionNumber: 25,
+        toVersionNumber: 25,
+      });
+      expect(identical.fields.every((f) => !f.changed)).toBe(true);
+      expect(
+        await prisma.testCase.findUniqueOrThrow({ where: { id: c.id } }),
+      ).toEqual(original);
+      expect(
+        await prisma.testCaseVersion.findMany({
+          where: { testCaseId: c.id },
+          orderBy: { versionNumber: "asc" },
+        }),
+      ).toEqual(versionsBefore);
+      expect(
+        await prisma.auditLog.count({ where: { projectId, entityId: c.id } }),
+      ).toBe(auditBefore);
+    });
+    it("scopes both historical selections to the same case and freshly authorized project", async () => {
+      const c = await newCase(),
+        other = await newCase();
+      await change(other.id);
+      const pair = {
+        projectId,
+        testCaseId: c.id,
+        fromVersionNumber: 1,
+        toVersionNumber: 2,
+      };
+      await expect(
+        owner.caseVersionReview.compareHistorical(pair),
+      ).rejects.toMatchObject({ code: "NOT_FOUND" });
+      await expect(
+        owner.caseVersionReview.compareHistorical({
+          ...pair,
+          fromVersionNumber: 2,
+          toVersionNumber: 1,
+        }),
+      ).rejects.toMatchObject({ code: "NOT_FOUND" });
+      await expect(
+        outsider.caseVersionReview.compareHistorical({
+          ...pair,
+          toVersionNumber: 1,
+        }),
+      ).rejects.toMatchObject({ code: "FORBIDDEN" });
+      const sibling = await owner.project.create({
+        organizationId,
+        name: "Sibling version project",
+        caseKey: `sibling${randomUUID().slice(0, 8)}`,
+      });
+      await expect(
+        owner.caseVersionReview.compareHistorical({
+          ...pair,
+          projectId: sibling.id,
+          toVersionNumber: 1,
+        }),
+      ).rejects.toMatchObject({ code: "NOT_FOUND" });
+      await expect(
+        owner.caseVersionReview.compareHistorical({
+          ...pair,
+          projectId: otherProjectId,
+          toVersionNumber: 1,
+        }),
+      ).rejects.toMatchObject({ code: "FORBIDDEN" });
+      await prisma.organization.update({
+        where: { id: organizationId },
+        data: { suspendedAt: new Date() },
+      });
+      try {
+        await expect(
+          viewer.caseVersionReview.compareHistorical({
+            ...pair,
+            toVersionNumber: 1,
+          }),
+        ).rejects.toMatchObject({ code: "FORBIDDEN" });
+      } finally {
+        await prisma.organization.update({
+          where: { id: organizationId },
+          data: { suspendedAt: null },
+        });
+      }
+      await prisma.membership.delete({
+        where: { organizationId_userId: { organizationId, userId: actorId } },
+      });
+      try {
+        await expect(
+          owner.caseVersionReview.compareHistorical({
+            ...pair,
+            toVersionNumber: 1,
+          }),
+        ).rejects.toMatchObject({ code: "FORBIDDEN" });
+      } finally {
+        await prisma.membership.create({
+          data: {
+            organizationId,
+            userId: actorId,
+            role: "OWNER",
+            seatType: "FULL",
+          },
+        });
+      }
+    });
+    it("bounds historical version inputs and either snapshot before loading procedures", async () => {
+      const c = await newCase();
+      await change(c.id);
+      const pair = {
+        projectId,
+        testCaseId: c.id,
+        fromVersionNumber: 1,
+        toVersionNumber: 2,
+      };
+      for (const bad of [0, -1, 1.5, 2147483648, Number.MAX_SAFE_INTEGER]) {
+        await expect(
+          viewer.caseVersionReview.compareHistorical({
+            ...pair,
+            fromVersionNumber: bad,
+          }),
+        ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+        await expect(
+          viewer.caseVersionReview.compareHistorical({
+            ...pair,
+            toVersionNumber: bad,
+          }),
+        ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+      }
+      await expect(
+        viewer.caseVersionReview.compareHistorical({
+          ...pair,
+          toVersionNumber: 2147483647,
+        }),
+      ).rejects.toMatchObject({ code: "NOT_FOUND" });
+      await expect(
+        viewer.caseVersionReview.compareHistorical({
+          ...pair,
+          expectedCaseRevision: "a".repeat(64),
+        } as never),
+      ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+      await prisma.testCaseVersion.update({
+        where: {
+          testCaseId_versionNumber: { testCaseId: c.id, versionNumber: 1 },
+        },
+        data: { background: "x".repeat(524289) },
+      });
+      await expect(
+        viewer.caseVersionReview.compareHistorical(pair),
+      ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+      await expect(
+        viewer.caseVersionReview.compareHistorical({
+          ...pair,
+          fromVersionNumber: 2,
+          toVersionNumber: 1,
+        }),
+      ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+      expect(
+        (
+          await viewer.caseVersionReview.compareHistorical({
+            ...pair,
+            fromVersionNumber: 2,
+          })
+        ).fields.every((f) => !f.changed),
+      ).toBe(true);
+    });
+    it("historical comparison cannot substitute for a fresh target-to-current restore review", async () => {
+      const c = await newCase();
+      await change(c.id);
+      const historical = await owner.caseVersionReview.compareHistorical({
+        projectId,
+        testCaseId: c.id,
+        fromVersionNumber: 2,
+        toVersionNumber: 1,
+      });
+      await expect(
+        owner.caseVersionReview.restore({
+          ...historical,
+          projectId,
+          testCaseId: c.id,
+          versionNumber: 1,
+          fields: ["title"],
+          reason: "Reviewed old wording",
+          confirmed: true,
+          requestId: randomUUID(),
+        } as never),
+      ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+      const stale = await attempt(c.id);
+      await prisma.testCase.update({
+        where: { id: c.id },
+        data: { title: "Concurrent human title" },
+      });
+      await expect(
+        owner.caseVersionReview.restore(stale),
+      ).rejects.toMatchObject({ code: "CONFLICT" });
+      await owner.caseVersionReview.restore(await attempt(c.id));
+      expect(
+        (await prisma.testCase.findUniqueOrThrow({ where: { id: c.id } }))
+          .title,
+      ).toBe("Original title");
+      expect(
+        await prisma.testCaseVersion.count({ where: { testCaseId: c.id } }),
+      ).toBe(3);
+    });
     it("bounds metadata paging and oversized comparisons without inventing history", async () => {
       const c = await newCase();
       for (let i = 0; i < 24; i++) await snapshot(c.id);

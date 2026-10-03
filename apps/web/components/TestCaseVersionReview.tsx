@@ -153,6 +153,7 @@ export function TestCaseVersionReview({
     { enabled: active, retry: false },
   );
   const [version, setVersion] = useState<number | null>(null);
+  const [fromVersion, setFromVersion] = useState<number | null>(null);
   const [open, setOpen] = useState(false);
   const [baseline, setBaseline] = useState<Preview | null>(null);
   const [fields, setFields] = useState<Field[]>([]);
@@ -165,7 +166,25 @@ export function TestCaseVersionReview({
   const compare = trpcReact.caseVersionReview.preview.useQuery(
     { projectId, testCaseId, versionNumber: version ?? 1 },
     {
-      enabled: open && version !== null && !baseline && !pending,
+      enabled:
+        open &&
+        version !== null &&
+        fromVersion === null &&
+        !baseline &&
+        !pending,
+      retry: false,
+      refetchOnWindowFocus: false,
+    },
+  );
+  const historical = trpcReact.caseVersionReview.compareHistorical.useQuery(
+    {
+      projectId,
+      testCaseId,
+      fromVersionNumber: fromVersion ?? 1,
+      toVersionNumber: version ?? 1,
+    },
+    {
+      enabled: open && fromVersion !== null && version !== null && !pending,
       retry: false,
       refetchOnWindowFocus: false,
     },
@@ -174,6 +193,7 @@ export function TestCaseVersionReview({
     if (
       !baseline &&
       !pending &&
+      fromVersion === null &&
       !compare.isFetching &&
       compare.data &&
       compare.data.versionNumber === version
@@ -185,23 +205,42 @@ export function TestCaseVersionReview({
           .map((f) => f.key),
       );
     }
-  }, [baseline, pending, compare.data, compare.isFetching, version]);
+  }, [
+    baseline,
+    pending,
+    compare.data,
+    compare.isFetching,
+    version,
+    fromVersion,
+  ]);
   const restore = trpcReact.caseVersionReview.restore.useMutation();
-  function chooseVersion(next: number) {
-    if (pending) {
-      setOpen(true);
-      return;
-    }
-    setVersion(next);
+  function changeComparison(nextVersion: number, nextFrom: number | null) {
+    if (pending || restore.isPending) return;
+    setVersion(nextVersion);
+    setFromVersion(nextFrom);
     setBaseline(null);
     setFields([]);
     setReason("");
     setConfirmed(false);
     setNotice(null);
+  }
+  function chooseVersion(next: number) {
+    if (pending) {
+      setOpen(true);
+      return;
+    }
+    changeComparison(next, null);
     setOpen(true);
   }
   async function applyRestore() {
-    if (restore.isPending || readOnly || !baseline?.canRestore) return;
+    if (
+      restore.isPending ||
+      fromVersion !== null ||
+      readOnly ||
+      !baseline?.canRestore ||
+      baseline.versionNumber !== version
+    )
+      return;
     const attempt = pending ?? {
       input: {
         projectId,
@@ -255,8 +294,8 @@ export function TestCaseVersionReview({
     >
       <h3>Case changes</h3>
       <p className="muted">
-        Compare a saved version with the current case. Restore only the changed
-        fields you review.
+        Compare the current case or any two saved versions. Restore only from a
+        separately reviewed current-case comparison.
       </p>
       {notice && !open && <p role="status">{notice}</p>}
       {pending && !open && (
@@ -367,13 +406,133 @@ export function TestCaseVersionReview({
         size="wide"
         open={open}
         onClose={() => setOpen(false)}
-        title={`Compare current case with v${version ?? ""}`}
+        title={
+          fromVersion === null
+            ? `Compare current case with v${version ?? ""}`
+            : `Compare saved v${fromVersion} with v${version ?? ""}`
+        }
         dismissible={!restore.isPending}
       >
-        {compare.isFetching && !baseline && (
+        {version !== null && (
+          <fieldset
+            disabled={restore.isPending || Boolean(pending)}
+            style={{ border: 0, padding: 0, minWidth: 0 }}
+          >
+            <legend>Choose comparison versions</legend>
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns:
+                  "repeat(auto-fit, minmax(min(100%, 200px), 1fr))",
+                gap: 12,
+              }}
+            >
+              <label style={{ display: "grid", gap: 6 }}>
+                From
+                <select
+                  value={fromVersion ?? "current"}
+                  onChange={(e) =>
+                    changeComparison(
+                      version,
+                      e.target.value === "current"
+                        ? null
+                        : Number(e.target.value),
+                    )
+                  }
+                >
+                  <option value="current">Current case (restore review)</option>
+                  {[
+                    ...new Set([
+                      ...(list.data?.items.map((v) => v.versionNumber) ?? []),
+                      version,
+                      ...(fromVersion === null ? [] : [fromVersion]),
+                    ]),
+                  ]
+                    .sort((a, b) => b - a)
+                    .map((number) => (
+                      <option key={number} value={number}>
+                        Saved v{number}
+                      </option>
+                    ))}
+                </select>
+              </label>
+              <label style={{ display: "grid", gap: 6 }}>
+                To
+                <select
+                  value={version}
+                  onChange={(e) =>
+                    changeComparison(Number(e.target.value), fromVersion)
+                  }
+                >
+                  {[
+                    ...new Set([
+                      ...(list.data?.items.map((v) => v.versionNumber) ?? []),
+                      version,
+                      ...(fromVersion === null ? [] : [fromVersion]),
+                    ]),
+                  ]
+                    .sort((a, b) => b - a)
+                    .map((number) => (
+                      <option key={number} value={number}>
+                        Saved v{number}
+                      </option>
+                    ))}
+                </select>
+              </label>
+            </div>
+            <p className="muted">
+              Browse saved versions below to choose either side. Selected
+              versions stay available when you change pages.
+            </p>
+            <nav
+              aria-label="Comparison version pages"
+              style={{ display: "flex", gap: 8, flexWrap: "wrap" }}
+            >
+              {cursors.length > 1 && (
+                <button
+                  type="button"
+                  className="btn-secondary"
+                  disabled={list.isFetching}
+                  onClick={() => setCursors((c) => c.slice(0, -1))}
+                >
+                  Browse newer versions
+                </button>
+              )}
+              {list.data?.nextCursor != null && (
+                <button
+                  type="button"
+                  className="btn-secondary"
+                  disabled={list.isFetching}
+                  onClick={() =>
+                    setCursors((c) => [...c, list.data!.nextCursor!])
+                  }
+                >
+                  Browse older versions
+                </button>
+              )}
+              {list.error && (
+                <button
+                  type="button"
+                  className="btn-secondary"
+                  onClick={() => void list.refetch()}
+                >
+                  Retry version choices
+                </button>
+              )}
+            </nav>
+            {list.isFetching && <p role="status">Loading version choices…</p>}
+            {list.error && (
+              <p role="alert">
+                Additional version choices could not be loaded.{" "}
+                {list.error.message}
+              </p>
+            )}
+          </fieldset>
+        )}
+        {fromVersion === null && compare.isFetching && !baseline && (
           <p role="status">Loading comparison…</p>
         )}
-        {compare.error && !baseline && (
+        {fromVersion === null && compare.error && !baseline && (
           <div role="alert">
             <p>Comparison could not be loaded. {compare.error.message}</p>
             <button
@@ -385,7 +544,91 @@ export function TestCaseVersionReview({
             </button>
           </div>
         )}
-        {baseline && (
+        {fromVersion !== null && historical.isFetching && (
+          <p role="status">Loading saved-version comparison…</p>
+        )}
+        {fromVersion !== null && historical.error && (
+          <div role="alert">
+            <p>
+              Saved-version comparison could not be loaded.{" "}
+              {historical.error.message}
+            </p>
+            <button
+              type="button"
+              className="btn-secondary"
+              onClick={() => void historical.refetch()}
+            >
+              Retry saved comparison
+            </button>
+          </div>
+        )}
+        {fromVersion !== null &&
+          historical.data &&
+          historical.data.from.versionNumber === fromVersion &&
+          historical.data.to.versionNumber === version &&
+          !historical.error && (
+            <>
+              <p>
+                <strong>{historical.data.displayId}</strong> · Saved v
+                {fromVersion} → saved v{version}
+              </p>
+              <p role="note">
+                Historical comparison only. Neither side is the current case or
+                a write baseline.
+              </p>
+              <details style={{ margin: "8px 0" }}>
+                <summary>Snapshot limitations</summary>
+                <ul>
+                  {historical.data.warnings.map((warning) => (
+                    <li key={warning}>{warning}</li>
+                  ))}
+                </ul>
+              </details>
+              {historical.data.fields.map((field) => (
+                <details
+                  key={`${fromVersion}-${version}-${field.key}`}
+                  open={field.changed}
+                  style={{
+                    border: "1px solid var(--line)",
+                    borderRadius: 6,
+                    padding: 8,
+                    margin: "8px 0",
+                  }}
+                >
+                  <summary>
+                    {field.label} · {field.changed ? "Changed" : "Unchanged"}
+                  </summary>
+                  <div
+                    style={{
+                      display: "grid",
+                      gridTemplateColumns:
+                        "repeat(auto-fit, minmax(min(100%, 200px), 1fr))",
+                      gap: 12,
+                    }}
+                  >
+                    <div>
+                      <strong>Saved v{fromVersion}</strong>
+                      <ComparisonValue value={field.from} field={field.key} />
+                    </div>
+                    <div>
+                      <strong>Saved v{version}</strong>
+                      <ComparisonValue value={field.to} field={field.key} />
+                    </div>
+                  </div>
+                </details>
+              ))}
+              <button
+                type="button"
+                className="btn-secondary"
+                onClick={() => changeComparison(version!, null)}
+              >
+                {readOnly
+                  ? `Compare v${version} with current`
+                  : `Review restoring v${version} to current`}
+              </button>
+            </>
+          )}
+        {fromVersion === null && baseline && (
           <>
             <p>
               <strong>{baseline.displayId}</strong> · Saved v

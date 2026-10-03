@@ -31,6 +31,35 @@ export const versionScopeSchema = z.object({
 export const versionPreviewSchema = versionScopeSchema
   .extend({ versionNumber: z.number().int().positive() })
   .strict();
+export const historicalComparisonSchema = versionScopeSchema
+  .extend({
+    fromVersionNumber: z.number().int().min(1).max(2147483647),
+    toVersionNumber: z.number().int().min(1).max(2147483647),
+  })
+  .strict();
+const historicalVersionSchema = z.object({
+  id: z.string(),
+  versionNumber: z.number().int().positive(),
+  createdAt: z.string().datetime(),
+});
+export const historicalComparisonOutputSchema = z.object({
+  caseId: z.string(),
+  displayId: z.string(),
+  from: historicalVersionSchema,
+  to: historicalVersionSchema,
+  fields: z
+    .array(
+      z.object({
+        key: restoreFieldSchema,
+        label: z.string(),
+        changed: z.boolean(),
+        from: z.string(),
+        to: z.string(),
+      }),
+    )
+    .max(11),
+  warnings: z.array(z.string()).max(5),
+});
 export const versionRestoreSchema = versionPreviewSchema
   .extend({
     expectedCaseRevision: z.string().regex(/^[a-f0-9]{64}$/),
@@ -103,6 +132,114 @@ const labels: Record<z.infer<typeof restoreFieldSchema>, string> = {
   validationDomain: "Validation domain",
   verificationProfile: "Verification profile",
 };
+
+/** Read-only saved-to-saved comparison. Deliberately provides no restore CAS. */
+export async function compareHistoricalCaseVersions(
+  db: PrismaClient,
+  userId: string,
+  input: z.infer<typeof historicalComparisonSchema>,
+) {
+  return db.$transaction(
+    async (tx) => {
+      await requireCurrentPlanAccess(tx, userId, input.projectId);
+      const currentIdentity = await tx.testCase.findFirst({
+        where: { id: input.testCaseId, projectId: input.projectId },
+        select: { id: true, displayId: true },
+      });
+      if (!currentIdentity)
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Case not found in this project.",
+        });
+      const sizes = await tx.$queryRaw<
+        Array<{ versionNumber: number; bytes: number }>
+      >`
+      SELECT v."versionNumber", octet_length(row_to_json(v)::text)::int AS bytes
+      FROM "TestCaseVersion" v
+      WHERE v."testCaseId" = ${currentIdentity.id}
+      AND v."versionNumber" IN (${input.fromVersionNumber}, ${input.toVersionNumber})`;
+      const numbers = new Set([input.fromVersionNumber, input.toVersionNumber]);
+      if (sizes.length !== numbers.size)
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "A selected saved version is unavailable for this case.",
+        });
+      if (sizes.some((v) => v.bytes > 524288))
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message:
+            "A saved version exceeds the 512 KiB comparison limit. Use a focused manual review; nothing was changed.",
+        });
+      const versions = await tx.testCaseVersion.findMany({
+        where: {
+          testCaseId: currentIdentity.id,
+          versionNumber: { in: [...numbers] },
+        },
+        take: 2,
+        select: {
+          id: true,
+          versionNumber: true,
+          createdAt: true,
+          title: true,
+          background: true,
+          given: true,
+          when: true,
+          then: true,
+          steps: true,
+          tags: true,
+          priority: true,
+          testType: true,
+          validationDomain: true,
+          verificationProfile: true,
+        },
+      });
+      const from = versions.find(
+        (v) => v.versionNumber === input.fromVersionNumber,
+      )!;
+      const to = versions.find(
+        (v) => v.versionNumber === input.toVersionNumber,
+      )!;
+      const fields = restoreFieldSchema.options.map((key) => {
+        // Display exactly what each snapshot recorded. Do not invent missing
+        // historical media, shared-library identities or verification context.
+        const fromText = JSON.stringify(from[key], null, 2);
+        const toText = JSON.stringify(to[key], null, 2);
+        return {
+          key,
+          label: labels[key],
+          changed: fromText !== toText,
+          from: fromText,
+          to: toText,
+        };
+      });
+      return {
+        caseId: currentIdentity.id,
+        displayId: currentIdentity.displayId,
+        from: {
+          id: from.id,
+          versionNumber: from.versionNumber,
+          createdAt: from.createdAt.toISOString(),
+        },
+        to: {
+          id: to.id,
+          versionNumber: to.versionNumber,
+          createdAt: to.createdAt.toISOString(),
+        },
+        fields,
+        warnings: [
+          "This is a read-only comparison of two saved versions. It does not change the current case or create a version, audit event or restore request.",
+          "Only recorded snapshot fields are shown. Historical shared-library identity, missing media, placement, prerequisites and approval/assessment context are not reconstructed.",
+          "Older domain defaults and incomplete verification profiles are not proof of the historical validation setup. Recorded media IDs are references, not recovered media files.",
+          "To restore the destination version, switch to its current-case review. That uses a fresh current-content baseline, selected supported fields and explicit approval.",
+        ],
+      };
+    },
+    {
+      isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead,
+      timeout: 10000,
+    },
+  );
+}
 
 async function reviewState(
   tx: Prisma.TransactionClient,

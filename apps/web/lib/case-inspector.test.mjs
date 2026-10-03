@@ -184,7 +184,7 @@ test("case version comparison retains reviewed requests and gates selected-field
   assert.match(versions, /enabled: active/);
   assert.match(
     versions,
-    /enabled: open && version !== null && !baseline && !pending/,
+    /enabled:\s*open &&\s*version !== null &&\s*fromVersion === null &&\s*!baseline &&\s*!pending/,
   );
   assert.match(versions, /f.changed && f.restorable/);
   assert.match(versions, /expectedCaseRevision: baseline.expectedCaseRevision/);
@@ -206,6 +206,65 @@ test("case version comparison retains reviewed requests and gates selected-field
   assert.match(versions, /v.restoration.reason/);
   assert.match(versions, /No credits are used/);
   assert.match(versions, /size="wide"/);
+});
+
+test("historical version pairs stay read-only and require a separate current-case restore baseline", () => {
+  const versions = source("../components/TestCaseVersionReview.tsx");
+  assert.match(versions, /caseVersionReview.compareHistorical.useQuery/);
+  assert.match(versions, /fromVersionNumber: fromVersion \?\? 1/);
+  assert.match(versions, /toVersionNumber: version \?\? 1/);
+  assert.match(
+    versions,
+    /enabled: open && fromVersion !== null && version !== null && !pending/,
+  );
+  assert.match(versions, /Choose comparison versions/);
+  assert.match(versions, /<select[\s\S]*?value=\{fromVersion \?\? "current"\}/);
+  assert.match(versions, /<select\s+value=\{version\}/);
+  assert.match(versions, /Browse older versions/);
+  assert.match(versions, /Browse newer versions/);
+  assert.match(versions, /Selected\s+versions stay available/);
+  assert.match(versions, /Historical comparison only/);
+  assert.match(
+    versions,
+    /<details style=\{\{ margin: "8px 0" \}\}>\s*<summary>Snapshot limitations<\/summary>\s*<ul>\s*\{historical.data.warnings.map/,
+  );
+  assert.match(
+    versions,
+    /Neither side is the current case or\s+a write baseline/,
+  );
+  assert.match(
+    versions,
+    /<ComparisonValue\s+value=\{field.from\}\s+field=\{field.key\}/,
+  );
+  assert.match(
+    versions,
+    /<ComparisonValue\s+value=\{field.to\}\s+field=\{field.key\}/,
+  );
+  assert.match(versions, /historical.data.from.versionNumber === fromVersion/);
+  assert.match(versions, /historical.data.to.versionNumber === version/);
+  assert.match(versions, /Retry saved comparison/);
+  assert.match(versions, /Compare v\$\{version\} with current/);
+  assert.match(versions, /Review restoring v\$\{version\} to current/);
+  assert.match(
+    versions,
+    /onClick=\{\(\) => changeComparison\(version!, null\)\}/,
+  );
+  assert.match(
+    versions,
+    /function changeComparison[\s\S]*?if \(pending \|\| restore.isPending\) return;[\s\S]*?setBaseline\(null\)[\s\S]*?setFields\(\[\]\)[\s\S]*?setReason\(""\)[\s\S]*?setConfirmed\(false\)/,
+  );
+  assert.match(
+    versions,
+    /function applyRestore[\s\S]*?fromVersion !== null[\s\S]*?baseline.versionNumber !== version/,
+  );
+  const historicalBlock = versions.slice(
+    versions.indexOf("Historical comparison only"),
+    versions.indexOf("{fromVersion === null && baseline &&"),
+  );
+  assert.doesNotMatch(
+    historicalBlock,
+    /type="checkbox"|expectedCaseRevision|mutateAsync|Reason for this restore/,
+  );
 });
 
 test("viewer can browse paid design recommendations without evidence intake, charge or apply controls", () => {

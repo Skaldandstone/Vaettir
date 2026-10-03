@@ -11,6 +11,9 @@ import {
   versionPreviewOutputSchema,
   versionRestoreSchema,
   versionRestoreOutputSchema,
+  compareHistoricalCaseVersions,
+  historicalComparisonSchema,
+  historicalComparisonOutputSchema,
 } from "../services/caseVersionReview.js";
 
 export const caseVersionReviewRouter = router({
@@ -159,6 +162,13 @@ export const caseVersionReviewRouter = router({
     .query(async ({ ctx, input }) => {
       await requireProjectAccess(ctx, input.projectId);
       return previewCaseVersion(ctx.prisma, ctx.user.id, input);
+    }),
+  compareHistorical: protectedProcedure
+    .input(historicalComparisonSchema)
+    .output(historicalComparisonOutputSchema)
+    .query(async ({ ctx, input }) => {
+      await requireProjectAccess(ctx, input.projectId);
+      return compareHistoricalCaseVersions(ctx.prisma, ctx.user.id, input);
     }),
   restore: protectedProcedure
     .input(versionRestoreSchema)
