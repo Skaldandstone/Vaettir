@@ -5,6 +5,41 @@ import { promisify } from "node:util";
 import { pathToFileURL } from "node:url";
 
 const execute = promisify(execFile);
+export function requireZlibNegativeControl({ diagnostic, status, signal }) {
+  if (
+    typeof diagnostic !== "string" ||
+    diagnostic.length > 32768 ||
+    !((Number.isInteger(status) && status !== 0) || signal === "SIGABRT") ||
+    !/\bERROR: AddressSanitizer: (heap-buffer-overflow|heap-use-after-free|SEGV)\b/.test(
+      diagnostic,
+    ) ||
+    !/#\d+ .*\bin gz_write [^\n]*\/unpatched\/gzwrite\.c:\d+/.test(
+      diagnostic,
+    ) ||
+    !/#\d+ .*\bin gzwrite [^\n]*\/unpatched\/gzwrite\.c:\d+/.test(diagnostic) ||
+    !/#\d+ .*\bin nonblocking [^\n]*\/zlib-runtime-regression\.c:\d+/.test(
+      diagnostic,
+    ) ||
+    !/SUMMARY: AddressSanitizer:/.test(diagnostic) ||
+    !/\bABORTING\b/.test(diagnostic)
+  )
+    throw Error(
+      "Negative control did not reproduce the specific zlib write fault",
+    );
+  // An out-of-range write through libc can be reported as SEGV rather than a
+  // heap-redzone violation. Require write attribution, not an arbitrary crash.
+  if (
+    /ERROR: AddressSanitizer: SEGV\b/.test(diagnostic) &&
+    !/The signal is caused by a WRITE memory access\./.test(diagnostic)
+  )
+    throw Error("Negative control did not identify a write memory fault");
+  return {
+    reproduced: true,
+    reporter: /ERROR: AddressSanitizer: SEGV\b/.test(diagnostic)
+      ? "write-SEGV"
+      : "heap-write",
+  };
+}
 export function zlibElfContract(bytes) {
   if (
     !Buffer.isBuffer(bytes) ||

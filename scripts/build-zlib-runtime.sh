@@ -75,10 +75,12 @@ for variant in unpatched instrumented; do
     -I . "$regression" ./libz.a -o "$build_root/zlib-$variant-regression"
 done
 cd "$build_root"
-node --input-type=module - "$build_root" <<'SANITIZERS'
+node --input-type=module - "$build_root" "$checker" <<'SANITIZERS'
 import {execFileSync} from 'node:child_process';
 import {writeFileSync} from 'node:fs';
 import {join} from 'node:path';
+import {pathToFileURL} from 'node:url';
+const {requireZlibNegativeControl}=await import(pathToFileURL(process.argv[3]).href);
 const root=process.argv[2];
 const options={timeout:20000,maxBuffer:32768,encoding:'utf8',env:{PATH:'/usr/bin:/bin',LANG:'C',LC_ALL:'C',ASAN_OPTIONS:'abort_on_error=1:detect_leaks=1',UBSAN_OPTIONS:'halt_on_error=1:print_stacktrace=1'}};
 let reproduced=false;
@@ -86,7 +88,7 @@ try { execFileSync(join(root,'zlib-unpatched-regression'),['--nonblocking'],opti
 catch(error) {
   const diagnostic=String(error.stderr??'');
   writeFileSync(join(root,'zlib-negative-control.txt'),diagnostic);
-  reproduced=/AddressSanitizer: (heap-buffer-overflow|heap-use-after-free)/.test(diagnostic) && /gz_write/.test(diagnostic);
+  reproduced=requireZlibNegativeControl({diagnostic,status:error.status,signal:error.signal}).reproduced;
 }
 if(!reproduced) throw Error('Unpatched negative control did not reproduce the specific gz_write memory defect');
 const fixed=execFileSync(join(root,'zlib-instrumented-regression'),[],options);

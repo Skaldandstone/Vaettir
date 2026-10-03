@@ -8,6 +8,7 @@ import {
   requireInstalledZlibProof,
   checkZlibRuntime,
   checkInstalledZlibRuntime,
+  requireZlibNegativeControl,
 } from "./check-zlib-runtime.mjs";
 
 const api = [
@@ -304,9 +305,8 @@ test("sanitizers instrument the library and require the exact vulnerable negativ
   );
   assert.match(
     builder,
-    /AddressSanitizer: \(heap-buffer-overflow\|heap-use-after-free\)/,
+    /requireZlibNegativeControl\(\{diagnostic,status:error.status,signal:error.signal\}\)/,
   );
-  assert.match(builder, /\/gz_write\//);
   assert.match(builder, /timeout:20000,maxBuffer:32768/);
   const fixture = readFileSync(
     new URL("./zlib-runtime-regression.c", import.meta.url),
@@ -318,4 +318,44 @@ test("sanitizers instrument the library and require the exact vulnerable negativ
   assert.match(fixture, /gzprintf\(file/);
   assert.match(fixture, /open\("\/dev\/full"/);
   assert.match(fixture, /memcmp\(recovered, "ab", 2\)/);
+});
+
+test("attributes the observed libc write-SEGV without accepting unrelated sanitizer crashes", () => {
+  const diagnostic = `ERROR: AddressSanitizer: SEGV on unknown address
+The signal is caused by a WRITE memory access.
+    #0 0x123 (/lib/x86_64-linux-gnu/libc.so.6+0x17b868)
+    #1 0x456 in gz_write /build/zlib-build/unpatched/gzwrite.c:217
+    #2 0x789 in gzwrite /build/zlib-build/unpatched/gzwrite.c:276
+    #3 0xabc in nonblocking /build/scripts/zlib-runtime-regression.c:39
+SUMMARY: AddressSanitizer: SEGV (/lib/x86_64-linux-gnu/libc.so.6+0x17b868)
+ABORTING`;
+  const proof = { diagnostic, status: null, signal: "SIGABRT" };
+  assert.equal(requireZlibNegativeControl(proof).reporter, "write-SEGV");
+  assert.equal(
+    requireZlibNegativeControl({
+      ...proof,
+      diagnostic: diagnostic.replace("SEGV on", "heap-buffer-overflow on"),
+      status: 1,
+      signal: null,
+    }).reproduced,
+    true,
+  );
+  for (const bad of [
+    { ...proof, status: 0, signal: null },
+    { ...proof, signal: "SIGKILL" },
+    { ...proof, diagnostic: diagnostic.replace("WRITE", "READ") },
+    { ...proof, diagnostic: diagnostic.replace("in gz_write", "in unrelated") },
+    {
+      ...proof,
+      diagnostic: diagnostic.replace("/unpatched/", "/instrumented/"),
+    },
+    {
+      ...proof,
+      diagnostic: diagnostic.replace("in nonblocking", "in unrelated"),
+    },
+    { ...proof, diagnostic: diagnostic.replace("ABORTING", "") },
+    { ...proof, diagnostic: "AddressSanitizer:DEADLYSIGNAL" },
+    { ...proof, diagnostic: diagnostic + "x".repeat(32768) },
+  ])
+    assert.throws(() => requireZlibNegativeControl(bad));
 });
