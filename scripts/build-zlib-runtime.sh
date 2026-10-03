@@ -48,6 +48,10 @@ writeFileSync(file,`zlib (1:1.3.dfsg+really1.3.2-3+vaettir1) trixie; urgency=med
 ${old}`);
 CHANGELOG
 timeout 600 env DEB_BUILD_OPTIONS=parallel=2 DEB_BUILD_PROFILES=nobiarch dpkg-buildpackage -b -us -uc
+# Package cleanup un-applies quilt. Restore and verify before every subsequent
+# build/test, not only the instrumented copy, so upstream tests use fixed source.
+dpkg-source --before-build .
+patch --batch --fuzz=0 -R -p1 --dry-run < debian/patches/vaettir-gzwrite-recovery.patch
 # Debian's maintained rules prefix main upstream tests with '-'. Repeat them
 # fail-hard, rather than treating that ignored result as a successful check.
 timeout 60 make test

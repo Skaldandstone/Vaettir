@@ -314,6 +314,7 @@ test("sanitizers instrument the library and require the exact vulnerable negativ
     "patch --batch --fuzz=0 -R -p1 --dry-run",
     restored,
   );
+  const upstreamTests = builder.indexOf("timeout 60 make test", packaged);
   const instrumentedCopy = builder.indexOf(
     'cp -a "$build_root/source" "$build_root/instrumented"',
   );
@@ -321,6 +322,7 @@ test("sanitizers instrument the library and require the exact vulnerable negativ
     packaged >= 0 &&
       restored > packaged &&
       patchVerified > restored &&
+      upstreamTests > patchVerified &&
       instrumentedCopy > patchVerified,
     "Sanitizer source must restore and verify the patch after Debian package cleanup, before copying",
   );
