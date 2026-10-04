@@ -78,6 +78,7 @@ jobs:
           pnpm test:native-fresh-next
           pnpm test:native-fresh-final
           pnpm test:native-source-observer
+          pnpm test:native-source-transport
           node --test scripts/retain-sharp-version-receipt.test.mjs
           node --test scripts/native-build-concurrency.test.mjs
 
