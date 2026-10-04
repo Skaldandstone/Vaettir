@@ -7,6 +7,7 @@ import { trpcReact, type RouterOutputs } from "@/lib/trpcReact";
 import { useProjectPermissions } from "@/lib/use-project-permissions";
 import { StepExecutionPanel } from "@/components/StepExecutionPanel";
 import { ManualRetestActions } from "@/components/ManualRetestWizard";
+import { manualProcedurePhases } from "@/lib/manual-procedure-phases";
 
 type ExecutionCase =
   RouterOutputs["manualExecution"]["getForExecution"]["cases"][number];
@@ -28,6 +29,7 @@ const STATUS_COLORS: Record<string, string> = {
 };
 
 function CaseRow({
+  projectId,
   testCase,
   stepFieldLabels,
   onRecord,
@@ -38,6 +40,7 @@ function CaseRow({
   onStepsChanged,
   onUnconfirmedStep,
 }: {
+  projectId: string;
   testCase: ExecutionCase;
   stepFieldLabels: Record<string, string>;
   onRecord: (
@@ -47,7 +50,7 @@ function CaseRow({
     observations: Observations,
   ) => Promise<void>;
   disabled: boolean;
-  prerequisites: { id: string; title: string; status: string | null }[];
+  prerequisites: { id: string; displayId: string | null; title: string; status: string | null }[];
   blockedBy: string[];
   testRunId: string;
   onStepsChanged: () => Promise<unknown>;
@@ -129,7 +132,7 @@ function CaseRow({
             padding: 0,
           }}
         >
-          {expanded ? "▾" : "▸"} {testCase.title}
+          {expanded ? "▾" : "▸"} {testCase.displayId ?? "Case ID unavailable"} · {testCase.title}
         </button>
         {currentStatus && (
           <span
@@ -145,7 +148,7 @@ function CaseRow({
       </div>
 
       {prerequisites.length > 0 && <p className="text-muted" style={{ fontSize: 12, marginTop: 6 }}>
-        Prerequisites in this run: {prerequisites.map(({ id, title, status }) => <span key={id} style={{ marginRight: 10 }}>{title} ({status ?? "not run"})</span>)}
+        Prerequisite cases in this run: {prerequisites.map(({ id, displayId, title, status }) => <span key={id} style={{ display: "inline-flex", flexWrap: "wrap", alignItems: "center", gap: 6, marginRight: 10, marginBlock: 4 }}><a href={`/projects/${encodeURIComponent(projectId)}/test-cases/${encodeURIComponent(id)}`} target="_blank" rel="noopener noreferrer" title={`${title}. Opens the current case in a new tab, not this run's frozen procedure.`} style={{ border: "1px solid var(--line)", borderRadius: 999, padding: "2px 8px" }}>{displayId ?? "Case ID unavailable"}</a><span>{title} ({status ?? "not run"})</span></span>)}
       </p>}
       {blockedBy.length > 0 && <p role="status" style={{ color: "var(--warning)", fontSize: 12, marginTop: 4 }}>
         Complete {blockedBy.join(", ")} with Pass before recording Pass or Fail here. Blocked and Skip remain available.
@@ -176,39 +179,30 @@ function CaseRow({
               ),
           )}
           {!stepMode && <>
-          {testCase.given.length > 0 && (
-            <div style={{ marginBottom: 8 }}>
+          {manualProcedurePhases(testCase).map((phase) => phase.steps.length > 0 && (
+            <div key={phase.label} style={{ marginBottom: 8 }}>
               <div className="eyebrow" style={{ fontSize: 11 }}>
-                Given
+                {phase.label}
               </div>
-              {testCase.given.map((l, i) => (
-                <div key={i}>{l}</div>
-              ))}
-              <div className="eyebrow" style={{ fontSize: 11, marginTop: 4 }}>
-                When
-              </div>
-              {testCase.when.map((l, i) => (
-                <div key={i}>{l}</div>
-              ))}
-              <div className="eyebrow" style={{ fontSize: 11, marginTop: 4 }}>
-                Then
-              </div>
-              {testCase.then.map((l, i) => (
-                <div key={i}>{l}</div>
+              {phase.steps.map((line, index) => (
+                <div key={index} style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>{line === "" ? <em>Empty step text</em> : line}</div>
               ))}
             </div>
-          )}
+          ))}
           {testCase.steps.length > 0 && (
+            <div role="region" aria-label="Complete stored procedure steps" tabIndex={0} style={{ overflowX: "auto", maxWidth: "100%" }}>
             <table
               style={{
                 width: "100%",
+                minWidth: 720,
                 borderCollapse: "collapse",
                 marginBottom: 8,
               }}
             >
+              <caption>Stored step order and all expected columns are retained. Media IDs are references, not fetched or verified files.</caption>
               <thead>
                 <tr>
-                  <th style={{ textAlign: "left", fontSize: 11 }}>#</th>
+                  <th style={{ textAlign: "left", fontSize: 11 }}>Stored order</th>
                   <th style={{ textAlign: "left", fontSize: 11 }}>
                     {stepFieldLabels.action ?? "Step"}
                   </th>
@@ -219,19 +213,23 @@ function CaseRow({
                   <th style={{ textAlign: "left", fontSize: 11 }}>
                     {stepFieldLabels.expectedResult ?? "Expected result"}
                   </th>
+                  <th style={{ textAlign: "left", fontSize: 11 }}>
+                    {stepFieldLabels.expectedResponse ?? "Expected response"}
+                  </th>
+                  <th style={{ textAlign: "left", fontSize: 11 }}>Media references</th>
                 </tr>
               </thead>
               <tbody>
                 {testCase.steps.map((s) => (
                   <tr key={s.order}>
                     <td>{s.order}</td>
-                    <td>{s.action}</td>
-                    <td>{s.expectedActionOrData ?? "—"}</td>
-                    <td>{s.expectedResult ?? "—"}</td>
+                    {(["action", "expectedActionOrData", "expectedResult", "expectedResponse"] as const).map(field => <td key={field} style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere", verticalAlign: "top" }}>{s[field] === null ? "Not supplied" : s[field] === "" ? <em>Empty text</em> : s[field]}</td>)}
+                    <td>{s.mediaAttachmentIds.length ? <ul>{s.mediaAttachmentIds.map((id, index) => <li key={index} style={{ overflowWrap: "anywhere" }}>{id}</li>)}</ul> : "None"}</td>
                   </tr>
                 ))}
               </tbody>
             </table>
+            </div>
           )}
           <input
             value={note}
@@ -473,15 +471,16 @@ export default function ManualExecutionPage() {
       {data.cases.map((tc) => (
         <CaseRow
           key={tc.testCaseId}
+          projectId={projectId}
           testCase={tc}
           testRunId={testRunId}
           onStepsChanged={() => utils.manualExecution.getForExecution.invalidate({ testRunId })}
           onUnconfirmedStep={pending => setUnconfirmedStepCases(current => { const next = new Set(current); if (pending) next.add(tc.testCaseId); else next.delete(tc.testCaseId); return next; })}
           prerequisites={tc.prerequisiteIds.map(id => {
             const prerequisite = data.cases.find(candidate => candidate.testCaseId === id);
-            return { id, title: prerequisite?.title ?? "Unavailable case", status: prerequisite?.currentResult?.status ?? null };
+            return { id, displayId: prerequisite?.displayId ?? null, title: prerequisite?.title ?? "Unavailable case", status: prerequisite?.currentResult?.status ?? null };
           })}
-          blockedBy={tc.prerequisiteIds.filter(id => data.cases.find(candidate => candidate.testCaseId === id)?.currentResult?.status !== "PASS").map(id => data.cases.find(candidate => candidate.testCaseId === id)?.title ?? "Unavailable case")}
+          blockedBy={tc.prerequisiteIds.filter(id => data.cases.find(candidate => candidate.testCaseId === id)?.currentResult?.status !== "PASS").map(id => { const prerequisite = data.cases.find(candidate => candidate.testCaseId === id); return `${prerequisite?.displayId ?? "Case ID unavailable"} · ${prerequisite?.title ?? "Unavailable case"}`; })}
           stepFieldLabels={data.stepFieldLabels}
           onRecord={handleRecord}
           disabled={
