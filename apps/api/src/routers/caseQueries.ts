@@ -4,6 +4,17 @@ import { Prisma } from "@vaettir/db";
 import { protectedProcedure, requireProjectAccess, router } from "../trpc.js";
 import { caseQuerySchema } from "../services/caseQuerySchema.js";
 import { queryCasePage } from "../services/caseQuery.js";
+import {
+  savedCaseQueryWriteInput,
+  savedCaseQueryCatalogInput,
+  savedCaseQueryReadInput,
+} from "../services/savedCaseQuerySchema.js";
+import {
+  withSavedQueryAccess,
+  listSavedCaseQueries,
+  getSavedCaseQuery,
+  writeSavedCaseQuery,
+} from "../services/savedCaseQueries.js";
 export const caseQueryInput = z
   .object({
     projectId: z.string().min(1).max(120),
@@ -14,6 +25,50 @@ export const caseQueryInput = z
   .strict();
 export function createCaseQueriesRouter(env: NodeJS.ProcessEnv = process.env) {
   return router({
+    savedList: protectedProcedure
+      .input(savedCaseQueryCatalogInput)
+      .query(async ({ ctx, input }) => {
+        const { project } = await requireProjectAccess(ctx, input.projectId, "VIEWER");
+        return withSavedQueryAccess(
+          ctx.prisma,
+          input.projectId,
+          ctx.user.id,
+          project.organizationId,
+          (tx, access) => listSavedCaseQueries(
+            tx, access, input.projectId, input.offset,
+            { catalog: input.catalog, expectedScope: input.expectedScope },
+          ),
+          ctx.user.clerkUserId,
+        );
+      }),
+    savedById: protectedProcedure
+      .input(savedCaseQueryReadInput)
+      .query(async ({ ctx, input }) => {
+        const { project } = await requireProjectAccess(ctx, input.projectId, "VIEWER");
+        return withSavedQueryAccess(
+          ctx.prisma,
+          input.projectId,
+          ctx.user.id,
+          project.organizationId,
+          (tx, access) => getSavedCaseQuery(
+            tx, access, input.projectId, input.id, input.expectedScope,
+          ),
+          ctx.user.clerkUserId,
+        );
+      }),
+    savedWrite: protectedProcedure
+      .input(savedCaseQueryWriteInput)
+      .mutation(async ({ ctx, input }) => {
+        const { project } = await requireProjectAccess(ctx, input.projectId, "VIEWER");
+        return withSavedQueryAccess(
+          ctx.prisma,
+          input.projectId,
+          ctx.user.id,
+          project.organizationId,
+          (tx, access) => writeSavedCaseQuery(tx, access, input),
+          ctx.user.clerkUserId,
+        );
+      }),
     page: protectedProcedure
       .input(caseQueryInput)
       .query(async ({ ctx, input }) => {
