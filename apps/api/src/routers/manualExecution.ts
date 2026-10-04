@@ -13,6 +13,8 @@ import { router, protectedProcedure, requireProjectAccess } from "../trpc.js";
 import { recomputeFlaky } from "../services/flakyDetection.js";
 import { resolveHealingSuggestionsOnPass } from "../services/healingSuggestion.js";
 import { resolveStepFieldLabels } from "@vaettir/core";
+import { lockManualExecutionReadScope } from "../services/manualExecutionReadScope.js";
+import { manualExecutionReadScopeInputSchema, manualExecutionReadScopeOutputSchema } from "../services/manualExecutionReadScopeSchema.js";
 import {
   planReferenceSchema,
   requireCurrentPlanAccess,
@@ -538,11 +540,9 @@ export const manualExecutionRouter = router({
   // formats, matching P1-10's "supports either" model) plus whatever
   // result has already been recorded for it in THIS run, if any.
   getForExecution: protectedProcedure
-    .input(z.object({ testRunId: z.string() }))
+    .input(manualExecutionReadScopeInputSchema)
     .output(
-      z.object({
-        testRunId: z.string(),
-        projectId: z.string(),
+      manualExecutionReadScopeOutputSchema.extend({
         status: z.string(),
         stepFieldLabels: z.record(z.string()),
         executionContext: runExperienceSnapshotSchema.nullable(),
@@ -603,12 +603,11 @@ export const manualExecutionRouter = router({
     .query(async ({ ctx, input }) => {
       return ctx.prisma.$transaction(
         async (tx) => {
+          const access = await lockManualExecutionReadScope(tx, ctx.user.id, ctx.user.clerkUserId, input);
           const run = await tx.testRun.findUniqueOrThrow({
             where: { id: input.testRunId },
-            include: { project: { include: { organization: true } } },
+            include: { project: { select: { organization: { select: { stepFieldLabels: true } } } } },
           });
-          await requireProjectAccess(ctx, run.projectId);
-          await requireCurrentPlanAccess(tx, ctx.user.id, run.projectId);
 
           const [cases, results] = await Promise.all([
             tx.testCase.findMany({
@@ -638,6 +637,10 @@ export const manualExecutionRouter = router({
           const executionContext = readRunExperienceSnapshot(
             run.executionContext,
           );
+          if (executionContext && (executionContext.caseDefinitions.length !== run.manualTestCaseIds.length ||
+              new Set(executionContext.caseDefinitions.map(c => c.testCaseId)).size !== executionContext.caseDefinitions.length ||
+              executionContext.caseDefinitions.some(c => !run.manualTestCaseIds.includes(c.testCaseId))))
+            throw new TRPCError({ code: "BAD_REQUEST", message: "The saved procedure does not uniquely cover this exact manual run. No current case wording was substituted." });
           const frozenCases = new Map(
             executionContext?.caseDefinitions.map((c) => [c.testCaseId, c]) ??
               [],
@@ -715,7 +718,8 @@ export const manualExecutionRouter = router({
               Record<string, string>
             > | null) ?? {};
 
-          return {
+          const response = {
+            ...access,
             testRunId: run.id,
             projectId: run.projectId,
             status: run.status,
@@ -793,6 +797,9 @@ export const manualExecutionRouter = router({
               })
               .filter((c): c is NonNullable<typeof c> => c !== null),
           };
+          if (Buffer.byteLength(JSON.stringify(response), "utf8") > 16 * 1024 * 1024)
+            throw new TRPCError({ code: "PRECONDITION_FAILED", message: "This complete execution view exceeds its response bound. No partial procedure or evidence was substituted." });
+          return response;
         },
         { isolationLevel: "RepeatableRead", timeout: 20000 },
       );

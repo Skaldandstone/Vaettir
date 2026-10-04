@@ -25,7 +25,7 @@ test("foreign, missing, malformed, legacy and duplicated targets never select fi
 const native = readFileSync(new URL("../app/projects/[projectId]/test-runs/manual/[testRunId]/page.tsx", import.meta.url), "utf8");
 const summary = readFileSync(new URL("../../api/src/services/caseExecutionHistory.ts", import.meta.url), "utf8");
 test("native query and exact-case expansion preserve mounted draft identities without recording", () => {
-  for (const text of ['searchParams.getAll("caseId")', "!dataQuery.error && !dataQuery.isFetching && !dataQuery.isPaused", 'historySelection.kind === "SELECTED" && historySelection.caseId === tc.testCaseId',
+  for (const text of ['searchParams.getAll("caseId")', "fresh: readable", "ready: access.ready, error: !!dataQuery.error, fetching: dataQuery.isFetching, paused: dataQuery.isPaused", 'historySelection.kind === "SELECTED" && historySelection.caseId === tc.testCaseId',
     "if (selectedFromHistory) setExpanded(true)", "id={manualCaseHistoryAnchor(testCase.testCaseId) ?? undefined}", "No other case was selected", "<Suspense", "scrollIntoView", 'key={`${projectId}:${testRunId}:${tc.testCaseId}`}']) assert.ok(native.includes(text), text);
   assert.ok(!native.includes("if (selectedFromHistory) record("));
   assert.ok(!native.includes("setExpanded(selectedFromHistory)"));

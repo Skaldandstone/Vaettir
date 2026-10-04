@@ -1,6 +1,6 @@
 "use client";
 
-import { useId, useState } from "react";
+import { useId, useRef, useState } from "react";
 import { trpcReact, type RouterInputs, type RouterOutputs } from "@/lib/trpcReact";
 import { parseStepMeasurements, isDefinitiveStepRejection, type StepReading, type StepStatus } from "@/lib/step-execution-form";
 import { Modal } from "./Modal";
@@ -25,8 +25,10 @@ function StepHistory({ testRunId, testCaseId, stepIndex }: { testRunId: string; 
   return <div>{query.error ? <p role="alert">Revision history could not be loaded.</p> : !query.data ? <p role="status">Loading revision history…</p> : <><ol style={{ paddingLeft: 20 }}>{query.data.revisions.map(revision => <li key={revision.id} style={{ marginTop: 10, overflowWrap: "anywhere" }}><strong>{revision.status}</strong> · {revision.actorName} · {new Date(revision.recordedAt).toLocaleString()}<RevisionDetails revision={revision} /></li>)}</ol>{query.data.revisions.length === 0 && <p>No recorded revisions for this step.</p>}<div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}><button className="btn-secondary" disabled={!cursor} onClick={() => setCursor(undefined)}>Latest revisions</button><button className="btn-secondary" disabled={!query.data.nextCursor} onClick={() => setCursor(query.data?.nextCursor ?? undefined)}>Older revisions</button></div></>}</div>;
 }
 
-export function StepExecutionPanel({ testRunId, testCase, stepFieldLabels, active, disabled, blockedBy, onModeActive, onChanged, onUnconfirmedChange }: { testRunId: string; testCase: ExecutionCase; stepFieldLabels: Record<string, string>; active: boolean; disabled: boolean; blockedBy: string[]; onModeActive: () => void; onChanged: () => Promise<unknown>; onUnconfirmedChange?: (pending: boolean) => void }) {
+export function StepExecutionPanel({ testRunId, testCase, stepFieldLabels, active, readable = true, readScope, disabled, blockedBy, onModeActive, onChanged, onUnconfirmedChange }: { testRunId: string; testCase: ExecutionCase; stepFieldLabels: Record<string, string>; active: boolean; readable?: boolean; readScope?: { projectId: string; originalOrganizationId?: string; expectedClerkActorId?: string }; disabled: boolean; blockedBy: string[]; onModeActive: () => void; onChanged: () => Promise<unknown>; onUnconfirmedChange?: (pending: boolean) => void }) {
   const utils = trpcReact.useUtils();
+  const readableNow = useRef(readable);
+  readableNow.current = readable;
   const mutation = trpcReact.manualExecution.recordStepResult.useMutation();
   const [draft, setDraft] = useState<Draft | null>(null);
   const [open, setOpen] = useState(false);
@@ -42,13 +44,14 @@ export function StepExecutionPanel({ testRunId, testCase, stepFieldLabels, activ
   const [evidenceCursor, setEvidenceCursor] = useState<string | undefined>();
   const [evidenceOpen, setEvidenceOpen] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
-  const evidenceQuery = trpcReact.manualExecution.listStepEvidence.useQuery({ testRunId, search: search.trim(), cursor: evidenceCursor }, { enabled: open && evidenceOpen });
+  const evidenceQuery = trpcReact.manualExecution.listStepEvidence.useQuery({ testRunId, search: search.trim(), cursor: evidenceCursor }, { enabled: readable && open && evidenceOpen });
   const prefix = useId();
   const hasSteps = testCase.stepResults.some(item => item.current);
   const selectedStep = draft ? testCase.steps[draft.stepIndex] : null;
   const locked = busy || Boolean(attempt) || Boolean(savedRevisionId) || Boolean(freshCurrent) || disabled;
   const physical = testCase.validationDomain !== "SOFTWARE";
   function select(index: number) {
+    if (!readable) return;
     if (draft && !savedRevisionId) { if (draft.stepIndex === index) setOpen(true); return; }
     setDraft(draftFor(index, testCase.stepResults.find(item => item.stepIndex === index)?.current ?? null));
     setOpen(true); setReview(false); setError(null); setAttempt(null); setEverAmbiguous(false); setDefinitiveRejection(false); setSavedRevisionId(null); setFreshCurrent(null); setHistoryOpen(false); setEvidenceOpen(false);
@@ -61,9 +64,9 @@ export function StepExecutionPanel({ testRunId, testCase, stepFieldLabels, activ
     if (["PASS", "FAIL"].includes(draft.status) && blockedBy.length) throw new Error("Required prerequisite cases must pass before recording Pass or Fail.");
     return { testRunId, testCaseId: testCase.testCaseId, stepIndex: draft.stepIndex, status: draft.status, note: draft.note.trim(), observations: { ...draft.context, measurements: parseStepMeasurements(draft.readings, draft.status) }, evidenceAttachmentIds: [...draft.attachmentIds], expectedRevisionId: draft.current?.id ?? null, correctionReason: draft.correctionReason.trim() || undefined, idempotencyKey: crypto.randomUUID() };
   }
-  function reviewDraft() { try { makeRequest(); setReview(true); setError(null); } catch (cause) { setError(cause instanceof Error ? cause.message : "Review the entered result."); } }
+  function reviewDraft() { if (!readableNow.current) return; try { makeRequest(); setReview(true); setError(null); } catch (cause) { setError(cause instanceof Error ? cause.message : "Review the entered result."); } }
   async function save() {
-    if (!draft || !review || disabled || busy || savedRevisionId || freshCurrent) return;
+    if (!readable || !draft || !review || disabled || busy || savedRevisionId || freshCurrent) return;
     setBusy(true); setError(null);
     try {
       const request = attempt ?? makeRequest();
@@ -83,10 +86,10 @@ export function StepExecutionPanel({ testRunId, testCase, stepFieldLabels, activ
     } finally { setBusy(false); }
   }
   async function refreshRejected() {
-    if (!draft || busy || !definitiveRejection || everAmbiguous) return;
+    if (!readable || !draft || busy || !definitiveRejection || everAmbiguous) return;
     setBusy(true);
     try {
-      const result = await utils.manualExecution.getForExecution.fetch({ testRunId });
+      const result = await utils.manualExecution.getForExecution.fetch({ testRunId, ...readScope });
       const currentCase = result.cases.find(item => item.testCaseId === testCase.testCaseId);
       if (!currentCase || !currentCase.stepExecutionAvailable) throw new Error("Per-step recording is no longer available for this case.");
       setFreshCurrent({ current: currentCase.stepResults.find(item => item.stepIndex === draft.stepIndex)?.current ?? null });
@@ -95,9 +98,11 @@ export function StepExecutionPanel({ testRunId, testCase, stepFieldLabels, activ
     finally { setBusy(false); }
   }
   async function viewFile(attachmentId: string) {
-    try { const { viewUrl } = await utils.testCaseAttachments.getViewUrl.fetch({ attachmentId }); window.open(viewUrl, "_blank", "noopener,noreferrer"); }
+    if (!readableNow.current) return;
+    try { const { viewUrl } = await utils.testCaseAttachments.getViewUrl.fetch({ attachmentId }); if (readableNow.current) window.open(viewUrl, "_blank", "noopener,noreferrer"); }
     catch { setError("This stored file could not be opened. Its recorded reference is retained."); }
   }
+  if (!readable) return null; // State stays mounted; private bodies and modal are not rendered.
   if (!testCase.stepExecutionAvailable && !hasSteps) return <p className="text-muted">{testCase.currentResult ? "This case already has a case-level verdict. Start a separate run to record structured step outcomes." : "This run has no frozen structured steps available for per-step outcomes. Use an explicit case-level result."}</p>;
   return <section style={{ margin: "14px 0" }}>
     {disabled && <p role="status" className="text-muted">Recording requires current edit access and an active run. Recorded step history remains available.</p>}

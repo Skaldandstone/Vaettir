@@ -1,10 +1,12 @@
 "use client";
 
-import { Suspense, useEffect, useState } from "react";
+import { Suspense, useEffect, useRef, useState } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { resolveQualityExperience } from "@vaettir/core";
 import { trpcReact, type RouterOutputs } from "@/lib/trpcReact";
-import { useProjectPermissions } from "@/lib/use-project-permissions";
+import { useManualExecutionAccess } from "@/lib/use-manual-execution-access";
+import { manualExecutionReadMatches } from "@/lib/manual-execution-read-policy";
+import { manualExecutionReadRequestKey } from "@vaettir/api/src/services/manualExecutionReadScopeSchema";
 import { StepExecutionPanel } from "@/components/StepExecutionPanel";
 import { ManualRetestActions } from "@/components/ManualRetestWizard";
 import { manualProcedurePhases } from "@/lib/manual-procedure-phases";
@@ -43,6 +45,8 @@ function CaseRow({
   onUnconfirmedStep,
   onUnconfirmedWholeCase,
   selectedFromHistory,
+  readable,
+  readScope,
 }: {
   projectId: string;
   testCase: ExecutionCase;
@@ -61,6 +65,8 @@ function CaseRow({
   onUnconfirmedStep: (pending: boolean) => void;
   onUnconfirmedWholeCase: (pending: boolean) => void;
   selectedFromHistory: boolean;
+  readable: boolean;
+  readScope: { projectId: string; originalOrganizationId?: string; expectedClerkActorId?: string };
 }) {
   const [expanded, setExpanded] = useState(false);
   useEffect(() => { if (selectedFromHistory) setExpanded(true); }, [selectedFromHistory]);
@@ -122,6 +128,7 @@ function CaseRow({
 
   return (
     <div id={manualCaseHistoryAnchor(testCase.testCaseId) ?? undefined} className="panel" style={{ marginBottom: 10, padding: 12 }}>
+      {readable && <>
       <div
         style={{
           display: "flex",
@@ -333,12 +340,13 @@ function CaseRow({
         </div>
       )}
 
-      <div hidden={!expanded}>
-        <StepExecutionPanel testRunId={testRunId} testCase={testCase} stepFieldLabels={stepFieldLabels} active={stepMode} disabled={disabled || busy || wholeCasePending} blockedBy={blockedBy} onModeActive={() => setStepModeChosen(true)} onChanged={onStepsChanged} onUnconfirmedChange={onUnconfirmedStep} />
-        <ManualCaseResultHistory key={`${projectId}:${testRunId}:${testCase.testCaseId}`} projectId={projectId} testRunId={testRunId} testCaseId={testCase.testCaseId} active={expanded && !stepMode} disabled={disabled || busy} onChanged={onStepsChanged} onUnconfirmedChange={pending => { setWholeCasePending(pending); onUnconfirmedWholeCase(pending); }} />
+      </>}
+      <div hidden={!expanded || !readable}>
+        <StepExecutionPanel testRunId={testRunId} testCase={testCase} stepFieldLabels={stepFieldLabels} readable={readable} readScope={readScope} active={stepMode} disabled={disabled || busy || wholeCasePending} blockedBy={blockedBy} onModeActive={() => setStepModeChosen(true)} onChanged={onStepsChanged} onUnconfirmedChange={onUnconfirmedStep} />
+        <ManualCaseResultHistory key={`${projectId}:${testRunId}:${testCase.testCaseId}`} projectId={projectId} testRunId={testRunId} testCaseId={testCase.testCaseId} active={readable && expanded && !stepMode} disabled={disabled || busy} onChanged={onStepsChanged} onUnconfirmedChange={pending => { setWholeCasePending(pending); onUnconfirmedWholeCase(pending); }} />
       </div>
 
-      {!stepMode && <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 8 }}>
+      {readable && !stepMode && <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 8 }}>
         <p style={{ flexBasis: "100%" }}>Quick initial observation (unversioned). Use the reviewed whole-case workflow above to retain immutable history. Existing observations must be corrected with review, not overwritten.</p>
         <button
           className="btn-secondary"
@@ -369,7 +377,7 @@ function CaseRow({
           Skip
         </button>
       </div>}
-      {error && <p role="alert">{error}</p>}
+      {readable && error && <p role="alert">{error}</p>}
     </div>
   );
 }
@@ -382,18 +390,31 @@ function ManualExecutionContent() {
   }>();
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { canEdit } = useProjectPermissions(projectId);
+  const access = useManualExecutionAccess(projectId);
   const utils = trpcReact.useUtils();
-  const dataQuery = trpcReact.manualExecution.getForExecution.useQuery({
-    testRunId,
-  });
+  const readInput = { testRunId, projectId, originalOrganizationId: access.origin?.organizationId, expectedClerkActorId: access.origin?.clerkActorId };
+  const dataQuery = trpcReact.manualExecution.getForExecution.useQuery(readInput, { enabled: access.ready, staleTime: 0, retry: false });
+  const readable = manualExecutionReadMatches({ projectId, testRunId, organizationId: access.origin?.organizationId, clerkActorId: access.origin?.clerkActorId,
+    requestKey: manualExecutionReadRequestKey(readInput), ready: access.ready, error: !!dataQuery.error, fetching: dataQuery.isFetching, paused: dataQuery.isPaused }, dataQuery.data);
+  const canEdit = readable && access.canWrite && dataQuery.data?.canWrite === true;
+  const accessNow = useRef({ readable, canEdit, ready: access.ready });
+  accessNow.current = { readable, canEdit, ready: access.ready };
   const [error, setError] = useState<string | null>(null);
   const [unconfirmedStepCases, setUnconfirmedStepCases] = useState<Set<string>>(() => new Set());
   const [unconfirmedWholeCases, setUnconfirmedWholeCases] = useState<Set<string>>(() => new Set());
+  const [retainedRetestCases, setRetainedRetestCases] = useState<Set<string>>(() => new Set());
+  useEffect(() => {
+    if (!readable || !dataQuery.data) return;
+    const qualifying = dataQuery.data.cases.filter(tc => tc.currentResult?.status === "FAIL" || tc.currentResult?.status === "BLOCKED" || dataQuery.data?.executionContext?.retest?.sourceCaseId === tc.testCaseId).map(tc => tc.testCaseId);
+    setRetainedRetestCases(current => {
+      if (qualifying.every(id => current.has(id))) return current;
+      return new Set([...current, ...qualifying]);
+    });
+  }, [readable, dataQuery.data]);
 
   const recordMutation = trpcReact.manualExecution.recordResult.useMutation();
   const completeMutation = trpcReact.manualExecution.complete.useMutation({
-    onSuccess: () => router.push(`/projects/${projectId}/test-runs`),
+    onSuccess: () => { if (accessNow.current.readable) router.push(`/projects/${projectId}/test-runs`); },
     onError: (e) => setError(e.message),
   });
 
@@ -403,6 +424,7 @@ function ManualExecutionContent() {
     note: string,
     observations: Observations,
   ) {
+    if (!accessNow.current.canEdit) throw Error("Restore current original workspace and full-editor access before recording. Local entries remain retained.");
     await recordMutation.mutateAsync({
       testRunId,
       testCaseId: caseId,
@@ -413,21 +435,29 @@ function ManualExecutionContent() {
     await utils.manualExecution.getForExecution.invalidate({ testRunId });
   }
 
-  const data = dataQuery.data;
+  const retainedNativeData = useRef<RouterOutputs["manualExecution"]["getForExecution"] | undefined>(undefined);
+  if (readable) retainedNativeData.current = dataQuery.data;
+  const data = readable ? dataQuery.data : retainedNativeData.current;
   const pageError = error ?? dataQuery.error?.message ?? null;
   const historySelection = manualCaseHistorySelection({ requestedCaseIds: searchParams.getAll("caseId"), projectId, testRunId,
-    fresh: !dataQuery.error && !dataQuery.isFetching && !dataQuery.isPaused, response: data });
+    fresh: readable, response: data });
   const selectedHistoryAnchor = historySelection.kind === "SELECTED" ? historySelection.anchor : null;
   useEffect(() => {
     if (selectedHistoryAnchor) document.getElementById(selectedHistoryAnchor)?.scrollIntoView({ block: "start" });
   }, [selectedHistoryAnchor]);
 
-  if (!data) return pageError ? <div><p role="alert" style={{ color: "var(--ember)" }}>{pageError}</p><button className="btn-secondary" onClick={() => void dataQuery.refetch()}>Retry loading run</button></div> : <p>Loading…</p>;
+  async function recheckAccess() {
+    await access.refresh();
+    if (accessNow.current.ready) await dataQuery.refetch();
+  }
+  if (!data) return <section role={access.denied || pageError ? "alert" : "status"}><p>{access.denied ? "Original workspace and signed-in actor access could not be verified." : pageError ? "The exact saved run could not be loaded." : "Verifying current original workspace and saved-run access…"}</p><button type="button" className="btn-secondary" onClick={() => void recheckAccess()}>Recheck original run access</button></section>;
 
   const recordedCount = data.cases.filter((c) => c.currentResult).length;
 
   return (
     <div style={{ maxWidth: 800 }}>
+      {!readable && <section role={access.denied || !!dataQuery.error ? "alert" : "status"}><p>Current original actor, workspace and exact saved run must be verified. Private cached procedures and observations are hidden; mounted drafts and identical requests remain retained.</p><button type="button" className="btn-secondary" onClick={() => void recheckAccess()}>Recheck original run access</button></section>}
+      {readable && <>
       {historySelection.kind === "UNAVAILABLE" && <p role="alert">The exact requested case is not uniquely present in this run's supported saved procedure. No other case was selected, and the current case definition was not substituted.</p>}
       {historySelection.kind === "WAITING" && <p role="status">Verifying the exact saved run before selecting its requested case. This link does not record any result.</p>}
       {pageError && <div><p role="alert" style={{ color: "var(--ember)" }}>{pageError} Displayed evidence and open drafts are retained.</p><button className="btn-secondary" onClick={() => { setError(null); void dataQuery.refetch(); }}>Refresh run without discarding drafts</button></div>}
@@ -444,6 +474,7 @@ function ManualExecutionContent() {
         <button
           className="btn-primary"
           onClick={() => {
+            if (!accessNow.current.canEdit) return;
             if (
               recordedCount === data.cases.length ||
               confirm("Some cases have no result. Finish as an incomplete run?")
@@ -465,7 +496,6 @@ function ManualExecutionContent() {
       <p className="text-muted" style={{ fontSize: 13 }}>
         {recordedCount} / {data.cases.length} recorded · status: {data.status}
       </p>
-      {data.cases.filter(tc => tc.currentResult?.status === "FAIL" || tc.currentResult?.status === "BLOCKED" || data.executionContext?.retest?.sourceCaseId === tc.testCaseId).map(tc => <section key={`retest:${tc.testCaseId}`} style={{border:"1px solid var(--line)",padding:12,marginBottom:12,minWidth:0}}><h2 style={{fontSize:16}}>Retest relationships · {tc.displayId ?? tc.title}</h2><ManualRetestActions key={`${projectId}:${testRunId}:${tc.testCaseId}`} projectId={projectId} sourceRunId={testRunId} testCaseId={tc.testCaseId} canRetest={canEdit && (tc.currentResult?.status === "FAIL" || tc.currentResult?.status === "BLOCKED")} /></section>)}
       {data.executionContext?.datasetExecution && <section style={{border:"1px solid var(--line)",padding:12,marginBottom:16}}>
         <h2 style={{fontSize:18}}>Dataset row {data.executionContext.datasetExecution.rowIndex + 1}: {data.executionContext.datasetExecution.rowName}</h2>
         <p>{data.executionContext.datasetExecution.sourceDisplayId} · one independently recorded row run. Prerequisites must pass within this run, not in a sibling row or another configuration.</p>
@@ -490,6 +520,9 @@ function ManualExecutionContent() {
         <dl>{Object.entries(data.executionContext.configuration).filter(([, value]) => value).map(([key, value]) => <div key={key} style={{ marginBottom: 8 }}><dt>{key.replace(/([A-Z])/g, " $1")}</dt><dd style={{ margin: 0, whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>{value}</dd></div>)}</dl>
         {data.executionContext.experience && <ul>{resolveQualityExperience(data.executionContext.experience).runGuidance.map(note => <li key={note}>{note}</li>)}</ul>}
       </details> : <p className="text-muted">Legacy run: no saved profile/configuration snapshot. The displayed procedure may reflect later case edits.</p>}
+      </>}
+
+      {data.cases.filter(tc => retainedRetestCases.has(tc.testCaseId) || tc.currentResult?.status === "FAIL" || tc.currentResult?.status === "BLOCKED" || data.executionContext?.retest?.sourceCaseId === tc.testCaseId).map(tc => <section key={`retest:${tc.testCaseId}`} style={{border:"1px solid var(--line)",padding:12,marginBottom:12,minWidth:0}}>{readable && <h2 style={{fontSize:16}}>Retest relationships · {tc.displayId ?? tc.title}</h2>}<ManualRetestActions key={`${projectId}:${testRunId}:${tc.testCaseId}`} projectId={projectId} sourceRunId={testRunId} testCaseId={tc.testCaseId} active={readable} canRetest={canEdit && (tc.currentResult?.status === "FAIL" || tc.currentResult?.status === "BLOCKED")} /></section>)}
 
       {data.cases.map((tc) => (
         <CaseRow
@@ -498,6 +531,8 @@ function ManualExecutionContent() {
           testCase={tc}
           testRunId={testRunId}
           selectedFromHistory={historySelection.kind === "SELECTED" && historySelection.caseId === tc.testCaseId}
+          readable={readable}
+          readScope={readInput}
           onStepsChanged={() => utils.manualExecution.getForExecution.invalidate({ testRunId })}
           onUnconfirmedStep={pending => setUnconfirmedStepCases(current => { const next = new Set(current); if (pending) next.add(tc.testCaseId); else next.delete(tc.testCaseId); return next; })}
           onUnconfirmedWholeCase={pending => setUnconfirmedWholeCases(current => { if (current.has(tc.testCaseId) === pending) return current; const next = new Set(current); if (pending) next.add(tc.testCaseId); else next.delete(tc.testCaseId); return next; })}
@@ -518,5 +553,6 @@ function ManualExecutionContent() {
 }
 
 export default function ManualExecutionPage() {
-  return <Suspense fallback={<p role="status">Loading saved run selection…</p>}><ManualExecutionContent /></Suspense>;
+  const { projectId, testRunId } = useParams<{ projectId: string; testRunId: string }>();
+  return <Suspense fallback={<p role="status">Loading saved run selection…</p>}><ManualExecutionContent key={`${projectId}:${testRunId}`} /></Suspense>;
 }
