@@ -18,6 +18,7 @@ import {
   EXECUTION_OUTCOMES,
   EXECUTION_OUTCOME_COLORS,
   renderRecordedExecutionTrendCsv,
+  renderRecordedExecutionTrendHtml,
   executionTrendPeriods,
   type ExecutionTrendGrouping,
   type ExecutionTrendPeriod,
@@ -76,6 +77,11 @@ function ExecutionTrend({ projectId }: { projectId: string }) {
   const [message, setMessage] = useState("");
   const [selectedDay, setSelectedDay] = useState("");
   const [exportOpen, setExportOpen] = useState(false);
+  const [exportFormat, setExportFormat] = useState<"CSV" | "HTML">("CSV");
+  const [reviewedFormat, setReviewedFormat] = useState<"CSV" | "HTML" | null>(
+    null,
+  );
+  const [reviewedEpoch, setReviewedEpoch] = useState(-1);
   const [reviewed, setReviewed] = useState<Trend | null>(null);
   const [grouping, setGrouping] = useState<ExecutionTrendGrouping>("DAY");
   const [reviewedGrouping, setReviewedGrouping] =
@@ -117,10 +123,41 @@ function ExecutionTrend({ projectId }: { projectId: string }) {
     }
   }
   const data = periodError ? null : availableData;
+  const exportEpoch = useRef(0);
+  const exportRevision = query.dataUpdatedAt;
+  const previousExport = useRef({
+    data,
+    exportOpen,
+    grouping,
+    includeRecordedDuration,
+    exportFormat,
+    exportRevision,
+  });
+  if (
+    previousExport.current.data !== data ||
+    previousExport.current.exportOpen !== exportOpen ||
+    previousExport.current.grouping !== grouping ||
+    previousExport.current.includeRecordedDuration !==
+      includeRecordedDuration ||
+    previousExport.current.exportFormat !== exportFormat ||
+    previousExport.current.exportRevision !== exportRevision
+  ) {
+    exportEpoch.current++;
+    previousExport.current = {
+      data,
+      exportOpen,
+      grouping,
+      includeRecordedDuration,
+      exportFormat,
+      exportRevision,
+    };
+  }
   useEffect(() => {
     setReviewed(null);
     setReviewedGrouping(null);
     setReviewedDuration(null);
+    setReviewedFormat(null);
+    setReviewedEpoch(-1);
   }, [
     query.dataUpdatedAt,
     query.isFetching,
@@ -131,14 +168,35 @@ function ExecutionTrend({ projectId }: { projectId: string }) {
     exportOpen,
     grouping,
     includeRecordedDuration,
+    exportFormat,
   ]);
   const latest = useRef({
     data,
     exportOpen,
     grouping,
     includeRecordedDuration,
+    exportFormat,
+    epoch: exportEpoch.current,
   });
-  latest.current = { data, exportOpen, grouping, includeRecordedDuration };
+  latest.current = {
+    data,
+    exportOpen,
+    grouping,
+    includeRecordedDuration,
+    exportFormat,
+    epoch: exportEpoch.current,
+  };
+  useEffect(
+    () => () => {
+      latest.current = {
+        ...latest.current,
+        data: null,
+        exportOpen: false,
+        epoch: -1,
+      };
+    },
+    [],
+  );
   function useDateShortcut() {
     if (!sameOrigin) return;
     try {
@@ -183,34 +241,55 @@ function ExecutionTrend({ projectId }: { projectId: string }) {
       !data ||
       reviewed !== data ||
       reviewedGrouping !== grouping ||
-      reviewedDuration !== includeRecordedDuration
+      reviewedDuration !== includeRecordedDuration ||
+      reviewedFormat !== exportFormat ||
+      reviewedEpoch !== exportEpoch.current
     )
       return;
     try {
-      const csv = renderRecordedExecutionTrendCsv(
-        data,
-        grouping,
-        includeRecordedDuration,
-      );
+      const output =
+        exportFormat === "CSV"
+          ? renderRecordedExecutionTrendCsv(
+              data,
+              grouping,
+              includeRecordedDuration,
+            )
+          : renderRecordedExecutionTrendHtml(
+              data,
+              grouping,
+              includeRecordedDuration,
+            );
       if (
         latest.current.data !== data ||
         !latest.current.exportOpen ||
         latest.current.grouping !== grouping ||
-        latest.current.includeRecordedDuration !== includeRecordedDuration
+        latest.current.includeRecordedDuration !== includeRecordedDuration ||
+        latest.current.exportFormat !== exportFormat ||
+        latest.current.epoch !== reviewedEpoch
       )
         return;
-      const url = URL.createObjectURL(
-        new Blob([csv], { type: "text/csv;charset=utf-8" }),
-      );
+      latest.current.exportOpen = false;
+      setReviewed(null);
       const anchor = document.createElement("a");
-      anchor.href = url;
-      anchor.download = `vaettir-recorded-outcomes-${grouping.toLowerCase()}${includeRecordedDuration ? "-duration" : ""}-${data.scope.start}-${data.scope.end}.csv`;
-      document.body.appendChild(anchor);
-      anchor.click();
-      anchor.remove();
-      setTimeout(() => URL.revokeObjectURL(url), 1000);
+      const url = URL.createObjectURL(
+        new Blob([output], {
+          type:
+            exportFormat === "CSV"
+              ? "text/csv;charset=utf-8"
+              : "text/html;charset=utf-8",
+        }),
+      );
+      try {
+        anchor.href = url;
+        anchor.download = `vaettir-recorded-outcomes-${grouping.toLowerCase()}${includeRecordedDuration ? "-duration" : ""}-${data.scope.start}-${data.scope.end}.${exportFormat === "CSV" ? "csv" : "html"}`;
+        document.body.appendChild(anchor);
+        anchor.click();
+      } finally {
+        anchor.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 1000);
+      }
       setMessage(
-        "CSV prepared from the reviewed read-time data. Check your browser downloads.",
+        "File prepared from the reviewed read-time data. Check your browser downloads and review recipient suitability; no external access was granted.",
       );
       setExportOpen(false);
       setReviewed(null);
@@ -218,7 +297,7 @@ function ExecutionTrend({ projectId }: { projectId: string }) {
       setMessage(
         error instanceof Error
           ? error.message
-          : "CSV could not be prepared. Nothing was replaced.",
+          : "The reviewed file could not be prepared. Nothing was replaced.",
       );
     }
   }
@@ -486,7 +565,7 @@ function ExecutionTrend({ projectId }: { projectId: string }) {
                 setReviewed(null);
               }}
             >
-              Review aggregate CSV
+              Export recorded outcome overview
             </button>
           </div>
           {grouping === "WEEK" && (
@@ -690,13 +769,14 @@ function ExecutionTrend({ projectId }: { projectId: string }) {
       <DialogFrame
         open={exportOpen}
         onClose={() => {
+          latest.current.exportOpen = false;
           setExportOpen(false);
           setReviewed(null);
         }}
         className="modal-dialog"
-        label="Review recorded outcome CSV"
+        label="Review recorded outcome export"
       >
-        <h2>Review aggregate CSV</h2>
+        <h2>Review aggregate export</h2>
         {!data ? (
           <p role="status">
             Current scoped evidence is unavailable. Previous review is invalid;
@@ -718,11 +798,36 @@ function ExecutionTrend({ projectId }: { projectId: string }) {
               inferred.
             </p>
             <p>
-              This is a read-time CSV, not an immutable approved stakeholder
+              This is a read-time export, not an immutable approved stakeholder
               snapshot. It includes exact selected configuration labels and
               evidence limits, but no raw run/case identities, source, notes or
               errors. Review its recipients; it grants no access.
             </p>
+            <label style={{ display: "grid", gap: 6, marginBlock: 12 }}>
+              File format
+              <select
+                value={exportFormat}
+                onChange={(event) => {
+                  if (
+                    event.target.value === "CSV" ||
+                    event.target.value === "HTML"
+                  )
+                    setExportFormat(event.target.value);
+                }}
+              >
+                <option value="CSV">CSV for spreadsheets</option>
+                <option value="HTML">
+                  Portable HTML overview for stakeholder review and printing
+                </option>
+              </select>
+            </label>
+            {exportFormat === "HTML" && (
+              <p>
+                Offline text-only report with common-scale bars and complete
+                numeric tables. Use your browser's Print command after opening
+                the downloaded file. Vaettir does not generate or deliver a PDF.
+              </p>
+            )}
             <label
               style={{ display: "flex", gap: 8, alignItems: "flex-start" }}
             >
@@ -740,7 +845,7 @@ function ExecutionTrend({ projectId }: { projectId: string }) {
             </label>
             {includeRecordedDuration && (
               <p>
-                The CSV preserves valid duration sums in milliseconds,
+                The export preserves valid duration sums in milliseconds,
                 missing/invalid counts and incomplete completion evidence. It
                 does not estimate human effort, normalize throughput, compare
                 performance or certify completed tests.
@@ -754,7 +859,9 @@ function ExecutionTrend({ projectId }: { projectId: string }) {
                 checked={
                   reviewed === data &&
                   reviewedGrouping === grouping &&
-                  reviewedDuration === includeRecordedDuration
+                  reviewedDuration === includeRecordedDuration &&
+                  reviewedFormat === exportFormat &&
+                  reviewedEpoch === exportEpoch.current
                 }
                 onChange={(event) => {
                   setReviewed(event.target.checked ? data : null);
@@ -762,10 +869,14 @@ function ExecutionTrend({ projectId }: { projectId: string }) {
                   setReviewedDuration(
                     event.target.checked ? includeRecordedDuration : null,
                   );
+                  setReviewedFormat(event.target.checked ? exportFormat : null);
+                  setReviewedEpoch(
+                    event.target.checked ? exportEpoch.current : -1,
+                  );
                 }}
               />{" "}
               I reviewed these exact current counts, grouping, optional duration
-              columns, scope labels and sharing boundaries.
+              columns, file format, scope labels and sharing boundaries.
             </label>
           </>
         )}
@@ -776,6 +887,7 @@ function ExecutionTrend({ projectId }: { projectId: string }) {
             type="button"
             className="btn-secondary"
             onClick={() => {
+              latest.current.exportOpen = false;
               setExportOpen(false);
               setReviewed(null);
             }}
@@ -789,11 +901,13 @@ function ExecutionTrend({ projectId }: { projectId: string }) {
               !data ||
               reviewed !== data ||
               reviewedGrouping !== grouping ||
-              reviewedDuration !== includeRecordedDuration
+              reviewedDuration !== includeRecordedDuration ||
+              reviewedFormat !== exportFormat ||
+              reviewedEpoch !== exportEpoch.current
             }
             onClick={download}
           >
-            Prepare CSV
+            Prepare reviewed file
           </button>
         </div>
       </DialogFrame>

@@ -97,3 +97,22 @@ test("date shortcuts require a separate action and never apply or replace the re
   ])
     assert.ok(!action.includes(forbidden), forbidden);
 });
+test("portable HTML format and fresh response revision invalidate exact export review synchronously", () => {
+  assert.match(
+    source,
+    /renderRecordedExecutionTrendHtml\(\s*data,\s*grouping,\s*includeRecordedDuration,?\s*\)/,
+  );
+  assert.match(
+    source,
+    /previousExport.current.exportRevision !== exportRevision/,
+  );
+  assert.match(source, /reviewedEpoch !== exportEpoch.current/);
+  assert.match(source, /latest.current.epoch !== reviewedEpoch/);
+  assert.match(source, /reviewedFormat !== exportFormat/);
+  assert.match(source, /latest.current.exportFormat !== exportFormat/);
+  assert.match(source, /setReviewedFormat\(null\)/);
+  assert.match(source, /epoch: -1/);
+  assert.match(source, /File format/);
+  assert.match(source, /does not generate or deliver a PDF/);
+  assert.match(source, /finally\s*{\s*anchor.remove\(\)/);
+});

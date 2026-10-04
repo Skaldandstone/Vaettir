@@ -8,6 +8,7 @@ import {
 } from "@vaettir/api/src/services/recordedExecutionTrendSchema";
 import { reportDateIntervalSchema } from "@vaettir/api/src/services/reportDateIntervalSchema";
 import { resolveExecutionDatePreset } from "./execution-date-presets";
+import { renderRecordedExecutionPortableHtml } from "./recorded-execution-trend-html";
 export const EXECUTION_OUTCOMES = [
   "PASS",
   "FAIL",
@@ -273,5 +274,17 @@ export function renderRecordedExecutionTrendCsv(
         (includeRecordedDuration ? 20 : 13) - row.length,
       ).fill(""),
     ]),
+  );
+}
+export function renderRecordedExecutionTrendHtml(
+  value: RecordedExecutionTrend,
+  grouping: ExecutionTrendGrouping = "DAY",
+  includeRecordedDuration = false,
+) {
+  return renderRecordedExecutionPortableHtml(
+    value,
+    executionTrendPeriods(value, grouping),
+    grouping,
+    includeRecordedDuration,
   );
 }
