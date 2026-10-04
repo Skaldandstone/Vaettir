@@ -7,6 +7,7 @@ import {
   type RecordedExecutionTrend,
 } from "@vaettir/api/src/services/recordedExecutionTrendSchema";
 import { reportDateIntervalSchema } from "@vaettir/api/src/services/reportDateIntervalSchema";
+import { resolveExecutionDatePreset } from "./execution-date-presets";
 export const EXECUTION_OUTCOMES = [
   "PASS",
   "FAIL",
@@ -25,11 +26,7 @@ export const EXECUTION_OUTCOME_COLORS: Record<
   BLOCKED: "#ab9dc9",
 };
 export function defaultExecutionTrendDates(now = new Date()) {
-  const end = now.toISOString().slice(0, 10),
-    start = new Date(Date.parse(`${end}T00:00:00.000Z`) - 13 * 86400000)
-      .toISOString()
-      .slice(0, 10);
-  return { start, end };
+  return resolveExecutionDatePreset("LAST_14", now);
 }
 export type ExecutionTrendGrouping = "DAY" | "WEEK";
 type TrendDay = RecordedExecutionTrend["days"][number];

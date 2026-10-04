@@ -5,6 +5,10 @@ import Link from "next/link";
 import { trpcReact, type RouterOutputs } from "@/lib/trpcReact";
 import { DialogFrame } from "./ui/DialogFrame";
 import {
+  executionDatePresets,
+  resolveExecutionDatePreset,
+} from "@/lib/execution-date-presets";
+import {
   recordedExecutionTrendInput,
   recordedExecutionTrendKey,
   type RecordedExecutionTrendInput,
@@ -60,6 +64,7 @@ function ExecutionTrend({ projectId }: { projectId: string }) {
     origin?.organizationId === organizationId &&
     origin?.actorId === userId;
   const [dates, setDates] = useState(() => defaultExecutionTrendDates());
+  const [datePreset, setDatePreset] = useState("");
   const [filters, setFilters] = useState({
     platform: "",
     environment: "",
@@ -134,6 +139,22 @@ function ExecutionTrend({ projectId }: { projectId: string }) {
     includeRecordedDuration,
   });
   latest.current = { data, exportOpen, grouping, includeRecordedDuration };
+  function useDateShortcut() {
+    if (!sameOrigin) return;
+    try {
+      const next = resolveExecutionDatePreset(datePreset);
+      setDates(next);
+      setMessage(
+        "Shortcut dates are ready to review. Choose Show recorded outcomes to apply them; the previous view and exports still use the applied dates.",
+      );
+    } catch (error) {
+      setMessage(
+        error instanceof Error
+          ? error.message
+          : "The shortcut could not be resolved. Your dates were not changed.",
+      );
+    }
+  }
   function applyScope(event: FormEvent) {
     event.preventDefault();
     if (!sameOrigin) return;
@@ -272,6 +293,55 @@ function ExecutionTrend({ projectId }: { projectId: string }) {
               />
             </label>
           </div>
+          <details>
+            <summary>Date shortcuts (optional)</summary>
+            <p>
+              Shortcuts resolve once in UTC. Most include today's incomplete
+              date; the previous-month option uses a complete calendar month.
+              These are draft dates, not a schedule or a change to captured
+              reports.
+            </p>
+            <div
+              style={{
+                display: "flex",
+                flexWrap: "wrap",
+                gap: 8,
+                alignItems: "end",
+              }}
+            >
+              <label style={{ flex: "1 1 220px", minWidth: 0 }}>
+                Date shortcut
+                <select
+                  style={fieldStyle}
+                  value={datePreset}
+                  onChange={(event) => setDatePreset(event.target.value)}
+                >
+                  <option value="">Choose a UTC shortcut…</option>
+                  {executionDatePresets.map((item) => (
+                    <option key={item.id} value={item.id}>
+                      {item.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <button
+                type="button"
+                className="btn-secondary"
+                disabled={!datePreset}
+                onClick={useDateShortcut}
+              >
+                Use shortcut dates
+              </button>
+            </div>
+          </details>
+          {applied &&
+            (dates.start !== applied.start || dates.end !== applied.end) && (
+              <p role="status">
+                Date edits have not been applied. The current view, refresh and
+                export still use {applied.start} through {applied.end} UTC.
+                Choose Show recorded outcomes to replace this view.
+              </p>
+            )}
           <details>
             <summary>Recorded configuration filters (optional)</summary>
             <p>

@@ -75,3 +75,25 @@ test("duration evidence is explicit and optional columns cannot reuse a differen
   assert.match(source, /setReviewedDuration\(null\)/);
   assert.match(source, /seven\s+additional columns/);
 });
+
+test("date shortcuts require a separate action and never apply or replace the recorded scope implicitly", () => {
+  assert.match(source, /Date shortcuts \(optional\)/);
+  assert.match(source, /<select[\s\S]*value={datePreset}/);
+  assert.match(source, /Use shortcut dates/);
+  assert.match(source, /Date edits have not been applied/);
+  const actionStart = source.indexOf("function useDateShortcut()");
+  const actionEnd = source.indexOf("function applyScope", actionStart);
+  assert.ok(actionStart >= 0 && actionEnd > actionStart);
+  const action = source.slice(actionStart, actionEnd);
+  assert.match(action, /if \(!sameOrigin\) return/);
+  assert.match(action, /resolveExecutionDatePreset\(datePreset\)/);
+  assert.match(action, /setDates\(next\)/);
+  for (const forbidden of [
+    "setApplied(",
+    "refetch(",
+    "mutate(",
+    "setFilters(",
+    "setReviewed(",
+  ])
+    assert.ok(!action.includes(forbidden), forbidden);
+});
