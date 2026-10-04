@@ -8,6 +8,8 @@ import {
   type FrozenReportPayload,
 } from "@/lib/frozen-report";
 import { ReportSnapshotEvidence } from "./ReportSnapshotEvidence";
+import { REPORT_TEMPLATES } from "@/lib/report-templates";
+import { ReportOutcomeChart } from "./ReportOutcomeChart";
 
 export function FrozenReport({
   report,
@@ -59,6 +61,12 @@ export function FrozenReport({
           {readableMetric(report.definition.audience)} · {report.state}
         </p>
         <h2>{report.title}</h2>
+        {report.definition.templateId && (
+          <p className="text-muted">
+            Started from: {REPORT_TEMPLATES[report.definition.templateId].title}
+            . Metric sections and author notes are captured below.
+          </p>
+        )}
         <p className="text-muted">
           {report.projectName} · Captured{" "}
           {new Date(report.asOf).toLocaleString()}
@@ -131,6 +139,7 @@ export function FrozenReport({
       ).map((section) => (
         <section key={section} style={{ marginBlock: 20 }}>
           <h3>{readableMetric(section)}</h3>
+          {section === "execution" && <ReportOutcomeChart report={report} />}
           <div className="table-scroll">
             <table
               className="workspace-table"

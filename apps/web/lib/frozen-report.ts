@@ -187,6 +187,32 @@ export function reportMetricRows(report: FrozenReportPayload) {
     );
   return rows;
 }
+/** The longest recorded outcome is the visual scale, not a pass-rate denominator. */
+export function reportOutcomeChart(report: FrozenReportPayload) {
+  if (!report.definition.sections.includes("execution")) return null;
+  const maximum = Math.max(
+    0,
+    ...report.execution.outcomes.map((row) => row.count),
+  );
+  return {
+    recordedResults: report.execution.results,
+    rows: report.execution.outcomes.map((row) => ({
+      key: row.key,
+      label: readableMetric(row.key),
+      count: row.count,
+      width: maximum ? (row.count / maximum) * 100 : 0,
+    })),
+    note: "Recorded outcome counts only. Bar length is relative to the largest count, not a pass rate. Planned checks without a recorded result are reported separately; no result does not mean pass.",
+  };
+}
+
+/** Portable bars retain exact text counts and need no scripts or external assets. */
+export function renderReportOutcomeChart(report: FrozenReportPayload) {
+  const chart = reportOutcomeChart(report);
+  if (!chart) return "";
+  return `<div><h3>Recorded outcomes</h3><p>${escape(chart.recordedResults)} recorded results in the selected window.</p>${chart.rows.length ? `<ul style="padding:0;list-style:none">${chart.rows.map((row) => `<li style="margin:12px 0"><div style="display:flex;justify-content:space-between;gap:12px"><span>${escape(row.label)}</span><strong>${escape(row.count)}</strong></div><div aria-hidden="true" style="height:8px;background:#edf3ee;margin-top:4px"><div style="height:100%;background:#70957e;width:${row.width}%"></div></div></li>`).join("")}</ul>` : "<p>No recorded outcomes in this window. This is not a passing result.</p>"}<p><small>${escape(chart.note)}</small></p></div>`;
+}
+
 const escape = (value: unknown) =>
   String(value)
     .replaceAll("&", "&amp;")
@@ -212,7 +238,7 @@ export function renderFrozenReportHtml(report: FrozenReportPayload): string {
     .join("")}${groups
     .map(
       (section) =>
-        `<section><h2>${escape(readableMetric(section))}</h2><table><thead><tr><th scope="col">Metric</th><th scope="col">Recorded value</th></tr></thead><tbody>${rows
+        `<section><h2>${escape(readableMetric(section))}</h2>${section === "execution" ? renderReportOutcomeChart(report) : ""}<table><thead><tr><th scope="col">Metric</th><th scope="col">Recorded value</th></tr></thead><tbody>${rows
           .filter((row) => row.section === section)
           .map(
             (row) =>

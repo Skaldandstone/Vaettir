@@ -1,8 +1,8 @@
 "use client";
 import { useState } from "react";
-import Link from "next/link";
 import { DialogFrame } from "./ui/DialogFrame";
 import { FrozenReport } from "./FrozenReport";
+import { ReportSnapshotCatalog } from "./ReportSnapshotCatalog";
 import {
   trpcReact,
   type RouterInputs,
@@ -10,14 +10,21 @@ import {
 } from "@/lib/trpcReact";
 import { canEditProject } from "@/lib/membership";
 import { REPORT_SECTIONS, readableMetric } from "@/lib/frozen-report";
+import {
+  REPORT_TEMPLATES,
+  REPORT_TEMPLATE_IDS,
+  applyReportTemplate,
+  type ReportTemplateId,
+} from "@/lib/report-templates";
 
 type Definition = RouterInputs["reportSnapshots"]["preview"]["definition"];
 type PreviewRequest = RouterInputs["reportSnapshots"]["preview"];
 type Preview = RouterOutputs["reportSnapshots"]["preview"];
 const freshDefinition = (): Definition => ({
   audience: "stakeholders",
+  templateId: "quality-status",
   windowDays: 30,
-  sections: ["inventory", "execution", "traceability", "defects", "automation"],
+  sections: [...REPORT_TEMPLATES["quality-status"].sections],
   summary: "",
   risks: "",
   nextActions: "",
@@ -26,6 +33,7 @@ export function ReportBuilder({ projectId }: { projectId: string }) {
   return <ProjectReportBuilder key={projectId} projectId={projectId} />;
 }
 function ProjectReportBuilder({ projectId }: { projectId: string }) {
+  const utils = trpcReact.useUtils();
   const project = trpcReact.project.byId.useQuery({ id: projectId });
   const organizations = trpcReact.organization.mine.useQuery();
   const readOnly =
@@ -43,8 +51,15 @@ function ProjectReportBuilder({ projectId }: { projectId: string }) {
   const definitions = trpcReact.reportSnapshots.definitions.useQuery({
     projectId,
   });
-  const snapshots = trpcReact.reportSnapshots.list.useQuery({ projectId });
   const drafts = trpcReact.reportSnapshots.drafts.useQuery({ projectId });
+  const availableDefinitions =
+    !definitions.error && !definitions.isFetching && !definitions.isPaused
+      ? definitions.data
+      : undefined;
+  const availableDrafts =
+    !drafts.error && !drafts.isFetching && !drafts.isPaused
+      ? drafts.data
+      : undefined;
   const [open, setOpen] = useState(false);
   const scopeOptions = trpcReact.reportSnapshots.scopeOptions.useQuery(
     { projectId },
@@ -61,7 +76,9 @@ function ProjectReportBuilder({ projectId }: { projectId: string }) {
   const [title, setTitle] = useState("Quality status review");
   const [definition, setDefinition] = useState<Definition>(freshDefinition);
   const [request, setRequest] = useState<PreviewRequest | null>(null);
-  const [review, setReview] = useState<Preview | null>(null);
+  const [review, setReview] = useState<
+    (Preview & { reviewOrgId: string }) | null
+  >(null);
   const [saveRequest, setSaveRequest] = useState<
     RouterInputs["reportSnapshots"]["saveDefinition"] | null
   >(null);
@@ -75,17 +92,20 @@ function ProjectReportBuilder({ projectId }: { projectId: string }) {
     { enabled: open && !!resumeId, staleTime: 0 },
   );
   const busy = preview.isPending || approve.isPending || save.isPending;
-  const current =
-    review ??
-    (open &&
-    !resume.error &&
-    !resume.isFetching &&
-    !resume.isPaused &&
-    resume.data?.id === resumeId &&
-    resume.data.payload.state === "preview"
-      ? resume.data
-      : null);
-  const frozen = !!request || !!current || !!saveRequest;
+  const current = !readOnly
+    ? ((review?.reviewOrgId === project.data?.organizationId ? review : null) ??
+      (open &&
+      !resume.error &&
+      !resume.isFetching &&
+      !resume.isPaused &&
+      resume.data?.id === resumeId &&
+      resume.data.payload.state === "preview"
+        ? resume.data
+        : null))
+    : null;
+  // Retain exact pending/reviewed context when permission or connection fails;
+  // hiding a cached payload must not unlock or silently replace its request.
+  const frozen = !!request || !!review || !!resumeId || !!saveRequest;
   const invalidInterval =
     !!definition.dateInterval &&
     (!definition.dateInterval.start ||
@@ -132,8 +152,8 @@ function ProjectReportBuilder({ projectId }: { projectId: string }) {
     setMessage("");
     try {
       const result = await preview.mutateAsync(input);
-      setReview(result);
-      setStep(3);
+      setReview({ ...result, reviewOrgId: project.data?.organizationId ?? "" });
+      setStep(4);
       await drafts.refetch();
     } catch (error) {
       const code = (error as { data?: { code?: string } }).data?.code;
@@ -163,7 +183,7 @@ function ProjectReportBuilder({ projectId }: { projectId: string }) {
         previewId: current.id,
         approveSharing: true,
       });
-      await snapshots.refetch();
+      await utils.reportSnapshots.catalog.invalidate();
       setRequest(null);
       setResumeId("");
       setMessage(
@@ -245,7 +265,7 @@ function ProjectReportBuilder({ projectId }: { projectId: string }) {
             project.refetch(),
             organizations.refetch(),
             definitions.refetch(),
-            snapshots.refetch(),
+            utils.reportSnapshots.catalog.invalidate(),
             drafts.refetch(),
             ...(resumeId ? [resume.refetch()] : []),
           ])
@@ -258,10 +278,10 @@ function ProjectReportBuilder({ projectId }: { projectId: string }) {
         <select
           value=""
           disabled={
-            readOnly || definitions.isLoading || !!request || !!saveRequest
+            readOnly || !availableDefinitions || !!request || !!saveRequest
           }
           onChange={(event) => {
-            const saved = definitions.data?.find(
+            const saved = availableDefinitions?.find(
               (row) => row.id === event.target.value,
             );
             if (!saved) return;
@@ -271,18 +291,20 @@ function ProjectReportBuilder({ projectId }: { projectId: string }) {
           }}
         >
           <option value="">Choose a reusable report</option>
-          {definitions.data?.map((row) => (
+          {availableDefinitions?.map((row) => (
             <option key={row.id} value={row.id}>
               {row.name}
             </option>
           ))}
         </select>
       </label>
-      {drafts.data && drafts.data.length > 0 && !readOnly && (
+      {availableDrafts && availableDrafts.length > 0 && !readOnly && (
         <details style={{ marginTop: 12 }}>
-          <summary>Resume a saved preview ({drafts.data.length})</summary>
+          <summary>
+            Resume a saved preview (latest {availableDrafts.length})
+          </summary>
           <ul>
-            {drafts.data.map((row) => (
+            {availableDrafts.map((row) => (
               <li key={row.id}>
                 <button
                   className="btn-secondary"
@@ -291,7 +313,7 @@ function ProjectReportBuilder({ projectId }: { projectId: string }) {
                   onClick={() => {
                     setReview(null);
                     setResumeId(row.id);
-                    setStep(3);
+                    setStep(4);
                     setMessage("");
                     setOpen(true);
                   }}
@@ -303,37 +325,8 @@ function ProjectReportBuilder({ projectId }: { projectId: string }) {
           </ul>
         </details>
       )}
-      {snapshots.data && snapshots.data.length > 0 ? (
-        <div className="table-scroll" style={{ marginTop: 16 }}>
-          <table className="workspace-table">
-            <thead>
-              <tr>
-                <th scope="col">Frozen snapshot</th>
-                <th scope="col">Captured</th>
-                <th scope="col">Review</th>
-              </tr>
-            </thead>
-            <tbody>
-              {snapshots.data.map((row) => (
-                <tr key={row.id}>
-                  <th scope="row">{row.title}</th>
-                  <td>{new Date(row.asOf).toLocaleString()}</td>
-                  <td>
-                    <Link
-                      href={`/projects/${encodeURIComponent(projectId)}/reports/snapshots/${row.id}`}
-                    >
-                      Open report
-                    </Link>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      ) : (
-        <p className="text-muted">No approved snapshots yet.</p>
-      )}
-      {(snapshots.error || definitions.error || drafts.error) && (
+      <ReportSnapshotCatalog projectId={projectId} />
+      {(definitions.error || drafts.error) && (
         <p role="alert">
           Reports could not be refreshed. Existing drafts are retained; retry
           after access is restored.
@@ -363,10 +356,51 @@ function ProjectReportBuilder({ projectId }: { projectId: string }) {
           </button>
         </div>
         <p className="eyebrow">
-          Step {step + 1} of 4 ·{" "}
-          {["Audience", "Metrics", "Commentary", "Review"][step]}
+          Step {step + 1} of 5 ·{" "}
+          {["Purpose", "Audience", "Metrics", "Commentary", "Review"][step]}
         </p>
         {step === 0 && (
+          <div style={{ display: "grid", gap: 14 }}>
+            <label>
+              What do you want to review?
+              <select
+                data-dialog-initial-focus
+                disabled={frozen}
+                value={definition.templateId ?? "custom"}
+                onChange={(event) => {
+                  if (event.target.value === "custom") {
+                    setDefinition({ ...definition, templateId: undefined });
+                    return;
+                  }
+                  const id = event.target.value as ReportTemplateId;
+                  if (!REPORT_TEMPLATE_IDS.includes(id)) return;
+                  const applied = applyReportTemplate(definition, title, id);
+                  setDefinition(applied.definition);
+                  setTitle(applied.title);
+                }}
+              >
+                {REPORT_TEMPLATE_IDS.map((id) => (
+                  <option key={id} value={id}>
+                    {REPORT_TEMPLATES[id].title}
+                  </option>
+                ))}
+                <option value="custom">Custom report</option>
+              </select>
+            </label>
+            <p className="text-muted">
+              {definition.templateId
+                ? REPORT_TEMPLATES[definition.templateId].description
+                : "Choose the audience, metrics and exact scope in the following screens."}
+            </p>
+            <p className="text-muted">
+              Templates prefill supported metric sections. They do not generate
+              conclusions, replace your notes, change your selected scope or
+              share anything. You can adjust every setting before the private
+              preview.
+            </p>
+          </div>
+        )}
+        {step === 1 && (
           <div style={{ display: "grid", gap: 14 }}>
             <label>
               Report title
@@ -409,7 +443,7 @@ function ProjectReportBuilder({ projectId }: { projectId: string }) {
             </p>
           </div>
         )}
-        {step === 1 && (
+        {step === 2 && (
           <div>
             <label>
               Execution window
@@ -645,8 +679,23 @@ function ProjectReportBuilder({ projectId }: { projectId: string }) {
             </p>
           </div>
         )}
-        {step === 2 && (
+        {step === 3 && (
           <div style={{ display: "grid", gap: 12 }}>
+            {definition.templateId && (
+              <details>
+                <summary>Questions to help write this review</summary>
+                <ul>
+                  {REPORT_TEMPLATES[definition.templateId].reviewPrompts.map(
+                    (prompt) => (
+                      <li key={prompt}>{prompt}</li>
+                    ),
+                  )}
+                </ul>
+                <p className="text-muted">
+                  Use recorded evidence; these prompts are not findings.
+                </p>
+              </details>
+            )}
             {(["summary", "risks", "nextActions"] as const).map((key) => (
               <label key={key}>
                 {
@@ -674,16 +723,18 @@ function ProjectReportBuilder({ projectId }: { projectId: string }) {
             </p>
           </div>
         )}
-        {step === 3 &&
+        {step === 4 &&
           (current ? (
             <FrozenReport report={current.payload} />
           ) : (
             <p role={resume.error ? "alert" : "status"}>
-              {resume.error
-                ? "Saved preview could not be loaded. Restore access and try again."
-                : resume.isPaused
-                  ? "Waiting for a connection to verify this saved preview. Approval is unavailable."
-                  : "Loading saved preview…"}
+              {readOnly
+                ? "Preview context is retained but hidden until current editor access is verified."
+                : resume.error
+                  ? "Saved preview could not be loaded. Restore access and try again."
+                  : resume.isPaused
+                    ? "Waiting for a connection to verify this saved preview. Approval is unavailable."
+                    : "Loading saved preview…"}
             </p>
           ))}
         {message && <p role="status">{message}</p>}
@@ -738,7 +789,7 @@ function ProjectReportBuilder({ projectId }: { projectId: string }) {
               {saveRequest ? "Retry same definition save" : "Save definition"}
             </button>
           )}
-          {step < 2 && (
+          {step < 3 && (
             <button
               className="btn-primary"
               type="button"
@@ -754,7 +805,7 @@ function ProjectReportBuilder({ projectId }: { projectId: string }) {
               Continue
             </button>
           )}
-          {step === 2 && (
+          {step === 3 && (
             <button
               className="btn-primary"
               type="button"
@@ -771,7 +822,7 @@ function ProjectReportBuilder({ projectId }: { projectId: string }) {
               {request ? "Retry same preview" : "Capture private preview"}
             </button>
           )}
-          {step === 3 && (
+          {step === 4 && (
             <button
               className="btn-primary"
               type="button"

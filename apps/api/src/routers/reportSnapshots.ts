@@ -9,6 +9,12 @@ import {
   type Context,
 } from "../trpc.js";
 import { liveEditor } from "./jiraConnections.js";
+import { reportCatalogInput } from "../services/reportCatalogSchema.js";
+import { readReportCatalog } from "../services/reportCatalog.js";
+import {
+  compareApprovedReports,
+  reportComparisonInput,
+} from "../services/reportComparison.js";
 import {
   reportDateIntervalSchema,
   reportExecutionScopeSchema,
@@ -29,6 +35,17 @@ const projectInput = z
 export const reportDefinitionSchema = z
   .object({
     audience: z.enum(["stakeholders", "engineering", "quality"]),
+    // Optional starter identity; existing definitions remain valid. Sections and
+    // commentary stay explicit, and a starter never changes report scope.
+    templateId: z
+      .enum([
+        "quality-status",
+        "execution-progress",
+        "requirements-coverage",
+        "defect-review",
+        "automation-progress",
+      ])
+      .optional(),
     windowDays: z.union([z.literal(7), z.literal(30), z.literal(90)]),
     dateInterval: reportDateIntervalSchema.optional(),
     executionScope: reportExecutionScopeSchema.optional(),
@@ -196,6 +213,51 @@ const output = (row: {
 });
 
 export const reportSnapshotsRouter = router({
+  compare: protectedProcedure
+    .input(reportComparisonInput)
+    .query(({ ctx, input }) =>
+      access(ctx, input.projectId, false, async (tx, orgId) => {
+        const rows = await tx.projectReportSnapshot.findMany({
+          where: {
+            id: { in: [input.baselineId, input.targetId] },
+            projectId: input.projectId,
+            organizationId: orgId,
+            payload: { path: ["state"], equals: "approved" },
+          },
+          select: { id: true, payload: true },
+        });
+        if (rows.length !== 2)
+          throw new TRPCError({
+            code: "NOT_FOUND",
+            message:
+              "Both approved snapshots must be available in this project.",
+          });
+        const before = rows.find((row) => row.id === input.baselineId)!;
+        const after = rows.find((row) => row.id === input.targetId)!;
+        try {
+          return {
+            projectId: input.projectId,
+            ...compareApprovedReports(
+              { id: before.id, payload: payloadSchema.parse(before.payload) },
+              { id: after.id, payload: payloadSchema.parse(after.payload) },
+            ),
+          };
+        } catch {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message:
+              "Cannot compare these captures: choose an earlier approved baseline with the same exact scope and at least one selected section in common. Unsupported legacy metrics must be reviewed in their original reports.",
+          });
+        }
+      }),
+    ),
+  catalog: protectedProcedure
+    .input(reportCatalogInput)
+    .query(({ ctx, input }) =>
+      access(ctx, input.projectId, false, (tx, orgId) =>
+        readReportCatalog(tx, orgId, input),
+      ),
+    ),
   scopeOptions: protectedProcedure.input(projectInput).query(({ ctx, input }) =>
     access(ctx, input.projectId, false, async (tx) => {
       const [plans, runs] = await Promise.all([

@@ -1,6 +1,6 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { beforeAll, afterAll, describe, expect, it } from "vitest";
-import { prisma } from "@vaettir/db";
+import { prisma, type Prisma } from "@vaettir/db";
 import { appRouter } from "./router.js";
 
 const stamp = `report-snapshot-${Date.now()}`;
@@ -129,6 +129,136 @@ describe("frozen reviewed reports", () => {
       title: "Stakeholder review",
       definition,
     });
+  it("catalog browses all pages, filters approved metadata and never exposes private or original-foreign snapshots", async () => {
+    const search = `${stamp} catalog`;
+    const base = await owner.reportSnapshots.preview({
+      projectId,
+      requestId: randomUUID(),
+      title: `${search} private`,
+      definition,
+    });
+    const ids: string[] = [];
+    const makeId = (suffix: string) =>
+      createHash("sha256").update(`${search}-${suffix}`).digest("hex");
+    try {
+      for (let i = 0; i < 45; i++) {
+        const id = makeId(String(i));
+        ids.push(id);
+        await prisma.projectReportSnapshot.create({
+          data: {
+            id,
+            projectId,
+            organizationId: orgId,
+            createdById: ownerId,
+            inputHash: randomUUID(),
+            title: `${search} ${String(i).padStart(2, "0")}`,
+            asOf: new Date(base.payload.asOf),
+            payload: {
+              ...base.payload,
+              state: "approved",
+              definition: {
+                ...definition,
+                audience: ["quality", "engineering", "stakeholders"][i % 3],
+                templateId: "quality-status",
+              },
+            } as Prisma.InputJsonValue,
+          },
+        });
+      }
+      for (const [suffix, organizationId] of [
+        ["literal", orgId],
+        ["foreign", otherOrgId],
+      ] as const) {
+        const id = makeId(suffix);
+        ids.push(id);
+        await prisma.projectReportSnapshot.create({
+          data: {
+            id,
+            projectId,
+            organizationId,
+            createdById: ownerId,
+            inputHash: randomUUID(),
+            title: `${search} ${suffix}%_`,
+            asOf: new Date(base.payload.asOf),
+            payload: {
+              ...base.payload,
+              state: "approved",
+            } as Prisma.InputJsonValue,
+          },
+        });
+      }
+      const pages = await Promise.all(
+        [0, 1, 2].map((page) =>
+          viewer.reportSnapshots.catalog({
+            projectId,
+            search,
+            page,
+            sort: "title-asc",
+          }),
+        ),
+      );
+      expect(pages.map((page) => page.items.length)).toEqual([20, 20, 6]);
+      expect(pages.map((page) => page.total)).toEqual([46, 46, 46]);
+      const all = pages.flatMap((page) => page.items);
+      expect(new Set(all.map((row) => row.id)).size).toBe(46);
+      expect(
+        all.every((row) => row.id !== base.id && row.id !== makeId("foreign")),
+      ).toBe(true);
+      expect(all[0]?.title).toBe(`${search} 00`);
+      expect(
+        (
+          await viewer.reportSnapshots.catalog({
+            projectId,
+            search,
+            audience: "quality",
+          })
+        ).total,
+      ).toBe(15);
+      expect(
+        (
+          await viewer.reportSnapshots.catalog({
+            projectId,
+            search,
+            purpose: "quality-status",
+          })
+        ).total,
+      ).toBe(45);
+      expect(
+        (
+          await viewer.reportSnapshots.catalog({
+            projectId,
+            search,
+            purpose: "custom",
+          })
+        ).total,
+      ).toBe(1);
+      const literal = await viewer.reportSnapshots.catalog({
+        projectId,
+        search: "literal%_",
+      });
+      expect(literal.items.map((row) => row.id)).toEqual([makeId("literal")]);
+      const day = base.payload.asOf.slice(0, 10);
+      expect(
+        (
+          await viewer.reportSnapshots.catalog({
+            projectId,
+            search,
+            capturedInterval: { start: day, end: day },
+          })
+        ).total,
+      ).toBe(46);
+      expect(Object.keys(all[0]!).sort()).toEqual(
+        ["asOf", "audience", "id", "purpose", "title"].sort(),
+      );
+      await expect(
+        other.reportSnapshots.catalog({ projectId, search }),
+      ).rejects.toThrow();
+    } finally {
+      await prisma.projectReportSnapshot.deleteMany({
+        where: { projectId, id: { in: [...ids, base.id] } },
+      });
+    }
+  });
   it("denies foreign tenants and viewer writes; private preview is not shared", async () => {
     await expect(other.reportSnapshots.list({ projectId })).rejects.toThrow();
     await expect(
@@ -148,6 +278,110 @@ describe("frozen reviewed reports", () => {
       (await owner.reportSnapshots.get({ projectId, id: draft.id })).payload
         .state,
     ).toBe("preview");
+  });
+  it("catalog rejects suspended or revoked membership using the original caller", async () => {
+    await prisma.organization.update({
+      where: { id: orgId },
+      data: { suspendedAt: new Date() },
+    });
+    try {
+      await expect(
+        viewer.reportSnapshots.catalog({ projectId }),
+      ).rejects.toThrow();
+    } finally {
+      await prisma.organization.update({
+        where: { id: orgId },
+        data: { suspendedAt: null },
+      });
+    }
+    const member = await prisma.membership.findFirstOrThrow({
+      where: { organizationId: orgId, role: "VIEWER" },
+    });
+    await prisma.membership.delete({ where: { id: member.id } });
+    try {
+      await expect(
+        viewer.reportSnapshots.catalog({ projectId }),
+      ).rejects.toThrow();
+    } finally {
+      await prisma.membership.create({ data: member });
+    }
+  });
+  it("compares only approved original-tenant captures under current membership, without private payload or invented zero evidence", async () => {
+    // Authored tonight; execution is deferred to morning validation.
+    const base = await owner.reportSnapshots.preview({
+      projectId,
+      requestId: randomUUID(),
+      title: "Private comparison fixture",
+      definition,
+    });
+    const ids = ["before", "after", "original-foreign"].map((suffix) =>
+      createHash("sha256").update(`${stamp}-compare-${suffix}`).digest("hex"),
+    );
+    try {
+      for (let i = 0; i < ids.length; i++) {
+        const asOf = new Date(`2026-10-0${i + 1}T12:00:00.000Z`);
+        await prisma.projectReportSnapshot.create({
+          data: {
+            id: ids[i]!,
+            projectId,
+            organizationId: i === 2 ? otherOrgId : orgId,
+            createdById: ownerId,
+            inputHash: randomUUID(),
+            title: `Synthetic comparison ${i}`,
+            asOf,
+            payload: {
+              ...base.payload,
+              state: "approved",
+              asOf: asOf.toISOString(),
+              windowStart: "2026-09-01T00:00:00.000Z",
+              windowEnd: "2026-09-30T23:59:59.999Z",
+              definition: {
+                ...definition,
+                summary: "Do not export private author commentary",
+              },
+              execution: { ...base.payload.execution, results: i + 1 },
+            } as unknown as Prisma.InputJsonValue,
+          },
+        });
+      }
+      const input = { projectId, baselineId: ids[0]!, targetId: ids[1]! };
+      const compared = await viewer.reportSnapshots.compare(input);
+      expect(
+        compared.rows.find((row) => row.label === "Recorded results")?.delta,
+      ).toBe(1);
+      expect(compared.sameExecutionWindow).toBe(true);
+      expect(JSON.stringify(compared)).not.toContain(
+        "Do not export private author commentary",
+      );
+      expect(JSON.stringify(compared)).not.toContain(caseId);
+      await expect(
+        viewer.reportSnapshots.compare({ ...input, baselineId: base.id }),
+      ).rejects.toThrow();
+      await expect(
+        viewer.reportSnapshots.compare({ ...input, targetId: ids[2]! }),
+      ).rejects.toThrow();
+      await expect(other.reportSnapshots.compare(input)).rejects.toThrow();
+      await expect(
+        viewer.reportSnapshots.compare({
+          ...input,
+          baselineId: ids[1]!,
+          targetId: ids[0]!,
+        }),
+      ).rejects.toThrow();
+      const member = await prisma.membership.findFirstOrThrow({
+        where: { organizationId: orgId, role: "VIEWER" },
+      });
+      await prisma.membership.delete({ where: { id: member.id } });
+      try {
+        await expect(viewer.reportSnapshots.compare(input)).rejects.toThrow();
+      } finally {
+        await prisma.membership.create({ data: member });
+      }
+    } finally {
+      await prisma.projectReportSnapshot.deleteMany({
+        where: { id: { in: [...ids, base.id] }, projectId },
+      });
+    }
   });
   it("preview retries freeze exact payload and reject changed request reuse", async () => {
     const input = {
