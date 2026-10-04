@@ -7,6 +7,7 @@ import { trpcReact } from "@/lib/trpcReact";
 import { ManualRetestActions } from "./ManualRetestWizard";
 import { Modal } from "./Modal";
 import { CaseObservationHistoryEntry } from "./CaseObservationHistoryEntry";
+import { CaseHistoryPageExport } from "./CaseHistoryPageExport";
 import { caseExecutionHistoryInputSchema, caseHistoryRequestKey, type CaseExecutionHistoryInput } from "@vaettir/api/src/services/caseExecutionHistoryScopeSchema";
 import type { CaseHistoryRunFilters } from "@vaettir/api/src/services/caseHistoryRunFiltersSchema";
 import { executionDatePresets, resolveExecutionDatePreset } from "@/lib/execution-date-presets";
@@ -312,6 +313,7 @@ function History({ projectId, testCaseId, active }: { projectId: string; testCas
       >
         <h3>Executions</h3>
         <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+        <CaseHistoryPageExport page={page} input={input} pageNumber={anchors.length} />
         <button type="button" className="btn-secondary" disabled={!ready || denied || paused} onClick={() => { setFilterDraft(applied); setDateShortcut(""); setFilterError(""); setFiltersOpen(true); }}>Filter executions</button>
         <button
           className="btn-secondary"
