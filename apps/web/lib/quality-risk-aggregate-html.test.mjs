@@ -56,6 +56,8 @@ test("portable report keeps both complete cohorts, literal zeros and observation
       html.includes("Filtered cohort"),
   );
   assert.ok(html.includes("2026-10-04T11:30:00.000Z"));
+  assert.ok(html.includes("Vaettir portable HTML v1"));
+  assert.ok(!html.includes("Vaettir CSV v1"));
   assert.ok(html.includes("<td>0</td>"));
   for (const privateText of [
     "private-search",
