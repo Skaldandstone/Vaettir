@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, type ReactNode } from "react";
+import { useEffect, useMemo, type ReactNode } from "react";
+import { useAuth } from "@clerk/nextjs";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { createTRPCReact } from "@trpc/react-query";
 import { httpBatchLink } from "@trpc/client";
@@ -37,13 +38,34 @@ export function useReadOnlySeat(projectId: string): boolean {
 }
 
 export function TRPCReactProvider({ children }: { children: ReactNode }) {
-  const [queryClient] = useState(() => new QueryClient());
-  const [client] = useState(() =>
-    trpcReact.createClient({
-      links: [
-        httpBatchLink({ url: `${API_URL}/trpc`, headers: getAuthHeaders }),
-      ],
-    }),
+  const { isLoaded, isSignedIn, userId, sessionId } = useAuth();
+  // Separate caches and transport clients per committed Clerk identity. Do not
+  // key-remount children: their human drafts and uncertain writes must survive
+  // an account switch, while their own origin guards withhold private content.
+  const { queryClient, client } = useMemo(() => {
+    const scope =
+      isLoaded && isSignedIn && userId && sessionId
+        ? Object.freeze({ userId, sessionId })
+        : null;
+    return {
+      queryClient: new QueryClient(),
+      client: trpcReact.createClient({
+        links: [
+          httpBatchLink({
+            url: `${API_URL}/trpc`,
+            headers: () => getAuthHeaders(scope),
+          }),
+        ],
+      }),
+    };
+  }, [isLoaded, isSignedIn, userId, sessionId]);
+  useEffect(
+    () => () => {
+      // Cancel stale reads, not mutations: an unknown write remains unknown and
+      // must be reconciled using its original actor and retained request UUID.
+      void queryClient.cancelQueries().catch(() => undefined);
+    },
+    [queryClient],
   );
 
   return (

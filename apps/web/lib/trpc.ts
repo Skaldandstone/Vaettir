@@ -25,6 +25,11 @@
 // case `window.Clerk?.session?.getToken()` optional-chains straight to
 // `undefined` with nothing to await. Poll briefly for `window.Clerk` to
 // appear before giving up.
+import {
+  scopedSessionHeaders,
+  type AuthTransportScope,
+} from "./auth-transport";
+
 async function waitForClerk(timeoutMs = 5000): Promise<Window["Clerk"]> {
   const start = Date.now();
   while (!window.Clerk) {
@@ -35,12 +40,16 @@ async function waitForClerk(timeoutMs = 5000): Promise<Window["Clerk"]> {
 }
 
 // Consumed by lib/trpcReact.tsx's httpBatchLink.
-export async function getAuthHeaders(): Promise<Record<string, string>> {
-  if (typeof window === "undefined") return {};
+export async function getAuthHeaders(
+  scope: AuthTransportScope | null,
+): Promise<Record<string, string>> {
+  if (!scope || typeof window === "undefined")
+    throw new Error("An authenticated request scope is required.");
   const clerk = await waitForClerk();
   if (clerk && !clerk.loaded) {
     await clerk.load();
   }
-  const token = await clerk?.session?.getToken();
-  return token ? { authorization: `Bearer ${token}` } : {};
+  return scopedSessionHeaders(scope, () =>
+    window.Clerk?.loaded ? window.Clerk.session : undefined,
+  );
 }

@@ -9,6 +9,8 @@ declare global {
       loaded: boolean;
       load(): Promise<void>;
       session?: {
+        id: string;
+        user: { id: string };
         getToken(): Promise<string | null>;
       } | null;
     };
