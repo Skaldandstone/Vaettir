@@ -1,5 +1,5 @@
-import { z } from "zod";
 import { router, protectedProcedure } from "../trpc.js";
+import { z } from "zod";
 import {
   listManualRetestLinks,
   prepareManualRetest,
@@ -7,6 +7,7 @@ import {
   retestStartInputSchema,
   startManualRetest,
 } from "../services/manualRetest.js";
+import { manualRetestStartOutputSchema } from "../services/manualRetestScopeSchema.js";
 
 export const manualRetestRouter = router({
   preview: protectedProcedure
@@ -14,7 +15,7 @@ export const manualRetestRouter = router({
     .query(({ ctx, input }) =>
       ctx.prisma.$transaction(
         async (tx) => {
-          const prepared = await prepareManualRetest(tx, ctx.user.id, input);
+          const prepared = await prepareManualRetest(tx, ctx.user.id, input, false, ctx.user.clerkUserId);
           const {
             frozen: _frozen,
             ordered: _ordered,
@@ -28,9 +29,9 @@ export const manualRetestRouter = router({
     ),
   start: protectedProcedure
     .input(retestStartInputSchema)
-    .output(z.object({ testRunId: z.string(), recovered: z.boolean() }))
+    .output(manualRetestStartOutputSchema)
     .mutation(({ ctx, input }) =>
-      startManualRetest(ctx.prisma, ctx.user.id, input),
+      startManualRetest(ctx.prisma, ctx.user.id, input, ctx.user.clerkUserId),
     ),
   links: protectedProcedure
     .input(
@@ -39,6 +40,6 @@ export const manualRetestRouter = router({
       }),
     )
     .query(({ ctx, input }) =>
-      listManualRetestLinks(ctx.prisma, ctx.user.id, input),
+      listManualRetestLinks(ctx.prisma, ctx.user.id, input, ctx.user.clerkUserId),
     ),
 });

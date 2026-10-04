@@ -1,12 +1,15 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { useAuth } from "@clerk/nextjs";
 import { Modal } from "./Modal";
 import {
   trpcReact,
   type RouterInputs,
   type RouterOutputs,
 } from "@/lib/trpcReact";
+import { verifiedManualRetestAck, verifiedManualRetestRead, sameManualRetestScope } from "@/lib/manual-retest-scope-ack";
+import type { ManualRetestExpectedScope } from "@vaettir/api/src/services/manualRetestScopeSchema";
 
 type Preview = RouterOutputs["manualRetest"]["preview"];
 type Start = RouterInputs["manualRetest"]["start"];
@@ -29,21 +32,64 @@ const labels: Record<string, string> = {
   acceptanceCriteria: "Acceptance criteria",
 };
 
+/** Local origin never silently rebases, even if both actors/organizations can read this project. */
+function useRetestAccess(projectId: string, active: boolean, editor: boolean, pinnedScope?: ManualRetestExpectedScope | null) {
+  const { isLoaded, isSignedIn, userId } = useAuth();
+  const [origin, setOrigin] = useState<ManualRetestExpectedScope | null>(pinnedScope ?? null);
+  const project = trpcReact.project.byId.useQuery({ id: projectId }, { enabled: active, staleTime: 0, retry: false });
+  const organizations = trpcReact.organization.mine.useQuery(undefined, { enabled: active, staleTime: 0, retry: false });
+  const actorReady = isLoaded && isSignedIn && !!userId;
+  const projectReady = !project.error && !project.isFetching && !project.isPaused && project.data?.id === projectId;
+  const memberChecked = !organizations.error && !organizations.isFetching && !organizations.isPaused && Array.isArray(organizations.data);
+  const member = memberChecked ? organizations.data?.find(row => row.id === project.data?.organizationId) : undefined;
+  const memberReady = !!member && ["OWNER", "ADMIN", "EDITOR", "VIEWER", "COMPLIANCE_AUDITOR"].includes(member.role) && ["FULL", "READ_ONLY"].includes(member.seatType);
+  const canWrite = !!member && member.seatType === "FULL" && ["OWNER", "ADMIN", "EDITOR"].includes(member.role);
+  const current = actorReady && projectReady && memberReady ? { projectId, organizationId: project.data!.organizationId, clerkActorId: userId! } : null;
+  useEffect(() => {
+    if (active && !origin && current && (!pinnedScope || sameManualRetestScope(pinnedScope, current))) setOrigin(pinnedScope ?? current);
+  }, [active, origin, current, pinnedScope]);
+  const paused = project.isPaused || organizations.isPaused;
+  const changed = !!origin && !!current && !sameManualRetestScope(origin, current) || !!origin && !!pinnedScope && !sameManualRetestScope(origin, pinnedScope);
+  const denied = (isLoaded && !actorReady) || !!project.error || !!organizations.error || changed ||
+    (projectReady && memberChecked && (!memberReady || editor && !canWrite));
+  const ready = active && !denied && !paused && !!origin && sameManualRetestScope(origin, current) && (!editor || canWrite);
+  const actorNow = useRef({ actorReady, userId }); actorNow.current = { actorReady, userId };
+  async function refresh() {
+    try {
+      const [freshProject, freshOrganizations] = await Promise.all([project.refetch(), organizations.refetch()]);
+      return !!origin && actorNow.current.actorReady && actorNow.current.userId === origin.clerkActorId &&
+        !freshProject.error && !freshProject.isFetching && !freshProject.isPaused && freshProject.data?.id === projectId && freshProject.data.organizationId === origin.organizationId &&
+        !freshOrganizations.error && !freshOrganizations.isFetching && !freshOrganizations.isPaused && !!freshOrganizations.data?.some(row => row.id === origin.organizationId &&
+          ["OWNER", "ADMIN", "EDITOR", "VIEWER", "COMPLIANCE_AUDITOR"].includes(row.role) && ["FULL", "READ_ONLY"].includes(row.seatType) &&
+          (!editor || row.seatType === "FULL" && ["OWNER", "ADMIN", "EDITOR"].includes(row.role)));
+    } catch { return false; /* Keep origin and reviewed values; failed current reads do not authorize cache. */ }
+  }
+  return { ready, paused, denied, origin, canWrite, refresh };
+}
+
 export function ManualRetestWizard({
   projectId,
   sourceRunId,
   testCaseId,
   open,
   onClose,
+  active = true,
+  onRetainedRequestChange,
+  expectedScope,
 }: {
   projectId: string;
   sourceRunId: string;
   testCaseId: string;
   open: boolean;
   onClose: () => void;
+  active?: boolean;
+  onRetainedRequestChange?: (retained: boolean) => void;
+  expectedScope?: ManualRetestExpectedScope | null;
 }) {
   const utils = trpcReact.useUtils();
   const mutation = trpcReact.manualRetest.start.useMutation();
+  const access = useRetestAccess(projectId, active, true, expectedScope);
+  const accessNow = useRef(access); accessNow.current = access;
   const [preview, setPreview] = useState<Preview | null>(null);
   const [attempt, setAttempt] = useState<Start | null>(null);
   const [receipt, setReceipt] = useState<
@@ -54,19 +100,29 @@ export function ManualRetestWizard({
   const [error, setError] = useState<string | null>(null),
     [ambiguous, setAmbiguous] = useState(false),
     [rejected, setRejected] = useState(false);
+  const [refreshNotice, setRefreshNotice] = useState("");
+  const [accessRejected, setAccessRejected] = useState(false);
+  const unknown = useRef(false), openNow = useRef(open && active); openNow.current = open && active;
+  useEffect(() => { onRetainedRequestChange?.(busy || Boolean(attempt && !receipt && !rejected)); }, [busy, attempt, receipt, rejected, onRetainedRequestChange]);
   async function review() {
-    if (busy || attempt || receipt) return;
+    if (!active || !open || busy || attempt || receipt) return;
+    if (!access.ready || !access.origin) return;
+    if (accessRejected) return;
+    const request = { projectId, sourceRunId, testCaseId, expectedScope: access.origin };
+    onRetainedRequestChange?.(true);
     setBusy(true);
     setError(null);
     try {
-      setPreview(
-        await utils.manualRetest.preview.fetch(
-          { projectId, sourceRunId, testCaseId },
-          { staleTime: 0 },
-        ),
-      );
+      const result = await utils.manualRetest.preview.fetch(request, { staleTime: 0 });
+      if (!accessNow.current.ready || !openNow.current || !sameManualRetestScope(request.expectedScope, accessNow.current.origin)) {
+        setError("Current access or the open review changed while loading. Retained evidence was not replaced; recheck the original scope."); return;
+      }
+      if (!verifiedManualRetestRead(request, result) || result.projectId !== projectId || result.sourceRunId !== sourceRunId || result.testCaseId !== testCaseId)
+        throw Error("The exact retest preview scope could not be verified. No approval baseline was replaced.");
+      setPreview(result);
       setApproved(false);
     } catch (e) {
+      if (["UNAUTHORIZED", "FORBIDDEN", "NOT_FOUND"].includes((e as { data?: { code?: string } }).data?.code ?? "")) setAccessRejected(true);
       setError(
         e instanceof Error
           ? e.message
@@ -77,26 +133,37 @@ export function ManualRetestWizard({
     }
   }
   async function start() {
-    if (!preview || !approved || busy || receipt || rejected) return;
+    if (!active || !open || !preview || !approved || busy || receipt || rejected) return;
+    if (!access.ready || !access.origin) return;
+    if (accessRejected) return;
     const request = attempt ?? {
       projectId,
       sourceRunId,
       testCaseId,
       expectedReviewHash: preview.reviewHash,
       idempotencyKey: crypto.randomUUID(),
+      expectedScope: access.origin,
     };
+    if (!sameManualRetestScope(request.expectedScope, access.origin)) { setError("Restore the exact original actor and organization before retrying. This request was not rebound."); return; }
     setAttempt(request);
+    onRetainedRequestChange?.(true);
     setBusy(true);
     setError(null);
     try {
-      setReceipt(await mutation.mutateAsync(request));
-      void utils.manualRetest.links.invalidate({
-        projectId,
-        sourceRunId,
-        testCaseId,
-      });
+      const result = await mutation.mutateAsync(request);
+      if (!await verifiedManualRetestAck(request, result)) {
+        unknown.current = true; setAmbiguous(true); setError("The retest acknowledgement did not prove this exact scoped request and deterministic run. Keep and retry the same UUID; no receipt was substituted."); return;
+      }
+      // Verified historical ACK is retained even after current UI scope changes;
+      // factual rendering remains gated. A refresh failure cannot resubmit it.
+      setReceipt(result); unknown.current = false; setAmbiguous(false); setRejected(false);
+      void Promise.all([
+        Promise.resolve().then(() => utils.manualRetest.links.invalidate({ projectId, sourceRunId, testCaseId })),
+        Promise.resolve().then(() => utils.caseExecutionHistory.list.invalidate({ projectId, testCaseId })),
+      ]).catch(() => setRefreshNotice("Retest creation is confirmed, but refreshing current history or links failed. Recheck access and refresh those views; do not submit the accepted request again."));
     } catch (e) {
       const code = (e as { data?: { code?: string } }).data?.code;
+      if (["UNAUTHORIZED", "FORBIDDEN", "NOT_FOUND"].includes(code ?? "")) setAccessRejected(true);
       const definitive = [
         "BAD_REQUEST",
         "CONFLICT",
@@ -104,8 +171,8 @@ export function ManualRetestWizard({
         "NOT_FOUND",
         "UNAUTHORIZED",
       ].includes(code ?? "");
-      if (definitive && !ambiguous) setRejected(true);
-      else setAmbiguous(true);
+      if (definitive && !ambiguous && !unknown.current) setRejected(true);
+      else { unknown.current = true; setAmbiguous(true); }
       setError(
         e instanceof Error
           ? e.message
@@ -117,12 +184,14 @@ export function ManualRetestWizard({
   }
   return (
     <Modal
-      open={open}
+      open={open && active}
       onClose={onClose}
       title="Retest this execution"
       size="wide"
       dismissible={!busy}
     >
+      {!active ? <p role="status">Current history access is unavailable. The exact retained retest request and review remain mounted; private evidence and actions are hidden.</p>
+      : !access.ready || accessRejected ? <section><p role={access.denied || accessRejected ? "alert" : "status"}>{access.paused ? "Waiting for a connection to verify the original retest actor and organization." : "Current original actor, organization and full-editor access must be verified. Private evidence and actions are hidden; the exact request and local approval remain retained."}</p><button type="button" className="btn-secondary" onClick={async () => { if (await access.refresh()) setAccessRejected(false); }}>Recheck original retest access</button></section> : <>
       {error && (
         <p
           role="alert"
@@ -141,6 +210,7 @@ export function ManualRetestWizard({
             . Original evidence is retained. No previous Pass or result was
             copied.
           </p>
+          {refreshNotice && <p role="alert">{refreshNotice}</p>}
           <a className="btn-primary" href={link(projectId, receipt.testRunId)}>
             Open retest run
           </a>
@@ -209,11 +279,25 @@ export function ManualRetestWizard({
             </p>
           )}
           {preview.sourceDatasetExecution && (
+            <section>
             <p>
               Original dataset row {preview.sourceDatasetExecution.rowIndex + 1}
               : {preview.sourceDatasetExecution.rowName}. The original resolved
               values are retained, not the current dataset.
             </p>
+            <h4>Captured original dataset values</h4>
+            <dl>
+              {Object.entries(preview.sourceDatasetExecution.values).map(([name, value]) => (
+                <div key={name}>
+                  <dt style={{ overflowWrap: "anywhere" }}>{name}</dt>
+                  <dd style={{ marginLeft: 0, whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>
+                    {value === "" ? <em>Empty string</em> : value}
+                  </dd>
+                </div>
+              ))}
+            </dl>
+            {!Object.keys(preview.sourceDatasetExecution.values).length && <p>No dataset values were captured. Nothing is inferred from the current dataset.</p>}
+            </section>
           )}
           <details>
             <summary>Captured original result evidence</summary>
@@ -288,25 +372,33 @@ export function ManualRetestWizard({
                   ),
               )}
               {c.steps.length > 0 && (
-                <div style={{ overflowX: "auto", maxWidth: "100%" }}>
-                  <table>
+                <div role="region" aria-label={`Frozen procedure: ${c.title}`} tabIndex={0} style={{ overflowX: "auto", maxWidth: "100%" }}>
+                  <table className="workspace-table" style={{ minWidth: 760, width: "100%" }}>
+                    <caption>Original frozen steps in captured sequence. Row numbers are presentation only; stored order and literal values are retained. Empty and absent expected values are distinct. Media references are not fetched or verified.</caption>
                     <thead>
                       <tr>
-                        <th>Step</th>
-                        <th>Action</th>
-                        <th>Expected data</th>
-                        <th>Expected result</th>
-                        <th>Expected response</th>
+                        <th scope="col">Row</th>
+                        <th scope="col">Stored order</th>
+                        <th scope="col">{preview.stepFieldLabels?.action ?? "Action"}</th>
+                        <th scope="col">{preview.stepFieldLabels?.expectedActionOrData ?? "Expected data"}</th>
+                        <th scope="col">{preview.stepFieldLabels?.expectedResult ?? "Expected result"}</th>
+                        <th scope="col">{preview.stepFieldLabels?.expectedResponse ?? "Expected response"}</th>
+                        <th scope="col">Captured media references</th>
                       </tr>
                     </thead>
                     <tbody>
                       {c.steps.map((step, index) => (
                         <tr key={index}>
-                          <td>{index + 1}</td>
-                          <td>{step.action}</td>
-                          <td>{step.expectedActionOrData ?? "—"}</td>
-                          <td>{step.expectedResult ?? "—"}</td>
-                          <td>{step.expectedResponse ?? "—"}</td>
+                          <th scope="row">{index + 1}</th>
+                          <td>{step.order}</td>
+                          {(["action", "expectedActionOrData", "expectedResult", "expectedResponse"] as const).map(field => (
+                            <td key={field} style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere", verticalAlign: "top" }}>
+                              {step[field] === null ? "Not supplied" : step[field] === "" ? <em>Empty string</em> : step[field]}
+                            </td>
+                          ))}
+                          <td>
+                            {step.mediaAttachmentIds.length ? <ul>{step.mediaAttachmentIds.map((id, mediaIndex) => <li key={`${mediaIndex}:${id}`} style={{ overflowWrap: "anywhere" }}>{id}</li>)}</ul> : "None recorded"}
+                          </td>
                         </tr>
                       ))}
                     </tbody>
@@ -379,6 +471,7 @@ export function ManualRetestWizard({
                 setPreview(null);
                 setApproved(false);
                 setError(null);
+                unknown.current = false;
               }}
             >
               Refresh original evidence
@@ -398,6 +491,7 @@ export function ManualRetestWizard({
           </div>
         </section>
       )}
+      </>}
     </Modal>
   );
 }
@@ -408,25 +502,38 @@ export function ManualRetestActions({
   sourceRunId,
   testCaseId,
   canRetest = true,
+  active = true,
+  onRetainedRequestChange,
 }: {
   projectId: string;
   sourceRunId: string;
   testCaseId: string;
   canRetest?: boolean;
+  active?: boolean;
+  onRetainedRequestChange?: (retained: boolean) => void;
 }) {
   const [open, setOpen] = useState(false);
+  const access = useRetestAccess(projectId, active, false);
   const [anchors, setAnchors] = useState<Array<string | undefined>>([
     undefined,
   ]);
-  const links = trpcReact.manualRetest.links.useQuery({
+  const linksInput = {
     projectId,
     sourceRunId,
     testCaseId,
     before: anchors[anchors.length - 1],
-  });
+    expectedScope: access.origin ?? undefined,
+  };
+  const links = trpcReact.manualRetest.links.useQuery(linksInput, { enabled: active && access.ready, staleTime: 0, retry: false });
+  const linksDenied = !!links.error && ["FORBIDDEN", "UNAUTHORIZED", "NOT_FOUND"].includes(links.error.data?.code ?? "");
+  const linksMismatch = access.ready && !links.error && !links.isFetching && !links.isPaused && !!links.data && !verifiedManualRetestRead(linksInput, links.data);
+  const linksPage = active && access.ready && !links.error && !links.isFetching && !links.isPaused && links.data && verifiedManualRetestRead(linksInput, links.data) ? links.data : null;
+  async function refreshLinks() { if (await access.refresh()) await links.refetch(); }
   return (
     <section style={{ marginTop: 12, minWidth: 0, overflowWrap: "anywhere" }}>
-      {canRetest && (
+      {!active ? <p role="status">Current history access must be verified. Retest links and private preview are hidden; any exact request remains retained in this mounted workflow.</p>
+      : !access.ready || linksDenied || linksMismatch ? <section><p role={access.denied || linksDenied || linksMismatch ? "alert" : "status"}>{access.paused ? "Waiting for a connection to verify native retest scope." : "Current original actor and organization must be verified. Cached native retest links and preview are hidden; the exact local request remains retained."}</p><button type="button" className="btn-secondary" onClick={refreshLinks}>Recheck native retest access</button></section> : <>
+      {canRetest && access.canWrite && (
         <button
           type="button"
           className="btn-secondary"
@@ -441,7 +548,7 @@ export function ManualRetestActions({
           <button
             type="button"
             className="btn-secondary"
-            onClick={() => void links.refetch()}
+            onClick={refreshLinks}
           >
             Retry links
           </button>
@@ -451,29 +558,29 @@ export function ManualRetestActions({
         links.fetchStatus === "paused" ? (
         <p role="status">Checking retest relationships…</p>
       ) : (
-        links.data && (
+        linksPage && (
           <>
-            {links.data.original && (
+            {linksPage.original && (
               <p>
-                <a href={link(projectId, links.data.original.testRunId)}>
+                <a href={link(projectId, linksPage.original.testRunId)}>
                   Original execution
                 </a>{" "}
                 ·{" "}
-                {links.data.original.capturedOutcome === "FAIL"
+                {linksPage.original.capturedOutcome === "FAIL"
                   ? "Failed"
                   : "Blocked"}{" "}
                 outcome captured when this retest was created, not a
                 defect-resolution claim.
               </p>
             )}
-            {links.data.retests.length > 0 && (
+            {linksPage.retests.length > 0 && (
               <details>
                 <summary>
-                  Linked separate retests ({links.data.retests.length} on this
+                  Linked separate retests ({linksPage.retests.length} on this
                   page)
                 </summary>
                 <ul>
-                  {links.data.retests.map((run) => (
+                  {linksPage.retests.map((run) => (
                     <li key={run.testRunId}>
                       <a href={link(projectId, run.testRunId)}>
                         Retest started{" "}
@@ -496,12 +603,12 @@ export function ManualRetestActions({
                   Newer retests
                 </button>
               )}
-              {links.data.nextCursor && (
+              {linksPage.nextCursor && (
                 <button
                   type="button"
                   className="btn-secondary"
                   onClick={() =>
-                    setAnchors((a) => [...a, links.data!.nextCursor!])
+                    setAnchors((a) => [...a, linksPage.nextCursor!])
                   }
                 >
                   Older retests
@@ -511,6 +618,7 @@ export function ManualRetestActions({
           </>
         )
       )}
+      </>}
       <ManualRetestWizard
         key={`${projectId}:${sourceRunId}:${testCaseId}`}
         projectId={projectId}
@@ -518,6 +626,9 @@ export function ManualRetestActions({
         testCaseId={testCaseId}
         open={open}
         onClose={() => setOpen(false)}
+        active={active && canRetest && access.ready && access.canWrite && !linksDenied && !linksMismatch && !links.isPaused}
+        expectedScope={access.origin}
+        onRetainedRequestChange={onRetainedRequestChange}
       />
     </section>
   );

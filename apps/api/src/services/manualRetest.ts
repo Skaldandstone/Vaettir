@@ -2,7 +2,9 @@ import { createHash } from "node:crypto";
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 import { Prisma, type PrismaClient } from "@vaettir/db";
-import { requireCurrentPlanAccess } from "./testPlanExecution.js";
+import { lockManualRetestAccess } from "./manualRetestScope.js";
+import { manualRetestExpectedScopeSchema, manualRetestReadRequestKey, type ManualRetestReadScopeInput,
+  type ManualRetestObservedScope } from "./manualRetestScopeSchema.js";
 import {
   boundedRunSnapshot,
   qualityProfileHash,
@@ -19,6 +21,7 @@ export const retestPreviewInputSchema = z
     projectId: identity,
     sourceRunId: identity,
     testCaseId: identity,
+    expectedScope: manualRetestExpectedScopeSchema.optional(),
   })
   .strict();
 export const retestStartInputSchema = retestPreviewInputSchema.extend({
@@ -92,10 +95,14 @@ export async function prepareManualRetest(
   actorId: string,
   input: z.infer<typeof retestPreviewInputSchema>,
   lock = false,
+  authenticatedClerkActorId?: string,
 ) {
-  await requireCurrentPlanAccess(tx, actorId, input.projectId, true);
+  const access = await lockManualRetestAccess(tx, actorId, input, true, authenticatedClerkActorId, lock);
   if (lock)
     await tx.$queryRaw`SELECT id FROM "TestRun" WHERE id=${input.sourceRunId} AND "projectId"=${input.projectId} FOR UPDATE`;
+  const [scopeSize] = await tx.$queryRaw<Array<{ count: number; bytes: bigint }>>`SELECT cardinality("manualTestCaseIds")::int AS count,octet_length("manualTestCaseIds"::text)::bigint AS bytes FROM "TestRun" WHERE id=${input.sourceRunId} AND "projectId"=${input.projectId}`;
+  if (scopeSize && (scopeSize.count > 500 || scopeSize.bytes > 512n * 1024n))
+    return fail("The original case scope exceeds the bounded retest review. No procedure was loaded or started.");
   const source = await tx.testRun.findFirst({
     where: { id: input.sourceRunId, projectId: input.projectId },
     select: {
@@ -342,6 +349,7 @@ export async function prepareManualRetest(
     prerequisites: closure.prerequisites,
   });
   return {
+    ...(input.expectedScope ? { scope: access, requested: manualRetestReadRequestKey(input), stepFieldLabels: frozen.stepFieldLabels } : {}),
     projectId: input.projectId,
     sourceRunId: source.id,
     testCaseId: input.testCaseId,
@@ -363,16 +371,12 @@ export async function prepareManualRetest(
 export async function listManualRetestLinks(
   db: PrismaClient,
   actorId: string,
-  input: {
-    projectId: string;
-    sourceRunId: string;
-    testCaseId: string;
-    before?: string;
-  },
+  input: ManualRetestReadScopeInput,
+  authenticatedClerkActorId?: string,
 ) {
   return db.$transaction(
     async (tx) => {
-      await requireCurrentPlanAccess(tx, actorId, input.projectId);
+      const access = await lockManualRetestAccess(tx, actorId, input, false, authenticatedClerkActorId);
       const scope = {
         projectId: input.projectId,
         id: input.sourceRunId,
@@ -461,6 +465,7 @@ export async function listManualRetestLinks(
           );
       }
       return {
+        ...(input.expectedScope ? { scope: access, requested: manualRetestReadRequestKey(input) } : {}),
         original,
         retests: children
           .slice(0, 10)
@@ -479,84 +484,62 @@ export async function listManualRetestLinks(
 export async function startManualRetest(
   db: PrismaClient,
   actorId: string,
-  input: z.infer<typeof retestStartInputSchema>,
+  raw: z.infer<typeof retestStartInputSchema>,
+  authenticatedClerkActorId?: string,
 ) {
+  const input = retestStartInputSchema.parse(raw);
   const testRunId = `retest_${createHash("sha256")
     .update(JSON.stringify([input.projectId, actorId, input.idempotencyKey]))
     .digest("hex")}`;
-  const requestHash = qualityProfileHash({
+  const requestHash = manualRetestRequestHash(input);
+  const response = (access: ManualRetestObservedScope, recovered: boolean) => ({ testRunId, recovered,
+    ...(input.expectedScope ? { scope: { ...access, sourceRunId: input.sourceRunId, testCaseId: input.testCaseId,
+      idempotencyKey: input.idempotencyKey, reviewHash: input.expectedReviewHash } } : {}) });
+  const execute = () =>
+    db.$transaction(
+      async (tx) => {
+        const access = await lockManualRetestAccess(tx, actorId, input, true, authenticatedClerkActorId, true);
+        // Receipt owner/byte preflight precedes snapshot materialization. Successful
+        // historical replay does not re-prepare subsequently changed source evidence.
+        const [previousOwner] = await tx.$queryRaw<Array<{ projectId: string; startedById: string | null }>>`SELECT "projectId","startedById" FROM "TestRun" WHERE id=${testRunId} FOR SHARE`;
+        if (previousOwner && (previousOwner.projectId !== input.projectId || previousOwner.startedById !== actorId))
+          return fail("This retest key belongs to a different request. Nothing was replaced.", "CONFLICT");
+        if (previousOwner) {
+          const size = await tx.$queryRaw<Array<{ bytes: bigint }>>`SELECT octet_length("executionContext"::text)::bigint AS bytes FROM "TestRun" WHERE id=${testRunId} AND "projectId"=${input.projectId} AND "startedById"=${actorId}`;
+          if (!size[0] || size[0].bytes > 2097152n) return fail("The retained retest receipt exceeds the bounded snapshot limit. It was not substituted.");
+        }
+        const previous = previousOwner ? await tx.testRun.findUnique({ where: { id: testRunId }, select: { projectId: true, startedById: true, executionContext: true } }) : null;
+        if (previous) {
+          const snapshot = boundedRunSnapshot(previous.executionContext);
+          if (previous.projectId !== input.projectId || previous.startedById !== actorId || snapshot.startRequestHash !== requestHash ||
+            snapshot.retest?.sourceRunId !== input.sourceRunId || snapshot.retest.sourceCaseId !== input.testCaseId)
+            return fail("This retest key belongs to a different request. Nothing was replaced.", "CONFLICT");
+          return response(access, true);
+        }
+        const prepared = await prepareManualRetest(tx, actorId, input, true, authenticatedClerkActorId);
+        if (prepared.reviewHash !== input.expectedReviewHash)
+          return fail("Original execution evidence changed. Refresh and review it again before starting; nothing was created.", "CONFLICT");
+        await tx.testRun.create({ data: { id: testRunId, projectId: input.projectId, ciProvider: "manual", commitSha: "manual", branch: "manual",
+          startedById: actorId, startedAt: new Date(), status: "RUNNING", manualTestCaseIds: prepared.ordered,
+          manualPrerequisites: prepared.prerequisites, executionContext: boundedRunSnapshot({ ...prepared.frozen, startRequestHash: requestHash }) } });
+        return response(access, false);
+      },
+      { timeout: 20000, isolationLevel: "RepeatableRead" },
+    );
+  try { return await execute(); }
+  catch (error) {
+    if (error instanceof Prisma.PrismaClientKnownRequestError && ["P2002", "P2034"].includes(error.code)) return execute();
+    throw error;
+  }
+}
+/** Omission keeps the exact historical hash projection. Scope never grants permissions. */
+export function manualRetestRequestHash(input: z.infer<typeof retestStartInputSchema>) {
+  return qualityProfileHash({
     projectId: input.projectId,
     sourceRunId: input.sourceRunId,
     testCaseId: input.testCaseId,
     expectedReviewHash: input.expectedReviewHash,
+    ...(input.expectedScope === undefined ? {} : { expectedScope: { projectId: input.expectedScope.projectId,
+      organizationId: input.expectedScope.organizationId, clerkActorId: input.expectedScope.clerkActorId } }),
   });
-  const execute = () =>
-    db.$transaction(
-      async (tx) => {
-        await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${input.projectId}))::text`;
-        await tx.$queryRaw`SELECT id FROM "Project" WHERE id=${input.projectId} FOR UPDATE`;
-        await tx.$queryRaw`SELECT o.id FROM "Organization" o JOIN "Project" p ON p."organizationId"=o.id WHERE p.id=${input.projectId} FOR SHARE OF o`;
-        await tx.$queryRaw`SELECT m.id FROM "Membership" m JOIN "Project" p ON p."organizationId"=m."organizationId" WHERE p.id=${input.projectId} AND m."userId"=${actorId} FOR SHARE OF m`;
-        await requireCurrentPlanAccess(tx, actorId, input.projectId, true);
-        const previous = await tx.testRun.findUnique({
-          where: { id: testRunId },
-          select: {
-            projectId: true,
-            startedById: true,
-            executionContext: true,
-          },
-        });
-        if (previous) {
-          const snapshot = boundedRunSnapshot(previous.executionContext);
-          if (
-            previous.projectId !== input.projectId ||
-            previous.startedById !== actorId ||
-            snapshot.startRequestHash !== requestHash ||
-            snapshot.retest?.sourceRunId !== input.sourceRunId ||
-            snapshot.retest.sourceCaseId !== input.testCaseId
-          )
-            return fail(
-              "This retest key belongs to a different request. Nothing was replaced.",
-              "CONFLICT",
-            );
-          return { testRunId, recovered: true };
-        }
-        const prepared = await prepareManualRetest(tx, actorId, input, true);
-        if (prepared.reviewHash !== input.expectedReviewHash)
-          return fail(
-            "Original execution evidence changed. Refresh and review it again before starting; nothing was created.",
-            "CONFLICT",
-          );
-        await tx.testRun.create({
-          data: {
-            id: testRunId,
-            projectId: input.projectId,
-            ciProvider: "manual",
-            commitSha: "manual",
-            branch: "manual",
-            startedById: actorId,
-            startedAt: new Date(),
-            status: "RUNNING",
-            manualTestCaseIds: prepared.ordered,
-            manualPrerequisites: prepared.prerequisites,
-            executionContext: boundedRunSnapshot({
-              ...prepared.frozen,
-              startRequestHash: requestHash,
-            }),
-          },
-        });
-        return { testRunId, recovered: false };
-      },
-      { timeout: 20000, isolationLevel: "RepeatableRead" },
-    );
-  try {
-    return await execute();
-  } catch (error) {
-    if (
-      error instanceof Prisma.PrismaClientKnownRequestError &&
-      ["P2002", "P2034"].includes(error.code)
-    )
-      return execute();
-    throw error;
-  }
 }

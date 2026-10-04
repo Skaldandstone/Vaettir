@@ -4,7 +4,7 @@ import { readFileSync } from "node:fs";
 const source = (path) => readFileSync(new URL(path, import.meta.url), "utf8");
 test("retest module explicitly reviews exact frozen procedure and no-cost separate approval", () => {
   const modal = source("../components/ManualRetestWizard.tsx");
-  assert.match(modal, /<Modal\s+open=\{open\}/);
+  assert.match(modal, /<Modal\s+open=\{open && active\}/);
   assert.match(modal, /preview\.caseDefinitions\.map/);
   assert.match(modal, /c\.background/);
   assert.match(modal, /c\.steps\.map/);
