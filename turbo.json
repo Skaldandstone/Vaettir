@@ -15,7 +15,19 @@
     },
     "test": {
       "dependsOn": ["^build"],
-      "env": ["DATABASE_URL"]
+      "env": [
+        "DATABASE_URL",
+        "CI",
+        "GITHUB_ACTIONS",
+        "GITHUB_REPOSITORY",
+        "GITHUB_RUN_ID",
+        "GITHUB_RUN_ATTEMPT",
+        "GITHUB_SHA",
+        "GITHUB_WORKFLOW",
+        "GITHUB_JOB",
+        "GITHUB_WORKFLOW_REF",
+        "GITHUB_REF"
+      ]
     }
   }
 }

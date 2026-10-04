@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { prisma } from "@vaettir/db";
+import { assertOwnedTestDatabase } from "./testOnlyDatabaseSafety.js";
 
 describe("transaction acknowledgement requires actual deferred-constraint acceptance", () => {
   const suffix = randomUUID().replaceAll("-", "");
@@ -8,15 +9,7 @@ describe("transaction acknowledgement requires actual deferred-constraint accept
   const fn = `synthetic_commit_guard_${suffix}`;
   let created = false;
   beforeAll(async () => {
-    const url = new URL(process.env.DATABASE_URL ?? "http://invalid");
-    if (
-      !["postgresql:", "postgres:"].includes(url.protocol) ||
-      !["localhost", "127.0.0.1"].includes(url.hostname) ||
-      !/^\/vaettir_(?:day|away_full)_test_[0-9]{13}$/.test(url.pathname) ||
-      url.searchParams.has("host")
-    ) {
-      throw Error("Exact disposable synthetic loopback database required");
-    }
+    assertOwnedTestDatabase(process.env.DATABASE_URL);
     // Both identifiers contain only fixed prefixes and a generated hex UUID.
     await prisma.$executeRawUnsafe(
       `CREATE TABLE "${table}" (value integer PRIMARY KEY)`,

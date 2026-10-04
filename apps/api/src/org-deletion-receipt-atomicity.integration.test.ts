@@ -3,19 +3,14 @@ import { randomUUID } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { Prisma, prisma } from "@vaettir/db";
 import { hardDeleteOrganization } from "./services/orgHardDelete.js";
+import { assertOwnedTestDatabase } from "./testOnlyDatabaseSafety.js";
 
 describe("organization deletion receipt shares the destructive transaction", () => {
   const tag = `erasure-receipt-${randomUUID()}`;
   const owned = new Map<string, { actorId: string; slug: string }>();
 
   beforeAll(() => {
-    const url = new URL(process.env.DATABASE_URL ?? "http://invalid");
-    if (!["postgresql:", "postgres:"].includes(url.protocol) ||
-        !["localhost", "127.0.0.1"].includes(url.hostname) ||
-        (url.port && url.port !== "5432") || !/^\/vaettir_(?:day|away_full)_test_[0-9]{13}$/.test(url.pathname) ||
-        [...url.searchParams.keys()].some(key => !["schema", "connection_limit"].includes(key))) {
-      throw Error("Exact owned disposable loopback test database required");
-    }
+    assertOwnedTestDatabase(process.env.DATABASE_URL);
   });
 
   afterAll(async () => {
