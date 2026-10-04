@@ -33,6 +33,14 @@ export function compareApprovedReports(baseline: Snapshot, target: Snapshot) {
     if (!scope.filters)
       throw new Error("This capture lacks its recorded filters.");
     const filters = scope.filters ?? {};
+    if (
+      filters.releaseId &&
+      (!Array.isArray(scope.releasePlanIds) ||
+        new Set(scope.releasePlanIds).size !== scope.releasePlanIds.length)
+    )
+      throw new Error(
+        "This release capture lacks complete frozen plan membership.",
+      );
     return JSON.stringify([
       "recorded-execution",
       filters.planId ?? null,
@@ -40,6 +48,7 @@ export function compareApprovedReports(baseline: Snapshot, target: Snapshot) {
       filters.platform ?? null,
       filters.environment ?? null,
       filters.build ?? null,
+      filters.releaseId ?? null,
     ]);
   };
   if (scopeKey(before) !== scopeKey(after))
@@ -290,6 +299,9 @@ export function compareApprovedReports(baseline: Snapshot, target: Snapshot) {
     before.scope?.kind !== "recorded-execution"
       ? "Project-wide scope"
       : [
+          filters?.releaseId
+            ? `Release: ${before.scope.releaseName ?? "Selected release"}${before.scope.releaseNameIsExcerpt ? " (excerpt)" : ""}`
+            : null,
           filters?.planId
             ? `Plan: ${before.scope.planName ?? "Selected plan"}`
             : null,
@@ -320,6 +332,15 @@ export function compareApprovedReports(baseline: Snapshot, target: Snapshot) {
       removed: [...baselineCases].filter((id) => !targetCases.has(id)).length,
     },
     limitations: [
+      ...(filters?.releaseId
+        ? [
+            "Release filters compare the same native release identity, not a historical release verdict. Each capture retains its own current linked-plan membership.",
+            JSON.stringify([...(before.scope?.releasePlanIds ?? [])].sort()) ===
+            JSON.stringify([...(after.scope?.releasePlanIds ?? [])].sort())
+              ? "The frozen release-plan identity sets match; procedures, active case scope and recorded windows may still differ."
+              : "The frozen release-plan identity sets differ. Aggregate changes include current membership changes, not same-release execution improvements.",
+          ]
+        : []),
       "Two immutable approved snapshots. Only sections selected in both are compared; no live data or author commentary is substituted.",
       "Execution counts use each original UTC window. Different or overlapping windows are not independent observations or a measured trend.",
       "Inventory and relationships describe capture time. Active case cohorts can change; aggregate deltas are not same-case improvements.",

@@ -32,7 +32,8 @@ import {
   reportRunWhere,
   reportWindow,
 } from "./reportSnapshotScope.js";
-import { testPlanExecutionTemplateSchema } from "../services/qualityExperienceProfile.js";
+import { resolveReportReleaseScope } from "../services/reportReleaseScope.js";
+import { readReportPlanCaseScope } from "../services/reportPlanCaseScope.js";
 import {
   capturedReportEvidence,
   reportEvidenceSchema,
@@ -62,7 +63,20 @@ const payloadSchema = z.object({
       planName: z.string().nullable(),
       contributingRunIds: z.array(z.string()).max(20000),
       cohortBasis: z.string(),
+      releaseName: z.string().max(240).optional(),
+      releaseNameIsExcerpt: z.boolean().optional(),
+      releasePlanIds: z.array(z.string().min(1).max(200)).max(200).optional(),
     })
+    .refine(
+      (scope) =>
+        !scope.filters?.releaseId ||
+        (scope.kind === "recorded-execution" &&
+          !!scope.releaseName &&
+          typeof scope.releaseNameIsExcerpt === "boolean" &&
+          Array.isArray(scope.releasePlanIds) &&
+          new Set(scope.releasePlanIds).size === scope.releasePlanIds.length),
+      "Release captures require exact frozen plan membership and captured label",
+    )
     .optional(),
   inventory: z.object({
     active: z.number(),
@@ -272,8 +286,8 @@ export const reportSnapshotsRouter = router({
       ),
     ),
   scopeOptions: protectedProcedure.input(projectInput).query(({ ctx, input }) =>
-    access(ctx, input.projectId, false, async (tx) => {
-      const [plans, runs] = await Promise.all([
+    access(ctx, input.projectId, false, async (tx, orgId) => {
+      const [plans, runs, releases] = await Promise.all([
         tx.$queryRaw<Array<{ id: string; name: string; nameExcerpt: boolean }>>`
           SELECT id, left(name, 160) AS name, length(name) > 160 AS "nameExcerpt"
           FROM "TestPlan" WHERE "projectId" = ${input.projectId}
@@ -298,12 +312,20 @@ export const reportSnapshotsRouter = router({
             CASE WHEN "executionContext"->'version' = '1'::jsonb THEN left("executionContext"->'configuration'->>'environment', 2000) END AS environment
           FROM "TestRun" WHERE "projectId" = ${input.projectId}
           ORDER BY "startedAt" DESC, id DESC LIMIT 101`,
+        tx.$queryRaw<Array<{ id: string; name: string; nameExcerpt: boolean }>>`
+          SELECT id,left(name,160) AS name,length(name)>160 AS "nameExcerpt"
+          FROM "Release" WHERE "projectId"=${input.projectId}
+          ORDER BY name ASC,id ASC LIMIT 101`,
       ]);
       return {
+        projectId: input.projectId,
+        organizationId: orgId,
         plans: plans.slice(0, 100),
         runs: runs.slice(0, 100),
         plansLimited: plans.length > 100,
         runsLimited: runs.length > 100,
+        releases: releases.slice(0, 100),
+        releasesLimited: releases.length > 100,
       };
     }),
   ),
@@ -362,6 +384,22 @@ export const reportSnapshotsRouter = router({
           )
             throw conflict();
           return { id: receipt.definitionId, version: receipt.appliedVersion };
+        }
+        if (input.definition.executionScope?.releaseId) {
+          const release = await resolveReportReleaseScope(
+            tx,
+            input.projectId,
+            input.definition.executionScope.releaseId,
+          );
+          if (
+            input.definition.executionScope.planId &&
+            !release.planIds.includes(input.definition.executionScope.planId)
+          )
+            throw new TRPCError({
+              code: "PRECONDITION_FAILED",
+              message:
+                "Selected plan does not belong to this release. No settings saved.",
+            });
         }
         if (
           (await tx.projectReportDefinitionWrite.count({
@@ -706,15 +744,31 @@ export const reportSnapshotsRouter = router({
         }
         const windowStart = window.start;
         const scope = input.definition.executionScope;
+        const releaseScope = scope?.releaseId
+          ? await resolveReportReleaseScope(
+              tx,
+              input.projectId,
+              scope.releaseId,
+            )
+          : null;
+        if (
+          scope?.planId &&
+          releaseScope &&
+          !releaseScope.planIds.includes(scope.planId)
+        )
+          throw new TRPCError({
+            code: "PRECONDITION_FAILED",
+            message:
+              "Selected plan does not currently belong to this release; no partial capture retained.",
+          });
         const selectedPlan = scope?.planId
-          ? await tx.testPlan.findFirst({
-              where: { id: scope.planId, projectId: input.projectId },
-              select: {
-                name: true,
-                executionTemplate: true,
-                testCases: { select: { id: true }, take: 20001 },
-              },
-            })
+          ? (
+              await tx.$queryRaw<
+                Array<{ id: string; name: string; excerpt: boolean }>
+              >`
+              SELECT id,left(name,240) AS name,length(name)>240 AS excerpt FROM "TestPlan"
+              WHERE id=${scope.planId} AND "projectId"=${input.projectId} FOR SHARE`
+            )[0]
           : null;
         if (scope?.planId && !selectedPlan)
           throw new TRPCError({
@@ -737,6 +791,15 @@ export const reportSnapshotsRouter = router({
           window.start,
           window.end,
           scope,
+          releaseScope?.planIds,
+        );
+        const selectedPlanIds = scope?.planId
+          ? [scope.planId]
+          : (releaseScope?.planIds ?? []);
+        const planCaseScope = await readReportPlanCaseScope(
+          tx,
+          input.projectId,
+          selectedPlanIds,
         );
         const matchingRuns = await tx.testRun.findMany({
           where: runWhere,
@@ -793,25 +856,7 @@ export const reportSnapshotsRouter = router({
           });
           for (const row of linked)
             if (row.testCaseId) scopedIds.add(row.testCaseId);
-          if (selectedPlan) {
-            for (const row of selectedPlan.testCases) scopedIds.add(row.id);
-            const template = testPlanExecutionTemplateSchema.safeParse(
-              selectedPlan.executionTemplate,
-            );
-            if (template.success)
-              for (const id of template.data.testCaseIds) scopedIds.add(id);
-            else if (
-              !selectedPlan.executionTemplate ||
-              typeof selectedPlan.executionTemplate !== "object" ||
-              Array.isArray(selectedPlan.executionTemplate) ||
-              Object.keys(selectedPlan.executionTemplate).length > 0
-            )
-              throw new TRPCError({
-                code: "PRECONDITION_FAILED",
-                message:
-                  "The selected plan's saved case scope is unsupported; review it before reporting.",
-              });
-          }
+          for (const id of planCaseScope.caseIds) scopedIds.add(id);
           if (scopedIds.size > 20000 || linked.length > 20000)
             throw new TRPCError({
               code: "PRECONDITION_FAILED",
@@ -1072,10 +1117,19 @@ export const reportSnapshotsRouter = router({
             kind: scope ? "recorded-execution" : "project",
             ...(scope ? { filters: scope } : {}),
             planName: selectedPlan?.name ?? null,
+            ...(releaseScope
+              ? {
+                  releaseName: releaseScope.releaseName,
+                  releaseNameIsExcerpt: releaseScope.releaseNameIsExcerpt,
+                  releasePlanIds: releaseScope.planIds,
+                }
+              : {}),
             contributingRunIds: contributingRuns.map((row) => row.id),
-            cohortBasis: scope
-              ? "Current active cases in the selected plan's saved/linked case scope plus planned or linked identities in matching recorded runs. Cases without results remain in the denominator."
-              : "All current active project cases.",
+            cohortBasis: releaseScope
+              ? "Current active cases in the selected release's complete current plan association (intersected with the selected plan when present), saved/linked plan case scope and planned/linked identities in matching recorded runs. Unexecuted planned cases remain in the denominator. The capture freezes current plan membership, not historical run release certification."
+              : scope
+                ? "Current active cases in the selected plan's saved/linked case scope plus planned or linked identities in matching recorded runs. Cases without results remain in the denominator."
+                : "All current active project cases.",
           },
           inventory: {
             active: cohort.length,
@@ -1134,6 +1188,13 @@ export const reportSnapshotsRouter = router({
           ),
           automationChange,
           limitations: [
+            ...(releaseScope?.limitations ?? []),
+            ...(selectedPlan || releaseScope ? planCaseScope.limitations : []),
+            ...(selectedPlan?.excerpt
+              ? [
+                  "The selected plan label is a bounded excerpt; its native identity defines scope.",
+                ]
+              : []),
             scope
               ? "Scoped metrics from one database snapshot. Execution uses exact recorded filters and run start times in the UTC window. Inventory, priority and plan case selection are current at capture, not historical inventory."
               : "Project-wide metrics from one database snapshot; execution is limited to the selected window. Inventory and links are current at capture.",

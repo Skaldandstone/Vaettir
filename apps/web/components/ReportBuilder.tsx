@@ -64,10 +64,14 @@ function ProjectReportBuilder({ projectId }: { projectId: string }) {
   const [open, setOpen] = useState(false);
   const scopeOptions = trpcReact.reportSnapshots.scopeOptions.useQuery(
     { projectId },
-    { enabled: open, staleTime: 0 },
+    { enabled: open && !readOnly, staleTime: 0 },
   );
   const scopeChoices =
     open &&
+    !readOnly &&
+    project.data?.id === projectId &&
+    scopeOptions.data?.projectId === projectId &&
+    scopeOptions.data.organizationId === project.data.organizationId &&
     !scopeOptions.error &&
     !scopeOptions.isFetching &&
     !scopeOptions.isPaused
@@ -117,7 +121,8 @@ function ProjectReportBuilder({ projectId }: { projectId: string }) {
         Date.parse(definition.dateInterval.start) >=
         366 * 86400000);
   function setScope(
-    key: "planId" | "runId" | "platform" | "environment" | "build",
+    key:
+      "planId" | "runId" | "platform" | "environment" | "build" | "releaseId",
     value: string,
   ) {
     const scope = { ...definition.executionScope };
@@ -526,6 +531,45 @@ function ProjectReportBuilder({ projectId }: { projectId: string }) {
                 case selection.
               </p>
               <div style={{ display: "grid", gap: 12 }}>
+                <label>
+                  Release (current linked plans)
+                  <select
+                    disabled={frozen || !scopeChoices}
+                    value={definition.executionScope?.releaseId ?? ""}
+                    onChange={(event) =>
+                      setScope("releaseId", event.target.value)
+                    }
+                  >
+                    <option value="">All releases / no release filter</option>
+                    {definition.executionScope?.releaseId &&
+                      !scopeChoices?.releases.some(
+                        (release) =>
+                          release.id === definition.executionScope?.releaseId,
+                      ) && (
+                        <option value={definition.executionScope.releaseId}>
+                          Stored release · {definition.executionScope.releaseId}
+                        </option>
+                      )}
+                    {scopeChoices?.releases.map((release) => (
+                      <option key={release.id} value={release.id}>
+                        {release.name}
+                        {release.nameExcerpt ? "… (excerpt)" : ""}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <p className="text-muted">
+                  Release scope freezes the current linked plan membership at
+                  capture, including unexecuted planned cases. It does not
+                  certify that older runs belonged to this release. Plan and
+                  recorded configuration filters still combine with AND.
+                </p>
+                {scopeChoices?.releasesLimited && (
+                  <p>
+                    Showing the first 100 release suggestions. A stored release
+                    outside this list is retained and checked at capture.
+                  </p>
+                )}
                 <label>
                   Plan
                   <select

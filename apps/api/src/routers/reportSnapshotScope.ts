@@ -36,8 +36,22 @@ export function reportRunWhere(
   start: Date,
   end: Date,
   scope?: ReportExecutionScope,
+  releasePlanIds?: readonly string[],
 ): Prisma.TestRunWhereInput {
   const AND: Prisma.TestRunWhereInput[] = [];
+  if (scope?.releaseId) {
+    if (!releasePlanIds || releasePlanIds.length > 200)
+      throw new Error(
+        "Release scope must be resolved completely before filtering runs",
+      );
+    AND.push({
+      OR: releasePlanIds.length
+        ? releasePlanIds.map((id) => ({
+            executionContext: { path: ["plan", "testPlanId"], equals: id },
+          }))
+        : [{ id: { in: [] } }],
+    });
+  }
   if (scope?.runId) AND.push({ id: scope.runId });
   if (scope?.planId)
     AND.push({
@@ -49,7 +63,12 @@ export function reportRunWhere(
         executionContext: { path: ["configuration", key], equals: scope[key] },
       });
   }
-  if (scope?.planId || scope?.platform || scope?.environment)
+  if (
+    scope?.releaseId ||
+    scope?.planId ||
+    scope?.platform ||
+    scope?.environment
+  )
     AND.push({ executionContext: { path: ["version"], equals: 1 } });
   if (scope?.build)
     AND.push({

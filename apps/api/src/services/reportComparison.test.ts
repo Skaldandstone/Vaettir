@@ -70,6 +70,34 @@ const later = () => ({
   payload: payload("2026-10-03T01:00:00.000Z"),
 });
 describe("approved report comparisons", () => {
+  it("keeps release identity exact and discloses frozen linked-plan membership changes", () => {
+    const before = baseline(),
+      after = later();
+    for (const snapshot of [before, after]) {
+      snapshot.payload.definition.executionScope = { releaseId: "release-a" };
+      snapshot.payload.scope = {
+        kind: "recorded-execution",
+        filters: { releaseId: "release-a" },
+        planName: null,
+        contributingRunIds: [],
+        cohortBasis: "Synthetic current release membership",
+        releaseName: "Synthetic release",
+        releaseNameIsExcerpt: false,
+        releasePlanIds: ["plan-a"],
+      };
+    }
+    expect(compareApprovedReports(before, after).scopeDescription).toContain(
+      "Release: Synthetic release",
+    );
+    after.payload.scope!.releasePlanIds = ["plan-a", "plan-b"];
+    expect(compareApprovedReports(before, after).limitations).toContain(
+      "The frozen release-plan identity sets differ. Aggregate changes include current membership changes, not same-release execution improvements.",
+    );
+    after.payload.scope!.filters = { releaseId: "release-b" };
+    expect(() => compareApprovedReports(before, after)).toThrow(
+      "different scopes",
+    );
+  });
   it("rejects duplicate, unbounded and arbitrary selectors", () => {
     expect(
       reportComparisonInput.safeParse({

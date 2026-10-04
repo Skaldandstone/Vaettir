@@ -26,20 +26,44 @@ export function ReportDefinitionSettingsEditor({
   onScreen: (screen: number) => void;
   active: boolean;
 }) {
+  const project = trpcReact.project.byId.useQuery(
+    { id: projectId },
+    { enabled: active, staleTime: 0 },
+  );
+  const organizations = trpcReact.organization.mine.useQuery(undefined, {
+    enabled: active,
+    staleTime: 0,
+  });
+  const accessReady =
+    active &&
+    project.data?.id === projectId &&
+    !project.error &&
+    !project.isFetching &&
+    !project.isPaused &&
+    !organizations.error &&
+    !organizations.isFetching &&
+    !organizations.isPaused &&
+    !!organizations.data?.some(
+      (row) => row.id === project.data?.organizationId,
+    );
   const scopeOptions = trpcReact.reportSnapshots.scopeOptions.useQuery(
     { projectId },
-    { enabled: active && screen === 2, staleTime: 0 },
+    { enabled: accessReady && screen === 2, staleTime: 0 },
   );
   const options =
     active &&
+    accessReady &&
     screen === 2 &&
+    scopeOptions.data?.projectId === projectId &&
+    scopeOptions.data.organizationId === project.data?.organizationId &&
     !scopeOptions.error &&
     !scopeOptions.isFetching &&
     !scopeOptions.isPaused
       ? scopeOptions.data
       : null;
   function scope(
-    key: "planId" | "runId" | "platform" | "environment" | "build",
+    key:
+      "planId" | "runId" | "platform" | "environment" | "build" | "releaseId",
     text: string,
   ) {
     const next = { ...value.executionScope };
@@ -220,6 +244,43 @@ export function ReportDefinitionSettingsEditor({
             values match recorded run context, not current project labels.
             Saving settings does not capture or verify results.
           </p>
+          <label>
+            Release (optional, current linked plans)
+            <select
+              style={fieldStyle}
+              disabled={!options}
+              value={value.executionScope?.releaseId ?? ""}
+              onChange={(event) => scope("releaseId", event.target.value)}
+            >
+              <option value="">No release filter</option>
+              {value.executionScope?.releaseId &&
+                !options?.releases.some(
+                  (release) => release.id === value.executionScope?.releaseId,
+                ) && (
+                  <option value={value.executionScope.releaseId}>
+                    Stored release reference · {value.executionScope.releaseId}
+                  </option>
+                )}
+              {options?.releases.map((release) => (
+                <option key={release.id} value={release.id}>
+                  {release.name}
+                  {release.nameExcerpt ? "… (excerpt)" : ""}
+                </option>
+              ))}
+            </select>
+          </label>
+          <p>
+            Release scope uses current plan associations and complete
+            saved/linked case selection, not historical release certification.
+            Other filters intersect; incompatible plan references are refused,
+            not silently replaced.
+          </p>
+          {options?.releasesLimited && (
+            <p>
+              Release suggestions show at most 100 records; stored older
+              references remain retained.
+            </p>
+          )}
           <label>
             Plan (optional)
             <select

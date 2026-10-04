@@ -15,6 +15,9 @@ export function reportScopeSummary(
     return "Project-wide scope";
   const filters = report.scope.filters;
   return [
+    filters?.releaseId
+      ? `Release: ${report.scope.releaseName ?? (portable ? "Selected release" : filters.releaseId)}${report.scope.releaseNameIsExcerpt ? " (excerpt)" : ""}`
+      : null,
     filters?.planId
       ? `Plan: ${report.scope.planName ?? (portable ? "Selected plan" : filters.planId)}`
       : null,

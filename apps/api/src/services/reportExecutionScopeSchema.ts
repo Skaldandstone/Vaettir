@@ -7,6 +7,7 @@ export const reportExecutionScopeSchema = z
     platform: z.string().trim().min(1).max(300).optional(),
     environment: z.string().trim().min(1).max(2000).optional(),
     build: z.string().trim().min(1).max(300).optional(),
+    releaseId: z.string().min(1).max(200).optional(),
   })
   .strict()
   .refine(

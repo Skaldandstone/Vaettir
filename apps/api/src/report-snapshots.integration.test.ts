@@ -129,6 +129,95 @@ describe("frozen reviewed reports", () => {
       title: "Stakeholder review",
       definition,
     });
+  // Authored source only, UNEXECUTED 2026-10-04.
+  it("captures complete release planned scope, keeps empty releases empty and retains captured membership after native unlink", async () => {
+    const type = await prisma.testPlanType.findFirstOrThrow();
+    const release = await prisma.release.create({
+      data: { projectId, name: `${stamp} release` },
+    });
+    const empty = await prisma.release.create({
+      data: { projectId, name: `${stamp} empty release` },
+    });
+    let planId: string | undefined;
+    try {
+      const plan = await prisma.testPlan.create({
+        data: {
+          projectId,
+          releaseId: release.id,
+          testPlanTypeId: type.id,
+          name: `${stamp} saved planned cases`,
+          executionTemplate: {
+            version: 1,
+            testCaseIds: [caseId],
+            configurations: [],
+          },
+        },
+      });
+      planId = plan.id;
+      const capture = await owner.reportSnapshots.preview({
+        projectId,
+        requestId: randomUUID(),
+        title: "Synthetic release cohort",
+        definition: {
+          ...definition,
+          executionScope: { releaseId: release.id },
+        },
+      });
+      expect(capture.payload.inventory.active).toBe(1);
+      expect(capture.payload.execution.runs).toBe(0);
+      expect(capture.payload.scope).toMatchObject({
+        filters: { releaseId: release.id },
+        releasePlanIds: [plan.id],
+        releaseName: release.name,
+      });
+      const none = await owner.reportSnapshots.preview({
+        projectId,
+        requestId: randomUUID(),
+        title: "Synthetic empty release cohort",
+        definition: { ...definition, executionScope: { releaseId: empty.id } },
+      });
+      expect(none.payload.inventory.active).toBe(0);
+      expect(none.payload.execution.runs).toBe(0);
+      expect(none.payload.scope?.releasePlanIds).toEqual([]);
+      await expect(
+        owner.reportSnapshots.preview({
+          projectId,
+          requestId: randomUUID(),
+          title: "Incompatible native scopes",
+          definition: {
+            ...definition,
+            executionScope: { releaseId: empty.id, planId: plan.id },
+          },
+        }),
+      ).rejects.toThrow("does not currently belong");
+      await prisma.testPlan.update({
+        where: { id: plan.id },
+        data: { releaseId: null },
+      });
+      const retained = await owner.reportSnapshots.get({
+        projectId,
+        id: capture.id,
+      });
+      expect(retained.payload.scope?.releasePlanIds).toEqual([plan.id]);
+      expect(retained.payload.inventory.active).toBe(1);
+      const current = await owner.reportSnapshots.preview({
+        projectId,
+        requestId: randomUUID(),
+        title: "Synthetic changed release cohort",
+        definition: {
+          ...definition,
+          executionScope: { releaseId: release.id },
+        },
+      });
+      expect(current.payload.inventory.active).toBe(0);
+    } finally {
+      if (planId)
+        await prisma.testPlan.deleteMany({ where: { id: planId, projectId } });
+      await prisma.release.deleteMany({
+        where: { id: { in: [release.id, empty.id] }, projectId },
+      });
+    }
+  });
   it("catalog browses all pages, filters approved metadata and never exposes private or original-foreign snapshots", async () => {
     const search = `${stamp} catalog`;
     const base = await owner.reportSnapshots.preview({

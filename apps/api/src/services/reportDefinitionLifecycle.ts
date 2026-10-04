@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { TRPCError } from "@trpc/server";
 import { Prisma } from "@vaettir/db";
+import { resolveReportReleaseScope } from "./reportReleaseScope.js";
 import type { FrozenReportPayload } from "../routers/reportSnapshots.js";
 import {
   retainedReportDefinitionStateSchema,
@@ -305,6 +306,19 @@ export async function manageReportDefinition(
   }
   if (input.action.kind === "settings" || input.action.kind === "restore") {
     const scope = after.definition.executionScope;
+    if (scope?.releaseId) {
+      const release = await resolveReportReleaseScope(
+        tx,
+        input.projectId,
+        scope.releaseId,
+      );
+      if (scope.planId && !release.planIds.includes(scope.planId))
+        throw new TRPCError({
+          code: "PRECONDITION_FAILED",
+          message:
+            "Selected plan does not belong to this release; no settings saved.",
+        });
+    }
     if (scope?.planId) {
       const plans = await tx.$queryRaw<
         Array<{ id: string }>
