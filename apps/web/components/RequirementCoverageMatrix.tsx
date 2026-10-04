@@ -238,7 +238,9 @@ function Matrix({ projectId }: { projectId: string }) {
     !denied &&
     !options.error &&
     !options.isFetching &&
-    !options.isPaused
+    !options.isPaused &&
+    options.data?.projectId === projectId &&
+    options.data.organizationId === organizationId
       ? options.data
       : null;
   const prefix = `/projects/${encodeURIComponent(projectId)}`;
@@ -308,6 +310,12 @@ function Matrix({ projectId }: { projectId: string }) {
     }
   }
   function apply() {
+    if (!ready || denied) {
+      setFilterError(
+        "Recheck current project access before applying this scope.",
+      );
+      return;
+    }
     const selected = Object.fromEntries(
       (
         ["planId", "runId", "platform", "environment", "build"] as const
@@ -588,43 +596,80 @@ function Matrix({ projectId }: { projectId: string }) {
           ))}
         </div>
         <label style={label}>
-          Recorded plan ID (optional)
-          <input
+          Recorded plan
+          <select
             style={control}
-            list="coverage-plans"
             value={draft.planId}
-            maxLength={200}
+            disabled={!ready || denied || !scopeOptions}
             onChange={(event) =>
               setDraft((value) => ({ ...value, planId: event.target.value }))
             }
-          />
+          >
+            <option value="">All recorded plans</option>
+            {draft.planId &&
+              !scopeOptions?.plans.some((plan) => plan.id === draft.planId) && (
+                <option value={draft.planId}>
+                  Retained exact plan reference (not in current suggestions)
+                </option>
+              )}
+            {scopeOptions?.plans.map((plan) => (
+              <option key={plan.id} value={plan.id}>
+                {plan.name}
+                {plan.nameExcerpt ? " (excerpt)" : ""} · {plan.id}
+              </option>
+            ))}
+          </select>
         </label>
-        <datalist id="coverage-plans">
-          {scopeOptions?.plans.map((plan) => (
-            <option key={plan.id} value={plan.id}>
-              {plan.name}
-            </option>
-          ))}
-        </datalist>
         <label style={label}>
-          Native run ID (optional)
-          <input
+          Recorded run
+          <select
             style={control}
-            list="coverage-runs"
             value={draft.runId}
-            maxLength={200}
+            disabled={!ready || denied || !scopeOptions}
             onChange={(event) =>
               setDraft((value) => ({ ...value, runId: event.target.value }))
             }
-          />
+          >
+            <option value="">All recorded runs</option>
+            {draft.runId &&
+              !scopeOptions?.runs.some((run) => run.id === draft.runId) && (
+                <option value={draft.runId}>
+                  Retained exact run reference (not in current suggestions)
+                </option>
+              )}
+            {scopeOptions?.runs.map((run) => (
+              <option key={run.id} value={run.id}>
+                {run.startedAt.toISOString()} · {run.ciProvider}
+                {run.providerExcerpt ? " (excerpt)" : ""} · {run.id}
+              </option>
+            ))}
+          </select>
         </label>
-        <datalist id="coverage-runs">
-          {scopeOptions?.runs.map((run) => (
-            <option key={run.id} value={run.id}>
-              {run.startedAt.toISOString()} · {run.ciProvider}
-            </option>
+        <details>
+          <summary>Use an older exact plan or run reference</summary>
+          <p className="text-muted">
+            Suggestions are bounded, not the full history. Enter an existing
+            native reference only when it is absent from the dropdown. The
+            server verifies that it belongs to this project; no configuration
+            metadata is filled automatically.
+          </p>
+          {(["planId", "runId"] as const).map((key) => (
+            <label style={label} key={key}>
+              {key === "planId"
+                ? "Exact plan reference"
+                : "Exact run reference"}
+              <input
+                style={control}
+                value={draft[key]}
+                maxLength={200}
+                disabled={!ready || denied}
+                onChange={(event) =>
+                  setDraft((value) => ({ ...value, [key]: event.target.value }))
+                }
+              />
+            </label>
           ))}
-        </datalist>
+        </details>
         <details>
           <summary>Exact platform, environment and build</summary>
           {(
@@ -677,7 +722,12 @@ function Matrix({ projectId }: { projectId: string }) {
           >
             Cancel
           </button>
-          <button type="button" className="btn-primary" onClick={apply}>
+          <button
+            type="button"
+            className="btn-primary"
+            disabled={!ready || denied}
+            onClick={apply}
+          >
             Apply recorded scope
           </button>
         </div>

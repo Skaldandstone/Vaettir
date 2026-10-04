@@ -56,3 +56,38 @@ test("scope modal controls wrap and table regions remain keyboard accessible", (
   );
   assert.ok(component.includes("no zero-coverage substitute"));
 });
+test("native plan and run dropdowns preserve unlisted references without guessing context", () => {
+  assert.ok(component.includes("All recorded plans"));
+  assert.ok(component.includes("All recorded runs"));
+  assert.ok(
+    component.includes(
+      "!scopeOptions?.plans.some((plan) => plan.id === draft.planId)",
+    ),
+  );
+  assert.ok(
+    component.includes(
+      "!scopeOptions?.runs.some((run) => run.id === draft.runId)",
+    ),
+  );
+  assert.ok(component.includes("Use an older exact plan or run reference"));
+  assert.ok(component.includes("maxLength={200}"));
+  assert.ok(
+    component.includes("no configuration metadata is filled automatically"),
+  );
+  assert.ok(!component.includes('list="coverage-plans"'));
+  assert.ok(!component.includes('list="coverage-runs"'));
+});
+test("suggestions and apply require current tenant access rather than retained options", () => {
+  assert.ok(component.includes("options.data?.projectId === projectId"));
+  assert.ok(
+    component.includes("options.data.organizationId === organizationId"),
+  );
+  assert.ok(component.includes("disabled={!ready || denied || !scopeOptions}"));
+  assert.ok(component.includes("function apply() { if (!ready || denied) {"));
+  assert.ok(
+    component.includes(
+      "Recheck current project access before applying this scope.",
+    ),
+  );
+  assert.ok(component.includes("disabled={!ready || denied} onClick={apply}"));
+});
