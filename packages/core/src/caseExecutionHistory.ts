@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { caseExecutionWholeCaseSummarySchema } from "./caseExecutionWholeCaseSummary.js";
 
 export const caseOutcomeSchema = z.enum([
   "PASS",
@@ -84,6 +85,8 @@ export const caseExecutionHistoryItemSchema = z.object({
       .nullable(),
   }),
   artifactCount: z.number().int().nonnegative(),
+  // Optional preserves older serialized pages; null is an explicit untracked summary.
+  wholeCase: caseExecutionWholeCaseSummarySchema.nullable().optional(),
   limitations: z.array(z.string()),
 });
 export const caseExecutionHistoryPageSchema = z.object({
@@ -94,7 +97,15 @@ export const caseExecutionHistoryPageSchema = z.object({
     archived: z.boolean(),
   }),
   items: z.array(caseExecutionHistoryItemSchema).max(25),
-  nextCursor: z.object({ runId: z.string() }).nullable(),
+  nextCursor: z.object({ runId: z.string(), filterKey: z.string().max(32768).optional() }).nullable(),
+  // Additive current-access echoes; omitted legacy requests remain supported.
+  projectId: z.string().max(200).optional(),
+  organizationId: z.string().max(200).optional(),
+  actorClerkUserId: z.string().max(200).optional(),
+  requested: z.string().max(65536).optional(),
+  observedAt: z.string().datetime().optional(),
+  window: z.object({ start: z.string().datetime(), end: z.string().datetime() }).nullable().optional(),
+  limits: z.array(z.string()).max(8).optional(),
 });
 export type CaseExecutionHistoryPage = z.infer<
   typeof caseExecutionHistoryPageSchema
