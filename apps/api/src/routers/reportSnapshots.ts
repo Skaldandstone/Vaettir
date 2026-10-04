@@ -11,12 +11,23 @@ import {
 import { liveEditor } from "./jiraConnections.js";
 import { reportCatalogInput } from "../services/reportCatalogSchema.js";
 import { readReportCatalog } from "../services/reportCatalog.js";
+import { reportDefinitionSchema } from "../services/reportDefinitionSchema.js";
 import {
   compareApprovedReports,
   reportComparisonInput,
 } from "../services/reportComparison.js";
 import {
-  reportDateIntervalSchema,
+  reportDefinitionListInput,
+  reportDefinitionHistoryInput,
+  reportDefinitionManageInput,
+} from "../services/reportDefinitionLifecycleSchema.js";
+import {
+  reportDefinitionList,
+  reportDefinitionHistory,
+  manageReportDefinition,
+  retainedReportDefinitionState,
+} from "../services/reportDefinitionLifecycle.js";
+import {
   reportExecutionScopeSchema,
   reportRunWhere,
   reportWindow,
@@ -32,44 +43,7 @@ const hash = (value: unknown) =>
 const projectInput = z
   .object({ projectId: z.string().min(1).max(120) })
   .strict();
-export const reportDefinitionSchema = z
-  .object({
-    audience: z.enum(["stakeholders", "engineering", "quality"]),
-    // Optional starter identity; existing definitions remain valid. Sections and
-    // commentary stay explicit, and a starter never changes report scope.
-    templateId: z
-      .enum([
-        "quality-status",
-        "execution-progress",
-        "requirements-coverage",
-        "defect-review",
-        "automation-progress",
-      ])
-      .optional(),
-    windowDays: z.union([z.literal(7), z.literal(30), z.literal(90)]),
-    dateInterval: reportDateIntervalSchema.optional(),
-    executionScope: reportExecutionScopeSchema.optional(),
-    sections: z
-      .array(
-        z.enum([
-          "inventory",
-          "execution",
-          "traceability",
-          "defects",
-          "automation",
-        ]),
-      )
-      .min(1)
-      .max(5)
-      .refine(
-        (values) => new Set(values).size === values.length,
-        "Choose each section once",
-      ),
-    summary: z.string().trim().max(1500),
-    risks: z.string().trim().max(1500),
-    nextActions: z.string().trim().max(1500),
-  })
-  .strict();
+export { reportDefinitionSchema };
 const counts = z.array(
   z.object({ key: z.string(), count: z.number().int().nonnegative() }),
 );
@@ -213,6 +187,44 @@ const output = (row: {
 });
 
 export const reportSnapshotsRouter = router({
+  definitionCatalog: protectedProcedure
+    .input(reportDefinitionListInput)
+    .query(({ ctx, input }) =>
+      access(ctx, input.projectId, false, (tx, orgId) =>
+        reportDefinitionList(
+          tx,
+          input.projectId,
+          orgId,
+          ctx.user.id,
+          input.page,
+          input.includeArchived,
+        ),
+      ),
+    ),
+  definitionHistory: protectedProcedure
+    .input(reportDefinitionHistoryInput)
+    .query(({ ctx, input }) =>
+      access(ctx, input.projectId, false, (tx, orgId) =>
+        reportDefinitionHistory(
+          tx,
+          input.projectId,
+          orgId,
+          ctx.user.id,
+          input.id,
+          input.page,
+          (value) => reportDefinitionSchema.parse(value),
+        ),
+      ),
+    ),
+  manageDefinition: protectedProcedure
+    .input(reportDefinitionManageInput)
+    .mutation(({ ctx, input }) =>
+      access(ctx, input.projectId, true, (tx, orgId) =>
+        manageReportDefinition(tx, orgId, ctx.user.id, input, (value) =>
+          reportDefinitionSchema.parse(value),
+        ),
+      ),
+    ),
   compare: protectedProcedure
     .input(reportComparisonInput)
     .query(({ ctx, input }) =>
@@ -261,23 +273,23 @@ export const reportSnapshotsRouter = router({
   scopeOptions: protectedProcedure.input(projectInput).query(({ ctx, input }) =>
     access(ctx, input.projectId, false, async (tx) => {
       const [plans, runs] = await Promise.all([
-        tx.testPlan.findMany({
-          where: { projectId: input.projectId },
-          select: { id: true, name: true },
-          orderBy: [{ name: "asc" }, { id: "asc" }],
-          take: 101,
-        }),
+        tx.$queryRaw<Array<{ id: string; name: string; nameExcerpt: boolean }>>`
+          SELECT id, left(name, 160) AS name, length(name) > 160 AS "nameExcerpt"
+          FROM "TestPlan" WHERE "projectId" = ${input.projectId}
+          ORDER BY name ASC, id ASC LIMIT 101`,
         tx.$queryRaw<
           Array<{
             id: string;
             startedAt: Date;
             ciProvider: string;
+            providerExcerpt: boolean;
             build: string | null;
             platform: string | null;
             environment: string | null;
           }>
         >`
-          SELECT id, "startedAt", "ciProvider",
+          SELECT id, "startedAt", left("ciProvider", 100) AS "ciProvider",
+            length("ciProvider") > 100 AS "providerExcerpt",
             CASE WHEN "ciProvider" = 'manual' THEN
               CASE WHEN "executionContext"->'version' = '1'::jsonb THEN left("executionContext"->'configuration'->>'build', 300) END
               ELSE left("commitSha", 300) END AS build,
@@ -300,15 +312,17 @@ export const reportSnapshotsRouter = router({
         where: {
           projectId: input.projectId,
           organizationId: orgId,
-          userId: ctx.user.id,
+          OR: [{ userId: ctx.user.id }, { visibility: "project" }],
+          archivedAt: null,
         },
         orderBy: { updatedAt: "desc" },
-        take: 50,
+        take: 100,
       });
       return rows.map((row) => ({
         id: row.id,
         name: row.name,
         version: row.version,
+        visibility: row.visibility,
         definition: reportDefinitionSchema.parse(row.definition),
       }));
     }),
@@ -358,7 +372,14 @@ export const reportSnapshotsRouter = router({
             message:
               "Definition retry retention limit reached. Existing definitions remain saved.",
           });
-        const record = async (id: string, version: number) => {
+        const record = async (
+          id: string,
+          version: number,
+          beforeState?: ReturnType<typeof retainedReportDefinitionState>,
+        ) => {
+          const saved = await tx.projectReportDefinition.findFirstOrThrow({
+            where: { id, projectId: input.projectId, organizationId: orgId },
+          });
           await tx.projectReportDefinitionWrite.create({
             data: {
               key,
@@ -368,11 +389,27 @@ export const reportSnapshotsRouter = router({
               requestHash,
               definitionId: id,
               appliedVersion: version,
+              ...(beforeState ? { beforeState } : {}),
+              afterState: retainedReportDefinitionState(saved, (value) =>
+                reportDefinitionSchema.parse(value),
+              ),
             },
           });
           return { id, version };
         };
         if (input.id) {
+          const priorBody = await tx.projectReportDefinition.findFirst({
+            where: {
+              id: input.id,
+              projectId: input.projectId,
+              organizationId: orgId,
+              userId: ctx.user.id,
+              visibility: "private",
+              archivedAt: null,
+              version: input.version,
+            },
+          });
+          if (!priorBody) throw conflict();
           const changed = await tx.projectReportDefinition.updateMany({
             where: {
               id: input.id,
@@ -380,6 +417,8 @@ export const reportSnapshotsRouter = router({
               organizationId: orgId,
               userId: ctx.user.id,
               version: input.version,
+              visibility: "private",
+              archivedAt: null,
             },
             data: {
               name: input.name,
@@ -388,7 +427,13 @@ export const reportSnapshotsRouter = router({
             },
           });
           if (changed.count !== 1) throw conflict();
-          return record(input.id, input.version! + 1);
+          return record(
+            input.id,
+            input.version! + 1,
+            retainedReportDefinitionState(priorBody, (value) =>
+              reportDefinitionSchema.parse(value),
+            ),
+          );
         }
         const id = hash([
           "definition",
@@ -402,6 +447,8 @@ export const reportSnapshotsRouter = router({
         if (prior) {
           if (
             prior.organizationId !== orgId ||
+            prior.visibility !== "private" ||
+            prior.archivedAt !== null ||
             prior.name !== input.name ||
             hash(reportDefinitionSchema.parse(prior.definition)) !==
               hash(input.definition)
@@ -416,7 +463,8 @@ export const reportSnapshotsRouter = router({
         )
           throw new TRPCError({
             code: "PRECONDITION_FAILED",
-            message: "Keep at most 50 reusable report definitions.",
+            message:
+              "Keep at most 50 retained report definitions per author, including archives.",
           });
         await tx.projectReportDefinition.create({
           data: {
@@ -613,7 +661,8 @@ export const reportSnapshotsRouter = router({
               id: input.definitionId,
               projectId: input.projectId,
               organizationId: orgId,
-              userId: ctx.user.id,
+              OR: [{ userId: ctx.user.id }, { visibility: "project" }],
+              archivedAt: null,
             },
           });
           if (

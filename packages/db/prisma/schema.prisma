@@ -473,12 +473,15 @@ model ProjectReportDefinition {
   userId         String
   name           String
   definition     Json
+  visibility     String                  @default("private")
+  archivedAt     DateTime?
   version        Int                     @default(1)
   createdAt      DateTime                @default(now())
   updatedAt      DateTime                @updatedAt
   snapshots      ProjectReportSnapshot[]
 
   @@index([projectId, updatedAt])
+  @@index([projectId, organizationId, visibility, archivedAt], map: "report_definition_scope_visibility_idx")
 }
 
 model ProjectReportDefinitionWrite {
@@ -490,9 +493,12 @@ model ProjectReportDefinitionWrite {
   requestHash    String
   definitionId   String
   appliedVersion Int
+  beforeState    Json?
+  afterState     Json?
   createdAt      DateTime @default(now())
 
   @@index([projectId, createdAt])
+  @@index([definitionId, projectId, organizationId, createdAt], map: "report_definition_write_history_idx")
 }
 
 model ProjectReportSnapshot {

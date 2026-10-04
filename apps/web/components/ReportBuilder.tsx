@@ -3,6 +3,7 @@ import { useState } from "react";
 import { DialogFrame } from "./ui/DialogFrame";
 import { FrozenReport } from "./FrozenReport";
 import { ReportSnapshotCatalog } from "./ReportSnapshotCatalog";
+import { ReportDefinitionManager } from "./ReportDefinitionManager";
 import {
   trpcReact,
   type RouterInputs,
@@ -293,6 +294,7 @@ function ProjectReportBuilder({ projectId }: { projectId: string }) {
           <option value="">Choose a reusable report</option>
           {availableDefinitions?.map((row) => (
             <option key={row.id} value={row.id}>
+              {row.visibility === "project" ? "Project · " : "Private · "}
               {row.name}
             </option>
           ))}
@@ -326,6 +328,7 @@ function ProjectReportBuilder({ projectId }: { projectId: string }) {
         </details>
       )}
       <ReportSnapshotCatalog projectId={projectId} />
+      <ReportDefinitionManager projectId={projectId} />
       {(definitions.error || drafts.error) && (
         <p role="alert">
           Reports could not be refreshed. Existing drafts are retained; retry
@@ -547,6 +550,7 @@ function ProjectReportBuilder({ projectId }: { projectId: string }) {
                     {scopeChoices?.plans.map((plan) => (
                       <option key={plan.id} value={plan.id}>
                         {plan.name}
+                        {plan.nameExcerpt ? "… (excerpt)" : ""}
                       </option>
                     ))}
                   </select>
@@ -575,7 +579,8 @@ function ProjectReportBuilder({ projectId }: { projectId: string }) {
                     {scopeChoices?.runs.map((run) => (
                       <option key={run.id} value={run.id}>
                         {new Date(run.startedAt).toLocaleDateString()} ·{" "}
-                        {run.ciProvider} · {run.id}
+                        {run.ciProvider}
+                        {run.providerExcerpt ? "… (excerpt)" : ""} · {run.id}
                       </option>
                     ))}
                   </select>

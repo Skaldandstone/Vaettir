@@ -1,21 +1,12 @@
-import { z } from "zod";
+import type { z } from "zod";
 import { Prisma } from "@vaettir/db";
 import { reportDateIntervalSchema } from "../services/reportDateIntervalSchema.js";
+import {
+  reportExecutionScopeSchema,
+  type ReportExecutionScope,
+} from "../services/reportExecutionScopeSchema.js";
 export { reportDateIntervalSchema };
-export const reportExecutionScopeSchema = z
-  .object({
-    planId: z.string().min(1).max(200).optional(),
-    runId: z.string().min(1).max(200).optional(),
-    platform: z.string().trim().min(1).max(300).optional(),
-    environment: z.string().trim().min(1).max(2000).optional(),
-    build: z.string().trim().min(1).max(300).optional(),
-  })
-  .strict()
-  .refine(
-    (value) => Object.keys(value).length > 0,
-    "Choose at least one scope filter",
-  );
-export type ReportExecutionScope = z.infer<typeof reportExecutionScopeSchema>;
+export { reportExecutionScopeSchema, type ReportExecutionScope };
 
 /** Inclusive UTC calendar days, capped at the transaction's immutable capture time. */
 export function reportWindow(
