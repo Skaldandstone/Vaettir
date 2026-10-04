@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { Modal } from "./Modal";
 import { trpcReact } from "@/lib/trpcReact";
@@ -22,6 +22,49 @@ export function ReportSnapshotComparison({
   selected: SelectedReportSnapshot[];
   onClose: () => void;
 }) {
+  const pairKey = [...selected]
+    .sort((a, b) => new Date(a.asOf).getTime() - new Date(b.asOf).getTime())
+    .map((row) => row.id)
+    .join(":");
+  return (
+    <Comparison
+      key={`${projectId}:${pairKey}`}
+      projectId={projectId}
+      selected={selected}
+      onClose={onClose}
+    />
+  );
+}
+function Comparison({
+  projectId,
+  selected,
+  onClose,
+}: {
+  projectId: string;
+  selected: SelectedReportSnapshot[];
+  onClose: () => void;
+}) {
+  const project = trpcReact.project.byId.useQuery(
+    { id: projectId },
+    { retry: false, staleTime: 0 },
+  );
+  const organizations = trpcReact.organization.mine.useQuery(undefined, {
+    retry: false,
+    staleTime: 0,
+  });
+  const organizationId =
+    project.data?.id === projectId ? project.data.organizationId : undefined;
+  const projectReady =
+    !project.error &&
+    !project.isFetching &&
+    !project.isPaused &&
+    project.data?.id === projectId;
+  const accessReady =
+    projectReady &&
+    !organizations.error &&
+    !organizations.isFetching &&
+    !organizations.isPaused &&
+    !!organizations.data?.some((org) => org.id === organizationId);
   const ordered = [...selected].sort(
     (a, b) => new Date(a.asOf).getTime() - new Date(b.asOf).getTime(),
   );
@@ -34,19 +77,61 @@ export function ReportSnapshotComparison({
   const query = trpcReact.reportSnapshots.compare.useQuery(
     { projectId, baselineId, targetId },
     {
-      enabled: ordered.length === 2,
+      enabled: ordered.length === 2 && accessReady,
       staleTime: 0,
+      retry: false,
     },
   );
   const data =
+    accessReady &&
     !query.error &&
     !query.isFetching &&
     !query.isPaused &&
     query.data?.projectId === projectId &&
+    query.data.organizationId === organizationId &&
     query.data.baseline.id === baselineId &&
     query.data.target.id === targetId
       ? query.data
       : null;
+  const previousOrganization = useRef<string | undefined>(undefined);
+  useEffect(() => {
+    if (
+      organizationId &&
+      previousOrganization.current &&
+      previousOrganization.current !== organizationId
+    ) {
+      setReviewedData(null);
+      setExportMessage("");
+      void query.refetch();
+    }
+    if (organizationId) previousOrganization.current = organizationId;
+  }, [organizationId, query.refetch]);
+  const missingMembership =
+    projectReady &&
+    !organizations.error &&
+    !organizations.isFetching &&
+    !organizations.isPaused &&
+    !!organizations.data &&
+    !organizations.data.some((org) => org.id === organizationId);
+  const wrongIdentity =
+    accessReady &&
+    !query.error &&
+    !query.isFetching &&
+    !query.isPaused &&
+    !!query.data &&
+    (query.data.projectId !== projectId ||
+      query.data.organizationId !== organizationId ||
+      query.data.baseline.id !== baselineId ||
+      query.data.target.id !== targetId);
+  async function refresh() {
+    setReviewedData(null);
+    setExportMessage("");
+    await Promise.all([
+      project.refetch(),
+      organizations.refetch(),
+      query.refetch(),
+    ]);
+  }
   const reviewed = !!data && reviewedData === data;
   function download(format: "html" | "csv") {
     if (!data || !reviewed) return;
@@ -86,25 +171,28 @@ export function ReportSnapshotComparison({
       title="Compare approved snapshots"
       size="wide"
     >
-      {query.error ? (
+      {project.error ||
+      organizations.error ||
+      query.error ||
+      missingMembership ||
+      wrongIdentity ? (
         <div role="alert">
-          <p>{query.error.message}</p>
+          <p>
+            Current workspace access and both snapshot identities must be
+            verified before review or export.
+          </p>
           <p>No cached comparison has been substituted.</p>
           <button
             type="button"
             className="btn-secondary"
-            onClick={() => {
-              setReviewedData(null);
-              setExportMessage("");
-              void query.refetch();
-            }}
+            onClick={() => void refresh()}
           >
             Retry comparison
           </button>
         </div>
       ) : !data ? (
         <p role="status">
-          {query.isPaused
+          {project.isPaused || organizations.isPaused || query.isPaused
             ? "Waiting to verify access to both reports…"
             : "Checking the two approved captures…"}
         </p>

@@ -249,6 +249,7 @@ export const reportSnapshotsRouter = router({
         try {
           return {
             projectId: input.projectId,
+            organizationId: orgId,
             ...compareApprovedReports(
               { id: before.id, payload: payloadSchema.parse(before.payload) },
               { id: after.id, payload: payloadSchema.parse(after.payload) },

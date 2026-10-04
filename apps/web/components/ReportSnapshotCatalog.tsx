@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { trpcReact } from "@/lib/trpcReact";
 import {
@@ -22,7 +22,31 @@ export function ReportSnapshotCatalog({ projectId }: { projectId: string }) {
   return <Catalog key={projectId} projectId={projectId} />;
 }
 function Catalog({ projectId }: { projectId: string }) {
+  const project = trpcReact.project.byId.useQuery(
+    { id: projectId },
+    { retry: false, staleTime: 0 },
+  );
+  const organizations = trpcReact.organization.mine.useQuery(undefined, {
+    retry: false,
+    staleTime: 0,
+  });
+  const organizationId =
+    project.data?.id === projectId ? project.data.organizationId : undefined;
+  const projectReady =
+    !project.error &&
+    !project.isFetching &&
+    !project.isPaused &&
+    project.data?.id === projectId;
+  const accessReady =
+    projectReady &&
+    !organizations.error &&
+    !organizations.isFetching &&
+    !organizations.isPaused &&
+    !!organizations.data?.some((org) => org.id === organizationId);
   const [selected, setSelected] = useState<SelectedReportSnapshot[]>([]);
+  const [selectionOrganization, setSelectionOrganization] = useState<
+    string | undefined
+  >();
   const [compareOpen, setCompareOpen] = useState(false);
   const defaults = (): ReportCatalogInput => ({
     projectId,
@@ -39,15 +63,60 @@ function Catalog({ projectId }: { projectId: string }) {
     [message, setMessage] = useState("");
   const query = trpcReact.reportSnapshots.catalog.useQuery(filters, {
     staleTime: 0,
+    retry: false,
+    enabled: accessReady,
   });
   const data =
+    accessReady &&
     !query.error &&
     !query.isFetching &&
     !query.isPaused &&
     query.data?.projectId === projectId &&
+    query.data.organizationId === organizationId &&
     query.data.requestKey === reportCatalogKey(filters)
       ? query.data
       : null;
+  const previousOrganization = useRef<string | undefined>(undefined);
+  useEffect(() => {
+    if (
+      organizationId &&
+      previousOrganization.current &&
+      previousOrganization.current !== organizationId
+    ) {
+      setSelected([]);
+      setSelectionOrganization(undefined);
+      setCompareOpen(false);
+      setMessage("");
+      setFilters((current) => ({ ...current, page: 0 }));
+      void query.refetch();
+    }
+    if (organizationId) previousOrganization.current = organizationId;
+  }, [organizationId, query.refetch]);
+  const currentSelected =
+    selectionOrganization === organizationId ? selected : [];
+  const missingMembership =
+    projectReady &&
+    !organizations.error &&
+    !organizations.isFetching &&
+    !organizations.isPaused &&
+    !!organizations.data &&
+    !organizations.data.some((org) => org.id === organizationId);
+  const wrongIdentity =
+    accessReady &&
+    !query.error &&
+    !query.isFetching &&
+    !query.isPaused &&
+    !!query.data &&
+    (query.data.projectId !== projectId ||
+      query.data.organizationId !== organizationId ||
+      query.data.requestKey !== reportCatalogKey(filters));
+  async function refresh() {
+    await Promise.all([
+      project.refetch(),
+      organizations.refetch(),
+      query.refetch(),
+    ]);
+  }
   function apply() {
     const parsed = reportCatalogInput.safeParse({
       ...draft,
@@ -70,13 +139,15 @@ function Catalog({ projectId }: { projectId: string }) {
   return (
     <section aria-label="Approved report catalog" style={{ marginTop: 20 }}>
       <h3>Approved snapshots</h3>
-      {compareOpen && selected.length === 2 && (
-        <ReportSnapshotComparison
-          projectId={projectId}
-          selected={selected}
-          onClose={() => setCompareOpen(false)}
-        />
-      )}
+      {compareOpen &&
+        selectionOrganization === organizationId &&
+        currentSelected.length === 2 && (
+          <ReportSnapshotComparison
+            projectId={projectId}
+            selected={currentSelected}
+            onClose={() => setCompareOpen(false)}
+          />
+        )}
       <form
         onSubmit={(event) => {
           event.preventDefault();
@@ -109,7 +180,7 @@ function Catalog({ projectId }: { projectId: string }) {
           <button
             type="submit"
             className="btn-secondary"
-            disabled={query.isFetching}
+            disabled={!accessReady || query.isFetching}
           >
             Search
           </button>
@@ -205,14 +276,18 @@ function Catalog({ projectId }: { projectId: string }) {
           <button
             type="submit"
             className="btn-secondary"
-            disabled={query.isFetching}
+            disabled={!accessReady || query.isFetching}
           >
             Apply filters
           </button>
         </details>
       </form>
       {message && <p role="alert">{message}</p>}
-      {query.error ? (
+      {project.error ||
+      organizations.error ||
+      query.error ||
+      missingMembership ||
+      wrongIdentity ? (
         <div role="alert">
           <p>
             Report catalog unavailable. No cached reports or empty result have
@@ -221,14 +296,14 @@ function Catalog({ projectId }: { projectId: string }) {
           <button
             type="button"
             className="btn-secondary"
-            onClick={() => void query.refetch()}
+            onClick={() => void refresh()}
           >
             Retry catalog
           </button>
         </div>
       ) : !data ? (
         <p role="status">
-          {query.isPaused
+          {project.isPaused || organizations.isPaused || query.isPaused
             ? "Waiting for a connection to verify report access…"
             : "Loading current report catalog…"}
         </p>
@@ -243,18 +318,18 @@ function Catalog({ projectId }: { projectId: string }) {
             }}
           >
             <p>
-              {selected.length} of 2 snapshots selected for comparison.
+              {currentSelected.length} of 2 snapshots selected for comparison.
               Selection stays across catalog pages.
             </p>
             <button
               type="button"
               className="btn-secondary"
-              disabled={selected.length !== 2}
+              disabled={currentSelected.length !== 2}
               onClick={() => setCompareOpen(true)}
             >
               Compare selected snapshots
             </button>
-            {!!selected.length && (
+            {!!currentSelected.length && (
               <button
                 type="button"
                 className="btn-secondary"
@@ -264,9 +339,9 @@ function Catalog({ projectId }: { projectId: string }) {
               </button>
             )}
           </div>
-          {!!selected.length && (
+          {!!currentSelected.length && (
             <ul>
-              {selected.map((row) => (
+              {currentSelected.map((row) => (
                 <li key={row.id}>
                   {row.title}{" "}
                   <button
@@ -274,7 +349,9 @@ function Catalog({ projectId }: { projectId: string }) {
                     className="btn-secondary"
                     aria-label={`Remove ${row.title} from comparison`}
                     onClick={() =>
-                      setSelected(selected.filter((item) => item.id !== row.id))
+                      setSelected(
+                        currentSelected.filter((item) => item.id !== row.id),
+                      )
                     }
                   >
                     Remove
@@ -345,25 +422,30 @@ function Catalog({ projectId }: { projectId: string }) {
                         <input
                           type="checkbox"
                           aria-label={`Compare ${row.title}`}
-                          checked={selected.some((item) => item.id === row.id)}
+                          checked={currentSelected.some(
+                            (item) => item.id === row.id,
+                          )}
                           disabled={
-                            selected.length === 2 &&
-                            !selected.some((item) => item.id === row.id)
+                            currentSelected.length === 2 &&
+                            !currentSelected.some((item) => item.id === row.id)
                           }
-                          onChange={(event) =>
+                          onChange={(event) => {
+                            setSelectionOrganization(organizationId);
                             setSelected(
                               event.target.checked
                                 ? [
-                                    ...selected,
+                                    ...currentSelected,
                                     {
                                       id: row.id,
                                       title: row.title,
                                       asOf: row.asOf,
                                     },
                                   ]
-                                : selected.filter((item) => item.id !== row.id),
-                            )
-                          }
+                                : currentSelected.filter(
+                                    (item) => item.id !== row.id,
+                                  ),
+                            );
+                          }}
                         />
                       </td>
                       <th
@@ -440,7 +522,7 @@ function Catalog({ projectId }: { projectId: string }) {
             <button
               type="button"
               className="btn-secondary"
-              onClick={() => void query.refetch()}
+              onClick={() => void refresh()}
             >
               Refresh snapshots
             </button>

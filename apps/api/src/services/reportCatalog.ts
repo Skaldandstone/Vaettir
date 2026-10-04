@@ -61,6 +61,7 @@ export async function readReportCatalog(
   >`SELECT count(*)::bigint AS count FROM "ProjectReportSnapshot" WHERE ${where}`;
   return {
     projectId: input.projectId,
+    organizationId,
     page: input.page,
     requestKey: reportCatalogKey(input),
     total: Number(count?.count ?? 0),
