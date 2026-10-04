@@ -61,7 +61,6 @@ export async function withSavedQueryAccess<T>(
           member.role,
         ) ||
         !["FULL", "READ_ONLY"].includes(member.seatType) ||
-        (member.seatType === "READ_ONLY" && member.role !== "VIEWER") ||
         projects[0]?.organizationId !== expectedOrg
       )
         throw new TRPCError({
@@ -88,6 +87,9 @@ export async function withSavedQueryAccess<T>(
         organizationId: expectedOrg,
         actorId,
         clerkActorId: actor.clerkUserId,
+        // Seat assignment normally maps READ_ONLY to VIEWER, but role and seat
+        // are independent stored fields. A downgrade retains authorized reads;
+        // it must never grant write or replay authority from a cached role.
         canWrite:
           member.seatType === "FULL" &&
           ["OWNER", "ADMIN", "EDITOR"].includes(member.role),

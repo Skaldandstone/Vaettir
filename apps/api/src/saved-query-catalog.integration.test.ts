@@ -405,6 +405,53 @@ describe("saved catalog literal search/current privacy (NOT RUN)", () => {
       });
     }
   });
+  it("preserves current-member reads for supported read-only role combinations while refusing writes and receipt creation", async () => {
+    const saved = await row("Downgraded creator private definition");
+    await row("Visible shared definition", "SHARED", otherActorId);
+    for (const role of [
+      "OWNER",
+      "ADMIN",
+      "EDITOR",
+      "VIEWER",
+      "COMPLIANCE_AUDITOR",
+    ] as const) {
+      await prisma.membership.update({
+        where: {
+          organizationId_userId: { organizationId: orgId, userId: actorId },
+        },
+        data: { role, seatType: "READ_ONLY" },
+      });
+      const page = await owner.savedList(input());
+      expect(page.canWrite).toBe(false);
+      expect(page.items.every((item) => !item.canEdit)).toBe(true);
+      const body = await owner.savedById({
+        projectId,
+        id: saved.id,
+        expectedScope: { organizationId: orgId, clerkActorId },
+      });
+      expect(body.value.id).toBe(saved.id);
+      expect(body.canEdit).toBe(false);
+      await expect(
+        owner.savedWrite({
+          operation: "CREATE",
+          projectId,
+          requestId: randomUUID(),
+          definition: {
+            name: "Forbidden mutation",
+            visibility: "PRIVATE",
+            query: defaultCaseQuery(),
+            columns: ["title"],
+          },
+        }),
+      ).rejects.toMatchObject({ code: "FORBIDDEN" });
+    }
+    expect(
+      await prisma.savedTypedCaseQueryWrite.count({ where: { projectId } }),
+    ).toBe(0);
+    expect(
+      await prisma.savedTypedCaseQuery.count({ where: { projectId } }),
+    ).toBe(2);
+  });
   it("binds selected definition reads independently and refuses scope before materializing the private body", async () => {
     const saved = await row("Private selected body");
     const expectedScope = { organizationId: orgId, clerkActorId };
