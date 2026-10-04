@@ -30,7 +30,10 @@ test("date and exact-filter drafts apply explicitly; exports require exact curre
   assert.match(source, /Check your browser downloads/);
 });
 test("accessible numeric outcomes and same-scope current run pages are not an inferred quality verdict", () => {
-  assert.match(source, /Bar lengths share the largest daily result count/);
+  assert.match(
+    source,
+    /Bar lengths share the largest displayed\s+period result\s+count/,
+  );
   assert.match(source, /aria-hidden="true"/);
   assert.match(source, /day.outcomes\[status\]/);
   assert.match(
@@ -42,4 +45,15 @@ test("accessible numeric outcomes and same-scope current run pages are not an in
     source,
     /not unique attempts, a\s+flake rate or a release verdict/,
   );
+});
+
+test("grouping and included partial dates bind the exact export review and preserve day drilldown", () => {
+  assert.match(source, /UTC weeks \(Monday start\)/);
+  assert.match(source, /reviewedGrouping\s*!==\s*grouping/);
+  assert.match(source, /latest.current.grouping\s*!==\s*grouping/);
+  assert.match(source, /setReviewedGrouping\(null\)/);
+  assert.match(source, /renderRecordedExecutionTrendCsv\(data, grouping\)/);
+  assert.match(source, /day.partialWeek/);
+  assert.match(source, /setSelectedDay\(recordedDay.day\)/);
+  assert.match(source, /Incomplete evidence is not displayed or\s+exported/);
 });

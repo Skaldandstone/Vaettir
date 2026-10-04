@@ -14,6 +14,9 @@ import {
   EXECUTION_OUTCOMES,
   EXECUTION_OUTCOME_COLORS,
   renderRecordedExecutionTrendCsv,
+  executionTrendPeriods,
+  type ExecutionTrendGrouping,
+  type ExecutionTrendPeriod,
 } from "@/lib/recorded-execution-trend";
 type Trend = RouterOutputs["recordedExecutionTrends"]["summary"];
 const fieldStyle = { width: "100%", boxSizing: "border-box" as const };
@@ -69,6 +72,9 @@ function ExecutionTrend({ projectId }: { projectId: string }) {
   const [selectedDay, setSelectedDay] = useState("");
   const [exportOpen, setExportOpen] = useState(false);
   const [reviewed, setReviewed] = useState<Trend | null>(null);
+  const [grouping, setGrouping] = useState<ExecutionTrendGrouping>("DAY");
+  const [reviewedGrouping, setReviewedGrouping] =
+    useState<ExecutionTrendGrouping | null>(null);
   const query = trpcReact.recordedExecutionTrends.summary.useQuery(
     applied ?? {
       projectId,
@@ -77,7 +83,7 @@ function ExecutionTrend({ projectId }: { projectId: string }) {
     },
     { enabled: !!applied && sameOrigin, retry: false, staleTime: 0 },
   );
-  const data =
+  const availableData =
     sameOrigin &&
     applied &&
     !query.error &&
@@ -89,8 +95,22 @@ function ExecutionTrend({ projectId }: { projectId: string }) {
     query.data.requestKey === recordedExecutionTrendKey(applied)
       ? query.data
       : null;
+  let periods: ExecutionTrendPeriod[] = [];
+  let periodError = "";
+  if (availableData) {
+    try {
+      periods = executionTrendPeriods(availableData, grouping);
+    } catch (error) {
+      periodError =
+        error instanceof Error
+          ? error.message
+          : "Complete recorded periods are unavailable.";
+    }
+  }
+  const data = periodError ? null : availableData;
   useEffect(() => {
     setReviewed(null);
+    setReviewedGrouping(null);
   }, [
     query.dataUpdatedAt,
     query.isFetching,
@@ -99,9 +119,10 @@ function ExecutionTrend({ projectId }: { projectId: string }) {
     sameOrigin,
     applied,
     exportOpen,
+    grouping,
   ]);
-  const latest = useRef({ data, exportOpen });
-  latest.current = { data, exportOpen };
+  const latest = useRef({ data, exportOpen, grouping });
+  latest.current = { data, exportOpen, grouping };
   function applyScope(event: FormEvent) {
     event.preventDefault();
     if (!sameOrigin) return;
@@ -125,16 +146,27 @@ function ExecutionTrend({ projectId }: { projectId: string }) {
     setMessage("");
   }
   function download() {
-    if (!exportOpen || !data || reviewed !== data) return;
+    if (
+      !exportOpen ||
+      !data ||
+      reviewed !== data ||
+      reviewedGrouping !== grouping
+    )
+      return;
     try {
-      const csv = renderRecordedExecutionTrendCsv(data);
-      if (latest.current.data !== data || !latest.current.exportOpen) return;
+      const csv = renderRecordedExecutionTrendCsv(data, grouping);
+      if (
+        latest.current.data !== data ||
+        !latest.current.exportOpen ||
+        latest.current.grouping !== grouping
+      )
+        return;
       const url = URL.createObjectURL(
         new Blob([csv], { type: "text/csv;charset=utf-8" }),
       );
       const anchor = document.createElement("a");
       anchor.href = url;
-      anchor.download = `vaettir-recorded-outcomes-${data.scope.start}-${data.scope.end}.csv`;
+      anchor.download = `vaettir-recorded-outcomes-${grouping.toLowerCase()}-${data.scope.start}-${data.scope.end}.csv`;
       document.body.appendChild(anchor);
       anchor.click();
       anchor.remove();
@@ -276,6 +308,28 @@ function ExecutionTrend({ projectId }: { projectId: string }) {
         </form>
       )}
       {message && <p role="status">{message}</p>}
+      {sameOrigin && applied && (
+        <label>
+          Group recorded outcomes
+          <select
+            value={grouping}
+            onChange={(event) => {
+              setGrouping(event.target.value === "WEEK" ? "WEEK" : "DAY");
+              setReviewed(null);
+              setReviewedGrouping(null);
+              setSelectedDay("");
+            }}
+          >
+            <option value="DAY">UTC days</option>
+            <option value="WEEK">UTC weeks (Monday start)</option>
+          </select>
+        </label>
+      )}
+      {periodError && (
+        <p role="alert">
+          {periodError} Incomplete evidence is not displayed or exported.
+        </p>
+      )}
       {sameOrigin && applied && query.error && (
         <p role="alert">
           Evidence could not be loaded: {query.error.message}. No empty or
@@ -334,7 +388,9 @@ function ExecutionTrend({ projectId }: { projectId: string }) {
               justifyContent: "space-between",
             }}
           >
-            <h2 style={{ margin: 0 }}>Daily outcomes</h2>
+            <h2 style={{ margin: 0 }}>
+              {grouping === "DAY" ? "Daily" : "Weekly"} outcomes
+            </h2>
             <button
               type="button"
               className="btn-secondary"
@@ -346,16 +402,25 @@ function ExecutionTrend({ projectId }: { projectId: string }) {
               Review aggregate CSV
             </button>
           </div>
+          {grouping === "WEEK" && (
+            <p>
+              Weeks start Monday UTC. Partial weeks are labeled and not
+              normalized; different lengths cannot establish a velocity change.
+              Expand a period to inspect its recorded days.
+            </p>
+          )}
           <div className="table-scroll">
             <table className="workspace-table">
               <caption>
                 Zero days are shown only after the complete scope was
-                successfully read. Bar lengths share the largest daily result
-                count; numeric counts remain authoritative.
+                successfully read. Bar lengths share the largest displayed
+                period result count; numeric counts remain authoritative.
               </caption>
               <thead>
                 <tr>
-                  <th scope="col">UTC run-start day</th>
+                  <th scope="col">
+                    UTC run-start {grouping === "DAY" ? "day" : "period"}
+                  </th>
                   <th scope="col">Runs</th>
                   <th scope="col">Result observations</th>
                   <th scope="col">Recorded distribution</th>
@@ -368,9 +433,18 @@ function ExecutionTrend({ projectId }: { projectId: string }) {
                 </tr>
               </thead>
               <tbody>
-                {[...data.days].reverse().map((day) => (
-                  <tr key={day.day}>
-                    <th scope="row">{day.day}</th>
+                {[...periods].reverse().map((day) => (
+                  <tr key={day.key}>
+                    <th scope="row">
+                      {day.start}
+                      {grouping === "WEEK" && (
+                        <>
+                          {" "}
+                          through {day.end}
+                          {day.partialWeek && <small> · partial week</small>}
+                        </>
+                      )}
+                    </th>
                     <td>
                       {day.runs}
                       {day.inProgressRuns > 0 && (
@@ -387,7 +461,7 @@ function ExecutionTrend({ projectId }: { projectId: string }) {
                           style={{
                             display: "flex",
                             height: 10,
-                            width: `${(100 * day.results) / Math.max(1, ...data.days.map((row) => row.results))}%`,
+                            width: `${(100 * day.results) / Math.max(1, ...periods.map((row) => row.results))}%`,
                             borderRadius: 6,
                             overflow: "hidden",
                           }}
@@ -408,14 +482,38 @@ function ExecutionTrend({ projectId }: { projectId: string }) {
                       <td key={status}>{day.outcomes[status]}</td>
                     ))}
                     <td>
-                      <button
-                        type="button"
-                        className="btn-secondary"
-                        disabled={day.runs === 0}
-                        onClick={() => setSelectedDay(day.day)}
-                      >
-                        View runs<span className="sr-only"> on {day.day}</span>
-                      </button>
+                      {grouping === "DAY" ? (
+                        <button
+                          type="button"
+                          className="btn-secondary"
+                          disabled={day.runs === 0}
+                          onClick={() => setSelectedDay(day.start)}
+                        >
+                          View runs
+                          <span className="sr-only"> on {day.start}</span>
+                        </button>
+                      ) : (
+                        <details>
+                          <summary>Inspect days ({day.days.length})</summary>
+                          <ul>
+                            {day.days.map((recordedDay) => (
+                              <li key={recordedDay.day}>
+                                <button
+                                  type="button"
+                                  className="btn-secondary"
+                                  disabled={recordedDay.runs === 0}
+                                  onClick={() =>
+                                    setSelectedDay(recordedDay.day)
+                                  }
+                                >
+                                  {recordedDay.day}: {recordedDay.runs} runs,{" "}
+                                  {recordedDay.results} observations
+                                </button>
+                              </li>
+                            ))}
+                          </ul>
+                        </details>
+                      )}
                     </td>
                   </tr>
                 ))}
@@ -466,6 +564,14 @@ function ExecutionTrend({ projectId }: { projectId: string }) {
               {data.windowStart} through {data.windowEnd}.
             </p>
             <p>
+              Export grouping:{" "}
+              {grouping === "DAY"
+                ? "UTC days"
+                : "Monday-start UTC weeks with actual included dates and partial-week labels"}
+              . {periods.length} displayed periods; no normalized velocity is
+              inferred.
+            </p>
+            <p>
               This is a read-time CSV, not an immutable approved stakeholder
               snapshot. It includes exact selected configuration labels and
               evidence limits, but no raw run/case identities, source, notes or
@@ -476,13 +582,14 @@ function ExecutionTrend({ projectId }: { projectId: string }) {
             >
               <input
                 type="checkbox"
-                checked={reviewed === data}
-                onChange={(event) =>
-                  setReviewed(event.target.checked ? data : null)
-                }
+                checked={reviewed === data && reviewedGrouping === grouping}
+                onChange={(event) => {
+                  setReviewed(event.target.checked ? data : null);
+                  setReviewedGrouping(event.target.checked ? grouping : null);
+                }}
               />{" "}
-              I reviewed these exact current counts, scope labels and sharing
-              boundaries.
+              I reviewed these exact current counts, grouping, scope labels and
+              sharing boundaries.
             </label>
           </>
         )}
@@ -502,7 +609,9 @@ function ExecutionTrend({ projectId }: { projectId: string }) {
           <button
             type="button"
             className="btn-primary"
-            disabled={!data || reviewed !== data}
+            disabled={
+              !data || reviewed !== data || reviewedGrouping !== grouping
+            }
             onClick={download}
           >
             Prepare CSV

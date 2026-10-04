@@ -6,6 +6,7 @@ import {
   recordedExecutionTrendOutput,
   type RecordedExecutionTrend,
 } from "@vaettir/api/src/services/recordedExecutionTrendSchema";
+import { reportDateIntervalSchema } from "@vaettir/api/src/services/reportDateIntervalSchema";
 export const EXECUTION_OUTCOMES = [
   "PASS",
   "FAIL",
@@ -30,11 +31,70 @@ export function defaultExecutionTrendDates(now = new Date()) {
       .slice(0, 10);
   return { start, end };
 }
-/** Reviewed read-time aggregates. Not a stored/approved report or full backup. */
-export function renderRecordedExecutionTrendCsv(value: RecordedExecutionTrend) {
+export type ExecutionTrendGrouping = "DAY" | "WEEK";
+type TrendDay = RecordedExecutionTrend["days"][number];
+export type ExecutionTrendPeriod = Omit<TrendDay, "day"> & {
+  key: string;
+  start: string;
+  end: string;
+  partialWeek: boolean;
+  days: TrendDay[];
+};
+const countKeys = [
+  "runs",
+  "results",
+  "mapped",
+  "unmatched",
+  "unavailableMapping",
+  "inProgressRuns",
+  "finishedRecordedRuns",
+  "completionUnavailableRuns",
+  "inProgressResults",
+  "timedResults",
+  "missingDurations",
+  "invalidDurations",
+  "sumDurationMs",
+] as const;
+/** Complete UTC bins only. Calendar weeks start Monday; no annual week-number guess. */
+export function executionTrendPeriods(
+  value: RecordedExecutionTrend,
+  grouping: ExecutionTrendGrouping = "DAY",
+): ExecutionTrendPeriod[] {
+  if (grouping !== "DAY" && grouping !== "WEEK")
+    throw new Error("Choose a supported recorded-outcome grouping.");
   if (value.days.length > 90)
     throw new Error("The complete daily scope exceeds the CSV bound.");
   recordedExecutionTrendOutput.parse(value);
+  const interval = reportDateIntervalSchema.parse({
+    start: value.scope.start,
+    end: value.scope.end,
+  });
+  const first = Date.parse(interval.start),
+    last = Date.parse(interval.end);
+  const windowStart = Date.parse(value.windowStart),
+    windowEnd = Date.parse(value.windowEnd);
+  if (
+    windowStart !== first ||
+    windowEnd < last ||
+    windowEnd > last + 86400000 - 1 ||
+    windowEnd > Date.parse(value.asOf)
+  )
+    throw new Error(
+      "The recorded UTC window does not match the complete applied interval.",
+    );
+  const expected = (last - first) / 86400000 + 1;
+  if (
+    expected > 90 ||
+    value.days.length !== expected ||
+    value.days.some(
+      (day, index) =>
+        day.day !==
+        new Date(first + index * 86400000).toISOString().slice(0, 10),
+    )
+  )
+    throw new Error(
+      "Complete ordered UTC days are required; missing days cannot become zero.",
+    );
   if (
     new Set(value.days.map((day) => day.day)).size !== value.days.length ||
     value.days.some(
@@ -44,18 +104,16 @@ export function renderRecordedExecutionTrendCsv(value: RecordedExecutionTrend) {
             (sum, status) => sum + day.outcomes[status],
             0,
           ) ||
-        day.results !== day.mapped + day.unmatched + day.unavailableMapping,
+        day.results !== day.mapped + day.unmatched + day.unavailableMapping ||
+        day.runs !==
+          day.inProgressRuns +
+            day.finishedRecordedRuns +
+            day.completionUnavailableRuns ||
+        day.results !==
+          day.timedResults + day.missingDurations + day.invalidDurations ||
+        day.inProgressResults > day.results,
     ) ||
-    (
-      [
-        "runs",
-        "results",
-        "mapped",
-        "unmatched",
-        "unavailableMapping",
-        "inProgressRuns",
-      ] as const
-    ).some(
+    countKeys.some(
       (key) =>
         value.totals[key] !==
         value.days.reduce((sum, day) => sum + day[key], 0),
@@ -67,12 +125,65 @@ export function renderRecordedExecutionTrendCsv(value: RecordedExecutionTrend) {
     )
   )
     throw new Error(
-      "The complete daily counts are inconsistent. No partial CSV was prepared.",
+      "The complete daily counts are inconsistent. No partial presentation or CSV was prepared.",
     );
+  const periods = new Map<string, ExecutionTrendPeriod>();
+  for (const day of value.days) {
+    const date = new Date(`${day.day}T00:00:00.000Z`);
+    const weekStart = date.getTime() - ((date.getUTCDay() + 6) % 7) * 86400000;
+    const weekIdentity = new Date(weekStart).toISOString();
+    if (grouping === "WEEK" && !/^\d{4}-\d{2}-\d{2}T/.test(weekIdentity))
+      throw new Error(
+        "This UTC calendar week lies outside supported four-digit dates. Use daily grouping.",
+      );
+    const key = grouping === "DAY" ? day.day : weekIdentity.slice(0, 10);
+    const previous = periods.get(key);
+    if (!previous) {
+      const { day: _day, ...counts } = day;
+      periods.set(key, {
+        ...counts,
+        outcomes: { ...day.outcomes },
+        key,
+        start: day.day,
+        end: day.day,
+        partialWeek: false,
+        days: [day],
+      });
+    } else {
+      for (const field of countKeys) previous[field] += day[field];
+      for (const status of EXECUTION_OUTCOMES)
+        previous.outcomes[status] += day.outcomes[status];
+      previous.end = day.day;
+      previous.days.push(day);
+    }
+  }
+  for (const period of periods.values())
+    period.partialWeek =
+      grouping === "WEEK" &&
+      (period.days.length !== 7 ||
+        windowEnd < Date.parse(period.key) + 7 * 86400000 - 1);
+  return [...periods.values()];
+}
+/** Reviewed read-time aggregates. Not a stored/approved report or full backup. */
+export function renderRecordedExecutionTrendCsv(
+  value: RecordedExecutionTrend,
+  grouping: ExecutionTrendGrouping = "DAY",
+) {
+  const periods = executionTrendPeriods(value, grouping);
   const rows: SpreadsheetCsvCell[][] = [];
   const meta = (label: string, text: string) =>
     rows.push(["Scope", label, text]);
-  meta("Export format", "Vaettir read-time daily recorded outcomes CSV v1");
+  meta(
+    "Export format",
+    grouping === "DAY"
+      ? "Vaettir read-time daily recorded outcomes CSV v1"
+      : "Vaettir read-time weekly recorded outcomes CSV v2",
+  );
+  if (grouping === "WEEK")
+    meta(
+      "Grouping",
+      "UTC calendar weeks start Monday. Period labels are actual included dates; partial weeks are not normalized or comparable complete weeks.",
+    );
   meta("Read at UTC", value.asOf);
   meta(
     "Run-start window UTC",
@@ -84,10 +195,14 @@ export function renderRecordedExecutionTrendCsv(value: RecordedExecutionTrend) {
     value.scope.environment ?? "No environment filter",
   );
   meta("Recorded build", value.scope.build ?? "No build filter");
-  for (const day of value.days)
+  for (const day of periods)
     rows.push([
-      "Day",
-      day.day,
+      grouping === "DAY"
+        ? "Day"
+        : day.partialWeek
+          ? "Partial UTC week"
+          : "UTC week",
+      grouping === "DAY" ? day.start : `${day.start} through ${day.end}`,
       day.runs,
       day.results,
       day.mapped,
@@ -105,7 +220,9 @@ export function renderRecordedExecutionTrendCsv(value: RecordedExecutionTrend) {
   return csv(
     [
       "Row type",
-      "UTC day / metadata label",
+      grouping === "DAY"
+        ? "UTC day / metadata label"
+        : "Included UTC dates / metadata label",
       "Runs / metadata value",
       "Result observations",
       "Mapped same-project observations",

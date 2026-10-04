@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   defaultExecutionTrendDates,
   renderRecordedExecutionTrendCsv,
+  executionTrendPeriods,
 } from "./recorded-execution-trend";
 import type { RecordedExecutionTrend } from "@vaettir/api/src/services/recordedExecutionTrendSchema";
 // SOURCE ONLY, authored 2026-10-04, UNEXECUTED.
@@ -39,6 +40,129 @@ const sample = (): RecordedExecutionTrend => ({
   limitations: [
     "Result observations, not unique attempts or a release verdict.",
   ],
+});
+
+function intervalSample(
+  start: string,
+  numberOfDays: number,
+): RecordedExecutionTrend {
+  const days = Array.from({ length: numberOfDays }, (_, index) => ({
+    ...counts,
+    outcomes: { ...counts.outcomes },
+    day: new Date(Date.parse(start) + index * 86400000)
+      .toISOString()
+      .slice(0, 10),
+  }));
+  const end = days.at(-1)!.day;
+  return {
+    ...sample(),
+    scope: { start, end },
+    windowStart: `${start}T00:00:00.000Z`,
+    windowEnd: `${end}T23:59:59.999Z`,
+    asOf: new Date(Date.parse(end) + 86400000).toISOString(),
+    days,
+    totals: {
+      ...counts,
+      ...Object.fromEntries(
+        Object.entries(counts)
+          .filter(([, value]) => typeof value === "number")
+          .map(([key, value]) => [key, (value as number) * numberOfDays]),
+      ),
+      outcomes: {
+        PASS: numberOfDays,
+        FAIL: numberOfDays,
+        FLAKY: 0,
+        SKIP: 0,
+        BLOCKED: 0,
+      },
+    },
+  };
+}
+
+describe("complete UTC day and Monday-week presentation source", () => {
+  it("groups year-boundary dates by Monday identity without mutating daily evidence", () => {
+    const original = intervalSample("2020-12-31", 7),
+      before = JSON.stringify(original);
+    const weeks = executionTrendPeriods(original, "WEEK");
+    expect(
+      weeks.map(({ key, start, end, results, partialWeek }) => ({
+        key,
+        start,
+        end,
+        results,
+        partialWeek,
+      })),
+    ).toEqual([
+      {
+        key: "2020-12-28",
+        start: "2020-12-31",
+        end: "2021-01-03",
+        results: 8,
+        partialWeek: true,
+      },
+      {
+        key: "2021-01-04",
+        start: "2021-01-04",
+        end: "2021-01-06",
+        results: 6,
+        partialWeek: true,
+      },
+    ]);
+    expect(weeks.reduce((sum, row) => sum + row.sumDurationMs, 0)).toBe(
+      original.totals.sumDurationMs,
+    );
+    expect(JSON.stringify(original)).toBe(before);
+  });
+  it("labels Sunday in-progress windows partial even with all seven date bins present", () => {
+    const complete = intervalSample("2021-01-04", 7);
+    expect(executionTrendPeriods(complete, "WEEK")[0]!.partialWeek).toBe(false);
+    complete.asOf = complete.windowEnd = "2021-01-10T10:00:00.000Z";
+    expect(executionTrendPeriods(complete, "WEEK")[0]!.partialWeek).toBe(true);
+  });
+  it("refuses missing/reordered days or inconsistent completion and duration evidence", () => {
+    const missing = intervalSample("2021-01-04", 7);
+    missing.days.splice(2, 1);
+    expect(() => executionTrendPeriods(missing, "WEEK")).toThrow(
+      "missing days cannot become zero",
+    );
+    const reversed = intervalSample("2021-01-04", 7);
+    reversed.days.reverse();
+    expect(() => executionTrendPeriods(reversed)).toThrow(
+      "Complete ordered UTC days",
+    );
+    const invalidWindow = intervalSample("2021-01-04", 7);
+    invalidWindow.windowEnd = "2021-01-09T23:59:59.999Z";
+    expect(() => executionTrendPeriods(invalidWindow)).toThrow(
+      "does not match the complete applied interval",
+    );
+    const ancient = intervalSample("0000-01-01", 2);
+    expect(() => executionTrendPeriods(ancient, "WEEK")).toThrow(
+      "outside supported four-digit dates",
+    );
+    for (const key of [
+      "finishedRecordedRuns",
+      "timedResults",
+      "sumDurationMs",
+    ] as const) {
+      const inconsistent = intervalSample("2021-01-04", 7);
+      inconsistent.totals[key]++;
+      expect(() => executionTrendPeriods(inconsistent, "WEEK")).toThrow(
+        "counts are inconsistent",
+      );
+    }
+  });
+  it("weekly CSV describes actual included periods and does not invent normalized velocity", () => {
+    const csv = renderRecordedExecutionTrendCsv(
+      intervalSample("2020-12-31", 7),
+      "WEEK",
+    );
+    expect(csv).toContain("weekly recorded outcomes CSV v2");
+    expect(csv).toContain(
+      '"Partial UTC week","2020-12-31 through 2021-01-03","4","8"',
+    );
+    expect(csv).toContain("not normalized or comparable complete weeks");
+    expect(csv).not.toContain("private-project-id");
+  });
 });
 describe("read-time execution aggregates CSV source", () => {
   it("uses inclusive UTC fourteen-day defaults across calendar boundaries", () => {
