@@ -841,6 +841,14 @@ export const manualExecutionRouter = router({
           });
         }
 
+        // Current run lock serializes first history activation with legacy writes.
+        // Refuse before loading the native observation body or changing its verdict.
+        if (await tx.manualCaseResultHead.count({
+          where: { testRunId: run.id, testCaseId: input.testCaseId },
+        })) throw new TRPCError({
+          code: "CONFLICT",
+          message: "This case has immutable whole-case observation history. Review its current result and record a reasoned correction instead of overwriting it.",
+        });
         const existing = await tx.testResult.findFirst({
           where: { testRunId: input.testRunId, testCaseId: input.testCaseId },
         });

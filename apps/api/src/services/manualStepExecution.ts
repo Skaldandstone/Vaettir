@@ -270,6 +270,12 @@ export async function recordManualStepResult(
           message:
             "Only an active manual run can accept new step observations. Previous receipts and history remain available.",
         });
+      if (await tx.manualCaseResultHead.count({
+        where: { testRunId: run.id, testCaseId: input.testCaseId },
+      })) throw new TRPCError({
+        code: "CONFLICT",
+        message: "This case retains immutable whole-case observations. Correct those observations or start a separate run for per-step execution; prior evidence cannot be replaced.",
+      });
       const definition = frozenStructuredCase(run, input.testCaseId);
       if (input.stepIndex >= definition.steps.length)
         throw new TRPCError({

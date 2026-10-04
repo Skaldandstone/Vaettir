@@ -8,6 +8,7 @@ import { useProjectPermissions } from "@/lib/use-project-permissions";
 import { StepExecutionPanel } from "@/components/StepExecutionPanel";
 import { ManualRetestActions } from "@/components/ManualRetestWizard";
 import { manualProcedurePhases } from "@/lib/manual-procedure-phases";
+import { ManualCaseResultHistory } from "@/components/ManualCaseResultHistory";
 
 type ExecutionCase =
   RouterOutputs["manualExecution"]["getForExecution"]["cases"][number];
@@ -39,6 +40,7 @@ function CaseRow({
   testRunId,
   onStepsChanged,
   onUnconfirmedStep,
+  onUnconfirmedWholeCase,
 }: {
   projectId: string;
   testCase: ExecutionCase;
@@ -55,12 +57,14 @@ function CaseRow({
   testRunId: string;
   onStepsChanged: () => Promise<unknown>;
   onUnconfirmedStep: (pending: boolean) => void;
+  onUnconfirmedWholeCase: (pending: boolean) => void;
 }) {
   const [expanded, setExpanded] = useState(false);
   const [note, setNote] = useState(testCase.currentResult?.note ?? "");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [stepModeChosen, setStepModeChosen] = useState(false);
+  const [wholeCasePending, setWholeCasePending] = useState(false);
   const stepMode = stepModeChosen || testCase.stepResults.some(step => step.current);
   const [context, setContext] = useState({
     specimen: testCase.currentResult?.observations.specimen ?? "",
@@ -325,35 +329,37 @@ function CaseRow({
       )}
 
       <div hidden={!expanded}>
-        <StepExecutionPanel testRunId={testRunId} testCase={testCase} stepFieldLabels={stepFieldLabels} active={stepMode} disabled={disabled || busy} blockedBy={blockedBy} onModeActive={() => setStepModeChosen(true)} onChanged={onStepsChanged} onUnconfirmedChange={onUnconfirmedStep} />
+        <StepExecutionPanel testRunId={testRunId} testCase={testCase} stepFieldLabels={stepFieldLabels} active={stepMode} disabled={disabled || busy || wholeCasePending} blockedBy={blockedBy} onModeActive={() => setStepModeChosen(true)} onChanged={onStepsChanged} onUnconfirmedChange={onUnconfirmedStep} />
+        <ManualCaseResultHistory key={`${projectId}:${testRunId}:${testCase.testCaseId}`} projectId={projectId} testRunId={testRunId} testCaseId={testCase.testCaseId} active={expanded && !stepMode} disabled={disabled || busy} onChanged={onStepsChanged} onUnconfirmedChange={pending => { setWholeCasePending(pending); onUnconfirmedWholeCase(pending); }} />
       </div>
 
       {!stepMode && <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 8 }}>
+        <p style={{ flexBasis: "100%" }}>Quick initial observation (unversioned). Use the reviewed whole-case workflow above to retain immutable history. Existing observations must be corrected with review, not overwritten.</p>
         <button
           className="btn-secondary"
           onClick={() => record("PASS")}
-          disabled={disabled || busy || blockedBy.length > 0}
+          disabled={disabled || busy || wholeCasePending || !!testCase.currentResult || blockedBy.length > 0}
         >
           Pass
         </button>
         <button
           className="btn-secondary"
           onClick={() => record("FAIL")}
-          disabled={disabled || busy || blockedBy.length > 0}
+          disabled={disabled || busy || wholeCasePending || !!testCase.currentResult || blockedBy.length > 0}
         >
           Fail
         </button>
         <button
           className="btn-secondary"
           onClick={() => record("BLOCKED")}
-          disabled={disabled || busy}
+          disabled={disabled || busy || wholeCasePending || !!testCase.currentResult}
         >
           Blocked
         </button>
         <button
           className="btn-secondary"
           onClick={() => record("SKIP")}
-          disabled={disabled || busy}
+          disabled={disabled || busy || wholeCasePending || !!testCase.currentResult}
         >
           Skip
         </button>
@@ -377,6 +383,7 @@ export default function ManualExecutionPage() {
   });
   const [error, setError] = useState<string | null>(null);
   const [unconfirmedStepCases, setUnconfirmedStepCases] = useState<Set<string>>(() => new Set());
+  const [unconfirmedWholeCases, setUnconfirmedWholeCases] = useState<Set<string>>(() => new Set());
 
   const recordMutation = trpcReact.manualExecution.recordResult.useMutation();
   const completeMutation = trpcReact.manualExecution.complete.useMutation({
@@ -411,6 +418,7 @@ export default function ManualExecutionPage() {
     <div style={{ maxWidth: 800 }}>
       {pageError && <div><p role="alert" style={{ color: "var(--ember)" }}>{pageError} Displayed evidence and open drafts are retained.</p><button className="btn-secondary" onClick={() => { setError(null); void dataQuery.refetch(); }}>Refresh run without discarding drafts</button></div>}
       {unconfirmedStepCases.size > 0 && <p role="status">Confirm pending step responses before completing this run. Retry receipts and entered evidence remain retained.</p>}
+      {unconfirmedWholeCases.size > 0 && <p role="status">Confirm pending whole-case observation responses before completing this run. Reopen the original case to retry its exact retained request.</p>}
       <div
         style={{
           display: "flex",
@@ -433,6 +441,7 @@ export default function ManualExecutionPage() {
             completeMutation.isPending ||
             recordMutation.isPending ||
             unconfirmedStepCases.size > 0 ||
+            unconfirmedWholeCases.size > 0 ||
             data.status !== "RUNNING"
           }
         >
@@ -470,12 +479,13 @@ export default function ManualExecutionPage() {
 
       {data.cases.map((tc) => (
         <CaseRow
-          key={tc.testCaseId}
+          key={`${projectId}:${testRunId}:${tc.testCaseId}`}
           projectId={projectId}
           testCase={tc}
           testRunId={testRunId}
           onStepsChanged={() => utils.manualExecution.getForExecution.invalidate({ testRunId })}
           onUnconfirmedStep={pending => setUnconfirmedStepCases(current => { const next = new Set(current); if (pending) next.add(tc.testCaseId); else next.delete(tc.testCaseId); return next; })}
+          onUnconfirmedWholeCase={pending => setUnconfirmedWholeCases(current => { if (current.has(tc.testCaseId) === pending) return current; const next = new Set(current); if (pending) next.add(tc.testCaseId); else next.delete(tc.testCaseId); return next; })}
           prerequisites={tc.prerequisiteIds.map(id => {
             const prerequisite = data.cases.find(candidate => candidate.testCaseId === id);
             return { id, displayId: prerequisite?.displayId ?? null, title: prerequisite?.title ?? "Unavailable case", status: prerequisite?.currentResult?.status ?? null };
