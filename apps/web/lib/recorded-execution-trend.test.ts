@@ -165,6 +165,42 @@ describe("complete UTC day and Monday-week presentation source", () => {
   });
 });
 describe("read-time execution aggregates CSV source", () => {
+  it("optional duration CSV preserves exact zero versus missing and completion metadata", () => {
+    const csv = renderRecordedExecutionTrendCsv(sample(), "DAY", true);
+    expect(csv).toContain("recorded outcomes and duration CSV v3");
+    expect(csv).toContain("Sum valid recorded duration (ms)");
+    expect(csv).toContain(
+      '"Day","2026-10-01","1","2","1","1","0","0","1","1","0","0","0","1","10","1","0","1","0","0"',
+    );
+    expect(csv).toContain(
+      "Not wall-clock elapsed time, human effort, billable cost",
+    );
+    const legacy = renderRecordedExecutionTrendCsv(sample());
+    expect(legacy).toContain("daily recorded outcomes CSV v1");
+    expect(legacy).not.toContain("Sum valid recorded duration (ms)");
+  });
+  it("weekly duration export retains sums and refuses a nonzero duration without timed observations", () => {
+    const weeks = renderRecordedExecutionTrendCsv(
+      intervalSample("2020-12-31", 7),
+      "WEEK",
+      true,
+    );
+    expect(weeks).toContain(
+      '"Partial UTC week","2020-12-31 through 2021-01-03","4","8","4","4","0","0","4","4","0","0","0","4","40","4","0","4","0","0"',
+    );
+    const invalid = sample();
+    invalid.days = [
+      { ...invalid.days[0]!, timedResults: 0, missingDurations: 2 },
+    ];
+    invalid.totals = {
+      ...invalid.totals,
+      timedResults: 0,
+      missingDurations: 2,
+    };
+    expect(() => renderRecordedExecutionTrendCsv(invalid, "DAY", true)).toThrow(
+      "counts are inconsistent",
+    );
+  });
   it("uses inclusive UTC fourteen-day defaults across calendar boundaries", () => {
     expect(
       defaultExecutionTrendDates(new Date("2026-10-04T01:00:00.000Z")),

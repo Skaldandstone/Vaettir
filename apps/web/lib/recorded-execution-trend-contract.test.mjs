@@ -52,8 +52,26 @@ test("grouping and included partial dates bind the exact export review and prese
   assert.match(source, /reviewedGrouping\s*!==\s*grouping/);
   assert.match(source, /latest.current.grouping\s*!==\s*grouping/);
   assert.match(source, /setReviewedGrouping\(null\)/);
-  assert.match(source, /renderRecordedExecutionTrendCsv\(data, grouping\)/);
+  assert.match(
+    source,
+    /renderRecordedExecutionTrendCsv\(\s*data,\s*grouping,\s*includeRecordedDuration,?\s*\)/,
+  );
   assert.match(source, /day.partialWeek/);
   assert.match(source, /setSelectedDay\(recordedDay.day\)/);
   assert.match(source, /Incomplete evidence is not displayed or\s+exported/);
+});
+
+test("duration evidence is explicit and optional columns cannot reuse a different export review", () => {
+  assert.match(source, /Recorded duration and completion evidence/);
+  assert.match(source, /Unknown duration is not zero/);
+  assert.match(source, /period.missingDurations/);
+  assert.match(source, /period.invalidDurations/);
+  assert.match(source, /period.completionUnavailableRuns/);
+  assert.match(source, /reviewedDuration\s*!==\s*includeRecordedDuration/);
+  assert.match(
+    source,
+    /latest.current.includeRecordedDuration\s*!==\s*includeRecordedDuration/,
+  );
+  assert.match(source, /setReviewedDuration\(null\)/);
+  assert.match(source, /seven\s+additional columns/);
 });

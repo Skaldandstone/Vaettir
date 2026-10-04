@@ -111,7 +111,10 @@ export function executionTrendPeriods(
             day.completionUnavailableRuns ||
         day.results !==
           day.timedResults + day.missingDurations + day.invalidDurations ||
-        day.inProgressResults > day.results,
+        day.inProgressResults > day.results ||
+        (day.inProgressRuns === 0 && day.inProgressResults !== 0) ||
+        (day.runs === 0 && day.results !== 0) ||
+        (day.timedResults === 0 && day.sumDurationMs !== 0),
     ) ||
     countKeys.some(
       (key) =>
@@ -168,16 +171,21 @@ export function executionTrendPeriods(
 export function renderRecordedExecutionTrendCsv(
   value: RecordedExecutionTrend,
   grouping: ExecutionTrendGrouping = "DAY",
+  includeRecordedDuration = false,
 ) {
+  if (typeof includeRecordedDuration !== "boolean")
+    throw new Error("Choose whether to include recorded duration evidence.");
   const periods = executionTrendPeriods(value, grouping);
   const rows: SpreadsheetCsvCell[][] = [];
   const meta = (label: string, text: string) =>
     rows.push(["Scope", label, text]);
   meta(
     "Export format",
-    grouping === "DAY"
-      ? "Vaettir read-time daily recorded outcomes CSV v1"
-      : "Vaettir read-time weekly recorded outcomes CSV v2",
+    includeRecordedDuration
+      ? `Vaettir read-time ${grouping === "DAY" ? "daily" : "weekly"} recorded outcomes and duration CSV v3`
+      : grouping === "DAY"
+        ? "Vaettir read-time daily recorded outcomes CSV v1"
+        : "Vaettir read-time weekly recorded outcomes CSV v2",
   );
   if (grouping === "WEEK")
     meta(
@@ -195,6 +203,11 @@ export function renderRecordedExecutionTrendCsv(
     value.scope.environment ?? "No environment filter",
   );
   meta("Recorded build", value.scope.build ?? "No build filter");
+  if (includeRecordedDuration)
+    meta(
+      "Duration evidence",
+      "Sum of valid nonnegative recorded result durations in milliseconds, including repeated observations and in-progress runs. Missing and invalid durations are separate counts, not zero. Not wall-clock elapsed time, human effort, billable cost, comparable performance or execution capacity.",
+    );
   for (const day of periods)
     rows.push([
       grouping === "DAY"
@@ -210,6 +223,17 @@ export function renderRecordedExecutionTrendCsv(
       day.unavailableMapping,
       day.inProgressRuns,
       ...EXECUTION_OUTCOMES.map((status) => day.outcomes[status]),
+      ...(includeRecordedDuration
+        ? [
+            day.timedResults,
+            day.sumDurationMs,
+            day.missingDurations,
+            day.invalidDurations,
+            day.finishedRecordedRuns,
+            day.completionUnavailableRuns,
+            day.inProgressResults,
+          ]
+        : []),
     ]);
   for (const note of value.limitations)
     rows.push(["Evidence boundary", "", note]);
@@ -234,10 +258,23 @@ export function renderRecordedExecutionTrendCsv(
       "FLAKY (reported)",
       "SKIP",
       "BLOCKED",
+      ...(includeRecordedDuration
+        ? [
+            "Result observations with valid recorded duration",
+            "Sum valid recorded duration (ms)",
+            "Missing duration observations",
+            "Invalid duration observations",
+            "Runs with recorded completion",
+            "Runs with unavailable completion",
+            "Observations in in-progress runs",
+          ]
+        : []),
     ],
     rows.map((row) => [
       ...row,
-      ...Array<SpreadsheetCsvCell>(13 - row.length).fill(""),
+      ...Array<SpreadsheetCsvCell>(
+        (includeRecordedDuration ? 20 : 13) - row.length,
+      ).fill(""),
     ]),
   );
 }

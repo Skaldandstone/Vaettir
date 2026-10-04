@@ -75,6 +75,10 @@ function ExecutionTrend({ projectId }: { projectId: string }) {
   const [grouping, setGrouping] = useState<ExecutionTrendGrouping>("DAY");
   const [reviewedGrouping, setReviewedGrouping] =
     useState<ExecutionTrendGrouping | null>(null);
+  const [includeRecordedDuration, setIncludeRecordedDuration] = useState(false);
+  const [reviewedDuration, setReviewedDuration] = useState<boolean | null>(
+    null,
+  );
   const query = trpcReact.recordedExecutionTrends.summary.useQuery(
     applied ?? {
       projectId,
@@ -111,6 +115,7 @@ function ExecutionTrend({ projectId }: { projectId: string }) {
   useEffect(() => {
     setReviewed(null);
     setReviewedGrouping(null);
+    setReviewedDuration(null);
   }, [
     query.dataUpdatedAt,
     query.isFetching,
@@ -120,9 +125,15 @@ function ExecutionTrend({ projectId }: { projectId: string }) {
     applied,
     exportOpen,
     grouping,
+    includeRecordedDuration,
   ]);
-  const latest = useRef({ data, exportOpen, grouping });
-  latest.current = { data, exportOpen, grouping };
+  const latest = useRef({
+    data,
+    exportOpen,
+    grouping,
+    includeRecordedDuration,
+  });
+  latest.current = { data, exportOpen, grouping, includeRecordedDuration };
   function applyScope(event: FormEvent) {
     event.preventDefault();
     if (!sameOrigin) return;
@@ -150,15 +161,21 @@ function ExecutionTrend({ projectId }: { projectId: string }) {
       !exportOpen ||
       !data ||
       reviewed !== data ||
-      reviewedGrouping !== grouping
+      reviewedGrouping !== grouping ||
+      reviewedDuration !== includeRecordedDuration
     )
       return;
     try {
-      const csv = renderRecordedExecutionTrendCsv(data, grouping);
+      const csv = renderRecordedExecutionTrendCsv(
+        data,
+        grouping,
+        includeRecordedDuration,
+      );
       if (
         latest.current.data !== data ||
         !latest.current.exportOpen ||
-        latest.current.grouping !== grouping
+        latest.current.grouping !== grouping ||
+        latest.current.includeRecordedDuration !== includeRecordedDuration
       )
         return;
       const url = URL.createObjectURL(
@@ -166,7 +183,7 @@ function ExecutionTrend({ projectId }: { projectId: string }) {
       );
       const anchor = document.createElement("a");
       anchor.href = url;
-      anchor.download = `vaettir-recorded-outcomes-${grouping.toLowerCase()}-${data.scope.start}-${data.scope.end}.csv`;
+      anchor.download = `vaettir-recorded-outcomes-${grouping.toLowerCase()}${includeRecordedDuration ? "-duration" : ""}-${data.scope.start}-${data.scope.end}.csv`;
       document.body.appendChild(anchor);
       anchor.click();
       anchor.remove();
@@ -521,6 +538,65 @@ function ExecutionTrend({ projectId }: { projectId: string }) {
             </table>
           </div>
           <details>
+            <summary>Recorded duration and completion evidence</summary>
+            <p>
+              {data.totals.timedResults} observations have a valid recorded
+              duration, totaling {data.totals.sumDurationMs.toLocaleString()}{" "}
+              ms. {data.totals.missingDurations} observations have missing
+              durations; {data.totals.invalidDurations} have invalid negative
+              durations. These sums include repeated observations and
+              in-progress runs, not elapsed wall-clock time, human effort, cost
+              or comparable performance.
+            </p>
+            <p>
+              {data.totals.finishedRecordedRuns} runs have a recorded
+              completion; {data.totals.completionUnavailableRuns} have
+              unavailable completion evidence. {data.totals.inProgressResults}{" "}
+              observations belong to in-progress runs. Stored run status alone
+              cannot certify completion evidence.
+            </p>
+            <div className="table-scroll">
+              <table className="workspace-table">
+                <caption>
+                  Exact recorded duration coverage by included UTC period.
+                  Unknown duration is not zero.
+                </caption>
+                <thead>
+                  <tr>
+                    <th scope="col">Included UTC dates</th>
+                    <th scope="col">Timed observations</th>
+                    <th scope="col">Valid duration sum (ms)</th>
+                    <th scope="col">Missing duration</th>
+                    <th scope="col">Invalid duration</th>
+                    <th scope="col">Recorded completed runs</th>
+                    <th scope="col">Completion unavailable</th>
+                    <th scope="col">In-progress observations</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {[...periods].reverse().map((period) => (
+                    <tr key={period.key}>
+                      <th scope="row">
+                        {period.start}
+                        {period.end !== period.start && (
+                          <> through {period.end}</>
+                        )}
+                        {period.partialWeek && <small> · partial week</small>}
+                      </th>
+                      <td>{period.timedResults}</td>
+                      <td>{period.sumDurationMs}</td>
+                      <td>{period.missingDurations}</td>
+                      <td>{period.invalidDurations}</td>
+                      <td>{period.finishedRecordedRuns}</td>
+                      <td>{period.completionUnavailableRuns}</td>
+                      <td>{period.inProgressResults}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </details>
+          <details>
             <summary>Evidence boundaries</summary>
             <ul>
               {data.limitations.map((note) => (
@@ -582,14 +658,44 @@ function ExecutionTrend({ projectId }: { projectId: string }) {
             >
               <input
                 type="checkbox"
-                checked={reviewed === data && reviewedGrouping === grouping}
+                checked={includeRecordedDuration}
+                onChange={(event) => {
+                  setIncludeRecordedDuration(event.target.checked);
+                  setReviewed(null);
+                  setReviewedDuration(null);
+                }}
+              />{" "}
+              Include recorded duration and completion evidence (seven
+              additional columns)
+            </label>
+            {includeRecordedDuration && (
+              <p>
+                The CSV preserves valid duration sums in milliseconds,
+                missing/invalid counts and incomplete completion evidence. It
+                does not estimate human effort, normalize throughput, compare
+                performance or certify completed tests.
+              </p>
+            )}
+            <label
+              style={{ display: "flex", gap: 8, alignItems: "flex-start" }}
+            >
+              <input
+                type="checkbox"
+                checked={
+                  reviewed === data &&
+                  reviewedGrouping === grouping &&
+                  reviewedDuration === includeRecordedDuration
+                }
                 onChange={(event) => {
                   setReviewed(event.target.checked ? data : null);
                   setReviewedGrouping(event.target.checked ? grouping : null);
+                  setReviewedDuration(
+                    event.target.checked ? includeRecordedDuration : null,
+                  );
                 }}
               />{" "}
-              I reviewed these exact current counts, grouping, scope labels and
-              sharing boundaries.
+              I reviewed these exact current counts, grouping, optional duration
+              columns, scope labels and sharing boundaries.
             </label>
           </>
         )}
@@ -610,7 +716,10 @@ function ExecutionTrend({ projectId }: { projectId: string }) {
             type="button"
             className="btn-primary"
             disabled={
-              !data || reviewed !== data || reviewedGrouping !== grouping
+              !data ||
+              reviewed !== data ||
+              reviewedGrouping !== grouping ||
+              reviewedDuration !== includeRecordedDuration
             }
             onClick={download}
           >
