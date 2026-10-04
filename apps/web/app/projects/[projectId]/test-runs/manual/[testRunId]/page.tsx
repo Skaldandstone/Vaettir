@@ -1,7 +1,7 @@
 "use client";
 
-import { useState } from "react";
-import { useParams, useRouter } from "next/navigation";
+import { Suspense, useEffect, useState } from "react";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { resolveQualityExperience } from "@vaettir/core";
 import { trpcReact, type RouterOutputs } from "@/lib/trpcReact";
 import { useProjectPermissions } from "@/lib/use-project-permissions";
@@ -9,6 +9,7 @@ import { StepExecutionPanel } from "@/components/StepExecutionPanel";
 import { ManualRetestActions } from "@/components/ManualRetestWizard";
 import { manualProcedurePhases } from "@/lib/manual-procedure-phases";
 import { ManualCaseResultHistory } from "@/components/ManualCaseResultHistory";
+import { manualCaseHistoryAnchor, manualCaseHistorySelection } from "@/lib/case-observation-history-entry";
 
 type ExecutionCase =
   RouterOutputs["manualExecution"]["getForExecution"]["cases"][number];
@@ -41,6 +42,7 @@ function CaseRow({
   onStepsChanged,
   onUnconfirmedStep,
   onUnconfirmedWholeCase,
+  selectedFromHistory,
 }: {
   projectId: string;
   testCase: ExecutionCase;
@@ -58,8 +60,10 @@ function CaseRow({
   onStepsChanged: () => Promise<unknown>;
   onUnconfirmedStep: (pending: boolean) => void;
   onUnconfirmedWholeCase: (pending: boolean) => void;
+  selectedFromHistory: boolean;
 }) {
   const [expanded, setExpanded] = useState(false);
+  useEffect(() => { if (selectedFromHistory) setExpanded(true); }, [selectedFromHistory]);
   const [note, setNote] = useState(testCase.currentResult?.note ?? "");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -117,7 +121,7 @@ function CaseRow({
   const currentStatus = testCase.currentResult?.status ?? null;
 
   return (
-    <div className="panel" style={{ marginBottom: 10, padding: 12 }}>
+    <div id={manualCaseHistoryAnchor(testCase.testCaseId) ?? undefined} className="panel" style={{ marginBottom: 10, padding: 12 }}>
       <div
         style={{
           display: "flex",
@@ -126,6 +130,7 @@ function CaseRow({
         }}
       >
         <button
+          aria-expanded={expanded}
           onClick={() => setExpanded((v) => !v)}
           style={{
             background: "none",
@@ -370,12 +375,13 @@ function CaseRow({
 }
 
 // P1-15
-export default function ManualExecutionPage() {
+function ManualExecutionContent() {
   const { projectId, testRunId } = useParams<{
     projectId: string;
     testRunId: string;
   }>();
   const router = useRouter();
+  const searchParams = useSearchParams();
   const { canEdit } = useProjectPermissions(projectId);
   const utils = trpcReact.useUtils();
   const dataQuery = trpcReact.manualExecution.getForExecution.useQuery({
@@ -409,6 +415,12 @@ export default function ManualExecutionPage() {
 
   const data = dataQuery.data;
   const pageError = error ?? dataQuery.error?.message ?? null;
+  const historySelection = manualCaseHistorySelection({ requestedCaseIds: searchParams.getAll("caseId"), projectId, testRunId,
+    fresh: !dataQuery.error && !dataQuery.isFetching && !dataQuery.isPaused, response: data });
+  const selectedHistoryAnchor = historySelection.kind === "SELECTED" ? historySelection.anchor : null;
+  useEffect(() => {
+    if (selectedHistoryAnchor) document.getElementById(selectedHistoryAnchor)?.scrollIntoView({ block: "start" });
+  }, [selectedHistoryAnchor]);
 
   if (!data) return pageError ? <div><p role="alert" style={{ color: "var(--ember)" }}>{pageError}</p><button className="btn-secondary" onClick={() => void dataQuery.refetch()}>Retry loading run</button></div> : <p>Loading…</p>;
 
@@ -416,6 +428,8 @@ export default function ManualExecutionPage() {
 
   return (
     <div style={{ maxWidth: 800 }}>
+      {historySelection.kind === "UNAVAILABLE" && <p role="alert">The exact requested case is not uniquely present in this run's supported saved procedure. No other case was selected, and the current case definition was not substituted.</p>}
+      {historySelection.kind === "WAITING" && <p role="status">Verifying the exact saved run before selecting its requested case. This link does not record any result.</p>}
       {pageError && <div><p role="alert" style={{ color: "var(--ember)" }}>{pageError} Displayed evidence and open drafts are retained.</p><button className="btn-secondary" onClick={() => { setError(null); void dataQuery.refetch(); }}>Refresh run without discarding drafts</button></div>}
       {unconfirmedStepCases.size > 0 && <p role="status">Confirm pending step responses before completing this run. Retry receipts and entered evidence remain retained.</p>}
       {unconfirmedWholeCases.size > 0 && <p role="status">Confirm pending whole-case observation responses before completing this run. Reopen the original case to retry its exact retained request.</p>}
@@ -483,6 +497,7 @@ export default function ManualExecutionPage() {
           projectId={projectId}
           testCase={tc}
           testRunId={testRunId}
+          selectedFromHistory={historySelection.kind === "SELECTED" && historySelection.caseId === tc.testCaseId}
           onStepsChanged={() => utils.manualExecution.getForExecution.invalidate({ testRunId })}
           onUnconfirmedStep={pending => setUnconfirmedStepCases(current => { const next = new Set(current); if (pending) next.add(tc.testCaseId); else next.delete(tc.testCaseId); return next; })}
           onUnconfirmedWholeCase={pending => setUnconfirmedWholeCases(current => { if (current.has(tc.testCaseId) === pending) return current; const next = new Set(current); if (pending) next.add(tc.testCaseId); else next.delete(tc.testCaseId); return next; })}
@@ -500,4 +515,8 @@ export default function ManualExecutionPage() {
       ))}
     </div>
   );
+}
+
+export default function ManualExecutionPage() {
+  return <Suspense fallback={<p role="status">Loading saved run selection…</p>}><ManualExecutionContent /></Suspense>;
 }
