@@ -1,0 +1,45 @@
+// SOURCE ONLY, unexecuted; these assertions do not establish rendering/cache proof.
+import assert from "node:assert/strict";
+import { test } from "node:test";
+import { readFileSync } from "node:fs";
+const source = readFileSync(
+  new URL("../components/RecordedExecutionTrend.tsx", import.meta.url),
+  "utf8",
+);
+test("current project/member/actor and original-org echoes gate all cached evidence", () => {
+  for (const expression of [
+    /useAuth/,
+    /!project.error/,
+    /!organizations.error/,
+    /origin\?\.actorId\s*===\s*userId/,
+    /!query.error/,
+    /!query.isFetching/,
+    /!query.isPaused/,
+    /query.data.clerkActorId\s*===\s*userId/,
+    /recordedExecutionTrendKey\(applied\)/,
+  ])
+    assert.match(source, expression);
+  assert.match(source, /No empty or\s+zero-count report is\s+substituted/);
+});
+test("date and exact-filter drafts apply explicitly; exports require exact current reviewed object", () => {
+  assert.match(source, /recordedExecutionTrendInput.safeParse/);
+  assert.match(source, /setApplied\(parsed.data\)/);
+  assert.match(source, /reviewed\s*!==\s*data/);
+  assert.match(source, /latest.current.data\s*!==\s*data/);
+  assert.match(source, /not an immutable approved stakeholder\s+snapshot/);
+  assert.match(source, /Check your browser downloads/);
+});
+test("accessible numeric outcomes and same-scope current run pages are not an inferred quality verdict", () => {
+  assert.match(source, /Bar lengths share the largest daily result count/);
+  assert.match(source, /aria-hidden="true"/);
+  assert.match(source, /day.outcomes\[status\]/);
+  assert.match(
+    source,
+    /query.data.day\s*===\s*day\s*&&\s*query.data.page\s*===\s*page/,
+  );
+  assert.match(source, /test-runs#run-/);
+  assert.match(
+    source,
+    /not unique attempts, a\s+flake rate or a release verdict/,
+  );
+});

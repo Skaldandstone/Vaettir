@@ -93,6 +93,7 @@ export default function ProjectReportsPage() {
       </div>
     </div>
     <ReportBuilder projectId={projectId} />
+    <p><Link href={`/projects/${projectId}/execution-trends`}>Explore daily recorded outcomes and the runs behind them</Link>. This live view is separate from approved immutable stakeholder snapshots.</p>
     <section className="panel" aria-label="Case report query" style={{ marginBottom: 16 }}>
       <div style={{ display: "flex", flexWrap: "wrap", gap: 12, alignItems: "end", justifyContent: "space-between" }}>
         <label style={{ display: "grid", gap: 4, minWidth: "min(100%, 260px)" }}><span>Saved case query</span>

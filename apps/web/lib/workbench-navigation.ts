@@ -16,6 +16,7 @@ export const PROJECT_NAVIGATION = [
     collapsible: true,
     links: [
       { path: "/requirements", label: "Requirements" },
+      { path: "/execution-trends", label: "Execution over time" },
       { path: "/defect-map", label: "Defect Map" },
       { path: "/compliance", label: "Compliance" },
       { path: "/releases", label: "Release Readiness" },
