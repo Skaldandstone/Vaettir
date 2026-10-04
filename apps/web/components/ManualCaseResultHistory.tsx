@@ -4,6 +4,7 @@ import { useAuth } from "@clerk/nextjs";
 import { Modal } from "./Modal";
 import { trpcReact } from "@/lib/trpcReact";
 import { manualCaseAckMatches, manualCaseReadMatches } from "@/lib/manual-case-result-ack";
+import { manualCaseRecoveryAllowed } from "@/lib/manual-case-recovery-policy";
 import { parseStepMeasurements, type StepReading } from "@/lib/step-execution-form";
 import { manualCaseResultWriteSchema, type ManualCaseResultRead, type ManualCaseResultWrite, type ManualCaseResultPreview, type ManualCaseResultAck } from "@vaettir/api/src/services/manualCaseResultSchema";
 type Draft = { baseline: ManualCaseResultPreview; status: ManualCaseResultWrite["status"] | ""; note: string; reason: string;
@@ -29,6 +30,7 @@ export function ManualCaseResultHistory({ projectId, testRunId, testCaseId, acti
   useEffect(() => { if (!origin && current) setOrigin(current); }, [origin, current]);
   const ready = active && nativeSame && sameScope(origin, current);
   const editor = !disabled && readable && member?.seatType === "FULL" && ["OWNER", "ADMIN", "EDITOR"].includes(member.role);
+  const currentFullEditor = readable && member?.seatType === "FULL" && ["OWNER", "ADMIN", "EDITOR"].includes(member.role);
   const [before, setBefore] = useState<string | undefined>();
   const [limit, setLimit] = useState(10);
   const read = { projectId, testRunId, testCaseId, expectedScope: origin ?? { projectId, organizationId: "pending", clerkActorId: "pending" }, before, limit };
@@ -41,6 +43,12 @@ export function ManualCaseResultHistory({ projectId, testRunId, testCaseId, acti
   const [draft, setDraft] = useState<Draft | null>(null), [attempt, setAttempt] = useState<ManualCaseResultWrite | null>(null);
   const [receipt, setReceipt] = useState<ManualCaseResultAck | null>(null), [busy, setBusy] = useState(false), [error, setError] = useState("");
   const [definitive, setDefinitive] = useState(false), [accessRejected, setAccessRejected] = useState(false), [refreshNotice, setRefreshNotice] = useState("");
+  const canRetryRetained = manualCaseRecoveryAllowed({ freshOriginalAccess: available,
+    currentFullEditor, exactRetainedRequest: !!attempt && sameScope(attempt.expectedScope, origin) &&
+      attempt.projectId === nativeOrigin.projectId && attempt.testRunId === nativeOrigin.testRunId && attempt.testCaseId === nativeOrigin.testCaseId,
+    confirmedReceipt: !!receipt, definitiveRejection: definitive,
+    parentWriteDisabled: disabled, runStatus: page?.runStatus ?? null });
+  const canInspectRetainedReceipt = available && currentFullEditor && !!receipt;
   const unknown = useRef(false), openNow = useRef(false); openNow.current = open;
   const currentClerk = useRef(userId); currentClerk.current = userId;
   const mutation = trpcReact.manualCaseResults.record.useMutation();
@@ -80,7 +88,7 @@ export function ManualCaseResultHistory({ projectId, testRunId, testCaseId, acti
       observations: { ...draft.context, measurements: parseStepMeasurements(draft.readings, draft.status) }, idempotencyKey: crypto.randomUUID() });
   }
   async function save() {
-    if (!available || !editor || accessRejected || !open || !draft || screen !== "REVIEW" || busy || receipt || definitive) return;
+    if (!available || (!editor && !canRetryRetained) || (!attempt && !page?.canWrite) || accessRejected || !open || !draft || screen !== "REVIEW" || busy || receipt || definitive) return;
     let input: ManualCaseResultWrite;
     try { input = attempt ?? buildRequest(); } catch (e) { setError(e instanceof Error ? e.message : "Review the entered evidence."); return; }
     if (!sameScope(input.expectedScope, origin)) { setError("Restore the exact original actor and organization before retrying; request was not rebound."); return; }
@@ -124,10 +132,12 @@ export function ManualCaseResultHistory({ projectId, testRunId, testCaseId, acti
       {page.revisions.length === 0 ? <p>No immutable whole-case revisions were recorded. An older result may still exist; its prior author/time have not been reconstructed.</p> : <ol>{page.revisions.map(r => <li key={r.id}><strong>Revision {r.revisionNumber} · {r.result.status}</strong> · {r.actorLabel} · {new Date(r.recordedAt).toLocaleString()}<p style={{ whiteSpace: "pre-wrap" }}>{r.result.note || "No note"}</p>{r.correctionReason && <p>Reason: {r.correctionReason}</p>}<details><summary>Recorded observations</summary><pre style={{ whiteSpace: "pre-wrap" }}>{JSON.stringify(r.result.observations, null, 2)}</pre></details>{r.legacyPrior && <details><summary>Previous unversioned observation captured at this correction</summary><p>Original recorder/time unknown; this is not a backfilled execution or approval.</p><p>{r.legacyPrior.captured.status}: {r.legacyPrior.captured.note || "No note"}</p><pre style={{ whiteSpace: "pre-wrap" }}>{JSON.stringify(r.legacyPrior.captured.observations, null, 2)}</pre></details>}</li>)}</ol>}
       <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}><button type="button" disabled={!before} onClick={() => setBefore(undefined)}>Latest revisions</button><button type="button" disabled={!page.nextCursor} onClick={() => setBefore(page.nextCursor ?? undefined)}>Older revisions</button>
       {editor && page.canWrite && <button type="button" onClick={() => { if (draft || attempt || receipt) setOpen(true); else void loadReview(); }}>Review whole-case observation</button>}</div>
+      {canRetryRetained && !page.canWrite && <button type="button" onClick={() => setOpen(true)}>Resume identical receipt recovery</button>}
+      {canInspectRetainedReceipt && !editor && <button type="button" onClick={() => setOpen(true)}>View retained correction receipt</button>}
       {!page.canWrite && <p>Read-only history. New observation revisions require an active run and current full-editor access.</p>}
     </>}
     <Modal open={open && active} onClose={() => setOpen(false)} title="Review whole-case observation" size="wide" dismissible={!busy}>
-      {!available || !editor || accessRejected ? <p role="status">Current original full-editor access is unavailable. Private baseline/actions are hidden; local evidence and UUID remain retained. <button type="button" onClick={async () => { if (await refreshAccess()) setAccessRejected(false); }}>Recheck original access</button></p> : <>
+      {!available || (!editor && !canRetryRetained && !canInspectRetainedReceipt) || accessRejected ? <p role="status">Current original full-editor access is unavailable. Private baseline/actions are hidden; local evidence and UUID remain retained. <button type="button" onClick={async () => { if (await refreshAccess()) setAccessRejected(false); }}>Recheck original access</button></p> : <>
       {error && <p role="alert">{error}</p>}{receipt ? <section><h3>Revision {receipt.revisionNumber} confirmed</h3><p>Prior observations retained. No test was run and no defect was declared resolved.</p>{refreshNotice && <p role="alert">{refreshNotice}</p>}<button type="button" onClick={() => void refreshAccess()}>Refresh current view, not correction</button>{page?.canWrite && <button type="button" disabled={busy} onClick={() => void loadReview(true)}>Review another correction against current evidence</button>}</section> : !draft ? <p role="status">{busy ? "Loading current observation…" : "No verified baseline available."}</p>
       : screen === "EDIT" ? <section><p>{draft.baseline.displayId} · {draft.baseline.current ? "Correct existing observation" : "Record initial observation"}</p>
       {!draft.baseline.tracked && draft.baseline.current && <p>Earlier result is unversioned. Its exact prior mutable evidence will be retained now, without inventing the original recorder/time.</p>}
