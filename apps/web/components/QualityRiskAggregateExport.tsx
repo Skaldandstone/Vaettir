@@ -8,6 +8,7 @@ import {
   type RiskAggregateFilter,
 } from "@/lib/quality-risk-aggregate-csv";
 import { Modal } from "./Modal";
+import { renderQualityRiskAggregateHtml } from "@/lib/quality-risk-aggregate-html";
 type Summary = RouterOutputs["qualityRiskOverview"]["summary"];
 export function QualityRiskAggregateExport({
   current,
@@ -21,13 +22,14 @@ export function QualityRiskAggregateExport({
   revision: number;
 }) {
   const [open, setOpen] = useState(false),
+    [format, setFormat] = useState<"CSV" | "HTML">("CSV"),
     [reviewed, setReviewed] = useState<Summary | null>(null),
     [reviewedScope, setReviewedScope] = useState(""),
     [message, setMessage] = useState("");
   const active =
     available && Number.isFinite(revision) && revision > 0 ? current : null;
   // Filter key is local review identity only. It is never exported or hashed remotely.
-  const scopeKey = JSON.stringify(filters);
+  const scopeKey = JSON.stringify({ filters, format });
   const epoch = useRef(0),
     previous = useRef({ active, scopeKey, open, revision });
   if (
@@ -63,7 +65,10 @@ export function QualityRiskAggregateExport({
     if (!canExport || !active) return;
     try {
       const plan = qualityRiskAggregateCsvPlan(active, filters);
-      const encoded = renderBoundedSpreadsheetCsv(plan.headers, plan.rows);
+      const encoded =
+        format === "CSV"
+          ? renderBoundedSpreadsheetCsv(plan.headers, plan.rows)
+          : renderQualityRiskAggregateHtml(plan);
       if (
         live.current.active !== active ||
         live.current.scopeKey !== scopeKey ||
@@ -74,14 +79,19 @@ export function QualityRiskAggregateExport({
       // Consume this reviewed action before browser side effects; another click needs review again.
       live.current.open = false;
       setReviewed(null);
-      const url = URL.createObjectURL(
-        new Blob([encoded], { type: "text/csv;charset=utf-8" }),
-      );
       const anchor = document.createElement("a");
-      anchor.href = url;
-      anchor.download = `vaettir-human-risk-aggregates-${active.observedAt.slice(0, 10)}.csv`;
-      document.body.appendChild(anchor);
+      const url = URL.createObjectURL(
+        new Blob([encoded], {
+          type:
+            format === "CSV"
+              ? "text/csv;charset=utf-8"
+              : "text/html;charset=utf-8",
+        }),
+      );
       try {
+        anchor.href = url;
+        anchor.download = `vaettir-human-risk-aggregates-${active.observedAt.slice(0, 10)}.${format === "CSV" ? "csv" : "html"}`;
+        document.body.appendChild(anchor);
         anchor.click();
       } finally {
         anchor.remove();
@@ -90,7 +100,7 @@ export function QualityRiskAggregateExport({
       setOpen(false);
       setReviewed(null);
       setMessage(
-        "Aggregate CSV prepared. Check your browser downloads and review recipient suitability; no external access was granted.",
+        "Aggregate file prepared. Check your browser downloads and review recipient suitability; no external access was granted.",
       );
     } catch (error) {
       setMessage(
@@ -112,7 +122,7 @@ export function QualityRiskAggregateExport({
           setOpen(true);
         }}
       >
-        Export reviewed risk counts
+        Export reviewed risk overview
       </button>
       {active && message && <p role="status">{message}</p>}
       <Modal
@@ -122,7 +132,7 @@ export function QualityRiskAggregateExport({
           setOpen(false);
           setReviewed(null);
         }}
-        title="Review human risk aggregate CSV"
+        title="Review human risk aggregate export"
       >
         {!active ? (
           <p role="alert">
@@ -142,6 +152,32 @@ export function QualityRiskAggregateExport({
               both populations, not just the visible twenty-row page. No
               per-entry content or literal search text is exported.
             </p>
+            <label style={{ display: "grid", gap: 6, marginBlock: 12 }}>
+              File format
+              <select
+                value={format}
+                onChange={(event) => {
+                  if (
+                    event.target.value === "CSV" ||
+                    event.target.value === "HTML"
+                  )
+                    setFormat(event.target.value);
+                }}
+              >
+                <option value="CSV">CSV for spreadsheets</option>
+                <option value="HTML">
+                  Portable HTML for stakeholder review and printing
+                </option>
+              </select>
+            </label>
+            {format === "HTML" && (
+              <p>
+                Text-only offline report with full and filtered counts and
+                evidence boundaries. Open the downloaded file and use your
+                browser's Print command for PDF. No approved snapshot, PDF or
+                delivery is created.
+              </p>
+            )}
             <ul>
               {riskAggregateBoundaries.map((boundary) => (
                 <li key={boundary}>{boundary}</li>
@@ -190,7 +226,7 @@ export function QualityRiskAggregateExport({
                 }}
               />
               I reviewed these exact current aggregate counts, applied
-              categories, observation time and sharing limitations.
+              categories, observation time, file format and sharing limitations.
             </label>
           </>
         )}
@@ -212,7 +248,7 @@ export function QualityRiskAggregateExport({
             disabled={!canExport}
             onClick={download}
           >
-            Prepare aggregate CSV
+            Prepare reviewed file
           </button>
         </div>
       </Modal>

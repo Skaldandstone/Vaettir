@@ -153,3 +153,20 @@ test("unfiltered populations must match completely and empty human registers rem
   assert.ok(plan.rows.some((row) => row[1] === "Population" && row[3] === 0));
   assert.ok(JSON.stringify(plan).includes("No calibrated score"));
 });
+test("selected category must describe the entire filtered cohort and reference-bearing entries bound total references", () => {
+  assert.throws(
+    () =>
+      qualityRiskAggregateCsvPlan(sample(), {
+        ...filters(),
+        likelihood: "RARE",
+      }),
+    /inconsistent/,
+  );
+  const value = sample();
+  value.population.evidenceReferences.total = 21;
+  value.population.evidenceReferences.available = 21;
+  assert.throws(
+    () => qualityRiskAggregateCsvPlan(value, filters()),
+    /inconsistent/,
+  );
+});

@@ -18,6 +18,7 @@ test("aggregate export binds exact response, scope and availability epoch before
   assert.match(source, /previous.current.revision !== revision/);
   assert.match(source, /reviewed === active/);
   assert.match(source, /reviewedScope === scopeKey/);
+  assert.match(source, /JSON.stringify\({ filters, format }\)/);
   assert.match(source, /reviewedEpoch === epoch.current/);
   assert.match(source, /live.current.active !== active/);
   assert.match(source, /live.current.epoch !== reviewedEpoch/);
@@ -28,6 +29,12 @@ test("aggregate export binds exact response, scope and availability epoch before
   assert.match(source, /active: null/);
   assert.match(source, /anchor.remove\(\)/);
   assert.match(source, /URL.revokeObjectURL\(url\)/);
+});
+test("portable format choice cancels exact scope review and uses local text-only download", () => {
+  assert.match(source, /renderQualityRiskAggregateHtml\(plan\)/);
+  assert.match(source, /File format/);
+  assert.match(source, /No approved snapshot, PDF or\s+delivery is created/);
+  assert.match(source, /text\/html;charset=utf-8/);
 });
 test("read-time aggregate dialog discloses whole-population and search omission without an external permission claim", () => {
   assert.match(source, /not just the visible twenty-row page/);

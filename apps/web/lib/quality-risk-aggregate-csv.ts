@@ -98,6 +98,11 @@ function validateCounts(value: Counts) {
         value.evidence.SOME_REFERENCES_UNAVAILABLE
   )
     return refuse();
+  const withEvidence =
+    value.evidence.ALL_REFERENCES_AVAILABLE +
+    value.evidence.SOME_REFERENCES_UNAVAILABLE +
+    value.evidence.ALL_REFERENCES_UNAVAILABLE;
+  if (references.total > withEvidence * 20) return refuse();
 }
 /** Only aggregates leave this function. The caller uses the shared bounded CSV encoder. */
 export function qualityRiskAggregateCsvPlan(
@@ -136,6 +141,16 @@ export function qualityRiskAggregateCsvPlan(
         (key) =>
           (value.filtered[dimension] as Record<string, number>)[key]! >
           (value.population[dimension] as Record<string, number>)[key]!,
+      )
+    )
+      return refuse();
+    if (
+      selected &&
+      selected !== "ANY" &&
+      keys.some(
+        (key) =>
+          key !== selected &&
+          (value.filtered[dimension] as Record<string, number>)[key] !== 0,
       )
     )
       return refuse();
