@@ -431,9 +431,16 @@ describe("frozen reviewed reports", () => {
       where: { id: caseId },
       data: { automationStatus: "AUTOMATED", title: "New human title" },
     });
-    expect(
-      (await viewer.reportSnapshots.get({ projectId, id: result.id })).payload,
-    ).toEqual(result.payload);
+    const recovered = await viewer.reportSnapshots.get({
+      projectId,
+      id: result.id,
+    });
+    expect(recovered.payload).toEqual(result.payload);
+    expect(recovered).toMatchObject({
+      id: result.id,
+      projectId,
+      organizationId: orgId,
+    });
     await expect(
       other.reportSnapshots.get({ projectId, id: result.id }),
     ).rejects.toThrow();

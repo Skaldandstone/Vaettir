@@ -4,6 +4,8 @@ import Link from "next/link";
 import { Modal } from "./Modal";
 import { trpcReact } from "@/lib/trpcReact";
 import { renderReportComparisonHtml } from "@/lib/report-comparison";
+import { renderReportComparisonCsv } from "@/lib/report-csv";
+import type { RouterOutputs } from "@/lib/trpcReact";
 import { readableMetric } from "@/lib/frozen-report";
 
 export type SelectedReportSnapshot = {
@@ -25,7 +27,10 @@ export function ReportSnapshotComparison({
   );
   const baselineId = ordered[0]?.id ?? "",
     targetId = ordered[1]?.id ?? "";
-  const [reviewed, setReviewed] = useState(false);
+  const [reviewedData, setReviewedData] = useState<
+    RouterOutputs["reportSnapshots"]["compare"] | null
+  >(null);
+  const [exportMessage, setExportMessage] = useState("");
   const query = trpcReact.reportSnapshots.compare.useQuery(
     { projectId, baselineId, targetId },
     {
@@ -42,16 +47,33 @@ export function ReportSnapshotComparison({
     query.data.target.id === targetId
       ? query.data
       : null;
-  function download() {
+  const reviewed = !!data && reviewedData === data;
+  function download(format: "html" | "csv") {
     if (!data || !reviewed) return;
+    let content: string;
+    try {
+      content =
+        format === "csv"
+          ? renderReportComparisonCsv(data)
+          : renderReportComparisonHtml(data);
+    } catch {
+      setExportMessage(
+        "Unsupported retained values or export size prevented this download. No partial CSV was substituted.",
+      );
+      return;
+    }
+    setExportMessage("");
     const url = URL.createObjectURL(
-      new Blob([renderReportComparisonHtml(data)], {
-        type: "text/html;charset=utf-8",
+      new Blob([content], {
+        type:
+          format === "csv"
+            ? "text/csv;charset=utf-8"
+            : "text/html;charset=utf-8",
       }),
     );
     const link = document.createElement("a");
     link.href = url;
-    link.download = "reviewed-snapshot-comparison.html";
+    link.download = `reviewed-snapshot-comparison.${format}`;
     document.body.append(link);
     link.click();
     link.remove();
@@ -72,7 +94,8 @@ export function ReportSnapshotComparison({
             type="button"
             className="btn-secondary"
             onClick={() => {
-              setReviewed(false);
+              setReviewedData(null);
+              setExportMessage("");
               void query.refetch();
             }}
           >
@@ -237,7 +260,10 @@ export function ReportSnapshotComparison({
             <input
               type="checkbox"
               checked={reviewed}
-              onChange={(event) => setReviewed(event.target.checked)}
+              onChange={(event) => {
+                setReviewedData(event.target.checked ? data : null);
+                setExportMessage("");
+              }}
             />
             I reviewed both execution windows, changing cohorts and missing
             evidence. I will check recipients before sharing this internal
@@ -247,10 +273,25 @@ export function ReportSnapshotComparison({
             type="button"
             className="btn-secondary"
             disabled={!reviewed}
-            onClick={download}
+            onClick={() => download("html")}
           >
             Download reviewed comparison
           </button>
+          <button
+            type="button"
+            className="btn-secondary"
+            disabled={!reviewed}
+            onClick={() => download("csv")}
+          >
+            Download comparison CSV
+          </button>
+          <p className="text-muted">
+            CSV retains exact metric counts, unavailable values, both original
+            windows and evidence boundaries. It is not a backup, new approval or
+            external access grant. Spreadsheet re-save/import settings may
+            remove text formula protections.
+          </p>
+          {exportMessage && <p role="alert">{exportMessage}</p>}
         </>
       )}
     </Modal>

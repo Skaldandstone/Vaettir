@@ -526,7 +526,11 @@ export const reportSnapshotsRouter = router({
           row.createdById !== ctx.user.id
         )
           throw new TRPCError({ code: "NOT_FOUND" });
-        return result;
+        return {
+          ...result,
+          projectId: row.projectId,
+          organizationId: row.organizationId,
+        };
       }),
     ),
   evidence: protectedProcedure

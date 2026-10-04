@@ -1,4 +1,5 @@
 "use client";
+import { useState } from "react";
 import {
   reportMetricRows,
   REPORT_SECTIONS,
@@ -10,6 +11,7 @@ import {
 import { ReportSnapshotEvidence } from "./ReportSnapshotEvidence";
 import { REPORT_TEMPLATES } from "@/lib/report-templates";
 import { ReportOutcomeChart } from "./ReportOutcomeChart";
+import { renderFrozenReportCsv } from "@/lib/report-csv";
 
 export function FrozenReport({
   report,
@@ -23,19 +25,50 @@ export function FrozenReport({
   snapshotId?: string;
 }) {
   const rows = reportMetricRows(report);
-  function download() {
+  const [review, setReview] = useState<{
+    report: FrozenReportPayload;
+    projectId?: string;
+    snapshotId?: string;
+  } | null>(null);
+  const [exportMessage, setExportMessage] = useState("");
+  const reviewed =
+    review?.report === report &&
+    review.projectId === projectId &&
+    review.snapshotId === snapshotId;
+  const exportAllowed = allowExport && report.state === "approved";
+  function download(format: "html" | "csv") {
+    if (!exportAllowed || !reviewed) return;
+    let content: string;
+    try {
+      content =
+        format === "csv"
+          ? renderFrozenReportCsv(report)
+          : renderFrozenReportHtml(report);
+    } catch {
+      setExportMessage(
+        "This retained report exceeds the supported export format or contains unsupported values. No partial CSV was downloaded. Review the snapshot or use another approved format.",
+      );
+      return;
+    }
+    setExportMessage("");
     const url = URL.createObjectURL(
-      new Blob([renderFrozenReportHtml(report)], {
-        type: "text/html;charset=utf-8",
+      new Blob([content], {
+        type:
+          format === "csv"
+            ? "text/csv;charset=utf-8"
+            : "text/html;charset=utf-8",
       }),
     );
     const anchor = document.createElement("a");
     anchor.href = url;
-    anchor.download = `vaettir-report-${report.asOf.slice(0, 10)}.html`;
+    anchor.download = `vaettir-report-${report.asOf.slice(0, 10)}.${format}`;
+    document.body.append(anchor);
     anchor.click();
+    anchor.remove();
     window.setTimeout(() => URL.revokeObjectURL(url), 1000);
   }
   function print() {
+    if (!exportAllowed || !reviewed) return;
     // Print only the portable snapshot, not the surrounding workspace/sidebar.
     const frame = document.createElement("iframe");
     frame.title = "Printable frozen report";
@@ -109,15 +142,66 @@ export function FrozenReport({
             </details>
           )
         )}
-        {allowExport && (
-          <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
-            <button className="btn-secondary" type="button" onClick={download}>
-              Download HTML
-            </button>
-            <button className="btn-secondary" type="button" onClick={print}>
-              Print / save PDF
-            </button>
-          </div>
+        {exportAllowed && (
+          <section aria-label="Reviewed portable report export">
+            <p className="text-muted">
+              HTML and print retain authored commentary. Aggregate CSV includes
+              selected metrics, exact captured scope/windows and evidence
+              boundaries, but no summary, risks or next-action commentary or raw
+              entity identities. Captured titles and scope labels are still
+              internal text. CSV is not a full-fidelity backup.
+            </p>
+            <label
+              style={{
+                display: "flex",
+                gap: 8,
+                alignItems: "start",
+                marginBlock: 12,
+              }}
+            >
+              <input
+                type="checkbox"
+                checked={reviewed}
+                onChange={(event) => {
+                  setReview(
+                    event.target.checked
+                      ? { report, projectId, snapshotId }
+                      : null,
+                  );
+                  setExportMessage("");
+                }}
+              />
+              I reviewed this frozen report, its missing evidence and captured
+              text, and will check recipients before downloading or printing.
+            </label>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+              <button
+                className="btn-secondary"
+                type="button"
+                disabled={!reviewed}
+                onClick={() => download("html")}
+              >
+                Download HTML
+              </button>
+              <button
+                className="btn-secondary"
+                type="button"
+                disabled={!reviewed}
+                onClick={() => download("csv")}
+              >
+                Download aggregate CSV
+              </button>
+              <button
+                className="btn-secondary"
+                type="button"
+                disabled={!reviewed}
+                onClick={print}
+              >
+                Print / save PDF
+              </button>
+            </div>
+            {exportMessage && <p role="alert">{exportMessage}</p>}
+          </section>
         )}
       </header>
       {(
