@@ -9,6 +9,7 @@ This checkpoint preserves the previously uncommitted product dependencies togeth
 - The deletion receipt is now inserted inside the destructive transaction. Four fresh suites passed 27 checks, including actual receipt foreign-key and unique-key failures restoring the complete synthetic tenant cohort.
 - Local retained-dialog rendering preserved drafts across close/reopen, withheld closed controls, and restored opener focus on Escape. This is synthetic component evidence, not a deployed role/provider workflow.
 - The full API rerun, full native units/package/runtime/image-security checks, production migration review, service stabilization and authenticated critical-flow smoke checks remain required. Earlier full API scenario assertions passing with failed teardown is not a passing suite.
+- A later complete web rerun passed 495 native contracts and 35 typed scenarios. Two source contracts initially failed because they still sliced the previous deletion-transaction declaration; they now assert the current complete transaction and explicitly require the permanent receipt before success acknowledgement. No product or database protection was removed to pass them.
 
 ## Open large-erasure gate
 
@@ -24,3 +25,7 @@ The 100,008-result synthetic erasure still exceeds the existing five-second inte
 ## Release boundary
 
 Remote source preservation is not deployment. Existing production remains on its separately verified API/Web identities. Native builder preparation or core compilation alone does not clear complete release/assertion units, package ABI, ARM/JIT behavior, browser/graphics/native runtime, image-security, compatible migrations, immutable recovery definitions or authenticated production acceptance.
+
+The October 4 core continuation completed all 3,327 compile steps and its ABI command, then failed when the checkpoint attempted to hash LLVM's generated library symlink as a regular identity file. The failed build is not a donor or an accepted core checkpoint. Any correction must validate the exact candidate link chain within its intended library directory, retain content/hash and ABI protections, and use a new immutable source/prepare identity rather than rewriting the failed lineage.
+
+The recipe's direct JIT probe is a baseline control, not standalone candidate-JIT acceptance. The later runtime-image Mesa guard separately hashes the installed candidate, verifies library resolution and runs that fixed probe. Neither its source nor pure fixtures substitute for executing the complete runtime image guard.

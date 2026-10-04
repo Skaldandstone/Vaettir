@@ -11,6 +11,12 @@ const page = source("../app/projects/[projectId]/test-runs/manual/[testRunId]/pa
 const ui = source("../components/ManualCaseResultHistory.tsx");
 const central = source("../../api/src/router.ts");
 const migration = source("../../../packages/db/prisma/migrations/20261004080000_manual_case_result_history/migration.sql");
+function destructiveTransaction() {
+  const implementation = erasure.slice(erasure.indexOf("export async function hardDeleteOrganization("));
+  const start = implementation.indexOf("return prisma.$transaction(async (tx) => {");
+  assert.ok(start >= 0, "Destructive work must return the complete native transaction");
+  return implementation.slice(start);
+}
 
 test("deferred polymorphic native-result trigger only evaluates erasure-only OLD fields inside DELETE operation branch", () => {
   assert.doesNotMatch(migration, /IF TG_OP='DELETE' AND/);
@@ -44,7 +50,7 @@ test("exact original history metadata is previewed and unsupported scope refuses
   assert.match(erasure, /ManualCaseResultHead: manualCaseEvidence.ManualCaseResultHead/);
   assert.match(erasure, /ManualCaseResultRevision: manualCaseEvidence.ManualCaseResultRevision/);
   assert.match(erasure, /overBound: manualCaseEvidence.overBound/);
-  const transaction = erasure.slice(erasure.indexOf("const rowCounts = await prisma.$transaction"));
+  const transaction = destructiveTransaction();
   const lock = transaction.indexOf("await lockReportErasureScope");
   const check = transaction.indexOf("await previewManualCaseResultErasure");
   const refused = transaction.indexOf("if (manualCaseEvidence.blocked)");
@@ -52,12 +58,23 @@ test("exact original history metadata is previewed and unsupported scope refuses
   assert.ok(lock >= 0 && check > lock && refused > check && firstChild > refused);
 });
 test("history erasure is inside complete tenant transaction before native result FKs, without selector bypass", () => {
-  const transaction = erasure.slice(erasure.indexOf("const rowCounts = await prisma.$transaction"));
+  const transaction = destructiveTransaction();
   const history = transaction.indexOf("Object.assign(counts, await eraseManualCaseResultHistory(tx, organizationId))");
   const native = transaction.indexOf('await del("TestResult"');
   const org = transaction.indexOf("await tx.organization.delete");
   assert.ok(history >= 0 && native > history && org > native);
   assert.doesNotMatch(transaction, /set_config\('vaettir\.manual_case/);
+});
+
+test("permanent receipt is written in the same transaction after tenant erasure and before success acknowledgement", () => {
+  const transaction = destructiveTransaction();
+  const org = transaction.indexOf("await tx.organization.delete");
+  const receipt = transaction.indexOf("await tx.organizationDeletionLog.create");
+  const acknowledged = transaction.indexOf("return { deletionLogId: log.id, rowCounts: counts }");
+  assert.ok(org >= 0 && receipt > org && acknowledged > receipt);
+  assert.doesNotMatch(erasure, /await prisma\.organizationDeletionLog\.create/);
+  assert.match(transaction.slice(receipt, acknowledged), /deletedById: actorId/);
+  assert.match(transaction.slice(receipt, acknowledged), /rowCounts: counts/);
 });
 test("destructive admin action refuses old, foreign or blocked whole-case preview rather than treating missing history as zero", () => {
   assert.match(admin, /manualCaseResultScope\?\.originalOrganizationId === organizationId/);
