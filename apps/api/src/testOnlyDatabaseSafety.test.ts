@@ -62,4 +62,12 @@ describe("exact test-only owned database admission", () => {
       expect(() => assertOwnedTestDatabase(value, ci)).toThrow("Exact owned disposable loopback test database required");
     }
   });
+  it("refuses every ASCII control or space before URL normalization", () => {
+    for (const code of [...Array.from({ length: 33 }, (_, index) => index), 127]) {
+      const character = String.fromCharCode(code);
+      for (const value of [character + service, service + character, service.replace("localhost", `local${character}host`)]) {
+        expect(() => assertOwnedTestDatabase(value, ci)).toThrow("Exact owned disposable loopback test database required");
+      }
+    }
+  });
 });

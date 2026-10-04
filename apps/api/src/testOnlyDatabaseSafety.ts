@@ -5,7 +5,10 @@ export function assertOwnedTestDatabase(
   env: Record<string, string | undefined> = process.env,
 ): { route: "LOCAL_DISPOSABLE" | "GITHUB_SERVICE"; database: string } {
   const refuse = () => { throw Error("Exact owned disposable loopback test database required"); };
-  if (!configured || configured !== configured.trim() || /[\u0000-\u0020\u007f]/.test(configured)) return refuse();
+  if (!configured || configured !== configured.trim() || Array.from(configured).some(character => {
+    const code = character.charCodeAt(0);
+    return code <= 32 || code === 127;
+  })) return refuse();
   let url: URL;
   try { url = new URL(configured); } catch { return refuse(); }
   if (!["postgresql:", "postgres:"].includes(url.protocol) ||
