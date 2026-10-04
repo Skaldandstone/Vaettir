@@ -22,6 +22,11 @@ import {
 type Definition = RouterInputs["reportSnapshots"]["preview"]["definition"];
 type PreviewRequest = RouterInputs["reportSnapshots"]["preview"];
 type Preview = RouterOutputs["reportSnapshots"]["preview"];
+type DraftStart = { actor: string; organizationId: string } & (
+  | { kind: "fresh" }
+  | { kind: "definition"; source: RouterOutputs["reportSnapshots"]["definitions"][number] }
+  | { kind: "preview"; source: RouterOutputs["reportSnapshots"]["drafts"][number] }
+);
 const freshDefinition = (): Definition => ({
   audience: "stakeholders",
   templateId: "quality-status",
@@ -71,6 +76,9 @@ function ProjectReportBuilder({ projectId }: { projectId: string }) {
       ? drafts.data
       : undefined;
   const [open, setOpen] = useState(false);
+  const [draftStatus, setDraftStatus] = useState<"empty" | "draft" | "published">("empty");
+  const [replacement, setReplacement] = useState<DraftStart | null>(null);
+  const closeButton = useRef<HTMLButtonElement>(null);
   const scopeOptions = trpcReact.reportSnapshots.scopeOptions.useQuery(
     { projectId },
     { enabled: open && !readOnly, staleTime: 0 },
@@ -156,14 +164,66 @@ function ProjectReportBuilder({ projectId }: { projectId: string }) {
       setOpen(true);
       return;
     }
+    if (draftStatus === "draft") {
+      setOpen(true);
+      return;
+    }
+    // Only an empty or acknowledged completed flow starts fresh. Closing an
+    // unfinished local draft never resets its authored fields or current step.
+    applyStart({ kind: "fresh", actor: userId, organizationId: project.data.organizationId });
+  }
+  function closeBuilder() {
+    setOpen(false);
+    setReplacement(null);
+  }
+  function keepCurrentReport() {
+    if (!replacement || readOnly || busy || request || saveRequest || !userId || !project.data ||
+      replacement.actor !== userId || replacement.organizationId !== project.data.organizationId) return;
+    // Focus the persistent visible control before removing the focused review.
+    closeButton.current?.focus();
+    setReplacement(null);
+  }
+  function applyStart(target: DraftStart) {
+    if (readOnly || busy || request || saveRequest || !userId || !project.data ||
+      target.actor !== userId || target.organizationId !== project.data.organizationId) return;
+    if (target.kind === "definition" && !availableDefinitions?.some(row => row === target.source)) return;
+    if (target.kind === "preview" && !availableDrafts?.some(row => row === target.source)) return;
+    closeButton.current?.focus();
+    if (!workflowOrigin) setWorkflowOrigin({ actor: target.actor, organizationId: target.organizationId });
     setStep(0);
     setReview(null);
     setResumeId("");
     setMessage("");
     setDefinition(freshDefinition());
     setTitle("Quality status review");
+    if (target.kind === "definition") {
+      setTitle(target.source.name);
+      setDefinition(target.source.definition);
+    } else if (target.kind === "preview") {
+      setResumeId(target.source.id);
+      setStep(4);
+    }
+    setReplacement(null);
+    setDraftStatus("draft");
     setOpen(true);
   }
+  function requestStart(target: DraftStart) {
+    if (readOnly || busy || request || saveRequest || !userId || !project.data ||
+      target.actor !== userId || target.organizationId !== project.data.organizationId) return;
+    if (draftStatus === "draft") {
+      // Choosing another definition/preview does not consent to discarding
+      // authored local commentary, scope or the current screen.
+      setReplacement(target);
+      setOpen(true);
+      return;
+    }
+    applyStart(target);
+  }
+  const replacementReady = !!replacement && !readOnly && !busy && !request && !saveRequest &&
+    replacement.actor === userId && replacement.organizationId === project.data?.organizationId &&
+    (replacement.kind === "fresh" || (replacement.kind === "definition"
+      ? !!availableDefinitions?.some(row => row === replacement.source)
+      : !!availableDrafts?.some(row => row === replacement.source)));
   async function capture() {
     if (readOnly || busy || saveRequest) return;
     const originalOrganizationId = project.data?.organizationId;
@@ -222,6 +282,8 @@ function ProjectReportBuilder({ projectId }: { projectId: string }) {
       }
       setRequest(null);
       setResumeId("");
+      setDraftStatus("published");
+      setReplacement(null);
       setMessage(
         "Frozen snapshot created. Workspace members can view it using its link.",
       );
@@ -291,7 +353,7 @@ function ProjectReportBuilder({ projectId }: { projectId: string }) {
           disabled={readOnly}
           onClick={begin}
         >
-          {request || saveRequest ? "Resume pending report" : "Create report"}
+          {request || saveRequest ? "Resume pending report" : draftStatus === "draft" ? "Resume local report draft" : "Create report"}
         </button>
       </div>
       {readOnly && (
@@ -299,6 +361,18 @@ function ProjectReportBuilder({ projectId }: { projectId: string }) {
           A full editor seat is required to create and share snapshots. Existing
           reports remain viewable.
         </p>
+      )}
+      {draftStatus === "draft" && (
+        <div>
+          <p className="text-muted">Your unfinished report stays in this page. Closing preserves its title, notes, metrics, scope and current step. Reloading or leaving the project may lose an unsubmitted local draft.</p>
+          <button type="button" className="btn-secondary" disabled={readOnly || busy || !!request || !!saveRequest}
+            onClick={() => {
+              if (readOnly || !userId || !project.data) return;
+              requestStart({ kind: "fresh", actor: userId, organizationId: project.data.organizationId });
+            }}>
+            Start another report
+          </button>
+        </div>
       )}
       <button
         type="button"
@@ -331,9 +405,7 @@ function ProjectReportBuilder({ projectId }: { projectId: string }) {
               (row) => row.id === event.target.value,
             );
             if (!saved) return;
-            begin();
-            setTitle(saved.name);
-            setDefinition(saved.definition);
+            requestStart({ kind: "definition", source: saved, actor: userId, organizationId: project.data.organizationId });
           }}
         >
           <option value="">Choose a reusable report</option>
@@ -359,12 +431,7 @@ function ProjectReportBuilder({ projectId }: { projectId: string }) {
                   disabled={!!request || !!saveRequest}
                   onClick={() => {
                     if (readOnly || !userId || !project.data) return;
-                    if (!workflowOrigin) setWorkflowOrigin({ actor: userId, organizationId: project.data.organizationId });
-                    setReview(null);
-                    setResumeId(row.id);
-                    setStep(4);
-                    setMessage("");
-                    setOpen(true);
+                    requestStart({ kind: "preview", source: row, actor: userId, organizationId: project.data.organizationId });
                   }}
                 >
                   Review {row.title} · {new Date(row.asOf).toLocaleDateString()}
@@ -385,7 +452,7 @@ function ProjectReportBuilder({ projectId }: { projectId: string }) {
       {message && <p role="status">{message}</p>}
       <DialogFrame
         open={open && !readOnly}
-        onClose={() => setOpen(false)}
+        onClose={closeBuilder}
         dismissible={!busy}
         className="modal-panel"
         label="Create stakeholder report"
@@ -397,14 +464,28 @@ function ProjectReportBuilder({ projectId }: { projectId: string }) {
         <div className="modal-header">
           <h2 style={{ margin: 0 }}>Create stakeholder report</h2>
           <button
+            ref={closeButton}
             className="btn-secondary modal-close"
             aria-label="Close report builder"
             disabled={busy}
-            onClick={() => setOpen(false)}
+            onClick={closeBuilder}
           >
             ✕
           </button>
         </div>
+        {replacement && (
+          <section aria-label="Review replacement of unfinished report">
+            <h3>Replace the unfinished report?</h3>
+            <p>Your current local title, notes, metrics, scope and step will be discarded only if you confirm. Saved previews and shared snapshots are not deleted. This does not submit or share a report.</p>
+            <p>Next: {replacement.kind === "fresh" ? "A fresh report" : replacement.kind === "definition" ? replacement.source.name : replacement.source.title}</p>
+            {!replacementReady && <p role="status">Current access and the exact selected definition or preview must be verified. Your unfinished report remains unchanged.</p>}
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+              <button type="button" className="btn-secondary" onClick={keepCurrentReport}>Keep current report</button>
+              <button type="button" className="btn-primary" disabled={!replacementReady} onClick={() => { if (replacementReady) applyStart(replacement); }}>Discard local draft and continue</button>
+            </div>
+          </section>
+        )}
+        <div hidden={!!replacement}>
         <p className="eyebrow">
           Step {step + 1} of 5 ·{" "}
           {["Purpose", "Audience", "Metrics", "Commentary", "Review"][step]}
@@ -865,7 +946,7 @@ function ProjectReportBuilder({ projectId }: { projectId: string }) {
             type="button"
             disabled={busy}
             onClick={() =>
-              step > 0 && !frozen ? setStep(step - 1) : setOpen(false)
+              step > 0 && !frozen ? setStep(step - 1) : closeBuilder()
             }
           >
             {step > 0 && !frozen ? "Back" : "Close / resume later"}
@@ -923,6 +1004,7 @@ function ProjectReportBuilder({ projectId }: { projectId: string }) {
               Approve frozen sharing snapshot
             </button>
           )}
+        </div>
         </div>
       </DialogFrame>
     </section></div></>
