@@ -34,6 +34,6 @@ test("deliberate review and confirmation revalidate bytes before creating and cl
 });
 test("review discloses original labels, literal applied scope, private-data exclusions and no approval", () => {
   for (const value of ["page.testCase.displayId", "page.observedAt", "page.window", "whiteSpace: \"pre-wrap\"", "recorder names/times",
-    "No procedure text, private observations, artifact URLs, account emails or actor IDs", "Corrections are not new retests", "not an approval or access grant"])
+    "Stored labels or configuration text may themselves contain identifying information", "No procedure text, private observations, artifact URL fields, current account/email fields or actor IDs", "Corrections are not new retests", "not an approval or access grant"])
     assert.ok(component.includes(value), value);
 });
