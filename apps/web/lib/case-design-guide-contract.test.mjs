@@ -48,5 +48,11 @@ test("ordered procedure preview retains all expected columns, native labels and 
   assert.ok(form.includes("!sharedGroupsQuery.error"));
   assert.ok(form.includes("!sharedGroupsQuery.isFetching"));
   assert.ok(form.includes("!sharedGroupsQuery.isPaused"));
+  assert.ok(form.includes("value.sharedStepGroupId && !selectedGroup"));
+  assert.ok(
+    form.includes(
+      "Its reference is retained; no empty or action-only replacement is shown.",
+    ),
+  );
   assert.ok(presets.includes("steps={definition.steps}"));
 });
