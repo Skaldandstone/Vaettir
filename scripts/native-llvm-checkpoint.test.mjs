@@ -1,12 +1,17 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import fs from "node:fs";
+import { syncBuiltinESMExports } from "node:module";
 import {
+  lstatSync,
   mkdtempSync,
   mkdirSync,
   writeFileSync,
   readFileSync,
   rmSync,
   symlinkSync,
+  unlinkSync,
+  utimesSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -15,12 +20,30 @@ import { spawnSync } from "node:child_process";
 import {
   assertionCompilePlan,
   checkpointStore,
+  hashCandidateLibrary,
   inventoryTree,
   parseCheckpointArguments,
   LLVM_CHECKPOINT_PHASES,
 } from "./native-llvm-checkpoint.mjs";
 
 const hash = (bytes) => createHash("sha256").update(bytes).digest("hex");
+function fileLink(t, target, path) {
+  try {
+    symlinkSync(target, path, "file");
+    return true;
+  } catch (error) {
+    if (
+      process.platform === "win32" &&
+      ["EPERM", "EACCES"].includes(error?.code)
+    ) {
+      t.skip(
+        "Windows denies real file-symlink creation; this scenario must execute on the Linux builder/CI runner",
+      );
+      return false;
+    }
+    throw error;
+  }
+}
 function fixture(t) {
   const root = mkdtempSync(join(tmpdir(), "vaettir-native-phase-test-"));
   t.after(() => rmSync(root, { recursive: true, force: true }));
@@ -258,6 +281,288 @@ test("a core ABI receipt cannot certify changed candidate bytes", (t) => {
   assert.throws(
     () => f.store.finish("release-core"),
     /no longer describes candidate/,
+  );
+});
+
+test("candidate regular bytes keep their hash and cannot enlarge the existing byte limit or select another phase", (t) => {
+  const f = fixture(t);
+  f.write("llvm-build/lib/libLLVM.so.19.1", "synthetic candidate");
+  assert.deepEqual(hashCandidateLibrary(f.root, "release-core"), {
+    sha256: hash("synthetic candidate"),
+    bytes: 19,
+  });
+  assert.throws(
+    () => hashCandidateLibrary(f.root, "release-core", { maxBytes: 8 }),
+    /Bounded regular candidate/,
+  );
+  assert.throws(
+    () =>
+      hashCandidateLibrary(f.root, "release-core", {
+        maxBytes: 4 * 1024 ** 3 + 1,
+      }),
+    /cannot be enlarged/,
+  );
+  assert.throws(
+    () => hashCandidateLibrary(f.root, "prepare"),
+    /Exact candidate-library phase/,
+  );
+});
+
+test("actual same-length overwrite with restored mtime during streaming is refused by descriptor change time", (t) => {
+  const f = fixture(t);
+  const candidate = join(f.root, "llvm-build/lib/libLLVM.so.19.1");
+  f.write("llvm-build/lib/libLLVM.so.19.1", "synthetic candidate");
+  // Exact integral timestamp avoids Date/float sub-millisecond rounding being
+  // mistaken for the intended ctime guard. No stat/digest results are forged.
+  const fixedTime = new Date("2020-01-01T00:00:00Z");
+  utimesSync(candidate, fixedTime, fixedTime);
+  const before = lstatSync(candidate),
+    originalRead = fs.readSync;
+  let changed = false;
+  t.mock.method(fs, "readSync", (...args) => {
+    const count = Reflect.apply(originalRead, fs, args);
+    if (!changed && count > 0) {
+      // A controlled native I/O boundary delegates the real read, then really
+      // changes the file. This is not a substituted hash/stat success fixture.
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 5);
+      writeFileSync(candidate, "x".repeat(before.size));
+      utimesSync(candidate, fixedTime, fixedTime);
+      changed = true;
+    }
+    return count;
+  });
+  syncBuiltinESMExports();
+  try {
+    assert.throws(
+      () => hashCandidateLibrary(f.root, "release-core"),
+      /changed while hashing/,
+    );
+    assert.equal(changed, true);
+    const after = lstatSync(candidate);
+    assert.equal(after.size, before.size);
+    assert.equal(after.mtimeMs, before.mtimeMs);
+    assert.notEqual(after.ctimeMs, before.ctimeMs);
+  } finally {
+    t.mock.restoreAll();
+    syncBuiltinESMExports();
+  }
+});
+
+test("real generated CMake relative symlink permits a core checkpoint but no runtime acceptance", (t) => {
+  const f = fixture(t);
+  f.advance("prepare");
+  f.store.begin("release-core", f.store.hash("prepare"));
+  f.write("llvm-build/lib/libLLVM.so.1", "synthetic candidate");
+  if (
+    !fileLink(t, "libLLVM.so.1", join(f.root, "llvm-build/lib/libLLVM.so.19.1"))
+  )
+    return;
+  f.write("llvm-early-abi.json", f.abi);
+  const result = f.store.finish("release-core");
+  assert.equal(result.receipt.runtimeAcceptance, false);
+  assert.equal(result.receipt.unitAcceptance, false);
+  assert.equal(result.receipt.packageAcceptance, false);
+  assert.equal(result.receipt.deploymentAcceptance, false);
+  assert.deepEqual(hashCandidateLibrary(f.root, "release-core"), {
+    sha256: f.abi.candidateSha256,
+    bytes: 19,
+  });
+  f.store.begin("release-units", result.sha256);
+  f.store.finish("release-units");
+});
+
+test("candidate link hashing supports bounded same-directory chains and the exact packaged location", (t) => {
+  const f = fixture(t);
+  for (const [phase, directory] of [
+    ["release-core", "llvm-build/lib"],
+    ["final", "llvm-source/debian/libllvm19/usr/lib/x86_64-linux-gnu"],
+  ]) {
+    f.write(`${directory}/libLLVM.so.1`, "synthetic candidate");
+    if (
+      !fileLink(t, "libLLVM.so.1", join(f.root, directory, "libLLVM.so.19")) ||
+      !fileLink(t, "libLLVM.so.19", join(f.root, directory, "libLLVM.so.19.1"))
+    )
+      return;
+    assert.deepEqual(hashCandidateLibrary(f.root, phase), {
+      sha256: f.abi.candidateSha256,
+      bytes: 19,
+    });
+  }
+});
+
+test("absolute candidate link is accepted only inside the exact real library directory", (t) => {
+  const f = fixture(t);
+  f.write("llvm-build/lib/libLLVM.so.1", "synthetic candidate");
+  if (
+    !fileLink(
+      t,
+      join(f.root, "llvm-build/lib/libLLVM.so.1"),
+      join(f.root, "llvm-build/lib/libLLVM.so.19.1"),
+    )
+  )
+    return;
+  assert.equal(
+    hashCandidateLibrary(f.root, "release-core").sha256,
+    f.abi.candidateSha256,
+  );
+});
+
+test("a candidate symlink cannot certify bytes different from the retained ABI receipt", (t) => {
+  const f = fixture(t);
+  f.advance("prepare");
+  f.store.begin("release-core", f.store.hash("prepare"));
+  f.write("llvm-build/lib/libLLVM.so.1", "different actual candidate bytes");
+  if (
+    !fileLink(t, "libLLVM.so.1", join(f.root, "llvm-build/lib/libLLVM.so.19.1"))
+  )
+    return;
+  f.write("llvm-early-abi.json", f.abi);
+  assert.throws(
+    () => f.store.finish("release-core"),
+    /no longer describes candidate bytes/,
+  );
+  assert.throws(() => f.store.hash("release-core"), /ENOENT/);
+  assert.throws(
+    () => f.store.begin("release-core", f.store.hash("prepare")),
+    /failed\/in-flight/,
+  );
+});
+
+test("relative and absolute escapes never hash a foreign sibling even within the broader build root", (t) => {
+  for (const absolute of [false, true]) {
+    const f = fixture(t);
+    f.write("scripts/libLLVM.so.1", "foreign synthetic bytes");
+    mkdirSync(join(f.root, "llvm-build/lib"));
+    const target = absolute
+      ? join(f.root, "scripts/libLLVM.so.1")
+      : "../../scripts/libLLVM.so.1";
+    if (!fileLink(t, target, join(f.root, "llvm-build/lib/libLLVM.so.19.1")))
+      return;
+    assert.throws(
+      () => hashCandidateLibrary(f.root, "release-core"),
+      /escapes its exact library directory/,
+    );
+  }
+});
+
+test("every candidate chain hop rejects an escape and lexical outside-and-back targets", (t) => {
+  for (const target of ["../../scripts/libLLVM.so.1", "../lib/libLLVM.so.1"]) {
+    const f = fixture(t);
+    f.write("llvm-build/lib/libLLVM.so.2", "synthetic candidate");
+    f.write("scripts/libLLVM.so.1", "foreign synthetic candidate");
+    if (
+      !fileLink(t, target, join(f.root, "llvm-build/lib/libLLVM.so.1")) ||
+      !fileLink(
+        t,
+        "libLLVM.so.1",
+        join(f.root, "llvm-build/lib/libLLVM.so.19.1"),
+      )
+    )
+      return;
+    assert.throws(
+      () => hashCandidateLibrary(f.root, "release-core"),
+      /escapes its exact library directory/,
+    );
+  }
+});
+
+test("candidate link cycles and overlong chains fail within the sixteen-link bound", (t) => {
+  const cycle = fixture(t);
+  mkdirSync(join(cycle.root, "llvm-build/lib"));
+  if (
+    !fileLink(
+      t,
+      "libLLVM.so.1",
+      join(cycle.root, "llvm-build/lib/libLLVM.so.19.1"),
+    ) ||
+    !fileLink(
+      t,
+      "libLLVM.so.19.1",
+      join(cycle.root, "llvm-build/lib/libLLVM.so.1"),
+    )
+  )
+    return;
+  assert.throws(
+    () => hashCandidateLibrary(cycle.root, "release-core"),
+    /symlink cycle/,
+  );
+  const depth = fixture(t);
+  depth.write("llvm-build/lib/libLLVM.so.117", "synthetic candidate");
+  if (
+    !fileLink(
+      t,
+      "libLLVM.so.100",
+      join(depth.root, "llvm-build/lib/libLLVM.so.19.1"),
+    )
+  )
+    return;
+  for (let number = 100; number < 117; number++) {
+    if (
+      !fileLink(
+        t,
+        `libLLVM.so.${number + 1}`,
+        join(depth.root, `llvm-build/lib/libLLVM.so.${number}`),
+      )
+    )
+      return;
+  }
+  assert.throws(
+    () => hashCandidateLibrary(depth.root, "release-core"),
+    /symlink depth exceeded/,
+  );
+});
+
+test("dangling and arbitrary non-library link targets cannot enter a candidate receipt", (t) => {
+  for (const target of ["libLLVM.so.404", "candidate.txt"]) {
+    const f = fixture(t);
+    f.write("llvm-build/lib/candidate.txt", "synthetic candidate");
+    if (!fileLink(t, target, join(f.root, "llvm-build/lib/libLLVM.so.19.1")))
+      return;
+    assert.throws(
+      () => hashCandidateLibrary(f.root, "release-core"),
+      target.endsWith("404") ? /ENOENT/ : /escapes its exact library directory/,
+    );
+  }
+});
+
+test("a directory or an aliased library directory is never a regular candidate", (t) => {
+  const special = fixture(t);
+  mkdirSync(join(special.root, "llvm-build/lib/libLLVM.so.19.1"), {
+    recursive: true,
+  });
+  assert.throws(
+    () => hashCandidateLibrary(special.root, "release-core"),
+    /Bounded regular candidate/,
+  );
+  const alias = fixture(t);
+  alias.write("elsewhere/libLLVM.so.19.1", "synthetic candidate");
+  symlinkSync(
+    join(alias.root, "elsewhere"),
+    join(alias.root, "llvm-build/lib"),
+    process.platform === "win32" ? "junction" : "dir",
+  );
+  assert.throws(
+    () => hashCandidateLibrary(alias.root, "release-core"),
+    /directory cannot be aliased/,
+  );
+});
+
+test("the candidate exception never relaxes ordinary baseline identity-file hashing", (t) => {
+  const f = fixture(t);
+  f.write("llvm-source/regular-baseline", "synthetic baseline");
+  unlinkSync(join(f.root, "llvm-baseline-library"));
+  if (
+    !fileLink(
+      t,
+      "llvm-source/regular-baseline",
+      join(f.root, "llvm-baseline-library"),
+    )
+  )
+    return;
+  f.store.begin("prepare");
+  assert.throws(
+    () => f.store.finish("prepare"),
+    /Oversized\/nonregular identity file/,
   );
 });
 test("inventory is bounded, deterministic, file-content sensitive and rejects escaping links", (t) => {

@@ -5,18 +5,29 @@ import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
 import {
   closeSync,
+  constants,
   existsSync,
+  fstatSync,
   lstatSync,
   mkdirSync,
   openSync,
   readFileSync,
   readlinkSync,
   readdirSync,
+  realpathSync,
   readSync,
   unlinkSync,
   writeFileSync,
 } from "node:fs";
-import { join, relative, resolve, sep } from "node:path";
+import {
+  basename,
+  dirname,
+  isAbsolute,
+  join,
+  relative,
+  resolve,
+  sep,
+} from "node:path";
 import { pathToFileURL } from "node:url";
 
 export const LLVM_CHECKPOINT_PHASES = Object.freeze([
@@ -96,6 +107,156 @@ function hashFile(path) {
     "Identity file changed while hashing",
   );
   return { sha256: digest.digest("hex"), bytes: stat.size };
+}
+
+// CMake creates libLLVM.so.19.1 -> libLLVM.so.1 in its own library directory.
+// This exception is ONLY for the two fixed candidate-library locations. It does
+// not make scripts, package/proof files or inventory regular-file hashes follow
+// symlinks. Every hop remains in that same real, same-filesystem directory.
+export function hashCandidateLibrary(
+  root,
+  phase,
+  { maxBytes = MAX_FILE } = {},
+) {
+  assert.ok(
+    phase === "release-core" || phase === "final",
+    "Exact candidate-library phase required",
+  );
+  assert.ok(
+    Number.isSafeInteger(maxBytes) && maxBytes > 0 && maxBytes <= MAX_FILE,
+    "Candidate byte bound cannot be enlarged",
+  );
+  const base = resolve(root);
+  const components =
+    phase === "release-core"
+      ? ["llvm-build", "lib"]
+      : [
+          "llvm-source",
+          "debian",
+          "libllvm19",
+          "usr",
+          "lib",
+          "x86_64-linux-gnu",
+        ];
+  const libraryDirectory = join(base, ...components);
+  const identity = (stat) => ({
+    dev: stat.dev,
+    ino: stat.ino,
+    size: stat.size,
+    mtimeMs: stat.mtimeMs,
+    ctimeMs: stat.ctimeMs,
+  });
+  const inspect = () => {
+    const rootStat = lstatSync(base);
+    assert.ok(
+      rootStat.isDirectory() && relative(base, realpathSync(base)) === "",
+      "Candidate root must be a real directory without aliased ancestors",
+    );
+    const directories = [{ path: base, dev: rootStat.dev, ino: rootStat.ino }];
+    let directory = base;
+    for (const component of components) {
+      directory = join(directory, component);
+      const stat = lstatSync(directory);
+      assert.ok(
+        stat.isDirectory() &&
+          stat.dev === rootStat.dev &&
+          relative(directory, realpathSync(directory)) === "",
+        "Candidate library directory cannot be aliased or on a foreign filesystem",
+      );
+      directories.push({ path: directory, dev: stat.dev, ino: stat.ino });
+    }
+    let candidate = join(libraryDirectory, "libLLVM.so.19.1");
+    const visited = new Set(),
+      links = [];
+    for (;;) {
+      assert.ok(!visited.has(candidate), "Candidate library symlink cycle");
+      visited.add(candidate);
+      const stat = lstatSync(candidate);
+      assert.equal(
+        stat.dev,
+        rootStat.dev,
+        "Candidate library cannot enter a foreign filesystem",
+      );
+      if (!stat.isSymbolicLink()) {
+        assert.ok(
+          stat.isFile() && stat.size > 0 && stat.size <= maxBytes,
+          "Bounded regular candidate library required",
+        );
+        assert.equal(
+          relative(candidate, realpathSync(candidate)),
+          "",
+          "Candidate library has aliased ancestors",
+        );
+        return { directories, links, path: candidate, file: identity(stat) };
+      }
+      assert.ok(links.length < 16, "Candidate library symlink depth exceeded");
+      const target = readlinkSync(candidate);
+      assert.ok(
+        Buffer.byteLength(target, "utf8") <= 4096 && !target.includes("\0"),
+        "Bounded candidate symlink target required",
+      );
+      const destination = isAbsolute(target)
+        ? resolve(target)
+        : resolve(libraryDirectory, target);
+      // Only direct generated library filenames are needed. Reject even a
+      // lexical trip outside-and-back, directories and arbitrary sibling files.
+      assert.ok(
+        (isAbsolute(target) || target === basename(target)) &&
+          !target.split(/[\\/]/).includes("..") &&
+          relative(libraryDirectory, dirname(destination)) === "" &&
+          /^libLLVM\.so(?:\.[0-9]+){0,3}$/.test(basename(destination)),
+        "Candidate library symlink escapes its exact library directory",
+      );
+      links.push({ path: candidate, target, ...identity(stat) });
+      candidate = destination;
+    }
+  };
+  const before = inspect();
+  // O_NOFOLLOW is available on Linux. Descriptor identity is also checked
+  // before reading, including on Windows where that flag may be unavailable.
+  const fd = openSync(
+    before.path,
+    constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0),
+  );
+  const digest = createHash("sha256"),
+    buffer = Buffer.allocUnsafe(1024 * 1024);
+  try {
+    const opened = fstatSync(fd);
+    assert.ok(opened.isFile(), "Candidate descriptor must be a regular file");
+    assert.deepEqual(
+      identity(opened),
+      before.file,
+      "Candidate file changed before hashing",
+    );
+    let bytes = 0,
+      count;
+    while ((count = readSync(fd, buffer, 0, buffer.length, null))) {
+      bytes += count;
+      assert.ok(
+        bytes <= maxBytes && bytes <= before.file.size,
+        "Candidate library grew while hashing",
+      );
+      digest.update(buffer.subarray(0, count));
+    }
+    assert.equal(
+      bytes,
+      before.file.size,
+      "Candidate library changed while hashing",
+    );
+    assert.deepEqual(
+      identity(fstatSync(fd)),
+      before.file,
+      "Candidate file changed while hashing",
+    );
+    assert.deepEqual(
+      inspect(),
+      before,
+      "Candidate library resolution changed while hashing",
+    );
+    return { sha256: digest.digest("hex"), bytes };
+  } finally {
+    closeSync(fd);
+  }
 }
 export function inventoryTree(
   root,
@@ -405,15 +566,8 @@ export function checkpointStore(
           Number.isSafeInteger(abi.candidateExports) &&
             abi.candidateExports >= abi.baselineExports,
         );
-        const candidate =
-          phase === "final"
-            ? join(
-                root,
-                "llvm-source/debian/libllvm19/usr/lib/x86_64-linux-gnu/libLLVM.so.19.1",
-              )
-            : join(root, "llvm-build/lib/libLLVM.so.19.1");
         assert.equal(
-          hashFile(candidate).sha256,
+          hashCandidateLibrary(root, phase).sha256,
           abi.candidateSha256,
           "ABI receipt no longer describes candidate bytes",
         );
