@@ -1,5 +1,6 @@
 "use client";
-import { useState } from "react";
+import { useLayoutEffect, useRef, useState } from "react";
+import { useAuth } from "@clerk/nextjs";
 import { DialogFrame } from "./ui/DialogFrame";
 import { FrozenReport } from "./FrozenReport";
 import { ReportSnapshotCatalog } from "./ReportSnapshotCatalog";
@@ -34,10 +35,18 @@ export function ReportBuilder({ projectId }: { projectId: string }) {
   return <ProjectReportBuilder key={projectId} projectId={projectId} />;
 }
 function ProjectReportBuilder({ projectId }: { projectId: string }) {
+  const { isLoaded, isSignedIn, userId } = useAuth();
+  const [originalActor, setOriginalActor] = useState<string | null>(null);
+  const actorReady = isLoaded && isSignedIn && !!userId;
+  if (!originalActor && actorReady && userId) setOriginalActor(userId);
+  const actorMatches = actorReady && originalActor === userId;
+  const [workflowOrigin, setWorkflowOrigin] = useState<{ actor: string; organizationId: string } | null>(null);
   const utils = trpcReact.useUtils();
-  const project = trpcReact.project.byId.useQuery({ id: projectId });
-  const organizations = trpcReact.organization.mine.useQuery();
+  const project = trpcReact.project.byId.useQuery({ id: projectId }, { enabled: actorMatches, retry: false, staleTime: 0 });
+  const organizations = trpcReact.organization.mine.useQuery(undefined, { enabled: actorMatches, retry: false, staleTime: 0 });
+  const workflowMatches = !workflowOrigin || (workflowOrigin.actor === userId && workflowOrigin.organizationId === project.data?.organizationId);
   const readOnly =
+    !actorMatches || !workflowMatches || project.data?.id !== projectId ||
     project.isFetching ||
     organizations.isFetching ||
     project.isPaused ||
@@ -51,14 +60,14 @@ function ProjectReportBuilder({ projectId }: { projectId: string }) {
     );
   const definitions = trpcReact.reportSnapshots.definitions.useQuery({
     projectId,
-  });
-  const drafts = trpcReact.reportSnapshots.drafts.useQuery({ projectId });
+  }, { enabled: !readOnly, retry: false, staleTime: 0 });
+  const drafts = trpcReact.reportSnapshots.drafts.useQuery({ projectId }, { enabled: !readOnly, retry: false, staleTime: 0 });
   const availableDefinitions =
-    !definitions.error && !definitions.isFetching && !definitions.isPaused
+    !readOnly && !definitions.error && !definitions.isFetching && !definitions.isPaused
       ? definitions.data
       : undefined;
   const availableDrafts =
-    !drafts.error && !drafts.isFetching && !drafts.isPaused
+    !readOnly && !drafts.error && !drafts.isFetching && !drafts.isPaused
       ? drafts.data
       : undefined;
   const [open, setOpen] = useState(false);
@@ -82,7 +91,7 @@ function ProjectReportBuilder({ projectId }: { projectId: string }) {
   const [definition, setDefinition] = useState<Definition>(freshDefinition);
   const [request, setRequest] = useState<PreviewRequest | null>(null);
   const [review, setReview] = useState<
-    (Preview & { reviewOrgId: string }) | null
+    (Preview & { reviewOrgId: string; reviewActorId: string }) | null
   >(null);
   const [saveRequest, setSaveRequest] = useState<
     RouterInputs["reportSnapshots"]["saveDefinition"] | null
@@ -94,16 +103,23 @@ function ProjectReportBuilder({ projectId }: { projectId: string }) {
   const save = trpcReact.reportSnapshots.saveDefinition.useMutation();
   const resume = trpcReact.reportSnapshots.get.useQuery(
     { projectId, id: resumeId },
-    { enabled: open && !!resumeId, staleTime: 0 },
+    { enabled: open && !!resumeId && !readOnly, staleTime: 0, retry: false },
   );
+  const liveScope = useRef({ actor: userId, organizationId: project.data?.organizationId, ready: !readOnly });
+  useLayoutEffect(() => {
+    liveScope.current = { actor: userId, organizationId: project.data?.organizationId, ready: !readOnly };
+    return () => { liveScope.current = { ...liveScope.current, ready: false }; };
+  }, [userId, project.data?.organizationId, readOnly]);
   const busy = preview.isPending || approve.isPending || save.isPending;
   const current = !readOnly
-    ? ((review?.reviewOrgId === project.data?.organizationId ? review : null) ??
+    ? ((review && review.reviewOrgId === project.data?.organizationId && review.reviewActorId === userId ? review : null) ??
       (open &&
       !resume.error &&
       !resume.isFetching &&
       !resume.isPaused &&
       resume.data?.id === resumeId &&
+      resume.data.projectId === projectId &&
+      resume.data.organizationId === project.data?.organizationId &&
       resume.data.payload.state === "preview"
         ? resume.data
         : null))
@@ -134,6 +150,8 @@ function ProjectReportBuilder({ projectId }: { projectId: string }) {
     });
   }
   function begin() {
+    if (readOnly || !userId || !project.data) return;
+    if (!workflowOrigin) setWorkflowOrigin({ actor: userId, organizationId: project.data.organizationId });
     if (request || saveRequest) {
       setOpen(true);
       return;
@@ -148,6 +166,10 @@ function ProjectReportBuilder({ projectId }: { projectId: string }) {
   }
   async function capture() {
     if (readOnly || busy || saveRequest) return;
+    const originalOrganizationId = project.data?.organizationId;
+    if (!originalOrganizationId || !userId || !actorMatches || !workflowMatches) return;
+    const originalActorId = userId;
+    if (!workflowOrigin) setWorkflowOrigin({ actor: originalActorId, organizationId: originalOrganizationId });
     const input = request ?? {
       projectId,
       title: title.trim(),
@@ -158,8 +180,9 @@ function ProjectReportBuilder({ projectId }: { projectId: string }) {
     setMessage("");
     try {
       const result = await preview.mutateAsync(input);
-      setReview({ ...result, reviewOrgId: project.data?.organizationId ?? "" });
+      setReview({ ...result, reviewOrgId: originalOrganizationId, reviewActorId: originalActorId });
       setStep(4);
+      if (!liveScope.current.ready || liveScope.current.actor !== originalActorId || liveScope.current.organizationId !== originalOrganizationId) return;
       await drafts.refetch();
     } catch (error) {
       const code = (error as { data?: { code?: string } }).data?.code;
@@ -181,7 +204,11 @@ function ProjectReportBuilder({ projectId }: { projectId: string }) {
     }
   }
   async function publish() {
-    if (!current || readOnly) return;
+    if (!current || readOnly || !userId || !actorMatches || !workflowMatches || current.payload.state !== "preview") return;
+    const originalActorId = userId;
+    const originalOrganizationId = "reviewOrgId" in current
+      ? current.reviewOrgId
+      : current.organizationId;
     setMessage("");
     try {
       const result = await approve.mutateAsync({
@@ -189,14 +216,20 @@ function ProjectReportBuilder({ projectId }: { projectId: string }) {
         previewId: current.id,
         approveSharing: true,
       });
-      await utils.reportSnapshots.catalog.invalidate();
+      if (!liveScope.current.ready || liveScope.current.actor !== originalActorId || liveScope.current.organizationId !== originalOrganizationId) {
+        setMessage("Sharing acknowledgement belongs to the original account and workspace. The original preview remains retained for exact recovery.");
+        return;
+      }
       setRequest(null);
       setResumeId("");
       setMessage(
         "Frozen snapshot created. Workspace members can view it using its link.",
       );
       setOpen(false);
-      setReview(result);
+      // Keep the original reviewed tenant binding, not a newly fetched tenant
+      // that may have changed while this approval was in flight.
+      setReview({ ...result, reviewOrgId: originalOrganizationId, reviewActorId: originalActorId });
+      try { await utils.reportSnapshots.catalog.invalidate(); } catch { setMessage("Frozen snapshot creation was acknowledged. Catalog refresh failed; no repeat approval is needed."); }
     } catch {
       setMessage(
         "Sharing was not confirmed. Your exact preview is retained; retry approval after access is restored.",
@@ -204,7 +237,9 @@ function ProjectReportBuilder({ projectId }: { projectId: string }) {
     }
   }
   async function saveDefinition() {
-    if (readOnly || busy || request || current) return;
+    if (readOnly || busy || request || current || !userId || !project.data || !actorMatches || !workflowMatches) return;
+    const originalActorId = userId, originalOrganizationId = project.data.organizationId;
+    if (!workflowOrigin) setWorkflowOrigin({ actor: originalActorId, organizationId: originalOrganizationId });
     setMessage("");
     const input = saveRequest ?? {
       projectId,
@@ -215,18 +250,21 @@ function ProjectReportBuilder({ projectId }: { projectId: string }) {
     setSaveRequest(input);
     try {
       await save.mutateAsync(input);
-      await definitions.refetch();
+      if (!liveScope.current.ready || liveScope.current.actor !== originalActorId || liveScope.current.organizationId !== originalOrganizationId) return;
       setSaveRequest(null);
       setMessage(
         "Report definition saved. Choose it below to resume or reuse these settings.",
       );
+      try { await definitions.refetch(); } catch { setMessage("Definition save was acknowledged. Refresh failed; no repeat save is needed."); }
     } catch {
       setMessage(
         "Saving was not confirmed. Refresh saved definitions before saving another copy.",
       );
     }
   }
-  return (
+  return (<>
+    {(!actorMatches || !workflowMatches) && <section className="panel" role="status">Report drafts and exact pending requests are retained but hidden. Return to the original signed-in account and workspace to recover them; no request is rebound to another account.</section>}
+    <div hidden={!actorMatches || !workflowMatches}>
     <section
       className="panel"
       aria-label="Report generation"
@@ -265,8 +303,9 @@ function ProjectReportBuilder({ projectId }: { projectId: string }) {
       <button
         type="button"
         className="btn-secondary"
-        disabled={busy || project.isFetching || organizations.isFetching}
-        onClick={() =>
+        disabled={!actorMatches || busy || project.isFetching || organizations.isFetching}
+        onClick={() => {
+          if (!actorMatches) return;
           void Promise.all([
             project.refetch(),
             organizations.refetch(),
@@ -274,8 +313,8 @@ function ProjectReportBuilder({ projectId }: { projectId: string }) {
             utils.reportSnapshots.catalog.invalidate(),
             drafts.refetch(),
             ...(resumeId ? [resume.refetch()] : []),
-          ])
-        }
+          ]);
+        }}
       >
         Refresh report access
       </button>
@@ -287,6 +326,7 @@ function ProjectReportBuilder({ projectId }: { projectId: string }) {
             readOnly || !availableDefinitions || !!request || !!saveRequest
           }
           onChange={(event) => {
+            if (readOnly || !userId || !project.data) return;
             const saved = availableDefinitions?.find(
               (row) => row.id === event.target.value,
             );
@@ -318,6 +358,8 @@ function ProjectReportBuilder({ projectId }: { projectId: string }) {
                   type="button"
                   disabled={!!request || !!saveRequest}
                   onClick={() => {
+                    if (readOnly || !userId || !project.data) return;
+                    if (!workflowOrigin) setWorkflowOrigin({ actor: userId, organizationId: project.data.organizationId });
                     setReview(null);
                     setResumeId(row.id);
                     setStep(4);
@@ -342,7 +384,7 @@ function ProjectReportBuilder({ projectId }: { projectId: string }) {
       )}
       {message && <p role="status">{message}</p>}
       <DialogFrame
-        open={open}
+        open={open && !readOnly}
         onClose={() => setOpen(false)}
         dismissible={!busy}
         className="modal-panel"
@@ -883,6 +925,6 @@ function ProjectReportBuilder({ projectId }: { projectId: string }) {
           )}
         </div>
       </DialogFrame>
-    </section>
+    </section></div></>
   );
 }

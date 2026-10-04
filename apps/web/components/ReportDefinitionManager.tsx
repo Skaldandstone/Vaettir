@@ -1,7 +1,9 @@
 "use client";
-import { useState } from "react";
+import { useLayoutEffect, useRef, useState } from "react";
+import { useAuth } from "@clerk/nextjs";
 import { Modal } from "./Modal";
 import { trpcReact, type RouterInputs } from "@/lib/trpcReact";
+import { canEditProject, canAdministerOrganization } from "@/lib/membership";
 import { readableMetric } from "@/lib/frozen-report";
 import {
   reportDefinitionSchema,
@@ -13,6 +15,18 @@ export function ReportDefinitionManager({ projectId }: { projectId: string }) {
   return <Manager key={projectId} projectId={projectId} />;
 }
 function Manager({ projectId }: { projectId: string }) {
+  const { isLoaded, isSignedIn, userId } = useAuth();
+  const [originalActor, setOriginalActor] = useState<string | null>(null), [originalOrganization, setOriginalOrganization] = useState<string | null>(null);
+  const actorReady = isLoaded && isSignedIn && !!userId;
+  if (!originalActor && actorReady && userId) setOriginalActor(userId);
+  const actorMatches = actorReady && originalActor === userId;
+  const project = trpcReact.project.byId.useQuery({ id: projectId }, { enabled: actorMatches, retry: false, staleTime: 0 });
+  const organizations = trpcReact.organization.mine.useQuery(undefined, { enabled: actorMatches, retry: false, staleTime: 0 });
+  const currentAccess = actorMatches && !project.error && !project.isFetching && !project.isPaused && project.data?.id === projectId && !organizations.error && !organizations.isFetching && !organizations.isPaused && !!organizations.data?.some(row => row.id === project.data?.organizationId);
+  if (!originalOrganization && currentAccess && project.data) setOriginalOrganization(project.data.organizationId);
+  const accessReady = currentAccess && originalOrganization === project.data?.organizationId;
+  const member = accessReady ? organizations.data?.find(row => row.id === originalOrganization) : undefined;
+  const writeReady = accessReady && canEditProject(member), adminReady = accessReady && canAdministerOrganization(member);
   const [expanded, setExpanded] = useState(false),
     [page, setPage] = useState(0),
     [archives, setArchives] = useState(false);
@@ -22,9 +36,10 @@ function Manager({ projectId }: { projectId: string }) {
     [message, setMessage] = useState("");
   const query = trpcReact.reportSnapshots.definitionCatalog.useQuery(
     { projectId, page, includeArchived: archives },
-    { enabled: expanded, staleTime: 0 },
+    { enabled: expanded && accessReady, retry: false, staleTime: 0 },
   );
   const data =
+    accessReady &&
     !query.error &&
     !query.isFetching &&
     !query.isPaused &&
@@ -33,8 +48,10 @@ function Manager({ projectId }: { projectId: string }) {
     query.data.includeArchived === archives
       ? query.data
       : null;
-  return (
+  return (<>
+    {!accessReady && <p role="status">Reusable definition drafts and exact requests remain retained but hidden until current access to the original account and workspace is verified. <button type="button" className="btn-secondary" disabled={!actorMatches} onClick={() => { if (actorMatches) void Promise.all([project.refetch(), organizations.refetch(), query.refetch()]); }}>Retry definition access</button></p>}
     <details
+      hidden={!accessReady}
       style={{ marginBlock: 16 }}
       onToggle={(event) => setExpanded(event.currentTarget.open)}
     >
@@ -206,7 +223,10 @@ function Manager({ projectId }: { projectId: string }) {
           key={id}
           projectId={projectId}
           id={id}
-          open={open}
+          open={open && accessReady}
+          accessReady={accessReady}
+          writeReady={writeReady}
+          adminReady={adminReady}
           onClose={() => setOpen(false)}
           pending={pending}
           setPending={setPending}
@@ -219,13 +239,16 @@ function Manager({ projectId }: { projectId: string }) {
           }}
         />
       )}
-    </details>
+    </details></>
   );
 }
 function DefinitionReview({
   projectId,
   id,
   open,
+  accessReady,
+  writeReady,
+  adminReady,
   onClose,
   pending,
   setPending,
@@ -234,12 +257,17 @@ function DefinitionReview({
   projectId: string;
   id: string;
   open: boolean;
+  accessReady: boolean;
+  writeReady: boolean;
+  adminReady: boolean;
   onClose: () => void;
   pending: Request | null;
   setPending: (value: Request | null) => void;
   onSaved: () => void;
 }) {
   const utils = trpcReact.useUtils();
+  const liveAccess = useRef(accessReady);
+  useLayoutEffect(() => { liveAccess.current = accessReady; return () => { liveAccess.current = false; }; }, [accessReady]);
   const [page, setPage] = useState(0),
     [step, setStep] = useState(0),
     [kind, setKind] = useState<
@@ -261,11 +289,11 @@ function DefinitionReview({
   const [reviewedVersion, setReviewedVersion] = useState(0);
   const query = trpcReact.reportSnapshots.definitionHistory.useQuery(
     { projectId, id, page },
-    { enabled: open, staleTime: 0 },
+    { enabled: open && accessReady, retry: false, staleTime: 0 },
   );
   const mutation = trpcReact.reportSnapshots.manageDefinition.useMutation();
   const data =
-    open &&
+    open && accessReady &&
     !query.error &&
     !query.isFetching &&
     !query.isPaused &&
@@ -275,6 +303,8 @@ function DefinitionReview({
       ? query.data
       : null;
   const locked = !!pending || mutation.isPending;
+  const canManage = writeReady && !!data?.canManage && (data.current.visibility === "private" || adminReady);
+  const canShare = adminReady && !!data?.canShare;
   const receipt = data?.items.find((row) => row.key === receiptKey);
   const restored = side === "before" ? receipt?.before : receipt?.after;
   const settingsChecked = settings
@@ -323,8 +353,9 @@ function DefinitionReview({
     pending?.approveProjectSharing || target?.visibility === "project";
   async function save() {
     if (
+      !accessReady ||
       !data ||
-      !data.canManage ||
+      !canManage ||
       mutation.isPending ||
       (!pending &&
         (!action ||
@@ -368,6 +399,10 @@ function DefinitionReview({
     }
     // Acknowledgement and refresh are separate: a failed refresh must never
     // turn a successful write into an unknown outcome or duplicate submission.
+    if (!liveAccess.current) {
+      setMessage("Acknowledgement belongs to the original account and workspace. Exact request retained for recovery when that access returns.");
+      return;
+    }
     setPending(null);
     setConfirmed(false);
     setSharing(false);
@@ -424,7 +459,7 @@ function DefinitionReview({
               : "Private to the author"}{" "}
             · {data.current.archived ? "Archived" : "Active"}
           </p>
-          {!data.canManage && (
+          {!canManage && (
             <p>
               Read-only history. Private changes require the author with a full
               editor seat; project-shared changes require a full-seat
@@ -444,7 +479,7 @@ function DefinitionReview({
               <button
                 type="button"
                 className="btn-primary"
-                disabled={!data.canManage || mutation.isPending}
+                disabled={!canManage || mutation.isPending}
                 onClick={() => void save()}
               >
                 Retry same reviewed change
@@ -471,7 +506,7 @@ function DefinitionReview({
               )}
             </>
           ) : (
-            data.canManage && (
+            canManage && (
               <>
                 <p className="eyebrow">
                   Step {step + 1} of 2 ·{" "}
@@ -501,7 +536,7 @@ function DefinitionReview({
                           Edit audience, metrics, scope and notes
                         </option>
                         <option value="rename">Rename</option>
-                        {data.canShare && (
+                        {canShare && (
                           <option value="visibility">
                             {data.current.visibility === "project"
                               ? "Make private to the author"

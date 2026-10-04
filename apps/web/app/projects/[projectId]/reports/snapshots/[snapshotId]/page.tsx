@@ -1,7 +1,8 @@
 "use client";
 import { useParams } from "next/navigation";
 import Link from "next/link";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useAuth } from "@clerk/nextjs";
 import { FrozenReport } from "@/components/FrozenReport";
 import { trpcReact } from "@/lib/trpcReact";
 export default function ReportSnapshotPage() {
@@ -24,15 +25,22 @@ function SnapshotDetail({
   projectId: string;
   snapshotId: string;
 }) {
+  const { isLoaded, isSignedIn, userId } = useAuth();
+  const [originalActor, setOriginalActor] = useState<string | null>(null);
+  const actorReady = isLoaded && isSignedIn && !!userId;
+  if (!originalActor && actorReady && userId) setOriginalActor(userId);
+  const actorMatches = actorReady && originalActor === userId;
   const project = trpcReact.project.byId.useQuery(
     { id: projectId },
-    { retry: false, staleTime: 0 },
+    { enabled: actorMatches, retry: false, staleTime: 0 },
   );
   const organizations = trpcReact.organization.mine.useQuery(undefined, {
+    enabled: actorMatches,
     retry: false,
     staleTime: 0,
   });
   const projectReady =
+    actorMatches &&
     !project.error &&
     !project.isFetching &&
     !project.isPaused &&
@@ -80,8 +88,11 @@ function SnapshotDetail({
   const alive = useRef(true),
     copyGeneration = useRef(0);
   const previousOrganization = useRef<string | undefined>(undefined);
-  const currentScope = useRef({ projectId, snapshotId, organizationId });
-  currentScope.current = { projectId, snapshotId, organizationId };
+  const currentScope = useRef({ projectId, snapshotId, organizationId, actor: userId, ready: actorMatches });
+  useLayoutEffect(() => {
+    currentScope.current = { projectId, snapshotId, organizationId, actor: userId, ready: actorMatches };
+    return () => { currentScope.current = { ...currentScope.current, ready: false }; };
+  }, [projectId, snapshotId, organizationId, userId, actorMatches]);
   useEffect(() => {
     alive.current = true;
     return () => {
@@ -103,8 +114,9 @@ function SnapshotDetail({
       void snapshot.refetch();
     }
     previousOrganization.current = organizationId;
-  }, [organizationId, snapshot.refetch]);
+  }, [organizationId, userId, actorMatches, snapshot.refetch]);
   async function refresh() {
+    if (!actorMatches) return;
     setMessage("");
     await Promise.all([
       project.refetch(),
@@ -113,7 +125,8 @@ function SnapshotDetail({
     ]);
   }
   async function copy() {
-    if (!ready || ready.payload.state !== "approved" || copying) return;
+    if (!ready || ready.payload.state !== "approved" || copying || !actorMatches || !userId) return;
+    const originalActorId = userId;
     const originalOrganizationId = ready.organizationId;
     const generation = ++copyGeneration.current;
     setCopying(true);
@@ -131,6 +144,7 @@ function SnapshotDetail({
       const scope = currentScope.current;
       if (
         !alive.current ||
+        !scope.ready || scope.actor !== originalActorId ||
         generation !== copyGeneration.current ||
         scope.projectId !== projectId ||
         scope.snapshotId !== snapshotId ||
@@ -167,7 +181,7 @@ function SnapshotDetail({
         window.location.origin,
       );
       await navigator.clipboard.writeText(link.href);
-      if (!alive.current || generation !== copyGeneration.current) return;
+      if (!alive.current || generation !== copyGeneration.current || currentScope.current.actor !== originalActorId || !currentScope.current.ready) return;
       setMessage(
         "Link copied. Recipients must already have access to this workspace.",
       );
@@ -181,6 +195,7 @@ function SnapshotDetail({
         setCopying(false);
     }
   }
+  if (!actorMatches) return <p role="status">Cached snapshot and sharing controls are hidden until the original account is signed in.</p>;
   return (
     <main style={{ maxWidth: 1100, marginInline: "auto" }}>
       <Link href={`/projects/${encodeURIComponent(projectId)}/reports`}>

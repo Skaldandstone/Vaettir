@@ -2,10 +2,12 @@
 
 import Link from "next/link";
 import { useParams } from "next/navigation";
-import { useState } from "react";
+import { useLayoutEffect, useRef, useState } from "react";
+import { useAuth } from "@clerk/nextjs";
 import { Modal } from "@/components/Modal";
 import { ReportBuilder } from "@/components/ReportBuilder";
 import { trpcReact } from "@/lib/trpcReact";
+import { canEditProject } from "@/lib/membership";
 import { DEFAULT_REPORT_CASE_FILTERS, outcomePassShare, renderProjectReportCsv, renderProjectReportMarkdown, reportCaseFilterLabels, type ReportBucket, type ReportCaseFilters } from "@/lib/project-report";
 
 function readable(value: string) { return value.replaceAll("_", " ").toLowerCase().replace(/^./, first => first.toUpperCase()); }
@@ -39,6 +41,11 @@ function downloadText(filename: string, content: string, mime: string) {
 
 export default function ProjectReportsPage() {
   const { projectId } = useParams<{ projectId: string }>();
+  const { isLoaded, isSignedIn, userId } = useAuth();
+  const [originalActor, setOriginalActor] = useState<string | null>(null), [originalOrganization, setOriginalOrganization] = useState<string | null>(null);
+  const actorReady = isLoaded && isSignedIn && !!userId;
+  if (!originalActor && actorReady && userId) setOriginalActor(userId);
+  const actorMatches = actorReady && originalActor === userId;
   const [windowDays, setWindowDays] = useState<7 | 30 | 90 | null>(30);
   const [selectedViewId, setSelectedViewId] = useState("");
   const [appliedFilters, setAppliedFilters] = useState<ReportCaseFilters | null>(null);
@@ -46,28 +53,40 @@ export default function ProjectReportsPage() {
   const [queryStep, setQueryStep] = useState<0 | 1 | 2>(0);
   const [draftFilters, setDraftFilters] = useState<ReportCaseFilters>(DEFAULT_REPORT_CASE_FILTERS);
   const [queryName, setQueryName] = useState("");
-  const project = trpcReact.project.byId.useQuery({ id: projectId });
-  const views = trpcReact.testCaseViews.list.useQuery({ projectId });
+  const project = trpcReact.project.byId.useQuery({ id: projectId }, { enabled: actorMatches, retry: false, staleTime: 0 });
+  const organizations = trpcReact.organization.mine.useQuery(undefined, { enabled: actorMatches, retry: false, staleTime: 0 });
+  const projectReady = actorMatches && !project.error && !project.isFetching && !project.isPaused && project.data?.id === projectId;
+  const member = projectReady && !organizations.error && !organizations.isFetching && !organizations.isPaused ? organizations.data?.find(row => row.id === project.data?.organizationId) : undefined;
+  if (!originalOrganization && member && project.data) setOriginalOrganization(project.data.organizationId);
+  const accessReady = projectReady && !!member && originalOrganization === project.data?.organizationId;
+  const writeReady = accessReady && canEditProject(member);
+  const liveScope = useRef({ actor: userId, ready: accessReady });
+  useLayoutEffect(() => { liveScope.current = { actor: userId, ready: accessReady }; return () => { liveScope.current = { ...liveScope.current, ready: false }; }; }, [userId, accessReady]);
+  const views = trpcReact.testCaseViews.list.useQuery({ projectId }, { enabled: accessReady, retry: false, staleTime: 0 });
+  const availableViews = accessReady && !views.error && !views.isFetching && !views.isPaused ? views.data : undefined;
   const saveQuery = trpcReact.testCaseViews.create.useMutation({ onSuccess: async saved => {
+    if (!liveScope.current.ready || liveScope.current.actor !== originalActor) return;
     await views.refetch();
     setSelectedViewId(saved.id);
     setAppliedFilters(null);
     setQueryOpen(false);
   } });
   const report = trpcReact.reports.overview.useQuery({ projectId, windowDays,
-    ...(selectedViewId ? { caseViewId: selectedViewId } : appliedFilters ? { caseFilters: appliedFilters } : {}) });
-  const preview = trpcReact.reports.overview.useQuery({ projectId, windowDays, caseFilters: draftFilters }, { enabled: queryOpen && queryStep === 2 });
-  const data = report.data;
+    ...(selectedViewId ? { caseViewId: selectedViewId } : appliedFilters ? { caseFilters: appliedFilters } : {}) }, { enabled: accessReady, retry: false, staleTime: 0 });
+  const preview = trpcReact.reports.overview.useQuery({ projectId, windowDays, caseFilters: draftFilters }, { enabled: accessReady && queryOpen && queryStep === 2, retry: false, staleTime: 0 });
+  const data = accessReady && !report.error && !report.isFetching && !report.isPaused && report.data?.projectId === projectId && report.data.organizationId === originalOrganization && report.data.clerkActorId === userId ? report.data : undefined;
+  const previewData = accessReady && !preview.error && !preview.isFetching && !preview.isPaused && preview.data?.projectId === projectId && preview.data.organizationId === originalOrganization && preview.data.clerkActorId === userId ? preview.data : undefined;
 
   function downloadReport(format: "md" | "csv") {
-    if (!data || !project.data) return;
+    if (!accessReady || !actorMatches || !data || !project.data) return;
     downloadText(`vaettir-project-report-${new Date(data.asOf).toISOString().slice(0, 10)}.${format}`,
       format === "md" ? renderProjectReportMarkdown(project.data.name, data) : renderProjectReportCsv(project.data.name, data),
       format === "md" ? "text/markdown;charset=utf-8" : "text/csv;charset=utf-8");
   }
 
   function beginQuery() {
-    setDraftFilters(appliedFilters ?? views.data?.find(view => view.id === selectedViewId)?.filters ?? DEFAULT_REPORT_CASE_FILTERS);
+    if (!accessReady || !availableViews) return;
+    setDraftFilters(appliedFilters ?? availableViews.find(view => view.id === selectedViewId)?.filters ?? DEFAULT_REPORT_CASE_FILTERS);
     setQueryName("");
     setQueryStep(0);
     saveQuery.reset();
@@ -78,10 +97,14 @@ export default function ProjectReportsPage() {
     setDraftFilters(current => ({ ...current, [key]: value }));
   }
 
-  return <div style={{ maxWidth: 1240, marginInline: "auto" }}>
+  const originalScopeMatches = actorMatches && (!originalOrganization || originalOrganization === project.data?.organizationId);
+  return <>
+    {!originalScopeMatches && <p role="status">Report query drafts remain retained but hidden. Return to the original account and workspace; no pending action is rebound.</p>}
+    <div hidden={!originalScopeMatches} style={{ maxWidth: 1240, marginInline: "auto" }}>
+    {!accessReady && <p role="status">Verifying current report access. Cached report bodies, private query names and exports are withheld. <button type="button" className="btn-secondary" onClick={() => { if (actorMatches) void Promise.all([project.refetch(), organizations.refetch(), report.refetch(), views.refetch()]); }}>Retry report access</button></p>}
     <div style={{ display: "flex", flexWrap: "wrap", gap: 16, alignItems: "flex-end", justifyContent: "space-between", marginBottom: 20 }}>
       <div><p className="eyebrow">Project intelligence</p><h1 style={{ margin: "0 0 4px" }}>Reports</h1>
-        <p className="text-muted" style={{ margin: 0 }}>Recorded inventory and execution evidence for {project.data?.name ?? "this project"}.</p></div>
+        <p className="text-muted" style={{ margin: 0 }}>Recorded inventory and execution evidence for {projectReady ? project.data?.name : "this project"}.</p></div>
       <div style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "end" }}>
         <label style={{ display: "grid", gap: 4 }}><span>Execution window</span>
           <select value={windowDays ?? "all"} onChange={event => setWindowDays(event.target.value === "all" ? null : Number(event.target.value) as 7 | 30 | 90)}>
@@ -97,11 +120,11 @@ export default function ProjectReportsPage() {
     <section className="panel" aria-label="Case report query" style={{ marginBottom: 16 }}>
       <div style={{ display: "flex", flexWrap: "wrap", gap: 12, alignItems: "end", justifyContent: "space-between" }}>
         <label style={{ display: "grid", gap: 4, minWidth: "min(100%, 260px)" }}><span>Saved case query</span>
-          <select value={selectedViewId} onChange={event => { setSelectedViewId(event.target.value); setAppliedFilters(null); }} disabled={views.isLoading}>
+          <select value={selectedViewId} onChange={event => { if (!availableViews) return; setSelectedViewId(event.target.value); setAppliedFilters(null); }} disabled={!availableViews}>
             <option value="">All project cases</option>
-            {views.data?.map(view => <option key={view.id} value={view.id}>{view.name}</option>)}
+            {availableViews?.map(view => <option key={view.id} value={view.id}>{view.name}</option>)}
           </select></label>
-        <button className="btn-secondary" type="button" onClick={beginQuery}>Build case query</button>
+        <button className="btn-secondary" type="button" disabled={!availableViews} onClick={beginQuery}>Build case query</button>
       </div>
       {appliedFilters && <p role="status" className="text-muted" style={{ marginBottom: 0 }}>Unsaved query applied. Save it from the query builder to reuse it later.</p>}
       {views.error && <p role="alert" className="text-error">Saved queries unavailable: {views.error.message}</p>}
@@ -161,7 +184,7 @@ export default function ProjectReportsPage() {
             <tbody>{data.recentRuns.map(run => <tr key={run.id}><td><Link href={`/projects/${projectId}/test-runs#run-${run.id}`}>{dateTime(run.startedAt)}</Link></td><td>{run.ciProvider}</td><td>{readable(run.status)}</td><td>{run.resultCount}</td><td>{run.ciProvider === "manual" ? "Manual execution" : <span title={run.commitSha}>{run.branch} · {run.commitSha.slice(0, 9)}</span>}</td></tr>)}</tbody></table></div>}
       </section>
     </>}
-    <Modal open={queryOpen} onClose={() => setQueryOpen(false)} title="Build case query">
+    <Modal open={queryOpen && accessReady} onClose={() => setQueryOpen(false)} title="Build case query">
       <div style={{ display: "grid", gap: 14 }}>
         <p className="eyebrow" style={{ margin: 0 }}>Step {queryStep + 1} of 3 · {(["Focus", "Refine", "Review"] as const)[queryStep]}</p>
         {queryStep === 0 && <>
@@ -193,7 +216,7 @@ export default function ProjectReportsPage() {
         {queryStep === 2 && <>
           <p style={{ margin: 0 }}>Review the scope before using or saving it. No case is changed.</p>
           <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }} aria-label="Query filters">{reportCaseFilterLabels(draftFilters).map(item => <span key={item.label} style={{ display: "inline-flex", border: "1px solid var(--line)", borderRadius: 999, padding: "4px 10px", background: "var(--panel)" }}>{item.label}: {item.value}</span>)}</div>
-          {preview.isLoading || preview.isFetching ? <p role="status">Counting matching cases…</p> : preview.error ? <p role="alert" className="text-error">Preview unavailable: {preview.error.message}</p> : <p role="status"><strong>{preview.data?.caseQuery?.total ?? 0}</strong> matching cases in this project. Only case inventory is scoped; execution and requirements stay project-wide.</p>}
+          {preview.isLoading || preview.isFetching || preview.isPaused ? <p role="status">Verifying matching cases…</p> : preview.error ? <p role="alert" className="text-error">Preview unavailable: {preview.error.message}</p> : previewData ? <p role="status"><strong>{previewData.caseQuery?.total ?? 0}</strong> matching cases in this project. Only case inventory is scoped; execution and requirements stay project-wide.</p> : <p role="status">Current preview access is unavailable; no cached count is shown.</p>}
           <label style={{ display: "grid", gap: 4 }}>Save this query for later (optional name)
             <input value={queryName} maxLength={80} onChange={event => setQueryName(event.target.value)} placeholder="For example: high-priority regression" /></label>
           {saveQuery.error && <p role="alert" className="text-error">Could not save: {saveQuery.error.message}</p>}
@@ -201,11 +224,11 @@ export default function ProjectReportsPage() {
         <div style={{ display: "flex", flexWrap: "wrap", justifyContent: "space-between", gap: 8 }}>
           <button type="button" className="btn-secondary" onClick={() => queryStep === 0 ? setQueryOpen(false) : setQueryStep((queryStep - 1) as 0 | 1 | 2)}>{queryStep === 0 ? "Close" : "Back"}</button>
           {queryStep < 2 ? <button type="button" onClick={() => setQueryStep((queryStep + 1) as 0 | 1 | 2)} className="btn-primary">Continue</button> : <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
-            <button type="button" className="btn-secondary" disabled={!preview.data || preview.isFetching} onClick={() => { setAppliedFilters(draftFilters); setSelectedViewId(""); setQueryOpen(false); }}>Use once</button>
-            <button type="button" className="btn-primary" disabled={!queryName.trim() || !preview.data || preview.isFetching || saveQuery.isPending || views.isLoading} onClick={() => saveQuery.mutate({ projectId, name: queryName.trim(), filters: draftFilters })}>{saveQuery.isPending ? "Saving…" : "Save query"}</button>
+            <button type="button" className="btn-secondary" disabled={!previewData} onClick={() => { if (!accessReady || !previewData) return; setAppliedFilters(draftFilters); setSelectedViewId(""); setQueryOpen(false); }}>Use once</button>
+            <button type="button" className="btn-primary" disabled={!writeReady || !queryName.trim() || !previewData || saveQuery.isPending || !availableViews} onClick={() => { if (!writeReady || !actorMatches || !previewData || !availableViews || saveQuery.isPending) return; saveQuery.mutate({ projectId, name: queryName.trim(), filters: draftFilters }); }}>{saveQuery.isPending ? "Saving…" : "Save query"}</button>
           </div>}
         </div>
       </div>
     </Modal>
-  </div>;
+  </div></>;
 }

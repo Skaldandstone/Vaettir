@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
+import { useAuth } from "@clerk/nextjs";
 import Link from "next/link";
 import { trpcReact } from "@/lib/trpcReact";
 import {
@@ -22,17 +23,24 @@ export function ReportSnapshotCatalog({ projectId }: { projectId: string }) {
   return <Catalog key={projectId} projectId={projectId} />;
 }
 function Catalog({ projectId }: { projectId: string }) {
+  const { isLoaded, isSignedIn, userId } = useAuth();
+  const [originalActor, setOriginalActor] = useState<string | null>(null);
+  const actorReady = isLoaded && isSignedIn && !!userId;
+  if (!originalActor && actorReady && userId) setOriginalActor(userId);
+  const actorMatches = actorReady && originalActor === userId;
   const project = trpcReact.project.byId.useQuery(
     { id: projectId },
-    { retry: false, staleTime: 0 },
+    { enabled: actorMatches, retry: false, staleTime: 0 },
   );
   const organizations = trpcReact.organization.mine.useQuery(undefined, {
+    enabled: actorMatches,
     retry: false,
     staleTime: 0,
   });
   const organizationId =
     project.data?.id === projectId ? project.data.organizationId : undefined;
   const projectReady =
+    actorMatches &&
     !project.error &&
     !project.isFetching &&
     !project.isPaused &&
@@ -111,6 +119,7 @@ function Catalog({ projectId }: { projectId: string }) {
       query.data.organizationId !== organizationId ||
       query.data.requestKey !== reportCatalogKey(filters));
   async function refresh() {
+    if (!actorMatches) return;
     await Promise.all([
       project.refetch(),
       organizations.refetch(),
@@ -118,6 +127,7 @@ function Catalog({ projectId }: { projectId: string }) {
     ]);
   }
   function apply() {
+    if (!accessReady) return;
     const parsed = reportCatalogInput.safeParse({
       ...draft,
       page: 0,
@@ -133,13 +143,15 @@ function Catalog({ projectId }: { projectId: string }) {
     setFilters(parsed.data);
   }
   function sort(next: ReportCatalogInput["sort"]) {
+    if (!accessReady) return;
     setDraft({ ...draft, sort: next });
     setFilters({ ...filters, page: 0, sort: next });
   }
+  if (!actorMatches) return <p role="status">Report catalog context is retained but hidden until the original account is signed in.</p>;
   return (
     <section aria-label="Approved report catalog" style={{ marginTop: 20 }}>
       <h3>Approved snapshots</h3>
-      {compareOpen &&
+      {compareOpen && actorMatches &&
         selectionOrganization === organizationId &&
         currentSelected.length === 2 && (
           <ReportSnapshotComparison

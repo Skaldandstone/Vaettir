@@ -28,10 +28,12 @@ test("cached access and saved previews cannot authorize paused, failed or wrong-
     builder,
     /open && !resume.error && !resume.isFetching && !resume.isPaused && resume.data\?\.id === resumeId/,
   );
-  assert.match(builder, /enabled: open && !!resumeId, staleTime: 0/);
+  assert.match(builder, /enabled: open && !!resumeId && !readOnly, staleTime: 0/);
+  assert.match(builder, /resume.data.projectId === projectId && resume.data.organizationId === project.data\?\.organizationId/);
+  assert.match(builder, /setReview\(\{ \.\.\.result, reviewOrgId: originalOrganizationId, reviewActorId: originalActorId \}\)/);
   assert.match(
     builder,
-    /open && !scopeOptions.error && !scopeOptions.isFetching && !scopeOptions.isPaused \? scopeOptions.data/,
+    /open && !readOnly && project.data\?\.id === projectId && scopeOptions.data\?\.projectId === projectId && scopeOptions.data.organizationId === project.data.organizationId && !scopeOptions.error && !scopeOptions.isFetching && !scopeOptions.isPaused \? scopeOptions.data/,
   );
   assert.match(
     builder,
@@ -52,7 +54,7 @@ test("report creation requires fresh editor membership and explicit access recov
   assert.match(builder, /if \(readOnly \|\| busy \|\| saveRequest\) return/);
   assert.match(
     builder,
-    /if \(readOnly \|\| busy \|\| request \|\| current\) return/,
+    /if \(readOnly \|\| busy \|\| request \|\| current \|\| !userId \|\| !project.data \|\| !actorMatches \|\| !workflowMatches\) return/,
   );
 });
 test("capture and reusable definition retry frozen exact payloads after uncertain writes", () => {
@@ -117,10 +119,10 @@ test("report presentation never invents optional notes, selection, evidence or l
   assert.match(frozen, /review recipients before sharing/);
 });
 test("workspace snapshot route gates sharing and exports to approved accessible reports", () => {
-  assert.match(route, /snapshot.data && !snapshot.error/);
+  assert.match(route, /accessReady && !snapshot.error && !snapshot.isFetching && !snapshot.isPaused && snapshot.data\?\.id === snapshotId && snapshot.data.projectId === projectId && snapshot.data.organizationId === organizationId \? snapshot.data : null/);
   assert.match(route, /payload.state === "approved"/);
   assert.match(route, /Recipients must already have access to this workspace/);
-  assert.match(route, /Workspace access is required/);
+  assert.match(route, /Current workspace access is required/);
   assert.match(route, /snapshot.refetch\(\)/);
 });
 
