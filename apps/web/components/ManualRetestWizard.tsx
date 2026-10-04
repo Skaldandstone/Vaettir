@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useAuth } from "@clerk/nextjs";
 import { Modal } from "./Modal";
 import {
@@ -53,7 +53,8 @@ function useRetestAccess(projectId: string, active: boolean, editor: boolean, pi
   const denied = (isLoaded && !actorReady) || !!project.error || !!organizations.error || changed ||
     (projectReady && memberChecked && (!memberReady || editor && !canWrite));
   const ready = active && !denied && !paused && !!origin && sameManualRetestScope(origin, current) && (!editor || canWrite);
-  const actorNow = useRef({ actorReady, userId }); actorNow.current = { actorReady, userId };
+  const actorNow = useRef({ actorReady, userId });
+  useLayoutEffect(() => { actorNow.current = { actorReady, userId }; }, [actorReady, userId]);
   async function refresh() {
     try {
       const [freshProject, freshOrganizations] = await Promise.all([project.refetch(), organizations.refetch()]);
@@ -89,7 +90,8 @@ export function ManualRetestWizard({
   const utils = trpcReact.useUtils();
   const mutation = trpcReact.manualRetest.start.useMutation();
   const access = useRetestAccess(projectId, active, true, expectedScope);
-  const accessNow = useRef(access); accessNow.current = access;
+  const accessNow = useRef(access);
+  useLayoutEffect(() => { accessNow.current = access; }, [access]);
   const [preview, setPreview] = useState<Preview | null>(null);
   const [attempt, setAttempt] = useState<Start | null>(null);
   const [receipt, setReceipt] = useState<
@@ -102,7 +104,8 @@ export function ManualRetestWizard({
     [rejected, setRejected] = useState(false);
   const [refreshNotice, setRefreshNotice] = useState("");
   const [accessRejected, setAccessRejected] = useState(false);
-  const unknown = useRef(false), openNow = useRef(open && active); openNow.current = open && active;
+  const unknown = useRef(false), openNow = useRef(open && active);
+  useLayoutEffect(() => { openNow.current = open && active; }, [open, active]);
   useEffect(() => { onRetainedRequestChange?.(busy || Boolean(attempt && !receipt && !rejected)); }, [busy, attempt, receipt, rejected, onRetainedRequestChange]);
   async function review() {
     if (!active || !open || busy || attempt || receipt) return;

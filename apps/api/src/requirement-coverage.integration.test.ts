@@ -32,7 +32,7 @@ describe("explicit native requirement/case/execution matrix", () => {
     const tier = await prisma.planTier.findUniqueOrThrow({ where: { key: "free" } });
     const org = await prisma.organization.create({ data: { name: "Synthetic matrix", slug: randomUUID(), planTierId: tier.id } }); orgId = org.id;
     foreignOrg = (await prisma.organization.create({ data: { name: "Synthetic foreign matrix", slug: randomUUID(), planTierId: tier.id } })).id;
-    projectId = (await prisma.project.create({ data: { organizationId: orgId, name: "Synthetic matrix", slug: randomUUID(), caseKey: "SYN" } })).id;
+    projectId = (await prisma.project.create({ data: { organizationId: orgId, name: "Synthetic matrix", slug: randomUUID(), caseKey: "syn" } })).id;
     foreignProject = (await prisma.project.create({ data: { organizationId: foreignOrg, name: "Synthetic foreign", slug: randomUUID() } })).id;
     for (const role of ["OWNER", "VIEWER", "OUTSIDER"] as const) {
       const user = await prisma.user.create({ data: { clerkUserId: randomUUID(), email: `matrix-${randomUUID()}@example.com`, memberships: {
@@ -57,6 +57,7 @@ describe("explicit native requirement/case/execution matrix", () => {
   afterAll(async () => {
     if (orgId && ownerId) await hardDeleteOrganization(prisma, orgId, ownerId, "Owned synthetic coverage matrix erasure");
     if (foreignOrg && ownerId) await hardDeleteOrganization(prisma, foreignOrg, ownerId, "Owned synthetic coverage matrix erasure");
+    await prisma.organizationDeletionLog.deleteMany({ where: { organizationId: { in: [orgId, foreignOrg].filter(Boolean) }, deletedById: { in: users } } });
     await prisma.user.deleteMany({ where: { id: { in: users } } });
   });
   it("shows direct native links only, not plan-inferred criteria or current case plan assignment", async () => {

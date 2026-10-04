@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { renderBoundedSpreadsheetCsv } from "@vaettir/core";
 import { trpcReact } from "@/lib/trpcReact";
 import { Modal } from "./Modal";
@@ -79,47 +79,44 @@ export function RequirementCoverageExport({
     }
   }
   const active = validationMessage ? null : current;
-  const epoch = useRef(0),
-    previous = useRef({
-      active,
-      requestKey,
-      format,
-      open,
-      revision,
-      queryRevision: query.dataUpdatedAt,
-    });
-  if (
-    previous.current.active !== active ||
-    previous.current.requestKey !== requestKey ||
-    previous.current.format !== format ||
-    previous.current.open !== open ||
-    previous.current.revision !== revision ||
-    previous.current.queryRevision !== query.dataUpdatedAt
-  ) {
-    epoch.current++;
-    previous.current = {
-      active,
-      requestKey,
-      format,
-      open,
-      revision,
-      queryRevision: query.dataUpdatedAt,
-    };
-  }
-  const live = useRef({
+  const [previous, setPrevious] = useState({
     active,
     requestKey,
     format,
     open,
-    epoch: epoch.current,
+    revision,
+    queryRevision: query.dataUpdatedAt,
+    epoch: 0,
   });
-  live.current = { active, requestKey, format, open, epoch: epoch.current };
-  useEffect(() => {
-    setReviewed(null);
-    setReviewedEpoch(-1);
-  }, [active, requestKey, format, open, revision, query.dataUpdatedAt]);
-  useEffect(
-    () => () => {
+  const changed =
+    previous.active !== active ||
+    previous.requestKey !== requestKey ||
+    previous.format !== format ||
+    previous.open !== open ||
+    previous.revision !== revision ||
+    previous.queryRevision !== query.dataUpdatedAt;
+  const epoch = changed ? previous.epoch + 1 : previous.epoch;
+  if (changed) {
+    setPrevious({
+      active,
+      requestKey,
+      format,
+      open,
+      revision,
+      queryRevision: query.dataUpdatedAt,
+      epoch,
+    });
+  }
+  const live = useRef<{
+    active: Coverage | null;
+    requestKey: string;
+    format: "CSV" | "HTML";
+    open: boolean;
+    epoch: number;
+  }>({ active: null, requestKey: "", format: "CSV", open: false, epoch: -1 });
+  useLayoutEffect(() => {
+    live.current = { active, requestKey, format, open, epoch };
+    return () => {
       live.current = {
         active: null,
         requestKey: "",
@@ -127,9 +124,12 @@ export function RequirementCoverageExport({
         open: false,
         epoch: -1,
       };
-    },
-    [],
-  );
+    };
+  }, [active, requestKey, format, open, epoch]);
+  useEffect(() => {
+    setReviewed(null);
+    setReviewedEpoch(-1);
+  }, [active, requestKey, format, open, revision, query.dataUpdatedAt]);
   function close() {
     live.current.open = false;
     setOpen(false);
@@ -137,7 +137,7 @@ export function RequirementCoverageExport({
     setReviewedEpoch(-1);
   }
   const canDownload =
-    !!active && reviewed === active && reviewedEpoch === epoch.current && open;
+    !!active && reviewed === active && reviewedEpoch === epoch && open;
   function download() {
     if (!canDownload || !active) return;
     try {
@@ -388,7 +388,7 @@ export function RequirementCoverageExport({
                 checked={canDownload}
                 onChange={(event) => {
                   setReviewed(event.target.checked ? active : null);
-                  setReviewedEpoch(event.target.checked ? epoch.current : -1);
+                  setReviewedEpoch(event.target.checked ? epoch : -1);
                 }}
               />
               I reviewed this exact complete population, applied scope,

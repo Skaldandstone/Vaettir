@@ -1,6 +1,6 @@
 "use client";
 
-import { useId, useRef, useState } from "react";
+import { useId, useLayoutEffect, useRef, useState } from "react";
 import { trpcReact, type RouterInputs, type RouterOutputs } from "@/lib/trpcReact";
 import { parseStepMeasurements, isDefinitiveStepRejection, type StepReading, type StepStatus } from "@/lib/step-execution-form";
 import { Modal } from "./Modal";
@@ -27,8 +27,11 @@ function StepHistory({ testRunId, testCaseId, stepIndex }: { testRunId: string; 
 
 export function StepExecutionPanel({ testRunId, testCase, stepFieldLabels, active, readable = true, readScope, disabled, blockedBy, onModeActive, onChanged, onUnconfirmedChange }: { testRunId: string; testCase: ExecutionCase; stepFieldLabels: Record<string, string>; active: boolean; readable?: boolean; readScope?: { projectId: string; originalOrganizationId?: string; expectedClerkActorId?: string }; disabled: boolean; blockedBy: string[]; onModeActive: () => void; onChanged: () => Promise<unknown>; onUnconfirmedChange?: (pending: boolean) => void }) {
   const utils = trpcReact.useUtils();
-  const readableNow = useRef(readable);
-  readableNow.current = readable;
+  const readableNow = useRef(false);
+  useLayoutEffect(() => {
+    readableNow.current = readable;
+    return () => { readableNow.current = false; };
+  }, [readable]);
   const mutation = trpcReact.manualExecution.recordStepResult.useMutation();
   const [draft, setDraft] = useState<Draft | null>(null);
   const [open, setOpen] = useState(false);

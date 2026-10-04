@@ -287,3 +287,385 @@ The final whole-suite run initially exposed a lock-observation fixture failure. 
 An additional actual database regression reproduced foreign library content being returned when a project was reparented between list authorization and content loading. Authorization, collection bounds and content now share one repeatable-read transaction. The same regression verifies the original authorized snapshot, refusal of subsequent old-owner reads and visibility for the new owner. Fifty focused shared-library regressions and the subsequent complete 1,346-test run pass; the original failing evidence is retained rather than dismissed.
 
 The queue's mounted UI passed 21 checks on its pre-style component, including exact first-50/next-23 native identities, approval, cancellation, cached-denial/offline behavior and uncertain-response recovery. A final full-width administrator-request textarea correction then passed nine affected checks on its final source hash, including paging and mobile approval. The receipt distinguishes those source hashes instead of claiming all 21 checks were repeated on the final style-only bytes. Neither synthetic role/cost/RPC fixtures nor screenshots establish production authorization, real credits or provider execution.
+
+## October 4 source-only iteration: purpose-first report starters
+
+The report module now starts with a native dropdown for quality status, execution progress, requirements coverage, defect/regression review, automation improvement or a custom report. Five in-page screens separate purpose, audience/title, metrics/scope, optional commentary and the frozen review. Starter selection prefills supported audience/sections and an untouched starter title; custom titles, authored notes and selected time/scope remain unchanged. Optional starter identity persists with saved definitions and captures; older definitions without it remain supported.
+
+Commentary prompts point to existing recorded evidence and explain missing prerequisites for the requested decision. They are not generated findings. Coverage links do not claim verification, task closure does not establish a repaired deployment, and automation inventory changes do not establish executed automation or ROI. Capture remains private until the existing explicit sharing approval. No new metric formula, provider access, report schedule or external recipient access was added.
+
+This increment is authored and UNVALIDATED: James explicitly deferred tests, typechecks, rendering, builds, AWS and deployment tonight. No prior receipt establishes acceptance of these new bytes. Morning checks must include all five screens, keyboard/mobile navigation, loading/cached-denial/offline guards, preserved authored context on template changes, saved legacy definitions, uncertain preview/save retries, exact approval behavior and matching frozen exports. The [updated sourced gap register](functional-parity-gap-register-20261004.md) still records the larger reporting/QRM gaps.
+
+Recorded outcome bars now accompany the execution section in the frozen preview and portable HTML/print export. Every bar has an exact text count; lengths use the largest recorded count as a visual scale, not an invented pass-rate denominator. Planned-but-unrecorded pairs remain separate in the existing metric table. The export uses escaped labels and inline styling with no scripts, assets or live data fetch. Empty outcomes do not become passing results. Authored chart and starter regression files are also UNEXECUTED; desktop/mobile/print accessibility and export fidelity still need morning validation.
+
+## October 4 source-only iteration: approved report catalog
+
+Approved workspace snapshots now have literal title search, audience/starter filters, inclusive UTC capture dates, title/newest-capture sorting and bounded twenty-row server pages. A private preview is not a shared report; the catalog never selects preview payloads, author notes, raw source, case cohorts or credentials. The new read runs inside the existing fresh organization/membership/project authorization transaction and retains original stored organization scope. Frozen reports keep their own unchanged execution scope and metrics. Capture dates are explicitly not execution dates.
+
+The native UI hides failed, paused, fetching and wrong-query cached pages instead of showing them as current authorized results. Saved-definition and preview selectors also withhold failed/paused cached responses. Successful sharing approval invalidates the catalog, preserving the original reviewed capture. Live catalog pagination is not an immutable search export; new captures can shift page boundaries. The project retention limit is still 500 previews/snapshots and browsing is explicitly bounded to 500 matches. Older/custom reports without starter identity remain discoverable. Unsupported future starter identities are labelled unavailable rather than inferred.
+
+UNVALIDATED source only: four schema regressions, two real-database report catalog scenarios (pagination/filter/privacy and current suspension/revocation) and two UI source contracts were authored, none executed. Morning gates include exact wildcard/backslash literals, UTC endpoints, full pagination, original-tenant/reparent/role races, cached-denial/offline behavior, preserved report creation retries, query identity, mobile/keyboard/table sorting and exported frozen-report fidelity. No generator, database migration, typecheck, build, renderer, cloud check or deployment ran tonight. The date contract was separated into a pure Zod module so the browser does not import a database runtime through the filter schema.
+
+## October 4 source-only iteration: reviewed approved-snapshot comparison
+
+The catalog supports native checkbox selection of two approved snapshots across pages and an in-page comparison modal. The server requires fresh project/organization/member access to both original-tenant captures, an earlier baseline, identical project-wide or exact recorded filters, and at least one selected metric section in common. Private previews, other-tenant captures, ambiguous scope/legacy buckets and unsupported metrics fail closed. No new database model, provider call, live case/result import or spending is involved.
+
+The modal shows original capture times, inclusive recorded run-start bounds, changing active-cohort counts and only common-section metrics. Missing optional or import-excluded evidence remains unavailable, not zero. Count changes are deliberately neutral: no automatic regression, improvement, release readiness, pass-rate, risk acceptance or productivity conclusion. Differing/overlapping execution windows and cohort changes are explicitly disclosed. Both original reports' evidence limitations are retained; their full frozen reports remain available for drill-down.
+
+Reviewed HTML download requires explicit local review of windows, cohorts, unavailable evidence and recipients. It is an escaped, self-contained count comparison, not a new stored approval, public link, scheduled delivery or externally authenticated recipient grant. It exports no cohort/case identities or private author commentary. Existing approved snapshots are unchanged. UNVALIDATED: five pure comparison scenarios, one disposable-database authorization/privacy scenario and two export/UI contracts are authored, NOT EXECUTED. Morning validation must cover exact scope refusal, revoked/suspended/reparented membership, malformed legacy buckets, missing evidence, cross-page selection, cached-denial/offline modal behavior, keyboard/mobile layout and export fidelity. No earlier passing receipt applies to these bytes.
+
+## October 4 source-only iteration: reusable report-definition lifecycle
+
+The report page now offers a bounded reusable-definition catalog and two-screen in-page change review. Existing definitions remain private and active by additive defaults. Authors with a current full editor seat manage personal settings; a full-seat Owner/Admin explicitly reviews saved settings and authored commentary before sharing with current project members. Current administrators manage shared definitions, but another member cannot make someone else's definition private or recover its private historical body. Sharing settings is not approval or sharing of a captured report.
+
+Rename, archive/reactivate and supported recorded settings restoration append immutable before/after receipts and new versions, with exact actor-bound retries and head-version CAS. Captures and prior receipts remain unchanged. Archived settings are retained, counted toward capacity and refused for new referenced captures. History is ten writes per page and supported retained bodies are bounded to16KiB. Legacy/unavailable/unsupported bodies are never reconstructed. Private historical states remain author-only even after the current definition becomes project-shared. Fifty personal definitions per author, fifty project-shared definitions and two thousand project receipts remain explicit retained-capacity bounds.
+
+The module retains an uncertain exact request across close/reopen in mounted memory, not browser reload. Unknown transport outcomes cannot silently become a new review. An explicit server refusal permits a user-reviewed discard and refresh; it does not undo a possible prior application. Successful write acknowledgement is separated from refresh failure to avoid duplicate writes or false uncertainty. Failed, paused, fetching and wrong-page cached catalog/history bodies are withheld. Plan/provider suggestion labels are now server-bounded excerpts with original native identities retained.
+
+UNVALIDATED: additive migration20261004070000 is authored, NOT applied/generated; nine synthetic disposable-database scenarios, three schema scenarios and three UI source contracts are authored, NOT executed. Morning gates include legacy migration compatibility, all current role/seat/suspension/reparent races, exact retry/concurrency, private-history disclosure, archive/capture separation, restore/no-op/CAS refusal, immutable old snapshots, original-organization cache invalidation, actual QueryClient offline/refusal recovery, keyboard/mobile layouts and complete relevant suites. No cloud, build, typecheck, render or deployment occurred tonight. This is not scheduling, external recipient access or complete report-governance parity.
+
+## October 4 source-only integration: coverage and authoring presets
+
+The explicit native requirement coverage matrix and controlled authoring preset modules are mounted in the project workspace. Requirement coverage has twenty-requirement/case/result pages, ten retained-defect pages and exact recorded execution scopes, using run-start time rather than inventing a result-recorded timestamp. It does not infer requirement fulfillment from plan contents, task closure or a passing result alone. Current links/inventory are not a frozen historical baseline; archived/unavailable/unlinked/unmatched and not-recorded/blocked/skipped evidence remain distinct. Nine database, four schema and three UI source scenarios are authored but UNEXECUTED.
+
+Preset use is an explicitly reviewed NEW local draft with separate preconditions, procedure phases/actions/outcomes and supported typed defaults; it cannot overwrite an existing draft or case. Controlled presets have their own immutable revisions and current administrator approval. Applicability is advisory, not a regulatory/TRC certification or a proven correct test design. Both modules and their companion authored migrations remain source-only, requiring morning validation of permissions, CAS/retries, generated clients, current domain applicability, lossless procedures, unavailable dependencies and actual desktop/mobile flows.
+
+## October 4 source-only continuation: edited reusable report settings
+
+Reusable definitions can now be edited without saving another copy: four focused native settings screens cover purpose/audience, metric checklist/time, optional recorded scope and authored commentary, followed by full reviewed application. Existing capture and older settings receipts stay unchanged. Edits retain their source version and written content across mounted close/reopen; a newer current head requires an explicit retained-edit rebase and a new review. The reviewed version, not the latest silently fetched head, supplies write CAS. Project-visible edits again require explicit full-administrator settings/commentary approval.
+
+Settings and historical restoration validate referenced native plans/runs in the same project, refusing foreign/deleted references rather than dropping scope. Archived records may still be renamed or retained; ordinary edits preserve the existing archive timestamp. Complete resulting history bodies remain bounded to16KiB. Shared pure definition/scope contracts avoid importing database runtime into the browser while retaining the previous captured-definition schema and hash ordering.
+
+This source continuation is locally checkpointed as0a87d58dfb6e406dc00f5b632674daec4e0a4a88, UNVALIDATED and UNPUSHED, with fourteen report-owned files and only report-owned Prisma hunks included. Companion schemas/UI remain separately dirty and preserved. Three additional PG settings/privacy/refusal scenarios plus one schema/one UI contract are authored, bringing this report-lifecycle slice to twelve PG/four schema/four UI scenarios, all UNEXECUTED. No test/typecheck/generator/migration/render/build/cloud/deploy was run. Morning real QueryClient and role/concurrency/mobile/export gates remain required; source formatting and a commit are not functionality acceptance.
+
+## October 4 source-only integration: recorded run comparison
+
+A native recorded-run comparison route is mounted in project evidence navigation. Two distinct non-manual runs require a strictly earlier baseline. All five recorded status counts, missing sides, unmatched and unavailable links, bounded current case identity chips and duration availability remain separate. Provider/branch/commit agreement cannot establish equivalent configurations or historical test definitions; this module does not classify regressions, retries, flaky tests or verified fixes. Runs in progress disclose incomplete populations. Case links open current definitions, not reconstructed historic procedures.
+
+Fresh authorization and actor/organization/project/pair fingerprints bind pagination; populations above ten thousand results per run refuse explicitly rather than return partial success. Run catalogs use twenty-row pages and mapped case unions fifty. Existing TestRun lacks historical organization identity, so current project ownership is pinned and no permanent historical-origin guarantee is invented. No schema or mutations are added. Ten PG, three schema and four UI source scenarios are authored UNEXECUTED; router/navigation mounts and the nineteen-route source expectation are also UNVALIDATED. Real cache lifecycle, role races, complete suites and desktop/mobile review remain morning work.
+
+## October 4 source-only continuation: reviewed stakeholder CSV and detail access
+
+Approved frozen reports and neutral approved-snapshot comparisons now have reviewed aggregate CSV source alongside HTML/print. Selected metrics, original UTC windows/scope/cohort basis and retained evidence boundaries stay explicit. Unavailable is not zero; legitimate negative count changes remain numeric. Author summary, risks, next actions and raw entity identity fields are not exported in CSV. Retained titles, scope labels and evidence notes are still internal text to review, not guaranteed secret-free merely because identity fields are omitted. This is a spreadsheet summary, not an archival interchange or recipient access grant.
+
+A shared pure CSV encoder supplies fixed comma/quoted/CRLF/UTF-8 BOM framing and explicit text-formula protection, refusing unsupported Unicode/control/numeric values and overbound cells/rows/one-MiB files rather than truncating. Spreadsheet transformations can remove protections. HTML/CSV/print require explicit review of the exact current approved payload; a different returned payload cannot reuse an earlier review. Detail pages withhold cached content and export/link controls when fresh project/membership/get identity cannot be established, and link copy read-only rechecks original organization and approved identity before clipboard. Private previews remain separate and unexportable here.
+
+Eleven source files are locally checkpointed810a5ac4f901f8093b8cbe88f3e9803a57bc1e02, UNVALIDATED/UNPUSHED. Four core encoder, six CSV/UI and seven detail contracts are authored UNEXECUTED; an existing synthetic API capture scenario gained original-identity assertions, also NOT run. No core build/typecheck/test/render/cloud/migration/deploy occurred. Real TanStack behavior, original-role/reparent races, browser download/clipboard activation, spreadsheet import fidelity and desktop/mobile review remain required morning gates. Separate catalog/comparison current-org cache continuation is now locally checkpointed0a1f8767e22edbccc1f8b830bcd34a5b64039cb0: six files, five static and two PostgreSQL scenarios authored UNEXECUTED. It preserves exact export review and original capture boundaries, with fresh current-parent identity echoes and org-bound selection. This is not comprehensive report governance, scheduled delivery or external sharing parity.
+
+## October 4 source-only integration: whole typed-query CSV and human risk overview
+
+The typed query explorer now mounts a reviewed whole-query CSV module, using the applied definition rather than its editable draft. Current project/member, returned org/project identity, compatible active custom definitions and exact selected custom projection gate the results and export. Native column reorder is retained. Changed custom selections require rerunning criteria, not silently adding fields. Retained authored criteria and uncertain saved writes survive read-access interruptions.
+
+Whole-query exports reuse the maintained page compiler in one locked repeatable-read transaction: up to1,000 complete matches, twenty pages, selected unclipped metadata or refusal. Metadata and neutral inventory-count modes retain missing/null/invalid/empty/false/zero distinctions. Only selected current values are projected; no procedures, attachments, drafts or run history. Fresh confirmation recomputes the actor/org/project/query/schema/identity/revision/value fingerprint. Changed evidence refuses. The exact reviewed object and monotonic availability epoch, including unmount and close, gate late browser completions. The shared CSV bounds and formula-transformation caveats apply. This is not a full-fidelity backup, durable export receipt, frozen report or recipient access grant.
+
+The human risk register now mounts a separate read-only population overview: up to1,000 entries/eight MiB bounded metadata, twenty-entry filtered pages, native case/requirement/run chips, historical captured evidence availability and separate unknown/absent/version-matching/changed ordinary review. Version matching does not reverify later procedures, requirements or result statuses. Native reference availability is not mitigation effectiveness, risk reduction, safety or qualified approval. Original/current project and member identity gates withhold cached counts and evidence. No new database models or normative scores are added for these two read-only modules; their existing typed-field/risk sources and unapplied migrations remain dependencies.
+
+All new source and central mounts remain UNVALIDATED. Export has three schema/eleven PostgreSQL/four UI authored scenarios; overview has four pure/seven PostgreSQL/three UI authored scenarios. Explorer mount/current-schema source assertions and existing API identity assertions were authored or strengthened, not executed. Morning gates include generated clients/disposable migrations, complete current-role/tenant/data-integrity suites, real installed QueryClient mutation/cache/late-close lifecycles, actual CSV artifacts and final desktop/mobile/keyboard flows. No tests, types, builds, rendering, AWS or deployment occurred tonight.
+
+### Native release stakeholder scope and ownership safeguards: October 4 source only
+
+Report builder and reusable settings now offer a native release dropdown alongside plan/run/configuration/date scope. Selection resolves complete current same-project release-plan membership (at most 200 plans), then complete saved/directly linked planned cases within explicit identity/metadata bounds. Unexecuted planned cases remain in the active inventory denominator. Empty releases stay empty; incompatible plans, missing/foreign references, unsupported saved templates and overbound populations refuse rather than producing a clipped report. Other recorded filters intersect. Current authorized scope suggestions echo project/original organization and cached suggestions are withheld while current membership/project access is unavailable.
+
+Capture retains exact resolved release-plan identities, bounded label and explanatory limitations in its immutable report payload. Comparison requires the same release identity and explicitly discloses changed frozen plan membership. Portable exports use the captured label, not an inferred historical association. This is NOT historical run-to-release certification, a release gate verdict, regulated approval, live provider verification or exhaustive parity. Native plan/release relationships are current at capture; platform filters are exact recorded context, not inferred settings. Existing approved captures remain unchanged.
+
+Report deletion preview now distinguishes original-organization records on reparented projects from foreign-original records under current projects and foreign definition references. Existing staff-only, exact-slug erasure refuses unsupported ownership or project-set drift before deleting children. The admin preview exposes those counts/boundaries and blocks its destructive control when current verified nonblocked scope is unavailable. No live erasure occurred. General legacy deletion-log atomicity and other model ownership are not newly certified.
+
+Private/shared saved-query and human-risk read guards are being hardened with fresh authorized organization/actor echoes, retained unknown request scope and no silent actor rebinding. These source safeguards and new authored regressions remain UNVALIDATED. No tests, typechecks, generated client/migrations, rendered review, AWS, build, push-triggered CI or deployment ran. Morning validation must include full release capture/settings/comparison/CSV, empty and foreign scope, relation/concurrent-reparent changes, complete planning denominators, current QueryClient/Clerk lifecycle, native disposable database ownership/rollback, shared/private retry and desktop/mobile walkthroughs. This source implementation does not close any acceptance gate by itself.
+
+### Daily recorded outcome explorer: October 4 source only
+
+A dedicated execution-over-time view adds explicit inclusive UTC dates (at most 90 days), optional exact recorded platform/environment/build filters, complete daily PASS/FAIL/reported-FLAKY/SKIP/BLOCKED result-observation counts, same-project/unmatched/unavailable mapping counts and in-progress run disclosures. Empty days become zero only after a successful complete bounded read; failures/pauses/current-actor/original-organization mismatch withhold cached evidence rather than presenting empty results. Day buttons open bounded current native run pages and deep-link to run inspection. Numeric columns accompany the common-scale colored bars; charts are not the sole evidence.
+
+The API uses current locked tenant/member/project/actor authorization, one repeatable-read transaction, maintained recorded-scope filtering and population refusal above 20,000 runs or 100,000 result observations. An additional conservative native-ID metadata guard applies before configuration filters across the same-project UTC date window, so an overly broad interval may be refused even if exact filters would select fewer runs; narrow dates instead of accepting clipped counts. No raw notes, errors, source or artifacts are projected. Stored run start timestamps determine days, not unavailable original result timestamps. Repeated observations are not unique attempts; these counts are not regression detection, measured flakiness, throughput normalization, root-cause effectiveness or release/regulatory readiness.
+
+The reviewed aggregate CSV retains the applied window/configuration labels and evidence boundaries, refuses unsupported/inconsistent counts, uses bounded formula-safe cells and omits raw actor/org/run/case identities. It is a read-time export, NOT an approved frozen stakeholder report or external recipient grant. The separate approved report workflow remains the route for reviewed immutable snapshots. This view does not add dashboard persistence, custom widgets, scheduled delivery or an approved daily-trend snapshot format.
+
+All sources, central mounts and authored regressions are UNVALIDATED. No tests/types/build/render/migration/cloud/deploy ran. Morning acceptance must cover UTC/time boundaries, empty scopes, import/in-progress/mapping/duration evidence, whole-population bounds, platform/build semantics, exact actor/org reparent/revocation/token changes, actual QueryClient paused/failed/cache/refetch behavior, same-scope day pagination and keyboard/mobile/desktop/chart/CSV artifact review before claiming this functional slice accepted.
+
+### UTC week grouping: October 4 source-only continuation
+
+Execution-over-time now offers a native day/week dropdown. Weeks start Monday UTC;
+actual included start/end dates are shown, with incomplete windows explicitly labeled
+partial (including a Sunday that is still in progress). Periods retain all original
+five-status/mapping/completion/duration counts, with expandable native day-run links.
+No normalized velocity, unique attempt count, fixed-length equivalence or quality
+verdict is inferred. Year-boundary weeks use Monday date identity, not ambiguous
+year/week numbering. Unsupported calendar identities refuse weekly presentation while
+the separately mounted dropdown still permits a return to daily evidence.
+
+Only complete ordered daily bins and matching applied UTC windows can be grouped.
+Missing days never become zero; inconsistent completion/duration/mapping/outcome totals
+refuse the whole displayed/exported aggregate. Default daily CSV v1 is retained;
+optional weekly CSV v2 carries actual period dates and partial-week/grouping boundaries.
+Changing grouping cancels exact export review and the synchronous download rechecks
+both current data and grouping. Four pure and one static UI scenarios are authored
+UNEXECUTED. Local source checkpoint f92b96b is UNVALIDATED/UNPUSHED, no new models,
+API write, client processing, tests/types/build/render/cloud/deployment. Morning
+real calendar/Clerk/QueryClient/download/keyboard/mobile verification remains required.
+
+### Recorded duration evidence: October 4 source-only continuation
+
+The existing day/week explorer now progressively exposes exact valid recorded
+duration sums, missing/invalid duration counts and completion/in-progress evidence.
+An optional reviewed seven-column CSV extension preserves these fields; default
+daily v1 and weekly v2 remain unchanged. Review binds the exact data, grouping and
+duration choice, and inconsistent counts refuse output. This is not elapsed time,
+human effort, billable cost, execution capacity or comparable performance.
+
+Local checkpoint 52d7e43 is UNVALIDATED/UNPUSHED. Two pure and one static scenario
+authored NOT RUN. No model/API writes, tests/types/build/render/cloud/deployment.
+Actual authorization/cache/runtime/CSV/desktop/mobile acceptance remains open.
+
+### Explicit execution date shortcuts: October 4 source-only continuation
+
+The recorded-outcomes explorer offers a native optional dropdown and separate
+Use shortcut dates button for today, 7/14/30/90 inclusive UTC dates and the
+previous complete calendar month. Dates resolve once into editable local fields,
+not a saved relative scope. Includes-today shortcuts disclose incomplete evidence.
+Draft date changes do not silently alter applied views, refresh or exports; the
+user still chooses Show recorded outcomes. Configuration filters stay untouched.
+
+Local checkpoint4df0083 is UNVALIDATED/UNPUSHED. Four pure native-web and one
+source UI scenario authored NOT RUN. No tests/types/build/render/cloud/deployment.
+Morning calendar/auth/cache/keyboard/desktop/mobile/applied-scope acceptance remains
+open. Prior separate Vitest TS aggregate tests require explicit supported discovery;
+the native web MJS glob alone does not establish those scenarios passed.
+
+### Human risk overview exports and internal prerequisite copy: October 4 source only
+
+Human risk overview now offers a single reviewed export flow with a native CSV or
+portable HTML dropdown. Complete full-project and filtered category/reference counts
+stay separate, with observation UTC, literal zero and unknown/no-review distinctions,
+all evidence boundaries and categorical scope. The HTML is text-only offline content
+with print styling, escaping, controls/Unicode/size refusals and an asset/script-denying
+CSP. Browser Print can prepare a PDF after download; Vaettir has not generated a PDF,
+delivered a report or granted recipient access. Changing format, data, filters or current
+authorization invalidates exact review. Literal search and per-entry/private identity
+content are omitted, explicitly preventing complete search reconstruction. These are
+read-time files, not approved frozen report captures, calibrated risk scores or evidence
+of mitigation effectiveness, safety or regulatory approval.
+
+Internal-prerequisite folder copying is a separate explicitly reviewed opt-in: all
+selected endpoints are cloned first, then complete internal edges are mapped to the new
+stable IDs atomically. Unsupported external/incoming/cross-project/self/cyclic, media,
+shared-library, dataset or archived dependencies refuse the whole copy. Source edges,
+human fields, paid drafts, procedures and old run evidence remain unchanged. Exact
+historical receipts do not reconstruct later-deleted relationships. New relationship
+provenance is separate from procedure history. This does not establish full backup,
+cross-project copying or arbitrary media parity.
+
+Local export checkpoints3cc6e65 and6e977ae plus uncommitted companion modules are
+UNVALIDATED/UNPUSHED. Twelve current export scenarios and twenty internal-copy scenarios
+are authored UNEXECUTED. No tests/types/build/render/cloud/deploy or migrations ran.
+Morning must verify actual native module discovery, controls/CSP/download/print and
+desktop/mobile/keyboard behavior, QueryClient/current Clerk/original-org access,
+disposable database FK/direct-edge concurrency, exact replay and rollback, and all
+relevant regressions before claiming these functional workflows accepted.
+
+### Recorded outcome stakeholder overview: October 4 source only
+
+Recorded outcome exports now offer a native CSV/portable HTML dropdown in the same
+explicit review modal. The portable overview includes the actual applied UTC interval,
+recorded configuration labels, complete selected day/week numeric counts, partial-period
+and missing-evidence disclosures, common-scale supplemental bars and optional separate
+recorded duration/completion table. Zero and unknown stay distinct. Offline HTML escapes
+content, bounds output and denies scripts/network assets with CSP. Browser Print is an
+optional user action, not a generated/delivered PDF or approved immutable capture.
+
+Exact response, format, grouping, duration and current query revision must retain review;
+refetch, closure, unmount and consumption invalidate it. No raw case/run/actor identifiers,
+source, notes or errors are exported. Configuration labels may be internal and require
+review before sharing. These read-time counts do not infer flakiness, unique attempts,
+regressions, human effort, capacity or release/regulatory readiness.
+
+Local checkpoint66b4dc2 is UNVALIDATED/UNPUSHED. Five pure HTML and one static UI
+scenario are authored NOT RUN. No tests/types/build/render/cloud/deploy ran. Morning
+must verify actual helper and wrapper discovery/runtime, full relevant regressions,
+current authorization/cache transitions, download/CSP/print and desktop/mobile/keyboard
+behavior before claiming this reporting workflow accepted.
+
+### Complete current requirement matrix reports: October 4 source only
+
+The matrix now has current Clerk actor/original organization/project/member read guards
+and an explicit report modal with a native CSV/portable HTML format dropdown. It requests
+the complete selected native requirement/case/outcome population in one bounded transaction,
+not joined browse pages. Unlinked requirements, archived cases, title excerpts and missing,
+blocked/skipped/planned-without-result evidence remain distinct. Repeated case rows retain
+their outcomes while the distinct-case summary counts each case once. Report-local numbers
+distinguish requirements within the file, not permanent native requirement identities.
+
+Files omit raw identifiers, literal search, plan/run filter identifiers, source and private
+result/defect content, disclosing that omitted selectors prevent full reconstruction. Titles,
+public case keys and configuration labels still need recipient review. Exact fresh response,
+scope, actor, format and revision/availability epoch must retain review; closure, unmount
+and consumption invalidate it. HTML is text-only offline content with CSP and print styling;
+CSV uses bounded formula-safe encoding. This is not an approved snapshot, complete backup,
+generated/delivered PDF, external grant or evidence of historical fulfilment/readiness.
+
+Six root web files and separate API companion work are UNVALIDATED/UNCOMMITTED. Six pure
+and three static UI scenarios are authored NOT RUN; API fixture authoring/final review is
+still underway. Bounds are whole-refusal above 1,000 selected rows/requirements/distinct
+cases, existing bounded run/result populations, 4 MiB API metadata and 1 MiB portable files.
+No tests/types/build/render/cloud/deploy/migration ran. Morning must verify actual discovery,
+DB consistency and role/tenant boundaries, cache transitions, full selected rows and unique
+denominators, download/CSV/CSP/print, keyboard/desktop/mobile and all relevant regressions.
+
+### October 4 12:27 UTC source preservation update
+
+Complete current requirement coverage API/web source is locally checkpointed at
+`6e179d0` (14 files), with native plan/run dropdown scope selection at `2d8035a`
+(two files). These are UNVALIDATED and UNPUSHED, not deployed features or a
+standalone release candidate. Central mount/page/navigation and other source
+companions remain outside these preservation commits. Nineteen new export
+scenarios and two chooser source scenarios are authored, NOT RUN. No earlier
+passing checks establish acceptance of these bytes.
+
+The scope modal now offers bounded native plan/run choices with names/date/provider,
+an explicit all-records choice and preserved older references. Advanced exact
+references remain available when the bounded list omits a record. Project/org
+echoes and current access gate suggestions and scope application; selected run
+context is never guessed or automatically copied from truncated metadata.
+Existing evidence, privacy, complete-row and morning acceptance gates remain.
+
+### October 4 12:42 UTC domain authoring and procedure preview source
+
+Local source checkpoint `f322790` adds five advisory guide/preview modules;
+case-form and controlled-preset mounts remain dirty companion source, not an
+independently runnable release. Five explicitly selected testing workflows
+(business/SaaS, developer boundary, games/input/platform, hardware/HIL and
+process/sample/laboratory) offer design, procedure and evidence prompt checklists.
+These marks are local authoring reminders, not saved outcomes or approvals.
+No case content, automation framework, criteria or regulation is generated or
+inferred; no source access, AI credits, device connection or protocol execution.
+
+Shared procedure and controlled-preset previews now show stored-order action,
+expected data, result and response columns rather than hiding all but the action.
+Custom organization labels remain; absent/null/empty expected fields are visibly
+not supplied. Media reference counts do not claim to fetch or verify media.
+Case setup/preconditions are not folded into executable steps. Source layout
+uses native dropdowns/checklists and keyboard-scrollable table regions; real
+desktop/mobile/keyboard rendering remains unverified. Six pure/static scenarios
+are authored NOT RUN. No tests, types, build, cloud or deployment ran.
+
+### October 4 12:56 UTC complete copy review and baseline integrity source
+
+Folder copy review now uses the same complete ordered action/data/result/response
+table, including explicitly absent expected fields and preserved line breaks.
+Setup, Given/When/Then and prerequisite relationships remain separate. This is
+an uncommitted companion mount with two additional authored, NOT RUN contracts;
+desktop/mobile review and the full pending folder-copy acceptance remain open.
+
+Manual baseline source review found that a label join could silently omit an
+incompatible native requirement association. Source now performs a bounded
+metadata-only completeness check before labels and refuses the whole comparison
+or new capture if native links are incompatible. Historical matching successful
+retry still returns its original receipt independently of later current links.
+Three additional regressions are authored, NOT RUN; database and concurrency
+acceptance are deferred. No market-parity, production or regulatory claim follows.
+
+### October 4 13:08 UTC clone and history companion source review
+
+Standalone clone now uses the same complete stored-order procedure table as
+folder copy. Empty expected fields are visibly not supplied; setup and imported
+Given/When/Then remain distinct. All previous clone contract scenarios remain,
+with the procedure-render assertion updated to the exact table mount. One extra
+static scenario is authored NOT RUN. Manual inspection also corrected four static
+contract API source URLs without removing or relaxing any assertion.
+
+Scoped case-history filtering and separately mounted retained retest drafts have
+an eleven-file source freeze with eighteen authored, NOT RUN scenarios. Exact
+current actor/original-organization binding on the separate legacy retest API is
+still being implemented; UI access guards do not prove write isolation. A narrow
+clone actor-row-lock continuation is now frozen with one additional authored,
+NOT RUN contention scenario. This is source work, not race acceptance.
+All new source remains unvalidated and undeployed; validation is still deferred.
+
+### October 4 13:25 UTC lossless procedure comparison presentation
+
+Reimport comparison source now refuses a structured table as a whole if any
+ordered step has unsupported fields, invalid order, missing expected values or
+overbound content. The full original raw value remains visible for review;
+unsupported rows are never silently omitted. Supported values retain exact
+stored order, all expected columns, explicit empty versus absent text, preserved
+line breaks and every media reference. References are not fetched or verified.
+
+Five parsing and two static presentation regressions are authored, NOT RUN.
+Existing server scope, approvals, conflicts and retained requests are unchanged
+by this UI increment. Native table accessibility and responsive layout remain
+unvalidated source intent. Source-only work is not deployed or market parity.
+
+### October 4 13:40 UTC scoped retest source checkpoint
+
+Local checkpoint e6b369e contains thirteen privacy-reviewed retest files. Fresh
+original-organization, current actor and full-editor checks precede private
+preview or successful receipt replay. Unknown requests retain their exact UUID;
+an accepted receipt is verified separately from a later history refresh failure.
+Legacy omitted-scope hashes and two-field acknowledgements remain unchanged.
+
+Retest approval now reviews original frozen field labels, exact stored step
+order, every expected column, empty versus absent literal values and all media
+references. Original dataset values are fully listed without filtering empty
+values or consulting a subsequently edited dataset. Setup and Given/When/Then
+remain distinct from ordered steps and prerequisite cases. No media is fetched
+and no previous result is copied into the new run.
+
+Twenty-five new scoped/presentation scenarios are authored, NOT RUN. Existing
+manual-retest checks remain, with the modal-opening assertion strengthened to
+the current active-scope gate. This local source checkpoint is unvalidated and
+unpushed; it is not a deploy or a substitute for real database, mounted-query,
+actor-switch, response-loss and desktop/mobile acceptance. Case-history companion
+source and broader parity gaps remain separate unfinished work.
+
+### October 4 13:55 UTC requirement review presentation checkpoint
+
+Local source checkpoint5715e01 preserves full seven-field changed/unchanged
+wording review, missing-side distinctions, searchable expandable stable case-ID
+chips and truthful current-page filtering. Surrounding-whitespace title search
+now binds the same canonical term as its existing server echo, without replacing
+typed input or rebuilding search semantics.
+
+Missing current requirements no longer imply removed relationships, and current
+links without a captured baseline no longer imply newly added relationships.
+Comparison summaries distinguish unavailable sides from an unchanged population.
+Native links open current authorized same-project identities, not historical
+procedures, verified fulfillment or restored links. Fourteen new presentation
+scenarios are authored, NOT RUN. This is unvalidated/unpushed presentation source;
+backend/migration/central companions and all runtime acceptance remain separate.
+
+### October 4 14:11 UTC saved-query library source checkpoints
+
+Local c377278/081e396 preserve native literal name search, personal/shared/mine
+collections, deterministic ordering, metadata-only catalog reads and explicitly
+bounded four-page pagination. Loaded criteria, human save drafts and exact
+unknown UUIDs survive catalog navigation. Both catalog and independently loaded
+definition reads bind original workspace/account scope; current authorization,
+not response echoes or supplied IDs, remains authority.
+
+Source review found and repaired an introduced read-only seat regression without
+changing existing write assertions: supported current members retain reads;
+only current full editor seats can write or replay. Twenty-four new scenarios
+are authored NOT RUN. These local checkpoints are unvalidated and unpushed;
+companion schema/migration/Explorer sources and installed QueryClient/Clerk
+desktop/mobile acceptance remain separate. This does not close cross-entity
+queries, configurable dashboards, reload-durable drafts or measured parity.
+
+### October 4 14:45 UTC whole-case observation revision source
+
+New source connects native manual whole-case history and a reviewed initial/correction
+modal to the existing run UI. Corrections require a current evidence baseline,
+reason, current-head CAS and an actor-bound exact receipt; prior observations and
+frozen procedure/configuration remain separate. An older mutable result is captured
+at its first correction with original recorder/time explicitly unknown, not backfilled.
+Busy/unknown responses block local run completion and step switching; mounted drafts
+and original requests survive collapse. Quick initial recording remains explicitly
+unversioned and cannot overwrite a displayed existing observation.
+
+Source-only guards separate whole-case revisions from step-derived verdicts, protect
+mixed-version native projections, bound cumulative retained history and restrict
+history erasure to the complete authorized original-organization transaction.
+The additive0800 migration has not run. Local897decd/3a73096 and35 authored NOT-RUN
+scenarios are unvalidated/unpushed; schema, central mount and erasure/admin companions
+remain dirty outside those commits. Real native/runtime, disposable migration,
+authorization, concurrency, exact retry and desktop/mobile acceptance remain open.
+These are human evidence corrections, not new executions, defect-resolution proof,
+automation improvement metrics or qualified regulatory signatures.

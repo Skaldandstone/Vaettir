@@ -13,6 +13,7 @@ const isolated = url && ["localhost", "127.0.0.1"].includes(url.hostname) && /te
 describe.skipIf(!isolated)("immutable whole-case manual observation history", () => {
   const prefix = `manual-case-revision-${Date.now()}-${randomUUID()}`;
   const organizations: Array<{ id: string; slug: string }> = [], userIds: string[] = [];
+  const ownedErasureReceipts: Array<{ id: string; organizationId: string; organizationSlug: string; deletedById: string; reason: string }> = [];
   let orgId: string, otherOrg: string, projectId: string, actorId: string, clerk: string;
   let owner: ReturnType<typeof appRouter.createCaller>, api: ReturnType<typeof manualCaseResultsRouter.createCaller>, viewer: typeof api, switched: typeof api;
   let viewerClerk: string, switchedClerk: string;
@@ -40,7 +41,21 @@ describe.skipIf(!isolated)("immutable whole-case manual observation history", ()
       if (org.slug !== fixture.slug || !org.slug.startsWith(prefix)) throw Error("Refusing unowned history fixture erasure");
       // Requires root-reviewed pending erasure hook in this exact existing FULL
       // tenant transaction. Standalone history-prune commits are deliberately denied.
-      await hardDeleteOrganization(prisma, fixture.id, actorId, "Owned synthetic manual-case history fixture erasure");
+      if (!userIds.includes(actorId)) throw Error("Refusing erasure receipt cleanup without the exact synthetic actor");
+      const reason = "Owned synthetic manual-case history fixture erasure";
+      const erased = await hardDeleteOrganization(prisma, fixture.id, actorId, reason);
+      ownedErasureReceipts.push({
+        id: erased.deletionLogId, organizationId: fixture.id,
+        organizationSlug: fixture.slug, deletedById: actorId, reason,
+      });
+    }
+    // Include receipts acknowledged during scenarios whose org no longer exists.
+    // Exact ownership, not an actor-wide log deletion, precedes User teardown.
+    for (const receipt of ownedErasureReceipts) {
+      if (!organizations.some(fixture => fixture.id === receipt.organizationId && fixture.slug === receipt.organizationSlug) ||
+        !receipt.organizationSlug.startsWith(prefix) || !userIds.includes(receipt.deletedById)) throw Error("Refusing unowned history erasure receipt cleanup");
+      const receipts = await prisma.organizationDeletionLog.deleteMany({ where: receipt });
+      expect(receipts.count).toBe(1);
     }
     await prisma.user.deleteMany({ where: { id: { in: userIds }, clerkUserId: { startsWith: prefix } } });
   });
@@ -181,7 +196,9 @@ describe.skipIf(!isolated)("immutable whole-case manual observation history", ()
     const read = { projectId: p.id, testRunId: r.testRunId, testCaseId: c.id, expectedScope: { projectId: p.id, organizationId: org.id, clerkActorId: clerk } };
     const preview = await fresh.preview(read), first = await fresh.record({ ...read, expectedRevisionId: null, expectedCurrentFingerprint: preview.currentFingerprint,
       status: "FAIL", note: "Owned erasure observation", observations: {}, correctionReason: null, idempotencyKey: randomUUID() });
-    const log = await hardDeleteOrganization(prisma, org.id, actorId, "Owned synthetic whole-case history full-erasure fixture");
+    const reason = "Owned synthetic whole-case history full-erasure fixture";
+    const log = await hardDeleteOrganization(prisma, org.id, actorId, reason);
+    ownedErasureReceipts.push({ id: log.deletionLogId, organizationId: org.id, organizationSlug: slug, deletedById: actorId, reason });
     expect(log.rowCounts.ManualCaseResultHead).toBe(1); expect(log.rowCounts.ManualCaseResultRevision).toBe(1);
     expect(await prisma.organization.count({ where: { id: org.id } })).toBe(0);
     expect(await prisma.testResult.count({ where: { id: first.resultId } })).toBe(0);

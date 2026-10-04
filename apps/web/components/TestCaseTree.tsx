@@ -27,9 +27,9 @@ interface TreeNode {
   cases: TreeCase[];
 }
 
-function buildTree(cases: TreeCase[]): TreeNode {
+function buildTree(cases: TreeCase[], folderPaths: string[]): TreeNode {
   const root: TreeNode = { name: "", path: "", children: new Map(), cases: [] };
-  for (const tc of cases) {
+  for (const tc of [...cases, ...folderPaths.map(path => ({id:"",title:"",suitePath:path,sourceFilePath:null}))]) {
     const location = effectiveLocation(tc);
     if (!location) continue;
     const segments = location.split("/");
@@ -44,7 +44,7 @@ function buildTree(cases: TreeCase[]): TreeNode {
       }
       node = next;
     }
-    node.cases.push(tc);
+    if (tc.id) node.cases.push(tc);
   }
   return root;
 }
@@ -131,13 +131,15 @@ export function TestCaseTree({
   selectedPath,
   onSelect,
   onDropCase,
+  folderPaths = [],
 }: {
   cases: TreeCase[];
   selectedPath: string | null;
   onSelect: (path: string | null) => void;
   onDropCase?: (caseId: string, suitePath: string | null) => void;
+  folderPaths?: string[];
 }) {
-  const tree = useMemo(() => buildTree(cases), [cases]);
+  const tree = useMemo(() => buildTree(cases, folderPaths), [cases, folderPaths]);
   const unassignedCount = cases.filter((c) => !effectiveLocation(c)).length;
   const total = cases.length;
 

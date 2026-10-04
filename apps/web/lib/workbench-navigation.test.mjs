@@ -7,11 +7,11 @@ import {
   detailsPanelWidth,
 } from "./workbench-navigation.ts";
 
-test("all sixteen project destinations remain available exactly once", () => {
+test("all twenty project destinations remain available exactly once", () => {
   const paths = PROJECT_NAVIGATION.flatMap((group) =>
     group.links.map((link) => link.path),
   );
-  assert.equal(new Set(paths).size, 16);
+  assert.equal(new Set(paths).size, 20);
   assert.deepEqual(
     [...paths].sort(),
     [
@@ -22,8 +22,12 @@ test("all sixteen project destinations remain available exactly once", () => {
       "/test-runs",
       "/reports",
       "/requirements",
+      "/requirement-baselines",
+      "/requirement-coverage",
+      "/recorded-run-comparison",
       "/execution-trends",
       "/defect-map",
+      "/quality-risks",
       "/compliance",
       "/audit-log",
       "/reverse-engineer",
@@ -83,7 +87,10 @@ test("native dialogs retain modality, nested ownership and explicit focus endpoi
   assert.match(dialog, /first.focus\(\)/);
   assert.match(dialog, /control.matches\(":disabled"\)/);
   assert.match(dialog, /control.getClientRects\(\).length > 0/);
-  assert.match(dialog, /textarea, summary, iframe, audio\[controls\], video\[controls\]/);
+  assert.match(
+    dialog,
+    /textarea, summary, iframe, audio\[controls\], video\[controls\]/,
+  );
   const drawer = readFileSync(
     new URL("../components/Drawer.tsx", import.meta.url),
     "utf8",

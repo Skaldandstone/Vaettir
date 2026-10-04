@@ -6,6 +6,9 @@ import { trpcReact, type RouterOutputs } from "@/lib/trpcReact";
 import { collectKnownSuitePaths } from "@/components/TestCaseTree";
 import { moveListItem } from "@/lib/move-list-item";
 import { resolveQualityExperience } from "@vaettir/core";
+import { CaseDesignGuide } from "./CaseDesignGuide";
+import { CaseProcedureColumns } from "./CaseProcedureColumns";
+import { CaseCustomFieldsForm, type CaseFieldFormDraft, type ReviewedCaseFieldDefaults } from "./CaseCustomFields";
 
 const TEST_TYPES = [
   "UNIT",
@@ -93,7 +96,10 @@ interface TestCaseFormProps {
   projectId: string;
   testCaseId?: string;
   initial?: Partial<TestCaseFormValue>;
+  // Only a separately reviewed new draft may seed current typed defaults.
+  initialCustomFields?: ReviewedCaseFieldDefaults;
   locked?: boolean;
+  active?: boolean;
   stepFieldLabels?: {
     action: string;
     expectedActionOrData: string;
@@ -157,7 +163,9 @@ export default function TestCaseForm({
   projectId,
   testCaseId,
   initial,
+  initialCustomFields,
   locked = false,
+  active = true,
   stepFieldLabels,
 }: TestCaseFormProps) {
   // Keep the concurrency baseline bound to this draft, not a later refetch.
@@ -173,26 +181,28 @@ export default function TestCaseForm({
   }));
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [caseFieldsDraft, setCaseFieldsDraft] = useState<CaseFieldFormDraft | null>(null);
   // P1-15: both reads share the cache with the test-cases list page and the
   // shared-steps page, so opening the form right after either is free.
   const utils = trpcReact.useUtils();
-  const experienceQuery = trpcReact.project.experience.useQuery({ projectId });
+  const experienceQuery = trpcReact.project.experience.useQuery({ projectId },{enabled:active});
   const experience = experienceQuery.data?.experience;
   const workspace = experience ? resolveQualityExperience(experience) : null;
-  const casesQuery = trpcReact.testCases.list.useQuery({ projectId });
+  const casesQuery = trpcReact.testCases.list.useQuery({ projectId },{enabled:active});
   const knownSuitePaths = useMemo(
     () => (casesQuery.data ? collectKnownSuitePaths(casesQuery.data) : []),
     [casesQuery.data],
   );
   const sharedGroupsQuery = trpcReact.sharedStepGroups.list.useQuery({
     projectId,
-  });
-  const sharedGroups = sharedGroupsQuery.data ?? [];
+  },{enabled:active, staleTime:0, refetchOnMount:"always"});
+  const sharedGroups = active && sharedGroupsQuery.isFetchedAfterMount && !sharedGroupsQuery.error &&
+    !sharedGroupsQuery.isFetching && !sharedGroupsQuery.isPaused ? sharedGroupsQuery.data ?? [] : [];
   const createMutation = trpcReact.testCases.create.useMutation();
   const updateMutation = trpcReact.testCases.update.useMutation();
   const attachmentsQuery = trpcReact.testCaseAttachments.list.useQuery(
     { testCaseId: testCaseId ?? "" },
-    { enabled: mode === "edit" && Boolean(testCaseId) },
+    { enabled: active && mode === "edit" && Boolean(testCaseId) },
   );
   const requestMediaUpload = trpcReact.testCaseAttachments.requestUpload.useMutation();
   const confirmMediaUpload = trpcReact.testCaseAttachments.confirmUpload.useMutation();
@@ -258,7 +268,7 @@ export default function TestCaseForm({
   }
 
   async function submit() {
-    if (locked || saving || uploadingStepKey !== null || !value.title.trim()) return;
+    if (!active || locked || saving || uploadingStepKey !== null || !value.title.trim() || !caseFieldsDraft?.ready) return;
     setSaving(true);
     setError(null);
     try {
@@ -290,6 +300,9 @@ export default function TestCaseForm({
         verificationProfile: value.verificationProfile,
         priority: value.priority as "CRITICAL" | "HIGH" | "MEDIUM" | "LOW",
         suitePath: value.suitePath || undefined,
+        customFields: caseFieldsDraft.customFields,
+        expectedFieldSchemaHash: caseFieldsDraft.expectedFieldSchemaHash,
+        expectedCustomFieldRevision: caseFieldsDraft.expectedCustomFieldRevision,
       };
 
       const result =
@@ -303,11 +316,15 @@ export default function TestCaseForm({
       // The detail page + list read from the cache; make sure they see the
       // saved row rather than the pre-edit copy.
       void utils.testCases.list.invalidate({ projectId });
+      void utils.caseFields.get.invalidate({ projectId, caseId: testCaseId });
       if (mode === "edit")
         void utils.testCases.byId.invalidate({ id: testCaseId! });
       router.push(`/projects/${projectId}/test-cases/${result.id}`);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
+      // Definitions may have changed after the draft loaded. Refresh without
+      // replacing the authored draft or accepting stale cached metadata.
+      void utils.caseFields.get.invalidate({ projectId, caseId: testCaseId });
     } finally {
       setSaving(false);
     }
@@ -316,6 +333,7 @@ export default function TestCaseForm({
   return (
     <fieldset disabled={locked || saving || uploadingStepKey !== null} aria-label={mode === "edit" ? "Edit test case draft" : "New test case draft"} style={{ border: 0, padding: 0, margin: 0, maxWidth: 720, minWidth: 0, overflowWrap: "anywhere" }}>
       <div style={{ display: "grid", gap: 8, marginBottom: 20 }}>
+        {active && <CaseDesignGuide />}
         <label>
           Title
           <input
@@ -528,13 +546,13 @@ export default function TestCaseForm({
             </a>{" "}
             page.
           </p>
-          <ol style={{ margin: 0, paddingLeft: 18, fontSize: 13 }}>
-            {selectedGroup.steps.map((s, i) => (
-              <li key={i}>{s.action}</li>
-            ))}
-          </ol>
+          <CaseProcedureColumns steps={selectedGroup.steps} labels={labels} />
         </div>
       )}
+      {value.sharedStepGroupId && !selectedGroup && <div role={sharedGroupsQuery.error ? "alert" : "status"}>
+        <p>The selected shared procedure could not currently be verified. Its reference is retained; no empty or action-only replacement is shown.</p>
+        <button type="button" disabled={!active || sharedGroupsQuery.isFetching || sharedGroupsQuery.isPaused} onClick={() => void sharedGroupsQuery.refetch()}>Refresh current shared procedure</button>
+      </div>}
       {!value.sharedStepGroupId && <div role="list" aria-label="Ordered test steps">
         {value.steps.map((step, i) => (
           <div
@@ -661,8 +679,17 @@ export default function TestCaseForm({
       )}
       <span role="status" className="sr-only">{stepAnnouncement}</span>
 
+      <CaseCustomFieldsForm
+        key={`${projectId}:${testCaseId ?? "new"}`}
+        projectId={projectId}
+        caseId={testCaseId}
+        initial={mode==="create"&&!testCaseId?initialCustomFields:undefined}
+        active={active}
+        onChange={setCaseFieldsDraft}
+      />
+
       <div style={{ marginTop: 24 }}>
-        <button onClick={submit} disabled={saving || !value.title}>
+        <button onClick={submit} disabled={saving || !value.title || !caseFieldsDraft?.ready}>
           {saving
             ? "Saving…"
             : mode === "create"

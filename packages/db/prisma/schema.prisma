@@ -140,6 +140,14 @@ model Organization {
   aiCreditTransactions AiCreditTransaction[]
   aiCreditUseRequests  AiCreditUseRequest[]
   caseAnalysisQueues   CaseAnalysisQueue[]
+  savedTypedCaseQueries SavedTypedCaseQuery[]
+  savedTypedCaseQueryWrites SavedTypedCaseQueryWrite[]
+  caseAuthoringPresets CaseAuthoringPreset[]
+  caseAuthoringPresetWrites CaseAuthoringPresetWrite[]
+  qualityRiskStates ProjectQualityRiskState[]
+  requirementBaselineStates ProjectRequirementBaselineState[]
+  manualCaseResultRevisions ManualCaseResultRevision[]
+  manualCaseResultHeads ManualCaseResultHead[]
   apiKeys              ApiKey[]
   auditLogs            AuditLog[]
   webhookEndpoints     WebhookEndpoint[]
@@ -249,6 +257,9 @@ model Project {
   // has been allocated the prefix cannot change, so references stay stable.
   caseKey                      String                   @default("")
   nextCaseNumber               Int                      @default(0)
+  // Project-defined typed case metadata, separate from test-plan fields.
+  caseFieldSchema              Json                     @default("{\"version\":1,\"fields\":[]}")
+  caseFieldSchemaVersion       Int                      @default(0)
   repoUrl                      String?
   defaultBranch                String                   @default("main")
   createdAt                    DateTime                 @default(now())
@@ -317,7 +328,17 @@ model Project {
   populationDocumentRuns      ProjectPopulationDocumentRun[]
   populationRequirements      ProjectPopulationRequirement[]
   testCaseViews               TestCaseView[]
+  folderState                 CaseFolderState?
+  folderWrites                CaseFolderWrite[]
   caseAnalysisQueues          CaseAnalysisQueue[]
+  savedTypedCaseQueries        SavedTypedCaseQuery[]
+  savedTypedCaseQueryWrites    SavedTypedCaseQueryWrite[]
+  caseAuthoringPresets         CaseAuthoringPreset[]
+  caseAuthoringPresetWrites    CaseAuthoringPresetWrite[]
+  qualityRiskState             ProjectQualityRiskState?
+  requirementBaselineState    ProjectRequirementBaselineState?
+  manualCaseResultRevisions    ManualCaseResultRevision[]
+  manualCaseResultHeads        ManualCaseResultHead[]
   jiraIssueIdentities         JiraIssueIdentity[]
 
   @@unique([organizationId, slug])
@@ -325,10 +346,202 @@ model Project {
   @@unique([organizationId, datadogProjectTag])
 }
 
-// Saved wizard preferences only. Approved evidence and generated records have
-// separate lifecycles; saving or rerunning a draft must not overwrite them.
-// A reviewed paid scope and its individual durable receipts. Procedures/source
-// are not copied here; fresh hashes and current authorization gate each debit.
+// Requirement wording/direct-link baselines are private immutable human records,
+// not provider snapshots, qualified signatures or verified test coverage.
+model ProjectRequirementBaselineState {
+  projectId String @id
+  project Project @relation(fields: [projectId], references: [id])
+  organizationId String
+  organization Organization @relation(fields: [organizationId], references: [id])
+  nextNumber Int @default(0)
+  baselines RequirementBaseline[]
+  writes RequirementBaselineWrite[]
+}
+
+model RequirementBaseline {
+  id String @id @default(cuid())
+  projectId String
+  state ProjectRequirementBaselineState @relation(fields: [projectId], references: [projectId])
+  requirementId String
+  number Int
+  displayId String
+  version Int
+  snapshot Json
+  fingerprint String
+  rationale String
+  createdById String
+  createdAt DateTime @default(now())
+  @@unique([projectId, number])
+  @@unique([projectId, displayId])
+  @@unique([projectId, requirementId, version])
+}
+
+model RequirementBaselineWrite {
+  id String @id @default(cuid())
+  projectId String
+  state ProjectRequirementBaselineState @relation(fields: [projectId], references: [projectId])
+  actorId String
+  requestId String
+  requestHash String
+  receipt Json
+  createdAt DateTime @default(now())
+  @@unique([projectId, actorId, requestId])
+}
+
+// Manual project failure modes and immutable ordinary human residual decisions.
+// Neither this register nor linked passing results assert qualified approval.
+model ProjectQualityRiskState {
+  projectId String @id
+  project Project @relation(fields: [projectId], references: [id])
+  organizationId String
+  organization Organization @relation(fields: [organizationId], references: [id])
+  nextNumber Int @default(0)
+  entries QualityRiskEntry[]
+  writes QualityRiskWrite[]
+}
+
+model QualityRiskEntry {
+  id String @id @default(cuid())
+  projectId String
+  state ProjectQualityRiskState @relation(fields: [projectId], references: [projectId])
+  number Int
+  displayId String
+  title String
+  definition Json
+  version Int @default(1)
+  createdById String
+  updatedById String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  decisions QualityRiskDecision[]
+  @@unique([projectId, number])
+  @@unique([projectId, displayId])
+}
+
+model QualityRiskDecision {
+  id String @id @default(cuid())
+  entryId String
+  entry QualityRiskEntry @relation(fields: [entryId], references: [id])
+  assessedVersion Int
+  createdVersion Int
+  decision Json
+  baseline Json
+  evidence Json
+  createdById String
+  createdAt DateTime @default(now())
+  @@unique([entryId, createdVersion])
+}
+
+model QualityRiskWrite {
+  id String @id @default(cuid())
+  projectId String
+  state ProjectQualityRiskState @relation(fields: [projectId], references: [projectId])
+  actorId String
+  requestId String
+  requestHash String
+  receipt Json
+  createdAt DateTime @default(now())
+  @@unique([projectId, actorId, requestId])
+}
+
+// Typed explorer definitions are separate from legacy private case-table views.
+// Tombstones and actor-bound receipts preserve exact response-loss recovery.
+model SavedTypedCaseQuery {
+  id String @id @default(cuid())
+  organizationId String
+  organization Organization @relation(fields: [organizationId], references: [id], map: "SavedTypedCaseQuery_org_fkey")
+  projectId String
+  project Project @relation(fields: [projectId], references: [id], map: "SavedTypedCaseQuery_project_fkey")
+  createdById String
+  name String
+  visibility String @default("PRIVATE")
+  definition Json
+  columns Json
+  version Int @default(1)
+  deletedAt DateTime?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  writes SavedTypedCaseQueryWrite[]
+  @@index([projectId, organizationId, visibility, deletedAt, updatedAt], map: "SavedTypedCaseQuery_scope_idx")
+  @@index([projectId, createdById, deletedAt], map: "SavedTypedCaseQuery_owner_idx")
+}
+
+model SavedTypedCaseQueryWrite {
+  id String @id @default(cuid())
+  organizationId String
+  organization Organization @relation(fields: [organizationId], references: [id], map: "SavedTypedCaseQueryWrite_org_fkey")
+  projectId String
+  project Project @relation(fields: [projectId], references: [id], map: "SavedTypedCaseQueryWrite_project_fkey")
+  queryId String
+  query SavedTypedCaseQuery @relation(fields: [queryId], references: [id], map: "SavedTypedCaseQueryWrite_query_fkey")
+  actorId String
+  requestId String
+  requestHash String
+  response Json
+  createdAt DateTime @default(now())
+  @@unique([projectId, actorId, requestId], map: "SavedTypedCaseQueryWrite_request_key")
+  @@index([organizationId, projectId], map: "SavedTypedCaseQueryWrite_scope_idx")
+}
+
+// Controlled authoring scaffolds; no execution, approval or reference records.
+model CaseAuthoringPreset {
+  id String @id @default(cuid())
+  organizationId String
+  organization Organization @relation(fields:[organizationId], references:[id], onDelete:Restrict)
+  projectId String
+  project Project @relation(fields:[projectId], references:[id], onDelete:Restrict)
+  createdById String
+  name String
+  definition Json
+  version Int @default(1)
+  archivedAt DateTime?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  writes CaseAuthoringPresetWrite[]
+  @@unique([projectId,name])
+  @@index([organizationId,projectId,archivedAt,name], map:"CaseAuthoringPreset_scope_idx")
+}
+
+model CaseAuthoringPresetWrite {
+  id String @id @default(cuid())
+  organizationId String
+  organization Organization @relation(fields:[organizationId],references:[id],onDelete:Restrict)
+  projectId String
+  project Project @relation(fields:[projectId],references:[id],onDelete:Restrict)
+  presetId String
+  preset CaseAuthoringPreset @relation(fields:[presetId],references:[id],onDelete:Restrict)
+  actorId String
+  requestId String
+  requestHash String
+  receipt Json
+  createdAt DateTime @default(now())
+  @@unique([projectId,actorId,requestId])
+  @@index([organizationId,projectId,presetId,createdAt], map:"CaseAuthoringPresetWrite_scope_idx")
+}
+
+// Independent folders remain visible without inventing placeholder cases.
+model CaseFolderState {
+  projectId String @id
+  project Project @relation(fields: [projectId], references: [id], onDelete: Restrict)
+  revision Int @default(0)
+  folders Json @default("[]")
+  updatedAt DateTime @updatedAt
+}
+
+// Reviewed placement receipts, never a mutable substitute for case/run history.
+model CaseFolderWrite {
+  id String @id @default(cuid())
+  projectId String
+  project Project @relation(fields: [projectId], references: [id], onDelete: Restrict)
+  actorId String
+  requestId String
+  inputHash String
+  receipt Json
+  createdAt DateTime @default(now())
+  @@unique([projectId, actorId, requestId])
+  @@index([projectId, createdAt])
+}
+
 model CaseAnalysisQueue {
   id String @id @default(cuid())
   organizationId String
@@ -450,6 +663,7 @@ model CaseTraceabilityLink {
   removedAt      DateTime?
 
   @@index([projectId, caseId, removedAt])
+  @@index([projectId, requirementId, removedAt], map: "CaseTraceabilityLink_requirement_scope_idx")
   @@index([projectId, provider, providerOrigin, nativeId])
 }
 
@@ -681,6 +895,8 @@ model JiraIssueIdentity {
   @@unique([projectId, providerOrigin, externalId])
 }
 
+// Saved wizard preferences only. Approved evidence and generated records have
+// separate lifecycles; saving or rerunning a draft must not overwrite them.
 model ProjectPopulationDraft {
   projectId       String   @id
   project         Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
@@ -808,6 +1024,7 @@ model User {
   exploratorySessions         ExploratorySession[]
   startedTestRuns             TestRun[]
   manualStepResultRevisions   ManualStepResultRevision[]
+  manualCaseResultRevisions   ManualCaseResultRevision[]
   testCaseViews               TestCaseView[]
 
   // P1-07 audit columns: who created/last-updated each core record. Named
@@ -1302,6 +1519,9 @@ model TestCase {
   // unit-under-test metadata, rigs/instruments, safety controls, stimuli,
   // expected measurement channels and visual evidence requirements.
   verificationProfile Json             @default("{}")
+  // Unknown/retired values are retained; definitions are project-scoped.
+  customFields        Json             @default("{}")
+  caseFieldSchemaVersion Int           @default(0)
 
   // Manual suite/folder assignment, independent of origin -- a "/"-delimited
   // path like the tree UI's derived-from-source grouping (e.g.
@@ -1380,6 +1600,8 @@ model TestCase {
   results                   TestResult[]
   manualStepResultRevisions ManualStepResultRevision[]
   manualStepResultHeads     ManualStepResultHead[]
+  manualCaseResultRevisions ManualCaseResultRevision[]
+  manualCaseResultHeads     ManualCaseResultHead[]
   healingSuggestions        HealingSuggestion[]
   complianceEvidence        ComplianceEvidence[]
   aiEditFeedback            AiEditFeedback[]
@@ -2048,6 +2270,7 @@ model ComplianceEvidence {
 
   @@index([controlId, recordedAt])
   @@index([projectId, recordedAt])
+  @@index([testResultId])
 }
 
 // P3-07: a ComplianceAuditor's formal, durable attestation that a control
@@ -2254,7 +2477,11 @@ model TestRun {
   results        TestResult[]
   manualStepResultRevisions ManualStepResultRevision[]
   manualStepResultHeads ManualStepResultHead[]
+  manualCaseResultRevisions ManualCaseResultRevision[]
+  manualCaseResultHeads ManualCaseResultHead[]
   coverageReport CoverageReport?
+
+  @@index([projectId])
 }
 
 enum TestRunStatus {
@@ -2388,6 +2615,8 @@ model TestResult {
   observations     Json             @default("{}")
 
   reverseEngineerJob ReverseEngineerJob?
+  manualCaseResultRevisions ManualCaseResultRevision[]
+  manualCaseResultHead ManualCaseResultHead?
   artifacts          TestResultArtifact[]
   healingSuggestion  HealingSuggestion?
   complianceEvidence ComplianceEvidence[]
@@ -2799,4 +3028,63 @@ enum TransactionalEmailStatus {
   SENT
   FAILED
   UNKNOWN
+}
+
+// Source-only additive draft: native whole-case observations, never step-derived/CI revisions.
+model ManualCaseResultRevision {
+  id String @id @default(cuid())
+  organizationId String
+  organization Organization @relation(fields: [organizationId], references: [id])
+  projectId String
+  project Project @relation(fields: [projectId], references: [id])
+  testRunId String
+  testRun TestRun @relation(fields: [testRunId], references: [id])
+  testCaseId String
+  testCase TestCase @relation(fields: [testCaseId], references: [id])
+  testResultId String
+  testResult TestResult @relation(fields: [testResultId], references: [id])
+  revisionNumber Int
+  status TestResultStatus
+  note String?
+  observations Json @default("{}")
+  legacyPrior Json?
+  correctionReason String?
+  actorId String
+  actor User @relation(fields: [actorId], references: [id])
+  actorClerkUserId String
+  actorLabel String
+  recordedAt DateTime @default(now())
+  previousRevisionId String? @unique
+  previousRevision ManualCaseResultRevision? @relation("ManualCasePreviousRevision", fields: [previousRevisionId], references: [id])
+  nextRevision ManualCaseResultRevision? @relation("ManualCasePreviousRevision")
+  idempotencyKey String
+  requestHash String
+  payloadBytes Int
+  currentHead ManualCaseResultHead?
+
+  @@unique([testRunId, testCaseId, revisionNumber], map: "ManualCaseResultRevision_scope_revision_key")
+  @@unique([organizationId, actorId, idempotencyKey], map: "ManualCaseResultRevision_actor_uuid_key")
+  @@index([organizationId, projectId])
+  @@index([testRunId, testCaseId, revisionNumber], map: "ManualCaseResultRevision_scope_revision_idx")
+  @@index([testResultId])
+}
+
+model ManualCaseResultHead {
+  organizationId String
+  organization Organization @relation(fields: [organizationId], references: [id])
+  projectId String
+  project Project @relation(fields: [projectId], references: [id])
+  testRunId String
+  testRun TestRun @relation(fields: [testRunId], references: [id])
+  testCaseId String
+  testCase TestCase @relation(fields: [testCaseId], references: [id])
+  testResultId String @unique
+  testResult TestResult @relation(fields: [testResultId], references: [id])
+  currentRevisionId String @unique
+  currentRevision ManualCaseResultRevision @relation(fields: [currentRevisionId], references: [id])
+  revisionCount Int
+  currentPayloadBytes Int
+
+  @@id([testRunId, testCaseId])
+  @@index([organizationId, projectId])
 }

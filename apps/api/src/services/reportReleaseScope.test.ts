@@ -44,4 +44,12 @@ describe("native release identity and bounded label", () => {
     for (const name of ["", " ", "Invalid\u0001name", "\ud800", "\udc00"])
       expect(() => reportReleaseLabel(name, false)).toThrow();
   });
+  it("rejects all unsupported controls without removing supported label whitespace", () => {
+    for (const code of [...Array.from({ length: 32 }, (_, i) => i), 127]) {
+      const name = `Release${String.fromCharCode(code)}One`;
+      if ([9, 10, 13].includes(code))
+        expect(reportReleaseLabel(name, false).releaseName).toBe(name);
+      else expect(() => reportReleaseLabel(name, false)).toThrow();
+    }
+  });
 });

@@ -42,7 +42,10 @@ describe.skipIf(!isolated)("manual retest scoped actor original tenant and retai
       if (org && (org.slug !== fixture.slug || !org.slug.startsWith(prefix))) throw Error("Refusing non-owned fixture erasure");
       if (org) await hardDeleteOrganization(prisma, fixture.id, ownerId, "Owned synthetic manual-retest scope fixture erasure");
     }
-    if (ownedUsers.length) await prisma.user.deleteMany({ where: { id: { in: ownedUsers }, clerkUserId: { startsWith: prefix } } });
+    // Retain dedicated synthetic users: deletion receipts intentionally retain their actor FK.
+    if (ownerId)
+      for (const fixture of ownedOrganizations)
+        expect(await prisma.organizationDeletionLog.count({ where: { organizationId: fixture.id, deletedById: ownerId } })).toBe(1);
   });
   const origin = () => ({ projectId, organizationId, clerkActorId: ownerClerk });
   async function fixture() {

@@ -1,9 +1,10 @@
 import type { CaseExecutionHistoryItem } from "@vaettir/core";
+import { hasIdentityControl } from "./control-characters.ts";
 
 type Summary = Pick<CaseExecutionHistoryItem, "runId" | "source" | "outcomeMode" | "definition">;
 type Input = { projectId: string; testCaseId: string; displayId: string; item: Summary };
 function encodedIdentity(value: string) {
-  if (!value || value.length > 200 || /[\u0000-\u001f\u007f]/.test(value)) return null;
+  if (!value || value.length > 200 || hasIdentityControl(value)) return null;
   try { return encodeURIComponent(value); } catch { return null; }
 }
 /** DOM id shared with the native run page. Encode the returned id AGAIN in a

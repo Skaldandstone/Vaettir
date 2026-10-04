@@ -30,15 +30,21 @@ test("full export queries once per exact applied criteria, not concatenated brow
 test("review is response/format/revision/epoch bound and unmount/closure/consumption invalidate it", () => {
   for (const text of [
     "query.dataUpdatedAt",
-    "previous.current.format !== format",
+    "previous.format !== format",
     "reviewed === active",
-    "reviewedEpoch === epoch.current",
+    "reviewedEpoch === epoch",
     "live.current.epoch !== reviewedEpoch",
     "live.current.open = false",
     "URL.revokeObjectURL",
     "anchor.remove()",
   ])
     assert.ok(component.includes(text));
+  assert.match(component, /\[previous, setPrevious\] = useState/);
+  assert.doesNotMatch(component, /previous\.current|epoch\.current/);
+  assert.match(
+    component,
+    /useLayoutEffect\(\(\) => \{ live.current = \{ active, requestKey, format, open, epoch \}; return \(\) => \{/,
+  );
   assert.match(
     component,
     /active:\s*null,\s*requestKey:\s*"",\s*format:\s*"CSV",\s*open:\s*false,\s*epoch:\s*-1/,

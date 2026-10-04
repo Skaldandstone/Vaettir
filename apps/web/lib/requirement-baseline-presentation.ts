@@ -1,4 +1,5 @@
 // Presentation only: never changes captured wording, membership or evidence.
+import { hasIdentityControl } from "./control-characters.ts";
 export const baselineWordingFields = [
   ["title", "Title"], ["description", "Description"], ["externalRef", "External reference"],
   ["externalRefWithheld", "External reference withheld"], ["linearIssueId", "Linear identifier"],
@@ -44,7 +45,7 @@ export function filterBaselineCasePage<T extends { displayId: string; title: str
   return items.filter(item => item.displayId.toLowerCase().includes(term) || item.title.toLowerCase().includes(term));
 }
 export function baselineNativeCaseHref(projectId: string, caseId: string | null, available: boolean) {
-  if (!available || !caseId || !projectId || projectId.length > 120 || caseId.length > 120 || /[\u0000-\u001f\u007f]/.test(projectId + caseId)) return null;
+  if (!available || !caseId || !projectId || projectId.length > 120 || caseId.length > 120 || hasIdentityControl(projectId + caseId)) return null;
   try { return `/projects/${encodeURIComponent(projectId)}/test-cases/${encodeURIComponent(caseId)}`; }
   catch { return null; } // Unsupported native identity never becomes a guessed URL.
 }

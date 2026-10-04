@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useEffect, useRef, useState } from "react";
+import { Suspense, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { resolveQualityExperience } from "@vaettir/core";
 import { trpcReact, type RouterOutputs } from "@/lib/trpcReact";
@@ -398,7 +398,7 @@ function ManualExecutionContent() {
     requestKey: manualExecutionReadRequestKey(readInput), ready: access.ready, error: !!dataQuery.error, fetching: dataQuery.isFetching, paused: dataQuery.isPaused }, dataQuery.data);
   const canEdit = readable && access.canWrite && dataQuery.data?.canWrite === true;
   const accessNow = useRef({ readable, canEdit, ready: access.ready });
-  accessNow.current = { readable, canEdit, ready: access.ready };
+  useLayoutEffect(() => { accessNow.current = { readable, canEdit, ready: access.ready }; }, [readable, canEdit, access.ready]);
   const [error, setError] = useState<string | null>(null);
   const [unconfirmedStepCases, setUnconfirmedStepCases] = useState<Set<string>>(() => new Set());
   const [unconfirmedWholeCases, setUnconfirmedWholeCases] = useState<Set<string>>(() => new Set());
@@ -435,9 +435,12 @@ function ManualExecutionContent() {
     await utils.manualExecution.getForExecution.invalidate({ testRunId });
   }
 
-  const retainedNativeData = useRef<RouterOutputs["manualExecution"]["getForExecution"] | undefined>(undefined);
-  if (readable) retainedNativeData.current = dataQuery.data;
-  const data = readable ? dataQuery.data : retainedNativeData.current;
+  // React state preserves the mounted native rows/drafts through denied or
+  // paused reads. A guarded same-component adjustment cannot publish an
+  // uncommitted ref value; factual row rendering remains gated by readable.
+  const [retainedNativeData, setRetainedNativeData] = useState<RouterOutputs["manualExecution"]["getForExecution"] | undefined>(undefined);
+  if (readable && dataQuery.data && retainedNativeData !== dataQuery.data) setRetainedNativeData(dataQuery.data);
+  const data = readable ? dataQuery.data : retainedNativeData;
   const pageError = error ?? dataQuery.error?.message ?? null;
   const historySelection = manualCaseHistorySelection({ requestedCaseIds: searchParams.getAll("caseId"), projectId, testRunId,
     fresh: readable, response: data });

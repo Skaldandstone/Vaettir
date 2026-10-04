@@ -125,7 +125,9 @@ describe("report metadata response current original-tenant echoes", () => {
         "Owned report tenant echo fixtures",
       );
     }
-    if (actorId) await prisma.user.delete({ where: { id: actorId } });
+    // Retain the dedicated synthetic actor referenced by the durable deletion receipts.
+    for (const organizationId of orgs)
+      expect(await prisma.organizationDeletionLog.count({ where: { organizationId, deletedById: actorId } })).toBe(1);
   });
   it("echoes server-authorized org/project identity without leaking private catalog content", async () => {
     const catalog = await caller.catalog({ projectId });

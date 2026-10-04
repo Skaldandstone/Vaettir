@@ -18,7 +18,7 @@ test("inactive retest hides native/private bodies and guards review/start withou
     "Current history access is unavailable", "{ enabled: active, staleTime: 0, retry: false }", "active={active && canRetest && access.ready && access.canWrite && !linksDenied && !linksMismatch && !links.isPaused}"])
     assert.ok(retest.includes(literal), literal);
   assert.ok(retest.indexOf("!active ? <p") < retest.indexOf("{receipt ?"));
-  const closedGuard = retest.search(/<\/>\}\r?\n    <\/Modal>/);
+  const closedGuard = retest.search(/<\/>\}\r?\n {4}<\/Modal>/);
   assert.ok(closedGuard > retest.indexOf("{receipt ?"));
   assert.ok(!retest.includes("if (!active) setAttempt(null)"));
   assert.ok(history.includes("reloading does not preserve local state"));

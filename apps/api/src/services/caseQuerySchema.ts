@@ -1,4 +1,9 @@
 import { z } from "zod";
+import {
+  caseCustomBinding,
+  caseCustomRule,
+  customRuleProblem,
+} from "./caseCustomQuerySchema.js";
 export const CASE_QUERY_COLUMNS = [
   "title",
   "type",
@@ -37,6 +42,7 @@ export const CASE_QUERY_DOMAINS = [
 ] as const;
 const text = z.string().trim().min(1).max(160);
 export const caseQueryRuleSchema = z.discriminatedUnion("field", [
+  caseCustomRule,
   z
     .object({
       field: z.literal("title"),
@@ -144,6 +150,14 @@ export const caseQuerySchema = z
     archive: z.enum(["active", "archived", "all"]),
     sort: z.enum(["caseNumber", "title", "updatedAt"]),
     direction: z.enum(["asc", "desc"]),
+    customColumns: z
+      .array(caseCustomBinding)
+      .max(6)
+      .refine(
+        (columns) =>
+          new Set(columns.map((column) => column.key)).size === columns.length,
+      )
+      .optional(),
   })
   .strict()
   .superRefine((value, ctx) => {
@@ -151,7 +165,10 @@ export const caseQuerySchema = z
       ctx.addIssue({ code: "custom", message: "Use at most 12 conditions" });
     for (const group of value.groups)
       for (const rule of group.rules)
-        if (
+        if (rule.field === "custom") {
+          const problem = customRuleProblem(rule);
+          if (problem) ctx.addIssue({ code: "custom", message: problem });
+        } else if (
           rule.field === "suite" &&
           rule.operator === "equals" &&
           !rule.value.trim()

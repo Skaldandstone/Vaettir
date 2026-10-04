@@ -1,5 +1,11 @@
 "use client";
-import { useEffect, useRef, useState, type FormEvent } from "react";
+import {
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type FormEvent,
+} from "react";
 import { useAuth } from "@clerk/nextjs";
 import Link from "next/link";
 import { trpcReact, type RouterOutputs } from "@/lib/trpcReact";
@@ -123,34 +129,36 @@ function ExecutionTrend({ projectId }: { projectId: string }) {
     }
   }
   const data = periodError ? null : availableData;
-  const exportEpoch = useRef(0);
   const exportRevision = query.dataUpdatedAt;
-  const previousExport = useRef({
+  const [previousExport, setPreviousExport] = useState({
     data,
     exportOpen,
     grouping,
     includeRecordedDuration,
     exportFormat,
     exportRevision,
+    epoch: 0,
   });
-  if (
-    previousExport.current.data !== data ||
-    previousExport.current.exportOpen !== exportOpen ||
-    previousExport.current.grouping !== grouping ||
-    previousExport.current.includeRecordedDuration !==
-      includeRecordedDuration ||
-    previousExport.current.exportFormat !== exportFormat ||
-    previousExport.current.exportRevision !== exportRevision
-  ) {
-    exportEpoch.current++;
-    previousExport.current = {
+  const exportChanged =
+    previousExport.data !== data ||
+    previousExport.exportOpen !== exportOpen ||
+    previousExport.grouping !== grouping ||
+    previousExport.includeRecordedDuration !== includeRecordedDuration ||
+    previousExport.exportFormat !== exportFormat ||
+    previousExport.exportRevision !== exportRevision;
+  const exportEpoch = exportChanged
+    ? previousExport.epoch + 1
+    : previousExport.epoch;
+  if (exportChanged) {
+    setPreviousExport({
       data,
       exportOpen,
       grouping,
       includeRecordedDuration,
       exportFormat,
       exportRevision,
-    };
+      epoch: exportEpoch,
+    });
   }
   useEffect(() => {
     setReviewed(null);
@@ -170,33 +178,48 @@ function ExecutionTrend({ projectId }: { projectId: string }) {
     includeRecordedDuration,
     exportFormat,
   ]);
-  const latest = useRef({
-    data,
-    exportOpen,
-    grouping,
-    includeRecordedDuration,
-    exportFormat,
-    epoch: exportEpoch.current,
+  const latest = useRef<{
+    data: Trend | null;
+    exportOpen: boolean;
+    grouping: ExecutionTrendGrouping;
+    includeRecordedDuration: boolean;
+    exportFormat: "CSV" | "HTML";
+    epoch: number;
+  }>({
+    data: null,
+    exportOpen: false,
+    grouping: "DAY",
+    includeRecordedDuration: false,
+    exportFormat: "CSV",
+    epoch: -1,
   });
-  latest.current = {
-    data,
-    exportOpen,
-    grouping,
-    includeRecordedDuration,
-    exportFormat,
-    epoch: exportEpoch.current,
-  };
-  useEffect(
-    () => () => {
+  useLayoutEffect(() => {
+    latest.current = {
+      data,
+      exportOpen,
+      grouping,
+      includeRecordedDuration,
+      exportFormat,
+      epoch: exportEpoch,
+    };
+    return () => {
       latest.current = {
-        ...latest.current,
         data: null,
         exportOpen: false,
+        grouping: "DAY",
+        includeRecordedDuration: false,
+        exportFormat: "CSV",
         epoch: -1,
       };
-    },
-    [],
-  );
+    };
+  }, [
+    data,
+    exportOpen,
+    grouping,
+    includeRecordedDuration,
+    exportFormat,
+    exportEpoch,
+  ]);
   function useDateShortcut() {
     if (!sameOrigin) return;
     try {
@@ -243,7 +266,7 @@ function ExecutionTrend({ projectId }: { projectId: string }) {
       reviewedGrouping !== grouping ||
       reviewedDuration !== includeRecordedDuration ||
       reviewedFormat !== exportFormat ||
-      reviewedEpoch !== exportEpoch.current
+      reviewedEpoch !== exportEpoch
     )
       return;
     try {
@@ -861,7 +884,7 @@ function ExecutionTrend({ projectId }: { projectId: string }) {
                   reviewedGrouping === grouping &&
                   reviewedDuration === includeRecordedDuration &&
                   reviewedFormat === exportFormat &&
-                  reviewedEpoch === exportEpoch.current
+                  reviewedEpoch === exportEpoch
                 }
                 onChange={(event) => {
                   setReviewed(event.target.checked ? data : null);
@@ -870,9 +893,7 @@ function ExecutionTrend({ projectId }: { projectId: string }) {
                     event.target.checked ? includeRecordedDuration : null,
                   );
                   setReviewedFormat(event.target.checked ? exportFormat : null);
-                  setReviewedEpoch(
-                    event.target.checked ? exportEpoch.current : -1,
-                  );
+                  setReviewedEpoch(event.target.checked ? exportEpoch : -1);
                 }}
               />{" "}
               I reviewed these exact current counts, grouping, optional duration
@@ -903,7 +924,7 @@ function ExecutionTrend({ projectId }: { projectId: string }) {
               reviewedGrouping !== grouping ||
               reviewedDuration !== includeRecordedDuration ||
               reviewedFormat !== exportFormat ||
-              reviewedEpoch !== exportEpoch.current
+              reviewedEpoch !== exportEpoch
             }
             onClick={download}
           >

@@ -7,7 +7,8 @@
     "build": "next build",
     "start": "next start",
     "typecheck": "tsc --noEmit",
-    "test": "node --experimental-strip-types --test lib/*.test.mjs",
+    "test": "node --experimental-strip-types --test lib/*.test.mjs && vitest run",
+    "test:typed": "vitest run",
     "test:e2e": "playwright test",
     "test:fixtures": "playwright test --config=e2e/fixture.config.ts",
     "lint": "eslint ."
@@ -31,6 +32,7 @@
     "@types/react-dom": "^18.3.0",
     "@vaettir/api": "workspace:*",
     "@vaettir/db": "workspace:*",
-    "typescript": "^5.6.0"
+    "typescript": "^5.6.0",
+    "vitest": "^5.0.0"
   }
 }

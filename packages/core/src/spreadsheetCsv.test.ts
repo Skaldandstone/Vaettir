@@ -50,4 +50,16 @@ describe("bounded spreadsheet CSV", () => {
       renderBoundedSpreadsheetCsv(["A"], Array(80).fill(["界".repeat(8000)])),
     ).toThrow(/one MiB/);
   });
+  it("counts UTF-8 scalar bytes at the cell limit without platform ambient types", () => {
+    for (const [text, accepted, rejected] of [
+      ["a", 32768, 32769],
+      ["é", 16384, 16385],
+      ["界", 10922, 10923],
+      ["🙂", 8192, 8193],
+    ] as const) {
+      expect(renderBoundedSpreadsheetCsv(["A"], [[text.repeat(accepted)]])).toContain(text);
+      expect(() => renderBoundedSpreadsheetCsv(["A"], [[text.repeat(rejected)]])).toThrow(/cell/);
+    }
+    expect(() => renderBoundedSpreadsheetCsv(["A"], [["\udc00"]])).toThrow(/Unicode/);
+  });
 });

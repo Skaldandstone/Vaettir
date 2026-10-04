@@ -102,11 +102,16 @@ test("portable HTML format and fresh response revision invalidate exact export r
     source,
     /renderRecordedExecutionTrendHtml\(\s*data,\s*grouping,\s*includeRecordedDuration,?\s*\)/,
   );
+  assert.match(source, /previousExport.exportRevision !== exportRevision/);
+  assert.match(source, /reviewedEpoch !== exportEpoch/);
+  assert.match(source, /\[previousExport, setPreviousExport\] = useState/);
+  assert.match(source, /if \(exportChanged\)\s*\{\s*setPreviousExport/);
+  assert.doesNotMatch(source, /previousExport\.current|exportEpoch\.current/);
+  assert.match(source, /useLayoutEffect\(\(\) => \{\s*latest.current = \{/);
   assert.match(
     source,
-    /previousExport.current.exportRevision !== exportRevision/,
+    /return \(\) => \{\s*latest.current = \{[\s\S]*?data: null[\s\S]*?epoch: -1/,
   );
-  assert.match(source, /reviewedEpoch !== exportEpoch.current/);
   assert.match(source, /latest.current.epoch !== reviewedEpoch/);
   assert.match(source, /reviewedFormat !== exportFormat/);
   assert.match(source, /latest.current.exportFormat !== exportFormat/);

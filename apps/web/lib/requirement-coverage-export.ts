@@ -1,4 +1,5 @@
 import type { RequirementCoverageExport } from "@vaettir/api/src/services/requirementCoverageExportSchema";
+import { hasTextControl } from "./control-characters.ts";
 
 export const coverageExportBoundaries = [
   "Complete selected current requirements and explicit direct case relationships, not a frozen approved snapshot, full procedure backup or external access grant.",
@@ -23,7 +24,7 @@ function text(value: string, max = 4000) {
   if (
     typeof value !== "string" ||
     value.length > max ||
-    /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/.test(value) ||
+    hasTextControl(value) ||
     /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/.test(
       value,
     )

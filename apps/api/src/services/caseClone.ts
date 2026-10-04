@@ -7,11 +7,34 @@ import { testCaseContentRevision } from "./testCaseContentRevision.js";
 import { qualityProfileHash } from "./qualityExperienceProfile.js";
 import { verificationProfileSchema } from "./physicalValidation.js";
 import { snapshotTestCaseVersion } from "./testCaseVersion.js";
+import {
+  caseFieldSchema,
+  caseFieldValues,
+  validateCaseFieldValues,
+} from "./caseFieldSchema.js";
+import {
+  assertCaseFieldAuthoring,
+  lockCaseFieldProject,
+} from "./caseFields.js";
+import {
+  cloneExpectedScopeSchema,
+  cloneDatasetApprovalFields,
+  requireCloneDatasetApproval,
+  cloneDatasetMappingSchema,
+} from "./caseCloneDatasetSchema.js";
+import {
+  independentCloneScope,
+  prepareIndependentCloneDataset,
+  createIndependentCloneDataset,
+} from "./caseCloneDataset.js";
+import { validatedDatasetReplay } from "./caseFolderCopyDatasets.js";
 
 export const cloneScopeSchema = z
   .object({
     projectId: z.string().min(1).max(200),
     caseId: z.string().min(1).max(200),
+    copyParameterDataset: z.literal(true).optional(),
+    expectedScope: cloneExpectedScopeSchema.optional(),
   })
   .strict();
 export const cloneInputSchema = cloneScopeSchema
@@ -22,8 +45,18 @@ export const cloneInputSchema = cloneScopeSchema
     reason: z.string().trim().min(1).max(1000),
     confirmed: z.literal(true),
     requestId: z.string().uuid(),
+    ...cloneDatasetApprovalFields,
   })
-  .strict();
+  .strict()
+  .superRefine((input, ctx) => {
+    requireCloneDatasetApproval(input, ctx);
+    if (input.copyParameterDataset && !input.expectedScope)
+      ctx.addIssue({
+        code: "custom",
+        message:
+          "Independent dataset copy requires the original account and workspace scope from its review.",
+      });
+  });
 const text = z.string().max(10000);
 const stepSchema = TestCaseStepInputSchema.extend({
   action: text.min(1),
@@ -35,7 +68,7 @@ const stepSchema = TestCaseStepInputSchema.extend({
 const exclusionNotice =
   "Approvals, risk/design assessments, results and run history, paid automation drafts, automation status, prerequisites, datasets, attachments/media, imported/provider source links, compliance and feature/defect links are not copied. The original and its history stay unchanged.";
 
-async function sourceState(
+export async function sourceState(
   tx: Prisma.TransactionClient,
   input: z.infer<typeof cloneScopeSchema>,
 ) {
@@ -68,7 +101,7 @@ async function sourceState(
   const [size] = await tx.$queryRaw<
     Array<{ bytes: number; stepCount: number }>
   >`
-    SELECT (octet_length(concat(c.title,c.background,c.given::text,c."when"::text,c."then"::text,c.tags::text,c."verificationProfile"::text,c."suitePath"))
+    SELECT (octet_length(concat(c.title,c.background,c.given::text,c."when"::text,c."then"::text,c.tags::text,c."verificationProfile"::text,c."suitePath",c."customFields"::text))
       + coalesce((SELECT sum(octet_length(concat(s.action,s."expectedActionOrData",s."expectedResult",s."expectedResponse",s."mediaAttachmentIds"::text))) FROM "TestCaseStep" s WHERE s."testCaseId"=c.id),0)
       + coalesce((SELECT octet_length(g.steps::text) FROM "SharedStepGroup" g WHERE g.id=c."sharedStepGroupId" AND g."projectId"=c."projectId"),0))::int AS bytes,
       (SELECT count(*)::int FROM "TestCaseStep" s WHERE s."testCaseId"=c.id) AS "stepCount"
@@ -102,6 +135,7 @@ async function sourceState(
       testPlanId: true,
       validationDomain: true,
       verificationProfile: true,
+      customFields: true,
       sharedStepGroupId: true,
       steps: {
         orderBy: { order: "asc" },
@@ -161,6 +195,32 @@ async function sourceState(
   const definition = definitionSchema.parse(source);
   z.string().max(240).nullable().parse(source.suitePath);
   verificationProfileSchema.strict().parse(source.verificationProfile);
+  const projectFields = await tx.project.findUniqueOrThrow({
+    where: { id: input.projectId },
+    select: {
+      organizationId: true,
+      caseFieldSchema: true,
+      caseFieldSchemaVersion: true,
+    },
+  });
+  const fieldSchema = caseFieldSchema.parse(projectFields.caseFieldSchema);
+  const authoredFields = caseFieldValues.parse(source.customFields);
+  const fieldProblems = validateCaseFieldValues(
+    fieldSchema,
+    authoredFields,
+    {},
+  );
+  if (fieldProblems.length)
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message: `${source.displayId} cannot be copied without losing or invalidating human metadata: ${fieldProblems.join(" ")} Complete required source fields, or ask the project owner to restore a compatible active definition for retained fields.`,
+    });
+  const expectedFieldSchemaHash = qualityProfileHash({
+    projectId: input.projectId,
+    organizationId: projectFields.organizationId,
+    version: projectFields.caseFieldSchemaVersion,
+    schema: fieldSchema,
+  });
   const mediaReferencesExcluded = steps.reduce(
     (sum, s) => sum + (s.mediaAttachmentIds?.length ?? 0),
     0,
@@ -177,6 +237,8 @@ async function sourceState(
     source,
     definition,
     authoredSteps,
+    authoredFields,
+    expectedFieldSchemaHash,
     preview: {
       sourceId: source.id,
       sourceDisplayId: source.displayId,
@@ -185,6 +247,8 @@ async function sourceState(
         projectId: input.projectId,
         content: testCaseContentRevision(source),
         archived: source.archived,
+        authoredFields,
+        expectedFieldSchemaHash,
       }),
       suggestedTitle: `Copy of ${source.title}`.slice(0, 10000),
       suitePath: source.suitePath,
@@ -198,11 +262,13 @@ async function sourceState(
           string
         >,
         steps: authoredSteps,
+        customFields: authoredFields,
       },
       sharedProcedureMaterialized: Boolean(source.sharedStepGroupId),
       mediaReferencesExcluded,
       warnings: [
         exclusionNotice,
+        "Supported current human case fields are preserved. Missing required fields or retained metadata without a compatible active definition block duplication rather than being dropped.",
         "The new case receives a fresh stable ID, Manual automation and Pending review. Its priority is a new manual decision, not a copy of past risk or business-override evidence.",
         ...(source.sharedStepGroupId
           ? [
@@ -229,12 +295,71 @@ export async function previewCaseClone(
   db: PrismaClient,
   userId: string,
   input: z.infer<typeof cloneScopeSchema>,
-) {
+): Promise<
+  Awaited<ReturnType<typeof sourceState>>["preview"] & {
+    projectId?: string;
+    organizationId?: string;
+    clerkActorId?: string;
+    copyParameterDataset?: boolean;
+    datasetAvailable?: boolean;
+    datasetReviewHash?: string;
+    datasetSource?: Awaited<
+      ReturnType<typeof prepareIndependentCloneDataset>
+    >["source"];
+    dataset?: Awaited<
+      ReturnType<typeof prepareIndependentCloneDataset>
+    >["data"];
+  }
+> {
   return db.$transaction(
     async (tx) => {
       await requireCurrentPlanAccess(tx, userId, input.projectId, true);
+      const scoped = input.expectedScope || input.copyParameterDataset;
+      if (scoped) await lockCaseFieldProject(tx, userId, input.projectId);
+      const scope = scoped
+        ? await independentCloneScope(
+            tx,
+            userId,
+            input.projectId,
+            input.expectedScope,
+          )
+        : null;
       try {
-        return (await sourceState(tx, input)).preview;
+        const state = await sourceState(tx, input);
+        if (input.copyParameterDataset) {
+          const p = await prepareIndependentCloneDataset(
+            tx,
+            input.projectId,
+            state,
+          );
+          return {
+            ...state.preview,
+            ...scope!,
+            copyParameterDataset: true,
+            datasetAvailable: true,
+            datasetSource: p.source,
+            dataset: p.data,
+            datasetReviewHash: p.reviewHash,
+            warnings: [
+              ...state.preview.warnings.map((w) =>
+                w === exclusionNotice ? w.replace("datasets, ", "") : w,
+              ),
+              "The explicitly reviewed supported dataset is copied to a fresh dataset identity and row indexes; old dataset approvals, versions and executions are not copied. Resolver compatibility is not execution or readiness acceptance.",
+            ],
+          };
+        }
+        // Exact legacy preview shape when no new optional scope or flag exists.
+        if (!scope) return state.preview;
+        const datasetAvailable = !!(await tx.testCaseDataset.findUnique({
+          where: { testCaseId: state.source.id },
+          select: { id: true },
+        }));
+        return {
+          ...state.preview,
+          ...scope,
+          copyParameterDataset: false,
+          datasetAvailable,
+        };
       } catch (error) {
         if (error instanceof z.ZodError)
           throw new TRPCError({
@@ -256,15 +381,46 @@ export async function cloneCase(
   db: PrismaClient,
   userId: string,
   input: z.infer<typeof cloneInputSchema>,
-) {
+): Promise<{
+  caseId: string;
+  displayId: string;
+  replayed: boolean;
+  requestId?: string;
+  projectId?: string;
+  organizationId?: string;
+  clerkActorId?: string;
+  copyParameterDataset?: true;
+  datasetReviewHash?: string;
+  copiedDataset?: z.infer<typeof cloneDatasetMappingSchema>;
+}> {
+  if (
+    input.copyParameterDataset &&
+    (!input.expectedScope ||
+      !input.expectedDatasetHash ||
+      !input.expectedDataset)
+  )
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message:
+        "Review the complete independent dataset and original account/workspace before duplication.",
+    });
   const requestHash = qualityProfileHash(input);
   return db.$transaction(
     async (tx) => {
-      await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${input.projectId}))::text`;
-      await tx.$queryRaw`SELECT id FROM "Project" WHERE id=${input.projectId} FOR UPDATE`;
-      await tx.$queryRaw`SELECT o.id FROM "Organization" o JOIN "Project" p ON p."organizationId"=o.id WHERE p.id=${input.projectId} FOR SHARE OF o`;
-      await tx.$queryRaw`SELECT m.id FROM "Membership" m JOIN "Project" p ON p."organizationId"=m."organizationId" WHERE p.id=${input.projectId} AND m."userId"=${userId} FOR SHARE OF m`;
-      await requireCurrentPlanAccess(tx, userId, input.projectId, true);
+      await lockCaseFieldProject(tx, userId, input.projectId);
+      const organization = await tx.project.findUniqueOrThrow({
+        where: { id: input.projectId },
+        select: { organizationId: true },
+      });
+      const scope =
+        input.expectedScope || input.copyParameterDataset
+          ? await independentCloneScope(
+              tx,
+              userId,
+              input.projectId,
+              input.expectedScope,
+            )
+          : null;
       const receipt = await tx.auditLog.findFirst({
         where: {
           projectId: input.projectId,
@@ -272,14 +428,27 @@ export async function cloneCase(
           entityType: "TestCaseClone",
           metadata: { path: ["requestId"], equals: input.requestId },
         },
-        select: { metadata: true },
+        select: { metadata: true, organizationId: true },
       });
       if (receipt) {
+        if (receipt.organizationId !== organization.organizationId)
+          throw new TRPCError({
+            code: "FORBIDDEN",
+            message:
+              "The retained clone belongs to the project's previous organization and cannot be replayed in its current scope.",
+          });
         const saved = z
           .object({
             requestHash: z.string(),
             caseId: z.string(),
             displayId: z.string(),
+            sourceCaseId: z.string().optional(),
+            copyParameterDataset: z.literal(true).optional(),
+            datasetReviewHash: z
+              .string()
+              .regex(/^[a-f0-9]{64}$/)
+              .optional(),
+            copiedDataset: cloneDatasetMappingSchema.optional(),
           })
           .safeParse(receipt.metadata);
         if (!saved.success || saved.data.requestHash !== requestHash)
@@ -287,6 +456,42 @@ export async function cloneCase(
             code: "CONFLICT",
             message:
               "This request identity was already used for a different duplicate review.",
+          });
+        if (input.copyParameterDataset) {
+          if (
+            !saved.data.copyParameterDataset ||
+            !saved.data.copiedDataset ||
+            saved.data.datasetReviewHash !== input.expectedDatasetHash ||
+            !input.expectedDataset ||
+            saved.data.sourceCaseId !== input.caseId
+          )
+            throw new TRPCError({
+              code: "CONFLICT",
+              message:
+                "Retained independent dataset receipt does not match this exact reviewed request; nothing was recreated.",
+            });
+          validatedDatasetReplay(
+            input.projectId,
+            [input.expectedDataset],
+            [saved.data.copiedDataset],
+            [
+              {
+                sourceId: input.caseId,
+                caseId: saved.data.caseId,
+                displayId: saved.data.displayId,
+              },
+            ],
+            saved.data.datasetReviewHash!,
+          );
+        } else if (
+          saved.data.copyParameterDataset ||
+          saved.data.copiedDataset ||
+          saved.data.datasetReviewHash
+        )
+          throw new TRPCError({
+            code: "CONFLICT",
+            message:
+              "Retained dataset mode does not match this ordinary duplicate request.",
           });
         if (
           !(await tx.testCase.findFirst({
@@ -303,9 +508,23 @@ export async function cloneCase(
           caseId: saved.data.caseId,
           displayId: saved.data.displayId,
           replayed: true,
+          ...(scope ? { ...scope, requestId: input.requestId } : {}),
+          ...(input.copyParameterDataset
+            ? {
+                copyParameterDataset: true as const,
+                datasetReviewHash: saved.data.datasetReviewHash,
+                copiedDataset: saved.data.copiedDataset,
+              }
+            : {}),
         };
       }
-      await tx.$queryRaw`SELECT id FROM "TestCase" WHERE id=${input.caseId} AND "projectId"=${input.projectId} FOR SHARE`;
+      if (input.copyParameterDataset) {
+        // UPDATE prevents a new dataset or prerequisite FK appearing after the
+        // negative dependency check. SHARE protects existing dataset body edits.
+        await tx.$queryRaw`SELECT id FROM "TestCase" WHERE id=${input.caseId} AND "projectId"=${input.projectId} FOR UPDATE`;
+        await tx.$queryRaw`SELECT d.id FROM "TestCaseDataset" d JOIN "TestCase" c ON c.id=d."testCaseId" WHERE c.id=${input.caseId} AND c."projectId"=${input.projectId} FOR SHARE OF d`;
+      } else
+        await tx.$queryRaw`SELECT id FROM "TestCase" WHERE id=${input.caseId} AND "projectId"=${input.projectId} FOR SHARE`;
       await tx.$queryRaw`SELECT s.id FROM "TestCaseStep" s JOIN "TestCase" c ON c.id=s."testCaseId" WHERE c.id=${input.caseId} AND c."projectId"=${input.projectId} FOR SHARE OF s`;
       await tx.$queryRaw`SELECT g.id FROM "SharedStepGroup" g JOIN "TestCase" c ON c."sharedStepGroupId"=g.id WHERE c.id=${input.caseId} AND c."projectId"=${input.projectId} AND g."projectId"=${input.projectId} FOR SHARE OF g`;
       let state;
@@ -326,107 +545,206 @@ export async function cloneCase(
           message:
             "The source changed after review. Refresh and review it again; nothing was copied.",
         });
-      const destination = await tx.testCase.aggregate({
+      const plan = input.copyParameterDataset
+        ? await prepareIndependentCloneDataset(
+            tx,
+            input.projectId,
+            state,
+            input.title,
+          )
+        : null;
+      if (
+        plan &&
+        (plan.reviewHash !== input.expectedDatasetHash ||
+          qualityProfileHash(plan.source) !==
+            qualityProfileHash(input.expectedDataset))
+      )
+        throw new TRPCError({
+          code: "CONFLICT",
+          message:
+            "The complete saved dataset contents, identity or row order changed after review. Nothing was copied.",
+        });
+      const created = await createCaseCloneInTransaction(
+        tx,
+        userId,
+        input,
+        state,
+      );
+      if (!plan)
+        return {
+          ...created,
+          ...(scope ? { ...scope, requestId: input.requestId } : {}),
+        };
+      const copiedDataset = await createIndependentCloneDataset(
+        tx,
+        scope!,
+        userId,
+        input.requestId,
+        input.reason,
+        plan,
+        created,
+      );
+      const audit = await tx.auditLog.findFirstOrThrow({
         where: {
           projectId: input.projectId,
-          suitePath: input.suitePath,
-          archived: false,
-        },
-        _max: { sortPosition: true },
-      });
-      const sortPosition = (destination._max.sortPosition ?? -1) + 1;
-      if (sortPosition > 2147483647)
-        throw new TRPCError({
-          code: "BAD_REQUEST",
-          message:
-            "This suite's order needs normalization before another case can be appended. Nothing was copied.",
-        });
-      const created = await tx.testCase.create({
-        data: {
-          projectId: input.projectId,
-          ...state.definition,
-          title: input.title,
-          suitePath: input.suitePath,
-          sortPosition,
-          validationDomain: state.source.validationDomain,
-          verificationProfile: state.source
-            .verificationProfile as Prisma.InputJsonValue,
-          origin: "AUTHORED",
-          automationStatus: "MANUAL",
-          reviewStatus: "PENDING_REVIEW",
-          createdById: userId,
-          updatedById: userId,
-          steps: { create: state.authoredSteps },
-        },
-        include: { steps: { orderBy: { order: "asc" } } },
-      });
-      await snapshotTestCaseVersion(tx, {
-        testCaseId: created.id,
-        title: created.title,
-        background: created.background,
-        given: created.given,
-        when: created.when,
-        then: created.then,
-        steps: state.authoredSteps,
-        tags: created.tags,
-        priority: created.priority,
-        testType: created.testType,
-        actorId: userId,
-      });
-      const project = await tx.project.findUniqueOrThrow({
-        where: { id: input.projectId },
-        select: { organizationId: true },
-      });
-      await tx.auditLog.create({
-        data: {
-          organizationId: project.organizationId,
-          projectId: input.projectId,
+          organizationId: organization.organizationId,
           actorId: userId,
           entityType: "TestCaseClone",
-          entityId: created.id,
-          action: "CREATE",
-          summary: `Duplicated ${state.source.displayId} as ${created.displayId}`,
-          metadata: {
-            requestId: input.requestId,
-            requestHash,
-            caseId: created.id,
-            displayId: created.displayId,
-            sourceCaseId: state.source.id,
-            sourceDisplayId: state.source.displayId,
-            sourceRevision: input.expectedSourceRevision,
-            reason: input.reason,
-            sharedProcedureMaterialized:
-              state.preview.sharedProcedureMaterialized,
-            mediaReferencesExcluded: state.preview.mediaReferencesExcluded,
-            excluded: exclusionNotice,
-          },
+          entityId: created.caseId,
+          metadata: { path: ["requestId"], equals: input.requestId },
         },
+        select: { id: true, metadata: true },
       });
-      await tx.auditLog.create({
+      await tx.auditLog.update({
+        where: { id: audit.id },
         data: {
-          organizationId: project.organizationId,
-          projectId: input.projectId,
-          actorId: userId,
-          entityType: "TestCasePriority",
-          entityId: created.id,
-          action: "UPDATE",
-          summary:
-            "Set duplicated case priority as a new manual authoring decision",
           metadata: {
-            mode: "MANUAL",
-            to: created.priority,
-            rationale: input.reason,
-            riskSeverity: null,
-            riskScore: null,
+            ...(audit.metadata as Prisma.JsonObject),
+            copyParameterDataset: true,
+            datasetReviewHash: plan.reviewHash,
+            copiedDataset,
+            excluded: exclusionNotice.replace("datasets, ", ""),
           },
         },
       });
       return {
-        caseId: created.id,
-        displayId: created.displayId,
-        replayed: false,
+        ...created,
+        ...scope!,
+        requestId: input.requestId,
+        copyParameterDataset: true as const,
+        datasetReviewHash: plan.reviewHash,
+        copiedDataset,
       };
     },
     { timeout: 10000 },
   );
+}
+
+/** Reused inside an already authorized, locked reviewed transaction. */
+export async function createCaseCloneInTransaction(
+  tx: Prisma.TransactionClient,
+  userId: string,
+  input: z.infer<typeof cloneInputSchema>,
+  state: Awaited<ReturnType<typeof sourceState>>,
+  options: { sortPosition?: number } = {},
+) {
+  if (
+    input.caseId !== state.source.id ||
+    input.expectedSourceRevision !== state.preview.expectedSourceRevision
+  )
+    throw new TRPCError({
+      code: "CONFLICT",
+      message:
+        "The transaction-bound clone source does not match its reviewed identity.",
+    });
+  const requestHash = qualityProfileHash(input);
+  const destination = await tx.testCase.aggregate({
+    where: {
+      projectId: input.projectId,
+      suitePath: input.suitePath,
+      archived: false,
+    },
+    _max: { sortPosition: true },
+  });
+  const sortPosition =
+    options.sortPosition ?? (destination._max.sortPosition ?? -1) + 1;
+  if (
+    !Number.isInteger(sortPosition) ||
+    sortPosition < -2147483648 ||
+    sortPosition > 2147483647
+  )
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message:
+        "This suite's order needs normalization before another case can be appended. Nothing was copied.",
+    });
+  const fields = await assertCaseFieldAuthoring(tx, userId, input.projectId, {
+    values: state.authoredFields,
+    expectedSchemaHash: state.expectedFieldSchemaHash,
+  });
+  const created = await tx.testCase.create({
+    data: {
+      projectId: input.projectId,
+      ...state.definition,
+      customFields: fields,
+      title: input.title,
+      suitePath: input.suitePath,
+      sortPosition,
+      validationDomain: state.source.validationDomain,
+      verificationProfile: state.source
+        .verificationProfile as Prisma.InputJsonValue,
+      origin: "AUTHORED",
+      automationStatus: "MANUAL",
+      reviewStatus: "PENDING_REVIEW",
+      createdById: userId,
+      updatedById: userId,
+      steps: { create: state.authoredSteps },
+    },
+    include: { steps: { orderBy: { order: "asc" } } },
+  });
+  await snapshotTestCaseVersion(tx, {
+    testCaseId: created.id,
+    title: created.title,
+    background: created.background,
+    given: created.given,
+    when: created.when,
+    then: created.then,
+    steps: state.authoredSteps,
+    tags: created.tags,
+    priority: created.priority,
+    testType: created.testType,
+    actorId: userId,
+  });
+  const project = await tx.project.findUniqueOrThrow({
+    where: { id: input.projectId },
+    select: { organizationId: true },
+  });
+  await tx.auditLog.create({
+    data: {
+      organizationId: project.organizationId,
+      projectId: input.projectId,
+      actorId: userId,
+      entityType: "TestCaseClone",
+      entityId: created.id,
+      action: "CREATE",
+      summary: `Duplicated ${state.source.displayId} as ${created.displayId}`,
+      metadata: {
+        requestId: input.requestId,
+        requestHash,
+        caseId: created.id,
+        displayId: created.displayId,
+        sourceCaseId: state.source.id,
+        sourceDisplayId: state.source.displayId,
+        sourceRevision: input.expectedSourceRevision,
+        reason: input.reason,
+        sharedProcedureMaterialized: state.preview.sharedProcedureMaterialized,
+        mediaReferencesExcluded: state.preview.mediaReferencesExcluded,
+        excluded: exclusionNotice,
+      },
+    },
+  });
+  await tx.auditLog.create({
+    data: {
+      organizationId: project.organizationId,
+      projectId: input.projectId,
+      actorId: userId,
+      entityType: "TestCasePriority",
+      entityId: created.id,
+      action: "UPDATE",
+      summary:
+        "Set duplicated case priority as a new manual authoring decision",
+      metadata: {
+        mode: "MANUAL",
+        to: created.priority,
+        rationale: input.reason,
+        riskSeverity: null,
+        riskScore: null,
+      },
+    },
+  });
+  return {
+    caseId: created.id,
+    displayId: created.displayId,
+    replayed: false,
+  };
 }

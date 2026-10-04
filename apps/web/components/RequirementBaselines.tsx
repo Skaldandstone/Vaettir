@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useAuth } from "@clerk/nextjs";
 import Link from "next/link";
 import { trpcReact, type RouterOutputs } from "@/lib/trpcReact";
@@ -26,7 +26,7 @@ function Register({ projectId }: { projectId: string }) {
   const sameScope = (value: { projectId: string; organizationId: string; clerkActorId: string } | undefined) => ready && value?.projectId === projectId && value.organizationId === origin!.organizationId && value.clerkActorId === origin!.clerkActorId;
   const mounted = useRef(true);
   const receiptRef = useRef<{ input: RequirementBaselineCapture; uncertain: boolean } | null>(null);
-  useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
+  useLayoutEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
   const [offset, setOffset] = useState(0), [search, setSearch] = useState(""), [open, setOpen] = useState(false),
     [target, setTarget] = useState<Target>({}), [historyOffset, setHistoryOffset] = useState(0), [affectedOffset, setAffectedOffset] = useState(0),
     [reviewing, setReviewing] = useState(false), [screen, setScreen] = useState(0), [rationale, setRationale] = useState(""),
@@ -40,21 +40,29 @@ function Register({ projectId }: { projectId: string }) {
   const mutation = trpcReact.requirementBaselines.capture.useMutation();
   const access = ready && !permissions.error && !permissions.isFetching && !permissions.isPaused && permissions.isFetchedAfterMount &&
     sameScope(permissions.data) ? permissions.data : null;
-  const liveCapture = useRef({ available: false, epoch: 0, organizationId: "", clerkActorId: "" });
+  const liveCapture = useRef({ available: false, epoch: -1, organizationId: "", clerkActorId: "" });
   const captureAvailable = ready && !!access?.canWrite;
-  if (liveCapture.current.available !== captureAvailable || liveCapture.current.organizationId !== origin?.organizationId || liveCapture.current.clerkActorId !== userId) {
-    liveCapture.current = { available: captureAvailable, epoch: liveCapture.current.epoch + 1, organizationId: origin?.organizationId ?? "", clerkActorId: userId ?? "" };
-  }
+  const captureOrganizationId = origin?.organizationId ?? "";
+  const captureClerkActorId = userId ?? "";
+  const [captureState, setCaptureState] = useState({ available: captureAvailable, organizationId: captureOrganizationId, clerkActorId: captureClerkActorId, epoch: 0 });
+  const captureChanged = captureState.available !== captureAvailable || captureState.organizationId !== captureOrganizationId || captureState.clerkActorId !== captureClerkActorId;
+  const captureEpoch = captureChanged ? captureState.epoch + 1 : captureState.epoch;
+  if (captureChanged) setCaptureState({ available: captureAvailable, organizationId: captureOrganizationId, clerkActorId: captureClerkActorId, epoch: captureEpoch });
+  useLayoutEffect(() => {
+    liveCapture.current = { available: captureAvailable, epoch: captureEpoch, organizationId: captureOrganizationId, clerkActorId: captureClerkActorId };
+    return () => { liveCapture.current = { available: false, epoch: -1, organizationId: "", clerkActorId: "" }; };
+  }, [captureAvailable, captureEpoch, captureOrganizationId, captureClerkActorId]);
   const catalog = !!access && !list.error && !list.isFetching && !list.isPaused && list.isFetchedAfterMount && list.data?.projectId === projectId && sameScope(list.data) &&
     list.data.offset === offset && list.data.search === searchTerm ? list.data : null;
   const current = open && !!access && !detail.error && !detail.isFetching && !detail.isPaused && detail.isFetchedAfterMount && detail.data?.projectId === projectId && sameScope(detail.data) &&
     detail.data.requested.requirementId === (target.requirementId ?? null) && detail.data.requested.baselineId === (target.baselineId ?? null) &&
     detail.data.requested.historyOffset === historyOffset && detail.data.requested.affectedOffset === affectedOffset ? detail.data : null;
   const canReview = !!access?.canWrite && !!current?.canWrite && current.captureAvailable && current.selectedIsLatest && !!current.requirementId && !!current.currentFingerprint;
-  const availability = useRef({ ready: false, epoch: 0 });
-  if (availability.current.ready !== !!canReview) { availability.current.ready = !!canReview; availability.current.epoch++; }
+  const [availability, setAvailability] = useState({ ready: !!canReview, epoch: 0 });
+  const reviewEpoch = availability.ready === !!canReview ? availability.epoch : availability.epoch + 1;
+  if (availability.ready !== !!canReview) setAvailability({ ready: !!canReview, epoch: reviewEpoch });
   const reviewed = canReview && !!approval && current!.requirementId === approval.requirementId &&
-    current!.currentFingerprint === approval.fingerprint && current!.latestVersion === approval.version && approval.response === current && approval.epoch === availability.current.epoch;
+    current!.currentFingerprint === approval.fingerprint && current!.latestVersion === approval.version && approval.response === current && approval.epoch === reviewEpoch;
   useEffect(() => { if (!reviewed) setAcknowledged(false); }, [reviewed]);
   const frozen = mutation.isPending || !!pending;
   const prefix = `/projects/${encodeURIComponent(projectId)}`;
@@ -64,7 +72,7 @@ function Register({ projectId }: { projectId: string }) {
   }
   function startReview() {
     if (!canReview || !current || frozen) return;
-    setApproval({ requirementId: current.requirementId!, fingerprint: current.currentFingerprint!, version: current.latestVersion, response: current, epoch: availability.current.epoch });
+    setApproval({ requirementId: current.requirementId!, fingerprint: current.currentFingerprint!, version: current.latestVersion, response: current, epoch: reviewEpoch });
     setAcknowledged(false); setScreen(0); setReviewing(true); setMessage("");
   }
   async function send(input: RequirementBaselineCapture, recovering = false) {

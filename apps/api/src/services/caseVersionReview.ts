@@ -10,6 +10,10 @@ import {
   verificationProfileSchema,
 } from "./physicalValidation.js";
 import { snapshotTestCaseVersion } from "./testCaseVersion.js";
+import {
+  assertCaseFieldAuthoring,
+  lockCaseFieldProject,
+} from "./caseFields.js";
 
 export const restoreFieldSchema = z.enum([
   "title",
@@ -468,11 +472,8 @@ export async function restoreCaseVersion(
   });
   return db.$transaction(
     async (tx) => {
-      await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${input.projectId}))::text`;
-      await tx.$queryRaw`SELECT id FROM "Project" WHERE id = ${input.projectId} FOR UPDATE`;
-      await tx.$queryRaw`SELECT o.id FROM "Organization" o JOIN "Project" p ON p."organizationId" = o.id WHERE p.id = ${input.projectId} FOR SHARE OF o`;
+      await lockCaseFieldProject(tx, userId, input.projectId);
       await tx.$queryRaw`SELECT id FROM "TestCase" WHERE id = ${input.testCaseId} AND "projectId" = ${input.projectId} FOR UPDATE`;
-      await tx.$queryRaw`SELECT m.id FROM "Membership" m JOIN "Project" p ON p."organizationId" = m."organizationId" WHERE p.id = ${input.projectId} AND m."userId" = ${userId} FOR SHARE OF m`;
       await tx.$queryRaw`SELECT id FROM "TestCaseStep" WHERE "testCaseId" = ${input.testCaseId} FOR UPDATE`;
       await tx.$queryRaw`SELECT g.id FROM "SharedStepGroup" g JOIN "TestCase" c ON c."sharedStepGroupId" = g.id WHERE c.id = ${input.testCaseId} AND c."projectId" = ${input.projectId} FOR SHARE OF g`;
       await tx.$queryRaw`SELECT id FROM "TestCaseVersion" WHERE "testCaseId" = ${input.testCaseId} AND "versionNumber" = ${input.versionNumber} FOR SHARE`;
@@ -509,6 +510,11 @@ export async function restoreCaseVersion(
           replayed: true,
         };
       }
+      // Old versions do not contain custom metadata. Keep current values;
+      // explicit content restoration requires current required fields complete.
+      await assertCaseFieldAuthoring(tx, userId, input.projectId, {
+        caseId: input.testCaseId,
+      });
       const { current, saved, normalizedSteps, preview } = await reviewState(
         tx,
         input,

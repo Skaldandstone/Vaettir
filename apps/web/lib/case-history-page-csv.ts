@@ -1,4 +1,3 @@
-import { z } from "zod";
 import {
   caseExecutionHistoryItemSchema,
   caseExecutionHistoryPageSchema,
@@ -14,57 +13,48 @@ import {
   type CaseExecutionHistoryInput,
 } from "@vaettir/api/src/services/caseExecutionHistoryScopeSchema";
 
+import { hasIdentityControl } from "./control-characters";
 const encoder = new TextEncoder();
 const MAX_PAGE_BYTES = 4 * 1024 * 1024;
-const refuse = (): never => {
+function refuse(): never {
   throw Error(
     "This exact current history page or its review is unavailable, unsupported or changed. No partial CSV was prepared.",
   );
-};
-const identity = z
-  .string()
+}
+const itemShape = caseExecutionHistoryItemSchema.shape;
+// Reuse public core schemas rather than importing an undeclared web runtime
+// dependency. The same Zod schema methods retain strict validation throughout.
+const identity = caseExecutionHistoryPageSchema.shape.testCase.shape.id
   .min(1)
   .max(200)
   .refine((value) => {
-    if (/[\u0000-\u001f\u007f-\u009f]/.test(value)) return false;
+    if (hasIdentityControl(value, true)) return false;
     for (const character of value) {
       const code = character.codePointAt(0)!;
       if (code >= 0xd800 && code <= 0xdfff) return false;
     }
     return true;
   });
-const text = (max: number) => z.string().max(max);
-const count = z.number().int().min(0).max(Number.MAX_SAFE_INTEGER);
-const instant = z
-  .string()
-  .datetime()
-  .refine(
-    (value) =>
-      Number.isFinite(Date.parse(value)) &&
-      new Date(value).toISOString() === value,
-  );
-const wholeCase = z
-  .object({
-    revisionCount: z.number().int().min(1).max(100),
-    correctionCount: count.max(100),
-    lastRecorderName: z.string().min(1).max(200),
-    lastRecordedAt: instant,
-    lastStatus: z.enum(["PASS", "FAIL", "BLOCKED", "SKIP"]),
-  })
-  .strict()
-  .refine((value) => value.correctionCount <= value.revisionCount);
-const itemShape = caseExecutionHistoryItemSchema.shape;
+const text = (max: number) => itemShape.provider.max(max);
+const count = itemShape.steps.shape.recordedCount.max(Number.MAX_SAFE_INTEGER);
+const instant = itemShape.startedAt.refine(
+  (value) =>
+    Number.isFinite(Date.parse(value)) &&
+    new Date(value).toISOString() === value,
+);
+const wholeCase = itemShape.wholeCase
+  .unwrap()
+  .unwrap()
+  .refine((value) => instant.safeParse(value.lastRecordedAt).success);
 const strictItem = caseExecutionHistoryItemSchema.strict().extend({
   runId: identity,
   provider: text(2000),
   startedAt: instant,
   finishedAt: instant.nullable(),
-  outcomeCounts: z
-    .array(
-      itemShape.outcomeCounts.element
-        .strict()
-        .extend({ count: count.positive() }),
-    )
+  outcomeCounts: itemShape.outcomeCounts.element
+    .strict()
+    .extend({ count: count.positive() })
+    .array()
     .max(5),
   platform: text(300).nullable(),
   build: text(300).nullable(),
@@ -75,13 +65,11 @@ const strictItem = caseExecutionHistoryItemSchema.strict().extend({
     .strict()
     .extend({ id: identity, label: text(2000) })
     .nullable(),
-  definition: itemShape.definition
-    .strict()
-    .extend({
-      originalCaseId: identity,
-      titleAtRun: text(10000).nullable(),
-      stepCount: count.max(500).nullable(),
-    }),
+  definition: itemShape.definition.strict().extend({
+    originalCaseId: identity,
+    titleAtRun: text(10000).nullable(),
+    stepCount: count.max(500).nullable(),
+  }),
   steps: itemShape.steps.strict().extend({
     recordedCount: count,
     correctionCount: count,
@@ -97,23 +85,32 @@ const strictItem = caseExecutionHistoryItemSchema.strict().extend({
   }),
   artifactCount: count,
   wholeCase: wholeCase.nullable().optional(),
-  limitations: z.array(text(4000)).max(16),
+  limitations: text(4000).array().max(16),
 });
 const strictPage = caseExecutionHistoryPageSchema.strict().extend({
   testCase: caseExecutionHistoryPageSchema.shape.testCase
     .strict()
     .extend({ id: identity, displayId: identity, title: text(10000) }),
-  items: z.array(strictItem).max(25),
+  items: strictItem.array().max(25),
   projectId: identity,
   organizationId: identity,
   actorClerkUserId: identity,
-  requested: z.string().min(1).max(65536),
+  requested: caseExecutionHistoryPageSchema.shape.requested
+    .unwrap()
+    .min(1)
+    .max(65536),
   observedAt: instant,
-  window: z.object({ start: instant, end: instant }).strict().nullable(),
-  limits: z.array(text(4000)).max(8),
-  nextCursor: z
-    .object({ runId: identity, filterKey: z.string().max(32768).optional() })
+  window: caseExecutionHistoryPageSchema.shape.window
+    .unwrap()
+    .unwrap()
     .strict()
+    .extend({ start: instant, end: instant })
+    .nullable(),
+  limits: text(4000).array().max(8),
+  nextCursor: caseExecutionHistoryPageSchema.shape.nextCursor
+    .unwrap()
+    .strict()
+    .extend({ runId: identity })
     .nullable(),
 });
 

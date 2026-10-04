@@ -51,6 +51,17 @@ export default function AdminOrganizationDetailPage() {
   const [confirmSlug, setConfirmSlug] = useState("");
   const [deleting, setDeleting] = useState(false);
   const [deleteResult, setDeleteResult] = useState<RouterOutputs["admin"]["hardDeleteOrganization"] | null>(null);
+  const reportErasureScope = deletePreview?.organizationId === organizationId
+    && deletePreview.reportScope?.originalOrganizationId === organizationId
+    && deletePreview.reportScope.basis === "ORIGINAL_ORGANIZATION"
+    ? deletePreview.reportScope : null;
+  const manualCaseErasureScope = deletePreview?.organizationId === organizationId
+    && deletePreview.manualCaseResultScope?.originalOrganizationId === organizationId
+    && deletePreview.manualCaseResultScope.basis === "ORIGINAL_ORGANIZATION"
+    ? deletePreview.manualCaseResultScope : null;
+  const deletionReviewReady = !!reportErasureScope && !reportErasureScope.blocked
+    && !!manualCaseErasureScope && !manualCaseErasureScope.blocked
+    && org?.id === organizationId && !orgQuery.error && !orgQuery.isFetching && !orgQuery.isPaused;
 
   async function loadAll() {
     setPlanTierOverride(null);
@@ -159,6 +170,9 @@ export default function AdminOrganizationDetailPage() {
     setError(null);
     try {
       const preview = await utils.admin.previewOrgHardDelete.fetch({ organizationId });
+      if (preview.organizationId !== organizationId || preview.reportScope?.originalOrganizationId !== organizationId) {
+        throw new Error("Deletion preview scope could not be verified. Nothing was deleted.");
+      }
       setDeletePreview(preview);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -170,6 +184,10 @@ export default function AdminOrganizationDetailPage() {
   async function confirmHardDelete() {
     const r = requireReason();
     if (!r || !org || !deletePreview) return;
+    if (!deletionReviewReady) {
+      setError("Current organization and original report ownership must be verified and reconciled before deletion.");
+      return;
+    }
     if (confirmSlug !== org.slug) {
       setError(`Confirmation text must exactly match the organization's slug ("${org.slug}")`);
       return;
@@ -406,6 +424,46 @@ export default function AdminOrganizationDetailPage() {
                   </li>
                 ))}
             </ul>
+            <section aria-label="Report ownership in deletion preview">
+              <h4>Original report ownership</h4>
+              {!reportErasureScope ? (
+                <p role="alert">Report ownership could not be verified. Refresh the preview; deletion is blocked.</p>
+              ) : (
+                <>
+                  <p>Report counts follow their original organization, including retained reports on projects that now belong elsewhere. Those other projects are not deleted.</p>
+                  <ul>
+                    {Object.entries(reportErasureScope.originalRecordsOnReparentedProjects).map(([model, count]) => (
+                      <li key={model}>{model} on moved projects: {count}</li>
+                    ))}
+                  </ul>
+                  {reportErasureScope.blocked && (
+                    <div role="alert">
+                      <p>Deletion blocked: foreign-original report ownership must be explicitly reconciled first. No records have been deleted by this preview.</p>
+                      <ul>
+                        {Object.entries(reportErasureScope.unsupportedForeignOriginalRecordsOnCurrentProjects).map(([model, count]) => (
+                          <li key={model}>{model} owned elsewhere: {count}</li>
+                        ))}
+                        <li>Foreign snapshots referencing original definitions: {reportErasureScope.unsupportedForeignSnapshotsReferencingOriginalDefinitions}</li>
+                      </ul>
+                    </div>
+                  )}
+                  <ul>{reportErasureScope.limitations.map((note) => <li key={note}>{note}</li>)}</ul>
+                </>
+              )}
+            </section>
+            <section aria-label="Whole-case history ownership in deletion preview">
+              <h4>Original whole-case observation history</h4>
+              {!manualCaseErasureScope ? (
+                <p role="alert">Original history ownership is unavailable. Refresh the preview; deletion is blocked.</p>
+              ) : (
+                <>
+                  <p>Recorded whole-case heads: {deletePreview.rowCounts.ManualCaseResultHead}. Immutable observation revisions: {deletePreview.rowCounts.ManualCaseResultRevision}.</p>
+                  <p>Complete erasure limits: {manualCaseErasureScope.limits.heads} heads and {manualCaseErasureScope.limits.revisions} revisions. Counts are not truncated; exceeding either limit blocks deletion.</p>
+                  {manualCaseErasureScope.blocked && <p role="alert">Deletion blocked: unsupported original history scope or inventory must be reconciled first. No records have been deleted by this preview. Unsupported native tuples: {manualCaseErasureScope.unsupportedOriginalScopeTuples}.</p>}
+                  <ul>{manualCaseErasureScope.limitations.map(note => <li key={note}>{note}</li>)}</ul>
+                </>
+              )}
+            </section>
             <label>
               Type the organization&apos;s slug (<code>{org.slug}</code>) to confirm
               <input value={confirmSlug} onChange={(e) => setConfirmSlug(e.target.value)} style={{ width: "100%" }} />
@@ -422,7 +480,7 @@ export default function AdminOrganizationDetailPage() {
               </button>
               <button
                 onClick={confirmHardDelete}
-                disabled={deleting || confirmSlug !== org.slug}
+                disabled={deleting || !deletionReviewReady || confirmSlug !== org.slug}
                 style={{ color: "var(--ember)" }}
               >
                 {deleting ? "Deleting…" : "Permanently delete"}

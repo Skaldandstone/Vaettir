@@ -68,7 +68,9 @@ describe("current native release-plan report membership", () => {
         "Owned native release scope fixture erasure",
       );
     }
-    await prisma.user.deleteMany({ where: { id: actorId } });
+    // Retain the dedicated synthetic actor referenced by the durable deletion receipts.
+    for (const organizationId of orgIds)
+      expect(await prisma.organizationDeletionLog.count({ where: { organizationId, deletedById: actorId } })).toBe(1);
   });
   async function release(count: number, name = "Synthetic native release") {
     const item = await prisma.release.create({

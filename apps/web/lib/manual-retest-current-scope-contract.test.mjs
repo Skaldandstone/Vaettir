@@ -4,6 +4,12 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 const ui = readFileSync(new URL("../components/ManualRetestWizard.tsx", import.meta.url), "utf8");
+
+test("retest actor/access/open event refs publish only after React commits their tracked scope", () => {
+  for (const literal of ["useLayoutEffect(() => { actorNow.current = { actorReady, userId }; }, [actorReady, userId])", "useLayoutEffect(() => { accessNow.current = access; }, [access])", "useLayoutEffect(() => { openNow.current = open && active; }, [open, active])"]) assert.ok(ui.includes(literal), literal);
+  assert.ok(!ui.includes("const accessNow = useRef(access); accessNow.current = access"));
+  assert.ok(!ui.includes("const actorNow = useRef({ actorReady, userId }); actorNow.current"));
+});
 const access = readFileSync(new URL("../../api/src/services/manualRetestScope.ts", import.meta.url), "utf8");
 const service = readFileSync(new URL("../../api/src/services/manualRetest.ts", import.meta.url), "utf8");
 const router = readFileSync(new URL("../../api/src/routers/manualRetest.ts", import.meta.url), "utf8");

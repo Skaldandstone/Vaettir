@@ -7,6 +7,8 @@ import { prisma, Prisma } from "@vaettir/db";
 import { lockManualExecutionReadScope } from "./services/manualExecutionReadScope.js";
 import { manualExecutionReadRequestKey } from "./services/manualExecutionReadScopeSchema.js";
 import { hardDeleteOrganization } from "./services/orgHardDelete.js";
+import { sharedStepGroupsRouter } from "./routers/sharedStepGroups.js";
+import { sharedLibraryWriteSchema } from "./services/sharedStepHistorySchema.js";
 describe("manual execution read identity and bounds (NOT RUN)", () => {
   const tag = `manual-read-${randomUUID()}`;
   let orgId: string,
@@ -372,38 +374,137 @@ describe("manual execution read identity and bounds (NOT RUN)", () => {
     );
   });
   it("refuses malformed/over500 shared procedure steps; supported stored steps are validated without normalization", async () => {
-    const group = await prisma.sharedStepGroup.create({
-      data: {
-        projectId,
-        name: "Owned shared setup",
-        steps: [{ action: "Arrange fixture", expectedResult: "Ready" }],
-      },
+    const user = await prisma.user.findUniqueOrThrow({
+      where: { id: actorId },
+      include: { memberships: true },
+    });
+    const library = sharedStepGroupsRouter.createCaller({ prisma, user });
+    const group = await library.create({
+      projectId,
+      name: "Owned shared setup",
+      steps: [{ action: "Arrange fixture", expectedResult: "Ready" }],
+      requestId: randomUUID(),
     });
     await prisma.testCase.update({
       where: { id: caseId },
       data: { sharedStepGroupId: group.id },
     });
+    const review = await library.review({ projectId, id: group.id });
+    const approved = {
+      projectId,
+      id: group.id,
+      expectedRevisionHash: review.revisionHash,
+      requestId: randomUUID(),
+      confirmed: true as const,
+      reason: "Reviewed owned synthetic library fixture update",
+      action: "UPDATE" as const,
+      content: {
+        name: "Owned shared setup",
+        description: null,
+        steps: [
+          {
+            order: 0,
+            action: "Reviewed fixture",
+            expectedActionOrData: null,
+            expectedResult: "Ready",
+            expectedResponse: null,
+          },
+        ],
+      },
+    };
+    await library.update(approved);
+    const before = await prisma.sharedStepGroup.findUniqueOrThrow({
+      where: { id: group.id },
+    });
+    const revisionsBefore = await prisma.sharedStepGroupRevision.findMany({
+      where: { groupId: group.id },
+      orderBy: { revision: "asc" },
+    });
+    expect(before.revision).toBe(review.revision + 1);
+    expect(revisionsBefore).toHaveLength(2);
+    expect(before.steps).toEqual(approved.content.steps);
     expect((await read()).testRunId).toBe(runId);
     for (const steps of [
       { unsupported: "not an array" },
       [{ action: 3 }],
       Array.from({ length: 501 }, () => ({ action: "Retained step" })),
     ]) {
-      await prisma.sharedStepGroup.update({
-        where: { id: group.id },
-        data: { steps },
-      });
-      await expect(read()).rejects.toMatchObject({
+      // The durable reviewed-writer guard remains enforced. Unsupported shapes
+      // cannot be newly stored through either a raw write or approved authoring.
+      await expect(
+        prisma.sharedStepGroup.update({
+          where: { id: group.id },
+          data: { steps },
+        }),
+      ).rejects.toThrow(/compatible reviewed writer/);
+      expect(
+        sharedLibraryWriteSchema.safeParse({
+          ...approved,
+          content: { ...approved.content, steps },
+        }).success,
+      ).toBe(false);
+      let malformedReads = 0;
+      await expect(
+        prisma.$transaction(
+          async (tx) => {
+            const malformed = new Proxy(tx, {
+              get(transaction, property) {
+                if (property !== "$queryRaw")
+                  return Reflect.get(transaction, property);
+                return async (...args: unknown[]) => {
+                  const rows: unknown = await Reflect.apply(
+                    transaction.$queryRaw,
+                    transaction,
+                    args,
+                  );
+                  const parts = args[0];
+                  const sql = Array.isArray(parts) ? parts.join("") : "";
+                  if (
+                    !sql.includes(
+                      'SELECT DISTINCT g.id,g.steps FROM "SharedStepGroup"',
+                    )
+                  )
+                    return rows;
+                  expect(Array.isArray(rows)).toBe(true);
+                  if (!Array.isArray(rows))
+                    throw Error("Expected scoped library rows");
+                  expect(rows.some((value) => value?.id === group.id)).toBe(
+                    true,
+                  );
+                  malformedReads++;
+                  // Only the returned owned library shape is fault-injected after
+                  // the actual query. All scope/byte/relationship checks stay real.
+                  return rows.map((value) =>
+                    value?.id === group.id ? { ...value, steps } : value,
+                  );
+                };
+              },
+            });
+            return lockManualExecutionReadScope(
+              malformed,
+              actorId,
+              clerkId,
+              scoped(),
+            );
+          },
+          { isolationLevel: "RepeatableRead", timeout: 20000 },
+        ),
+      ).rejects.toMatchObject({
         code: "PRECONDITION_FAILED",
       });
+      expect(malformedReads).toBe(1);
       expect(
-        (
-          await prisma.sharedStepGroup.findUniqueOrThrow({
-            where: { id: group.id },
-            select: { steps: true },
-          })
-        ).steps,
-      ).toEqual(steps);
+        await prisma.sharedStepGroup.findUniqueOrThrow({
+          where: { id: group.id },
+        }),
+      ).toEqual(before);
+      expect(
+        await prisma.sharedStepGroupRevision.findMany({
+          where: { groupId: group.id },
+          orderBy: { revision: "asc" },
+        }),
+      ).toEqual(revisionsBefore);
+      expect((await read()).testRunId).toBe(runId);
     }
   });
   it("refuses foreign/dangling/duplicate/cyclic/overbound prerequisite graph without disclosing foreign IDs or substituting edges", async () => {

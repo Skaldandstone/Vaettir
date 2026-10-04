@@ -78,7 +78,9 @@ test("page binds export to visible identity scope, archive state and explicit co
   assert.match(page, /Selected procedures JSON \(\{selectedExportCount\}\)/);
   assert.match(page, /utils.testCases.exportProcedure.fetch\(\{/);
   assert.match(page, /encodeCaseProcedureExport\(bundle\)/);
-  assert.match(page, /not a full backup and cannot yet be reimported/);
+  assert.match(page, /not a full backup/);
+  assert.match(page, /Existing same-project procedures can be restored\s+after explicit conflict review; unknown case IDs are not recreated/);
+  assert.match(page, /excludes attachment files, datasets, paid drafts and history/);
   assert.match(page, /r.displayId/);
   assert.match(page, /row.map\(spreadsheetText\)/);
 });

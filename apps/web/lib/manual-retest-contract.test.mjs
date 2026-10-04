@@ -36,8 +36,9 @@ test("retest uses fresh original review and never resets an ambiguous approved r
 });
 test("retest mounts are pinned to exact project, execution and stable case identity", () => {
   const history = source("../components/TestCaseExecutionHistory.tsx");
-  assert.match(history, /sourceRunId=\{item\.runId\}/);
-  assert.match(history, /testCaseId=\{item\.definition\.originalCaseId\}/);
+  assert.match(history, /setSelectedRetest\(\{ runId: item\.runId, caseId: item\.definition\.originalCaseId, canRetest:/);
+  assert.match(history, /sourceRunId=\{selectedRetest\.runId\} testCaseId=\{selectedRetest\.caseId\}/);
+  assert.match(history, /canRetest=\{selectedRetest\.canRetest && memberCanWrite\} active=\{!!page\}/);
   assert.match(
     history,
     /item\.outcome === "FAIL" \|\| item\.outcome === "BLOCKED"/,

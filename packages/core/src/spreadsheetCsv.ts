@@ -1,7 +1,17 @@
 export type SpreadsheetCsvCell = string | number;
 const MAX_CELL_BYTES = 32768;
 const MAX_FILE_BYTES = 1024 * 1024;
-const encoder = new TextEncoder();
+
+// Core is shared by browsers and servers and deliberately has no DOM or Node
+// ambient types. Count Unicode scalar UTF-8 bytes without a platform import.
+function utf8Bytes(value: string) {
+  let bytes = 0;
+  for (const character of value) {
+    const code = character.codePointAt(0)!;
+    bytes += code <= 0x7f ? 1 : code <= 0x7ff ? 2 : code <= 0xffff ? 3 : 4;
+  }
+  return bytes;
+}
 
 function cell(value: SpreadsheetCsvCell) {
   if (typeof value === "number") {
@@ -11,7 +21,7 @@ function cell(value: SpreadsheetCsvCell) {
       );
     return `"${String(value)}"`;
   }
-  if (encoder.encode(value).length > MAX_CELL_BYTES)
+  if (utf8Bytes(value) > MAX_CELL_BYTES)
     throw new Error("A retained text cell exceeds the supported CSV size.");
   for (let index = 0; index < value.length; index++) {
     const code = value.codePointAt(index)!;
@@ -55,7 +65,7 @@ export function renderBoundedSpreadsheetCsv(
     "\uFEFF" +
     [headers, ...rows].map((row) => row.map(cell).join(",")).join("\r\n") +
     "\r\n";
-  if (encoder.encode(value).length > MAX_FILE_BYTES)
+  if (utf8Bytes(value) > MAX_FILE_BYTES)
     throw new Error("This aggregate CSV exceeds the supported one MiB size.");
   return value;
 }

@@ -2,11 +2,22 @@ import { router } from "./trpc.js";
 import { defectMapRouter } from "./routers/defectMap.js";
 import { caseTraceabilityRouter } from "./routers/caseTraceability.js";
 import { caseExecutionHistoryRouter } from "./routers/caseExecutionHistory.js";
+import { recordedRunComparisonRouter } from "./routers/recordedRunComparison.js";
 import { recordedExecutionTrendsRouter } from "./routers/recordedExecutionTrends.js";
 import { caseVersionReviewRouter } from "./routers/caseVersionReview.js";
 import { caseCloneRouter } from "./routers/caseClone.js";
 import { caseQueriesRouter } from "./routers/caseQueries.js";
+import { caseQueryExportRouter } from "./routers/caseQueryExport.js";
+import { caseFoldersRouter } from "./routers/caseFolders.js";
+import { caseFieldsRouter } from "./routers/caseFields.js";
+import { qualityRisksRouter } from "./routers/qualityRisks.js";
+import { qualityRiskOverviewRouter } from "./routers/qualityRiskOverview.js";
+import { requirementBaselinesRouter } from "./routers/requirementBaselines.js";
+import { requirementCoverageRouter } from "./routers/requirementCoverage.js";
+import { caseAuthoringPresetsRouter } from "./routers/caseAuthoringPresets.js";
+import { caseProcedureReimportRouter } from "./routers/caseProcedureReimport.js";
 import { manualRetestRouter } from "./routers/manualRetest.js";
+import { manualCaseResultsRouter } from "./routers/manualCaseResults.js";
 import { reportSnapshotsRouter } from "./routers/reportSnapshots.js";
 import {driveConnectionsRouter} from "./routers/driveConnections.js";
 import {linearConnectionsRouter} from "./routers/linearConnections.js";
@@ -57,11 +68,22 @@ export const appRouter = router({
   defectMap: defectMapRouter,
   caseTraceability: caseTraceabilityRouter,
   caseExecutionHistory: caseExecutionHistoryRouter,
+  recordedRunComparison: recordedRunComparisonRouter,
   recordedExecutionTrends: recordedExecutionTrendsRouter,
   caseVersionReview: caseVersionReviewRouter,
   caseClone: caseCloneRouter,
   caseQueries: caseQueriesRouter,
+  caseQueryExport: caseQueryExportRouter,
+  caseFolders: caseFoldersRouter,
+  caseFields: caseFieldsRouter,
+  qualityRisks: qualityRisksRouter,
+  qualityRiskOverview: qualityRiskOverviewRouter,
+  requirementBaselines: requirementBaselinesRouter,
+  requirementCoverage: requirementCoverageRouter,
+  caseAuthoringPresets: caseAuthoringPresetsRouter,
+  caseProcedureReimport: caseProcedureReimportRouter,
   manualRetest: manualRetestRouter,
+  manualCaseResults: manualCaseResultsRouter,
   reportSnapshots: reportSnapshotsRouter,
   driveConnections:driveConnectionsRouter,
   linearConnections:linearConnectionsRouter,

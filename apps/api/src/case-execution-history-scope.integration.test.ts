@@ -30,7 +30,9 @@ describe("recorded case history original actor and literal configuration", () =>
       if (!row?.slug.startsWith(prefix)) throw Error("Owned history fixture identity mismatch");
       await hardDeleteOrganization(prisma, id, actorId, "Owned synthetic case history erasure");
     }
-    await prisma.user.deleteMany({ where: { id: { in: users } } });
+    // Retain dedicated synthetic users: deletion receipts intentionally retain their actor FK.
+    for (const organizationId of organizations)
+      expect(await prisma.organizationDeletionLog.count({ where: { organizationId, deletedById: actorId } })).toBe(1);
   });
   const caseRecord = () => owner.testCases.create({ projectId, title: "Synthetic history case", testType: "FUNCTIONAL", given: ["Setup"], when: ["Action"], then: ["Outcome"] });
   const input = (testCaseId: string) => ({ projectId, testCaseId, limit: 10, originalOrganizationId: organizations[0]!, expectedClerkActorId: viewerClerk });

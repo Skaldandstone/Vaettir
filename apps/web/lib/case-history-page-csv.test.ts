@@ -1,4 +1,4 @@
-// SOURCE ONLY: authored NOT RUN. No rendered/Clerk/QueryClient/file-save proof.
+// Pure helper checks. No rendered/Clerk/QueryClient/file-save proof.
 import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import type {
@@ -490,6 +490,8 @@ describe("reviewed current-page case history CSV (NOT RUN)", () => {
     expect(source).not.toMatch(
       /@vaettir\/db|node:|trpcReact|fetch\(|downloadFile|navigator\.|useMutation/,
     );
+    expect(source).not.toMatch(/from\s+["']zod["']/);
+    expect(source).toContain("caseExecutionHistoryPageSchema.shape");
     expect(source).toContain("renderBoundedSpreadsheetCsv");
   });
 });

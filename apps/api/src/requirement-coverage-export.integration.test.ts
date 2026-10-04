@@ -22,7 +22,9 @@ describe("complete live direct requirement matrix export", () => {
       userIds.push(user.id); const caller = requirementCoverageRouter.createCaller({ prisma, user });
       if (i) { viewer = caller; viewerId = user.id; } else { owner = caller; ownerId = user.id; }
     }
-    projectId = (await prisma.project.create({ data: { organizationId: orgIds[0]!, name: "Synthetic complete export", slug: `${prefix}-project`, caseKey: "CEXP" } })).id;
+    projectId = (await prisma.project.create({ data: { organizationId: orgIds[0]!, name: "Synthetic complete export", slug: `${prefix}-project`, caseKey: "cexp" } })).id;
+    // Traceability leaves reference the native per-project state, not Project.
+    await prisma.caseTraceabilityState.create({ data: { projectId, organizationId: orgIds[0]! } });
     foreignProject = (await prisma.project.create({ data: { organizationId: orgIds[1]!, name: "Synthetic foreign", slug: `${prefix}-foreign` } })).id;
     const type = await prisma.testPlanType.findFirstOrThrow();
     planId = (await prisma.testPlan.create({ data: { projectId, name: "Synthetic plan", testPlanTypeId: type.id } })).id;
@@ -34,6 +36,7 @@ describe("complete live direct requirement matrix export", () => {
       if (!org?.slug.startsWith(prefix)) throw Error("Owned fixture mismatch");
       await hardDeleteOrganization(prisma, id, ownerId, "Owned synthetic complete coverage export erasure");
     }
+    await prisma.organizationDeletionLog.deleteMany({ where: { organizationId: { in: orgIds }, deletedById: { in: userIds } } });
     await prisma.user.deleteMany({ where: { id: { in: userIds } } });
   });
   async function nativeCase(title: string, archived = false, project = projectId) {
@@ -74,7 +77,10 @@ describe("complete live direct requirement matrix export", () => {
   });
   it("refuses malformed or foreign direct edges as a whole before returning a file", async () => {
     const requirement = await req("Synthetic malformed edge"), c = await nativeCase("Synthetic foreign", false, foreignProject);
-    const edge = await link(requirement.id, c.id);
+    // Same-project composite FK rejects foreign case edges before export exists.
+    await expect(link(requirement.id, c.id)).rejects.toMatchObject({ code: "P2003" });
+    const local = await nativeCase("Synthetic malformed local relation");
+    const edge = await link(requirement.id, local.id, "unsupported-synthetic-origin");
     try { await expect(viewer.exportMatrix(base())).rejects.toMatchObject({ code: "PRECONDITION_FAILED" }); }
     finally { await prisma.caseTraceabilityLink.delete({ where: { id: edge.id } }); }
   });

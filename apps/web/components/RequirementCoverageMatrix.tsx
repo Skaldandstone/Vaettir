@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useAuth } from "@clerk/nextjs";
 import Link from "next/link";
 import { trpcReact } from "@/lib/trpcReact";
@@ -133,8 +133,11 @@ function Matrix({ projectId }: { projectId: string }) {
     project.data,
     userId,
   ]);
-  const actorNow = useRef({ actorReady, userId });
-  actorNow.current = { actorReady, userId };
+  const actorNow = useRef({ actorReady: false, userId });
+  useLayoutEffect(() => {
+    actorNow.current = { actorReady, userId };
+    return () => { actorNow.current = { actorReady: false, userId: undefined }; };
+  }, [actorReady, userId]);
   const base = {
     ...scope,
     ...(organizationId ? { originalOrganizationId: organizationId } : {}),
@@ -639,7 +642,7 @@ function Matrix({ projectId }: { projectId: string }) {
               )}
             {scopeOptions?.runs.map((run) => (
               <option key={run.id} value={run.id}>
-                {run.startedAt.toISOString()} · {run.ciProvider}
+                {run.startedAt} · {run.ciProvider}
                 {run.providerExcerpt ? " (excerpt)" : ""} · {run.id}
               </option>
             ))}

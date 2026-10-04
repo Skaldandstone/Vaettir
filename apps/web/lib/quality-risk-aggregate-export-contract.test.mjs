@@ -15,11 +15,22 @@ test("aggregate export binds exact response, scope and availability epoch before
     source,
     /available && Number.isFinite\(revision\) && revision > 0/,
   );
-  assert.match(source, /previous.current.revision !== revision/);
+  assert.match(source, /previous.revision !== revision/);
   assert.match(source, /reviewed === active/);
   assert.match(source, /reviewedScope === scopeKey/);
   assert.match(source, /JSON.stringify\({ filters, format }\)/);
-  assert.match(source, /reviewedEpoch === epoch.current/);
+  assert.match(source, /reviewedEpoch === epoch/);
+  assert.match(source, /\[previous, setPrevious\] = useState/);
+  assert.match(source, /if \(changed\)\s*setPrevious/);
+  assert.doesNotMatch(source, /previous\.current|epoch\.current/);
+  assert.match(
+    source,
+    /useLayoutEffect\(\(\) => \{\s*live.current = \{ active, scopeKey, open, epoch \};/,
+  );
+  assert.match(
+    source,
+    /return \(\) => \{\s*live.current = \{[\s\S]*?active: null[\s\S]*?epoch: -1/,
+  );
   assert.match(source, /live.current.active !== active/);
   assert.match(source, /live.current.epoch !== reviewedEpoch/);
   assert.match(

@@ -420,11 +420,14 @@ export async function manageReportDefinition(
   await tx.auditLog.create({
     data: {
       organizationId: orgId,
-      userId: actorId,
-      action: "REPORT_DEFINITION_REVIEWED_CHANGE",
-      resourceType: "ProjectReportDefinition",
-      resourceId: input.id,
+      projectId: input.projectId,
+      actorId,
+      action: "UPDATE",
+      entityType: "ProjectReportDefinition",
+      entityId: input.id,
+      summary: `Reviewed report definition ${input.action.kind}`,
       metadata: {
+        operation: "REPORT_DEFINITION_REVIEWED_CHANGE",
         projectId: input.projectId,
         kind: input.action.kind,
         reason: input.reason,

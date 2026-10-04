@@ -11,6 +11,7 @@ import { TestCaseVersionReview } from "@/components/TestCaseVersionReview";
 import { TestCaseClone } from "@/components/TestCaseClone";
 import { DatasetExecutionWizard } from "@/components/DatasetExecutionWizard";
 import { CaseTraceabilityPanel } from "@/components/CaseTraceabilityPanel";
+import { CaseCustomFields } from "@/components/CaseCustomFields";
 import { Modal } from "@/components/Modal";
 import { automationTargetForFramework } from "@vaettir/core";
 import {
@@ -1523,6 +1524,7 @@ function TestCaseInspector({
           caseId={tc.id}
           canEdit={!readOnly}
         />
+        <CaseCustomFields projectId={projectId} caseId={tc.id} />
         <DatasetSection
           testCaseId={tc.id}
           projectId={projectId}

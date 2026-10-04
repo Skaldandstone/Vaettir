@@ -9,6 +9,7 @@ const detail = readFileSync(
   new URL("../components/TestCaseDetailContent.tsx", import.meta.url),
   "utf8",
 );
+const normalized = source.replace(/\s+/g, " ");
 test("clone workflow state is scoped to project and case, with an editor-only inspector entry", () => {
   assert.match(source, /key=\{`\$\{props.projectId\}:\$\{props.caseId\}`\}/);
   assert.match(
@@ -19,11 +20,14 @@ test("clone workflow state is scoped to project and case, with an editor-only in
   assert.match(source, /size="wide"/);
 });
 test("fresh clone previews reject cached errors, active refreshes, offline pauses and wrong identities", () => {
-  assert.match(source, /enabled: open && !baseline && !pending && !created/);
+  assert.match(
+    normalized,
+    /enabled: open && !baseline && !pending && !created && currentAccess/,
+  );
   assert.match(source, /staleTime: 0/);
   assert.match(
-    source,
-    /!preview.error &&\s*!preview.isFetching &&\s*!preview.isPaused &&\s*preview.data\?\.sourceId === caseId/,
+    normalized,
+    /!preview.error && !preview.isFetching && !preview.isPaused && preview.data\?\.sourceId === caseId && currentAccess && scope.matches\(previewScope\) && preview.data.copyParameterDataset === copyParameterDataset/,
   );
   assert.match(
     source,
@@ -31,6 +35,14 @@ test("fresh clone previews reject cached errors, active refreshes, offline pause
   );
   assert.match(source, /Retry preview/);
   assert.match(source, /preview.isPaused/);
+  assert.match(
+    normalized,
+    /scope.ready && accessFresh && accessGeneration === scope.generation && editorSeat/,
+  );
+  assert.match(
+    normalized,
+    /!membership.error && !membership.isFetching && !membership.isPaused/,
+  );
 });
 test("case clone reviews procedure, physical context, exclusions, title and suite before explicit creation", () => {
   for (const label of [
@@ -42,7 +54,11 @@ test("case clone reviews procedure, physical context, exclusions, title and suit
     "Create duplicate",
   ])
     assert.ok(source.includes(label));
-  assert.match(source, /baseline.definition.steps.map/);
+  assert.ok(
+    source.includes(
+      "<CaseProcedureColumns steps={baseline.definition.steps} />",
+    ),
+  );
   assert.match(source, /baseline.warnings.map/);
   assert.match(source, /!confirmed \|\| !title.trim\(\) \|\| !reason.trim\(\)/);
   assert.match(

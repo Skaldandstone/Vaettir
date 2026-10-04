@@ -34,6 +34,12 @@ export function withRequirementCoverageAccess<T>(db: PrismaClient, input: Requir
       (input.expectedClerkActorId && actor.clerkUserId !== input.expectedClerkActorId))
       throw new TRPCError({ code: "FORBIDDEN", message: "The original authenticated actor and current project membership are required for this coverage scope." });
     return work(tx, { projectId: input.projectId, organizationId: access.organizationId, actorClerkUserId: actor.clerkUserId });
+  }).then(({ clerkActorId, ...value }) => {
+    // Baseline access also emits its own actor alias. Coverage deliberately
+    // exposes the independently checked actorClerkUserId contract instead;
+    // do not pass an extra alias into the strict portable-export response.
+    void clerkActorId;
+    return value;
   });
 }
 async function scope(tx: Tx, input: RequirementCoverageInput) {
@@ -150,7 +156,8 @@ export async function requirementCoverageEvidence(tx: Tx, organizationId: string
   if (!selectedCase[0]) throw unavailable();
   const where = { testCaseId: input.caseId, testCase: { projectId: input.projectId }, testRun: runWhere };
   const count = await tx.testResult.count({ where }); if (count > 10000) throw bounded();
-  const outcomes = coverageOutcomes(await tx.testResult.groupBy({ by: ["status"], where, _count: { _all: true } }));
+  const groupedOutcomes = await tx.testResult.groupBy({ by: ["status"], where, _count: { _all: true } });
+  const outcomes = coverageOutcomes(groupedOutcomes);
   const results = await tx.testResult.findMany({ where, take: 21, skip: input.resultOffset,
     orderBy: [{ testRun: { startedAt: "desc" } }, { testRunId: "desc" }, { id: "desc" }],
     select: { id: true, status: true, testRunId: true, testRun: { select: { startedAt: true, finishedAt: true, status: true } } } });

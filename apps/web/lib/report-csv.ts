@@ -3,7 +3,7 @@ import {
   reportMetricRows,
   reportScopeSummary,
   type FrozenReportPayload,
-} from "./frozen-report";
+} from "./frozen-report.ts";
 import {
   renderBoundedSpreadsheetCsv as csv,
   type SpreadsheetCsvCell as CsvCell,

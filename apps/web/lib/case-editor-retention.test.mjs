@@ -52,7 +52,7 @@ test("native fieldset and handler guards prevent revoked-access writes and save 
   );
   assert.match(
     form,
-    /async function submit\(\) \{\s*if \(locked \|\| saving \|\| uploadingStepKey !== null \|\| !value.title.trim\(\)\)/,
+    /async function submit\(\) \{\s*if \(!active \|\| locked \|\| saving \|\| uploadingStepKey !== null \|\| !value.title.trim\(\) \|\| !caseFieldsDraft\?\.ready\)/,
   );
   assert.match(
     form,

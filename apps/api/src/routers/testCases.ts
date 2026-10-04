@@ -29,6 +29,8 @@ import {
 } from "../services/aiCredits.js";
 import { parseTestCaseCsv } from "../services/testCaseCsvImport.js";
 import { captureCaseProcedureExport } from "../services/caseProcedureExport.js";
+import { assertCaseFieldAuthoring, lockCaseFieldProject } from "../services/caseFields.js";
+import { caseFieldValues } from "../services/caseFieldSchema.js";
 import { commitImportedTestCasesInTransaction } from "../services/importCommit.js";
 import { testCaseContentRevision } from "../services/testCaseContentRevision.js";
 import { snapshotTestCaseVersion } from "../services/testCaseVersion.js";
@@ -150,6 +152,9 @@ const testCaseContentSchema = z.object({
   suitePath: z.string().optional(),
   validationDomain: validationDomainSchema.optional(),
   verificationProfile: verificationProfileSchema.optional(),
+  customFields: caseFieldValues.optional(),
+  expectedFieldSchemaHash: z.string().regex(/^[a-f0-9]{64}$/).optional(),
+  expectedCustomFieldRevision: z.string().regex(/^[a-f0-9]{64}$/).optional(),
 });
 
 function requireAtLeastOneFormat(v: z.infer<typeof testCaseContentSchema>) {
@@ -1342,6 +1347,7 @@ export const testCasesRouter = router({
       );
       return ctx.prisma.$transaction(async (tx) => {
         await requireCurrentPlanAccess(tx, ctx.user.id, input.projectId, true);
+        await assertCaseFieldAuthoring(tx, ctx.user.id, input.projectId, {});
         const created = await tx.testCase.create({
           data: {
             projectId: input.projectId,
@@ -1415,10 +1421,12 @@ export const testCasesRouter = router({
             message: "Choose a shared step library in this project.",
           });
         }
+        const customFields = await assertCaseFieldAuthoring(tx, ctx.user.id, input.projectId, { values: input.customFields, expectedSchemaHash: input.expectedFieldSchemaHash });
         const created = await tx.testCase.create({
           data: {
             projectId: input.projectId,
             testPlanId: input.testPlanId,
+            customFields: customFields as Prisma.InputJsonValue,
             title: input.title,
             background: input.background,
             given: input.given,
@@ -1450,15 +1458,17 @@ export const testCasesRouter = router({
                 },
           },
         });
+        const fieldDefinition = await tx.project.findUniqueOrThrow({ where: { id: input.projectId }, select: { organizationId: true, caseFieldSchema: true, caseFieldSchemaVersion: true } });
         await tx.auditLog.create({
           data: {
-            organizationId: project.organizationId,
+            organizationId: fieldDefinition.organizationId,
             projectId: input.projectId,
             actorId: ctx.user.id,
             entityType: "TestCase",
             entityId: created.id,
             action: "CREATE",
             summary: `Created test case "${created.title}"`,
+            metadata: { fieldEvidence: { version: 1, beforeValues: {}, afterValues: customFields, schema: fieldDefinition.caseFieldSchema, schemaVersion: fieldDefinition.caseFieldSchemaVersion, recoverySupported: true } } as Prisma.InputJsonValue,
           },
         });
         await snapshotTestCaseVersion(tx, {
@@ -1658,7 +1668,7 @@ export const testCasesRouter = router({
       // if per-step history/comments ever need steps to persist identity
       // across an edit.
       const updated = await ctx.prisma.$transaction(async (tx) => {
-        await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${existing.projectId}))::text`;
+        await lockCaseFieldProject(tx, ctx.user.id, existing.projectId);
         const currentPlacement = await tx.testCase.findUniqueOrThrow({
           where: { id: input.id },
           select: { suitePath: true, priority: true },
@@ -1796,10 +1806,12 @@ export const testCasesRouter = router({
             },
           });
         }
+        const approvedCustomFields = await assertCaseFieldAuthoring(tx, ctx.user.id, existing.projectId, { caseId: input.id, values: input.customFields, expectedSchemaHash: input.expectedFieldSchemaHash, expectedValueHash: input.expectedCustomFieldRevision });
         await tx.testCaseStep.deleteMany({ where: { testCaseId: input.id } });
         const changed = await tx.testCase.update({
           where: { id: input.id },
           data: {
+            customFields: input.customFields === undefined ? undefined : approvedCustomFields as Prisma.InputJsonValue,
             testPlanId: input.testPlanId,
             title: input.title,
             background: input.background,
@@ -1853,14 +1865,16 @@ export const testCasesRouter = router({
               },
             },
           });
+        const fieldDefinition = await tx.project.findUniqueOrThrow({ where: { id: existing.projectId }, select: { organizationId: true, caseFieldSchema: true, caseFieldSchemaVersion: true } });
         await recordAudit(tx as unknown as typeof ctx.prisma, {
-          organizationId: project.organizationId,
+          organizationId: fieldDefinition.organizationId,
           projectId: existing.projectId,
           actorId: ctx.user.id,
           entityType: "TestCase",
           entityId: input.id,
           action: "UPDATE",
           summary: `Updated test case "${changed.title}"`,
+          metadata: { fieldEvidence: { version: 1, beforeValues: currentContent.customFields, afterValues: changed.customFields, schema: fieldDefinition.caseFieldSchema, schemaVersion: fieldDefinition.caseFieldSchemaVersion, recoverySupported: true } },
         });
         await snapshotTestCaseVersion(tx, {
           testCaseId: changed.id,

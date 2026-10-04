@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { renderBoundedSpreadsheetCsv } from "@vaettir/core";
 import { type RouterOutputs } from "@/lib/trpcReact";
 import {
@@ -30,36 +30,43 @@ export function QualityRiskAggregateExport({
     available && Number.isFinite(revision) && revision > 0 ? current : null;
   // Filter key is local review identity only. It is never exported or hashed remotely.
   const scopeKey = JSON.stringify({ filters, format });
-  const epoch = useRef(0),
-    previous = useRef({ active, scopeKey, open, revision });
-  if (
-    previous.current.active !== active ||
-    previous.current.scopeKey !== scopeKey ||
-    previous.current.open !== open ||
-    previous.current.revision !== revision
-  ) {
-    epoch.current++;
-    previous.current = { active, scopeKey, open, revision };
-  }
+  const [previous, setPrevious] = useState({
+    active,
+    scopeKey,
+    open,
+    revision,
+    epoch: 0,
+  });
+  const changed =
+    previous.active !== active ||
+    previous.scopeKey !== scopeKey ||
+    previous.open !== open ||
+    previous.revision !== revision;
+  const epoch = changed ? previous.epoch + 1 : previous.epoch;
+  if (changed) setPrevious({ active, scopeKey, open, revision, epoch });
   const [reviewedEpoch, setReviewedEpoch] = useState(-1);
-  const live = useRef({ active, scopeKey, open, epoch: epoch.current });
-  live.current = { active, scopeKey, open, epoch: epoch.current };
+  const live = useRef<{
+    active: Summary | null;
+    scopeKey: string;
+    open: boolean;
+    epoch: number;
+  }>({ active: null, scopeKey: "", open: false, epoch: -1 });
+  useLayoutEffect(() => {
+    live.current = { active, scopeKey, open, epoch };
+    return () => {
+      live.current = { active: null, scopeKey: "", open: false, epoch: -1 };
+    };
+  }, [active, scopeKey, open, epoch]);
   useEffect(() => {
     setReviewed(null);
     setReviewedScope("");
     setReviewedEpoch(-1);
   }, [active, scopeKey, open, revision]);
-  useEffect(
-    () => () => {
-      live.current = { active: null, scopeKey: "", open: false, epoch: -1 };
-    },
-    [],
-  );
   const canExport =
     !!active &&
     reviewed === active &&
     reviewedScope === scopeKey &&
-    reviewedEpoch === epoch.current &&
+    reviewedEpoch === epoch &&
     open;
   function download() {
     if (!canExport || !active) return;
@@ -222,7 +229,7 @@ export function QualityRiskAggregateExport({
                 onChange={(event) => {
                   setReviewed(event.target.checked ? active : null);
                   setReviewedScope(event.target.checked ? scopeKey : "");
-                  setReviewedEpoch(event.target.checked ? epoch.current : -1);
+                  setReviewedEpoch(event.target.checked ? epoch : -1);
                 }}
               />
               I reviewed these exact current aggregate counts, applied

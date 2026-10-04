@@ -165,9 +165,16 @@ describe.skipIf(!isolated)(
       expect(await prisma.testRun.count({ where: { projectId } })).toBe(0);
       const batch = await owner.manualExecution.startDatasetExecution(start);
       expect(new Set(batch.runs.map((row) => row.testRunId)).size).toBe(2);
-      const first = await owner.manualExecution.getForExecution(batch.runs[0]!);
+      // Batch row metadata is not read authority. The native read input is strict.
+      await expect(
+        owner.manualExecution.getForExecution({ ...batch.runs[0]!, projectId }),
+      ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+      const first = await owner.manualExecution.getForExecution({
+        projectId,
+        testRunId: batch.runs[0]!.testRunId,
+      });
       const second = await owner.manualExecution.getForExecution(
-        batch.runs[1]!,
+        { projectId, testRunId: batch.runs[1]!.testRunId },
       );
       expect(first.cases.at(-1)!.steps[0]!.action).toBe("Use Mobile");
       expect(second.cases.at(-1)!.steps[0]!.action).toBe("Use Desktop");
@@ -184,7 +191,10 @@ describe.skipIf(!isolated)(
         data: { rows: [{ name: "Changed", values: { variant: "Changed" } }] },
       });
       expect(
-        (await owner.manualExecution.getForExecution(batch.runs[0]!)).cases.at(
+        (await owner.manualExecution.getForExecution({
+          projectId,
+          testRunId: batch.runs[0]!.testRunId,
+        })).cases.at(
           -1,
         )!.given,
       ).toEqual(["Given Mobile"]);
@@ -220,11 +230,17 @@ describe.skipIf(!isolated)(
       const libraryReview = await owner.sharedStepGroups.review({ projectId, id: group.id });
       await owner.sharedStepGroups.update({ projectId, id: group.id, action: "UPDATE", expectedRevisionHash: libraryReview.revisionHash, requestId: randomUUID(), confirmed: true, reason: "Synthetic frozen dataset procedure regression", content: { name: libraryReview.snapshot.name, description: libraryReview.snapshot.description, steps: [{ order: 0, action: "Later human library edit" }] } });
       expect(
-        (await owner.manualExecution.getForExecution(batch.runs[0]!)).cases[0]!
+        (await owner.manualExecution.getForExecution({
+          projectId,
+          testRunId: batch.runs[0]!.testRunId,
+        })).cases[0]!
           .steps[0]!.action,
       ).toBe("Shared action Mobile");
       expect(
-        (await owner.manualExecution.getForExecution(batch.runs[1]!)).cases[0]!
+        (await owner.manualExecution.getForExecution({
+          projectId,
+          testRunId: batch.runs[1]!.testRunId,
+        })).cases[0]!
           .steps[0]!.action,
       ).toBe("Shared action Desktop");
     });

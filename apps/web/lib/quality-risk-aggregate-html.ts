@@ -1,4 +1,5 @@
 import type { qualityRiskAggregateCsvPlan } from "./quality-risk-aggregate-csv";
+import { hasTextControl } from "./control-characters.ts";
 type AggregatePlan = ReturnType<typeof qualityRiskAggregateCsvPlan>;
 const entities: Record<string, string> = {
   "&": "&amp;",
@@ -10,7 +11,7 @@ const entities: Record<string, string> = {
 const escape = (value: string | number) => {
   const text = String(value);
   if (
-    /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/.test(text) ||
+    hasTextControl(text) ||
     /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/.test(
       text,
     )

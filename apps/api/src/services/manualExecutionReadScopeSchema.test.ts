@@ -54,6 +54,20 @@ describe("manual read scope schema (NOT RUN)", () => {
       ).success,
     ).toBe(true);
   });
+  it("rejects all C0 and C1 controls while preserving visible Unicode identities", () => {
+    for (const code of [
+      ...Array.from({ length: 32 }, (_, i) => i),
+      ...Array.from({ length: 33 }, (_, i) => i + 127),
+    ])
+      expect(
+        manualExecutionReadScopeInputSchema.safeParse({
+          testRunId: `run${String.fromCharCode(code)}id`,
+        }).success,
+      ).toBe(false);
+    expect(
+      manualExecutionReadScopeInputSchema.parse({ testRunId: "🎮-é" }),
+    ).toEqual({ testRunId: "🎮-é" });
+  });
   it("echo schema requires exact bounded actor/org/run identity and boolean write capability", () => {
     const value = {
       testRunId: "run",

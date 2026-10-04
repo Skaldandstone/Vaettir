@@ -1,4 +1,4 @@
-// Authored source only. Run morning on a NEW migrated owned loopback test DB.
+// Synthetic integration coverage; requires an owned migrated loopback test DB.
 import { randomUUID } from "node:crypto";
 import { describe, beforeAll, afterAll, it, expect } from "vitest";
 import { Prisma, prisma } from "@vaettir/db";
@@ -54,13 +54,22 @@ describe("bounded daily recorded execution observation explorer", () => {
         include: { memberships: true },
       });
       userIds.push(user.id);
+      // Retain the erasure actor even if a later setup assertion fails.
+      if (index === 0) actorId = user.id;
       const project = await prisma.project.create({
-        data: { organizationId: org.id, name: tag, slug: tag },
+        data: {
+          organizationId: org.id,
+          name: tag,
+          slug: `${tag}-project-${index}`,
+          // Keep reparent authorization probes independent of the org key unique constraint.
+          caseKey: `t${index}${randomUUID().replaceAll("-", "").slice(0, 12)}`,
+        },
       });
       const tc = await prisma.testCase.create({
         data: {
           projectId: project.id,
           title: index ? "FOREIGN CASE BODY" : "Native mapped case",
+          testType: "FUNCTIONAL",
         },
       });
       if (!index) {
@@ -120,7 +129,7 @@ describe("bounded daily recorded execution observation explorer", () => {
           testCaseId: foreignCase,
           status: "BLOCKED",
           durationMs: -1,
-          notes: "DO NOT READ RAW NOTE",
+          note: "DO NOT READ RAW NOTE",
         },
         {
           testRunId: first.id,
@@ -193,12 +202,21 @@ describe("bounded daily recorded execution observation explorer", () => {
       });
       if (!org.slug.startsWith(tag))
         throw Error("Synthetic fixture ownership mismatch");
-      await hardDeleteOrganization(
+      const receipt = await hardDeleteOrganization(
         prisma,
         orgId,
         actorId,
         "Owned daily execution trend fixture erasure",
       );
+      const removed = await prisma.organizationDeletionLog.deleteMany({
+        where: {
+          id: receipt.deletionLogId,
+          organizationId: orgId,
+          organizationSlug: org.slug,
+          deletedById: actorId,
+        },
+      });
+      expect(removed.count).toBe(1);
     }
     await prisma.user.deleteMany({ where: { id: { in: userIds } } });
   });
@@ -354,40 +372,30 @@ describe("bounded daily recorded execution observation explorer", () => {
       where: { id: projectId },
       data: { organizationId: orgIds[1]! },
     });
-    await expect(owner.summary(scope())).rejects.toMatchObject({
-      code: "FORBIDDEN",
-    });
-    await prisma.project.update({
-      where: { id: projectId },
-      data: { organizationId: orgIds[0]! },
-    });
+    try {
+      await expect(owner.summary(scope())).rejects.toMatchObject({ code: "FORBIDDEN" });
+    } finally {
+      await prisma.project.update({ where: { id: projectId }, data: { organizationId: orgIds[0]! } });
+    }
     await prisma.organization.update({
       where: { id: orgIds[0]! },
       data: { suspendedAt: new Date() },
     });
-    await expect(owner.summary(scope())).rejects.toMatchObject({
-      code: "FORBIDDEN",
-    });
-    await prisma.organization.update({
-      where: { id: orgIds[0]! },
-      data: { suspendedAt: null },
-    });
+    try {
+      await expect(owner.summary(scope())).rejects.toMatchObject({ code: "FORBIDDEN" });
+    } finally {
+      await prisma.organization.update({ where: { id: orgIds[0]! }, data: { suspendedAt: null } });
+    }
     await prisma.membership.delete({
       where: {
         organizationId_userId: { organizationId: orgIds[0]!, userId: actorId },
       },
     });
-    await expect(owner.summary(scope())).rejects.toMatchObject({
-      code: "FORBIDDEN",
-    });
-    await prisma.membership.create({
-      data: {
-        organizationId: orgIds[0]!,
-        userId: actorId,
-        role: "OWNER",
-        seatType: "FULL",
-      },
-    });
+    try {
+      await expect(owner.summary(scope())).rejects.toMatchObject({ code: "FORBIDDEN" });
+    } finally {
+      await prisma.membership.create({ data: { organizationId: orgIds[0]!, userId: actorId, role: "OWNER", seatType: "FULL" } });
+    }
   });
   it("refuses run and result population caps before aggregate or zero-substitution success", async () => {
     const oversized = await prisma.project.create({
@@ -397,8 +405,12 @@ describe("bounded daily recorded execution observation explorer", () => {
         slug: `${tag}-run-limit`,
       },
     });
-    await prisma.testRun.createMany({
-      data: Array.from({ length: 20001 }, () => ({
+    // Real complete populations, not injected counts. Await bounded <=1000-row
+    // statements sequentially so setup cannot spill into teardown after a5s
+    // default test timeout. Only this synthetic setup scenario gets180s below;
+    // production aggregate/query limits and timeouts remain unchanged.
+    for (let inserted = 0; inserted < 20001; inserted += 1000) await prisma.testRun.createMany({
+      data: Array.from({ length: Math.min(1000, 20001 - inserted) }, () => ({
         projectId: oversized.id,
         ciProvider: "synthetic",
         branch: "main",
@@ -406,6 +418,7 @@ describe("bounded daily recorded execution observation explorer", () => {
         startedAt: new Date("2020-01-01T00:00:00Z"),
       })),
     });
+    expect(await prisma.testRun.count({ where: { projectId: oversized.id } })).toBe(20001);
     await expect(
       owner.summary({ ...scope(), projectId: oversized.id }),
     ).rejects.toMatchObject({ code: "PRECONDITION_FAILED" });
@@ -425,13 +438,14 @@ describe("bounded daily recorded execution observation explorer", () => {
         startedAt: new Date("2020-01-01T00:00:00Z"),
       },
     });
-    for (const length of [50000, 50001])
+    for (let inserted = 0; inserted < 100001; inserted += 1000)
       await prisma.testResult.createMany({
-        data: Array.from({ length }, () => ({
+        data: Array.from({ length: Math.min(1000, 100001 - inserted) }, () => ({
           testRunId: run.id,
           status: "PASS" as const,
         })),
       });
+    expect(await prisma.testResult.count({ where: { testRunId: run.id } })).toBe(100001);
     await expect(
       owner.summary({ ...scope(), projectId: overResults.id }),
     ).rejects.toMatchObject({ code: "PRECONDITION_FAILED" });
@@ -443,7 +457,7 @@ describe("bounded daily recorded execution observation explorer", () => {
         page: 0,
       }),
     ).rejects.toMatchObject({ code: "PRECONDITION_FAILED" });
-  });
+  }, 180000);
   it("fails visible for out-of-filter unsupported ID metadata rather than claiming empty selected evidence", async () => {
     const bounded = await prisma.project.create({
       data: {

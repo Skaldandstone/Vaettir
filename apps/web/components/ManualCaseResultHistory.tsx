@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useAuth } from "@clerk/nextjs";
 import { Modal } from "./Modal";
 import { trpcReact } from "@/lib/trpcReact";
@@ -38,7 +38,8 @@ export function ManualCaseResultHistory({ projectId, testRunId, testCaseId, acti
   const page = ready && !history.error && !history.isFetching && !history.isPaused && history.data && manualCaseReadMatches(read, history.data) ? history.data : null;
   const denied = !!history.error && ["FORBIDDEN", "UNAUTHORIZED", "NOT_FOUND"].includes(history.error.data?.code ?? "");
   const available = ready && !denied && !history.error && !history.isFetching && !history.isPaused && !!page;
-  const accessNow = useRef({ available, origin, editor }); accessNow.current = { available, origin, editor };
+  const accessNow = useRef({ available, origin, editor });
+  useLayoutEffect(() => { accessNow.current = { available, origin, editor }; }, [available, origin, editor]);
   const [open, setOpen] = useState(false), [screen, setScreen] = useState<"EDIT" | "REVIEW">("EDIT");
   const [draft, setDraft] = useState<Draft | null>(null), [attempt, setAttempt] = useState<ManualCaseResultWrite | null>(null);
   const [receipt, setReceipt] = useState<ManualCaseResultAck | null>(null), [busy, setBusy] = useState(false), [error, setError] = useState("");
@@ -49,10 +50,12 @@ export function ManualCaseResultHistory({ projectId, testRunId, testCaseId, acti
     confirmedReceipt: !!receipt, definitiveRejection: definitive,
     parentWriteDisabled: disabled, runStatus: page?.runStatus ?? null });
   const canInspectRetainedReceipt = available && currentFullEditor && !!receipt;
-  const unknown = useRef(false), openNow = useRef(false); openNow.current = open;
-  const currentClerk = useRef(userId); currentClerk.current = userId;
+  const unknown = useRef(false), [unknownOutcome, setUnknownOutcome] = useState(false), openNow = useRef(false);
+  const currentClerk = useRef(userId);
+  useLayoutEffect(() => { openNow.current = open && active; currentClerk.current = userId; }, [open, active, userId]);
+  function markUnknown(value: boolean) { unknown.current = value; setUnknownOutcome(value); }
   const mutation = trpcReact.manualCaseResults.record.useMutation();
-  useEffect(() => { onUnconfirmedChange?.(busy || !!attempt && !receipt && (!definitive || unknown.current)); }, [busy, attempt, receipt, definitive, onUnconfirmedChange]);
+  useEffect(() => { onUnconfirmedChange?.(busy || !!attempt && !receipt && (!definitive || unknownOutcome)); }, [busy, attempt, receipt, definitive, unknownOutcome, onUnconfirmedChange]);
   async function refreshAccess() {
     if (!nativeSame || !active) return false; // Never fetch/rebase a retained workflow onto new props.
     try {
@@ -95,8 +98,8 @@ export function ManualCaseResultHistory({ projectId, testRunId, testCaseId, acti
     setAttempt(input); setBusy(true); setError(""); onUnconfirmedChange?.(true);
     try {
       const value = await mutation.mutateAsync(input);
-      if (!await manualCaseAckMatches(input, draft.baseline.revisionNumber + 1, value, draft.baseline.current?.resultId, draft.baseline.scope.actorId)) { unknown.current = true; setError("The exact correction receipt could not be verified. Keep and retry the identical UUID; a saved response may be unknown."); return; }
-      setReceipt(value); unknown.current = false; setDefinitive(false); onUnconfirmedChange?.(false);
+      if (!await manualCaseAckMatches(input, draft.baseline.revisionNumber + 1, value, draft.baseline.current?.resultId, draft.baseline.scope.actorId)) { markUnknown(true); setError("The exact correction receipt could not be verified. Keep and retry the identical UUID; a saved response may be unknown."); return; }
+      setReceipt(value); markUnknown(false); setDefinitive(false); onUnconfirmedChange?.(false);
       void Promise.all([Promise.resolve().then(() => utils.manualCaseResults.history.invalidate({ projectId, testRunId, testCaseId })),
         Promise.resolve().then(() => utils.manualCaseResults.preview.invalidate({ projectId, testRunId, testCaseId })), Promise.resolve().then(() => onChanged?.())])
         .catch(() => setRefreshNotice("The revision is confirmed, but refreshing the native view failed. Refresh without resubmitting the accepted correction."));
@@ -104,7 +107,7 @@ export function ManualCaseResultHistory({ projectId, testRunId, testCaseId, acti
       const code = (e as { data?: { code?: string } }).data?.code ?? "";
       if (["FORBIDDEN", "UNAUTHORIZED", "NOT_FOUND"].includes(code)) setAccessRejected(true);
       const known = ["BAD_REQUEST", "CONFLICT", "FORBIDDEN", "UNAUTHORIZED", "NOT_FOUND"].includes(code);
-      if (known && !unknown.current) setDefinitive(true); else unknown.current = true;
+      if (known && !unknown.current) setDefinitive(true); else markUnknown(true);
       setError(`${e instanceof Error ? e.message : "Correction response unknown."} ${unknown.current ? "Retry the exact retained UUID after restoring original access." : "Retain the draft and explicitly re-review current observations."}`);
     } finally { setBusy(false); }
   }
@@ -148,7 +151,7 @@ export function ManualCaseResultHistory({ projectId, testRunId, testCaseId, acti
       <label style={{ display: "block" }}>Human correction reason{draft.baseline.current ? " (required)" : " (optional)"}<textarea style={fullField} rows={2} maxLength={2000} disabled={locked} value={draft.reason} onChange={e => update({ reason: e.target.value })} /></label>
       <button type="button" disabled={locked} onClick={() => { try { buildRequest(); setScreen("REVIEW"); setError(""); } catch (e) { setError(e instanceof Error ? e.message : "Review the entered observation."); } }}>Review before recording</button></section>
       : <section><h3>Confirm one immutable observation revision</h3><p>{draft.status} · {draft.baseline.displayId}</p><p style={{ whiteSpace: "pre-wrap" }}>{draft.note || "No note"}</p><p>Reason: {draft.reason || "Initial observation; no correction reason"}</p><details><summary>Exact measured evidence</summary><pre style={{ whiteSpace: "pre-wrap" }}>{JSON.stringify({ ...draft.context, measurements: draft.readings }, null, 2)}</pre></details><p>Earlier results remain evidence. This records a human observation, not execution automation or a qualified electronic signature.</p>{attempt && <p role="status">Exact original request remains retained. Retrying does not create another revision; reloading does not preserve this local draft.</p>}
-      <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}><button type="button" disabled={locked} onClick={() => setScreen("EDIT")}>Edit draft</button><button type="button" disabled={busy || definitive} onClick={() => void save()}>{attempt ? "Retry identical observation request" : "Confirm and record revision"}</button>{definitive && !unknown.current && <button type="button" disabled={busy} onClick={() => void reviewRejected()}>Review current baseline; retain my draft</button>}</div></section>}
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}><button type="button" disabled={locked} onClick={() => setScreen("EDIT")}>Edit draft</button><button type="button" disabled={busy || definitive} onClick={() => void save()}>{attempt ? "Retry identical observation request" : "Confirm and record revision"}</button>{definitive && !unknownOutcome && <button type="button" disabled={busy} onClick={() => void reviewRejected()}>Review current baseline; retain my draft</button>}</div></section>}
       </>}
     </Modal>
   </section>;

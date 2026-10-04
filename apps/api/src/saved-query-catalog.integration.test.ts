@@ -150,13 +150,25 @@ describe("saved catalog literal search/current privacy (NOT RUN)", () => {
     const b = await row("B"),
       a = await row("A"),
       privateOther = await row("Private other", "PRIVATE", otherActorId);
-    await prisma.savedTypedCaseQuery.update({
+    const before = await prisma.savedTypedCaseQuery.findUniqueOrThrow({
       where: { id: a.id },
-      data: {
-        definition: { unknown: "x".repeat(500000) },
-        columns: { unsupported: true },
-      },
     });
+    // Newly stored oversized bodies must still be refused by the migration.
+    await expect(
+      prisma.savedTypedCaseQuery.update({
+        where: { id: a.id },
+        data: {
+          definition: { unknown: "x".repeat(500000) },
+          columns: { unsupported: true },
+        },
+      }),
+    ).rejects.toThrow(/SavedTypedCaseQuery_size_check/);
+    await expect(
+      prisma.savedTypedCaseQuery.update({
+        where: { id: a.id },
+        data: { columns: ["x".repeat(201)] },
+      }),
+    ).rejects.toThrow(/SavedTypedCaseQuery_size_check/);
     const blocked = prisma.$extends({
       query: {
         savedTypedCaseQuery: {
@@ -181,9 +193,53 @@ describe("saved catalog literal search/current privacy (NOT RUN)", () => {
     );
     expect(list.items[0]).not.toHaveProperty("definition");
     expect(list.items[0]).not.toHaveProperty("columns");
-    await expect(
-      owner.savedById({ projectId, id: a.id }),
-    ).rejects.toMatchObject({ code: "PRECONDITION_FAILED" });
+    // Fault injection is after the real scoped read, not stored corruption or a
+    // disabled constraint. It checks service refusal of unsupported legacy data.
+    let malformedReads = 0;
+    for (const fault of [
+      { definition: { unknown: "x".repeat(500000) } },
+      { columns: { unsupported: true } },
+    ]) {
+      const malformed = prisma.$extends({
+        query: {
+          savedTypedCaseQuery: {
+            async findFirst({ args, query }) {
+              const value = await query(args);
+              if (args.where?.id !== a.id || !value || value.id !== a.id)
+                return value;
+              expect(args.where.projectId).toBe(projectId);
+              expect(args.where.organizationId).toBe(orgId);
+              malformedReads++;
+              return {
+                ...value,
+                ...fault,
+              };
+            },
+          },
+        },
+      });
+      await expect(
+        withSavedQueryAccess(
+          malformed as unknown as PrismaClient,
+          projectId,
+          actorId,
+          orgId,
+          (tx, access) => getSavedCaseQuery(tx, access, projectId, a.id),
+        ),
+      ).rejects.toMatchObject({ code: "PRECONDITION_FAILED" });
+    }
+    expect(malformedReads).toBe(2);
+    expect(
+      await prisma.savedTypedCaseQuery.findUniqueOrThrow({
+        where: { id: a.id },
+      }),
+    ).toEqual(before);
+    expect((await owner.savedById({ projectId, id: a.id })).value.id).toBe(
+      a.id,
+    );
+    expect(
+      await prisma.savedTypedCaseQueryWrite.count({ where: { projectId } }),
+    ).toBe(0);
   });
   it("searches literal %, underscore, backslash, quotes and retained spaces case-insensitively without wildcard or injection interpretation", async () => {
     const literal = await row(" MiXeD %_\\ ' OR TRUE -- ");
@@ -524,16 +580,62 @@ describe("saved catalog literal search/current privacy (NOT RUN)", () => {
   });
   it("fails oversized metadata safely while leaving definitions and write receipts unchanged", async () => {
     const saved = await row("Supported");
-    await prisma.savedTypedCaseQuery.update({
-      where: { id: saved.id },
-      data: { name: "x".repeat(1000) },
-    });
     const before = await prisma.savedTypedCaseQuery.findUniqueOrThrow({
       where: { id: saved.id },
     });
-    await expect(owner.savedList(input())).rejects.toMatchObject({
-      code: "PRECONDITION_FAILED",
-    });
+    await expect(
+      prisma.savedTypedCaseQuery.update({
+        where: { id: saved.id },
+        data: { name: "x".repeat(1000) },
+      }),
+    ).rejects.toThrow(/SavedTypedCaseQuery_name_check/);
+    let malformedReads = 0;
+    await expect(
+      withSavedQueryAccess(prisma, projectId, actorId, orgId, (tx, access) => {
+        const malformed = new Proxy(tx, {
+          get(transaction, property) {
+            if (property !== "$queryRaw")
+              return Reflect.get(transaction, property);
+            return async (...args: unknown[]) => {
+              const rows: unknown = await Reflect.apply(
+                transaction.$queryRaw,
+                transaction,
+                args,
+              );
+              const statement = args[0];
+              const parts = Array.isArray(statement)
+                ? statement
+                : statement !== null &&
+                    typeof statement === "object" &&
+                    "strings" in statement &&
+                    Array.isArray(statement.strings)
+                  ? statement.strings
+                  : [];
+              const sql = parts.join("");
+              if (
+                !sql.includes('FROM "SavedTypedCaseQuery" q') ||
+                !sql.includes("octet_length(q.name)<=320")
+              )
+                return rows;
+              expect(Array.isArray(rows)).toBe(true);
+              if (!Array.isArray(rows)) throw Error("Expected metadata rows");
+              expect(rows.some((value) => value?.id === saved.id)).toBe(true);
+              malformedReads++;
+              // The real bounded projection uses null for an oversized label.
+              // Inject only that post-read shape, keeping all access SQL real.
+              return rows.map((value) =>
+                value?.id === saved.id ? { ...value, name: null } : value,
+              );
+            };
+          },
+        });
+        return listSavedCaseQueries(malformed, access, projectId, 0, {
+          catalog: filter(),
+          expectedScope: { organizationId: orgId, clerkActorId },
+        });
+      }),
+    ).rejects.toMatchObject({ code: "PRECONDITION_FAILED" });
+    expect(malformedReads).toBe(1);
     expect(
       await prisma.savedTypedCaseQuery.findUniqueOrThrow({
         where: { id: saved.id },

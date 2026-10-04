@@ -16,8 +16,12 @@ export const PROJECT_NAVIGATION = [
     collapsible: true,
     links: [
       { path: "/requirements", label: "Requirements" },
+      { path: "/requirement-baselines", label: "Requirement baselines" },
+      { path: "/requirement-coverage", label: "Requirement coverage" },
+      { path: "/recorded-run-comparison", label: "Recorded run comparison" },
       { path: "/execution-trends", label: "Execution over time" },
       { path: "/defect-map", label: "Defect Map" },
+      { path: "/quality-risks", label: "Quality risks" },
       { path: "/compliance", label: "Compliance" },
       { path: "/releases", label: "Release Readiness" },
     ],

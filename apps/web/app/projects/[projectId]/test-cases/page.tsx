@@ -15,6 +15,10 @@ import { Drawer } from "@/components/Drawer";
 import { TestCaseDetailContent } from "@/components/TestCaseDetailContent";
 import { BulkCaseAnalysis } from "@/components/BulkCaseAnalysis";
 import { CaseQueryExplorer } from "@/components/CaseQueryExplorer";
+import { TestCaseFolders } from "@/components/TestCaseFolders";
+import { TestCaseProcedureReimport } from "@/components/TestCaseProcedureReimport";
+import { ProjectCaseFields } from "@/components/ProjectCaseFields";
+import { CaseAuthoringPresets, NewCaseFromAuthoringPreset } from "@/components/CaseAuthoringPresets";
 import { downloadCsv } from "@/lib/csv";
 import { downloadFile } from "@/lib/download";
 import { encodeCaseProcedureExport } from "@vaettir/core";
@@ -227,6 +231,7 @@ export default function TestCasesPage() {
   const plans = plansQuery.data ?? [];
 
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
+  const [folderPaths, setFolderPaths] = useState<string[]>([]);
   useEffect(() => {
     setSelectedPath(new URLSearchParams(window.location.search).get("suite"));
   }, []);
@@ -746,7 +751,7 @@ export default function TestCasesPage() {
   const archivedSelectedIds = selectedCases
     .filter((item) => item.archived)
     .map((item) => item.id);
-  const selectableSuites = suiteChoices(cases);
+  const selectableSuites = [...new Set([...suiteChoices(cases), ...folderPaths])].sort();
   const filters = [
     { name: "Type", value: typeFilter, clear: () => setTypeFilter("") },
     {
@@ -832,6 +837,7 @@ export default function TestCasesPage() {
           Filters{filters.length ? ` (${filters.length})` : ""}
         </button>
         <CaseQueryExplorer projectId={projectId} />
+        {!readOnly && <NewCaseFromAuthoringPreset key={projectId} projectId={projectId} organizationId={project?.organizationId ?? "unavailable"} />}
         {project && (
           <BulkCaseAnalysis projectId={projectId} organizationId={project.organizationId} selectedIds={[...selected]} onCompleted={reload} />
         )}
@@ -931,12 +937,14 @@ export default function TestCasesPage() {
           )}
         </div>
       )}
-      {!loading && cases.length > 0 && (
+      <TestCaseFolders key={projectId} projectId={projectId} selectedPath={selectedPath} onFolderPaths={setFolderPaths} onSaved={(path) => { setSelectedPath(path); void casesQuery.refetch(); void structureQuery.refetch(); }} />
+      {!loading && (cases.length > 0 || folderPaths.length > 0) && (
         <div className={styles.layout}>
           <aside className={styles.suites} aria-label="Test suites">
             <h2>Suites</h2>
             <TestCaseTree
               cases={cases}
+              folderPaths={folderPaths}
               selectedPath={selectedPath}
               onSelect={setSelectedPath}
               onDropCase={
@@ -1516,8 +1524,12 @@ export default function TestCasesPage() {
             CSV is a spreadsheet summary, not a lossless reimport format. JSON
             preserves procedures, conditions, case IDs and reference labels. It
             excludes attachment files, datasets, paid drafts and history; it is
-            not a full backup and cannot yet be reimported.
+            not a full backup. Existing same-project procedures can be restored
+            after explicit conflict review; unknown case IDs are not recreated.
           </p>
+          {!readOnly && <TestCaseProcedureReimport projectId={projectId} />}
+          <ProjectCaseFields projectId={projectId} />
+          <CaseAuthoringPresets key={projectId} projectId={projectId} organizationId={project?.organizationId ?? "unavailable"} />
           <details>
             <summary>Manage saved views</summary>
             <p className="text-muted">

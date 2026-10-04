@@ -6,6 +6,7 @@ const ui = readFileSync(new URL("../components/ManualCaseResultHistory.tsx", imp
 const service = readFileSync(new URL("../../api/src/services/manualCaseResults.ts", import.meta.url), "utf8");
 const migration = readFileSync(new URL("../../../packages/db/prisma/migrations/20261004080000_manual_case_result_history/migration.sql", import.meta.url), "utf8");
 const erasure = readFileSync(new URL("../../api/src/services/manualCaseResultErasure.ts", import.meta.url), "utf8");
+const orgErasure = readFileSync(new URL("../../api/src/services/orgHardDelete.ts", import.meta.url), "utf8");
 test("original scope and deterministic current native CAS precede private result replacement", () => {
   for (const literal of ["lockManualRetestAccess", "run.projectId !== input.projectId", "input.expectedCurrentFingerprint", "state.head?.currentRevisionId", "manualStepResultHead.count", "size.count > 1"]) assert.ok(service.includes(literal), literal);
   const record = service.slice(service.indexOf("export async function recordManualCaseResult"));
@@ -29,13 +30,92 @@ test("database final projection and whole-org erasure guard have no session bypa
   assert.ok(migration.includes('"correctionReason"))+2048>NEW."payloadBytes"'));
   assert.ok(migration.includes('BEFORE INSERT OR UPDATE ON "ManualStepResultHead"'));
   assert.ok(migration.includes("manual_step_case_mode_conflict"));
-  assert.ok(erasure.includes("number = 100; number >= 1; number--"));
+  // Restrictive self-FKs require descending populated levels, not 100 empty
+  // DELETE round trips. Count reconciliation is stronger than a fixed loop.
+  for (const literal of ['manualCaseResultRevision.groupBy', 'by: ["revisionNumber"]', 'orderBy: { revisionNumber: "desc" }', 'take: 101', 'levels.length > 100', 'level.revisionNumber < 1 || level.revisionNumber > 100', 'sum + level._count._all', '!== preview.ManualCaseResultRevision', 'preview.ManualCaseResultRevision === 0 ? []', 'preview.ManualCaseResultHead === 0 ? { count: 0 }', 'deleted.count !== level._count._all', 'revisions !== preview.ManualCaseResultRevision']) assert.ok(erasure.includes(literal), literal);
+  assert.ok(erasure.indexOf('levels.reduce') < erasure.indexOf('manualCaseResultHead.deleteMany'));
+  assert.ok(erasure.includes('LEFT JOIN "Project"'));
+  assert.ok(erasure.includes('p.id IS NULL OR run.id IS NULL OR c.id IS NULL OR res.id IS NULL'));
+  for (const literal of ['stepHeadCount', 'stepRevisionCount', 'count > 100000', 'GROUP BY "revisionNumber" ORDER BY "revisionNumber" DESC LIMIT 101', 'WHERE "testRunId" IN ${stagedNativeScopeValues("TestRun")}', 'stepLevels.length > 100', 'stepRevisionCount === 0 ? []', 'stepHeadCount === 0 ? { count: 0 }', 'sum + level._count._all', '!== stepRevisionCount', 'deletedStepHeads.count !== stepHeadCount', 'deleted.count !== level._count._all', 'revisionCount !== stepRevisionCount']) assert.ok(orgErasure.includes(literal), literal);
+  for (const literal of ['MAX_NATIVE_SCOPE_IDS = 1000000', 'MAX_NATIVE_SCOPE_BYTES = 64 * 1024 * 1024', 'Buffer.byteLength(encoded, "utf8")', 'Object.hasOwn(nativeScopeColumns, model)', '${column} IN ${values}', 'count !== expected', 'counts.TestResult !== scope.testResultIds.length']) assert.ok(orgErasure.includes(literal), literal);
+  // One checked opaque JSON value avoids per-element driver serialization. A
+  // frozen weakly cached list cannot silently change after its first encoding.
+  const encoder = orgErasure.slice(orgErasure.indexOf('function encodedNativeScopeIds'), orgErasure.indexOf('function checkNativeScopeIds'));
+  for (const literal of ['new WeakMap<string[], string>()', 'nativeScopeJson.get(ids)', 'if (cached !== undefined) return cached', 'ids.length > MAX_NATIVE_SCOPE_IDS', 'id.includes("\\0")', 'const encoded = JSON.stringify(ids)', 'Object.freeze(ids)', 'nativeScopeJson.set(ids, encoded)']) assert.ok(orgErasure.includes(literal), literal);
+  assert.ok(encoder.indexOf('ids.length > MAX_NATIVE_SCOPE_IDS') < encoder.indexOf('const encoded = JSON.stringify(ids)'));
+  assert.ok(encoder.indexOf('Buffer.byteLength(encoded, "utf8")') < encoder.indexOf('Object.freeze(ids)'));
+  assert.ok(encoder.indexOf('Object.freeze(ids)') < encoder.indexOf('nativeScopeJson.set(ids, encoded)'));
+  const setBinding = orgErasure.slice(orgErasure.indexOf('function nativeScopeValues'), orgErasure.indexOf('async function countNativeScope'));
+  assert.ok(setBinding.includes('(SELECT value FROM jsonb_array_elements_text(${encodedNativeScopeIds(ids)}::jsonb) AS native_scope(value))'));
+  assert.ok(setBinding.includes('const values = useStagedScope ? stagedNativeScopeValues(nativeScopeFamilies[model]) : nativeScopeValues(ids)'));
+  assert.ok(setBinding.includes('SELECT id FROM pg_temp.vaettir_native_erasure_scope WHERE model=${model}'));
+  assert.ok(setBinding.includes('${column} IN ${values}'));
+  assert.ok(!setBinding.includes('Prisma.join') && !setBinding.includes('${ids}::text[]') && !setBinding.includes('=ANY(') && !setBinding.includes('ARRAY(SELECT'), 'Native membership is a relational set with one encoded value, not per-ID parameters or linear InitPlan-array membership');
+  const nativeDelete = orgErasure.slice(orgErasure.indexOf('async function deleteNativeScope'), orgErasure.indexOf('const nativeIdentityParents'));
+  for (const literal of ['nativeScopePredicate(model, ids, revisionNumber, true)', 'WITH expected AS MATERIALIZED', 'SELECT count(*)::bigint AS count FROM ${table} WHERE ${predicate}', 'deleted AS (DELETE FROM ${table} WHERE ${predicate}', 'AND (SELECT count FROM expected) BETWEEN 0 AND ${BigInt(Number.MAX_SAFE_INTEGER)} RETURNING 1)', 'SELECT (SELECT count FROM expected) AS expected,count(*)::bigint AS count FROM deleted', 'typeof row.expected !== "bigint"', 'typeof row.count !== "bigint"', 'row.expected < 0n', 'row.count < 0n', 'row.expected > BigInt(Number.MAX_SAFE_INTEGER)', 'row.count > BigInt(Number.MAX_SAFE_INTEGER)', 'count !== expected']) assert.ok(nativeDelete.includes(literal), literal);
+  assert.ok(!nativeDelete.includes('encodedNativeScopeIds'), 'Native child deletion reuses complete staged family IDs without rebinding large arrays');
+  assert.equal((nativeDelete.match(/await tx\.\$queryRaw/g) ?? []).length, 1, 'Complete expected and affected deletion counts share one statement snapshot/driver round trip');
+  assert.ok(!nativeDelete.includes('await countNativeScope') && !nativeDelete.includes('if (!expected)') && !nativeDelete.includes('RETURNING *'), 'No zero-count child skip, separate statement recount or private row-body result');
+  const identityReader = orgErasure.slice(orgErasure.indexOf('async function readNativeIdentityScope'), orgErasure.indexOf('async function reconcileNativeIdentityScope'));
+  for (const literal of ['Object.hasOwn(nativeIdentityParents, model)', 'octet_length(to_json(id)::text)+1', 'size.count > BigInt(maxCount)', 'size.bytes > BigInt(MAX_NATIVE_SCOPE_BYTES)', 'model === "Project" ? 10000', 'BigInt(rows.length) !== size.count']) assert.ok(identityReader.includes(literal), literal);
+  assert.ok(identityReader.indexOf('size.bytes > BigInt') < identityReader.indexOf('SELECT id FROM ${table}'));
+  assert.ok(!/in:\s*scope\.(?!projectIds\b)\w+/.test(orgErasure), 'Every potentially oversized child identity list uses bounded opaque JSON binding');
+  const reconcile = orgErasure.slice(orgErasure.indexOf('async function reconcileNativeIdentityScopes'), orgErasure.indexOf('// P13-05'));
+  for (const literal of ['Object.hasOwn(nativeIdentityParents, model)', '(field === "organizationId") !== (typeof parent === "string")', 'checkNativeScopeIds(ids)', 'octet_length(to_json(id)::text)+1', 'size.count !== BigInt(ids.length)', 'size.count > BigInt(maxCount)', 'size.bytes > BigInt(MAX_NATIVE_SCOPE_BYTES)', 'size.bytes < 2n', 'new Set(ids).size !== ids.length', 'current_scope AS MATERIALIZED', 'captured_scope AS MATERIALIZED', 'SELECT id FROM pg_temp.vaettir_native_erasure_scope WHERE model=${model}', 'stagedNativeScopeValues(field === "projectId" ? "Project" : "TestRun")', 'SELECT id FROM current_scope EXCEPT SELECT id FROM captured_scope', 'UNION ALL (SELECT id FROM captured_scope EXCEPT SELECT id FROM current_scope)', 'size.changed !== false', 'rows.length !== inventories.length', 'new Set(rows.map(row => row.model)).size !== inventories.length', 'Prisma.join(statements, " UNION ALL ")']) assert.ok(reconcile.includes(literal), literal);
+  assert.ok(reconcile.indexOf('new Set(ids).size !== ids.length') < reconcile.indexOf('WITH current_scope'));
+  assert.equal((reconcile.match(/await db\.\$queryRaw/g) ?? []).length, 1, 'All ten reconciliations share one bounded metadata round trip');
+  assert.ok(!reconcile.includes('row.id') && !reconcile.includes('createHash'), 'Locked reconciliation compares complete native sets, not returned ID bodies or hashes');
+  const destructive = orgErasure.slice(orgErasure.indexOf('export async function hardDeleteOrganization'));
+  const firstDelete = destructive.indexOf('await del("ProjectReportDefinitionWrite"');
+  const lockedScope = destructive.indexOf('await lockReportErasureScope(tx, organizationId, scope.projectIds)');
+  assert.ok(lockedScope >= 0 && firstDelete > lockedScope);
+  const reconciliation = destructive.indexOf('await reconcileNativeIdentityScopes(tx, organizationId, scope)');
+  assert.ok(reconciliation > lockedScope && reconciliation < firstDelete, 'Every complete original identity reconciles under locks before child deletion');
+  const staged = destructive.indexOf('await stageNativeIdentityScopes(tx, organizationId, scope)');
+  assert.ok(staged > lockedScope && reconciliation > staged, 'One exact scoped staging occurs on the transaction connection after locks and before native reconciliation/child DML');
+  const staging = orgErasure.slice(orgErasure.indexOf('async function stageNativeIdentityScopes'), orgErasure.indexOf('async function reconcileNativeIdentityScopes'));
+  for (const literal of ['encodedNativeScopeIds(ids)', 'new Set(ids).size !== ids.length', 'ids.length > 10000', 'inventories.length !== 10', 'encodedBytes > 10 * MAX_NATIVE_SCOPE_BYTES + 1024', "to_regclass('pg_temp.vaettir_native_erasure_scope')", 'existing.existing !== false', 'CREATE TEMP TABLE pg_temp.vaettir_native_erasure_scope', 'id TEXT NOT NULL) ON COMMIT DROP', 'jsonb_each(${encoded}::jsonb)', 'jsonb_array_elements_text(family.ids)', 'INSERT INTO pg_temp.vaettir_native_erasure_scope(model,id)', 'inserted.count !== expected', 'await tx.$executeRaw`CREATE UNIQUE INDEX vaettir_native_erasure_scope_identity_idx', 'ON pg_temp.vaettir_native_erasure_scope(model,id)']) assert.ok(staging.includes(literal), literal);
+  const joinedScope = staging.indexOf('const encoded = `{${parts.join(",")}}`');
+  assert.ok(joinedScope >= 0 && staging.indexOf('encodedBytes >') >= 0 && staging.indexOf('encodedBytes >') < joinedScope, 'Combined byte gate precedes joined parameter allocation; per-family encodings remain independently bounded');
+  assert.ok(staging.indexOf('existing.existing !== false') < staging.indexOf('CREATE TEMP TABLE'));
+  const uniqueBuild = staging.indexOf('await tx.$executeRaw`CREATE UNIQUE INDEX');
+  assert.ok(uniqueBuild > staging.indexOf('inserted.count !== expected'), 'Exact complete heap population is checked before the awaited native unique index validates every pair');
+  assert.ok(!/PRIMARY KEY|\bUNIQUE\b/.test(staging.slice(staging.indexOf('CREATE TEMP TABLE'), staging.indexOf('const [inserted]'))), 'Only the newly owned heap is bulk-loaded without per-row index maintenance; staged use still requires native uniqueness');
+  assert.equal((staging.match(/await tx\.\$executeRaw`CREATE UNIQUE INDEX/g) ?? []).length, 1, 'Exactly one awaited native unique build gates function completion and all downstream staged reads');
+  const temporaryStatistics = staging.indexOf('await tx.$executeRaw`ANALYZE pg_temp.vaettir_native_erasure_scope`');
+  assert.ok(temporaryStatistics > uniqueBuild, 'Only successfully unique, fully populated transaction-local identities receive statistics before downstream reconciliation/use');
+  assert.equal((staging.match(/await tx\.\$executeRaw`ANALYZE/g) ?? []).length, 1, 'Exactly one awaited ANALYZE targets only the owned pg_temp table, never permanent customer tables');
+  assert.equal((staging.match(/\$\{encoded\}::jsonb/g) ?? []).length, 1, 'All complete captured family arrays are bound once per transaction');
+  assert.ok(!/DROP\s+TABLE|IF\s+NOT\s+EXISTS|GRANT\s+/i.test(staging), 'No replacing a preexisting temp relation, persistent table or live privilege grant');
+  const inventoryFunction = orgErasure.slice(orgErasure.indexOf('function nativeIdentityInventories'), orgErasure.indexOf('async function reconcileNativeIdentityScopes'));
+  const inventoryStart = inventoryFunction.indexOf('return [');
+  const inventoryEnd = inventoryFunction.indexOf('] satisfies', inventoryStart);
+  assert.ok(inventoryStart >= 0 && inventoryEnd > inventoryStart, 'Static batch array is explicitly bounded, excluding function/type declarations');
+  const inventories = inventoryFunction.slice(inventoryStart, inventoryEnd);
+  const expectedInventories = [['Project', 'organizationId', 'projectIds'], ['TestCase', 'scope.projectIds', 'testCaseIds'], ['TestPlan', 'scope.projectIds', 'testPlanIds'], ['TestRun', 'scope.projectIds', 'testRunIds'], ['Release', 'scope.projectIds', 'releaseIds'], ['TestSelectionRun', 'scope.projectIds', 'testSelectionRunIds'], ['CoverageReport', 'scope.projectIds', 'coverageReportIds'], ['ExploratorySession', 'scope.projectIds', 'exploratorySessionIds'], ['WebhookEndpoint', 'organizationId', 'webhookEndpointIds'], ['TestResult', 'scope.testRunIds', 'testResultIds']];
+  for (const [model, parent, ids] of expectedInventories) assert.ok(inventories.includes(`{ model: "${model}", parent: ${parent}, ids: scope.${ids} }`), `${model} has exactly its original native parent/identity scope`);
+  const modelKeys = [...inventories.matchAll(/\{ model: "([^"]+)"/g)].map(match => match[1]);
+  assert.deepEqual(modelKeys, expectedInventories.map(([model]) => model), 'Exactly the ten expected static families occur, without duplicate or extra model keys');
+  assert.equal(new Set(modelKeys).size, 10, 'All ten static model keys are unique');
+  assert.ok(!destructive.includes('const currentScope = await scopeIds(tx, organizationId)'), 'Locked reconciliation must not rematerialize complete native ID bodies');
+  assert.ok(destructive.indexOf('stepLevels.reduce') < destructive.indexOf('await del("ProjectReportDefinitionWrite"'));
+  assert.ok(destructive.indexOf('deletedStepHeads') < destructive.indexOf('for (const level of stepLevels)'));
+  for (const source of [erasure, destructive]) {
+    assert.ok(!/for\s*\([^)]*=\s*100;/.test(source), "No unconditional 100-level delete loop");
+    assert.ok(!/DISABLE\s+TRIGGER|session_replication_role|SET\s+CONSTRAINTS|TRUNCATE|DROP\s+CONSTRAINT/i.test(source), "No constraint bypass for erasure");
+  }
 });
 test("native origin and fresh actual query guards withhold old private caches but retain exact draft/UUID", () => {
   for (const literal of ["const [nativeOrigin]", "nativeSame", "!project.error && !project.isFetching && !project.isPaused", "!organizations.error && !organizations.isFetching && !organizations.isPaused", "!history.error && !history.isFetching && !history.isPaused", "manualCaseReadMatches", "const input", "attempt ?? buildRequest()", "if (known && !unknown.current)"]) assert.ok(ui.includes(literal), literal);
   assert.ok(ui.indexOf(": history.error ?") < ui.indexOf(": !ready ?"));
   assert.ok(ui.includes("Private cached observations are hidden"));
   assert.ok(!ui.includes("if (!available) setAttempt(null)"));
+  assert.ok(ui.includes("useLayoutEffect(() => { accessNow.current = { available, origin, editor }; }, [available, origin, editor])"));
+  assert.ok(ui.includes("useLayoutEffect(() => { openNow.current = open && active; currentClerk.current = userId; }, [open, active, userId])"));
+  assert.ok(ui.includes("[unknownOutcome, setUnknownOutcome] = useState(false)"));
+  assert.ok(ui.includes("function markUnknown(value: boolean) { unknown.current = value; setUnknownOutcome(value); }"));
+  assert.ok(ui.includes("{definitive && !unknownOutcome && <button"));
+  assert.ok(!ui.includes("{definitive && !unknown.current"), "Rendered unknown outcome is tracked state, while receipt callbacks retain their immediate event latch");
 });
 test("reviewed correction ACK stays separate from refresh failure and unknown request cannot be edited away", () => {
   assert.ok(ui.includes("manualCaseAckMatches(input, draft.baseline.revisionNumber + 1"));

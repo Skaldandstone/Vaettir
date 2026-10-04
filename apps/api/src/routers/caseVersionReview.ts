@@ -107,10 +107,12 @@ export const caseVersionReviewRouter = router({
             where: {
               projectId: input.projectId,
               entityId: tc.id,
-              entityType: "TestCaseVersionRestore",
+              entityType: {
+                in: ["TestCaseVersionRestore", "TestCaseProcedureRestore"],
+              },
             },
             orderBy: [{ createdAt: "desc" }, { id: "desc" }],
-            select: { metadata: true },
+            select: { metadata: true, entityType: true },
           });
           const latestReceipt = latestRestore
             ? z
@@ -139,9 +141,11 @@ export const caseVersionReviewRouter = router({
           return {
             items,
             restorationNotice: latestRestore
-              ? (latestReceipt?.success
-                  ? `Version ${latestReceipt.data.createdVersionNumber} restored selected fields from version ${latestReceipt.data.restoredVersionNumber}. `
-                  : "A restore audit is present with incomplete version metadata. ") +
+              ? (latestRestore.entityType === "TestCaseProcedureRestore"
+                  ? "A reviewed procedure snapshot restored selected case content. "
+                  : latestReceipt?.success
+                    ? `Version ${latestReceipt.data.createdVersionNumber} restored selected fields from version ${latestReceipt.data.restoredVersionNumber}. `
+                    : "A restore audit is present with incomplete version metadata. ") +
                 "That restore retained prior approval, risk/design assessments and paid drafts; it did not recertify them for the restored content. Review their current applicability."
               : null,
             nextCursor:

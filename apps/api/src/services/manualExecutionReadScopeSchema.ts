@@ -3,15 +3,15 @@ import { z } from "zod";
 /** UTF-16 length matches native query identities; lone surrogates and controls
  * cannot acquire a different transport encoding or invisible read scope. */
 export function supportedManualExecutionIdentity(value: string): boolean {
-  if (
-    value.length < 1 ||
-    value.length > 200 ||
-    /[\u0000-\u001f\u007f-\u009f]/.test(value)
-  )
-    return false;
+  if (value.length < 1 || value.length > 200) return false;
   for (const character of value) {
     const code = character.codePointAt(0)!;
-    if (code >= 0xd800 && code <= 0xdfff) return false;
+    if (
+      code < 32 ||
+      (code >= 127 && code <= 159) ||
+      (code >= 0xd800 && code <= 0xdfff)
+    )
+      return false;
   }
   return true;
 }

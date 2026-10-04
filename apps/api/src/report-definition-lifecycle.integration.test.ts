@@ -14,7 +14,10 @@ const definition = {
 };
 type Caller = ReturnType<typeof appRouter.createCaller>;
 describe("reviewed reusable report-definition lifecycle", () => {
-  let projectId: string, orgId: string, otherOrgId: string;
+  let projectId: string, orgId: string, otherOrgId: string, testPlanTypeId: string;
+  // Retain each successful setup identity immediately, so afterAll also owns
+  // partial setup failures that occur before a per-test try/finally begins.
+  const ownedProjects: string[] = [], ownedPlans: string[] = [], ownedRuns: string[] = [];
   const users: string[] = [];
   const callers: Record<string, Caller> = {};
   const ids: Record<string, string> = {};
@@ -29,6 +32,9 @@ describe("reviewed reusable report-definition lifecycle", () => {
     const tier = await prisma.planTier.findUniqueOrThrow({
       where: { key: "free" },
     });
+    testPlanTypeId = (await prisma.testPlanType.findUniqueOrThrow({
+      where: { key: "functional" },
+    })).id;
     orgId = (
       await prisma.organization.create({
         data: { name: stamp, slug: stamp, planTierId: tier.id },
@@ -52,6 +58,7 @@ describe("reviewed reusable report-definition lifecycle", () => {
         },
       })
     ).id;
+    ownedProjects.push(projectId);
     for (const [name, role, organizationId] of [
       ["owner", "OWNER", orgId],
       ["admin", "ADMIN", orgId],
@@ -73,20 +80,25 @@ describe("reviewed reusable report-definition lifecycle", () => {
     }
   });
   afterAll(async () => {
-    if (projectId) {
+    if (ownedProjects.length) {
       await prisma.projectReportDefinitionWrite.deleteMany({
-        where: { projectId },
+        where: { projectId: { in: ownedProjects } },
       });
-      await prisma.projectReportSnapshot.deleteMany({ where: { projectId } });
-      await prisma.projectReportDefinition.deleteMany({ where: { projectId } });
-      await prisma.project.deleteMany({ where: { id: projectId } });
+      await prisma.projectReportSnapshot.deleteMany({ where: { projectId: { in: ownedProjects } } });
+      await prisma.projectReportDefinition.deleteMany({ where: { projectId: { in: ownedProjects } } });
     }
-    await prisma.auditLog.deleteMany({ where: { userId: { in: users } } });
+    // Reviewed definition writes now have audit rows with a Project foreign key.
+    // Delete only this fixture's actors' logs before their owned projects.
+    await prisma.auditLog.deleteMany({ where: { actorId: { in: users } } });
+    await prisma.testRun.deleteMany({ where: { id: { in: ownedRuns }, projectId: { in: ownedProjects } } });
+    await prisma.testPlan.deleteMany({ where: { id: { in: ownedPlans }, projectId: { in: ownedProjects } } });
+    await prisma.project.deleteMany({ where: { id: { in: ownedProjects } } });
     await prisma.membership.deleteMany({ where: { userId: { in: users } } });
     await prisma.user.deleteMany({ where: { id: { in: users } } });
-    if (orgId)
+    const ownedOrganizations = [orgId, otherOrgId].filter(Boolean);
+    if (ownedOrganizations.length)
       await prisma.organization.deleteMany({
-        where: { id: { in: [orgId, otherOrgId] } },
+        where: { id: { in: ownedOrganizations } },
       });
   });
   const create = (actor = "owner") =>
@@ -148,6 +160,26 @@ describe("reviewed reusable report-definition lifecycle", () => {
     expect(
       await callers.owner.reportSnapshots.manageDefinition(request),
     ).toMatchObject({ version: 2, replay: true });
+    const auditRows = await prisma.auditLog.findMany({
+      where: {
+        projectId,
+        actorId: ids.owner,
+        entityType: "ProjectReportDefinition",
+        entityId: saved.id,
+        metadata: { path: ["requestKey"], equals: key("owner", request.requestId) },
+      },
+    });
+    expect(auditRows).toHaveLength(1);
+    expect(auditRows[0]).toMatchObject({
+      action: "UPDATE",
+      summary: "Reviewed report definition settings",
+      metadata: {
+        operation: "REPORT_DEFINITION_REVIEWED_CHANGE",
+        beforeVersion: 1,
+        afterVersion: 2,
+        reason: request.reason,
+      },
+    });
     const history = await callers.owner.reportSnapshots.definitionHistory({
       projectId,
       id: saved.id,
@@ -239,12 +271,15 @@ describe("reviewed reusable report-definition lifecycle", () => {
         slug: `${stamp}-scope`,
       },
     });
+    ownedProjects.push(foreignProject.id);
     const foreignPlan = await prisma.testPlan.create({
-      data: { projectId: foreignProject.id, name: "Foreign scope sentinel" },
+      data: { projectId: foreignProject.id, testPlanTypeId, name: "Foreign scope sentinel" },
     });
+    ownedPlans.push(foreignPlan.id);
     const localPlan = await prisma.testPlan.create({
-      data: { projectId, name: "Retained original scope" },
+      data: { projectId, testPlanTypeId, name: "Retained original scope" },
     });
+    ownedPlans.push(localPlan.id);
     try {
       for (const executionScope of [
         { planId: foreignPlan.id },
@@ -607,8 +642,9 @@ describe("reviewed reusable report-definition lifecycle", () => {
   });
   it("bounds scope labels on the server without changing selected native identities", async () => {
     const plan = await prisma.testPlan.create({
-      data: { projectId, name: "P".repeat(500) },
+      data: { projectId, testPlanTypeId, name: "P".repeat(500) },
     });
+    ownedPlans.push(plan.id);
     const run = await prisma.testRun.create({
       data: {
         projectId,
@@ -619,6 +655,7 @@ describe("reviewed reusable report-definition lifecycle", () => {
         status: "PARTIAL",
       },
     });
+    ownedRuns.push(run.id);
     try {
       const scope = await callers.owner.reportSnapshots.scopeOptions({
         projectId,

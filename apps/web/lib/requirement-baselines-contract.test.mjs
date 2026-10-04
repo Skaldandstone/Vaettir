@@ -27,8 +27,13 @@ test("original project/member/Clerk scope withholds cached history wording and c
   assert.ok(!begin.includes("setRationale(\"\")"));
 });
 test("approval binds complete fresh response and availability epoch; ACK and read refresh cannot share a refusal path", () => {
-  for (const value of ["approval.response === current", "approval.epoch === availability.current.epoch", "requirementBaselineAckMatches(receipt, request, origin)", "receiptRef.current?.input ?? pending ?? structuredClone(input)", "Capture acknowledged; current view refresh failed", "Retry reads without resubmitting", "mounted.current"])
+  for (const value of ["approval.response === current", "approval.epoch === reviewEpoch", "requirementBaselineAckMatches(receipt, request, origin)", "receiptRef.current?.input ?? pending ?? structuredClone(input)", "Capture acknowledged; current view refresh failed", "Retry reads without resubmitting", "mounted.current"])
     assert.ok(source.includes(value), value);
+  assert.match(source, /\[availability, setAvailability\] = useState/);
+  assert.match(source, /\[captureState, setCaptureState\] = useState/);
+  assert.doesNotMatch(source, /availability\.current|captureState\.current/);
+  assert.match(source, /useLayoutEffect\(\(\) => \{\s*liveCapture.current = \{ available: captureAvailable, epoch: captureEpoch/);
+  assert.match(source, /return \(\) => \{\s*liveCapture.current = \{ available: false, epoch: -1/);
 });
 
 test("late acknowledgement cannot use an old actor or access epoch after a scope loss and return", () => {

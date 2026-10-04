@@ -25,7 +25,10 @@ export function reportReleaseLabel(
 ) {
   if (
     !boundedName.trim() ||
-    /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/u.test(boundedName)
+    Array.from(boundedName).some((character) => {
+      const code = character.charCodeAt(0);
+      return (code < 32 && ![9, 10, 13].includes(code)) || code === 127;
+    })
   )
     throw new TRPCError({
       code: "PRECONDITION_FAILED",
