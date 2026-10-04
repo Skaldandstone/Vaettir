@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, type ReactNode, type CSSProperties } from "react";
+import { useEffect, useLayoutEffect, useRef, type ReactNode, type CSSProperties } from "react";
 import { createPortal } from "react-dom";
 
 /** Native modality keeps background controls inert and contains keyboard focus. */
@@ -13,6 +13,7 @@ export function DialogFrame({
   labelledBy,
   dismissible = true,
   style,
+  keepMounted = false,
 }: {
   open: boolean;
   onClose: () => void;
@@ -22,8 +23,15 @@ export function DialogFrame({
   labelledBy?: string;
   dismissible?: boolean;
   style?: CSSProperties;
+  keepMounted?: boolean;
 }) {
   const ref = useRef<HTMLDialogElement>(null);
+  useLayoutEffect(() => {
+    // React 18 treats the JSX inert boolean as an unknown attribute and omits
+    // it. Set the native property at commit, before retained content can focus.
+    const dialog = ref.current;
+    if (dialog) dialog.inert = !open;
+  }, [open, keepMounted]);
   useEffect(() => {
     const dialog = ref.current;
     if (!open || !dialog) return;
@@ -39,11 +47,12 @@ export function DialogFrame({
     };
   }, [open]);
 
-  if (!open || typeof document === "undefined") return null;
+  if ((!open && !keepMounted) || typeof document === "undefined") return null;
   return createPortal(
     <dialog
       ref={ref}
-      style={style}
+      style={!open ? { ...style, display: "none" } : style}
+      hidden={!open}
       className={`native-dialog ${className}`}
       aria-label={label}
       aria-labelledby={labelledBy}
