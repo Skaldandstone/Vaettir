@@ -1,10 +1,33 @@
 import { withSentryConfig } from "@sentry/nextjs";
 import { fileURLToPath } from "node:url";
 
+// NodeNext API sources correctly import emitted .js paths. Webpack also reads
+// their uncompiled TypeScript schemas in the browser, so permit that fallback
+// without replacing a real .js dependency or discarding existing alias maps.
+// https://webpack.js.org/configuration/resolve/#resolveextensionalias
+export function withNodeNextSourceAliases(config) {
+  config.resolve ??= {};
+  const aliases = config.resolve.extensionAlias ?? {};
+  const existing = aliases[".js"] ?? [".js"];
+  config.resolve.extensionAlias = {
+    ...aliases,
+    ".js": [
+      ...new Set([
+        ...(Array.isArray(existing) ? existing : [existing]),
+        ".js",
+        ".ts",
+        ".tsx",
+      ]),
+    ],
+  };
+  return config;
+}
+
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   deploymentId: process.env.NEXT_PUBLIC_RELEASE_COMMIT,
   transpilePackages: ["@vaettir/core"],
+  webpack: withNodeNextSourceAliases,
   async headers() {
     return ["gitlab", "github"].map(provider => ({ source: `/connections/${provider}/callback`, headers: [
       { key: "Referrer-Policy", value: "no-referrer" },
