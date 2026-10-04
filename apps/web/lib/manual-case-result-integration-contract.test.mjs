@@ -10,6 +10,12 @@ const steps = source("../../api/src/services/manualStepExecution.ts");
 const page = source("../app/projects/[projectId]/test-runs/manual/[testRunId]/page.tsx");
 const ui = source("../components/ManualCaseResultHistory.tsx");
 const central = source("../../api/src/router.ts");
+const migration = source("../../../packages/db/prisma/migrations/20261004080000_manual_case_result_history/migration.sql");
+
+test("deferred polymorphic native-result trigger only evaluates erasure-only OLD fields inside DELETE operation branch", () => {
+  assert.doesNotMatch(migration, /IF TG_OP='DELETE' AND/);
+  assert.match(migration, /IF TG_OP='DELETE' THEN\s+IF EXISTS\(SELECT 1 FROM "Organization" WHERE id=OLD\."organizationId"\)/);
+});
 
 test("step mode refuses tracked whole-case evidence after recovering original receipts but before procedure/body loads", () => {
   const record = steps.slice(steps.indexOf("export async function recordManualStepResult"));

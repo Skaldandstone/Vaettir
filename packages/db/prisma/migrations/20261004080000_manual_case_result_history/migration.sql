@@ -166,8 +166,13 @@ BEGIN
  -- Explicit original-tenant erasure may remove all heads/revisions before native rows.
  IF NOT FOUND THEN
   IF EXISTS(SELECT 1 FROM "ManualCaseResultRevision" WHERE "testRunId"=run_id AND "testCaseId"=case_id) THEN RAISE EXCEPTION 'A retained revision cannot commit without its tracked head.' USING ERRCODE='23514',CONSTRAINT='manual_case_final_head'; END IF;
-  IF TG_OP='DELETE' AND (EXISTS(SELECT 1 FROM "Organization" WHERE id=OLD."organizationId") OR EXISTS(SELECT 1 FROM "TestResult" WHERE id=OLD."testResultId")) THEN
-   RAISE EXCEPTION 'Retained whole-case history may only be removed with its exact original organization and native result during authorized tenant erasure.' USING ERRCODE='23514',CONSTRAINT='manual_case_tenant_erasure_only';
+  -- Separate trigger-operation branch: native TestResult INSERT/UPDATE rows do
+  -- not have organizationId/testResultId fields. Never plan a DELETE-only OLD
+  -- record expression for those trigger shapes, even behind SQL AND.
+  IF TG_OP='DELETE' THEN
+   IF EXISTS(SELECT 1 FROM "Organization" WHERE id=OLD."organizationId") OR EXISTS(SELECT 1 FROM "TestResult" WHERE id=OLD."testResultId") THEN
+    RAISE EXCEPTION 'Retained whole-case history may only be removed with its exact original organization and native result during authorized tenant erasure.' USING ERRCODE='23514',CONSTRAINT='manual_case_tenant_erasure_only';
+   END IF;
   END IF;
   RETURN NULL;
  END IF;
