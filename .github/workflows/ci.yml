@@ -76,6 +76,7 @@ jobs:
         run: |
           pnpm test:operations
           pnpm test:native-fresh-next
+          pnpm test:native-fresh-final
           node --test scripts/retain-sharp-version-receipt.test.mjs
           node --test scripts/native-build-concurrency.test.mjs
 
