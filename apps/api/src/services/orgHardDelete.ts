@@ -47,9 +47,20 @@ function encodedNativeScopeIds(ids: string[]) {
 }
 function checkNativeScopeIds(ids: string[]) { void encodedNativeScopeIds(ids); }
 function nativeScopeValues(ids: string[]) { return Prisma.sql`(SELECT value FROM jsonb_array_elements_text(${encodedNativeScopeIds(ids)}::jsonb) AS native_scope(value))`; }
+// Transaction-local families only. Native IDs keep their original TEXT type
+// and collation; fixed numeric keys avoid repeating locale comparisons of
+// model names during bulk unique-index construction.
+const nativeScopeFamilyCodes = Object.freeze({
+  Project: 1, TestCase: 2, TestPlan: 3, TestRun: 4, Release: 5,
+  TestSelectionRun: 6, CoverageReport: 7, ExploratorySession: 8,
+  WebhookEndpoint: 9, TestResult: 10,
+} as const satisfies Record<keyof typeof nativeIdentityParents, number>);
+function stagedNativeScopeCode(model: keyof typeof nativeIdentityParents) {
+  if (!Object.hasOwn(nativeIdentityParents, model) || !Object.hasOwn(nativeScopeFamilyCodes, model)) throw Error("Unsupported staged native erasure family");
+  return nativeScopeFamilyCodes[model];
+}
 function stagedNativeScopeValues(model: keyof typeof nativeIdentityParents) {
-  if (!Object.hasOwn(nativeIdentityParents, model)) throw Error("Unsupported staged native erasure family");
-  return Prisma.sql`(SELECT id FROM pg_temp.vaettir_native_erasure_scope WHERE model=${model})`;
+  return Prisma.sql`(SELECT id FROM pg_temp.vaettir_native_erasure_scope WHERE model=${stagedNativeScopeCode(model)})`;
 }
 function nativeScopePredicate(model: NativeScopeModel, ids: string[], revisionNumber?: number, useStagedScope = false) {
   checkNativeScopeIds(ids);
@@ -130,7 +141,10 @@ async function stageNativeIdentityScopes(tx: Prisma.TransactionClient, organizat
   });
   // Every family retains its original 64MiB bound. The combined parameter is
   // bounded before joining/binding, including static JSON key/separator bytes.
-  if (inventories.length !== 10 || new Set(inventories.map(row => row.model)).size !== 10 || encodedBytes > 10 * MAX_NATIVE_SCOPE_BYTES + 1024) throw Error("Unsupported complete staged erasure scope");
+  if (inventories.length !== 10 || new Set(inventories.map(row => row.model)).size !== 10 ||
+    Object.keys(nativeScopeFamilyCodes).length !== 10 || new Set(Object.values(nativeScopeFamilyCodes)).size !== 10 ||
+    Object.values(nativeScopeFamilyCodes).some(code => !Number.isInteger(code) || code < 1 || code > 10) ||
+    encodedBytes > 10 * MAX_NATIVE_SCOPE_BYTES + 1024) throw Error("Unsupported complete staged erasure scope");
   const encoded = `{${parts.join(",")}}`;
   const [existing] = await tx.$queryRaw<Array<{ existing: boolean }>>`SELECT to_regclass('pg_temp.vaettir_native_erasure_scope') IS NOT NULL AS existing`;
   if (!existing || existing.existing !== false) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "This transaction's native erasure staging name is already in use. No relation was replaced or deleted." });
@@ -138,11 +152,13 @@ async function stageNativeIdentityScopes(tx: Prisma.TransactionClient, organizat
   // relation. Creation/population roll back atomically; successful commit drops
   // this transaction-local resource, never a permanent application table.
   await tx.$executeRaw`CREATE TEMP TABLE pg_temp.vaettir_native_erasure_scope (
-    model TEXT NOT NULL CHECK (model IN ('Project','TestCase','TestPlan','TestRun','Release','TestSelectionRun','CoverageReport','ExploratorySession','WebhookEndpoint','TestResult')),
+    model SMALLINT NOT NULL CHECK (model BETWEEN 1 AND 10),
     id TEXT NOT NULL) ON COMMIT DROP`;
+  const familyCode = Prisma.sql`CASE family.key ${Prisma.join(inventories.map(({ model }) =>
+    Prisma.sql`WHEN ${model} THEN ${stagedNativeScopeCode(model)}::smallint`), " ")} ELSE NULL END`;
   const [inserted] = await tx.$queryRaw<Array<{ count: bigint }>>(Prisma.sql`
     WITH inserted AS (INSERT INTO pg_temp.vaettir_native_erasure_scope(model,id)
-      SELECT family.key,identity.value FROM jsonb_each(${encoded}::jsonb) AS family(key,ids)
+      SELECT ${familyCode},identity.value FROM jsonb_each(${encoded}::jsonb) AS family(key,ids)
         CROSS JOIN LATERAL jsonb_array_elements_text(family.ids) AS identity(value) RETURNING 1)
     SELECT count(*)::bigint AS count FROM inserted`);
   if (!inserted || typeof inserted.count !== "bigint" || inserted.count !== expected) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "The complete captured native erasure staging count could not be verified. No child records were deleted." });
@@ -168,14 +184,19 @@ async function reconcileNativeIdentityScopes(db: Prisma.TransactionClient, organ
     checkNativeScopeIds(ids);
     if (new Set(ids).size !== ids.length) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Native erasure captured identities are duplicated. No child records were deleted." });
     const predicate = typeof parent === "string" ? Prisma.sql`${column}=${parent}` : Prisma.sql`${column} IN ${stagedNativeScopeValues(field === "projectId" ? "Project" : "TestRun")}`;
+    // Both sets are unique under unchanged native TEXT/default collation:
+    // current IDs are native primary keys and captured IDs have the completed
+    // UNIQUE(model,id) index. Equal ACTUAL cardinality plus current-subset is
+    // therefore exact set equality, including empty, missing and extra IDs.
     // One driver round trip, complete sets retained server-side; each branch
     // returns count/bytes/exact mismatch only, never another native ID body.
     return Prisma.sql`SELECT ${model}::text AS model, verified.* FROM (
       WITH current_scope AS MATERIALIZED (SELECT id FROM ${table} WHERE ${predicate}),
-        captured_scope AS MATERIALIZED (SELECT id FROM pg_temp.vaettir_native_erasure_scope WHERE model=${model})
+        captured_scope AS MATERIALIZED (SELECT id FROM pg_temp.vaettir_native_erasure_scope WHERE model=${stagedNativeScopeCode(model)})
       SELECT count(*)::bigint AS count,coalesce(sum(octet_length(to_json(id)::text)+1),0)::bigint+2 AS bytes,
-        EXISTS ((SELECT id FROM current_scope EXCEPT SELECT id FROM captured_scope)
-          UNION ALL (SELECT id FROM captured_scope EXCEPT SELECT id FROM current_scope)) AS changed
+        (count(*)::bigint <> (SELECT count(*)::bigint FROM captured_scope)
+          OR EXISTS (SELECT 1 FROM current_scope current_id WHERE NOT EXISTS
+            (SELECT 1 FROM captured_scope captured_id WHERE captured_id.id=current_id.id))) AS changed
       FROM current_scope) AS verified`;
   });
   // join combines ten statically enumerated SQL fragments, NOT client IDs.

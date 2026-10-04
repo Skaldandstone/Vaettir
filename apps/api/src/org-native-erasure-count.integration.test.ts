@@ -13,14 +13,14 @@ const nativeModels = [
   "TestSelectionRecommendation", "TestPlanVersion", "WebhookDelivery",
 ] as const;
 type NativeModel = (typeof nativeModels)[number];
-const nativeFamilies: Record<NativeModel, string> = {
-  CoverageFileEntry: "CoverageReport", ExploratorySessionNote: "ExploratorySession",
-  ReleaseReadinessSnapshot: "Release", RiskFlag: "Release", AcceptanceCriterion: "TestPlan",
-  TestCaseAttachment: "TestCase", TestCaseComplianceControl: "TestCase", TestCaseDataset: "TestCase",
-  TestCaseSource: "TestCase", TestCaseStep: "TestCase", TestCaseVersion: "TestCase",
-  TestResultArtifact: "TestResult", TestResult: "TestRun", ManualStepResultHead: "TestRun",
-  ManualStepResultRevision: "TestRun", TestSelectionRecommendation: "TestSelectionRun",
-  TestPlanVersion: "TestPlan", WebhookDelivery: "WebhookEndpoint",
+const nativeFamilies: Record<NativeModel, number> = {
+  CoverageFileEntry: 7, ExploratorySessionNote: 8,
+  ReleaseReadinessSnapshot: 5, RiskFlag: 5, AcceptanceCriterion: 3,
+  TestCaseAttachment: 2, TestCaseComplianceControl: 2, TestCaseDataset: 2,
+  TestCaseSource: 2, TestCaseStep: 2, TestCaseVersion: 2,
+  TestResultArtifact: 10, TestResult: 4, ManualStepResultHead: 4,
+  ManualStepResultRevision: 4, TestSelectionRecommendation: 6,
+  TestPlanVersion: 3, WebhookDelivery: 9,
 };
 const zeroCounts = () => Object.fromEntries(nativeModels.map((model) => [model, 0]));
 
