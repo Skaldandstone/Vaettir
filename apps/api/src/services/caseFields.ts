@@ -8,11 +8,19 @@ import {
 } from "./caseFieldSchema.js";
 import { requireCurrentPlanAccess } from "./testPlanExecution.js";
 import { qualityProfileHash } from "./qualityExperienceProfile.js";
+import {
+  caseFieldReadPinFields,
+  pairedCaseFieldReadPins,
+  caseFieldReadScopeSchema,
+  lockCaseFieldReadScope,
+  type CaseFieldReadAuthorization,
+} from "./caseFieldReadScope.js";
 const id = z.string().min(1).max(200),
   hash = z.string().regex(/^[a-f0-9]{64}$/);
 export const caseFieldScope = z
-  .object({ projectId: id, caseId: id.optional() })
-  .strict();
+  .object({ projectId: id, caseId: id.optional(), ...caseFieldReadPinFields })
+  .strict()
+  .superRefine(pairedCaseFieldReadPins);
 export const caseFieldSchemaReview = z
   .object({ projectId: id, schema: caseFieldSchema })
   .strict();
@@ -41,6 +49,7 @@ export const caseFieldValueSave = z
 export const caseFieldStateOutput = z.object({
   projectId: id,
   organizationId: id,
+  readScope: caseFieldReadScopeSchema.optional(),
   caseId: id.nullable(),
   schema: caseFieldSchema,
   schemaVersion: z.number().int().nonnegative(),
@@ -289,9 +298,21 @@ export async function getCaseFields(
   db: PrismaClient,
   userId: string,
   input: z.infer<typeof caseFieldScope>,
+  authorized?: CaseFieldReadAuthorization,
 ) {
   return db.$transaction(
-    (tx) => readCaseFieldState(tx, userId, input.projectId, input.caseId),
+    async (tx) => {
+      const readScope = await lockCaseFieldReadScope(
+        tx,
+        userId,
+        input,
+        authorized,
+      );
+      return {
+        ...(await readCaseFieldState(tx, userId, input.projectId, input.caseId)),
+        readScope,
+      };
+    },
     {
       isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead,
       timeout: 10000,

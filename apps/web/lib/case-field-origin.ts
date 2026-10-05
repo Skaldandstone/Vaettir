@@ -10,6 +10,44 @@ export type CaseFieldOrigin = Readonly<{
   caseId: string | null;
 }>;
 
+type CaseFieldReadScope = Readonly<{
+  projectId: string;
+  organizationId: string;
+  actorId: string;
+  actorClerkUserId: string;
+}>;
+
+// Bootstrap from an authenticated server echo, never attach the current Clerk
+// actor to a cached body that did not identify its own authorized reader.
+export function caseFieldReadOrigin(
+  data: {
+    projectId: string;
+    caseId: string | null;
+    organizationId?: string;
+    readScope?: CaseFieldReadScope;
+  } | null | undefined,
+  projectId: string,
+  caseId: string | null,
+  clerkActorId: string | null | undefined,
+): CaseFieldOrigin | null {
+  const scope = data?.readScope;
+  if (
+    !projectId || !clerkActorId || (caseId !== null && !caseId) ||
+    !data || data.projectId !== projectId || data.caseId !== caseId ||
+    !scope?.organizationId || !scope.actorId ||
+    scope.projectId !== projectId || scope.actorClerkUserId !== clerkActorId ||
+    (data.organizationId !== undefined && data.organizationId !== scope.organizationId)
+  ) return null;
+  return { projectId, caseId, organizationId: scope.organizationId, clerkActorId: scope.actorClerkUserId };
+}
+
+export function caseFieldReadPins(origin: CaseFieldOrigin | null): {
+  originalOrganizationId?: string;
+  expectedClerkActorId?: string;
+} {
+  return origin ? { originalOrganizationId: origin.organizationId, expectedClerkActorId: origin.clerkActorId } : {};
+}
+
 export function sameCaseFieldOrigin(
   original: CaseFieldOrigin | null,
   current: CaseFieldOrigin | null,

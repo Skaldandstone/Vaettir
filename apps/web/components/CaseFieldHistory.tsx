@@ -9,6 +9,9 @@ import {
   retainedCaseFieldReceipt,
   assertCaseFieldAcknowledgement,
   sameCaseFieldOrigin,
+  caseFieldReadOrigin,
+  caseFieldReadPins,
+  type CaseFieldOrigin,
   type CaseFieldReceipt,
 } from "@/lib/case-field-origin";
 import { useCaseFieldAccess } from "@/lib/use-case-field-access";
@@ -45,7 +48,7 @@ function History({ projectId, caseId }: { projectId: string; caseId: string }) {
     > | null>(null),
     [notice, setNotice] = useState<string | null>(null);
   const query = trpcReact.caseFields.history.useQuery(
-    { projectId, caseId, cursor, take: 10 },
+    { projectId, caseId, cursor, take: 10, ...caseFieldReadPins(access.origin) },
     { enabled: expanded && access.authReady, retry: false, staleTime: 0 },
   );
   const fresh =
@@ -54,7 +57,8 @@ function History({ projectId, caseId }: { projectId: string; caseId: string }) {
     !query.isFetching &&
     !query.isPaused &&
     query.data?.projectId === projectId &&
-    query.data.caseId === caseId
+    query.data.caseId === caseId &&
+    sameCaseFieldOrigin(access.origin, caseFieldReadOrigin(query.data, projectId, caseId, access.current?.clerkActorId))
       ? query.data
       : null;
   const restore = trpcReact.caseFields.restore.useMutation();
@@ -257,6 +261,7 @@ function History({ projectId, caseId }: { projectId: string; caseId: string }) {
               projectId={projectId}
               caseId={caseId}
               selection={selection}
+              origin={access.origin}
               onSelection={setSelection}
               busy={restore.isPending}
               readable={open && access.readable}
@@ -275,6 +280,7 @@ function Comparison({
   projectId,
   caseId,
   selection,
+  origin,
   onSelection,
   busy,
   readable,
@@ -286,6 +292,7 @@ function Comparison({
   projectId: string;
   caseId: string;
   selection: Selection;
+  origin: CaseFieldOrigin | null;
   onSelection: (selection: Selection) => void;
   busy: boolean;
   readable: boolean;
@@ -295,7 +302,7 @@ function Comparison({
   onCommit: (input: RouterInputs["caseFields"]["restore"]) => void;
 }) {
   const query = trpcReact.caseFields.previewRestore.useQuery(
-    { projectId, caseId, ...selection },
+    { projectId, caseId, ...selection, ...caseFieldReadPins(origin) },
     {
       enabled: readEnabled,
       retry: false,
@@ -315,7 +322,8 @@ function Comparison({
     query.data?.projectId === projectId &&
     query.data.caseId === caseId &&
     query.data.auditId === selection.auditId &&
-    query.data.side === selection.side
+    query.data.side === selection.side &&
+    sameCaseFieldOrigin(origin, caseFieldReadOrigin(query.data, projectId, caseId, origin?.clerkActorId))
       ? query.data
       : null;
   useEffect(() => {

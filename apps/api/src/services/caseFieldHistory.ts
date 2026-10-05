@@ -13,6 +13,13 @@ import {
   saveCaseFieldsInTransaction,
 } from "./caseFields.js";
 import { qualityProfileHash } from "./qualityExperienceProfile.js";
+import {
+  caseFieldReadPinFields,
+  pairedCaseFieldReadPins,
+  caseFieldReadScopeSchema,
+  lockCaseFieldReadScope,
+  type CaseFieldReadAuthorization,
+} from "./caseFieldReadScope.js";
 const id = z.string().min(1).max(200),
   hash = z.string().regex(/^[a-f0-9]{64}$/);
 export const fieldHistoryScope = z
@@ -20,16 +27,23 @@ export const fieldHistoryScope = z
   .strict();
 export const fieldHistoryListInput = fieldHistoryScope
   .extend({
+    ...caseFieldReadPinFields,
     take: z.number().int().min(1).max(10).default(10),
     cursor: z
       .object({ auditId: id, createdAt: z.string().datetime() })
       .strict()
       .optional(),
   })
-  .strict();
+  .strict()
+  .superRefine(pairedCaseFieldReadPins);
 export const fieldHistorySelection = fieldHistoryScope
   .extend({ auditId: id, side: z.enum(["BEFORE", "AFTER"]) })
   .strict();
+// Read pins must not become part of the restore input or its durable hash.
+export const fieldHistoryPreviewInput = fieldHistorySelection
+  .extend(caseFieldReadPinFields)
+  .strict()
+  .superRefine(pairedCaseFieldReadPins);
 export const fieldHistoryRestoreInput = fieldHistorySelection
   .extend({
     actorId: id,
@@ -49,6 +63,7 @@ const actor = z.object({
 export const fieldHistoryListOutput = z.object({
   projectId: id,
   caseId: id,
+  readScope: caseFieldReadScopeSchema.optional(),
   entries: z
     .array(
       z.object({
@@ -69,6 +84,7 @@ export const fieldHistoryListOutput = z.object({
 export const fieldHistoryPreviewOutput = z.object({
   projectId: id,
   caseId: id,
+  readScope: caseFieldReadScopeSchema.optional(),
   auditId: id,
   side: z.enum(["BEFORE", "AFTER"]),
   actorId: id,
@@ -201,9 +217,16 @@ export async function listCaseFieldHistory(
   db: PrismaClient,
   userId: string,
   input: z.infer<typeof fieldHistoryListInput>,
+  authorized?: CaseFieldReadAuthorization,
 ) {
   return db.$transaction(
     async (tx) => {
+      const readScope = await lockCaseFieldReadScope(
+        tx,
+        userId,
+        input,
+        authorized,
+      );
       const { where } = await scope(tx, userId, input);
       if (input.cursor) {
         const cursor = await tx.auditLog.findFirst({
@@ -285,6 +308,7 @@ export async function listCaseFieldHistory(
       return {
         projectId: input.projectId,
         caseId: input.caseId,
+        readScope,
         entries,
         nextCursor:
           rows.length > input.take && last
@@ -494,10 +518,19 @@ async function preview(
 export async function previewCaseFieldHistory(
   db: PrismaClient,
   userId: string,
-  input: z.infer<typeof fieldHistorySelection>,
+  input: z.infer<typeof fieldHistoryPreviewInput>,
+  authorized?: CaseFieldReadAuthorization,
 ) {
   return db.$transaction(
-    async (tx) => (await preview(tx, userId, input)).result,
+    async (tx) => {
+      const readScope = await lockCaseFieldReadScope(
+        tx,
+        userId,
+        input,
+        authorized,
+      );
+      return { ...(await preview(tx, userId, input)).result, readScope };
+    },
     {
       isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead,
       timeout: 10000,

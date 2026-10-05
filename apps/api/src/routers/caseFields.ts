@@ -15,7 +15,7 @@ import {
 import {
   fieldHistoryListInput,
   fieldHistoryListOutput,
-  fieldHistorySelection,
+  fieldHistoryPreviewInput,
   fieldHistoryPreviewOutput,
   fieldHistoryRestoreInput,
   listCaseFieldHistory,
@@ -28,14 +28,18 @@ export const caseFieldsRouter = router({
     .output(fieldHistoryListOutput)
     .query(async ({ ctx, input }) => {
       await requireProjectAccess(ctx, input.projectId);
-      return listCaseFieldHistory(ctx.prisma, ctx.user.id, input);
+      return listCaseFieldHistory(ctx.prisma, ctx.user.id, input, {
+        clerkActorId: ctx.user.clerkUserId,
+      });
     }),
   previewRestore: protectedProcedure
-    .input(fieldHistorySelection)
+    .input(fieldHistoryPreviewInput)
     .output(fieldHistoryPreviewOutput)
     .query(async ({ ctx, input }) => {
       await requireProjectAccess(ctx, input.projectId);
-      return previewCaseFieldHistory(ctx.prisma, ctx.user.id, input);
+      return previewCaseFieldHistory(ctx.prisma, ctx.user.id, input, {
+        clerkActorId: ctx.user.clerkUserId,
+      });
     }),
   restore: protectedProcedure
     .input(fieldHistoryRestoreInput)
@@ -49,7 +53,9 @@ export const caseFieldsRouter = router({
     .output(caseFieldStateOutput)
     .query(async ({ ctx, input }) => {
       await requireProjectAccess(ctx, input.projectId);
-      return getCaseFields(ctx.prisma, ctx.user.id, input);
+      return getCaseFields(ctx.prisma, ctx.user.id, input, {
+        clerkActorId: ctx.user.clerkUserId,
+      });
     }),
   reviewSchema: protectedProcedure
     .input(caseFieldSchemaReview)

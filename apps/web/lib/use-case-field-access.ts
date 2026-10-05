@@ -3,7 +3,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useAuth } from "@clerk/nextjs";
 import type { UseQueryResult } from "@tanstack/react-query";
 import { trpcReact, type RouterOutputs } from "./trpcReact";
-import { sameCaseFieldOrigin, type CaseFieldOrigin } from "./case-field-origin";
+import { sameCaseFieldOrigin, caseFieldReadOrigin, caseFieldReadPins, type CaseFieldOrigin } from "./case-field-origin";
 
 // Keep private drafts and uncertain receipts mounted. Fresh authorization may
 // hide them, but never transfers them to another actor or organization.
@@ -31,8 +31,9 @@ export function useCaseFieldAccess(
 ): CaseFieldAccess {
   const { isLoaded, isSignedIn, userId } = useAuth();
   const authReady = Boolean(isLoaded && isSignedIn && userId);
+  const [origin, setOrigin] = useState<CaseFieldOrigin | null>(null);
   const query = trpcReact.caseFields.get.useQuery(
-    { projectId, caseId },
+    { projectId, caseId, ...caseFieldReadPins(origin) },
     {
       enabled: active && authReady,
       retry: false,
@@ -47,22 +48,15 @@ export function useCaseFieldAccess(
     !query.isFetching &&
     !query.isPaused &&
     query.data?.projectId === projectId &&
-    query.data.caseId === (caseId ?? null)
+    query.data.caseId === (caseId ?? null) &&
+    caseFieldReadOrigin(query.data, projectId, caseId ?? null, userId)
       ? query.data
       : null;
   const current = useMemo<CaseFieldOrigin | null>(
     () =>
-      fresh && userId
-        ? {
-            projectId,
-            caseId: caseId ?? null,
-            organizationId: fresh.organizationId,
-            clerkActorId: userId,
-          }
-        : null,
+      caseFieldReadOrigin(fresh, projectId, caseId ?? null, userId),
     [fresh, projectId, caseId, userId],
   );
-  const [origin, setOrigin] = useState<CaseFieldOrigin | null>(null);
   useEffect(() => {
     if (!origin && current) setOrigin(current);
   }, [origin, current]);
