@@ -18,6 +18,24 @@ function error(code="ERR_ASSERTION",script="native-builder-fresh-final-verifier.
   return e;
 }
 for(const[name,module]of [["original",original],["packaging-v2",v2]]) {
+ test(name+": constructor check labels are own-data, stage-scoped and bounded",()=>{
+  for(const check of ["options","platform-identity","deadline","memory-read","memory-admission","final-log-hash","filesystem-capability","checkpoint-read","checkpoint-hash","checkpoint-import-scope","checkpoint-import","checkpoint-rehash","checkpoint-exports","abi-read","abi-hash","abi-import-scope","abi-import","abi-rehash","abi-exports"]) {
+   const e=new Error(sensitive);e.code="ERR_ASSERTION";
+   Object.defineProperty(e,"nativeFinalAdapterCheck",{value:check});
+   for(const stage of ["runtime-adapter","bootstrap-runtime"]) {
+    const value=module.nativeFinalPublicFailure(stage,e);
+    assert.equal(value.adapterCheck,check);assert.equal(value.errorCode,"ERR_ASSERTION");
+    assert.doesNotMatch(JSON.stringify(value),/PRIVATE_MESSAGE/);
+   }
+   assert.equal(Object.hasOwn(module.nativeFinalPublicFailure("runtime-verifier",e),"adapterCheck"),false);
+  }
+  let calls=0;const accessor={};
+  Object.defineProperty(accessor,"nativeFinalAdapterCheck",{get(){calls++;return "memory-read";}});
+  assert.equal(Object.hasOwn(module.nativeFinalPublicFailure("runtime-adapter",accessor),"adapterCheck"),false);
+  assert.equal(calls,0);
+  for(const e of [{nativeFinalAdapterCheck:sensitive},Object.create({nativeFinalAdapterCheck:"memory-read"})])
+   assert.equal(Object.hasOwn(module.nativeFinalPublicFailure("runtime-adapter",e),"adapterCheck"),false);
+ });
  test(name+": only approved stage/code/script numeric frames are public",()=>{
   const value=module.nativeFinalPublicFailure("runtime-verifier",error());
   assert.deepEqual(value,{schemaVersion:1,purpose:"bounded-public-native-final-failure-not-acceptance",stage:"runtime-verifier",errorCode:"ERR_ASSERTION",frames:[{script:"native-builder-fresh-final-verifier.mjs",line:123,column:45}]});

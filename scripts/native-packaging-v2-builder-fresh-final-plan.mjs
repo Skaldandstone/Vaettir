@@ -28,7 +28,7 @@ export const FINAL_CAPSULE_PINS = Object.freeze({
   "native-builder-fresh-final-verifier.mjs":
     "3485c951647c08da77994f73389ccc48654e6148dd539d49fca06269e607a2ff",
   "native-builder-fresh-final-adapter.mjs":
-    "e668eee94bc13f87affcdf6565a9853f867724772a55bc80e5b9b29cc6476a25",
+    "bbb313210d6826fc64fa57f1c85b5466c40075f05d88c46d6ed88a1316bae092",
 });
 const sha = (bytes) => createHash("sha256").update(bytes).digest("hex");
 const quote = (text) => "'" + text.replaceAll("'", "'\\''") + "'";
@@ -232,11 +232,22 @@ export function nativeFinalPublicFailure(stage, error) {
     "check-llvm-package.mjs",
     "native-build-concurrency.mjs",
   ];
-  let errorCode = "UNCLASSIFIED";
+  const adapterChecks = [
+    "options", "platform-identity", "deadline", "memory-read",
+    "memory-admission", "final-log-hash", "filesystem-capability",
+    "checkpoint-read", "checkpoint-hash", "checkpoint-import-scope",
+    "checkpoint-import", "checkpoint-rehash", "checkpoint-exports",
+    "abi-read", "abi-hash", "abi-import-scope", "abi-import",
+    "abi-rehash", "abi-exports",
+  ];
+  let errorCode = "UNCLASSIFIED", adapterCheck;
   const frames = [];
   try {
     const code = Object.getOwnPropertyDescriptor(error, "code")?.value;
     if (typeof code === "string" && codes.includes(code)) errorCode = code;
+    const check = Object.getOwnPropertyDescriptor(error, "nativeFinalAdapterCheck")?.value;
+    if ((stage === "runtime-adapter" || stage === "bootstrap-runtime") &&
+        typeof check === "string" && adapterChecks.includes(check)) adapterCheck = check;
     const stack = Object.getOwnPropertyDescriptor(error, "stack")?.value;
     if (typeof stack === "string") {
       for (const line of stack.slice(-8192).split("\n").slice(-16)) {
@@ -258,6 +269,7 @@ export function nativeFinalPublicFailure(stage, error) {
     stage: stages.includes(stage) ? stage : "UNCLASSIFIED",
     errorCode,
     frames,
+    ...(adapterCheck === undefined ? {} : {adapterCheck}),
   };
 }
 

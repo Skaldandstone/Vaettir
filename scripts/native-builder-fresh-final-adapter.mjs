@@ -289,6 +289,8 @@ export async function createNativeFreshFinalAdapter(
   options,
   injected = defaults,
 ) {
+  let adapterCheck = "options";
+  try {
   exact(options, [
     "verificationId",
     "scriptPins",
@@ -328,9 +330,11 @@ export async function createNativeFreshFinalAdapter(
     true,
     "Exclusive container writer required; transport must enforce it",
   );
+  adapterCheck = "platform-identity";
   assert.equal(injected.platform(), "linux");
   assert.equal(injected.uid(), 0);
   safeInteger(options.memoryLimitBytes, 4 * GB, 14 * GB);
+  adapterCheck = "deadline";
   assert.ok(
     Number.isFinite(options.deadlineMs) &&
       Number.isFinite(options.cleanupDeadlineMs),
@@ -343,7 +347,9 @@ export async function createNativeFreshFinalAdapter(
     options.cleanupDeadlineMs >= options.deadlineMs &&
       options.cleanupDeadlineMs <= options.deadlineMs + 75000,
   );
+  adapterCheck = "memory-read";
   const memory = injected.memory();
+  adapterCheck = "memory-admission";
   exact(memory, ["limit", "used"]);
   safeInteger(memory.limit, 4 * GB, 14 * GB);
   safeInteger(memory.used, 0, memory.limit);
@@ -352,9 +358,11 @@ export async function createNativeFreshFinalAdapter(
     memory.limit - memory.used >= 2 * GB,
     "Insufficient package/ELF memory admission",
   );
+  adapterCheck = "final-log-hash";
   const finalLog = Buffer.from(bounded(options.finalLog, FINAL_LIMITS.log));
   assert.equal(hash(finalLog), options.finalLogSha256);
   const io = injected.fs;
+  adapterCheck = "filesystem-capability";
   assert.ok(
     Number.isSafeInteger(io.constants.O_NOFOLLOW) &&
       io.constants.O_NOFOLLOW > 0,
@@ -967,12 +975,16 @@ export async function createNativeFreshFinalAdapter(
     return bounded(result, request.outputMax);
   }
   async function original(name, allowedImports) {
+    const diagnosticPrefix = name === "native-llvm-checkpoint.mjs" ? "checkpoint" : "abi";
+    adapterCheck = diagnosticPrefix === "checkpoint" ? "checkpoint-read" : "abi-read";
     const raw = read("/build/scripts/" + name, MB);
+    adapterCheck = diagnosticPrefix === "checkpoint" ? "checkpoint-hash" : "abi-hash";
     assert.equal(
       hash(raw),
       options.scriptPins[name],
       "Original module bytes not pinned",
     );
+    adapterCheck = diagnosticPrefix === "checkpoint" ? "checkpoint-import-scope" : "abi-import-scope";
     const text = new TextDecoder("utf-8", { fatal: true }).decode(raw);
     const imports = [
       ...text.matchAll(/(?:from\s+|import\s*)["']([^"']+)["']/g),
@@ -982,9 +994,11 @@ export async function createNativeFreshFinalAdapter(
         imports.every((specifier) => allowedImports.includes(specifier)),
       "Only original builtin module imports permitted",
     );
+    adapterCheck = diagnosticPrefix === "checkpoint" ? "checkpoint-import" : "abi-import";
     const exports = await injected.importExact(
       "data:text/javascript;base64," + raw.toString("base64"),
     );
+    adapterCheck = diagnosticPrefix === "checkpoint" ? "checkpoint-rehash" : "abi-rehash";
     check();
     assert.equal(
       hash(read("/build/scripts/" + name, MB)),
@@ -1006,8 +1020,10 @@ export async function createNativeFreshFinalAdapter(
     "node:fs",
     "node:url",
   ]);
+  adapterCheck = "checkpoint-exports";
   for (const name of ["inventoryTree", "hashCandidateLibrary"])
     assert.equal(typeof checkpoint[name], "function");
+  adapterCheck = "abi-exports";
   assert.equal(typeof packageModule.verifyLlvmCompatibility, "function");
   const native = {
     inventoryTree(path, limits) {
@@ -1136,4 +1152,17 @@ export async function createNativeFreshFinalAdapter(
       deploymentAcceptance: false,
     }),
   });
+  } catch (error) {
+    // Own data only, never inspect or invoke the thrown object's properties.
+    // Annotation failure cannot replace the original rejection/exception.
+    try {
+      Object.defineProperty(error, "nativeFinalAdapterCheck", {
+        value: adapterCheck,
+        configurable: true,
+        enumerable: false,
+        writable: false,
+      });
+    } catch {}
+    throw error;
+  }
 }
