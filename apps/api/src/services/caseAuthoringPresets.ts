@@ -3,7 +3,7 @@ import { Prisma, type PrismaClient } from "@vaettir/db";
 import { z } from "zod";
 import { requireCurrentPlanAccess } from "./testPlanExecution.js";
 import { readCaseFieldState, lockCaseFieldProject } from "./caseFields.js";
-import { lockCurrentCaseFieldActor } from "./caseFieldReadScope.js";
+import { lockCurrentCaseFieldActor, type CaseFieldReadAuthorization } from "./caseFieldReadScope.js";
 import {
   validateCaseFieldValues,
   fieldValueProblem,
@@ -34,7 +34,7 @@ function conflict(message: string): never {
   throw new TRPCError({ code: "CONFLICT", message });
 }
 type ExpectedScope = z.infer<typeof caseAuthoringPresetExpectedScope>;
-async function context(tx: Tx, actorId: string, projectId: string, expectedScope?: ExpectedScope) {
+async function context(tx: Tx, actorId: string, projectId: string, expectedScope?: ExpectedScope, authorized?: CaseFieldReadAuthorization) {
   await tx.$executeRaw(Prisma.sql`SET LOCAL statement_timeout = '8000ms'`);
   // Pin current ownership/membership before any library body or retained receipt read.
   const original = await tx.project.findUnique({ where: { id: projectId }, select: { organizationId: true } });
@@ -44,7 +44,7 @@ async function context(tx: Tx, actorId: string, projectId: string, expectedScope
   const [locked] = await tx.$queryRaw<Array<{ organizationId: string }>>`SELECT "organizationId" FROM "Project" WHERE id=${projectId} FOR SHARE`;
   if (locked?.organizationId !== original.organizationId)
     throw new TRPCError({ code: "FORBIDDEN", message: "Project ownership changed; no preset content was read." });
-  const clerkActorId = await lockCurrentCaseFieldActor(tx, actorId);
+  const clerkActorId = await lockCurrentCaseFieldActor(tx, actorId, authorized);
   await requireCurrentPlanAccess(tx, actorId, projectId);
   const project = await tx.project.findUniqueOrThrow({
     where: { id: projectId },
@@ -209,8 +209,8 @@ async function currentPreset(
   }
   return record;
 }
-async function prepare(tx: Tx, actorId: string, input: Review) {
-  const ctx = await context(tx, actorId, input.projectId, input.expectedScope);
+async function prepare(tx: Tx, actorId: string, input: Review, authorized?: CaseFieldReadAuthorization) {
+  const ctx = await context(tx, actorId, input.projectId, input.expectedScope, authorized);
   if (!ctx.canManage)
     throw new TRPCError({
       code: "FORBIDDEN",
@@ -321,10 +321,11 @@ export async function listCaseAuthoringPresets(
   actorId: string,
   projectId: string,
   expectedScope?: ExpectedScope,
+  authorized?: CaseFieldReadAuthorization,
 ) {
   return db.$transaction(
     async (tx) => {
-      const ctx = await context(tx, actorId, projectId, expectedScope);
+      const ctx = await context(tx, actorId, projectId, expectedScope, authorized);
       const items = await tx.caseAuthoringPreset.findMany({
         where: { projectId, organizationId: ctx.organizationId },
         select: { id: true, name: true, version: true, archivedAt: true },
@@ -361,10 +362,11 @@ export async function getCaseAuthoringPreset(
   db: PrismaClient,
   actorId: string,
   input: z.infer<typeof caseAuthoringPresetScope>,
+  authorized?: CaseFieldReadAuthorization,
 ) {
   return db.$transaction(
     async (tx) => {
-      const ctx = await context(tx, actorId, input.projectId, input.expectedScope),
+      const ctx = await context(tx, actorId, input.projectId, input.expectedScope, authorized),
         value = saved(
           await currentPreset(
             tx,
@@ -382,10 +384,11 @@ export async function previewCaseAuthoringPreset(
   db: PrismaClient,
   actorId: string,
   input: Review,
+  authorized?: CaseFieldReadAuthorization,
 ) {
   return db.$transaction(
     async (tx) => {
-      const p = await prepare(tx, actorId, input);
+      const p = await prepare(tx, actorId, input, authorized);
       return {
         projectId: input.projectId,
         organizationId: p.ctx.organizationId,
@@ -414,13 +417,14 @@ export async function writeCaseAuthoringPreset(
   db: PrismaClient,
   actorId: string,
   input: z.infer<typeof caseAuthoringPresetApproval>,
+  authorized?: CaseFieldReadAuthorization,
 ) {
   const requestHash = qualityProfileHash(input);
   return db.$transaction(
     async (tx) => {
       await tx.$executeRaw(Prisma.sql`SET LOCAL statement_timeout = '8000ms'`);
       await lockCaseFieldProject(tx, actorId, input.projectId);
-      const ctx = await context(tx, actorId, input.projectId, input.expectedScope);
+      const ctx = await context(tx, actorId, input.projectId, input.expectedScope, authorized);
       if (!ctx.canManage)
         throw new TRPCError({
           code: "FORBIDDEN",
@@ -486,7 +490,7 @@ export async function writeCaseAuthoringPreset(
         reason: _reason,
         ...review
       } = input;
-      const p = await prepare(tx, actorId, review);
+      const p = await prepare(tx, actorId, review, authorized);
       if (p.expectedHash !== input.expectedHash)
         conflict(
           "Preset, current human fields or project profile changed after review. Your draft was not applied.",
@@ -601,10 +605,11 @@ export async function listCaseAuthoringPresetHistory(
   db: PrismaClient,
   actorId: string,
   input: z.infer<typeof caseAuthoringPresetScope>,
+  authorized?: CaseFieldReadAuthorization,
 ) {
   return db.$transaction(
     async (tx) => {
-      const ctx = await context(tx, actorId, input.projectId, input.expectedScope);
+      const ctx = await context(tx, actorId, input.projectId, input.expectedScope, authorized);
       if (!ctx.canManage)
         throw new TRPCError({
           code: "FORBIDDEN",
@@ -650,8 +655,9 @@ async function prefillReview(
   tx: Tx,
   actorId: string,
   input: z.infer<typeof caseAuthoringPresetScope>,
+  authorized?: CaseFieldReadAuthorization,
 ) {
-  const ctx = await context(tx, actorId, input.projectId, input.expectedScope);
+  const ctx = await context(tx, actorId, input.projectId, input.expectedScope, authorized);
   if (!ctx.canEdit)
     throw new TRPCError({
       code: "FORBIDDEN",
@@ -696,8 +702,9 @@ export async function reviewCaseAuthoringPresetPrefill(
   db: PrismaClient,
   actorId: string,
   input: z.infer<typeof caseAuthoringPresetScope>,
+  authorized?: CaseFieldReadAuthorization,
 ) {
-  return db.$transaction((tx) => prefillReview(tx, actorId, input), {
+  return db.$transaction((tx) => prefillReview(tx, actorId, input, authorized), {
     isolationLevel: "RepeatableRead",
     timeout: 20000,
   });
@@ -706,10 +713,11 @@ export async function confirmCaseAuthoringPresetPrefill(
   db: PrismaClient,
   actorId: string,
   input: z.infer<typeof caseAuthoringPresetPrefill>,
+  authorized?: CaseFieldReadAuthorization,
 ) {
   return db.$transaction(
     async (tx) => {
-      const review = await prefillReview(tx, actorId, input);
+      const review = await prefillReview(tx, actorId, input, authorized);
       if (review.expectedHash !== input.expectedHash)
         conflict(
           "Preset, project profile or human field definitions changed. Review a fresh draft instead of silently refreshing approval.",
