@@ -68,6 +68,57 @@ const environment = Object.freeze({
   LANG: "C",
   HOME: "/nonexistent",
 });
+// Fixed Linux cgroup metadata only. A missing v2 pair permits v1; malformed,
+// partially present or inaccessible v2 metadata is never a fallback condition.
+// Injected IO is a trusted synthetic-test boundary, not caller configuration.
+export function readNativeFinalMemory(io = fs) {
+  assert.ok(Number.isSafeInteger(io.constants.O_NOFOLLOW) && io.constants.O_NOFOLLOW > 0);
+  const read = (path) => {
+    let before;
+    try {
+      before = io.lstatSync(path);
+    } catch (error) {
+      if (error?.code === "ENOENT") return null;
+      throw error;
+    }
+    assert.ok(before.isFile() && !before.isSymbolicLink());
+    assert.equal(io.realpathSync(path), path, "Aliased memory metadata refused");
+    const identity = statId(before);
+    const fd = io.openSync(path, io.constants.O_RDONLY | io.constants.O_NOFOLLOW);
+    try {
+      assert.deepEqual(statId(io.fstatSync(fd)), identity);
+      const bytes = Buffer.alloc(129);
+      let offset = 0, count;
+      while ((count = io.readSync(fd, bytes, offset, bytes.length - offset, null))) {
+        assert.ok(Number.isSafeInteger(count) && count > 0 && count <= bytes.length - offset);
+        offset += count;
+        assert.ok(offset <= 128, "Oversized memory metadata refused");
+      }
+      assert.deepEqual(statId(io.fstatSync(fd)), identity);
+      assert.deepEqual(statId(io.lstatSync(path)), identity);
+      assert.equal(io.realpathSync(path), path);
+      const raw = bytes.subarray(0, offset);
+      assert.ok(raw.length > 0 && raw.every((byte) => byte < 128));
+      return raw.toString("ascii").trim();
+    } finally {
+      io.closeSync(fd);
+    }
+  };
+  let limit = read("/sys/fs/cgroup/memory.max"),
+    used = read("/sys/fs/cgroup/memory.current");
+  if (limit === null && used === null) {
+    limit = read("/sys/fs/cgroup/memory/memory.limit_in_bytes");
+    used = read("/sys/fs/cgroup/memory/memory.usage_in_bytes");
+  }
+  const amount = (value) => {
+    assert.equal(typeof value, "string", "Complete memory metadata pair required");
+    assert.match(value, /^(?:0|[1-9][0-9]*)$/);
+    const number = Number(value);
+    assert.ok(Number.isSafeInteger(number) && number >= 0, "Unsafe memory amount refused");
+    return number;
+  };
+  return { limit: amount(limit), used: amount(used) };
+}
 const defaults = {
   fs,
   exec: execFileSync,
@@ -75,33 +126,7 @@ const defaults = {
   clock: () => performance.now(),
   platform: () => process.platform,
   uid: () => process.getuid(),
-  memory: () => {
-    const read = (path) => {
-      const fd = fs.openSync(
-        path,
-        fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW,
-      );
-      try {
-        const value = Buffer.alloc(129);
-        let offset = 0,
-          count;
-        while (
-          (count = fs.readSync(fd, value, offset, value.length - offset, null))
-        ) {
-          offset += count;
-          assert.ok(offset <= 128);
-        }
-        return value.subarray(0, offset).toString("ascii").trim();
-      } finally {
-        fs.closeSync(fd);
-      }
-    };
-    const limit = read("/sys/fs/cgroup/memory.max"),
-      used = read("/sys/fs/cgroup/memory.current");
-    assert.match(limit, /^\d+$/);
-    assert.match(used, /^\d+$/);
-    return { limit: Number(limit), used: Number(used) };
-  },
+  memory: () => readNativeFinalMemory(),
 };
 
 const fixedReads = new Map([

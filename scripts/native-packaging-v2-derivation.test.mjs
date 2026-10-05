@@ -7,6 +7,7 @@ import vm from "node:vm";
 import {deriveNativePackagingV2,LEGACY_SOURCE_PINS,V2_MODULE_NAMES} from "./native-packaging-v2-derivation.mjs";
 import {historicalNativeV1RecipeFixture} from "./native-v1-recipe-test-fixture.mjs";
 import {historicalNativeFinalPlanFixture,reviewedNativeFinalDiagnosticsTestOverlay} from "./native-final-plan-historical-test-fixture.mjs";
+import {historicalNativeFinalAdapterFixture} from "./native-final-adapter-historical-test-fixture.mjs";
 const root=new URL("../",import.meta.url);
 const sha=b=>createHash("sha256").update(b).digest("hex");
 const fixtureName="native-final-runtime-recipe-fixture.mjs";
@@ -27,7 +28,7 @@ function source(){
   // Only strict whole-hash-admitted historical TEST evidence is reversed.
   // The production derivation API still admits exact-original buffers only.
   const historical=historicalNativeV1RecipeFixture(canonicalRecipe);
-  return{recipe:historical.bytes,modules:Object.fromEntries(Object.keys(LEGACY_SOURCE_PINS).map(n=>[n,n==="native-builder-fresh-final-plan.mjs"?historicalNativeFinalPlanFixture():fixtureLf(readFileSync(new URL("scripts/"+n,root)))]))};
+  return{recipe:historical.bytes,modules:Object.fromEntries(Object.keys(LEGACY_SOURCE_PINS).map(n=>[n,n==="native-builder-fresh-final-plan.mjs"?historicalNativeFinalPlanFixture():n==="native-builder-fresh-final-adapter.mjs"?historicalNativeFinalAdapterFixture():fixtureLf(readFileSync(new URL("scripts/"+n,root)))]))};
 }
 function sourcesForTest(input,v2){
   const derived=deriveNativePackagingV2(input);
@@ -84,11 +85,15 @@ test("deterministic narrowly corrected recipe/derived import/pin/purpose bytes r
   // Historical derivation remains exact. The CURRENT final planner has only
   // the explicit hash-admitted test diagnostics overlay; every other current
   // V2 producer still equals the original derivation byte-for-byte.
-  for(const name of Object.values(V2_MODULE_NAMES)){
+  for(const name of [...Object.values(V2_MODULE_NAMES),"native-builder-fresh-final-adapter.mjs"]){
     const canonical=fixtureLf(readFileSync(new URL("scripts/"+name,root)));
     if(name==="native-packaging-v2-builder-fresh-final-plan.mjs"){
       assert.notDeepEqual(canonical,r.modules[name],"Current diagnostics are not historical final bytes");
       assert.deepEqual(canonical,reviewedNativeFinalDiagnosticsTestOverlay(r.modules[name]));
+    }else if(name==="native-builder-fresh-final-adapter.mjs"){
+      assert.equal(sha(r.modules[name]),LEGACY_SOURCE_PINS[name]);
+      assert.notDeepEqual(canonical,r.modules[name],"Current cgroup reader is not historical adapter evidence");
+      assert.equal(sha(canonical),"e668eee94bc13f87affcdf6565a9853f867724772a55bc80e5b9b29cc6476a25");
     }else assert.deepEqual(canonical,r.modules[name]);
   }
   assert.match(r.correctedRecipe.toString(),/-Tdebian\/libllvm19\.substvars -f\/build\/libllvm19\.files/);

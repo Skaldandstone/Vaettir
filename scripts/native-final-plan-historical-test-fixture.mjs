@@ -18,6 +18,7 @@ export function historicalNativeFinalPlanFixture(){
 
 const historicalV2Sha256="2bd9aec0a28942513e5186b419fc0bc00d576b696f3f8139741e21612e6aa889";
 const reviewedDiagnosticsV2Sha256="5a255a874c4245dd6ae6095346ce6cf0d30509c4a84fe52fa24a50065b3b9487";
+const reviewedDiagnosticsAndCgroupV2Sha256="48211b7b812e823714e030ea7ac8a783e3dbb42289cac386c80f108c45fc9b69";
 // Explicit TEST ONLY reviewed minimal diagnostics overlay. Exact historical
 // derivation remains intact; this is never used by a production source reader.
 const diagnosticsEdits=[
@@ -68,7 +69,14 @@ export function reviewedNativeFinalDiagnosticsTestOverlay(historicalV2){
   assert.equal(sha(historicalV2),historicalV2Sha256);
   let text=new TextDecoder("utf-8",{fatal:true}).decode(historicalV2);
   for(const e of diagnosticsEdits){assert.equal(text.split(e.before).length,2,"Exact reviewed diagnostics anchor required");text=text.replace(e.before,e.after);}
-  const result=Buffer.from(text);assert.equal(sha(result),reviewedDiagnosticsV2Sha256);
+  assert.equal(sha(Buffer.from(text)),reviewedDiagnosticsV2Sha256);
+  // TEST ONLY second explicit overlay: strict cgroup-reader capsule pin, not a
+  // change to historical derivation or any original source/receipt authority.
+  const oldAdapter="5b0e360140ac894f81d62ce4aaf552fd58e85df4b880d13e16c4de3a3050d21b";
+  const currentAdapter="e668eee94bc13f87affcdf6565a9853f867724772a55bc80e5b9b29cc6476a25";
+  assert.equal(text.split(oldAdapter).length,2);text=text.replace(oldAdapter,currentAdapter);
+  const result=Buffer.from(text);assert.equal(sha(result),reviewedDiagnosticsAndCgroupV2Sha256);
+  assert.equal(text.split(currentAdapter).length,2);text=text.replace(currentAdapter,oldAdapter);
   for(const e of [...diagnosticsEdits].reverse()){assert.equal(text.split(e.after).length,2);text=text.replace(e.after,e.before);}
   assert.deepEqual(Buffer.from(text),historicalV2,"All original gates/bytes must restore exactly");
   return result;

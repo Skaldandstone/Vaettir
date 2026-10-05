@@ -28,7 +28,7 @@ export const FINAL_CAPSULE_PINS = Object.freeze({
   "native-builder-fresh-final-verifier.mjs":
     "3485c951647c08da77994f73389ccc48654e6148dd539d49fca06269e607a2ff",
   "native-builder-fresh-final-adapter.mjs":
-    "5b0e360140ac894f81d62ce4aaf552fd58e85df4b880d13e16c4de3a3050d21b",
+    "e668eee94bc13f87affcdf6565a9853f867724772a55bc80e5b9b29cc6476a25",
 });
 const sha = (bytes) => createHash("sha256").update(bytes).digest("hex");
 const quote = (text) => "'" + text.replaceAll("'", "'\\''") + "'";
