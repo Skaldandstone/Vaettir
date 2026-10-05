@@ -12,7 +12,11 @@ import {
   ApprovedAnalysisSpendRefusal,
   type ApprovedAnalysisSpend,
 } from "./approvedAnalysisSpend.js";
-import type { CaseAnalysisAction } from "./caseAnalysisQueueSchema.js";
+import type {
+  CaseAnalysisAction,
+  CaseAnalysisClientScope,
+  CaseAnalysisReadScope,
+} from "./caseAnalysisQueueSchema.js";
 
 export const analysisHash = (value: unknown) =>
   createHash("sha256").update(JSON.stringify(value)).digest("hex");
@@ -24,6 +28,18 @@ export const costFor = (action: string) =>
   AI_OPERATION_COSTS[operationFor(action)];
 type Database = Prisma.TransactionClient;
 
+export function analysisScoped(input: CaseAnalysisClientScope) {
+  const scoped =
+    input.originalOrganizationId !== undefined ||
+    input.expectedClerkActorId !== undefined;
+  if (scoped && (!input.originalOrganizationId || !input.expectedClerkActorId))
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message: "Complete original organization and actor scope is required.",
+    });
+  return scoped;
+}
+
 // Organization -> membership -> project -> queue, consistently across approval,
 // cancellation and spending. No lock survives a provider request.
 export async function analysisAccess(
@@ -32,12 +48,19 @@ export async function analysisAccess(
   actorId: string,
   spend = false,
   expectedOrg?: string,
+  clientScope?: CaseAnalysisClientScope,
+  serverClerkActorId?: string,
 ) {
+  const scoped = clientScope && analysisScoped(clientScope);
   const initial = await tx.project.findUnique({
     where: { id: projectId },
     select: { organizationId: true },
   });
-  if (!initial || (expectedOrg && initial.organizationId !== expectedOrg))
+  if (
+    !initial ||
+    (expectedOrg && initial.organizationId !== expectedOrg) ||
+    (scoped && initial.organizationId !== clientScope.originalOrganizationId)
+  )
     throw new TRPCError({
       code: "NOT_FOUND",
       message: "This project is unavailable.",
@@ -71,7 +94,35 @@ export async function analysisAccess(
       code: "FORBIDDEN",
       message: "A current full editor seat is required to spend credits.",
     });
-  return { organizationId: initial.organizationId, canSpend };
+  let scope: CaseAnalysisReadScope | undefined;
+  if (scoped) {
+    // User mapping is also locked; client pins grant no authorization and cannot
+    // substitute for the server's authenticated Clerk identity or fresh member.
+    const users = await tx.$queryRaw<Array<{ clerkUserId: string }>>`
+      SELECT "clerkUserId" FROM "User" WHERE id=${actorId} FOR SHARE`;
+    const clerk = users[0]?.clerkUserId;
+    if (
+      !clerk ||
+      clerk.length > 200 ||
+      clerk !== serverClerkActorId ||
+      clerk !== clientScope.expectedClerkActorId ||
+      !["OWNER", "ADMIN", "EDITOR", "VIEWER", "COMPLIANCE_AUDITOR"].includes(
+        member.role,
+      ) ||
+      !["FULL", "READ_ONLY"].includes(member.seatType)
+    )
+      throw new TRPCError({
+        code: "FORBIDDEN",
+        message: "Current original actor and project membership are required.",
+      });
+    scope = {
+      projectId,
+      organizationId: initial.organizationId,
+      actorId,
+      actorClerkUserId: clerk,
+    };
+  }
+  return { organizationId: initial.organizationId, canSpend, scope };
 }
 
 export async function analysisBaseline(
@@ -148,24 +199,54 @@ export async function ownedAnalysis(
   actorId: string,
   id: string,
   spend = false,
+  clientScope?: CaseAnalysisClientScope,
+  serverClerkActorId?: string,
 ) {
+  const scoped = clientScope && analysisScoped(clientScope);
+  // New native clients prove current original scope BEFORE looking up a prior
+  // saved job/receipt. The omitted legacy branch keeps its existing behavior.
+  const scopedAccess = scoped
+    ? await analysisAccess(
+        tx,
+        projectId,
+        actorId,
+        spend,
+        clientScope.originalOrganizationId,
+        clientScope,
+        serverClerkActorId,
+      )
+    : null;
   const original = await tx.caseAnalysisQueue.findFirst({
     where: { id, projectId, requestedById: actorId },
   });
-  if (!original)
+  if (
+    !original ||
+    (scopedAccess && original.organizationId !== scopedAccess.organizationId)
+  )
     throw new TRPCError({
       code: "NOT_FOUND",
       message: "Analysis scope not found.",
     });
-  const access = await analysisAccess(
-    tx,
-    projectId,
-    actorId,
-    spend,
-    original.organizationId,
-  );
+  const access =
+    scopedAccess ??
+    (await analysisAccess(
+      tx,
+      projectId,
+      actorId,
+      spend,
+      original.organizationId,
+    ));
   await tx.$queryRaw`SELECT id FROM "CaseAnalysisQueue" WHERE id=${id} FOR UPDATE`;
   const job = await tx.caseAnalysisQueue.findUniqueOrThrow({ where: { id } });
+  if (
+    job.projectId !== projectId ||
+    job.requestedById !== actorId ||
+    job.organizationId !== access.organizationId
+  )
+    throw new TRPCError({
+      code: "NOT_FOUND",
+      message: "Original analysis scope is unavailable.",
+    });
   return { job, ...access };
 }
 
@@ -175,9 +256,19 @@ export async function readAnalysis(
   actorId: string,
   id: string,
   offset = 0,
+  clientScope?: CaseAnalysisClientScope,
+  serverClerkActorId?: string,
 ) {
   return db.$transaction(async (tx) => {
-    const { job, canSpend } = await ownedAnalysis(tx, projectId, actorId, id);
+    const { job, canSpend, scope } = await ownedAnalysis(
+      tx,
+      projectId,
+      actorId,
+      id,
+      false,
+      clientScope,
+      serverClerkActorId,
+    );
     const [items, groups, balance] = await Promise.all([
       tx.caseAnalysisQueueItem.findMany({
         where: { queueId: id },
@@ -201,6 +292,7 @@ export async function readAnalysis(
       ).map((c) => c.id),
     );
     return {
+      ...(scope ? { scope, requestId: job.requestId } : {}),
       id: job.id,
       projectId,
       action: job.action as CaseAnalysisAction,

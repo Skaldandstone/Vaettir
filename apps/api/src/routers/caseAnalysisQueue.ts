@@ -1,4 +1,3 @@
-import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 import { Prisma } from "@vaettir/db";
 import { protectedProcedure, router } from "../trpc.js";
@@ -8,6 +7,7 @@ import {
   analysisAccess,
   analysisBaseline,
   analysisHash,
+  analysisScoped,
   costFor,
   ownedAnalysis,
   readAnalysis,
@@ -18,6 +18,8 @@ import {
   caseAnalysisSelectionSchema,
   caseAnalysisJobInputSchema,
   caseAnalysisRequestSchema,
+  caseAnalysisReadInputSchema,
+  caseAnalysisMineSchema,
 } from "../services/caseAnalysisQueueSchema.js";
 import { getAiCreditBalance } from "../services/aiCredits.js";
 
@@ -26,9 +28,26 @@ export const caseAnalysisQueueRouter = router({
     .input(caseAnalysisSelectionSchema)
     .mutation(async ({ ctx, input }) => {
       const ids = [...input.ids].sort();
-      const selectionHash = analysisHash([input.projectId, input.action, ids]);
+      const selection = [input.projectId, input.action, ids];
+      const selectionHash = analysisHash(
+        analysisScoped(input)
+          ? {
+              selection,
+              originalOrganizationId: input.originalOrganizationId,
+              expectedClerkActorId: input.expectedClerkActorId,
+            }
+          : selection,
+      );
       const access = await ctx.prisma.$transaction((tx) =>
-        analysisAccess(tx, input.projectId, ctx.user.id),
+        analysisAccess(
+          tx,
+          input.projectId,
+          ctx.user.id,
+          false,
+          undefined,
+          input,
+          ctx.user.clerkUserId,
+        ),
       );
       const prior = await ctx.prisma.caseAnalysisQueue.findUnique({
         where: {
@@ -46,7 +65,15 @@ export const caseAnalysisQueueRouter = router({
             message:
               "This request ID already belongs to a different reviewed scope.",
           });
-        return readAnalysis(ctx.prisma, input.projectId, ctx.user.id, prior.id);
+        return readAnalysis(
+          ctx.prisma,
+          input.projectId,
+          ctx.user.id,
+          prior.id,
+          0,
+          input,
+          ctx.user.clerkUserId,
+        );
       }
       const risk = testCasesRouter.createCaller(ctx),
         design = testDesignRouter.createCaller(ctx);
@@ -98,6 +125,12 @@ export const caseAnalysisQueueRouter = router({
         0,
       );
       const scopeHash = analysisHash({
+        ...(analysisScoped(input)
+          ? {
+              originalOrganizationId: input.originalOrganizationId,
+              expectedClerkActorId: input.expectedClerkActorId,
+            }
+          : {}),
         projectId: input.projectId,
         actorId: ctx.user.id,
         action: input.action,
@@ -113,6 +146,8 @@ export const caseAnalysisQueueRouter = router({
               ctx.user.id,
               false,
               access.organizationId,
+              input,
+              ctx.user.clerkUserId,
             );
             return tx.caseAnalysisQueue.create({
               data: {
@@ -154,7 +189,15 @@ export const caseAnalysisQueueRouter = router({
             });
           return recovered;
         });
-      return readAnalysis(ctx.prisma, input.projectId, ctx.user.id, job.id);
+      return readAnalysis(
+        ctx.prisma,
+        input.projectId,
+        ctx.user.id,
+        job.id,
+        0,
+        input,
+        ctx.user.clerkUserId,
+      );
     }),
   approve: protectedProcedure
     .input(caseAnalysisApprovalSchema)
@@ -167,6 +210,8 @@ export const caseAnalysisQueueRouter = router({
             ctx.user.id,
             input.id,
             true,
+            input,
+            ctx.user.clerkUserId,
           );
           if (
             job.scopeHash !== input.scopeHash ||
@@ -215,14 +260,18 @@ export const caseAnalysisQueueRouter = router({
         },
         { timeout: 30000 },
       );
-      return readAnalysis(ctx.prisma, input.projectId, ctx.user.id, input.id);
+      return readAnalysis(
+        ctx.prisma,
+        input.projectId,
+        ctx.user.id,
+        input.id,
+        0,
+        input,
+        ctx.user.clerkUserId,
+      );
     }),
   byId: protectedProcedure
-    .input(
-      caseAnalysisJobInputSchema.extend({
-        offset: z.number().int().min(0).max(950).default(0),
-      }),
-    )
+    .input(caseAnalysisReadInputSchema)
     .query(({ ctx, input }) =>
       readAnalysis(
         ctx.prisma,
@@ -230,14 +279,24 @@ export const caseAnalysisQueueRouter = router({
         ctx.user.id,
         input.id,
         input.offset,
+        input,
+        ctx.user.clerkUserId,
       ),
     ),
   mine: protectedProcedure
-    .input(z.object({ projectId: z.string().min(1).max(120) }).strict())
+    .input(caseAnalysisMineSchema)
     .query(({ ctx, input }) =>
       ctx.prisma.$transaction(async (tx) => {
-        const access = await analysisAccess(tx, input.projectId, ctx.user.id);
-        return tx.caseAnalysisQueue.findMany({
+        const access = await analysisAccess(
+          tx,
+          input.projectId,
+          ctx.user.id,
+          false,
+          undefined,
+          input,
+          ctx.user.clerkUserId,
+        );
+        const items = await tx.caseAnalysisQueue.findMany({
           where: {
             projectId: input.projectId,
             organizationId: access.organizationId,
@@ -254,6 +313,7 @@ export const caseAnalysisQueueRouter = router({
           orderBy: [{ createdAt: "desc" }, { id: "desc" }],
           take: 20,
         });
+        return access.scope ? { scope: access.scope, items } : items;
       }),
     ),
   cancel: protectedProcedure
@@ -265,6 +325,9 @@ export const caseAnalysisQueueRouter = router({
           input.projectId,
           ctx.user.id,
           input.id,
+          false,
+          input,
+          ctx.user.clerkUserId,
         );
         if (job.status === "COMPLETE") return;
         await tx.caseAnalysisQueue.update({
@@ -285,18 +348,65 @@ export const caseAnalysisQueueRouter = router({
           },
         });
       });
-      return readAnalysis(ctx.prisma, input.projectId, ctx.user.id, input.id);
+      return readAnalysis(
+        ctx.prisma,
+        input.projectId,
+        ctx.user.id,
+        input.id,
+        0,
+        input,
+        ctx.user.clerkUserId,
+      );
     }),
   requestAdmin: protectedProcedure
     .input(caseAnalysisRequestSchema)
     .mutation(({ ctx, input }) =>
       ctx.prisma.$transaction(async (tx) => {
-        const { job } = await ownedAnalysis(
+        const { job, scope } = await ownedAnalysis(
           tx,
           input.projectId,
           ctx.user.id,
           input.id,
+          false,
+          input,
+          ctx.user.clerkUserId,
         );
+        const dedupeKey = analysisHash([
+          "durable-analysis",
+          job.organizationId,
+          job.requestedById,
+          job.scopeHash,
+        ]);
+        const echo = scope
+          ? {
+              scope,
+              queueId: job.id,
+              scopeHash: job.scopeHash,
+              maximumCredits: job.maximumCredits,
+            }
+          : {};
+        // New scoped native clients may recover an acknowledged original
+        // request even if another tab subsequently approved/cancelled its job.
+        // Current scope is locked first; changed human reasons never overwrite.
+        if (scope) {
+          const receipt = await tx.aiCreditUseRequest.findUnique({
+            where: { dedupeKey },
+          });
+          if (receipt) {
+            if (
+              receipt.reason !== input.reason ||
+              receipt.organizationId !== scope.organizationId ||
+              receipt.requestedById !== scope.actorId ||
+              receipt.projectId !== input.projectId
+            )
+              throw new TRPCError({
+                code: "CONFLICT",
+                message:
+                  "Keep the exact original administrator request and reason.",
+              });
+            return { id: receipt.id, status: receipt.status, ...echo };
+          }
+        }
         if (job.status !== "REVIEW")
           throw new TRPCError({
             code: "CONFLICT",
@@ -315,16 +425,10 @@ export const caseAnalysisQueueRouter = router({
             code: "BAD_REQUEST",
             message: "No new paid work requires approval.",
           });
-        const dedupeKey = analysisHash([
-          "durable-analysis",
-          job.organizationId,
-          job.requestedById,
-          job.scopeHash,
-        ]);
         const prior = await tx.aiCreditUseRequest.findUnique({
           where: { dedupeKey },
         });
-        if (prior) return { id: prior.id, status: prior.status };
+        if (prior) return { id: prior.id, status: prior.status, ...echo };
         const created = await tx.aiCreditUseRequest.create({
           data: {
             organizationId: job.organizationId,
@@ -350,7 +454,7 @@ export const caseAnalysisQueueRouter = router({
             metadata: { queueId: job.id, maximumCredits: job.maximumCredits },
           },
         });
-        return { id: created.id, status: created.status };
+        return { id: created.id, status: created.status, ...echo };
       }),
     ),
 });
