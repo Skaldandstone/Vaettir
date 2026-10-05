@@ -29,7 +29,10 @@ import {
   createIndependentCloneDataset,
 } from "./caseCloneDataset.js";
 import { validatedDatasetReplay } from "./caseFolderCopyDatasets.js";
-import { lockCurrentCaseFieldActor } from "./caseFieldReadScope.js";
+import {
+  lockCurrentCaseFieldActor,
+  type CaseFieldReadAuthorization,
+} from "./caseFieldReadScope.js";
 
 export const cloneScopeSchema = z
   .object({
@@ -301,6 +304,7 @@ export async function previewCaseClone(
   db: PrismaClient,
   userId: string,
   input: z.infer<typeof cloneScopeSchema>,
+  authorized?: CaseFieldReadAuthorization,
 ): Promise<
   Awaited<ReturnType<typeof sourceState>>["preview"] & {
     projectId?: string;
@@ -321,9 +325,10 @@ export async function previewCaseClone(
     async (tx) => {
       await requireCurrentPlanAccess(tx, userId, input.projectId, true);
       const scoped = input.expectedScope || input.copyParameterDataset;
-      // Even omitted legacy input must pin the native actor before source bodies.
+      // Request authentication is independent of optional retained review scope.
+      // Pin and compare it before any source body, including legacy no-scope calls.
       await lockCaseFieldProject(tx, userId, input.projectId);
-      await lockCurrentCaseFieldActor(tx, userId);
+      await lockCurrentCaseFieldActor(tx, userId, authorized);
       const scope = scoped
         ? await independentCloneScope(
             tx,
@@ -389,6 +394,7 @@ export async function cloneCase(
   db: PrismaClient,
   userId: string,
   input: z.infer<typeof cloneInputSchema>,
+  authorized?: CaseFieldReadAuthorization,
 ): Promise<{
   caseId: string;
   displayId: string;
@@ -416,7 +422,7 @@ export async function cloneCase(
   return db.$transaction(
     async (tx) => {
       await lockCaseFieldProject(tx, userId, input.projectId);
-      await lockCurrentCaseFieldActor(tx, userId);
+      await lockCurrentCaseFieldActor(tx, userId, authorized);
       const organization = await tx.project.findUniqueOrThrow({
         where: { id: input.projectId },
         select: { organizationId: true },

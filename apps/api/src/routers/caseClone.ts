@@ -10,12 +10,16 @@ export const caseCloneRouter = router({
     .input(cloneScopeSchema)
     .query(async ({ ctx, input }) => {
       await requireProjectAccess(ctx, input.projectId, "EDITOR");
-      return previewCaseClone(ctx.prisma, ctx.user.id, input);
+      return previewCaseClone(ctx.prisma, ctx.user.id, input, {
+        clerkActorId: ctx.user.clerkUserId,
+      });
     }),
   create: protectedProcedure
     .input(cloneInputSchema)
     .mutation(async ({ ctx, input }) => {
       await requireProjectAccess(ctx, input.projectId, "EDITOR");
-      return cloneCase(ctx.prisma, ctx.user.id, input);
+      return cloneCase(ctx.prisma, ctx.user.id, input, {
+        clerkActorId: ctx.user.clerkUserId,
+      });
     }),
 });
