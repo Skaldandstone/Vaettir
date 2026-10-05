@@ -11,6 +11,7 @@ import { StepExecutionPanel } from "@/components/StepExecutionPanel";
 import { ManualRetestActions } from "@/components/ManualRetestWizard";
 import { manualProcedurePhases } from "@/lib/manual-procedure-phases";
 import { ManualCaseResultHistory } from "@/components/ManualCaseResultHistory";
+import { RunExecutionSummary } from "@/components/RunExecutionSummary";
 import { manualCaseHistoryAnchor, manualCaseHistorySelection } from "@/lib/case-observation-history-entry";
 
 type ExecutionCase =
@@ -47,6 +48,7 @@ function CaseRow({
   selectedFromHistory,
   readable,
   readScope,
+  initiallyExpanded,
 }: {
   projectId: string;
   testCase: ExecutionCase;
@@ -67,8 +69,9 @@ function CaseRow({
   selectedFromHistory: boolean;
   readable: boolean;
   readScope: { projectId: string; originalOrganizationId?: string; expectedClerkActorId?: string };
+  initiallyExpanded: boolean;
 }) {
-  const [expanded, setExpanded] = useState(false);
+  const [expanded, setExpanded] = useState(initiallyExpanded);
   useEffect(() => { if (selectedFromHistory) setExpanded(true); }, [selectedFromHistory]);
   const [note, setNote] = useState(testCase.currentResult?.note ?? "");
   const [busy, setBusy] = useState(false);
@@ -146,6 +149,7 @@ function CaseRow({
             textAlign: "left",
             fontWeight: 600,
             padding: 0,
+            color: "var(--fg)",
           }}
         >
           {expanded ? "▾" : "▸"} {testCase.displayId ?? "Case ID unavailable"} · {testCase.title}
@@ -499,6 +503,7 @@ function ManualExecutionContent() {
       <p className="text-muted" style={{ fontSize: 13 }}>
         {recordedCount} / {data.cases.length} recorded · status: {data.status}
       </p>
+      <RunExecutionSummary cases={data.cases} runId={testRunId} />
       {data.executionContext?.datasetExecution && <section style={{border:"1px solid var(--line)",padding:12,marginBottom:16}}>
         <h2 style={{fontSize:18}}>Dataset row {data.executionContext.datasetExecution.rowIndex + 1}: {data.executionContext.datasetExecution.rowName}</h2>
         <p>{data.executionContext.datasetExecution.sourceDisplayId} · one independently recorded row run. Prerequisites must pass within this run, not in a sibling row or another configuration.</p>
@@ -533,6 +538,7 @@ function ManualExecutionContent() {
           projectId={projectId}
           testCase={tc}
           testRunId={testRunId}
+          initiallyExpanded={tc.testCaseId === (data.cases.find(testCase => !testCase.currentResult) ?? data.cases[0])?.testCaseId}
           selectedFromHistory={historySelection.kind === "SELECTED" && historySelection.caseId === tc.testCaseId}
           readable={readable}
           readScope={readInput}

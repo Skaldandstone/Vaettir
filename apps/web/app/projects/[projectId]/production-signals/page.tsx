@@ -5,7 +5,7 @@ import { useParams, useSearchParams } from "next/navigation";
 import { trpcReact } from "@/lib/trpcReact";
 
 // SSE-180: production-signal linkage. Gated server-side behind P12-07's
-// tierHasFeature (Business/Corp only) AND project ADMIN - this page doesn't
+// plan/full-access entitlement AND current full-seat project ADMIN - this page doesn't
 // try to duplicate that check up front, it just calls the real mutations
 // and turns a FORBIDDEN response into a plain-language upgrade message, the
 // same "server is the real gate, the page just explains the result"
@@ -43,7 +43,7 @@ export default function ProductionSignalsPage() {
     if (e && typeof e === "object" && "data" in e) {
       const data = (e as { data?: { code?: string } }).data;
       if (data?.code === "FORBIDDEN") {
-        return "This requires a Business or Corp plan, and organization Admin access.";
+        return e instanceof Error ? e.message : "Current organization Admin access and a production-signal entitlement are required.";
       }
       if (data?.code === "PRECONDITION_FAILED") {
         return `Not available on this deployment yet: ${e instanceof Error ? e.message : String(e)}`;
@@ -105,7 +105,7 @@ export default function ProductionSignalsPage() {
           marginBottom: 12,
         }}
       >
-        Experimental — Business/Corp plans
+        Experimental connection layer
       </div>
       <p>
         Connect your own app-store account so crash reports and store reviews can feed test-gap detection directly,

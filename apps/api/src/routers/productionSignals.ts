@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 import { tierHasFeature, FEATURE_PRODUCTION_SIGNAL_LINKAGE } from "@vaettir/core";
-import { router, protectedProcedure, requireProjectAccess, type Context } from "../trpc.js";
+import { router, protectedProcedure, requireProjectAccess, isStaffEmail, type Context } from "../trpc.js";
 import {
   buildGooglePlayAuthorizeUrl,
   generateOAuthState,
@@ -9,6 +9,7 @@ import {
   ProductionSignalOAuthNotConfiguredError,
 } from "../services/productionSignalOAuth.js";
 import { encryptToken, TokenEncryptionNotConfiguredError } from "../services/tokenEncryption.js";
+import { productionSignalAdmin } from "../services/productionSignalAccess.js";
 
 // SSE-180: production-signal linkage. Gated behind P12-07's tierHasFeature
 // plumbing (Business/Corp only, see seed.ts) AND project ADMIN - a heavier
@@ -19,11 +20,18 @@ async function requireProductionSignalAccess(
   projectId: string,
 ) {
   const { project, membership } = await requireProjectAccess(ctx, projectId, "ADMIN");
+  const currentMembership = await ctx.prisma.membership.findUnique({
+    where: { organizationId_userId: { organizationId: project.organizationId, userId: ctx.user.id } },
+    select: { role: true, seatType: true },
+  });
+  if (!productionSignalAdmin(currentMembership)) {
+    throw new TRPCError({ code: "FORBIDDEN", message: "Current organization Admin or Owner access with a full seat is required." });
+  }
   const org = await ctx.prisma.organization.findUniqueOrThrow({
     where: { id: project.organizationId },
     select: { planTier: { select: { enabledFeatures: true } } },
   });
-  if (!tierHasFeature(org.planTier, FEATURE_PRODUCTION_SIGNAL_LINKAGE)) {
+  if (!isStaffEmail(ctx.user.email) && !tierHasFeature(org.planTier, FEATURE_PRODUCTION_SIGNAL_LINKAGE)) {
     throw new TRPCError({
       code: "FORBIDDEN",
       message: "Production-signal linkage requires a Business or Corp plan.",

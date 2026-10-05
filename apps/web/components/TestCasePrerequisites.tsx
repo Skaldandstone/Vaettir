@@ -20,6 +20,9 @@ export function TestCasePrerequisites({
   const [editing, setEditing] = useState(false);
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(0);
+  const [sort, setSort] = useState<"case-id" | "title" | "inventory">(
+    "case-id",
+  );
   const [draft, setDraft] = useState<{
     caseId: string;
     ids: string[];
@@ -41,7 +44,7 @@ export function TestCasePrerequisites({
   const baselineKey = [...baseline].sort().join("\u0000");
   const dirty = [...selected].sort().join("\u0000") !== baselineKey;
   const known = new Map(
-    cases.data?.map((testCase) => [testCase.id, `${testCase.displayId} · ${testCase.title}`]) ?? [],
+    cases.data?.map((testCase) => [testCase.id, testCase]) ?? [],
   );
   const matches = prerequisitePage(
     cases.data ?? [],
@@ -49,6 +52,7 @@ export function TestCasePrerequisites({
     selected,
     search,
     page,
+    sort,
   );
 
   function select(ids: string[]) {
@@ -90,7 +94,8 @@ export function TestCasePrerequisites({
     >
       <div className={styles.row}>
         <h3>
-          Execution prerequisites{selected.length > 0 ? ` (${selected.length})` : ""}
+          Execution prerequisites
+          {selected.length > 0 ? ` (${selected.length})` : ""}
         </h3>
         {canEdit && !editing && (
           <button
@@ -126,31 +131,45 @@ export function TestCasePrerequisites({
             These cases must pass first in a manual run.
           </p>
           <ul className={styles.selection}>
-            {selected.map((id) => (
-              <li key={id}>
-                <a href={`/projects/${projectId}/test-cases/${id}`}>
-                  {known.get(id) ??
-                    (cases.isLoading
-                      ? "Loading case…"
-                      : cases.error
-                        ? `Case name could not be loaded (${id.slice(-8)})`
-                        : `Unavailable case (${id.slice(-8)})`)}
-                </a>
-                {canEdit && editing && (
-                  <button
-                    type="button"
-                    className="btn-secondary"
-                    aria-label={`Remove ${known.get(id) ?? "prerequisite"}`}
-                    onClick={() =>
-                      select(selected.filter((value) => value !== id))
-                    }
-                    disabled={save.isPending}
-                  >
-                    Remove
-                  </button>
-                )}
-              </li>
-            ))}
+            {selected.map((id) => {
+              const item = known.get(id);
+              return (
+                <li key={id}>
+                  <a href={`/projects/${projectId}/test-cases/${id}`}>
+                    {item ? (
+                      <>
+                        <code
+                          className="status-pill"
+                          style={{ marginRight: 6 }}
+                        >
+                          {item.displayId}
+                        </code>
+                        {item.title}
+                      </>
+                    ) : cases.isLoading ? (
+                      "Loading case…"
+                    ) : cases.error ? (
+                      `Case name could not be loaded (${id.slice(-8)})`
+                    ) : (
+                      `Unavailable case (${id.slice(-8)})`
+                    )}
+                  </a>
+                  {canEdit && editing && (
+                    <button
+                      type="button"
+                      className="btn-secondary"
+                      aria-label={`Remove ${item ? `${item.displayId}: ${item.title}` : "prerequisite"}`}
+                      onClick={() =>
+                        select(selected.filter((value) => value !== id))
+                      }
+                      disabled={save.isPending}
+                    >
+                      Remove
+                    </button>
+                  )}
+                </li>
+              );
+            })}
           </ul>
         </>
       )}
@@ -175,6 +194,23 @@ export function TestCasePrerequisites({
             disabled={save.isPending}
             style={{ display: "block", width: "100%", marginTop: 6 }}
           />
+          <label style={{ display: "block", marginTop: 8 }}>
+            Sort prerequisite cases
+            <select
+              aria-label="Sort prerequisite cases"
+              value={sort}
+              onChange={(event) => {
+                setSort(event.target.value as typeof sort);
+                setPage(0);
+              }}
+              disabled={save.isPending}
+              style={{ marginLeft: 8 }}
+            >
+              <option value="case-id">Case ID</option>
+              <option value="title">Title</option>
+              <option value="inventory">Recent activity</option>
+            </select>
+          </label>
           {cases.isLoading && <p role="status">Loading cases…</p>}
           {cases.error && (
             <p role="alert">
@@ -191,8 +227,10 @@ export function TestCasePrerequisites({
                 {matches.items.map((item) => (
                   <li key={item.id}>
                     <span>
+                      <code className="status-pill" style={{ marginRight: 6 }}>
+                        {item.displayId}
+                      </code>
                       {item.title}
-                      <small>{item.displayId}</small>
                     </span>
                     <button
                       type="button"

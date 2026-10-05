@@ -14,11 +14,15 @@ import {
 import { Drawer } from "@/components/Drawer";
 import { TestCaseDetailContent } from "@/components/TestCaseDetailContent";
 import { BulkCaseAnalysis } from "@/components/BulkCaseAnalysis";
+import { DurableCaseAnalysis } from "@/components/DurableCaseAnalysis";
 import { CaseQueryExplorer } from "@/components/CaseQueryExplorer";
 import { TestCaseFolders } from "@/components/TestCaseFolders";
 import { TestCaseProcedureReimport } from "@/components/TestCaseProcedureReimport";
 import { ProjectCaseFields } from "@/components/ProjectCaseFields";
-import { CaseAuthoringPresets, NewCaseFromAuthoringPreset } from "@/components/CaseAuthoringPresets";
+import {
+  CaseAuthoringPresets,
+  NewCaseFromAuthoringPreset,
+} from "@/components/CaseAuthoringPresets";
 import { downloadCsv } from "@/lib/csv";
 import { downloadFile } from "@/lib/download";
 import { encodeCaseProcedureExport } from "@vaettir/core";
@@ -32,6 +36,7 @@ import { RunConfigurationModal } from "@/components/RunConfigurationModal";
 import { Modal } from "@/components/Modal";
 import { PageHeading } from "@/components/ui/Workspace";
 import { caseLabel, suiteChoices } from "@/lib/case-workbench";
+import { repositoryReviewStatus, rowDropTarget } from "@/lib/case-repository";
 import styles from "@/components/CaseWorkbench.module.css";
 
 const TEST_TYPES = [
@@ -217,7 +222,7 @@ export default function TestCasesPage() {
   const viewsQuery = trpcReact.testCaseViews.list.useQuery({ projectId });
   const plansQuery = trpcReact.testPlans.list.useQuery({ projectId });
   const project = projectQuery.data ?? null;
-  const cases = casesQuery.data ?? [];
+  const cases = useMemo(() => casesQuery.data ?? [], [casesQuery.data]);
   const placements = useMemo(
     () =>
       new Map(
@@ -239,10 +244,19 @@ export default function TestCasesPage() {
   const [error, setError] = useState<string | null>(null);
 
   const [search, setSearch] = useState("");
+  const [tagFilter, setTagFilter] = useState("");
   const [typeFilter, setTypeFilter] = useState("");
   const [automationFilter, setAutomationFilter] = useState("");
   const [priorityFilter, setPriorityFilter] = useState("");
-  const [reviewFilter, setReviewFilter] = useState("");
+  const [reviewFilter, setReviewFilter] = useState("APPROVED");
+  useEffect(() => {
+    const parameters = new URLSearchParams(window.location.search);
+    setTagFilter(parameters.get("tag") ?? "");
+    if (parameters.get("review") === "pending")
+      setReviewFilter("PENDING_REVIEW");
+    else if (parameters.get("review") === "rejected")
+      setReviewFilter("REJECTED");
+  }, []);
   const [originFilter, setOriginFilter] = useState("");
   const [sortBy, setSortBy] = useState<CaseSort>("updated");
   const [sortDescending, setSortDescending] = useState(true);
@@ -274,7 +288,8 @@ export default function TestCasesPage() {
     setTypeFilter(filters.type);
     setAutomationFilter(filters.automation);
     setPriorityFilter(filters.priority);
-    setReviewFilter(filters.review);
+    setReviewFilter(repositoryReviewStatus(filters.review));
+    setTagFilter("");
     setOriginFilter(filters.origin);
     setSortBy(filters.sortBy);
     setSortDescending(filters.sortDescending);
@@ -378,6 +393,7 @@ export default function TestCasesPage() {
     [
       selectedPath,
       search,
+      tagFilter,
       typeFilter,
       automationFilter,
       priorityFilter,
@@ -394,12 +410,25 @@ export default function TestCasesPage() {
   const bulkTagMutation = trpcReact.testCases.bulkAddTags.useMutation();
   const startRunMutation = trpcReact.manualExecution.start.useMutation();
 
-  const pathFiltered = filterCasesByPath(cases, selectedPath);
+  const laneCases = useMemo(
+    () =>
+      cases.filter(
+        (tc) =>
+          tc.reviewStatus === repositoryReviewStatus(reviewFilter) &&
+          (showArchived || !tc.archived),
+      ),
+    [cases, reviewFilter, showArchived],
+  );
+  const pathFiltered = useMemo(
+    () => filterCasesByPath(laneCases, selectedPath),
+    [laneCases, selectedPath],
+  );
   const visibleCases = useMemo(() => {
     const q = search.trim().toLowerCase();
     const filtered = pathFiltered.filter(
       (tc) =>
         (showArchived || !tc.archived) &&
+        (!tagFilter || tc.tags.includes(tagFilter)) &&
         (!q ||
           tc.displayId.toLowerCase().includes(q) ||
           tc.title.toLowerCase().includes(q) ||
@@ -407,7 +436,7 @@ export default function TestCasesPage() {
         (!typeFilter || tc.testType === typeFilter) &&
         (!automationFilter || tc.automationStatus === automationFilter) &&
         (!priorityFilter || tc.priority === priorityFilter) &&
-        (!reviewFilter || tc.reviewStatus === reviewFilter) &&
+        tc.reviewStatus === repositoryReviewStatus(reviewFilter) &&
         (!originFilter || tc.origin === originFilter),
     );
     if (sortBy === "updated")
@@ -472,6 +501,7 @@ export default function TestCasesPage() {
   }, [
     pathFiltered,
     search,
+    tagFilter,
     typeFilter,
     automationFilter,
     priorityFilter,
@@ -489,7 +519,7 @@ export default function TestCasesPage() {
     beforeCaseId: string | null,
   ) {
     const placement = placements.get(caseId);
-    if (!placement || readOnly) return;
+    if (!placement || readOnly || moveMutation.isPending) return;
     setError(null);
     try {
       await moveMutation.mutateAsync({
@@ -501,6 +531,7 @@ export default function TestCasesPage() {
         beforeCaseId,
       });
       reload();
+      setSortBy("manual");
     } catch (cause) {
       setError(
         cause instanceof Error ? cause.message : "Could not move test case.",
@@ -751,7 +782,9 @@ export default function TestCasesPage() {
   const archivedSelectedIds = selectedCases
     .filter((item) => item.archived)
     .map((item) => item.id);
-  const selectableSuites = [...new Set([...suiteChoices(cases), ...folderPaths])].sort();
+  const selectableSuites = [
+    ...new Set([...suiteChoices(laneCases), ...folderPaths]),
+  ].sort();
   const filters = [
     { name: "Type", value: typeFilter, clear: () => setTypeFilter("") },
     {
@@ -764,15 +797,14 @@ export default function TestCasesPage() {
       value: priorityFilter,
       clear: () => setPriorityFilter(""),
     },
-    { name: "Review", value: reviewFilter, clear: () => setReviewFilter("") },
     { name: "Origin", value: originFilter, clear: () => setOriginFilter("") },
   ].filter((item) => item.value);
   function resetFilters() {
     setSearch("");
+    setTagFilter("");
     setTypeFilter("");
     setAutomationFilter("");
     setPriorityFilter("");
-    setReviewFilter("");
     setOriginFilter("");
     setShowArchived(false);
     setActiveViewId("");
@@ -800,13 +832,53 @@ export default function TestCasesPage() {
     <div className={styles.workbench}>
       <PageHeading
         eyebrow={project?.name ?? "Project"}
-        title="Test cases"
+        title={reviewFilter === "APPROVED" ? "Test cases" : "Review queue"}
         description={
           loading
             ? "Loading case library…"
-            : `${cases.filter((item) => !item.archived).length} active cases`
+            : `${cases.filter((item) => !item.archived && item.reviewStatus === repositoryReviewStatus(reviewFilter)).length} active ${reviewFilter === "APPROVED" ? "approved cases" : "cases in this review lane"}`
         }
       />
+      <nav
+        aria-label="Case repository and review queue"
+        style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 12 }}
+      >
+        <button
+          type="button"
+          className={
+            reviewFilter === "APPROVED" ? "btn-primary" : "btn-secondary"
+          }
+          onClick={() => setReviewFilter("APPROVED")}
+        >
+          Approved repository
+        </button>
+        <button
+          type="button"
+          className={
+            reviewFilter !== "APPROVED" ? "btn-primary" : "btn-secondary"
+          }
+          onClick={() => setReviewFilter("PENDING_REVIEW")}
+        >
+          Review queue (
+          {
+            cases.filter(
+              (testCase) =>
+                !testCase.archived &&
+                testCase.reviewStatus === "PENDING_REVIEW",
+            ).length
+          }
+          )
+        </button>
+        {tagFilter && (
+          <button
+            type="button"
+            className="btn-secondary"
+            onClick={() => setTagFilter("")}
+          >
+            Tag: {tagFilter} ×
+          </button>
+        )}
+      </nav>
       <div
         className={styles.toolbar}
         role="region"
@@ -837,9 +909,28 @@ export default function TestCasesPage() {
           Filters{filters.length ? ` (${filters.length})` : ""}
         </button>
         <CaseQueryExplorer projectId={projectId} />
-        {!readOnly && <NewCaseFromAuthoringPreset key={projectId} projectId={projectId} organizationId={project?.organizationId ?? "unavailable"} />}
         {project && (
-          <BulkCaseAnalysis projectId={projectId} organizationId={project.organizationId} selectedIds={[...selected]} onCompleted={reload} />
+          <DurableCaseAnalysis
+            projectId={projectId}
+            selectedIds={visibleCases.map((testCase) => testCase.id)}
+            onCompleted={reload}
+            buttonLabel={`Analyze filtered suite (${visibleCases.length})`}
+          />
+        )}
+        {!readOnly && (
+          <NewCaseFromAuthoringPreset
+            key={projectId}
+            projectId={projectId}
+            organizationId={project?.organizationId ?? "unavailable"}
+          />
+        )}
+        {project && (
+          <BulkCaseAnalysis
+            projectId={projectId}
+            organizationId={project.organizationId}
+            selectedIds={[...selected]}
+            onCompleted={reload}
+          />
         )}
         {!readOnly && (
           <button className="btn-primary" onClick={() => setAddOpen(true)}>
@@ -937,13 +1028,23 @@ export default function TestCasesPage() {
           )}
         </div>
       )}
-      <TestCaseFolders key={projectId} projectId={projectId} selectedPath={selectedPath} onFolderPaths={setFolderPaths} onSaved={(path) => { setSelectedPath(path); void casesQuery.refetch(); void structureQuery.refetch(); }} />
+      <TestCaseFolders
+        key={projectId}
+        projectId={projectId}
+        selectedPath={selectedPath}
+        onFolderPaths={setFolderPaths}
+        onSaved={(path) => {
+          setSelectedPath(path);
+          void casesQuery.refetch();
+          void structureQuery.refetch();
+        }}
+      />
       {!loading && (cases.length > 0 || folderPaths.length > 0) && (
         <div className={styles.layout}>
           <aside className={styles.suites} aria-label="Test suites">
             <h2>Suites</h2>
             <TestCaseTree
-              cases={cases}
+              cases={laneCases}
               folderPaths={folderPaths}
               selectedPath={selectedPath}
               onSelect={setSelectedPath}
@@ -965,14 +1066,16 @@ export default function TestCasesPage() {
                   setSelectedPath(event.target.value || null)
                 }
               >
-                <option value="">All test cases ({cases.length})</option>
+                <option value="">
+                  All cases in this lane ({laneCases.length})
+                </option>
                 {selectableSuites.map((path) => (
                   <option key={path} value={path}>
-                    {path} ({filterCasesByPath(cases, path).length})
+                    {path} ({filterCasesByPath(laneCases, path).length})
                   </option>
                 ))}
                 <option value={UNASSIGNED}>
-                  Unassigned ({filterCasesByPath(cases, UNASSIGNED).length})
+                  Unassigned ({filterCasesByPath(laneCases, UNASSIGNED).length})
                 </option>
               </select>
             </label>
@@ -1076,7 +1179,6 @@ export default function TestCasesPage() {
                           ["risk", "Risk"],
                           ["priority", "Priority"],
                           ["origin", "Origin"],
-                          ["review", "Review"],
                         ] as const
                       ).map(([key, label]) => (
                         <th
@@ -1120,7 +1222,6 @@ export default function TestCasesPage() {
                           key={tc.id}
                           onDragOver={(event) => {
                             if (
-                              sortBy === "manual" &&
                               !readOnly &&
                               event.dataTransfer.types.includes(
                                 "application/x-vaettir-test-case",
@@ -1131,19 +1232,28 @@ export default function TestCasesPage() {
                             }
                           }}
                           onDrop={(event) => {
-                            if (sortBy !== "manual" || readOnly) return;
+                            if (readOnly || moveMutation.isPending) return;
                             const caseId = event.dataTransfer.getData(
                               "application/x-vaettir-test-case",
                             );
                             if (!caseId || caseId === tc.id) return;
                             event.preventDefault();
-                            // A source-derived group has not been explicitly
-                            // curated yet. Assign into it first; row ordering
-                            // becomes available once cases have suite paths.
+                            const moving = cases.find(
+                              (item) => item.id === caseId,
+                            );
+                            const target = moving
+                              ? rowDropTarget(moving, tc)
+                              : null;
+                            if (!target) {
+                              setError(
+                                "To change a source-file group, assign the case to a persisted suite or drop it on a suite in the tree. Rows can be reordered within their current unassigned group.",
+                              );
+                              return;
+                            }
                             void moveCase(
                               caseId,
-                              tc.suitePath ?? tc.sourceFilePath ?? null,
-                              tc.suitePath ? tc.id : null,
+                              target.targetSuitePath,
+                              target.beforeCaseId,
                             );
                           }}
                         >
@@ -1153,6 +1263,7 @@ export default function TestCasesPage() {
                                 type="button"
                                 className="btn-secondary"
                                 draggable
+                                disabled={moveMutation.isPending}
                                 aria-label={`Drag ${tc.title} to reorder or move to a suite`}
                                 title="Drag to reorder or move to a suite"
                                 onDragStart={(event) => {
@@ -1273,7 +1384,42 @@ export default function TestCasesPage() {
                                 </span>
                               )}
                             {tc.tags.length > 0 && (
-                              <small>{tc.tags.slice(0, 3).join(" · ")}</small>
+                              <small
+                                style={{
+                                  display: "flex",
+                                  flexWrap: "wrap",
+                                  gap: 4,
+                                }}
+                              >
+                                {tc.tags.map((tag) => (
+                                  <button
+                                    key={tag}
+                                    type="button"
+                                    className="btn-secondary"
+                                    style={{
+                                      padding: "1px 6px",
+                                      minHeight: 24,
+                                      fontSize: 12,
+                                    }}
+                                    title={`Show ${tag} cases in this lane`}
+                                    onClick={() => setTagFilter(tag)}
+                                  >
+                                    {tag}
+                                  </button>
+                                ))}
+                              </small>
+                            )}
+                            {(tc.isFlaky || tc.archived) && (
+                              <small style={{ display: "flex", gap: 6 }}>
+                                {tc.isFlaky && (
+                                  <span className="status-pill status-warning">
+                                    Flaky
+                                  </span>
+                                )}
+                                {tc.archived && (
+                                  <span className="status-pill">Archived</span>
+                                )}
+                              </small>
                             )}
                             {!readOnly && selectedPath === UNASSIGNED && (
                               <AssignSuiteControl
@@ -1315,13 +1461,33 @@ export default function TestCasesPage() {
                             </div>
                           </td>
                           <td data-label="Priority">
-                            {caseLabel(tc.priority)}
+                            <span
+                              className={`case-priority case-priority-${tc.priority.toLowerCase()}`}
+                              title={`Priority: ${caseLabel(tc.priority)}`}
+                              aria-label={`Priority: ${caseLabel(tc.priority)}`}
+                              role="img"
+                            >
+                              {tc.priority === "CRITICAL"
+                                ? "▲▲"
+                                : tc.priority === "HIGH"
+                                  ? "▲"
+                                  : tc.priority === "LOW"
+                                    ? "▽"
+                                    : "◆"}
+                            </span>
                           </td>
-                          <td data-label="Origin">{caseLabel(tc.origin)}</td>
-                          <td data-label="Review">
-                            {caseLabel(tc.reviewStatus)}
-                            {tc.isFlaky && " · Flaky"}
-                            {tc.archived && " · Archived"}
+                          <td data-label="Origin">
+                            <span
+                              title={`Origin: ${caseLabel(tc.origin)}`}
+                              aria-label={`Origin: ${caseLabel(tc.origin)}`}
+                              role="img"
+                            >
+                              {tc.origin === "IMPORTED"
+                                ? "⇩"
+                                : tc.origin === "AUTHORED"
+                                  ? "✎"
+                                  : "◇"}
+                            </span>
                           </td>
                         </tr>
                       );
@@ -1378,12 +1544,6 @@ export default function TestCasesPage() {
               set: setPriorityFilter,
             },
             {
-              name: "Review",
-              value: reviewFilter,
-              values: REVIEW_STATUSES,
-              set: setReviewFilter,
-            },
-            {
               name: "Origin",
               value: originFilter,
               values: ORIGINS,
@@ -1405,6 +1565,21 @@ export default function TestCasesPage() {
               </select>
             </label>
           ))}
+          <label>
+            Case lifecycle lane
+            <select
+              value={reviewFilter}
+              onChange={(event) =>
+                setReviewFilter(repositoryReviewStatus(event.target.value))
+              }
+            >
+              {REVIEW_STATUSES.map((status) => (
+                <option key={status} value={status}>
+                  {caseLabel(status)}
+                </option>
+              ))}
+            </select>
+          </label>
           <label>
             Sort test cases
             <select
@@ -1529,7 +1704,11 @@ export default function TestCasesPage() {
           </p>
           {!readOnly && <TestCaseProcedureReimport projectId={projectId} />}
           <ProjectCaseFields projectId={projectId} />
-          <CaseAuthoringPresets key={projectId} projectId={projectId} organizationId={project?.organizationId ?? "unavailable"} />
+          <CaseAuthoringPresets
+            key={projectId}
+            projectId={projectId}
+            organizationId={project?.organizationId ?? "unavailable"}
+          />
           <details>
             <summary>Manage saved views</summary>
             <p className="text-muted">

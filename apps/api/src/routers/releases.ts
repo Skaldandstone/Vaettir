@@ -20,6 +20,15 @@ import {
 } from "../services/aiCredits.js";
 import { getCommitLog } from "../services/changeImpact.js";
 import { generateReleaseSummary } from "@vaettir/ai-agent";
+import {
+  releaseCreationSchema,
+  releaseCreationIdentity,
+  releaseCreationOutput,
+} from "../services/releaseCreationSchema.js";
+import { snapshotTestPlanVersion } from "../services/testPlanVersion.js";
+import { lockCaseFieldProject } from "../services/caseFields.js";
+import { lockCurrentCaseFieldActor } from "../services/caseFieldReadScope.js";
+import { Prisma } from "@vaettir/db";
 
 const readinessOutput = z.object({
   score: z.number(),
@@ -129,60 +138,178 @@ export const releasesRouter = router({
     }),
 
   create: protectedProcedure
-    .input(
-      z.object({
-        projectId: z.string(),
-        name: z.string().trim().min(1),
-        targetDate: z.date().optional(),
-        testPlanIds: z.array(z.string()).max(200).default([]),
-        goals: z.array(z.string().max(200)).max(20).default([]),
-      }),
-    )
-    .output(z.object({ id: z.string(), name: z.string() }))
+    .input(releaseCreationSchema)
+    .output(releaseCreationOutput)
     .mutation(async ({ ctx, input }) => {
       await requireProjectAccess(ctx, input.projectId, "EDITOR");
-      return ctx.prisma.$transaction(async (tx) => {
-        const planIds = [...new Set(input.testPlanIds)];
-        const eligibleCount = await tx.testPlan.count({
-          where: {
-            id: { in: planIds },
-            projectId: input.projectId,
-            releaseId: null,
-          },
-        });
-        if (eligibleCount !== planIds.length)
-          throw new TRPCError({
-            code: "CONFLICT",
-            message:
-              "A selected plan belongs to another project or is already assigned to a release. Refresh the plan selection.",
-          });
-        const release = await tx.release.create({
-          data: {
-            projectId: input.projectId,
-            name: input.name,
-            targetDate: input.targetDate,
-            goals: input.goals,
-            createdById: ctx.user.id,
-            updatedById: ctx.user.id,
-          },
-          select: { id: true, name: true },
-        });
-        const linked = await tx.testPlan.updateMany({
-          where: {
-            id: { in: planIds },
-            projectId: input.projectId,
-            releaseId: null,
-          },
-          data: { releaseId: release.id, updatedById: ctx.user.id },
-        });
-        if (linked.count !== planIds.length)
-          throw new TRPCError({
-            code: "CONFLICT",
-            message:
-              "A selected plan was assigned elsewhere. Nothing was created; refresh and retry.",
-          });
-        return release;
+      const identity = releaseCreationIdentity(input, ctx.user.id);
+      const acknowledge = (release: { id: string; name: string }) => ({
+        ...release,
+        requestId: input.requestId,
+        projectId: input.projectId,
+        originalOrganizationId: input.originalOrganizationId,
+        expectedClerkActorId: input.expectedClerkActorId,
       });
+      return ctx.prisma.$transaction(
+        async (tx) => {
+          await tx.$executeRaw(
+            Prisma.sql`SET LOCAL statement_timeout = '8000ms'`,
+          );
+          // Recheck live membership/seat/suspension under locks before receipt
+          // lookup, not only from the request's cached membership context.
+          await lockCaseFieldProject(tx, ctx.user.id, input.projectId);
+          await lockCurrentCaseFieldActor(tx, ctx.user.id, {
+            clerkActorId: ctx.user.clerkUserId ?? "",
+          });
+          const project = await tx.project.findUniqueOrThrow({
+            where: { id: input.projectId },
+            select: { organizationId: true },
+          });
+          if (
+            project.organizationId !== input.originalOrganizationId ||
+            ctx.user.clerkUserId !== input.expectedClerkActorId
+          )
+            throw new TRPCError({
+              code: "FORBIDDEN",
+              message:
+                "Restore the original signed-in account and workspace before retrying this release request.",
+            });
+          const receipt = await tx.auditLog.findFirst({
+            where: {
+              organizationId: project.organizationId,
+              projectId: input.projectId,
+              actorId: ctx.user.id,
+              entityType: "ReleaseCreate",
+              entityId: identity.releaseId,
+              metadata: { path: ["requestId"], equals: input.requestId },
+            },
+            select: { metadata: true },
+          });
+          if (receipt) {
+            const saved = z
+              .object({ requestHash: z.string(), releaseId: z.string() })
+              .safeParse(receipt.metadata);
+            if (
+              !saved.success ||
+              saved.data.requestHash !== identity.requestHash ||
+              saved.data.releaseId !== identity.releaseId
+            )
+              throw new TRPCError({
+                code: "CONFLICT",
+                message:
+                  "This release request already has different content. Retry its original reviewed payload.",
+              });
+            const previous = await tx.release.findFirst({
+              where: { id: saved.data.releaseId, projectId: input.projectId },
+              select: { id: true, name: true },
+            });
+            if (!previous)
+              throw new TRPCError({
+                code: "NOT_FOUND",
+                message:
+                  "The release saved by this request is no longer available. No replacement was created.",
+              });
+            return acknowledge(previous);
+          }
+          const planIds = [...new Set(input.testPlanIds)];
+          const eligibleCount = await tx.testPlan.count({
+            where: {
+              id: { in: planIds },
+              projectId: input.projectId,
+              releaseId: null,
+            },
+          });
+          if (eligibleCount !== planIds.length)
+            throw new TRPCError({
+              code: "CONFLICT",
+              message:
+                "A selected plan belongs to another project or is already assigned to a release. Refresh the plan selection.",
+            });
+          const release = await tx.release.create({
+            data: {
+              id: identity.releaseId,
+              projectId: input.projectId,
+              name: input.name,
+              targetDate: input.targetDate,
+              goals: input.goals,
+              createdById: ctx.user.id,
+              updatedById: ctx.user.id,
+            },
+            select: { id: true, name: true },
+          });
+          const linked = await tx.testPlan.updateMany({
+            where: {
+              id: { in: planIds },
+              projectId: input.projectId,
+              releaseId: null,
+            },
+            data: { releaseId: release.id, updatedById: ctx.user.id },
+          });
+          if (linked.count !== planIds.length)
+            throw new TRPCError({
+              code: "CONFLICT",
+              message:
+                "A selected plan was assigned elsewhere. Nothing was created; refresh and retry.",
+            });
+          if (input.newPlan) {
+            // Use the maintained seeded plan type, not a new migration or a
+            // fabricated readiness result. All criteria begin as PENDING.
+            const type = await tx.testPlanType.findUnique({
+              where: { key: "regression" },
+              select: { id: true },
+            });
+            if (!type)
+              throw new TRPCError({
+                code: "PRECONDITION_FAILED",
+                message:
+                  "The standard regression plan type is not configured. No release was created.",
+              });
+            const plan = await tx.testPlan.create({
+              data: {
+                projectId: input.projectId,
+                releaseId: release.id,
+                testPlanTypeId: type.id,
+                name: input.newPlan.name,
+                createdById: ctx.user.id,
+                updatedById: ctx.user.id,
+                acceptanceCriteria: {
+                  create: input.newPlan.criteria.map((description) => ({
+                    description,
+                    status: "PENDING",
+                  })),
+                },
+              },
+            });
+            await snapshotTestPlanVersion(tx, {
+              testPlanId: plan.id,
+              name: plan.name,
+              description: plan.description,
+              status: plan.status,
+              customFields: plan.customFields,
+              executionTemplate: plan.executionTemplate,
+              actorId: ctx.user.id,
+            });
+          }
+          await tx.auditLog.create({
+            data: {
+              organizationId: project.organizationId,
+              projectId: input.projectId,
+              actorId: ctx.user.id,
+              entityType: "ReleaseCreate",
+              entityId: release.id,
+              action: "CREATE",
+              summary: "Created release workspace and reviewed quality scope",
+              metadata: {
+                requestId: input.requestId,
+                requestHash: identity.requestHash,
+                releaseId: release.id,
+              },
+            },
+          });
+          return acknowledge(release);
+        },
+        { timeout: 10000, maxWait: 5000 },
+      );
     }),
 
   // P7-08: only entering READY is gated -- BLOCKED/SHIPPED/back to

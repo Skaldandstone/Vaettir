@@ -1,19 +1,22 @@
 "use client";
 
-import { useState } from "react";
+import { useLayoutEffect, useRef, useState } from "react";
 import { useParams } from "next/navigation";
-import { trpcReact } from "@/lib/trpcReact";
+import { trpcReact, type RouterInputs } from "@/lib/trpcReact";
 import { Modal } from "@/components/Modal";
 import { ReadinessBadge } from "@/components/ReadinessBadge";
 import { TrendChart } from "@/components/TrendChart";
 import { DistributionBar, ScoreRing } from "@/components/MetricVisuals";
 import { useProjectPermissions } from "@/lib/use-project-permissions";
 import { CreationWizard, WizardChoices } from "@/components/CreationWizard";
+import { useManualExecutionAccess } from "@/lib/use-manual-execution-access";
+import { retainAnalysisRequest } from "@/lib/analysis-request-recovery";
 
 // P1-15
 export default function ReleasesPage() {
   const { projectId } = useParams<{ projectId: string }>();
   const { canEdit } = useProjectPermissions(projectId);
+  const access = useManualExecutionAccess(projectId);
   const utils = trpcReact.useUtils();
 
   const releasesQuery = trpcReact.releases.list.useQuery({ projectId });
@@ -28,33 +31,107 @@ export default function ReleasesPage() {
   const [releaseStep, setReleaseStep] = useState(0);
   const [selectedPlanIds, setSelectedPlanIds] = useState<string[]>([]);
   const [releaseGoals, setReleaseGoals] = useState<string[]>([]);
+  const [showSpecializedGoals, setShowSpecializedGoals] = useState(false);
+  const [newPlanName, setNewPlanName] = useState("");
+  const [newCriteria, setNewCriteria] = useState<string[]>([]);
+  const [criterionDraft, setCriterionDraft] = useState("");
   const [createError, setCreateError] = useState<string | null>(null);
+  const [createRequest, setCreateRequest] = useState<
+    RouterInputs["releases"]["create"] | null
+  >(null);
+  const createUnknown = useRef(false);
+  const submitBusy = useRef(false);
+  const accessNow = useRef(access);
+  useLayoutEffect(() => {
+    accessNow.current = access;
+  }, [access]);
+  const createMutation = trpcReact.releases.create.useMutation();
 
-  const createMutation = trpcReact.releases.create.useMutation({
-    onSuccess: () => {
+  async function submit() {
+    if (
+      !canEdit ||
+      !access.canWrite ||
+      !access.origin ||
+      submitBusy.current ||
+      (!createRequest && !name.trim())
+    )
+      return;
+    if (
+      createRequest &&
+      (createRequest.originalOrganizationId !== access.origin.organizationId ||
+        createRequest.expectedClerkActorId !== access.origin.clerkActorId ||
+        createRequest.projectId !== projectId)
+    )
+      return;
+    setCreateError(null);
+    const request = createRequest ?? {
+      requestId: crypto.randomUUID(),
+      originalOrganizationId: access.origin.organizationId,
+      expectedClerkActorId: access.origin.clerkActorId,
+      projectId,
+      name: name.trim(),
+      targetDate: targetDate ? new Date(`${targetDate}T12:00:00`) : undefined,
+      testPlanIds: [...selectedPlanIds],
+      goals: [...releaseGoals],
+      newPlan: newCriteria.length
+        ? {
+            name:
+              newPlanName.trim() || `${name.trim()} quality plan`.slice(0, 200),
+            criteria: [...newCriteria],
+          }
+        : undefined,
+    };
+    setCreateRequest(request);
+    submitBusy.current = true;
+    try {
+      const result = await createMutation.mutateAsync(request);
+      if (
+        result.requestId !== request.requestId ||
+        result.projectId !== request.projectId ||
+        result.originalOrganizationId !== request.originalOrganizationId ||
+        result.expectedClerkActorId !== request.expectedClerkActorId
+      )
+        throw Error(
+          "The release acknowledgement did not match the retained original request. Restore original access and retry it.",
+        );
+      if (
+        !accessNow.current.canWrite ||
+        accessNow.current.origin?.organizationId !==
+          request.originalOrganizationId ||
+        accessNow.current.origin?.clerkActorId !== request.expectedClerkActorId
+      ) {
+        createUnknown.current = true;
+        setCreateError(
+          "The original request was acknowledged, but current account or workspace access changed. Restore original access to confirm it; no new request was created.",
+        );
+        return;
+      }
       setName("");
       setTargetDate("");
       setReleaseStep(0);
       setSelectedPlanIds([]);
       setReleaseGoals([]);
+      setNewPlanName("");
+      setNewCriteria([]);
+      setCriterionDraft("");
       setCreateOpen(false);
+      setCreateRequest(null);
+      createUnknown.current = false;
       void utils.releases.list.invalidate({ projectId });
       void utils.releases.trend.invalidate({ projectId });
       void utils.testPlans.list.invalidate({ projectId });
-    },
-    onError: (e) => setCreateError(e.message),
-  });
-
-  function submit() {
-    if (!canEdit || !name.trim()) return;
-    setCreateError(null);
-    createMutation.mutate({
-      projectId,
-      name: name.trim(),
-      targetDate: targetDate ? new Date(`${targetDate}T12:00:00`) : undefined,
-      testPlanIds: selectedPlanIds,
-      goals: releaseGoals,
-    });
+    } catch (cause) {
+      const retain = retainAnalysisRequest(createUnknown.current, cause);
+      createUnknown.current = retain;
+      if (!retain) setCreateRequest(null);
+      setCreateError(
+        cause instanceof Error
+          ? cause.message
+          : "Release creation was not acknowledged. Retained scope was not changed.",
+      );
+    } finally {
+      submitBusy.current = false;
+    }
   }
 
   const loading = releasesQuery.isLoading;
@@ -257,124 +334,238 @@ export default function ReleasesPage() {
           description={
             [
               "Give the release a recognizable name and target. You can adjust status and dates later.",
-              "Reuse existing plans so their acceptance criteria immediately contribute to readiness.",
+              "Link existing plans or add a quality plan and acceptance criteria without leaving this wizard.",
               "Vaettir will create the release and link the selected quality plans.",
             ][releaseStep]
           }
-          canContinue={releaseStep === 0 ? Boolean(name.trim()) : true}
+          canContinue={
+            access.canWrite &&
+            (releaseStep === 0 ? Boolean(name.trim()) : !criterionDraft.trim())
+          }
           busy={createMutation.isPending}
-          submitLabel="Create release workspace"
+          submitLabel={
+            createRequest
+              ? "Retry retained release request"
+              : "Create release workspace"
+          }
           onStepChange={setReleaseStep}
           onCancel={() => setCreateOpen(false)}
           onSubmit={submit}
         >
-          {releaseStep === 0 && (
-            <>
-              <label>
-                Release name
-                <input
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                  placeholder="For example: Pilot build 1.2"
-                />
-              </label>
-              <label>
-                Target date <span className="text-muted">(optional)</span>
-                <input
-                  type="date"
-                  value={targetDate}
-                  onChange={(e) => setTargetDate(e.target.value)}
-                />
-              </label>
-              <WizardChoices
-                title="Primary goals"
-                options={[
-                  "Customer launch",
-                  "Internal milestone",
-                  "Regulatory submission",
-                  "Pilot/manufacturing build",
-                  "Field trial",
-                  "Maintenance release",
-                ]}
-                selected={releaseGoals}
-                onToggle={(goal) =>
-                  setReleaseGoals((goals) =>
-                    goals.includes(goal)
-                      ? goals.filter((item) => item !== goal)
-                      : [...goals, goal],
-                  )
-                }
-              />
-            </>
+          {!access.ready && (
+            <p role="status">
+              Verify the original signed-in account, workspace and full editor
+              seat before creating or retrying. Drafts are retained.{" "}
+              <button
+                type="button"
+                className="btn-secondary"
+                onClick={() => void access.refresh()}
+              >
+                Recheck original access
+              </button>
+            </p>
           )}
-          {releaseStep === 1 && (
-            <>
-              <fieldset>
-                <legend>Link unassigned test plans</legend>
-                {(plansQuery.data ?? [])
-                  .filter((plan) => !plan.releaseId)
-                  .map((plan) => (
-                    <label
-                      key={plan.id}
-                      style={{ display: "block", margin: "10px 0" }}
-                    >
-                      <input
-                        type="checkbox"
-                        checked={selectedPlanIds.includes(plan.id)}
-                        onChange={(e) =>
-                          setSelectedPlanIds((ids) =>
-                            e.target.checked
-                              ? [...ids, plan.id]
-                              : ids.filter((id) => id !== plan.id),
-                          )
-                        }
-                      />{" "}
-                      {plan.name} · {plan.acceptanceCriteria.length} acceptance
-                      criteria
-                    </label>
-                  ))}
-                {plansQuery.isLoading && <p>Loading plans…</p>}
-                {plansQuery.error && (
-                  <p role="alert">{plansQuery.error.message}</p>
-                )}
-                {plansQuery.data?.every((plan) => !!plan.releaseId) && (
-                  <p>
-                    No unassigned plans. You can create the release now and add
-                    a plan later.
+          {createRequest && (
+            <p role="status">
+              This request retains its original release, plans and criteria.
+              Retry confirms that same request without creating another
+              workspace.
+            </p>
+          )}
+          <fieldset
+            disabled={
+              createMutation.isPending || !!createRequest || !access.canWrite
+            }
+            style={{ border: 0, padding: 0, margin: 0 }}
+          >
+            {releaseStep === 0 && (
+              <>
+                <label>
+                  Release name
+                  <input
+                    value={name}
+                    onChange={(e) => setName(e.target.value)}
+                    placeholder="For example: Release 1.2"
+                    maxLength={200}
+                  />
+                </label>
+                <label>
+                  Target date <span className="text-muted">(optional)</span>
+                  <input
+                    type="date"
+                    value={targetDate}
+                    onChange={(e) => setTargetDate(e.target.value)}
+                  />
+                </label>
+                <WizardChoices
+                  title="Primary goals"
+                  options={[
+                    "Regular release",
+                    "Feature release",
+                    "Bug-fix release",
+                    "Customer launch",
+                    "Internal milestone",
+                    "Maintenance release",
+                    ...(showSpecializedGoals
+                      ? [
+                          "Regulatory submission",
+                          "Pilot/manufacturing build",
+                          "Field trial",
+                        ]
+                      : []),
+                  ]}
+                  selected={releaseGoals}
+                  onToggle={(goal) =>
+                    setReleaseGoals((goals) =>
+                      goals.includes(goal)
+                        ? goals.filter((item) => item !== goal)
+                        : [...goals, goal],
+                    )
+                  }
+                />
+                <label>
+                  <input
+                    type="checkbox"
+                    checked={showSpecializedGoals}
+                    onChange={(e) => setShowSpecializedGoals(e.target.checked)}
+                  />{" "}
+                  Show specialized regulatory, hardware and field goals
+                </label>
+                <p className="text-muted">
+                  Goals are optional. Choose only what applies; a normal release
+                  does not require a launch or regulatory milestone.
+                </p>
+              </>
+            )}
+            {releaseStep === 1 && (
+              <>
+                <fieldset>
+                  <legend>Link unassigned test plans</legend>
+                  {(plansQuery.data ?? [])
+                    .filter((plan) => !plan.releaseId)
+                    .map((plan) => (
+                      <label
+                        key={plan.id}
+                        style={{ display: "block", margin: "10px 0" }}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={selectedPlanIds.includes(plan.id)}
+                          onChange={(e) =>
+                            setSelectedPlanIds((ids) =>
+                              e.target.checked
+                                ? [...ids, plan.id]
+                                : ids.filter((id) => id !== plan.id),
+                            )
+                          }
+                        />{" "}
+                        {plan.name} · {plan.acceptanceCriteria.length}{" "}
+                        acceptance criteria
+                      </label>
+                    ))}
+                  {plansQuery.isLoading && <p>Loading plans…</p>}
+                  {plansQuery.error && (
+                    <p role="alert">{plansQuery.error.message}</p>
+                  )}
+                  {plansQuery.data?.every((plan) => !!plan.releaseId) && (
+                    <p>
+                      No unassigned plans. Add a quality plan below, or continue
+                      without one.
+                    </p>
+                  )}
+                </fieldset>
+                <fieldset>
+                  <legend>Add a quality plan</legend>
+                  <p className="text-muted">
+                    The plan and release are saved together. New criteria remain
+                    pending until evidence or review satisfies them.
                   </p>
-                )}
-              </fieldset>
-              {(plansQuery.data ?? []).length === 0 && (
-                <div className="panel" style={{ padding: 14 }}>
-                  <strong>No plans to link yet</strong>
-                  <p
-                    className="text-muted"
-                    style={{ margin: "4px 0 0", fontSize: 13 }}
+                  <label>
+                    Plan name
+                    <input
+                      value={newPlanName}
+                      onChange={(e) => setNewPlanName(e.target.value)}
+                      placeholder={`${name.trim() || "Release"} quality plan`}
+                      maxLength={200}
+                    />
+                  </label>
+                  <label>
+                    Acceptance criterion
+                    <textarea
+                      value={criterionDraft}
+                      onChange={(e) => setCriterionDraft(e.target.value)}
+                      placeholder="For example: All critical regression cases pass on supported platforms"
+                      maxLength={2000}
+                    />
+                  </label>
+                  <button
+                    type="button"
+                    className="btn-secondary"
+                    disabled={
+                      !criterionDraft.trim() || newCriteria.length >= 50
+                    }
+                    onClick={() => {
+                      setNewCriteria((values) => [
+                        ...values,
+                        criterionDraft.trim(),
+                      ]);
+                      setCriterionDraft("");
+                    }}
                   >
-                    Create a Test Strategy or Test Plan first, or continue with
-                    an empty release and add criteria later.
-                  </p>
-                </div>
-              )}
-            </>
-          )}
-          {releaseStep === 2 && (
-            <div className="panel" style={{ padding: 14 }}>
-              <strong>{name}</strong>
-              <p className="text-muted" style={{ margin: "4px 0" }}>
-                {targetDate
-                  ? `Target ${new Date(`${targetDate}T12:00:00`).toLocaleDateString()}`
-                  : "No target date"}
-              </p>
-              <p style={{ margin: 0, fontSize: 13 }}>
-                {selectedPlanIds.length} test plan(s) will contribute acceptance
-                criteria.{" "}
-                {releaseGoals.length
-                  ? `Goals: ${releaseGoals.join(", ")}.`
-                  : ""}
-              </p>
-            </div>
-          )}
+                    Add criterion
+                  </button>
+                  <ul>
+                    {newCriteria.map((criterion, index) => (
+                      <li key={index}>
+                        {criterion}{" "}
+                        <button
+                          type="button"
+                          className="btn-secondary"
+                          aria-label={`Remove criterion ${index + 1}`}
+                          onClick={() =>
+                            setNewCriteria((values) =>
+                              values.filter((_, i) => i !== index),
+                            )
+                          }
+                        >
+                          Remove
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                  {criterionDraft.trim() && (
+                    <p role="status">
+                      Choose Add criterion to include this draft before
+                      continuing.
+                    </p>
+                  )}
+                </fieldset>
+              </>
+            )}
+            {releaseStep === 2 && (
+              <div className="panel" style={{ padding: 14 }}>
+                <strong>{name}</strong>
+                <p className="text-muted" style={{ margin: "4px 0" }}>
+                  {targetDate
+                    ? `Target ${new Date(`${targetDate}T12:00:00`).toLocaleDateString()}`
+                    : "No target date"}
+                </p>
+                <p style={{ margin: 0, fontSize: 13 }}>
+                  {selectedPlanIds.length} test plan(s) will contribute
+                  acceptance criteria.{" "}
+                  {newCriteria.length > 0 && (
+                    <>
+                      A new quality plan with {newCriteria.length} pending
+                      criteria will also be created.{" "}
+                    </>
+                  )}
+                  {releaseGoals.length
+                    ? `Goals: ${releaseGoals.join(", ")}.`
+                    : ""}
+                </p>
+              </div>
+            )}
+          </fieldset>
           {error && <p style={{ color: "var(--ember)" }}>{error}</p>}
         </CreationWizard>
       </Modal>

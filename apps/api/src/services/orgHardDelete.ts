@@ -274,6 +274,7 @@ export interface OrgDeletionPreview {
   organizationSlug: string;
   projectCount: number;
   rowCounts: Record<string, number>;
+  caseCommentScope: { originalOrganizationId: string; foreignOriginalCommentsOnCurrentCases: number; blocked: boolean };
   reportScope: ReportErasureScope;
   manualCaseResultScope: {
     basis: "ORIGINAL_ORGANIZATION";
@@ -506,6 +507,13 @@ export async function previewOrgHardDelete(
   const scope = await scopeIds(prisma, organizationId);
   const reportEvidence = await reportErasureCounts(prisma, organizationId);
   const manualCaseEvidence = await previewManualCaseResultErasure(prisma, organizationId);
+  const [commentCount] = await prisma.$queryRaw<Array<{ count: bigint }>>`SELECT count(*)::bigint AS count FROM "CaseComment" WHERE "organizationId"=${organizationId}`;
+  if (!commentCount || commentCount.count < 0n || commentCount.count > BigInt(Number.MAX_SAFE_INTEGER)) throw Error("Invalid complete original-org comment inventory");
+  const caseComment = Number(commentCount.count);
+  const [foreignComments] = await prisma.$queryRaw<Array<{ count: bigint }>>`
+    SELECT count(*)::bigint AS count FROM "CaseComment" c JOIN "TestCase" t ON t.id=c."caseId" JOIN "Project" p ON p.id=t."projectId"
+    WHERE p."organizationId"=${organizationId} AND c."organizationId"<>${organizationId}`;
+  if (!foreignComments || foreignComments.count < 0n || foreignComments.count > BigInt(Number.MAX_SAFE_INTEGER)) throw Error("Invalid complete foreign-original comment inventory");
   const [caseFolderWrite, caseFolderState] = await Promise.all([
     prisma.caseFolderWrite.count({ where: { projectId: { in: scope.projectIds } } }),
     prisma.caseFolderState.count({ where: { projectId: { in: scope.projectIds } } }),
@@ -673,6 +681,7 @@ export async function previewOrgHardDelete(
     organizationSlug: org.slug,
     projectCount: scope.projectIds.length,
     reportScope: reportEvidence.reportScope,
+    caseCommentScope: { originalOrganizationId: organizationId, foreignOriginalCommentsOnCurrentCases: Number(foreignComments.count), blocked: foreignComments.count > 0n },
     manualCaseResultScope: {
       basis: "ORIGINAL_ORGANIZATION",
       originalOrganizationId: organizationId,
@@ -726,6 +735,7 @@ export async function previewOrgHardDelete(
       RiskFlag: riskFlag,
       AcceptanceCriterion: acceptanceCriterion,
       TestCaseAttachment: testCaseAttachment,
+      CaseComment: caseComment,
       TestCaseComplianceControl: testCaseComplianceControl,
       TestCaseDataset: testCaseDataset,
       TestCaseSource: testCaseSource,
@@ -788,6 +798,11 @@ export async function hardDeleteOrganization(
     // unreviewed live relation traversal. Locked current ownership must still
     // produce precisely those complete IDs before ANY child record is removed.
     await reconcileNativeIdentityScopes(tx, organizationId, scope);
+    const [foreignComments] = await tx.$queryRaw<Array<{ count: bigint }>>`
+      SELECT count(*)::bigint AS count FROM "CaseComment" c WHERE c."caseId" IN ${stagedNativeScopeValues("TestCase")} AND c."organizationId"<>${organizationId}`;
+    if (!foreignComments || foreignComments.count !== 0n) throw new TRPCError({
+      code: "PRECONDITION_FAILED", message: "Comments retained from another original organization require reconciliation before these cases can be erased. No child records were removed.",
+    });
     // Org UPDATE excludes current whole-case writers (Org SHARE first).
     // Recheck original tuple ownership BEFORE any report or other child deletion.
     const manualCaseEvidence = await previewManualCaseResultErasure(tx, organizationId);
@@ -934,6 +949,15 @@ export async function hardDeleteOrganization(
     await del("TestCaseAttachment", () =>
       deleteNativeScope(tx, "TestCaseAttachment", scope.testCaseIds),
     );
+    await del("CaseComment", async () => {
+      const [row] = await tx.$queryRaw<Array<{ expected: bigint; count: bigint }>>`
+        WITH expected AS MATERIALIZED (SELECT count(*)::bigint AS count FROM "CaseComment" WHERE "organizationId"=${organizationId}),
+        deleted AS (DELETE FROM "CaseComment" WHERE "organizationId"=${organizationId}
+          AND (SELECT count FROM expected) BETWEEN 0 AND ${BigInt(Number.MAX_SAFE_INTEGER)} RETURNING 1)
+        SELECT (SELECT count FROM expected) AS expected,count(*)::bigint AS count FROM deleted`;
+      if (!row || row.expected < 0n || row.expected > BigInt(Number.MAX_SAFE_INTEGER) || row.count !== row.expected) throw new TRPCError({ code: "CONFLICT", message: "Original-org comment count changed; the entire erasure must roll back." });
+      return { count: Number(row.count) };
+    });
     await del("TestCaseComplianceControl", () =>
       deleteNativeScope(tx, "TestCaseComplianceControl", scope.testCaseIds),
     );

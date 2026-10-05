@@ -14,7 +14,10 @@ import { recomputeFlaky } from "../services/flakyDetection.js";
 import { resolveHealingSuggestionsOnPass } from "../services/healingSuggestion.js";
 import { resolveStepFieldLabels } from "@vaettir/core";
 import { lockManualExecutionReadScope } from "../services/manualExecutionReadScope.js";
-import { manualExecutionReadScopeInputSchema, manualExecutionReadScopeOutputSchema } from "../services/manualExecutionReadScopeSchema.js";
+import {
+  manualExecutionReadScopeInputSchema,
+  manualExecutionReadScopeOutputSchema,
+} from "../services/manualExecutionReadScopeSchema.js";
 import {
   planReferenceSchema,
   requireCurrentPlanAccess,
@@ -226,7 +229,7 @@ export const manualExecutionRouter = router({
     .input(
       z.object({
         projectId: z.string(),
-        testCaseIds: z.array(z.string()).min(1).max(500),
+        testCaseIds: z.array(z.string()).min(1).max(1000),
         expectedProfileHash: z
           .string()
           .regex(/^[a-f0-9]{64}$/)
@@ -248,13 +251,12 @@ export const manualExecutionRouter = router({
           code: "FORBIDDEN",
           message: "A full editor seat is required.",
         });
-      if (input.planReference)
-        await requireCurrentPlanAccess(
-          ctx.prisma,
-          ctx.user.id,
-          input.projectId,
-          true,
-        );
+      await requireCurrentPlanAccess(
+        ctx.prisma,
+        ctx.user.id,
+        input.projectId,
+        true,
+      );
       if (new Set(input.testCaseIds).size !== input.testCaseIds.length) {
         throw new TRPCError({
           code: "BAD_REQUEST",
@@ -295,9 +297,53 @@ export const manualExecutionRouter = router({
             )
             .digest("hex")}`
         : undefined;
-      async function previousRun() {
+      async function lockCurrentStartAccess(tx: Prisma.TransactionClient) {
+        await tx.$executeRaw(Prisma.sql`SET LOCAL statement_timeout='8000ms'`);
+        const found = await tx.project.findUnique({
+          where: { id: input.projectId },
+          select: { organizationId: true },
+        });
+        if (!found)
+          throw new TRPCError({
+            code: "NOT_FOUND",
+            message: "Project not found",
+          });
+        // Same organization-first order as the manual read boundary. Do not
+        // acquire the prerequisite advisory lock before tenant/actor locks.
+        const [org] = await tx.$queryRaw<Array<{ suspendedAt: Date | null }>>`
+          SELECT "suspendedAt" FROM "Organization" WHERE id=${found.organizationId} FOR SHARE`;
+        const [member] = await tx.$queryRaw<
+          Array<{ role: string; seatType: string }>
+        >`
+          SELECT role::text AS role,"seatType"::text AS "seatType" FROM "Membership"
+          WHERE "organizationId"=${found.organizationId} AND "userId"=${ctx.user.id} FOR SHARE`;
+        const [project] = await tx.$queryRaw<Array<{ organizationId: string }>>`
+          SELECT "organizationId" FROM "Project" WHERE id=${input.projectId} FOR SHARE`;
+        const [actor] = await tx.$queryRaw<
+          Array<{ clerkUserId: string | null }>
+        >`
+          SELECT "clerkUserId" FROM "User" WHERE id=${ctx.user.id} FOR SHARE`;
+        if (
+          !org ||
+          org.suspendedAt ||
+          !member ||
+          member.seatType !== "FULL" ||
+          !["OWNER", "ADMIN", "EDITOR"].includes(member.role) ||
+          project?.organizationId !== found.organizationId ||
+          !actor?.clerkUserId ||
+          actor.clerkUserId !== ctx.user.clerkUserId
+        )
+          throw new TRPCError({
+            code: "FORBIDDEN",
+            message:
+              "A current signed-in full editor seat in this project is required.",
+          });
+        await requireCurrentPlanAccess(tx, ctx.user.id, input.projectId, true);
+      }
+      async function previousRunInTransaction(tx: Prisma.TransactionClient) {
         if (!durableId) return null;
-        const existing = await ctx.prisma.testRun.findUnique({
+        await tx.$queryRaw`SELECT id FROM "TestRun" WHERE id=${durableId} FOR SHARE`;
+        const existing = await tx.testRun.findUnique({
           where: { id: durableId },
           select: {
             id: true,
@@ -321,6 +367,16 @@ export const manualExecutionRouter = router({
         }
         return { testRunId: existing.id };
       }
+      async function previousRun() {
+        if (!durableId) return null;
+        return ctx.prisma.$transaction(
+          async (tx) => {
+            await lockCurrentStartAccess(tx);
+            return previousRunInTransaction(tx);
+          },
+          { timeout: 20000, isolationLevel: "RepeatableRead" },
+        );
+      }
       // A lost response must not produce another execution or replace the
       // original baseline with newer project/case data on retry.
       const previous = await previousRun();
@@ -328,16 +384,12 @@ export const manualExecutionRouter = router({
       try {
         return await ctx.prisma.$transaction(
           async (tx) => {
+            await lockCurrentStartAccess(tx);
             // Serialize with prerequisite edits, then freeze the graph for this
             // run. Historical runs never change when a case's graph is edited.
             await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${input.projectId}))::text`;
-            if (input.planReference)
-              await requireCurrentPlanAccess(
-                tx,
-                ctx.user.id,
-                input.projectId,
-                true,
-              );
+            const replay = await previousRunInTransaction(tx);
+            if (replay) return replay;
             const project = await tx.project.findUnique({
               where: { id: input.projectId },
               select: {
@@ -416,11 +468,11 @@ export const manualExecutionRouter = router({
                     });
                   if (!visited.has(next))
                     stack.push({ id: next, nextIndex: 0 });
-                  if (visited.size + stack.length > 500)
+                  if (visited.size + stack.length > 1000)
                     throw new TRPCError({
                       code: "BAD_REQUEST",
                       message:
-                        "Run would include more than 500 cases with prerequisites.",
+                        "Run would include more than 1,000 cases with prerequisites. Split the reviewed scope into separate runs.",
                     });
                   continue;
                 }
@@ -428,6 +480,12 @@ export const manualExecutionRouter = router({
                 visiting.delete(frame.id);
                 visited.add(frame.id);
                 ordered.push(frame.id);
+                if (ordered.length > 1000)
+                  throw new TRPCError({
+                    code: "BAD_REQUEST",
+                    message:
+                      "Run would include more than 1,000 cases with prerequisites. Split the reviewed scope into separate runs.",
+                  });
               }
             }
             const cases = await tx.testCase.findMany({
@@ -449,6 +507,12 @@ export const manualExecutionRouter = router({
                   "A selected case or prerequisite is missing, archived, or outside this project.",
               });
             }
+            if (cases.some((c) => c.reviewStatus !== "APPROVED"))
+              throw new TRPCError({
+                code: "BAD_REQUEST",
+                message:
+                  "A selected case or prerequisite has not been approved. Review and approve the complete dependency scope before starting; nothing was started.",
+              });
             if (cases.some((c) => c.dataset))
               throw new TRPCError({
                 code: "BAD_REQUEST",
@@ -557,56 +621,67 @@ export const manualExecutionRouter = router({
           )
           .max(50)
           .default([]),
-        cases: z.array(
-          z.object({
-            testCaseId: z.string(),
-            displayId: z.string().nullable(),
-            title: z.string(),
-            background: z.string().nullable(),
-            prerequisiteIds: z.array(z.string()),
-            validationDomain: validationDomainSchema,
-            verificationProfile: verificationProfileSchema,
-            given: z.array(z.string()),
-            when: z.array(z.string()),
-            then: z.array(z.string()),
-            steps: z.array(
-              z.object({
-                order: z.number(),
-                action: z.string(),
-                expectedActionOrData: z.string().nullable(),
-                expectedResult: z.string().nullable(),
-                expectedResponse: z.string().nullable(),
-                mediaAttachmentIds: z.array(z.string()).default([]),
-              }),
-            ),
-            stepExecutionAvailable: z.boolean(),
-            stepResults: z
-              .array(
+        cases: z
+          .array(
+            z.object({
+              testCaseId: z.string(),
+              displayId: z.string().nullable(),
+              title: z.string(),
+              background: z.string().nullable(),
+              prerequisiteIds: z.array(z.string()),
+              validationDomain: validationDomainSchema,
+              verificationProfile: verificationProfileSchema,
+              given: z.array(z.string()),
+              when: z.array(z.string()),
+              then: z.array(z.string()),
+              steps: z.array(
                 z.object({
-                  stepIndex: z.number(),
-                  current: stepRevisionOutputSchema.nullable(),
-                  revisionCount: z.number(),
+                  order: z.number(),
+                  action: z.string(),
+                  expectedActionOrData: z.string().nullable(),
+                  expectedResult: z.string().nullable(),
+                  expectedResponse: z.string().nullable(),
+                  mediaAttachmentIds: z.array(z.string()).default([]),
                 }),
-              )
-              .max(500),
-            currentResult: z
-              .object({
-                status: z.string(),
-                note: z.string().nullable(),
-                observations: observationsSchema,
-              })
-              .nullable(),
-          }),
-        ),
+              ),
+              stepExecutionAvailable: z.boolean(),
+              stepResults: z
+                .array(
+                  z.object({
+                    stepIndex: z.number(),
+                    current: stepRevisionOutputSchema.nullable(),
+                    revisionCount: z.number(),
+                  }),
+                )
+                .max(500),
+              currentResult: z
+                .object({
+                  status: z.string(),
+                  note: z.string().nullable(),
+                  observations: observationsSchema,
+                })
+                .nullable(),
+            }),
+          )
+          .max(1000),
       }),
     )
     .query(async ({ ctx, input }) => {
       return ctx.prisma.$transaction(
         async (tx) => {
-          const access = await lockManualExecutionReadScope(tx, ctx.user.id, ctx.user.clerkUserId, input);
+          const access = await lockManualExecutionReadScope(
+            tx,
+            ctx.user.id,
+            ctx.user.clerkUserId,
+            input,
+          );
           const run = await tx.testRun.findUniqueOrThrow({
             where: { id: input.testRunId },
-            include: { project: { select: { organization: { select: { stepFieldLabels: true } } } } },
+            include: {
+              project: {
+                select: { organization: { select: { stepFieldLabels: true } } },
+              },
+            },
           });
 
           const [cases, results] = await Promise.all([
@@ -637,10 +712,21 @@ export const manualExecutionRouter = router({
           const executionContext = readRunExperienceSnapshot(
             run.executionContext,
           );
-          if (executionContext && (executionContext.caseDefinitions.length !== run.manualTestCaseIds.length ||
-              new Set(executionContext.caseDefinitions.map(c => c.testCaseId)).size !== executionContext.caseDefinitions.length ||
-              executionContext.caseDefinitions.some(c => !run.manualTestCaseIds.includes(c.testCaseId))))
-            throw new TRPCError({ code: "BAD_REQUEST", message: "The saved procedure does not uniquely cover this exact manual run. No current case wording was substituted." });
+          if (
+            executionContext &&
+            (executionContext.caseDefinitions.length !==
+              run.manualTestCaseIds.length ||
+              new Set(executionContext.caseDefinitions.map((c) => c.testCaseId))
+                .size !== executionContext.caseDefinitions.length ||
+              executionContext.caseDefinitions.some(
+                (c) => !run.manualTestCaseIds.includes(c.testCaseId),
+              ))
+          )
+            throw new TRPCError({
+              code: "BAD_REQUEST",
+              message:
+                "The saved procedure does not uniquely cover this exact manual run. No current case wording was substituted.",
+            });
           const frozenCases = new Map(
             executionContext?.caseDefinitions.map((c) => [c.testCaseId, c]) ??
               [],
@@ -797,8 +883,15 @@ export const manualExecutionRouter = router({
               })
               .filter((c): c is NonNullable<typeof c> => c !== null),
           };
-          if (Buffer.byteLength(JSON.stringify(response), "utf8") > 16 * 1024 * 1024)
-            throw new TRPCError({ code: "PRECONDITION_FAILED", message: "This complete execution view exceeds its response bound. No partial procedure or evidence was substituted." });
+          if (
+            Buffer.byteLength(JSON.stringify(response), "utf8") >
+            16 * 1024 * 1024
+          )
+            throw new TRPCError({
+              code: "PRECONDITION_FAILED",
+              message:
+                "This complete execution view exceeds its response bound. No partial procedure or evidence was substituted.",
+            });
           return response;
         },
         { isolationLevel: "RepeatableRead", timeout: 20000 },
@@ -850,12 +943,16 @@ export const manualExecutionRouter = router({
 
         // Current run lock serializes first history activation with legacy writes.
         // Refuse before loading the native observation body or changing its verdict.
-        if (await tx.manualCaseResultHead.count({
-          where: { testRunId: run.id, testCaseId: input.testCaseId },
-        })) throw new TRPCError({
-          code: "CONFLICT",
-          message: "This case has immutable whole-case observation history. Review its current result and record a reasoned correction instead of overwriting it.",
-        });
+        if (
+          await tx.manualCaseResultHead.count({
+            where: { testRunId: run.id, testCaseId: input.testCaseId },
+          })
+        )
+          throw new TRPCError({
+            code: "CONFLICT",
+            message:
+              "This case has immutable whole-case observation history. Review its current result and record a reasoned correction instead of overwriting it.",
+          });
         const existing = await tx.testResult.findFirst({
           where: { testRunId: input.testRunId, testCaseId: input.testCaseId },
         });

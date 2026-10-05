@@ -471,7 +471,10 @@ export default function LiveAppGenerationPage() {
                         style={{ fontSize: 13, margin: 0 }}
                       >
                         Download and open the prepared helper. Pairing is
-                        already built in, and this page connects automatically.
+                        already built in, and this page connects automatically
+                        once the helper is running. This is an unsigned script;
+                        your organization may block it. It does not require
+                        administrator access or changes to security protection.
                         It requires{" "}
                         {captureMode === "android"
                           ? "Node 22 and ADB"
@@ -540,9 +543,12 @@ export default function LiveAppGenerationPage() {
                             <code>{pairingCode || "Preparing..."}</code>
                           </span>
                           <span className="text-muted" style={{ fontSize: 13 }}>
-                            If the prepared helper is blocked, download the raw
-                            connector and run it with Node using the pairing
-                            code above.
+                            If Windows says it cannot access the helper, it has
+                            not started. Do not disable antivirus, add an
+                            exclusion or run as administrator. Ask your security
+                            administrator to review the blocked download. This
+                            page cannot identify or override the blocking
+                            policy.
                           </span>
                           <a
                             className="btn btn-secondary"
@@ -552,6 +558,24 @@ export default function LiveAppGenerationPage() {
                           >
                             Download raw connector
                           </a>
+                          <span className="text-muted" style={{ fontSize: 13 }}>
+                            Manual alternative, only if your policy permits:
+                            review the downloaded connector, then open a
+                            terminal in its folder and run the command below
+                            with Node 22 or newer. Adjust the filename if your
+                            browser renamed it. Keep the terminal open and
+                            choose Reconnect.
+                          </span>
+                          <code style={{ overflowWrap: "anywhere" }}>
+                            node "vaettir-device-connector.mjs" --pairing-code{" "}
+                            {pairingCode || "YOUR_PAIRING_CODE"}
+                          </code>
+                          <span className="text-muted" style={{ fontSize: 13 }}>
+                            The pairing code is private. Do not share the
+                            prepared helper or a screenshot of this code.
+                            Capture and upload still require your selections on
+                            this page.
+                          </span>
                         </div>
                       </details>
                     </div>

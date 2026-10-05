@@ -12,6 +12,8 @@ import { TestCaseClone } from "@/components/TestCaseClone";
 import { DatasetExecutionWizard } from "@/components/DatasetExecutionWizard";
 import { CaseTraceabilityPanel } from "@/components/CaseTraceabilityPanel";
 import { CaseCustomFields } from "@/components/CaseCustomFields";
+import { CaseComments } from "@/components/CaseComments";
+import { CasePriorityField } from "@/components/CasePriorityField";
 import { Modal } from "@/components/Modal";
 import { automationTargetForFramework } from "@vaettir/core";
 import {
@@ -439,10 +441,12 @@ function ComplianceControlsSection({
   testCaseId,
   projectId,
   readOnly,
+  relevant = false,
 }: {
   testCaseId: string;
   projectId: string;
   readOnly?: boolean;
+  relevant?: boolean;
 }) {
   // P1-15: the framework select defaults to the first framework until the
   // user picks one (derived, not seeded via an effect); candidates are a
@@ -452,13 +456,15 @@ function ComplianceControlsSection({
     testCaseId,
   });
   const mapped = mappedQuery.data ?? null;
-  const frameworksQuery = trpcReact.compliance.listFrameworks.useQuery();
+  const [showOptional, setShowOptional] = useState(false);
+  const showControls = relevant || Boolean(mapped?.length) || showOptional;
+  const frameworksQuery = trpcReact.compliance.listFrameworks.useQuery(undefined, { enabled: showControls });
   const frameworks = frameworksQuery.data ?? [];
   const [chosenFrameworkId, setFrameworkId] = useState("");
   const frameworkId = chosenFrameworkId || frameworks[0]?.id || "";
   const candidatesQuery = trpcReact.compliance.controlCoverage.useQuery(
     { projectId, frameworkId },
-    { enabled: frameworkId.length > 0 },
+    { enabled: showControls && frameworkId.length > 0 },
   );
   const candidates = candidatesQuery.data ?? [];
   const mapMutation = trpcReact.compliance.mapTestCase.useMutation();
@@ -492,7 +498,9 @@ function ComplianceControlsSection({
     }
   }
 
+  if (mappedQuery.error) return <p role="alert">Could not check existing compliance mappings. <button onClick={() => void mappedQuery.refetch()}>Retry</button></p>;
   if (!mapped) return null;
+  if (!showControls) return <details onToggle={event => setShowOptional(event.currentTarget.open)}><summary>Optional compliance controls</summary><p>Use only when this case contributes compliance evidence. Existing mappings are always retained.</p></details>;
   const unmappedCandidates = candidates.filter(
     (c) => !mapped.some((m) => m.id === c.id),
   );
@@ -1292,7 +1300,6 @@ function TestCaseInspector({
           [
             ["Domain", tc.validationDomain],
             ["Type", tc.testType],
-            ["Priority", tc.priority],
             ["Origin", tc.origin],
           ] as const
         ).map(([label, value]) => (
@@ -1301,6 +1308,10 @@ function TestCaseInspector({
             <dd>{inspectorLabel(value)}</dd>
           </div>
         ))}
+        <div>
+          <dt>Priority</dt>
+          <dd><CasePriorityField key={tc.id} projectId={projectId} caseId={tc.id} priority={tc.priority} caseRevision={tc.caseRevision} readOnly={readOnly} onChanged={onChanged} /></dd>
+        </div>
         <div>
           <dt>Risk</dt>
           <dd>
@@ -1425,13 +1436,14 @@ function TestCaseInspector({
         {tc.steps.length > 0 && (
           <section className="case-step-table">
             <h3>Steps</h3>
+            <p className="text-muted">Each row pairs the tester’s action with its technical behavior, expected visible result and expected response. A parameter dataset is separate from these per-step descriptors.</p>
             <table style={{ borderCollapse: "collapse", width: "100%" }}>
               <thead>
                 <tr>
                   <th style={cellStyle}>#</th>
                   <th style={cellStyle}>{tc.stepFieldLabels.action}</th>
                   <th style={cellStyle}>
-                    {tc.stepFieldLabels.expectedActionOrData}
+                    {tc.stepFieldLabels.expectedActionOrData === "Expected Action / Data" ? "Technical behavior / data" : tc.stepFieldLabels.expectedActionOrData}
                   </th>
                   <th style={cellStyle}>{tc.stepFieldLabels.expectedResult}</th>
                   <th style={cellStyle}>
@@ -1556,7 +1568,7 @@ function TestCaseInspector({
         {tc.tags.length > 0 && (
           <ul className={styles.tags} aria-label="Case tags">
             {tc.tags.map((tag) => (
-              <li key={tag}>{tag}</li>
+              <li key={tag}><a href={`/projects/${encodeURIComponent(projectId)}/test-cases?tag=${encodeURIComponent(tag)}`} title={`Find cases tagged ${tag}`}>{tag}</a></li>
             ))}
           </ul>
         )}
@@ -1662,9 +1674,9 @@ function TestCaseInspector({
 
         <section
           className="risk-assessment-panel"
-          aria-label="Priority and business need"
+          aria-label="Risk-derived priority advice"
         >
-          <strong>Priority and business need</strong>
+          <strong>Risk-derived priority advice</strong>
           {prioritySuggestion.data?.suggestedPriority ? (
             <>
               <p>
@@ -1686,7 +1698,7 @@ function TestCaseInspector({
               )}
               {!readOnly && prioritySuggestion.data.canEdit && (
                 <details>
-                  <summary>Change priority</summary>
+                  <summary>Optional risk suggestion or business override</summary>
                   <div style={{ display: "grid", gap: 8, marginTop: 8 }}>
                     <button
                       className="btn-secondary"
@@ -1721,12 +1733,12 @@ function TestCaseInspector({
                       <textarea
                         value={businessRationale}
                         disabled={priorityBusy}
-                        maxLength={500}
-                        rows={2}
                         onChange={(event) =>
                           setBusinessRationale(event.target.value)
                         }
                         style={{ display: "block", width: "100%" }}
+                        maxLength={500}
+                        placeholder="Explain the business need for this override"
                       />
                     </label>
                     <button
@@ -1855,6 +1867,7 @@ function TestCaseInspector({
           testCaseId={tc.id}
           projectId={projectId}
           readOnly={readOnly}
+          relevant={tc.testType === "COMPLIANCE"}
         />
         <AttachmentsSection testCaseId={tc.id} readOnly={readOnly} />
       </section>
@@ -1879,6 +1892,7 @@ function TestCaseInspector({
           readOnly={readOnly}
           onChanged={onChanged}
         />
+        <CaseComments key={tc.id} projectId={projectId} caseId={tc.id} />
 
         {tc.origin === "AI_REVERSE_ENGINEERED" && (
           <div

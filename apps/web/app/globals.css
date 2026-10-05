@@ -68,6 +68,25 @@ body {
     color 0.25s ease;
 }
 
+.run-dashboard-summary { display: flex; flex-wrap: wrap; gap: 16px; align-items: center; margin: 20px 0 12px; }
+.run-dashboard-summary > div { display: grid; gap: 3px; min-width: 110px; }
+.run-dashboard-summary strong { font-size: 24px; }
+.run-dashboard-summary span { color: var(--muted); font-size: 13px; }
+.run-card-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr)); gap: 16px; }
+.run-card { padding: 20px; min-width: 0; }
+.run-card header, .run-card footer, .run-card-progress { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; }
+.run-card h2 { font-size: 18px; margin: 0; }
+.run-card progress { width: 100%; height: 12px; accent-color: var(--frost); margin: 12px 0; }
+.run-card dl { display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; font-size: 13px; }
+.run-card dd { margin: 0; overflow-wrap: anywhere; }
+.run-status { border: 1px solid currentColor; border-radius: 999px; padding: 3px 9px; font-size: 12px; }
+.run-status-passed { color: var(--frost); } .run-status-failed { color: var(--ember); }
+.run-status-partial { color: var(--warning); } .run-status-running { color: var(--info); }
+.case-priority { font-size: 18px; }
+.case-priority-critical, .case-priority-high { color: var(--ember); }
+.case-priority-medium { color: var(--warning); }
+.case-priority-low { color: var(--frost); }
+
 /* Flat working surfaces keep small text and status signals crisp. */
 body::before {
   content: none;

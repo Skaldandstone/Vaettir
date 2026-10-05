@@ -153,7 +153,7 @@ export const runExperienceSnapshotSchema = z.object({
     .optional(),
   configuration: runConfigurationSchema,
   stepFieldLabels: z.record(z.string().max(200)),
-  caseDefinitions: z.array(runCaseDefinitionSchema).max(500),
+  caseDefinitions: z.array(runCaseDefinitionSchema).max(1000),
   plan: runPlanSnapshotSchema.optional(),
   retest: manualRetestMetadataSchema.optional(),
   // One independently identified manual run per reviewed dataset row. Legacy
@@ -205,7 +205,13 @@ export function boundedRunSnapshot(value: unknown) {
     if (typeof entry === "string")
       bytes += Buffer.byteLength(entry, "utf8") + 2;
     else if (Array.isArray(entry)) {
-      if (entry.length > 500)
+      // Only the top-level case collection has the larger suite limit.
+      // Procedure and other nested arrays retain their original bounded size.
+      const isCaseCollection =
+        !!value &&
+        typeof value === "object" &&
+        entry === (value as { caseDefinitions?: unknown }).caseDefinitions;
+      if (entry.length > (isCaseCollection ? 1000 : 500))
         throw new TRPCError({
           code: "BAD_REQUEST",
           message:

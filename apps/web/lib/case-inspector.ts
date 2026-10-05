@@ -44,13 +44,19 @@ export function inspectorSectionForKey(
 }
 
 export function prerequisitePage<
-  T extends { id: string; title: string; archived: boolean; displayId?: string | null },
+  T extends {
+    id: string;
+    title: string;
+    archived: boolean;
+    displayId?: string | null;
+  },
 >(
   cases: T[],
   caseId: string,
   selected: string[],
   search: string,
   page: number,
+  sort: "inventory" | "case-id" | "title" = "inventory",
 ): { items: T[]; page: number; pageCount: number; total: number } {
   const query = search.trim().toLocaleLowerCase();
   const matches = cases.filter(
@@ -59,8 +65,27 @@ export function prerequisitePage<
       item.id !== caseId &&
       !selected.includes(item.id) &&
       (!query ||
-        `${item.title} ${item.displayId ?? ""} ${item.id}`.toLocaleLowerCase().includes(query)),
+        `${item.title} ${item.displayId ?? ""} ${item.id}`
+          .toLocaleLowerCase()
+          .includes(query)),
   );
+  if (sort !== "inventory")
+    matches.sort((left, right) => {
+      const titleOrder = left.title.localeCompare(right.title, undefined, {
+        sensitivity: "base",
+        numeric: true,
+      });
+      const keyOrder = (left.displayId ?? left.id).localeCompare(
+        right.displayId ?? right.id,
+        undefined,
+        { sensitivity: "base", numeric: true },
+      );
+      return (
+        (sort === "case-id"
+          ? keyOrder || titleOrder
+          : titleOrder || keyOrder) || left.id.localeCompare(right.id)
+      );
+    });
   const pageCount = Math.max(1, Math.ceil(matches.length / 20));
   const safePage = Math.max(0, Math.min(page, pageCount - 1));
   return {

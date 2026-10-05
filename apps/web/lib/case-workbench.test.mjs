@@ -25,12 +25,18 @@ test("compact workbench preserves scoped reviewed actions and mounted bounded an
     "utf8",
   );
   assert.match(page, /PageHeading\s+eyebrow=\{project\?\.name/);
-  assert.match(page, /title="Test cases"/);
+  assert.match(
+    page,
+    /title=\{reviewFilter === "APPROVED" \? "Test cases" : "Review queue"\}/,
+  );
   assert.match(page, /aria-label="Choose suite"/);
   assert.match(page, /aria-label="Active filters"/);
   assert.match(page, /data-label="Risk"/);
   assert.match(page, /styles.table/);
-  assert.match(page, /!loading && \(cases.length > 0 \|\| folderPaths.length > 0\)/);
+  assert.match(
+    page,
+    /!loading && \(cases.length > 0 \|\| folderPaths.length > 0\)/,
+  );
   assert.match(page, /runCaseActionBatches\(\s*reviewedIds,\s*execute,?\s*\)/);
   assert.match(page, /setReviewAction\(\{\s*kind,\s*ids:/);
   assert.match(page, /bulkDelete\(reviewAction.ids\)/);

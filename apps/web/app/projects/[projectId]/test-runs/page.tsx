@@ -9,6 +9,8 @@ import { Modal } from "@/components/Modal";
 import { useProjectPermissions } from "@/lib/use-project-permissions";
 import { inspectorLabel } from "@/lib/case-inspector";
 import { currentSessionScope, sameAuthScope } from "@/lib/auth-query-cache";
+import { RunOverview } from "@/components/RunOverview";
+import { manualStartDefinitivelyRejected } from "@/lib/manual-run-start";
 
 const STATUS_COLORS: Record<string, string> = {
   PASSED: "#1a7f37",
@@ -531,6 +533,16 @@ export default function TestRunsPage() {
   const openRunId = selectedRunId === undefined ? linkedRunId : selectedRunId;
   const [manualOpen, setManualOpen] = useState(false);
   const [manualSearch, setManualSearch] = useState("");
+  const [manualSuite, setManualSuite] = useState("");
+  const [manualPriority, setManualPriority] = useState("");
+  const [manualType, setManualType] = useState("");
+  const [manualStartRequest, setManualStartRequest] = useState<{
+    projectId: string;
+    testCaseIds: string[];
+    idempotencyKey: string;
+  } | null>(null);
+  const [manualStartScope, setManualStartScope] = useState<ReturnType<typeof currentSessionScope>>(null);
+  const [manualStartEverAmbiguous, setManualStartEverAmbiguous] = useState(false);
   const [manualSelection, setManualSelection] = useState<Set<string>>(
     new Set(),
   );
@@ -540,13 +552,22 @@ export default function TestRunsPage() {
     { enabled: manualOpen },
   );
   const startManualMutation = trpcReact.manualExecution.start.useMutation();
-  const manualCases = (casesQuery.data ?? []).filter((testCase) =>
-    `${testCase.displayId} ${testCase.title}`
+  const eligibleCases = (casesQuery.data ?? []).filter(testCase => !testCase.archived && testCase.reviewStatus === "APPROVED");
+  const manualCases = eligibleCases.filter((testCase) =>
+    (!manualSuite || testCase.suitePath === manualSuite) &&
+    (!manualPriority || testCase.priority === manualPriority) &&
+    (!manualType || testCase.testType === manualType) &&
+    `${testCase.displayId} ${testCase.title} ${testCase.tags.join(" ")}`
       .toLowerCase()
       .includes(manualSearch.trim().toLowerCase()),
   );
 
   function toggleManualCase(id: string) {
+    if (manualStartRequest) return;
+    if (!manualSelection.has(id) && manualSelection.size >= 1000) {
+      setManualError("A run supports up to 1,000 cases including prerequisites. Split the reviewed scope; nothing was silently truncated.");
+      return;
+    }
     setManualSelection((current) => {
       const next = new Set(current);
       if (next.has(id)) next.delete(id);
@@ -555,18 +576,41 @@ export default function TestRunsPage() {
     });
   }
 
-  async function startManualRun() {
-    if (manualSelection.size === 0) return;
+  function selectScope(scope: typeof manualCases) {
+    if (manualStartRequest) return;
+    const next = new Set([...manualSelection, ...scope.map(testCase => testCase.id)]);
+    if (next.size > 1000) { setManualError("A run supports up to 1,000 cases including prerequisites. Narrow the scope or create separate runs; nothing was silently truncated."); return; }
+    setManualSelection(next);
     setManualError(null);
+  }
+
+  async function startManualRun() {
+    if (!canEdit || startManualMutation.isPending || manualSelection.size === 0) return;
+    setManualError(null);
+    const scope = currentSessionScope(window.Clerk?.loaded ? window.Clerk.session : null);
+    if (!scope || (manualStartRequest && !sameAuthScope(manualStartScope, scope))) {
+      setManualError("Restore the original signed-in account and session before retrying this retained start request.");
+      return;
+    }
     try {
-      const result = await startManualMutation.mutateAsync({
+      // Retain the exact payload on an unknown acknowledgement. A retry must
+      // not spend the same idempotency key on a newly edited selection.
+      const request = manualStartRequest ?? {
         projectId,
         testCaseIds: [...manualSelection],
-      });
+        idempotencyKey: crypto.randomUUID(),
+      };
+      setManualStartRequest(request);
+      if (!manualStartRequest) setManualStartScope(scope);
+      const result = await startManualMutation.mutateAsync(request);
       router.push(
         `/projects/${projectId}/test-runs/manual/${result.testRunId}`,
       );
     } catch (cause) {
+      if (manualStartDefinitivelyRejected(cause, manualStartEverAmbiguous)) {
+        setManualStartRequest(null);
+        setManualStartScope(null);
+      } else setManualStartEverAmbiguous(true);
       setManualError(cause instanceof Error ? cause.message : String(cause));
     }
   }
@@ -632,102 +676,7 @@ export default function TestRunsPage() {
           </div>
         )}
 
-      {!loading && runs.length > 0 && (
-        <table style={{ width: "100%", borderCollapse: "collapse" }}>
-          <thead>
-            <tr
-              style={{
-                textAlign: "left",
-                borderBottom: "1px solid var(--line)",
-              }}
-            >
-              <th style={{ padding: "6px 8px", fontSize: 12 }}>Status</th>
-              <th style={{ padding: "6px 8px", fontSize: 12 }}>Provider</th>
-              <th style={{ padding: "6px 8px", fontSize: 12 }}>Branch</th>
-              <th style={{ padding: "6px 8px", fontSize: 12 }}>Commit</th>
-              <th style={{ padding: "6px 8px", fontSize: 12 }}>Results</th>
-              <th style={{ padding: "6px 8px", fontSize: 12 }}>When</th>
-              <th style={{ padding: "6px 8px", fontSize: 12 }}></th>
-            </tr>
-          </thead>
-          <tbody>
-            {runs.map((r) => (
-              <tr
-                key={r.id}
-                id={`run-${r.id}`}
-                style={{
-                  borderBottom: "1px solid var(--line)",
-                  cursor: "pointer",
-                }}
-                onClick={() => setOpenRunId(r.id)}
-              >
-                <td
-                  style={{
-                    padding: "6px 8px",
-                    fontSize: 12,
-                    color: STATUS_COLORS[r.status] ?? "inherit",
-                    fontWeight: 600,
-                  }}
-                >
-                  {r.status}
-                </td>
-                <td style={{ padding: "6px 8px", fontSize: 13 }}>
-                  {r.ciProvider}
-                </td>
-                {r.ciProvider === "manual" ? (
-                  <td colSpan={2} style={{ padding: "6px 8px", fontSize: 13 }}>
-                    {r.startedByEmail ?? "Unknown tester"}
-                  </td>
-                ) : (
-                  <>
-                    <td style={{ padding: "6px 8px", fontSize: 13 }}>
-                      {r.branch}
-                    </td>
-                    <td style={{ padding: "6px 8px", fontSize: 12 }}>
-                      <code>{r.commitSha.slice(0, 10)}</code>
-                    </td>
-                  </>
-                )}
-                <td style={{ padding: "6px 8px", fontSize: 13 }}>
-                  {r.resultCount}
-                </td>
-                <td
-                  style={{
-                    padding: "6px 8px",
-                    fontSize: 12,
-                    color: "var(--text-muted, #57606a)",
-                  }}
-                >
-                  {new Date(r.startedAt).toLocaleString()}
-                </td>
-                <td style={{ padding: "6px 8px", fontSize: 12 }}>
-                  <button
-                    type="button"
-                    className="btn-secondary"
-                    aria-label={`View run from ${new Date(r.startedAt).toLocaleString()}`}
-                    onClick={(event) => {
-                      event.stopPropagation();
-                      setOpenRunId(r.id);
-                    }}
-                  >
-                    View run
-                  </button>
-                  {canEdit &&
-                    r.ciProvider === "manual" &&
-                    r.status === "RUNNING" && (
-                      <a
-                        href={`/projects/${projectId}/test-runs/manual/${r.id}`}
-                        onClick={(e) => e.stopPropagation()}
-                      >
-                        Resume
-                      </a>
-                    )}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      )}
+      {!loading && !error && runs.length > 0 && <RunOverview runs={runs} projectId={projectId} onView={setOpenRunId} />}
 
       {!loading && !error && (runs.length > 0 || historyCursors.length > 0) && (
         <nav
@@ -796,6 +745,18 @@ export default function TestRunsPage() {
             placeholder="Search test cases"
             aria-label="Search test cases"
           />
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+            <select aria-label="Run case suite" value={manualSuite} onChange={e => setManualSuite(e.target.value)}><option value="">All suites</option>{[...new Set(eligibleCases.map(testCase => testCase.suitePath).filter((path): path is string => !!path))].sort().map(path => <option key={path} value={path}>{path}</option>)}</select>
+            <select aria-label="Run case priority" value={manualPriority} onChange={e => setManualPriority(e.target.value)}><option value="">All priorities</option>{["CRITICAL", "HIGH", "MEDIUM", "LOW"].map(value => <option key={value} value={value}>{inspectorLabel(value)}</option>)}</select>
+            <select aria-label="Run case type" value={manualType} onChange={e => setManualType(e.target.value)}><option value="">All test types</option>{[...new Set(eligibleCases.map(testCase => testCase.testType))].sort().map(value => <option key={value} value={value}>{inspectorLabel(value)}</option>)}</select>
+          </div>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+            <button type="button" className="btn-secondary" disabled={casesQuery.isFetching || !!casesQuery.error || !manualCases.length} onClick={() => selectScope(manualCases)}>Add all matching ({manualCases.length})</button>
+            <button type="button" className="btn-secondary" disabled={casesQuery.isFetching || !!casesQuery.error || !eligibleCases.length} onClick={() => selectScope(eligibleCases)}>Add all approved cases ({eligibleCases.length})</button>
+            <button type="button" className="btn-secondary" disabled={!!manualStartRequest} onClick={() => setManualSelection(new Set())}>Clear selection</button>
+          </div>
+          {casesQuery.error && <p role="alert">{casesQuery.error.message}</p>}
+          <p className="text-muted">Bulk additions include the complete loaded matching scope, not just checked rows. Up to 1,000 cases including required prerequisites; archived and unreviewed cases are excluded. Starting freezes the current procedures for this run.</p>
           <div
             style={{
               maxHeight: 320,
@@ -838,6 +799,7 @@ export default function TestRunsPage() {
           {manualError && (
             <p style={{ color: "var(--ember)", margin: 0 }}>{manualError}</p>
           )}
+          {manualStartRequest && <p role="status">This start request retains its original {manualStartRequest.testCaseIds.length} cases. Retry checks that same request without creating a duplicate run.</p>}
           <div
             style={{
               display: "flex",
@@ -864,7 +826,7 @@ export default function TestRunsPage() {
               >
                 {startManualMutation.isPending
                   ? "Starting…"
-                  : "Begin execution"}
+                  : manualStartRequest ? "Retry retained start" : "Begin execution"}
               </button>
             </div>
           </div>

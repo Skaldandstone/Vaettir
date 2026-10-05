@@ -5,6 +5,20 @@ import { parseJUnitXml } from "../services/junitParse.js";
 import { recomputeFlaky } from "../services/flakyDetection.js";
 import { autoEnqueueUnmatchedResult } from "../services/continuousListening.js";
 import { refreshProjectReadiness } from "../services/releaseReadiness.js";
+import { runProgress } from "../services/runProgress.js";
+
+const runProgressOutput = z.object({
+  total: z.number(),
+  recorded: z.number(),
+  remaining: z.number(),
+  percentComplete: z.number(),
+  pass: z.number(),
+  fail: z.number(),
+  blocked: z.number(),
+  skip: z.number(),
+  flaky: z.number(),
+  other: z.number(),
+});
 import { resolveHealingSuggestionsOnPass } from "../services/healingSuggestion.js";
 import {
   buildArtifactKey,
@@ -233,45 +247,127 @@ export const testRunsRouter = router({
           status: z.string(),
           startedAt: z.date(),
           resultCount: z.number(),
+          finishedAt: z.date().nullable(),
+          progress: runProgressOutput.nullable(),
+          progressUnavailableReason: z.string().nullable(),
           startedByEmail: z.string().nullable(),
         }),
       ),
     )
     .query(async ({ ctx, input }) => {
       await requireProjectAccess(ctx, input.projectId);
-      const runs = await ctx.prisma.testRun.findMany({
-        where: {
-          projectId: input.projectId,
-          ...(input.before
-            ? {
-                OR: [
-                  { startedAt: { lt: input.before.startedAt } },
-                  {
-                    startedAt: input.before.startedAt,
-                    id: { lt: input.before.id },
-                  },
+      return ctx.prisma.$transaction(
+        async (tx) => {
+          const runs = await tx.testRun.findMany({
+            where: {
+              projectId: input.projectId,
+              ...(input.before
+                ? {
+                    OR: [
+                      { startedAt: { lt: input.before.startedAt } },
+                      {
+                        startedAt: input.before.startedAt,
+                        id: { lt: input.before.id },
+                      },
+                    ],
+                  }
+                : {}),
+            },
+            // Cards do not need the potentially large frozen procedure JSON.
+            select: {
+              id: true,
+              ciProvider: true,
+              ciRunUrl: true,
+              commitSha: true,
+              branch: true,
+              status: true,
+              startedAt: true,
+              finishedAt: true,
+              manualTestCaseIds: true,
+              _count: { select: { results: true } },
+              startedBy: { select: { email: true } },
+            },
+            orderBy: [{ startedAt: "desc" }, { id: "desc" }],
+            take: input.take,
+          });
+          const manualIds = runs
+            .filter((run) => run.ciProvider === "manual")
+            .map((run) => run.id);
+          const ciIds = runs
+            .filter((run) => run.ciProvider !== "manual")
+            .map((run) => run.id);
+          // Manual result identities have no uniqueness/reliable chronology.
+          // Bound grouped rows; unmatched/foreign results never advance scope.
+          const manualGroups = manualIds.length
+            ? await tx.testResult.groupBy({
+                by: ["testRunId", "testCaseId", "status"],
+                where: {
+                  testRunId: { in: manualIds },
+                  testCaseId: { not: null },
+                },
+                _count: { _all: true },
+                orderBy: [
+                  { testRunId: "asc" },
+                  { testCaseId: "asc" },
+                  { status: "asc" },
                 ],
-              }
-            : {}),
+                take: 100001,
+              })
+            : [];
+          const manualOverflow = manualGroups.length > 100000;
+          const ciGroups = ciIds.length
+            ? await tx.testResult.groupBy({
+                by: ["testRunId", "status"],
+                where: { testRunId: { in: ciIds } },
+                _count: { _all: true },
+              })
+            : [];
+          return runs.map((r) => {
+            const manual = r.ciProvider === "manual";
+            const progress =
+              manual && manualOverflow
+                ? null
+                : runProgress(
+                    r.ciProvider,
+                    r.manualTestCaseIds,
+                    manual
+                      ? manualGroups
+                          .filter((row) => row.testRunId === r.id)
+                          .map((row) => ({
+                            testCaseId: row.testCaseId,
+                            status: row.status,
+                            count: row._count._all,
+                          }))
+                      : ciGroups
+                          .filter((row) => row.testRunId === r.id)
+                          .map((row) => ({
+                            testCaseId: null,
+                            status: row.status,
+                            count: row._count._all,
+                          })),
+                  );
+            return {
+              id: r.id,
+              ciProvider: r.ciProvider,
+              ciRunUrl: r.ciRunUrl,
+              commitSha: r.commitSha,
+              branch: r.branch,
+              status: r.status,
+              startedAt: r.startedAt,
+              resultCount: r._count.results,
+              finishedAt: r.finishedAt,
+              progress,
+              progressUnavailableReason: progress
+                ? null
+                : manualOverflow && manual
+                  ? "Progress is unavailable because the result view exceeds its safety limit. Recorded evidence is preserved; no partial totals are shown."
+                  : "Progress is unavailable because saved scope or result identities are unsupported or conflicting. Review the run evidence; no latest outcome was invented.",
+              startedByEmail: r.startedBy?.email ?? null,
+            };
+          });
         },
-        include: {
-          _count: { select: { results: true } },
-          startedBy: { select: { email: true } },
-        },
-        orderBy: [{ startedAt: "desc" }, { id: "desc" }],
-        take: input.take,
-      });
-      return runs.map((r) => ({
-        id: r.id,
-        ciProvider: r.ciProvider,
-        ciRunUrl: r.ciRunUrl,
-        commitSha: r.commitSha,
-        branch: r.branch,
-        status: r.status,
-        startedAt: r.startedAt,
-        resultCount: r._count.results,
-        startedByEmail: r.startedBy?.email ?? null,
-      }));
+        { isolationLevel: "RepeatableRead" },
+      );
     }),
 
   byId: protectedProcedure

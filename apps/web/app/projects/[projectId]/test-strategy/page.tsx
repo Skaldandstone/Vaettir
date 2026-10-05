@@ -1,16 +1,23 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useParams } from "next/navigation";
-import { trpcReact, type RouterOutputs } from "@/lib/trpcReact";
+import {
+  trpcReact,
+  type RouterInputs,
+  type RouterOutputs,
+} from "@/lib/trpcReact";
 import { Drawer } from "@/components/Drawer";
 import { useProjectPermissions } from "@/lib/use-project-permissions";
+import { useManualExecutionAccess } from "@/lib/use-manual-execution-access";
+import { retainAnalysisRequest } from "@/lib/analysis-request-recovery";
 
 function PastRunDetail({ id }: { id: string }) {
   const runQuery = trpcReact.riskAnalysis.runById.useQuery({ id });
   const run = runQuery.data;
 
-  if (runQuery.error) return <p style={{ color: "var(--ember)" }}>{runQuery.error.message}</p>;
+  if (runQuery.error)
+    return <p style={{ color: "var(--ember)" }}>{runQuery.error.message}</p>;
   if (!run) return <p>Loading…</p>;
 
   return (
@@ -19,7 +26,8 @@ function PastRunDetail({ id }: { id: string }) {
         <code>{run.baseRef}</code> → <code>{run.headRef}</code>
       </h1>
       <p className="text-muted" style={{ fontSize: 13 }}>
-        {new Date(run.createdAt).toLocaleString()} — {run.changedFiles.length} file(s) changed
+        {new Date(run.createdAt).toLocaleString()} — {run.changedFiles.length}{" "}
+        file(s) changed
       </p>
 
       <h3>Changed files</h3>
@@ -32,13 +40,24 @@ function PastRunDetail({ id }: { id: string }) {
       <h3>Recommended test cases ({run.recommendations.length})</h3>
       <ul style={{ listStyle: "none", padding: 0 }}>
         {run.recommendations.map((r) => (
-          <li key={r.testCaseId} style={{ borderBottom: "1px solid var(--line)", padding: "6px 0" }}>
+          <li
+            key={r.testCaseId}
+            style={{ borderBottom: "1px solid var(--line)", padding: "6px 0" }}
+          >
             <strong>{r.testCaseTitle}</strong>{" "}
-            <span style={{ color: "var(--muted-dim)" }}>[{r.riskScoreSnapshot ?? "—"}/100]</span>
-            <div style={{ color: "var(--muted)", fontSize: 12 }}>{r.matchReason}</div>
+            <span style={{ color: "var(--muted-dim)" }}>
+              [{r.riskScoreSnapshot ?? "—"}/100]
+            </span>
+            <div style={{ color: "var(--muted)", fontSize: 12 }}>
+              {r.matchReason}
+            </div>
           </li>
         ))}
-        {run.recommendations.length === 0 && <p className="text-muted">No test cases were recommended for this run.</p>}
+        {run.recommendations.length === 0 && (
+          <p className="text-muted">
+            No test cases were recommended for this run.
+          </p>
+        )}
       </ul>
     </div>
   );
@@ -49,10 +68,14 @@ function PastRunDetail({ id }: { id: string }) {
 // Loads lazily-created defaults (main/COMMENT/no rules) for a project
 // that's never configured this -- there's no required setup step.
 function PrScanPolicySection({ projectId }: { projectId: string }) {
-  const policyQuery = trpcReact.riskAnalysis.getPrScanPolicy.useQuery({ projectId });
+  const policyQuery = trpcReact.riskAnalysis.getPrScanPolicy.useQuery({
+    projectId,
+  });
   // The form edits a local copy seeded from the query (the original page's
   // setPolicy-on-load); the server copy stays the cached query.
-  const [policy, setPolicy] = useState<RouterOutputs["riskAnalysis"]["getPrScanPolicy"] | null>(null);
+  const [policy, setPolicy] = useState<
+    RouterOutputs["riskAnalysis"]["getPrScanPolicy"] | null
+  >(null);
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -73,20 +96,41 @@ function PrScanPolicySection({ projectId }: { projectId: string }) {
       projectId,
       triggerBranches: policy.triggerBranches,
       commentMode: policy.commentMode as never,
-      pathSeverityRules: policy.pathSeverityRules.map((r) => ({ pattern: r.pattern, severity: r.severity as never })),
+      pathSeverityRules: policy.pathSeverityRules.map((r) => ({
+        pattern: r.pattern,
+        severity: r.severity as never,
+      })),
     });
   }
 
   if (!policy) return null;
 
   return (
-    <div style={{ border: "1px solid var(--line)", borderRadius: 8, padding: 16, margin: "16px 0" }}>
+    <div
+      style={{
+        border: "1px solid var(--line)",
+        borderRadius: 8,
+        padding: 16,
+        margin: "16px 0",
+      }}
+    >
       <h2 style={{ marginTop: 0 }}>PR scan policy</h2>
       <label>
-        Trigger branches <span className="text-muted" style={{ fontSize: 12 }}>(comma-separated)</span>
+        Trigger branches{" "}
+        <span className="text-muted" style={{ fontSize: 12 }}>
+          (comma-separated)
+        </span>
         <input
           value={policy.triggerBranches.join(", ")}
-          onChange={(e) => setPolicy({ ...policy, triggerBranches: e.target.value.split(",").map((s) => s.trim()).filter(Boolean) })}
+          onChange={(e) =>
+            setPolicy({
+              ...policy,
+              triggerBranches: e.target.value
+                .split(",")
+                .map((s) => s.trim())
+                .filter(Boolean),
+            })
+          }
           style={{ width: "100%" }}
         />
       </label>
@@ -94,19 +138,25 @@ function PrScanPolicySection({ projectId }: { projectId: string }) {
         Comment mode
         <select
           value={policy.commentMode}
-          onChange={(e) => setPolicy({ ...policy, commentMode: e.target.value })}
+          onChange={(e) =>
+            setPolicy({ ...policy, commentMode: e.target.value })
+          }
           style={{ width: "100%" }}
         >
           <option value="COMMENT">Comment on the PR</option>
-          <option value="SILENT_FLAG_ONLY">Silent - flag only, no comment</option>
+          <option value="SILENT_FLAG_ONLY">
+            Silent - flag only, no comment
+          </option>
         </select>
       </label>
 
       <div style={{ marginTop: 8 }}>
-        <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 4 }}>Path severity rules</div>
+        <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 4 }}>
+          Path severity rules
+        </div>
         <p className="text-muted" style={{ fontSize: 12, marginTop: 0 }}>
-          A coverage gap in a matching path gets this severity instead of the default (HIGH). Checked in order,
-          first match wins.
+          A coverage gap in a matching path gets this severity instead of the
+          default (HIGH). Checked in order, first match wins.
         </p>
         {policy.pathSeverityRules.map((r, i) => (
           <div key={i} style={{ display: "flex", gap: 6, marginBottom: 6 }}>
@@ -115,7 +165,9 @@ function PrScanPolicySection({ projectId }: { projectId: string }) {
               onChange={(e) =>
                 setPolicy({
                   ...policy,
-                  pathSeverityRules: policy.pathSeverityRules.map((rr, j) => (j === i ? { ...rr, pattern: e.target.value } : rr)),
+                  pathSeverityRules: policy.pathSeverityRules.map((rr, j) =>
+                    j === i ? { ...rr, pattern: e.target.value } : rr,
+                  ),
                 })
               }
               placeholder="e.g. apps/api/src/payments/**"
@@ -126,7 +178,9 @@ function PrScanPolicySection({ projectId }: { projectId: string }) {
               onChange={(e) =>
                 setPolicy({
                   ...policy,
-                  pathSeverityRules: policy.pathSeverityRules.map((rr, j) => (j === i ? { ...rr, severity: e.target.value } : rr)),
+                  pathSeverityRules: policy.pathSeverityRules.map((rr, j) =>
+                    j === i ? { ...rr, severity: e.target.value } : rr,
+                  ),
                 })
               }
             >
@@ -137,7 +191,14 @@ function PrScanPolicySection({ projectId }: { projectId: string }) {
             </select>
             <button
               className="btn-secondary"
-              onClick={() => setPolicy({ ...policy, pathSeverityRules: policy.pathSeverityRules.filter((_, j) => j !== i) })}
+              onClick={() =>
+                setPolicy({
+                  ...policy,
+                  pathSeverityRules: policy.pathSeverityRules.filter(
+                    (_, j) => j !== i,
+                  ),
+                })
+              }
             >
               Remove
             </button>
@@ -146,7 +207,15 @@ function PrScanPolicySection({ projectId }: { projectId: string }) {
         <button
           className="btn-secondary"
           style={{ fontSize: 12 }}
-          onClick={() => setPolicy({ ...policy, pathSeverityRules: [...policy.pathSeverityRules, { pattern: "", severity: "HIGH" }] })}
+          onClick={() =>
+            setPolicy({
+              ...policy,
+              pathSeverityRules: [
+                ...policy.pathSeverityRules,
+                { pattern: "", severity: "HIGH" },
+              ],
+            })
+          }
         >
           + Add rule
         </button>
@@ -156,8 +225,12 @@ function PrScanPolicySection({ projectId }: { projectId: string }) {
         <button onClick={save} disabled={saveMutation.isPending}>
           {saveMutation.isPending ? "Saving…" : "Save policy"}
         </button>
-        {saved && <span style={{ color: "var(--frost)", marginLeft: 8 }}>Saved.</span>}
-        {error && <span style={{ color: "var(--ember)", marginLeft: 8 }}>{error}</span>}
+        {saved && (
+          <span style={{ color: "var(--frost)", marginLeft: 8 }}>Saved.</span>
+        )}
+        {error && (
+          <span style={{ color: "var(--ember)", marginLeft: 8 }}>{error}</span>
+        )}
       </div>
     </div>
   );
@@ -167,20 +240,37 @@ function PrScanPolicySection({ projectId }: { projectId: string }) {
 export default function TestStrategyPage() {
   const { projectId } = useParams<{ projectId: string }>();
   const { canEdit } = useProjectPermissions(projectId);
+  const releaseAccess = useManualExecutionAccess(projectId);
+  const releaseAccessNow = useRef(releaseAccess);
+  useLayoutEffect(() => {
+    releaseAccessNow.current = releaseAccess;
+  }, [releaseAccess]);
   const utils = trpcReact.useUtils();
   const [openRunId, setOpenRunId] = useState<string | null>(null);
   const [repoUrl, setRepoUrl] = useState("");
   const [baseRef, setBaseRef] = useState("main");
   const [headRef, setHeadRef] = useState("");
-  const [result, setResult] = useState<RouterOutputs["riskAnalysis"]["recommendForChange"] | null>(null);
+  const [result, setResult] = useState<
+    RouterOutputs["riskAnalysis"]["recommendForChange"] | null
+  >(null);
   const [error, setError] = useState<string | null>(null);
-  const [aiResult, setAiResult] = useState<RouterOutputs["riskAnalysis"]["recommendTestPlansForDiff"] | null>(null);
+  const [aiResult, setAiResult] = useState<
+    RouterOutputs["riskAnalysis"]["recommendTestPlansForDiff"] | null
+  >(null);
   const [releaseId, setReleaseId] = useState("");
   const [newReleaseName, setNewReleaseName] = useState("");
+  const [releaseRequest, setReleaseRequest] = useState<
+    RouterInputs["releases"]["create"] | null
+  >(null);
+  const releaseUnknown = useRef(false);
+  const releaseBusy = useRef(false);
 
   const runsQuery = trpcReact.riskAnalysis.listRuns.useQuery({ projectId });
   const releasesQuery = trpcReact.releases.list.useQuery({ projectId });
-  const riskFlagsQuery = trpcReact.releases.listRiskFlags.useQuery({ releaseId }, { enabled: !!releaseId });
+  const riskFlagsQuery = trpcReact.releases.listRiskFlags.useQuery(
+    { releaseId },
+    { enabled: !!releaseId },
+  );
   const runs = runsQuery.data ?? [];
   const releases = releasesQuery.data ?? [];
   const riskFlags = releaseId ? (riskFlagsQuery.data ?? []) : [];
@@ -188,19 +278,75 @@ export default function TestStrategyPage() {
   // One-shot analysis/AI actions keep their results in local state (the
   // original page did the same); only the lists they change get invalidated.
   const createReleaseMutation = trpcReact.releases.create.useMutation();
-  const analyzeMutation = trpcReact.riskAnalysis.recommendForChange.useMutation();
-  const aiMutation = trpcReact.riskAnalysis.recommendTestPlansForDiff.useMutation();
+  const analyzeMutation =
+    trpcReact.riskAnalysis.recommendForChange.useMutation();
+  const aiMutation =
+    trpcReact.riskAnalysis.recommendTestPlansForDiff.useMutation();
 
   async function createRelease() {
-    if (!canEdit || !newReleaseName) return;
+    if (
+      !canEdit ||
+      !releaseAccess.canWrite ||
+      !releaseAccess.origin ||
+      releaseBusy.current ||
+      (!releaseRequest && !newReleaseName.trim())
+    )
+      return;
+    if (
+      releaseRequest &&
+      (releaseRequest.originalOrganizationId !==
+        releaseAccess.origin.organizationId ||
+        releaseRequest.expectedClerkActorId !==
+          releaseAccess.origin.clerkActorId ||
+        releaseRequest.projectId !== projectId)
+    )
+      return;
     setError(null);
+    const request = releaseRequest ?? {
+      projectId,
+      name: newReleaseName.trim(),
+      requestId: crypto.randomUUID(),
+      originalOrganizationId: releaseAccess.origin.organizationId,
+      expectedClerkActorId: releaseAccess.origin.clerkActorId,
+    };
+    setReleaseRequest(request);
+    releaseBusy.current = true;
     try {
-      const r = await createReleaseMutation.mutateAsync({ projectId, name: newReleaseName });
+      const r = await createReleaseMutation.mutateAsync(request);
+      if (
+        r.requestId !== request.requestId ||
+        r.projectId !== request.projectId ||
+        r.originalOrganizationId !== request.originalOrganizationId ||
+        r.expectedClerkActorId !== request.expectedClerkActorId
+      )
+        throw Error(
+          "The release acknowledgement did not match its retained scope. Restore original access and retry.",
+        );
+      if (
+        !releaseAccessNow.current.canWrite ||
+        releaseAccessNow.current.origin?.organizationId !==
+          request.originalOrganizationId ||
+        releaseAccessNow.current.origin?.clerkActorId !==
+          request.expectedClerkActorId
+      ) {
+        releaseUnknown.current = true;
+        setError(
+          "The release was acknowledged, but original account/workspace access must be restored before confirming it. The original request is retained.",
+        );
+        return;
+      }
       setNewReleaseName("");
+      setReleaseRequest(null);
+      releaseUnknown.current = false;
       void utils.releases.list.invalidate({ projectId });
       setReleaseId(r.id);
     } catch (e) {
+      const retain = retainAnalysisRequest(releaseUnknown.current, e);
+      releaseUnknown.current = retain;
+      if (!retain) setReleaseRequest(null);
       setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      releaseBusy.current = false;
     }
   }
 
@@ -218,7 +364,8 @@ export default function TestStrategyPage() {
       });
       setResult(res);
       void utils.riskAnalysis.listRuns.invalidate({ projectId });
-      if (releaseId) void utils.releases.listRiskFlags.invalidate({ releaseId });
+      if (releaseId)
+        void utils.releases.listRiskFlags.invalidate({ releaseId });
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     }
@@ -250,39 +397,82 @@ export default function TestStrategyPage() {
       <h1>Test strategy</h1>
       <p className="text-muted" style={{ margin: "-8px 0 16px" }}>
         Risk, mitigations, and coverage before you run anything —{" "}
-        <a href={`/projects/${projectId}/releases`}>Release Readiness</a> shows how it held up after.
+        <a href={`/projects/${projectId}/releases`}>Release Readiness</a> shows
+        how it held up after.
       </p>
 
-      <div style={{ border: "1px solid var(--line)", borderRadius: 8, padding: 16, margin: "16px 0" }}>
+      <div
+        style={{
+          border: "1px solid var(--line)",
+          borderRadius: 8,
+          padding: 16,
+          margin: "16px 0",
+        }}
+      >
         <h2 style={{ marginTop: 0 }}>Bulk-assess risk</h2>
         <p style={{ color: "var(--muted)", margin: "0 0 8px" }}>
-          Select cases in the case list to review scope, current balance and credit cost before approving a bounded assessment batch.
+          Select cases in the case list to review scope, current balance and
+          credit cost before approving a bounded assessment batch.
         </p>
-        <a href={`/projects/${projectId}/test-cases`}>Select cases and review analysis…</a>
+        <a href={`/projects/${projectId}/test-cases`}>
+          Select cases and review analysis…
+        </a>
       </div>
 
-      <div style={{ border: "1px solid var(--line)", borderRadius: 8, padding: 16, margin: "16px 0" }}>
+      <div
+        style={{
+          border: "1px solid var(--line)",
+          borderRadius: 8,
+          padding: 16,
+          margin: "16px 0",
+        }}
+      >
         <h2 style={{ marginTop: 0 }}>What should run for this change?</h2>
         <div style={{ display: "grid", gap: 8, maxWidth: 500 }}>
           <label>
-            Repo URL <span style={{ color: "var(--muted-dim)" }}>(https only; falls back to the project&apos;s repo URL if blank)</span>
-            <input value={repoUrl} onChange={(e) => setRepoUrl(e.target.value)} style={{ width: "100%" }} />
+            Repo URL{" "}
+            <span style={{ color: "var(--muted-dim)" }}>
+              (https only; falls back to the project&apos;s repo URL if blank)
+            </span>
+            <input
+              value={repoUrl}
+              onChange={(e) => setRepoUrl(e.target.value)}
+              style={{ width: "100%" }}
+            />
           </label>
           <div style={{ display: "flex", gap: 12 }}>
             <label>
               Base ref
-              <input value={baseRef} onChange={(e) => setBaseRef(e.target.value)} style={{ width: 160 }} />
+              <input
+                value={baseRef}
+                onChange={(e) => setBaseRef(e.target.value)}
+                style={{ width: 160 }}
+              />
             </label>
             <label>
               Head ref / branch / PR branch
-              <input value={headRef} onChange={(e) => setHeadRef(e.target.value)} style={{ width: 260 }} />
+              <input
+                value={headRef}
+                onChange={(e) => setHeadRef(e.target.value)}
+                style={{ width: 260 }}
+              />
             </label>
           </div>
           <label>
-            Release <span style={{ color: "var(--muted-dim)" }}>(optional — coverage gaps become persistent risk flags on this release)</span>
+            Release{" "}
+            <span style={{ color: "var(--muted-dim)" }}>
+              (optional — coverage gaps become persistent risk flags on this
+              release)
+            </span>
             <div style={{ display: "flex", gap: 8 }}>
-              <select value={releaseId} onChange={(e) => setReleaseId(e.target.value)} style={{ flex: 1 }}>
-                <option value="">(none — ad-hoc check, no flags created)</option>
+              <select
+                value={releaseId}
+                onChange={(e) => setReleaseId(e.target.value)}
+                style={{ flex: 1 }}
+              >
+                <option value="">
+                  (none — ad-hoc check, no flags created)
+                </option>
                 {releases.map((r) => (
                   <option key={r.id} value={r.id}>
                     {r.name} [{r.status}]
@@ -290,7 +480,10 @@ export default function TestStrategyPage() {
                 ))}
               </select>
               {releaseId && (
-                <a href={`/projects/${projectId}/releases/${releaseId}`} style={{ whiteSpace: "nowrap", alignSelf: "center" }}>
+                <a
+                  href={`/projects/${projectId}/releases/${releaseId}`}
+                  style={{ whiteSpace: "nowrap", alignSelf: "center" }}
+                >
                   View readiness →
                 </a>
               )}
@@ -300,17 +493,56 @@ export default function TestStrategyPage() {
                 value={newReleaseName}
                 onChange={(e) => setNewReleaseName(e.target.value)}
                 placeholder="New release name"
+                maxLength={200}
+                disabled={
+                  creatingRelease || !!releaseRequest || !releaseAccess.canWrite
+                }
                 style={{ flex: 1 }}
               />
-              <button onClick={createRelease} disabled={!canEdit || creatingRelease || !newReleaseName}>
-                + New release
+              <button
+                onClick={createRelease}
+                disabled={
+                  !canEdit ||
+                  !releaseAccess.canWrite ||
+                  creatingRelease ||
+                  (!releaseRequest && !newReleaseName.trim())
+                }
+              >
+                {releaseRequest ? "Retry retained release" : "+ New release"}
               </button>
             </div>
+            {releaseRequest && (
+              <p role="status">
+                The original release request is retained. Retry confirms that
+                same scope without creating another release.
+              </p>
+            )}
+            {!releaseAccess.ready && (
+              <p role="status">
+                Verify original account/workspace and a full editor seat before
+                creating or retrying a release.{" "}
+                <button
+                  type="button"
+                  className="btn-secondary"
+                  onClick={() => void releaseAccess.refresh()}
+                >
+                  Recheck original access
+                </button>
+              </p>
+            )}
           </label>
-          <button onClick={analyze} disabled={!canEdit || analyzing || !headRef}>
+          <button
+            onClick={analyze}
+            disabled={!canEdit || analyzing || !headRef}
+          >
             {analyzing ? "Diffing + analyzing…" : "Analyze change"}
           </button>
-          <button className="btn-secondary" onClick={analyzeWithAi} disabled={!canEdit || aiAnalyzing || !headRef} style={{ marginLeft: 8 }}>
+          <button
+            className="btn-secondary"
+            onClick={analyzeWithAi}
+            disabled={!canEdit || aiAnalyzing || !headRef}
+            style={{ marginLeft: 8 }}
+          >
             {aiAnalyzing ? "Reading the diff…" : "Also check with AI"}
           </button>
         </div>
@@ -320,28 +552,56 @@ export default function TestStrategyPage() {
         {result && (
           <div style={{ marginTop: 16 }}>
             <p>
-              {result.changedFiles.length} file(s) changed between <code>{baseRef}</code> and <code>{headRef}</code>.
-              {releaseId && ` ${result.riskFlagsCreated} new risk flag(s) created on the selected release.`}
+              {result.changedFiles.length} file(s) changed between{" "}
+              <code>{baseRef}</code> and <code>{headRef}</code>.
+              {releaseId &&
+                ` ${result.riskFlagsCreated} new risk flag(s) created on the selected release.`}
             </p>
 
             <h3>Must run ({result.mustRun.length})</h3>
-            {result.mustRun.length === 0 && <p style={{ color: "var(--muted)" }}>No tracked test case covers any changed file.</p>}
+            {result.mustRun.length === 0 && (
+              <p style={{ color: "var(--muted)" }}>
+                No tracked test case covers any changed file.
+              </p>
+            )}
             <ul style={{ listStyle: "none", padding: 0 }}>
               {result.mustRun.map((r) => (
-                <li key={r.testCaseId} style={{ borderBottom: "1px solid var(--line)", padding: "6px 0" }}>
-                  <a href={`/projects/${projectId}/test-cases/${r.testCaseId}`}>{r.title}</a>{" "}
-                  <span style={{ color: r.riskScore && r.riskScore >= 70 ? "var(--ember)" : "var(--muted-dim)" }}>
-                    [{r.riskScore ?? "—"}/100{r.riskSeverity ? ` ${r.riskSeverity}` : ""}]
+                <li
+                  key={r.testCaseId}
+                  style={{
+                    borderBottom: "1px solid var(--line)",
+                    padding: "6px 0",
+                  }}
+                >
+                  <a href={`/projects/${projectId}/test-cases/${r.testCaseId}`}>
+                    {r.title}
+                  </a>{" "}
+                  <span
+                    style={{
+                      color:
+                        r.riskScore && r.riskScore >= 70
+                          ? "var(--ember)"
+                          : "var(--muted-dim)",
+                    }}
+                  >
+                    [{r.riskScore ?? "—"}/100
+                    {r.riskSeverity ? ` ${r.riskSeverity}` : ""}]
                   </span>
-                  <div style={{ color: "var(--muted-dim)", fontSize: 12 }}>{r.matchReason}</div>
+                  <div style={{ color: "var(--muted-dim)", fontSize: 12 }}>
+                    {r.matchReason}
+                  </div>
                 </li>
               ))}
             </ul>
 
             {result.coverageGaps.length > 0 && (
               <>
-                <h3 style={{ color: "var(--ember)" }}>Coverage gaps ({result.coverageGaps.length})</h3>
-                <p style={{ color: "var(--muted)" }}>Changed files with no tracked test case covering them:</p>
+                <h3 style={{ color: "var(--ember)" }}>
+                  Coverage gaps ({result.coverageGaps.length})
+                </h3>
+                <p style={{ color: "var(--muted)" }}>
+                  Changed files with no tracked test case covering them:
+                </p>
                 <ul>
                   {result.coverageGaps.map((f) => (
                     <li key={f}>{f}</li>
@@ -353,16 +613,28 @@ export default function TestStrategyPage() {
         )}
 
         {aiResult && (
-          <div style={{ marginTop: 16, borderTop: "1px solid var(--line)", paddingTop: 12 }}>
+          <div
+            style={{
+              marginTop: 16,
+              borderTop: "1px solid var(--line)",
+              paddingTop: 12,
+            }}
+          >
             <h3>AI read of the diff</h3>
-            <p className="text-muted" style={{ fontSize: 13 }}>{aiResult.rationale}</p>
+            <p className="text-muted" style={{ fontSize: 13 }}>
+              {aiResult.rationale}
+            </p>
             {aiResult.relevantTestPlans.length > 0 && (
               <>
-                <div style={{ fontWeight: 600, fontSize: 13, marginTop: 8 }}>Relevant test plans</div>
+                <div style={{ fontWeight: 600, fontSize: 13, marginTop: 8 }}>
+                  Relevant test plans
+                </div>
                 <ul style={{ fontSize: 13 }}>
                   {aiResult.relevantTestPlans.map((p) => (
                     <li key={p.id}>
-                      <a href={`/projects/${projectId}/test-plans/${p.id}`}>{p.name}</a>
+                      <a href={`/projects/${projectId}/test-plans/${p.id}`}>
+                        {p.name}
+                      </a>
                     </li>
                   ))}
                 </ul>
@@ -370,7 +642,14 @@ export default function TestStrategyPage() {
             )}
             {aiResult.suggestedNewTestCases.length > 0 && (
               <>
-                <div style={{ fontWeight: 600, fontSize: 13, marginTop: 8, color: "var(--ember)" }}>
+                <div
+                  style={{
+                    fontWeight: 600,
+                    fontSize: 13,
+                    marginTop: 8,
+                    color: "var(--ember)",
+                  }}
+                >
                   Possible new coverage gaps
                 </div>
                 <ul style={{ fontSize: 13 }}>
@@ -380,11 +659,13 @@ export default function TestStrategyPage() {
                 </ul>
               </>
             )}
-            {aiResult.relevantTestPlans.length === 0 && aiResult.suggestedNewTestCases.length === 0 && (
-              <p className="text-muted" style={{ fontSize: 13 }}>
-                No relevant existing plans and no obvious new coverage gaps identified.
-              </p>
-            )}
+            {aiResult.relevantTestPlans.length === 0 &&
+              aiResult.suggestedNewTestCases.length === 0 && (
+                <p className="text-muted" style={{ fontSize: 13 }}>
+                  No relevant existing plans and no obvious new coverage gaps
+                  identified.
+                </p>
+              )}
           </div>
         )}
       </div>
@@ -392,14 +673,33 @@ export default function TestStrategyPage() {
       <PrScanPolicySection projectId={projectId} />
 
       {releaseId && (
-        <div style={{ border: "1px solid var(--line)", borderRadius: 8, padding: 16, margin: "16px 0" }}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
+        <div
+          style={{
+            border: "1px solid var(--line)",
+            borderRadius: 8,
+            padding: 16,
+            margin: "16px 0",
+          }}
+        >
+          <div
+            style={{
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "baseline",
+            }}
+          >
             <h2 style={{ marginTop: 0 }}>Risk flags on this release</h2>
-            <a className="btn-secondary" style={{ fontSize: 13 }} href={`/projects/${projectId}/releases/${releaseId}`}>
+            <a
+              className="btn-secondary"
+              style={{ fontSize: 13 }}
+              href={`/projects/${projectId}/releases/${releaseId}`}
+            >
               Full readiness view →
             </a>
           </div>
-          {riskFlags.length === 0 && <p style={{ color: "var(--muted)" }}>None yet.</p>}
+          {riskFlags.length === 0 && (
+            <p style={{ color: "var(--muted)" }}>None yet.</p>
+          )}
           <ul style={{ listStyle: "none", padding: 0 }}>
             {riskFlags.map((f) => (
               <li
@@ -410,11 +710,20 @@ export default function TestStrategyPage() {
                   opacity: f.resolvedAt ? 0.5 : 1,
                 }}
               >
-                <strong style={{ color: f.severity === "CRITICAL" || f.severity === "HIGH" ? "var(--ember)" : "var(--fg)" }}>
+                <strong
+                  style={{
+                    color:
+                      f.severity === "CRITICAL" || f.severity === "HIGH"
+                        ? "var(--ember)"
+                        : "var(--fg)",
+                  }}
+                >
                   {f.severity}
                 </strong>{" "}
                 [{f.source}] {f.description}
-                {f.resolvedAt && <span style={{ color: "var(--frost)" }}> — resolved</span>}
+                {f.resolvedAt && (
+                  <span style={{ color: "var(--frost)" }}> — resolved</span>
+                )}
               </li>
             ))}
           </ul>
@@ -426,7 +735,13 @@ export default function TestStrategyPage() {
           <h2>Past runs</h2>
           <ul style={{ listStyle: "none", padding: 0 }}>
             {runs.map((r) => (
-              <li key={r.id} style={{ borderBottom: "1px solid var(--line)", padding: "6px 0" }}>
+              <li
+                key={r.id}
+                style={{
+                  borderBottom: "1px solid var(--line)",
+                  padding: "6px 0",
+                }}
+              >
                 <a
                   href="#"
                   onClick={(e) => {
@@ -436,8 +751,11 @@ export default function TestStrategyPage() {
                 >
                   <code>{r.baseRef}</code> → <code>{r.headRef}</code>
                 </a>{" "}
-                — {r.changedFiles.length} file(s) changed, {r.recommendedCount} test case(s) recommended{" "}
-                <span style={{ color: "var(--muted-dim)" }}>({new Date(r.createdAt).toLocaleString()})</span>
+                — {r.changedFiles.length} file(s) changed, {r.recommendedCount}{" "}
+                test case(s) recommended{" "}
+                <span style={{ color: "var(--muted-dim)" }}>
+                  ({new Date(r.createdAt).toLocaleString()})
+                </span>
               </li>
             ))}
           </ul>

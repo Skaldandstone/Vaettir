@@ -135,6 +135,7 @@ model Organization {
   encryptedDatadogWebhookSecret Json?
 
   projects             Project[]
+  caseComments         CaseComment[]
   memberships          Membership[]
   invitations          Invitation[]
   aiCreditTransactions AiCreditTransaction[]
@@ -1023,6 +1024,7 @@ model User {
   uploadedTestCaseAttachments TestCaseAttachment[]
   exploratorySessions         ExploratorySession[]
   startedTestRuns             TestRun[]
+  caseComments                CaseComment[]
   manualStepResultRevisions   ManualStepResultRevision[]
   manualCaseResultRevisions   ManualCaseResultRevision[]
   testCaseViews               TestCaseView[]
@@ -1542,6 +1544,7 @@ model TestCase {
   designReviews     TestDesignReview[]
   riskReviews       TestCaseRiskReview[]
   traceabilityLinks CaseTraceabilityLink[]
+  comments          CaseComment[]
 
   // Soft-hide, not soft-delete: an archived case stays fully intact (still
   // linked from past TestSelectionRecommendations, compliance controls,
@@ -1639,6 +1642,27 @@ model TestCase {
   @@unique([id, projectId])
   @@unique([projectId, caseNumber])
   @@unique([projectId, displayId])
+}
+
+// Collaboration is independent of case authoring and never changes procedure
+// revisions, approvals or frozen run evidence. User/case erasure removes text.
+model CaseComment {
+  id          String   @id
+  organizationId String
+  projectId   String
+  caseId      String
+  authorId    String
+  requestId   String
+  body        String
+  createdAt   DateTime @default(now())
+  testCase    TestCase @relation(fields: [caseId, projectId], references: [id, projectId], onDelete: Cascade)
+  author      User     @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([projectId, caseId, authorId, requestId])
+  @@index([projectId, caseId, createdAt, id])
+  @@index([authorId])
+  @@index([organizationId])
 }
 
 model TestCasePrerequisite {

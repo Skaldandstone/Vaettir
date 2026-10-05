@@ -20,12 +20,62 @@ export function detectDeviceConnectorPlatform(
 
 function validatedOrigin(origin: string): string {
   const url = new URL(origin);
-  if (!["http:", "https:"].includes(url.protocol) || url.origin !== origin) {
+  // Match the connector's supported development origins. IPv6 loopback is
+  // not currently in its CORS allowlist, so do not offer a non-pairable helper.
+  const loopback = ["localhost", "127.0.0.1"].includes(url.hostname);
+  // These values are embedded in shell scripts. URL parsing alone permits
+  // hostname characters that are unsafe in cmd/sh quoting.
+  if (
+    origin.length > 512 ||
+    !/^[a-z0-9.:[\]-]+$/i.test(url.host) ||
+    (url.protocol !== "https:" && !(url.protocol === "http:" && loopback)) ||
+    url.origin !== origin
+  ) {
     throw new Error(
       "The Vaettir origin is not valid for a connector launcher.",
     );
   }
   return url.origin;
+}
+
+/** First-party download only; no credentials, redirects or shared temp file. */
+function connectorBootstrap(connectorUrl: string, pairingCode: string): string {
+  // Deliberately use single-quoted literals: the entire program is quoted by
+  // cmd.exe and sh. Both input values have already passed strict validation.
+  return [
+    "(async()=>{",
+    "const fs=require('node:fs');",
+    "const path=require('node:path');",
+    "const os=require('node:os');",
+    "const {spawnSync}=require('node:child_process');",
+    "let directory;let file;let fileCreated=false;",
+    "try{",
+    "if(Number(process.versions.node.split('.')[0])<22)throw Error('version');",
+    "const response=await fetch('" +
+      connectorUrl +
+      "',{redirect:'error',signal:AbortSignal.timeout(30000)});",
+    "if(response.status!==200||!response.body)throw Error('download');",
+    "const maximum=2*1024*1024;",
+    "const length=response.headers.get('content-length');",
+    "if(length!==null&&(!/^[0-9]+$/.test(length)||Number(length)>maximum))throw Error('size');",
+    "const type=(response.headers.get('content-type')||'').split(';')[0].trim().toLowerCase();",
+    "if(!['application/javascript','text/javascript','application/x-javascript','application/octet-stream','text/plain'].includes(type))throw Error('type');",
+    "const chunks=[];let size=0;",
+    "for await(const chunk of response.body){size+=chunk.length;if(size>maximum)throw Error('size');chunks.push(Buffer.from(chunk));}",
+    "if(size===0)throw Error('empty');",
+    "directory=fs.mkdtempSync(path.join(os.tmpdir(),'vaettir-device-'));",
+    "file=path.join(directory,'vaettir-device-connector.mjs');",
+    "const descriptor=fs.openSync(file,'wx',0o600);fileCreated=true;",
+    "try{fs.writeFileSync(descriptor,Buffer.concat(chunks));}finally{fs.closeSync(descriptor);}",
+    "const child=spawnSync(process.execPath,[file,'--pairing-code','" +
+      pairingCode +
+      "'],{stdio:'inherit',shell:false});",
+    "if(child.error||child.signal||child.status===null)throw Error('start');",
+    "process.exitCode=child.status;",
+    "}catch{console.error('The helper could not start. Check Node 22+, your connection and your security product. Use the reviewed manual setup on the Vaettir page; do not disable protection.');process.exitCode=1;}",
+    "finally{if(fileCreated){try{fs.unlinkSync(file);}catch{}}if(directory){try{fs.rmdirSync(directory);}catch{}}}",
+    "})();",
+  ].join(" ");
 }
 
 function validatedPairingCode(pairingCode: string): string {
@@ -48,6 +98,7 @@ export function buildDeviceConnectorLauncher({
   const safeOrigin = validatedOrigin(origin);
   const safePairingCode = validatedPairingCode(pairingCode);
   const connectorUrl = `${safeOrigin}/connectors/vaettir-device-connector.mjs`;
+  const bootstrap = connectorBootstrap(connectorUrl, safePairingCode);
 
   if (platform === "windows") {
     return {
@@ -55,7 +106,7 @@ export function buildDeviceConnectorLauncher({
       mimeType: "application/x-msdos-program",
       content: [
         "@echo off",
-        "setlocal",
+        "setlocal DisableDelayedExpansion",
         "title Vaettir Device Capture",
         "echo.",
         "echo Starting Vaettir Device Capture...",
@@ -68,19 +119,12 @@ export function buildDeviceConnectorLauncher({
         "  pause",
         "  exit /b 1",
         ")",
-        'set "VAETTIR_CONNECTOR=%TEMP%\\vaettir-device-connector.mjs"',
-        `curl.exe --fail --location --silent --show-error "${connectorUrl}" --output "%VAETTIR_CONNECTOR%"`,
-        "if errorlevel 1 (",
-        "  echo.",
-        "  echo The Vaettir connector could not be downloaded. Check your connection and try again.",
-        "  echo.",
-        "  pause",
-        "  exit /b 1",
-        ")",
-        `node.exe "%VAETTIR_CONNECTOR%" --pairing-code ${safePairingCode}`,
+        `node.exe -e "${bootstrap}"`,
+        'set "VAETTIR_EXIT=%ERRORLEVEL%"',
         "echo.",
         "echo The connector stopped. You can close this window.",
         "pause",
+        "exit /b %VAETTIR_EXIT%",
         "",
       ].join("\r\n"),
     };
@@ -99,10 +143,12 @@ export function buildDeviceConnectorLauncher({
       "  printf 'Press Return to close. ' && read -r _",
       "  exit 1",
       "fi",
-      'connector_path="${TMPDIR:-/tmp}/vaettir-device-connector.mjs"',
-      `curl --fail --location --silent --show-error '${connectorUrl}' --output "$connector_path"`,
-      `node "$connector_path" --pairing-code ${safePairingCode}`,
+      // The bootstrap uses single-quoted JS literals, so quote it with double
+      // quotes in sh too. There are no shell expansions in the fixed program.
+      "exit_code=0",
+      `node -e "${bootstrap}" || exit_code=$?`,
       "printf '\\nThe connector stopped. Press Return to close. ' && read -r _",
+      'exit "$exit_code"',
       "",
     ].join("\n"),
   };

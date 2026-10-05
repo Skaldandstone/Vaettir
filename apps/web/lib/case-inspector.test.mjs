@@ -315,5 +315,44 @@ test("prerequisite edits retain expected baseline, unavailable selections and ex
     /does not replace Given, When, Then or any steps/,
   );
   assert.match(prerequisites, /\{item.displayId\}/);
-  assert.doesNotMatch(prerequisites, /<select/);
+  assert.match(prerequisites, /aria-label="Sort prerequisite cases"/);
+  assert.doesNotMatch(
+    prerequisites,
+    /Choose a case|<option[^>]*value=\{item.id\}/,
+  );
+});
+
+test("prerequisite sorting uses natural stable case IDs and titles before pagination without changing inventory", () => {
+  const cases = [
+    { id: "b", displayId: "APP-10", title: "Alpha", archived: false },
+    { id: "a", displayId: "APP-2", title: "Zulu", archived: false },
+    { id: "c", displayId: "APP-3", title: "Alpha", archived: false },
+  ];
+  assert.deepEqual(
+    prerequisitePage(cases, "self", [], "", 0, "case-id").items.map(
+      (item) => item.id,
+    ),
+    ["a", "c", "b"],
+  );
+  assert.deepEqual(
+    prerequisitePage(cases, "self", [], "", 0, "title").items.map(
+      (item) => item.id,
+    ),
+    ["c", "b", "a"],
+  );
+  assert.deepEqual(
+    cases.map((item) => item.id),
+    ["b", "a", "c"],
+  );
+  const inventory = Array.from({ length: 41 }, (_, index) => ({
+    id: `case-${index}`,
+    displayId: `APP-${41 - index}`,
+    title: "Same",
+    archived: false,
+  }));
+  assert.equal(
+    prerequisitePage(inventory, "self", [], "", 1, "case-id").items[0]
+      .displayId,
+    "APP-21",
+  );
 });

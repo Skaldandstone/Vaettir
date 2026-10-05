@@ -51,11 +51,12 @@ type Props = {
   projectId: string;
   selectedIds: string[];
   onCompleted: () => void;
+  buttonLabel?: string;
 };
 export function DurableCaseAnalysis(props: Props) {
   return <Analysis key={props.projectId} {...props} />;
 }
-function Analysis({ projectId, selectedIds, onCompleted }: Props) {
+function Analysis({ projectId, selectedIds, onCompleted, buttonLabel = "Analyze cases" }: Props) {
   const { isLoaded, isSignedIn, userId } = useAuth();
   const [origin, setOrigin] = useState<Origin | null>(null);
   const [open, setOpen] = useState(false),
@@ -409,7 +410,7 @@ function Analysis({ projectId, selectedIds, onCompleted }: Props) {
         className="btn-secondary"
         onClick={() => setOpen(true)}
       >
-        Analyze cases
+        {buttonLabel}
       </button>
       <Modal
         open={open}

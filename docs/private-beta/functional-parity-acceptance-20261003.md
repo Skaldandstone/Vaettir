@@ -669,3 +669,86 @@ remain dirty outside those commits. Real native/runtime, disposable migration,
 authorization, concurrency, exact retry and desktop/mobile acceptance remain open.
 These are human evidence corrections, not new executions, defect-resolution proof,
 automation improvement metrics or qualified regulatory signatures.
+
+### October 5 hands-on competitor and recurring-complaint review
+
+Status: partial hands-on evaluation and local source implementation, NOT full parity
+acceptance or deployment. James completed trial registration/authentication. Qase,
+TestRail and Testmo authenticated workspaces were inspected in Chrome using only
+vendor sample data. No client cases, source code, provider keys or payment details
+were uploaded, and no teammates were invited. Local screenshots remain ignored
+under `.local/assistant-history/parity-20261005/`.
+
+Directly observed:
+
+- Qase: searchable suite hierarchy, separate Review navigation, case metadata
+  dropdowns, prose description/pre/postconditions, comments, and aligned
+  action/data/expected-result steps. Project settings expose field visibility;
+  workspace definitions distinguish paragraph fields from single-select fields.
+  Run creation offers repository, plan and saved-query selection. Select-all
+  selected all 51 vendor sample cases, and one synthetic walkthrough run was
+  created. Its UI exposes export, team statistics, timeline and execution views.
+- TestRail: vendor-generated sample project, visual run outcome bars and counts,
+  open/completed groups, creator/date, passed rate separate from untested count,
+  run progress/activity/report routes. Creation offers all, specific cases and
+  dynamic filtering. No new TestRail run or notifications were submitted.
+- Testmo: vendor-generated Space Shuttle sample, milestone/run activity summaries,
+  manual/automation/exploratory navigation, run summary metrics, tags, search,
+  multi-run and export controls. Run creation exposes all/specific cases plus
+  configuration and milestone. Those controls were inspected, not all exercised.
+
+Recurring feedback sampled from [Qase G2 reviews](https://www.g2.com/products/qase/reviews),
+[TestRail G2 reviews](https://www.g2.com/products/testrail/reviews) and
+[Testmo G2 reviews](https://www.g2.com/products/testmo/reviews): organization,
+clear progress and consolidated workflows are praised. Reporting flexibility,
+large-suite speed and customization recur as weaknesses. Testmo reviewers also
+raise search, fixed-size layouts, editing and sidebar-only case links; TestRail
+reviewers raise navigation and collaboration friction. These are qualitative
+review signals, not measured defect rates. Some Qase/TestRail reviews are
+incentivized; Testmo's sampled October 2025 reviews include organic reviews.
+Older complaints are hypotheses to reproduce against current trials, not proof
+the current vendor still has the defect. Competing vendors' comparison blogs are
+not independent validation.
+
+Gartner's [Critical Capabilities abstract](https://www.gartner.com/en/documents/7022898)
+distinguishes functional evaluation from overall vendor positioning. Its
+AI-augmented testing scope is broader than a test-case UI. Public
+[TestRail Peer Insights snippets](https://www.gartner.com/reviews/product/testrail)
+mention graphical progress and customization; complete review/report access was
+unavailable. No claim that Gartner endorses these exact UI patterns or that Qase,
+TestRail or Testmo occupies a particular Magic Quadrant position is made.
+
+| Improvement target | Vaettir design decision | Required acceptance, not yet assumed passing |
+| --- | --- | --- |
+| Too many clicks selecting large suites | Explicit all/filter/suite additions; counts and bounded durable queue approval | All 851 synthetic cases reachable, exact count, no silent truncation, unknown acknowledgements reuse the original request |
+| Rigid, unclear reporting | Outcome distributions, recorded percentage, remaining count, timestamps and exports; state the population covered | CSV matches current scoped population, formula-safe cells, empty/error states, mobile layout and authenticated tenant checks |
+| Pass rate mistaken for completion | Separate recorded outcomes, pass rate, untested work and release gates; CI planned total remains unknown without evidence | Failed/blocked/skipped runs never look approved merely because all results were recorded |
+| Awkward customization | Typed case fields; retain prose where it carries meaning; hide irrelevant compliance by supported profile without deleting values | Hidden fields survive toggles/reimport, existing mappings remain discoverable, invalid options refused |
+| Lost context in step descriptions | Tester action next to its own technical behavior and expected response; datasets remain separate | Step order/identity, complete procedures and frozen run evidence survive edits and reimport |
+| Limited collaboration | Plain-text authenticated comments including read-only members, separate from case editing | Current membership, cross-tenant denial, suspended/revoked access, paging, duplicate-request and erasure tests |
+| Sidebar-only navigation and difficult lookup | Stable full case URLs, optional inspector, searchable/sortable prerequisite selection and ID chips | Direct links/reload/back navigation, keyboard interaction, 851-case search/paging and retained edits |
+| Large-suite responsiveness | Bounded reads/queues and deliberate rendering; no client source processing implied | Measure large fixtures rather than infer performance from types or small sample data; cursor-scale work beyond 1,000 remains open |
+
+Current local run-card and execution-summary components were rendered with
+synthetic data. Desktop display, a 390px mobile view without horizontal overflow,
+and a downloaded five-case outcome CSV were observed. This does not test the full
+authenticated run page or production backend. Release date, run-progress and
+851-case snapshot focused tests passed (13). Broader fixtures, migration/security,
+native/runtime, release and authenticated production gates remain separate.
+
+Integrated October 5 source checkpoint: 41 focused API tests passed across run
+progress, manual-start authorization, release-input parsing, snapshot bounds,
+collaboration parsing and production-signal full-seat access. Both API and Web
+typechecks passed after integration. Library, prerequisite, helper and mounted-page
+retry checks also passed. Comments and atomic release creation have authored
+native database fixtures that have NOT run. The additive CaseComment migration
+has NOT run; its original-tenant erasure triggers require native validation.
+Release inputs changed and require a coordinated API/Web rollout. No production
+mutation, deployment or new passing full native/runtime gate is implied.
+
+Current SSE-135/P9-00 was read through authenticated Chrome; the API connector
+remains unauthorized. Open user requirements remain tracked here: full
+configurable project field profiles, global/multi-run reporting
+beyond a displayed page, whole-suite queue scope beyond bounded 1,000-case batches,
+Windows signed distribution/device acceptance, and full rendered end-to-end
+acceptance. Neither competitor trial access nor source presence closes them.
