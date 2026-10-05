@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { Prisma, type PrismaClient } from "@vaettir/db";
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
+import type { CaseFieldReadAuthorization } from "./caseFieldReadScope.js";
 import { sourceState, createCaseCloneInTransaction } from "./caseClone.js";
 import {
   readTree,
@@ -373,6 +374,7 @@ export async function previewFolderCopy(
   db: PrismaClient,
   actorId: string,
   input: Review,
+  authorized?: CaseFieldReadAuthorization,
 ) {
   return db.$transaction(
     async (tx) => {
@@ -382,6 +384,7 @@ export async function previewFolderCopy(
         actorId,
         input.projectId,
         organizationId,
+        authorized,
       );
       const p = await prepareCopy(tx, actorId, input);
       return {
@@ -449,6 +452,7 @@ export async function writeFolderCopy(
   db: PrismaClient,
   actorId: string,
   input: z.infer<typeof folderCopyApprovalSchema>,
+  authorized?: CaseFieldReadAuthorization,
 ) {
   const inputHash = qualityProfileHash(input);
   const execute = () =>
@@ -460,6 +464,7 @@ export async function writeFolderCopy(
           actorId,
           input.projectId,
           organizationId,
+          authorized,
         );
         if (
           input.expectedScope &&

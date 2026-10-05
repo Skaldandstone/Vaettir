@@ -5,7 +5,7 @@ import { z } from "zod";
 import { requireCurrentPlanAccess } from "./testPlanExecution.js";
 import { qualityProfileHash } from "./qualityExperienceProfile.js";
 import { snapshotTestCaseVersion } from "./testCaseVersion.js";
-import { lockCurrentCaseFieldActor } from "./caseFieldReadScope.js";
+import { lockCurrentCaseFieldActor, type CaseFieldReadAuthorization } from "./caseFieldReadScope.js";
 import {
   approvedFolderChangeSchema,
   folderChangeSchema,
@@ -190,6 +190,7 @@ export async function listCaseFolders(
   db: PrismaClient,
   actorId: string,
   projectId: string,
+  authorized?: CaseFieldReadAuthorization,
 ) {
   return db.$transaction(
     async (tx) => {
@@ -199,6 +200,7 @@ export async function listCaseFolders(
         actorId,
         projectId,
         organizationId,
+        authorized,
       );
       const tree = await readTree(tx, projectId);
       let canEdit = false;
@@ -224,6 +226,7 @@ export async function previewCaseFolderChange(
   db: PrismaClient,
   actorId: string,
   input: Change,
+  authorized?: CaseFieldReadAuthorization,
 ) {
   return db.$transaction(
     async (tx) => {
@@ -233,6 +236,7 @@ export async function previewCaseFolderChange(
         actorId,
         input.projectId,
         organizationId,
+        authorized,
       );
       const prepared = await prepare(tx, actorId, input);
       return {
@@ -270,9 +274,10 @@ export async function folderActorScope(
   actorId: string,
   projectId: string,
   organizationId: string,
+  authorized?: CaseFieldReadAuthorization,
 ) {
   // Callers hold the current Project lock before this scope/body boundary.
-  const clerkActorId = await lockCurrentCaseFieldActor(tx, actorId);
+  const clerkActorId = await lockCurrentCaseFieldActor(tx, actorId, authorized);
   return { projectId, organizationId, clerkActorId };
 }
 export async function lockAccess(
@@ -305,6 +310,7 @@ export async function writeCaseFolderChange(
   db: PrismaClient,
   actorId: string,
   input: z.infer<typeof approvedFolderChangeSchema>,
+  authorized?: CaseFieldReadAuthorization,
 ) {
   const inputHash = qualityProfileHash(input);
   const execute = () =>
@@ -316,6 +322,7 @@ export async function writeCaseFolderChange(
           actorId,
           input.projectId,
           organizationId,
+          authorized,
         );
         if (
           input.expectedScope &&

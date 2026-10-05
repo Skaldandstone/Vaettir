@@ -1,6 +1,7 @@
 import { Prisma, type PrismaClient } from "@vaettir/db";
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
+import type { CaseFieldReadAuthorization } from "./caseFieldReadScope.js";
 import { requireCurrentPlanAccess } from "./testPlanExecution.js";
 import { qualityProfileHash } from "./qualityExperienceProfile.js";
 import { snapshotTestCaseVersion } from "./testCaseVersion.js";
@@ -195,6 +196,7 @@ export async function readRecoverableFolderCatalog(
   db: PrismaClient,
   actorId: string,
   projectId: string,
+  authorized?: CaseFieldReadAuthorization,
 ) {
   return db.$transaction(
     async (tx) => {
@@ -204,6 +206,7 @@ export async function readRecoverableFolderCatalog(
         actorId,
         projectId,
         organizationId,
+        authorized,
       );
       // Only bounded receipt summaries. Missing old provenance is not made up.
       const rows = await tx.$queryRaw<
@@ -231,13 +234,15 @@ export async function listRecoverableFolderChanges(
   db: PrismaClient,
   actorId: string,
   projectId: string,
+  authorized?: CaseFieldReadAuthorization,
 ) {
-  return (await readRecoverableFolderCatalog(db, actorId, projectId)).items;
+  return (await readRecoverableFolderCatalog(db, actorId, projectId, authorized)).items;
 }
 export async function previewFolderRecovery(
   db: PrismaClient,
   actorId: string,
   input: Review,
+  authorized?: CaseFieldReadAuthorization,
 ) {
   return db.$transaction(
     async (tx) => {
@@ -247,6 +252,7 @@ export async function previewFolderRecovery(
         actorId,
         input.projectId,
         organizationId,
+        authorized,
       );
       const p = await prepareRecovery(tx, actorId, input);
       return {
@@ -273,6 +279,7 @@ export async function writeFolderRecovery(
   db: PrismaClient,
   actorId: string,
   input: z.infer<typeof approvedFolderRecoverySchema>,
+  authorized?: CaseFieldReadAuthorization,
 ) {
   const inputHash = qualityProfileHash(input);
   const execute = () =>
@@ -284,6 +291,7 @@ export async function writeFolderRecovery(
           actorId,
           input.projectId,
           organizationId,
+          authorized,
         );
         if (
           input.expectedScope &&
