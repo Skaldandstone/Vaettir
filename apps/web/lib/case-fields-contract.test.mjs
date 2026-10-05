@@ -2,7 +2,30 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
+import { runInNewContext } from "node:vm";
 const file = (name) => readFileSync(new URL(name, import.meta.url), "utf8");
+
+test("each metadata draft change invalidates review through a stable callback", () => {
+  const source = file("../components/CaseCustomFields.tsx");
+  const callback = source.match(
+    /const updateDraft = useCallback\(\(value: CaseFieldFormDraft \| null\) => \{([\s\S]*?)\}, \[\]\);/,
+  );
+  assert.ok(callback, "Use a stable callback: an inline callback would retrigger the child publication effect");
+  assert.match(source, /onChange=\{updateDraft\}/);
+  assert.doesNotMatch(source, /onChange=\{setDraft\}/);
+  const changes = [], confirmations = [];
+  const publish = runInNewContext(`(value) => {${callback[1]}}`, {
+    setDraft: value => changes.push(value),
+    setConfirmed: value => confirmations.push(value),
+  });
+  const first = { customFields: { approved: false, count: 0 }, ready: true };
+  const altered = { ...first, customFields: { approved: true, count: 0 } };
+  publish(first);
+  publish(altered);
+  publish(null);
+  assert.deepEqual(changes, [first, altered, null]);
+  assert.deepEqual(confirmations, [false, false, false]);
+});
 test("typed native case fields use fresh scoped definitions and retain uncertain receipts", () => {
   const source = file("../components/CaseCustomFields.tsx");
   assert.match(

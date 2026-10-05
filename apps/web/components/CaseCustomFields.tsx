@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
   trpcReact,
   type RouterOutputs,
@@ -341,6 +341,10 @@ function CaseFieldEditor({
     RouterInputs["caseFields"]["save"]
   > | null>(null);
   const save = trpcReact.caseFields.save.useMutation();
+  const updateDraft = useCallback((value: CaseFieldFormDraft | null) => {
+    setDraft(value);
+    setConfirmed(false);
+  }, []);
   const fresh =
     !query.error &&
     !query.isFetching &&
@@ -489,7 +493,7 @@ function CaseFieldEditor({
             key={`${caseId}:${open}`}
             projectId={projectId}
             caseId={caseId}
-            onChange={setDraft}
+            onChange={updateDraft}
           />
         )}
         {!pending && (
