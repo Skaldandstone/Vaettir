@@ -772,6 +772,10 @@ export async function hardDeleteOrganization(
     where: { id: organizationId },
   });
   const scope = await scopeIds(prisma, organizationId);
+  // Capture only this invocation's successfully written receipt. An expired
+  // COMMIT acknowledgement is not proof of rollback, nor permission to retry
+  // destructive work. No receipt from an earlier attempt can clear this error.
+  let createdAttempt: OrgHardDeleteResult | undefined;
 
   return prisma.$transaction(async (tx) => {
     const counts: Record<string, number> = {};
@@ -1077,6 +1081,36 @@ export async function hardDeleteOrganization(
       },
     });
 
+    createdAttempt = { deletionLogId: log.id, rowCounts: { ...counts } };
     return { deletionLogId: log.id, rowCounts: counts };
+  }).catch(async (originalFailure: unknown) => {
+    if (createdAttempt) {
+      try {
+        const entries = Object.entries(createdAttempt.rowCounts);
+        const encodedCounts = JSON.stringify(createdAttempt.rowCounts);
+        if (entries.length <= 128 &&
+            entries.every(([, count]) => Number.isSafeInteger(count) && count >= 0) &&
+            Buffer.byteLength(encodedCounts, "utf8") <= 64 * 1024) {
+          // One primary-key-bound, scalar read outside the uncertain transaction.
+          // Never reload customer bodies or run another destructive transaction.
+          const proof = await prisma.$queryRaw<Array<{ verified: number }>>`
+            SELECT 1 AS verified FROM "OrganizationDeletionLog" AS receipt
+            WHERE receipt.id = ${createdAttempt.deletionLogId}
+              AND receipt."organizationId" = ${org.id}
+              AND receipt."organizationName" = ${org.name}
+              AND receipt."organizationSlug" = ${org.slug}
+              AND receipt."deletedById" = ${actorId}
+              AND receipt.reason = ${reason}
+              AND receipt."rowCounts" = ${encodedCounts}::jsonb
+              AND NOT EXISTS (SELECT 1 FROM "Organization" WHERE id = ${org.id})
+              AND EXISTS (SELECT 1 FROM "User" WHERE id = ${actorId})
+            LIMIT 1`;
+          if (proof.length === 1 && proof[0]?.verified === 1) return createdAttempt;
+        }
+      } catch {
+        // Unavailable or inconclusive proof preserves the exact original error.
+      }
+    }
+    throw originalFailure;
   });
 }
