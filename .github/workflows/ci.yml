@@ -80,6 +80,7 @@ jobs:
           pnpm test:native-fresh-final-adapter
           pnpm test:native-fresh-final-plan
           pnpm test:native-final-runtime-recipe
+          pnpm test:native-packaging-v2
           pnpm test:native-source-observer
           pnpm test:native-source-transport
           pnpm test:native-source-diagnostic-plan

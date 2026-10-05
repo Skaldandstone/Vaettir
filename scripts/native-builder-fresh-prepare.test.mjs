@@ -7,6 +7,7 @@ import { createRequire } from "node:module";
 import { Script, createContext } from "node:vm";
 import { spawnSync } from "node:child_process";
 import { gzipSync } from "node:zlib";
+import { historicalNativeV1RecipeFixture } from "./native-v1-recipe-test-fixture.mjs";
 import {
   planNativeFreshPrepare,
   validateNativeFreshPrepareCompleted,
@@ -72,11 +73,11 @@ function options({ eol = false, sourceCommit = commit } = {}) {
     entries = {};
   for (const name of names) {
     const path = name === "Dockerfile.api" ? name : "scripts/" + name;
-    const bytes = Buffer.from(
-      readFileSync(new URL("../" + path, import.meta.url))
-        .toString("utf8")
-        .replaceAll("\r\n", "\n"),
-    );
+    const raw = readFileSync(new URL("../" + path, import.meta.url));
+    // Historical v1 SYNTHETIC bytes, never a current canonical Git export.
+    const bytes = name === "build-llvm-runtime.sh"
+      ? historicalNativeV1RecipeFixture(raw).bytes
+      : Buffer.from(raw.toString("utf8").replaceAll("\r\n", "\n"));
     gitBlobs[name] = bytes;
     gitModes[name] = "100644";
     const exported =

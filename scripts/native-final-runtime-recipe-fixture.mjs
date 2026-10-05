@@ -1,6 +1,7 @@
 // Synthetic original-origin/flat-lineage fixtures only, never actual LLVM/CI proof.
 import { readFileSync } from "node:fs";
 import { createHash } from "node:crypto";
+import { historicalNativeV1RecipeFixture } from "./native-v1-recipe-test-fixture.mjs";
 import {
   createNativeFreshFinalCapsule,
   planNativeFreshFinal,
@@ -80,11 +81,11 @@ export function runtimeApplicationFixture(applicationCommit = commit) {
     "Dockerfile.api",
   ]) {
     const path = name === "Dockerfile.api" ? name : "scripts/" + name;
-    const bytes = Buffer.from(
-      readFileSync(new URL("../" + path, import.meta.url))
-        .toString("utf8")
-        .replaceAll("\r\n", "\n"),
-    );
+    const raw = readFileSync(new URL("../" + path, import.meta.url));
+    // Historical v1 SYNTHETIC bytes, never a current canonical Git export.
+    const bytes = name === "build-llvm-runtime.sh"
+      ? historicalNativeV1RecipeFixture(raw).bytes
+      : Buffer.from(raw.toString("utf8").replaceAll("\r\n", "\n"));
     gitBlobs[name] = bytes;
     gitModes[name] = "100644";
     gitExports[name] =

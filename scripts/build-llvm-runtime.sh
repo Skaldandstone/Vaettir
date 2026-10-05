@@ -373,7 +373,7 @@ node /build/scripts/check-llvm-package.mjs \
   "$root/usr/lib/x86_64-linux-gnu/libLLVM.so.19.1" /build/llvm-stripped-abi.json
 cp /build/llvm-stripped-abi.json "$root/usr/share/vaettir/llvm-abi.json"
 dpkg-shlibdeps -O "$root/usr/lib/x86_64-linux-gnu/libLLVM.so.19.1" > debian/libllvm19.substvars
-dpkg-gencontrol -plibllvm19 -v'1:19.1.7-3+vaettir1' -P"$root" -O"$root/DEBIAN/control"
+dpkg-gencontrol -plibllvm19 -v'1:19.1.7-3+vaettir1' -Tdebian/libllvm19.substvars -f/build/libllvm19.files -P"$root" -O"$root/DEBIAN/control"
 ! grep -q 'libxml' "$root/DEBIAN/control"
 printf '%s\n' 'libLLVM 19.1 libllvm19 (>= 1:19.1.7-3+vaettir1)' > "$root/DEBIAN/shlibs"
 printf '%s\n' 'activate-noawait ldconfig' > "$root/DEBIAN/triggers"
