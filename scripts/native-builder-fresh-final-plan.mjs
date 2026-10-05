@@ -208,9 +208,64 @@ function transportModule() {
   return `import assert from 'node:assert/strict';import{createHash}from'node:crypto';import{gzipSync,inflateRawSync}from'node:zlib';const HEX=/^[a-f0-9]{64}$/;const sha=b=>createHash('sha256').update(b).digest('hex');\n${[keys, base64, crc32].map((fn) => fn.toString()).join("\n")}\nexport ${encodeNativeFreshFinalLog.toString()}\nexport ${reassembleNativeFreshFinalLog.toString()}\n`;
 }
 
+/** Public failure metadata only: fixed stage/code/basename and numeric frames.
+ * Never serialize an Error, its message, arbitrary path, stdout or environment.
+ * This function is also embedded verbatim in the hash-pinned external runner.
+ */
+export function nativeFinalPublicFailure(stage, error) {
+  const stages = [
+    "bootstrap-materialize", "bootstrap-control", "bootstrap-import",
+    "bootstrap-runtime", "runtime-preflight", "runtime-recipe",
+    "runtime-receipts", "runtime-module-import", "runtime-adapter",
+    "runtime-verifier", "runtime-cleanup", "runtime-postverification",
+  ];
+  const codes = [
+    "ERR_ASSERTION", "ENOENT", "EEXIST", "EACCES", "EPERM", "EIO",
+    "ETIMEDOUT", "ERR_MODULE_NOT_FOUND", "ERR_INVALID_ARG_TYPE",
+    "ERR_OUT_OF_RANGE", "ERR_BUFFER_TOO_LARGE",
+  ];
+  const approved = [
+    "native-fresh-final-runner.mjs",
+    "native-builder-fresh-final-adapter.mjs",
+    "native-builder-fresh-final-verifier.mjs",
+    "native-llvm-checkpoint.mjs",
+    "check-llvm-package.mjs",
+    "native-build-concurrency.mjs",
+  ];
+  let errorCode = "UNCLASSIFIED";
+  const frames = [];
+  try {
+    const code = Object.getOwnPropertyDescriptor(error, "code")?.value;
+    if (typeof code === "string" && codes.includes(code)) errorCode = code;
+    const stack = Object.getOwnPropertyDescriptor(error, "stack")?.value;
+    if (typeof stack === "string") {
+      for (const line of stack.slice(-8192).split("\n").slice(-16)) {
+        if (frames.length === 4) break;
+        // Require a frame, never an arbitrary message containing a basename.
+        const match = /^\s+at (?:[^\r\n()]{0,160} \()?((?:file:\/\/)?\/(?:tmp\/vaettir-fresh-final-capsule-[a-f0-9]{64}|build\/scripts)\/([a-z0-9.-]+)):(\d{1,7}):(\d{1,7})\)?$/.exec(line);
+        if (!match || !approved.includes(match[2])) continue;
+        const lineNumber = Number(match[3]), column = Number(match[4]);
+        if (lineNumber > 0 && column > 0)
+          frames.push({script: match[2], line: lineNumber, column});
+      }
+    }
+  } catch {
+    // A malformed/proxied Error cannot make the failure catch succeed.
+  }
+  return {
+    schemaVersion: 1,
+    purpose: "bounded-public-native-final-failure-not-acceptance",
+    stage: stages.includes(stage) ? stage : "UNCLASSIFIED",
+    errorCode,
+    frames,
+  };
+}
+
 // Serialized as trusted capsule source. No caller/package script is evaluated.
 // Called only AFTER the entire capsule member set/control has been hash-pinned.
 async function runtime(stage, control) {
+  let diagnosticStage = "runtime-preflight";
+  try {
   const fs = await import("node:fs"),
     { performance } = await import("node:perf_hooks");
   const assert = (await import("node:assert/strict")).default;
@@ -253,6 +308,7 @@ async function runtime(stage, control) {
     // command observation. Never alter source9, outcomes or timeout literals.
     // Limit ONLY the tee subprocess, never compiler/object/package output.
     // Bash file blocks are at most1024B: overbound public logging fails closed.
+    diagnosticStage = "runtime-recipe";
     const command = `sh -x /build/scripts/build-llvm-runtime.sh --phase final --predecessor-sha256 ${control.parentReceiptSha256} 2>&1 | (ulimit -f 16384; exec tee ${logPath})`;
     const outcome = spawnSync(
       "/bin/bash",
@@ -268,6 +324,7 @@ async function runtime(stage, control) {
     assert.equal(outcome.signal, null);
     assert.equal(outcome.status, 0);
   }
+  diagnosticStage = "runtime-receipts";
   const rawLog = read(logPath, 16777216),
     finalRaw = read("/build/llvm-phase-receipts/final.json", 32768);
   const final = JSON.parse(finalRaw);
@@ -284,6 +341,7 @@ async function runtime(stage, control) {
     }
   };
   checkMembers();
+  diagnosticStage = "runtime-module-import";
   const { createNativeFreshFinalAdapter } = await import(
     dir + "/native-builder-fresh-final-adapter.mjs"
   );
@@ -295,6 +353,7 @@ async function runtime(stage, control) {
   );
   const verificationId = hash(control.planSha256 + ":" + stage);
   const deadlineMs = performance.now() + remaining();
+  diagnosticStage = "runtime-adapter";
   const adapter = await createNativeFreshFinalAdapter({
     verificationId,
     scriptPins: control.scriptPins,
@@ -311,6 +370,7 @@ async function runtime(stage, control) {
   });
   let review;
   try {
+    diagnosticStage = "runtime-verifier";
     review = verifyNativeFreshFinalState(
       {
         sourceCommit: control.sourceCommit,
@@ -330,8 +390,12 @@ async function runtime(stage, control) {
       adapter.ops,
     );
   } finally {
+    const priorStage = diagnosticStage;
+    diagnosticStage = "runtime-cleanup";
     adapter.cleanupOwnedExtraction();
+    diagnosticStage = priorStage;
   }
+  diagnosticStage = "runtime-postverification";
   checkMembers();
   assert.ok(remaining() > 0);
   const evidence = {
@@ -354,9 +418,13 @@ async function runtime(stage, control) {
     }))
       console.log(line);
   console.log("NATIVE_FRESH_FINAL_REVIEW=" + JSON.stringify(evidence));
+  } catch (error) {
+    console.error("NATIVE_FRESH_FINAL_FAILURE=" + JSON.stringify(nativeFinalPublicFailure(diagnosticStage, error)));
+    throw error;
+  }
 }
 function runnerModule() {
-  return `export ${runtime.toString()}\n`;
+  return `const nativeFinalPublicFailure=${nativeFinalPublicFailure.toString()};\nexport ${runtime.toString()}\n`;
 }
 
 export function createNativeFreshFinalCapsule(modules) {
@@ -521,6 +589,7 @@ export function planNativeFreshFinal(input) {
         capsuleOf,
         assemble,
         runtime,
+        nativeFinalPublicFailure,
         runnerModule,
         transportModule,
         encodeNativeFreshFinalLog,
@@ -612,7 +681,7 @@ function assemble(identity) {
   };
   const writeControl = `${common}const clock=JSON.parse(bounded('${prefix}clock.json',512));assert.match(clock.deadlineNs,/^[0-9]{1,30}$/);assert.ok(BigInt(clock.deadlineNs)>process.hrtime.bigint());const c=${JSON.stringify(control)};c.deadlineNs=clock.deadlineNs;const b=Buffer.from(JSON.stringify(c));assert.ok(b.length<=131072);fs.writeFileSync('${prefix}capsule/control.json',b,{flag:'wx',mode:0o400});fs.writeFileSync('${prefix}control-sha',sha(b),{flag:'wx'});const payload=JSON.stringify({capsuleBase64:bounded('${prefix}capsule.json',1048576).toString('base64'),controlBase64:b.toString('base64')});assert.ok(Buffer.byteLength(payload)<=2097152);fs.writeFileSync('${prefix}stdin.json',payload,{flag:'wx',mode:0o600});`;
   const bootstrap = (stage) =>
-    `${common}async function run(){const dir='${dir}',pins=${JSON.stringify(identity.capsule.members)};assert.equal(process.env.PYTHONDONTWRITEBYTECODE,'1');assert.equal(fs.realpathSync('/tmp'),'/tmp');if('${stage}'==='pre'){assert.equal(fs.existsSync(dir),false);const parts=[],buf=Buffer.alloc(65536);let total=0;for(;;){const n=fs.readSync(0,buf,0,buf.length,null);if(!n)break;total+=n;assert.ok(total<=2097152);parts.push(Buffer.from(buf.subarray(0,n)));}const p=JSON.parse(Buffer.concat(parts).toString());assert.deepEqual(Object.keys(p).sort(),['capsuleBase64','controlBase64']);const raw=Buffer.from(p.capsuleBase64,'base64');assert.equal(raw.toString('base64'),p.capsuleBase64);assert.equal(raw.length,${identity.capsule.bytes});assert.equal(sha(raw),'${identity.capsule.sha256}');const c=JSON.parse(raw);assert.deepEqual(Object.keys(c.members).sort(),Object.keys(pins).sort());const control=Buffer.from(p.controlBase64,'base64');assert.equal(control.toString('base64'),p.controlBase64);assert.ok(control.length<=131072);assert.equal(sha(control),process.env.VAETTIR_FINAL_CONTROL_SHA);fs.mkdirSync(dir,{mode:0o700});for(const[n,h]of Object.entries(pins)){const b=Buffer.from(c.members[n].base64,'base64');assert.equal(b.length,h.bytes);assert.equal(sha(b),h.sha256);fs.writeFileSync(dir+'/'+n,b,{flag:'wx',mode:0o400});}fs.writeFileSync(dir+'/control.json',control,{flag:'wx',mode:0o400});}assert.equal(fs.realpathSync(dir),dir);assert.ok(fs.lstatSync(dir).isDirectory()&&!fs.lstatSync(dir).isSymbolicLink());for(const[n,p]of Object.entries(pins)){const b=bounded(dir+'/'+n,262144);assert.equal(b.length,p.bytes);assert.equal(sha(b),p.sha256);}const b=bounded(dir+'/control.json',131072);assert.equal(sha(b),process.env.VAETTIR_FINAL_CONTROL_SHA);const c=JSON.parse(b);assert.equal(c.planSha256,'${planSha256}');const{runtime}=await import(dir+'/native-fresh-final-runner.mjs');await runtime('${stage}',c);}run().catch(()=>{console.error('Pinned final verification refused');process.exitCode=1});`;
+    `${common}const publicFailure=${nativeFinalPublicFailure.toString()};let failureStage='bootstrap-materialize';async function run(){const dir='${dir}',pins=${JSON.stringify(identity.capsule.members)};assert.equal(process.env.PYTHONDONTWRITEBYTECODE,'1');assert.equal(fs.realpathSync('/tmp'),'/tmp');if('${stage}'==='pre'){assert.equal(fs.existsSync(dir),false);const parts=[],buf=Buffer.alloc(65536);let total=0;for(;;){const n=fs.readSync(0,buf,0,buf.length,null);if(!n)break;total+=n;assert.ok(total<=2097152);parts.push(Buffer.from(buf.subarray(0,n)));}const p=JSON.parse(Buffer.concat(parts).toString());assert.deepEqual(Object.keys(p).sort(),['capsuleBase64','controlBase64']);const raw=Buffer.from(p.capsuleBase64,'base64');assert.equal(raw.toString('base64'),p.capsuleBase64);assert.equal(raw.length,${identity.capsule.bytes});assert.equal(sha(raw),'${identity.capsule.sha256}');const c=JSON.parse(raw);assert.deepEqual(Object.keys(c.members).sort(),Object.keys(pins).sort());const control=Buffer.from(p.controlBase64,'base64');assert.equal(control.toString('base64'),p.controlBase64);assert.ok(control.length<=131072);assert.equal(sha(control),process.env.VAETTIR_FINAL_CONTROL_SHA);fs.mkdirSync(dir,{mode:0o700});for(const[n,h]of Object.entries(pins)){const b=Buffer.from(c.members[n].base64,'base64');assert.equal(b.length,h.bytes);assert.equal(sha(b),h.sha256);fs.writeFileSync(dir+'/'+n,b,{flag:'wx',mode:0o400});}fs.writeFileSync(dir+'/control.json',control,{flag:'wx',mode:0o400});}failureStage='bootstrap-control';assert.equal(fs.realpathSync(dir),dir);assert.ok(fs.lstatSync(dir).isDirectory()&&!fs.lstatSync(dir).isSymbolicLink());for(const[n,p]of Object.entries(pins)){const b=bounded(dir+'/'+n,262144);assert.equal(b.length,p.bytes);assert.equal(sha(b),p.sha256);}const b=bounded(dir+'/control.json',131072);assert.equal(sha(b),process.env.VAETTIR_FINAL_CONTROL_SHA);const c=JSON.parse(b);assert.equal(c.planSha256,'${planSha256}');failureStage='bootstrap-import';const{runtime}=await import(dir+'/native-fresh-final-runner.mjs');failureStage='bootstrap-runtime';await runtime('${stage}',c);}run().catch(error=>{console.error('NATIVE_FRESH_FINAL_FAILURE='+JSON.stringify(publicFailure(failureStage,error)));console.error('Pinned final verification refused');process.exitCode=1});`;
   const containerGuard = (stage) =>
     `${common}const a=JSON.parse(bounded('${prefix}${stage}-inspect.json',2097152));assert.equal(a.length,1);const[i]=a;assert.equal(i.Id,bounded('${prefix}${stage}-cid',64).toString());assert.equal(i.Config.Labels['vaettir.final-owner'],'${planSha256}');assert.equal(i.HostConfig.NetworkMode,'none');assert.equal(i.HostConfig.Privileged,false);assert.deepEqual(i.HostConfig.CapDrop,['ALL']);assert.ok(i.HostConfig.SecurityOpt.includes('no-new-privileges'));assert.equal(i.HostConfig.Memory,15032385536);assert.equal(i.HostConfig.NanoCpus,8000000000);assert.equal(i.HostConfig.PidsLimit,2048);assert.deepEqual(i.Mounts,[]);assert.deepEqual(i.Config.Env.filter(x=>x.startsWith('PYTHONDONTWRITEBYTECODE=')),['PYTHONDONTWRITEBYTECODE=1']);assert.equal(i.Image,${stage === "pre" ? JSON.stringify(identity.expectedParent.imageConfigDigest) : `bounded('${prefix}commit-id',80).toString().trim()`});`;
   const admission = `${common}const clock=JSON.parse(bounded('${prefix}clock.json',512));assert.ok(BigInt(clock.deadlineNs)-process.hrtime.bigint()>=${(identity.resources.recipeSeconds + identity.resources.verificationReserveSeconds) * 1000000000}n,'Global remaining budget cannot admit final');`;

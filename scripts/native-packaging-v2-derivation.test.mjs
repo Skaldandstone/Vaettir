@@ -6,6 +6,7 @@ import {createHash} from "node:crypto";
 import vm from "node:vm";
 import {deriveNativePackagingV2,LEGACY_SOURCE_PINS,V2_MODULE_NAMES} from "./native-packaging-v2-derivation.mjs";
 import {historicalNativeV1RecipeFixture} from "./native-v1-recipe-test-fixture.mjs";
+import {historicalNativeFinalPlanFixture,reviewedNativeFinalDiagnosticsTestOverlay} from "./native-final-plan-historical-test-fixture.mjs";
 const root=new URL("../",import.meta.url);
 const sha=b=>createHash("sha256").update(b).digest("hex");
 const fixtureName="native-final-runtime-recipe-fixture.mjs";
@@ -26,7 +27,7 @@ function source(){
   // Only strict whole-hash-admitted historical TEST evidence is reversed.
   // The production derivation API still admits exact-original buffers only.
   const historical=historicalNativeV1RecipeFixture(canonicalRecipe);
-  return{recipe:historical.bytes,modules:Object.fromEntries(Object.keys(LEGACY_SOURCE_PINS).map(n=>[n,fixtureLf(readFileSync(new URL("scripts/"+n,root)))]))};
+  return{recipe:historical.bytes,modules:Object.fromEntries(Object.keys(LEGACY_SOURCE_PINS).map(n=>[n,n==="native-builder-fresh-final-plan.mjs"?historicalNativeFinalPlanFixture():fixtureLf(readFileSync(new URL("scripts/"+n,root)))]))};
 }
 function sourcesForTest(input,v2){
   const derived=deriveNativePackagingV2(input);
@@ -80,8 +81,16 @@ async function route(input,v2){
 test("deterministic narrowly corrected recipe/derived import/pin/purpose bytes restore all originals",()=>{
   const s=source(),before=Object.fromEntries(Object.entries(s.modules).map(([n,b])=>[n,sha(b)])),r=deriveNativePackagingV2(s),again=deriveNativePackagingV2(s);
   assert.deepEqual(r,again);
-  // Verify the actual new public producer closure, not only derived VM copies.
-  for(const name of Object.values(V2_MODULE_NAMES))assert.deepEqual(fixtureLf(readFileSync(new URL("scripts/"+name,root))),r.modules[name]);
+  // Historical derivation remains exact. The CURRENT final planner has only
+  // the explicit hash-admitted test diagnostics overlay; every other current
+  // V2 producer still equals the original derivation byte-for-byte.
+  for(const name of Object.values(V2_MODULE_NAMES)){
+    const canonical=fixtureLf(readFileSync(new URL("scripts/"+name,root)));
+    if(name==="native-packaging-v2-builder-fresh-final-plan.mjs"){
+      assert.notDeepEqual(canonical,r.modules[name],"Current diagnostics are not historical final bytes");
+      assert.deepEqual(canonical,reviewedNativeFinalDiagnosticsTestOverlay(r.modules[name]));
+    }else assert.deepEqual(canonical,r.modules[name]);
+  }
   assert.match(r.correctedRecipe.toString(),/-Tdebian\/libllvm19\.substvars -f\/build\/libllvm19\.files/);
   for(const line of s.recipe.toString().split("\n").filter(l=>!l.startsWith("dpkg-gencontrol ")))assert.ok(r.correctedRecipe.toString().split("\n").includes(line),line);
   assert.deepEqual(Object.fromEntries(Object.entries(s.modules).map(([n,b])=>[n,sha(b)])),before);
@@ -94,7 +103,7 @@ test("deterministic narrowly corrected recipe/derived import/pin/purpose bytes r
 test("unknown/truncated/modified original source or already-corrected recipe never derives",()=>{
   for(const mutate of [s=>s.recipe[0]^=1,s=>s.recipe=deriveNativePackagingV2(s).correctedRecipe,s=>s.modules.extra=Buffer.from("public but unreviewed"),s=>s.modules["native-builder-fresh-core.mjs"][0]^=1,s=>delete s.modules["native-builder-fresh-prepare.mjs"]]){const s=source();mutate(s);assert.throws(()=>deriveNativePackagingV2(s));}
 });
-test("actual source-only v2 fixture plans coherent null-parent full corrected lineage and dual-suite final",async()=>{
+test("frozen historical source-only v2 derivation plans coherent null-parent corrected lineage and dual-suite final",async()=>{
   const s=source(),v2=await route(s,true),f=v2.fixture.finalFixture(),plan=v2.loaded("native-builder-fresh-final-plan.mjs").planNativeFreshFinal(f);
   assert.equal(f.core.planningInput.preparePlan.identity.purpose,"native-packaging-v2-fresh-prepare-not-runtime");
   assert.equal(f.core.planningInput.preparePlan.identity.predecessorSha256,null);
