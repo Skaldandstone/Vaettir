@@ -78,6 +78,7 @@ jobs:
           pnpm test:native-fresh-next
           pnpm test:native-fresh-final
           pnpm test:native-fresh-final-adapter
+          pnpm test:native-fresh-final-plan
           pnpm test:native-source-observer
           pnpm test:native-source-transport
           pnpm test:native-source-diagnostic-plan

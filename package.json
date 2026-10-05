@@ -16,6 +16,7 @@
     "test:native-fresh-next": "node --test scripts/native-builder-fresh-next-phase.test.mjs",
     "test:native-fresh-final": "node --test scripts/native-builder-fresh-final-verifier.test.mjs",
     "test:native-fresh-final-adapter": "node --test scripts/native-builder-fresh-final-adapter.test.mjs",
+    "test:native-fresh-final-plan": "node --test scripts/native-builder-fresh-final-plan.test.mjs",
     "test:native-source-observer": "node --test scripts/native-source-inventory-observer.test.mjs",
     "test:native-source-transport": "node --test scripts/native-source-diagnostic-transport.test.mjs",
     "test:native-source-diagnostic-plan": "node --test scripts/native-source-diagnostic-plan.test.mjs",
