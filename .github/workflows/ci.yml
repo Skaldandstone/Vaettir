@@ -80,6 +80,7 @@ jobs:
           pnpm test:native-fresh-final-adapter
           pnpm test:native-source-observer
           pnpm test:native-source-transport
+          pnpm test:native-source-diagnostic-plan
           node --test scripts/retain-sharp-version-receipt.test.mjs
           node --test scripts/native-build-concurrency.test.mjs
 
