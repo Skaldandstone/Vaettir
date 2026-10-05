@@ -33,12 +33,17 @@ const labels: Record<string, string> = {
 };
 
 /** Local origin never silently rebases, even if both actors/organizations can read this project. */
-function useRetestAccess(projectId: string, active: boolean, editor: boolean, pinnedScope?: ManualRetestExpectedScope | null) {
+function useRetestAccess(projectId: string, active: boolean, editor: boolean, pinnedScope?: ManualRetestExpectedScope | null, readEnabled = active) {
   const { isLoaded, isSignedIn, userId } = useAuth();
   const [origin, setOrigin] = useState<ManualRetestExpectedScope | null>(pinnedScope ?? null);
-  const project = trpcReact.project.byId.useQuery({ id: projectId }, { enabled: active, staleTime: 0, retry: false });
-  const organizations = trpcReact.organization.mine.useQuery(undefined, { enabled: active, staleTime: 0, retry: false });
   const actorReady = isLoaded && isSignedIn && !!userId;
+  // Metadata subscriptions must not disable themselves because their own shared
+  // fetch makes the parent's factual access temporarily unavailable. Admission
+  // grants no access: current active/actor/org/role/error/fetch/pause gates below
+  // still withhold private evidence and actions, and the server authorizes reads.
+  const metadataReadEnabled = readEnabled && actorReady;
+  const project = trpcReact.project.byId.useQuery({ id: projectId }, { enabled: metadataReadEnabled, staleTime: 0, retry: false });
+  const organizations = trpcReact.organization.mine.useQuery(undefined, { enabled: metadataReadEnabled, staleTime: 0, retry: false });
   const projectReady = !project.error && !project.isFetching && !project.isPaused && project.data?.id === projectId;
   const memberChecked = !organizations.error && !organizations.isFetching && !organizations.isPaused && Array.isArray(organizations.data);
   const member = memberChecked ? organizations.data?.find(row => row.id === project.data?.organizationId) : undefined;
@@ -75,6 +80,7 @@ export function ManualRetestWizard({
   open,
   onClose,
   active = true,
+  readEnabled = open,
   onRetainedRequestChange,
   expectedScope,
 }: {
@@ -84,12 +90,13 @@ export function ManualRetestWizard({
   open: boolean;
   onClose: () => void;
   active?: boolean;
+  readEnabled?: boolean;
   onRetainedRequestChange?: (retained: boolean) => void;
   expectedScope?: ManualRetestExpectedScope | null;
 }) {
   const utils = trpcReact.useUtils();
   const mutation = trpcReact.manualRetest.start.useMutation();
-  const access = useRetestAccess(projectId, active, true, expectedScope);
+  const access = useRetestAccess(projectId, active, true, expectedScope, readEnabled);
   const accessNow = useRef(access);
   useLayoutEffect(() => { accessNow.current = access; }, [access]);
   const [preview, setPreview] = useState<Preview | null>(null);
@@ -516,7 +523,10 @@ export function ManualRetestActions({
   onRetainedRequestChange?: (retained: boolean) => void;
 }) {
   const [open, setOpen] = useState(false);
-  const access = useRetestAccess(projectId, active, false);
+  // This keyed Actions instance may have a caller whose active flag depends on
+  // the same shared metadata. Keep only metadata admission stable while mounted;
+  // links/private rendering and writes still require current active access.
+  const access = useRetestAccess(projectId, active, false, undefined, true);
   const [anchors, setAnchors] = useState<Array<string | undefined>>([
     undefined,
   ]);
@@ -629,6 +639,7 @@ export function ManualRetestActions({
         testCaseId={testCaseId}
         open={open}
         onClose={() => setOpen(false)}
+        readEnabled={open}
         active={active && canRetest && access.ready && access.canWrite && !linksDenied && !linksMismatch && !links.isPaused}
         expectedScope={access.origin}
         onRetainedRequestChange={onRetainedRequestChange}
