@@ -669,12 +669,7 @@ export const manualExecutionRouter = router({
     .query(async ({ ctx, input }) => {
       return ctx.prisma.$transaction(
         async (tx) => {
-          const access = await lockManualExecutionReadScope(
-            tx,
-            ctx.user.id,
-            ctx.user.clerkUserId,
-            input,
-          );
+          const access = await lockManualExecutionReadScope(tx, ctx.user.id, ctx.user.clerkUserId, input);
           const run = await tx.testRun.findUniqueOrThrow({
             where: { id: input.testRunId },
             include: {
@@ -714,10 +709,8 @@ export const manualExecutionRouter = router({
           );
           if (
             executionContext &&
-            (executionContext.caseDefinitions.length !==
-              run.manualTestCaseIds.length ||
-              new Set(executionContext.caseDefinitions.map((c) => c.testCaseId))
-                .size !== executionContext.caseDefinitions.length ||
+            (executionContext.caseDefinitions.length !== run.manualTestCaseIds.length ||
+              new Set(executionContext.caseDefinitions.map(c => c.testCaseId)).size !== executionContext.caseDefinitions.length ||
               executionContext.caseDefinitions.some(
                 (c) => !run.manualTestCaseIds.includes(c.testCaseId),
               ))
@@ -884,8 +877,7 @@ export const manualExecutionRouter = router({
               .filter((c): c is NonNullable<typeof c> => c !== null),
           };
           if (
-            Buffer.byteLength(JSON.stringify(response), "utf8") >
-            16 * 1024 * 1024
+            Buffer.byteLength(JSON.stringify(response), "utf8") > 16 * 1024 * 1024
           )
             throw new TRPCError({
               code: "PRECONDITION_FAILED",

@@ -746,6 +746,12 @@ has NOT run; its original-tenant erasure triggers require native validation.
 Release inputs changed and require a coordinated API/Web rollout. No production
 mutation, deployment or new passing full native/runtime gate is implied.
 
+Full local Web suite subsequently passed 572 Node checks plus 48 typed checks
+(620 total, zero skips). The initial run exposed one source-contract failure
+caused by line wrapping of unchanged native read guards. Contract-compatible
+formatting was restored without weakening assertions, response limits, locks
+or procedure coverage. This remains local source proof, not deployment.
+
 Current SSE-135/P9-00 was read through authenticated Chrome; the API connector
 remains unauthorized. Open user requirements remain tracked here: full
 configurable project field profiles, global/multi-run reporting
