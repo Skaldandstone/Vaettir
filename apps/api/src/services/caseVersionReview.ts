@@ -17,6 +17,7 @@ import {
 import {
   lockCaseFieldReadScope,
   lockCurrentCaseFieldActor,
+  caseFieldReadScopeSchema,
   type CaseFieldReadAuthorization,
 } from "./caseFieldReadScope.js";
 
@@ -255,7 +256,10 @@ export async function compareHistoricalCaseVersions(
 async function reviewState(
   tx: Prisma.TransactionClient,
   input: z.infer<typeof versionPreviewSchema>,
+  scope: z.infer<typeof caseFieldReadScopeSchema>,
 ) {
+  if (scope.projectId !== input.projectId)
+    throw new TRPCError({ code: "FORBIDDEN", message: "Version review belongs to a different project." });
   const [size] = await tx.$queryRaw<
     Array<{ currentBytes: number; savedBytes: number }>
   >`
@@ -427,9 +431,14 @@ async function reviewState(
       versionId: saved.id,
       createdAt: saved.createdAt.toISOString(),
       expectedCaseRevision: testCaseContentRevision(current),
+      // Ephemeral restore intent, not a universal saved-content checksum.
+      // Global case revisions and historical saved bodies stay actor-independent.
       expectedVersionRevision: qualityProfileHash({
-        ...saved,
-        createdAt: saved.createdAt.toISOString(),
+        kind: "CaseVersionRestoreReview/v2",
+        scope,
+        caseId: current.id,
+        versionNumber: saved.versionNumber,
+        savedRevision: qualityProfileHash({ ...saved, createdAt: saved.createdAt.toISOString() }),
       }),
       fields,
       warnings,
@@ -445,7 +454,7 @@ export async function previewCaseVersion(
 ) {
   return db.$transaction(
     async (tx) => {
-      await lockCaseFieldReadScope(tx, userId, { projectId: input.projectId, caseId: input.testCaseId }, authorized);
+      const scope = await lockCaseFieldReadScope(tx, userId, { projectId: input.projectId, caseId: input.testCaseId }, authorized);
       await requireCurrentPlanAccess(tx, userId, input.projectId);
       const membership = await tx.membership.findFirst({
         where: {
@@ -455,7 +464,7 @@ export async function previewCaseVersion(
         select: { role: true, seatType: true },
       });
       return {
-        ...(await reviewState(tx, input)).preview,
+        ...(await reviewState(tx, input, scope)).preview,
         canRestore: Boolean(
           membership &&
           membership.seatType === "FULL" &&
@@ -483,7 +492,9 @@ export async function restoreCaseVersion(
   return db.$transaction(
     async (tx) => {
       await lockCaseFieldProject(tx, userId, input.projectId);
-      await lockCurrentCaseFieldActor(tx, userId, authorized);
+      const actorClerkUserId = await lockCurrentCaseFieldActor(tx, userId, authorized);
+      const originalProject = await tx.project.findUniqueOrThrow({ where: { id: input.projectId }, select: { organizationId: true } });
+      const scope = caseFieldReadScopeSchema.parse({ projectId: input.projectId, organizationId: originalProject.organizationId, actorId: userId, actorClerkUserId });
       await tx.$queryRaw`SELECT id FROM "TestCase" WHERE id = ${input.testCaseId} AND "projectId" = ${input.projectId} FOR UPDATE`;
       await tx.$queryRaw`SELECT id FROM "TestCaseStep" WHERE "testCaseId" = ${input.testCaseId} FOR UPDATE`;
       await tx.$queryRaw`SELECT g.id FROM "SharedStepGroup" g JOIN "TestCase" c ON c."sharedStepGroupId" = g.id WHERE c.id = ${input.testCaseId} AND c."projectId" = ${input.projectId} FOR SHARE OF g`;
@@ -497,9 +508,11 @@ export async function restoreCaseVersion(
           entityId: input.testCaseId,
           metadata: { path: ["requestId"], equals: input.requestId },
         },
-        select: { metadata: true },
+        select: { metadata: true, organizationId: true },
       });
       if (receipt) {
+        if (receipt.organizationId !== scope.organizationId)
+          throw new TRPCError({ code: "FORBIDDEN", message: "This restore receipt belongs to the project's original organization and cannot be replayed after an ownership change." });
         const metadata = z
           .object({
             requestHash: z.string(),
@@ -529,6 +542,7 @@ export async function restoreCaseVersion(
       const { current, saved, normalizedSteps, preview } = await reviewState(
         tx,
         input,
+        scope,
       );
       if (
         preview.expectedCaseRevision !== input.expectedCaseRevision ||
@@ -658,6 +672,8 @@ export async function restoreCaseVersion(
             fields: input.fields,
             reason: input.reason,
             priorCaseRevision: input.expectedCaseRevision,
+            // New receipts retain the reviewed intent token; older receipt
+            // checksum evidence is never rewritten or reinterpreted.
             sourceVersionRevision: input.expectedVersionRevision,
           },
         },

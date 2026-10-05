@@ -29,6 +29,7 @@ import {
   createIndependentCloneDataset,
 } from "./caseCloneDataset.js";
 import { validatedDatasetReplay } from "./caseFolderCopyDatasets.js";
+import { lockCurrentCaseFieldActor } from "./caseFieldReadScope.js";
 
 export const cloneScopeSchema = z
   .object({
@@ -320,7 +321,9 @@ export async function previewCaseClone(
     async (tx) => {
       await requireCurrentPlanAccess(tx, userId, input.projectId, true);
       const scoped = input.expectedScope || input.copyParameterDataset;
-      if (scoped) await lockCaseFieldProject(tx, userId, input.projectId);
+      // Even omitted legacy input must pin the native actor before source bodies.
+      await lockCaseFieldProject(tx, userId, input.projectId);
+      await lockCurrentCaseFieldActor(tx, userId);
       const scope = scoped
         ? await independentCloneScope(
             tx,
@@ -413,6 +416,7 @@ export async function cloneCase(
   return db.$transaction(
     async (tx) => {
       await lockCaseFieldProject(tx, userId, input.projectId);
+      await lockCurrentCaseFieldActor(tx, userId);
       const organization = await tx.project.findUniqueOrThrow({
         where: { id: input.projectId },
         select: { organizationId: true },
@@ -663,11 +667,23 @@ export async function createCaseCloneInTransaction(
       message:
         "This suite's order needs normalization before another case can be appended. Nothing was copied.",
     });
+  // Clone/folder entrypoints already hold Project -> User before case locks.
+  // Resolve that pinned mapping without introducing a late Case -> User lock.
+  const actor = await tx.user.findUnique({
+    where: { id: userId },
+    select: { clerkUserId: true },
+  });
+  if (!actor?.clerkUserId || actor.clerkUserId.length > 200)
+    throw new TRPCError({
+      code: "FORBIDDEN",
+      message: "Current clone actor identity is unavailable.",
+    });
   const fields = await assertCaseFieldAuthoring(tx, userId, input.projectId, {
     values: state.authoredFields,
     expectedSchemaHash: caseFieldAuthoringSchemaHash(
       state.fieldSchemaScope,
       userId,
+      actor.clerkUserId,
     ),
   });
   const created = await tx.testCase.create({

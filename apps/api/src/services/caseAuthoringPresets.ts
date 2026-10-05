@@ -3,6 +3,7 @@ import { Prisma, type PrismaClient } from "@vaettir/db";
 import { z } from "zod";
 import { requireCurrentPlanAccess } from "./testPlanExecution.js";
 import { readCaseFieldState, lockCaseFieldProject } from "./caseFields.js";
+import { lockCurrentCaseFieldActor } from "./caseFieldReadScope.js";
 import {
   validateCaseFieldValues,
   fieldValueProblem,
@@ -43,6 +44,7 @@ async function context(tx: Tx, actorId: string, projectId: string, expectedScope
   const [locked] = await tx.$queryRaw<Array<{ organizationId: string }>>`SELECT "organizationId" FROM "Project" WHERE id=${projectId} FOR SHARE`;
   if (locked?.organizationId !== original.organizationId)
     throw new TRPCError({ code: "FORBIDDEN", message: "Project ownership changed; no preset content was read." });
+  const clerkActorId = await lockCurrentCaseFieldActor(tx, actorId);
   await requireCurrentPlanAccess(tx, actorId, projectId);
   const project = await tx.project.findUniqueOrThrow({
     where: { id: projectId },
@@ -57,16 +59,19 @@ async function context(tx: Tx, actorId: string, projectId: string, expectedScope
     },
     select: { role: true, seatType: true },
   });
-  const actor = await tx.user.findUniqueOrThrow({
-    where: { id: actorId }, select: { clerkUserId: true },
-  });
-  if (expectedScope && (expectedScope.organizationId !== project.organizationId || expectedScope.clerkActorId !== actor.clerkUserId))
+  if (expectedScope && (expectedScope.organizationId !== project.organizationId || expectedScope.clerkActorId !== clerkActorId))
     throw new TRPCError({ code: "FORBIDDEN", message: "Preset access belongs to a different original organization or signed-in actor. Retained drafts and requests were not replaced." });
-  const fields = await readCaseFieldState(tx, actorId, projectId);
+  const fields = await readCaseFieldState(
+    tx,
+    actorId,
+    projectId,
+    undefined,
+    clerkActorId,
+  );
   const profile = readQualityExperience(project.qualityProfile);
   return {
     organizationId: project.organizationId,
-    clerkActorId: actor.clerkUserId,
+    clerkActorId,
     fields,
     profile,
     canEdit:

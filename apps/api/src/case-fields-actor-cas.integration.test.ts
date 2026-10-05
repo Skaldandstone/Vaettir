@@ -160,6 +160,7 @@ describe("current actor-bound ephemeral case-field authoring CAS", () => {
           schema: a.schema,
         },
         actorId,
+        `${tag}-OWNER`,
       ),
     );
     expect(b.expectedSchemaHash).toBe(
@@ -171,6 +172,7 @@ describe("current actor-bound ephemeral case-field authoring CAS", () => {
           schema: b.schema,
         },
         editorId,
+        `${tag}-EDITOR`,
       ),
     );
   });

@@ -85,16 +85,25 @@ export function caseFieldAuthoringSchemaHash(
     schema: z.infer<typeof caseFieldSchema>;
   },
   userId: string,
+  clerkActorId: string,
 ) {
-  return qualityProfileHash({ ...scope, actorId: userId });
+  return qualityProfileHash({ kind: "CaseFieldAuthoringSchema/v2", ...scope, actorId: userId, clerkActorId });
 }
 export async function readCaseFieldState(
   tx: Prisma.TransactionClient,
   userId: string,
   projectId: string,
   caseId?: string,
+  capturedClerkActorId?: string,
 ) {
   await requireCurrentPlanAccess(tx, userId, projectId);
+  // This is a nonlocking projection of the entrypoint-pinned User, never a
+  // retained request's identity. Do not acquire a late Case -> User lock here.
+  const clerkActorId = capturedClerkActorId ?? (await tx.user.findUnique({
+    where: { id: userId }, select: { clerkUserId: true },
+  }))?.clerkUserId;
+  if (!clerkActorId || clerkActorId.length > 200)
+    throw new TRPCError({ code: "FORBIDDEN", message: "Current case field actor identity is unavailable." });
   const project = await tx.project.findUniqueOrThrow({
     where: { id: projectId },
     select: {
@@ -136,10 +145,15 @@ export async function readCaseFieldState(
         schema,
       },
       userId,
+      clerkActorId,
     ),
     values,
     expectedValueHash: qualityProfileHash({
+      kind: "CaseFieldAuthoringValues/v2",
+      projectId,
+      organizationId: project.organizationId,
       actorId: userId,
+      clerkActorId,
       caseId: caseId ?? null,
       values,
       updatedAt: tc?.updatedAt.toISOString() ?? null,
@@ -169,9 +183,10 @@ export async function assertCaseFieldAuthoring(
   // Legacy transaction-bound clone/folder callers already hold case locks.
   // Do not introduce a late Case -> User acquisition in that omitted path.
   // Router-authorized updates/restores pin this User before their case locks.
-  if (authorized !== undefined)
-    await lockCurrentCaseFieldActor(tx, userId, authorized);
-  const state = await readCaseFieldState(tx, userId, projectId, args.caseId);
+  const clerkActorId = authorized !== undefined
+    ? await lockCurrentCaseFieldActor(tx, userId, authorized)
+    : undefined;
+  const state = await readCaseFieldState(tx, userId, projectId, args.caseId, clerkActorId);
   if (
     args.values !== undefined &&
     (!args.expectedSchemaHash ||
@@ -232,8 +247,9 @@ async function schemaImpact(
   tx: Prisma.TransactionClient,
   userId: string,
   input: z.infer<typeof caseFieldSchemaReview>,
+  capturedClerkActorId: string,
 ) {
-  const state = await readCaseFieldState(tx, userId, input.projectId);
+  const state = await readCaseFieldState(tx, userId, input.projectId, undefined, capturedClerkActorId);
   if (!state.canConfigure)
     throw new TRPCError({
       code: "FORBIDDEN",
@@ -316,7 +332,7 @@ export async function getCaseFields(
         authorized,
       );
       return {
-        ...(await readCaseFieldState(tx, userId, input.projectId, input.caseId)),
+        ...(await readCaseFieldState(tx, userId, input.projectId, input.caseId, readScope.actorClerkUserId)),
         readScope,
       };
     },
@@ -333,8 +349,8 @@ export async function reviewCaseFieldSchema(
   authorized?: CaseFieldReadAuthorization,
 ) {
   return db.$transaction(async (tx) => {
-    await lockCaseFieldReadScope(tx, userId, input, authorized);
-    return schemaImpact(tx, userId, input);
+    const scope = await lockCaseFieldReadScope(tx, userId, input, authorized);
+    return schemaImpact(tx, userId, input, scope.actorClerkUserId);
   }, {
     isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead,
     timeout: 10000,
@@ -425,8 +441,8 @@ export async function configureCaseFields(
   return db.$transaction(
     async (tx) => {
       await lockCaseFieldProject(tx, userId, input.projectId);
-      await lockCurrentCaseFieldActor(tx, userId, authorized);
-      const state = await readCaseFieldState(tx, userId, input.projectId);
+      const clerkActorId = await lockCurrentCaseFieldActor(tx, userId, authorized);
+      const state = await readCaseFieldState(tx, userId, input.projectId, undefined, clerkActorId);
       if (!state.canConfigure)
         throw new TRPCError({
           code: "FORBIDDEN",
@@ -441,7 +457,7 @@ export async function configureCaseFields(
         input.requestId,
       );
       if (previous) return previous;
-      const impact = await schemaImpact(tx, userId, input);
+      const impact = await schemaImpact(tx, userId, input, clerkActorId);
       if (
         impact.expectedSchemaHash !== input.expectedSchemaHash ||
         impact.expectedImpactHash !== input.expectedImpactHash
@@ -455,7 +471,7 @@ export async function configureCaseFields(
         where: { id: input.projectId },
         data: { caseFieldSchema: input.schema as Prisma.InputJsonValue },
       });
-      const after = await readCaseFieldState(tx, userId, input.projectId);
+      const after = await readCaseFieldState(tx, userId, input.projectId, undefined, clerkActorId);
       await receipt(
         tx,
         userId,
@@ -499,13 +515,14 @@ export async function saveCaseFieldsInTransaction(
   authorized?: CaseFieldReadAuthorization,
 ) {
   await lockCaseFieldProject(tx, userId, input.projectId);
-  await lockCurrentCaseFieldActor(tx, userId, authorized);
+  const clerkActorId = await lockCurrentCaseFieldActor(tx, userId, authorized);
   await tx.$queryRaw`SELECT id FROM "TestCase" WHERE id=${input.caseId} AND "projectId"=${input.projectId} FOR UPDATE`;
   const state = await readCaseFieldState(
     tx,
     userId,
     input.projectId,
     input.caseId,
+    clerkActorId,
   );
   if (!state.canEdit)
     throw new TRPCError({

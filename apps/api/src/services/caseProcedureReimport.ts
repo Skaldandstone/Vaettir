@@ -16,6 +16,7 @@ import { qualityProfileHash } from "./qualityExperienceProfile.js";
 import { snapshotTestCaseVersion } from "./testCaseVersion.js";
 import { verificationProfileSchema } from "./physicalValidation.js";
 import { readCaseFieldState, lockCaseFieldProject } from "./caseFields.js";
+import { lockCurrentCaseFieldActor } from "./caseFieldReadScope.js";
 
 const MAX_BYTES = 2 * 1024 * 1024;
 const MAX_CASES = 50;
@@ -99,11 +100,11 @@ async function lockedScope(
   input: z.infer<typeof procedureReimportInput>,
 ) {
   await lockCaseFieldProject(tx, userId, input.projectId);
+  const actorClerkUserId = await lockCurrentCaseFieldActor(tx, userId);
   const project = await tx.project.findUniqueOrThrow({ where: { id: input.projectId }, select: { organizationId: true } });
-  const actor = await tx.user.findUniqueOrThrow({ where: { id: userId }, select: { clerkUserId: true } });
-  if (input.expectedScope && (input.expectedScope.organizationId !== project.organizationId || input.expectedScope.clerkActorId !== actor.clerkUserId))
+  if (input.expectedScope && (input.expectedScope.organizationId !== project.organizationId || input.expectedScope.clerkActorId !== actorClerkUserId))
     throw new TRPCError({ code: "FORBIDDEN", message: "This procedure request belongs to a different original organization or signed-in actor." });
-  return { projectId: input.projectId, organizationId: project.organizationId, actorClerkUserId: actor.clerkUserId };
+  return { projectId: input.projectId, organizationId: project.organizationId, actorClerkUserId };
 }
 type Procedure = CaseProcedureExport["cases"][number];
 const keys = [
@@ -199,6 +200,7 @@ async function review(
   userId: string,
   input: z.infer<typeof procedureReimportInput>,
   bundle: CaseProcedureExport,
+  capturedClerkActorId: string,
 ) {
   await requireCurrentPlanAccess(tx, userId, input.projectId, true);
   const project = await tx.project.findUniqueOrThrow({
@@ -302,6 +304,7 @@ async function review(
       userId,
       input.projectId,
       incoming.id,
+      capturedClerkActorId,
     );
     if (metadata.problems.length) {
       entry.status = "UNAVAILABLE";
@@ -430,7 +433,10 @@ export async function previewProcedureReimport(
     async (tx) => {
       const scope = await lockedScope(tx, userId, input);
       const bundle = readBundle(input);
-      return { ...(await review(tx, userId, input, bundle)).preview, ...scope };
+      return {
+        ...(await review(tx, userId, input, bundle, scope.actorClerkUserId)).preview,
+        ...scope,
+      };
     },
     {
       isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead,
@@ -491,7 +497,7 @@ export async function approveProcedureReimport(
       ];
       if (prerequisiteIds.length)
         await tx.$queryRaw`SELECT id FROM "TestCase" WHERE "projectId"=${input.projectId} AND id IN (${Prisma.join(prerequisiteIds)}) ORDER BY id FOR SHARE`;
-      const state = await review(tx, userId, input, bundle);
+      const state = await review(tx, userId, input, bundle, scope.actorClerkUserId);
       if (state.preview.expectedReviewHash !== input.expectedReviewHash)
         throw new TRPCError({
           code: "CONFLICT",

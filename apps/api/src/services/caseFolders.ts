@@ -5,6 +5,7 @@ import { z } from "zod";
 import { requireCurrentPlanAccess } from "./testPlanExecution.js";
 import { qualityProfileHash } from "./qualityExperienceProfile.js";
 import { snapshotTestCaseVersion } from "./testCaseVersion.js";
+import { lockCurrentCaseFieldActor } from "./caseFieldReadScope.js";
 import {
   approvedFolderChangeSchema,
   folderChangeSchema,
@@ -270,16 +271,9 @@ export async function folderActorScope(
   projectId: string,
   organizationId: string,
 ) {
-  const actor = await tx.user.findUnique({
-    where: { id: actorId },
-    select: { clerkUserId: true },
-  });
-  if (!actor?.clerkUserId || actor.clerkUserId.length > 200)
-    throw new TRPCError({
-      code: "FORBIDDEN",
-      message: "Current folder actor identity is unavailable.",
-    });
-  return { projectId, organizationId, clerkActorId: actor.clerkUserId };
+  // Callers hold the current Project lock before this scope/body boundary.
+  const clerkActorId = await lockCurrentCaseFieldActor(tx, actorId);
+  return { projectId, organizationId, clerkActorId };
 }
 export async function lockAccess(
   tx: Tx,
