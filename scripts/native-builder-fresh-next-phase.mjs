@@ -388,7 +388,7 @@ function phaseIdentity(origin, parent, chain, phase, budget) {
 }
 /** Flat bounded lineage. Every preceding plan is reconstructed from validated
  * earlier records; no self-asserted completed parent or mutable source donor. */
-export function planNativeFreshNextPhase(input) {
+function planNativeFreshNextPhase(input) {
   keys(input, ["phase", "core", "completedPhases", "budget"]);
   const index = phases.indexOf(input.phase);
   assert.ok(index >= 0, "Final transport and unknown phases are unsupported");
@@ -900,7 +900,7 @@ function validateCompleted(completed, expected, plan) {
 }
 /** Byte validation is not a live build/log observation. Root must retain actual
  * successful request execution and bind expected fingerprints independently. */
-export function validateNativeFreshNextPhaseCompleted(
+function validateNativeFreshNextPhaseCompleted(
   completed,
   expected,
   plan,
@@ -910,3 +910,87 @@ export function validateNativeFreshNextPhaseCompleted(
   assert.deepEqual(plan, planNativeFreshNextPhase(originalInput));
   return validateCompleted(completed, expected, plan);
 }
+
+// Keep the original semantic-hashed renderer above byte-identical: accepted
+// release-unit ancestry describes that exact native operation. This explicit
+// transport revision changes ONLY an oversized API token and its request hash.
+// Do not rewrite a predecessor's actual plan/completed/expected evidence.
+function boundedPhaseTransport(identity) {
+  const plan = assemble(identity);
+  const prefix = "native-fresh-" + identity.phase + "-";
+  assert.ok(phases.includes(identity.phase));
+  assert.match(plan.planSha256, hex);
+  assert.equal(
+    plan.request.idempotencyToken,
+    prefix + plan.planSha256.slice(0, 32),
+  );
+  if (plan.request.idempotencyToken.length <= 64) return plan;
+  const hashCharacters = 64 - prefix.length;
+  assert.ok(hashCharacters >= 31 && hashCharacters < 32);
+  const request = {
+    ...plan.request,
+    idempotencyToken: prefix + plan.planSha256.slice(0, hashCharacters),
+  };
+  assert.equal(request.idempotencyToken.length, 64);
+  return { ...plan, request, requestSha256: sha(JSON.stringify(request)) };
+}
+
+function planNativeFreshNextPhaseBounded(input) {
+  keys(input, ["phase", "core", "completedPhases", "budget"]);
+  const index = phases.indexOf(input.phase);
+  assert.ok(index >= 0, "Final transport and unknown phases are unsupported");
+  assert.ok(
+    Array.isArray(input.completedPhases) &&
+      input.completedPhases.length === index &&
+      index <= 3,
+  );
+  assert.ok(Buffer.byteLength(JSON.stringify(input)) <= 4 * 1024 * 1024);
+  const origin = validatedOrigin(input.core);
+  let parent = input.core.expected,
+    chain = input.core.completed.receiptChain;
+  for (let i = 0; i < index; i++) {
+    const record = input.completedPhases[i];
+    keys(record, ["completed", "expected", "plan"]);
+    assert.equal(record.plan.identity.phase, phases[i]);
+    const derived = boundedPhaseTransport(
+      phaseIdentity(
+        origin,
+        parent,
+        chain,
+        phases[i],
+        bareBudget(record.plan.identity.resources),
+      ),
+    );
+    assert.deepEqual(
+      record.plan,
+      derived,
+      "Exact reviewed bounded preceding phase request required",
+    );
+    const verified = validateCompleted(
+      record.completed,
+      record.expected,
+      derived,
+    );
+    parent = record.expected;
+    chain = verified.chain;
+  }
+  return boundedPhaseTransport(
+    phaseIdentity(origin, parent, chain, input.phase, input.budget),
+  );
+}
+
+function validateNativeFreshNextPhaseBoundedCompleted(
+  completed,
+  expected,
+  plan,
+  originalInput,
+) {
+  assert.ok(Buffer.byteLength(JSON.stringify(plan)) <= 2 * 1024 * 1024);
+  assert.deepEqual(plan, planNativeFreshNextPhaseBounded(originalInput));
+  return validateCompleted(completed, expected, plan);
+}
+
+export {
+  planNativeFreshNextPhaseBounded as planNativeFreshNextPhase,
+  validateNativeFreshNextPhaseBoundedCompleted as validateNativeFreshNextPhaseCompleted,
+};

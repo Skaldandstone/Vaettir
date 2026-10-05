@@ -738,6 +738,147 @@ test("fresh complete release-unit and fixed assertion phases have deterministic 
   assert.equal(records[3].plan.identity.successorPhase, "final");
 });
 
+test("all supported phase idempotency tokens retain explicit phase and >=31 hash characters within CodeBuild's 64-character limit", () => {
+  const tokens = [];
+  for (const f of sequence()) {
+    const prefix = "native-fresh-" + f.input.phase + "-";
+    const token = f.plan.request.idempotencyToken;
+    assert.ok(token.length <= 64, f.input.phase + ": " + token.length);
+    assert.ok(token.startsWith(prefix));
+    assert.equal(
+      token.slice(prefix.length),
+      f.plan.planSha256.slice(0, Math.min(32, 64 - prefix.length)),
+    );
+    assert.ok(token.length - prefix.length >= 31);
+    assert.equal(
+      token,
+      planNativeFreshNextPhase(f.input).request.idempotencyToken,
+    );
+    assert.equal(f.plan.requestSha256, hash(JSON.stringify(f.plan.request)));
+    const changed = structuredClone(f.input);
+    changed.budget.compileSeconds = 1800;
+    const other = planNativeFreshNextPhase(changed);
+    assert.notEqual(other.request.idempotencyToken, token);
+    assert.ok(other.request.idempotencyToken.length <= 64);
+    tokens.push(token);
+  }
+  assert.equal(new Set(tokens).size, 4);
+});
+
+test("legacy valid release-unit plan/request stays byte-identical and only the oversized assertion transport token/hash changes", async () => {
+  // Evaluate ONLY the maintained pure renderer in memory with its explicit
+  // original public aliases. No actual release artifacts or cloud imports.
+  let source = readFileSync(
+    new URL("./native-builder-fresh-next-phase.mjs", import.meta.url),
+    "utf8",
+  );
+  assert.ok(Buffer.byteLength(source) <= 512 * 1024);
+  const aliases =
+    /export \{\s*planNativeFreshNextPhaseBounded as planNativeFreshNextPhase,\s*validateNativeFreshNextPhaseBoundedCompleted as validateNativeFreshNextPhaseCompleted,\s*\};/g;
+  assert.equal([...source.matchAll(aliases)].length, 1);
+  source = source.replace(
+    aliases,
+    "export { planNativeFreshNextPhase, validateNativeFreshNextPhaseCompleted };",
+  );
+  for (const name of [
+    "native-builder-fresh-core.mjs",
+    "native-builder-continuation.mjs",
+    "native-builder-fresh-prepare.mjs",
+    "native-builder-recovery.mjs",
+  ]) {
+    const before = 'from "./' + name + '";';
+    assert.equal(source.split(before).length, 2);
+    source = source.replace(
+      before,
+      "from " +
+        JSON.stringify(new URL("./" + name, import.meta.url).href) +
+        ";",
+    );
+  }
+  assert.ok(!source.includes('from "./'));
+  const legacy = await import(
+    "data:text/javascript;base64," + Buffer.from(source).toString("base64")
+  );
+  const records = sequence();
+  const original = legacy.planNativeFreshNextPhase(records[0].input);
+  assert.deepEqual(records[0].plan, original);
+  assert.equal(JSON.stringify(records[0].plan), JSON.stringify(original));
+  assert.equal(original.request.idempotencyToken.length, 59);
+  assert.equal(
+    original.request.idempotencyToken,
+    "native-fresh-release-units-" + original.planSha256.slice(0, 32),
+  );
+  const prior = legacy.planNativeFreshNextPhase(records[1].input);
+  assert.equal(prior.request.idempotencyToken.length, 65);
+  assert.equal(records[1].plan.request.idempotencyToken.length, 64);
+  const request = {
+    ...prior.request,
+    idempotencyToken:
+      "native-fresh-assertion-compile-1-" + prior.planSha256.slice(0, 31),
+  };
+  assert.deepEqual(records[1].plan, {
+    ...prior,
+    request,
+    requestSha256: hash(JSON.stringify(request)),
+  });
+  assert.notEqual(records[1].plan.requestSha256, prior.requestSha256);
+  assert.equal(records[1].plan.planSha256, prior.planSha256);
+  assert.equal(records[1].plan.buildspecSha256, prior.buildspecSha256);
+});
+
+test("corrected assertion predecessors are rederived strictly without rewriting completed request hashes or accepting oversized/forged tokens", () => {
+  const records = sequence();
+  for (const f of records) {
+    for (const token of [
+      f.plan.request.idempotencyToken + "0",
+      "native-fresh-other-" + f.plan.planSha256.slice(0, 31),
+      f.plan.request.idempotencyToken.slice(0, -1),
+    ]) {
+      const bad = structuredClone(f);
+      bad.plan.request.idempotencyToken = token;
+      bad.plan.requestSha256 = hash(JSON.stringify(bad.plan.request));
+      bad.expected.requestSha256 = bad.plan.requestSha256;
+      bad.completed.requestSha256 = bad.plan.requestSha256;
+      assert.throws(() =>
+        validateNativeFreshNextPhaseCompleted(
+          bad.completed,
+          bad.expected,
+          bad.plan,
+          bad.input,
+        ),
+      );
+    }
+  }
+  for (const f of records.slice(2)) {
+    // Each actual corrected assertion predecessor must validate independently;
+    // changing even its whole request/completed/expected hashes cannot repair it.
+    for (let n = 1; n < f.input.completedPhases.length; n++) {
+      const bad = structuredClone(f.input);
+      const parent = bad.completedPhases[n];
+      parent.plan.request.idempotencyToken =
+        "native-fresh-" +
+        parent.plan.identity.phase +
+        "-" +
+        parent.plan.planSha256.slice(0, 32);
+      assert.equal(parent.plan.request.idempotencyToken.length, 65);
+      parent.plan.requestSha256 = hash(JSON.stringify(parent.plan.request));
+      parent.expected.requestSha256 = parent.plan.requestSha256;
+      parent.completed.requestSha256 = parent.plan.requestSha256;
+      assert.throws(() => planNativeFreshNextPhase(bad));
+    }
+    assert.deepEqual(planNativeFreshNextPhase(f.input), f.plan);
+    assert.equal(
+      validateNativeFreshNextPhaseCompleted(
+        f.completed,
+        f.expected,
+        f.plan,
+        f.input,
+      ).phase,
+      f.input.phase,
+    );
+  }
+});
+
 test("fixed no-bytecode policy is bound to every plan/request and actual phase process without changing the native recipe", () => {
   for (const f of sequence()) {
     const p = f.plan;
