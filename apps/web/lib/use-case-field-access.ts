@@ -78,6 +78,15 @@ export function useCaseFieldAccess(
       canEdit: !!fresh?.canEdit,
       canConfigure: !!fresh?.canConfigure,
     };
+    // An in-flight save may outlive this instance. Revoke its side-effect
+    // authority before another case/account can mount or reuse the cache.
+    return () => {
+      accessNow.current = {
+        current: null,
+        canEdit: false,
+        canConfigure: false,
+      };
+    };
   }, [current, fresh]);
   function owns(
     original: CaseFieldOrigin,
