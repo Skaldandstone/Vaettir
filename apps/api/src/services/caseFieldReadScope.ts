@@ -40,6 +40,30 @@ export const caseFieldReadScopeSchema = z
   .strict();
 export type CaseFieldReadAuthorization = { clerkActorId: string };
 
+/** Acquire after the project lock and before case bodies or receipt lookup.
+ * Keep the current native mapping stable for the entire caller transaction. */
+export async function lockCurrentCaseFieldActor(
+  tx: Prisma.TransactionClient,
+  userId: string,
+  authorized?: CaseFieldReadAuthorization,
+) {
+  const [actor] = await tx.$queryRaw<
+    Array<{ clerkUserId: string | null }>
+  >`
+    SELECT CASE WHEN length("clerkUserId") BETWEEN 1 AND 200 THEN "clerkUserId" ELSE NULL END AS "clerkUserId"
+    FROM "User" WHERE id=${userId} FOR SHARE`;
+  if (
+    !actor?.clerkUserId ||
+    (authorized !== undefined && actor.clerkUserId !== authorized.clerkActorId)
+  ) {
+    throw new TRPCError({
+      code: "FORBIDDEN",
+      message: "Current signed-in actor access is required. Retained metadata requests were not rebound.",
+    });
+  }
+  return actor.clerkUserId;
+}
+
 /** Caller owns the bounded RR transaction. Inputs pin intent; they never grant
  * access. Router callers supply the independently authenticated Clerk identity;
  * legacy direct callers still resolve the current DB mapping under locks. */
@@ -90,11 +114,7 @@ export async function lockCaseFieldReadScope(
   const [project] = await tx.$queryRaw<
     Array<{ organizationId: string }>
   >`SELECT "organizationId" FROM "Project" WHERE id=${input.projectId} FOR SHARE`;
-  const [actor] = await tx.$queryRaw<
-    Array<{ clerkUserId: string | null }>
-  >`
-    SELECT CASE WHEN length("clerkUserId") BETWEEN 1 AND 200 THEN "clerkUserId" ELSE NULL END AS "clerkUserId"
-    FROM "User" WHERE id=${userId} FOR SHARE`;
+  const actorClerkUserId = await lockCurrentCaseFieldActor(tx, userId, authorized);
   if (
     !organization ||
     organization.suspendedAt ||
@@ -104,10 +124,8 @@ export async function lockCaseFieldReadScope(
     ) ||
     !["FULL", "READ_ONLY"].includes(member.seatType) ||
     project?.organizationId !== original.organizationId ||
-    !actor?.clerkUserId ||
-    (authorized !== undefined && actor.clerkUserId !== authorized.clerkActorId) ||
     (input.expectedClerkActorId !== undefined &&
-      actor.clerkUserId !== input.expectedClerkActorId)
+      actorClerkUserId !== input.expectedClerkActorId)
   ) {
     throw new TRPCError({
       code: "FORBIDDEN",
@@ -129,6 +147,6 @@ export async function lockCaseFieldReadScope(
     projectId: input.projectId,
     organizationId: original.organizationId,
     actorId: userId,
-    actorClerkUserId: actor.clerkUserId,
+    actorClerkUserId,
   });
 }

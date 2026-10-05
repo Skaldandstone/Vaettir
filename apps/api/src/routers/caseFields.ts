@@ -46,7 +46,9 @@ export const caseFieldsRouter = router({
     .output(caseFieldWriteOutput)
     .mutation(async ({ ctx, input }) => {
       await requireProjectAccess(ctx, input.projectId, "EDITOR");
-      return restoreCaseFieldHistory(ctx.prisma, ctx.user.id, input);
+      return restoreCaseFieldHistory(ctx.prisma, ctx.user.id, input, {
+        clerkActorId: ctx.user.clerkUserId,
+      });
     }),
   get: protectedProcedure
     .input(caseFieldScope)
@@ -62,20 +64,26 @@ export const caseFieldsRouter = router({
     .output(caseFieldImpactOutput)
     .mutation(async ({ ctx, input }) => {
       await requireProjectAccess(ctx, input.projectId, "ADMIN");
-      return reviewCaseFieldSchema(ctx.prisma, ctx.user.id, input);
+      return reviewCaseFieldSchema(ctx.prisma, ctx.user.id, input, {
+        clerkActorId: ctx.user.clerkUserId,
+      });
     }),
   configure: protectedProcedure
     .input(caseFieldSchemaApproval)
     .output(caseFieldWriteOutput)
     .mutation(async ({ ctx, input }) => {
       await requireProjectAccess(ctx, input.projectId, "ADMIN");
-      return configureCaseFields(ctx.prisma, ctx.user.id, input);
+      return configureCaseFields(ctx.prisma, ctx.user.id, input, {
+        clerkActorId: ctx.user.clerkUserId,
+      });
     }),
   save: protectedProcedure
     .input(caseFieldValueSave)
     .output(caseFieldWriteOutput)
     .mutation(async ({ ctx, input }) => {
       await requireProjectAccess(ctx, input.projectId, "EDITOR");
-      return saveCaseFields(ctx.prisma, ctx.user.id, input);
+      return saveCaseFields(ctx.prisma, ctx.user.id, input, {
+        clerkActorId: ctx.user.clerkUserId,
+      });
     }),
 });

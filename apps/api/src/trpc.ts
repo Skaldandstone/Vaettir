@@ -48,9 +48,12 @@ export async function createContext({ req }: CreateFastifyContextOptions) {
       ? await resolveApiKeyUser(token)
       : await verifyClerkSessionToken(token).then((clerkUserId) =>
           clerkUserId
-            ? getOrCreateLocalUser(clerkUserId).then((u) =>
-                prisma.user.findUniqueOrThrow({ where: { id: u.id }, include: { memberships: true } }),
-              )
+            ? getOrCreateLocalUser(clerkUserId).then(async (u) => {
+                const current = await prisma.user.findUniqueOrThrow({ where: { id: u.id }, include: { memberships: true } });
+                // Verified-email recovery can remap this native row between
+                // mirroring and rereading. Never replace the verified JWT subject.
+                return current.clerkUserId === clerkUserId ? current : null;
+              })
             : null,
         );
 

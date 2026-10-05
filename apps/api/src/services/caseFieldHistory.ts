@@ -18,6 +18,7 @@ import {
   pairedCaseFieldReadPins,
   caseFieldReadScopeSchema,
   lockCaseFieldReadScope,
+  lockCurrentCaseFieldActor,
   type CaseFieldReadAuthorization,
 } from "./caseFieldReadScope.js";
 const id = z.string().min(1).max(200),
@@ -541,6 +542,7 @@ export async function restoreCaseFieldHistory(
   db: PrismaClient,
   userId: string,
   input: z.infer<typeof fieldHistoryRestoreInput>,
+  authentication?: CaseFieldReadAuthorization,
 ) {
   if (input.actorId !== userId)
     throw new TRPCError({
@@ -550,6 +552,7 @@ export async function restoreCaseFieldHistory(
   return db.$transaction(
     async (tx) => {
       await lockCaseFieldProject(tx, userId, input.projectId);
+      await lockCurrentCaseFieldActor(tx, userId, authentication);
       await tx.$queryRaw`SELECT id FROM "TestCase" WHERE id=${input.caseId} AND "projectId"=${input.projectId} FOR UPDATE`;
       await readCaseFieldState(tx, userId, input.projectId, input.caseId);
       const prior = await replayCaseFieldWrite(
@@ -611,6 +614,7 @@ export async function restoreCaseFieldHistory(
           side: input.side,
           sourceHash: input.expectedSourceHash,
         },
+        authentication,
       );
     },
     { timeout: 15000 },

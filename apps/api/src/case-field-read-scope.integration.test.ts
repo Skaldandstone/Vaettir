@@ -162,6 +162,89 @@ describe("case-field current native actor and original-organization read scope",
     }
     expect(await retained(f)).toEqual(before);
   });
+  it("refuses metadata review configure save and restore after independent native Clerk remap", async () => {
+    // Each operation gets its own freshly eligible baseline. A missing guard
+    // that changes definitions/values cannot manufacture a later CAS refusal
+    // and accidentally make the other operation appear protected.
+    for (const operation of ["reviewSchema", "configure", "save", "restore"] as const) {
+      const f = await fixture();
+      const nextSchema = { ...schema, fields: schema.fields.map((field) => ({ ...field, label: "Reviewed next synthetic context" })) };
+      const impact = await owner.caseFields.reviewSchema({ projectId: f.project.id, schema: nextSchema });
+      const configure = {
+        projectId: f.project.id, schema: nextSchema, actorId: impact.actorId,
+        expectedSchemaHash: impact.expectedSchemaHash, expectedImpactHash: impact.expectedImpactHash,
+        reason: "Eligible synthetic definitions reviewed before remap", confirmed: true as const, requestId: randomUUID(),
+      };
+      const current = await owner.caseFields.get({ projectId: f.project.id, caseId: f.testCase.id });
+      const save = {
+        projectId: f.project.id, caseId: f.testCase.id,
+        expectedSchemaHash: current.expectedSchemaHash, expectedValueHash: current.expectedValueHash,
+        values: { context: "New independent | reviewed\nvalue" }, reason: "Eligible synthetic metadata reviewed before remap",
+        confirmed: true as const, requestId: randomUUID(),
+      };
+      const preview = await owner.caseFields.previewRestore({
+        projectId: f.project.id, caseId: f.testCase.id, auditId: f.audit.id, side: "BEFORE", ...pins(),
+      });
+      expect(preview.canRestore).toBe(true);
+      const restore = {
+        projectId: f.project.id, caseId: f.testCase.id, auditId: f.audit.id, side: "BEFORE" as const,
+        actorId: preview.actorId, expectedSchemaHash: preview.expectedSchemaHash,
+        expectedValueHash: preview.expectedValueHash, expectedSourceHash: preview.expectedSourceHash,
+        reason: "Eligible synthetic restore reviewed before remap", confirmed: true as const, requestId: randomUUID(),
+      };
+      const before = await retained(f);
+      const projectBefore = await prisma.project.findUniqueOrThrow({ where: { id: f.project.id } });
+      const remapped = `${tag}-writer-${operation}-${randomUUID()}`;
+      await prisma.user.update({ where: { id: ownerUser.id }, data: { clerkUserId: remapped } });
+      try {
+        const invoke = () => {
+          if (operation === "reviewSchema") return owner.caseFields.reviewSchema({ projectId: f.project.id, schema: nextSchema });
+          if (operation === "configure") return owner.caseFields.configure(configure);
+          if (operation === "save") return owner.caseFields.save(save);
+          return owner.caseFields.restore(restore);
+        };
+        // Soft assertions preserve real before-fix evidence for all four
+        // independent operations instead of stopping after the first gap.
+        const outcome = await invoke().then(
+          () => ({ accepted: true as const }),
+          (error: unknown) => ({ accepted: false as const, error }),
+        );
+        expect.soft(outcome.accepted, `${operation} must refuse retained ctx A after native mapping B`).toBe(false);
+        if (!outcome.accepted) expect.soft(outcome.error).toMatchObject({ code: "FORBIDDEN" });
+        expect.soft(await retained(f), `${operation} must preserve full procedure versions and audits`).toEqual(before);
+        expect.soft(await prisma.project.findUniqueOrThrow({ where: { id: f.project.id } }), `${operation} must preserve exact definitions/version`).toEqual(projectBefore);
+      } finally {
+        await prisma.user.update({ where: { id: ownerUser.id }, data: { clerkUserId: ownerUser.clerkUserId } });
+      }
+    }
+  });
+  it("refuses exact accepted metadata receipt replay after native Clerk remap without consuming or changing history", async () => {
+    const f = await fixture(), before = await retained(f);
+    const projectBefore = await prisma.project.findUniqueOrThrow({ where: { id: f.project.id } });
+    // The reviewed fixture saved this exact UUID/body once. Current A access
+    // must recover it unchanged, before the native mapping becomes B.
+    expect(await owner.caseFields.save(f.request)).toEqual({ requestId: f.request.requestId, replayed: true });
+    expect(await retained(f)).toEqual(before);
+    await prisma.user.update({ where: { id: ownerUser.id }, data: { clerkUserId: `${tag}-accepted-replay-${randomUUID()}` } });
+    try {
+      const outcome = await owner.caseFields.save(f.request).then(
+        () => ({ accepted: true as const }),
+        (error: unknown) => ({ accepted: false as const, error }),
+      );
+      expect.soft(outcome.accepted, "Native remapping must forbid replay before receipt success").toBe(false);
+      if (!outcome.accepted) expect.soft(outcome.error).toMatchObject({ code: "FORBIDDEN" });
+      expect.soft(await retained(f)).toEqual(before);
+      expect.soft(await prisma.project.findUniqueOrThrow({ where: { id: f.project.id } })).toEqual(projectBefore);
+      expect.soft(await prisma.auditLog.findUniqueOrThrow({ where: { id: f.audit.id } })).toEqual(f.audit);
+      expect.soft(await prisma.auditLog.count({ where: {
+        projectId: f.project.id, actorId: ownerUser.id, entityType: "CaseFieldValueWrite", entityId: f.request.requestId,
+      } })).toBe(1);
+    } finally {
+      await prisma.user.update({ where: { id: ownerUser.id }, data: { clerkUserId: ownerUser.clerkUserId } });
+    }
+    expect(await owner.caseFields.save(f.request)).toEqual({ requestId: f.request.requestId, replayed: true });
+    expect(await retained(f)).toEqual(before);
+  });
   it("never returns another project's case or audit and never repins an original-org request after reparenting", async () => {
     const f = await fixture(), other = await fixture(), foreign = await fixture(otherOrganizationId);
     const before = await retained(f), foreignBefore = await retained(foreign);

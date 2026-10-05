@@ -13,6 +13,7 @@ import {
   pairedCaseFieldReadPins,
   caseFieldReadScopeSchema,
   lockCaseFieldReadScope,
+  lockCurrentCaseFieldActor,
   type CaseFieldReadAuthorization,
 } from "./caseFieldReadScope.js";
 const id = z.string().min(1).max(200),
@@ -323,8 +324,12 @@ export async function reviewCaseFieldSchema(
   db: PrismaClient,
   userId: string,
   input: z.infer<typeof caseFieldSchemaReview>,
+  authorized?: CaseFieldReadAuthorization,
 ) {
-  return db.$transaction((tx) => schemaImpact(tx, userId, input), {
+  return db.$transaction(async (tx) => {
+    await lockCaseFieldReadScope(tx, userId, input, authorized);
+    return schemaImpact(tx, userId, input);
+  }, {
     isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead,
     timeout: 10000,
   });
@@ -404,6 +409,7 @@ export async function configureCaseFields(
   db: PrismaClient,
   userId: string,
   input: z.infer<typeof caseFieldSchemaApproval>,
+  authorized?: CaseFieldReadAuthorization,
 ) {
   if (input.actorId !== userId)
     throw new TRPCError({
@@ -413,6 +419,7 @@ export async function configureCaseFields(
   return db.$transaction(
     async (tx) => {
       await lockCaseFieldProject(tx, userId, input.projectId);
+      await lockCurrentCaseFieldActor(tx, userId, authorized);
       const state = await readCaseFieldState(tx, userId, input.projectId);
       if (!state.canConfigure)
         throw new TRPCError({
@@ -483,8 +490,10 @@ export async function saveCaseFieldsInTransaction(
     side: "BEFORE" | "AFTER";
     sourceHash: string;
   },
+  authorized?: CaseFieldReadAuthorization,
 ) {
   await lockCaseFieldProject(tx, userId, input.projectId);
+  await lockCurrentCaseFieldActor(tx, userId, authorized);
   await tx.$queryRaw`SELECT id FROM "TestCase" WHERE id=${input.caseId} AND "projectId"=${input.projectId} FOR UPDATE`;
   const state = await readCaseFieldState(
     tx,
@@ -554,9 +563,10 @@ export async function saveCaseFields(
   db: PrismaClient,
   userId: string,
   input: z.infer<typeof caseFieldValueSave>,
+  authorized?: CaseFieldReadAuthorization,
 ) {
   return db.$transaction(
-    (tx) => saveCaseFieldsInTransaction(tx, userId, input),
+    (tx) => saveCaseFieldsInTransaction(tx, userId, input, undefined, authorized),
     { timeout: 10000 },
   );
 }
