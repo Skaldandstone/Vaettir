@@ -37,9 +37,9 @@ test("restore comparison rejects cached error fetching or paused state and requi
 test("exact uncertain restore survives close and preserves separate captured current proposed values", () => {
   const source = read("../components/CaseFieldHistory.tsx");
   assert.match(source, /pending \?\? \{/);
-  assert.match(source, /retainedTraceabilityReceipt\(attempt, error\)/);
+  assert.match(source, /retainedCaseFieldReceipt\(attempt, error\)/);
   assert.match(source, /restore\.mutateAsync\(attempt\.input\)/);
-  assert.match(source, /Closing this dialog\s+does not discard it/);
+  assert.match(source, /Closing this\s+dialog\s+does not discard it/);
   assert.match(source, /Retry exact metadata restore/);
   assert.match(source, /expectedSourceHash: baseline\.expectedSourceHash/);
   for (const label of [

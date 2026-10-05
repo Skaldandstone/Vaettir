@@ -6,9 +6,12 @@ import {
   type RouterOutputs,
 } from "@/lib/trpcReact";
 import {
-  retainedTraceabilityReceipt,
-  type TraceabilityReceipt,
-} from "@/lib/traceability-receipt";
+  retainedCaseFieldReceipt,
+  assertCaseFieldAcknowledgement,
+  sameCaseFieldOrigin,
+  type CaseFieldReceipt,
+} from "@/lib/case-field-origin";
+import { useCaseFieldAccess } from "@/lib/use-case-field-access";
 import { Modal } from "./Modal";
 type Page = RouterOutputs["caseFields"]["history"];
 type Preview = RouterOutputs["caseFields"]["previewRestore"];
@@ -30,21 +33,23 @@ export function CaseFieldHistory({
 }
 function History({ projectId, caseId }: { projectId: string; caseId: string }) {
   const utils = trpcReact.useUtils();
+  const access = useCaseFieldAccess(projectId, caseId);
   const [expanded, setExpanded] = useState(false),
     [cursor, setCursor] = useState<
       NonNullable<Page["nextCursor"]> | undefined
     >(),
     [selection, setSelection] = useState<Selection | null>(null),
     [open, setOpen] = useState(false);
-  const [pending, setPending] = useState<TraceabilityReceipt<
+  const [pending, setPending] = useState<CaseFieldReceipt<
       RouterInputs["caseFields"]["restore"]
     > | null>(null),
     [notice, setNotice] = useState<string | null>(null);
   const query = trpcReact.caseFields.history.useQuery(
     { projectId, caseId, cursor, take: 10 },
-    { enabled: expanded, retry: false, staleTime: 0 },
+    { enabled: expanded && access.authReady, retry: false, staleTime: 0 },
   );
   const fresh =
+    access.readable &&
     !query.error &&
     !query.isFetching &&
     !query.isPaused &&
@@ -53,33 +58,59 @@ function History({ projectId, caseId }: { projectId: string; caseId: string }) {
       ? query.data
       : null;
   const restore = trpcReact.caseFields.restore.useMutation();
+  const pendingReadable =
+    access.readable &&
+    !!pending &&
+    sameCaseFieldOrigin(pending.origin, access.current);
   function show(value: Selection) {
-    if (restore.isPending) return;
+    if (restore.isPending || pending || !fresh) return;
     setSelection(value);
     setNotice(null);
     setOpen(true);
   }
   async function commit(input: RouterInputs["caseFields"]["restore"]) {
-    if (restore.isPending) return;
-    const attempt = pending ?? { input, uncertain: false };
+    if (
+      restore.isPending ||
+      !access.origin ||
+      !access.canEdit ||
+      !access.owns(pending?.origin ?? access.origin, "edit")
+    )
+      return;
+    const attempt = pending ?? {
+      input,
+      uncertain: false,
+      origin: access.origin,
+    };
     setPending(attempt);
     setNotice(null);
     try {
       const result = await restore.mutateAsync(attempt.input);
+      assertCaseFieldAcknowledgement(result, attempt.input.requestId);
       setPending(null);
-      setOpen(false);
-      setSelection(null);
-      setCursor(undefined);
       setNotice(
         result.replayed
           ? "Confirmed the previous metadata restore."
           : "Restored reviewed active metadata as a new audited save. Procedures and retained outputs were not replaced.",
       );
-      void utils.caseFields.history.invalidate({ projectId, caseId });
-      void utils.caseFields.get.invalidate({ projectId, caseId });
-      void utils.testCases.byId.invalidate({ id: caseId });
+      // Consume only the acknowledged original receipt, never another actor's UI.
+      if (!access.owns(attempt.origin)) return;
+      setOpen(false);
+      setSelection(null);
+      setCursor(undefined);
+      void Promise.all([
+        utils.caseFields.history.invalidate({ projectId, caseId }),
+        utils.caseFields.get.invalidate({ projectId, caseId }),
+        utils.testCases.byId.invalidate({ id: caseId }),
+      ]).catch(() => {
+        // The mounted access origin never rebases. Retain this acknowledgement
+        // notice even while reads fail; render it only under original access.
+        setNotice(
+          "The metadata restore was acknowledged, but refreshed reads failed. Retry reading; do not submit the accepted restore again.",
+        );
+      });
     } catch (error) {
-      setPending(retainedTraceabilityReceipt(attempt, error));
+      setPending(retainedCaseFieldReceipt(attempt, error));
+      if (!access.owns(attempt.origin)) return;
       setNotice(
         error instanceof Error
           ? error.message
@@ -94,6 +125,12 @@ function History({ projectId, caseId }: { projectId: string; caseId: string }) {
         onToggle={(event) => setExpanded(event.currentTarget.open)}
       >
         <summary>Metadata changes and reviewed restore</summary>
+        {!access.readable && (
+          <p role="status">
+            Original account and workspace access is unavailable. Metadata
+            history, drafts and retry requests remain retained but hidden.
+          </p>
+        )}
         {query.error && (
           <p role="alert">
             Metadata history could not be refreshed.{" "}
@@ -168,7 +205,7 @@ function History({ projectId, caseId }: { projectId: string; caseId: string }) {
           </>
         )}
       </details>
-      {pending && (
+      {pendingReadable && (
         <button
           type="button"
           className="btn-secondary"
@@ -177,42 +214,54 @@ function History({ projectId, caseId }: { projectId: string; caseId: string }) {
           Resume exact metadata restore
         </button>
       )}
-      {notice && !open && <p role="status">{notice}</p>}
+      {access.readable && notice && !open && <p role="status">{notice}</p>}
       <Modal
         open={open}
         onClose={() => setOpen(false)}
         dismissible={!restore.isPending}
         size="wide"
         title="Review captured case metadata"
+        keepMounted={!!selection || !!pending}
       >
         {pending ? (
-          <>
+          pendingReadable ? (
+            <>
+              <p role="status">
+                Request {pending.input.requestId} is retained. Closing this
+                dialog does not discard it. Retry its exact identity to confirm
+                whether it committed.
+              </p>
+              {notice && <p role="alert">{notice}</p>}
+              <button
+                type="button"
+                className="btn-primary"
+                disabled={restore.isPending || !access.canEdit}
+                onClick={() => void commit(pending.input)}
+              >
+                {restore.isPending
+                  ? "Confirming…"
+                  : "Retry exact metadata restore"}
+              </button>
+            </>
+          ) : (
             <p role="status">
-              Request {pending.input.requestId} is retained. Closing this dialog
-              does not discard it. Retry its exact identity to confirm whether
-              it committed.
+              The original restore request remains retained but hidden. Return
+              to its original account and workspace and refresh current access
+              before retrying.
             </p>
-            {notice && <p role="alert">{notice}</p>}
-            <button
-              type="button"
-              className="btn-primary"
-              disabled={restore.isPending}
-              onClick={() => void commit(pending.input)}
-            >
-              {restore.isPending
-                ? "Confirming…"
-                : "Retry exact metadata restore"}
-            </button>
-          </>
+          )
         ) : (
           selection && (
             <Comparison
-              key={`${selection.auditId}:${open}`}
+              key={selection.auditId}
               projectId={projectId}
               caseId={caseId}
               selection={selection}
               onSelection={setSelection}
               busy={restore.isPending}
+              readable={open && access.readable}
+              canEdit={access.canEdit}
+              readEnabled={open && access.authReady}
               notice={notice}
               onCommit={(input) => void commit(input)}
             />
@@ -228,6 +277,9 @@ function Comparison({
   selection,
   onSelection,
   busy,
+  readable,
+  canEdit,
+  readEnabled,
   notice,
   onCommit,
 }: {
@@ -236,12 +288,16 @@ function Comparison({
   selection: Selection;
   onSelection: (selection: Selection) => void;
   busy: boolean;
+  readable: boolean;
+  canEdit: boolean;
+  readEnabled: boolean;
   notice: string | null;
   onCommit: (input: RouterInputs["caseFields"]["restore"]) => void;
 }) {
   const query = trpcReact.caseFields.previewRestore.useQuery(
     { projectId, caseId, ...selection },
     {
+      enabled: readEnabled,
       retry: false,
       staleTime: 0,
       refetchOnMount: "always",
@@ -252,6 +308,7 @@ function Comparison({
     [reason, setReason] = useState(""),
     [confirmed, setConfirmed] = useState(false);
   const fresh =
+    readable &&
     !query.error &&
     !query.isFetching &&
     !query.isPaused &&
@@ -264,13 +321,17 @@ function Comparison({
   useEffect(() => {
     if (!baseline && fresh) setBaseline(fresh);
   }, [baseline, fresh]);
+  useEffect(() => {
+    if (!fresh || !canEdit) setConfirmed(false);
+  }, [fresh, canEdit]);
   const changed =
     !!baseline &&
     !!fresh &&
     (baseline.expectedSchemaHash !== fresh.expectedSchemaHash ||
       baseline.expectedValueHash !== fresh.expectedValueHash ||
       baseline.expectedSourceHash !== fresh.expectedSourceHash);
-  const ready = !!baseline && !!fresh && !changed && fresh.canRestore && !busy;
+  const ready =
+    !!baseline && !!fresh && !changed && canEdit && fresh.canRestore && !busy;
   function choose(side: Selection["side"]) {
     setBaseline(null);
     setReason("");
@@ -292,13 +353,22 @@ function Comparison({
       requestId: crypto.randomUUID(),
     });
   }
+  // Keep the comparison component and human state mounted; render no private
+  // row, definition, reason or cached notice while access/current reads fail.
+  if (!readable)
+    return (
+      <p role="status">
+        Original account and workspace access is unavailable. Your comparison
+        and reason remain retained but hidden.
+      </p>
+    );
   return (
     <>
       <label>
         Recorded values
         <select
           value={selection.side}
-          disabled={busy || query.isFetching}
+          disabled={busy || !fresh}
           onChange={(event) => choose(event.target.value as Selection["side"])}
         >
           <option value="AFTER">After this metadata change</option>
@@ -336,7 +406,7 @@ function Comparison({
           </button>
         </p>
       )}
-      {baseline && (
+      {baseline && fresh && (
         <>
           <p>
             Captured schema version{" "}
@@ -428,7 +498,7 @@ function Comparison({
               {problem}
             </p>
           ))}
-          {baseline.canRestore && (
+          {canEdit && baseline.canRestore && (
             <>
               <label>
                 Reason for restoring active values (required)
@@ -464,7 +534,7 @@ function Comparison({
           )}
         </>
       )}
-      {notice && <p role="alert">{notice}</p>}
+      {fresh && notice && <p role="alert">{notice}</p>}
     </>
   );
 }

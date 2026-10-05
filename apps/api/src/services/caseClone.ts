@@ -14,6 +14,7 @@ import {
 } from "./caseFieldSchema.js";
 import {
   assertCaseFieldAuthoring,
+  caseFieldAuthoringSchemaHash,
   lockCaseFieldProject,
 } from "./caseFields.js";
 import {
@@ -215,12 +216,15 @@ export async function sourceState(
       code: "BAD_REQUEST",
       message: `${source.displayId} cannot be copied without losing or invalidating human metadata: ${fieldProblems.join(" ")} Complete required source fields, or ask the project owner to restore a compatible active definition for retained fields.`,
     });
-  const expectedFieldSchemaHash = qualityProfileHash({
+  // Source-content identity stays actor-independent for existing clone reviews.
+  // This private capture is reused only after the original source revision check.
+  const fieldSchemaScope = {
     projectId: input.projectId,
     organizationId: projectFields.organizationId,
     version: projectFields.caseFieldSchemaVersion,
     schema: fieldSchema,
-  });
+  };
+  const expectedFieldSchemaHash = qualityProfileHash(fieldSchemaScope);
   const mediaReferencesExcluded = steps.reduce(
     (sum, s) => sum + (s.mediaAttachmentIds?.length ?? 0),
     0,
@@ -239,6 +243,7 @@ export async function sourceState(
     authoredSteps,
     authoredFields,
     expectedFieldSchemaHash,
+    fieldSchemaScope,
     preview: {
       sourceId: source.id,
       sourceDisplayId: source.displayId,
@@ -660,7 +665,10 @@ export async function createCaseCloneInTransaction(
     });
   const fields = await assertCaseFieldAuthoring(tx, userId, input.projectId, {
     values: state.authoredFields,
-    expectedSchemaHash: state.expectedFieldSchemaHash,
+    expectedSchemaHash: caseFieldAuthoringSchemaHash(
+      state.fieldSchemaScope,
+      userId,
+    ),
   });
   const created = await tx.testCase.create({
     data: {

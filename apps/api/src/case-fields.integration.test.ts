@@ -93,7 +93,11 @@ describe("reviewed typed project case fields", () => {
     }
     // Retain dedicated synthetic users: deletion receipts intentionally retain their actor FK.
     for (const organizationId of orgIds)
-      expect(await prisma.organizationDeletionLog.count({ where: { organizationId, deletedById: actorId } })).toBe(1);
+      expect(
+        await prisma.organizationDeletionLog.count({
+          where: { organizationId, deletedById: actorId },
+        }),
+      ).toBe(1);
   });
   async function project() {
     return owner.project.create({
@@ -145,8 +149,9 @@ describe("reviewed typed project case fields", () => {
     projectId: string,
     caseId: string,
     values: Record<string, string | number | boolean | null>,
+    caller: Caller = owner,
   ) {
-    const state = await owner.caseFields.get({ projectId, caseId });
+    const state = await caller.caseFields.get({ projectId, caseId });
     return {
       projectId,
       caseId,
@@ -233,7 +238,9 @@ describe("reviewed typed project case fields", () => {
     await expect(
       owner.caseFields.get({ projectId: other.id, caseId: c.id }),
     ).rejects.toMatchObject({ code: "NOT_FOUND" });
-    await editor.caseFields.save(await write(p.id, c.id, { component: "API" }));
+    await editor.caseFields.save(
+      await write(p.id, c.id, { component: "API" }, editor),
+    );
     expect(
       (await owner.caseFields.get({ projectId: p.id, caseId: c.id })).problems,
     ).toEqual([]);

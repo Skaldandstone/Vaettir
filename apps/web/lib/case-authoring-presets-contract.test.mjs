@@ -51,7 +51,10 @@ test("prefill preserves a separate new human draft rather than replacing a case 
     ) || form.includes('mode === "create" && !testCaseId'),
   );
   assert.ok(fields.includes("initial.expectedSchemaHash"));
-  assert.ok(fields.includes("active &&"));
+  assert.match(fields, /useCaseFieldAccess\(projectId, caseId, active\)/);
+  const fieldAccess = readFileSync(new URL("./use-case-field-access.ts", import.meta.url), "utf8");
+  assert.match(fieldAccess, /enabled: active && authReady/);
+  assert.match(fieldAccess, /const fresh =\s*active &&/);
 });
 test("preset module pins fresh original actor and organization while retaining unavailable drafts and unknown payloads", () => {
   for (const value of ["usePresetAccess", "useAuth", "projectReady", "origin.clerkActorId === userId", "expectedScope: access.expectedScope", "access.matches(catalog.data)", "access.matches(history.data)", "access.matches(review.data)", "active={draftActive}", "hidden={!draftActive}", "element.inert = !draftActive", "setPending(receipt.current?.input ?? null)"])

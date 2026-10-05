@@ -29,7 +29,7 @@ test("each metadata draft change invalidates review through a stable callback", 
 test("typed native case fields use fresh scoped definitions and retain uncertain receipts", () => {
   const source = file("../components/CaseCustomFields.tsx");
   assert.match(
-    source,
+    file("./use-case-field-access.ts"),
     /!query\.error\s*&&\s*!query\.isFetching\s*&&\s*!query\.isPaused/,
   );
   assert.match(source, /expectedSchemaHash: draft!\.expectedFieldSchemaHash/);
@@ -37,7 +37,7 @@ test("typed native case fields use fresh scoped definitions and retain uncertain
     source,
     /expectedValueHash: draft!\.expectedCustomFieldRevision/,
   );
-  assert.match(source, /retainedTraceabilityReceipt\(attempt,\s*error\)/);
+  assert.match(source, /retainedCaseFieldReceipt\(attempt,\s*error\)/);
   assert.match(source, /key=\{`\$\{projectId\}:\$\{caseId\}`\}/);
   assert.match(source, /Retained retired\/unknown metadata \(read-only\)/);
   assert.match(source, /field\.type === "NUMBER"\s*\? "number"/);
@@ -48,15 +48,16 @@ test("typed native case fields use fresh scoped definitions and retain uncertain
 });
 test("project schema changes require current Owner Admin, impact, reason and explicit confirmation", () => {
   const source = file("../components/ProjectCaseFields.tsx");
-  assert.match(source, /result\.data\.canConfigure/);
+  assert.match(source, /!fresh\.canConfigure/);
   assert.match(
     source,
-    /result\.expectedSchemaHash\s*!==\s*baseline\.expectedSchemaHash/,
+    /result\.expectedSchemaHash\s*!==\s*originalBaseline\.expectedSchemaHash/,
   );
+  assert.match(source, /const originalBaseline = baseline/);
   assert.match(source, /Review impact before saving/);
   assert.match(source, /expectedImpactHash:\s*impact!\.expectedImpactHash/);
   assert.match(source, /I reviewed the retained incomplete cases/);
-  assert.match(source, /retainedTraceabilityReceipt\(attempt,\s*error\)/);
+  assert.match(source, /retainedCaseFieldReceipt\(attempt,\s*error\)/);
   assert.match(source, /Retire \(retain original values read-only\)/);
 });
 test("authoring and inspector mount required metadata without replacing procedures or prerequisites", () => {

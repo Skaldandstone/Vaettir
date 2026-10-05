@@ -8,9 +8,12 @@ import {
 import { Modal } from "./Modal";
 import { CaseFieldHistory } from "./CaseFieldHistory";
 import {
-  retainedTraceabilityReceipt,
-  type TraceabilityReceipt,
-} from "@/lib/traceability-receipt";
+  retainedCaseFieldReceipt,
+  assertCaseFieldAcknowledgement,
+  sameCaseFieldOrigin,
+  type CaseFieldReceipt,
+} from "@/lib/case-field-origin";
+import { useCaseFieldAccess } from "@/lib/use-case-field-access";
 type State = RouterOutputs["caseFields"]["get"];
 type Values = State["values"];
 type Field = State["schema"]["fields"][number];
@@ -174,21 +177,11 @@ export function CaseCustomFieldsForm({
   active?: boolean;
   initial?: ReviewedCaseFieldDefaults;
 }) {
-  const query = trpcReact.caseFields.get.useQuery(
-    { projectId, caseId },
-    { enabled:active, retry: false, staleTime: 0, refetchOnWindowFocus: false },
-  );
+  const access = useCaseFieldAccess(projectId, caseId, active);
+  const { query, fresh } = access;
   const [baseline, setBaseline] = useState<State | null>(null),
     [values, setValues] = useState<Values>({});
   const [initialError, setInitialError] = useState<string | null>(null);
-  const fresh =
-    active && !query.error &&
-    !query.isFetching &&
-    !query.isPaused &&
-    query.data?.projectId === projectId &&
-    query.data.caseId === (caseId ?? null)
-      ? query.data
-      : null;
   useEffect(() => {
     if (!baseline && fresh) {
       setBaseline(fresh);
@@ -235,7 +228,7 @@ export function CaseCustomFieldsForm({
   return (
     <section>
       <h3>Project case fields</h3>
-      {initialError && (
+      {access.readable && initialError && (
         <p role="alert">
           {initialError}{" "}
           {caseId === undefined && fresh && (
@@ -284,12 +277,18 @@ export function CaseCustomFieldsForm({
           </button>
         </p>
       )}
-      {baseline && (
+      {!access.readable && (
+        <p role="status">
+          Draft metadata is withheld until the original account and project
+          access are refreshed. Your draft is retained.
+        </p>
+      )}
+      {baseline && access.readable && (
         <>
           <ValueInputs
             fields={baseline.schema.fields}
             values={values}
-            disabled={!fresh || changed || !baseline.canEdit}
+            disabled={!fresh || changed || !fresh.canEdit}
             onChange={setValues}
           />
           {clientProblems(baseline.schema.fields, values).map((problem) => (
@@ -328,16 +327,15 @@ function CaseFieldEditor({
   caseId: string;
 }) {
   const utils = trpcReact.useUtils();
-  const query = trpcReact.caseFields.get.useQuery(
-    { projectId, caseId },
-    { retry: false, staleTime: 0 },
-  );
+  const access = useCaseFieldAccess(projectId, caseId);
+  const { query, fresh } = access;
   const [open, setOpen] = useState(false),
+    [revision, setRevision] = useState(0),
     [draft, setDraft] = useState<CaseFieldFormDraft | null>(null),
     [reason, setReason] = useState(""),
     [confirmed, setConfirmed] = useState(false),
     [notice, setNotice] = useState<string | null>(null);
-  const [pending, setPending] = useState<TraceabilityReceipt<
+  const [pending, setPending] = useState<CaseFieldReceipt<
     RouterInputs["caseFields"]["save"]
   > | null>(null);
   const save = trpcReact.caseFields.save.useMutation();
@@ -345,16 +343,15 @@ function CaseFieldEditor({
     setDraft(value);
     setConfirmed(false);
   }, []);
-  const fresh =
-    !query.error &&
-    !query.isFetching &&
-    !query.isPaused &&
-    query.data?.caseId === caseId
-      ? query.data
-      : null;
+  useEffect(() => {
+    if (!access.canEdit) setConfirmed(false);
+  }, [access.canEdit]);
   async function commit() {
     if (
       save.isPending ||
+      !access.canEdit ||
+      !access.origin ||
+      (pending && !access.owns(pending.origin, "edit")) ||
       (!pending &&
         (!draft?.ready ||
           !fresh?.canEdit ||
@@ -376,22 +373,28 @@ function CaseFieldEditor({
         requestId: crypto.randomUUID(),
       },
       uncertain: false,
+      origin: access.origin,
     };
     setPending(attempt);
     setNotice(null);
     try {
       const result = await save.mutateAsync(attempt.input);
+      assertCaseFieldAcknowledgement(result, attempt.input.requestId);
       setPending(null);
       setNotice(
         result.replayed
           ? "Confirmed the previous metadata save."
           : "Saved case metadata; existing retired values remain retained.",
       );
+      if (!access.owns(attempt.origin, "edit")) return;
       void utils.caseFields.get.invalidate({ projectId, caseId });
       void utils.testCases.byId.invalidate({ id: caseId });
+      setRevision((value) => value + 1);
+      setReason("");
+      setConfirmed(false);
       setOpen(false);
     } catch (error) {
-      setPending(retainedTraceabilityReceipt(attempt, error));
+      setPending(retainedCaseFieldReceipt(attempt, error));
       setNotice(
         error instanceof Error
           ? error.message
@@ -458,45 +461,42 @@ function CaseFieldEditor({
           Current case metadata is unavailable while refreshing or offline.
         </p>
       )}
-      {(fresh?.canEdit || pending) && (
-        <button
-          type="button"
-          className="btn-secondary"
-          onClick={() => {
-            if (!pending) {
-              setDraft(null);
-              setReason("");
-              setConfirmed(false);
-              setNotice(null);
-            }
-            setOpen(true);
-          }}
-        >
-          {pending ? "Resume exact field save" : "Edit case fields"}
-        </button>
-      )}
+      {access.canEdit &&
+        (!pending || sameCaseFieldOrigin(pending.origin, access.current)) && (
+          <button
+            type="button"
+            className="btn-secondary"
+            onClick={() => {
+              setOpen(true);
+            }}
+          >
+            {pending ? "Resume exact field save" : "Edit case fields"}
+          </button>
+        )}
       <p className="text-muted">
         Metadata saves retain an actor-attributed before/after audit. Procedure
         version comparison and restore preserve current metadata. Supported
         metadata snapshots can be reviewed and restored separately below.
       </p>
       <CaseFieldHistory projectId={projectId} caseId={caseId} />
-      {notice && <p role="status">{notice}</p>}
+      {access.readable && notice && <p role="status">{notice}</p>}
       <Modal
         open={open}
         onClose={() => setOpen(false)}
         title="Edit project case fields"
         dismissible={!save.isPending}
+        keepMounted
       >
         {!pending && (
           <CaseCustomFieldsForm
-            key={`${caseId}:${open}`}
+            key={`${caseId}:${revision}`}
             projectId={projectId}
             caseId={caseId}
+            active={open && access.authReady}
             onChange={updateDraft}
           />
         )}
-        {!pending && (
+        {!pending && access.readable && (
           <>
             <label>
               Reason (required)
@@ -519,34 +519,47 @@ function CaseFieldEditor({
             </label>
           </>
         )}
-        {pending?.uncertain && (
+        {pending?.uncertain &&
+          sameCaseFieldOrigin(pending.origin, access.current) && (
+            <p role="status">
+              Request {pending.input.requestId} is retained. Retry this exact
+              request to confirm whether it committed.
+            </p>
+          )}
+        {access.readable && notice && <p role="alert">{notice}</p>}
+        {access.readable && (
+          <button
+            type="button"
+            className="btn-primary"
+            disabled={
+              save.isPending ||
+              !access.canEdit ||
+              (!!pending &&
+                !sameCaseFieldOrigin(pending.origin, access.current)) ||
+              (!pending &&
+                (!draft?.ready ||
+                  !fresh?.canEdit ||
+                  fresh.expectedSchemaHash !== draft.expectedFieldSchemaHash ||
+                  fresh.expectedValueHash !==
+                    draft.expectedCustomFieldRevision ||
+                  !reason.trim() ||
+                  !confirmed))
+            }
+            onClick={() => void commit()}
+          >
+            {save.isPending
+              ? "Saving…"
+              : pending
+                ? "Retry exact save"
+                : "Save reviewed fields"}
+          </button>
+        )}
+        {!access.readable && (
           <p role="status">
-            Request {pending.input.requestId} is retained. Retry this exact
-            request to confirm whether it committed.
+            This draft and any uncertain save remain retained for the original
+            account. Refresh its project access before viewing or retrying.
           </p>
         )}
-        {notice && <p role="alert">{notice}</p>}
-        <button
-          type="button"
-          className="btn-primary"
-          disabled={
-            save.isPending ||
-            (!pending &&
-              (!draft?.ready ||
-                !fresh?.canEdit ||
-                fresh.expectedSchemaHash !== draft.expectedFieldSchemaHash ||
-                fresh.expectedValueHash !== draft.expectedCustomFieldRevision ||
-                !reason.trim() ||
-                !confirmed))
-          }
-          onClick={() => void commit()}
-        >
-          {save.isPending
-            ? "Saving…"
-            : pending
-              ? "Retry exact save"
-              : "Save reviewed fields"}
-        </button>
       </Modal>
     </section>
   );

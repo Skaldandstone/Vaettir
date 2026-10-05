@@ -66,6 +66,18 @@ export const caseFieldWriteOutput = z.object({
   requestId: z.string().uuid(),
   replayed: z.boolean(),
 });
+/** Ephemeral authoring CAS, not a stored/shared field-definition identity. */
+export function caseFieldAuthoringSchemaHash(
+  scope: {
+    projectId: string;
+    organizationId: string;
+    version: number;
+    schema: z.infer<typeof caseFieldSchema>;
+  },
+  userId: string,
+) {
+  return qualityProfileHash({ ...scope, actorId: userId });
+}
 export async function readCaseFieldState(
   tx: Prisma.TransactionClient,
   userId: string,
@@ -106,14 +118,18 @@ export async function readCaseFieldState(
     caseId: caseId ?? null,
     schema,
     schemaVersion: project.caseFieldSchemaVersion,
-    expectedSchemaHash: qualityProfileHash({
-      projectId,
-      organizationId: project.organizationId,
-      version: project.caseFieldSchemaVersion,
-      schema,
-    }),
+    expectedSchemaHash: caseFieldAuthoringSchemaHash(
+      {
+        projectId,
+        organizationId: project.organizationId,
+        version: project.caseFieldSchemaVersion,
+        schema,
+      },
+      userId,
+    ),
     values,
     expectedValueHash: qualityProfileHash({
+      actorId: userId,
       caseId: caseId ?? null,
       values,
       updatedAt: tc?.updatedAt.toISOString() ?? null,
