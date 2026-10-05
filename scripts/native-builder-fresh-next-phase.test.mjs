@@ -1,5 +1,6 @@
 // Synthetic byte/VM/Bash-syntax tests only. These receipts do not describe any
-// actual build. No Git/AWS/Docker/native work is invoked by this test module.
+// actual build. Only one owned synthetic Python import fixture performs local
+// filesystem/subprocess work; no Git/AWS/Docker/native work is invoked.
 import test from "node:test";
 import {
   planNativeFreshNextPhase,
@@ -8,7 +9,17 @@ import {
   reassembleNativeFreshPhaseLog,
 } from "./native-builder-fresh-next-phase.mjs";
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import {
+  readFileSync,
+  mkdirSync,
+  mkdtempSync,
+  writeFileSync,
+  readdirSync,
+  realpathSync,
+  rmSync,
+} from "node:fs";
+import { dirname, resolve, sep } from "node:path";
+import { fileURLToPath } from "node:url";
 import { createHash, randomBytes } from "node:crypto";
 import { gzipSync } from "node:zlib";
 import { createRequire } from "node:module";
@@ -19,10 +30,7 @@ import {
   FRESH_NATIVE_SCRIPT_LF_HASHES,
   unpackFreshPrepareOperation,
 } from "./native-builder-fresh-prepare.mjs";
-import {
-  planNativeFreshCore,
-  validateNativeFreshCoreCompleted,
-} from "./native-builder-fresh-core.mjs";
+import { planNativeFreshCore } from "./native-builder-fresh-core.mjs";
 
 const hash = (b) => createHash("sha256").update(b).digest("hex");
 const encode = (x) => Buffer.from(JSON.stringify(x) + "\n");
@@ -411,7 +419,7 @@ function virtual(program, files = {}, extra = {}) {
     console: { log: (x) => printed.push(x), error: (x) => printed.push(x) },
     process: {
       execPath: "node",
-      env: { VAETTIR_RELEASE_COMMIT: commit },
+      env: { VAETTIR_RELEASE_COMMIT: commit, PYTHONDONTWRITEBYTECODE: "1" },
       hrtime: { bigint: () => 1000n * 1000000000n },
       stdout: { write: (x) => printed.push(x) },
     },
@@ -728,6 +736,238 @@ test("fresh complete release-unit and fixed assertion phases have deterministic 
     assert.equal(records[n].plan.identity.releaseTarget, null);
   }
   assert.equal(records[3].plan.identity.successorPhase, "final");
+});
+
+test("fixed no-bytecode policy is bound to every plan/request and actual phase process without changing the native recipe", () => {
+  for (const f of sequence()) {
+    const p = f.plan;
+    assert.deepEqual(p.identity.pythonBytecodePolicy, {
+      PYTHONDONTWRITEBYTECODE: "1",
+    });
+    assert.deepEqual(
+      p.request.environmentVariablesOverride.filter(
+        (v) => v.name === "PYTHONDONTWRITEBYTECODE",
+      ),
+      [{ name: "PYTHONDONTWRITEBYTECODE", value: "1", type: "PLAINTEXT" }],
+    );
+    assert.equal(
+      p.operation.split("--env PYTHONDONTWRITEBYTECODE=1").length - 1,
+      2,
+    );
+    for (const name of ["start", "admit", "pre"])
+      assert.match(
+        p.generatedPrograms[name],
+        /assert\.equal\(process\.env\.PYTHONDONTWRITEBYTECODE,'1'\)/,
+      );
+    assert.ok(
+      p.operation.includes(
+        'test "$PYTHONDONTWRITEBYTECODE" = 1;export PYTHONDONTWRITEBYTECODE',
+      ),
+    );
+    assert.ok(
+      p.operation.includes(
+        "sh /build/scripts/build-llvm-runtime.sh --phase " +
+          f.input.phase +
+          " --predecessor-sha256 " +
+          p.identity.expectedParent.receiptSha256,
+      ),
+    );
+    assert.deepEqual(
+      p.identity.expectedScripts,
+      f.input.core.plan.identity.expectedScripts,
+    );
+    assert.equal(
+      p.identity.inputsSha256,
+      f.input.core.completed.proof.inputsSha256,
+    );
+    assert.doesNotMatch(
+      p.operation,
+      /__pycache__|\.pyc|find .*delete|PYTHONOPTIMIZE|--exclude/,
+    );
+  }
+});
+
+test("missing, empty or overridden policy refuses before host admission/private phase input access", () => {
+  const f = sequence()[0];
+  for (const value of [undefined, "", "0", "true", " 1 "]) {
+    for (const name of ["start", "admit", "pre"])
+      assert.throws(() =>
+        virtual(
+          f.plan.generatedPrograms[name],
+          {},
+          {
+            process: {
+              env: {
+                VAETTIR_RELEASE_COMMIT: commit,
+                ...(value === undefined
+                  ? {}
+                  : { PYTHONDONTWRITEBYTECODE: value }),
+              },
+            },
+          },
+        ).run(),
+      );
+  }
+  for (const alter of [
+    (p) => delete p.identity.pythonBytecodePolicy,
+    (p) => (p.identity.pythonBytecodePolicy.PYTHONDONTWRITEBYTECODE = "0"),
+    (p) =>
+      (p.request.environmentVariablesOverride =
+        p.request.environmentVariablesOverride.filter(
+          (v) => v.name !== "PYTHONDONTWRITEBYTECODE",
+        )),
+    (p) =>
+      p.request.environmentVariablesOverride.push({
+        name: "PYTHONDONTWRITEBYTECODE",
+        value: "0",
+        type: "PLAINTEXT",
+      }),
+  ]) {
+    const plan = structuredClone(f.plan);
+    alter(plan);
+    assert.throws(() =>
+      validateNativeFreshNextPhaseCompleted(
+        f.completed,
+        f.expected,
+        plan,
+        f.input,
+      ),
+    );
+  }
+});
+
+test("actual synthetic Python imports create caches by default but fixed inherited policy leaves complete source/data/output unchanged", (t) => {
+  const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+  const local = resolve(repositoryRoot, ".local");
+  mkdirSync(local, { recursive: true });
+  assert.equal(realpathSync(local), local);
+  const owned = mkdtempSync(resolve(local, "native-bytecode-fixture-"));
+  assert.equal(realpathSync(owned), owned);
+  const python =
+    process.platform === "win32"
+      ? resolve(
+          process.env.LOCALAPPDATA,
+          "Programs/Python/Python312/python.exe",
+        )
+      : "python3";
+  const env = Object.fromEntries(
+    Object.entries(process.env).filter(
+      ([k]) => !k.toUpperCase().startsWith("PYTHON"),
+    ),
+  );
+  const moduleFiles = {
+    "__init__.py": "from .payload import run\n",
+    "payload.py":
+      "import hashlib,json\ndef run():\n    assert __debug__\n    data = [{'index':i,'square':i*i,'label':'synthetic-'+str(i)} for i in range(42)]\n    assert len(data)==42 and data[-1]['square']==1681\n    full=json.dumps(data,sort_keys=True,separators=(',',':')).encode('utf-8')\n    print(json.dumps({'procedure':'synthetic-native-import','data':data,'dataSha256':hashlib.sha256(full).hexdigest()},sort_keys=True,separators=(',',':')))\n",
+  };
+  const invoke =
+    "import synthetic_native_fixture;synthetic_native_fixture.run()";
+  // The child inherits the phase environment, as lit launched by Ninja does.
+  const parent =
+    "import subprocess,sys;subprocess.run([sys.executable,'-S','-c'," +
+    JSON.stringify(invoke) +
+    "],check=True)";
+  function inventory(dir) {
+    const records = [];
+    function walk(path, relative = "") {
+      for (const entry of readdirSync(path, { withFileTypes: true }).sort(
+        (a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0),
+      )) {
+        const full = resolve(path, entry.name),
+          rel = relative ? relative + "/" + entry.name : entry.name;
+        assert.ok(full.startsWith(owned + sep));
+        assert.equal(entry.isSymbolicLink(), false);
+        if (entry.isDirectory()) {
+          records.push([rel, "directory"]);
+          walk(full, rel);
+        } else {
+          assert.equal(entry.isFile(), true);
+          const bytes = readFileSync(full);
+          records.push([rel, "file", bytes.length, hash(bytes)]);
+        }
+      }
+    }
+    walk(dir);
+    return { records, sha256: hash(JSON.stringify(records) + "\n") };
+  }
+  try {
+    const version = spawnSync(python, ["--version"], {
+      env,
+      encoding: "utf8",
+      timeout: 10000,
+      windowsHide: true,
+    });
+    assert.equal(version.status, 0, version.error?.message ?? version.stderr);
+    assert.match(version.stdout.trim(), /^Python 3\./);
+    t.diagnostic(
+      "Synthetic import interpreter: " +
+        version.stdout.trim() +
+        "; not native Python 3.13 execution acceptance",
+    );
+    const results = [];
+    for (const mode of ["baseline", "policy", "command-line-B"]) {
+      const dir = resolve(owned, mode),
+        pkg = resolve(dir, "synthetic_native_fixture");
+      mkdirSync(pkg, { recursive: true });
+      for (const [name, contents] of Object.entries(moduleFiles))
+        writeFileSync(resolve(pkg, name), contents, { flag: "wx" });
+      const before = inventory(dir);
+      const result = spawnSync(
+        python,
+        mode === "command-line-B"
+          ? ["-S", "-B", "-c", invoke]
+          : ["-S", "-c", parent],
+        {
+          cwd: dir,
+          env: {
+            ...env,
+            ...(mode === "policy" ? { PYTHONDONTWRITEBYTECODE: "1" } : {}),
+          },
+          encoding: "utf8",
+          timeout: 10000,
+          maxBuffer: 65536,
+          windowsHide: true,
+        },
+      );
+      assert.equal(result.status, 0, result.error?.message ?? result.stderr);
+      assert.equal(result.signal, null);
+      assert.equal(result.stderr, "");
+      const after = inventory(dir);
+      assert.deepEqual(
+        after.records.filter((r) => r[1] === "file" && r[0].endsWith(".py")),
+        before.records.filter((r) => r[1] === "file"),
+      );
+      if (mode === "baseline") {
+        assert.notEqual(after.sha256, before.sha256);
+        assert.equal(
+          after.records.filter((r) => r[0].endsWith(".pyc")).length,
+          2,
+        );
+        assert.equal(
+          after.records.filter((r) => r[0].endsWith("__pycache__")).length,
+          1,
+        );
+      } else
+        assert.deepEqual(
+          after,
+          before,
+          "Entire supported synthetic source tree must remain unchanged, without exclusions or deleting caches",
+        );
+      const payload = JSON.parse(result.stdout);
+      assert.equal(payload.data.length, 42);
+      assert.equal(payload.data.at(-1).square, 1681);
+      assert.equal(payload.dataSha256, hash(JSON.stringify(payload.data)));
+      results.push({ before, result, payload });
+    }
+    assert.deepEqual(results[0].before, results[1].before);
+    assert.deepEqual(results[1].before, results[2].before);
+    assert.equal(results[0].result.stdout, results[1].result.stdout);
+    assert.equal(results[1].result.stdout, results[2].result.stdout);
+  } finally {
+    assert.ok(owned.startsWith(local + sep + "native-bytecode-fixture-"));
+    assert.equal(realpathSync(owned), owned);
+    rmSync(owned, { recursive: true, force: false });
+  }
 });
 test("final, skipped/reordered/replayed phases, fake core and mixed inputs are refused", () => {
   for (const mutate of [
@@ -1346,6 +1586,7 @@ test("parent actual digest/config/labels, owned cleanup and container no-mount/r
       Config: {
         Image: p.importedImage,
         Labels: { "vaettir.next-owner": p.planSha256 },
+        Env: ["PYTHONDONTWRITEBYTECODE=1"],
       },
       HostConfig: {
         NetworkMode: "none",
@@ -1366,6 +1607,22 @@ test("parent actual digest/config/labels, owned cleanup and container no-mount/r
   };
   virtual(p.generatedPrograms.cleanup, cFiles).run();
   virtual(p.generatedPrograms.compilerInspect, cFiles).run();
+  for (const env of [
+    undefined,
+    [],
+    ["PYTHONDONTWRITEBYTECODE=0"],
+    ["PYTHONDONTWRITEBYTECODE=1", "PYTHONDONTWRITEBYTECODE=0"],
+    ["PYTHONDONTWRITEBYTECODE=1", "PYTHONDONTWRITEBYTECODE=1"],
+  ]) {
+    const bad = structuredClone(container);
+    bad.Config.Env = env;
+    assert.throws(() =>
+      virtual(p.generatedPrograms.compilerInspect, {
+        ...cFiles,
+        [prefix + "compiler-inspect.json"]: encode([bad]),
+      }).run(),
+    );
+  }
   const read = virtual(p.generatedPrograms.readId, cFiles);
   read.run();
   assert.equal(read.printed[0], id);

@@ -9,7 +9,8 @@ function sqlText(value: unknown) {
   const strings = Array.isArray(value) ? value : value && typeof value === "object" && "strings" in value && Array.isArray(value.strings) ? value.strings : [];
   return strings.join("").replace(/\s+/g, " ").trim();
 }
-function transactionClient(effect: (tx: Prisma.TransactionClient) => Promise<void>, observations: unknown[][]) {
+type CatalogFault = "MISSING" | "NONDETERMINISTIC_PURE_GUARD" | "MALFORMED" | "CATALOG_ERROR";
+function transactionClient(effect: (tx: Prisma.TransactionClient) => Promise<void>, observations: unknown[][], catalogFault?: CatalogFault, catalogObservations?: unknown[][]) {
   return new Proxy(prisma, { get(target, property) {
     if (property === "$transaction") return (...args: unknown[]) => {
       const work = args[0];
@@ -22,6 +23,16 @@ function transactionClient(effect: (tx: Prisma.TransactionClient) => Promise<voi
         };
         if (member === "$queryRaw") return async (...query: unknown[]) => {
           const result: unknown = await Reflect.apply(transaction.$queryRaw, transaction, query);
+          if (sqlText(query[0]).includes("table_info.relnamespace=pg_my_temp_schema()")) {
+            if (!Array.isArray(result)) throw Error("Actual native catalog eligibility rows required before scoped fault");
+            catalogObservations?.push(result);
+            // Pure response-fault fixtures only; no catalog/collation mutation,
+            // disabled guard or claim of an actual nondeterministic server.
+            if (catalogFault === "CATALOG_ERROR") throw Error("Synthetic bounded catalog-read refusal");
+            if (catalogFault === "MISSING") return [];
+            if (catalogFault === "NONDETERMINISTIC_PURE_GUARD") return [{ eligible: false }];
+            if (catalogFault === "MALFORMED") return [{ eligible: null }];
+          }
           if (sqlText(query[0]).includes("current_scope AS MATERIALIZED") && sqlText(query[0]).includes("captured_scope AS MATERIALIZED")) {
             if (!Array.isArray(result)) throw Error("Actual full native reconciliation rows required");
             observations.push(result);
@@ -99,6 +110,90 @@ describe("fixed-family native erasure staging and exact set reconciliation", () 
     expect(await prisma.organizationDeletionLog.count({ where: { organizationId: fixture.own.org.id } })).toBe(0);
     expect(await prisma.organizationDeletionLog.findUniqueOrThrow({ where: { id: fixture.retainedReceipt.id } })).toEqual(fixture.retainedReceipt);
   }
+  async function verifyActualPrivateIndex(tx: Prisma.TransactionClient, expectedOpclass: "text_ops" | "text_pattern_ops") {
+    const rows = await tx.$queryRaw<Array<{ sessionOwned: boolean; nativeTypes: boolean; nativeNullGuards: boolean; nativeCollation: boolean; uniqueReady: boolean; nativeKeys: boolean; modelOpclass: string; idOpclass: string; nativeNamespace: boolean }>>`SELECT
+      table_info.relnamespace=pg_my_temp_schema() AND table_info.relpersistence='t' AS "sessionOwned",
+      model_column.atttypid='pg_catalog.int2'::regtype AND id_column.atttypid='pg_catalog.text'::regtype AS "nativeTypes",
+      model_column.attnotnull AND id_column.attnotnull AS "nativeNullGuards",
+      id_column.attcollation='pg_catalog."default"'::regcollation AND index_info.indcollation[0]=0
+        AND index_info.indcollation[1]=id_column.attcollation AS "nativeCollation",
+      index_info.indisunique AND index_info.indisvalid AND index_info.indisready AND index_info.indislive AS "uniqueReady",
+      index_info.indpred IS NULL AND index_info.indexprs IS NULL AND index_info.indnkeyatts=2
+        AND index_info.indkey[0]=model_column.attnum AND index_info.indkey[1]=id_column.attnum AS "nativeKeys",
+      model_opclass.opcname AS "modelOpclass",id_opclass.opcname AS "idOpclass",
+      model_opclass.opcnamespace='pg_catalog'::regnamespace AND id_opclass.opcnamespace='pg_catalog'::regnamespace AS "nativeNamespace"
+      FROM pg_class table_info
+      JOIN pg_attribute model_column ON model_column.attrelid=table_info.oid AND model_column.attname='model' AND NOT model_column.attisdropped
+      JOIN pg_attribute id_column ON id_column.attrelid=table_info.oid AND id_column.attname='id' AND NOT id_column.attisdropped
+      JOIN pg_index index_info ON index_info.indrelid=table_info.oid
+      JOIN pg_class index_name ON index_name.oid=index_info.indexrelid AND index_name.relname='vaettir_native_erasure_scope_identity_idx'
+      JOIN pg_opclass model_opclass ON model_opclass.oid=index_info.indclass[0]
+      JOIN pg_opclass id_opclass ON id_opclass.oid=index_info.indclass[1]
+      WHERE table_info.oid='pg_temp.vaettir_native_erasure_scope'::regclass LIMIT 2`;
+    expect(rows).toEqual([{ sessionOwned: true, nativeTypes: true, nativeNullGuards: true, nativeCollation: true, uniqueReady: true,
+      nativeKeys: true, modelOpclass: "int2_ops", idOpclass: expectedOpclass, nativeNamespace: true }]);
+  }
+  for (const fault of [undefined, "MISSING", "NONDETERMINISTIC_PURE_GUARD", "MALFORMED"] as const) it(`selects actual private ${fault ? "default fallback" : "catalog-proven pattern"} index (${fault ?? "REAL_CATALOG"}) with unchanged equality/constraints`, async () => {
+    const fixture = await setup(), observations: unknown[][] = [], catalogObservations: unknown[][] = [];
+    const foreignBefore = await snapshot(fixture.foreign);
+    let inspected = false;
+    const client = transactionClient(async tx => {
+      inspected = true;
+      await verifyActualPrivateIndex(tx, fault ? "text_ops" : "text_pattern_ops");
+      // Native TEXT equality remains distinct for case, padding and NFC/NFD.
+      // Scope3 is actually empty; rollback only these synthetic TEMP strings.
+      await tx.$executeRaw`SAVEPOINT synthetic_index_equality`;
+      try {
+        await tx.$executeRaw`INSERT INTO pg_temp.vaettir_native_erasure_scope(model,id)
+          VALUES(3,'ASCII-id'),(3,'ascii-id'),(3,'é'),(3,'é'),(3,' space'),(3,'space'),(3,'𐀀'),(3,'�')`;
+        const rows = await tx.$queryRaw<Array<{ count: bigint; distinctCount: bigint }>>`SELECT count(*)::bigint AS count,
+          count(DISTINCT id)::bigint AS "distinctCount" FROM pg_temp.vaettir_native_erasure_scope WHERE model=3`;
+        expect(rows).toEqual([{ count: 8n, distinctCount: 8n }]);
+      } finally {
+        await tx.$executeRaw`ROLLBACK TO SAVEPOINT synthetic_index_equality`;
+        await tx.$executeRaw`RELEASE SAVEPOINT synthetic_index_equality`;
+      }
+      for (const violation of ["DUPLICATE", "NULL_ID", "NULL_FAMILY", "FAMILY_RANGE", "FAMILY_TYPE"] as const) {
+        await tx.$executeRaw`SAVEPOINT synthetic_index_constraint`;
+        let refused = false;
+        try {
+          if (violation === "DUPLICATE") await tx.$executeRaw`INSERT INTO pg_temp.vaettir_native_erasure_scope(model,id) VALUES(2,${fixture.own.cases[0]!.id})`;
+          else if (violation === "NULL_ID") await tx.$executeRaw`INSERT INTO pg_temp.vaettir_native_erasure_scope(model,id) VALUES(3,NULL)`;
+          else if (violation === "NULL_FAMILY") await tx.$executeRaw`INSERT INTO pg_temp.vaettir_native_erasure_scope(model,id) VALUES(NULL,'synthetic-null-family')`;
+          else if (violation === "FAMILY_RANGE") await tx.$executeRaw`INSERT INTO pg_temp.vaettir_native_erasure_scope(model,id) VALUES(11,'synthetic-invalid-family')`;
+          else await tx.$executeRaw`INSERT INTO pg_temp.vaettir_native_erasure_scope(model,id) VALUES(${"synthetic-not-smallint"}::smallint,'synthetic-invalid-type')`;
+        } catch (error) {
+          expect(error).toMatchObject({ code: "P2010", meta: { code: violation === "DUPLICATE" ? "23505" : violation === "FAMILY_RANGE" ? "23514" : violation === "FAMILY_TYPE" ? "22P02" : "23502" } });
+          refused = true;
+        } finally {
+          await tx.$executeRaw`ROLLBACK TO SAVEPOINT synthetic_index_constraint`;
+          await tx.$executeRaw`RELEASE SAVEPOINT synthetic_index_constraint`;
+        }
+        expect(refused).toBe(true);
+      }
+    }, observations, fault, catalogObservations);
+    const deleted = await hardDeleteOrganization(client, fixture.own.org.id, fixture.actor.id, "Synthetic private index branch with exact native scope");
+    expect(inspected).toBe(true);
+    expect(catalogObservations).toEqual([[{ eligible: true }]]); // Actual supported deterministic catalog; fault applied only afterward.
+    expect(observations).toHaveLength(1);
+    expect(observations[0]).toHaveLength(10);
+    expect(observations[0]).toEqual(expect.arrayContaining(familyNames.map(model => expect.objectContaining({ model, changed: false }))));
+    expect(deleted.rowCounts).toMatchObject({ Project: 1, TestCase: 2, TestResult: 2, TestRun: 1, TestCaseStep: 2, TestCaseVersion: 2 });
+    expect(await prisma.organizationDeletionLog.findUniqueOrThrow({ where: { id: deleted.deletionLogId } })).toMatchObject({ organizationId: fixture.own.org.id, deletedById: fixture.actor.id, rowCounts: deleted.rowCounts });
+    expect(await snapshot(fixture.foreign)).toEqual(foreignBefore);
+    expect(await prisma.organizationDeletionLog.findUniqueOrThrow({ where: { id: fixture.retainedReceipt.id } })).toEqual(fixture.retainedReceipt);
+  });
+  it("does not treat a catalog-read exception as permission to bypass native staging guards", async () => {
+    const fixture = await setup(), observations: unknown[][] = [], catalogObservations: unknown[][] = [];
+    const ownBefore = await snapshot(fixture.own), foreignBefore = await snapshot(fixture.foreign);
+    let indexBuilt = false;
+    const client = transactionClient(async () => { indexBuilt = true; }, observations, "CATALOG_ERROR", catalogObservations);
+    await expect(hardDeleteOrganization(client, fixture.own.org.id, fixture.actor.id, "Synthetic catalog refusal must roll back all native bodies")).rejects.toThrow("Synthetic bounded catalog-read refusal");
+    expect(catalogObservations).toEqual([[{ eligible: true }]]);
+    expect(indexBuilt).toBe(false);
+    expect(observations).toHaveLength(0);
+    await preserved(fixture, ownBefore, foreignBefore);
+  });
   for (const scenario of ["SAME_COUNT_SUBSTITUTION", "MISSING", "EXTRA", "EMPTY_CAPTURE"] as const) it(`refuses genuine TEMP ${scenario} with all native bodies/history retained atomically`, async () => {
     const fixture = await setup();
     const ownBefore = await snapshot(fixture.own), foreignBefore = await snapshot(fixture.foreign), observations: unknown[][] = [];

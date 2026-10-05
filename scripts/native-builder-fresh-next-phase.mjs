@@ -23,6 +23,10 @@ const flags = [
   "deploymentAcceptance",
 ];
 const repository = "051722405355.dkr.ecr.us-east-2.amazonaws.com/vaettir-api";
+// Python 3.13 documents this fixed setting as equivalent to -B on imports:
+// https://docs.python.org/3.13/using/cmdline.html#envvar-PYTHONDONTWRITEBYTECODE
+// Prevent the observed lit __pycache__ writes, never exclude/rebaseline source.
+const pythonBytecodePolicy = Object.freeze({ PYTHONDONTWRITEBYTECODE: "1" });
 const hex = /^[a-f0-9]{64}$/,
   digest = /^sha256:[a-f0-9]{64}$/;
 const sha = (b) => createHash("sha256").update(b).digest("hex");
@@ -326,7 +330,8 @@ function semanticHash() {
       nativeValidationShell,
     ]
       .map((f) => f.toString())
-      .join("\n") + JSON.stringify({ phases, flags, repository }),
+      .join("\n") +
+      JSON.stringify({ phases, flags, repository, pythonBytecodePolicy }),
   );
 }
 function validatedOrigin(core) {
@@ -377,6 +382,7 @@ function phaseIdentity(origin, parent, chain, phase, budget) {
       index === 0 ? "COMPLETE_RELEASE_UNITS" : "ASSERTION_OBJECT_PARTITION",
     releaseTarget: index === 0 ? "check-llvm-unit" : null,
     assertionPartition: index === 0 ? null : index,
+    pythonBytecodePolicy: { ...pythonBytecodePolicy },
     resources: budgetOf(budget),
   };
 }
@@ -443,6 +449,7 @@ function pack(operation) {
 }
 
 function assemble(identity) {
+  assert.deepEqual(identity.pythonBytecodePolicy, pythonBytecodePolicy);
   const planSha256 = sha(JSON.stringify(identity)),
     phase = identity.phase,
     tag = "native-fresh-" + phase + "-" + planSha256.slice(0, 32),
@@ -455,8 +462,8 @@ function assemble(identity) {
   const common = `const fs=require('node:fs'),assert=require('node:assert/strict'),{createHash}=require('node:crypto');const sha=b=>createHash('sha256').update(b).digest('hex');const bounded=(p,n)=>{const s=fs.lstatSync(p);assert.ok(s.isFile()&&!s.isSymbolicLink()&&s.size>0&&s.size<=n);const b=fs.readFileSync(p);assert.equal(b.length,s.size);return b};`;
   const parser = validateNativeCheckpointReceipt.toString();
   const disk = `const fs=require('node:fs'),assert=require('node:assert/strict');const s=fs.statfsSync('/var/lib/docker',{bigint:true});assert.ok(s.bavail*s.bsize>=${r.minimumDiskAvailableBytes}n);`;
-  const start = `${common}assert.equal(process.env.VAETTIR_RELEASE_COMMIT,'${identity.sourceCommit}');fs.writeFileSync('${prefix}admission.json',JSON.stringify({planSha256:'${planSha256}',startedNs:process.hrtime.bigint().toString()})+String.fromCharCode(10),{flag:'wx'});`;
-  const admit = `${common}const a=JSON.parse(bounded('${prefix}admission.json',512));assert.equal(a.planSha256,'${planSha256}');assert.match(a.startedNs,/^[0-9]{1,30}$/);const elapsed=process.hrtime.bigint()-BigInt(a.startedNs);assert.ok(elapsed>=0n);assert.ok(${r.operationSeconds}-Number(elapsed/1000000000n)>=${r.compileSeconds + r.postCompileReserveSeconds},'Remaining observed deadline cannot admit complete phase and post-work');`;
+  const start = `${common}assert.equal(process.env.PYTHONDONTWRITEBYTECODE,'1');assert.equal(process.env.VAETTIR_RELEASE_COMMIT,'${identity.sourceCommit}');fs.writeFileSync('${prefix}admission.json',JSON.stringify({planSha256:'${planSha256}',startedNs:process.hrtime.bigint().toString()})+String.fromCharCode(10),{flag:'wx'});`;
+  const admit = `${common}assert.equal(process.env.PYTHONDONTWRITEBYTECODE,'1');const a=JSON.parse(bounded('${prefix}admission.json',512));assert.equal(a.planSha256,'${planSha256}');assert.match(a.startedNs,/^[0-9]{1,30}$/);const elapsed=process.hrtime.bigint()-BigInt(a.startedNs);assert.ok(elapsed>=0n);assert.ok(${r.operationSeconds}-Number(elapsed/1000000000n)>=${r.compileSeconds + r.postCompileReserveSeconds},'Remaining observed deadline cannot admit complete phase and post-work');`;
   const absent = `${common}const x=JSON.parse(bounded('${prefix}tag-preflight.json',2097152));assert.deepEqual(x.images??[],[]);assert.equal(x.failures?.length,1);assert.equal(x.failures[0].failureCode,'ImageNotFound');assert.equal(x.failures[0].imageId.imageTag,'${tag}');`;
   const manifest = `${common}const x=JSON.parse(bounded('${prefix}parent-manifest.json',2097152));assert.deepEqual(x.failures??[],[]);assert.equal(x.images.length,1);const i=x.images[0];assert.equal(i.imageId.imageDigest,'${identity.expectedParent.imageDigest}');assert.equal('sha256:'+sha(i.imageManifest),'${identity.expectedParent.imageDigest}');const m=JSON.parse(i.imageManifest);assert.equal(m.schemaVersion,2);assert.equal(m.mediaType,'application/vnd.docker.distribution.manifest.v2+json');assert.equal(m.config.digest,'${parentConfig}');assert.ok(m.layers.length>0&&m.layers.length<=100&&m.layers.every(l=>/^sha256:[a-f0-9]{64}$/.test(l.digest)&&Number.isSafeInteger(l.size)&&l.size>0));assert.ok(m.layers.reduce((n,l)=>n+l.size,0)<16*1024**3);`;
   const labels = {
@@ -480,7 +487,7 @@ function assemble(identity) {
     const image = verifier
       ? `const image=bounded('${prefix}commit-id.txt',80).toString().trim();assert.match(image,/^sha256:[a-f0-9]{64}$/);assert.equal(i.Image,image);assert.equal(i.Config.Image,image);`
       : `assert.equal(i.Image,'${parentConfig}');assert.equal(i.Config.Image,'${parent}');`;
-    return `${common}const a=JSON.parse(bounded('${prefix}${name}-inspect.json',2097152));assert.equal(a.length,1);const[i]=a;assert.equal(i.Id,bounded('${prefix}container-id',64).toString());${image}assert.equal(i.Config.Labels['vaettir.next-owner'],'${planSha256}');assert.equal(i.HostConfig.NetworkMode,'none');assert.equal(i.HostConfig.Privileged,false);assert.deepEqual(i.HostConfig.CapDrop,['ALL']);assert.ok(i.HostConfig.SecurityOpt.includes('no-new-privileges'));assert.equal(i.HostConfig.Memory,${verifier ? 2 : 14}*1024**3);assert.equal(i.HostConfig.NanoCpus,${verifier ? 2 : 8}e9);assert.equal(i.HostConfig.PidsLimit,${verifier ? 128 : 2048});assert.deepEqual(i.Mounts,[]);`;
+    return `${common}const a=JSON.parse(bounded('${prefix}${name}-inspect.json',2097152));assert.equal(a.length,1);const[i]=a;assert.equal(i.Id,bounded('${prefix}container-id',64).toString());${image}assert.equal(i.Config.Labels['vaettir.next-owner'],'${planSha256}');assert.ok(Array.isArray(i.Config.Env)&&i.Config.Env.length<=256&&i.Config.Env.every(v=>typeof v==='string'&&v.length<=4096));assert.deepEqual(i.Config.Env.filter(v=>v.startsWith('PYTHONDONTWRITEBYTECODE=')),['PYTHONDONTWRITEBYTECODE=1']);assert.equal(i.HostConfig.NetworkMode,'none');assert.equal(i.HostConfig.Privileged,false);assert.deepEqual(i.HostConfig.CapDrop,['ALL']);assert.ok(i.HostConfig.SecurityOpt.includes('no-new-privileges'));assert.equal(i.HostConfig.Memory,${verifier ? 2 : 14}*1024**3);assert.equal(i.HostConfig.NanoCpus,${verifier ? 2 : 8}e9);assert.equal(i.HostConfig.PidsLimit,${verifier ? 128 : 2048});assert.deepEqual(i.Mounts,[]);`;
   }
   const compilerInspect = container(false),
     verifierInspect = container(true);
@@ -490,12 +497,12 @@ function assemble(identity) {
   }));
   const checkParent = `const chain=${JSON.stringify(chain)};assert.deepEqual(fs.readdirSync('/build/llvm-phase-receipts').sort(),chain.map(c=>c.phase+'.json').sort());let prior=null;for(const c of chain){const b=bounded('/build/llvm-phase-receipts/'+c.phase+'.json',32768);validateNativeCheckpointReceipt(b,{phase:c.phase,sha256:c.sha256,predecessorSha256:prior,inputsSha256:'${identity.inputsSha256}'});prior=c.sha256;}`;
   const checkSources = `const pins=${JSON.stringify(identity.expectedScripts)};assert.deepEqual(fs.readdirSync('/build/scripts').sort(),Object.keys(pins).sort());for(const[n,h]of Object.entries(pins))assert.equal(sha(bounded('/build/scripts/'+n,1048576)),h);assert.equal(sha(bounded('/build/llvm-sources/source-manifest.json',65536)),'${identity.sourceManifestSha256}');`;
-  const pre = `${common}${parser};assert.ok(!fs.existsSync('/build/llvm-phase-active.json'));${checkSources}${checkParent}const jobs=require('node:child_process').execFileSync(process.execPath,['/build/scripts/native-build-concurrency.mjs'],{encoding:'utf8',timeout:30000,maxBuffer:4096}).trim();assert.equal(jobs,'5');`;
+  const pre = `${common}${parser};assert.equal(process.env.PYTHONDONTWRITEBYTECODE,'1');assert.ok(!fs.existsSync('/build/llvm-phase-active.json'));${checkSources}${checkParent}const jobs=require('node:child_process').execFileSync(process.execPath,['/build/scripts/native-build-concurrency.mjs'],{encoding:'utf8',timeout:30000,maxBuffer:4096}).trim();assert.equal(jobs,'5');`;
   const evidenceBody = `${common}${parser};async function verifyFreshNextEvidence(hashCandidateLibrary){assert.ok(!fs.existsSync('/build/llvm-phase-active.json'));${checkSources}const chain=${JSON.stringify(chain)};chain.push({phase:'${phase}',sha256:sha(bounded('/build/llvm-phase-receipts/${phase}.json',32768))});assert.deepEqual(fs.readdirSync('/build/llvm-phase-receipts').sort(),chain.map(c=>c.phase+'.json').sort());let prior=null;for(const c of chain){validateNativeCheckpointReceipt(bounded('/build/llvm-phase-receipts/'+c.phase+'.json',32768),{phase:c.phase,sha256:c.sha256,predecessorSha256:prior,inputsSha256:'${identity.inputsSha256}'});prior=c.sha256;}const b=bounded('/build/llvm-phase-receipts/${phase}.json',32768),receipt=validateNativeCheckpointReceipt(b,{phase:'${phase}',sha256:sha(b),predecessorSha256:'${parentHash}',inputsSha256:'${identity.inputsSha256}'});assert.deepEqual(receipt.proof,{});const abiBytes=bounded('/build/llvm-early-abi.json',32768),abi=JSON.parse(abiBytes);assert.equal(sha(abiBytes),'${identity.coreAbiReceiptSha256}');assert.equal(abi.candidateSha256,'${identity.coreCandidateSha256}');assert.equal(abi.baselineSha256,receipt.inputs.baselineSha256);assert.equal(abi.soname,'libLLVM.so.19.1');assert.equal(abi.runtimeAccepted,false);assert.equal(hashCandidateLibrary('/build','release-core').sha256,'${identity.coreCandidateSha256}');return {schemaVersion:1,purpose:'fresh-native-next-phase-evidence',phase:'${phase}',planSha256:'${planSha256}',sourceCommit:'${identity.sourceCommit}',sourceSha256:'${identity.sourceSha256}',predecessorImageDigest:'${identity.expectedParent.imageDigest}',predecessorReceiptSha256:'${parentHash}',receiptSha256:sha(b),receiptBase64:b.toString('base64'),inputsSha256:'${identity.inputsSha256}',coreReceiptSha256:'${identity.coreExpected.receiptSha256}',coreCandidateSha256:'${identity.coreCandidateSha256}',coreAbiReceiptSha256:'${identity.coreAbiReceiptSha256}',phaseCommandKind:'${identity.phaseCommandKind}',releaseTarget:${JSON.stringify(identity.releaseTarget)},assertionPartition:${JSON.stringify(identity.assertionPartition)},recipeExitCode:0,unitAcceptance:false,packageAcceptance:false,runtimeAcceptance:false,authenticatedAcceptance:false,deploymentAcceptance:false};}`;
   const post = `${evidenceBody};(async()=>{const{hashCandidateLibrary}=await import('/build/scripts/native-llvm-checkpoint.mjs');console.log('NATIVE_FRESH_NEXT_PHASE='+JSON.stringify(await verifyFreshNextEvidence(hashCandidateLibrary)))})().catch(e=>{console.error(e.name+': '+e.message);process.exitCode=1});`;
   const successorBody = `${evidenceBody};async function verifyFreshNextSuccessor(checkpointStore,hashCandidateLibrary){const p=await verifyFreshNextEvidence(hashCandidateLibrary);checkpointStore().begin('${identity.successorPhase}',p.receiptSha256);console.log('NATIVE_FRESH_NEXT_STATE='+JSON.stringify({phase:'${phase}',planSha256:'${planSha256}',receiptSha256:p.receiptSha256,coreCandidateSha256:p.coreCandidateSha256,coreAbiReceiptSha256:p.coreAbiReceiptSha256,actualStateVerified:true,runtimeAcceptance:false}));return p;}`;
   const successor = `${successorBody};(async()=>{const{checkpointStore,hashCandidateLibrary}=await import('/build/scripts/native-llvm-checkpoint.mjs');await verifyFreshNextSuccessor(checkpointStore,hashCandidateLibrary)})().catch(e=>{console.error(e.name+': '+e.message);process.exitCode=1});`;
-  const compile = `set -eu;node -e ${quote(pre)};sh /build/scripts/build-llvm-runtime.sh --phase ${phase} --predecessor-sha256 ${parentHash};node -e ${quote(post)}`;
+  const compile = `set -eu;test "$PYTHONDONTWRITEBYTECODE" = 1;export PYTHONDONTWRITEBYTECODE;node -e ${quote(pre)};sh /build/scripts/build-llvm-runtime.sh --phase ${phase} --predecessor-sha256 ${parentHash};node -e ${quote(post)}`;
   const collect = String.raw`${common}${parser};const log=bounded('${prefix}compile.log',16777216),lines=log.toString('utf8').split(/\r?\n/).filter(l=>l.startsWith('NATIVE_FRESH_NEXT_PHASE='));assert.equal(lines.length,1);const p=JSON.parse(lines[0].slice('NATIVE_FRESH_NEXT_PHASE='.length));assert.equal(p.phase,'${phase}');assert.equal(p.planSha256,'${planSha256}');const b=bounded('${prefix}phase-receipt.json',32768);assert.equal(p.receiptBase64,b.toString('base64'));assert.equal(p.receiptSha256,sha(b));const r=validateNativeCheckpointReceipt(b,{phase:'${phase}',sha256:p.receiptSha256,predecessorSha256:'${parentHash}',inputsSha256:'${identity.inputsSha256}'});assert.deepEqual(r.proof,{});assert.equal(p.phaseCommandKind,'${identity.phaseCommandKind}');assert.equal(p.releaseTarget,${JSON.stringify(identity.releaseTarget)});assert.equal(p.assertionPartition,${JSON.stringify(identity.assertionPartition)});assert.equal(p.recipeExitCode,0);assert.equal(p.coreReceiptSha256,'${identity.coreExpected.receiptSha256}');assert.equal(p.coreCandidateSha256,'${identity.coreCandidateSha256}');assert.equal(p.coreAbiReceiptSha256,'${identity.coreAbiReceiptSha256}');for(const k of ${JSON.stringify(flags)})assert.equal(p[k],false);fs.writeFileSync('${prefix}phase-proof.json',JSON.stringify({...p,phaseLogSha256:sha(log)})+'\n',{flag:'wx'});`;
   const logTransport = `${common};const{gzipSync}=require('node:zlib');${encodeNativeFreshPhaseLog.toString()};const raw=bounded('${prefix}compile.log',16777216),proof=JSON.parse(bounded('${prefix}phase-proof.json',65536));assert.equal(proof.planSha256,'${planSha256}');assert.equal(proof.phase,'${phase}');assert.equal(proof.phaseLogSha256,sha(raw));for(const line of encodeNativeFreshPhaseLog(raw,{planSha256:'${planSha256}',phase:'${phase}',phaseLogSha256:proof.phaseLogSha256}))console.log(line);`;
   const candidateLabels = {
@@ -523,7 +530,7 @@ function assemble(identity) {
     `timeout 20s node -e ${quote(inspect)}`,
     `timeout 20s node -e ${quote(setParent)}`,
     "native_create_status=0",
-    `timeout 30s docker create --cidfile ${prefix}container-id --label vaettir.next-owner=${planSha256} --network none --cap-drop ALL --security-opt no-new-privileges --pids-limit 2048 --memory 14g --cpus 8 --entrypoint sh ${parent} -eu -c ${quote(compile)} >${prefix}create-output.txt || native_create_status=$?`,
+    `timeout 30s docker create --cidfile ${prefix}container-id --label vaettir.next-owner=${planSha256} --env PYTHONDONTWRITEBYTECODE=1 --network none --cap-drop ALL --security-opt no-new-privileges --pids-limit 2048 --memory 14g --cpus 8 --entrypoint sh ${parent} -eu -c ${quote(compile)} >${prefix}create-output.txt || native_create_status=$?`,
     `native_validation_container=$(timeout 20s node -e ${quote(readId)})`,
     'test "$native_create_status" = 0',
     'test -n "$native_validation_container"',
@@ -542,7 +549,7 @@ function assemble(identity) {
     `native_candidate_image=$(timeout 20s node -e ${quote(readCommitId)})`,
     `timeout 20s node -e ${quote(setCandidate)}`,
     "native_create_status=0",
-    `timeout 30s docker create --cidfile ${prefix}container-id --label vaettir.next-owner=${planSha256} --network none --cap-drop ALL --security-opt no-new-privileges --pids-limit 128 --memory 2g --cpus 2 --entrypoint node "$native_candidate_image" -e ${quote(successor)} >${prefix}verify-create-output.txt || native_create_status=$?`,
+    `timeout 30s docker create --cidfile ${prefix}container-id --label vaettir.next-owner=${planSha256} --env PYTHONDONTWRITEBYTECODE=1 --network none --cap-drop ALL --security-opt no-new-privileges --pids-limit 128 --memory 2g --cpus 2 --entrypoint node "$native_candidate_image" -e ${quote(successor)} >${prefix}verify-create-output.txt || native_create_status=$?`,
     `native_validation_container=$(timeout 20s node -e ${quote(readId)})`,
     'test "$native_create_status" = 0',
     'test -n "$native_validation_container"',
@@ -590,6 +597,7 @@ function assemble(identity) {
         value: identity.sourceCommit,
         type: "PLAINTEXT",
       },
+      { name: "PYTHONDONTWRITEBYTECODE", value: "1", type: "PLAINTEXT" },
     ],
     idempotencyToken: "native-fresh-" + phase + "-" + planSha256.slice(0, 32),
     autoRetryLimitOverride: 0,

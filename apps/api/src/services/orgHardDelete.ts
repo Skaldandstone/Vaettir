@@ -168,8 +168,41 @@ async function stageNativeIdentityScopes(tx: Prisma.TransactionClient, organizat
   // No conditional reuse or concurrent build: unsupported/duplicate data refuses
   // atomically. The index shares the temp table's namespace/lifetime and drops
   // with it on commit; rollback also removes both newly created resources.
-  await tx.$executeRaw`CREATE UNIQUE INDEX vaettir_native_erasure_scope_identity_idx
-    ON pg_temp.vaettir_native_erasure_scope(model,id)`;
+  // Pattern ordering avoids locale-sort work only for this private TEMP index.
+  // It retains the SAME native text_eq equality under deterministic collations
+  // (PostgreSQL17 index.c762-798). Prove actual session-owned TEXT/default
+  // compatibility and both pg_catalog B-tree equality contracts first. Missing,
+  // unknown or incompatible catalog evidence keeps the original default index;
+  // catalog-query errors still abort the transaction, never bypass a constraint.
+  const eligibility = await tx.$queryRaw<Array<{ eligible: boolean }>>`SELECT
+    EXISTS (SELECT 1 FROM pg_class table_info JOIN pg_attribute staged_id ON staged_id.attrelid=table_info.oid
+      JOIN pg_collation collation_info ON collation_info.oid=staged_id.attcollation
+      JOIN pg_attribute native_id ON native_id.attrelid='"TestResult"'::regclass AND native_id.attname='id'
+      WHERE table_info.oid=to_regclass('pg_temp.vaettir_native_erasure_scope')
+        AND table_info.relnamespace=pg_my_temp_schema() AND table_info.relpersistence='t'
+        AND staged_id.attname='id' AND staged_id.attnum>0 AND NOT staged_id.attisdropped AND staged_id.attnotnull
+        AND staged_id.atttypid='pg_catalog.text'::regtype AND staged_id.attcollation='pg_catalog."default"'::regcollation
+        AND collation_info.collisdeterministic
+        AND native_id.attnum>0 AND NOT native_id.attisdropped AND native_id.atttypid=staged_id.atttypid
+        AND native_id.attcollation=staged_id.attcollation)
+    AND (SELECT count(*)=2 FROM pg_opclass opclass_info
+      JOIN pg_namespace namespace_info ON namespace_info.oid=opclass_info.opcnamespace
+      JOIN pg_am access_method ON access_method.oid=opclass_info.opcmethod
+      JOIN pg_amop equality_strategy ON equality_strategy.amopfamily=opclass_info.opcfamily
+        AND equality_strategy.amopmethod=opclass_info.opcmethod AND equality_strategy.amopstrategy=3
+        AND equality_strategy.amoplefttype='pg_catalog.text'::regtype AND equality_strategy.amoprighttype='pg_catalog.text'::regtype
+      JOIN pg_operator equality_operator ON equality_operator.oid=equality_strategy.amopopr
+      WHERE namespace_info.nspname='pg_catalog' AND access_method.amname='btree'
+        AND opclass_info.opcname IN ('text_ops','text_pattern_ops') AND opclass_info.opcintype='pg_catalog.text'::regtype
+        AND equality_strategy.amopopr='pg_catalog.=(text,text)'::regoperator
+        AND equality_operator.oprcode='pg_catalog.texteq(text,text)'::regprocedure) AS eligible`;
+  if (eligibility.length === 1 && eligibility[0]?.eligible === true) {
+    await tx.$executeRaw`CREATE UNIQUE INDEX vaettir_native_erasure_scope_identity_idx
+      ON pg_temp.vaettir_native_erasure_scope(model,id pg_catalog.text_pattern_ops)`;
+  } else {
+    await tx.$executeRaw`CREATE UNIQUE INDEX vaettir_native_erasure_scope_identity_idx
+      ON pg_temp.vaettir_native_erasure_scope(model,id)`;
+  }
   // Autovacuum cannot analyze this session's temporary table. Give subsequent
   // native family joins actual populated statistics, only after uniqueness is
   // established. Failure still aborts before reconciliation or child deletion.
