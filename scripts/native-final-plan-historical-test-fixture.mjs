@@ -73,4 +73,3 @@ export function reviewedNativeFinalDiagnosticsTestOverlay(historicalV2){
   assert.deepEqual(Buffer.from(text),historicalV2,"All original gates/bytes must restore exactly");
   return result;
 }
-
