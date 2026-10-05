@@ -163,8 +163,14 @@ export async function assertCaseFieldAuthoring(
     expectedSchemaHash?: string;
     expectedValueHash?: string;
   },
+  authorized?: CaseFieldReadAuthorization,
 ) {
   await lockCaseFieldProject(tx, userId, projectId);
+  // Legacy transaction-bound clone/folder callers already hold case locks.
+  // Do not introduce a late Case -> User acquisition in that omitted path.
+  // Router-authorized updates/restores pin this User before their case locks.
+  if (authorized !== undefined)
+    await lockCurrentCaseFieldActor(tx, userId, authorized);
   const state = await readCaseFieldState(tx, userId, projectId, args.caseId);
   if (
     args.values !== undefined &&

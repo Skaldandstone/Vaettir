@@ -30,6 +30,7 @@ import {
 import { parseTestCaseCsv } from "../services/testCaseCsvImport.js";
 import { captureCaseProcedureExport } from "../services/caseProcedureExport.js";
 import { assertCaseFieldAuthoring, lockCaseFieldProject } from "../services/caseFields.js";
+import { lockCurrentCaseFieldActor } from "../services/caseFieldReadScope.js";
 import { caseFieldValues } from "../services/caseFieldSchema.js";
 import { commitImportedTestCasesInTransaction } from "../services/importCommit.js";
 import { testCaseContentRevision } from "../services/testCaseContentRevision.js";
@@ -1347,7 +1348,7 @@ export const testCasesRouter = router({
       );
       return ctx.prisma.$transaction(async (tx) => {
         await requireCurrentPlanAccess(tx, ctx.user.id, input.projectId, true);
-        await assertCaseFieldAuthoring(tx, ctx.user.id, input.projectId, {});
+        await assertCaseFieldAuthoring(tx, ctx.user.id, input.projectId, {}, { clerkActorId: ctx.user.clerkUserId });
         const created = await tx.testCase.create({
           data: {
             projectId: input.projectId,
@@ -1421,7 +1422,7 @@ export const testCasesRouter = router({
             message: "Choose a shared step library in this project.",
           });
         }
-        const customFields = await assertCaseFieldAuthoring(tx, ctx.user.id, input.projectId, { values: input.customFields, expectedSchemaHash: input.expectedFieldSchemaHash });
+        const customFields = await assertCaseFieldAuthoring(tx, ctx.user.id, input.projectId, { values: input.customFields, expectedSchemaHash: input.expectedFieldSchemaHash }, { clerkActorId: ctx.user.clerkUserId });
         const created = await tx.testCase.create({
           data: {
             projectId: input.projectId,
@@ -1669,6 +1670,9 @@ export const testCasesRouter = router({
       // across an edit.
       const updated = await ctx.prisma.$transaction(async (tx) => {
         await lockCaseFieldProject(tx, ctx.user.id, existing.projectId);
+        // Pin the independent authenticated identity before any case/body lock,
+        // feedback, version or audit work; the later authoring check reuses it.
+        await lockCurrentCaseFieldActor(tx, ctx.user.id, { clerkActorId: ctx.user.clerkUserId });
         const currentPlacement = await tx.testCase.findUniqueOrThrow({
           where: { id: input.id },
           select: { suitePath: true, priority: true },
@@ -1806,7 +1810,7 @@ export const testCasesRouter = router({
             },
           });
         }
-        const approvedCustomFields = await assertCaseFieldAuthoring(tx, ctx.user.id, existing.projectId, { caseId: input.id, values: input.customFields, expectedSchemaHash: input.expectedFieldSchemaHash, expectedValueHash: input.expectedCustomFieldRevision });
+        const approvedCustomFields = await assertCaseFieldAuthoring(tx, ctx.user.id, existing.projectId, { caseId: input.id, values: input.customFields, expectedSchemaHash: input.expectedFieldSchemaHash, expectedValueHash: input.expectedCustomFieldRevision }, { clerkActorId: ctx.user.clerkUserId });
         await tx.testCaseStep.deleteMany({ where: { testCaseId: input.id } });
         const changed = await tx.testCase.update({
           where: { id: input.id },

@@ -3,6 +3,7 @@ import { TRPCError } from "@trpc/server";
 import { Prisma } from "@vaettir/db";
 import { protectedProcedure, requireProjectAccess, router } from "../trpc.js";
 import { requireCurrentPlanAccess } from "../services/testPlanExecution.js";
+import { lockCaseFieldReadScope } from "../services/caseFieldReadScope.js";
 import {
   previewCaseVersion,
   restoreCaseVersion,
@@ -30,6 +31,7 @@ export const caseVersionReviewRouter = router({
       await requireProjectAccess(ctx, input.projectId);
       return ctx.prisma.$transaction(
         async (tx) => {
+          await lockCaseFieldReadScope(tx, ctx.user.id, { projectId: input.projectId, caseId: input.testCaseId }, { clerkActorId: ctx.user.clerkUserId });
           await requireCurrentPlanAccess(tx, ctx.user.id, input.projectId);
           const tc = await tx.testCase.findFirst({
             where: { id: input.testCaseId, projectId: input.projectId },
@@ -165,20 +167,20 @@ export const caseVersionReviewRouter = router({
     .output(versionPreviewOutputSchema)
     .query(async ({ ctx, input }) => {
       await requireProjectAccess(ctx, input.projectId);
-      return previewCaseVersion(ctx.prisma, ctx.user.id, input);
+      return previewCaseVersion(ctx.prisma, ctx.user.id, input, { clerkActorId: ctx.user.clerkUserId });
     }),
   compareHistorical: protectedProcedure
     .input(historicalComparisonSchema)
     .output(historicalComparisonOutputSchema)
     .query(async ({ ctx, input }) => {
       await requireProjectAccess(ctx, input.projectId);
-      return compareHistoricalCaseVersions(ctx.prisma, ctx.user.id, input);
+      return compareHistoricalCaseVersions(ctx.prisma, ctx.user.id, input, { clerkActorId: ctx.user.clerkUserId });
     }),
   restore: protectedProcedure
     .input(versionRestoreSchema)
     .output(versionRestoreOutputSchema)
     .mutation(async ({ ctx, input }) => {
       await requireProjectAccess(ctx, input.projectId, "EDITOR");
-      return restoreCaseVersion(ctx.prisma, ctx.user.id, input);
+      return restoreCaseVersion(ctx.prisma, ctx.user.id, input, { clerkActorId: ctx.user.clerkUserId });
     }),
 });

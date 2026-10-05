@@ -14,6 +14,11 @@ import {
   assertCaseFieldAuthoring,
   lockCaseFieldProject,
 } from "./caseFields.js";
+import {
+  lockCaseFieldReadScope,
+  lockCurrentCaseFieldActor,
+  type CaseFieldReadAuthorization,
+} from "./caseFieldReadScope.js";
 
 export const restoreFieldSchema = z.enum([
   "title",
@@ -142,9 +147,11 @@ export async function compareHistoricalCaseVersions(
   db: PrismaClient,
   userId: string,
   input: z.infer<typeof historicalComparisonSchema>,
+  authorized?: CaseFieldReadAuthorization,
 ) {
   return db.$transaction(
     async (tx) => {
+      await lockCaseFieldReadScope(tx, userId, { projectId: input.projectId, caseId: input.testCaseId }, authorized);
       await requireCurrentPlanAccess(tx, userId, input.projectId);
       const currentIdentity = await tx.testCase.findFirst({
         where: { id: input.testCaseId, projectId: input.projectId },
@@ -434,9 +441,11 @@ export async function previewCaseVersion(
   db: PrismaClient,
   userId: string,
   input: z.infer<typeof versionPreviewSchema>,
+  authorized?: CaseFieldReadAuthorization,
 ) {
   return db.$transaction(
     async (tx) => {
+      await lockCaseFieldReadScope(tx, userId, { projectId: input.projectId, caseId: input.testCaseId }, authorized);
       await requireCurrentPlanAccess(tx, userId, input.projectId);
       const membership = await tx.membership.findFirst({
         where: {
@@ -465,6 +474,7 @@ export async function restoreCaseVersion(
   db: PrismaClient,
   userId: string,
   input: z.infer<typeof versionRestoreSchema>,
+  authorized?: CaseFieldReadAuthorization,
 ) {
   const requestHash = qualityProfileHash({
     ...input,
@@ -473,6 +483,7 @@ export async function restoreCaseVersion(
   return db.$transaction(
     async (tx) => {
       await lockCaseFieldProject(tx, userId, input.projectId);
+      await lockCurrentCaseFieldActor(tx, userId, authorized);
       await tx.$queryRaw`SELECT id FROM "TestCase" WHERE id = ${input.testCaseId} AND "projectId" = ${input.projectId} FOR UPDATE`;
       await tx.$queryRaw`SELECT id FROM "TestCaseStep" WHERE "testCaseId" = ${input.testCaseId} FOR UPDATE`;
       await tx.$queryRaw`SELECT g.id FROM "SharedStepGroup" g JOIN "TestCase" c ON c."sharedStepGroupId" = g.id WHERE c.id = ${input.testCaseId} AND c."projectId" = ${input.projectId} FOR SHARE OF g`;
@@ -514,7 +525,7 @@ export async function restoreCaseVersion(
       // explicit content restoration requires current required fields complete.
       await assertCaseFieldAuthoring(tx, userId, input.projectId, {
         caseId: input.testCaseId,
-      });
+      }, authorized);
       const { current, saved, normalizedSteps, preview } = await reviewState(
         tx,
         input,
