@@ -13,13 +13,17 @@ export const caseProcedureReimportRouter = router({
     .output(procedureReimportPreviewOutput)
     .mutation(async ({ ctx, input }) => {
       await requireProjectAccess(ctx, input.projectId, "EDITOR");
-      return previewProcedureReimport(ctx.prisma, ctx.user.id, input);
+      return previewProcedureReimport(ctx.prisma, ctx.user.id, input, {
+        clerkActorId: ctx.user.clerkUserId,
+      });
     }),
   approve: protectedProcedure
     .input(procedureReimportApproval)
     .output(procedureReimportResult)
     .mutation(async ({ ctx, input }) => {
       await requireProjectAccess(ctx, input.projectId, "EDITOR");
-      return approveProcedureReimport(ctx.prisma, ctx.user.id, input);
+      return approveProcedureReimport(ctx.prisma, ctx.user.id, input, {
+        clerkActorId: ctx.user.clerkUserId,
+      });
     }),
 });

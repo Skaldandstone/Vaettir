@@ -16,7 +16,7 @@ import { qualityProfileHash } from "./qualityExperienceProfile.js";
 import { snapshotTestCaseVersion } from "./testCaseVersion.js";
 import { verificationProfileSchema } from "./physicalValidation.js";
 import { readCaseFieldState, lockCaseFieldProject } from "./caseFields.js";
-import { lockCurrentCaseFieldActor } from "./caseFieldReadScope.js";
+import { lockCurrentCaseFieldActor, type CaseFieldReadAuthorization } from "./caseFieldReadScope.js";
 
 const MAX_BYTES = 2 * 1024 * 1024;
 const MAX_CASES = 50;
@@ -98,9 +98,12 @@ async function lockedScope(
   tx: Prisma.TransactionClient,
   userId: string,
   input: z.infer<typeof procedureReimportInput>,
+  authorized?: CaseFieldReadAuthorization,
 ) {
   await lockCaseFieldProject(tx, userId, input.projectId);
-  const actorClerkUserId = await lockCurrentCaseFieldActor(tx, userId);
+  // Request authentication is independent of optional retained review scope.
+  // Pin it before private comparisons, new writes or accepted receipt replay.
+  const actorClerkUserId = await lockCurrentCaseFieldActor(tx, userId, authorized);
   const project = await tx.project.findUniqueOrThrow({ where: { id: input.projectId }, select: { organizationId: true } });
   if (input.expectedScope && (input.expectedScope.organizationId !== project.organizationId || input.expectedScope.clerkActorId !== actorClerkUserId))
     throw new TRPCError({ code: "FORBIDDEN", message: "This procedure request belongs to a different original organization or signed-in actor." });
@@ -428,10 +431,11 @@ export async function previewProcedureReimport(
   db: PrismaClient,
   userId: string,
   input: z.infer<typeof procedureReimportInput>,
+  authorized?: CaseFieldReadAuthorization,
 ) {
   return db.$transaction(
     async (tx) => {
-      const scope = await lockedScope(tx, userId, input);
+      const scope = await lockedScope(tx, userId, input, authorized);
       const bundle = readBundle(input);
       return {
         ...(await review(tx, userId, input, bundle, scope.actorClerkUserId)).preview,
@@ -448,6 +452,7 @@ export async function approveProcedureReimport(
   db: PrismaClient,
   userId: string,
   input: z.infer<typeof procedureReimportApproval>,
+  authorized?: CaseFieldReadAuthorization,
 ) {
   if (input.actorId !== userId)
     throw new TRPCError({
@@ -457,7 +462,7 @@ export async function approveProcedureReimport(
   const requestHash = qualityProfileHash(input);
   return db.$transaction(
     async (tx) => {
-      const scope = await lockedScope(tx, userId, input);
+      const scope = await lockedScope(tx, userId, input, authorized);
       const bundle = readBundle(input);
       const receipt = await tx.auditLog.findFirst({
         where: {

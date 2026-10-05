@@ -6,6 +6,7 @@ import assert from "node:assert/strict";
 const source = readFileSync(new URL("../components/TestCaseProcedureReimport.tsx", import.meta.url), "utf8").replace(/\s+/g, " ");
 const service = readFileSync(new URL("../../api/src/services/caseProcedureReimport.ts", import.meta.url), "utf8");
 const actorService = readFileSync(new URL("../../api/src/services/caseFieldReadScope.ts", import.meta.url), "utf8");
+const reimportRouter = readFileSync(new URL("../../api/src/routers/caseProcedureReimport.ts", import.meta.url), "utf8");
 test("private retained procedure comparisons require fresh current project, membership, actor and full editor", () => {
   for (const literal of ["useAuth()", "!project.error && !project.isFetching && !project.isPaused", "!organizations.error && !organizations.isFetching && !organizations.isPaused",
     "origin.organizationId === project.data?.organizationId", "origin.clerkActorId === userId", "const privateReady = editorReady && !paused && !accessRejected",
@@ -55,7 +56,7 @@ test("locked scope precedes body/replay and legacy receipt preserves its own ori
   assert.ok(scopeStart >= 0 && scopeEnd > scopeStart);
   const scope = service.slice(scopeStart, scopeEnd);
   const projectLock = scope.indexOf("await lockCaseFieldProject(tx, userId, input.projectId)");
-  const actorLock = scope.indexOf("const actorClerkUserId = await lockCurrentCaseFieldActor(tx, userId)");
+  const actorLock = scope.indexOf("const actorClerkUserId = await lockCurrentCaseFieldActor(tx, userId, authorized)");
   const projectRead = scope.indexOf("const project = await tx.project.findUniqueOrThrow");
   const scopeCheck = scope.indexOf("input.expectedScope.organizationId !== project.organizationId");
   const clerkCheck = scope.indexOf("input.expectedScope.clerkActorId !== actorClerkUserId");
@@ -63,8 +64,11 @@ test("locked scope precedes body/replay and legacy receipt preserves its own ori
   const scopeReturn = scope.indexOf("return { projectId: input.projectId, organizationId: project.organizationId, actorClerkUserId }");
   assert.ok(projectLock >= 0 && actorLock > projectLock && projectRead > actorLock);
   assert.ok(scopeCheck > projectRead && clerkCheck > scopeCheck && refusal > clerkCheck && scopeReturn > refusal);
-  // This legacy bridge pins the native mapping and optional retained scope; it
-  // does not independently pass authenticated request Clerk context yet.
+  // Request authentication is independent of retained input scope, including
+  // legacy callers omitting that scope and recovery of accepted exact UUIDs.
+  for (const name of ["previewProcedureReimport", "approveProcedureReimport"])
+    assert.match(reimportRouter, new RegExp(`${name}\\(ctx\\.prisma, ctx\\.user\\.id, input, \\{\\s*clerkActorId: ctx\\.user\\.clerkUserId,\\s*\\}\\)`));
+  assert.equal((service.match(/const scope = await lockedScope\(tx, userId, input, authorized\)/g) ?? []).length, 2);
   const helperStart = actorService.indexOf("export async function lockCurrentCaseFieldActor(");
   const helperEnd = actorService.indexOf("export async function lockCaseFieldReadScope(", helperStart);
   assert.ok(helperStart >= 0 && helperEnd > helperStart);
