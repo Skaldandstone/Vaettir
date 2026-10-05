@@ -196,13 +196,12 @@ async function stageNativeIdentityScopes(tx: Prisma.TransactionClient, organizat
         AND opclass_info.opcname IN ('text_ops','text_pattern_ops') AND opclass_info.opcintype='pg_catalog.text'::regtype
         AND equality_strategy.amopopr='pg_catalog.=(text,text)'::regoperator
         AND equality_operator.oprcode='pg_catalog.texteq(text,text)'::regprocedure) AS eligible`;
-  if (eligibility.length === 1 && eligibility[0]?.eligible === true) {
-    await tx.$executeRaw`CREATE UNIQUE INDEX vaettir_native_erasure_scope_identity_idx
-      ON pg_temp.vaettir_native_erasure_scope(model,id pg_catalog.text_pattern_ops)`;
-  } else {
-    await tx.$executeRaw`CREATE UNIQUE INDEX vaettir_native_erasure_scope_identity_idx
-      ON pg_temp.vaettir_native_erasure_scope(model,id)`;
-  }
+  // Closed static SQL fragments only, never a catalog- or caller-supplied name.
+  // Both outcomes pass through the same single awaited uniqueness gate.
+  const nativeIndexOrder = eligibility.length === 1 && eligibility[0]?.eligible === true
+    ? Prisma.sql` pg_catalog.text_pattern_ops` : Prisma.empty;
+  await tx.$executeRaw`CREATE UNIQUE INDEX vaettir_native_erasure_scope_identity_idx
+    ON pg_temp.vaettir_native_erasure_scope(model,id${nativeIndexOrder})`;
   // Autovacuum cannot analyze this session's temporary table. Give subsequent
   // native family joins actual populated statistics, only after uniqueness is
   // established. Failure still aborts before reconciliation or child deletion.
