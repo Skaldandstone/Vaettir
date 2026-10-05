@@ -8,6 +8,7 @@ import { Drawer } from "@/components/Drawer";
 import { Modal } from "@/components/Modal";
 import { useProjectPermissions } from "@/lib/use-project-permissions";
 import { inspectorLabel } from "@/lib/case-inspector";
+import { currentSessionScope, sameAuthScope } from "@/lib/auth-query-cache";
 
 const STATUS_COLORS: Record<string, string> = {
   PASSED: "#1a7f37",
@@ -140,23 +141,26 @@ function HealingSuggestionPanel({
   const suggestion = suggestionQuery.data ?? null;
   const [error, setError] = useState<string | null>(null);
 
-  // Both mutations return the fresh suggestion row, so write it straight into
-  // the query cache (what the original page did with setSuggestion) rather
-  // than refetching.
+  // A pending mutation's onSuccess may be replaced on an account switch.
+  // Preserve its initiating identity; never place an old ACK in a new cache.
+  const initiatingScope = () =>
+    currentSessionScope(window.Clerk?.loaded ? window.Clerk.session : null);
   const classifyMutation = trpcReact.healingSuggestions.classify.useMutation({
-    onSuccess: (result) => {
+    onMutate: initiatingScope,
+    onSuccess: (result, _input, originalScope) => {
+      if (!sameAuthScope(originalScope ?? null, initiatingScope())) return;
       if (result.ok)
-        utils.healingSuggestions.byTestResult.setData(
-          { testResultId },
-          result.suggestion,
-        );
+        void utils.healingSuggestions.byTestResult.invalidate({ testResultId });
       else setError(result.reason);
     },
     onError: (e) => setError(e.message),
   });
   const reviewMutation = trpcReact.healingSuggestions.review.useMutation({
-    onSuccess: (updated) =>
-      utils.healingSuggestions.byTestResult.setData({ testResultId }, updated),
+    onMutate: initiatingScope,
+    onSuccess: (_updated, _input, originalScope) => {
+      if (sameAuthScope(originalScope ?? null, initiatingScope()))
+        void utils.healingSuggestions.byTestResult.invalidate({ testResultId });
+    },
     onError: (e) => setError(e.message),
   });
 

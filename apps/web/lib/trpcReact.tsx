@@ -1,14 +1,15 @@
 "use client";
 
-import { useEffect, useMemo, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useAuth } from "@clerk/nextjs";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { QueryClientProvider } from "@tanstack/react-query";
 import { createTRPCReact } from "@trpc/react-query";
 import { httpBatchLink } from "@trpc/client";
 import type { inferRouterInputs, inferRouterOutputs } from "@trpc/server";
 import type { AppRouter } from "@vaettir/api/src/router";
 import { getAuthHeaders } from "./trpc";
 import { canEditProject } from "./membership";
+import { AuthQueryClient, authQueryIdentity } from "./auth-query-cache";
 
 export type RouterOutputs = inferRouterOutputs<AppRouter>;
 export type RouterInputs = inferRouterInputs<AppRouter>;
@@ -39,17 +40,30 @@ export function useReadOnlySeat(projectId: string): boolean {
 
 export function TRPCReactProvider({ children }: { children: ReactNode }) {
   const { isLoaded, isSignedIn, userId, sessionId } = useAuth();
-  // Separate caches and transport clients per committed Clerk identity. Do not
-  // key-remount children: their human drafts and uncertain writes must survive
-  // an account switch, while their own origin guards withhold private content.
-  const { queryClient, client } = useMemo(() => {
-    const scope =
+  const scope = useMemo(
+    () =>
       isLoaded && isSignedIn && userId && sessionId
         ? Object.freeze({ userId, sessionId })
-        : null;
-    return {
-      queryClient: new QueryClient(),
-      client: trpcReact.createClient({
+        : null,
+    [isLoaded, isSignedIn, userId, sessionId],
+  );
+  const identity = authQueryIdentity(scope);
+  const [queryClient] = useState(() => new AuthQueryClient());
+  const [generation, setGeneration] = useState(() => ({
+    number: 0,
+    identity,
+    scope,
+  }));
+  if (generation.identity !== identity) {
+    // React retries this provider before rendering descendants. Keep the same
+    // child tree/drafts and increment even when returning to the same account.
+    setGeneration({ number: generation.number + 1, identity, scope });
+  } else {
+    queryClient.selectGeneration(generation);
+  }
+  const client = useMemo(
+    () =>
+      trpcReact.createClient({
         links: [
           httpBatchLink({
             url: `${API_URL}/trpc`,
@@ -57,16 +71,14 @@ export function TRPCReactProvider({ children }: { children: ReactNode }) {
           }),
         ],
       }),
-    };
-  }, [isLoaded, isSignedIn, userId, sessionId]);
-  useEffect(
-    () => () => {
-      // Cancel stale reads, not mutations: an unknown write remains unknown and
-      // must be reconciled using its original actor and retained request UUID.
-      void queryClient.cancelQueries().catch(() => undefined);
-    },
-    [queryClient],
+    [scope],
   );
+  useEffect(() => {
+    // Commit transitions, not effect cleanup: StrictMode's repeated setup
+    // must never cancel current reads. Only the prior committed generation
+    // is canceled; mutations and the new generation remain untouched.
+    void queryClient.commitGeneration(generation).catch(() => undefined);
+  }, [queryClient, generation]);
 
   return (
     <trpcReact.Provider client={client} queryClient={queryClient}>
