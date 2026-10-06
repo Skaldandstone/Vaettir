@@ -31,15 +31,16 @@ test("manual runs open reviewed configuration and render frozen evidence", () =>
     cases,
     /activeSelectedIds = selectedCases\s*\.filter\(\(item\) => !item.archived\)\s*\.map\(\(item\) => item.id\)/,
   );
-  assert.match(cases, /testCaseIds: runSelection/);
+  assert.match(cases, /testCaseIds=\{runSelection\}/);
+  assert.match(cases, /startRunMutation.mutateAsync\(\{\s*\.\.\.context/);
   assert.match(cases, /caseCount=\{runSelection.length\}/);
   const execution = source(
     "../app/projects/[projectId]/test-runs/manual/[testRunId]/page.tsx",
-  );
+  ).replace(/\s+/g, " ");
   assert.match(execution, /data.executionContext.configuration/);
   assert.match(
     execution,
-    /Later profile or case edits do not rewrite this run/,
+    /Later profile or case edits do not\s+rewrite this run/,
   );
   assert.match(
     execution,

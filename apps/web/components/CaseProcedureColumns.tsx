@@ -1,3 +1,5 @@
+import { technicalBehaviorLabel } from "@/lib/case-authoring-fields";
+
 type ProcedureStep = {
   action: string;
   expectedActionOrData?: string | null;
@@ -43,7 +45,7 @@ export function CaseProcedureColumns({
             </th>
             <th scope="col">{labels?.action ?? "Action"}</th>
             <th scope="col">
-              {labels?.expectedActionOrData ?? "Expected data"}
+              {technicalBehaviorLabel(labels?.expectedActionOrData)}
             </th>
             <th scope="col">{labels?.expectedResult ?? "Expected result"}</th>
             <th scope="col">

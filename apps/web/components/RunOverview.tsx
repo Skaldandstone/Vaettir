@@ -115,6 +115,18 @@ export function RunOverview({
         <a className="btn-secondary" href={`/projects/${projectId}/reports`}>
           Project reports
         </a>
+        <a
+          className="btn-secondary"
+          href={`/projects/${projectId}/execution-trends`}
+        >
+          Run trends and exports
+        </a>
+        <a
+          className="btn-secondary"
+          href={`/projects/${projectId}/recorded-run-comparison`}
+        >
+          Compare recorded CI runs
+        </a>
       </div>
       <p className="text-muted">
         This dashboard covers the displayed run-history page, not hidden pages.
@@ -164,11 +176,13 @@ export function RunOverview({
                       : "Planned CI total unavailable"}
                   </span>
                 </div>
-                <progress
-                  aria-label={`Run ${run.id} recorded progress`}
-                  value={run.progress.recorded}
-                  max={run.progress.total || 1}
-                />
+                {run.ciProvider === "manual" && (
+                  <progress
+                    aria-label={`Run ${run.id} recorded progress`}
+                    value={run.progress.recorded}
+                    max={run.progress.total || 1}
+                  />
+                )}
                 <DistributionBar
                   label={`Run ${run.id} outcomes`}
                   segments={[
@@ -227,13 +241,22 @@ export function RunOverview({
               </dd>
             </dl>
             <footer>
-              <button
-                type="button"
-                className="btn-secondary"
-                onClick={() => onView(run.id)}
-              >
-                View results
-              </button>
+              {run.ciProvider === "manual" ? (
+                <a
+                  className="btn-secondary"
+                  href={`/projects/${projectId}/test-runs/manual/${run.id}`}
+                >
+                  View run and cases
+                </a>
+              ) : (
+                <button
+                  type="button"
+                  className="btn-secondary"
+                  onClick={() => onView(run.id)}
+                >
+                  View results
+                </button>
+              )}
               {run.ciProvider === "manual" && (
                 <a
                   className="btn-primary"

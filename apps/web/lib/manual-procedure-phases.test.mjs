@@ -51,13 +51,13 @@ test("manual run renders every independent phase and complete ordered expected/m
   assert.match(page, /s\[field\] === null/);
   assert.match(page, /s\[field\] === ""/);
   assert.match(page, /whiteSpace: "pre-wrap"/);
-  assert.match(page, /aria-label="Complete stored procedure steps" tabIndex=\{0\}/);
+  assert.match(page, /aria-label="Complete stored procedure steps"\s+tabIndex=\{0\}/);
   assert.match(page, /overflowX: "auto"/);
 });
 test("prerequisite chips show stable project IDs without replacing frozen procedure or losing drafts on navigation", () => {
   assert.match(page, /displayId: prerequisite\?\.displayId \?\? null/);
   assert.match(page, /encodeURIComponent\(id\)/);
-  assert.match(page, /target="_blank" rel="noopener noreferrer"/);
+  assert.match(page, /target="_blank"\s+rel="noopener noreferrer"/);
   assert.match(page, /not this run's frozen procedure/);
   assert.match(page, /testCase.displayId \?\? "Case ID unavailable"/);
 });

@@ -35,7 +35,7 @@ test("step modal freezes expected index/revision and explicitly reviews outcomes
 test("manual page separates step mode from case-level recording", () => {
   const source = readFileSync(new URL("../app/projects/[projectId]/test-runs/manual/[testRunId]/page.tsx", import.meta.url), "utf8");
   assert.match(source, /stepModeChosen \|\| testCase.stepResults.some/);
-  assert.match(source, /!stepMode && <div/);
+  assert.match(source, /!stepMode\s*&&\s*\(?\s*<div/);
   assert.match(source, /StepExecutionPanel/);
   assert.match(source, /if \(!data\)/);
   assert.match(source, /Displayed evidence and open drafts are retained/);

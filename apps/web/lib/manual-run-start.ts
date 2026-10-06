@@ -23,3 +23,8 @@ export function manualStartDefinitivelyRejected(
     ].includes(String(code))
   );
 }
+
+export function assertManualStartAcknowledgement(saved: { testRunId: string; originalOrganizationId?: string; expectedClerkActorId?: string; idempotencyKey?: string }, request: { originalOrganizationId: string; expectedClerkActorId: string; idempotencyKey: string }) {
+  if (!saved.testRunId.startsWith("manual_") || saved.originalOrganizationId !== request.originalOrganizationId || saved.expectedClerkActorId !== request.expectedClerkActorId || saved.idempotencyKey !== request.idempotencyKey)
+    throw new Error("The response did not identify this original run request. Retain and retry the same request.");
+}

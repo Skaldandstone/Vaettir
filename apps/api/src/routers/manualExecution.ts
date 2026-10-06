@@ -237,9 +237,13 @@ export const manualExecutionRouter = router({
         executionContext: runConfigurationSchema.optional(),
         idempotencyKey: z.string().uuid().optional(),
         planReference: planReferenceSchema.optional(),
+        originalOrganizationId: z.string().min(1).max(200).optional(),
+        expectedClerkActorId: z.string().min(1).max(200).optional(),
+      }).refine(input => Boolean(input.originalOrganizationId) === Boolean(input.expectedClerkActorId) && (!input.originalOrganizationId || !!input.idempotencyKey), {
+        message: "Provide both original workspace and signed-in account with a durable key for a reviewed run start.",
       }),
     )
-    .output(z.object({ testRunId: z.string() }))
+    .output(z.object({ testRunId: z.string(), originalOrganizationId: z.string().optional(), expectedClerkActorId: z.string().optional(), idempotencyKey: z.string().uuid().optional() }))
     .mutation(async ({ ctx, input }) => {
       const { membership } = await requireProjectAccess(
         ctx,
@@ -273,7 +277,15 @@ export const manualExecutionRouter = router({
         expectedProfileHash: input.expectedProfileHash ?? null,
         configuration,
         ...(input.planReference ? { planReference: input.planReference } : {}),
+        ...(input.originalOrganizationId ? { originalOrganizationId: input.originalOrganizationId, expectedClerkActorId: input.expectedClerkActorId } : {}),
       });
+      function acknowledgeRun(testRunId: string) {
+        return { testRunId, ...(input.originalOrganizationId ? {
+          originalOrganizationId: input.originalOrganizationId,
+          expectedClerkActorId: input.expectedClerkActorId,
+          idempotencyKey: input.idempotencyKey,
+        } : {}) };
+      }
       if (
         input.planReference &&
         (!input.idempotencyKey ||
@@ -332,6 +344,8 @@ export const manualExecutionRouter = router({
           project?.organizationId !== found.organizationId ||
           !actor?.clerkUserId ||
           actor.clerkUserId !== ctx.user.clerkUserId
+          || (input.originalOrganizationId !== undefined && input.originalOrganizationId !== found.organizationId)
+          || (input.expectedClerkActorId !== undefined && input.expectedClerkActorId !== actor.clerkUserId)
         )
           throw new TRPCError({
             code: "FORBIDDEN",
@@ -365,7 +379,7 @@ export const manualExecutionRouter = router({
               "This run-start key was used for a different request. Review the changed scope and start with a new key.",
           });
         }
-        return { testRunId: existing.id };
+        return acknowledgeRun(existing.id);
       }
       async function previousRun() {
         if (!durableId) return null;
@@ -582,7 +596,7 @@ export const manualExecutionRouter = router({
               },
               select: { id: true },
             });
-            return { testRunId: run.id };
+            return acknowledgeRun(run.id);
           },
           { timeout: 20000, isolationLevel: "RepeatableRead" },
         );

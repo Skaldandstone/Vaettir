@@ -4,6 +4,7 @@ import { useId, useLayoutEffect, useRef, useState } from "react";
 import { trpcReact, type RouterInputs, type RouterOutputs } from "@/lib/trpcReact";
 import { parseStepMeasurements, isDefinitiveStepRejection, type StepReading, type StepStatus } from "@/lib/step-execution-form";
 import { Modal } from "./Modal";
+import { technicalBehaviorLabel } from "@/lib/case-authoring-fields";
 
 type ExecutionCase = RouterOutputs["manualExecution"]["getForExecution"]["cases"][number];
 type CurrentStep = NonNullable<ExecutionCase["stepResults"][number]["current"]>;
@@ -116,7 +117,7 @@ export function StepExecutionPanel({ testRunId, testCase, stepFieldLabels, activ
     </>}
     <Modal open={open} title={`Step ${(draft?.stepIndex ?? 0) + 1} outcome`} onClose={() => setOpen(false)} dismissible={!busy}>
       {draft && selectedStep && <>
-        <section><h3>{selectedStep.action}</h3>{selectedStep.expectedActionOrData && <p><strong>{stepFieldLabels.expectedActionOrData ?? "Expected action/data"}:</strong> {selectedStep.expectedActionOrData}</p>}{selectedStep.expectedResult && <p><strong>{stepFieldLabels.expectedResult ?? "Expected result"}:</strong> {selectedStep.expectedResult}</p>}<p className="text-muted">Frozen definition from this run. Editing the current test case does not change this procedure.</p></section>
+        <section aria-label="Frozen step definition"><h3 style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>{selectedStep.action}</h3>{selectedStep.expectedActionOrData != null && <p style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}><strong>{technicalBehaviorLabel(stepFieldLabels.expectedActionOrData)}:</strong> {selectedStep.expectedActionOrData || <em>Empty text</em>}</p>}{selectedStep.expectedResult != null && <p style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}><strong>{stepFieldLabels.expectedResult ?? "Expected result"}:</strong> {selectedStep.expectedResult || <em>Empty text</em>}</p>}{selectedStep.expectedResponse != null && <p style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}><strong>{stepFieldLabels.expectedResponse ?? "Expected response"}:</strong> {selectedStep.expectedResponse || <em>Empty text</em>}</p>}<p className="text-muted">Frozen definition from this run. Editing the current test case does not change this procedure.</p></section>
         {disabled && <p role="status">This run is read-only or your current access does not allow recording. Saved history remains available.</p>}
         {draft.current && <p>Current revision: {draft.current.status}, recorded by {draft.current.actorName} at {new Date(draft.current.recordedAt).toLocaleString()}. A correction appends evidence rather than overwriting it.</p>}
         {!review ? <fieldset disabled={locked} style={{ border: 0, padding: 0, minWidth: 0 }}>

@@ -32,12 +32,21 @@ import {
   spreadsheetText,
 } from "@/lib/test-case-export";
 import { runCaseActionBatches } from "@/lib/case-action-batches";
-import { RunConfigurationModal } from "@/components/RunConfigurationModal";
+import {
+  RunConfigurationModal,
+  type ReviewedRunConfiguration,
+} from "@/components/RunConfigurationModal";
 import { Modal } from "@/components/Modal";
 import { PageHeading } from "@/components/ui/Workspace";
 import { caseLabel, suiteChoices } from "@/lib/case-workbench";
-import { repositoryReviewStatus, rowDropTarget } from "@/lib/case-repository";
+import {
+  repositoryReviewStatus,
+  rowDropTarget,
+  sameSuiteAfterAnchor,
+  unmodifiedCaseClick,
+} from "@/lib/case-repository";
 import styles from "@/components/CaseWorkbench.module.css";
+import { verifiedRunConfigurationAck } from "@/lib/run-configuration-request";
 
 const TEST_TYPES = [
   "UNIT",
@@ -734,31 +743,25 @@ export default function TestCasesPage() {
     }
   }
 
-  async function startManualRun(context: {
-    idempotencyKey: string;
-    expectedProfileHash: string;
-    executionContext: {
-      configuration?: string;
-      platform?: string;
-      build?: string;
-      hardwareRevision?: string;
-      firmwareVersion?: string;
-      rig?: string;
-      batchOrLot?: string;
-      environment?: string;
-      calibrationReference?: string;
-      protocolReference?: string;
-    };
-  }) {
-    if (runSelection.length === 0)
+  async function startManualRun(context: ReviewedRunConfiguration) {
+    if (context.projectId !== projectId)
+      throw new Error(
+        "Restore the original project before retrying its retained run start.",
+      );
+    if (context.testCaseIds.length === 0)
       throw new Error("No cases were selected for this execution record.");
     try {
-      const { testRunId } = await startRunMutation.mutateAsync({
-        projectId,
-        testCaseIds: runSelection,
+      const acknowledgement = await startRunMutation.mutateAsync({
         ...context,
       });
-      router.push(`/projects/${projectId}/test-runs/manual/${testRunId}`);
+      if (!verifiedRunConfigurationAck(context, acknowledgement))
+        throw new Error(
+          "The run-start acknowledgement did not match the retained original scope. Retry the same request before opening an execution record.",
+        );
+      router.push(
+        `/projects/${projectId}/test-runs/manual/${acknowledgement.testRunId}`,
+      );
+      return acknowledgement;
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
       throw e;
@@ -1223,6 +1226,7 @@ export default function TestCasesPage() {
                           onDragOver={(event) => {
                             if (
                               !readOnly &&
+                              !tc.archived &&
                               event.dataTransfer.types.includes(
                                 "application/x-vaettir-test-case",
                               )
@@ -1232,7 +1236,12 @@ export default function TestCasesPage() {
                             }
                           }}
                           onDrop={(event) => {
-                            if (readOnly || moveMutation.isPending) return;
+                            if (
+                              readOnly ||
+                              tc.archived ||
+                              moveMutation.isPending
+                            )
+                              return;
                             const caseId = event.dataTransfer.getData(
                               "application/x-vaettir-test-case",
                             );
@@ -1295,6 +1304,7 @@ export default function TestCasesPage() {
                             <a
                               href={`/projects/${projectId}/test-cases/${tc.id}`}
                               onClick={(e) => {
+                                if (!unmodifiedCaseClick(e)) return;
                                 e.preventDefault();
                                 setOpenCaseId(tc.id);
                               }}
@@ -1375,7 +1385,10 @@ export default function TestCasesPage() {
                                           target.suitePath ??
                                             target.sourceFilePath ??
                                             null,
-                                          after?.id ?? null,
+                                          sameSuiteAfterAnchor(
+                                            target.suitePath,
+                                            after,
+                                          ),
                                         );
                                     }}
                                   >
@@ -1703,7 +1716,6 @@ export default function TestCasesPage() {
             after explicit conflict review; unknown case IDs are not recreated.
           </p>
           {!readOnly && <TestCaseProcedureReimport projectId={projectId} />}
-          <ProjectCaseFields projectId={projectId} />
           <CaseAuthoringPresets
             key={projectId}
             projectId={projectId}
@@ -1758,6 +1770,9 @@ export default function TestCasesPage() {
           </details>
         </div>
       </Modal>
+      <div hidden={!permissions.canAdmin} style={{ display: permissions.canAdmin ? "flex" : "none", flexWrap: "wrap", gap: 10, marginBlock: 16 }}>
+        <ProjectCaseFields projectId={projectId} />
+      </div>
       {!readOnly && (
         <Modal
           open={addOpen}
@@ -1969,14 +1984,15 @@ export default function TestCasesPage() {
           />
         )}
       </Drawer>
-      {runConfigurationOpen && (
-        <RunConfigurationModal
-          projectId={projectId}
-          caseCount={runSelection.length}
-          onClose={() => setRunConfigurationOpen(false)}
-          onStart={startManualRun}
-        />
-      )}
+      <RunConfigurationModal
+        key={projectId}
+        open={runConfigurationOpen}
+        projectId={projectId}
+        caseCount={runSelection.length}
+        testCaseIds={runSelection}
+        onClose={() => setRunConfigurationOpen(false)}
+        onStart={startManualRun}
+      />
     </div>
   );
 }

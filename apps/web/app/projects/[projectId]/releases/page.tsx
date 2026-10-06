@@ -11,6 +11,10 @@ import { useProjectPermissions } from "@/lib/use-project-permissions";
 import { CreationWizard, WizardChoices } from "@/components/CreationWizard";
 import { useManualExecutionAccess } from "@/lib/use-manual-execution-access";
 import { retainAnalysisRequest } from "@/lib/analysis-request-recovery";
+import {
+  releaseCriteriaDraftProblem,
+  saveReleaseCriterionDraft,
+} from "@/lib/release-planning-draft";
 
 // P1-15
 export default function ReleasesPage() {
@@ -35,6 +39,7 @@ export default function ReleasesPage() {
   const [newPlanName, setNewPlanName] = useState("");
   const [newCriteria, setNewCriteria] = useState<string[]>([]);
   const [criterionDraft, setCriterionDraft] = useState("");
+  const [editingCriterion, setEditingCriterion] = useState<number | null>(null);
   const [createError, setCreateError] = useState<string | null>(null);
   const [createRequest, setCreateRequest] = useState<
     RouterInputs["releases"]["create"] | null
@@ -114,6 +119,7 @@ export default function ReleasesPage() {
       setNewPlanName("");
       setNewCriteria([]);
       setCriterionDraft("");
+      setEditingCriterion(null);
       setCreateOpen(false);
       setCreateRequest(null);
       createUnknown.current = false;
@@ -136,6 +142,33 @@ export default function ReleasesPage() {
 
   const loading = releasesQuery.isLoading;
   const error = createError ?? releasesQuery.error?.message ?? null;
+  const draftProblem = releaseCriteriaDraftProblem({
+    planName: newPlanName,
+    criteria: newCriteria,
+    criterionDraft,
+    editingIndex: editingCriterion,
+  });
+
+  function saveCriterionDraft() {
+    try {
+      setNewCriteria(
+        saveReleaseCriterionDraft(
+          newCriteria,
+          criterionDraft,
+          editingCriterion,
+        ),
+      );
+      setCriterionDraft("");
+      setEditingCriterion(null);
+      setCreateError(null);
+    } catch (cause) {
+      setCreateError(
+        cause instanceof Error
+          ? cause.message
+          : "This criterion draft could not be saved.",
+      );
+    }
+  }
 
   return (
     <div style={{ maxWidth: 800 }}>
@@ -333,14 +366,29 @@ export default function ReleasesPage() {
           }
           description={
             [
-              "Give the release a recognizable name and target. You can adjust status and dates later.",
+              "Give the release a recognizable name and optional target date. You can adjust its status in the workspace.",
               "Link existing plans or add a quality plan and acceptance criteria without leaving this wizard.",
               "Vaettir will create the release and link the selected quality plans.",
             ][releaseStep]
           }
           canContinue={
             access.canWrite &&
-            (releaseStep === 0 ? Boolean(name.trim()) : !criterionDraft.trim())
+            (releaseStep === 0 ? Boolean(name.trim()) : !draftProblem)
+          }
+          validationMessage={
+            releaseStep === 0
+              ? !name.trim()
+                ? "Enter a release name to continue."
+                : undefined
+              : (draftProblem ?? undefined)
+          }
+          onInvalid={() =>
+            setCreateError(
+              releaseStep === 0
+                ? "Enter a release name to continue."
+                : (draftProblem ??
+                    "Review the current release draft before continuing."),
+            )
           }
           busy={createMutation.isPending}
           submitLabel={
@@ -478,7 +526,8 @@ export default function ReleasesPage() {
                   <legend>Add a quality plan</legend>
                   <p className="text-muted">
                     The plan and release are saved together. New criteria remain
-                    pending until evidence or review satisfies them.
+                    pending until evidence or review satisfies them. Edits here
+                    change this unsaved release draft, not an existing plan.
                   </p>
                   <label>
                     Plan name
@@ -490,7 +539,9 @@ export default function ReleasesPage() {
                     />
                   </label>
                   <label>
-                    Acceptance criterion
+                    {editingCriterion === null
+                      ? "Acceptance criterion"
+                      : `Edit draft criterion ${editingCriterion + 1}`}
                     <textarea
                       value={criterionDraft}
                       onChange={(e) => setCriterionDraft(e.target.value)}
@@ -502,18 +553,29 @@ export default function ReleasesPage() {
                     type="button"
                     className="btn-secondary"
                     disabled={
-                      !criterionDraft.trim() || newCriteria.length >= 50
+                      !criterionDraft.trim() ||
+                      (editingCriterion === null && newCriteria.length >= 50)
                     }
-                    onClick={() => {
-                      setNewCriteria((values) => [
-                        ...values,
-                        criterionDraft.trim(),
-                      ]);
-                      setCriterionDraft("");
-                    }}
+                    onClick={saveCriterionDraft}
                   >
-                    Add criterion
+                    {editingCriterion === null
+                      ? "Add criterion"
+                      : "Save draft edit"}
                   </button>
+                  {(criterionDraft.length > 0 || editingCriterion !== null) && (
+                    <button
+                      type="button"
+                      className="btn-secondary"
+                      onClick={() => {
+                        setCriterionDraft("");
+                        setEditingCriterion(null);
+                      }}
+                    >
+                      {editingCriterion === null
+                        ? "Clear draft"
+                        : "Cancel edit"}
+                    </button>
+                  )}
                   <ul>
                     {newCriteria.map((criterion, index) => (
                       <li key={index}>
@@ -521,7 +583,23 @@ export default function ReleasesPage() {
                         <button
                           type="button"
                           className="btn-secondary"
+                          disabled={
+                            editingCriterion !== null ||
+                            criterionDraft.length > 0
+                          }
+                          aria-label={`Edit draft criterion ${index + 1}`}
+                          onClick={() => {
+                            setEditingCriterion(index);
+                            setCriterionDraft(criterion);
+                          }}
+                        >
+                          Edit
+                        </button>{" "}
+                        <button
+                          type="button"
+                          className="btn-secondary"
                           aria-label={`Remove criterion ${index + 1}`}
+                          disabled={editingCriterion !== null}
                           onClick={() =>
                             setNewCriteria((values) =>
                               values.filter((_, i) => i !== index),
@@ -533,12 +611,7 @@ export default function ReleasesPage() {
                       </li>
                     ))}
                   </ul>
-                  {criterionDraft.trim() && (
-                    <p role="status">
-                      Choose Add criterion to include this draft before
-                      continuing.
-                    </p>
-                  )}
+                  {draftProblem && <p role="status">{draftProblem}</p>}
                 </fieldset>
               </>
             )}

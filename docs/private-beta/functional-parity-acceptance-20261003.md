@@ -758,3 +758,70 @@ configurable project field profiles, global/multi-run reporting
 beyond a displayed page, whole-suite queue scope beyond bounded 1,000-case batches,
 Windows signed distribution/device acceptance, and full rendered end-to-end
 acceptance. Neither competitor trial access nor source presence closes them.
+
+### October 5 continued user-feedback work, not a stop-at-checkpoint
+
+James clarified that all reported workflows remain in scope: competitor demos,
+case authoring/review, bulk actions, execution/reporting, release planning/gates
+and helper usability. The existing 15-minute continuation is active with this
+scope; routine questions and source checkpoints are not stop instructions.
+
+Hands-on continuation observed Qase's project-level milestone/steps/tags/input
+data visibility and Classic/Gherkin defaults, plus its searchable review-request
+page. Testmo's run execution exposes folder navigation, search, status, activity
+and case links; TestRail keeps blocked/untested work distinct in release-plan
+summaries. Vendor samples only; no settings, results or processing were submitted.
+
+New coherent source slice:
+
+- Library run configuration keeps its exact 1,000-case selection, UUID/context
+  and original actor/workspace through mounted close/reopen and unknown ACKs.
+  Scoped server acknowledgements are verified before navigating. Existing
+  unscoped clients remain compatible; their historical attribution is not invented.
+- An additional real blocker was found: execution reads and separate retests
+  still capped original runs at 500. Their outer case scopes now support 1,000;
+  nested 500-step, native byte/head/graph and authorization limits remain intact.
+  Actual service code was exercised with mocked 851/1,000/1,001-case preflights,
+  not a PostgreSQL or authenticated production acceptance test.
+- Manual cards now link to actual execution instead of an empty results table.
+  Search, status and next-untested navigation retain mounted rows and drafts.
+  Bounded current-record JSON exports preserve present procedures/context/
+  observations, not full history or media. CI comparisons are still labeled CI.
+- Tag chips preserve literal arrays, including comma-containing saved tags.
+  Four aligned step fields are multiline, and expected response appears in the
+  frozen step-result dialog. Comments have a mounted, keyboard-reachable tab.
+- The dedicated review queue now has stable IDs, search, sorting and 25-item
+  pages, excludes archived pending cases and withholds stale failed-read bodies.
+  Modified case-link clicks retain normal browser new-tab behavior. Drag-down
+  anchors stay in their persisted suite; archived targets cannot accept drops.
+- Built-in project preferences persist in a separate quality-profile sibling,
+  without changing strict experience v1 or adding a migration. AUTO/SHOW/HIDE
+  and preferred type/domain choices retain populated fields, custom labels,
+  supported saved choices and unknown siblings. Current FULL Owner/Admin,
+  complete-profile CAS, bounded native JSON size and exact UUID replay guard
+  configuration. Settings are mounted independently of the Library actions
+  dialog; no browser-reload persistence is claimed.
+- Release wizard draft criteria support Edit/Save/Cancel/Clear and explicit
+  named-plan/criterion limits. Workspace attachment presents only unassigned
+  plans, with truthful links to other assignments and discoverable plan/criteria
+  actions. It no longer promises a target-date editor that does not exist.
+
+Integrated local checks: API/Web types pass, full Web 655 checks pass with zero
+skips, eight focused API suites/77 tests pass. Initial full Web source contracts
+failed after formatting; they now ignore trivia only while retaining identifiers,
+operators, strings/template identities, mounted history and private-read gates.
+Negative tests reject weakened guards. No original acceptance assertion was removed.
+
+Actual synthetic components: tag Enter/Backspace round-trip retained literal
+comma/whitespace tags; paired technical behavior and multiline response were
+visible; current-record JSON downloaded with five cases/five frozen definitions.
+390px layout had no page-level horizontal overflow. These are component fixtures,
+not the complete authenticated library, run, comment or configuration workflows.
+
+Still open: persisted criterion text editing with audited history/CAS; server
+assignment race protection beyond the unassigned picker; genuine manual-run
+comparison and all-pages reporting; plan-led/dataset 500-case expansion limits;
+cross-entity tag views; source-derived group drag semantics; browser reload draft
+recovery; signed Windows/device acceptance and full native/rendered integration.
+The new preferences and other source fixes are NOT deployed. Prior failed
+native/runtime/migration/security/production release evidence remains unchanged.

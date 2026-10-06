@@ -524,6 +524,7 @@ export const testCasesRouter = router({
       z.array(
         z.object({
           id: z.string(),
+          displayId: z.string(),
           title: z.string(),
           confidence: z.number().nullable(),
           sourceFilePath: z.string().nullable(),
@@ -533,12 +534,13 @@ export const testCasesRouter = router({
     .query(async ({ ctx, input }) => {
       await requireProjectAccess(ctx, input.projectId);
       const cases = await ctx.prisma.testCase.findMany({
-        where: { projectId: input.projectId, reviewStatus: "PENDING_REVIEW" },
+        where: { projectId: input.projectId, reviewStatus: "PENDING_REVIEW", archived: false },
         include: { source: true },
         orderBy: { confidence: "asc" },
       });
       return cases.map((c) => ({
         id: c.id,
+        displayId: c.displayId,
         title: c.title,
         confidence: c.confidence,
         sourceFilePath: c.source?.filePath ?? null,

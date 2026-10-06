@@ -87,11 +87,11 @@ test("destructive admin action refuses old, foreign or blocked whole-case previe
 });
 test("native mounted history retains original case through collapse and blocks completion while responses remain unknown", () => {
   assert.match(central, /manualCaseResults: manualCaseResultsRouter/);
-  assert.match(page, /ManualCaseResultHistory key=\{`\$\{projectId\}:\$\{testRunId\}:\$\{testCase.testCaseId\}`\}/);
-  assert.match(page, /testCaseId=\{testCase.testCaseId\} active=\{readable && expanded && !stepMode\}/);
+  assert.match(page, /ManualCaseResultHistory\s+key=\{`\$\{projectId\}:\$\{testRunId\}:\$\{testCase.testCaseId\}`\}/);
+  assert.match(page, /testCaseId=\{testCase.testCaseId\}\s+active=\{readable && expanded && !stepMode\}/);
   assert.match(page, /unconfirmedWholeCases.size > 0 \|\|/);
   assert.match(page, /current.has\(tc.testCaseId\) === pending\) return current/);
-  assert.match(page, /wholeCasePending \|\| !!testCase.currentResult/);
+  assert.match(page, /wholeCasePending\s*\|\|\s*!!testCase.currentResult/);
   assert.match(ui, /const editor = !disabled && readable/);
   assert.match(ui, /const ready = active && nativeSame/);
 });

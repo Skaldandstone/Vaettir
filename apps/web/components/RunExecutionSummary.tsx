@@ -6,6 +6,7 @@ import { DistributionBar } from "./MetricVisuals";
 import { renderBoundedSpreadsheetCsv } from "@vaettir/core";
 import { downloadFile } from "@/lib/download";
 import type { RouterOutputs } from "@/lib/trpcReact";
+import { renderCurrentManualRunRecordJson } from "@/lib/manual-run-record-export";
 
 type Case =
   RouterOutputs["manualExecution"]["getForExecution"]["cases"][number];
@@ -14,9 +15,19 @@ type Case =
 export function RunExecutionSummary({
   cases,
   runId,
+  projectId,
+  status,
+  executionContext,
+  stepFieldLabels,
+  canExport,
 }: {
   cases: Case[];
   runId: string;
+  projectId: string;
+  status: string;
+  executionContext: RouterOutputs["manualExecution"]["getForExecution"]["executionContext"];
+  stepFieldLabels: Record<string, string>;
+  canExport: () => boolean;
 }) {
   const [exportError, setExportError] = useState<string | null>(null);
   const displayIds = new Map(
@@ -73,6 +84,12 @@ export function RunExecutionSummary({
         className="btn-secondary"
         onClick={() => {
           setExportError(null);
+          if (!canExport()) {
+            setExportError(
+              "Current original run access must be verified before export.",
+            );
+            return;
+          }
           try {
             downloadFile(
               `vaettir-run-${runId}.csv`,
@@ -111,6 +128,53 @@ export function RunExecutionSummary({
       >
         Export current outcomes · CSV
       </button>
+      <button
+        type="button"
+        className="btn-secondary"
+        style={{ marginLeft: 8 }}
+        onClick={() => {
+          setExportError(null);
+          if (!canExport()) {
+            setExportError(
+              "Current original run access must be verified before export.",
+            );
+            return;
+          }
+          try {
+            const content = renderCurrentManualRunRecordJson({
+              runId,
+              projectId,
+              status,
+              executionContext,
+              stepFieldLabels,
+              cases,
+            });
+            if (!canExport())
+              throw new Error(
+                "Original run access changed. Nothing was exported.",
+              );
+            downloadFile(
+              `vaettir-run-${runId}-current-record.json`,
+              content,
+              "application/json",
+            );
+          } catch (cause) {
+            setExportError(
+              cause instanceof Error
+                ? cause.message
+                : "Current run record could not be exported.",
+            );
+          }
+        }}
+      >
+        Export procedures and current record · JSON
+      </button>
+      <p className="text-muted">
+        Exports include the current authorized run, not just search matches.
+        JSON preserves present procedures, configuration and observations, not
+        full revision history or attachment files. Legacy procedures without a
+        saved snapshot may reflect later edits.
+      </p>
     </section>
   );
 }

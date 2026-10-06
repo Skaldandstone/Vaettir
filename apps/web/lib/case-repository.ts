@@ -14,6 +14,30 @@ type PlacedCase = {
   sourceFilePath?: string | null;
 };
 
+export function sameSuiteAfterAnchor(
+  suitePath: string | null,
+  after: { id: string; suitePath: string | null } | undefined,
+): string | null {
+  return after?.suitePath === suitePath ? after.id : null;
+}
+export function unmodifiedCaseClick(event: {
+  defaultPrevented: boolean;
+  button: number;
+  ctrlKey: boolean;
+  metaKey: boolean;
+  shiftKey: boolean;
+  altKey: boolean;
+}) {
+  return (
+    !event.defaultPrevented &&
+    event.button === 0 &&
+    !event.ctrlKey &&
+    !event.metaKey &&
+    !event.shiftKey &&
+    !event.altKey
+  );
+}
+
 export function rowDropTarget(
   moving: PlacedCase,
   target: PlacedCase,

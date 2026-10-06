@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useId, useRef, useState } from "react";
+import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import {
   GAME_PLATFORMS,
   resolveQualityExperience,
@@ -8,25 +8,22 @@ import {
 } from "@vaettir/core";
 import { trpcReact } from "@/lib/trpcReact";
 import { useProjectPermissions } from "@/lib/use-project-permissions";
+import { useManualExecutionAccess } from "@/lib/use-manual-execution-access";
+import { retainAnalysisRequest } from "@/lib/analysis-request-recovery";
+import {
+  MAX_MANUAL_CASES,
+  freezeRunConfiguration,
+  reviewedRunCasesMatch,
+  runConfigurationScopeMatches,
+  verifiedRunConfigurationAck,
+  type RunExecutionContext,
+  type ReviewedRunConfiguration,
+} from "@/lib/run-configuration-request";
 import { Modal } from "./Modal";
-
-export type RunExecutionContext = {
-  configuration: string;
-  platform: string;
-  build: string;
-  hardwareRevision: string;
-  firmwareVersion: string;
-  rig: string;
-  batchOrLot: string;
-  environment: string;
-  calibrationReference: string;
-  protocolReference: string;
-};
-export type ReviewedRunConfiguration = {
-  expectedProfileHash: string;
-  executionContext: RunExecutionContext;
-  idempotencyKey: string;
-};
+export type {
+  RunExecutionContext,
+  ReviewedRunConfiguration,
+} from "@/lib/run-configuration-request";
 type Field = {
   key: keyof RunExecutionContext;
   label: string;
@@ -142,19 +139,31 @@ function screensFor(profile: ExperienceProfile | null): Screen[] {
 }
 
 export function RunConfigurationModal({
+  open = true,
   projectId,
   caseCount,
+  testCaseIds,
   onClose,
   onStart,
 }: {
+  open?: boolean;
   projectId: string;
   caseCount: number;
+  testCaseIds: string[];
   onClose: () => void;
   onStart: (configuration: ReviewedRunConfiguration) => Promise<unknown>;
 }) {
   const { loaded, canEdit, accessError, retryAccess } =
     useProjectPermissions(projectId);
-  const query = trpcReact.project.experience.useQuery({ projectId });
+  const access = useManualExecutionAccess(projectId);
+  const accessNow = useRef(access);
+  useLayoutEffect(() => {
+    accessNow.current = access;
+  }, [access]);
+  const query = trpcReact.project.experience.useQuery(
+    { projectId },
+    { enabled: open && access.ready, staleTime: 0, retry: false },
+  );
   const [baseline, setBaseline] = useState<{
     experience: ExperienceProfile | null;
     profileHash: string;
@@ -165,10 +174,23 @@ export function RunConfigurationModal({
   const [error, setError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [reviewedCount, setReviewedCount] = useState<number | null>(null);
-  const [idempotencyKey] = useState(() => crypto.randomUUID());
+  const [reviewedIds, setReviewedIds] = useState<string[] | null>(null);
+  const [pendingRequest, setPendingRequest] =
+    useState<ReviewedRunConfiguration | null>(null);
+  const everAmbiguous = useRef(false);
+  const inFlight = useRef(false);
   const platformListId = useId();
   const headingRef = useRef<HTMLHeadingElement>(null);
-  if (query.data && baseline === null) setBaseline(query.data);
+  if (
+    open &&
+    access.ready &&
+    query.data &&
+    !query.error &&
+    !query.isFetching &&
+    !query.isPaused &&
+    baseline === null
+  )
+    setBaseline(query.data);
   const screens = screensFor(baseline?.experience ?? null);
   const index = Math.max(
     0,
@@ -176,7 +198,15 @@ export function RunConfigurationModal({
   );
   const screen = screens[index]!;
   const countValid =
-    Number.isInteger(caseCount) && caseCount > 0 && caseCount <= 500;
+    Number.isInteger(caseCount) &&
+    caseCount > 0 &&
+    caseCount <= MAX_MANUAL_CASES &&
+    testCaseIds.length === caseCount;
+  const displayedCount = pendingRequest?.testCaseIds.length ?? caseCount;
+  const displayedContext = pendingRequest?.executionContext ?? context;
+  const selectionReviewed =
+    reviewedCount === caseCount &&
+    reviewedRunCasesMatch(reviewedIds, testCaseIds);
   const experience = baseline?.experience
     ? resolveQualityExperience(baseline.experience)
     : null;
@@ -185,38 +215,92 @@ export function RunConfigurationModal({
   }, [screenId]);
   function next() {
     const nextScreen = screens[index + 1]!;
-    if (nextScreen.id === "review") setReviewedCount(caseCount);
+    if (nextScreen.id === "review") {
+      setReviewedCount(caseCount);
+      setReviewedIds([...testCaseIds]);
+    }
     setScreenId(nextScreen.id);
   }
   async function start() {
     if (
       !baseline ||
+      !access.canWrite ||
+      !access.origin ||
+      inFlight.current ||
       !canEdit ||
       busy ||
       refreshing ||
-      !countValid ||
-      reviewedCount !== caseCount
+      (!pendingRequest && (!countValid || !selectionReviewed))
     )
       return;
     setBusy(true);
+    inFlight.current = true;
     setError(null);
+    let requestWasSubmitted = false;
     try {
-      await onStart({
-        expectedProfileHash: baseline.profileHash,
-        executionContext: Object.fromEntries(
-          Object.entries(context).map(([key, value]) => [key, value.trim()]),
-        ) as RunExecutionContext,
-        idempotencyKey,
-      });
+      const request =
+        pendingRequest ??
+        freezeRunConfiguration(
+          {
+            projectId,
+            testCaseIds,
+            expectedProfileHash: baseline.profileHash,
+            executionContext: context,
+            originalOrganizationId: access.origin.organizationId,
+            expectedClerkActorId: access.origin.clerkActorId,
+          },
+          crypto.randomUUID(),
+        );
+      if (
+        !runConfigurationScopeMatches(request, {
+          projectId,
+          organizationId: access.origin.organizationId,
+          clerkActorId: access.origin.clerkActorId,
+        })
+      )
+        throw Error(
+          "Restore the original run-start account and workspace before retrying. The retained request was not rebound.",
+        );
+      setPendingRequest(request);
+      requestWasSubmitted = true;
+      const acknowledgement = await onStart(request);
+      if (!verifiedRunConfigurationAck(request, acknowledgement))
+        throw Error(
+          "The run acknowledgement did not match its original scope and UUID. The exact request remains retained for retry.",
+        );
+      const current = accessNow.current;
+      if (
+        !current.canWrite ||
+        !current.origin ||
+        !runConfigurationScopeMatches(request, {
+          projectId,
+          organizationId: current.origin.organizationId,
+          clerkActorId: current.origin.clerkActorId,
+        })
+      )
+        throw Error(
+          "Restore original account and workspace access to confirm the acknowledged request. The retained request is unchanged.",
+        );
+      setPendingRequest(null);
+      everAmbiguous.current = false;
+      setReviewedCount(null);
+      setReviewedIds(null);
     } catch (cause) {
+      if (requestWasSubmitted) {
+        const retain = retainAnalysisRequest(everAmbiguous.current, cause);
+        everAmbiguous.current = retain;
+        if (!retain) setPendingRequest(null);
+      }
       setError(
         `${cause instanceof Error ? cause.message : "The execution record could not be started."} Your configuration is retained. No automatic retry was sent.`,
       );
     } finally {
       setBusy(false);
+      inFlight.current = false;
     }
   }
   async function refreshContext() {
+    if (pendingRequest || !access.ready) return;
     setRefreshing(true);
     setError(null);
     try {
@@ -230,18 +314,35 @@ export function RunConfigurationModal({
       setBaseline(result.data);
       setScreenId("configuration");
       setReviewedCount(null);
+      setReviewedIds(null);
     } finally {
       setRefreshing(false);
     }
   }
   return (
     <Modal
-      open
+      open={open}
+      keepMounted
       title="Configure execution record"
       onClose={onClose}
       dismissible={!busy && !refreshing}
     >
-      {accessError ? (
+      {!access.ready ? (
+        <section role="status">
+          <p>
+            Verify the original account, workspace and full editor seat before
+            configuring or retrying. Private configuration is hidden; drafts and
+            identical requests remain retained.
+          </p>
+          <button
+            type="button"
+            className="btn-secondary"
+            onClick={() => void access.refresh()}
+          >
+            Recheck original access
+          </button>
+        </section>
+      ) : accessError ? (
         <div>
           <p role="alert">
             Project access could not be checked. A new record has not been
@@ -273,16 +374,16 @@ export function RunConfigurationModal({
       ) : (
         <>
           <p className="eyebrow" role="status">
-            Step {index + 1} of {screens.length} · {caseCount} selected{" "}
-            {caseCount === 1 ? "case" : "cases"}
+            Step {index + 1} of {screens.length} · {displayedCount} selected{" "}
+            {displayedCount === 1 ? "case" : "cases"}
           </p>
           <h3 ref={headingRef} tabIndex={-1}>
             {screen.title}
           </h3>
-          {!countValid && (
+          {!pendingRequest && !countValid && (
             <p role="alert" style={{ color: "var(--ember)" }}>
-              Select between 1 and 500 cases. Required prerequisites also count
-              toward the server&apos;s 500-case limit.
+              Select between 1 and 1,000 cases. Required prerequisites also
+              count toward the server&apos;s 1,000-case limit.
             </p>
           )}
           {screen.id === "configuration" && (
@@ -292,7 +393,9 @@ export function RunConfigurationModal({
             </p>
           )}
           <fieldset
-            disabled={busy || refreshing}
+            disabled={
+              busy || refreshing || !!pendingRequest || !access.canWrite
+            }
             style={{ border: 0, padding: 0, margin: 0 }}
           >
             {screen.fields.map((field) => (
@@ -310,7 +413,7 @@ export function RunConfigurationModal({
                     }
                     rows={3}
                     maxLength={2000}
-                    value={context[field.key]}
+                    value={displayedContext[field.key]}
                     onChange={(event) =>
                       setContext({
                         ...context,
@@ -328,7 +431,7 @@ export function RunConfigurationModal({
                         : undefined
                     }
                     maxLength={300}
-                    value={context[field.key]}
+                    value={displayedContext[field.key]}
                     list={field.key === "platform" ? platformListId : undefined}
                     onChange={(event) =>
                       setContext({
@@ -364,13 +467,13 @@ export function RunConfigurationModal({
           {screen.id === "review" && (
             <>
               <p>
-                {caseCount} selected cases, plus required prerequisites. The
-                server freezes the current case definitions, prerequisite graph
-                and saved project context for this run. Later edits will not
-                change that record.
+                {displayedCount} selected cases, plus required prerequisites.
+                The server freezes the current case definitions, prerequisite
+                graph and saved project context for this run. Later edits will
+                not change that record.
               </p>
               <dl style={{ margin: 0 }}>
-                {Object.entries(context).map(([key, value]) =>
+                {Object.entries(displayedContext).map(([key, value]) =>
                   value.trim() ? (
                     <div
                       key={key}
@@ -386,7 +489,9 @@ export function RunConfigurationModal({
                   ) : null,
                 )}
               </dl>
-              {!Object.values(context).some((value) => value.trim()) && (
+              {!Object.values(displayedContext).some((value) =>
+                value.trim(),
+              ) && (
                 <p className="text-muted">
                   No configuration identifiers were supplied. This record will
                   not identify a specific build, platform, device, lot or
@@ -408,7 +513,7 @@ export function RunConfigurationModal({
                 does not actuate machinery, execute imported code, spend AI
                 credits or certify safety/compliance.
               </p>
-              {reviewedCount !== caseCount && (
+              {!pendingRequest && !selectionReviewed && (
                 <p role="alert">
                   The selection changed. Go back and review the new case count
                   before starting.
@@ -419,6 +524,14 @@ export function RunConfigurationModal({
           {error && (
             <p role="alert" style={{ color: "var(--ember)" }}>
               {error}
+            </p>
+          )}
+          {pendingRequest && (
+            <p role="status">
+              This request retains its original{" "}
+              {pendingRequest.testCaseIds.length} cases and configuration, even
+              if the background selection changed. Closing this dialog preserves
+              it. Retry confirms the same request without creating a second run.
             </p>
           )}
           <footer
@@ -452,17 +565,23 @@ export function RunConfigurationModal({
                 disabled={
                   busy ||
                   refreshing ||
-                  !countValid ||
-                  reviewedCount !== caseCount
+                  !access.canWrite ||
+                  (!pendingRequest && (!countValid || !selectionReviewed))
                 }
                 onClick={() => void start()}
               >
-                {busy ? "Starting…" : "Start execution record"}
+                {busy
+                  ? "Starting…"
+                  : pendingRequest
+                    ? "Retry retained run start"
+                    : "Start execution record"}
               </button>
             ) : (
               <button
                 className="btn-primary"
-                disabled={busy || refreshing || !countValid}
+                disabled={
+                  busy || refreshing || (!pendingRequest && !countValid)
+                }
                 onClick={next}
               >
                 Continue
@@ -472,7 +591,7 @@ export function RunConfigurationModal({
           {error && (
             <button
               className="btn-secondary"
-              disabled={busy || refreshing}
+              disabled={busy || refreshing || !!pendingRequest}
               style={{ marginTop: 12 }}
               onClick={() => void refreshContext()}
             >

@@ -2,6 +2,7 @@ export const INSPECTOR_SECTIONS = [
   "Procedure",
   "Intelligence",
   "Evidence",
+  "Comments",
   "History",
 ] as const;
 export type InspectorSection = (typeof INSPECTOR_SECTIONS)[number];

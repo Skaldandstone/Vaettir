@@ -38,11 +38,12 @@ test("inspector labels preserve acronyms and make domain values readable without
   assert.equal(inspectorLabel("IMPORTED"), "Imported");
 });
 
-test("four-section tab keyboard navigation wraps and supports endpoints", () => {
+test("five-section tab keyboard navigation includes comments and preserves endpoints", () => {
   assert.deepEqual(INSPECTOR_SECTIONS, [
     "Procedure",
     "Intelligence",
     "Evidence",
+    "Comments",
     "History",
   ]);
   assert.equal(inspectorSectionForKey("Procedure", "ArrowLeft"), "History");
@@ -50,6 +51,9 @@ test("four-section tab keyboard navigation wraps and supports endpoints", () => 
   assert.equal(inspectorSectionForKey("History", "Home"), "Procedure");
   assert.equal(inspectorSectionForKey("Procedure", "End"), "History");
   assert.equal(inspectorSectionForKey("Procedure", "Tab"), null);
+  assert.equal(inspectorSectionForKey("Evidence", "ArrowRight"), "Comments");
+  assert.equal(inspectorSectionForKey("Comments", "ArrowRight"), "History");
+  assert.equal(inspectorSectionForKey("Comments", "ArrowLeft"), "Evidence");
 });
 
 test("on-demand prerequisite picker can reach every same-title case in an 851-case inventory", () => {

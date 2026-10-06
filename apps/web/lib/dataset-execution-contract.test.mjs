@@ -43,5 +43,5 @@ test("dataset entry stays mounted and row execution shows frozen metadata only",
   );
   assert.match(run, /data\.executionContext\.datasetExecution\.values/);
   assert.match(run, /data\.datasetBatchRuns\.map/);
-  assert.match(run, /within this run, not in a sibling row/);
+  assert.match(run, /within\s+this\s+run,\s+not\s+in\s+a\s+sibling\s+row/);
 });

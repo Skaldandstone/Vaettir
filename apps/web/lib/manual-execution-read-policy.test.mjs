@@ -2,6 +2,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
+import { sourceCodeIncludes } from "./source-contract-tokens.mjs";
 import { manualExecutionReadMatches } from "./manual-execution-read-policy.ts";
 const input = { projectId: "p", testRunId: "r", organizationId: "o", clerkActorId: "actor", requestKey: "key",
   ready: true, error: false, fetching: false, paused: false };
@@ -27,22 +28,23 @@ const step = readFileSync(new URL("../components/StepExecutionPanel.tsx", import
 test("original actor/organization pin and fresh response gate protect reads and current writes", () => {
   for (const text of ["!origin && actorReady && projectReady && canRead", "userId !== origin.clerkActorId", "origin.organizationId", 'member?.seatType === "FULL"', '"READ_ONLY"', "!project.error && !project.isFetching && !project.isPaused", "!organizations.error && !organizations.isFetching && !organizations.isPaused"]) assert.ok(hook.includes(text), text);
   assert.ok(!hook.includes("setOrigin(undefined)"));
-  for (const text of ["originalOrganizationId: access.origin?.organizationId", "expectedClerkActorId: access.origin?.clerkActorId", "enabled: access.ready, staleTime: 0, retry: false", "manualExecutionReadMatches", "dataQuery.data?.canWrite === true", "if (!accessNow.current.canEdit)", "Private cached procedures and observations are hidden"]) assert.ok(native.includes(text), text);
+  for (const text of ["originalOrganizationId: access.origin?.organizationId", "expectedClerkActorId: access.origin?.clerkActorId", "enabled: access.ready, staleTime: 0, retry: false", "manualExecutionReadMatches", "dataQuery.data?.canWrite === true", "if (!accessNow.current.canEdit)", "Private cached procedures and observations are hidden"]) assert.ok(sourceCodeIncludes(native, text), text);
 });
 test("withheld case/step/retest content retains mounted original draft/request state instead of dropping rows", () => {
-  for (const text of ["{readable && <>", "readable={readable}", "readScope={readInput}", "active={readable && expanded && !stepMode}", "active={readable} canRetest", 'key={`${projectId}:${testRunId}:${tc.testCaseId}`}']) assert.ok(native.includes(text), text);
+  assert.match(native, /\{readable\s*&&\s*\(?\s*<>/);
+  for (const text of ["readable={readable}", "readScope={readInput}", "active={readable && expanded && !stepMode}", "active={readable} canRetest", 'key={`${projectId}:${testRunId}:${tc.testCaseId}`}']) assert.ok(sourceCodeIncludes(native, text), text);
   assert.ok(!native.includes("readable && data.cases.map"));
-  assert.ok(native.includes('const [retainedNativeData, setRetainedNativeData] = useState<RouterOutputs["manualExecution"]["getForExecution"] | undefined>'));
-  assert.ok(native.includes("if (readable && dataQuery.data && retainedNativeData !== dataQuery.data) setRetainedNativeData(dataQuery.data)"));
+  assert.ok(sourceCodeIncludes(native, 'const [retainedNativeData, setRetainedNativeData] = useState<RouterOutputs["manualExecution"]["getForExecution"] | undefined>'));
+  assert.ok(sourceCodeIncludes(native, "if (readable && dataQuery.data && retainedNativeData !== dataQuery.data) setRetainedNativeData(dataQuery.data)"));
   assert.ok(native.includes("const data = readable ? dataQuery.data : retainedNativeData"));
   assert.ok(!native.includes("retainedNativeData.current"), "Mounted data is ordinary render state, not render-time ref reads/writes");
-  assert.ok(native.includes("useLayoutEffect(() => { accessNow.current = { readable, canEdit, ready: access.ready }; }, [readable, canEdit, access.ready])"));
+  assert.ok(sourceCodeIncludes(native, "useLayoutEffect(() => { accessNow.current = { readable, canEdit, ready: access.ready }; }, [readable, canEdit, access.ready])"));
   for (const text of ["if (!readable) return null", "enabled: readable && open && evidenceOpen", "{ testRunId, ...readScope }", "if (readableNow.current) window.open", "const [attempt, setAttempt]"]) assert.ok(step.includes(text), text);
   assert.ok(!step.includes("if (!readable) setAttempt(null)"));
 });
 test("later same-run result corrections do not unmount a retained separate-retest request", () => {
   assert.ok(native.includes("if (!readable || !dataQuery.data) return"));
   assert.ok(native.includes("new Set([...current, ...qualifying])"));
-  assert.ok(native.includes("retainedRetestCases.has(tc.testCaseId) || tc.currentResult?.status"));
+  assert.ok(sourceCodeIncludes(native, "retainedRetestCases.has(tc.testCaseId) || tc.currentResult?.status"));
   assert.ok(!native.includes("setRetainedRetestCases(new Set(qualifying))"));
 });

@@ -12,6 +12,7 @@ import {
 } from "@/lib/case-field-origin";
 import { useCaseFieldAccess } from "@/lib/use-case-field-access";
 import { Modal } from "./Modal";
+import { ProjectCasePresentation } from "./ProjectCasePresentation";
 type State = RouterOutputs["caseFields"]["get"];
 type Schema = State["schema"];
 const emptyField: Schema["fields"][number] = {
@@ -23,7 +24,7 @@ const emptyField: Schema["fields"][number] = {
   options: [],
 };
 export function ProjectCaseFields({ projectId }: { projectId: string }) {
-  return <FieldDefinitions key={projectId} projectId={projectId} />;
+  return <><ProjectCasePresentation key={`presentation:${projectId}`} projectId={projectId} /><FieldDefinitions key={projectId} projectId={projectId} /></>;
 }
 function FieldDefinitions({ projectId }: { projectId: string }) {
   const utils = trpcReact.useUtils(),

@@ -117,7 +117,7 @@ function EditCaseSession({
           validationDomain: tc.validationDomain,
           verificationProfile: tc.verificationProfile,
           priority: tc.priority,
-          tags: tc.tags.join(", "),
+          tags: tc.tags,
           suitePath: tc.suitePath ?? "",
           given: tc.given,
           when: tc.when,

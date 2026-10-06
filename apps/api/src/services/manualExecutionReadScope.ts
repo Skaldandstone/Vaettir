@@ -12,6 +12,9 @@ import {
 } from "./manualExecutionReadScopeSchema.js";
 
 const MiB = 1024n * 1024n;
+// Match new manual-run admission and the outer case response, not per-case
+// procedure-step limits or the independent native byte/relationship budgets.
+const MAX_RUN_CASES = 1000;
 const denied = () =>
   new TRPCError({
     code: "FORBIDDEN",
@@ -169,7 +172,7 @@ async function preflightManualExecutionRead(
     run.bytes > 4n * MiB ||
     run.scopeBytes > 512n * 1024n ||
     run.graphBytes > 512n * 1024n ||
-    run.count > 500 ||
+    run.count > MAX_RUN_CASES ||
     BigInt(run.count) !== run.uniqueCount ||
     run.invalidId ||
     run.labelBytes > 16384n
@@ -182,13 +185,13 @@ async function preflightManualExecutionRead(
   if (!scope || scope.ids.some((id) => !supportedManualExecutionIdentity(id)))
     throw oversized();
   const parsedGraph = z
-    .record(z.array(z.string()).max(500))
+    .record(z.array(z.string()).max(MAX_RUN_CASES))
     .safeParse(scope.graph);
   if (!parsedGraph.success) throw oversized();
   const ids = new Set(scope.ids),
     entries = Object.entries(parsedGraph.data);
   const graph = parsedGraph.data;
-  if (entries.length > 500) throw oversized();
+  if (entries.length > MAX_RUN_CASES) throw oversized();
   let edges = 0;
   for (const [id, dependencies] of entries) {
     edges += dependencies.length;
@@ -252,7 +255,7 @@ async function preflightManualExecutionRead(
       coalesce(sum("libraryBytes"),0)::bigint AS "libraryBytes" FROM sizes`;
   if (
     !cases ||
-    cases.count > 500n ||
+    cases.count > BigInt(MAX_RUN_CASES) ||
     cases.bytes > 8n * MiB ||
     cases.maxBytes > 512n * 1024n ||
     cases.steps > 25000n ||
@@ -267,7 +270,7 @@ async function preflightManualExecutionRead(
   // substituted: supported stored steps remain unchanged in the caller.
   const librarySteps = z.array(TestCaseStepInputSchema).max(500);
   if (
-    libraries.length > 500 ||
+    libraries.length > MAX_RUN_CASES ||
     libraries.some((group) => !librarySteps.safeParse(group.steps).success)
   )
     throw oversized();
@@ -284,7 +287,7 @@ async function preflightManualExecutionRead(
     FROM "TestResult" t JOIN "TestRun" r ON r.id=t."testRunId" WHERE r.id=${testRunId} AND t."testCaseId"=ANY(r."manualTestCaseIds")`;
   if (
     !results ||
-    results.count > 500n ||
+    results.count > BigInt(MAX_RUN_CASES) ||
     results.bytes > 4n * MiB ||
     results.maxBytes > 256n * 1024n ||
     results.duplicateCases

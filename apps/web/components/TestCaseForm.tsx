@@ -1,31 +1,18 @@
 "use client";
 
-import { type ChangeEvent, useId, useMemo, useRef, useState } from "react";
+import { type ChangeEvent, useEffect, useId, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { trpcReact, type RouterOutputs } from "@/lib/trpcReact";
 import { collectKnownSuitePaths } from "@/components/TestCaseTree";
 import { moveListItem } from "@/lib/move-list-item";
-import { resolveQualityExperience } from "@vaettir/core";
+import { resolveQualityExperience, defaultCasePresentation, casePresentationVisible, retainedCaseChoices } from "@vaettir/core";
+import { useCaseFieldAccess } from "@/lib/use-case-field-access";
+import { freshCasePresentation } from "@/lib/case-presentation-read";
 import { CaseDesignGuide } from "./CaseDesignGuide";
 import { CaseProcedureColumns } from "./CaseProcedureColumns";
+import { CaseTagEditor } from "./CaseTagEditor";
+import { appendCaseTag, initialCaseTags, technicalBehaviorLabel } from "@/lib/case-authoring-fields";
 import { CaseCustomFieldsForm, type CaseFieldFormDraft, type ReviewedCaseFieldDefaults } from "./CaseCustomFields";
-
-const TEST_TYPES = [
-  "UNIT",
-  "FUNCTIONAL",
-  "CONTRACT",
-  "INSTRUMENTATION",
-  "SMOKE",
-  "SANITY",
-  "REGRESSION",
-  "E2E",
-  "PERFORMANCE",
-  "SECURITY",
-  "ACCESSIBILITY",
-  "EXPLORATORY",
-  "COMPLIANCE",
-  "OTHER",
-];
 
 const PRIORITIES = ["CRITICAL", "HIGH", "MEDIUM", "LOW"];
 
@@ -44,7 +31,7 @@ interface TestCaseFormValue {
   background: string;
   testType: string;
   priority: string;
-  tags: string;
+  tags: string[];
   suitePath: string;
   given: string[];
   when: string[];
@@ -72,7 +59,7 @@ function defaultValue(): TestCaseFormValue {
     background: "",
     testType: "FUNCTIONAL",
     priority: "MEDIUM",
-    tags: "",
+    tags: [],
     suitePath: "",
     given: [],
     when: [],
@@ -95,7 +82,7 @@ interface TestCaseFormProps {
   mode: "create" | "edit";
   projectId: string;
   testCaseId?: string;
-  initial?: Partial<TestCaseFormValue>;
+  initial?: Partial<Omit<TestCaseFormValue, "tags">> & { tags?: string[] | string };
   // Only a separately reviewed new draft may seed current typed defaults.
   initialCustomFields?: ReviewedCaseFieldDefaults;
   locked?: boolean;
@@ -174,9 +161,12 @@ export default function TestCaseForm({
   const stepKeyPrefix = useId();
   const nextStepKey = useRef(initial?.steps?.length ?? 0);
   const [stepAnnouncement, setStepAnnouncement] = useState("");
+  const [tagDraft, setTagDraft] = useState("");
+  const [reopenedTag, setReopenedTag] = useState<string | undefined>();
   const [value, setValue] = useState<TestCaseFormValue>(() => ({
     ...defaultValue(),
     ...initial,
+    tags: initialCaseTags(initial?.tags),
     steps: (initial?.steps ?? []).map((step, i) => ({ ...step, mediaAttachmentIds: step.mediaAttachmentIds ?? [], editorKey: `${stepKeyPrefix}-${i}` })),
   }));
   const [saving, setSaving] = useState(false);
@@ -188,6 +178,30 @@ export default function TestCaseForm({
   const experienceQuery = trpcReact.project.experience.useQuery({ projectId },{enabled:active});
   const experience = experienceQuery.data?.experience;
   const workspace = experience ? resolveQualityExperience(experience) : null;
+  const presentationAccess = useCaseFieldAccess(projectId, testCaseId, active);
+  const presentationQuery = trpcReact.casePresentation.get.useQuery({ projectId, originalOrganizationId: presentationAccess.origin?.organizationId, expectedClerkActorId: presentationAccess.origin?.clerkActorId }, { enabled: active && presentationAccess.readable, retry: false });
+  const freshPresentation = freshCasePresentation(presentationQuery, presentationAccess.current);
+  const presentation = freshPresentation?.configuration ?? freshPresentation?.defaults ?? defaultCasePresentation(null);
+  const interacted = useRef(false), defaultChoicesApplied = useRef(false);
+  useEffect(() => {
+    if (!freshPresentation || defaultChoicesApplied.current) return;
+    defaultChoicesApplied.current = true;
+    // Only a pristine, newly authored case adopts project defaults once.
+    // Saved cases, reviewed presets and later human edits are never coerced.
+    if (mode !== "create" || interacted.current) return;
+    const preferences = freshPresentation.configuration ?? freshPresentation.defaults;
+    setValue(current => ({ ...current, testType: initial?.testType ?? preferences.testTypes[0]!, validationDomain: initial?.validationDomain ?? preferences.domains[0]! }));
+  }, [freshPresentation, mode, initial]);
+  const context = { validationDomain: value.validationDomain, testType: value.testType };
+  const visible = {
+    background: casePresentationVisible(presentation, "background", value.background !== "", context),
+    tags: casePresentationVisible(presentation, "tags", value.tags.length > 0 || tagDraft !== "" || reopenedTag !== undefined, context),
+    hardwareFixture: casePresentationVisible(presentation, "hardwareFixture", [value.verificationProfile.setup, value.verificationProfile.instruments, value.verificationProfile.acceptanceCriteria].some(text => text !== ""), context),
+    safety: casePresentationVisible(presentation, "safety", value.verificationProfile.safety !== "", context),
+    technicalBehavior: casePresentationVisible(presentation, "technicalBehavior", value.steps.some(step => step.expectedActionOrData !== ""), context),
+    expectedResponse: casePresentationVisible(presentation, "expectedResponse", value.steps.some(step => step.expectedResponse !== ""), context),
+  };
+  const retainedVisible = (Object.keys(visible) as Array<keyof typeof visible>).filter(field => presentation.fields[field] === "HIDE" && visible[field]);
   const casesQuery = trpcReact.testCases.list.useQuery({ projectId },{enabled:active});
   const knownSuitePaths = useMemo(
     () => (casesQuery.data ? collectKnownSuitePaths(casesQuery.data) : []),
@@ -216,7 +230,7 @@ export default function TestCaseForm({
 
   const labels = stepFieldLabels ?? {
     action: "Test Step",
-    expectedActionOrData: "Expected Action / Data",
+    expectedActionOrData: "Technical behavior / data",
     expectedResult: "Expected Result",
     expectedResponse: "Expected Response",
   };
@@ -291,10 +305,7 @@ export default function TestCaseForm({
                 mediaAttachmentIds: s.mediaAttachmentIds,
               })),
         sharedStepGroupId: value.sharedStepGroupId || null,
-        tags: value.tags
-          .split(",")
-          .map((t) => t.trim())
-          .filter(Boolean),
+        tags: appendCaseTag(value.tags, tagDraft, reopenedTag).tags,
         testType: value.testType,
         validationDomain: value.validationDomain,
         verificationProfile: value.verificationProfile,
@@ -331,9 +342,11 @@ export default function TestCaseForm({
   }
 
   return (
-    <fieldset disabled={locked || saving || uploadingStepKey !== null} aria-label={mode === "edit" ? "Edit test case draft" : "New test case draft"} style={{ border: 0, padding: 0, margin: 0, maxWidth: 720, minWidth: 0, overflowWrap: "anywhere" }}>
+    <fieldset disabled={locked || saving || uploadingStepKey !== null} onChangeCapture={() => { interacted.current = true; }} aria-label={mode === "edit" ? "Edit test case draft" : "New test case draft"} style={{ border: 0, padding: 0, margin: 0, maxWidth: 720, minWidth: 0, overflowWrap: "anywhere" }}>
       <div style={{ display: "grid", gap: 8, marginBottom: 20 }}>
         {active && <CaseDesignGuide />}
+        {presentationQuery.error && <p role="status">Current built-in field preferences could not be verified. The generic editor retains all fields and values. <button type="button" onClick={() => void presentationQuery.refetch()}>Refresh preferences</button></p>}
+        {retainedVisible.length > 0 && <p role="status">Fields hidden for empty cases remain visible here because this draft has supplied values: {retainedVisible.join(", ")}. Saving never clears them merely because project preferences changed.</p>}
         <label>
           Title
           <input
@@ -342,7 +355,7 @@ export default function TestCaseForm({
             style={{ width: "100%" }}
           />
         </label>
-        <label>
+        {visible.background && <label>
           Background{" "}
           <span style={{ color: "var(--muted-dim)" }}>
             (optional, shared context)
@@ -355,7 +368,7 @@ export default function TestCaseForm({
             rows={2}
             style={{ width: "100%" }}
           />
-        </label>
+        </label>}
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 12 }}>
           <label>
             Validation domain
@@ -370,18 +383,9 @@ export default function TestCaseForm({
                 }))
               }
             >
-              {[
-                "SOFTWARE",
-                "HARDWARE",
-                "SYSTEM_INTEGRATION",
-                "HIL",
-                "MANUFACTURING",
-                "MEDICAL_DEVICE",
-                "PHARMA_LAB",
-                "OTHER",
-              ].map((domain) => (
-                <option key={domain} value={domain}>
-                  {domain.replace(/_/g, " ")}
+              {retainedCaseChoices(presentation.domains, value.validationDomain).map(domain => (
+                <option key={domain.value} value={domain.value}>
+                  {domain.value.replace(/_/g, " ")}{domain.retained ? " (retained draft value)" : ""}
                 </option>
               ))}
             </select>
@@ -395,9 +399,9 @@ export default function TestCaseForm({
                 setValue((v) => ({ ...v, testType: e.target.value }))
               }
             >
-              {TEST_TYPES.map((t) => (
-                <option key={t} value={t}>
-                  {t}
+              {retainedCaseChoices(presentation.testTypes, value.testType).map(type => (
+                <option key={type.value} value={type.value}>
+                  {type.value}{type.retained ? " (retained draft value)" : ""}
                 </option>
               ))}
             </select>
@@ -419,7 +423,7 @@ export default function TestCaseForm({
             </select>
           </label>
         </div>
-        <details open={value.validationDomain !== "SOFTWARE"}>
+        {(visible.hardwareFixture || visible.safety) && <details open={value.validationDomain !== "SOFTWARE"}>
           <summary>Fixture, safety and measurement criteria</summary>
           <p>
             Document approved procedures and acceptance limits. Attach diagrams
@@ -443,7 +447,7 @@ export default function TestCaseForm({
                 "Measurements, units, limits and pass criteria",
               ],
             ] as const
-          ).map(([key, label]) => (
+          ).filter(([key]) => key === "safety" ? visible.safety : visible.hardwareFixture).map(([key, label]) => (
             <label key={key} style={{ display: "block", marginBottom: 10 }}>
               {workspace && experience?.offerings.length === 1 && workspace.physical ? workspace.caseFieldLabels[key] : label}
               <textarea
@@ -462,16 +466,8 @@ export default function TestCaseForm({
               />
             </label>
           ))}
-        </details>
-        <label>
-          Tags{" "}
-          <span style={{ color: "var(--muted-dim)" }}>(comma-separated)</span>
-          <input
-            value={value.tags}
-            onChange={(e) => setValue((v) => ({ ...v, tags: e.target.value }))}
-            style={{ width: "100%" }}
-          />
-        </label>
+        </details>}
+        {visible.tags && <CaseTagEditor projectId={projectId} tags={value.tags} draft={tagDraft} reopenedOriginal={reopenedTag} onReopen={setReopenedTag} onTagsChange={tags => setValue(v => ({ ...v, tags }))} onDraftChange={setTagDraft} />}
         <label>
           Suite{" "}
           <span style={{ color: "var(--muted-dim)" }}>
@@ -506,6 +502,7 @@ export default function TestCaseForm({
       </div>
 
       <h2>Structured steps</h2>
+      <p className="text-muted">Each numbered row keeps the tester action beside its technical behavior, expected visible result and expected response. Parameter datasets are separate. Use as much prose as the procedure needs.</p>
       {sharedGroups.length > 0 && (
         <label style={{ display: "block", marginBottom: 10 }}>
           Use a shared step library{" "}
@@ -593,42 +590,47 @@ export default function TestCaseForm({
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(155px, 1fr))", gap: 8, alignItems: "start" }}>
               <label>
                 {labels.action}
-                <input
+                <textarea
                   value={step.action}
                   onChange={(e) => updateStep(i, { action: e.target.value })}
-                  style={{ width: "100%" }}
+                  rows={3}
+                  style={{ width: "100%", minWidth: 0, resize: "vertical" }}
                 />
               </label>
-              <label>
-                {labels.expectedActionOrData}
-                <input
+              {visible.technicalBehavior && <label>
+                {technicalBehaviorLabel(labels.expectedActionOrData)}
+                <textarea
                   value={step.expectedActionOrData}
                   onChange={(e) =>
                     updateStep(i, { expectedActionOrData: e.target.value })
                   }
-                  style={{ width: "100%" }}
+                  rows={3}
+                  placeholder="e.g. onClick triggers GET /api/details"
+                  style={{ width: "100%", minWidth: 0, resize: "vertical" }}
                 />
-              </label>
+              </label>}
               <label>
                 {labels.expectedResult}
-                <input
+                <textarea
                   value={step.expectedResult}
                   onChange={(e) =>
                     updateStep(i, { expectedResult: e.target.value })
                   }
-                  style={{ width: "100%" }}
+                  rows={3}
+                  style={{ width: "100%", minWidth: 0, resize: "vertical" }}
                 />
               </label>
-              <label>
+              {visible.expectedResponse && <label>
                 {labels.expectedResponse}
-                <input
+                <textarea
                   value={step.expectedResponse}
                   onChange={(e) =>
                     updateStep(i, { expectedResponse: e.target.value })
                   }
-                  style={{ width: "100%" }}
+                  rows={3}
+                  style={{ width: "100%", minWidth: 0, resize: "vertical" }}
                 />
-              </label>
+              </label>}
             </div>
             <details open={step.mediaAttachmentIds.length > 0} style={{ marginTop: 10 }}>
               <summary>Step images and video ({step.mediaAttachmentIds.length})</summary>

@@ -16,5 +16,6 @@ export function useProjectPermissions(projectId: string) {
     canSignOff: loaded && canSignOffCompliance(member),
     canAdmin: loaded && canAdministerOrganization(member),
     loaded,
+    organizationId: loaded ? projectQuery.data?.organizationId : undefined,
   };
 }

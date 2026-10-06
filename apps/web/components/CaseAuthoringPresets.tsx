@@ -1394,7 +1394,7 @@ export function NewCaseFromAuthoringPreset({
                 background: draft.value.value.definition.background,
                 testType: draft.value.value.definition.testType,
                 priority: draft.value.value.definition.priority,
-                tags: draft.value.value.definition.tags.join(", "),
+                tags: draft.value.value.definition.tags,
                 given: draft.value.value.definition.given,
                 when: draft.value.value.definition.when,
                 then: draft.value.value.definition.then,

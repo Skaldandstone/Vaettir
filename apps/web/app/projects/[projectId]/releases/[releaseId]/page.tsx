@@ -12,6 +12,7 @@ import { DistributionBar, ScoreRing } from "@/components/MetricVisuals";
 import { buildHtmlSnapshot, buildMarkdownSnapshot } from "@/lib/snapshotExport";
 import { downloadFile } from "@/lib/download";
 import { Modal } from "@/components/Modal";
+import { releasePlanChoices } from "@/lib/release-planning-draft";
 
 const STATUSES = [
   "PLANNING",
@@ -346,7 +347,19 @@ export default function ReleaseReadinessPage() {
   }
 
   async function attachPlan() {
-    if (!attachPlanId) return;
+    if (
+      !attachPlanId ||
+      setReleaseMutation.isPending ||
+      allPlansQuery.isFetching ||
+      allPlansQuery.error
+    )
+      return;
+    if (allPlans.find((plan) => plan.id === attachPlanId)?.releaseId !== null) {
+      setError(
+        "This plan is no longer unassigned. Refresh the plan list and open its current release; no reassignment was requested.",
+      );
+      return;
+    }
     try {
       await setReleaseMutation.mutateAsync({
         testPlanId: attachPlanId,
@@ -378,7 +391,6 @@ export default function ReleaseReadinessPage() {
   }
 
   const pageError =
-    error ??
     releaseQuery.error?.message ??
     readinessQuery.error?.message ??
     testPlansQuery.error?.message ??
@@ -387,13 +399,28 @@ export default function ReleaseReadinessPage() {
   if (pageError) return <p style={{ color: "var(--ember)" }}>{pageError}</p>;
   if (!release || !readiness) return <p>Loading…</p>;
 
-  const attachablePlans = allPlans.filter((p) => p.releaseId !== releaseId);
+  const { available: attachablePlans, assignedElsewhere } = releasePlanChoices(
+    allPlans,
+    releaseId,
+  );
   const visibleFlags = showResolved
     ? riskFlags
     : riskFlags.filter((f) => !f.resolvedAt);
 
   return (
     <div style={{ maxWidth: 800 }}>
+      {error && (
+        <p role="alert" style={{ color: "var(--ember)" }}>
+          {error} Your current workspace remains open.{" "}
+          <button
+            type="button"
+            className="btn-secondary"
+            onClick={() => setError(null)}
+          >
+            Dismiss
+          </button>
+        </p>
+      )}
       <div
         style={{
           display: "flex",
@@ -553,6 +580,15 @@ export default function ReleaseReadinessPage() {
                 </button>
               )}
             </div>
+            <a
+              className="btn-secondary"
+              style={{ fontSize: 12, marginTop: 6 }}
+              href={`/projects/${projectId}/test-plans/${p.id}`}
+            >
+              {readOnly
+                ? "View plan criteria"
+                : "Open plan to add or manage criteria"}
+            </a>
             <ul style={{ listStyle: "none", padding: 0, marginTop: 6 }}>
               {p.acceptanceCriteria.map((c) => (
                 <li
@@ -606,16 +642,26 @@ export default function ReleaseReadinessPage() {
         ))}
         {testPlans.length === 0 && (
           <p className="text-muted">
-            No test plans attached to this release yet.
+            No test plans attached to this release yet.{" "}
+            {readOnly
+              ? "An editor can create or attach a plan."
+              : "Create a test plan, then return here to attach it. New criteria start pending, not met."}
           </p>
         )}
 
         {!readOnly && (
-          <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
+          <div
+            style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 12 }}
+          >
             <select
               value={attachPlanId}
               onChange={(e) => setAttachPlanId(e.target.value)}
               style={{ flex: 1 }}
+              disabled={
+                allPlansQuery.isFetching ||
+                !!allPlansQuery.error ||
+                setReleaseMutation.isPending
+              }
             >
               <option value="">Attach an existing test plan…</option>
               {attachablePlans.map((p) => (
@@ -624,10 +670,70 @@ export default function ReleaseReadinessPage() {
                 </option>
               ))}
             </select>
-            <button onClick={attachPlan} disabled={!attachPlanId}>
+            <button
+              onClick={attachPlan}
+              disabled={
+                !attachPlanId ||
+                allPlansQuery.isFetching ||
+                !!allPlansQuery.error ||
+                setReleaseMutation.isPending
+              }
+            >
               Attach
             </button>
+            <a
+              className="btn-secondary"
+              href={`/projects/${projectId}/test-plans`}
+            >
+              Create a test plan
+            </a>
           </div>
+        )}
+        {!readOnly && allPlansQuery.error && (
+          <p role="alert">
+            The available plans could not be refreshed. No reassignment was
+            requested.{" "}
+            <button
+              type="button"
+              className="btn-secondary"
+              onClick={() => void allPlansQuery.refetch()}
+            >
+              Retry plans
+            </button>
+          </p>
+        )}
+        {!readOnly &&
+          !allPlansQuery.isLoading &&
+          !allPlansQuery.error &&
+          attachablePlans.length === 0 && (
+            <p className="text-muted">
+              No unassigned plans are available. Create a plan or manage a
+              previously assigned plan in its own release.
+            </p>
+          )}
+        {!allPlansQuery.error && assignedElsewhere.length > 0 && (
+          <details style={{ marginTop: 12 }}>
+            <summary>
+              Plans assigned to other releases ({assignedElsewhere.length})
+            </summary>
+            <p className="text-muted">
+              Already assigned plans are excluded from this picker. Open their
+              current release to manage its quality scope.
+            </p>
+            <ul>
+              {assignedElsewhere.map((plan) => (
+                <li key={plan.id}>
+                  <a href={`/projects/${projectId}/test-plans/${plan.id}`}>
+                    {plan.name}
+                  </a>
+                  {" · "}
+                  <a href={`/projects/${projectId}/releases/${plan.releaseId}`}>
+                    Open its assigned release
+                  </a>
+                </li>
+              ))}
+            </ul>
+          </details>
         )}
       </div>
 

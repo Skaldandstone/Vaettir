@@ -232,6 +232,34 @@ describe("manual start current authorization and reviewed closure without a data
     ).rejects.toMatchObject({ code: "CONFLICT" });
     expect(f.db.testRun.create).toHaveBeenCalledTimes(1);
   });
+  it("retains a reviewed original workspace and actor through exact retry", async () => {
+    const f = fixture();
+    const scoped = { ...request, originalOrganizationId: "synthetic-org", expectedClerkActorId: "synthetic-clerk-subject" };
+    const first = await f.caller.start(scoped);
+    expect(await f.caller.start(scoped)).toEqual(first);
+    expect(f.db.testRun.create).toHaveBeenCalledTimes(1);
+    await expect(f.caller.start(request)).rejects.toMatchObject({ code: "CONFLICT" });
+  });
+  it.each([
+    { originalOrganizationId: "other-org", expectedClerkActorId: "synthetic-clerk-subject" },
+    { originalOrganizationId: "synthetic-org", expectedClerkActorId: "other-clerk-subject" },
+  ])("refuses a changed original scope before reading procedures or receipts", async (pins) => {
+    const f = fixture();
+    await expect(f.caller.start({ ...request, ...pins })).rejects.toMatchObject({ code: "FORBIDDEN" });
+    expect(f.db.testRun.findUnique).not.toHaveBeenCalled();
+    expect(f.db.testCase.findMany).not.toHaveBeenCalled();
+    expect(f.db.testRun.create).not.toHaveBeenCalled();
+  });
+  it("refuses half of a reviewed original scope before transaction admission", async () => {
+    const f = fixture();
+    await expect(f.caller.start({ ...request, originalOrganizationId: "synthetic-org" })).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    expect(f.prisma.$transaction).not.toHaveBeenCalled();
+  });
+  it("requires a durable key when an original scope is explicitly reviewed", async () => {
+    const f = fixture();
+    await expect(f.caller.start({ projectId: request.projectId, testCaseIds: request.testCaseIds, originalOrganizationId: "synthetic-org", expectedClerkActorId: "synthetic-clerk-subject" })).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    expect(f.prisma.$transaction).not.toHaveBeenCalled();
+  });
   it("rejects an unreviewed prerequisite without partial snapshot creation or approval", async () => {
     const f = fixture();
     f.state.pending = true;

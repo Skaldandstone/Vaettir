@@ -10,6 +10,7 @@ export * from "./featureFlags.js";
 export * from "./datasetSubstitution.js";
 export * from "./projectPopulation.js";
 export * from "./qualityExperience.js";
+export * from "./casePresentation.js";
 export * from "./defectMap.js";
 export * from "./caseProcedureExport.js";
 export * from "./caseExecutionHistory.js";

@@ -16,6 +16,7 @@ import {
 import { aggregateStepStatus } from "./manualStepExecution.js";
 
 const identity = z.string().min(1).max(200);
+const MAX_ORIGINAL_RUN_CASES = 1000;
 export const retestPreviewInputSchema = z
   .object({
     projectId: identity,
@@ -36,11 +37,11 @@ const fail = (
 };
 
 export function retestClosure(scope: string[], value: unknown, caseId: string) {
-  const parsed = z.record(z.array(identity).max(500)).safeParse(value);
+  const parsed = z.record(z.array(identity).max(MAX_ORIGINAL_RUN_CASES)).safeParse(value);
   if (
     !parsed.success ||
     new Set(scope).size !== scope.length ||
-    scope.length > 500 ||
+    scope.length > MAX_ORIGINAL_RUN_CASES ||
     !scope.includes(caseId)
   )
     return fail(
@@ -48,7 +49,7 @@ export function retestClosure(scope: string[], value: unknown, caseId: string) {
     );
   const graph = parsed.data;
   if (
-    Object.keys(graph).length > 500 ||
+    Object.keys(graph).length > MAX_ORIGINAL_RUN_CASES ||
     Object.values(graph).reduce((sum, ids) => sum + ids.length, 0) > 10000 ||
     Object.entries(graph).some(
       ([id, ids]) =>
@@ -101,7 +102,7 @@ export async function prepareManualRetest(
   if (lock)
     await tx.$queryRaw`SELECT id FROM "TestRun" WHERE id=${input.sourceRunId} AND "projectId"=${input.projectId} FOR UPDATE`;
   const [scopeSize] = await tx.$queryRaw<Array<{ count: number; bytes: bigint }>>`SELECT cardinality("manualTestCaseIds")::int AS count,octet_length("manualTestCaseIds"::text)::bigint AS bytes FROM "TestRun" WHERE id=${input.sourceRunId} AND "projectId"=${input.projectId}`;
-  if (scopeSize && (scopeSize.count > 500 || scopeSize.bytes > 512n * 1024n))
+  if (scopeSize && (scopeSize.count > MAX_ORIGINAL_RUN_CASES || scopeSize.bytes > 512n * 1024n))
     return fail("The original case scope exceeds the bounded retest review. No procedure was loaded or started.");
   const source = await tx.testRun.findFirst({
     where: { id: input.sourceRunId, projectId: input.projectId },

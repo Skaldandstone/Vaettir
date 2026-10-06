@@ -15,7 +15,9 @@ import { CaseCustomFields } from "@/components/CaseCustomFields";
 import { CaseComments } from "@/components/CaseComments";
 import { CasePriorityField } from "@/components/CasePriorityField";
 import { Modal } from "@/components/Modal";
-import { automationTargetForFramework } from "@vaettir/core";
+import { automationTargetForFramework, casePresentationVisible } from "@vaettir/core";
+import { useCaseFieldAccess } from "@/lib/use-case-field-access";
+import { freshCasePresentation } from "@/lib/case-presentation-read";
 import {
   INSPECTOR_SECTIONS,
   inspectorLabel,
@@ -1094,6 +1096,10 @@ function TestCaseInspector({
   const utils = trpcReact.useUtils();
   const tcQuery = trpcReact.testCases.byId.useQuery({ id });
   const tc = tcQuery.data ?? null;
+  const preferenceAccess = useCaseFieldAccess(projectId);
+  const preferencesQuery = trpcReact.casePresentation.get.useQuery({ projectId, originalOrganizationId: preferenceAccess.origin?.organizationId, expectedClerkActorId: preferenceAccess.origin?.clerkActorId }, { enabled: preferenceAccess.readable, retry: false });
+  const preferences = freshCasePresentation(preferencesQuery, preferenceAccess.current);
+  const fieldPreferences = preferences?.configuration ?? preferences?.defaults;
   const savedAutomation = trpcReact.testCases.automationDraft.useQuery(
     { id },
     {
@@ -1227,6 +1233,10 @@ function TestCaseInspector({
       </p>
     );
   if (!tc) return <p>Loading…</p>;
+  const presentationContext = { validationDomain: tc.validationDomain, testType: tc.testType };
+  const showTechnicalBehavior = !fieldPreferences || casePresentationVisible(fieldPreferences, "technicalBehavior", tc.steps.some(step => step.expectedActionOrData !== null), presentationContext);
+  const showExpectedResponse = !fieldPreferences || casePresentationVisible(fieldPreferences, "expectedResponse", tc.steps.some(step => step.expectedResponse !== null), presentationContext);
+  const showComplianceControls = fieldPreferences ? casePresentationVisible(fieldPreferences, "compliance", false, presentationContext) : tc.testType === "COMPLIANCE";
 
   return (
     <div className={`test-case-details-content ${styles.inspector}`}>
@@ -1442,13 +1452,13 @@ function TestCaseInspector({
                 <tr>
                   <th style={cellStyle}>#</th>
                   <th style={cellStyle}>{tc.stepFieldLabels.action}</th>
-                  <th style={cellStyle}>
+                  {showTechnicalBehavior && <th style={cellStyle}>
                     {tc.stepFieldLabels.expectedActionOrData === "Expected Action / Data" ? "Technical behavior / data" : tc.stepFieldLabels.expectedActionOrData}
-                  </th>
+                  </th>}
                   <th style={cellStyle}>{tc.stepFieldLabels.expectedResult}</th>
-                  <th style={cellStyle}>
+                  {showExpectedResponse && <th style={cellStyle}>
                     {tc.stepFieldLabels.expectedResponse}
-                  </th>
+                  </th>}
                 </tr>
               </thead>
               <tbody>
@@ -1494,9 +1504,9 @@ function TestCaseInspector({
                         </ul>
                       )}
                     </td>
-                    <td style={cellStyle}>{s.expectedActionOrData ?? "—"}</td>
+                    {showTechnicalBehavior && <td style={cellStyle}>{s.expectedActionOrData === null ? "Not supplied" : s.expectedActionOrData === "" ? <em>Empty text</em> : s.expectedActionOrData}</td>}
                     <td style={cellStyle}>{s.expectedResult ?? "—"}</td>
-                    <td style={cellStyle}>{s.expectedResponse ?? "—"}</td>
+                    {showExpectedResponse && <td style={cellStyle}>{s.expectedResponse === null ? "Not supplied" : s.expectedResponse === "" ? <em>Empty text</em> : s.expectedResponse}</td>}
                   </tr>
                 ))}
               </tbody>
@@ -1867,9 +1877,18 @@ function TestCaseInspector({
           testCaseId={tc.id}
           projectId={projectId}
           readOnly={readOnly}
-          relevant={tc.testType === "COMPLIANCE"}
+          relevant={showComplianceControls}
         />
         <AttachmentsSection testCaseId={tc.id} readOnly={readOnly} />
+      </section>
+      <section
+        className={styles.section}
+        role="tabpanel"
+        id={`${sectionId}-panel-Comments`}
+        aria-labelledby={`${sectionId}-tab-Comments`}
+        hidden={section !== "Comments"}
+      >
+        <CaseComments key={tc.id} projectId={projectId} caseId={tc.id} />
       </section>
       <section
         className={styles.section}
@@ -1892,8 +1911,6 @@ function TestCaseInspector({
           readOnly={readOnly}
           onChanged={onChanged}
         />
-        <CaseComments key={tc.id} projectId={projectId} caseId={tc.id} />
-
         {tc.origin === "AI_REVERSE_ENGINEERED" && (
           <div
             style={{

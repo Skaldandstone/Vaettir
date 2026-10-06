@@ -10,7 +10,7 @@ import { useProjectPermissions } from "@/lib/use-project-permissions";
 import { inspectorLabel } from "@/lib/case-inspector";
 import { currentSessionScope, sameAuthScope } from "@/lib/auth-query-cache";
 import { RunOverview } from "@/components/RunOverview";
-import { manualStartDefinitivelyRejected } from "@/lib/manual-run-start";
+import { manualStartDefinitivelyRejected, assertManualStartAcknowledgement } from "@/lib/manual-run-start";
 
 const STATUS_COLORS: Record<string, string> = {
   PASSED: "#1a7f37",
@@ -509,7 +509,7 @@ function HealingSignalSection({ projectId }: { projectId: string }) {
 export default function TestRunsPage() {
   const { projectId } = useParams<{ projectId: string }>();
   const router = useRouter();
-  const { canEdit } = useProjectPermissions(projectId);
+  const { canEdit, organizationId } = useProjectPermissions(projectId);
   const [historyCursors, setHistoryCursors] = useState<
     Array<{ startedAt: Date; id: string }>
   >([]);
@@ -540,6 +540,8 @@ export default function TestRunsPage() {
     projectId: string;
     testCaseIds: string[];
     idempotencyKey: string;
+    originalOrganizationId: string;
+    expectedClerkActorId: string;
   } | null>(null);
   const [manualStartScope, setManualStartScope] = useState<ReturnType<typeof currentSessionScope>>(null);
   const [manualStartEverAmbiguous, setManualStartEverAmbiguous] = useState(false);
@@ -588,7 +590,7 @@ export default function TestRunsPage() {
     if (!canEdit || startManualMutation.isPending || manualSelection.size === 0) return;
     setManualError(null);
     const scope = currentSessionScope(window.Clerk?.loaded ? window.Clerk.session : null);
-    if (!scope || (manualStartRequest && !sameAuthScope(manualStartScope, scope))) {
+    if (!scope || !organizationId || (manualStartRequest && (!sameAuthScope(manualStartScope, scope) || manualStartRequest.originalOrganizationId !== organizationId))) {
       setManualError("Restore the original signed-in account and session before retrying this retained start request.");
       return;
     }
@@ -599,10 +601,15 @@ export default function TestRunsPage() {
         projectId,
         testCaseIds: [...manualSelection],
         idempotencyKey: crypto.randomUUID(),
+        originalOrganizationId: organizationId,
+        expectedClerkActorId: scope.userId,
       };
       setManualStartRequest(request);
       if (!manualStartRequest) setManualStartScope(scope);
       const result = await startManualMutation.mutateAsync(request);
+      assertManualStartAcknowledgement(result, request);
+      if (!sameAuthScope(scope, currentSessionScope(window.Clerk?.loaded ? window.Clerk.session : null)))
+        throw new Error("The signed-in session changed while this run was starting. Restore the original session and retry the retained request.");
       router.push(
         `/projects/${projectId}/test-runs/manual/${result.testRunId}`,
       );
