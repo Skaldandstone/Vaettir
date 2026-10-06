@@ -1722,3 +1722,38 @@ SDK-only authority revocation and explicit known-receipt refresh using fake RPC
 and authentication only. This is not native SQL, production authentication,
 device/runtime/security, migration/recovery or deployment proof. Earlier failed
 native gates remain FAILED; no release gate was waived.
+
+### October 6 authenticated Testmo run-selection recheck and complaint signals
+
+The existing signed-in trial was revisited using only its vendor Space Shuttle
+samples. The settled run index exposed eight active runs, three unstarted,
+milestone groupings, per-run progress, contributors, state/tag filters and a
+separate latest-success metric. In the unsaved multiple-run dialog, one row had
+an all-cases choice and configuration selection. Its case selector showed folder
+counts, case states and ALL/ANY filters. Applying the empty filter in this draft
+selected 534/534 cases with explicit feedback. Both dialogs were canceled; no
+run was submitted. Export was clicked but no settled dialog or file contents
+were verified, so this interaction does not establish export fidelity.
+The [official Testmo run guide](https://support.testmo.com/hc/en-us/articles/47544002336653-Test-Runs)
+separately documents replacement/add/removal selection and current-result progress;
+those modes are not all hands-on verified by this recheck.
+
+First-person reporting complaints recur across tools, but are not a current
+vendor defect reproduction or market ranking. A
+[2025 Testmo user discussion](https://www.reddit.com/r/QualityAssurance/comments/1nm87hy/test_management_system/)
+describes needing external BI for release reporting across projects; another
+participant values dashboards that non-QA stakeholders can follow. Multiple
+participants in a
+[2024 TestRail discussion](https://www.reddit.com/r/QualityAssurance/comments/1ccyp6t/testrail_question/)
+describe distributing screenshots/exports instead of expecting stakeholders to
+visit the tool, and flag formatting/report flexibility and attribution concerns.
+These dated anecdotes motivate scoped, readable, portable reporting and retained
+individual authorship, not shared accounts or relaxed tenant permissions.
+
+Current Vaettir source already has visual run cards, outcome/remaining counts,
+start/finish dates, current-head multi-run summaries, separately labeled recorded
+trends and CSV/HTML exports. Their source presence is not deployed UI proof.
+The next owned slice addresses fresh native reader/page authority and explicit
+export review rather than duplicating charts or treating an unsupported result
+as zero progress. Cross-project reporting remains a separate authorized-scope
+design question; no cross-tenant aggregation is inferred from these complaints.
