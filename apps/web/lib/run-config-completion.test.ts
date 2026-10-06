@@ -33,6 +33,369 @@ const ack = (request: ReviewedRunConfiguration) => ({
   expectedClerkActorId: request.expectedClerkActorId,
   idempotencyKey: request.idempotencyKey,
 });
+
+function monitoredFixture() {
+  const published: RunStartCompletionView[] = [],
+    controller = new RunConfigCompletionController(
+      "project",
+      (view) => published.push(view),
+      true,
+    );
+  let live: typeof session | null = { ...session },
+    resource: object;
+  const callbacks = new Set<() => void>(),
+    cleanupObservations: boolean[] = [];
+  const sdk = {
+    addListener: (callback: () => void) => {
+      callbacks.add(callback);
+      callback();
+      return () => {
+        cleanupObservations.push(controller.snapshot().authorized);
+        callbacks.delete(callback);
+      };
+    },
+  };
+  resource = sdk;
+  const frame: RunStartFrame = {
+    scope,
+    open: true,
+    canWrite: true,
+    draftKey: "original",
+  };
+  controller.attach();
+  controller.bindFrame(frame);
+  let readAction: (() => void) | null = null;
+  const read = () => {
+      const action = readAction;
+      readAction = null;
+      action?.();
+      return live;
+    },
+    current = () => resource;
+  const release = controller.installSdkMonitor(sdk, read, current);
+  controller.review(session, controller.snapshot().activationEpoch);
+  let generated = 0,
+    opens = 0;
+  const factory = () => {
+    generated++;
+    return freezeRunConfiguration(
+      {
+        projectId: "project",
+        testCaseIds: ["one", "two"],
+        expectedProfileHash: "a".repeat(64),
+        executionContext: context,
+        originalOrganizationId: "org",
+        expectedClerkActorId: "clerk",
+      },
+      "00000000-0000-4000-8000-000000000001",
+    );
+  };
+  return {
+    controller,
+    published,
+    callbacks,
+    frame,
+    factory,
+    read,
+    current,
+    sdk,
+    release,
+    cleanupObservations,
+    open: () => {
+      opens++;
+    },
+    emit: (next: typeof session | null) => {
+      live = next;
+      for (const callback of [...callbacks]) callback();
+    },
+    replace: (next: object) => {
+      resource = next;
+    },
+    onRead: (action: () => void) => {
+      readAction = action;
+    },
+    get generated() {
+      return generated;
+    },
+    get opens() {
+      return opens;
+    },
+  };
+}
+describe("installed-resource run-start lifecycle (synthetic SDK, not native authority)", () => {
+  it("observed SDK A-B-A without bindFrame permanently revokes old review until explicit fresh admission", async () => {
+    const h = monitoredFixture(),
+      oldEpoch = h.controller.snapshot().activationEpoch;
+    h.emit({ ...session, sessionId: "session-B" });
+    h.emit({ ...session });
+    h.controller.bindFrame(h.frame);
+    expect(h.controller.snapshot().authorized).toBe(false);
+    expect(h.controller.canEdit(session, oldEpoch)).toBe(false);
+    await h.controller.submit(
+      oldEpoch,
+      h.factory,
+      async (input) => ack(input),
+      h.read,
+      h.open,
+    );
+    expect(h.generated).toBe(0);
+    expect(h.opens).toBe(0);
+    const token = h.controller.beginRecheck(session)!;
+    expect(h.controller.finishRecheck(token, session)).toBe(true);
+    expect(h.controller.snapshot()).toMatchObject({
+      authorized: true,
+      canStart: false,
+    });
+    h.controller.review(session, h.controller.snapshot().activationEpoch);
+    await h.controller.submit(
+      h.controller.snapshot().activationEpoch,
+      h.factory,
+      async (input) => ack(input),
+      h.read,
+      h.open,
+    );
+    expect(h.generated).toBe(1);
+    expect(h.opens).toBe(1);
+  });
+  it("exact late ACK after SDK-only A-B-A settles privately and requires explicit fresh recheck and Open", async () => {
+    const h = monitoredFixture(),
+      waiting = deferred();
+    const pending = h.controller.submit(
+        h.controller.snapshot().activationEpoch,
+        h.factory,
+        () => waiting.promise,
+        h.read,
+        h.open,
+      ),
+      request = h.controller.snapshot().pendingRequest!;
+    h.emit({ ...session, sessionId: "session-B" });
+    h.emit({ ...session });
+    waiting.resolve(ack(request));
+    await pending;
+    expect(h.opens).toBe(0);
+    expect(h.controller.snapshot()).toMatchObject({
+      authorized: false,
+      pendingRequest: null,
+      confirmed: { request },
+      canStart: false,
+      canEdit: false,
+    });
+    h.controller.bindFrame(h.frame);
+    expect(h.controller.snapshot().authorized).toBe(false);
+    const token = h.controller.beginRecheck(session)!;
+    expect(h.controller.finishRecheck(token, session)).toBe(true);
+    expect(
+      h.controller.openConfirmed(
+        session,
+        h.open,
+        h.controller.snapshot().activationEpoch,
+      ),
+    ).toBe(true);
+    expect(
+      h.controller.openConfirmed(
+        session,
+        h.open,
+        h.controller.snapshot().activationEpoch,
+      ),
+    ).toBe(false);
+    expect(h.generated).toBe(1);
+    expect(h.opens).toBe(1);
+  });
+  it.each(["rejection", "malformed"])(
+    "late %s after SDK-only A-B-A retains exact original unknown request",
+    async (mode) => {
+      const h = monitoredFixture(),
+        waiting = deferred();
+      const pending = h.controller.submit(
+          h.controller.snapshot().activationEpoch,
+          h.factory,
+          () => waiting.promise,
+          h.read,
+          h.open,
+        ),
+        request = h.controller.snapshot().pendingRequest!,
+        body = JSON.stringify(request);
+      h.emit({ ...session, sessionId: "session-B" });
+      h.emit({ ...session });
+      if (mode === "rejection")
+        waiting.reject(Error("private transport fixture"));
+      else waiting.resolve({ ...ack(request), idempotencyKey: "wrong" });
+      await pending;
+      expect(h.controller.snapshot().authorized).toBe(false);
+      expect(h.controller.snapshot().pendingRequest).toBe(request);
+      expect(JSON.stringify(request)).toBe(body);
+      expect(h.controller.snapshot().error).not.toContain(
+        "private transport fixture",
+      );
+      expect(h.opens).toBe(0);
+      const token = h.controller.beginRecheck(session)!;
+      h.controller.finishRecheck(token, session);
+      await h.controller.submit(
+        h.controller.snapshot().activationEpoch,
+        () => {
+          throw Error("No new factory");
+        },
+        async (input) => {
+          expect(input).toBe(request);
+          return ack(input);
+        },
+        h.read,
+        h.open,
+      );
+      expect(h.generated).toBe(1);
+      expect(h.opens).toBe(1);
+    },
+  );
+  it.each(["absent", "void", "throw"])(
+    "%s listener cannot authorize a strict production controller",
+    (mode) => {
+      const c = new RunConfigCompletionController("project", () => {}, true);
+      c.attach();
+      c.bindFrame({ scope, open: true, canWrite: true });
+      const resource =
+        mode === "absent"
+          ? {}
+          : {
+              addListener: (listener: () => void) => {
+                listener();
+                if (mode === "throw") throw Error("private SDK error");
+                return undefined;
+              },
+            };
+      c.installSdkMonitor(
+        resource,
+        () => session,
+        () => resource,
+      );
+      expect(c.snapshot()).toMatchObject({
+        authorized: false,
+        canEdit: false,
+        recheckRequired: true,
+      });
+      expect(c.beginRecheck(session)).toBeNull();
+    },
+  );
+  it("resource replacement is observed synchronously before old action, cleanup revokes before calling third party", () => {
+    const h = monitoredFixture(),
+      oldEpoch = h.controller.snapshot().activationEpoch;
+    h.replace({});
+    expect(h.controller.canEdit(session, oldEpoch)).toBe(false);
+    expect(h.cleanupObservations).toEqual([false]);
+    expect(h.controller.snapshot().recheckRequired).toBe(true);
+  });
+  it("a new installed resource and copied/token/old-generation metadata cannot silently restore authority", () => {
+    const h = monitoredFixture(),
+      token = h.controller.beginRecheck(session)!;
+    const resource = {
+      addListener: (listener: () => void) => {
+        listener();
+        return () => {};
+      },
+    };
+    h.replace(resource);
+    h.controller.installSdkMonitor(resource, h.read, h.current);
+    h.controller.bindFrame(h.frame);
+    expect(h.controller.snapshot().authorized).toBe(false);
+    expect(h.controller.finishRecheck(token, session)).toBe(false);
+    const fresh = h.controller.beginRecheck(session)!;
+    expect(h.controller.finishRecheck({ ...fresh }, session)).toBe(false);
+    expect(h.controller.finishRecheck(fresh, session)).toBe(true);
+  });
+  it("close during recheck invalidates its token; same visibility reopen requires a new explicit read", () => {
+    const h = monitoredFixture(),
+      token = h.controller.beginRecheck(session)!;
+    h.controller.bindFrame({ ...h.frame, open: false });
+    h.controller.bindFrame(h.frame);
+    expect(h.controller.finishRecheck(token, session)).toBe(false);
+  });
+  it("null session cannot revive when A returns and mutable SDK objects are remembered by value", () => {
+    const h = monitoredFixture();
+    h.emit(null);
+    h.emit(session);
+    expect(h.controller.snapshot().authorized).toBe(false);
+    const token = h.controller.beginRecheck(session)!;
+    h.controller.finishRecheck(token, session);
+    const mutable = { ...session };
+    h.emit(mutable);
+    mutable.sessionId = "session-B";
+    h.emit(mutable);
+    mutable.sessionId = session.sessionId;
+    h.emit(mutable);
+    expect(h.controller.snapshot().authorized).toBe(false);
+  });
+  it("detached late ACK privately settles without publication; stale cleanup callbacks cannot restore admission", async () => {
+    const h = monitoredFixture(),
+      waiting = deferred(),
+      callbacks = [...h.callbacks];
+    const pending = h.controller.submit(
+        h.controller.snapshot().activationEpoch,
+        h.factory,
+        () => waiting.promise,
+        h.read,
+        h.open,
+      ),
+      request = h.controller.snapshot().pendingRequest!;
+    h.controller.detach();
+    h.release();
+    const published = h.published.length;
+    callbacks.forEach((callback) => callback());
+    waiting.resolve(ack(request));
+    await pending;
+    expect(h.published).toHaveLength(published);
+    expect(h.opens).toBe(0);
+    expect(h.controller.snapshot().confirmed?.request).toBe(request);
+  });
+  it("throwing session/resource readers fail closed without displaying the thrown body", () => {
+    const h = monitoredFixture();
+    const resource = { addListener: () => () => {} };
+    h.replace(resource);
+    h.controller.installSdkMonitor(
+      resource,
+      () => {
+        throw Error("private session reader");
+      },
+      h.current,
+    );
+    expect(h.controller.snapshot().authorized).toBe(false);
+    expect(h.controller.snapshot().error).toBeNull();
+  });
+  it("SDK transitions during finish's synchronous read invalidate the token before admission is published", () => {
+    const h = monitoredFixture(),
+      token = h.controller.beginRecheck(session)!;
+    h.onRead(() => {
+      h.emit({ ...session, sessionId: "session-B" });
+      h.emit({ ...session });
+    });
+    expect(h.controller.finishRecheck(token, session)).toBe(false);
+    expect(h.controller.snapshot().authorized).toBe(false);
+  });
+  it("synchronous installation revocation still disposes the unsubscribe returned later exactly once", () => {
+    const c = new RunConfigCompletionController("project", () => {}, true);
+    c.attach();
+    c.bindFrame({ scope, open: true, canWrite: true });
+    let resource: object,
+      cleanup = 0;
+    const initial = {
+      addListener: (changed: () => void) => {
+        resource = {};
+        changed();
+        return () => {
+          cleanup++;
+          expect(c.snapshot().authorized).toBe(false);
+        };
+      },
+    };
+    resource = initial;
+    const release = c.installSdkMonitor(
+      initial,
+      () => session,
+      () => resource,
+    );
+    release();
+    expect(cleanup).toBe(1);
+    expect(c.snapshot().authorized).toBe(false);
+  });
+});
 function deferred() {
   let resolve!: (value: unknown) => void, reject!: (cause: unknown) => void;
   const promise = new Promise<unknown>((yes, no) => {
@@ -94,14 +457,21 @@ describe("actual run-start completion controller (synthetic, not native auth)", 
     let submissions = 0;
     await h.controller.submit(
       h.controller.snapshot().activationEpoch,
-      () => { throw Error("PRIVATE_SYNTHETIC_FACTORY_DETAILS"); },
-      async () => { submissions++; return {}; },
+      () => {
+        throw Error("PRIVATE_SYNTHETIC_FACTORY_DETAILS");
+      },
+      async () => {
+        submissions++;
+        return {};
+      },
       () => session,
       h.open,
     );
     expect(submissions).toBe(0);
     expect(h.controller.snapshot().error).toContain("No request was submitted");
-    expect(JSON.stringify(h.published)).not.toContain("PRIVATE_SYNTHETIC_FACTORY_DETAILS");
+    expect(JSON.stringify(h.published)).not.toContain(
+      "PRIVATE_SYNTHETIC_FACTORY_DETAILS",
+    );
     expect(h.controller.snapshot().pendingRequest).toBeNull();
   });
   it("keeps original refusal classification and unknown UUID while withholding raw transport error text", async () => {
@@ -111,20 +481,30 @@ describe("actual run-start completion controller (synthetic, not native auth)", 
       await h.controller.submit(
         h.controller.snapshot().activationEpoch,
         h.factory,
-        async request => {
+        async (request) => {
           submitted = request;
-          throw Object.assign(Error("PRIVATE_SYNTHETIC_TRANSPORT_DETAILS"),
-            definitive ? { data: { code: "PRECONDITION_FAILED" } } : {});
+          throw Object.assign(
+            Error("PRIVATE_SYNTHETIC_TRANSPORT_DETAILS"),
+            definitive ? { data: { code: "PRECONDITION_FAILED" } } : {},
+          );
         },
         () => session,
         h.open,
       );
       expect(h.generated).toBe(1);
       expect(h.opens).toBe(0);
-      expect(h.controller.snapshot().pendingRequest).toBe(definitive ? null : submitted);
-      expect(h.controller.snapshot().error).toContain(definitive ? "refused" : "unconfirmed");
-      expect(JSON.stringify(h.published)).not.toContain("PRIVATE_SYNTHETIC_TRANSPORT_DETAILS");
-      expect(h.controller.snapshot().error).toContain("no automatic retry was sent");
+      expect(h.controller.snapshot().pendingRequest).toBe(
+        definitive ? null : submitted,
+      );
+      expect(h.controller.snapshot().error).toContain(
+        definitive ? "refused" : "unconfirmed",
+      );
+      expect(JSON.stringify(h.published)).not.toContain(
+        "PRIVATE_SYNTHETIC_TRANSPORT_DETAILS",
+      );
+      expect(h.controller.snapshot().error).toContain(
+        "no automatic retry was sent",
+      );
     }
   });
   it("navigates only once after exact current-frame ACK, retaining the original configuration/body", async () => {

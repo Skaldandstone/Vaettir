@@ -5,6 +5,7 @@ import { useParams } from "next/navigation";
 import { useAuth } from "@clerk/nextjs";
 import { downloadFile } from "@/lib/download";
 import { DeviceHelperBlockedLaunchGuidance } from "@/components/DeviceHelperBlockedLaunchGuidance";
+import { DeviceHelperSetupStatus } from "@/components/DeviceHelperSetupStatus";
 import {
   buildDeviceConnectorLauncher,
   createDeviceConnectorPairingCode,
@@ -84,6 +85,7 @@ export default function LiveAppGenerationPage() {
   const discoveryAttemptRef = useRef(0);
   const [manualSetupOpen, setManualSetupOpen] = useState(false);
   const [manualSetupRevealed, setManualSetupRevealed] = useState(false);
+  const [helperMetadataCancellationEpoch, setHelperMetadataCancellationEpoch] = useState(0);
   useLayoutEffect(() => {
     const connection = connectionAttemptRef.current;
     revokeDeviceConnection(connection, { active: helperActorAllowed });
@@ -331,14 +333,21 @@ export default function LiveAppGenerationPage() {
     }
   }
 
-  function reportBlockedWindowsHelper() {
-    if (connectorPlatform !== "windows" || capturing || generating) return;
+  function cancelHelperSetupChecks() {
+    // The metadata surface revokes its own owner before invoking this bridge.
+    // Abort this page's polling/discovery too, without attributing retained
+    // captures or paid drafts to a newly reviewed identity or claiming they stopped.
     revokeDeviceConnection(connectionAttemptRef.current, { blocked: true });
     discoveryAttemptRef.current++;
+    setHelperMetadataCancellationEpoch(current => current + 1);
     setConnectorStatus("blocked"); setDiscoveringDevices(false); setError(null);
     setManualSetupOpen(false); setManualSetupRevealed(false);
     // Pairing and selected capture drafts are deliberately retained privately.
     // Reporting an OS refusal never runs a command or changes security policy.
+  }
+  function reportBlockedWindowsHelper() {
+    if (connectorPlatform !== "windows" || capturing || generating) return;
+    cancelHelperSetupChecks();
   }
   function showPolicyPermittedManualSetup() { if (!helperActorAllowed || !connectionAttemptRef.current.active) return; setManualSetupRevealed(true); setManualSetupOpen(true); }
   async function refreshAndroidDevices() {
@@ -444,6 +453,18 @@ export default function LiveAppGenerationPage() {
         test cases grounded in the controls that were actually present. Nothing
         is saved until you review each draft.
       </p>
+
+      <DeviceHelperSetupStatus
+        intent={{
+          kind: "CURRENT_METADATA_ONLY",
+          projectId,
+          originalOrganizationId: helperOrganizationId ?? "",
+          active: helperReadFresh,
+          connectionEpoch: helperMetadataCancellationEpoch,
+          reportedBlocked: connectorStatus === "blocked",
+        }}
+        onReportedBlocked={cancelHelperSetupChecks}
+      />
 
       {readOnly && (
         <p className="text-muted" style={{ fontSize: 13 }}>

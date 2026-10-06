@@ -6,17 +6,31 @@ import { currentSessionScope, sameAuthScope } from "./auth-query-cache";
 import { deviceHelperSetupAccessInput, deviceHelperSetupAccessOutput, deviceHelperSetupAccessRequestText,
   deviceHelperSetupMetadataBytes, type DeviceHelperSetupAccessInput } from "../../api/src/services/deviceHelperSetupAccessSchema";
 import { DeviceHelperSetup, type DeviceHelperSetupFrame, type ReadPairedHealth, type ReadSetupAccess, type SetupBuffers, type SetupAttempt, type SetupIntent } from "./device-helper-setup";
-import { captureJsonContentCost, retainCaptureJson, type CaptureSdk, type CaptureSession } from "./device-capture-ownership";
-import type { DeviceCaptureOrigin } from "../../api/src/services/deviceCaptureAccessSchema";
+import { captureAccessClientRequestKey, captureJsonContentCost, retainCaptureJson, type CaptureSdk, type CaptureSession } from "./device-capture-ownership";
+import { deviceCaptureAccessInput, deviceCaptureAccessOutput, type DeviceCaptureOrigin } from "../../api/src/services/deviceCaptureAccessSchema";
 
-export type HelperSetupIntent = Readonly<{ projectId: string; originalOrganizationId: string | null; active: boolean;
+export type PairedHelperSetupIntent = Readonly<{ projectId: string; originalOrganizationId: string | null; active: boolean;
   platform: DeviceHelperSetupFrame["platform"]; mode: DeviceHelperSetupFrame["mode"]; pairingCode: string; connectionEpoch: number; buffers: SetupBuffers }>;
-type Frame = Readonly<HelperSetupIntent & { loaded: boolean; signedIn: boolean; hookSession: CaptureSession | null }>;
+export type CurrentMetadataOnlySetupIntent = Readonly<{ kind: "CURRENT_METADATA_ONLY"; projectId: string; originalOrganizationId: string | null;
+  active: boolean; connectionEpoch: number; reportedBlocked: boolean }>;
+export type HelperSetupIntent = PairedHelperSetupIntent | CurrentMetadataOnlySetupIntent;
+type Frame = Readonly<HelperSetupIntent & { loaded: boolean; signedIn: boolean; hookSession: CaptureSession | null; intentSupported: boolean }>;
 type Bootstrap = (input: DeviceHelperSetupAccessInput, signal: AbortSignal) => Promise<unknown>;
 export type HelperSetupView = Readonly<{ status: string; busy: boolean; canReview: boolean; canCheck: boolean; paired: boolean; description: string;
-  currentScope: DeviceCaptureOrigin | null; deviceOperationPerformed: false; processingPermissionGranted: false; spendingApprovalGranted: false }>;
+  currentScope: DeviceCaptureOrigin | null; reportedBlocked?: boolean; deviceOperationPerformed: false; processingPermissionGranted: false; spendingApprovalGranted: false }>;
 type Resource = { loaded?: boolean; session?: { id: string; user: { id: string } } | null; addListener?: (callback: () => void) => unknown };
 function helperResource() { return (typeof window === "undefined" ? null : window.Clerk) as Resource | null | undefined; }
+function metadataOnly(intent: HelperSetupIntent): intent is CurrentMetadataOnlySetupIntent { return !!intent && typeof intent === "object" && Object.getOwnPropertyDescriptor(intent, "kind")?.value === "CURRENT_METADATA_ONLY"; }
+function supportedMetadataIntent(raw: CurrentMetadataOnlySetupIntent): boolean {
+  if (!raw || Object.getPrototypeOf(raw) !== Object.prototype) return false;
+  const keys = new Set(["kind", "projectId", "originalOrganizationId", "active", "connectionEpoch", "reportedBlocked"]);
+  const descriptors = Object.getOwnPropertyDescriptors(raw);
+  if (Reflect.ownKeys(raw).length !== keys.size || Reflect.ownKeys(raw).some(key => typeof key !== "string" || !keys.has(key))) return false;
+  for (const item of Object.values(descriptors)) if (!item.enumerable || !Object.hasOwn(item, "value")) return false;
+  return descriptors.kind?.value === "CURRENT_METADATA_ONLY" && typeof descriptors.projectId?.value === "string" && descriptors.projectId.value.length <= 200 &&
+    (descriptors.originalOrganizationId?.value === null || typeof descriptors.originalOrganizationId?.value === "string" && descriptors.originalOrganizationId.value.length <= 200) &&
+    typeof descriptors.active?.value === "boolean" && typeof descriptors.reportedBlocked?.value === "boolean" && typeof descriptors.connectionEpoch?.value === "number" && Number.isSafeInteger(descriptors.connectionEpoch.value) && descriptors.connectionEpoch.value >= 0;
+}
 function setupBufferKey(buffers: SetupBuffers): string | null {
   try {
     if (!buffers || typeof buffers !== "object" || Array.isArray(buffers) || Object.getPrototypeOf(buffers) !== Object.prototype || Reflect.ownKeys(buffers).length > 50 ||
@@ -27,12 +41,15 @@ function setupBufferKey(buffers: SetupBuffers): string | null {
   } catch { return null; }
 }
 function setupFrameKey(frame: Frame): string | null {
-  if (typeof frame.active !== "boolean" || typeof frame.loaded !== "boolean" || typeof frame.signedIn !== "boolean" ||
-    !["windows", "macos", "linux"].includes(frame.platform) || !["android", "ios-connected", "ios-remote"].includes(frame.mode) ||
-    setupBufferKey(frame.buffers) === null || typeof frame.projectId !== "string" || frame.projectId.length > 200 ||
+  if (!frame.intentSupported || typeof frame.active !== "boolean" || typeof frame.loaded !== "boolean" || typeof frame.signedIn !== "boolean" ||
+    typeof frame.projectId !== "string" || frame.projectId.length > 200 ||
     frame.originalOrganizationId !== null && (typeof frame.originalOrganizationId !== "string" || frame.originalOrganizationId.length > 200) ||
     frame.hookSession && (typeof frame.hookSession.userId !== "string" || typeof frame.hookSession.sessionId !== "string" || frame.hookSession.userId.length > 200 || frame.hookSession.sessionId.length > 200) ||
-    typeof frame.pairingCode !== "string" || frame.pairingCode.length > 12 || !Number.isSafeInteger(frame.connectionEpoch)) return null;
+    !Number.isSafeInteger(frame.connectionEpoch) || frame.connectionEpoch < 0) return null;
+  if (metadataOnly(frame)) return JSON.stringify({ kind: frame.kind, projectId: frame.projectId, originalOrganizationId: frame.originalOrganizationId,
+    active: frame.active, loaded: frame.loaded, signedIn: frame.signedIn, hookSession: frame.hookSession, connectionEpoch: frame.connectionEpoch, reportedBlocked: frame.reportedBlocked });
+  if (!["windows", "macos", "linux"].includes(frame.platform) || !["android", "ios-connected", "ios-remote"].includes(frame.mode) ||
+    setupBufferKey(frame.buffers) === null || typeof frame.pairingCode !== "string" || frame.pairingCode.length > 12) return null;
   return JSON.stringify({ projectId: frame.projectId, originalOrganizationId: frame.originalOrganizationId, active: frame.active,
     loaded: frame.loaded, signedIn: frame.signedIn, hookSession: frame.hookSession ? { userId: frame.hookSession.userId, sessionId: frame.hookSession.sessionId } : null,
     platform: frame.platform, mode: frame.mode, pairingCode: frame.pairingCode, connectionEpoch: frame.connectionEpoch, buffers: frame.buffers });
@@ -61,12 +78,13 @@ export function createInstalledHelperSdk(): InstalledSdk {
     return () => { token.active = false; if (installed === token) installed = null; try { cleanup(); } catch { /* Revoked before cleanup, no authority retained. */ } };
   } };
 }
-function boundedBootstrapReply(raw: unknown) {
+function boundedSetupReply(raw: unknown, bootstrap: boolean) {
   // Exact primitive metadata tree only, before schema parsing or property
   // access. Getters, symbols, unknown nested bodies and oversized values refuse
   // whole; no strip/redaction claim or temporary private-body clone.
   if (!raw || typeof raw !== "object" || Array.isArray(raw) || Object.getPrototypeOf(raw) !== Object.prototype) throw Error("Unsupported setup metadata response.");
-  const allowed = new Set(["readRequestId", "requestKey", "scope", "role", "seatType", "authorization", "identityEstablishment", "deviceOperationPerformed", "helperLaunchPerformed", "windowsLaunchAcceptanceVerified", "foregroundTargetVerified", "captureConsentGranted", "processingPermissionGranted", "spendingApprovalGranted", "legacyDraftAttributionVerified"]);
+  const allowed = new Set(bootstrap ? ["readRequestId", "requestKey", "scope", "role", "seatType", "authorization", "identityEstablishment", "deviceOperationPerformed", "helperLaunchPerformed", "windowsLaunchAcceptanceVerified", "foregroundTargetVerified", "captureConsentGranted", "processingPermissionGranted", "spendingApprovalGranted", "legacyDraftAttributionVerified"] :
+    ["readRequestId", "requestKey", "scope", "role", "seatType", "authorization", "deviceOperationPerformed", "foregroundTargetVerified", "processingPermissionGranted"]);
   const descriptors = Object.getOwnPropertyDescriptors(raw);
   if (Reflect.ownKeys(raw).length !== allowed.size || Reflect.ownKeys(raw).some(key => typeof key !== "string" || !allowed.has(key))) throw Error("Unsupported setup metadata response.");
   for (const [key, descriptor] of Object.entries(descriptors)) {
@@ -81,6 +99,7 @@ function boundedBootstrapReply(raw: unknown) {
   }
   if (captureJsonContentCost(raw).bytes > 8192) throw Error("Unsupported setup metadata response.");
 }
+function boundedBootstrapReply(raw: unknown) { boundedSetupReply(raw, true); }
 export async function deviceHelperSetupClientKey(input: DeviceHelperSetupAccessInput) {
   const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(deviceHelperSetupAccessRequestText(input)));
   return Array.from(new Uint8Array(digest), byte => byte.toString(16).padStart(2, "0")).join("");
@@ -110,7 +129,9 @@ export class DeviceHelperSetupOwner {
   private readonly setupObservers = new Set<() => void>();
   private readonly buffers: SetupBuffers;
   private readonly bufferKey: string;
-  constructor(private readonly sdk: CaptureSdk, private readonly publish: () => void, buffers: SetupBuffers) {
+  private readonly metadataCosts = new Map<string, { bytes: number; nodes: number }>();
+  private metadataRequests = 0;
+  constructor(private readonly sdk: CaptureSdk, private readonly publish: () => void, buffers: SetupBuffers, private readonly metadataMode = false) {
     const key = setupBufferKey(buffers); if (key === null) throw Error("Unsupported complete setup buffers.");
     this.buffers = retainCaptureJson(buffers); this.bufferKey = key; this.sdkIdentity = JSON.stringify(sdk.current());
   }
@@ -123,8 +144,12 @@ export class DeviceHelperSetupOwner {
   }
   bind(frame: Frame) {
     this.observeSdk(); const key = setupFrameKey(frame);
-    if (key === null) { if (this.binding !== "UNSUPPORTED_FRAME") this.invalidate(); this.binding = "UNSUPPORTED_FRAME"; this.frame = null; return; }
+    if (key === null || metadataOnly(frame) !== this.metadataMode) { if (this.binding !== "UNSUPPORTED_FRAME") this.invalidate(); this.binding = "UNSUPPORTED_FRAME"; this.frame = null; return; }
     if (key !== this.binding) { this.binding = key; this.invalidate(); }
+    if (metadataOnly(frame)) {
+      try { this.metadataCharge("frame", frame, 8192); } catch { this.frame = null; this.invalidate(); return; }
+      if (frame.reportedBlocked && !this.blocked) { this.blocked = true; this.invalidate(); }
+    }
     this.frame = frame;
     this.setup?.update(this.setupFrame());
   }
@@ -132,24 +157,56 @@ export class DeviceHelperSetupOwner {
     const frame = this.frame, session = this.sdk.current();
     return this.attached && !!frame && frame.active && frame.loaded && frame.signedIn && !!frame.originalOrganizationId && !!frame.hookSession && sameAuthScope(frame.hookSession, session) &&
       (!this.original || this.original.projectId === frame.projectId && this.original.organizationId === frame.originalOrganizationId && this.original.clerkActorId === session?.userId) &&
-      setupBufferKey(frame.buffers) === this.bufferKey && ["windows", "macos", "linux"].includes(frame.platform) && ["android", "ios-connected", "ios-remote"].includes(frame.mode) &&
-      /^[A-F0-9]{12}$/.test(frame.pairingCode) && Number.isSafeInteger(frame.connectionEpoch) && frame.connectionEpoch >= 0;
+      (metadataOnly(frame) ? this.metadataMode : !this.metadataMode && setupBufferKey(frame.buffers) === this.bufferKey && ["windows", "macos", "linux"].includes(frame.platform) && ["android", "ios-connected", "ios-remote"].includes(frame.mode) &&
+      /^[A-F0-9]{12}$/.test(frame.pairingCode)) && Number.isSafeInteger(frame.connectionEpoch) && frame.connectionEpoch >= 0;
   }
   private setupFrame(): DeviceHelperSetupFrame | null {
-    const f = this.frame; return f && this.origin && this.valid() ? { origin: this.origin, active: true, loaded: f.loaded, signedIn: f.signedIn,
+    const f = this.frame; return f && !metadataOnly(f) && this.origin && this.valid() ? { origin: this.origin, active: true, loaded: f.loaded, signedIn: f.signedIn,
       hookSession: f.hookSession ? { userId: f.hookSession.userId, sessionId: f.hookSession.sessionId } : null,
       platform: f.platform, mode: f.mode, pairingCode: f.pairingCode, connectionEpoch: f.connectionEpoch } : null;
   }
   private current(epoch: number) { this.observeSdk(); return this.valid() && epoch === this.epoch; }
   matches(frame: Frame) { this.observeSdk(); const key = setupFrameKey(frame); return key !== null && this.binding === key && this.valid(); }
+  matchesPublicCancellation(frame: Frame) { const key = setupFrameKey(frame); return this.attached && key !== null && this.binding === key; }
+  private metadataCharge(key: string, value: unknown, maximum: number) {
+    const cost = captureJsonContentCost(value); if (cost.bytes > maximum) throw Error("Complete metadata bound exceeded.");
+    const next = new Map(this.metadataCosts); next.set(key, { bytes: cost.bytes + new TextEncoder().encode(key).length + 128, nodes: cost.nodes + 8 });
+    let bytes = 0, nodes = 0; for (const item of next.values()) { bytes += item.bytes; nodes += item.nodes; }
+    if (bytes > 524288 || nodes > 16000) throw Error("Complete retained metadata budget exceeded.");
+    this.metadataCosts.set(key, next.get(key)!);
+  }
+  private metadataReserve() {
+    let bytes = 0, nodes = 0; for (const item of this.metadataCosts.values()) { bytes += item.bytes; nodes += item.nodes; }
+    // Reserve complete raw+parsed primitive echoes and bookkeeping BEFORE
+    // transport. Conservative charges remain even when temporary echoes are
+    // dropped; this is retained-content accounting, not a V8/transport bound.
+    if (this.metadataRequests >= 64 || bytes + 20480 > 524288 || nodes + 4096 > 16000) throw Error("Complete retained metadata budget exceeded.");
+    this.metadataRequests++;
+  }
+  private async readMetadata(epoch: number, read: ReadSetupAccess, signal: AbortSignal) {
+    if (!this.origin || !this.current(epoch)) return false;
+    this.metadataReserve();
+    const input = deviceCaptureAccessInput.parse({ projectId: this.origin.projectId, originalOrganizationId: this.origin.organizationId,
+      expectedClerkActorId: this.origin.clerkActorId, expectedNativeActorId: this.origin.nativeActorId, readRequestId: crypto.randomUUID() });
+    this.metadataCharge(`input:${input.readRequestId}`, input, 4096);
+    const key = await captureAccessClientRequestKey(input); if (!this.current(epoch)) return false;
+    const raw = await read(input, signal); if (!this.current(epoch)) return false;
+    boundedSetupReply(raw, false); this.metadataCharge(`raw:${input.readRequestId}`, raw, 8192);
+    const parsed = deviceCaptureAccessOutput.safeParse(raw);
+    if (!parsed.success || parsed.data.readRequestId !== input.readRequestId || parsed.data.requestKey !== key ||
+      parsed.data.scope.projectId !== this.origin.projectId || parsed.data.scope.organizationId !== this.origin.organizationId ||
+      parsed.data.scope.nativeActorId !== this.origin.nativeActorId || parsed.data.scope.clerkActorId !== this.origin.clerkActorId) throw Error("Complete original metadata read refused.");
+    this.metadataCharge(`parsed:${input.readRequestId}`, parsed.data, 8192);
+    return this.current(epoch);
+  }
   view(): HelperSetupView {
     this.observeSdk(); const readable = this.valid(), scoped = readable && this.admittedEpoch === this.epoch, setup = scoped ? this.setup?.view() : null;
     const busy = readable && this.busy && this.busyEpoch === this.epoch;
-    return Object.freeze({ status: !readable ? "PRIVATE" : this.blocked ? "BLOCKED" : busy ? "BUSY" : setup?.status ?? "REVIEW_REQUIRED", busy,
-      canReview: readable && !this.busy, canCheck: scoped && !this.busy && setup?.status === "READY" && !this.blocked,
-      paired: scoped && setup?.liveness?.kind === "PAIRED_LIVENESS_ONLY", currentScope: scoped && setup?.details ? this.origin : null,
-      description: !readable ? "Original setup metadata is retained privately. Restore the same account/workspace and explicitly review a fresh native read." : this.error || setup?.description || "Review current setup identity explicitly. This does not attribute retained legacy drafts or approve any device, download or processing action.",
-      deviceOperationPerformed: false, processingPermissionGranted: false, spendingApprovalGranted: false });
+    return Object.freeze({ status: !readable ? "PRIVATE" : this.blocked ? "BLOCKED" : busy ? "BUSY" : this.metadataMode && scoped ? "CURRENT_METADATA_REVIEWED" : setup?.status ?? "REVIEW_REQUIRED", busy,
+      canReview: readable && !this.busy, canCheck: !this.metadataMode && scoped && !this.busy && setup?.status === "READY" && !this.blocked,
+      paired: !this.metadataMode && scoped && setup?.liveness?.kind === "PAIRED_LIVENESS_ONLY", currentScope: scoped && (this.metadataMode || setup?.details) ? this.origin : null,
+      description: !readable ? "Original setup metadata is retained privately. Restore the same account/workspace and explicitly review a fresh native read." : this.error || (this.metadataMode && scoped ? "Current workspace/account metadata was reviewed. No pairing credential was created or adopted, no local helper was contacted, and no target, capture or processing permission was granted." : setup?.description) || "Review current setup identity explicitly. This does not attribute retained legacy drafts or approve any device, download or processing action.",
+      reportedBlocked: this.blocked, deviceOperationPerformed: false, processingPermissionGranted: false, spendingApprovalGranted: false });
   }
   async review(bootstrap: Bootstrap, read: ReadSetupAccess): Promise<void> {
     this.observeSdk(); if (!this.valid() || this.busy || !this.frame || this.bootstrapInputs.length >= 64) return;
@@ -159,23 +216,36 @@ export class DeviceHelperSetupOwner {
     if (!this.current(epoch)) { this.busy = false; return; }
     const signal = new AbortController(); this.bootstrapSignal = signal;
     try {
-      if (!this.original) this.original = Object.freeze({ projectId: frame.projectId, organizationId: frame.originalOrganizationId!, clerkActorId: frame.hookSession!.userId });
+      if (!this.original) {
+        const original = { projectId: frame.projectId, organizationId: frame.originalOrganizationId!, clerkActorId: frame.hookSession!.userId };
+        if (this.metadataMode) this.metadataCharge("original", original, 4096);
+        this.original = Object.freeze(original);
+      }
       if (!this.origin) {
         const input = deviceHelperSetupAccessInput.parse({ kind: "ESTABLISH_CURRENT_SETUP_SCOPE", projectId: this.original.projectId,
           originalOrganizationId: this.original.organizationId, expectedClerkActorId: this.original.clerkActorId, readRequestId: crypto.randomUUID() });
+        if (this.metadataMode) { this.metadataReserve(); this.metadataCharge(`input:${input.readRequestId}`, input, 4096); }
         this.bootstrapInputs.push(retainCaptureJson(input)); const key = await deviceHelperSetupClientKey(input); if (!this.current(epoch)) return;
         const raw = await bootstrap(input, signal.signal); if (!this.current(epoch)) return;
-        boundedBootstrapReply(raw); const decoded = deviceHelperSetupAccessOutput.safeParse(raw);
+        boundedBootstrapReply(raw); if (this.metadataMode) this.metadataCharge(`raw:${input.readRequestId}`, raw, 8192);
+        const decoded = deviceHelperSetupAccessOutput.safeParse(raw);
         if (!decoded.success || deviceHelperSetupMetadataBytes(decoded.data) > 8192 || decoded.data.requestKey !== key || decoded.data.readRequestId !== input.readRequestId ||
           decoded.data.scope.projectId !== this.original.projectId || decoded.data.scope.organizationId !== this.original.organizationId || decoded.data.scope.clerkActorId !== this.original.clerkActorId) throw Error("Unsupported current setup identity.");
         if (!this.current(epoch)) return;
+        if (this.metadataMode) { this.metadataCharge(`parsed:${input.readRequestId}`, decoded.data, 8192); this.metadataCharge("origin", decoded.data.scope, 4096); }
         this.origin = retainCaptureJson(decoded.data.scope);
         // One installed listener belongs to the mounted hook. The retained
         // foundation subscribes only to this owner's private observer set, so
         // collapse/resource replacement/unmount cannot leave a global listener.
-        const sdk: CaptureSdk = { current: () => this.sdk.current(), subscribe: observe => { this.setupObservers.add(observe); return () => { this.setupObservers.delete(observe); }; } };
-        this.setup = new DeviceHelperSetup(this.origin, this.buffers, sdk, () => this.setupFrame());
-        this.setup.update(this.setupFrame());
+        if (!this.metadataMode) {
+          const sdk: CaptureSdk = { current: () => this.sdk.current(), subscribe: observe => { this.setupObservers.add(observe); return () => { this.setupObservers.delete(observe); }; } };
+          this.setup = new DeviceHelperSetup(this.origin, this.buffers, sdk, () => this.setupFrame());
+          this.setup.update(this.setupFrame());
+        }
+      }
+      if (this.metadataMode) {
+        if (await this.readMetadata(epoch, read, signal.signal) && this.current(epoch)) this.admittedEpoch = epoch;
+        return;
       }
       const intent: SetupIntent = this.blocked ? "MANUAL_POLICY_REVIEW" : this.uncertainHealth || this.setup?.view().status === "UNKNOWN" ? "RETRY_UNKNOWN" : "CONNECT";
       const attempt = this.setup?.beginReview(intent); if (!attempt) throw Error("Explicit current setup review is unavailable.");
@@ -187,25 +257,33 @@ export class DeviceHelperSetupOwner {
   }
   async check(read: ReadSetupAccess, health: ReadPairedHealth | undefined): Promise<void> {
     this.observeSdk(); const epoch = this.epoch;
-    if (!health || !this.view().canCheck || !this.setup || !this.attempt) return;
+    if (this.metadataMode || !health || !this.view().canCheck || !this.setup || !this.attempt) return;
     this.busy = true; this.busyEpoch = epoch; this.uncertainHealth = true; this.publish();
     try { if (!this.current(epoch)) return; const paired = await this.setup.checkPairedLiveness(this.attempt, read, health); if (this.current(epoch) && paired) this.uncertainHealth = false; }
     finally { this.busy = false; if (this.current(epoch)) this.publish(); }
   }
-  reportBlocked() { this.blocked = true; this.setup?.reportBlockedLaunch(); this.invalidate(); this.publish(); }
+  reportBlocked(cancelOther?: () => void) {
+    this.blocked = true; this.setup?.reportBlockedLaunch(); this.invalidate();
+    // Public cancellation bridge only. Revoke our pending reads before the
+    // parent cancels its existing polling, and publish only afterwards. This
+    // never claims a helper/capture stopped or that an OS cause was diagnosed.
+    try { cancelOther?.(); } finally { this.publish(); }
+  }
 }
 
-export type DeviceHelperSetupWorkflow = Readonly<{ view: HelperSetupView; review(): Promise<void>; checkPaired(): Promise<void>; reportBlocked(): void; healthAvailable: boolean }>;
+export type DeviceHelperSetupWorkflow = Readonly<{ view: HelperSetupView; review(): Promise<void>; checkPaired(): Promise<void>; reportBlocked(cancelOther?: () => void): void; healthAvailable: boolean }>;
 /** Always mount this owner outside conditional auth/seat/device sections. Only
  * native metadata RPC is wired; local health must be explicitly injected. */
 export function useDeviceHelperSetup(intent: HelperSetupIntent, health?: ReadPairedHealth): DeviceHelperSetupWorkflow {
   const auth = useAuth(), [, publish] = useState(0), utils = trpcReact.useUtils();
-  const frame: Frame = { projectId: intent.projectId, originalOrganizationId: intent.originalOrganizationId, active: intent.active,
-    platform: intent.platform, mode: intent.mode, pairingCode: intent.pairingCode, connectionEpoch: intent.connectionEpoch, buffers: intent.buffers,
-    loaded: auth.isLoaded, signedIn: !!auth.isSignedIn,
+  const onlyMetadata = Object.hasOwn(intent, "kind"), supported = onlyMetadata ? metadataOnly(intent) && supportedMetadataIntent(intent) : true;
+  const metadata: CurrentMetadataOnlySetupIntent = metadataOnly(intent) && supported ? intent : { kind: "CURRENT_METADATA_ONLY", projectId: "", originalOrganizationId: null, active: false, connectionEpoch: 0, reportedBlocked: false };
+  const common = { loaded: auth.isLoaded, signedIn: !!auth.isSignedIn, intentSupported: supported,
     hookSession: auth.isLoaded && auth.isSignedIn && auth.userId && auth.sessionId ? { userId: auth.userId, sessionId: auth.sessionId } : null };
+  const frame: Frame = metadataOnly(intent) || onlyMetadata ? { ...metadata, ...common } : { projectId: intent.projectId, originalOrganizationId: intent.originalOrganizationId, active: intent.active,
+    platform: intent.platform, mode: intent.mode, pairingCode: intent.pairingCode, connectionEpoch: intent.connectionEpoch, buffers: intent.buffers, ...common };
   const [sdk] = useState<InstalledSdk>(() => createInstalledHelperSdk());
-  const [owner] = useState(() => new DeviceHelperSetupOwner(sdk, () => publish(value => value + 1), intent.buffers));
+  const [owner] = useState(() => new DeviceHelperSetupOwner(sdk, () => publish(value => value + 1), onlyMetadata || metadataOnly(intent) ? {} : intent.buffers, onlyMetadata));
   owner.bind(frame); // Render intent revokes stale private views before layout.
   const installationGeneration = sdk.generation();
   const resource = (typeof window === "undefined" ? null : window.Clerk) as Resource | null | undefined;
@@ -214,7 +292,7 @@ export function useDeviceHelperSetup(intent: HelperSetupIntent, health?: ReadPai
   const read: ReadSetupAccess = input => utils.deviceCaptureAccess.read.fetch(input, { staleTime: 0 });
   const bootstrap: Bootstrap = input => utils.deviceHelperSetupAccess.establishCurrent.fetch(input, { staleTime: 0 });
   const guarded = (action: () => Promise<void>) => owner.matches(frame) ? action() : Promise.resolve();
-  return { view: owner.view(), healthAvailable: !!health,
+  return { view: owner.view(), healthAvailable: !onlyMetadata && !!health,
     review: () => guarded(() => owner.review(bootstrap, read)), checkPaired: () => guarded(() => owner.check(read, health)),
-    reportBlocked: () => { if (owner.matches(frame)) owner.reportBlocked(); } };
+    reportBlocked: cancelOther => { if (owner.matchesPublicCancellation(frame)) owner.reportBlocked(cancelOther); } };
 }

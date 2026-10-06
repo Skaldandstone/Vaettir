@@ -24,6 +24,10 @@ export type RunStartFrame = {
   draftKey?: string;
 };
 type Session = { userId: string; sessionId: string } | null;
+export type RunStartRecheckToken = Readonly<{
+  generation: number;
+  visibility: number;
+}>;
 type Confirmation = {
   request: ReviewedRunConfiguration;
   acknowledgement: ConfirmedRunStartAck;
@@ -42,6 +46,7 @@ export type RunStartCompletionView = {
   canRetry: boolean;
   canOpen: boolean;
   canEdit: boolean;
+  recheckRequired: boolean;
 };
 export const emptyRunStartCompletion = (): RunStartCompletionView => ({
   activationEpoch: 0,
@@ -54,6 +59,7 @@ export const emptyRunStartCompletion = (): RunStartCompletionView => ({
   canRetry: false,
   canOpen: false,
   canEdit: false,
+  recheckRequired: true,
 });
 const sameScope = (a: RunStartScope | null, b: RunStartScope | null) =>
   !!a &&
@@ -62,6 +68,10 @@ const sameScope = (a: RunStartScope | null, b: RunStartScope | null) =>
   a.organizationId === b.organizationId &&
   a.clerkActorId === b.clerkActorId &&
   a.sessionId === b.sessionId;
+const rememberSession = (session: Session): Session =>
+  session
+    ? Object.freeze({ userId: session.userId, sessionId: session.sessionId })
+    : null;
 
 /** Browser workflow ownership, not server authorization. It never changes the
  * legacy payload/UUID/hash contract or creates a second request after known ACK.
@@ -80,9 +90,25 @@ export class RunConfigCompletionController {
   private confirmed: Confirmation | null = null;
   private busy = false;
   private error: string | null = null;
+  private blocked = false;
+  private monitorGeneration = 0;
+  private visibilityGeneration = 0;
+  private recheck: RunStartRecheckToken | null = null;
+  private monitor: {
+    resource: object;
+    session: () => Session;
+    currentResource: () => object | null;
+    active: boolean;
+    installed: boolean;
+    observed: Session;
+    unsubscribe?: () => void;
+  } | null = null;
   constructor(
     private readonly projectId: string,
     private readonly publish: (view: RunStartCompletionView) => void,
+    // Compatibility for old direct-controller test/adapters. The only actual
+    // production constructor (the modal) explicitly requires an installed SDK.
+    private readonly requireInstalledMonitor = false,
   ) {}
   attach() {
     this.alive = true;
@@ -90,9 +116,17 @@ export class RunConfigCompletionController {
   }
   detach() {
     this.alive = false;
+    if (this.requireInstalledMonitor) this.revokeAdmission();
     this.epoch++;
   }
   bindFrame(frame: RunStartFrame) {
+    if (
+      frame.open !== this.frame.open ||
+      (frame.scope && this.origin && !sameScope(this.origin, frame.scope))
+    ) {
+      this.visibilityGeneration++;
+      this.recheck = null;
+    }
     if (JSON.stringify(this.frame) !== JSON.stringify(frame)) this.epoch++;
     this.frame = {
       ...frame,
@@ -112,6 +146,8 @@ export class RunConfigCompletionController {
       this.alive &&
       this.frame.open &&
       this.frame.canWrite &&
+      (!this.requireInstalledMonitor ||
+        (!!this.monitor?.installed && !this.blocked)) &&
       sameScope(this.origin, this.frame.scope);
     const confirmed = this.confirmed
       ? {
@@ -145,12 +181,176 @@ export class RunConfigCompletionController {
         this.confirmed.openedEpoch !== this.epoch &&
         sameScope(this.confirmed.scope, this.frame.scope),
       canEdit: authorized && !this.busy && !this.pending && !this.confirmed,
+      recheckRequired:
+        this.requireInstalledMonitor &&
+        (this.blocked || !this.monitor?.installed),
     };
+  }
+  private revokeAdmission() {
+    if (!this.blocked) this.epoch++;
+    this.blocked = true;
+    this.reviewedEpoch = null;
+    this.recheck = null;
+    this.monitorGeneration++;
+    this.emit();
+  }
+  /** This is a browser lifecycle proof, never a native tenant/actor read. */
+  installSdkMonitor(
+    resource: object | null,
+    session: () => Session,
+    currentResource: () => object | null,
+  ) {
+    if (this.monitor) this.releaseSdkMonitor(this.monitor);
+    if (!resource) {
+      this.revokeAdmission();
+      return () => {};
+    }
+    const monitor = {
+      resource,
+      session,
+      currentResource,
+      active: true,
+      installed: false,
+      observed: null as Session,
+      unsubscribe: undefined as (() => void) | undefined,
+    };
+    this.monitor = monitor;
+    const changed = () => {
+      if (!monitor.active || this.monitor !== monitor) return;
+      try {
+        if (currentResource() !== resource) {
+          this.releaseSdkMonitor(monitor);
+          return;
+        }
+        const next = session();
+        if (
+          next?.userId !== monitor.observed?.userId ||
+          next?.sessionId !== monitor.observed?.sessionId ||
+          !next
+        ) {
+          monitor.observed = rememberSession(next);
+          this.revokeAdmission();
+        }
+      } catch {
+        this.releaseSdkMonitor(monitor);
+      }
+    };
+    try {
+      monitor.observed = rememberSession(session());
+      const addListener = Reflect.get(resource, "addListener");
+      if (typeof addListener !== "function") throw Error("Monitor unavailable");
+      const unsubscribe: unknown = addListener.call(resource, changed);
+      if (typeof unsubscribe === "function")
+        monitor.unsubscribe = unsubscribe as () => void;
+      if (
+        !monitor.unsubscribe ||
+        !monitor.active ||
+        this.monitor !== monitor ||
+        currentResource() !== resource
+      )
+        throw Error("Monitor unavailable");
+      monitor.installed = true;
+      this.monitorGeneration++;
+      changed();
+      this.emit();
+    } catch {
+      this.releaseSdkMonitor(monitor);
+    }
+    return () => this.releaseSdkMonitor(monitor);
+  }
+  private releaseSdkMonitor(
+    monitor: NonNullable<RunConfigCompletionController["monitor"]>,
+  ) {
+    if (monitor.active) {
+      monitor.active = false;
+      if (this.monitor === monitor) {
+        this.monitor = null;
+        this.revokeAdmission();
+      }
+    }
+    // Revoke before calling third-party cleanup, even if it throws or emits.
+    const unsubscribe = monitor.unsubscribe;
+    monitor.unsubscribe = undefined;
+    try {
+      unsubscribe?.();
+    } catch {
+      /* Already revoked. */
+    }
+  }
+  private observeSdk() {
+    const monitor = this.monitor;
+    if (!monitor?.active || !monitor.installed) return false;
+    try {
+      if (monitor.currentResource() !== monitor.resource) {
+        this.releaseSdkMonitor(monitor);
+        return false;
+      }
+      const next = monitor.session();
+      if (
+        !next ||
+        next.userId !== monitor.observed?.userId ||
+        next.sessionId !== monitor.observed?.sessionId
+      ) {
+        monitor.observed = rememberSession(next);
+        this.revokeAdmission();
+      }
+      return (
+        !!next &&
+        next.userId === this.origin?.clerkActorId &&
+        next.sessionId === this.origin?.sessionId
+      );
+    } catch {
+      this.releaseSdkMonitor(monitor);
+      return false;
+    }
+  }
+  beginRecheck(session: Session): RunStartRecheckToken | null {
+    if (
+      !this.alive ||
+      !this.frame.open ||
+      this.busy ||
+      !this.observeSdk() ||
+      !session ||
+      session.userId !== this.origin?.clerkActorId ||
+      session.sessionId !== this.origin?.sessionId ||
+      (this.frame.scope && !sameScope(this.origin, this.frame.scope))
+    )
+      return null;
+    const token = Object.freeze({
+      generation: this.monitorGeneration,
+      visibility: this.visibilityGeneration,
+    });
+    this.recheck = token;
+    return token;
+  }
+  finishRecheck(token: RunStartRecheckToken, session: Session) {
+    if (
+      !this.alive ||
+      !this.observeSdk() ||
+      this.recheck !== token ||
+      token.generation !== this.monitorGeneration ||
+      token.visibility !== this.visibilityGeneration ||
+      !this.frame.open ||
+      !this.frame.canWrite ||
+      !sameScope(this.origin, this.frame.scope) ||
+      !session ||
+      session.userId !== this.origin?.clerkActorId ||
+      session.sessionId !== this.origin?.sessionId
+    )
+      return false;
+    this.recheck = null;
+    this.blocked = false;
+    this.epoch++;
+    this.reviewedEpoch = null;
+    this.error = null;
+    this.emit();
+    return true;
   }
   private emit() {
     if (this.alive) this.publish(this.snapshot());
   }
   private actionAllowed(session: Session) {
+    if (this.requireInstalledMonitor && !this.observeSdk()) return false;
     return (
       this.snapshot().authorized &&
       !!session &&
@@ -263,6 +463,7 @@ export class RunConfigCompletionController {
     try {
       const acknowledgement = await onStart(attempt.request);
       const observedSession = currentSession();
+      if (this.requireInstalledMonitor) this.observeSdk();
       if (
         observedSession?.userId !== attempt.scope.clerkActorId ||
         observedSession?.sessionId !== attempt.scope.sessionId
@@ -314,6 +515,7 @@ export class RunConfigCompletionController {
       return false;
     } finally {
       const observedSession = currentSession();
+      if (this.requireInstalledMonitor) this.observeSdk();
       if (
         observedSession?.userId !== attempt.scope.clerkActorId ||
         observedSession?.sessionId !== attempt.scope.sessionId

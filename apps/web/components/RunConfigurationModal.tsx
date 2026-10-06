@@ -15,6 +15,7 @@ import {
   emptyRunStartCompletion,
   RunConfigCompletionController,
   type ConfirmedRunStartAck,
+  type RunStartRecheckToken,
 } from "@/lib/run-config-completion";
 import {
   MAX_MANUAL_CASES,
@@ -191,8 +192,14 @@ export function RunConfigurationModal({
   const [localError, setError] = useState<string | null>(null);
   const [completion, setCompletion] = useState(emptyRunStartCompletion);
   const [controller] = useState(
-    () => new RunConfigCompletionController(projectId, setCompletion),
+    () => new RunConfigCompletionController(projectId, setCompletion, true),
   );
+  const [monitorRetry, setMonitorRetry] = useState(0);
+  const [recheckCandidate, setRecheckCandidate] =
+    useState<RunStartRecheckToken | null>(null);
+  const recheckOperation = useRef(0);
+  const sdkResource =
+    typeof window === "undefined" ? null : (window.Clerk ?? null);
   const busy = completion.busy;
   const error = localError ?? completion.error;
   const [refreshing, setRefreshing] = useState(false);
@@ -216,6 +223,21 @@ export function RunConfigurationModal({
     controller.attach();
     return () => controller.detach();
   }, [controller]);
+  useLayoutEffect(() => {
+    const operationHolder = recheckOperation;
+    const refreshingHolder = refreshingNow;
+    const release = controller.installSdkMonitor(
+      sdkResource,
+      liveSession,
+      () => (typeof window === "undefined" ? null : (window.Clerk ?? null)),
+    );
+    return () => {
+      operationHolder.current++;
+      refreshingHolder.current = false;
+      setRefreshing(false);
+      release();
+    };
+  }, [controller, sdkResource, monitorRetry]);
   useLayoutEffect(() => {
     controller.bindFrame({
       open,
@@ -257,6 +279,21 @@ export function RunConfigurationModal({
       window.Clerk?.loaded ? window.Clerk.session : null,
     );
   }
+  useLayoutEffect(() => {
+    if (recheckCandidate)
+      controller.finishRecheck(recheckCandidate, liveSession());
+    // The controller consumes this exact token once and publishes its mirrored
+    // state. Keeping the last token does not loop or grant a second admission.
+  }, [
+    controller,
+    recheckCandidate,
+    completion.activationEpoch,
+    access.ready,
+    access.canWrite,
+    loaded,
+    canEdit,
+    accessError,
+  ]);
   if (
     open &&
     access.ready &&
@@ -388,6 +425,7 @@ export function RunConfigurationModal({
     )
       return;
     const epoch = completion.activationEpoch;
+    const operation = ++recheckOperation.current;
     refreshingNow.current = true;
     controller.revokeReview();
     setRefreshing(true);
@@ -406,8 +444,83 @@ export function RunConfigurationModal({
       setReviewedCount(null);
       setReviewedIds(null);
     } finally {
-      refreshingNow.current = false;
-      setRefreshing(false);
+      if (operation === recheckOperation.current) {
+        refreshingNow.current = false;
+        setRefreshing(false);
+      }
+    }
+  }
+  async function recheckOriginalAccess() {
+    if (refreshingNow.current || busy) return;
+    const token = controller.beginRecheck(liveSession());
+    if (!token) {
+      // Explicitly retry installation only. No cached/session-return admission
+      // is granted; another explicit recheck needs fresh metadata results.
+      setMonitorRetry((value) => value + 1);
+      setError(
+        "Installed session monitoring is unavailable or original access is not ready. Drafts are retained; explicitly recheck again after restoring the original account.",
+      );
+      return;
+    }
+    const operation = ++recheckOperation.current;
+    setRecheckCandidate(null);
+    refreshingNow.current = true;
+    setRefreshing(true);
+    setError(null);
+    try {
+      const [projectResult, organizationsResult] = await access.refresh();
+      const profileResult = await query.refetch();
+      if (operation !== recheckOperation.current) return;
+      const origin = access.origin;
+      const member = organizationsResult.data?.find(
+        (row) => row.id === origin?.organizationId,
+      );
+      if (
+        !origin ||
+        !projectResult.isSuccess ||
+        !organizationsResult.isSuccess ||
+        !profileResult.isSuccess ||
+        projectResult.fetchStatus !== "idle" ||
+        organizationsResult.fetchStatus !== "idle" ||
+        profileResult.fetchStatus !== "idle" ||
+        projectResult.isError ||
+        organizationsResult.isError ||
+        profileResult.isError ||
+        projectResult.isFetching ||
+        organizationsResult.isFetching ||
+        profileResult.isFetching ||
+        projectResult.isPaused ||
+        organizationsResult.isPaused ||
+        profileResult.isPaused ||
+        !projectResult.isFetchedAfterMount ||
+        !organizationsResult.isFetchedAfterMount ||
+        !profileResult.isFetchedAfterMount ||
+        projectResult.data?.id !== projectId ||
+        projectResult.data.organizationId !== origin.organizationId ||
+        !member ||
+        member.seatType !== "FULL" ||
+        !["OWNER", "ADMIN", "EDITOR"].includes(member.role) ||
+        !profileResult.data ||
+        !/^[a-f0-9]{64}$/.test(profileResult.data.profileHash)
+      ) {
+        setError(
+          "Original access and project context could not be freshly verified. Drafts and identical requests remain retained.",
+        );
+        return;
+      }
+      // Hook/layout currentness is checked by the controller when publishing;
+      // fresh metadata is not a native scope nonce or new write permission.
+      setRecheckCandidate(token);
+    } catch {
+      if (operation === recheckOperation.current)
+        setError(
+          "Original access could not be rechecked. Drafts and identical requests remain retained.",
+        );
+    } finally {
+      if (operation === recheckOperation.current) {
+        refreshingNow.current = false;
+        setRefreshing(false);
+      }
     }
   }
   return (
@@ -428,10 +541,12 @@ export function RunConfigurationModal({
           <button
             type="button"
             className="btn-secondary"
-            onClick={() => void access.refresh()}
+            disabled={busy || refreshing}
+            onClick={recheckOriginalAccess}
           >
             Recheck original access
           </button>
+          {localError && <p role="alert">{localError}</p>}
         </section>
       ) : accessError ? (
         <div>

@@ -2737,3 +2737,82 @@ include existing core distribution inputs, not a fresh core-build attestation.
 Native ABI/runtime/image-security, migrations/recovery and authenticated
 production acceptance remain separate, unwaived gates. This is a source
 checkpoint, not a deployment or completion of every reported parity gap.
+
+### October 6 current setup surface and session-safe run review
+
+The actual live-app generation page now mounts a metadata-only helper setup
+card outside capture-mode and read-only generation sections. Its six-field
+intent contains no pairing credential, device target, capture buffer or paid
+draft. Explicit review establishes current native metadata and rereads the
+same native owner with a fresh nonce. It never constructs a paired-helper
+workflow or invokes even an injected health transport. Complete metadata
+responses are admitted with descriptor and aggregate retained-content bounds;
+these are not transport/heap or native-runtime attestations.
+
+Public Windows-refusal reporting first revokes the card's pending reads, then
+synchronously cancels the page's separate polling/discovery generations. It
+preserves existing pairing, targets, captures and paid drafts, including when
+current metadata identity is unavailable. It does not diagnose Windows policy,
+claim that capture stopped, bypass endpoint security or prove an OS launch.
+The older automatic pairing initialization and helper operations remain
+separate legacy paths; this card does not make them newly safe or accepted.
+
+The actual run configuration modal now requires an installed session monitor
+with a real cleanup function. Observed SDK-only A-B-A, resource replacement,
+missing monitoring or disposal latch private admission closed; a return to
+the earlier hook values does not revive old handlers. Explicit original-access
+recheck needs successful current project/member/profile responses and an owned
+monitor/visibility token. Exact submitted configuration, cohort, UUID and
+private matching acknowledgement remain retained. This is browser-local
+admission, not a new native reader nonce/actor echo or a next-run reset feature.
+
+Additive retest transport wrappers require the independently authenticated
+session subject and the original native actor before private service calls.
+ACCESS is explicitly membership metadata only, not source-relationship proof.
+Preview/link reads have exact request/nonces and bounded complete projections;
+start wraps the unchanged legacy parsed request and native-owner/UUID identity.
+Unsupported DTOs and native error details fail generically without clipping or
+new normalization. The old three endpoints and service/hash/receipt behavior
+are unchanged. The actual retest wizard has not been cut over, so its older
+session/native-owner gaps remain open. Legacy normalization and JavaScript
+date precision are disclosed, not certified lossless native evidence.
+
+Root repeated 84 focused API checks across all four intended retest files.
+The first command matched only three files because one filename was wrong;
+the corrected four-file command passed. Full compatible Web checks passed:
+805 Node checks and 1,090 typed checks across 76 files, 1,895 total with no skips.
+The first full run retained seven failing older handler fixtures because their
+extracted page function set omitted the new cancellation bridge. Adding the
+actual bridge and counter to that harness repaired it without changing any
+of the sixteen original assertions; all sixteen and the full suite then passed.
+Eight new actual-page-body checks additionally verify no helper/pairing/paid
+calls, unavailable metadata refusal, read-only placement and preserved legacy
+state during synchronous cancellation. These use synthetic hooks, not physical
+devices or full React effect/lifecycle acceptance.
+
+API and Web typechecks passed. Scoped source/test lint passed with zero errors;
+the live-app page retains its previously disclosed layout state-update warning.
+No warning was suppressed to claim a clean page. Native SQL/fixtures, migration
+and recovery, signed Windows/device acceptance, full runtime/image security and
+authenticated production remain unverified; all prior failed gates remain
+failed. No deployment, provider/source processing, customer mutation or AI
+spend occurred.
+
+The retained rendered manual-page fixture also exercised SDK-only A-B-A.
+Private procedures disappeared until explicit original-run recheck; original
+case DOM identities and the two known receipts remained. Counters stayed at
+four synthetic write attempts, two receipts/replays, zero completion calls
+and zero network/native/provider/device calls. This is the earlier hash-bound
+fixture, not a rendered attestation of the newly changed helper or run modal.
+
+Fresh authenticated Testmo vendor-sample inspection confirmed all-case run
+creation, a folder checkbox picker with selected/total counts, match-all/any
+filters, priority/state/tags/latest-status criteria and an import-from-run
+affordance. Both picker and run form were canceled without submission.
+The vendor picker displayed draft, under-review and rejected cases alongside
+active ones; Vaettir deliberately keeps approved execution selection separate
+from its review queue. Aggregate workload/success and individual completion
+visuals are different facts and should remain labeled separately. No export
+format/fidelity, scaling, competitor ranking or recurring-defect prevalence
+is inferred from this sample interaction. The earlier dated complaint sources
+remain research inputs, not reasons to copy every vendor behavior.

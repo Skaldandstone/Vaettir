@@ -95,7 +95,9 @@ function text(node: unknown): string {
     ? text((node as Element).props.children)
     : "";
 }
-function harness() {
+function harness(
+  monitorMode: "normal" | "absent" | "void" | "throw" = "normal",
+) {
   const hooks: unknown[] = [],
     effects: Array<() => void> = [],
     cleanups = new Map<number, () => void>();
@@ -113,7 +115,26 @@ function harness() {
     ready: true,
     canWrite: true,
     origin: { organizationId: "org", clerkActorId: "clerk" },
-    refresh: async () => {},
+    refresh: async () => [
+      {
+        data: { id: "project", organizationId: "org" },
+        isSuccess: true,
+        fetchStatus: "idle",
+        isError: false,
+        isFetching: false,
+        isPaused: false,
+        isFetchedAfterMount: true,
+      },
+      {
+        data: [{ id: "org", seatType: "FULL", role: "OWNER" }],
+        isSuccess: true,
+        fetchStatus: "idle",
+        isError: false,
+        isFetching: false,
+        isPaused: false,
+        isFetchedAfterMount: true,
+      },
+    ],
   };
   const permissions = {
     loaded: true,
@@ -127,12 +148,32 @@ function harness() {
     isFetching: false,
     isPaused: false,
     isFetchedAfterMount: true,
-    refetch: async () => ({ data: query.data, error: null }),
+    refetch: async () => ({
+      data: query.data,
+      isSuccess: true,
+      fetchStatus: "idle",
+      error: null,
+      isError: false,
+      isFetching: query.isFetching,
+      isPaused: query.isPaused,
+      isFetchedAfterMount: query.isFetchedAfterMount,
+    }),
+  };
+  const listeners = new Set<() => void>();
+  const addListener = (listener: () => void): unknown => {
+    if (monitorMode === "throw") throw Error("Private listener diagnostic");
+    listeners.add(listener);
+    listener();
+    if (monitorMode === "void") return undefined;
+    return () => {
+      listeners.delete(listener);
+    };
   };
   const browser = {
     Clerk: {
       loaded: true,
       session: { id: auth.sessionId, user: { id: auth.userId } },
+      addListener: monitorMode === "absent" ? undefined : addListener,
     },
   };
   const sent: ReviewedRunConfiguration[] = [],
@@ -144,6 +185,14 @@ function harness() {
     projectId: "project",
     caseCount: 2,
     testCaseIds: ["one", "two"],
+    bulkScopes: [
+      { key: "all", label: "Approved", testCaseIds: ["one", "two", "three"] },
+    ],
+    bulkScopesReady: true,
+    onSelectionChange: (ids: string[]) => {
+      props.testCaseIds = ids;
+      props.caseCount = ids.length;
+    },
     onClose: () => {
       props.open = false;
     },
@@ -271,6 +320,7 @@ function harness() {
   function session(id: string, commit = true) {
     auth.sessionId = id;
     browser.Clerk.session.id = id;
+    for (const listener of [...listeners]) listener();
     if (commit) render();
   }
   render();
@@ -278,6 +328,9 @@ function harness() {
     props,
     access,
     permissions,
+    query,
+    browser,
+    listeners,
     sent,
     opened,
     render,
@@ -292,6 +345,11 @@ function harness() {
     get ids() {
       return uuid;
     },
+    value(key: string) {
+      return children(tree).find(
+        (node) => node.props.id === `synthetic-prefix-${key}`,
+      )?.props.value;
+    },
     wait() {
       waiting = deferred();
       return waiting;
@@ -300,8 +358,11 @@ function harness() {
       badAck = true;
     },
     async flush() {
-      await Promise.resolve();
-      await Promise.resolve();
+      for (let tick = 0; tick < 8; tick++) await Promise.resolve();
+      render();
+    },
+    async recheck() {
+      await click("Recheck original access");
       render();
     },
     review() {
@@ -356,6 +417,7 @@ describe("actual mounted run configuration synthetic controller", () => {
       h.permissions.canEdit = true;
       h.props.open = true;
       h.render();
+      if (reason === "ABA") await h.recheck();
       expect(h.content).toContain("Run start confirmed");
       expect(h.content).toContain("reviewed build");
       h.click("Open confirmed run");
@@ -423,6 +485,8 @@ describe("actual mounted run configuration synthetic controller", () => {
     expect(h.content).not.toContain("Run start confirmed");
     expect(h.ids).toBe(1);
     h.session("session-A");
+    expect(h.content).not.toContain("Run start confirmed");
+    await h.recheck();
     expect(h.content).toContain("Run start confirmed");
     h.click("Open confirmed run");
     expect(h.opened).toHaveLength(1);
@@ -442,10 +506,211 @@ describe("actual mounted run configuration synthetic controller", () => {
     expect(h.content).not.toContain("retained rejection draft");
     expect(h.content).not.toContain("Retry retained run start");
     h.session("session-A");
+    expect(h.content).not.toContain("retained rejection draft");
+    await h.recheck();
     expect(h.content).toContain("retained rejection draft");
     expect(h.button("Retry retained run start").props.disabled).toBe(false);
     expect(h.sent).toHaveLength(1);
     expect(h.sent[0]).toBe(request);
     expect(h.ids).toBe(1);
+  });
+  it("SDK-only A-B-A without any hook commit blocks captured Start and bulk handlers; explicit recheck requires a new review", async () => {
+    const h = harness();
+    h.edit("configuration", "retained\nunsent configuration");
+    const bulk = h.button("Apply Set selection").props.onClick!;
+    h.review();
+    const start = h.button("Start execution record").props.onClick!;
+    h.session("session-B", false);
+    h.session("session-A", false);
+    start();
+    bulk();
+    await h.flush();
+    expect(h.sent).toHaveLength(0);
+    expect(h.ids).toBe(0);
+    expect(h.props.testCaseIds).toEqual(["one", "two"]);
+    expect(h.content).not.toContain("retained\nunsent configuration");
+    await h.recheck();
+    expect(h.content).toContain("retained\nunsent configuration");
+    expect(h.button("Start execution record").props.disabled).toBe(true);
+    // Explicitly move back and review again; merely returning A cannot start.
+    h.click("Back");
+    h.click("Continue");
+    h.click("Start execution record");
+    await h.flush();
+    expect(h.sent).toHaveLength(1);
+  });
+  it("late exact ACK after SDK-only A-B-A is private, then fresh recheck permits only Open same confirmed run", async () => {
+    const h = harness();
+    h.edit("build", "original build");
+    h.review();
+    const waiting = h.wait();
+    h.click("Start execution record");
+    const input = h.sent[0]!;
+    h.session("session-B", false);
+    h.session("session-A", false);
+    waiting.resolve(h.acknowledgement(input));
+    await h.flush();
+    expect(h.opened).toHaveLength(0);
+    expect(h.content).not.toContain("Run start confirmed");
+    expect(h.ids).toBe(1);
+    await h.recheck();
+    expect(h.content).toContain("Run start confirmed");
+    expect(h.content).toContain("original build");
+    h.click("Open confirmed run");
+    expect(h.opened).toHaveLength(1);
+    expect(h.sent).toHaveLength(1);
+    expect(h.sent[0]).toBe(input);
+  });
+  it.each(["rejection", "malformed"])(
+    "SDK-only A-B-A late %s retains the original UUID/body until explicit fresh recheck",
+    async (mode) => {
+      const h = harness();
+      h.edit("configuration", "original environment");
+      h.review();
+      const waiting = h.wait();
+      h.click("Start execution record");
+      const input = h.sent[0]!,
+        body = JSON.stringify(input);
+      h.session("session-B", false);
+      h.session("session-A", false);
+      if (mode === "rejection")
+        waiting.reject(Error("private body test diagnostic"));
+      else
+        waiting.resolve({
+          ...h.acknowledgement(input),
+          idempotencyKey: "wrong",
+        });
+      await h.flush();
+      expect(h.sent).toHaveLength(1);
+      expect(h.content).not.toContain("original environment");
+      expect(h.content).not.toContain("private body test diagnostic");
+      await h.recheck();
+      expect(h.content).toContain("Retry retained run start");
+      h.click("Retry retained run start");
+      await h.flush();
+      expect(h.sent[1]).toBe(input);
+      expect(JSON.stringify(h.sent[1])).toBe(body);
+      expect(h.ids).toBe(1);
+    },
+  );
+  it.each(["absent", "void", "throw"] as const)(
+    "actual modal refuses %s monitor without publishing configuration or submitting",
+    (mode) => {
+      const h = harness(mode);
+      expect(h.content).toContain("Private configuration is hidden");
+      expect(h.sent).toHaveLength(0);
+      expect(h.ids).toBe(0);
+      expect(h.content).not.toContain("Private listener diagnostic");
+    },
+  );
+  it.each(["paused", "cached", "profile", "role"])(
+    "explicit recheck with %s metadata cannot renew blocked admission",
+    async (mode) => {
+      const h = harness();
+      h.edit("build", "private retained build");
+      h.session("session-B", false);
+      h.session("session-A", false);
+      h.render();
+      if (mode === "paused") h.query.isPaused = true;
+      if (mode === "cached") h.query.isFetchedAfterMount = false;
+      if (mode === "profile") h.query.data.profileHash = "invalid";
+      if (mode === "role") {
+        const refresh = h.access.refresh;
+        h.access.refresh = async () => {
+          const results = await refresh();
+          const rows = results[1]!.data;
+          if (Array.isArray(rows)) rows[0]!.seatType = "READ_ONLY";
+          return results;
+        };
+      }
+      await h.recheck();
+      expect(h.content).not.toContain("private retained build");
+      expect(h.content).toContain("could not be freshly verified");
+      expect(h.sent).toHaveLength(0);
+    },
+  );
+  it("resource replacement without SDK event is detected by captured action and requires new installation plus explicit recheck", async () => {
+    const h = harness();
+    h.review();
+    const start = h.button("Start execution record").props.onClick!;
+    h.browser.Clerk = { ...h.browser.Clerk };
+    start();
+    await h.flush();
+    expect(h.sent).toHaveLength(0);
+    expect(h.ids).toBe(0);
+    expect(h.content).toContain("Private configuration is hidden");
+    await h.recheck();
+    expect(h.content).not.toContain("Private configuration is hidden");
+    expect(h.button("Start execution record").props.disabled).toBe(true);
+  });
+  it("SDK loss while recheck awaits metadata rejects the old token even after A returns", async () => {
+    const h = harness();
+    h.edit("build", "private retained build");
+    h.session("session-B", false);
+    h.session("session-A", false);
+    h.render();
+    let resume!: () => void;
+    const refresh = h.access.refresh;
+    h.access.refresh = async () => {
+      await new Promise<void>((yes) => {
+        resume = yes;
+      });
+      return refresh();
+    };
+    const pending = h.button("Recheck original access").props.onClick!();
+    h.session("session-B", false);
+    h.session("session-A", false);
+    resume();
+    await pending;
+    h.render();
+    expect(h.content).not.toContain("private retained build");
+    expect(h.sent).toHaveLength(0);
+    h.access.refresh = refresh;
+    await h.recheck();
+    expect(h.value("build")).toBe("private retained build");
+  });
+  it("closing while fresh metadata is in flight cannot renew admission on reopening from the old token", async () => {
+    const h = harness();
+    h.edit("build", "original private build");
+    h.session("session-B", false);
+    h.session("session-A", false);
+    h.render();
+    let resume!: () => void;
+    const refresh = h.access.refresh;
+    h.access.refresh = async () => {
+      await new Promise<void>((yes) => {
+        resume = yes;
+      });
+      return refresh();
+    };
+    const pending = h.button("Recheck original access").props.onClick!();
+    h.props.open = false;
+    h.render();
+    h.props.open = true;
+    h.render();
+    resume();
+    await pending;
+    h.render();
+    expect(h.value("build")).toBeUndefined();
+    expect(h.sent).toHaveLength(0);
+    h.access.refresh = refresh;
+    await h.recheck();
+    expect(h.value("build")).toBe("original private build");
+  });
+  it("repairing an absent listener needs explicit installation retry then fresh metadata recheck, not automatic session restoration", async () => {
+    const h = harness("absent");
+    h.browser.Clerk.addListener = (listener) => {
+      h.listeners.add(listener);
+      listener();
+      return () => {
+        h.listeners.delete(listener);
+      };
+    };
+    await h.recheck();
+    expect(h.value("build")).toBeUndefined();
+    expect(h.sent).toHaveLength(0);
+    await h.recheck();
+    expect(h.value("build")).toBe("");
+    expect(h.ids).toBe(0);
   });
 });

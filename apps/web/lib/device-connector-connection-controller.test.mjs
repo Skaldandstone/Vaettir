@@ -10,14 +10,14 @@ import { canEditProject } from "./membership.ts";
 
 const source = readFileSync(new URL("../app/projects/[projectId]/live-app-generation/page.tsx", import.meta.url), "utf8"), ast = ts.createSourceFile("connection.tsx", source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX), printer = ts.createPrinter();
 const page = ast.statements.find(node => ts.isFunctionDeclaration(node) && node.name?.text === "LiveAppGenerationPage");
-const names = ["connectorRequest", "discoverAndroidDevices", "connectToDeviceConnector", "waitForDeviceConnector", "downloadConnectorLauncher", "reportBlockedWindowsHelper", "showPolicyPermittedManualSetup", "refreshAndroidDevices"];
+const names = ["connectorRequest", "discoverAndroidDevices", "connectToDeviceConnector", "waitForDeviceConnector", "downloadConnectorLauncher", "cancelHelperSetupChecks", "reportBlockedWindowsHelper", "showPolicyPermittedManualSetup", "refreshAndroidDevices"];
 const handlers = page.body.statements.filter(node => ts.isFunctionDeclaration(node) && names.includes(node.name?.text)).map(node => printer.printNode(ts.EmitHint.Unspecified, node, ast)).join("\n");
 const compiled = ts.transpileModule(handlers, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.None } }).outputText;
 function deferred() { let resolve, reject; const promise = new Promise((a, b) => { resolve = a; reject = b; }); return { promise, resolve, reject }; }
 async function drain() { for (let i = 0; i < 12; i++) await Promise.resolve(); }
 function harness() {
   const requests = [], writes = [], downloads = [], timers = new Map(); let timerId = 0;
-  const state = { connectorStatus: "idle", error: null, discoveringDevices: false, androidDevices: [], deviceSerial: "retained-device-choice", manualSetupOpen: true, manualSetupRevealed: true };
+  const state = { connectorStatus: "idle", error: null, discoveringDevices: false, androidDevices: [], deviceSerial: "retained-device-choice", manualSetupOpen: true, manualSetupRevealed: true, helperMetadataCancellationEpoch: 0 };
   const h = { ...helpers, CONNECTOR_URL: "http://127.0.0.1:4774", AbortController, DOMException, connectionAttemptRef: { current: helpers.createDeviceConnectionGeneration() }, discoveryAttemptRef: { current: 0 }, pairingCode: "ABCDEF123456", connectorPlatform: "windows", captureMode: "android", capturing: false, generating: false, helperActorAllowed: true,
     window: { location: { origin: "https://vaettir.skaldandstone.com" }, setTimeout(callback, ms) { const id = ++timerId; if (ms === 1500) queueMicrotask(callback); else timers.set(id, callback); return id; }, clearTimeout(id) { timers.delete(id); } },
     fetch(url, options) { const response = deferred(); requests.push({ url, options, response }); return response.promise; },
