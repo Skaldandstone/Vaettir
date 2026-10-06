@@ -3768,3 +3768,20 @@ error was observed in these bounded interactions. Full-form SDK/native-owner/
 nonce privacy and uncertain-save recovery remain open, not established by the
 display-only reveal guard or this synthetic render. No deployment was performed
 in this increment; deployed identity and acceptance were not refreshed.
+
+### October 6: refreshed authenticated Qase case-layout comparison
+
+The existing Qase session opened its vendor Getting Started sample without a
+new login. Repository navigation kept suites and their counts alongside
+stable-ID case links, compact priority indicators and separate search/filter
+controls. The sample case preview separated general content, execution history,
+change history, defects and comments. Prose remained prose, while priority and
+other metadata used inline dropdowns. Opening priority exposed a searchable
+choice control; Escape and Close left the selected value unchanged. No vendor
+case, setting, review, automation or result was saved or submitted.
+
+This supports normal metadata fields and task-oriented sections, not copying
+every vendor default into every project. Sample controls do not establish
+vendor authorization, atomic-save/recovery guarantees or feature prevalence.
+Vaettir's aligned technical descriptors and project-appropriate field controls
+still require its own literal-value, current-reader and native acceptance.
