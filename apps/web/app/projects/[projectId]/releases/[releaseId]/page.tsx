@@ -17,6 +17,7 @@ import { CriterionDescriptionEditor } from "@/components/CriterionDescriptionEdi
 import { CriterionVerdictEditor } from "@/components/CriterionVerdictEditor";
 import { AttachUnassignedPlan } from "@/components/AttachUnassignedPlan";
 import { PlanGovernanceHistory } from "@/components/PlanGovernanceHistory";
+import { GovernedCriterionCollection } from "@/components/GovernedCriterionCollection";
 
 const STATUSES = [
   "PLANNING",
@@ -592,6 +593,7 @@ export default function ReleaseReadinessPage() {
                 </li>
               )}
             </ul>
+            <GovernedCriterionCollection key={`${projectId}:${p.id}`} projectId={projectId} testPlanId={p.id} readOnly={readOnly} onChanged={reload} />
             <PlanGovernanceHistory projectId={projectId} testPlanId={p.id} />
           </div>
         ))}

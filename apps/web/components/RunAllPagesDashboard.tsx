@@ -19,7 +19,9 @@ export function RunAllPagesDashboard({ projectId }: { projectId: string }) {
       <p className="text-muted">
         Compare recorded outcomes across every history page in an explicitly applied window of up to 90 inclusive UTC days.
         Days and weeks use stored run-start timestamps, not individual result observation times.
-        This bounded view counts result observations, including repeated records, not global manual planned cases, work left or release readiness.
+        The recorded-outcome section counts result observations, including repeated records, not global manual planned cases, work left or release readiness.
+        A separate manual section reconciles trusted frozen run-case instances with current verdict heads, with explicit exclusions and remaining work.
+        Neither section represents release readiness or completion of excluded runs.
         The cards below still cover only the current history page.
       </p>
       {visibility === "UNOPENED" && <p>No aggregate is requested until you open the dashboard and choose Show recorded outcomes to apply a scope.</p>}

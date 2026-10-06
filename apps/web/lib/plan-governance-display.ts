@@ -1,0 +1,23 @@
+/** Labels only; never infer a verdict or reconstruct a missing historic row. */
+export function governanceOperationLabel(operation: string): string {
+  const labels: Record<string, string> = {
+    EDIT_CRITERION_DESCRIPTION: "Criterion wording",
+    SET_CRITERION_VERDICT: "Criterion verdict",
+    ATTACH_UNASSIGNED_PLAN: "Plan attachment",
+    ADD_CRITERION: "Criterion added",
+    DELETE_CRITERION: "Criterion removed",
+    SET_CRITERION_REQUIREMENT: "Requirement association",
+  };
+  return labels[operation] ?? "Unsupported governance operation";
+}
+export function governanceCriterionValue(
+  criteria: Array<{ id: string; description: string; status: string; requirementId: string | null }>,
+  criterionId: string,
+  operation: string,
+): string {
+  const criterion = criteria.find(row => row.id === criterionId);
+  if (!criterion) return "Not present in this snapshot";
+  if (operation === "SET_CRITERION_VERDICT") return criterion.status;
+  if (operation === "SET_CRITERION_REQUIREMENT") return criterion.requirementId === null ? "Unlinked" : `Requirement ID: ${criterion.requirementId}`;
+  return criterion.description === "" ? "Empty wording" : criterion.description;
+}

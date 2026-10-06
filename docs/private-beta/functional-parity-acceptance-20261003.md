@@ -2,6 +2,14 @@
 
 ## Outcome and evidence boundary
 
+Current continuation, October 5 Pacific: the October 3 baseline below is
+historical, not a current source inventory. Later checkpoint sections record
+signed-in Qase/TestRail/Testmo trial observations and implementation. They do
+not establish exhaustive parity, an equivalent-task performance comparison or
+deployment. The active scope is all James's reported workflows, not only
+release gates. Latest reviewed source checkpoint: `a17961b`; subsequent drafts
+remain separately identified until integrated and checkpointed.
+
 The standard case-management baseline is not yet met end to end. The most important gaps are preserving imported procedures, stable human-readable references, lossless export, complete history and safe edits. More AI actions or a different layout do not compensate for those gaps.
 
 This audit refreshed official vendor documentation and inspected actual Vaettir source, initially at `b3e5004` and then the release checkpoint `8b6bd2e`. Concurrent case-identity, import-step and run-history repairs are explicitly identified below as in progress, not accepted. Root owns release validation. This document does not establish deployment, provider acceptance, exhaustive market parity or superiority over competitors. No paid competitor tenant was used, so vendor workflows are documented baselines rather than comparative hands-on measurements.
@@ -944,3 +952,145 @@ zero skips), 115 focused API pure/mocked checks and API/Web types pass. The
 initial nullable TEXT display type error was corrected while retaining raw
 stored values. New native fixtures remain authored NOT RUN. No deployment,
 database/customer/provider/security mutation or passing runtime acceptance.
+
+### Further complaint recheck and mounted plan drafts, October 5 Pacific
+
+[TestRail G2 reviews](https://www.g2.com/products/testrail/reviews) include an
+organic March 24, 2026 report of slow library navigation/search/bulk updates,
+an organic January 7 report of awkward case reuse, and a November 25, 2025
+incentivized review describing limited report customization and large-project
+loading. These are qualitative workflow signals, not a measured prevalence,
+an October 2026 defect reproduction or proof Vaettir performs better.
+
+The vendor's [10.7 release notes](https://support.testrail.com/hc/en-us/articles/52231138481684-TestRail-10-7-0-Default-1021)
+describe asynchronous run-statistic recalculation after bulk operations,
+improved search/report handling and unsaved-change warnings in Administration
+and My Settings. Statistics can briefly lag those operations. Therefore older
+complaints must be checked against the current trial, and Vaettir dashboards
+must identify observed scope/as-of state rather than claim instant completeness.
+
+[Qase's current user documentation](https://docs.qase.io/en/articles/5563739-users)
+explicitly allows Collaborator seats to view permitted entities and comment on
+cases, defects and case reviews while prohibiting entity editing. This supports
+James's requested separation of discussion from case-authoring permission; it
+does not justify widening tenant access or changing live seat policies.
+
+A [Gartner Peer Insights TestRail listing](https://www.gartner.com/reviews/product/testrail)
+surfaced in search, but direct retrieval is robots-blocked and excerpts contain
+placeholder/repeated material. No complete Gartner review or Magic Quadrant
+feature endorsement was verified. It is not used as a feature acceptance gate.
+
+Root follow-up source keeps plan errors inline instead of replacing the entire
+page and unmounting governed editors. Read-only hiding retains mounted form
+children; pending header saves disable the full field group. Deliberately empty
+description differs from untouched native NULL. Plan identity keys prevent one
+plan's local form from being rebound to another plan. Four actual-source React
+handler/tree checks pass. These controls do not make drafts durable across
+drawer closure, route removal or browser restart, and do not fix the legacy
+header write's missing native CAS/UUID receipt. Those remain explicit gaps.
+
+Further actual TestRail trial observation: the synthetic vendor sample run list
+shows distinct open/completed groups, dated authorship, milestone dates, outcome
+counts and linked outcome bars. One sample has 89 passed, 21 blocked, 113
+untested, 17 retest and 12 failed, with a 35% label. Arithmetic indicates this
+label is the passed share (89/252), not the recorded share (139/252); this is
+an inference from displayed values, not a measured performance result. Vaettir
+must label its denominators and not equate a recorded/blocked/skipped case with
+a passing case or a release-ready decision.
+
+The unsaved Add Test Run screen offered all cases with future automatic
+inclusion, explicit specific-case selection, and dynamic filters that include
+new matching cases until closure. Its specific picker exposed section bulk
+checkboxes, All/None, configurable columns, selection filters and all/any
+matching. Both picker and run draft were cancelled; no run/notification was
+created. Vaettir's approved frozen run scope intentionally does not auto-admit
+new cases after start. A future reusable dynamic selection should be explicitly
+reviewed at each new run, not mutate retained execution definitions.
+
+### Integrated parallel continuation, October 5 Pacific / October 6 UTC
+
+Plan and release pages now mount one governed criterion collection instead of
+the legacy add/remove controls and unbounded requirement dropdown. The new
+operations add a client-identified PENDING criterion, explicitly remove the
+reviewed native row with complete retained history, or link/unlink a requirement
+from the same project. Original actor/FULL-seat locks, full-plan and criterion
+revision checks, exact UUID replay and complete before/after snapshots remain
+required. Requirement search pages 25 IDs/titles with native byte admission.
+Raw multiline wording is not trimmed. Existing associations are seeded and
+before/after choices shown before confirmation. Legacy API add/delete endpoints
+remain separate unprotected compatibility gaps; no executable Web callers remain.
+
+QA strategy fields no longer filter mixed arrays or convert unsupported native
+values into empty writable lists. Such fields retain their complete original
+value read-only. Supported rows preserve empty, repeated, comma-bearing and
+multiline text with local stable row identities. The generic plan string lists
+use the same identity behavior. Delayed rule-based suggestions refuse changed
+fields/siblings, project, mounted epoch or signed-in session; an older result
+cannot overwrite a newer notice/loading state. This does not add provider
+processing permission or fix the legacy whole-plan write's missing native CAS.
+
+The all-pages dashboard now has a separate manual progress reader for the same
+explicitly applied date/configuration scope. It counts supported frozen run-case
+instances from matching current whole-case or complete step heads, not raw result
+rows or sums of the visible history page. Partial steps remain unfinished;
+blocked/skipped outcomes remain recorded, not passed. Legacy/untracked, duplicate
+or inconsistent runs are excluded with explicit reason counts, not counted as
+untested or complete. Actual foreign native references refuse the whole query.
+Native count/byte preflights, a 90-day window, 1,000 instances per run and 100,000
+instances per cohort bound the query; procedure bodies and notes are not loaded.
+This is a current status summary, not an approved immutable stakeholder snapshot
+or complete procedure validation. Its native SQL has NOT been executed.
+
+Manual summary cards, separate outcome colors, all daily totals, exclusions,
+as-of time and exact scope render from synthetic actual components. A 2,704-byte
+synthetic summary CSV was downloaded; counts and formula-safe configuration text
+were inspected. The real query wrapper separately refuses cached data after
+reopening/session recovery until a newer read revision, and requires explicit
+fresh export review. Neither the synthetic download nor mocked wrapper tests
+prove authenticated/native production behavior. No printing/PDF acceptance added.
+
+Case field definitions now have explicit Up/Down draft ordering with stable
+keys, preserved unfinished field edits and exact option objects. Order changes
+invalidate impact confirmation and still require the existing reviewed schema
+CAS/UUID save. No native field shape/type/value was extended. The typed-field
+database guard permits five types and scalar values; real multi-select/user
+references require a separate additive migration and recovery design, not fake
+comma-separated strings. Existing DATE/required controls and reviewed create-only
+presets already exist. Signed Windows distribution/OS-policy/device acceptance,
+cross-entity tag views and larger-than-1,000 queue scope remain open.
+
+The current durable queue source accepts the reported 851-case selection under
+its 1,000-case limit. The 20-case cap belongs to an unused legacy credit-request
+endpoint; it is not the queue admission cap. Real large-scope review performance,
+provider output and deployed UI are unverified. Consent, one reviewed upper spend,
+current full-editor access, cancellation and unknown-charge/no-auto-retry rules
+remain mandatory. No paid analysis job was started by this audit.
+
+The version helper now distinguishes explicit native JSON null from an omitted
+legacy execution template, preserving JSON null through the explicit Prisma
+sentinel instead of converting it to `{}`. Nine mock capture tests verify input
+retention; native JSON-null persistence has NOT been exercised.
+
+Root integrated checks: 700 Node plus 48 typed Web checks (748 total, zero skips),
+159 focused API pure/mocked checks and API/Web types pass. Post-review presentation
+copy remains covered by the actual visual/export/controller tests. One initial
+dashboard source contract rejected changed explanatory copy; the original
+observation-denominator disclaimer was restored and all original assertions pass.
+An initially incorrect release refresh callback name was corrected before final
+types. No native fixture, migration, cloud/customer/identity/security/provider
+mutation, main merge or deployment, and no earlier failed release gate is cleared.
+
+Final request-encoding review found that making the existing criterion-edit
+parser raw by default could change historical accepted UUID hashes for older
+clients that submitted padded prose. New wording drafts now explicitly send
+`wordingMode: "EXACT"`; no marker/default is injected into retained or older
+requests. Unmarked requests keep the original trim-before-length parsing and
+hash behavior, so accepted UUID replay remains unchanged. New exact edits and
+new ADD operations retain raw multiline text. Mocked historical replay, raw
+marked hash/ACK and actual source-controller tests pass; native replay remains
+unverified. No receipt format, scope, authorization or CAS was weakened.
+
+Final integrated source after the explicit encoding fix: 702 Node plus 48 typed
+Web checks (750 total, zero skips), 162 focused API pure/mocked checks and API/Web
+typechecks pass. These are local source receipts only; no native SQL/migration,
+full runtime/image-security, authenticated production or deployment gate is closed.

@@ -16,6 +16,10 @@ import {
   MAX_GOVERNANCE_HISTORY_REVISIONS,
   editCriterionDescriptionInput,
   setCriterionVerdictInput,
+  addGovernedCriterionInput,
+  deleteGovernedCriterionInput,
+  setGovernedCriterionRequirementInput,
+  requirementChoiceInput,
   attachUnassignedPlanInput,
   planGovernanceScopeInput,
   planGovernanceHistoryInput,
@@ -227,6 +231,22 @@ async function assertManualVerdict(
         "This plan's effective criterion verdicts are computed from its case evidence. Record case results instead; no manual verdict was substituted.",
     });
 }
+async function assertSameProjectRequirement(
+  tx: Prisma.TransactionClient,
+  projectId: string,
+  requirementId: string | null,
+) {
+  if (requirementId === null) return;
+  const rows = await tx.$queryRaw<
+    Array<{ id: string }>
+  >`SELECT id FROM "Requirement" WHERE id=${requirementId} AND "projectId"=${projectId} FOR SHARE`;
+  if (!rows.length)
+    throw new TRPCError({
+      code: "NOT_FOUND",
+      message:
+        "The selected requirement is unavailable in this exact project. No foreign association was substituted.",
+    });
+}
 export async function previewPlanGovernance(
   db: PrismaClient,
   actorId: string,
@@ -286,15 +306,16 @@ export async function previewPlanGovernance(
 }
 type Edit = z.infer<typeof editCriterionDescriptionInput>;
 type Verdict = z.infer<typeof setCriterionVerdictInput>;
+type Add = z.infer<typeof addGovernedCriterionInput>;
+type Delete = z.infer<typeof deleteGovernedCriterionInput>;
+type Associate = z.infer<typeof setGovernedCriterionRequirementInput>;
+type Operation = z.infer<typeof planGovernanceAck>["operation"];
 type Attach = z.infer<typeof attachUnassignedPlanInput>;
 async function write(
   db: PrismaClient,
   actorId: string,
-  input: Edit | Attach | Verdict,
-  operation:
-    | "EDIT_CRITERION_DESCRIPTION"
-    | "ATTACH_UNASSIGNED_PLAN"
-    | "SET_CRITERION_VERDICT",
+  input: Edit | Attach | Verdict | Add | Delete | Associate,
+  operation: Operation,
   authorized: CaseFieldReadAuthorization,
 ) {
   const requestHash = governanceRequestHash({ operation, input });
@@ -326,11 +347,48 @@ async function write(
             "Plan governance changed after review. Refresh and review before saving; no change was made.",
         });
       let criterionId: string | null = null;
-      if (
+      if (operation === "ADD_CRITERION") {
+        const add = input as Add;
+        if (before.criteria.length >= MAX_GOVERNANCE_CRITERIA)
+          throw new TRPCError({
+            code: "PRECONDITION_FAILED",
+            message:
+              "This plan already contains the bounded maximum criteria. Existing criteria were not removed or truncated.",
+          });
+        if (before.releaseId)
+          await assertPlanningRelease(tx, input.projectId, before.releaseId);
+        await assertSameProjectRequirement(
+          tx,
+          input.projectId,
+          add.requirementId,
+        );
+        const occupied = await tx.acceptanceCriterion.findUnique({
+          where: { id: add.criterionId },
+          select: { id: true },
+        });
+        if (occupied)
+          throw new TRPCError({
+            code: "CONFLICT",
+            message:
+              "The new criterion identity is already occupied. No existing criterion was overwritten.",
+          });
+        await tx.acceptanceCriterion.create({
+          data: {
+            id: add.criterionId,
+            testPlanId: input.testPlanId,
+            description: add.description,
+            requirementId: add.requirementId,
+            status: "PENDING",
+          },
+        });
+        criterionId = add.criterionId;
+      } else if (
         operation === "EDIT_CRITERION_DESCRIPTION" ||
-        operation === "SET_CRITERION_VERDICT"
+        operation === "SET_CRITERION_VERDICT" ||
+        operation === "DELETE_CRITERION" ||
+        operation === "SET_CRITERION_REQUIREMENT"
       ) {
-        const edit = input as Edit | Verdict;
+        const edit = input as Edit | Verdict | Delete | Associate;
         const current = before.criteria.find((c) => c.id === edit.criterionId);
         if (!current)
           throw new TRPCError({
@@ -348,15 +406,40 @@ async function write(
           });
         if (before.releaseId)
           await assertPlanningRelease(tx, input.projectId, before.releaseId);
-        if (operation === "SET_CRITERION_VERDICT")
-          await assertManualVerdict(tx, input);
-        await tx.acceptanceCriterion.update({
-          where: { id: current.id },
-          data:
-            operation === "SET_CRITERION_VERDICT"
-              ? { status: (edit as Verdict).status }
-              : { description: (edit as Edit).description },
-        });
+        if (
+          (operation === "DELETE_CRITERION" ||
+            operation === "SET_CRITERION_REQUIREMENT") &&
+          current.requirementId !== (edit as Delete).expectedRequirementId
+        )
+          throw new TRPCError({
+            code: "CONFLICT",
+            message:
+              "The raw requirement association changed after review. Refresh before changing or removing it.",
+          });
+        if (operation === "DELETE_CRITERION") {
+          await tx.acceptanceCriterion.delete({ where: { id: current.id } });
+        } else if (operation === "SET_CRITERION_REQUIREMENT") {
+          const associate = edit as Associate;
+          await assertSameProjectRequirement(
+            tx,
+            input.projectId,
+            associate.requirementId,
+          );
+          await tx.acceptanceCriterion.update({
+            where: { id: current.id },
+            data: { requirementId: associate.requirementId },
+          });
+        } else {
+          if (operation === "SET_CRITERION_VERDICT")
+            await assertManualVerdict(tx, input);
+          await tx.acceptanceCriterion.update({
+            where: { id: current.id },
+            data:
+              operation === "SET_CRITERION_VERDICT"
+                ? { status: (edit as Verdict).status }
+                : { description: (edit as Edit).description },
+          });
+        }
         criterionId = current.id;
       } else {
         const attach = input as Attach;
@@ -427,12 +510,16 @@ async function write(
           entityType: ENTITY,
           entityId: input.testPlanId,
           action: "UPDATE",
-          summary:
-            operation === "EDIT_CRITERION_DESCRIPTION"
-              ? "Edited reviewed criterion wording"
-              : operation === "SET_CRITERION_VERDICT"
-                ? "Changed reviewed criterion verdict"
-                : "Attached an unassigned quality plan",
+          summary: {
+            EDIT_CRITERION_DESCRIPTION: "Edited reviewed criterion wording",
+            SET_CRITERION_VERDICT: "Changed reviewed criterion verdict",
+            ADD_CRITERION: "Added a reviewed pending criterion",
+            DELETE_CRITERION:
+              "Removed a reviewed criterion with retained history",
+            SET_CRITERION_REQUIREMENT:
+              "Changed a reviewed criterion requirement association",
+            ATTACH_UNASSIGNED_PLAN: "Attached an unassigned quality plan",
+          }[operation],
           metadata: metadata as Prisma.InputJsonValue,
         },
       });
@@ -481,6 +568,120 @@ export function setGovernedCriterionVerdict(
   );
 }
 
+export function addGovernedCriterion(
+  db: PrismaClient,
+  actorId: string,
+  input: Add,
+  authorized: CaseFieldReadAuthorization,
+) {
+  return write(
+    db,
+    actorId,
+    addGovernedCriterionInput.parse(input),
+    "ADD_CRITERION",
+    authorized,
+  );
+}
+export function deleteGovernedCriterion(
+  db: PrismaClient,
+  actorId: string,
+  input: Delete,
+  authorized: CaseFieldReadAuthorization,
+) {
+  return write(
+    db,
+    actorId,
+    deleteGovernedCriterionInput.parse(input),
+    "DELETE_CRITERION",
+    authorized,
+  );
+}
+export function setGovernedCriterionRequirement(
+  db: PrismaClient,
+  actorId: string,
+  input: Associate,
+  authorized: CaseFieldReadAuthorization,
+) {
+  return write(
+    db,
+    actorId,
+    setGovernedCriterionRequirementInput.parse(input),
+    "SET_CRITERION_REQUIREMENT",
+    authorized,
+  );
+}
+
+export async function listGovernanceRequirementChoices(
+  db: PrismaClient,
+  actorId: string,
+  raw: z.input<typeof requirementChoiceInput>,
+  authorized: CaseFieldReadAuthorization,
+) {
+  const input = requirementChoiceInput.parse(raw);
+  return db.$transaction(
+    async (tx) => {
+      const scope = await lockCaseFieldReadScope(
+        tx,
+        actorId,
+        input,
+        authorized,
+      );
+      await lockPlan(tx, input, false);
+      const where: Prisma.RequirementWhereInput = {
+        projectId: input.projectId,
+        ...(input.cursor ? { id: { gt: input.cursor } } : {}),
+        ...(input.search
+          ? {
+              OR: [
+                { id: { contains: input.search, mode: "insensitive" } },
+                { title: { contains: input.search, mode: "insensitive" } },
+              ],
+            }
+          : {}),
+      };
+      const identities = await tx.requirement.findMany({
+        where,
+        orderBy: { id: "asc" },
+        take: input.take + 1,
+        select: { id: true },
+      });
+      const page = identities.slice(0, input.take);
+      if (page.length) {
+        const [size] = await tx.$queryRaw<
+          Array<{ bytes: bigint; largest: number }>
+        >`SELECT coalesce(sum(octet_length(title)),0)::bigint AS bytes,coalesce(max(length(title)),0)::int AS largest FROM "Requirement" WHERE id IN (${Prisma.join(page.map((row) => row.id))}) AND "projectId"=${input.projectId}`;
+        if (
+          !size ||
+          size.bytes > BigInt(MAX_GOVERNANCE_SNAPSHOT_BYTES) ||
+          size.largest > 10000
+        )
+          throw new TRPCError({
+            code: "PRECONDITION_FAILED",
+            message:
+              "The complete requirement choice page exceeds its supported read bounds. No titles were truncated; narrow the search.",
+          });
+      }
+      const choices = page.length
+        ? await tx.requirement.findMany({
+            where: {
+              id: { in: page.map((row) => row.id) },
+              projectId: input.projectId,
+            },
+            select: { id: true, title: true },
+            orderBy: { id: "asc" },
+          })
+        : [];
+      return {
+        scope,
+        testPlanId: input.testPlanId,
+        choices,
+        nextCursor:
+          identities.length > input.take ? (page.at(-1)?.id ?? null) : null,
+      };
+    },
+    { isolationLevel: "RepeatableRead", timeout: 10000, maxWait: 5000 },
+  );
+}
 /** Compatibility only: old callers have no retained UUID or original verdict
  * revision. Their wording/optional requirement is an expectation, never an
  * edit. Locked current FULL-editor/actor checks and status-only UPDATE prevent

@@ -14,6 +14,10 @@ export function boundedGovernanceSnapshot(
   const parsed = planGovernanceSnapshot.safeParse(value);
   if (
     !parsed.success ||
+    (parsed.success &&
+      (new Set(parsed.data.criteria.map((c) => c.id)).size !==
+        parsed.data.criteria.length ||
+        parsed.data.criteria.some((c) => c.testPlanId !== parsed.data.id))) ||
     Buffer.byteLength(JSON.stringify(parsed.data), "utf8") >
       MAX_GOVERNANCE_SNAPSHOT_BYTES
   )
@@ -65,10 +69,13 @@ export function validatedGovernanceReceipt(value: unknown) {
     });
   const receipt = parsed.data,
     { before, after, ack } = receipt;
+  boundedGovernanceSnapshot(before);
+  boundedGovernanceSnapshot(after);
   let expectedCriteria = before.criteria;
   if (
     ack.operation === "EDIT_CRITERION_DESCRIPTION" ||
-    ack.operation === "SET_CRITERION_VERDICT"
+    ack.operation === "SET_CRITERION_VERDICT" ||
+    ack.operation === "SET_CRITERION_REQUIREMENT"
   ) {
     if (
       !ack.criterionId ||
@@ -82,9 +89,35 @@ export function validatedGovernanceReceipt(value: unknown) {
       c.id === ack.criterionId
         ? ack.operation === "SET_CRITERION_VERDICT"
           ? { ...c, status: changed.status }
-          : { ...c, description: changed.description }
+          : ack.operation === "SET_CRITERION_REQUIREMENT"
+            ? { ...c, requirementId: changed.requirementId }
+            : { ...c, description: changed.description }
         : c,
     );
+  } else if (ack.operation === "ADD_CRITERION") {
+    const added = after.criteria.find((c) => c.id === ack.criterionId);
+    if (
+      !ack.criterionId ||
+      !added ||
+      before.criteria.some((c) => c.id === added.id) ||
+      after.criteria.length !== before.criteria.length + 1 ||
+      added.status !== "PENDING" ||
+      added.testPlanId !== ack.testPlanId ||
+      before.releaseId !== after.releaseId ||
+      governanceRequestHash(after.criteria.filter((c) => c.id !== added.id)) !==
+        governanceRequestHash(before.criteria)
+    )
+      return invalid();
+    expectedCriteria = after.criteria;
+  } else if (ack.operation === "DELETE_CRITERION") {
+    if (
+      !ack.criterionId ||
+      !before.criteria.some((c) => c.id === ack.criterionId) ||
+      after.criteria.some((c) => c.id === ack.criterionId) ||
+      before.releaseId !== after.releaseId
+    )
+      return invalid();
+    expectedCriteria = before.criteria.filter((c) => c.id !== ack.criterionId);
   } else if (
     ack.criterionId !== null ||
     before.releaseId !== null ||

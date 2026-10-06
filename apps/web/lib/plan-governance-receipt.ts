@@ -47,7 +47,10 @@ export type GovernancePending<T> = {
   operation:
     | "EDIT_CRITERION_DESCRIPTION"
     | "ATTACH_UNASSIGNED_PLAN"
-    | "SET_CRITERION_VERDICT";
+    | "SET_CRITERION_VERDICT"
+    | "ADD_CRITERION"
+    | "DELETE_CRITERION"
+    | "SET_CRITERION_REQUIREMENT";
   requestHash: string;
   uncertain: boolean;
 };

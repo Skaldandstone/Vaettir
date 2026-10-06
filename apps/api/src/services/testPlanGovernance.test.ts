@@ -7,11 +7,16 @@ import {
   setLegacyCriterionVerdict,
   attachGovernedUnassignedPlan,
   listPlanGovernanceHistory,
+  addGovernedCriterion,
+  deleteGovernedCriterion,
+  setGovernedCriterionRequirement,
+  listGovernanceRequirementChoices,
 } from "./testPlanGovernance.js";
 import {
   MAX_GOVERNANCE_SNAPSHOT_BYTES,
   MAX_GOVERNANCE_RECEIPT_BYTES,
   MAX_GOVERNANCE_HISTORY_REVISIONS,
+  editCriterionDescriptionInput,
 } from "./testPlanGovernanceSchema.js";
 import {
   governanceRequestHash,
@@ -29,6 +34,25 @@ function fixture() {
     nativeAuditBytes: null as number | null,
     historyCount: null as number | null,
     hasPlanCases: false,
+    requirements: [
+      {
+        id: "requirement",
+        projectId: "project",
+        title: "Original synthetic requirement",
+      },
+      {
+        id: "next-requirement",
+        projectId: "project",
+        title: "Next synthetic requirement",
+      },
+      {
+        id: "foreign-requirement",
+        projectId: "foreign",
+        title: "Private foreign requirement",
+      },
+    ],
+    requirementPageBytes: 1000n,
+    largestRequirementTitle: 100,
     plan: {
       id: "plan",
       projectId: "project",
@@ -49,7 +73,7 @@ function fixture() {
       {
         id: "criterion",
         testPlanId: "plan",
-        requirementId: "requirement",
+        requirementId: "requirement" as string | null,
         description: "Original requirement",
         status: "AT_RISK",
         createdAt: new Date("2026-10-05T10:00:00Z"),
@@ -89,6 +113,17 @@ function fixture() {
       return state.criteria.map((c) => ({ id: c.id }));
     if (text.includes('FROM "TestCase"'))
       return state.hasPlanCases ? [{ id: "case" }] : [];
+    if (text.includes('FROM "Requirement"') && text.includes("octet_length"))
+      return [
+        {
+          bytes: state.requirementPageBytes,
+          largest: state.largestRequirementTitle,
+        },
+      ];
+    if (text.includes('FROM "Requirement"'))
+      return state.requirements
+        .filter((row) => row.id === values[0] && row.projectId === values[1])
+        .map((row) => ({ id: row.id }));
     if (text.includes("SELECT id,octet_length(metadata")) {
       const row = state.audits.get(values[0] as string);
       return row
@@ -153,7 +188,9 @@ function fixture() {
       findFirstOrThrow: vi.fn(async () =>
         structuredClone({
           ...state.plan,
-          acceptanceCriteria: state.criteria,
+          acceptanceCriteria: [...state.criteria].sort((a, b) =>
+            a.id < b.id ? -1 : a.id > b.id ? 1 : 0,
+          ),
           versions: state.versions.slice(-1).map((version) => ({
             id: version.id,
             versionNumber: version.versionNumber,
@@ -172,14 +209,73 @@ function fixture() {
       }),
     },
     acceptanceCriterion: {
+      findUnique: vi.fn(
+        async ({ where }: { where: { id: string } }) =>
+          state.criteria.find((row) => row.id === where.id) ?? null,
+      ),
+      create: vi.fn(
+        async ({ data }: { data: (typeof state.criteria)[number] }) => {
+          const created = {
+            ...data,
+            createdAt: new Date("2026-10-05T10:00:02Z"),
+          };
+          state.criteria.push(created);
+          return created;
+        },
+      ),
+      delete: vi.fn(async ({ where }: { where: { id: string } }) => {
+        const index = state.criteria.findIndex((row) => row.id === where.id);
+        return state.criteria.splice(index, 1)[0];
+      }),
       update: vi.fn(
         async ({
+          where,
           data,
         }: {
-          data: { description?: string; status?: string };
+          where: { id: string };
+          data: {
+            description?: string;
+            status?: string;
+            requirementId?: string | null;
+          };
         }) => {
-          Object.assign(state.criteria[0]!, data);
-          return state.criteria[0];
+          const target = state.criteria.find((row) => row.id === where.id)!;
+          Object.assign(target, data);
+          return target;
+        },
+      ),
+    },
+    requirement: {
+      findMany: vi.fn(
+        async ({
+          where,
+          select,
+          take,
+        }: {
+          where: {
+            projectId: string;
+            id?: { in?: string[]; gt?: string };
+            OR?: Array<Record<string, { contains: string }>>;
+          };
+          select: { title?: boolean };
+          take?: number;
+        }) => {
+          let rows = state.requirements.filter(
+            (row) => row.projectId === where.projectId,
+          );
+          if (where.id?.in)
+            rows = rows.filter((row) => where.id!.in!.includes(row.id));
+          if (where.id?.gt) rows = rows.filter((row) => row.id > where.id!.gt!);
+          const search = where.OR?.[0]?.id?.contains;
+          if (search)
+            rows = rows.filter(
+              (row) => row.id.includes(search) || row.title.includes(search),
+            );
+          rows.sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+          if (take !== undefined) rows = rows.slice(0, take);
+          return rows.map((row) =>
+            select.title ? { id: row.id, title: row.title } : { id: row.id },
+          );
         },
       ),
     },
@@ -244,6 +340,432 @@ function fixture() {
   return { db, tx, scope, calls, preview, edit, state: () => state };
 }
 describe("dedicated bounded plan governance (mocked transactions, not native acceptance)", () => {
+  const newCriterionId = "5a3c96dc-022c-4cee-934b-cde38b710d2f";
+  it("unmarked accepted UUIDs preserve the exact historical trim/hash/replay contract", async () => {
+    const f = fixture(),
+      raw = {
+        ...(await f.edit()),
+        description: " \n  Legacy accepted wording  \t",
+      };
+    const normalized = { ...raw, description: raw.description.trim() };
+    const parsed = editCriterionDescriptionInput.parse(raw);
+    expect(parsed).toEqual(normalized);
+    expect(Object.hasOwn(parsed, "wordingMode")).toBe(false);
+    const expectedHash = governanceRequestHash({
+      operation: "EDIT_CRITERION_DESCRIPTION",
+      input: normalized,
+    });
+    const first = await editGovernedCriterionDescription(f.db, "actor", raw, {
+      clerkActorId: "clerk",
+    });
+    expect(first.requestHash).toBe(expectedHash);
+    expect(f.state().criteria[0]!.description).toBe("Legacy accepted wording");
+    f.state().criteria[0]!.description = "A newer retained human edit";
+    expect(
+      await editGovernedCriterionDescription(f.db, "actor", raw, {
+        clerkActorId: "clerk",
+      }),
+    ).toEqual({ ...first, replayed: true });
+    expect(f.state().criteria[0]!.description).toBe(
+      "A newer retained human edit",
+    );
+    expect(f.tx.acceptanceCriterion.update).toHaveBeenCalledTimes(1);
+    await expect(
+      editGovernedCriterionDescription(
+        f.db,
+        "actor",
+        { ...raw, wordingMode: "EXACT" },
+        { clerkActorId: "clerk" },
+      ),
+    ).rejects.toMatchObject({ code: "CONFLICT" });
+  });
+  it("EXACT explicitly opts into raw wording and its complete marked request hash", async () => {
+    const f = fixture(),
+      input = {
+        ...(await f.edit()),
+        wordingMode: "EXACT" as const,
+        description: " \n Exact raw prose \t",
+      };
+    expect(editCriterionDescriptionInput.parse(input)).toEqual(input);
+    const first = await editGovernedCriterionDescription(f.db, "actor", input, {
+      clerkActorId: "clerk",
+    });
+    expect(first.requestHash).toBe(
+      governanceRequestHash({ operation: "EDIT_CRITERION_DESCRIPTION", input }),
+    );
+    expect(f.state().criteria[0]!.description).toBe(input.description);
+    expect(
+      await editGovernedCriterionDescription(f.db, "actor", input, {
+        clerkActorId: "clerk",
+      }),
+    ).toEqual({ ...first, replayed: true });
+  });
+  it("legacy length checks occur after trimming without injecting a marker; EXACT length checks retain raw input", async () => {
+    const f = fixture(),
+      input = await f.edit(),
+      padded = " ".repeat(2100) + "X" + "\n".repeat(2100);
+    expect(
+      editCriterionDescriptionInput.parse({ ...input, description: padded }),
+    ).toEqual({ ...input, description: "X" });
+    expect(
+      editCriterionDescriptionInput.parse({
+        ...input,
+        wordingMode: undefined,
+        description: padded,
+      }),
+    ).toEqual({ ...input, description: "X" });
+    expect(() =>
+      editCriterionDescriptionInput.parse({
+        ...input,
+        wordingMode: "EXACT",
+        description: padded,
+      }),
+    ).toThrow();
+    for (const mode of [undefined, "EXACT"]) {
+      const marked = mode === undefined ? {} : { wordingMode: mode };
+      for (const description of [" \n\t ", "X".repeat(2001)])
+        expect(() =>
+          editCriterionDescriptionInput.parse({
+            ...input,
+            ...marked,
+            description,
+          }),
+        ).toThrow();
+    }
+    expect(() =>
+      editCriterionDescriptionInput.parse({
+        ...input,
+        unexpected: "Do not strip unknown keys",
+      }),
+    ).toThrow();
+    expect(() =>
+      editCriterionDescriptionInput.parse({ ...input, wordingMode: "TRIM" }),
+    ).toThrow();
+  });
+  async function addInput(f: ReturnType<typeof fixture>) {
+    return {
+      ...f.scope,
+      requestId: "96e3a16d-6f55-4d81-a757-d6403ab95393",
+      expectedPlanRevision: (await f.preview()).planRevision,
+      reason: "Add synthetic criterion",
+      confirmed: true as const,
+      criterionId: newCriterionId,
+      description: "Synthetic new acceptance criterion",
+      requirementId: "next-requirement",
+    };
+  }
+  async function collectionInput(f: ReturnType<typeof fixture>) {
+    const baseline = await f.preview();
+    return {
+      ...f.scope,
+      requestId: "ea029bed-8d4d-42e7-a988-e76558e4ab3b",
+      expectedPlanRevision: baseline.planRevision,
+      reason: "Review synthetic criterion collection",
+      confirmed: true as const,
+      criterionId: "criterion",
+      expectedCriterionRevision: baseline.criterionRevisions.criterion!,
+      expectedRequirementId: baseline.snapshot.criteria.find(
+        (c) => c.id === "criterion",
+      )!.requirementId,
+    };
+  }
+  it("adds one exact pending identity without renumbering or changing retained criteria and replays once", async () => {
+    const f = fixture(),
+      input = await addInput(f),
+      retained = structuredClone(f.state().criteria[0]);
+    const first = await addGovernedCriterion(f.db, "actor", input, {
+      clerkActorId: "clerk",
+    });
+    expect(
+      f.state().criteria.find((c) => c.id === newCriterionId),
+    ).toMatchObject({
+      id: newCriterionId,
+      status: "PENDING",
+      requirementId: "next-requirement",
+    });
+    expect(f.state().criteria.find((c) => c.id === "criterion")).toEqual(
+      retained,
+    );
+    expect(
+      await addGovernedCriterion(f.db, "actor", input, {
+        clerkActorId: "clerk",
+      }),
+    ).toEqual({ ...first, replayed: true });
+    expect(f.tx.acceptanceCriterion.create).toHaveBeenCalledTimes(1);
+    expect(
+      validatedGovernanceReceipt([...f.state().audits.values()][0]!.metadata)
+        .before.criteria,
+    ).toHaveLength(1);
+    await expect(
+      addGovernedCriterion(
+        f.db,
+        "actor",
+        { ...input, description: "Different UUID intent" },
+        { clerkActorId: "clerk" },
+      ),
+    ).rejects.toMatchObject({ code: "CONFLICT" });
+  });
+  it("raw multiline whitespace round-trips for added and edited wording while whitespace-only submissions are refused", async () => {
+    const raw = "  First line, with commas\n\nSecond line.  \n";
+    const f = fixture(),
+      input = { ...(await addInput(f)), description: raw };
+    const ack = await addGovernedCriterion(f.db, "actor", input, {
+      clerkActorId: "clerk",
+    });
+    expect(
+      f.state().criteria.find((c) => c.id === newCriterionId)!.description,
+    ).toBe(raw);
+    expect(
+      await addGovernedCriterion(f.db, "actor", input, {
+        clerkActorId: "clerk",
+      }),
+    ).toEqual({ ...ack, replayed: true });
+    const g = fixture(),
+      edit = {
+        ...(await g.edit()),
+        description: raw,
+        wordingMode: "EXACT" as const,
+      };
+    await editGovernedCriterionDescription(g.db, "actor", edit, {
+      clerkActorId: "clerk",
+    });
+    expect(g.state().criteria[0]!.description).toBe(raw);
+    expect(
+      validatedGovernanceReceipt([...g.state().audits.values()][0]!.metadata)
+        .after.criteria[0]!.description,
+    ).toBe(raw);
+    const h = fixture();
+    const blankAdd = { ...(await addInput(h)), description: " \n\t " },
+      blankEdit = { ...(await h.edit()), description: " \n\t " };
+    expect(() =>
+      addGovernedCriterion(h.db, "actor", blankAdd, { clerkActorId: "clerk" }),
+    ).toThrow();
+    expect(() =>
+      editGovernedCriterionDescription(h.db, "actor", blankEdit, {
+        clerkActorId: "clerk",
+      }),
+    ).toThrow();
+    expect(h.tx.acceptanceCriterion.create).not.toHaveBeenCalled();
+    expect(h.tx.acceptanceCriterion.update).not.toHaveBeenCalled();
+  });
+  it("retains the complete raw deleted row in history and exact delete replay cannot remove another criterion", async () => {
+    const f = fixture();
+    f.state().criteria[0]!.description =
+      "  Exact original\nwording, with commas  ";
+    const input = await collectionInput(f),
+      original = structuredClone(f.state().criteria[0]);
+    const first = await deleteGovernedCriterion(f.db, "actor", input, {
+      clerkActorId: "clerk",
+    });
+    expect(f.state().criteria).toHaveLength(0);
+    expect(
+      validatedGovernanceReceipt([...f.state().audits.values()][0]!.metadata)
+        .before.criteria[0],
+    ).toEqual({ ...original, createdAt: original!.createdAt.toISOString() });
+    expect(
+      await deleteGovernedCriterion(f.db, "actor", input, {
+        clerkActorId: "clerk",
+      }),
+    ).toEqual({ ...first, replayed: true });
+    expect(f.tx.acceptanceCriterion.delete).toHaveBeenCalledTimes(1);
+  });
+  it("links or explicitly unlinks only the requirement while retaining wording and raw native verdict", async () => {
+    for (const requirementId of ["next-requirement", null]) {
+      const f = fixture(),
+        input = { ...(await collectionInput(f)), requirementId };
+      await setGovernedCriterionRequirement(f.db, "actor", input, {
+        clerkActorId: "clerk",
+      });
+      expect(f.tx.acceptanceCriterion.update).toHaveBeenCalledWith({
+        where: { id: "criterion" },
+        data: { requirementId },
+      });
+      expect(f.state().criteria[0]).toMatchObject({
+        description: "Original requirement",
+        status: "AT_RISK",
+        requirementId,
+      });
+      validatedGovernanceReceipt([...f.state().audits.values()][0]!.metadata);
+    }
+  });
+  it("refuses foreign requirements for both new and existing criteria before a write", async () => {
+    const f = fixture(),
+      input = await addInput(f);
+    await expect(
+      addGovernedCriterion(
+        f.db,
+        "actor",
+        { ...input, requirementId: "foreign-requirement" },
+        { clerkActorId: "clerk" },
+      ),
+    ).rejects.toMatchObject({ code: "NOT_FOUND" });
+    await expect(
+      setGovernedCriterionRequirement(
+        f.db,
+        "actor",
+        { ...(await collectionInput(f)), requirementId: "foreign-requirement" },
+        { clerkActorId: "clerk" },
+      ),
+    ).rejects.toMatchObject({ code: "NOT_FOUND" });
+    expect(f.tx.acceptanceCriterion.create).not.toHaveBeenCalled();
+    expect(f.tx.acceptanceCriterion.update).not.toHaveBeenCalled();
+    expect(f.tx.requirement.findMany).not.toHaveBeenCalled(); // No foreign title/body materialized.
+  });
+  it("preserves a legacy raw association rather than quietly repairing it, with explicit unlink available", async () => {
+    const f = fixture();
+    f.state().criteria[0]!.requirementId = "legacy-foreign-id";
+    const input = await collectionInput(f);
+    await expect(
+      setGovernedCriterionRequirement(
+        f.db,
+        "actor",
+        { ...input, expectedRequirementId: null, requirementId: null },
+        { clerkActorId: "clerk" },
+      ),
+    ).rejects.toMatchObject({ code: "CONFLICT" });
+    await setGovernedCriterionRequirement(
+      f.db,
+      "actor",
+      { ...input, requirementId: null },
+      { clerkActorId: "clerk" },
+    );
+    expect(
+      validatedGovernanceReceipt([...f.state().audits.values()][0]!.metadata)
+        .before.criteria[0]!.requirementId,
+    ).toBe("legacy-foreign-id");
+  });
+  it("new collection operations recheck original auth and reject stale native associations", async () => {
+    for (const change of [
+      { role: "VIEWER" },
+      { seatType: "READ_ONLY" },
+      { suspendedAt: new Date() },
+      { clerkActorId: "other" },
+    ])
+      for (const operation of ["ADD", "DELETE", "LINK"]) {
+        const f = fixture(),
+          a = await addInput(f),
+          c = await collectionInput(f);
+        Object.assign(f.state(), change);
+        f.calls.length = 0;
+        const promise =
+          operation === "ADD"
+            ? addGovernedCriterion(f.db, "actor", a, { clerkActorId: "clerk" })
+            : operation === "DELETE"
+              ? deleteGovernedCriterion(f.db, "actor", c, {
+                  clerkActorId: "clerk",
+                })
+              : setGovernedCriterionRequirement(
+                  f.db,
+                  "actor",
+                  { ...c, requirementId: null },
+                  { clerkActorId: "clerk" },
+                );
+        await expect(promise).rejects.toMatchObject({ code: "FORBIDDEN" });
+        expect(f.state().audits.size).toBe(0);
+      }
+    const f = fixture(),
+      c = await collectionInput(f);
+    f.state().criteria[0]!.requirementId = "concurrent";
+    await expect(
+      deleteGovernedCriterion(f.db, "actor", c, { clerkActorId: "clerk" }),
+    ).rejects.toMatchObject({ code: "CONFLICT" });
+  });
+  it("addition bounds and native receipt expansion roll back without discarding retained criteria", async () => {
+    const f = fixture();
+    f.state().criteria = Array.from({ length: 200 }, (_, i) => ({
+      ...f.state().criteria[0]!,
+      id: `retained-${i.toString().padStart(3, "0")}`,
+    }));
+    const input = await addInput(f);
+    await expect(
+      addGovernedCriterion(f.db, "actor", input, { clerkActorId: "clerk" }),
+    ).rejects.toMatchObject({ code: "PRECONDITION_FAILED" });
+    expect(f.state().criteria).toHaveLength(200);
+    const g = fixture(),
+      next = await addInput(g);
+    g.state().nativeAuditBytes = MAX_GOVERNANCE_RECEIPT_BYTES + 1;
+    await expect(
+      addGovernedCriterion(g.db, "actor", next, { clerkActorId: "clerk" }),
+    ).rejects.toMatchObject({ code: "PRECONDITION_FAILED" });
+    expect(g.state().criteria).toHaveLength(1);
+    expect(g.state().versions).toHaveLength(1);
+  });
+  it("scoped requirement choices are bounded, searchable, stable-ID paged and never return foreign titles", async () => {
+    const f = fixture();
+    f.state().role = "VIEWER";
+    f.state().seatType = "READ_ONLY";
+    const page = await listGovernanceRequirementChoices(
+      f.db,
+      "actor",
+      { ...f.scope, take: 1 },
+      { clerkActorId: "clerk" },
+    );
+    expect(page.choices).toEqual([
+      { id: "next-requirement", title: "Next synthetic requirement" },
+    ]);
+    expect(page.nextCursor).toBe("next-requirement");
+    const next = await listGovernanceRequirementChoices(
+      f.db,
+      "actor",
+      { ...f.scope, take: 1, cursor: page.nextCursor! },
+      { clerkActorId: "clerk" },
+    );
+    expect(next.choices[0]!.id).toBe("requirement");
+    expect(next.nextCursor).toBeNull();
+    expect(JSON.stringify(page)).not.toContain("Private foreign");
+    const searched = await listGovernanceRequirementChoices(
+      f.db,
+      "actor",
+      { ...f.scope, search: "Original" },
+      { clerkActorId: "clerk" },
+    );
+    expect(searched.choices).toHaveLength(1);
+    const reads = f.tx.requirement.findMany.mock.calls.length;
+    await expect(
+      listGovernanceRequirementChoices(
+        f.db,
+        "actor",
+        { ...f.scope, originalOrganizationId: "foreign" },
+        { clerkActorId: "clerk" },
+      ),
+    ).rejects.toMatchObject({ code: "FORBIDDEN" });
+    expect(f.tx.requirement.findMany.mock.calls).toHaveLength(reads);
+  });
+  it("refuses oversized native requirement titles before reading their private text body", async () => {
+    const f = fixture();
+    f.state().largestRequirementTitle = 10001;
+    await expect(
+      listGovernanceRequirementChoices(f.db, "actor", f.scope, {
+        clerkActorId: "clerk",
+      }),
+    ).rejects.toMatchObject({ code: "PRECONDITION_FAILED" });
+    expect(f.tx.requirement.findMany).toHaveBeenCalledTimes(1);
+    expect(
+      f.tx.requirement.findMany.mock.calls[0]![0].select.title,
+    ).toBeUndefined();
+  });
+  it("collection receipts reject duplicate/foreign native criterion rows and unrelated field edits", async () => {
+    const f = fixture();
+    await addGovernedCriterion(f.db, "actor", await addInput(f), {
+      clerkActorId: "clerk",
+    });
+    for (const corrupt of ["FOREIGN", "UNRELATED", "DUPLICATE"]) {
+      const receipt = validatedGovernanceReceipt(
+        structuredClone([...f.state().audits.values()][0]!.metadata),
+      );
+      if (corrupt === "FOREIGN")
+        receipt.after.criteria.find(
+          (c) => c.id === newCriterionId,
+        )!.testPlanId = "foreign-plan";
+      if (corrupt === "UNRELATED")
+        receipt.after.criteria.find((c) => c.id === "criterion")!.description =
+          "Silently changed";
+      if (corrupt === "DUPLICATE")
+        receipt.after.criteria.push({ ...receipt.after.criteria[0]! });
+      receipt.ack.afterRevision = governanceRequestHash(receipt.after);
+      expect(() => validatedGovernanceReceipt(receipt)).toThrow();
+    }
+  });
   async function verdict(f: ReturnType<typeof fixture>) {
     const { description: _description, ...input } = await f.edit();
     return { ...input, status: "MET" as const };

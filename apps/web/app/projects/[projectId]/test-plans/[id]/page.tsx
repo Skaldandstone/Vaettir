@@ -16,7 +16,7 @@ export default function TestPlanDetailPage() {
       <a className="btn-secondary" style={{ fontSize: 13 }} href={`/projects/${params.projectId}/test-plans`}>
         &larr; Test plans
       </a>
-      <TestPlanDetailContent id={params.id} readOnly={readOnly} />
+      <TestPlanDetailContent key={params.id} id={params.id} readOnly={readOnly} />
     </div>
   );
 }

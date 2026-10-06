@@ -195,5 +195,88 @@ describe.skipIf(!isolated)(
         }),
       ).rejects.toMatchObject({ code: "CONFLICT" });
     });
+    it("native add/link/delete retains raw rows with exact receipts and same-project requirement choices", async () => {
+      const requirement = await prisma.requirement.create({
+        data: {
+          projectId: scope.projectId,
+          title: `Synthetic governed requirement ${randomUUID()}`,
+        },
+      });
+      const baseline = await caller.testPlanGovernance.preview(scope),
+        newId = randomUUID(),
+        raw = "  Synthetic criterion\nwith exact formatting.  \n";
+      const addition = {
+        ...scope,
+        criterionId: newId,
+        description: raw,
+        requirementId: requirement.id,
+        requestId: randomUUID(),
+        expectedPlanRevision: baseline.planRevision,
+        reason: "Synthetic addition",
+        confirmed: true as const,
+      };
+      const added = await caller.testPlanGovernance.addCriterion(addition);
+      expect(await caller.testPlanGovernance.addCriterion(addition)).toEqual({
+        ...added,
+        replayed: true,
+      });
+      expect(
+        await prisma.acceptanceCriterion.findUniqueOrThrow({
+          where: { id: newId },
+        }),
+      ).toMatchObject({
+        description: raw,
+        status: "PENDING",
+        requirementId: requirement.id,
+      });
+      const choices = await caller.testPlanGovernance.requirementChoices({
+        ...scope,
+        search: requirement.id,
+      });
+      expect(choices.choices).toEqual([
+        { id: requirement.id, title: requirement.title },
+      ]);
+      const review = await caller.testPlanGovernance.preview(scope),
+        original = review.snapshot.criteria.find((c) => c.id === criterionId)!;
+      await caller.testPlanGovernance.setCriterionRequirement({
+        ...scope,
+        criterionId,
+        expectedPlanRevision: review.planRevision,
+        expectedCriterionRevision: review.criterionRevisions[criterionId]!,
+        expectedRequirementId: original.requirementId,
+        requirementId: requirement.id,
+        requestId: randomUUID(),
+        reason: "Synthetic association",
+        confirmed: true,
+      });
+      const removing = await caller.testPlanGovernance.preview(scope),
+        target = removing.snapshot.criteria.find((c) => c.id === newId)!;
+      const deletion = {
+        ...scope,
+        criterionId: newId,
+        expectedPlanRevision: removing.planRevision,
+        expectedCriterionRevision: removing.criterionRevisions[newId]!,
+        expectedRequirementId: target.requirementId,
+        requestId: randomUUID(),
+        reason: "Synthetic removal",
+        confirmed: true as const,
+      };
+      const removed = await caller.testPlanGovernance.deleteCriterion(deletion);
+      expect(await caller.testPlanGovernance.deleteCriterion(deletion)).toEqual(
+        { ...removed, replayed: true },
+      );
+      expect(
+        await prisma.acceptanceCriterion.findUnique({ where: { id: newId } }),
+      ).toBeNull();
+      const receipt = (
+        await caller.testPlanGovernance.history({ ...scope, take: 5 })
+      ).entries.find(
+        (row) => row.receipt.ack.requestId === deletion.requestId,
+      )!.receipt;
+      expect(
+        receipt.before.criteria.find((c) => c.id === newId)!.description,
+      ).toBe(raw);
+      expect(receipt.after.criteria.some((c) => c.id === newId)).toBe(false);
+    });
   },
 );

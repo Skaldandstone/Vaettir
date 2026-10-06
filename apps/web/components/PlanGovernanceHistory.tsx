@@ -3,6 +3,7 @@ import { useState } from "react";
 import { trpcReact } from "@/lib/trpcReact";
 import { useCaseFieldAccess } from "@/lib/use-case-field-access";
 import { sameGovernanceReader } from "@/lib/plan-governance-receipt";
+import { governanceCriterionValue, governanceOperationLabel } from "@/lib/plan-governance-display";
 export function PlanGovernanceHistory({
   projectId,
   testPlanId,
@@ -51,7 +52,7 @@ export function PlanGovernanceHistory({
       : null;
   return (
     <details onToggle={(event) => setOpen(event.currentTarget.open)}>
-      <summary>Governed wording and assignment history</summary>
+      <summary>Governed criteria and assignment history</summary>
       <p className="text-muted">
         These new governance entries retain complete plan scalar fields, native
         criteria and release assignment, linked to a plan version. Legacy plan
@@ -82,7 +83,7 @@ export function PlanGovernanceHistory({
           {!fresh && !query.error && <p>Loading bounded history…</p>}
           {fresh?.entries.length === 0 && (
             <p>
-              No governed wording or assignment changes on this page. Legacy
+              No governed criterion or assignment changes on this page. Legacy
               versions remain in the plan's own history.
             </p>
           )}
@@ -90,11 +91,7 @@ export function PlanGovernanceHistory({
             <details key={entry.id}>
               <summary>
                 Version {entry.receipt.ack.versionNumber} ·{" "}
-                {entry.receipt.ack.operation === "EDIT_CRITERION_DESCRIPTION"
-                  ? "Criterion wording"
-                  : entry.receipt.ack.operation === "SET_CRITERION_VERDICT"
-                    ? "Criterion verdict"
-                    : "Plan attachment"}{" "}
+                {governanceOperationLabel(entry.receipt.ack.operation)}{" "}
                 · {new Date(entry.createdAt).toLocaleString()}
               </summary>
               <p>Reason: {entry.receipt.reason}</p>
@@ -102,23 +99,11 @@ export function PlanGovernanceHistory({
                 <>
                   <p>
                     Before:{" "}
-                    {entry.receipt.ack.operation === "SET_CRITERION_VERDICT"
-                      ? entry.receipt.before.criteria.find(
-                          (c) => c.id === entry.receipt.ack.criterionId,
-                        )?.status
-                      : entry.receipt.before.criteria.find(
-                          (c) => c.id === entry.receipt.ack.criterionId,
-                        )?.description}
+                    {governanceCriterionValue(entry.receipt.before.criteria, entry.receipt.ack.criterionId, entry.receipt.ack.operation)}
                   </p>
                   <p>
                     After:{" "}
-                    {entry.receipt.ack.operation === "SET_CRITERION_VERDICT"
-                      ? entry.receipt.after.criteria.find(
-                          (c) => c.id === entry.receipt.ack.criterionId,
-                        )?.status
-                      : entry.receipt.after.criteria.find(
-                          (c) => c.id === entry.receipt.ack.criterionId,
-                        )?.description}
+                    {governanceCriterionValue(entry.receipt.after.criteria, entry.receipt.ack.criterionId, entry.receipt.ack.operation)}
                   </p>
                 </>
               ) : (

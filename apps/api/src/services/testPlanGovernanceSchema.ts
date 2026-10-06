@@ -21,13 +21,38 @@ const write = planGovernanceScopeInput.extend({
   reason: z.string().trim().min(1).max(1000),
   confirmed: z.literal(true),
 });
+const reviewedEditWordings = write
+  .extend({
+    criterionId: id,
+    expectedCriterionRevision: hash,
+    wordingMode: z.literal("EXACT").optional(),
+    description: z
+      .string()
+      .min(1)
+      .max(2000)
+      .refine(
+        (value) => value.trim().length > 0,
+        "Criterion wording cannot be blank.",
+      ),
+  })
+  .strict();
+// Existing unmarked clients retain the original trim-before-length-check
+// parsing and request hash. Never add an implicit marker to an old UUID.
+// New clients explicitly select EXACT; their complete raw prose is hashed.
 export const editCriterionDescriptionInput = write
   .extend({
     criterionId: id,
     expectedCriterionRevision: hash,
-    description: z.string().trim().min(1).max(2000),
+    description: z.string(),
+    wordingMode: z.literal("EXACT").optional(),
   })
-  .strict();
+  .strict()
+  .transform(({ wordingMode, ...input }) =>
+    wordingMode === "EXACT"
+      ? { ...input, wordingMode }
+      : { ...input, description: input.description.trim() },
+  )
+  .pipe(reviewedEditWordings);
 export const attachUnassignedPlanInput = write
   .extend({ releaseId: id, expectedReleaseId: z.null() })
   .strict();
@@ -42,6 +67,49 @@ export const setCriterionVerdictInput = write
     criterionId: id,
     expectedCriterionRevision: hash,
     status: criterionVerdict,
+  })
+  .strict();
+// Client-generated identity belongs to this new criterion only; existing
+// criteria are never renumbered or cloned by these mutations.
+export const addGovernedCriterionInput = write
+  .extend({
+    criterionId: z.string().uuid(),
+    description: z
+      .string()
+      .min(1)
+      .max(2000)
+      .refine(
+        (value) => value.trim().length > 0,
+        "Criterion wording cannot be blank.",
+      ),
+    requirementId: id.nullable(),
+  })
+  .strict();
+export const deleteGovernedCriterionInput = write
+  .extend({
+    criterionId: id,
+    expectedCriterionRevision: hash,
+    expectedRequirementId: id.nullable(),
+  })
+  .strict();
+export const setGovernedCriterionRequirementInput = deleteGovernedCriterionInput
+  .extend({ requirementId: id.nullable() })
+  .strict();
+export const requirementChoiceInput = planGovernanceScopeInput
+  .extend({
+    search: z.string().trim().max(200).default(""),
+    cursor: id.optional(),
+    take: z.number().int().min(1).max(25).default(25),
+  })
+  .strict();
+export const requirementChoiceOutput = z
+  .object({
+    scope: caseFieldReadScopeSchema,
+    testPlanId: id,
+    choices: z
+      .array(z.object({ id, title: z.string().max(10000) }).strict())
+      .max(25),
+    nextCursor: id.nullable(),
   })
   .strict();
 export const governanceCriterionSnapshot = z
@@ -98,6 +166,9 @@ export const planGovernanceAck = z
       "EDIT_CRITERION_DESCRIPTION",
       "ATTACH_UNASSIGNED_PLAN",
       "SET_CRITERION_VERDICT",
+      "ADD_CRITERION",
+      "DELETE_CRITERION",
+      "SET_CRITERION_REQUIREMENT",
     ]),
     testPlanId: id,
     criterionId: id.nullable(),

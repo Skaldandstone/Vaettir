@@ -4,6 +4,11 @@ import {
   planGovernanceScopeInput,
   editCriterionDescriptionInput,
   setCriterionVerdictInput,
+  addGovernedCriterionInput,
+  deleteGovernedCriterionInput,
+  setGovernedCriterionRequirementInput,
+  requirementChoiceInput,
+  requirementChoiceOutput,
   attachUnassignedPlanInput,
   planGovernancePreviewOutput,
   planGovernanceAck,
@@ -14,10 +19,62 @@ import {
   previewPlanGovernance,
   editGovernedCriterionDescription,
   setGovernedCriterionVerdict,
+  addGovernedCriterion,
+  deleteGovernedCriterion,
+  setGovernedCriterionRequirement,
+  listGovernanceRequirementChoices,
   attachGovernedUnassignedPlan,
   listPlanGovernanceHistory,
 } from "../services/testPlanGovernance.js";
 export const testPlanGovernanceRouter = router({
+  addCriterion: protectedProcedure
+    .input(addGovernedCriterionInput)
+    .output(planGovernanceAck)
+    .mutation(async ({ ctx, input }) => {
+      await requireProjectAccess(ctx, input.projectId, "EDITOR");
+      const saved = await addGovernedCriterion(ctx.prisma, ctx.user.id, input, {
+        clerkActorId: ctx.user.clerkUserId,
+      });
+      if (!saved.replayed) refreshReleaseReadiness(ctx.prisma, saved.releaseId);
+      return saved;
+    }),
+  deleteCriterion: protectedProcedure
+    .input(deleteGovernedCriterionInput)
+    .output(planGovernanceAck)
+    .mutation(async ({ ctx, input }) => {
+      await requireProjectAccess(ctx, input.projectId, "EDITOR");
+      const saved = await deleteGovernedCriterion(
+        ctx.prisma,
+        ctx.user.id,
+        input,
+        { clerkActorId: ctx.user.clerkUserId },
+      );
+      if (!saved.replayed) refreshReleaseReadiness(ctx.prisma, saved.releaseId);
+      return saved;
+    }),
+  setCriterionRequirement: protectedProcedure
+    .input(setGovernedCriterionRequirementInput)
+    .output(planGovernanceAck)
+    .mutation(async ({ ctx, input }) => {
+      await requireProjectAccess(ctx, input.projectId, "EDITOR");
+      const saved = await setGovernedCriterionRequirement(
+        ctx.prisma,
+        ctx.user.id,
+        input,
+        { clerkActorId: ctx.user.clerkUserId },
+      );
+      if (!saved.replayed) refreshReleaseReadiness(ctx.prisma, saved.releaseId);
+      return saved;
+    }),
+  requirementChoices: protectedProcedure
+    .input(requirementChoiceInput)
+    .output(requirementChoiceOutput)
+    .query(async ({ ctx, input }) => {
+      await requireProjectAccess(ctx, input.projectId);
+      return listGovernanceRequirementChoices(ctx.prisma, ctx.user.id, input, {
+        clerkActorId: ctx.user.clerkUserId,
+      });
+    }),
   setCriterionVerdict: protectedProcedure
     .input(setCriterionVerdictInput)
     .output(planGovernanceAck)

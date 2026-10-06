@@ -407,6 +407,7 @@ export default function TestPlansPage() {
       <Drawer open={openPlanId !== null} onClose={() => setOpenPlanId(null)}>
         {openPlanId && (
           <TestPlanDetailContent
+            key={openPlanId}
             id={openPlanId}
             onChanged={invalidatePlans}
             readOnly={readOnly}

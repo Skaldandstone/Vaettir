@@ -13,6 +13,7 @@ import {
 import { useCaseFieldAccess } from "@/lib/use-case-field-access";
 import { Modal } from "./Modal";
 import { ProjectCasePresentation } from "./ProjectCasePresentation";
+import { reorderCaseFieldDraft } from "@/lib/case-field-order";
 type State = RouterOutputs["caseFields"]["get"];
 type Schema = State["schema"];
 const emptyField: Schema["fields"][number] = {
@@ -107,6 +108,19 @@ function FieldDefinitions({ projectId }: { projectId: string }) {
     setConfirmed(false);
     setSelected(-1);
     setField(emptyField);
+  }
+  function moveField(key: string, direction: "UP" | "DOWN") {
+    const original = access.origin;
+    if (busy || pending || !baseline || !fresh || fresh.expectedSchemaHash !== baseline.expectedSchemaHash || !access.canConfigure || !original || !access.owns(original, "configure")) return;
+    const ordered = reorderCaseFieldDraft(schema.fields, key, direction);
+    if (!ordered) return;
+    // Follow the stable key if its index moves; do not redirect an unfinished
+    // field edit to the definition which now occupies its old position.
+    const selectedKey = schema.fields[selected]?.key;
+    setSchema({ version: 1, fields: ordered });
+    if (selectedKey) setSelected(ordered.findIndex(value => value.key === selectedKey));
+    setImpact(null);
+    setConfirmed(false);
   }
   async function compare() {
     const original = access.origin;
@@ -379,14 +393,23 @@ function FieldDefinitions({ projectId }: { projectId: string }) {
                   fields.
                 </p>
                 <ul>
-                  {schema.fields.map((value) => (
+                  {schema.fields.map((value, index) => (
                     <li key={value.key}>
                       {value.label}: {value.type.toLowerCase()}
                       {value.required ? ", required" : ""}
                       {value.retired ? ", retired" : ""}
+                      <span style={{ display: "inline-flex", flexWrap: "wrap", gap: 6, marginInlineStart: 8 }}>
+                        <button type="button" className="btn-secondary" aria-label={`Move ${value.label} (${value.key}) up in field order`} disabled={index === 0 || busy || !!pending || !access.canConfigure || !access.origin || !access.owns(access.origin, "configure") || !fresh || fresh.expectedSchemaHash !== baseline.expectedSchemaHash} onClick={() => moveField(value.key, "UP")}>
+                          Up
+                        </button>
+                        <button type="button" className="btn-secondary" aria-label={`Move ${value.label} (${value.key}) down in field order`} disabled={index === schema.fields.length - 1 || busy || !!pending || !access.canConfigure || !access.origin || !access.owns(access.origin, "configure") || !fresh || fresh.expectedSchemaHash !== baseline.expectedSchemaHash} onClick={() => moveField(value.key, "DOWN")}>
+                          Down
+                        </button>
+                      </span>
                     </li>
                   ))}
                 </ul>
+                <p className="text-muted">Up and Down change this local display-order draft only, including retained retired definitions. Review impact and approve saving to apply it; no case values or choices are changed.</p>
                 <button
                   type="button"
                   className="btn-primary"

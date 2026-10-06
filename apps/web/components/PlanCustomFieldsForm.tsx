@@ -1,15 +1,23 @@
 "use client";
-import { useEffect, useState } from "react";
-import { describeRetainedPlanValue, finitePlanNumber, planCustomFields, removePlanField, removePlanStringRow, replacePlanField, replacePlanStringRow } from "@/lib/plan-custom-fields";
+import { useEffect, useId, useRef, useState } from "react";
+import { describeRetainedPlanValue, finitePlanNumber, planCustomFields, removePlanField, replacePlanField } from "@/lib/plan-custom-fields";
+import { editStrategyRow, removeStrategyRow, sameStrategyRowValues, strategyRows } from "@/lib/qa-strategy-fields";
 
 export function PlanStringListField({ label, hint, placeholder = "", values, onChange }: { label: string; hint: string; placeholder?: string; values: string[]; onChange: (values: string[]) => void }) {
+  const prefix = useId(), nextId = useRef(0);
+  const newId = () => `${prefix}:${nextId.current++}`;
+  const [rows, setRows] = useState(() => strategyRows(values, newId));
+  // Keep local identity for exact same-value echoes. A changed external snapshot
+  // gets new identities rather than guessing how duplicate rows were moved.
+  if (!sameStrategyRowValues(rows, values)) setRows(strategyRows(values, newId));
+  const change = (next: typeof rows) => { setRows(next); onChange(next.map(row => row.value)); };
   return <fieldset style={{ minWidth: 0 }}><legend>{label}</legend><p className="text-muted">{hint} Each row is one exact item. Empty rows, commas, line breaks and repeated text are preserved.</p>
-    {!values.length && <p className="text-muted">Empty list (zero rows).</p>}
-    {values.map((value, index) => <div key={index} style={{ display: "flex", gap: 6, marginBottom: 8, alignItems: "start" }}>
-      <label style={{ flex: 1, minWidth: 0 }}>{label} {index + 1}<textarea rows={2} value={value} placeholder={placeholder} style={{ width: "100%" }} onChange={event => onChange(replacePlanStringRow(values, index, event.target.value))} /></label>
-      <button type="button" className="btn-secondary" aria-label={`Remove ${label} row ${index + 1}`} onClick={() => onChange(removePlanStringRow(values, index))}>Remove</button>
+    {!rows.length && <p className="text-muted">Empty list (zero rows).</p>}
+    {rows.map((row, index) => <div key={row.id} style={{ display: "flex", gap: 6, marginBottom: 8, alignItems: "start" }}>
+      <label style={{ flex: 1, minWidth: 0 }}>{label} {index + 1}<textarea rows={2} value={row.value} placeholder={placeholder} style={{ width: "100%" }} onChange={event => change(editStrategyRow(rows, row.id, event.target.value))} /></label>
+      <button type="button" className="btn-secondary" aria-label={`Remove ${label} row ${index + 1}`} onClick={() => change(removeStrategyRow(rows, row.id))}>Remove</button>
     </div>)}
-    <button type="button" className="btn-secondary" onClick={() => onChange([...values, ""])}>Add {label} row</button>
+    <button type="button" className="btn-secondary" onClick={() => change([...rows, { id: newId(), value: "" }])}>Add {label} row</button>
   </fieldset>;
 }
 function FiniteNumberField({ label, value, onChange }: { label: string; value: number | undefined; onChange: (value: number) => void }) {

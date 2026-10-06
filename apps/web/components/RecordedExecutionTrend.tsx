@@ -8,6 +8,7 @@ import {
 } from "react";
 import { useAuth } from "@clerk/nextjs";
 import Link from "next/link";
+import { ManualRunDashboardSummary } from "./ManualRunDashboardSummary";
 import { trpcReact, type RouterOutputs } from "@/lib/trpcReact";
 import { DialogFrame } from "./ui/DialogFrame";
 import {
@@ -507,6 +508,11 @@ function ExecutionTrend({ projectId, active }: { projectId: string; active: bool
         </form>
       )}
       {message && <p role="status">{message}</p>}
+      <ManualRunDashboardSummary
+        active={active && sameOrigin && applied?.originalOrganizationId === origin?.organizationId}
+        scope={applied}
+        clerkActorId={userId ?? null}
+      />
       {sameOrigin && applied && (
         <label>
           Group recorded outcomes

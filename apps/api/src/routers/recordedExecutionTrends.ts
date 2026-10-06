@@ -10,7 +10,13 @@ import {
   readRecordedExecutionTrend,
   readRecordedExecutionTrendRuns,
 } from "../services/recordedExecutionTrend.js";
+import { readManualRunDashboard } from "../services/manualRunDashboard.js";
+import { manualRunDashboardInputSchema, manualRunDashboardOutputSchema } from "../services/manualRunDashboardSchema.js";
 export const recordedExecutionTrendsRouter = router({
+  manualSummary: protectedProcedure
+    .input(manualRunDashboardInputSchema)
+    .output(manualRunDashboardOutputSchema)
+    .query(({ ctx, input }) => readManualRunDashboard(ctx.prisma, ctx.user.id, ctx.user.clerkUserId, input)),
   summary: protectedProcedure
     .input(recordedExecutionTrendInput)
     .output(recordedExecutionTrendOutput)
