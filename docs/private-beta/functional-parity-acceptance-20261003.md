@@ -1757,3 +1757,37 @@ The next owned slice addresses fresh native reader/page authority and explicit
 export review rather than duplicating charts or treating an unsupported result
 as zero progress. Cross-project reporting remains a separate authorized-scope
 design question; no cross-tenant aggregation is inferred from these complaints.
+
+### October 6 step-resource reader and reviewed fixture source continuation
+
+The new `manualStepExecutionResources` namespace is registered as two protected
+read-only queries. History and the confirmed-project evidence picker require
+original project/run/case/step, organization, independently authenticated Clerk
+and native reader pins, an explicit limit and fresh read nonce. Native scalar
+count/UTF-8 bounds precede private row projections. Cursors bind the complete
+admitted population and frozen procedure; changed populations require an explicit
+refresh, not a silently substituted page. Exact NULL/empty notes, raw unknown
+observation/evidence metadata and original frozen step fields are retained.
+Version metadata is disclosure only: a stored version ID is not proof that the
+version was fetched, and absent/unsupported verification is not invented as an
+unversioned confirmed file. There is no signing, file-open, upload or provider
+operation in this namespace. The existing step panel has NOT yet been cut over;
+the additive browser reader/editor and mounted caller remain separate work.
+
+Root independently repeated 39 service/protected-router source/mock checks and
+16 reviewed-fixture helper pure/mock/source checks (55 passed across three files).
+The router tests check signed-out refusal, strict missing-pin/limit/extra-field
+refusal and use of independently authenticated context rather than client pins.
+These checks do not execute the authored PostgreSQL statements or inspect files.
+
+The whole-case native history fixture now authors current positive writes through
+actual reviewed access/preview/EXACT contracts. Historical v1 replay uses an
+explicit test-only synthetic seed with the original parsed wire/hash, not a new
+legacy application write. Exact loopback database routing, named opt-in, native
+synthetic owner checks and an empty result/head cohort precede seed work. Ordinary
+teardown disconnects and retains evidence; the owned hard-delete scenario has an
+additional destructive opt-in. All 15 native registrations remain AUTHORED NOT
+RUN. Earlier native erasure failures remain FAILED. Other mapped legacy native
+fixture call sites, actual concurrency/SQL/migrations/recovery, full runtime and
+image security, authenticated production and Windows/device acceptance remain
+open. Source checkpoints do not deploy this work or conclude parity.
