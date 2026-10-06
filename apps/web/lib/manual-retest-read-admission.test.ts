@@ -164,11 +164,17 @@ describe("native retest stable metadata admission", () => {
   });
   it("actual component binds admission separately while preserving fresh facts, retained requests and verified ACK gates", () => {
     const source = readFileSync(new URL("../components/ManualRetestWizard.tsx", import.meta.url), "utf8");
-    for (const literal of ["const metadataReadEnabled = readEnabled && actorReady", "{ enabled: metadataReadEnabled, staleTime: 0, retry: false, refetchOnMount: false }", "useRetestAccess(projectId, active, false, undefined, true)", "readEnabled = open", "readEnabled={open}", "useRetestAccess(projectId, active, true, expectedScope, readEnabled)", "const ready = active && !denied && !paused", "!project.error && !project.isFetching && !project.isPaused", "!organizations.error && !organizations.isFetching && !organizations.isPaused", "sameManualRetestScope(origin, current)", "active={active && canRetest && access.ready && access.canWrite && !linksDenied && !linksMismatch && !links.isPaused}", "enabled: active && access.ready", "const request = attempt ??", "verifiedManualRetestAck(request, result)", "if (definitive && !ambiguous && !unknown.current)", "Verified historical ACK is retained even after current UI scope changes"])
+    for (const literal of ["const metadataReadEnabled = readEnabled && actorReady", "{ enabled: metadataReadEnabled, staleTime: 0, retry: false, refetchOnMount: false }", "useRetestAccess(projectId,active,false,undefined,true)", "readEnabled=open", "readEnabled={open}", "useRetestAccess(projectId, active, true, expectedScope, readEnabled)", "const ready = active && !denied && !paused", "!project.error && !project.isFetching && !project.isPaused", "!organizations.error && !organizations.isFetching && !organizations.isPaused", "sameManualRetestScope(origin, current)", "active={active&&canRetest&&access.ready&&access.canWrite}", "legacyBlocked||!current()", "controller.submit(epoch,input=>mutation.mutateAsync(input),installedSession)", 'reader.read("LINKS")', "controller.publishConfirmed(installedSession(),epoch"])
       expect(source).toContain(literal);
-    const start = source.slice(source.indexOf("async function start()"), source.indexOf("return ("));
+    const start = source.slice(source.indexOf("async function start()"), source.indexOf("function readConfirmedLinks"));
     expect(start).not.toContain("setAttempt(null)");
-    expect(start.indexOf("verifiedManualRetestAck")).toBeLessThan(start.indexOf("setReceipt(result)"));
-    expect(start.indexOf("setReceipt(result)")).toBeLessThan(start.indexOf("void Promise.all"));
+    expect(start).not.toContain(".invalidate(");
+    const controller = readFileSync(new URL("./manual-retest-reviewed-controller.ts", import.meta.url), "utf8");
+    expect(controller).toContain("const held = this.pending ?? this.reviewed");
+    expect(controller).toContain("if (definitive && !held.ambiguous && !wasSubmitted)");
+    expect(controller).toContain("else held.ambiguous = true");
+    expect(controller.indexOf("verifiedReviewedRetestAck(held.envelope, response)")).toBeLessThan(controller.indexOf("this.known = { held, ack, published: false }"));
+    expect(controller).toContain('s!.projection === "LINKS"');
+    expect(controller).toContain("r.testRunId === this.known!.ack.testRunId");
   });
 });

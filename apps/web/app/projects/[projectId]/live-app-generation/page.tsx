@@ -14,6 +14,10 @@ import {
 } from "@/lib/deviceConnectorLauncher";
 import { createDeviceConnectionGeneration, revokeDeviceConnection, beginDeviceConnection, currentDeviceConnection, registerDeviceConnectionRequest } from "@/lib/device-connector-connection";
 import { DEVICE_HELPER_HEALTH_URL, deviceHelperHealthResponseRefusal, readDeviceHelperHealthResponse } from "@/lib/device-helper-health-response";
+import { createInstalledHelperSdk } from "@/lib/use-device-helper-setup";
+import { DeviceCapturePublicationOwner, capturePublicationRefusal, type CapturePublicationFrame } from "@/lib/device-capture-publication-lease";
+import { captureJsonContentCost, fitsCaptureRetainedContent, retainCaptureJson } from "@/lib/device-capture-ownership";
+import { ownedDeviceSemanticCapture } from "../../../../../api/src/services/deviceCaptureAccessSchema";
 import { canEditProject } from "@/lib/membership";
 import {
   trpcReact,
@@ -35,6 +39,42 @@ type AndroidDevice = {
 };
 
 const CONNECTOR_URL = "http://127.0.0.1:4774";
+const CAPTURE_DISPATCH_GAP = "Device capture is unavailable: this helper has no implemented foreground-app verification or scoped capture/processing-consent admission. Paired liveness and workspace metadata do not grant that permission. No device request was made; existing values are retained.";
+type CaptureClientScope = Readonly<{ projectId: string; organizationId: string; clerkActorId: string; sessionId: string; sdkGeneration: number; uiEpoch: number; connectionEpoch: number; mode: CaptureMode }>;
+type RetainedLiveValue = Readonly<{ scope: CaptureClientScope; kind: "CAPTURE" | "DRAFTS" | "FILE_TEXT" | "COMMIT_LABEL"; value: unknown; cost: { bytes: number; nodes: number } }>;
+type ScopedCommitLabel = Readonly<{ scope: CaptureClientScope; label: Readonly<{ title: string }> }>;
+type CapturePageOwnership = { sdkInstalled: boolean; sdkIdentity: string; observers: Set<() => void>; epoch: number; connectionEpoch: number;
+  read: { projectId: string; organizationId: string | undefined; actor: ReturnType<typeof useAuth>; helperActorAllowed: boolean; captureMode: CaptureMode; startUrl: string; screenLabel: string; deviceSerial: string; appiumUrl: string; appiumSessionId: string; pairingCode: string };
+  owner: DeviceCapturePublicationOwner | null; captureScope: CaptureClientScope | null; draftScope: CaptureClientScope | null; currentDrafts: readonly Draft[] | null; retained: RetainedLiveValue[]; commitLabels: ScopedCommitLabel[];
+  importIntent: number; generationIntent: number; commitIntent: number; generateBusy: boolean; commitBusy: boolean };
+/** Imperative mounted ownership, separate from React presentation state. */
+class LiveCapturePageOwnership {
+  private state: CapturePageOwnership;
+  constructor(read: CapturePageOwnership["read"]) { this.state = { sdkInstalled: false, sdkIdentity: "", observers: new Set(), epoch: 0, connectionEpoch: 0,
+    read, owner: null, captureScope: null, draftScope: null, currentDrafts: null, retained: [], commitLabels: [], importIntent: 0, generationIntent: 0, commitIntent: 0, generateBusy: false, commitBusy: false }; }
+  get read() { return this.state.read; } get sdkInstalled() { return this.state.sdkInstalled; } get sdkIdentity() { return this.state.sdkIdentity; }
+  get epoch() { return this.state.epoch; } get connectionEpoch() { return this.state.connectionEpoch; } get observers() { return this.state.observers; }
+  get owner() { return this.state.owner; } get captureScope() { return this.state.captureScope; } get draftScope() { return this.state.draftScope; }
+  get retained() { return this.state.retained; } get importIntent() { return this.state.importIntent; } get generationIntent() { return this.state.generationIntent; }
+  get commitLabels() { return this.state.commitLabels; }
+  get currentDrafts() { return this.state.currentDrafts; }
+  get commitIntent() { return this.state.commitIntent; } get generateBusy() { return this.state.generateBusy; } get commitBusy() { return this.state.commitBusy; }
+  bind(read: CapturePageOwnership["read"]) { this.state.read = read; }
+  bindDrafts(drafts: readonly Draft[] | null) { this.state.currentDrafts = drafts; }
+  setInstalled(value: boolean) { this.state.sdkInstalled = value; }
+  setConnectionEpoch(value: number) { this.state.connectionEpoch = value; }
+  sdkChanged(identity: string) { if (identity === this.state.sdkIdentity) return false; this.state.sdkIdentity = identity; this.invalidate(); return true; }
+  invalidate() { this.state.epoch++; this.state.owner?.update(null); }
+  updateInput(patch: Partial<CapturePageOwnership["read"]>) { this.invalidate(); this.state.read = { ...this.state.read, ...patch }; }
+  setOwner(owner: DeviceCapturePublicationOwner) { this.state.owner = owner; }
+  setCaptureScope(scope: CaptureClientScope) { this.state.captureScope = scope; }
+  setDraftScope(scope: CaptureClientScope) { this.state.draftScope = scope; }
+  beginImport() { return ++this.state.importIntent; }
+  beginGeneration() { this.state.generateBusy = true; return ++this.state.generationIntent; }
+  settleGeneration() { this.state.generateBusy = false; }
+  beginCommit() { this.state.commitBusy = true; return ++this.state.commitIntent; }
+  settleCommit() { this.state.commitBusy = false; }
+}
 
 // SSE-181: deliberately its own page, not folded into /reverse-engineer or
 // the shared /test-cases/review queue - there's no prior test to diff a
@@ -75,26 +115,86 @@ export default function LiveAppGenerationPage() {
   const [deviceSerial, setDeviceSerial] = useState("");
   const [appiumUrl, setAppiumUrl] = useState("http://127.0.0.1:4723");
   const [appiumSessionId, setAppiumSessionId] = useState("");
-  const [capturing, setCapturing] = useState(false);
+  const [capturing] = useState(false);
   const [generating, setGenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [drafts, setDrafts] = useState<Draft[] | null>(null);
+  const [drafts, setDrafts] = useState<readonly Draft[] | null>(null);
   const [scannedUrl, setScannedUrl] = useState<string | null>(null);
-  const [committedTitles, setCommittedTitles] = useState<string[]>([]);
+  const [committedTitles] = useState<string[]>([]);
+  // Legacy labels have no original scope attribution. Retain them privately;
+  // a later eligible draft must never reveal or relabel that historical list.
+  void committedTitles;
   const [busyIndex, setBusyIndex] = useState<number | null>(null);
   const connectionAttemptRef = useRef(createDeviceConnectionGeneration());
   const discoveryAttemptRef = useRef(0);
   const [manualSetupOpen, setManualSetupOpen] = useState(false);
   const [manualSetupRevealed, setManualSetupRevealed] = useState(false);
   const [helperMetadataCancellationEpoch, setHelperMetadataCancellationEpoch] = useState(0);
+  const [captureSdk] = useState(() => createInstalledHelperSdk());
+  const [, setCaptureSdkRevision] = useState(0);
+  const [capturePage] = useState(() => new LiveCapturePageOwnership({ projectId, organizationId: helperOrganizationId, actor, helperActorAllowed, captureMode, startUrl, screenLabel, deviceSerial, appiumUrl, appiumSessionId, pairingCode }));
+  capturePage.bind({ projectId, organizationId: helperOrganizationId, actor, helperActorAllowed, captureMode, startUrl, screenLabel, deviceSerial, appiumUrl, appiumSessionId, pairingCode });
+  capturePage.bindDrafts(drafts);
+  function currentCaptureClientScope(): CaptureClientScope | null {
+    const read = capturePage.read, sdkSession = captureSdk.current();
+    if (!capturePage.sdkInstalled || !read.helperActorAllowed || !read.organizationId || !read.actor.isLoaded || !read.actor.isSignedIn ||
+      !read.actor.userId || !read.actor.sessionId || sdkSession?.userId !== read.actor.userId || sdkSession.sessionId !== read.actor.sessionId) return null;
+    return { projectId: read.projectId, organizationId: read.organizationId, clerkActorId: read.actor.userId, sessionId: read.actor.sessionId,
+      sdkGeneration: captureSdk.generation(), uiEpoch: capturePage.epoch, connectionEpoch: connectionAttemptRef.current.epoch, mode: read.captureMode };
+  }
+  function ownsCaptureClientScope(scope: CaptureClientScope | null): boolean { const current = currentCaptureClientScope(); return !!scope && !!current && JSON.stringify(scope) === JSON.stringify(current); }
+  function captureInputFrameKey(): string { const read = capturePage.read; return JSON.stringify([read.projectId, read.organizationId, read.captureMode,
+    read.startUrl, read.screenLabel, read.deviceSerial, read.appiumUrl, read.appiumSessionId, read.pairingCode]); }
+  function updateCaptureInput(patch: Partial<Pick<typeof capturePage.read, "captureMode" | "startUrl" | "screenLabel" | "deviceSerial" | "appiumUrl" | "appiumSessionId">>) {
+    if (!currentCaptureClientScope()) return;
+    capturePage.updateInput(patch);
+    if (patch.captureMode !== undefined) setCaptureMode(patch.captureMode);
+    if (patch.startUrl !== undefined) setStartUrl(patch.startUrl);
+    if (patch.screenLabel !== undefined) setScreenLabel(patch.screenLabel);
+    if (patch.deviceSerial !== undefined) setDeviceSerial(patch.deviceSerial);
+    if (patch.appiumUrl !== undefined) setAppiumUrl(patch.appiumUrl);
+    if (patch.appiumSessionId !== undefined) setAppiumSessionId(patch.appiumSessionId);
+  }
+  function retainLiveValue<T>(scope: CaptureClientScope, kind: RetainedLiveValue["kind"], value: T): Readonly<T> | null {
+    try {
+      const cost = captureJsonContentCost({ scope, kind, value });
+      if (capturePage.retained.length >= 100 || !fitsCaptureRetainedContent([...capturePage.retained.map(item => item.cost), cost])) return null;
+      const copy = retainCaptureJson(value); capturePage.retained.push({ scope, kind, value: copy, cost }); return copy;
+    } catch { return null; }
+  }
+  function currentCaptureFrame(): CapturePublicationFrame | null {
+    const scope = currentCaptureClientScope(), read = capturePage.read;
+    if (!scope || scope.mode === "web") return null;
+    return { origin: { projectId: scope.projectId, organizationId: scope.organizationId, clerkActorId: scope.clerkActorId },
+      active: currentDeviceConnection(connectionAttemptRef.current, scope.connectionEpoch), readable: read.helperActorAllowed,
+      session: { userId: scope.clerkActorId, sessionId: scope.sessionId }, connection: { epoch: scope.connectionEpoch, pairingCode: read.pairingCode },
+      selection: scope.mode === "android" ? { mode: scope.mode, serial: read.deviceSerial } : { mode: scope.mode, appiumUrl: read.appiumUrl, appiumSessionId: read.appiumSessionId }, screenLabel: read.screenLabel };
+  }
+  // Independent installed SDK listener, not the metadata card's cached view.
+  // Revoke publication before any cleanup/reentrant listener or next paint.
+  const captureSdkResource = typeof window === "undefined" ? null : window.Clerk;
   useLayoutEffect(() => {
     const connection = connectionAttemptRef.current;
     revokeDeviceConnection(connection, { active: helperActorAllowed });
+    capturePage.setConnectionEpoch(connection.epoch);
     // Revoke requests and stale/private setup display before the next paint.
     setConnectorStatus(current => current === "blocked" ? "blocked" : "idle");
     setDiscoveringDevices(false); setManualSetupOpen(false); setManualSetupRevealed(false);
-    return () => { revokeDeviceConnection(connection, { active: false }); };
-  }, [projectId, captureMode, pairingCode, readOnly, actor.isLoaded, actor.isSignedIn, actor.userId, actor.sessionId, helperReadFresh, helperOrganizationId, helperActorAllowed]);
+    return () => { revokeDeviceConnection(connection, { active: false }); capturePage.setConnectionEpoch(connection.epoch); };
+  }, [capturePage, projectId, captureMode, pairingCode, readOnly, actor.isLoaded, actor.isSignedIn, actor.userId, actor.sessionId, helperReadFresh, helperOrganizationId, helperActorAllowed]);
+  useLayoutEffect(() => {
+    capturePage.setInstalled(true);
+    const observe = () => {
+      const identity = JSON.stringify({ generation: captureSdk.generation(), session: captureSdk.current() });
+      if (!capturePage.sdkChanged(identity)) return;
+      capturePage.observers.forEach(callback => callback());
+      revokeDeviceConnection(connectionAttemptRef.current, { active: helperActorAllowed });
+      capturePage.setConnectionEpoch(connectionAttemptRef.current.epoch);
+      setCaptureSdkRevision(value => value + 1);
+    };
+    const unsubscribe = captureSdk.subscribe(observe); observe();
+    return () => { capturePage.setInstalled(false); capturePage.invalidate(); capturePage.observers.forEach(callback => callback()); unsubscribe(); };
+  }, [capturePage, captureSdk, captureSdkResource, helperActorAllowed]);
 
   useEffect(() => {
     if (!eligibleActor || pairingOrigin || pairingCode) return;
@@ -114,62 +214,66 @@ export default function LiveAppGenerationPage() {
   const commitMutation = trpcReact.liveAppGeneration.commitDraft.useMutation();
 
   async function generate() {
+    const scope = currentCaptureClientScope();
+    if (!scope || capturePage.generateBusy) return;
+    const mode = scope.mode, url = capturePage.read.startUrl, captured = deviceCapture;
+    if (mode !== "web" && (!captured || !ownsCaptureClientScope(capturePage.captureScope))) return;
+    const intent = capturePage.beginGeneration();
     setGenerating(true);
     setError(null);
-    setDrafts(null);
-    setCommittedTitles([]);
+    // Presentation retention only. Existing paid mutation/receipt/recovery
+    // contracts are unchanged and are NOT cleared by a client scope guard.
     try {
       const res =
-        captureMode === "web"
-          ? await generateMutation.mutateAsync({ projectId, startUrl })
+        mode === "web"
+          ? await generateMutation.mutateAsync({ projectId: scope.projectId, startUrl: url })
           : await generateDeviceMutation.mutateAsync({
-              projectId,
-              capture: deviceCapture as DeviceCapture,
+              projectId: scope.projectId,
+              capture: captured as DeviceCapture,
             });
-      setDrafts(res);
-      setScannedUrl(
-        captureMode === "web"
-          ? startUrl
-          : `${deviceCapture?.appName ?? "App"} on ${deviceCapture?.deviceName ?? "device"}`,
-      );
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      const retained = retainLiveValue(scope, "DRAFTS", res);
+      if (!retained) {
+        if (ownsCaptureClientScope(scope) && capturePage.generationIntent === intent) setError("The complete generated result could not be retained. Earlier drafts remain private; no retry or paid outcome was inferred.");
+        return;
+      }
+      if (!ownsCaptureClientScope(scope) || capturePage.generationIntent !== intent) return;
+      capturePage.setDraftScope(scope);
+      setDrafts(previous => ownsCaptureClientScope(scope) && capturePage.generationIntent === intent ? retained : previous);
+      setScannedUrl(previous => ownsCaptureClientScope(scope) && capturePage.generationIntent === intent ? mode === "web" ? url : `${captured?.appName ?? "App"} on ${captured?.deviceName ?? "device"}` : previous);
+    } catch {
+      if (ownsCaptureClientScope(scope) && capturePage.generationIntent === intent) setError("Generation did not return a confirmed current result. Earlier drafts remain retained; paid request recovery is not implemented by this presentation guard.");
     } finally {
-      setGenerating(false);
+      capturePage.settleGeneration();
+      setGenerating(previous => ownsCaptureClientScope(scope) && capturePage.generationIntent === intent ? false : previous);
     }
   }
 
   async function selectCapture(file: File | undefined) {
+    const scope = currentCaptureClientScope(), intent = capturePage.beginImport();
+    if (!scope) return;
+    const inputFrame = captureInputFrameKey();
     setError(null);
-    setDeviceCapture(null);
     if (!file) return;
     try {
-      const capture = JSON.parse(await file.text()) as DeviceCapture;
-      if (
-        capture.version !== 1 ||
-        !Array.isArray(capture.screens) ||
-        capture.screens.length === 0
-      ) {
-        throw new Error("This is not a Vaettir device-capture manifest.");
-      }
+      if (!Number.isSafeInteger(file.size) || file.size < 1 || file.size > 8388608) throw Error("unsupported");
+      const text = await file.text();
+      if (!retainLiveValue(scope, "FILE_TEXT", text)) throw Error("unsupported");
+      const raw: unknown = JSON.parse(text); captureJsonContentCost(raw);
+      const parsed = ownedDeviceSemanticCapture.safeParse(raw); if (!parsed.success) throw Error("unsupported");
+      const capture = parsed.data;
       const expectedSource =
-        captureMode === "android"
+        scope.mode === "android"
           ? "ANDROID_ADB"
-          : captureMode === "ios-connected"
+          : scope.mode === "ios-connected"
             ? "IOS_CONNECTED"
             : "IOS_REMOTE";
-      if (capture.source !== expectedSource) {
-        throw new Error(
-          `This file reports ${capture.source}; the selected source expects ${expectedSource}.`,
-        );
-      }
-      setDeviceCapture(capture);
-    } catch (captureError) {
-      setError(
-        captureError instanceof Error
-          ? captureError.message
-          : "Could not read the capture file.",
-      );
+      const retained = retainLiveValue(scope, "CAPTURE", capture);
+      if (scope.mode === "web" || capture.source !== expectedSource || !retained) throw Error("unsupported");
+      if (!ownsCaptureClientScope(scope) || capturePage.importIntent !== intent || inputFrame !== captureInputFrameKey()) return;
+      capturePage.setCaptureScope(scope);
+      setDeviceCapture(previous => ownsCaptureClientScope(scope) && capturePage.importIntent === intent && inputFrame === captureInputFrameKey() ? retained : previous);
+    } catch {
+      if (ownsCaptureClientScope(scope) && capturePage.importIntent === intent && inputFrame === captureInputFrameKey()) setError("The complete selected capture file was refused or unavailable. Previous captures/drafts remain retained. This does not verify foreground targeting or approve AI processing.");
     }
   }
 
@@ -197,9 +301,7 @@ export default function LiveAppGenerationPage() {
       } & T;
       if (attempt !== undefined && !currentDeviceConnection(connectionAttemptRef.current, attempt)) throw new DOMException("Connection request was superseded.", "AbortError");
       if (!response.ok) {
-        throw new Error(
-          payload.error || `Connector returned HTTP ${response.status}.`,
-        );
+        throw new Error("The local helper request did not return a confirmed result. The response body was not exposed; any local operation outcome remains unverified.");
       }
       return payload;
     } finally {
@@ -233,6 +335,7 @@ export default function LiveAppGenerationPage() {
     if (!helperActorAllowed) return;
     const attempt = beginDeviceConnection(connectionAttemptRef.current);
     if (attempt === null) return;
+    capturePage.setConnectionEpoch(attempt);
     setDiscoveringDevices(false); setManualSetupOpen(false); setManualSetupRevealed(false);
     setConnectorStatus("connecting");
     setError(null);
@@ -289,6 +392,7 @@ export default function LiveAppGenerationPage() {
     // Abort this page's health/discovery too, without attributing retained
     // captures or paid drafts to a newly reviewed identity or claiming they stopped.
     revokeDeviceConnection(connectionAttemptRef.current, { blocked: true });
+    capturePage.setConnectionEpoch(connectionAttemptRef.current.epoch);
     discoveryAttemptRef.current++;
     setHelperMetadataCancellationEpoch(current => current + 1);
     setConnectorStatus("blocked"); setDiscoveringDevices(false); setError(null);
@@ -306,79 +410,63 @@ export default function LiveAppGenerationPage() {
     if (!helperActorAllowed || connectorStatus !== "connected" || !currentDeviceConnection(connectionAttemptRef.current, attempt)) return;
     setError(null);
     try { await discoverAndroidDevices(attempt); }
-    catch (deviceError) { if (currentDeviceConnection(connectionAttemptRef.current, attempt)) setError(deviceError instanceof Error ? deviceError.message : "Android device discovery failed."); }
+    catch { if (currentDeviceConnection(connectionAttemptRef.current, attempt)) setError("Device discovery did not return a confirmed current list. Previous device choices remain retained; no target permission was inferred."); }
   }
 
   async function captureCurrentScreen() {
-    setCapturing(true);
-    setError(null);
-    try {
-      const response = await connectorRequest<{ capture: DeviceCapture }>(
-        "/capture",
-        {
-          method: "POST",
-          body: JSON.stringify({
-            source: captureMode,
-            label: screenLabel.trim() || undefined,
-            serial:
-              captureMode === "android"
-                ? deviceSerial.trim() || undefined
-                : undefined,
-            appiumUrl: captureMode === "android" ? undefined : appiumUrl.trim(),
-            sessionId:
-              captureMode === "android" ? undefined : appiumSessionId.trim(),
-          }),
-        },
-      );
-      setDeviceCapture((current) => {
-        if (!current) return response.capture;
-        if (
-          current.source !== response.capture.source ||
-          current.deviceName !== response.capture.deviceName
-        ) {
-          return response.capture;
-        }
-        return {
-          ...current,
-          capturedAt: response.capture.capturedAt,
-          appName: response.capture.appName ?? current.appName,
-          screens: [...current.screens, ...response.capture.screens].slice(
-            0,
-            25,
-          ),
-        };
-      });
-      setScreenLabel("");
-    } catch (captureError) {
-      setError(
-        captureError instanceof Error
-          ? captureError.message
-          : "Device capture failed.",
-      );
-    } finally {
-      setCapturing(false);
+    const scope = currentCaptureClientScope(), frame = currentCaptureFrame();
+    if (!scope || !frame) return;
+    if (!capturePage.owner) {
+      const sdk = { current: () => capturePage.sdkInstalled ? captureSdk.current() : null, generation: () => captureSdk.generation(),
+        subscribe: (observe: () => void) => { capturePage.observers.add(observe); return () => { capturePage.observers.delete(observe); }; } };
+      try { capturePage.setOwner(new DeviceCapturePublicationOwner(frame.origin, sdk, currentCaptureFrame,
+        [deviceCapture, drafts].filter(value => value !== null))); } catch { setError(capturePublicationRefusal); return; }
     }
+    capturePage.owner?.update(frame);
+    // The v2 helper/access DTOs explicitly provide no foreground-target or
+    // scoped processing-consent admission. Do NOT fabricate a boolean grant,
+    // infer it from a connection/read, or dispatch merely to test the lease.
+    // Actual native target/consent proof is a separate required cutover gate.
+    setError(previous => ownsCaptureClientScope(scope) ? CAPTURE_DISPATCH_GAP : previous);
   }
 
   async function commit(index: number) {
     const draft = drafts?.[index];
-    if (!draft) return;
+    const scope = currentCaptureClientScope(), originalDrafts = drafts;
+    if (!draft || !scope || !ownsCaptureClientScope(capturePage.draftScope) || capturePage.currentDrafts !== originalDrafts || capturePage.commitBusy || capturePage.commitLabels.length >= 100 || !retainLiveValue(scope, "DRAFTS", originalDrafts)) return;
+    const label = retainLiveValue(scope, "COMMIT_LABEL", { title: draft.title });
+    if (!label) return;
+    const intent = capturePage.beginCommit();
     setBusyIndex(index);
     setError(null);
     try {
-      await commitMutation.mutateAsync({ projectId, ...draft });
-      setCommittedTitles((prev) => [...prev, draft.title]);
-      setDrafts((prev) => (prev ? prev.filter((_, i) => i !== index) : prev));
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      await commitMutation.mutateAsync({ projectId: scope.projectId, ...draft });
+      if (ownsCaptureClientScope(scope) && capturePage.commitIntent === intent && capturePage.currentDrafts === originalDrafts) capturePage.commitLabels.push({ scope, label });
+      setDrafts(prev => ownsCaptureClientScope(scope) && capturePage.commitIntent === intent && prev === originalDrafts ? prev?.filter(value => value !== draft) ?? prev : prev);
+    } catch {
+      if (ownsCaptureClientScope(scope) && capturePage.commitIntent === intent) setError("Saving did not return a confirmed current response. The original draft remains retained; this guard does not supply paid/native request recovery.");
     } finally {
-      setBusyIndex(null);
+      capturePage.settleCommit();
+      setBusyIndex(previous => ownsCaptureClientScope(scope) && capturePage.commitIntent === intent ? null : previous);
     }
   }
 
   function discard(index: number) {
-    setDrafts((prev) => (prev ? prev.filter((_, i) => i !== index) : prev));
+    const scope = currentCaptureClientScope(), original = drafts;
+    if (!scope || !ownsCaptureClientScope(capturePage.draftScope) || !original || !retainLiveValue(scope, "DRAFTS", original)) return;
+    setDrafts(previous => ownsCaptureClientScope(scope) && previous === original ? previous.filter((_, i) => i !== index) : previous);
   }
+
+  const presentationSession = captureSdk.current();
+  const presentationScope: CaptureClientScope | null = capturePage.sdkInstalled && helperActorAllowed && helperOrganizationId && actor.userId && actor.sessionId &&
+    presentationSession?.userId === actor.userId && presentationSession.sessionId === actor.sessionId ?
+    { projectId, organizationId: helperOrganizationId, clerkActorId: actor.userId, sessionId: actor.sessionId, sdkGeneration: captureSdk.generation(),
+      uiEpoch: capturePage.epoch, connectionEpoch: capturePage.connectionEpoch, mode: captureMode } : null;
+  const captureInputsAllowed = presentationScope !== null;
+  const presentedCapture = presentationScope && JSON.stringify(presentationScope) === JSON.stringify(capturePage.captureScope) ? deviceCapture : null;
+  const presentedDrafts = presentationScope && JSON.stringify(presentationScope) === JSON.stringify(capturePage.draftScope) ? drafts : null;
+  const presentedScannedUrl = presentedDrafts ? scannedUrl : null;
+  const presentedCommittedTitles = presentationScope ? capturePage.commitLabels.filter(entry => JSON.stringify(entry.scope) === JSON.stringify(presentationScope)).map(entry => entry.label.title) : [];
 
   return (
     <div>
@@ -439,11 +527,7 @@ export default function LiveAppGenerationPage() {
                 key={mode}
                 type="button"
                 className={captureMode === mode ? "active" : ""}
-                onClick={() => {
-                  setCaptureMode(mode);
-                  setDeviceCapture(null);
-                  setError(null);
-                }}
+                onClick={() => updateCaptureInput({ captureMode: mode })}
               >
                 {label}
               </button>
@@ -468,8 +552,9 @@ export default function LiveAppGenerationPage() {
                   rejected)
                 </span>
                 <input
-                  value={startUrl}
-                  onChange={(event) => setStartUrl(event.target.value)}
+                  value={captureInputsAllowed ? startUrl : ""}
+                  disabled={!captureInputsAllowed}
+                  onChange={(event) => updateCaptureInput({ startUrl: event.target.value })}
                   placeholder="https://your-staging-app.example.com"
                   style={{ width: "100%" }}
                 />
@@ -587,12 +672,12 @@ export default function LiveAppGenerationPage() {
                               : "Downloading does not start checks or discover devices. Open the reviewed launcher only if policy permits, then choose Check paired response."}
                         </span>
                       </div>
-                      {!helperActorAllowed && <p role="status">Current loaded, signed-in original-account/organization access with freshly completed protected project/member reads and a full editor seat is required. Private pairing draft and device selections remain retained but hidden; no connection/download/discovery retry is authorized. Local health is not server authorization or device acceptance.</p>}
+                      {!captureInputsAllowed && <p role="status">Original independent session/project/workspace access is not current. Private pairing, selections, captures and paid drafts remain retained but hidden. Setup metadata and paired liveness do not approve device/source processing.</p>}
                       {connectorStatus === "blocked" && <div role="status"><DeviceHelperBlockedLaunchGuidance reportedBlocked={true} /><p>Your private pairing draft remains retained. Reporting this did not launch a helper, change policy or perform device capture. Signed trusted distribution and actual Windows/device acceptance remain separate.</p><button type="button" className="btn-secondary" onClick={showPolicyPermittedManualSetup}>Show manual instructions only if policy permits</button></div>}
                       <details open={manualSetupOpen} onToggle={event => setManualSetupOpen(event.currentTarget.open)}>
                         <summary>Manual setup and troubleshooting</summary>
                         <div style={{ display: "grid", gap: 8, marginTop: 8 }}>
-                          {!helperActorAllowed || connectorStatus === "blocked" && !manualSetupRevealed ? <p>Pairing code and private setup command are hidden. Restore the original account/full seat and review device policy first, then explicitly choose “Show manual instructions only if policy permits.” This alternative is not a bypass or permission grant.</p> : <>
+                          {!captureInputsAllowed || connectorStatus === "blocked" && !manualSetupRevealed ? <p>Pairing code and private setup command are hidden. Restore the original account/full seat and review device policy first, then explicitly choose “Show manual instructions only if policy permits.” This alternative is not a bypass or permission grant.</p> : <>
                           <span className="text-muted" style={{ fontSize: 13 }}>
                             Pairing code:{" "}
                             <code>{pairingCode || "Preparing..."}</code>
@@ -663,18 +748,18 @@ export default function LiveAppGenerationPage() {
                             <label style={{ flex: 1 }}>
                               Android device
                               <select
-                                value={helperActorAllowed ? deviceSerial : ""}
+                                value={captureInputsAllowed ? deviceSerial : ""}
                                 onChange={(event) =>
-                                  setDeviceSerial(event.target.value)
+                                  updateCaptureInput({ deviceSerial: event.target.value })
                                 }
                                 disabled={
-                                  !helperActorAllowed || connectorStatus !== "connected" ||
+                                  !captureInputsAllowed || connectorStatus !== "connected" ||
                                   discoveringDevices
                                 }
                                 style={{ width: "100%" }}
                               >
                                 <option value="">
-                                  {!helperActorAllowed
+                                  {!captureInputsAllowed
                                     ? "Restore original account/project access"
                                     : discoveringDevices
                                     ? "Looking for devices..."
@@ -682,7 +767,7 @@ export default function LiveAppGenerationPage() {
                                       ? "No device found"
                                       : "Choose a device"}
                                 </option>
-                                {(helperActorAllowed ? androidDevices : []).map((device) => (
+                                {(captureInputsAllowed ? androidDevices : []).map((device) => (
                                   <option
                                     key={device.id}
                                     value={device.id}
@@ -699,14 +784,14 @@ export default function LiveAppGenerationPage() {
                               className="btn-secondary"
                               onClick={() => void refreshAndroidDevices()}
                               disabled={
-                                !helperActorAllowed || connectorStatus !== "connected" ||
+                                !captureInputsAllowed || connectorStatus !== "connected" ||
                                 discoveringDevices
                               }
                             >
                               Refresh
                             </button>
                           </div>
-                          {helperActorAllowed && androidDevices.some(
+                          {captureInputsAllowed && androidDevices.some(
                             (device) => device.status === "unauthorized",
                           ) && (
                             <span
@@ -730,28 +815,28 @@ export default function LiveAppGenerationPage() {
                           <label>
                             Appium server
                             <input
-                              value={helperActorAllowed ? appiumUrl : ""}
+                              value={captureInputsAllowed ? appiumUrl : ""}
                               onChange={(event) =>
-                                setAppiumUrl(event.target.value)
+                                updateCaptureInput({ appiumUrl: event.target.value })
                               }
                               placeholder={
                                 captureMode === "ios-remote"
                                   ? "https://provider.example/wd/hub"
                                   : "http://127.0.0.1:4723"
                               }
-                              disabled={!helperActorAllowed || connectorStatus !== "connected"}
+                              disabled={!captureInputsAllowed || connectorStatus !== "connected"}
                               style={{ width: "100%" }}
                             />
                           </label>
                           <label>
                             Active session ID
                             <input
-                              value={helperActorAllowed ? appiumSessionId : ""}
+                              value={captureInputsAllowed ? appiumSessionId : ""}
                               onChange={(event) =>
-                                setAppiumSessionId(event.target.value)
+                                updateCaptureInput({ appiumSessionId: event.target.value })
                               }
                               placeholder="Appium session ID"
-                              disabled={!helperActorAllowed || connectorStatus !== "connected"}
+                              disabled={!captureInputsAllowed || connectorStatus !== "connected"}
                               style={{ width: "100%" }}
                             />
                           </label>
@@ -760,12 +845,12 @@ export default function LiveAppGenerationPage() {
                       <label>
                         Screen name
                         <input
-                          value={screenLabel}
+                          value={captureInputsAllowed ? screenLabel : ""}
                           onChange={(event) =>
-                            setScreenLabel(event.target.value)
+                            updateCaptureInput({ screenLabel: event.target.value })
                           }
                           placeholder="For example: Sign in, Cart, Checkout"
-                          disabled={connectorStatus !== "connected"}
+                          disabled={!captureInputsAllowed || connectorStatus !== "connected"}
                           style={{ width: "100%" }}
                         />
                       </label>
@@ -773,6 +858,7 @@ export default function LiveAppGenerationPage() {
                         type="button"
                         onClick={() => void captureCurrentScreen()}
                         disabled={
+                          !captureInputsAllowed ||
                           connectorStatus !== "connected" ||
                           capturing ||
                           (captureMode === "android" && !deviceSerial) ||
@@ -784,18 +870,19 @@ export default function LiveAppGenerationPage() {
                           ? "Capturing current screen…"
                           : "Capture current screen"}
                       </button>
+                      <p role="status" className="text-muted">{CAPTURE_DISPATCH_GAP}</p>
                     </div>
                   </section>
                 </div>
-                {deviceCapture && (
+                {presentedCapture && (
                   <div className="status-panel success">
                     <strong>
-                      {deviceCapture.deviceName}: {deviceCapture.screens.length}{" "}
+                      {presentedCapture.deviceName}: {presentedCapture.screens.length}{" "}
                       screen
-                      {deviceCapture.screens.length === 1 ? "" : "s"} ready
+                      {presentedCapture.screens.length === 1 ? "" : "s"} imported (foreground unverified)
                     </strong>
                     <span>
-                      {deviceCapture.screens
+                      {presentedCapture.screens
                         .map((screen) => screen.label)
                         .join(" · ")}
                     </span>
@@ -819,8 +906,8 @@ export default function LiveAppGenerationPage() {
             <button
               onClick={generate}
               disabled={
-                generating ||
-                (captureMode === "web" ? !startUrl.trim() : !deviceCapture)
+                !captureInputsAllowed || generating ||
+                (captureMode === "web" ? !startUrl.trim() : !presentedCapture)
               }
             >
               {generating
@@ -833,14 +920,14 @@ export default function LiveAppGenerationPage() {
 
           {error && <p style={{ color: "var(--ember)" }}>{error}</p>}
 
-          {committedTitles.length > 0 && (
+          {presentedDrafts && presentedCommittedTitles.length > 0 && (
             <p style={{ color: "var(--frost)" }}>
-              Saved {committedTitles.length} test case(s) as pending review:{" "}
-              {committedTitles.join(", ")}
+              Saved {presentedCommittedTitles.length} test case(s) as pending review:{" "}
+              {presentedCommittedTitles.join(", ")}
             </p>
           )}
 
-          {drafts && drafts.length === 0 && committedTitles.length === 0 && (
+          {presentedDrafts && presentedDrafts.length === 0 && presentedCommittedTitles.length === 0 && (
             <p className="text-muted">
               No uncovered or demonstrably stale cases were found. The capture
               may be fully covered, or it may not contain enough evidence to
@@ -848,14 +935,14 @@ export default function LiveAppGenerationPage() {
             </p>
           )}
 
-          {drafts && drafts.length > 0 && (
+          {presentedDrafts && presentedDrafts.length > 0 && (
             <div style={{ marginTop: 24 }}>
-              <h2>Drafts from {scannedUrl}</h2>
+              <h2>Drafts from {presentedScannedUrl}</h2>
               <p className="text-muted" style={{ fontSize: 13 }}>
                 Nothing is saved yet. Commit each draft you want to keep, or
                 discard it.
               </p>
-              {drafts.map((draft, i) => (
+              {presentedDrafts.map((draft, i) => (
                 <div
                   key={`${draft.title}-${i}`}
                   style={{

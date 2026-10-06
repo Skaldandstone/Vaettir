@@ -13,13 +13,12 @@ test("one selected retest stays mounted independently of conditional history row
   assert.ok(history.includes("An unconfirmed request must first recover its receipt"));
 });
 test("inactive retest hides native/private bodies and guards review/start without clearing exact request", () => {
-  for (const literal of ["active = true", "open={open && active}", "if (!active || !open || busy || attempt || receipt)",
-    "if (!active || !open || !preview || !approved || busy || receipt || rejected)", "const request = attempt ??", "setAttempt(request)",
-    "Current history access is unavailable", "const metadataReadEnabled = readEnabled && actorReady", "{ enabled: metadataReadEnabled, staleTime: 0, retry: false, refetchOnMount: false }", "const ready = active && !denied && !paused", "readEnabled={open}", "active={active && canRetest && access.ready && access.canWrite && !linksDenied && !linksMismatch && !links.isPaused}"])
+  for (const literal of ["active=true", "open={open&&active}", "if(legacyBlocked||!current())return", "const legacyHeld=attempt??retainedLegacyAttempt", "setAttempt(captureLegacyRequest(retainedLegacyAttempt))",
+    "Private evidence, links and actions are hidden", "const metadataReadEnabled = readEnabled && actorReady", "{ enabled: metadataReadEnabled, staleTime: 0, retry: false, refetchOnMount: false }", "const ready = active && !denied && !paused", "readEnabled={open}", "active={active&&canRetest&&access.ready&&access.canWrite}"])
     assert.ok(retest.includes(literal), literal);
-  assert.ok(retest.indexOf("!active ? <p") < retest.indexOf("{receipt ?"));
-  const closedGuard = retest.search(/<\/>\}\r?\n {4}<\/Modal>/);
-  assert.ok(closedGuard > retest.indexOf("{receipt ?"));
+  assert.ok(retest.indexOf("!view.readable?<section>") < retest.indexOf("{view.known?<section>"));
+  assert.ok(retest.includes("controller.view().readable&&open&&active"));
+  assert.ok(!retest.includes("setAttempt(null)"));
   assert.ok(!retest.includes("if (!active) setAttempt(null)"));
   assert.ok(history.includes("reloading does not preserve local state"));
 });

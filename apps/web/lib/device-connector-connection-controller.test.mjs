@@ -19,8 +19,10 @@ const healthResponse = healthModule.exports;
 const source = readFileSync(new URL("../app/projects/[projectId]/live-app-generation/page.tsx", import.meta.url), "utf8"), ast = ts.createSourceFile("connection.tsx", source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX), printer = ts.createPrinter();
 const page = ast.statements.find(node => ts.isFunctionDeclaration(node) && node.name?.text === "LiveAppGenerationPage");
 const names = ["connectorRequest", "discoverAndroidDevices", "connectToDeviceConnector", "downloadConnectorLauncher", "cancelHelperSetupChecks", "reportBlockedWindowsHelper", "showPolicyPermittedManualSetup", "refreshAndroidDevices"];
+const ownershipClass = ast.statements.find(node => ts.isClassDeclaration(node) && node.name?.text === "LiveCapturePageOwnership");
+assert.ok(ownershipClass, "Use actual mounted connection-epoch ownership, not a readiness stub");
 const handlers = page.body.statements.filter(node => ts.isFunctionDeclaration(node) && names.includes(node.name?.text)).map(node => printer.printNode(ts.EmitHint.Unspecified, node, ast)).join("\n");
-const compiled = ts.transpileModule(handlers, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.None } }).outputText;
+const compiled = ts.transpileModule(printer.printNode(ts.EmitHint.Unspecified, ownershipClass, ast) + "\n" + handlers, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.None } }).outputText;
 function deferred() { let resolve, reject; const promise = new Promise((a, b) => { resolve = a; reject = b; }); return { promise, resolve, reject }; }
 function harness() {
   const requests = [], writes = [], downloads = [], timers = new Map(); let timerId = 0;
@@ -38,6 +40,7 @@ function harness() {
   };
   for (const key of Object.keys(state)) h[`set${key[0].toUpperCase()}${key.slice(1)}`] = value => { const next = typeof value === "function" ? value(state[key]) : value; state[key] = next; h[key] = next; writes.push([key, next]); };
   Object.assign(h, state); vm.createContext(h); vm.runInContext(compiled, h);
+  vm.runInContext('capturePage = new LiveCapturePageOwnership({ projectId: "synthetic-project", organizationId: "synthetic-org", actor: { isLoaded: true, isSignedIn: true, userId: "synthetic-original", sessionId: "synthetic-session-A" }, helperActorAllowed: true, captureMode, startUrl: "", screenLabel: "", deviceSerial, appiumUrl: "", appiumSessionId: "", pairingCode });', h);
   const reply = (index, payload, ok = true, overrides = {}) => {
     const bytes = new TextEncoder().encode(JSON.stringify(payload)); let delivered = false;
     const reader = { read: async () => delivered ? { done: true, value: undefined } : (delivered = true, { done: false, value: bytes }), cancel: async () => { reader.canceled = true; }, releaseLock: () => { reader.released = true; } };
@@ -128,7 +131,7 @@ test("scope/unmount generation revocation prevents manual health result and devi
   assert.equal(host.state.connectorStatus, "connecting"); assert.equal(host.requests.length, 1); assert.equal(host.requests[0].options.signal.aborted, true);
   assert.match(source, /const connection = connectionAttemptRef.current/);
   assert.match(source, /return \(\) => \{ revokeDeviceConnection\(connection, \{ active: false \}\)/);
-  assert.match(source, /\[projectId, captureMode, pairingCode, readOnly, actor.isLoaded, actor.isSignedIn, actor.userId, actor.sessionId, helperReadFresh, helperOrganizationId, helperActorAllowed\]/);
+  assert.match(source, /\[capturePage, projectId, captureMode, pairingCode, readOnly, actor.isLoaded, actor.isSignedIn, actor.userId, actor.sessionId, helperReadFresh, helperOrganizationId, helperActorAllowed\]/);
 });
 test("actual loaded/seat/session activation revokes pending health on session loss and keeps original pairing private", async () => {
   const host = harness(), activate = scopeActivation(host); let cleanup = activate(); const task = host.h.connectToDeviceConnector();
@@ -214,9 +217,10 @@ test("actual blocked setup markup hides pairing/code and raw download until an e
   function visit(node) { if (ts.isJsxElement(node) && node.openingElement.tagName.getText(ast) === "details" && node.openingElement.getText(ast).includes("manualSetupOpen")) details = node; ts.forEachChild(node, visit); } visit(page);
   assert.ok(details);
   const jsx = printer.printNode(ts.EmitHint.Unspecified, details, ast), code = ts.transpileModule(`function SetupFixture(){ return (${jsx}); }`, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.None, jsx: ts.JsxEmit.React } }).outputText;
-  const h = { React, connectorStatus: "blocked", manualSetupOpen: false, manualSetupRevealed: false, pairingCode: "ABCDEF123456", helperActorAllowed: true, setManualSetupOpen() {} }; vm.createContext(h); vm.runInContext(code, h);
+  const h = { React, connectorStatus: "blocked", manualSetupOpen: false, manualSetupRevealed: false, pairingCode: "ABCDEF123456", helperActorAllowed: true, captureInputsAllowed: true, setManualSetupOpen() {} }; vm.createContext(h); vm.runInContext(code, h);
   let html = renderToStaticMarkup(React.createElement(h.SetupFixture)); assert.ok(!html.includes("ABCDEF123456")); assert.ok(!html.includes("Download raw connector")); assert.match(html, /Pairing code and private setup command are hidden/);
   h.manualSetupRevealed = true; h.manualSetupOpen = true; html = renderToStaticMarkup(React.createElement(h.SetupFixture)); assert.match(html, /ABCDEF123456/); assert.match(html, /only if your policy permits/); assert.ok(!html.includes("Unblock-File"));
+  h.captureInputsAllowed = false; assert.ok(!renderToStaticMarkup(React.createElement(h.SetupFixture)).includes("ABCDEF123456"));
   h.helperActorAllowed = false; assert.ok(!renderToStaticMarkup(React.createElement(h.SetupFixture)).includes("ABCDEF123456"));
   const host = harness(); host.h.reportBlockedWindowsHelper(); host.h.showPolicyPermittedManualSetup(); assert.equal(host.requests.length, 0); assert.equal(host.state.manualSetupOpen, true); assert.equal(host.state.manualSetupRevealed, true); assert.equal(host.state.connectorStatus, "blocked");
 });

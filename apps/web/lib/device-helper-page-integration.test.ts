@@ -7,11 +7,20 @@ import ts from "typescript";
 import React from "react";
 import { expect, it, vi } from "vitest";
 import { createDeviceConnectionGeneration, revokeDeviceConnection } from "./device-connector-connection";
+import { currentSessionScope } from "./auth-query-cache";
 
 const source = readFileSync(new URL("../app/projects/[projectId]/live-app-generation/page.tsx", import.meta.url), "utf8");
 const ast = ts.createSourceFile("page.tsx", source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
 const declaration = ast.statements.find((node): node is ts.FunctionDeclaration => ts.isFunctionDeclaration(node) && node.name?.text === "LiveAppGenerationPage")!;
-const code = ts.transpileModule(ts.createPrinter().printNode(ts.EmitHint.Unspecified, declaration, ast).replace("export default ", "") + "\nthis.page = LiveAppGenerationPage;", {
+const printer = ts.createPrinter();
+const ownershipClass = ast.statements.find(node => ts.isClassDeclaration(node) && node.name?.text === "LiveCapturePageOwnership");
+if (!ownershipClass) throw Error("Actual mounted ownership class is required");
+const sdkSource = readFileSync(new URL("./use-device-helper-setup.ts", import.meta.url), "utf8"), sdkAst = ts.createSourceFile("sdk.ts", sdkSource, ts.ScriptTarget.Latest, true);
+const sdkDeclarations = sdkAst.statements.filter(node => ts.isFunctionDeclaration(node) && !!node.name && ["helperResource", "currentHelperSetupSession", "createInstalledHelperSdk"].includes(node.name.text))
+  .map(node => printer.printNode(ts.EmitHint.Unspecified, node, sdkAst).replace(/\bexport\s+/g, "")).join("\n");
+// Execute the actual source dependencies without installing a synthetic ready
+// SDK. Effects remain deliberately unrun, so private capture admission is absent.
+const code = ts.transpileModule(sdkDeclarations + "\n" + printer.printNode(ts.EmitHint.Unspecified, ownershipClass, ast) + "\n" + printer.printNode(ts.EmitHint.Unspecified, declaration, ast).replace("export default ", "") + "\nthis.page = LiveAppGenerationPage;", {
   compilerOptions: { module: ts.ModuleKind.None, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.React },
 }).outputText;
 type Element = React.ReactElement<Record<string, unknown>>;
@@ -37,7 +46,7 @@ function harness() {
   const mutate = vi.fn(), network = vi.fn(() => { throw new Error("No helper network in caller fixture"); });
   const makePairing = vi.fn(() => { throw new Error("No pairing generation in caller fixture"); });
   const context = vm.createContext({
-    React, CONNECTOR_URL: "http://127.0.0.1:4774",
+    React, CONNECTOR_URL: "http://127.0.0.1:4774", currentSessionScope,
     useParams: () => ({ projectId: "synthetic-project" }), useReadOnlySeat: () => readOnly, useAuth: () => actor,
     canEditProject: () => !readOnly, createDeviceConnectionGeneration, revokeDeviceConnection,
     DeviceHelperSetupStatus: Card, DeviceHelperBlockedLaunchGuidance: () => null,

@@ -1,37 +1,27 @@
 "use client";
-
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useAuth } from "@clerk/nextjs";
 import { Modal } from "./Modal";
-import {
-  trpcReact,
-  type RouterInputs,
-  type RouterOutputs,
-} from "@/lib/trpcReact";
-import { verifiedManualRetestAck, verifiedManualRetestRead, sameManualRetestScope } from "@/lib/manual-retest-scope-ack";
+import { trpcReact, type RouterInputs, type RouterOutputs } from "@/lib/trpcReact";
+import { sameManualRetestScope } from "@/lib/manual-retest-scope-ack";
 import type { ManualRetestExpectedScope } from "@vaettir/api/src/services/manualRetestScopeSchema";
-
-type Preview = RouterOutputs["manualRetest"]["preview"];
-type Start = RouterInputs["manualRetest"]["start"];
-const link = (projectId: string, runId: string) =>
-  `/projects/${encodeURIComponent(projectId)}/test-runs/manual/${encodeURIComponent(runId)}`;
-const labels: Record<string, string> = {
-  configuration: "Configuration / variant",
-  platform: "Platform / device",
-  build: "Build / revision",
-  environment: "Environment",
-  hardwareRevision: "Hardware revision",
-  firmwareVersion: "Firmware version",
-  rig: "Rig",
-  batchOrLot: "Batch / lot",
-  calibrationReference: "Calibration reference",
-  protocolReference: "Protocol reference",
-  setup: "Setup",
-  safety: "Safety",
-  instruments: "Instruments",
-  acceptanceCriteria: "Acceptance criteria",
-};
-
+import { useManualRetestReviewedAccess } from "@/lib/use-manual-retest-reviewed-access";
+import { ManualRetestReviewedController, type ReviewedRetestView } from "@/lib/manual-retest-reviewed-controller";
+import { currentSessionScope } from "@/lib/auth-query-cache";
+import type { ManualRunCurrentOrigin } from "@/lib/manual-run-current-reader";
+import { inspectRetestWire } from "@/lib/manual-retest-reviewed-read";
+type Preview=RouterOutputs["manualRetest"]["previewReviewed"]["preview"];
+type Start=RouterInputs["manualRetest"]["start"];
+const link=(p:string,r:string)=>`/projects/${encodeURIComponent(p)}/test-runs/manual/${encodeURIComponent(r)}`;
+const labels:Record<string,string>={configuration:"Configuration / variant",platform:"Platform / device",build:"Build / revision",environment:"Environment",hardwareRevision:"Hardware revision",firmwareVersion:"Firmware version",rig:"Rig",batchOrLot:"Batch / lot",calibrationReference:"Calibration reference",protocolReference:"Protocol reference",setup:"Setup",safety:"Safety",instruments:"Instruments",acceptanceCriteria:"Acceptance criteria"};
+function installedSession(){return typeof window==="undefined"?null:currentSessionScope(window.Clerk?.loaded?window.Clerk.session:null);}
+function captureLegacyRequest(request:Readonly<Start>){
+ try { inspectRetestWire(request,8192,true);const copy=structuredClone(request);if(copy.expectedScope)Object.freeze(copy.expectedScope);return Object.freeze(copy); }
+ catch { return request; /* Unsupported opaque intent is held, never sent or displayed. */ }
+}
+// Private waiting frames cannot publish authority. Their epoch churn alone
+// must not create a render/layout loop while the native read is in flight.
+function sameView(a:ReviewedRetestView|null,b:ReviewedRetestView){return !!a&&(Object.keys(b) as Array<keyof ReviewedRetestView>).every(k=>k==="epoch"&&!a.readable&&!b.readable||a[k]===b[k]);}
 /** Local origin never silently rebases, even if both actors/organizations can read this project. */
 function useRetestAccess(projectId: string, active: boolean, editor: boolean, pinnedScope?: ManualRetestExpectedScope | null, readEnabled = active) {
   const { isLoaded, isSignedIn, userId } = useAuth();
@@ -73,26 +63,15 @@ function useRetestAccess(projectId: string, active: boolean, editor: boolean, pi
   return { ready, paused, denied, origin, canWrite, refresh };
 }
 
-export function ManualRetestWizard({
-  projectId,
-  sourceRunId,
-  testCaseId,
-  open,
-  onClose,
-  active = true,
-  readEnabled = open,
-  onRetainedRequestChange,
-  expectedScope,
-}: {
-  projectId: string;
-  sourceRunId: string;
-  testCaseId: string;
-  open: boolean;
-  onClose: () => void;
-  active?: boolean;
-  readEnabled?: boolean;
-  onRetainedRequestChange?: (retained: boolean) => void;
-  expectedScope?: ManualRetestExpectedScope | null;
+
+
+/** Compatibility owner shell: original hook/state order stays intact. The
+ * legacy mutation handle is INERT (no mutate/fetch/invalidate path). Current N
+ * is never assigned to an old submission. Old in-flight captured callback code
+ * and hot-reload persistence are separate, unproved runtime boundaries. */
+export function ManualRetestWizard({projectId,sourceRunId,testCaseId,open,onClose,active=true,readEnabled=open,onRetainedRequestChange,expectedScope,parentRunScope,parentCurrent,parentActivation,retainedLegacyAttempt}:{
+ projectId:string;sourceRunId:string;testCaseId:string;open:boolean;onClose:()=>void;active?:boolean;readEnabled?:boolean;onRetainedRequestChange?:(retained:boolean)=>void;expectedScope?:ManualRetestExpectedScope|null;
+ parentRunScope?:ManualRunCurrentOrigin|null;parentCurrent?:(()=>boolean)|null;parentActivation?:string;retainedLegacyAttempt?:Readonly<Start>|null;
 }) {
   const utils = trpcReact.useUtils();
   const mutation = trpcReact.manualRetest.start.useMutation();
@@ -113,145 +92,99 @@ export function ManualRetestWizard({
   const [accessRejected, setAccessRejected] = useState(false);
   const unknown = useRef(false), openNow = useRef(open && active);
   useLayoutEffect(() => { openNow.current = open && active; }, [open, active]);
-  useEffect(() => { onRetainedRequestChange?.(busy || Boolean(attempt && !receipt && !rejected)); }, [busy, attempt, receipt, rejected, onRetainedRequestChange]);
-  async function review() {
-    if (!active || !open || busy || attempt || receipt) return;
-    if (!access.ready || !access.origin) return;
-    if (accessRejected) return;
-    const request = { projectId, sourceRunId, testCaseId, expectedScope: access.origin };
-    onRetainedRequestChange?.(true);
-    setBusy(true);
-    setError(null);
-    try {
-      const result = await utils.manualRetest.preview.fetch(request, { staleTime: 0 });
-      if (!accessNow.current.ready || !openNow.current || !sameManualRetestScope(request.expectedScope, accessNow.current.origin)) {
-        setError("Current access or the open review changed while loading. Retained evidence was not replaced; recheck the original scope."); return;
-      }
-      if (!verifiedManualRetestRead(request, result) || result.projectId !== projectId || result.sourceRunId !== sourceRunId || result.testCaseId !== testCaseId)
-        throw Error("The exact retest preview scope could not be verified. No approval baseline was replaced.");
-      setPreview(result);
-      setApproved(false);
-    } catch (e) {
-      if (["UNAUTHORIZED", "FORBIDDEN", "NOT_FOUND"].includes((e as { data?: { code?: string } }).data?.code ?? "")) setAccessRejected(true);
-      setError(
-        e instanceof Error
-          ? e.message
-          : "Original evidence could not be reviewed. Nothing was started.",
-      );
-    } finally {
-      setBusy(false);
-    }
-  }
-  async function start() {
-    if (!active || !open || !preview || !approved || busy || receipt || rejected) return;
-    if (!access.ready || !access.origin) return;
-    if (accessRejected) return;
-    const request = attempt ?? {
-      projectId,
-      sourceRunId,
-      testCaseId,
-      expectedReviewHash: preview.reviewHash,
-      idempotencyKey: crypto.randomUUID(),
-      expectedScope: access.origin,
-    };
-    if (!sameManualRetestScope(request.expectedScope, access.origin)) { setError("Restore the exact original actor and organization before retrying. This request was not rebound."); return; }
-    setAttempt(request);
-    onRetainedRequestChange?.(true);
-    setBusy(true);
-    setError(null);
-    try {
-      const result = await mutation.mutateAsync(request);
-      if (!await verifiedManualRetestAck(request, result)) {
-        unknown.current = true; setAmbiguous(true); setError("The retest acknowledgement did not prove this exact scoped request and deterministic run. Keep and retry the same UUID; no receipt was substituted."); return;
-      }
-      // Verified historical ACK is retained even after current UI scope changes;
-      // factual rendering remains gated. A refresh failure cannot resubmit it.
-      setReceipt(result); unknown.current = false; setAmbiguous(false); setRejected(false);
-      void Promise.all([
-        Promise.resolve().then(() => utils.manualRetest.links.invalidate({ projectId, sourceRunId, testCaseId })),
-        Promise.resolve().then(() => utils.caseExecutionHistory.list.invalidate({ projectId, testCaseId })),
-      ]).catch(() => setRefreshNotice("Retest creation is confirmed, but refreshing current history or links failed. Recheck access and refresh those views; do not submit the accepted request again."));
-    } catch (e) {
-      const code = (e as { data?: { code?: string } }).data?.code;
-      if (["UNAUTHORIZED", "FORBIDDEN", "NOT_FOUND"].includes(code ?? "")) setAccessRejected(true);
-      const definitive = [
-        "BAD_REQUEST",
-        "CONFLICT",
-        "FORBIDDEN",
-        "NOT_FOUND",
-        "UNAUTHORIZED",
-      ].includes(code ?? "");
-      if (definitive && !ambiguous && !unknown.current) setRejected(true);
-      else { unknown.current = true; setAmbiguous(true); }
-      setError(
-        e instanceof Error
-          ? e.message
-          : "The retest response is unknown. Retry this same request to recover its receipt.",
-      );
-    } finally {
-      setBusy(false);
-    }
-  }
-  return (
-    <Modal
-      open={open && active}
-      onClose={onClose}
-      title="Retest this execution"
-      size="wide"
-      dismissible={!busy}
-    >
-      {!active ? <p role="status">Current history access is unavailable. The exact retained retest request and review remain mounted; private evidence and actions are hidden.</p>
-      : !access.ready || accessRejected ? <section><p role={access.denied || accessRejected ? "alert" : "status"}>{access.paused ? "Waiting for a connection to verify the original retest actor and organization." : "Current original actor, organization and full-editor access must be verified. Private evidence and actions are hidden; the exact request and local approval remain retained."}</p><button type="button" className="btn-secondary" onClick={async () => { if (await access.refresh()) setAccessRejected(false); }}>Recheck original retest access</button></section> : <>
-      {error && (
-        <p
-          role="alert"
-          style={{ color: "var(--ember)", overflowWrap: "anywhere" }}
-        >
-          {error}
-        </p>
-      )}
-      {receipt ? (
-        <section>
-          <h3>Separate retest ready</h3>
-          <p role="status">
-            {receipt.recovered
-              ? "Recovered the existing retest"
-              : "Created one new retest"}
-            . Original evidence is retained. No previous Pass or result was
-            copied.
-          </p>
-          {refreshNotice && <p role="alert">{refreshNotice}</p>}
-          <a className="btn-primary" href={link(projectId, receipt.testRunId)}>
-            Open retest run
-          </a>
-          <p>
-            A later Pass is a separate execution, not proof that a linked defect
-            was fixed.
-          </p>
-          <button type="button" className="btn-secondary" onClick={onClose}>
-            Close
-          </button>
-        </section>
-      ) : !preview ? (
-        <section>
-          <h3>Review the original Failed or Blocked result</h3>
-          <p>
-            This creates a separate manual run using exactly the original frozen
-            procedure, configuration and prerequisites. Current case edits are
-            not substituted. Prerequisites must pass again in the new run.
-          </p>
-          <p>No AI credits are used. No test is executed automatically.</p>
-          <button
-            type="button"
-            className="btn-primary"
-            disabled={busy}
-            onClick={() => void review()}
-          >
-            {busy ? "Loading original evidence…" : "Review retest"}
-          </button>
-        </section>
-      ) : (
-        <section>
+  useEffect(() => { if(busy||attempt||receipt||retainedLegacyAttempt)onRetainedRequestChange?.(true); }, [busy, attempt, receipt, rejected, onRetainedRequestChange, retainedLegacyAttempt]);
+
+  // Keep every old owner slot, including prior approvals and ambiguous markers,
+  // without displaying, altering, normalizing or clearing their private bodies.
+  void [utils,mutation,accessNow,preview,setPreview,setAttempt,setReceipt,approved,setApproved,error,setError,ambiguous,setAmbiguous,rejected,setRejected,refreshNotice,setRefreshNotice,accessRejected,setAccessRejected,setBusy,unknown,openNow];
+  if(!attempt&&retainedLegacyAttempt)setAttempt(captureLegacyRequest(retainedLegacyAttempt));
+  const held=attempt??retainedLegacyAttempt;
+  return <>
+    {(held||receipt||busy)&&<Modal open={open&&active} onClose={onClose} title="Retained earlier retest" size="wide" dismissible={!busy}><p role="status">An earlier retest request remains held unchanged in this mounted owner. Its original native submission pin is not available to this reviewed protocol. Current access does not invent that historical provenance. No replacement UUID or request will be sent.</p><p>Legacy recovery requires a separately verified compatibility path; the stored body stays withheld. Reloading does not recover local intent.</p></Modal>}
+    {/* Never evict an existing reviewed UNKNOWN if an explicit legacy handoff
+        arrives. Both private owners stay mounted; no conflicting start occurs. */}
+    <ReviewedRetestWizard projectId={projectId} sourceRunId={sourceRunId} testCaseId={testCaseId} open={open} onClose={onClose} active={active&&access.ready&&!held&&!receipt&&!busy} readEnabled={readEnabled} onRetainedRequestChange={onRetainedRequestChange} expectedScope={expectedScope===undefined?access.origin:expectedScope} parentRunScope={parentRunScope} parentCurrent={parentCurrent} parentActivation={parentActivation}/>
+  </>;
+}
+/** Hold earlier attempts without automatic adoption of current native pins.
+ * Route-away/reload/hot-reload recovery is not a persistence guarantee. */
+export function ReviewedRetestWizard({projectId,sourceRunId,testCaseId,open,onClose,active=true,readEnabled=open,onRetainedRequestChange,expectedScope,parentRunScope,parentCurrent,parentActivation,retainedLegacyAttempt}:{
+ projectId:string;sourceRunId:string;testCaseId:string;open:boolean;onClose:()=>void;active?:boolean;readEnabled?:boolean;onRetainedRequestChange?:(retained:boolean)=>void;expectedScope?:ManualRetestExpectedScope|null;
+ parentRunScope?:ManualRunCurrentOrigin|null;parentCurrent?:(()=>boolean)|null;parentActivation?:string;retainedLegacyAttempt?:Readonly<Start>|null;
+}){
+ const access=useRetestAccess(projectId,active,true,expectedScope,readEnabled);
+ // These legacy owner slots are never cleared, rebased or resent. Explicit
+ // caller handoff can retain a body, but current ACCESS cannot migrate it.
+ const [attempt,setAttempt]=useState<Start|null>(null),[receipt]=useState<RouterOutputs["manualRetest"]["start"]|null>(null);
+ if(!attempt&&retainedLegacyAttempt)setAttempt(captureLegacyRequest(retainedLegacyAttempt));
+ const legacyHeld=attempt??retainedLegacyAttempt,legacyBlocked=!!legacyHeld||!!receipt;
+ const reader=useManualRetestReviewedAccess(projectId,sourceRunId,testCaseId,{active:open&&active&&access.ready,organizationId:expectedScope===null?null:expectedScope?.organizationId??access.origin?.organizationId,parentRunScope,parentCurrent,parentActivation});
+ const mutation=trpcReact.manualRetest.startReviewed.useMutation();
+ const [,setPublished]=useState<ReviewedRetestView|null>(null);
+ const [controller]=useState(()=>new ManualRetestReviewedController(next=>setPublished(old=>sameView(old,next)?old:next)));
+ const [approval,setApproval]=useState<string|null>(null);
+ const readCurrent=reader.current;
+ const snapshot=readCurrent(),frame=useMemo(()=>({snapshot,current:readCurrent,open,active:active&&access.ready}),[snapshot,readCurrent,open,active,access.ready]);
+ const view=controller.renderView(frame),epoch=view.epoch;
+ useLayoutEffect(()=>{controller.attach();return()=>controller.detach();},[controller]);
+ useLayoutEffect(()=>{controller.bind(frame);},[controller,frame]);
+ const current=useCallback(()=>!!snapshot&&reader.current()===snapshot&&controller.view().epoch===epoch&&controller.view().readable&&open&&active,[snapshot,reader,controller,epoch,open,active]);
+ const retained=legacyBlocked||view.busy||view.reviewed||view.pending||view.known&&(!view.receipt||view.canPublish);
+ useEffect(()=>{if(current())onRetainedRequestChange?.(retained);},[retained,onRetainedRequestChange,current]);
+ const preview=view.readable&&snapshot&&"preview" in snapshot.data?snapshot.data.preview:null,confirmed=current()?view.receipt:null;
+ function refresh(){if(!controller.view().busy)reader.refresh();}
+ function readEvidence(){if(!legacyBlocked&&current()&&!controller.view().busy)reader.read("PREVIEW");}
+ async function approve(checked:boolean){
+  if(legacyBlocked||!current()||controller.view().busy||controller.view().pending||controller.view().known)return;
+  if(!checked){setApproval(null);return;}
+  if(controller.view().canSubmit){setApproval(snapshot!.data.readContext.requestId);return;}
+  if(!preview||!snapshot||!controller.view().canReview)return;
+  onRetainedRequestChange?.(true);
+  if(!current())return;
+  const request:Start={projectId,sourceRunId,testCaseId,expectedScope:{projectId:snapshot.origin.projectId,organizationId:snapshot.origin.organizationId,clerkActorId:snapshot.origin.clerkActorId},expectedReviewHash:preview.reviewHash,idempotencyKey:crypto.randomUUID()};
+  if(await controller.review(request,installedSession,epoch)&&current())setApproval(snapshot.data.readContext.requestId);
+ }
+ async function start(){
+  if(legacyBlocked||!current())return;
+  const state=controller.view();
+  if(!state.canRetry&&(approval!==snapshot?.data.readContext.requestId||!state.canSubmit))return;
+  onRetainedRequestChange?.(true);
+  await controller.submit(epoch,input=>mutation.mutateAsync(input),installedSession);
+  // No after-await navigation, implicit LINKS adoption or cache invalidation.
+ }
+ function readConfirmedLinks(){if(!legacyBlocked&&current()&&controller.view().known&&!controller.view().busy)reader.read("LINKS");}
+ function openConfirmed(){
+  if(legacyBlocked||!current())return;
+  controller.publishConfirmed(installedSession(),epoch,known=>{
+   if(reader.current()!==snapshot||!active||!open)return;
+   onRetainedRequestChange?.(false);
+   if(reader.current()===snapshot)window.location.assign(link(projectId,known.testRunId));
+  });
+ }
+ return <Modal open={open&&active} onClose={onClose} title="Retest this execution" size="wide" dismissible={!view.busy}>
+  {legacyBlocked?<section><p role="status">An earlier retest request remains held unchanged in this mounted owner. Its original native submission pin is not available to this reviewed protocol. Current access does not invent that historical provenance. No replacement UUID or request will be sent.</p><p>Legacy recovery requires a separately verified compatibility path; the stored body stays withheld. Reloading does not recover local intent.</p></section>
+  :!view.readable?<section><p role="status">{reader.loading?"Verifying current native retest access…":"Current original native actor, organization and session must be explicitly verified. Private evidence, links and actions are hidden; local requests stay retained."}</p>{reader.error&&<p role="alert">The complete current read could not be admitted. Nothing was clipped or substituted.</p>}<button type="button" className="btn-secondary" disabled={view.busy} onClick={refresh}>Recheck original retest access</button></section>
+  :<section>
+   {view.error&&<p role="alert" style={{color:"var(--ember)",overflowWrap:"anywhere"}}>{view.error}</p>}
+   {view.known?<section><h3>Retest receipt retained</h3><p role="status">The identical request has a verified receipt. It will not be submitted again. Current links must independently contain its target before opening it.</p>
+    {confirmed?<><p>{confirmed.recovered?"Recovered the existing retest":"Created one separate retest"}. Earlier evidence stays separate.</p><button type="button" className="btn-primary" disabled={!view.canPublish} onClick={openConfirmed}>Open verified retest run</button><p>A later Pass is a separate execution, not proof that a defect was fixed.</p></>:<p>Current relationships have not verified the retained target. Its identifier and historical body remain withheld.</p>}
+    <button type="button" className="btn-secondary" disabled={view.busy} onClick={readConfirmedLinks}>Read current links for confirmed retest</button>
+   </section>
+   :<><h3>Review the original Failed or Blocked execution</h3><p>A supported current FULL-editor preview is required. ACCESS proves only project membership, not start or recovery authority. One separate run uses captured procedures and prerequisites. No AI credits or automatic execution.</p>
+    {!preview?<button type="button" className="btn-primary" disabled={view.busy||reader.loading} onClick={readEvidence}>Review original retest evidence</button>
+    :<><ManualRetestEvidence preview={preview} projectId={projectId} sourceRunId={sourceRunId} testCaseId={testCaseId} canNavigate={current}/>
+     <label style={{display:"flex",alignItems:"flex-start",gap:8,margin:"16px 0"}}><input type="checkbox" checked={approval===snapshot?.data.readContext.requestId} disabled={view.busy||view.pending} onChange={e=>void approve(e.target.checked)}/>I approve one separate retest with this exact supported captured evidence. Earlier results stay separate.</label>
+     <button type="button" className="btn-primary" disabled={view.busy||(!view.canRetry&&(!view.canSubmit||approval!==snapshot?.data.readContext.requestId))} onClick={()=>void start()}>{view.busy?"Starting…":view.pending?"Retry identical retest request":"Create reviewed retest run"}</button>
+    </>}
+    {view.pending&&<p role="status">The response is UNKNOWN. This mounted owner retains the exact original body and UUID. A fresh supported FULL preview is required for retry; a changed preview never rewrites that request. Unsupported or deleted-source recovery is unavailable here. Closing preserves local intent; route-away or reload does not.</p>}
+    <button type="button" className="btn-secondary" disabled={view.busy} onClick={readEvidence}>Read current FULL original evidence</button>
+   </>}
+   <p className="text-muted">Legacy bounded preparation projection, not raw-native audit fidelity. Whole supported preview ≤2 MiB; links ≤10 per page. Captured media references are not files or availability proof. No classification, source fetching or provider processing.</p>
+   <button type="button" className="btn-secondary" disabled={view.busy} onClick={()=>{if(current())onClose();}}>Close</button>
+  </section>}
+ </Modal>;
+}
+export function ManualRetestEvidence({preview,projectId,sourceRunId,testCaseId,canNavigate}:{preview:Preview;projectId:string;sourceRunId:string;testCaseId:string;canNavigate?:()=>boolean}){return <section>
           <h3>
             {preview.displayId} · Original{" "}
             {preview.sourceOutcome === "FAIL" ? "Failed" : "Blocked"} outcome
@@ -263,11 +196,10 @@ export function ManualRetestWizard({
             {preview.prerequisiteCount === 1 ? "" : "s"}. One separate run · 0
             AI credits.
           </p>
-          <a href={link(projectId, sourceRunId)}>Open original execution</a>
+          <a href={link(projectId, sourceRunId)} onClick={event=>{if(!canNavigate?.())event.preventDefault();}}>Open original execution</a>
           <h4>Exact original configuration</h4>
           <dl>
             {Object.entries(preview.configuration)
-              .filter(([, v]) => v)
               .map(([key, value]) => (
                 <div key={key}>
                   <dt>{labels[key] ?? key}</dt>
@@ -278,7 +210,7 @@ export function ManualRetestWizard({
                       overflowWrap: "anywhere",
                     }}
                   >
-                    {value}
+                    {value === "" ? <em>Empty string</em> : value}
                   </dd>
                 </div>
               ))}
@@ -321,18 +253,18 @@ export function ManualRetestWizard({
                   }{" "}
                   · {result.status}
                 </strong>
-                {result.note && (
+                {(
                   <p
                     style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}
                   >
-                    {result.note}
+                    Note: {result.note === null ? "Not supplied" : result.note === "" ? <em>Empty string</em> : result.note}
                   </p>
                 )}
-                {result.errorMessage && (
+                {(
                   <p
                     style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}
                   >
-                    {result.errorMessage}
+                    Error: {result.errorMessage === null ? "Not supplied" : result.errorMessage === "" ? <em>Empty string</em> : result.errorMessage}
                   </p>
                 )}
                 <pre
@@ -355,9 +287,9 @@ export function ManualRetestWizard({
                   : "Prerequisite procedure"}
                 : {c.title}
               </summary>
-              {c.background && (
+              {(
                 <p style={{ whiteSpace: "pre-wrap" }}>
-                  Preconditions / setup: {c.background}
+                  Preconditions / setup: {c.background === null ? "Not supplied" : c.background === "" ? <em>Empty string</em> : c.background}
                 </p>
               )}
               {(["given", "when", "then"] as const).map(
@@ -417,7 +349,6 @@ export function ManualRetestWizard({
               )}
               <dl>
                 {Object.entries(c.verificationProfile)
-                  .filter(([, v]) => v)
                   .map(([key, value]) => (
                     <div key={key}>
                       <dt>{labels[key]}</dt>
@@ -428,222 +359,46 @@ export function ManualRetestWizard({
                           overflowWrap: "anywhere",
                         }}
                       >
-                        {value}
+                        {value === "" ? <em>Empty string</em> : value}
                       </dd>
                     </div>
                   ))}
               </dl>
             </details>
           ))}
-          <label
-            style={{
-              display: "flex",
-              alignItems: "flex-start",
-              gap: 8,
-              margin: "16px 0",
-            }}
-          >
-            <input
-              type="checkbox"
-              checked={approved}
-              disabled={busy || Boolean(attempt)}
-              onChange={(e) => setApproved(e.target.checked)}
-            />
-            I approve one separate retest with these original instructions and
-            configuration. Previous results stay in the original execution.
-          </label>
-          {ambiguous && (
-            <p role="status">
-              The previous response was not confirmed. Closing and reopening
-              preserves this request in this page; retry it before starting
-              anything else. Reloading the page does not preserve this local
-              review.
-            </p>
-          )}
-          <div
-            style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 12 }}
-          >
-            <button
-              type="button"
-              className="btn-secondary"
-              disabled={busy}
-              onClick={onClose}
-            >
-              Close
-            </button>
-            <button
-              type="button"
-              className="btn-secondary"
-              disabled={busy || ambiguous || Boolean(attempt && !rejected)}
-              onClick={() => {
-                setAttempt(null);
-                setRejected(false);
-                setPreview(null);
-                setApproved(false);
-                setError(null);
-                unknown.current = false;
-              }}
-            >
-              Refresh original evidence
-            </button>
-            <button
-              type="button"
-              className="btn-primary"
-              disabled={!approved || busy || rejected}
-              onClick={() => void start()}
-            >
-              {busy
-                ? "Starting…"
-                : attempt
-                  ? "Retry same retest request"
-                  : "Create retest run"}
-            </button>
-          </div>
-        </section>
-      )}
-      </>}
-    </Modal>
-  );
-}
 
-/** Key this component by project/run/case at mounts to prevent scope carryover. */
-export function ManualRetestActions({
-  projectId,
-  sourceRunId,
-  testCaseId,
-  canRetest = true,
-  active = true,
-  onRetainedRequestChange,
-}: {
-  projectId: string;
-  sourceRunId: string;
-  testCaseId: string;
-  canRetest?: boolean;
-  active?: boolean;
-  onRetainedRequestChange?: (retained: boolean) => void;
-}) {
-  const [open, setOpen] = useState(false);
-  // This keyed Actions instance may have a caller whose active flag depends on
-  // the same shared metadata. Keep only metadata admission stable while mounted;
-  // links/private rendering and writes still require current active access.
-  const access = useRetestAccess(projectId, active, false, undefined, true);
-  const [anchors, setAnchors] = useState<Array<string | undefined>>([
-    undefined,
-  ]);
-  const linksInput = {
-    projectId,
-    sourceRunId,
-    testCaseId,
-    before: anchors[anchors.length - 1],
-    expectedScope: access.origin ?? undefined,
-  };
-  const links = trpcReact.manualRetest.links.useQuery(linksInput, { enabled: active && access.ready, staleTime: 0, retry: false });
-  const linksDenied = !!links.error && ["FORBIDDEN", "UNAUTHORIZED", "NOT_FOUND"].includes(links.error.data?.code ?? "");
-  const linksMismatch = access.ready && !links.error && !links.isFetching && !links.isPaused && !!links.data && !verifiedManualRetestRead(linksInput, links.data);
-  const linksPage = active && access.ready && !links.error && !links.isFetching && !links.isPaused && links.data && verifiedManualRetestRead(linksInput, links.data) ? links.data : null;
-  async function refreshLinks() { if (await access.refresh()) await links.refetch(); }
-  return (
-    <section style={{ marginTop: 12, minWidth: 0, overflowWrap: "anywhere" }}>
-      {!active ? <p role="status">Current history access must be verified. Retest links and private preview are hidden; any exact request remains retained in this mounted workflow.</p>
-      : !access.ready || linksDenied || linksMismatch ? <section><p role={access.denied || linksDenied || linksMismatch ? "alert" : "status"}>{access.paused ? "Waiting for a connection to verify native retest scope." : "Current original actor and organization must be verified. Cached native retest links and preview are hidden; the exact local request remains retained."}</p><button type="button" className="btn-secondary" onClick={refreshLinks}>Recheck native retest access</button></section> : <>
-      {canRetest && access.canWrite && (
-        <button
-          type="button"
-          className="btn-secondary"
-          onClick={() => setOpen(true)}
-        >
-          Review separate retest
-        </button>
-      )}
-      {links.isError ? (
-        <p role="alert">
-          Retest relationships could not be verified.{" "}
-          <button
-            type="button"
-            className="btn-secondary"
-            onClick={refreshLinks}
-          >
-            Retry links
-          </button>
-        </p>
-      ) : links.isPending ||
-        links.isFetching ||
-        links.fetchStatus === "paused" ? (
-        <p role="status">Checking retest relationships…</p>
-      ) : (
-        linksPage && (
-          <>
-            {linksPage.original && (
-              <p>
-                <a href={link(projectId, linksPage.original.testRunId)}>
-                  Original execution
-                </a>{" "}
-                ·{" "}
-                {linksPage.original.capturedOutcome === "FAIL"
-                  ? "Failed"
-                  : "Blocked"}{" "}
-                outcome captured when this retest was created, not a
-                defect-resolution claim.
-              </p>
-            )}
-            {linksPage.retests.length > 0 && (
-              <details>
-                <summary>
-                  Linked separate retests ({linksPage.retests.length} on this
-                  page)
-                </summary>
-                <ul>
-                  {linksPage.retests.map((run) => (
-                    <li key={run.testRunId}>
-                      <a href={link(projectId, run.testRunId)}>
-                        Retest started{" "}
-                        {new Date(run.startedAt).toLocaleString()}
-                      </a>{" "}
-                      · Overall run: {run.status.toLowerCase()} (not an
-                      individual case verdict)
-                    </li>
-                  ))}
-                </ul>
-              </details>
-            )}
-            <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
-              {anchors.length > 1 && (
-                <button
-                  type="button"
-                  className="btn-secondary"
-                  onClick={() => setAnchors((a) => a.slice(0, -1))}
-                >
-                  Newer retests
-                </button>
-              )}
-              {linksPage.nextCursor && (
-                <button
-                  type="button"
-                  className="btn-secondary"
-                  onClick={() =>
-                    setAnchors((a) => [...a, linksPage.nextCursor!])
-                  }
-                >
-                  Older retests
-                </button>
-              )}
-            </div>
-          </>
-        )
-      )}
-      </>}
-      <ManualRetestWizard
-        key={`${projectId}:${sourceRunId}:${testCaseId}`}
-        projectId={projectId}
-        sourceRunId={sourceRunId}
-        testCaseId={testCaseId}
-        open={open}
-        onClose={() => setOpen(false)}
-        readEnabled={open}
-        active={active && canRetest && access.ready && access.canWrite && !linksDenied && !linksMismatch && !links.isPaused}
-        expectedScope={access.origin}
-        onRetainedRequestChange={onRetainedRequestChange}
-      />
-    </section>
-  );
+</section>;}
+
+/** Stable caller project/run/case keys; refresh/session/modal close never evicts
+ * an owned pending controller or changes its accepted body. */
+export function ManualRetestActions({projectId,sourceRunId,testCaseId,canRetest=true,active=true,onRetainedRequestChange,parentRunScope,parentCurrent,parentActivation}:{projectId:string;sourceRunId:string;testCaseId:string;canRetest?:boolean;active?:boolean;onRetainedRequestChange?:(retained:boolean)=>void;parentRunScope?:ManualRunCurrentOrigin|null;parentCurrent?:(()=>boolean)|null;parentActivation?:string;}){
+ const [open,setOpen]=useState(false);
+ // Shared metadata remains subscribed even if parent factual readiness changes.
+ const access=useRetestAccess(projectId,active,false,undefined,true);
+ const reader=useManualRetestReviewedAccess(projectId,sourceRunId,testCaseId,{active,organizationId:access.origin?.organizationId,parentRunScope,parentCurrent,parentActivation});
+ const [anchors,setAnchors]=useState<Array<string|undefined>>([undefined]);
+ const snapshot=reader.current(),page=snapshot&&"links" in snapshot.data?snapshot.data.links:null;
+ // Keep the independently guarded getter captured with its actual snapshot,
+ // not a changing callback identity. A benign parent state publication must
+ // not poison the child's native read; changed snapshots remain revocation.
+ const [presentation,setPresentation]=useState(()=>({snapshot,readCurrent:reader.current,active}));
+ if(presentation.snapshot!==snapshot||presentation.active!==active)setPresentation({snapshot,readCurrent:reader.current,active});
+ const current=useCallback(()=>!!presentation.snapshot&&presentation.readCurrent()===presentation.snapshot&&presentation.active,[presentation]);
+ const childRunScope:ManualRunCurrentOrigin|null=snapshot?Object.freeze({projectId:snapshot.origin.projectId,testRunId:snapshot.origin.sourceRunId,organizationId:snapshot.origin.organizationId,clerkActorId:snapshot.origin.clerkActorId,nativeActorId:snapshot.origin.nativeActorId}):null;
+ function readLinks(before?:string,position?:number){if(!current()||!reader.read("LINKS",before))return;setAnchors(old=>position===undefined?[undefined]:old.slice(0,position+1));}
+ function next(){if(current()&&page?.nextCursor&&reader.read("LINKS",page.nextCursor))setAnchors(old=>[...old,page.nextCursor!]);}
+ function back(){if(!current()||anchors.length<2)return;const i=anchors.length-2;readLinks(anchors[i],i);}
+ return <section style={{marginTop:12,minWidth:0,overflowWrap:"anywhere"}}>
+  {!snapshot?<section><p role="status">Current original native access must be verified. Cached links and private evidence are withheld; retained requests stay unchanged.</p><button type="button" className="btn-secondary" onClick={()=>reader.refresh()}>Recheck native retest access</button></section>
+  :<>{canRetest&&access.canWrite&&<button type="button" className="btn-secondary" onClick={()=>{if(current())setOpen(true);}}>Review separate retest</button>}
+   <button type="button" className="btn-secondary" disabled={reader.loading} onClick={()=>readLinks()}>Read current retest relationships</button>
+   {page?<section><h4>Current retest relationships · page {anchors.length}</h4><p>Captured outcomes are separate from current run labels. This ≤10-row page is not a whole-history count.</p>
+    {page.original&&<p>Retest of <a href={link(projectId,page.original.testRunId)} onClick={e=>{if(!current())e.preventDefault();}}>{page.original.testRunId}</a> · captured {page.original.capturedOutcome}</p>}
+    {page.retests.length?<ul>{page.retests.map(run=><li key={run.testRunId}><a href={link(projectId,run.testRunId)} onClick={e=>{if(!current())e.preventDefault();}}>{run.testRunId}</a> · current {run.status} · started {new Date(run.startedAt).toLocaleString()}</li>)}</ul>:<p>No related retests were returned on this current page. No global zero is inferred.</p>}
+    <button type="button" className="btn-secondary" disabled={anchors.length<2||reader.loading} onClick={back}>Previous relationships</button><button type="button" className="btn-secondary" disabled={!page.nextCursor||reader.loading} onClick={next}>Next relationships</button>
+   </section>:<p>Private relationship pages load only on explicit request; project ACCESS does not verify any source relationship.</p>}
+  </>}
+  <ManualRetestWizard key={`${projectId}:${sourceRunId}:${testCaseId}`} projectId={projectId} sourceRunId={sourceRunId} testCaseId={testCaseId} open={open} onClose={()=>setOpen(false)} readEnabled={open}
+   active={active&&canRetest&&access.ready&&access.canWrite} expectedScope={access.origin} parentRunScope={childRunScope} parentCurrent={current} parentActivation={snapshot?.data.readContext.requestId} onRetainedRequestChange={onRetainedRequestChange}/>
+ </section>;
 }

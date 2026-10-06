@@ -3098,3 +3098,53 @@ incorrectly defaulted an omitted synthetic subject and were corrected without
 relaxing production checks. No native SQL, real JWT/RPC, registered route,
 caller or production acceptance is established. Actual caller cutover remains
 independent work; no deployment, migration or live permission change occurred.
+
+### October 6: retained retest consumer and helper presentation repairs
+
+The actual retest consumer now uses explicit independently native-pinned
+ACCESS, FULL preview and paged LINKS reads. Its original metadata hook and
+sixteen legacy owner initializers remain unchanged. Old UNKNOWN bodies or
+known receipts without original native submission provenance stay opaque;
+current access never invents that pin or sends a replacement. A separate
+reviewed owner remains mounted through temporary privacy refusal or an
+explicit legacy handoff. It retains exact body/UUID and privately settles a
+matching acknowledgement, then requires a current LINKS page containing that
+specific target before navigation. Unsupported/deleted-source UNKNOWN retry,
+old already-captured callbacks, reload and hot-reload persistence remain open.
+
+The actual helper page keeps prior capture/draft buffers private, refuses
+unsupported whole imports without clipping, and independently guards late
+file, generation and commit presentation with installed SDK/frame ownership.
+Root review caught connection-generation divergence after explicit health and
+unscoped saved-title publication. All connection transitions now synchronize;
+new raw commit labels are budget-admitted and visible only in their exact
+original frame. Legacy labels remain unattributed. A captured Save handler
+cannot dispatch a superseded draft list; late replies cannot remove a newer
+list or append current saved labels. These are presentation/intent safeguards,
+not durable paid UUID/credit-recovery proof.
+
+Physical capture deliberately refuses before helper HTTP because actual
+foreground targeting and scoped capture/processing consent are absent.
+Paired v2 liveness, installed SDK and workspace metadata grant none of those
+permissions. Native helper inspection also found pre-foreground hierarchy
+reads, sole-device fallback, display-name identity and clipping still in its
+separate implementation. No device, command, Windows security policy or
+provider operation was exercised. Signed Windows launch and native acceptance
+remain open; this checkpoint does not call the helper operational.
+
+Final compatible Web checks passed 807 Node plus 1,300 typed assertions with
+zero skips, Web types and scoped lint with zero errors/three inherited
+warnings. Original metadata observers, controller guards and legacy privacy
+assertions remain enforced. Old extracted caller fixtures initially lacked
+the new actual ownership/SDK dependencies; Root supplied the actual source
+dependencies and retained every original assertion. Failed evidence remains.
+
+Nineteen new author-only v4 fixture schema/model checks and compatible types
+passed. Its browser build plan then failed on server-only node:crypto imports
+reached through the authoritative retest schemas, before evaluation, artifact
+write or server launch. No substitute schema or crypto shim was admitted.
+An exact unchanged-schema extraction is separate active work. Consequently,
+this new consumer/helper source has no fresh rendered-browser, native SQL,
+authenticated production or deployment acceptance. Older 8901/8902 synthetic
+manual-run buffers and successful narrow metadata-mount evidence are preserved,
+not relabeled as this new consumer proof. All prior release failures remain.
