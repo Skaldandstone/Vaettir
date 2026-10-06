@@ -88,14 +88,13 @@ export const caseAnalysisQueueRouter = router({
           input.projectId,
           caseId,
         );
-        let inputHash: string, status: string;
         const preview = await design.preview({ id: caseId });
-        inputHash = preview.inputHash;
+        const inputHash: string = preview.inputHash;
         const saved = await ctx.prisma.testDesignReview.findUnique({
           where: { testCaseId_inputHash: { testCaseId: caseId, inputHash } },
           select: { status: true },
         });
-        status = saved?.status === "READY" ? "SAVED" : saved ? "UNKNOWN" : "QUEUED";
+        const status: string = saved?.status === "READY" ? "SAVED" : saved ? "UNKNOWN" : "QUEUED";
         items.push({
           ...baseline,
           position,
