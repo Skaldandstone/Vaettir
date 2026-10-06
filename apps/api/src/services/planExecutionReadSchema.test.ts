@@ -16,6 +16,16 @@ function result() {
   };
 }
 describe("plan execution read wire only; no native SQL", () => {
+  it("literal v2 wire retains every raw string/order under its distinct read-only interpretation", () => {
+    const literal = { version: 2, testCaseIds: ["second", "first"], configurations: [{ id: base.requestId, name: "  Name\n☃  ", context: { configuration: "  Rig\nA  ", platform: "", build: "0", hardwareRevision: "", firmwareVersion: "", rig: " ", batchOrLot: "", environment: "\n", calibrationReference: "", protocolReference: "" } }] };
+    const value = { ...result(), template: literal, rawTemplate: { sqlNull: false, jsonText: JSON.stringify(literal) }, interpretation: "EXACT_LITERAL_V2_READ_ONLY", selected: literal.testCaseIds.map(testCaseId => ({ testCaseId, state: "MISSING", metadata: null })) };
+    const parsed = planExecutionPageOutput.parse(value);
+    expect(parsed).toEqual(value); expect(parsed.template).toBe(literal);
+    for (const interpretation of ["EXACT_SUPPORTED", "LEGACY_NORMALIZED", "UNCONFIGURED_EMPTY_OBJECT"]) expect(planExecutionPageOutput.safeParse({ ...value, interpretation }).success).toBe(false);
+    const v1 = { ...literal, version: 1 };
+    expect(planExecutionPageOutput.safeParse({ ...value, template: v1 }).success).toBe(false);
+    expect(planExecutionPageOutput.safeParse({ ...result(), interpretation: "EXACT_LITERAL_V2_READ_ONLY" }).success).toBe(false);
+  });
   it("bootstrap omission stays absent; page requires native actor and explicit limit/search", () => {
     expect(planExecutionAccessInput.parse(base)).toEqual(base);
     expect(Object.hasOwn(planExecutionAccessInput.parse(base), "expectedNativeActorId")).toBe(false);

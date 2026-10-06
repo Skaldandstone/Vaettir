@@ -65,6 +65,40 @@ function reader(h: ReturnType<typeof fixture>, subject: string | null | undefine
   return planExecutionReadsRouter.createCaller({ prisma: h.db, user: signedIn ? { id: actor, clerkUserId: "stale-cached-mapping", memberships: [] } : null, staff: null, authenticatedClerkSubject: subject } as unknown as Context);
 }
 describe("additive plan execution native reader, mocked queries only; SQL NOT RUN", () => {
+  it("native numeric v2 PAGE reads literal text/hash/order only after unchanged current native admission and equality", async () => {
+    const h = fixture(), v1 = readPlanExecutionTemplate(h.raw)!;
+    const literal = { ...v1, version: 2, configurations: [{ ...v1.configurations[0]!, name: "  Native\n☃ name  ", context: { ...v1.configurations[0]!.context, configuration: "  Native\n context  ", build: "0", environment: " " } }] };
+    h.template(literal);
+    const result = await page(h.db, "native", input, authorized);
+    expect(result.template).toEqual(literal); expect(result.rawTemplate.jsonText).toBe(h.state.body.templateText);
+    expect(result.interpretation).toBe("EXACT_LITERAL_V2_READ_ONLY"); expect(result.templateHash).toBe(executionTemplateHash(literal));
+    expect(result.selected.map(item => [item.testCaseId, item.state])).toEqual([["selected", "AVAILABLE"], ["missing", "MISSING"], ["archived", "ARCHIVED"]]);
+    expect(result.hasFullEditorAccess).toBe(false); expect(result).not.toHaveProperty("canStart"); expect(result).not.toHaveProperty("canSave");
+    expect(h.events.indexOf("AUTH_SCOPE")).toBeLessThan(h.events.indexOf("PLAN_ADMISSION"));
+    expect(h.events.indexOf("METADATA_ADMISSION")).toBeLessThan(h.events.indexOf("PRIVATE_TEMPLATE"));
+    expect(h.events.indexOf("NATIVE_EQUALITY")).toBeLessThan(h.events.indexOf("PRIVATE_SELECTED"));
+    expect(() => readPlanExecutionTemplate(literal)).toThrow("unsupported");
+  });
+  it.each(["missing field", "extra field", "null field", "unsafe text", "string version"])("unsupported v2 %s is refused before private metadata, never reinterpreted through legacy defaults", async kind => {
+    const h = fixture(), v1 = readPlanExecutionTemplate(h.raw)!;
+    const literal = { ...v1, version: 2 as unknown, configurations: [{ ...v1.configurations[0]!, context: { ...v1.configurations[0]!.context } as Record<string, unknown> }] };
+    if (kind === "missing field") delete literal.configurations[0]!.context.build;
+    if (kind === "extra field") literal.configurations[0]!.context.future = "retained";
+    if (kind === "null field") literal.configurations[0]!.context.build = null;
+    if (kind === "unsafe text") literal.configurations[0]!.context.build = "bad\0text";
+    if (kind === "string version") literal.version = "2";
+    h.template(literal);
+    await expect(page(h.db, "native", input, authorized)).rejects.toMatchObject({ code: "PRECONDITION_FAILED" });
+    expect(h.events).toContain("NATIVE_EQUALITY"); expect(h.events).not.toContain("PRIVATE_SELECTED");
+  });
+  it("v2 remains subject to the original native precision/equality and whole metadata bounds before interpretation", async () => {
+    const h = fixture(), v1 = readPlanExecutionTemplate(h.raw)!; h.template({ ...v1, version: 2 }); h.state.equality = false;
+    await expect(page(h.db, "native", input, authorized)).rejects.toMatchObject({ code: "PRECONDITION_FAILED" });
+    expect(h.events).not.toContain("PRIVATE_SELECTED");
+    h.state.equality = true; h.state.population.selectedBytes = BigInt(bounds.selectedBytes + 1); h.events.length = 0;
+    await expect(page(h.db, "native", input, authorized)).rejects.toMatchObject({ code: "PRECONDITION_FAILED" });
+    expect(h.events).not.toContain("PRIVATE_TEMPLATE");
+  });
   it.each([undefined, null, "", "bad\0subject", "x".repeat(201)])("missing/invalid independent subject %j refuses before native discovery", async subject => {
     const h = fixture();
     await expect(access(h.db, "native", input, { clerkActorId: subject as unknown as string })).rejects.toMatchObject({ code: "FORBIDDEN" });

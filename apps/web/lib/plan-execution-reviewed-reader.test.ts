@@ -1,5 +1,6 @@
 import { expect, it } from "vitest";
 import { readFileSync } from "node:fs";
+import ts from "typescript";
 import { planExecutionReadKey, planExecutionCandidateScopeKey, planExecutionPageOutput } from "../../api/src/services/planExecutionReadSchema";
 import {
   admitPlanExecutionRead, inspectPlanExecutionReadWire, planExecutionReviewedReadKey,
@@ -26,6 +27,44 @@ function fixture() {
     limitations: ["Synthetic DTO only; not native hash/SQL/authentication proof."],
   };
 }
+function literalFixture() {
+  const raw = fixture(), template = { ...raw.template, version: 2, configurations: [{ ...raw.template.configurations[0]!, name: "  Raw\n☃ name  ", context: { ...raw.template.configurations[0]!.context, configuration: "  Rig\nA  ", build: "0", environment: " " } }] };
+  return { ...raw, template, rawTemplate: { sqlNull: false, jsonText: JSON.stringify(template) }, interpretation: "EXACT_LITERAL_V2_READ_ONLY" };
+}
+it("literal-v2 native PAGE retains raw text, complete strings and order under read-only interpretation", () => {
+  const raw = literalFixture(), before = JSON.stringify(raw);
+  expect(planExecutionPageOutput.safeParse(raw).success).toBe(true);
+  const value = admitPlanExecutionRead(raw, input, "PAGE", "cl");
+  expect(value?.data).toEqual(raw); expect(JSON.stringify(raw)).toBe(before);
+  if (!value || !("template" in value.data)) throw Error("Expected complete v2 PAGE");
+  expect(Object.isFrozen(value.data.template?.configurations[0]?.context)).toBe(true);
+  expect(value.data.template?.configurations[0]?.context.configuration).toBe("  Rig\nA  ");
+  expect(value.data.template?.configurations[0]?.context.build).toBe("0");
+  expect(value.data.templateHash).toBe(raw.templateHash);
+  expect(value.data.selected.map(item => item.testCaseId)).toEqual(["case", "missing", "archived"]);
+});
+it.each(["EXACT_SUPPORTED", "LEGACY_NORMALIZED", "UNCONFIGURED_EMPTY_OBJECT"])("v2 cannot adopt %s legacy interpretation", interpretation => {
+  expect(admitPlanExecutionRead({ ...literalFixture(), interpretation }, input, "PAGE", "cl")).toBeNull();
+});
+it("v2 raw/template disagreement cannot normalize text, reorder IDs/configurations or bridge versions", () => {
+  const raw = literalFixture();
+  for (const edit of [
+    (value: typeof raw) => { value.template.configurations[0]!.context.configuration = value.template.configurations[0]!.context.configuration.trim(); },
+    (value: typeof raw) => { value.template.testCaseIds.reverse(); },
+    (value: typeof raw) => { value.template.version = 1; },
+    (value: typeof raw) => { const native = JSON.parse(value.rawTemplate.jsonText); native.version = 1; value.rawTemplate.jsonText = JSON.stringify(native); value.interpretation = "LEGACY_NORMALIZED"; },
+    (value: typeof raw) => { delete (value.template.configurations[0]!.context as Record<string, unknown>).build; },
+  ]) {
+    const changed = structuredClone(raw); edit(changed);
+    expect(admitPlanExecutionRead(changed, input, "PAGE", "cl")).toBeNull();
+  }
+});
+it("complete literal v2 maximum case/configuration counts retain every missing identity and exact raw context", () => {
+  const raw = literalFixture(), ids = Array.from({ length: 500 }, (_, index) => `missing-${index}`), configurations = Array.from({ length: 20 }, (_, index) => ({ ...raw.template.configurations[0]!, id: `00000000-0000-4000-8000-${String(index + 10).padStart(12, "0")}` }));
+  const template = { ...raw.template, testCaseIds: ids, configurations }, value = { ...raw, template, rawTemplate: { sqlNull: false, jsonText: JSON.stringify(template) }, selected: ids.map(testCaseId => ({ testCaseId, state: "MISSING", metadata: null })) };
+  expect(admitPlanExecutionRead(value, input, "PAGE", "cl")?.data).toEqual(value);
+  value.selected.pop(); expect(admitPlanExecutionRead(value, input, "PAGE", "cl")).toBeNull();
+});
 it("complete actual API wire admits exact raw text independently from legacy interpretation, including missing/archived identities", () => {
   const raw = fixture(); expect(planExecutionPageOutput.safeParse(raw).success).toBe(true);
   const value = admitPlanExecutionRead(raw, input, "PAGE", "cl");
@@ -146,10 +185,14 @@ it("render/cache nonce retirement is monotonic across A-B-A and cannot be cleare
   expect(guard.matchesRead(stamp, base.requestId)).toBe(false); expect(guard.isBlocked(base.requestId)).toBe(true);
   const changed = guard.observe({}, view); expect(guard.matchesRender(stamp)).toBe(false); expect(guard.matchesRender(changed)).toBe(true);
 });
-it("browser runtime imports no API schema/server graph; exact wire types are type-only", () => {
+it("browser runtime permits only the explicit pure literal codec, not an API/server graph; exact DTO wire types remain type-only", () => {
   const source = readFileSync(new URL("./plan-execution-reviewed-reader.ts", import.meta.url), "utf8");
   expect(source).toMatch(/^import type /);
-  expect(source).not.toMatch(/import\s+(?!type)[^;]+(?:@vaettir\/api|api\/src|node:|@vaettir\/db)/);
+  const ast = ts.createSourceFile("reader.ts", source, ts.ScriptTarget.Latest, true), imports = ast.statements.filter(ts.isImportDeclaration).filter(node => !node.importClause?.isTypeOnly).map(node => (node.moduleSpecifier as ts.StringLiteral).text);
+  expect(imports).toEqual(["./manual-run-start-reviewed-reader", "../../api/src/services/planExecutionTemplateExactSchema"]);
+  const codec = readFileSync(new URL("../../api/src/services/planExecutionTemplateExactSchema.ts", import.meta.url), "utf8"), codecAst = ts.createSourceFile("codec.ts", codec, ts.ScriptTarget.Latest, true);
+  expect(codecAst.statements.filter(ts.isImportDeclaration).map(node => (node.moduleSpecifier as ts.StringLiteral).text)).toEqual(["zod"]);
+  expect(codec).not.toMatch(/node:|@vaettir\/db|\.\/testPlanExecution|\.\/qualityExperienceProfile|require\(|import\(/);
   const invalid = { ...input, limit: 51 } as PlanExecutionReadInput;
   expect(() => planExecutionReviewedReadKey(invalid, "PAGE")).toThrow();
 });

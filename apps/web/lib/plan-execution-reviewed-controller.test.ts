@@ -27,21 +27,49 @@ export function syntheticProfile(projection: "ACCESS" | "PREVIEW" = "PREVIEW"): 
   const value = admitRunStartRead(wire, input, projection, "cl"); if (!value) throw Error("Synthetic complete profile DTO unsupported");
   return Object.freeze({ origin: value.origin, observedSessionId: "A", projection, epoch: 1, revision: 1, receivedAt: "2026-10-06T00:00:00.000Z", data: value.data });
 }
+function literalPlan(): PlanExecutionReadSnapshot {
+  const original = syntheticPlan();
+  if (!("template" in original.data) || !original.data.template) throw Error("Expected synthetic PAGE");
+  const template = { ...original.data.template, version: 2, configurations: original.data.template.configurations.map(item => ({ ...item, name: "  Literal\n name  ", context: { ...item.context, build: "0" } })) },
+    raw = { ...original.data, template, rawTemplate: { sqlNull: false, jsonText: JSON.stringify(template) }, interpretation: "EXACT_LITERAL_V2_READ_ONLY" },
+    input = { projectId: "p", testPlanId: "plan", originalOrganizationId: "o", expectedClerkActorId: "cl", expectedNativeActorId: "n", requestId: key, search: "", limit: 50 },
+    value = admitPlanExecutionRead(raw, input, "PAGE", "cl");
+  if (!value) throw Error("Expected admitted complete literal PAGE");
+  return Object.freeze({ ...original, origin: value.origin, data: value.data });
+}
 export function syntheticAck(input: ReviewedRunStartEnvelope) {
   return { mode: "START", currentScope: { projectId: "p", organizationId: "o", actorId: input.expectedNativeActorId, actorClerkUserId: "cl" }, idempotencyKey: input.request.idempotencyKey, legacyAck: { testRunId: `manual_${createHash("sha256").update(JSON.stringify(["p", input.expectedNativeActorId, input.request.idempotencyKey])).digest("hex")}`, originalOrganizationId: "o", expectedClerkActorId: "cl", idempotencyKey: input.request.idempotencyKey }, historicalOuterProvenance: "UNRECORDED", interpretation: "LEGACY_NORMALIZED_NOT_RAW_LOSSLESS" };
 }
 function harness() {
   let plan: PlanExecutionReadSnapshot | null = syntheticPlan(), profile: RunStartReadSnapshot | null = syntheticProfile(), open = true, sdk = true, callbacks = 0;
   const alive = true;
-  const controller = new PlanExecutionReviewedController("p", "plan", () => {}, () => key);
+  const uuid = vi.fn(() => key), controller = new PlanExecutionReviewedController("p", "plan", () => {}, uuid);
   controller.attach();
   const frame = (): PlanExecutionFrame => ({ active: alive, open, legacyBlocked: false, plan, profile, currentPlan: () => sdk ? plan : null, currentProfile: () => sdk ? profile : null });
   const bind = () => controller.bind(frame()); bind();
   const prepare = () => { expect(controller.select(config)).toBe(true); expect(controller.review()).toBe(true); };
-  return { controller, prepare, bind, frame, callback: () => { callbacks++; }, get callbacks() { return callbacks; }, setSDK: (v: boolean) => { sdk = v; }, close: () => { open = false; bind(); }, reopen: () => { open = true; bind(); }, revoke: () => { plan = null; profile = null; bind(); }, recover: () => { plan = null; profile = syntheticProfile("ACCESS"); bind(); }, setPlan: (v: PlanExecutionReadSnapshot | null) => { plan = v; bind(); }, setProfile: (v: RunStartReadSnapshot | null) => { profile = v; bind(); } };
+  return { controller, uuid, prepare, bind, frame, callback: () => { callbacks++; }, get callbacks() { return callbacks; }, setSDK: (v: boolean) => { sdk = v; }, close: () => { open = false; bind(); }, reopen: () => { open = true; bind(); }, revoke: () => { plan = null; profile = null; bind(); }, recover: () => { plan = null; profile = syntheticProfile("ACCESS"); bind(); }, setPlan: (v: PlanExecutionReadSnapshot | null) => { plan = v; bind(); }, setProfile: (v: RunStartReadSnapshot | null) => { profile = v; bind(); } };
 }
 beforeEach(() => vi.stubGlobal("crypto", { subtle: webcrypto.subtle, randomUUID: () => key }));
 afterEach(() => vi.unstubAllGlobals());
+it("literal-v2 PAGE never creates a UUID, review or dispatch through the unchanged legacy controller", async () => {
+  const h = harness(), transport = vi.fn(async (input: ReviewedRunStartEnvelope) => syntheticAck(input));
+  h.setPlan(literalPlan()); h.controller.select(config);
+  expect(h.controller.view().readable).toBe(true); expect(h.controller.view().canReview).toBe(false);
+  expect(h.controller.review()).toBe(false); expect(h.uuid).not.toHaveBeenCalled();
+  expect(await h.controller.submit(transport)).toBe(false); expect(transport).not.toHaveBeenCalled();
+  expect(h.controller.view().hasReview).toBe(false); expect(h.controller.view().pending).toBe(false);
+});
+it.each(["v2", "unavailable"])("owned v1 UNKNOWN recovers the identical envelope under current profile ACCESS with %s PAGE", async mode => {
+  const h = harness(), sent: ReviewedRunStartEnvelope[] = [];
+  h.prepare(); await h.controller.submit(async input => { sent.push(input); throw Error("Synthetic lost ACK"); });
+  const original = sent[0], body = JSON.stringify(original);
+  h.setPlan(mode === "v2" ? literalPlan() : null); h.setProfile(syntheticProfile("ACCESS"));
+  expect(h.controller.view().canRetry).toBe(true); expect(h.controller.view().canReview).toBe(false);
+  expect(await h.controller.submit(async input => { sent.push(input); return syntheticAck(input); })).toBe(true);
+  expect(sent[1]).toBe(original); expect(JSON.stringify(sent[1])).toBe(body); expect(h.uuid).toHaveBeenCalledOnce();
+  expect(h.controller.view().confirmed).toBe(true); expect(h.controller.view().canRetry).toBe(false);
+});
 it("complete current native selection/configuration creates one immutable unchanged plan-reference body", async () => {
   const h = harness(); h.prepare(); let sent: ReviewedRunStartEnvelope | null = null;
   expect(await h.controller.submit(async input => { sent = input; return syntheticAck(input); }, h.callback)).toBe(true);

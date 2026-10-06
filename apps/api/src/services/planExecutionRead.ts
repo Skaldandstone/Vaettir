@@ -3,6 +3,7 @@ import { TRPCError } from "@trpc/server";
 import { lockCaseFieldReadScope, type CaseFieldReadAuthorization } from "./caseFieldReadScope.js";
 import { caseFieldPresentationJsonBytes } from "./caseFieldPresentationSchema.js";
 import { executionTemplateHash, readPlanExecutionTemplate } from "./testPlanExecution.js";
+import { planExecutionTemplateExactSchema } from "./planExecutionTemplateExactSchema.js";
 import {
   PLAN_EXECUTION_READ_BOUNDS as bounds,
   planExecutionAccessInput, planExecutionAccessOutput,
@@ -127,11 +128,17 @@ export async function readPlanExecutionPage(db: PrismaClient, actorId: string, r
     const body = bodies[0], admitted = admitPlanExecutionTemplateText(body.templateText);
     const equal = await tx.$queryRaw<Array<{ exact: boolean }>>`SELECT "executionTemplate"=${admitted.encoded}::jsonb AS exact FROM "TestPlan" WHERE id=${input.testPlanId} AND "projectId"=${input.projectId}`;
     if (equal.length !== 1 || equal[0]?.exact !== true) throw refused();
-    let template: ReturnType<typeof readPlanExecutionTemplate>;
-    try { template = readPlanExecutionTemplate(admitted.value); } catch { throw refused(); }
+    let template: typeof planExecutionPageOutput["_output"]["template"];
+    try {
+      // PAGE-only literal interpretation. Legacy SAVE/START/read parsers are
+      // unchanged; only the explicit native numeric version opts into v2.
+      template = admitted.value && typeof admitted.value === "object" && !Array.isArray(admitted.value) && "version" in admitted.value && admitted.value.version === 2
+        ? planExecutionTemplateExactSchema.parse(admitted.value)
+        : readPlanExecutionTemplate(admitted.value);
+    } catch { throw refused(); }
     if (BigInt(template?.testCaseIds.length ?? 0) !== size.cases || BigInt(template?.configurations.length ?? 0) !== size.configurations) throw refused();
     const templateHash = executionTemplateHash(admitted.value);
-    const interpretation = template === null ? "UNCONFIGURED_EMPTY_OBJECT" : executionTemplateHash(template) === templateHash ? "EXACT_SUPPORTED" : "LEGACY_NORMALIZED";
+    const interpretation = template === null ? "UNCONFIGURED_EMPTY_OBJECT" : template.version === 2 ? "EXACT_LITERAL_V2_READ_ONLY" : executionTemplateHash(template) === templateHash ? "EXACT_SUPPORTED" : "LEGACY_NORMALIZED";
     const selectedRows = await tx.$queryRaw<MetadataRow[]>`SELECT c.id,c."projectId",c.title,c."displayId",c."reviewStatus"::text AS "reviewStatus",c.archived FROM "TestCase" c WHERE c."projectId"=${input.projectId} AND c.id IN (SELECT v#>>'{}' FROM "TestPlan" p CROSS JOIN LATERAL jsonb_array_elements(CASE WHEN jsonb_typeof(p."executionTemplate"->'testCaseIds')='array' THEN p."executionTemplate"->'testCaseIds' ELSE '[]'::jsonb END) v WHERE p.id=${input.testPlanId})`;
     const candidateRows = await tx.$queryRaw<MetadataRow[]>`SELECT c.id,c."projectId",c.title,c."displayId",c."reviewStatus"::text AS "reviewStatus",c.archived FROM "TestCase" c WHERE c."projectId"=${input.projectId} AND NOT c.archived AND (${input.search}='' OR position(lower(${input.search}) in lower(c.title))>0) AND (${input.cursor?.lastId ?? null}::text IS NULL OR convert_to(c.id,'UTF8')>convert_to(${input.cursor?.lastId ?? null}::text,'UTF8')) ORDER BY convert_to(c.id,'UTF8') LIMIT ${input.limit + 1}`;
     if (BigInt(selectedRows.length) !== count.selectedCount || BigInt(candidateRows.length) !== count.candidateCount || new Set(selectedRows.map(row => row.id)).size !== selectedRows.length) throw refused();

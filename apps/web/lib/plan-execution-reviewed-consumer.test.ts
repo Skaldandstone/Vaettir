@@ -15,15 +15,15 @@ const source = readFileSync(new URL("../components/PlanExecutionReviewed.tsx", i
 const legacy = readFileSync(new URL("../components/PlanExecutionModal.tsx", import.meta.url), "utf8");
 const compile = (text: string) => ts.transpileModule(text, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.React } }).outputText;
 const key = "00000000-0000-4000-8000-000000000001", config = "00000000-0000-4000-8000-000000000002";
-function planSnapshot(projection: "ACCESS" | "PAGE" = "PAGE", state: "AVAILABLE" | "MISSING" | "ARCHIVED" = "AVAILABLE", candidates = false): PlanExecutionReadSnapshot {
+function planSnapshot(projection: "ACCESS" | "PAGE" = "PAGE", state: "AVAILABLE" | "MISSING" | "ARCHIVED" = "AVAILABLE", candidates = false, literal = false): PlanExecutionReadSnapshot {
   const scope = { projectId: "p", testPlanId: "plan", originalOrganizationId: "o", expectedClerkActorId: "cl", expectedNativeActorId: "n", requestId: key };
   const input = projection === "PAGE" ? { ...scope, search: "", limit: 50 } : scope;
   const readContext = { projection, requestId: key, requestedKey: planExecutionReviewedReadKey(input, projection), scope: { projectId: "p", testPlanId: "plan", organizationId: "o", actorClerkUserId: "cl", actorId: "n" } };
   const context = { configuration: "Rig\nA", platform: "", build: "", hardwareRevision: "", firmwareVersion: "", rig: "", batchOrLot: "", environment: "", calibrationReference: "", protocolReference: "" };
-  const template = { version: 1, testCaseIds: ["second", "first"], configurations: [{ id: config, name: "Rig\nA", context }] };
+  const template = { version: literal ? 2 : 1, testCaseIds: ["second", "first"], configurations: [{ id: config, name: literal ? "  Literal\n☃ name  " : "Rig\nA", context: literal ? { ...context, configuration: "  Rig\nA  ", build: "0" } : context }] };
   const metadata = { id: "candidate", title: "Candidate\n title", displayId: "TC-7", reviewStatus: "APPROVED", archived: false };
   const scopeKey = planExecutionCandidateBrowserKey({ ...scope, search: "", limit: 50 });
-  const wire = projection === "ACCESS" ? { readContext, hasFullEditorAccess: true } : { readContext, hasFullEditorAccess: true, plan: { id: "plan", projectId: "p", name: "PRIVATE Plan\n name", status: "ACTIVE" }, rawTemplate: { sqlNull: false, jsonText: JSON.stringify(template) }, template, templateHash: "b".repeat(64), interpretation: "EXACT_SUPPORTED", selected: template.testCaseIds.map(testCaseId => ({ testCaseId, state, metadata: state === "MISSING" ? null : { id: testCaseId, title: "PRIVATE Case\n title", displayId: "", reviewStatus: "APPROVED", archived: state === "ARCHIVED" } })), candidates: candidates ? [metadata] : [], search: "", limit: 50, candidateScopeKey: scopeKey, nextCursor: candidates ? { scopeKey, lastId: "candidate" } : null, limitations: [] };
+  const wire = projection === "ACCESS" ? { readContext, hasFullEditorAccess: true } : { readContext, hasFullEditorAccess: true, plan: { id: "plan", projectId: "p", name: "PRIVATE Plan\n name", status: "ACTIVE" }, rawTemplate: { sqlNull: false, jsonText: JSON.stringify(template) }, template, templateHash: "b".repeat(64), interpretation: literal ? "EXACT_LITERAL_V2_READ_ONLY" : "EXACT_SUPPORTED", selected: template.testCaseIds.map(testCaseId => ({ testCaseId, state, metadata: state === "MISSING" ? null : { id: testCaseId, title: "PRIVATE Case\n title", displayId: "", reviewStatus: "APPROVED", archived: state === "ARCHIVED" } })), candidates: candidates ? [metadata] : [], search: "", limit: 50, candidateScopeKey: scopeKey, nextCursor: candidates ? { scopeKey, lastId: "candidate" } : null, limitations: [] };
   const value = admitPlanExecutionRead(wire, input, projection, "cl"); if (!value) throw Error("Complete synthetic plan DTO refused");
   return Object.freeze({ origin: value.origin, observedSessionId: "A", projection, epoch: 1, revision: 1, receivedAt: "2026-10-06T00:00:00.000Z", data: value.data });
 }
@@ -75,10 +75,36 @@ function harness(mode: "PAGE" | "ACCESS" | "legacy" = "PAGE", state: "AVAILABLE"
   function click(text: string) { const b = button(text); expect(b.props.disabled).not.toBe(true); if (b.props.type === "submit") { const form = elements(tree).find(e => e.type === "form"); if (!form) throw Error("Actual submit form absent"); (form.props.onSubmit as (event: { preventDefault: () => void }) => void)({ preventDefault: () => {} }); } else (b.props.onClick as () => void)(); settle(); }
   async function flush() { for (let i = 0; i < 25; i++) { await new Promise(resolve => setTimeout(resolve, 2)); settle(); } }
   settle();
-  return { props, sent, reads, nativePins, navigate, render, settle, button, click, flush, get tree() { return tree; }, html: () => renderToStaticMarkup(tree), get saved() { return saved; }, ack, setSend: (fn: typeof send) => { send = fn; }, sdk: (id: string) => { sdk = id; }, complete: (p: "ACCESS" | "PAGE", role: "ACCESS" | "PREVIEW" = "PREVIEW") => { plan = planSnapshot(p); planOrigin = plan.origin; profile = profileSnapshot(role); generation++; dirty = true; settle(); }, revoke: () => { plan = null; profile = null; generation++; dirty = true; }, clearBootstrap: () => { planOrigin = null; plan = null; profile = null; generation++; dirty = true; }, recoverAccess: () => { plan = null; profile = profileSnapshot("ACCESS"); generation++; dirty = true; settle(); }, select: () => { const input = elements(tree).find(e => e.type === "input" && e.props.type === "radio"); if (!input) throw Error("No configuration choice"); (input.props.onChange as () => void)(); settle(); }, seed: (body: unknown, receipt: string | null = null) => { slots[13]!.value = body; slots[14]!.value = receipt; settle(); }, get legacyBody() { return slots[13]?.value; }, unmount: () => { life = false; slots.forEach(slot => slot?.cleanup?.()); } };
+  return { props, sent, reads, nativePins, navigate, render, settle, button, click, flush, get tree() { return tree; }, html: () => renderToStaticMarkup(tree), get saved() { return saved; }, ack, setSend: (fn: typeof send) => { send = fn; }, sdk: (id: string) => { sdk = id; }, complete: (p: "ACCESS" | "PAGE", role: "ACCESS" | "PREVIEW" = "PREVIEW", literal = false) => { plan = planSnapshot(p, "AVAILABLE", false, literal); planOrigin = plan.origin; profile = profileSnapshot(role); generation++; dirty = true; settle(); }, revoke: () => { plan = null; profile = null; generation++; dirty = true; }, clearBootstrap: () => { planOrigin = null; plan = null; profile = null; generation++; dirty = true; }, recoverAccess: () => { plan = null; profile = profileSnapshot("ACCESS"); generation++; dirty = true; settle(); }, select: () => { const input = elements(tree).find(e => e.type === "input" && e.props.type === "radio"); if (!input) throw Error("No configuration choice"); (input.props.onChange as () => void)(); settle(); }, seed: (body: unknown, receipt: string | null = null) => { slots[13]!.value = body; slots[14]!.value = receipt; settle(); }, get legacyBody() { return slots[13]?.value; }, unmount: () => { life = false; slots.forEach(slot => slot?.cleanup?.()); } };
 }
 beforeEach(() => vi.stubGlobal("crypto", { subtle: webcrypto.subtle, randomUUID: () => key }));
 afterEach(() => vi.unstubAllGlobals());
+it("actual literal-v2 rendering preserves complete values but unmistakably disables SAVE and START", async () => {
+  const h = harness(); h.complete("PAGE", "PREVIEW", true); const html = h.html();
+  expect(html).toContain("Exact literal version-2 template, read-only.");
+  expect(html).toContain("SAVE and START are unavailable for this version");
+  expect(html).not.toContain("Legacy-normalized display only");
+  expect(html).toContain("  Literal\n☃ name  "); expect(html).toContain("  Rig\nA  ");
+  expect(html).toContain("<dd style=\"white-space:pre-wrap;overflow-wrap:anywhere\">0</dd>");
+  expect(html).toContain("Complete saved selection (2)"); expect(html.indexOf("second</code>")).toBeLessThan(html.indexOf("first</code>"));
+  expect(h.button("Save reusable template").props.disabled).toBe(true);
+  h.select(); expect(h.button("Review this saved").props.disabled).toBe(true); expect(h.button("Confirm and start").props.disabled).toBe(true);
+  (h.button("Review this saved").props.onClick as () => void)();
+  (h.button("Confirm and start").props.onClick as () => void)(); await h.flush();
+  expect(h.sent).toEqual([]); expect(h.navigate).toEqual([]); expect(h.saved).toBe(0);
+  h.revoke(); h.settle(); expect(h.html()).not.toContain("Literal\n☃"); expect(h.html()).not.toContain("PRIVATE");
+});
+it("actual owned v1 UNKNOWN retries its identical body through ACCESS even after a literal-v2 PAGE replaces the read", async () => {
+  const h = harness(); h.setSend(async () => { throw Error("Synthetic lost ACK"); });
+  h.select(); h.click("Review this saved"); h.click("Confirm and start"); await h.flush();
+  const original = h.sent[0], before = JSON.stringify(original);
+  h.props.open = false; h.settle(); h.props.open = true; h.complete("PAGE", "ACCESS", true);
+  expect(h.html()).toContain("Exact literal version-2 template, read-only.");
+  expect(h.button("Review this saved").props.disabled).toBe(true); expect(h.button("Retry exact held").props.disabled).toBe(false);
+  h.setSend(async input => h.ack(input)); h.click("Retry exact held"); await h.flush();
+  expect(h.sent).toHaveLength(2); expect(h.sent[1]).toBe(original); expect(JSON.stringify(h.sent[1])).toBe(before);
+  expect(h.button("Retry exact held").props.disabled).toBe(true); expect(h.navigate).toEqual([]);
+});
 it("ACCESS is nonprivate and never silently fetches template/profile or approves a new run", () => { const h = harness("ACCESS"); expect(h.html()).not.toContain("PRIVATE"); expect(h.reads).toEqual([]); expect(h.button("Review this saved").props.disabled).toBe(true); h.click("Read saved template"); expect(h.reads).toEqual([{ search: "", limit: 50 }]); });
 it("actual renderer preserves ordered full saved identities, multiline/explicit empty context and collapsed exact raw disclosure", () => { const h = harness(), html = h.html(); expect(html).toContain("PRIVATE Plan\n name"); expect(html.indexOf("second</code>")).toBeLessThan(html.indexOf("first</code>")); expect(html).toContain("Rig\nA"); expect(html).toContain("explicit empty text"); expect(html).toContain("no display ID"); expect(html).not.toContain("<details open"); expect(html).toContain("Save reusable template (reviewed native-save protocol unavailable)"); expect(h.sent).toEqual([]); });
 it.each(["MISSING", "ARCHIVED"] as const)("%s remains a stable selected identity, not a smaller executable denominator", state => { const h = harness("PAGE", state); expect(h.html()).toContain(state); expect(h.html()).toContain("Complete saved selection (2)"); h.select(); expect(h.button("Review this saved").props.disabled).toBe(true); expect(h.sent).toEqual([]); });

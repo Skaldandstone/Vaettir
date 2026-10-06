@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { supportedManualExecutionIdentity } from "./manualExecutionReadScopeSchema.js";
+import { planExecutionTemplateExactSchema } from "./planExecutionTemplateExactSchema.js";
 
 // Read DTOs only. Do not import the legacy template service/Node hash/Prisma
 // graph here: fixtures and future clients can inspect this exact wire contract.
@@ -75,9 +76,9 @@ export const planExecutionPageOutput = z.object({
   hasFullEditorAccess: z.boolean(),
   plan: z.object({ id, projectId: id, name: z.string().max(10000), status: z.enum(["DRAFT", "ACTIVE", "IN_REVIEW", "APPROVED", "ARCHIVED"]) }).strict(),
   rawTemplate: z.object({ sqlNull: z.literal(false), jsonText: z.string().max(PLAN_EXECUTION_READ_BOUNDS.templateBytes) }).strict(),
-  template: template.nullable(),
+  template: z.union([template, planExecutionTemplateExactSchema]).nullable(),
   templateHash: hash,
-  interpretation: z.enum(["UNCONFIGURED_EMPTY_OBJECT", "EXACT_SUPPORTED", "LEGACY_NORMALIZED"]),
+  interpretation: z.enum(["UNCONFIGURED_EMPTY_OBJECT", "EXACT_SUPPORTED", "LEGACY_NORMALIZED", "EXACT_LITERAL_V2_READ_ONLY"]),
   selected: z.array(selected).max(PLAN_EXECUTION_READ_BOUNDS.cases),
   candidates: z.array(planExecutionCaseMetadata).max(PLAN_EXECUTION_READ_BOUNDS.page),
   search,
@@ -87,5 +88,6 @@ export const planExecutionPageOutput = z.object({
   limitations: z.array(z.string().max(1000)).max(8),
 }).strict().superRefine((value, ctx) => {
   const ids = value.template?.testCaseIds ?? [];
+  if ((value.template?.version === 2) !== (value.interpretation === "EXACT_LITERAL_V2_READ_ONLY")) ctx.addIssue({ code: "custom", message: "Literal version-2 templates are read-only and cannot adopt a legacy interpretation." });
   if (value.plan.projectId !== value.readContext.scope.projectId || value.plan.id !== value.readContext.scope.testPlanId || ids.length !== value.selected.length || ids.some((item, index) => item !== value.selected[index]?.testCaseId) || value.candidates.length > value.limit || new Set(value.candidates.map(item => item.id)).size !== value.candidates.length || value.candidates.some(item => item.archived) || (value.template === null) !== (value.interpretation === "UNCONFIGURED_EMPTY_OBJECT") || value.nextCursor && (value.nextCursor.scopeKey !== value.candidateScopeKey || value.nextCursor.lastId !== value.candidates.at(-1)?.id)) ctx.addIssue({ code: "custom", message: "The complete template, saved selection and current candidate page must reconcile." });
 });

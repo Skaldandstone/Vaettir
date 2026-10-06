@@ -3722,3 +3722,48 @@ are explicitly synthetic. This is not a new mounted-browser, native SQL,
 authenticated production or deployment acceptance. Legacy full-form
 authorization/uncertain-save and coherent versioned plan SAVE/read/run support
 remain separate open work. No migration or provider/customer operation occurred.
+
+### October 6: literal-template read compatibility, not SAVE/START activation
+
+Current authorized plan PAGE reads can now display explicitly stored version-2
+templates without trimming their multiline context or filling missing fields.
+They use a distinct read-only interpretation, not the legacy exact-supported
+marker. Native byte/count/relationship admission and JSONB equality still precede
+the private metadata read. The browser independently verifies complete literal
+raw/template agreement, preserves ordered missing/archived identities and
+explicitly says that SAVE and START are unavailable for this version.
+
+The legacy parser, start controller, writer, receipt hash and original UUID
+recovery are unchanged. New v2 reads cannot allocate a review UUID or dispatch
+a start. An already-owned v1 uncertain request can still recover its identical
+envelope through current original profile ACCESS, even if PAGE is now v2 or
+unavailable. No old request is retroactively reinterpreted as literal v2.
+Independent checks passed 135 API pure/mocked checks, 129 Web reader/controller/
+actual-component SSR checks, both typechecks and scoped lint with zero errors
+or warnings. Full compatible Web checks passed 810 Node plus 1,717 typed checks
+across 100 files, zero failures or skips. This does not prove native SQL,
+authentication or complete SAVE-to-run acceptance. No migration or deployment.
+
+### October 6: actual case-form browser interaction
+
+A separate loopback fixture mounted the complete actual form, child controls,
+React hooks, query/client providers, Next context and CSS. Only Clerk, HTTP and
+the router value were synthetic. Root verified all six optional field reveals,
+hardware response reveal and a tester action beside its matching multiline
+API descriptor under step one. Hide/reopen retained the descriptor and revealed
+fields; fresh metadata recovered after transient current-reader withholding.
+Populated fields remained visible under HIDE, including exact/empty/repeated
+tag chips, multiline prose, two unavailable media identities, explicit empty
+versus absent step fields and custom empty/false/zero/unknown-null metadata.
+
+One actual form submission reached only a refusing synthetic boundary and
+captured 1,176 synthetic bytes. No successful application ACK, record, upload,
+settings write, native/provider/customer operation or navigation occurred.
+Eighteen independent fixture source/type/client checks passed. Original bundle
+planning refused an unlisted dependency before evaluation; the failed launcher
+and evidence were retained. A separate reviewed launcher admitted only the
+fully inspected Zod-only folder schema, not an unrestricted API graph. Complete
+source/dependency/CSS hashes remain local alongside screenshots. No browser
+error was observed in these bounded interactions. Full-form SDK/native-owner/
+nonce privacy and uncertain-save recovery remain open, not established by the
+display-only reveal guard or this synthetic render. Production is unchanged.

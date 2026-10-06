@@ -38,6 +38,13 @@ function legacyParsedHashModel(request: ReviewedPlanRunRequest) {
   return createHash("sha256").update(canonical({ testCaseIds: request.testCaseIds, expectedProfileHash: request.expectedProfileHash, configuration: request.executionContext, planReference: request.planReference, originalOrganizationId: request.originalOrganizationId, expectedClerkActorId: request.expectedClerkActorId })).digest("hex");
 }
 function ack() { return { mode: "START", currentScope: { projectId: "p", organizationId: "o", actorId: "n", actorClerkUserId: "cl" }, idempotencyKey: key, legacyAck: { testRunId: `manual_${createHash("sha256").update(JSON.stringify(["p", "n", key])).digest("hex")}`, originalOrganizationId: "o", expectedClerkActorId: "cl", idempotencyKey: key }, historicalOuterProvenance: "UNRECORDED", interpretation: "LEGACY_NORMALIZED_NOT_RAW_LOSSLESS" }; }
+it("unchanged v1 start helper refuses an admitted literal-v2 PAGE without changing its retained body or hash", () => {
+  const h = fixture(), body = JSON.stringify(h.request), hash = legacyParsedHashModel(h.request);
+  h.changePlan(raw => { raw.template.version = 2; raw.interpretation = "EXACT_LITERAL_V2_READ_ONLY"; raw.rawTemplate.jsonText = JSON.stringify(raw.template); });
+  expect(() => freezeReviewedPlanStart(h.request, h.selection())).toThrow("nothing was submitted");
+  expect(JSON.stringify(h.request)).toBe(body); expect(legacyParsedHashModel(h.request)).toBe(hash);
+  expect(h.request.idempotencyKey).toBe(key); expect(Object.hasOwn(h.request, "expectedNativeActorId")).toBe(false);
+});
 it("prospective exact plan intent preserves original inner bytes/order/key and metadata without native pin injection", () => {
   const h = fixture(), before = JSON.stringify(h.request), owned = freezeReviewedPlanStart(h.request, h.selection());
   expect(JSON.stringify(owned.request)).toBe(before); expect(owned.envelope.request).toBe(owned.request);

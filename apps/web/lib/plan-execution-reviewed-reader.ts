@@ -1,5 +1,6 @@
 import type { planExecutionAccessOutput, planExecutionPageOutput, PlanExecutionAccessInput, PlanExecutionPageInput } from "../../api/src/services/planExecutionReadSchema";
 import { inspectRunStartReadWire, RunStartReadRenderGuard } from "./manual-run-start-reviewed-reader";
+import { planExecutionTemplateExactSchema } from "../../api/src/services/planExecutionTemplateExactSchema";
 
 export type PlanExecutionReadProjection = "ACCESS" | "PAGE";
 export type PlanExecutionReadInput = PlanExecutionAccessInput | PlanExecutionPageInput;
@@ -54,6 +55,7 @@ function configuration(value: unknown) {
   return fields(value, contextFields) && contextFields.every(key => text(value[key], shortFields.includes(key) ? 300 : 2000));
 }
 function interpretedTemplate(value: unknown): value is RecordValue {
+  if (record(value) && value.version === 2) return planExecutionTemplateExactSchema.safeParse(value).success && Array.isArray(value.testCaseIds) && value.testCaseIds.every(planExecutionReadIdentity);
   return fields(value, ["version", "testCaseIds", "configurations"]) && value.version === 1 && Array.isArray(value.testCaseIds) && value.testCaseIds.length <= 500 && value.testCaseIds.every(planExecutionReadIdentity) && new Set(value.testCaseIds).size === value.testCaseIds.length && Array.isArray(value.configurations) && value.configurations.length <= 20 && value.configurations.every(item => fields(item, ["id", "name", "context"]) && uuid(item.id) && text(item.name, 120, 1) && configuration(item.context)) && new Set(value.configurations.map(item => (item as RecordValue).id)).size === value.configurations.length;
 }
 function sameJson(a: unknown, b: unknown): boolean {
@@ -69,7 +71,8 @@ function rawTemplateMatches(rawText: string, template: unknown, interpretation: 
   try { raw = JSON.parse(rawText); inspectPlanExecutionReadWire(raw, PLAN_EXECUTION_BROWSER_BOUNDS.template); } catch { return false; }
   if (!record(raw)) return false;
   if (Object.keys(raw).length === 0) return template === null && interpretation === "UNCONFIGURED_EMPTY_OBJECT";
-  if (!interpretedTemplate(template) || !fields(raw, ["version", "testCaseIds", "configurations"]) || raw.version !== 1 || !sameJson(raw.testCaseIds, template.testCaseIds) || !Array.isArray(raw.configurations) || raw.configurations.length !== (template.configurations as unknown[]).length) return false;
+  if (raw.version === 2) return interpretation === "EXACT_LITERAL_V2_READ_ONLY" && interpretedTemplate(raw) && interpretedTemplate(template) && template.version === 2 && sameJson(raw, template);
+  if (!interpretedTemplate(template) || template.version !== 1 || !fields(raw, ["version", "testCaseIds", "configurations"]) || raw.version !== 1 || !sameJson(raw.testCaseIds, template.testCaseIds) || !Array.isArray(raw.configurations) || raw.configurations.length !== (template.configurations as unknown[]).length) return false;
   for (let index = 0; index < raw.configurations.length; index++) {
     const native = raw.configurations[index], view = (template.configurations as RecordValue[])[index];
     if (!fields(native, ["id", "name", "context"]) || !view || native.id !== view.id || typeof native.name !== "string" || native.name.trim() !== view.name || !fields(native.context, [], contextFields)) return false;

@@ -87,7 +87,7 @@ export function PlanExecutionReviewed({ projectId, testPlanId, organizationId, o
       </form>
       {page && <section>
         <h3 style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>{page.plan.name}</h3>
-        <p>Plan status: {page.plan.status}. {page.interpretation === "EXACT_SUPPORTED" ? "Exact supported saved-template interpretation." : "Legacy-normalized display only; it cannot approve a new execution."}</p>
+        <p>Plan status: {page.plan.status}. {page.interpretation === "EXACT_LITERAL_V2_READ_ONLY" ? "Exact literal version-2 template, read-only. SAVE and START are unavailable for this version; viewing it does not approve an execution." : page.interpretation === "EXACT_SUPPORTED" ? "Exact supported saved-template interpretation." : "Legacy-normalized display only; it cannot approve a new execution."}</p>
         <h4>Complete saved selection ({page.selected.length})</h4>
         <ol>{page.selected.map(item => <li key={item.testCaseId} style={{ marginBottom: 8, overflowWrap: "anywhere" }}>
           <code>{item.metadata?.displayId || item.testCaseId}</code>{item.metadata?.displayId === "" && <small> (no display ID)</small>}
