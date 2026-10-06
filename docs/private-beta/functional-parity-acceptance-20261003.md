@@ -1791,3 +1791,34 @@ RUN. Earlier native erasure failures remain FAILED. Other mapped legacy native
 fixture call sites, actual concurrency/SQL/migrations/recovery, full runtime and
 image security, authenticated production and Windows/device acceptance remain
 open. Source checkpoints do not deploy this work or conclude parity.
+
+### October 6 current run-history reader source
+
+The distinct protected `runHistory.access/page` namespace now supplies a bounded
+current-reader protocol for the existing visual run list and portable reporting
+work. Original organization, authenticated Clerk/native reader, fresh request
+nonce and exact requested key are echoed. Page size and millisecond UTC anchor
+are explicit, with native `(startedAt, id)` keyset order and one admitted but
+unpublished lookahead. The anchor bounds stored run-start times; this is NOT a
+globally frozen snapshot or a whole-project count, and corrections can change
+progress between pages. Native submillisecond/unsupported dates are refused
+before metadata projection rather than silently truncated into a broken cursor.
+
+Manual progress uses unique saved planned identities and current result verdicts,
+not pass rate or a substitute for the all-pages frozen/current-head summary.
+Unsupported saved scope, duplicate verdicts or inconsistent case/step heads yield
+unavailable progress with a reason, never fabricated zero completion. CI progress
+counts ingested observations; no planned CI denominator or remaining work is
+invented. Actual foreign pointers refuse the complete read before private counts.
+Native metadata/identity/status admission precedes the whitelisted projection;
+notes, errors, procedures, source bodies and media are not exported by this route.
+The 21-row page limit, 128-KiB metadata, 16-MiB selected projection, per-run
+1000-identity/1-MiB scope and 100000 grouped-result/head bounds are explicit.
+
+Root independently repeated 48 run-history/protected-router/progress checks,
+then 103 selected API source/mock checks across seven files including the step
+resource and reviewed-fixture helper tranche. All passed. These remain source
+and mocked transport proof, not executed PostgreSQL, production large-history
+performance or authenticated runtime. The existing list/card/dashboard/export
+callers are NOT yet cut over; additive browser activation and explicit scoped
+current-page export are the next workstream. No deployment is inferred.
