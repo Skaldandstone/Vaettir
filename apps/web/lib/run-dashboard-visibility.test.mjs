@@ -55,8 +55,12 @@ test("inactive reader denies cached evidence, closes portalled export and invali
 
 test("run history pagination/refetch and empty pages do not unmount dashboard scope", () => {
   const page = source("../app/projects/[projectId]/test-runs/page.tsx");
-  assert.match(page, /\{error && <p[^\n]*<\/p>\}\s*<RunAllPagesDashboard key=\{projectId\} projectId=\{projectId\} \/>/);
+  assert.match(page, /<RunHistoryDashboard key=\{projectId\} projectId=\{projectId\} organizationId=\{organizationId\} onView=\{setOpenRunId\} \/>\s*<RunAllPagesDashboard key=\{projectId\} projectId=\{projectId\} \/>/);
   assert.equal([...page.matchAll(/<RunAllPagesDashboard/g)].length, 1);
-  assert.match(page, /<RunOverview runs=\{runs\}/);
-  assert.match(page, /Run history pages/);
+  assert.equal([...page.matchAll(/<RunHistoryDashboard/g)].length, 1);
+  assert.doesNotMatch(page, /runsQuery|historyCursors|<RunOverview|testRuns\.list/);
+  const dashboard = source("../components/RunHistoryDashboard.tsx");
+  assert.match(dashboard, /useRunHistory\(projectId/);
+  assert.match(dashboard, /Current run-history page/);
+  assert.match(dashboard, /sameRenderedPage\(rendered, reader.current\(\)\)/);
 });

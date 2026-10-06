@@ -9,18 +9,12 @@ import { Modal } from "@/components/Modal";
 import { useProjectPermissions } from "@/lib/use-project-permissions";
 import { inspectorLabel } from "@/lib/case-inspector";
 import { currentSessionScope, sameAuthScope } from "@/lib/auth-query-cache";
-import { RunOverview } from "@/components/RunOverview";
+import { RunHistoryDashboard } from "@/components/RunHistoryDashboard";
 import { RunAllPagesDashboard } from "@/components/RunAllPagesDashboard";
 import { manualStartDefinitivelyRejected, assertManualStartAcknowledgement } from "@/lib/manual-run-start";
 import { applyRunBulkSelection, type RunBulkSelectionMode } from "@/lib/run-bulk-selection";
 import { useManualExecutionAccess } from "@/lib/use-manual-execution-access";
 
-const STATUS_COLORS: Record<string, string> = {
-  PASSED: "#1a7f37",
-  FAILED: "#cf222e",
-  PARTIAL: "#9a6700",
-  RUNNING: "#0969da",
-};
 const subscribeRunHash = (notify: () => void) => {
   window.addEventListener("hashchange", notify);
   return () => window.removeEventListener("hashchange", notify);
@@ -515,18 +509,6 @@ export default function TestRunsPage() {
   const { canEdit, organizationId } = useProjectPermissions(projectId);
   const manualAccess = useManualExecutionAccess(projectId);
   const manualInFlight = useRef(false);
-  const [historyCursors, setHistoryCursors] = useState<
-    Array<{ startedAt: Date; id: string }>
-  >([]);
-  const runsQuery = trpcReact.testRuns.list.useQuery({
-    projectId,
-    take: 21,
-    before: historyCursors.at(-1),
-  });
-  const runs = (runsQuery.data ?? []).slice(0, 20);
-  const hasOlderRuns = (runsQuery.data?.length ?? 0) > 20;
-  const loading = runsQuery.isLoading;
-  const error = runsQuery.error?.message ?? null;
   const linkedRunId = useSyncExternalStore(
     subscribeRunHash,
     readRunHash,
@@ -669,91 +651,14 @@ export default function TestRunsPage() {
         execution. Most recent first.
       </p>
 
-      {loading && <p>Loading…</p>}
-      {error && <p style={{ color: "var(--ember)" }}>{error}</p>}
+      <RunHistoryDashboard key={projectId} projectId={projectId} organizationId={organizationId} onView={setOpenRunId} />
 
       <RunAllPagesDashboard key={projectId} projectId={projectId} />
 
-      {!loading &&
-        !error &&
-        runs.length === 0 &&
-        historyCursors.length === 0 && (
-          <div className="panel">
-            <h2 style={{ marginTop: 0 }}>Choose how this project runs tests</h2>
-            <p className="text-muted">
-              Record a guided manual session, connect CI, or import historical
-              JUnit results.
-            </p>
-            <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
-              {canEdit && (
-                <button
-                  className="btn-primary"
-                  onClick={() => setManualOpen(true)}
-                >
-                  Start manual run
-                </button>
-              )}
-              <a
-                className="btn-secondary"
-                href={`/projects/${projectId}/import`}
-              >
-                Import historical results
-              </a>
-              <a className="btn-secondary" href="/settings/integrations">
-                Configure CI and integrations
-              </a>
-            </div>
-          </div>
-        )}
-
-      {!loading && !error && runs.length > 0 && <RunOverview runs={runs} projectId={projectId} onView={setOpenRunId} />}
-
-      {!loading && !error && (runs.length > 0 || historyCursors.length > 0) && (
-        <nav
-          aria-label="Run history pages"
-          style={{
-            display: "flex",
-            flexWrap: "wrap",
-            alignItems: "center",
-            gap: 10,
-            marginTop: 16,
-          }}
-        >
-          <button
-            type="button"
-            className="btn-secondary"
-            disabled={historyCursors.length === 0}
-            onClick={() => setHistoryCursors((current) => current.slice(0, -1))}
-          >
-            Newer runs
-          </button>
-          <span role="status">Page {historyCursors.length + 1}</span>
-          <button
-            type="button"
-            className="btn-secondary"
-            disabled={!hasOlderRuns}
-            onClick={() => {
-              const last = runs.at(-1);
-              if (last)
-                setHistoryCursors((current) => [
-                  ...current,
-                  { id: last.id, startedAt: new Date(last.startedAt) },
-                ]);
-            }}
-          >
-            Older runs
-          </button>
-          {historyCursors.length > 0 && (
-            <button
-              type="button"
-              className="btn-secondary"
-              onClick={() => setHistoryCursors([])}
-            >
-              Latest runs
-            </button>
-          )}
-        </nav>
-      )}
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 16 }}>
+        <a className="btn-secondary" href={`/projects/${projectId}/import`}>Import historical results</a>
+        <a className="btn-secondary" href="/settings/integrations">Configure CI and integrations</a>
+      </div>
 
       <Drawer open={openRunId !== null} onClose={() => setOpenRunId(null)}>
         {openRunId && <TestRunDetail id={openRunId} canEdit={canEdit} />}

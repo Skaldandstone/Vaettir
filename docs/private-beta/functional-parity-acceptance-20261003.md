@@ -2020,3 +2020,48 @@ into the existing device-capture test command. Owned lint/diff-check passed; the
 existing Node package-type warning was disclosed without changing package mode.
 No helper, device, provider command or Windows policy was executed or changed.
 Actual approved Windows/device acceptance remains open.
+
+### October 6 actual run-list visual/native-reader cutover
+
+The project run page now mounts `RunHistoryDashboard` instead of the old list,
+cursor state and unreviewed `RunOverview` export caller. Current native access
+and a bounded anchored page drive colored status cards, recorded percentage,
+remaining manual cases and stored UTC start/finish times. Supported manual
+run-case instances and CI ingested observations have separate summaries;
+unavailable progress is excluded and disclosed, never silently treated as zero.
+Unknown statuses remain neutral rather than invented success. Transparent badges
+use readable text colors, not filled chart tokens with poor foreground contrast.
+
+The separate applied all-pages dashboard stays mounted across current-page
+refresh/paging/empty results. Manual run navigation and CI result-opening intents
+check the actual current reader again at action time. The existing CI detail,
+coverage and healing paths are otherwise unchanged and NOT certified by this
+list cutover. Original run-start/bulk selection behavior remains separate.
+
+CSV requires an explicit immutable current-page review and a separate confirmed
+handoff. Its dialog shows the reviewed anchor, client response time and limit,
+plus exact included/excluded fields. Closed/replaced/consumed reviews cannot be
+reused by obsolete handlers. Session/cache loss hides private cards and portalled
+review contents while retaining the original review privately. A different page
+or fresh nonce requires a new explicit review; no globally frozen or whole-project
+completion is inferred from this page.
+
+Root independently reviewed the component, tests and actual caller, repeated
+68 dashboard/reader/export checks, and ran the compatible full Web suite:
+803 Node plus 554 typed checks in 55 suites passed, zero skips. Web/API types
+and owned dashboard/caller lint passed. Root inspected the pinned actual-component
+fixture at the caller's 900px maximum: two readable cards per row, manual 25%/three
+remaining separate from CI ingestion, and explicit unsupported progress. SDK-only,
+real QueryCache and hook-auth loss withheld cards/private modal content; explicit
+refresh was required. Twenty plus three older synthetic runs retained one anchor
+and rotated page nonces. CSV callback content contained twenty displayed run rows
+plus metadata, excluding lookahead, email and CI URLs.
+
+The fixture used actual React/TanStack/read/controller/dialog/visual source; auth,
+RPC, routing and a labeled CSV observer were synthetic. An observer-only quoted-row
+counting defect was preserved then corrected locally; optional screenshot timeouts
+remain recorded, not silently treated as successful captures. No mobile, external
+font, real browser-file handoff, native SQL/performance, production identity or
+authenticated critical-flow acceptance is implied. All prior native/runtime/image,
+migration/recovery/device release gates remain open; this checkpoint is not a
+deployment or a reason to stop the remaining authorized workflow repairs.
