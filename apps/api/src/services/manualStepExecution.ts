@@ -4,17 +4,13 @@ import type {
   Prisma,
   PrismaClient,
   ManualStepResultRevision,
-  TestResultStatus,
 } from "@vaettir/db";
-import {
-  observationsSchema,
-  measurementVerdict,
-} from "./physicalValidation.js";
+import { observationsSchema } from "./physicalValidation.js";
 import {
   readRunExperienceSnapshot,
   qualityProfileHash,
 } from "./qualityExperienceProfile.js";
-import { requireCurrentPlanAccess } from "./testPlanExecution.js";
+import { lockManualRetestAccess } from "./manualRetestScope.js";
 
 export const stepStatusSchema = z.enum(["PASS", "FAIL", "BLOCKED", "SKIP"]);
 const MAX_CURRENT_STEP_BYTES = 4 * 1024 * 1024;
@@ -207,17 +203,25 @@ export async function protectExecutedDependents(
     });
 }
 
+/** Recovery-only legacy adapter. The native legacy tuple was run/actor/UUID;
+ * original organization and Clerk provenance were not stored and are not invented.
+ * New reviewed envelopes retain their separate global actor/UUID namespace. */
 export async function recordManualStepResult(
   db: PrismaClient,
-  actor: { id: string; name: string | null },
+  actor: { id: string; name: string | null; clerkUserId: string | null },
   input: z.infer<typeof recordStepResultInputSchema>,
 ) {
-  const found = await db.testRun.findUnique({
-    where: { id: input.testRunId },
-    select: { projectId: true },
-  });
-  if (!found)
-    throw new TRPCError({ code: "NOT_FOUND", message: "Test run not found" });
+  if (
+    !actor ||
+    typeof actor.clerkUserId !== "string" ||
+    !actor.clerkUserId.length ||
+    actor.clerkUserId.length > 200 ||
+    actor.clerkUserId.includes("\0")
+  )
+    throw new TRPCError({
+      code: "FORBIDDEN",
+      message: "An independently authenticated signed-in actor is required.",
+    });
   const observations = observationsSchema.parse(input.observations ?? {});
   const evidenceIds = [...input.evidenceAttachmentIds].sort();
   const note = input.note?.trim() || null;
@@ -232,237 +236,220 @@ export async function recordManualStepResult(
     expectedRevisionId: input.expectedRevisionId,
     correctionReason,
   });
+  const unsupported = () =>
+    new TRPCError({
+      code: "PRECONDITION_FAILED",
+      message:
+        "The retained step receipt has unsupported metadata. Nothing was rewritten; refresh reviewed history before deciding how to recover.",
+    });
+  const identity = z
+    .string()
+    .min(1)
+    .max(200)
+    .refine((value) => !value.includes("\0"));
+  const hash = z.string().regex(/^[a-f0-9]{64}$/);
+  const scalarReceiptSchema = z
+    .object({
+      id: identity,
+      testRunId: identity,
+      testCaseId: identity,
+      stepIndex: z.number().int().min(0).max(499),
+      actorId: identity,
+      idempotencyKey: z.string().uuid(),
+      requestHash: hash,
+      status: stepStatusSchema,
+      caseStatusAtRecord: stepStatusSchema.nullable(),
+    })
+    .strict();
+  const reviewedScalarSchema = z
+    .object({
+      revisionId: identity,
+      testRunId: identity,
+      testCaseId: identity,
+      projectId: identity,
+      organizationId: identity,
+      actorId: identity,
+      actorClerkUserId: identity,
+      valid: z.literal(true),
+    })
+    .strict();
+  const admittedCount = (rows: Array<{ count: bigint; bytes: bigint }>) => {
+    const row = rows[0];
+    if (
+      rows.length !== 1 ||
+      !row ||
+      typeof row.count !== "bigint" ||
+      typeof row.bytes !== "bigint" ||
+      row.count < 0n ||
+      row.count > 1n ||
+      row.bytes < 0n ||
+      row.bytes > 8192n ||
+      (row.count === 1n && row.bytes === 0n) ||
+      (row.count === 0n && row.bytes !== 0n)
+    )
+      throw unsupported();
+    return row.count;
+  };
   return db.$transaction(
     async (tx) => {
-      // Shared with attachment deletion/confirmation. Fixed lock order: project then run.
-      await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${found.projectId}))::text`;
-      await tx.$queryRaw`SELECT id FROM "TestRun" WHERE id = ${input.testRunId} FOR UPDATE`;
-      const run = await tx.testRun.findUniqueOrThrow({
-        where: { id: input.testRunId },
-      });
-      await requireCurrentPlanAccess(tx, actor.id, run.projectId, true);
-      const receipt = await tx.manualStepResultRevision.findUnique({
-        where: {
-          testRunId_actorId_idempotencyKey: {
-            testRunId: run.id,
-            actorId: actor.id,
-            idempotencyKey: input.idempotencyKey,
-          },
+      // Identity-only discovery. No run procedure, note, evidence or current head is read.
+      const found = await tx.$queryRaw<
+        Array<{ projectId: string | null }>
+      >`SELECT
+      CASE WHEN length("projectId") BETWEEN 1 AND 200 AND octet_length("projectId") <= 800
+      THEN "projectId" ELSE NULL END AS "projectId" FROM "TestRun" WHERE id=${input.testRunId}`;
+      if (!found.length)
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Test run not found",
+        });
+      const project = identity.safeParse(found[0]?.projectId);
+      if (found.length !== 1 || !project.success) throw unsupported();
+      const scope = await lockManualRetestAccess(
+        tx,
+        actor.id,
+        {
+          projectId: project.data,
+          sourceRunId: input.testRunId,
+          testCaseId: input.testCaseId,
         },
-      });
-      if (receipt) {
-        if (receipt.requestHash !== requestHash)
+        true,
+        actor.clerkUserId!,
+        true,
+      );
+      const locked = await tx.$queryRaw<
+        Array<{ projectId: string | null }>
+      >`SELECT
+      CASE WHEN length("projectId") BETWEEN 1 AND 200 AND octet_length("projectId") <= 800
+      THEN "projectId" ELSE NULL END AS "projectId" FROM "TestRun" WHERE id=${input.testRunId} FOR UPDATE`;
+      if (locked.length !== 1 || locked[0]?.projectId !== scope.projectId)
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "The current run scope is unavailable.",
+        });
+      // Same mutex as reviewedStep: a reviewed receipt cannot race a legacy recovery.
+      await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext('ManualStepExecutionReview/v1'),
+      hashtext(${qualityProfileHash({ actorId: actor.id, idempotencyKey: input.idempotencyKey })}))::text`;
+      const count = admittedCount(
+        await tx.$queryRaw<Array<{ count: bigint; bytes: bigint }>>`SELECT
+      count(*) AS count, coalesce(sum(octet_length(id) + octet_length("testRunId") +
+      octet_length("testCaseId") + octet_length("actorId") + octet_length("idempotencyKey") +
+      octet_length("requestHash") + octet_length(status::text) + coalesce(octet_length("caseStatusAtRecord"::text),0) + 8),0)::bigint AS bytes
+      FROM "ManualStepResultRevision" WHERE "testRunId"=${input.testRunId}
+      AND "actorId"=${actor.id} AND "idempotencyKey"=${input.idempotencyKey}`,
+      );
+      if (!count)
+        throw new TRPCError({
+          code: "PRECONDITION_FAILED",
+          message:
+            "This legacy step endpoint only recovers an already accepted original request. Use the reviewed step editor for new observations. A lost earlier acknowledgement may already have applied; refresh history rather than automatically resubmitting.",
+        });
+      const rows = await tx.$queryRaw<
+        unknown[]
+      >`SELECT id,"testRunId","testCaseId","stepIndex",
+      "actorId","idempotencyKey","requestHash",status::text AS status,"caseStatusAtRecord"::text AS "caseStatusAtRecord"
+      FROM "ManualStepResultRevision" WHERE "testRunId"=${input.testRunId}
+      AND "actorId"=${actor.id} AND "idempotencyKey"=${input.idempotencyKey}`;
+      const parsed = scalarReceiptSchema.safeParse(rows[0]);
+      if (rows.length !== 1 || !parsed.success) throw unsupported();
+      const receipt = parsed.data;
+      if (
+        receipt.testRunId !== input.testRunId ||
+        receipt.actorId !== actor.id ||
+        receipt.idempotencyKey !== input.idempotencyKey ||
+        receipt.testCaseId !== input.testCaseId ||
+        receipt.stepIndex !== input.stepIndex ||
+        receipt.status !== input.status ||
+        receipt.requestHash !== requestHash
+      )
+        throw new TRPCError({
+          code: "CONFLICT",
+          message:
+            "This step-recording key belongs to a different retained request. Keep the exact original request for recovery.",
+        });
+
+      // Reviewed UUIDs are global per actor, unlike the old compound tuple. Admit
+      // every matching namespace before extracting scalars, never materialize JSON.
+      const reviewedCount = admittedCount(
+        await tx.$queryRaw<Array<{ count: bigint; bytes: bigint }>>`SELECT
+      count(*) AS count, coalesce(sum(octet_length(metadata::text) + octet_length("entityType") +
+      octet_length("entityId") + coalesce(octet_length("projectId"),0) +
+      coalesce(octet_length("organizationId"),0) + coalesce(octet_length("actorId"),0)),0)::bigint AS bytes
+      FROM "AuditLog" WHERE "entityType" LIKE 'ManualStepExecutionReview/%'
+      AND "actorId"=${actor.id} AND metadata->>'idempotencyKey'=${input.idempotencyKey}`,
+      );
+      if (reviewedCount) {
+        // Strict v1 shape + native FK/scalar corroboration only. Foreign evidence,
+        // procedure and notes are neither returned nor decoded for distinct run B.
+        const corroborated = await tx.$queryRaw<unknown[]>`SELECT
+        CASE WHEN length(v.id) BETWEEN 1 AND 200 AND octet_length(v.id)<=800 THEN v.id ELSE NULL END AS "revisionId",
+        CASE WHEN length(v."testRunId") BETWEEN 1 AND 200 AND octet_length(v."testRunId")<=800 THEN v."testRunId" ELSE NULL END AS "testRunId",
+        a.metadata->>'testCaseId' AS "testCaseId", a.metadata->>'projectId' AS "projectId",
+        a.metadata->'scope'->>'organizationId' AS "organizationId",
+        a.metadata->'scope'->>'actorId' AS "actorId",
+        a.metadata->'scope'->>'actorClerkUserId' AS "actorClerkUserId",
+        coalesce(a."entityType"='ManualStepExecutionReview/v1'
+          AND jsonb_typeof(a.metadata)='object'
+          AND (SELECT count(*) FROM jsonb_object_keys(CASE WHEN jsonb_typeof(a.metadata)='object' THEN a.metadata ELSE '{}'::jsonb END))=11
+          AND a.metadata ?& ARRAY['projectId','testRunId','testCaseId','stepIndex','scope','idempotencyKey','requestHash','revisionId','caseStatus','recovered','provenance']
+          AND jsonb_typeof(a.metadata->'scope')='object'
+          AND (SELECT count(*) FROM jsonb_object_keys(CASE WHEN jsonb_typeof(a.metadata->'scope')='object' THEN a.metadata->'scope' ELSE '{}'::jsonb END))=4
+          AND (a.metadata->'scope') ?& ARRAY['projectId','organizationId','actorId','actorClerkUserId']
+          AND (SELECT bool_and(jsonb_typeof(field)='string' AND length(field #>> '{}') BETWEEN 1 AND 200
+            AND octet_length(field #>> '{}')<=800) FROM (VALUES
+            (a.metadata->'projectId'),(a.metadata->'testRunId'),(a.metadata->'testCaseId'),
+            (a.metadata->'idempotencyKey'),(a.metadata->'revisionId'),
+            (a.metadata->'scope'->'projectId'),(a.metadata->'scope'->'organizationId'),
+            (a.metadata->'scope'->'actorId'),(a.metadata->'scope'->'actorClerkUserId')) AS scalars(field))
+          AND jsonb_typeof(a.metadata->'recovered')='boolean'
+          AND a.metadata->>'provenance'='REVIEWED_REQUEST_BOUND_AT_WRITE'
+          AND jsonb_typeof(a.metadata->'provenance')='string'
+          AND jsonb_typeof(a.metadata->'stepIndex')='number'
+          AND a.metadata->>'stepIndex'=v."stepIndex"::text AND v."stepIndex" BETWEEN 0 AND 499
+          AND jsonb_typeof(a.metadata->'requestHash')='string' AND (a.metadata->>'requestHash') ~ '^[a-f0-9]{64}$'
+          AND (v."requestHash") ~ '^[a-f0-9]{64}$'
+          AND jsonb_typeof(a.metadata->'revisionId')='string' AND a.metadata->>'revisionId'=v.id
+          AND jsonb_typeof(a.metadata->'testRunId')='string' AND a.metadata->>'testRunId'=v."testRunId"
+          AND jsonb_typeof(a.metadata->'testCaseId')='string' AND a.metadata->>'testCaseId'=v."testCaseId"
+          AND jsonb_typeof(a.metadata->'idempotencyKey')='string' AND a.metadata->>'idempotencyKey'=v."idempotencyKey"
+          AND jsonb_typeof(a.metadata->'projectId')='string' AND a.metadata->>'projectId'=r."projectId"
+          AND jsonb_typeof(a.metadata->'scope'->'projectId')='string' AND a.metadata->'scope'->>'projectId'=r."projectId"
+          AND jsonb_typeof(a.metadata->'scope'->'organizationId')='string' AND a.metadata->'scope'->>'organizationId'=p."organizationId"
+          AND jsonb_typeof(a.metadata->'scope'->'actorId')='string' AND a.metadata->'scope'->>'actorId'=v."actorId"
+          AND jsonb_typeof(a.metadata->'scope'->'actorClerkUserId')='string' AND a.metadata->'scope'->>'actorClerkUserId'=u."clerkUserId"
+          AND a."entityId"=r.id AND a."projectId"=r."projectId" AND a."organizationId"=p."organizationId"
+          AND a."actorId"=v."actorId" AND v."actorId"=${actor.id}
+          AND v."idempotencyKey"=${input.idempotencyKey}
+          AND ((a.metadata->'caseStatus'='null'::jsonb AND v."caseStatusAtRecord" IS NULL) OR
+            (jsonb_typeof(a.metadata->'caseStatus')='string' AND a.metadata->>'caseStatus' IN ('PASS','FAIL','BLOCKED','SKIP')
+              AND a.metadata->>'caseStatus'=v."caseStatusAtRecord"::text)),false) AS valid
+        FROM "AuditLog" a
+        LEFT JOIN "ManualStepResultRevision" v ON v.id=a.metadata->>'revisionId'
+        LEFT JOIN "TestRun" r ON r.id=v."testRunId"
+        LEFT JOIN "Project" p ON p.id=r."projectId"
+        LEFT JOIN "User" u ON u.id=v."actorId"
+        WHERE a."entityType" LIKE 'ManualStepExecutionReview/%' AND a."actorId"=${actor.id}
+        AND a.metadata->>'idempotencyKey'=${input.idempotencyKey}`;
+        const parsedReviewed = reviewedScalarSchema.safeParse(corroborated[0]);
+        if (corroborated.length !== 1 || !parsedReviewed.success)
+          throw unsupported();
+        const item = parsedReviewed.data;
+        if (
+          item.revisionId === receipt.id ||
+          item.testRunId === receipt.testRunId
+        )
           throw new TRPCError({
             code: "CONFLICT",
             message:
-              "This step-recording key was used for a different request. Keep the original request for recovery or explicitly review a new correction.",
+              "A reviewed step receipt cannot be adopted through the legacy endpoint. Recover the exact reviewed request in its original editor.",
           });
-        return {
-          revisionId: receipt.id,
-          caseStatus: receipt.caseStatusAtRecord as
-            "PASS" | "FAIL" | "BLOCKED" | "SKIP" | null,
-          recovered: true,
-        };
       }
-      if (run.ciProvider !== "manual" || run.status !== "RUNNING")
-        throw new TRPCError({
-          code: "BAD_REQUEST",
-          message:
-            "Only an active manual run can accept new step observations. Previous receipts and history remain available.",
-        });
-      if (await tx.manualCaseResultHead.count({
-        where: { testRunId: run.id, testCaseId: input.testCaseId },
-      })) throw new TRPCError({
-        code: "CONFLICT",
-        message: "This case retains immutable whole-case observations. Correct those observations or start a separate run for per-step execution; prior evidence cannot be replaced.",
-      });
-      const definition = frozenStructuredCase(run, input.testCaseId);
-      if (input.stepIndex >= definition.steps.length)
-        throw new TRPCError({
-          code: "BAD_REQUEST",
-          message: "That step is not part of the frozen run procedure.",
-        });
-      const totalBytes = await boundedCurrentStepBytes(tx, run.id);
-      const heads = await tx.manualStepResultHead.findMany({
-        where: { testRunId: run.id, testCaseId: input.testCaseId },
-        include: { currentRevision: true },
-      });
-      const current = heads.find((h) => h.stepIndex === input.stepIndex);
-      if ((current?.currentRevisionId ?? null) !== input.expectedRevisionId)
-        throw new TRPCError({
-          code: "CONFLICT",
-          message:
-            "This step changed while you were recording it. Refresh and review the current result before correcting it.",
-        });
-      if (current && !correctionReason)
-        throw new TRPCError({
-          code: "BAD_REQUEST",
-          message:
-            "Explain why this recorded step needs correction. Prior observations will be retained.",
-        });
-      if ((current?.revisionCount ?? 0) >= 100)
-        throw new TRPCError({
-          code: "BAD_REQUEST",
-          message:
-            "This step has reached its revision limit. Start a new run rather than replacing recorded history.",
-        });
-      const caseResult = await tx.testResult.findFirst({
-        where: { testRunId: run.id, testCaseId: input.testCaseId },
-      });
-      if (!heads.length && caseResult)
-        throw new TRPCError({
-          code: "CONFLICT",
-          message:
-            "This case already has a case-level verdict. Start a new run for per-step execution; the existing result will not be cleared.",
-        });
-      await requirePassedPrerequisites(tx, run, input.testCaseId, input.status);
-      if (caseResult?.status === "PASS" && input.status !== "PASS")
-        await protectExecutedDependents(tx, run, input.testCaseId);
-      if (
-        input.status === "PASS" &&
-        observations.measurements.some(
-          (m) => measurementVerdict(m) === "OUT_OF_RANGE",
-        )
-      )
-        throw new TRPCError({
-          code: "BAD_REQUEST",
-          message:
-            "A reading is outside its recorded limits. Review the evidence or record Fail instead of Pass.",
-        });
-      const attachments = evidenceIds.length
-        ? await tx.testCaseAttachment.findMany({
-            where: {
-              id: { in: evidenceIds },
-              testCase: { projectId: run.projectId },
-              uploadCompletedAt: { not: null },
-            },
-          })
-        : [];
-      if (attachments.length !== evidenceIds.length)
-        throw new TRPCError({
-          code: "BAD_REQUEST",
-          message:
-            "An evidence file is unavailable, outside this project, or its upload has not been confirmed. Nothing was recorded.",
-        });
-      const byId = new Map(attachments.map((a) => [a.id, a]));
-      const evidenceAttachments = evidenceIds.map((id) => {
-        const a = byId.get(id)!;
-        const verification = verificationSchema.safeParse(a.uploadVerification);
-        if (
-          !verification.success ||
-          a.sizeBytes <= 0 ||
-          a.sizeBytes > 25 * 1024 * 1024
-        )
-          throw new TRPCError({
-            code: "BAD_REQUEST",
-            message:
-              "This evidence upload needs metadata verification before it can support a step result.",
-          });
-        return savedStepEvidenceSchema.parse({
-          id,
-          fileName: safeEvidenceFileName(a.fileName),
-          contentType: a.contentType,
-          sizeBytes: a.sizeBytes,
-          verification: verification.data,
-        });
-      });
-      const statuses = new Map(
-        heads.map((h) => [h.stepIndex, h.currentRevision.status]),
-      );
-      statuses.set(input.stepIndex, input.status);
-      const caseStatus =
-        statuses.size === definition.steps.length
-          ? aggregateStepStatus([...statuses.values()])
-          : null;
-      const actorName = actor.name?.trim().slice(0, 200) || "Workspace member";
-      // Includes full persisted evidence metadata plus conservative identity/timestamp overhead.
-      const currentPayloadBytes =
-        Buffer.byteLength(
-          JSON.stringify({
-            note,
-            observations,
-            evidenceAttachments,
-            actorName,
-            correctionReason,
-          }),
-          "utf8",
-        ) + 2048;
-      if (
-        totalBytes - (current?.currentPayloadBytes ?? 0) + currentPayloadBytes >
-        MAX_CURRENT_STEP_BYTES
-      )
-        throw new TRPCError({
-          code: "BAD_REQUEST",
-          message:
-            "This run has reached its bounded observation size. Start a smaller new run; no existing evidence or history was replaced.",
-        });
-      const revision = await tx.manualStepResultRevision.create({
-        data: {
-          testRunId: run.id,
-          testCaseId: input.testCaseId,
-          stepIndex: input.stepIndex,
-          revisionNumber: (current?.revisionCount ?? 0) + 1,
-          status: input.status,
-          caseStatusAtRecord: caseStatus,
-          note,
-          observations,
-          evidenceAttachmentIds: evidenceIds,
-          evidenceAttachments,
-          actorId: actor.id,
-          actorName,
-          correctionReason,
-          previousRevisionId: current?.currentRevisionId ?? null,
-          idempotencyKey: input.idempotencyKey,
-          requestHash,
-        },
-      });
-      await tx.manualStepResultHead.upsert({
-        where: {
-          testRunId_testCaseId_stepIndex: {
-            testRunId: run.id,
-            testCaseId: input.testCaseId,
-            stepIndex: input.stepIndex,
-          },
-        },
-        create: {
-          testRunId: run.id,
-          testCaseId: input.testCaseId,
-          stepIndex: input.stepIndex,
-          currentRevisionId: revision.id,
-          revisionCount: revision.revisionNumber,
-          currentPayloadBytes,
-        },
-        update: {
-          currentRevisionId: revision.id,
-          revisionCount: revision.revisionNumber,
-          currentPayloadBytes,
-        },
-      });
-      if (caseStatus) {
-        const data = {
-          status: caseStatus as TestResultStatus,
-          note: `Derived from ${definition.steps.length} recorded step outcomes. Per-step measurements and evidence remain on their immutable revisions.`,
-          observations: {},
-        };
-        // Mixed-version database protection. This local selector is scoped to
-        // this exact derived write, not an actor authorization substitute.
-        await tx.$queryRaw`SELECT set_config('vaettir.manual_step_projection', ${JSON.stringify([run.id, input.testCaseId])}, true)`;
-        if (caseResult)
-          await tx.testResult.update({ where: { id: caseResult.id }, data });
-        else
-          await tx.testResult.create({
-            data: {
-              testRunId: run.id,
-              testCaseId: input.testCaseId,
-              ...data,
-            },
-          });
-        // Failed SQL aborts the transaction; rollback clears SET LOCAL. A
-        // finally reset would mask the original failure with PostgreSQL 25P02.
-        await tx.$queryRaw`SELECT set_config('vaettir.manual_step_projection', '', true)`;
-      }
-      return { revisionId: revision.id, caseStatus, recovered: false };
+      return {
+        revisionId: receipt.id,
+        caseStatus: receipt.caseStatusAtRecord,
+        recovered: true,
+      };
     },
-    { timeout: 20000 },
+    { isolationLevel: "ReadCommitted", timeout: 20000, maxWait: 5000 },
   );
 }

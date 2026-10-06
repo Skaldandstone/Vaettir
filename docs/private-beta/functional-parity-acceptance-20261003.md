@@ -2065,3 +2065,39 @@ font, real browser-file handoff, native SQL/performance, production identity or
 authenticated critical-flow acceptance is implied. All prior native/runtime/image,
 migration/recovery/device release gates remain open; this checkpoint is not a
 deployment or a reason to stop the remaining authorized workflow repairs.
+
+### October 6 legacy step transport narrowed to accepted-request recovery
+
+After the actual step caller cutover, the old `recordStepResult` service is now
+recovery-only. Its original parser, normalization, hash field order/defaults and
+small ACK shape are retained for already accepted legacy run/actor/UUID tuples.
+New legacy intents without a receipt are refused before any write. Independently
+authenticated transport Clerk and currently locked FULL editor membership,
+organization, project, native User and run checks precede bounded scalar receipt
+access. No run procedure, note, evidence or current head is materialized to recover
+an accepted request, so later completed/oversized bodies do not force another write.
+Clerk-less service identities remain unsupported by this human recovery adapter;
+no native-identity fallback or original recorder-time/tenant provenance is invented.
+
+Legacy uniqueness was compound run/actor/UUID, not global actor/UUID. The adapter
+uses the reviewed namespace mutex and native scalar corroboration to refuse
+reviewed-envelope downgrade/adoption while allowing an independently retained
+legacy run-A tuple alongside a distinct valid reviewed run-B tuple. Unsupported
+or corrupt namespace metadata refuses generically. Only identity/status/hash
+scalars are projected after count/byte admission; private foreign JSON bodies
+are not retrieved. Read Committed is explicit for receipt visibility after lock
+waits. Native SQL and concurrency correctness remain runtime gates, not mock proof.
+
+The actual protected router binds directly to this recovery adapter and no longer
+recomputes flaky state or heals a current projection while returning an old ACK.
+Root added six protected transport/source regressions and independently repeated
+89 recovery/reviewed-step/utility/router checks. The combined selected API tranche
+passed 239 checks across 14 suites. API/Web types, strict standalone authored-test
+compile and final owned lint passed. Two now-unused router imports initially warned
+and were removed; no rule suppression was used. The original schema and normalized
+hash AST fingerprints still match the accepted pre-edit source.
+
+Sixty legacy native-fixture callsites still require current reviewed-positive or
+explicit historical-seed migration; they are not silently declared green. No
+fixture was executed, no accepted row was erased or rewritten, and no native/runtime,
+production, device, recovery or deployment acceptance follows from this checkpoint.

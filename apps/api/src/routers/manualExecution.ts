@@ -10,8 +10,6 @@ import {
   startDatasetExecution,
 } from "../services/datasetExecution.js";
 import { router, protectedProcedure, requireProjectAccess } from "../trpc.js";
-import { recomputeFlaky } from "../services/flakyDetection.js";
-import { resolveHealingSuggestionsOnPass } from "../services/healingSuggestion.js";
 import { resolveStepFieldLabels } from "@vaettir/core";
 import { lockManualExecutionReadScope } from "../services/manualExecutionReadScope.js";
 import {
@@ -97,15 +95,12 @@ export const manualExecutionRouter = router({
         caseStatus: stepStatusSchema.nullable(),
       }),
     )
-    .mutation(async ({ ctx, input }) => {
-      const result = await recordManualStepResult(ctx.prisma, ctx.user, input);
-      if (!result.recovered) {
-        await recomputeFlaky(ctx.prisma, input.testCaseId);
-        if (result.caseStatus === "PASS")
-          await resolveHealingSuggestionsOnPass(ctx.prisma, input.testCaseId);
-      }
-      return result;
-    }),
+    // Compatibility transport only: new legacy observations are refused by the
+    // recovery adapter. Returning an accepted old ACK never re-heals, recomputes
+    // or mutates a current case projection.
+    .mutation(({ ctx, input }) =>
+      recordManualStepResult(ctx.prisma, ctx.user, input),
+    ),
 
   stepResultHistory: protectedProcedure
     .input(
