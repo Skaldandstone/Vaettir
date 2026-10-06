@@ -3438,3 +3438,104 @@ protocol checks), Web typecheck and two-file lint with zero errors/warnings.
 Streams, clocks, cancellation and foreground DTOs are synthetic; no helper HTTP,
 device operation or actual browser dispatch ran. These final files are outside
 the preceding whole-Web result and require separate consumer/rendered acceptance.
+
+### October 6: rendered ordinary run-start selection and exact recovery
+
+A fresh hash-pinned local fixture imported the complete actual run modal, native
+dialog, hooks, reviewed reader/controller, tRPC provider/client and installed
+React/TanStack. Only Clerk and HTTP responses were synthetic. Initial ACCESS
+and distinct profile PREVIEW reads completed through the actual provider.
+An earlier version rendered zero reads because its synthetic route omitted the
+provider's appended `/trpc`; that failed fixture/source/manifest/runtime is
+preserved separately. Seven revised preparation checks include the actual
+provider URL contract, rather than substituting a provider or hook.
+
+Actual browser interactions selected all 851 synthetic approved cases, explicitly
+removed 100 filter matches, added 45 suite matches, then restored all 851. Merely
+changing the scope/operation showed a preview, not a silent selection change.
+Multiline configuration, string `0` and an empty environment survived review.
+A related-cache refetch withheld the old review and required fresh original
+access plus explicit review again; it sent no run automatically.
+
+A synthetic lost acknowledgement retained the exact request. Close/reopen with
+an unsupported current profile recovered through ACCESS only. The identical
+retry triggered observed SDK A-B-A; its late acknowledgement settled privately
+without opening the result. Another fresh original ACCESS enabled an explicit
+open of the same confirmed record. Two byte-identical writes produced one
+in-memory receipt, one replay and one guarded callback; no third write occurred.
+Browser warnings/errors and external/native/provider/customer counters were zero.
+These are actual-component synthetic interactions, not durable database replay,
+JWT/authenticated tenant authorization, navigation to a real run or deployment.
+The previous manual execution fixture evidence remains separate.
+
+### October 6: plan owner retention and prospective exact-template starts
+
+The plan detail now retains its same execution-owner child before the unavailable
+plan branch. Absent/error/mismatched parent data, read-only mode or sign-out hide
+the visible dialog without removing that child. The regression exercises the
+actual function's React elements; explicitly undefined query data no longer
+accidentally becomes the fixture's default plan. This is structural synthetic
+evidence, not a mounted plan-dialog browser acceptance or repair of legacy writes.
+
+A separate unmounted prospective factory retains complete original plan-linked
+request bytes/order/UUID/reference. It requires matching completed original native
+plan PAGE and profile PREVIEW snapshots, exact selected/configuration agreement
+and an `EXACT_SUPPORTED` template. Legacy-normalized templates stay display-only;
+no current read upgrades old UNKNOWN requests. The existing deterministic
+target/complete acknowledgement rules are reused without claiming additional
+plan/cohort provenance. The factory grants neither save permission nor frozen
+cohort/procedure approval. Old plan read/save/start consumer cutover remains open.
+
+Root independently passed 13 parent/contract checks and 31 prospective-factory
+checks. An additional modal-test regression reproduced premature completion
+after eight immediate turns; the test now waits for its actual owner within a
+finite two-second deadline, retaining the independent 35-render cap and every
+request/UUID/privacy guard. This changes no product retry or acknowledgement
+policy. The final compatible Web run passed 808 Node and 1,609 typed checks across
+95 typed files (2,417 total, no skips). Web types passed; focused lint has zero
+errors, with three unchanged warnings in the plan-detail component. Native,
+runtime/image-security, migration/recovery and authenticated release gates remain
+open regardless of these source and synthetic checks.
+
+### October 6: full-size Android admission without a timeout waiver
+
+The whole 2 MiB injected-response test first exceeded the unchanged five-second
+test deadline in a concurrent suite. That failure is preserved. Redundant native
+index regex checks and re-enumeration of the reader's own copy were removed;
+intrinsic Uint8Array/backing checks and own-key cardinality still reject decorated,
+spoofed, detached and shared views. A separate primitive-text entry measures its
+own complete UTF-8 bytes/metadata and uses the same duplicate/BOM/grammar/echo
+admission, not a trusted flag or caller-asserted length bypass.
+
+Root independently passed 42 focused checks and the later full compatible Web
+suite at the original test timeout. Byte/read/deadline caps and cancellation,
+nonce and no-fallback semantics are unchanged. Local timing improvement is not
+a performance guarantee or physical-device/Windows-policy acceptance. The original
+reported Windows launch remains unverified; no unsigned executable, security
+policy change or unblock workaround was run.
+
+### October 6: fresh Qase field/step interaction and customization limits
+
+The authenticated vendor DEMO's unsaved manual editor showed dropdown metadata,
+useful prose conditions/description, tags, separate parameters and an aligned
+classic step row with action/data/expected-result editors. One empty step was
+added locally, then the unsaved form was cancelled; no case, review, attachment,
+AI action or field setting was saved. A visible enabled Save button is not
+evidence that an incomplete form would pass server validation.
+
+Qase's current [field management guide](https://docs.qase.io/en/articles/6705423-workspace-management-fields)
+documents project-specific visibility and preserving hidden values. Its
+[custom field guide](https://docs.qase.io/en/articles/5563701-custom-fields)
+documents typed/project-scoped fields, permanent field types and CSV columns
+ordered by creation rather than displayed order. These are important migration
+and export constraints, not reasons to copy every default field. Vaettir's
+technical descriptor stays separate from a dataset; useful prose stays prose.
+
+A dated [November 2024 customization discussion](https://www.reddit.com/r/QualityAssurance/comments/1gvjxfj/moving_on_from_testrail_for_customization/)
+asked for release sign-off separate from completed runs and raised migration
+cost. A [practitioner pain-point discussion](https://www.reddit.com/r/QualityAssurance/comments/1r7a3ih/why_all_test_management_tools_are_so_bad/)
+emphasized actionable coverage/flakiness reporting and discoverability. These
+individual accounts inform acceptance tasks, not current vendor defect counts
+or Gartner rankings. Completion, passing evidence, reviewed exceptions and
+release sign-off must remain distinct, and exports must preserve field identity
+rather than rely on a cosmetic column position.

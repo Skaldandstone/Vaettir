@@ -119,23 +119,49 @@ function parseJson(text: string): unknown {
   value(0); whitespace(); if (offset !== text.length) throw refuse(); return JSON.parse(text);
 }
 export type AndroidWindowResponseMetadata = Readonly<{ url: string; status: number; redirected: boolean; contentType: string | null; contentLength: string | null }>;
+function responseMetadata(rawMetadata: unknown): Record<string, unknown> {
+  const info = record(rawMetadata, ["url", "status", "redirected", "contentType", "contentLength"]);
+  if (info.url !== ANDROID_WINDOW_CAPTURE_URL || info.status !== 200 || info.redirected !== false || typeof info.contentType !== "string" || info.contentType.length > 120 || !/^application\/json(?:\s*;\s*charset=utf-8)?$/i.test(info.contentType) || info.contentLength !== null && (typeof info.contentLength !== "string" || !/^[0-9]{1,9}$/.test(info.contentLength) || Number(info.contentLength) > ANDROID_WINDOW_RESPONSE_MAX_BYTES)) throw refuse();
+  return info;
+}
+/** Independently bounded primitive text, NOT a trusted-copy/length bypass.
+ * Caller decoding must be fatal UTF-8. This measures the complete text itself
+ * and uses the same BOM/duplicate/full-grammar/exact-response admission. */
+export function admitAndroidWindowCaptureText(rawMetadata: unknown, rawText: unknown, originalIntent: AndroidWindowCaptureRequest): AndroidWindowCaptureResponse {
+  try {
+    const info = responseMetadata(rawMetadata);
+    if (typeof rawText !== "string" || rawText.length === 0 || rawText.length > ANDROID_WINDOW_RESPONSE_MAX_BYTES) throw refuse();
+    const size = encoded(rawText);
+    if (size === 0 || size > ANDROID_WINDOW_RESPONSE_MAX_BYTES || info.contentLength !== null && Number(info.contentLength) !== size) throw refuse();
+    return admitAndroidWindowCaptureResponse(parseJson(rawText), originalIntent);
+  } catch { throw refuse(); }
+}
 /** Admit already delivered complete bytes only. Caller owns one explicit
  * redirect-denied, timeout/bounded stream and original SDK/native/consent lease.
  * Old helpers'404s refuse BEFORE decoding; never retry/fallback/network here. */
 export function admitAndroidWindowCaptureBody(rawMetadata: unknown, bytes: Uint8Array, originalIntent: AndroidWindowCaptureRequest): AndroidWindowCaptureResponse {
   try {
-    const info = record(rawMetadata, ["url", "status", "redirected", "contentType", "contentLength"]);
-    if (info.url !== ANDROID_WINDOW_CAPTURE_URL || info.status !== 200 || info.redirected !== false || typeof info.contentType !== "string" || info.contentType.length > 120 || !/^application\/json(?:\s*;\s*charset=utf-8)?$/i.test(info.contentType) || info.contentLength !== null && (typeof info.contentLength !== "string" || !/^[0-9]{1,9}$/.test(info.contentLength) || Number(info.contentLength) > ANDROID_WINDOW_RESPONSE_MAX_BYTES)) throw refuse();
+    const info = responseMetadata(rawMetadata);
     if (!bytes || Object.getPrototypeOf(bytes) !== Uint8Array.prototype) throw refuse();
-    const getter = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(Uint8Array.prototype), "byteLength")?.get;
+    const nativePrototype = Object.getPrototypeOf(Uint8Array.prototype);
+    const tag = Object.getOwnPropertyDescriptor(nativePrototype, Symbol.toStringTag)?.get;
+    if (tag?.call(bytes) !== "Uint8Array") throw refuse();
+    const getter = Object.getOwnPropertyDescriptor(nativePrototype, "byteLength")?.get;
     const size: unknown = getter?.call(bytes);
     if (typeof size !== "number" || size === 0 || size > ANDROID_WINDOW_RESPONSE_MAX_BYTES || info.contentLength !== null && Number(info.contentLength) !== size) throw refuse();
-    // A native branded Uint8Array's in-range integer properties cannot be
-    // accessor descriptors. Refuse every decoration without materializing
-    // millions of descriptor objects for a ceiling-sized delivered body.
-    const keys = Reflect.ownKeys(bytes);
-    if (keys.length !== size || keys.some(key => typeof key !== "string" || !/^(0|[1-9][0-9]*)$/.test(key) || Number(key) >= size)) throw refuse();
+    const bufferGetter = Object.getOwnPropertyDescriptor(nativePrototype, "buffer")?.get;
+    const backingGetter = Object.getOwnPropertyDescriptor(ArrayBuffer.prototype, "byteLength")?.get;
+    if (!bufferGetter || !backingGetter) throw refuse();
+    const buffer = bufferGetter.call(bytes);
+    // Intrinsic ArrayBuffer brand refuses SharedArrayBuffer backing. No
+    // concurrent source mutation/atomic-read guarantee is inferred.
+    backingGetter.call(buffer);
+    Uint8Array.prototype.values.call(bytes); // ValidateTypedArray refuses detached backing, even at zero length.
+    // Actual Uint8 integer indices are nondeletable and cannot be getters.
+    // Thus cardinality equality rejects EVERY extra string/symbol/hidden key;
+    // there is no need to regex-scan millions of guaranteed native indices.
+    if (Reflect.ownKeys(bytes).length !== size) throw refuse();
     const text = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(bytes);
-    return admitAndroidWindowCaptureResponse(parseJson(text), originalIntent);
+    return admitAndroidWindowCaptureText(info, text, originalIntent);
   } catch { throw refuse(); }
 }

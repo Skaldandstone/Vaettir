@@ -17,14 +17,17 @@ function elements(element) {
   if (!React.isValidElement(element)) return [];
   return [element, ...React.Children.toArray(element.props.children).flatMap(elements)];
 }
-function render({ loadError = null, readOnly = false, data = plan, projectId = "synthetic-project" } = {}) {
+function render(options = {}) {
+  const { loadError = null, readOnly = false, projectId = "synthetic-project", signedIn = true, open = false } = options;
+  // Explicitly absent query data must not accidentally use the fixture plan.
+  const data = Object.hasOwn(options, "data") ? options.data : plan;
   const legacyAccesses = [];
   const utils = { testPlans: { byId: { invalidate() {} }, history: { invalidate() {} } } };
   const sandbox = {
     React,
     planMetadataChanges, describeRetainedPlanValue,
-    useAuth: () => ({ isLoaded: true, isSignedIn: true, userId: "synthetic-actor" }),
-    useState(initial) { return [typeof initial === "function" ? initial() : initial, () => {}]; },
+    useAuth: () => ({ isLoaded: true, isSignedIn: signedIn, userId: signedIn ? "synthetic-actor" : null }),
+    useState(initial) { return [initial === false ? open : typeof initial === "function" ? initial() : initial, () => {}]; },
     trpcReact: {
       useUtils: () => utils,
       testPlans: { byId: { useQuery: () => ({ data, error: loadError && { message: loadError } }) }, get update() { legacyAccesses.push("update"); throw Error("Legacy whole-plan writes must never be mounted"); } },
@@ -47,6 +50,26 @@ test("actual plan component keeps independent governed editors mounted across re
     const { nodes } = render(values);
     assert.ok(nodes.some(node => node.props.role === "alert"));
     for (const type of ["plan-fields", "plan-status", "plan-header"]) assert.ok(nodes.some(node => node.type === type), `${type} stays mounted`);
+  }
+});
+test("actual parent retains the same execution-owner element across unavailable reads while withholding its visible dialog", () => {
+  const initial = render({ open: true }).nodes.find(node => node.type === "plan-execution");
+  assert.ok(initial);
+  assert.equal(initial.props.open, true);
+  for (const values of [
+    { loadError: "Synthetic original access loss", data: undefined },
+    { data: undefined },
+    { data: { ...plan, projectId: "different-project" } },
+    { readOnly: true },
+    { signedIn: false },
+  ]) {
+    const retained = render({ ...values, open: true }).nodes.find(node => node.type === "plan-execution");
+    assert.ok(retained, "Unavailable parent metadata must not unmount a held draft or UNKNOWN start owner");
+    assert.equal(retained.type, initial.type);
+    assert.equal(retained.key, initial.key);
+    assert.equal(retained.props.id, initial.props.id);
+    assert.equal(retained.props.projectId, "synthetic-project");
+    assert.equal(retained.props.open, false, "Retention is not permission to show stale execution metadata");
   }
 });
 test("actual parent role hiding preserves each independently guarded controller, not a shared legacy mutation", () => {

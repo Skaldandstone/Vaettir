@@ -546,10 +546,18 @@ export function TestPlanDetailContent({
     <PlanCustomFieldsEditor key={`fields:${controlProjectId}:${id}`} projectId={controlProjectId} testPlanId={id} organizationId={organizationId} readOnly={readOnly} renderFields={fieldsRenderer} onChanged={() => { load(); onChanged?.(); }} />
   </section> : null;
   const loadError = scopeMismatch ? "This plan does not belong to the route’s selected project. No unrelated plan body is shown." : planQuery.error?.message ?? null;
-  if (!plan) return <div>{reviewedControls}<p role={loadError ? "alert" : undefined}>{loadError ?? "Loading saved plan…"}</p></div>;
+  // Retain the same child owner through unavailable parent metadata. Closing
+  // its visible dialog does not discard held draft/body/UUID state and grants
+  // no new save/start authority to the legacy execution path.
+  const executionControls = controlProjectId ? <PlanExecutionModal key={id}
+    open={executionOpen && !!plan && auth.isLoaded && !!auth.isSignedIn && !readOnly && !loadError}
+    onClose={() => setExecutionOpen(false)} id={id} projectId={controlProjectId}
+    onSaved={() => { load(); onChanged?.(); }} /> : null;
+  if (!plan) return <div>{executionControls}{reviewedControls}<p role={loadError ? "alert" : undefined}>{loadError ?? "Loading saved plan…"}</p></div>;
 
   return (
     <div>
+      {executionControls}
       {loadError && <div role="alert" style={{ color: "var(--ember)", marginBottom: 12 }}>
         <p>{loadError}</p>
         <p>Your mounted drafts remain here. A failed response is not proof that a save was rejected.</p>
@@ -559,7 +567,6 @@ export function TestPlanDetailContent({
       <p style={{ color: "var(--muted)" }}>{plan.testPlanType.name} plan</p>
 
       {!readOnly && <button className="btn-secondary" style={{ marginBottom: 16 }} onClick={() => setExecutionOpen(true)}>Configure cases / repeat execution</button>}
-      <PlanExecutionModal key={id} open={executionOpen} onClose={() => setExecutionOpen(false)} id={id} projectId={plan.projectId} onSaved={() => { load(); onChanged?.(); }} />
       {reviewedControls}
 
       {readOnly && (

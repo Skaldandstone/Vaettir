@@ -582,9 +582,20 @@ function harness(
     },
     async flush() {
       for (let tick = 0; tick < 8; tick++) await Promise.resolve();
-      for (let tick = 0; tick < 8; tick++)
-        await new Promise<void>((resolve) => setImmediate(resolve));
-      render();
+      const controller = hooks.find(value => value instanceof RunConfigCompletionController);
+      if (!(controller instanceof RunConfigCompletionController))
+        throw Error("Actual completion controller was not mounted by this fixture.");
+      // A fixed count of event-loop turns cannot prove real asynchronous
+      // WebCrypto ACK verification settled under whole-suite contention.
+      // Wait for that actual owner, without dispatching/rechecking/retrying.
+      // render() still independently caps each render at thirty-five loops.
+      const deadline = performance.now() + 2000;
+      for (let tick = 0; tick < 400 && performance.now() < deadline; tick++) {
+        await new Promise<void>(resolve => setTimeout(resolve, 5));
+        render();
+        if (!controller.snapshot().busy) return;
+      }
+      throw Error("Synthetic run-start owner did not settle within its bounded deadline.");
     },
     async recheck() {
       await click("Recheck original access");
@@ -597,6 +608,24 @@ function harness(
   };
 }
 describe("actual mounted run configuration synthetic controller", () => {
+  it("waits for completed asynchronous ACK verification under scheduler contention without another request or nonce", async () => {
+    const h = harness();
+    h.review();
+    const waiting = h.wait();
+    h.click("Start execution record");
+    const original = h.sent[0]!;
+    const release = (async () => {
+      for (let tick = 0; tick < 80; tick++)
+        await new Promise<void>(resolve => setImmediate(resolve));
+      waiting.resolve(h.acknowledgement(original));
+    })();
+    await h.flush();
+    await release;
+    expect(h.opened).toHaveLength(1);
+    expect(h.sent).toHaveLength(1);
+    expect(h.sent[0]).toBe(original);
+    expect(h.ids).toBe(1);
+  });
   it("stable repeated render invokes no setters and staged metadata never creates a native write", () => {
     const h = harness();
     const before = h.setterCalls();

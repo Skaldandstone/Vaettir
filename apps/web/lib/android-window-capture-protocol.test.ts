@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import ts from "typescript";
-import { admitAndroidWindowCaptureRequest, admitAndroidWindowCaptureResponse, admitAndroidWindowCaptureBody,
+import { admitAndroidWindowCaptureRequest, admitAndroidWindowCaptureResponse, admitAndroidWindowCaptureBody, admitAndroidWindowCaptureText,
   ANDROID_WINDOW_CAPTURE_URL, ANDROID_WINDOW_RESPONSE_MAX_BYTES, androidWindowCaptureRefusal,
   type AndroidWindowCaptureRequest, type AndroidWindowCaptureResponse, type AndroidWindowResponseMetadata } from "./android-window-capture-protocol";
 
@@ -57,6 +57,34 @@ describe("strict versioned Android window protocol, pure synthetic admission onl
   it("strict caller request identity is exact, required and never regenerated/trimmed", () => {
     expect(admitAndroidWindowCaptureRequest(intent())).toEqual(intent());
     for (const raw of [{ ...intent(), label: undefined }, { ...intent(), serial: " DEVICE-A " }, { ...intent(), expectedPackage: "unknown" }, { ...intent(), source: "android" }, { ...intent(), requestNonce: "00000000-0000-4000-8000-00000000000A" }]) expect(() => admitAndroidWindowCaptureRequest(raw)).toThrow(androidWindowCaptureRefusal);
+  });
+  it("native byte cardinality admits only actual attached nonshared Uint8 views; hidden/string/symbol decorators cannot replace indices", () => {
+    let getters = 0;
+    const bytes = encode(response());
+    expect(Reflect.deleteProperty(bytes, "0")).toBe(false);
+    expect(() => Object.defineProperty(bytes, "0", { get() { getters++; return 1; } })).toThrow();
+    for (const decorate of [(raw: Uint8Array) => Object.defineProperty(raw, "private", { value: 1 }), (raw: Uint8Array) => Object.assign(raw, { extra: 1 }), (raw: Uint8Array) => Object.assign(raw, { [Symbol("private")]: 1 }), (raw: Uint8Array) => Object.defineProperty(raw, "private", { enumerable: true, get() { getters++; return 1; } })]) {
+      expect(() => admitAndroidWindowCaptureBody(metadata(), decorate(encode(response())), intent())).toThrow(androidWindowCaptureRefusal);
+    }
+    const detached = encode(response()); structuredClone(detached.buffer, { transfer: [detached.buffer] });
+    const hostile = [detached, new Uint8Array(new SharedArrayBuffer(0)), new Uint8Array(new SharedArrayBuffer(bytes.length)),
+      Object.setPrototypeOf(new Uint8ClampedArray(bytes), Uint8Array.prototype), Object.setPrototypeOf(new Uint8ClampedArray(0), Uint8Array.prototype),
+      Object.setPrototypeOf(new Uint16Array(0), Uint8Array.prototype), Object.setPrototypeOf(new Uint16Array(1), Uint8Array.prototype),
+      Object.setPrototypeOf(new DataView(new ArrayBuffer(1)), Uint8Array.prototype), Object.create(Uint8Array.prototype), new Proxy(bytes, {})];
+    for (const raw of hostile) expect(() => admitAndroidWindowCaptureBody(metadata(), raw, intent())).toThrow(androidWindowCaptureRefusal);
+    expect(getters).toBe(0);
+    const wrapped = new Uint8Array(bytes.length + 2); wrapped.set(bytes, 1);
+    expect(admitAndroidWindowCaptureBody(metadata(), wrapped.subarray(1, bytes.length + 1), intent()).capture).toEqual(response().capture);
+  });
+  it("independent primitive TEXT path measures actual UTF8 bytes/full metadata, exact2MiB and rejectsboxed/extra/duplicate/BOM/overflow/false lengths", () => {
+    const text = JSON.stringify(response()), exact = text + " ".repeat(ANDROID_WINDOW_RESPONSE_MAX_BYTES - encode(text).length);
+    expect(admitAndroidWindowCaptureText(metadata({ contentLength: String(ANDROID_WINDOW_RESPONSE_MAX_BYTES) }), exact, intent()).capture).toEqual(response().capture);
+    for (const raw of [new String(text), { text, trusted: true }, "", "\ufeff" + text, exact + " ", text.replace('"name":', '"\\u006eame":"PRIVATE","name":'), text.replace('" Raw model "', '"\\ud800"'), text + "{}", text.slice(0, -1)]) expect(() => admitAndroidWindowCaptureText(metadata(), raw, intent())).toThrow(androidWindowCaptureRefusal);
+    expect(() => admitAndroidWindowCaptureText(metadata({ contentLength: String(text.length + 1) }), text, intent())).toThrow(androidWindowCaptureRefusal);
+    const unicode = text.replace(" Raw model ", "🙂"), measured = encode(unicode).length;
+    expect(admitAndroidWindowCaptureText(metadata({ contentLength: String(measured) }), unicode, intent()).capture.deviceName).toBe("🙂");
+    expect(() => admitAndroidWindowCaptureText(metadata({ contentLength: String(unicode.length) }), unicode, intent())).toThrow(androidWindowCaptureRefusal);
+    for (const info of [metadata({ status: 404 }), { ...metadata(), trustedBytes: true }, { ...metadata(), contentLength: "2097153" }]) expect(() => admitAndroidWindowCaptureText(info, text, intent())).toThrow(androidWindowCaptureRefusal);
   });
   it("decodes the actual checked-in collector/response builder with fake native reads, not a hand-labelled target DTO", () => {
     const source = readFileSync(new URL("../public/connectors/vaettir-device-connector.mjs", import.meta.url), "utf8");

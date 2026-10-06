@@ -71,6 +71,22 @@ describe("one injected Android response, bounded fake streams/clocks only", () =
     }
     expect(getters).toBe(0);
   });
+  it("real byte tag/count rejects attached-width spoofing, detached/shared evenzero and every extra ownproperty without getter effects", async () => {
+    let getters = 0; const bytes = encode(body()), detached = encode(body()); structuredClone(detached.buffer, { transfer: [detached.buffer] });
+    const shared = new Uint8Array(new SharedArrayBuffer(bytes.length)); shared.set(bytes);
+    const hostile = [detached, shared, new Uint8Array(new SharedArrayBuffer(0)), Object.setPrototypeOf(new Uint8ClampedArray(bytes), Uint8Array.prototype),
+      Object.setPrototypeOf(new Uint8ClampedArray(0), Uint8Array.prototype), Object.setPrototypeOf(new Uint16Array(0), Uint8Array.prototype), Object.setPrototypeOf(new Uint16Array(1), Uint8Array.prototype),
+      Object.setPrototypeOf(new DataView(new ArrayBuffer(1)), Uint8Array.prototype), Object.create(Uint8Array.prototype), new Proxy(bytes, {}),
+      Object.defineProperty(encode(body()), "hidden", { value: 1 }), Object.assign(encode(body()), { extra: 1 }), Object.assign(encode(body()), { [Symbol("hidden")]: 1 }),
+      Object.defineProperty(encode(body()), "hidden", { get() { getters++; return 1; } })];
+    for (const raw of hostile) {
+      const stream = reader([raw]); await expect(readAndroidWindowCaptureResponse(metadata(), stream, intent(), new AbortController().signal, () => true, clock().current)).rejects.toThrow(androidWindowCaptureRefusal);
+      expect(stream.read).toHaveBeenCalledOnce(); expect(stream.cancel).toHaveBeenCalledOnce();
+    }
+    const accepted = reader([new Uint8Array(0), bytes]);
+    expect((await readAndroidWindowCaptureResponse(metadata(), accepted, intent(), new AbortController().signal, () => true, clock().current)).capture).toEqual(body().capture);
+    expect(getters).toBe(0);
+  });
   it("8192 empty/incomplete reads refuse whole without hanging, fallback or interpreting partial JSON", async () => {
     for (const initial of [new Uint8Array(), encode('{"protocolVersion":1')]) {
       let reads = 0; const stream = { read: vi.fn(async () => ({ done: false, value: ++reads === 1 ? initial : new Uint8Array() })), cancel: vi.fn() }, time = clock();

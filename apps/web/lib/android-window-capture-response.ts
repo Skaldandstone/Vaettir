@@ -1,4 +1,4 @@
-import { admitAndroidWindowCaptureBody, admitAndroidWindowCaptureRequest, ANDROID_WINDOW_CAPTURE_URL,
+import { admitAndroidWindowCaptureText, admitAndroidWindowCaptureRequest, ANDROID_WINDOW_CAPTURE_URL,
   ANDROID_WINDOW_RESPONSE_MAX_BYTES, androidWindowCaptureRefusal, type AndroidWindowCaptureRequest,
   type AndroidWindowCaptureResponse, type AndroidWindowResponseMetadata } from "./android-window-capture-protocol";
 
@@ -33,13 +33,20 @@ function metadata(raw: unknown): AndroidWindowResponseMetadata {
 }
 function chunkLength(raw: unknown): number {
   if (!raw || typeof raw !== "object" || Object.getPrototypeOf(raw) !== Uint8Array.prototype) throw refusal();
-  const getter = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(Uint8Array.prototype), "byteLength")?.get;
+  const nativePrototype = Object.getPrototypeOf(Uint8Array.prototype);
+  if (Object.getOwnPropertyDescriptor(nativePrototype, Symbol.toStringTag)?.get?.call(raw) !== "Uint8Array") throw refusal();
+  const getter = Object.getOwnPropertyDescriptor(nativePrototype, "byteLength")?.get;
   const size: unknown = getter?.call(raw);
   if (typeof size !== "number" || size > ANDROID_WINDOW_RESPONSE_MAX_BYTES) throw refusal();
-  // The native brand excludes Proxy facades. Its integer indices cannot be
-  // accessor properties; reject all decorations without visiting any getter.
-  const keys = Reflect.ownKeys(raw);
-  if (keys.length !== size || keys.some(key => typeof key !== "string" || !/^(0|[1-9][0-9]*)$/.test(key) || Number(key) >= size)) throw refusal();
+  const bufferGetter = Object.getOwnPropertyDescriptor(nativePrototype, "buffer")?.get;
+  const backingGetter = Object.getOwnPropertyDescriptor(ArrayBuffer.prototype, "byteLength")?.get;
+  if (!bufferGetter || !backingGetter) throw refusal();
+  const buffer = bufferGetter.call(raw);
+  backingGetter.call(buffer); // Shared backing is unsupported.
+  Uint8Array.prototype.values.call(raw); // Detached zero-length views must not masquerade as an empty chunk.
+  // Native integer indices cannot be removed/replaced by getters. Every
+  // extra own key necessarily raises cardinality, including hidden/symbols.
+  if (Reflect.ownKeys(raw).length !== size) throw refusal();
   return size;
 }
 
@@ -89,7 +96,11 @@ export async function readAndroidWindowCaptureResponse(rawMetadata: unknown, raw
       if (typeof result.done!.value !== "boolean") throw refusal();
       if (result.done!.value) {
         if (result.value && result.value.value !== undefined) throw refusal();
-        const bytes = buffer.slice(0, size), output = admitAndroidWindowCaptureBody(info, bytes, intent);
+        const bytes = buffer.subarray(0, size);
+        const text = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(bytes);
+        // This entry measures the complete text/metadata independently. It is
+        // not a trust flag bypass, and avoids rescanning our own buffer keys.
+        const output = admitAndroidWindowCaptureText(info, text, intent);
         guard(); return output;
       }
       const chunk: unknown = result.value?.value, length = chunkLength(chunk);
