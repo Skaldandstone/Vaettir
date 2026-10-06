@@ -6,6 +6,7 @@ import { lockCaseFieldProject } from "./caseFields.js";
 import { lockCaseFieldReadScope, lockCurrentCaseFieldActor, type CaseFieldReadAuthorization } from "./caseFieldReadScope.js";
 import { caseFieldPresentationJsonBytes } from "./caseFieldPresentationSchema.js";
 import { sharedLibraryStepSchema } from "./sharedStepHistorySchema.js";
+import { admitCaseReviewPlanContext, caseReviewPlanContextProjection, validateCaseReviewPlanContext, linkedPlanReviewBlocked } from "./caseReviewPlanContext.js";
 import { reviewReadInput, reviewPreviewInput, reviewPageInput, reviewPageOutput, reviewMetadata, reviewDecisionInput, reviewSnapshotSchema, reviewSnapshotHashes, reviewRequestHash, reviewDecisionOutput } from "./caseReviewSchema.js";
 
 const options = { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead, timeout: 10000, maxWait: 5000 };
@@ -61,28 +62,29 @@ export async function pageCaseReviewQueue(db: PrismaClient, userId: string, raw:
 
 // Exact native projection: unrelated paid bodies never enter the admission or
 // hashes. Retained relationships not represented here refuse NEW decisions.
-function snapshotProjection(projectId: string, caseId: string) {
-  return Prisma.sql`SELECT jsonb_build_object('kind','CaseReviewSnapshot/v1',
-    'case',jsonb_build_object('id',c.id,'projectId',c."projectId",'displayId',c."displayId",'title',c.title,'background',c.background,'given',c.given,'when',c."when",'then',c."then",'tags',c.tags,'priority',c.priority,'testType',c."testType",'automationStatus',c."automationStatus",'validationDomain',c."validationDomain",'verificationProfile',c."verificationProfile",'verificationProfileSqlNull',c."verificationProfile" IS NULL,'customFields',c."customFields",'customFieldsSqlNull',c."customFields" IS NULL,'caseFieldSchemaVersion',c."caseFieldSchemaVersion",'suitePath',c."suitePath",'sortPosition',c."sortPosition",'sharedStepGroupId',c."sharedStepGroupId"),
+function snapshotProjection(projectId: string, caseId: string, organizationId: string) {
+  return Prisma.sql`SELECT jsonb_build_object('kind','CaseReviewSnapshot/v2',
+    'case',jsonb_build_object('id',c.id,'projectId',c."projectId",'displayId',c."displayId",'title',c.title,'background',c.background,'given',c.given,'when',c."when",'then',c."then",'tags',c.tags,'priority',c.priority,'testType',c."testType",'automationStatus',c."automationStatus",'validationDomain',c."validationDomain",'verificationProfile',c."verificationProfile",'verificationProfileSqlNull',c."verificationProfile" IS NULL,'customFields',c."customFields",'customFieldsSqlNull',c."customFields" IS NULL,'caseFieldSchemaVersion',c."caseFieldSchemaVersion",'suitePath',c."suitePath",'sortPosition',c."sortPosition",'sharedStepGroupId',c."sharedStepGroupId",'testPlanId',c."testPlanId",'testPlanTypeId',c."testPlanTypeId"),
     'authoredSteps',coalesce((SELECT jsonb_agg(jsonb_build_object('order',s."order",'action',s.action,'expectedActionOrData',s."expectedActionOrData",'expectedResult',s."expectedResult",'expectedResponse',s."expectedResponse",'mediaAttachmentIds',s."mediaAttachmentIds") ORDER BY s."order",s.id) FROM "TestCaseStep" s WHERE s."testCaseId"=c.id),'[]'::jsonb),
     'effectiveSteps',CASE WHEN g.id IS NULL THEN coalesce((SELECT jsonb_agg(jsonb_build_object('order',s."order",'action',s.action,'expectedActionOrData',s."expectedActionOrData",'expectedResult',s."expectedResult",'expectedResponse',s."expectedResponse",'mediaAttachmentIds',s."mediaAttachmentIds") ORDER BY s."order",s.id) FROM "TestCaseStep" s WHERE s."testCaseId"=c.id),'[]'::jsonb) ELSE g.steps END,
     'sharedProcedure',CASE WHEN g.id IS NULL THEN NULL ELSE jsonb_build_object('id',g.id,'name',g.name,'description',g.description,'revision',g.revision,'archivedAt',g."archivedAt",'steps',g.steps) END,
     'prerequisites',coalesce((SELECT jsonb_agg(jsonb_build_object('id',r.id,'displayId',r."displayId",'title',r.title,'status',r."reviewStatus",'archived',r.archived) ORDER BY r.id) FROM "TestCasePrerequisite" e JOIN "TestCase" r ON r.id=e."prerequisiteId" AND r."projectId"=c."projectId" WHERE e."dependentId"=c.id AND e."projectId"=c."projectId"),'[]'::jsonb),
-    'context',jsonb_build_object('fieldSchema',p."caseFieldSchema",'fieldSchemaSqlNull',p."caseFieldSchema" IS NULL,'fieldSchemaVersion',p."caseFieldSchemaVersion",'projectQualityProfile',p."qualityProfile",'projectQualityProfileSqlNull',p."qualityProfile" IS NULL),
+    'context',jsonb_build_object('fieldSchema',p."caseFieldSchema",'fieldSchemaSqlNull',p."caseFieldSchema" IS NULL,'fieldSchemaVersion',p."caseFieldSchemaVersion",'projectQualityProfile',p."qualityProfile",'projectQualityProfileSqlNull',p."qualityProfile" IS NULL,'linkedContext',(${caseReviewPlanContextProjection({projectId,caseId,organizationId})})),
     'source',CASE WHEN src.id IS NULL THEN NULL ELSE to_jsonb(src)||jsonb_build_object('importSnapshotSqlNull',src."importSnapshot" IS NULL) END,
     'aiBaseline',jsonb_build_object('value',c."aiSnapshot",'sqlNull',c."aiSnapshot" IS NULL),
     'state',jsonb_build_object('status',c."reviewStatus",'archived',c.archived,'reviewedById',c."reviewedById",'reviewedAt',c."reviewedAt",'note',c."reviewNote",'origin',c.origin,'confidence',c.confidence)) AS snapshot
     FROM "TestCase" c JOIN "Project" p ON p.id=c."projectId" LEFT JOIN "SharedStepGroup" g ON g.id=c."sharedStepGroupId" AND g."projectId"=c."projectId" LEFT JOIN "TestCaseSource" src ON src."testCaseId"=c.id WHERE c.id=${caseId} AND c."projectId"=${projectId}`;
 }
-async function supportedSnapshot(tx: Tx, projectId: string, caseId: string) {
+async function supportedSnapshot(tx: Tx, projectId: string, caseId: string, organizationId: string) {
   const [links] = await tx.$queryRaw<Array<{ foreign: boolean; unsupported: boolean; missing: boolean }>>`
     SELECT (EXISTS(SELECT 1 FROM "SharedStepGroup" g WHERE g.id=c."sharedStepGroupId" AND g."projectId"<>c."projectId") OR EXISTS(SELECT 1 FROM "TestCasePrerequisite" e LEFT JOIN "TestCase" r ON r.id=e."prerequisiteId" WHERE e."dependentId"=c.id AND (e."projectId"<>c."projectId" OR r."projectId"<>c."projectId"))) AS foreign,
-      (c."testPlanId" IS NOT NULL OR c."testPlanTypeId" IS NOT NULL OR EXISTS(SELECT 1 FROM "TestCaseDataset" d WHERE d."testCaseId"=c.id) OR EXISTS(SELECT 1 FROM "TestCaseAttachment" a WHERE a."testCaseId"=c.id) OR EXISTS(SELECT 1 FROM "TestCaseComplianceControl" m WHERE m."testCaseId"=c.id) OR EXISTS(SELECT 1 FROM "ComplianceEvidence" v WHERE v."testCaseId"=c.id) OR EXISTS(SELECT 1 FROM "CaseTraceabilityLink" l WHERE l."caseId"=c.id) OR EXISTS(SELECT 1 FROM "TestCaseStep" s WHERE s."testCaseId"=c.id AND cardinality(s."mediaAttachmentIds")>0)) AS unsupported,
+      (EXISTS(SELECT 1 FROM "TestCaseDataset" d WHERE d."testCaseId"=c.id) OR EXISTS(SELECT 1 FROM "TestCaseAttachment" a WHERE a."testCaseId"=c.id) OR EXISTS(SELECT 1 FROM "TestCaseComplianceControl" m WHERE m."testCaseId"=c.id) OR EXISTS(SELECT 1 FROM "ComplianceEvidence" v WHERE v."testCaseId"=c.id) OR EXISTS(SELECT 1 FROM "CaseTraceabilityLink" l WHERE l."caseId"=c.id) OR EXISTS(SELECT 1 FROM "TestCaseStep" s WHERE s."testCaseId"=c.id AND cardinality(s."mediaAttachmentIds")>0)) AS unsupported,
       ((c."sharedStepGroupId" IS NOT NULL AND NOT EXISTS(SELECT 1 FROM "SharedStepGroup" g WHERE g.id=c."sharedStepGroupId")) OR EXISTS(SELECT 1 FROM "TestCasePrerequisite" e WHERE e."dependentId"=c.id AND NOT EXISTS(SELECT 1 FROM "TestCase" r WHERE r.id=e."prerequisiteId"))) AS missing
     FROM "TestCase" c WHERE c.id=${caseId} AND c."projectId"=${projectId}`;
   if (!links) throw new TRPCError({ code: "NOT_FOUND", message: "Case not found in this project." });
   if (links.foreign) throw new TRPCError({ code: "FORBIDDEN", message: "Retained case relationships do not belong to this project." });
   if (links.unsupported || links.missing) throw unsupported();
+  const linkedSize = await admitCaseReviewPlanContext(tx,{projectId,caseId,organizationId});
   // Refuse giant collections before constructing a native JSON aggregate. The
   // final complete projection has its own stricter 512KiB admission below.
   const [rawSize] = await tx.$queryRaw<Array<{ bytes: bigint; steps: bigint; prerequisites: bigint; sharedSteps: number }>>`
@@ -92,43 +94,51 @@ async function supportedSnapshot(tx: Tx, projectId: string, caseId: string) {
       (SELECT count(*)::bigint FROM "TestCaseStep" s WHERE s."testCaseId"=c.id) AS steps,(SELECT count(*)::bigint FROM "TestCasePrerequisite" e WHERE e."dependentId"=c.id) AS prerequisites,
       CASE WHEN g.id IS NULL THEN 0 WHEN jsonb_typeof(g.steps)='array' THEN jsonb_array_length(g.steps) ELSE 501 END AS "sharedSteps"
     FROM "TestCase" c JOIN "Project" p ON p.id=c."projectId" LEFT JOIN "SharedStepGroup" g ON g.id=c."sharedStepGroupId" AND g."projectId"=c."projectId" LEFT JOIN "TestCaseSource" src ON src."testCaseId"=c.id WHERE c.id=${caseId} AND c."projectId"=${projectId}`;
-  if (!rawSize || [rawSize.bytes,rawSize.steps,rawSize.prerequisites].some(value => typeof value !== "bigint" || value<0n) || rawSize.bytes>524288n || rawSize.steps>500n || rawSize.prerequisites>50n || !Number.isInteger(rawSize.sharedSteps) || rawSize.sharedSteps<0 || rawSize.sharedSteps>500) throw unsupported();
-  const [size] = await tx.$queryRaw<Array<{ bytes: bigint; customBytes: bigint; definitionBytes: bigint; steps: bigint; prerequisites: bigint; sharedSteps: number }>>(Prisma.sql`
+  if (!rawSize || [rawSize.bytes,rawSize.steps,rawSize.prerequisites].some(value => typeof value !== "bigint" || value<0n) || rawSize.bytes+linkedSize.labelBytes+linkedSize.typeBytes+linkedSize.planBytes>524288n || rawSize.steps>500n || rawSize.prerequisites>50n || !Number.isInteger(rawSize.sharedSteps) || rawSize.sharedSteps<0 || rawSize.sharedSteps>500) throw unsupported();
+  const [size] = await tx.$queryRaw<Array<{ bytes: bigint; customBytes: bigint; definitionBytes: bigint; linkedBytes:bigint; labelBytes:bigint; typeBytes:bigint; planBytes:bigint; steps: bigint; prerequisites: bigint; sharedSteps: number }>>(Prisma.sql`
     SELECT octet_length(q.snapshot::text)::bigint AS bytes,
       octet_length((q.snapshot->'case'->'customFields')::text)::bigint AS "customBytes",
-      octet_length((q.snapshot->'context')::text)::bigint AS "definitionBytes",
+      octet_length((q.snapshot->'context'-'linkedContext')::text)::bigint AS "definitionBytes",
+      octet_length((q.snapshot->'context'->'linkedContext')::text)::bigint AS "linkedBytes",
+      octet_length((q.snapshot->'context'->'linkedContext'->'organizationLabels')::text)::bigint AS "labelBytes",
+      octet_length((q.snapshot->'context'->'linkedContext'->'types')::text)::bigint AS "typeBytes",
+      octet_length((q.snapshot->'context'->'linkedContext'->'plan')::text)::bigint AS "planBytes",
       (SELECT count(*)::bigint FROM "TestCaseStep" s WHERE s."testCaseId"=${caseId}) AS steps,
       (SELECT count(*)::bigint FROM "TestCasePrerequisite" e WHERE e."dependentId"=${caseId}) AS prerequisites,
       CASE WHEN jsonb_typeof(q.snapshot->'effectiveSteps')='array' THEN jsonb_array_length(q.snapshot->'effectiveSteps') ELSE 501 END AS "sharedSteps"
-    FROM (${snapshotProjection(projectId,caseId)}) q`);
-  if (!size || [size.bytes,size.customBytes,size.definitionBytes,size.steps,size.prerequisites].some(value => typeof value !== "bigint" || value < 0n) || size.bytes > 524288n || size.customBytes > 65536n || size.definitionBytes > 32768n || size.steps > 500n || size.prerequisites > 50n || !Number.isInteger(size.sharedSteps) || size.sharedSteps < 0 || size.sharedSteps > 500) throw unsupported();
+    FROM (${snapshotProjection(projectId,caseId,organizationId)}) q`);
+  if (!size || [size.bytes,size.customBytes,size.definitionBytes,size.linkedBytes,size.labelBytes,size.typeBytes,size.planBytes,size.steps,size.prerequisites].some(value => typeof value !== "bigint" || value < 0n) || size.bytes > 524288n || size.customBytes > 65536n || size.definitionBytes > 32768n || size.linkedBytes>172032n || size.labelBytes>4096n || size.typeBytes>32768n || size.planBytes>131072n || size.steps > 500n || size.prerequisites > 50n || !Number.isInteger(size.sharedSteps) || size.sharedSteps < 0 || size.sharedSteps > 500) throw unsupported();
   // RR snapshot plus row locks for actual case/procedure/context writers. No
   // body is returned until complete native byte/count admission above.
   await tx.$queryRaw`SELECT count(*)::bigint FROM (SELECT 1 FROM "TestCaseStep" WHERE "testCaseId"=${caseId} LIMIT 501 FOR SHARE) locked`;
   await tx.$queryRaw`SELECT count(*)::bigint FROM (SELECT 1 FROM "SharedStepGroup" g JOIN "TestCase" c ON c."sharedStepGroupId"=g.id WHERE c.id=${caseId} AND g."projectId"=${projectId} FOR SHARE OF g) locked`;
   await tx.$queryRaw`SELECT count(*)::bigint FROM (SELECT 1 FROM "TestCasePrerequisite" e JOIN "TestCase" r ON r.id=e."prerequisiteId" WHERE e."dependentId"=${caseId} AND e."projectId"=${projectId} AND r."projectId"=${projectId} LIMIT 51 FOR SHARE OF e,r) locked`;
   await tx.$queryRaw`SELECT count(*)::bigint FROM (SELECT 1 FROM "TestCaseSource" WHERE "testCaseId"=${caseId} FOR SHARE) locked`;
-  const [row] = await tx.$queryRaw<Array<{ snapshot: unknown }>>(snapshotProjection(projectId,caseId));
+  const [row] = await tx.$queryRaw<Array<{ snapshot: unknown }>>(snapshotProjection(projectId,caseId,organizationId));
   let snapshot: z.infer<typeof reviewSnapshotSchema>;
   try {
     if (caseFieldPresentationJsonBytes(row?.snapshot) > 524288) throw unsupported();
     snapshot = reviewSnapshotSchema.parse(row?.snapshot);
+    if(snapshot.kind!=="CaseReviewSnapshot/v2")throw unsupported();
+    const context=validateCaseReviewPlanContext((snapshot.context as {linkedContext?:unknown})?.linkedContext);
+    const current=snapshot.case as {testPlanId:unknown;testPlanTypeId:unknown};
+    if(context.organizationLabels.organizationId!==organizationId||(context.plan&&context.plan.projectId!==projectId)||current.testPlanId!==(context.plan?.id??null)||current.testPlanTypeId!==context.references.caseTypeId)throw unsupported();
     const effective = z.array(sharedLibraryStepSchema).max(500).parse(snapshot.effectiveSteps);
     if (effective.some((step,index) => step.order !== index || (step.mediaAttachmentIds?.length ?? 0)>0)) throw unsupported();
     if (!Array.isArray(snapshot.authoredSteps) || snapshot.authoredSteps.length !== Number(size.steps) || !Array.isArray(snapshot.prerequisites) || snapshot.prerequisites.length !== Number(size.prerequisites)) throw unsupported();
   } catch { throw unsupported(); }
   const encoded = JSON.stringify(snapshot);
-  const [exact] = await tx.$queryRaw<Array<{ exact: boolean; bytes: bigint }>>(Prisma.sql`SELECT (q.snapshot IS NOT DISTINCT FROM ${encoded}::jsonb) AS exact,octet_length(${encoded}::jsonb::text)::bigint AS bytes FROM (${snapshotProjection(projectId,caseId)}) q`);
+  const [exact] = await tx.$queryRaw<Array<{ exact: boolean; bytes: bigint }>>(Prisma.sql`SELECT (q.snapshot IS NOT DISTINCT FROM ${encoded}::jsonb) AS exact,octet_length(${encoded}::jsonb::text)::bigint AS bytes FROM (${snapshotProjection(projectId,caseId,organizationId)}) q`);
   if (exact?.exact !== true || typeof exact.bytes !== "bigint" || exact.bytes < 0n || exact.bytes > 524288n) throw unsupported();
-  return { snapshot, ...reviewSnapshotHashes(snapshot) };
+  return { snapshot, ...reviewSnapshotHashes(snapshot), parentBlockedReason:linkedPlanReviewBlocked(validateCaseReviewPlanContext((snapshot.context as {linkedContext:unknown}).linkedContext)) };
 }
 export async function previewCaseReview(db: PrismaClient, userId: string, raw: z.input<typeof reviewPreviewInput>, authorized: CaseFieldReadAuthorization) {
   const input = reviewPreviewInput.parse(raw);
   return db.$transaction(async tx => {
     const access = await readScope(tx,userId,input,authorized), base = { projectId: input.projectId,caseId: input.caseId,requestId: input.requestId,readScope: access.scope,canRecover: access.canRecover };
     try {
-      const state = await supportedSnapshot(tx,input.projectId,input.caseId), canDecide = access.canRecover && !state.snapshot.state.archived && state.snapshot.state.status === "PENDING_REVIEW";
-      return { ...base,...state,supported: true,canDecide,blockedReason: canDecide ? null : "Only a current full editor may decide an active pending case. Existing approvals and rejected cases were not reopened." };
+      const {parentBlockedReason,...state} = await supportedSnapshot(tx,input.projectId,input.caseId,access.scope.organizationId), canDecide = access.canRecover && !parentBlockedReason && !state.snapshot.state.archived && state.snapshot.state.status === "PENDING_REVIEW";
+      return { ...base,...state,supported: true,canDecide,blockedReason: parentBlockedReason??(canDecide ? null : "Only a current full editor may decide an active pending case. Existing approvals and rejected cases were not reopened.") };
     } catch (cause) { if (cause instanceof TRPCError && cause.code === "PRECONDITION_FAILED") return { ...base,supported: false,canDecide: false,snapshot: null,contentHash: null,reviewStateHash: null,blockedReason: cause.message }; throw cause; }
   },options);
 }
@@ -152,8 +162,9 @@ export async function decideCaseReview(db: PrismaClient, userId: string, raw: z.
     }
     const rows = await tx.$queryRaw<Array<{ id: string }>>`SELECT id FROM "TestCase" WHERE id=${input.caseId} AND "projectId"=${input.projectId} FOR UPDATE`;
     if (rows.length !== 1) throw new TRPCError({ code: "NOT_FOUND",message: "Case not found in this project." });
-    const state = await supportedSnapshot(tx,input.projectId,input.caseId);
+    const state = await supportedSnapshot(tx,input.projectId,input.caseId,scope.organizationId);
     if (state.contentHash !== input.expectedContentHash || state.reviewStateHash !== input.expectedReviewStateHash) throw new TRPCError({ code: "CONFLICT",message: "The shown case content, context or trust state changed. Keep your decision and explicitly review the new snapshot." });
+    if(state.parentBlockedReason)throw new TRPCError({code:"PRECONDITION_FAILED",message:state.parentBlockedReason});
     if (state.snapshot.state.archived || state.snapshot.state.status !== "PENDING_REVIEW") throw new TRPCError({ code: "PRECONDITION_FAILED",message: "Only an active pending case can receive a new decision. No approved, rejected or archived case was re-reviewed." });
     const changed = await tx.testCase.updateMany({ where: { id: input.caseId,projectId: input.projectId,archived: false,reviewStatus: "PENDING_REVIEW" },data: { reviewStatus: input.decision,reviewedById: userId,reviewedAt: new Date(),...(input.note.operation === "KEEP" ? {} : { reviewNote: input.note.operation === "CLEAR" ? null : input.note.value }),updatedById: userId } });
     if (changed.count !== 1) throw new TRPCError({ code: "CONFLICT",message: "The pending case changed. Nothing was partially reviewed." });

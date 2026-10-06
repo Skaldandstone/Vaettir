@@ -1650,3 +1650,34 @@ New rendered whole-case fixtures are pending. No native SQL/concurrency, migrati
 full runtime/image-security, authenticated production or deployment acceptance is
 established. Prior native failed evidence remains FAILED; no cloud, database,
 customer, provider or live identity/security operations were performed here.
+
+### October 6 complete bounded review context V2
+
+New case-review previews bind the original organization's exact step-column
+overrides, their SQL NULL provenance and the four resolved display labels. Only
+absent keys use defaults; empty/whitespace values and unknown siblings remain
+retained. V1 history explicitly discloses its missing label/context provenance.
+Direct case and linked-plan type references are shown separately. TestPlanType
+is a global reference model, not a tenant-owned definition; no global catalog
+is loaded to infer classification or invent organization ownership.
+
+The supported simple same-project leaf plan includes its complete current header,
+custom values, empty execution template, latest version identity and all bounded
+direct acceptance criteria. Foreign/missing relationships refuse before private
+body projection. Release/strategy/requirement links, reverse linked plans and
+nonempty or NULL execution templates remain unsupported. Approved/archived parent
+context is readable but refuses new case decisions until the separate parent
+workflow reopens it. Dataset/media/compliance/traceability material remains
+unsupported; case review is not a readiness or parent approval.
+
+Native scalar/count admission precedes complete projection, with the existing
+512 KiB whole-case bound unchanged and separate label/type/plan limits. Complete
+native JSON roundtrip refusal remains required. New snapshots are explicitly
+CaseReviewSnapshot/v2; decision input/hash/receipt identity are unchanged. An
+already accepted V1 UUID recovers before V2 admission; an unaccepted old content
+hash conflicts and requires explicit rereview without replacing its frozen body.
+
+Independent focused checks: 72 pure/mock API and 75 actual renderer/controller/
+reader Web checks PASS; API/Web types and scoped production lint PASS. These are
+source and synthetic SSR checks, not native SQL/concurrency, authenticated browser,
+runtime/security, deployment or exhaustive competitor parity acceptance.
