@@ -38,7 +38,17 @@ function fixture(){
     testResult:{findMany:vi.fn(async()=>[]),findFirst:vi.fn(async()=>flags.results?{id:"derived",status:"PASS",note:flags.projectionNote,observations:flags.projectionObservations}:null),count:vi.fn(async()=>0),create:vi.fn(async()=>{events.push("derived-write");return{};}),update:vi.fn(async()=>({}))},
     testCaseAttachment:{findMany:vi.fn(async()=>{events.push("private-files");return flags.files;})},
   };
-  const db={$transaction:vi.fn(async(fn:(tx:typeof tx)=>unknown,options:unknown)=>{expect(options).toMatchObject({isolationLevel:"RepeatableRead",timeout:20000,maxWait:5000});return fn(tx);})};
+  const db={$transaction:vi.fn(async(fn:(tx:typeof tx)=>unknown,options:unknown)=>{
+    expect(options).toMatchObject({isolationLevel:"RepeatableRead"});
+    const budget=options as {timeout:number;maxWait:number};
+    if(budget.timeout===20000) expect(budget.maxWait).toBe(5000); // Existing preview contract, unchanged.
+    else {
+      expect(Number.isInteger(budget.timeout)&&budget.timeout>0).toBe(true);
+      expect(Number.isInteger(budget.maxWait)&&budget.maxWait>0&&budget.maxWait<=5000).toBe(true);
+      expect(budget.timeout+budget.maxWait).toBeLessThanOrEqual(20000);
+    }
+    return fn(tx);
+  })};
   lock.mockImplementation(async()=>{events.push("locked-current-scope");return{projectId:"p",organizationId:"o",actorId:"n",clerkActorId:"cl"};});
   return{input,run,flags,events,tx,db:db as never};
 }

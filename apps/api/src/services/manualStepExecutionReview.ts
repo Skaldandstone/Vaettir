@@ -6,6 +6,7 @@ import { lockManualRetestAccess } from "./manualRetestScope.js";
 import { qualityProfileHash, runCaseDefinitionSchema } from "./qualityExperienceProfile.js";
 import { aggregateStepStatus, savedStepEvidenceSchema, safeEvidenceFileName } from "./manualStepExecution.js";
 import { caseFieldPresentationJsonBytes } from "./caseFieldPresentationSchema.js";
+import { freezeReviewedStepValue, withReviewedStepRollback } from "./manualStepReviewedRollback.js";
 import { reviewedStepAckSchema, reviewedStepCurrentSchema, reviewedStepObservationsSchema, reviewedStepPreviewInputSchema, reviewedStepPreviewOutputSchema, reviewedStepScopeSchema, reviewedStepStatusSchema, reviewedStepWriteInputSchema, reviewedStepWriteKey, type ReviewedStepPreviewInput, type ReviewedStepWriteInput } from "./manualStepExecutionReviewSchema.js";
 
 const refused = () => new TRPCError({ code: "PRECONDITION_FAILED", message: "The complete frozen procedure or observations are unsupported within native bounds. No evidence was truncated, normalized or replaced." });
@@ -129,9 +130,10 @@ export async function previewReviewedStep(db: PrismaClient, actor: Actor, raw: R
   }, options);
 }
 export async function recordReviewedStep(db: PrismaClient, actor: Actor, raw: ReviewedStepWriteInput) {
-  const input = reviewedStepWriteInputSchema.parse(raw), requestHash = reviewedStepRequestHash(input);
+  actor = freezeReviewedStepValue({ id: actor.id, clerkUserId: actor.clerkUserId });
+  const input = freezeReviewedStepValue(reviewedStepWriteInputSchema.parse(raw)), requestHash = reviewedStepRequestHash(input);
   if (caseFieldPresentationJsonBytes(input) > 262144) throw refused();
-  return db.$transaction(async tx => {
+  return withReviewedStepRollback(budget => db.$transaction(async tx => {
     const admitted = await access(tx, actor, input, true);
     // AuditLog has no UUID uniqueness constraint. Serialize this actor's exact
     // reviewed UUID across different runs/projects before checking its receipt.
@@ -199,5 +201,5 @@ export async function recordReviewedStep(db: PrismaClient, actor: Actor, raw: Re
     // No post-commit healing/provider action may turn a committed receipt into
     // an uncertain browser outcome, or interpret human Pass as independent fix proof.
     return acknowledgement;
-  }, options);
+  }, { ...options, ...budget }));
 }

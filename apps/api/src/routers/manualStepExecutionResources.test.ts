@@ -13,10 +13,10 @@ import { manualStepExecutionResourcesRouter } from "./manualStepExecutionResourc
 const request = () => ({ projectId: "synthetic-project", testRunId: "synthetic-run", testCaseId: "synthetic-case", stepIndex: 0,
   originalOrganizationId: "synthetic-org", expectedNativeActorId: "client-native-pin", expectedClerkActorId: "client-clerk-pin",
   readRequestId: randomUUID(), cursor: null, limit: 10 });
-function caller(signedIn = true) {
+function caller(signedIn = true, subject: string | null | undefined = "verified-transport-clerk") {
   const prisma = {};
   const user = signedIn ? { id: "authenticated-native", clerkUserId: "authenticated-clerk", memberships: [] } : null;
-  return { prisma, user, api: manualStepExecutionResourcesRouter.createCaller({ prisma, user, staff: null } as unknown as Context) };
+  return { prisma, user, api: manualStepExecutionResourcesRouter.createCaller({ prisma, user, authenticatedClerkSubject: subject, staff: null } as unknown as Context) };
 }
 beforeEach(() => {
   for (const service of Object.values(services)) {
@@ -49,8 +49,22 @@ describe("mounted step resource protected transport, not native acceptance", () 
     const current = caller(), history = request(), evidence = { ...request(), search: " literal file label " };
     await expect(current.api.history(history)).rejects.toMatchObject({ code: "PRECONDITION_FAILED" });
     await expect(current.api.evidence(evidence)).rejects.toMatchObject({ code: "PRECONDITION_FAILED" });
-    expect(services.history).toHaveBeenCalledExactlyOnceWith(current.prisma, current.user, history);
-    expect(services.evidence).toHaveBeenCalledExactlyOnceWith(current.prisma, current.user, evidence);
+    const actor = { id: current.user!.id, clerkUserId: "verified-transport-clerk" };
+    expect(services.history).toHaveBeenCalledExactlyOnceWith(current.prisma, actor, history);
+    expect(services.evidence).toHaveBeenCalledExactlyOnceWith(current.prisma, actor, evidence);
     expect(current.user?.clerkUserId).not.toBe(history.expectedClerkActorId);
+  });
+  it.each([null, ""])("missing independent session proof %s cannot promote native Clerk metadata", async subject => {
+    const current = caller(true, subject);
+    await expect(current.api.history(request())).rejects.toMatchObject({ code: "FORBIDDEN" });
+    await expect(current.api.evidence({ ...request(), search: "" })).rejects.toMatchObject({ code: "FORBIDDEN" });
+    expect(services.history).not.toHaveBeenCalled(); expect(services.evidence).not.toHaveBeenCalled();
+  });
+  it("omitted internal provenance also fails closed, with no API-key/native mapping fallback", async () => {
+    const current = caller();
+    const api = manualStepExecutionResourcesRouter.createCaller({ prisma: current.prisma, user: current.user, staff: null } as unknown as Context);
+    await expect(api.history(request())).rejects.toMatchObject({ code: "FORBIDDEN" });
+    await expect(api.evidence({ ...request(), search: "" })).rejects.toMatchObject({ code: "FORBIDDEN" });
+    expect(services.history).not.toHaveBeenCalled(); expect(services.evidence).not.toHaveBeenCalled();
   });
 });

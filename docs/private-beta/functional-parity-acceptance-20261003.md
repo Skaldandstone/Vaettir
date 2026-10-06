@@ -2123,3 +2123,79 @@ whole-case private body or writes at all. The failed run is retained as failed;
 the corrected full rerun passed 803 Node checks and 554 typed checks across 55
 typed suites, with zero skips. Native fixture error semantics and sixty legacy
 positive callsites remain separately unmigrated, not repaired by this source test.
+
+### October 6 reviewed-step rollback and independent resource transport
+
+The actual reviewed step writer now captures and deep-freezes the schema-parsed
+original actor, UUID, raw body, selected evidence and both reviewed baselines
+once. At most two fresh Repeatable Read transactions share a monotonic 20-second
+queue-plus-transaction allowance. Only an actual Prisma known P2034 rollback or
+P2010 with native SQLSTATE 40001 qualifies; unique-key errors, timeouts,
+connection errors, semantic refusals and lookalike objects do not. Every fresh
+attempt repeats locked current authorization and accepted-receipt checks before
+procedure/current-head CAS. There is no re-preview, new UUID, provider action,
+body normalization or timer racing a potentially committing transaction.
+Exhaustion preserves the original native error as uncertain, not an invented
+semantic conflict or proof an earlier same-UUID request was never accepted.
+
+The mounted reviewed preview/record and step history/evidence routers now require
+the independently verified context subject too. API-key or provenance-less
+internal contexts cannot promote native Clerk metadata or caller pins into human
+session proof. The native service still checks current native mapping, original
+tenant and membership. READ_ONLY readers retain their existing native read
+permissions; new recordings still need current FULL editing authority. This is
+a source transport correction, not a live identity or membership policy change.
+
+Root repeated 224 selected API checks across twelve suites, including the new
+rollback helper, actual-service rollback regressions, protected transport and
+legacy recovery. Full compatible Web checks passed: 803 Node plus 579 typed
+checks in 56 typed suites, zero skips. Both API/Web types and scoped new-source
+lint passed. The existing reviewed fixture retains all 24 registrations and
+authorization/receipt assertions; only its transaction-budget expectation now
+distinguishes unchanged preview options from the bounded write options. Native
+same-UUID both-ACK/P2002 behavior and sixty legacy fixture callsites remain open.
+No PostgreSQL fixture, migration, native runtime or production test ran here.
+
+### October 6 device capture ownership foundation, not a working-device claim
+
+Six additive API/browser files retain a deliberately unmounted foundation.
+A strict metadata-only authorization read checks original native/Clerk/org/project
+pins, a fresh read UUID and exact request hash under current locked FULL editor
+scope. Its response explicitly grants no processing permission and establishes
+neither foreground target verification nor a device operation. Serial numbers,
+Appium endpoints/session IDs, pairing credentials and captured source stay out
+of this hosted metadata request.
+
+The private browser controller owns exact SDK session, helper connection,
+physical device selection and user-confirmed capture intent. It guards duplicate
+dispatch and late responses, aborts its injected local request on ownership loss,
+and retains prior raw captures/paid drafts privately. It refuses whole unsupported
+responses rather than clipping 26 screens to 25 or merging same-model devices by
+display name. Unknown/unsupported attempts block replacement; no connector
+receipt/retry/recovery contract is invented. Its count-times-per-body aggregate
+storage bound still needs a smaller explicit total budget before caller adoption.
+The actual capture page/connector, foreground identity, processing consent,
+retained unknown recovery and paid generation receipts remain separate open work.
+Root repeated 24 API service/router mocks and 25 browser pure checks; they do not
+establish a helper launch, physical capture, OS trust/signing or processing consent.
+
+### October 6 authenticated Testmo case interaction recheck
+
+In the signed-in trial's vendor Space Shuttle sample, the repository exposed
+folder navigation, search, bulk edit, configurable columns, compact priority
+symbols, colored text status badges and tag chips/counts. Opening a sample case
+showed template/state/estimate/priority fields and separate Comments, Results,
+Issues and History tabs. Its unsaved editor displayed numbered rich action and
+expected-result areas together, with useful prose retained in Description.
+The editor was canceled without saving, uploading, generating or posting.
+One offscreen priority-selector attempt did not open a menu; no dropdown options
+or permission behavior are claimed from that failed interaction. Seeing a comment
+box as this signed-in actor does not establish Testmo READ_ONLY comment rights.
+
+These observed interactions reinforce Vaettir's compact readable case metadata,
+distinct comments and aligned step structure. James's per-step technical
+descriptor remains distinct from ordinary expected results; copying a vendor's
+two-field layout alone would not meet it. Public recurring reporting/portability
+and customization complaints already cited above remain dated signals, not
+current defect prevalence, a ranking or proof of superiority. This tranche is
+source-only and is not deployed or authenticated production acceptance.
