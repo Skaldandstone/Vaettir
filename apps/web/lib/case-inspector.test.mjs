@@ -1,6 +1,9 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
+import React from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+import ts from "typescript";
 import {
   INSPECTOR_SECTIONS,
   inspectorLabel,
@@ -9,6 +12,61 @@ import {
 } from "./case-inspector.ts";
 
 const source = (path) => readFileSync(new URL(path, import.meta.url), "utf8");
+
+// Compile the exact current inspector JSX metadata fragment, not a copied
+// renderer or mock site. No hooks, network, browser geometry or auth are modeled.
+function suiteMetadata(suitePath, onSuiteSelect) {
+  const text = source("../components/TestCaseDetailContent.tsx");
+  const file = ts.createSourceFile("TestCaseDetailContent.tsx", text, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+  const matches = [];
+  function visit(node) {
+    if (ts.isJsxElement(node) && node.openingElement.tagName.getText(file) === "span" &&
+      node.children.some(child => ts.isJsxElement(child) && child.openingElement.tagName.getText(file) === "strong" && child.getText(file) === "<strong>Suite:</strong>")) matches.push(node);
+    ts.forEachChild(node, visit);
+  }
+  visit(file);
+  assert.equal(matches.length, 1, "Exactly one actual suite metadata fragment must be inspected");
+  const compiled = ts.transpileModule(`exports.renderSuite = (tc, onSuiteSelect, projectId) => (${matches[0].getText(file)});`, {
+    compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.React },
+  }).outputText;
+  const exports = {};
+  new Function("exports", "React", compiled)(exports, React);
+  const tc = Object.freeze({ suitePath });
+  const element = exports.renderSuite(tc, onSuiteSelect, "synthetic-project");
+  return { html: renderToStaticMarkup(element), element, tc };
+}
+
+test("actual suite metadata distinguishes native NULL from retained empty path without an unsupported route", () => {
+  const unassigned = suiteMetadata(null), empty = suiteMetadata("");
+  assert.equal(unassigned.html, "<span><strong>Suite:</strong> Unassigned</span>");
+  assert.doesNotMatch(unassigned.html, /<a\b|Saved empty suite path/);
+  assert.match(empty.html, /Saved empty suite path \(repository navigation unavailable\)/);
+  assert.match(empty.html, /title="Saved suite path &quot;&quot;"/);
+  assert.doesNotMatch(empty.html, /<a\b|href=|Unassigned/);
+  assert.equal(empty.tc.suitePath, "");
+});
+
+test("actual suite metadata discloses exact whitespace and keeps ordinary literal routing and callback", () => {
+  for (const path of ["  ", "\n\t ", "Login/basic", "Unassigned", ' x "quoted"\nretained ', "A/🎮/Ö"]) {
+    const selected = [], rendered = suiteMetadata(path, value => selected.push(value));
+    const anchor = React.Children.toArray(rendered.element.props.children).find(child => React.isValidElement(child) && child.type === "a");
+    assert.ok(anchor, "Every nonempty stored path retains its ordinary suite link");
+    assert.equal(anchor.props.href, `/projects/synthetic-project/test-cases?suite=${encodeURIComponent(path)}`);
+    assert.equal(anchor.props.style.whiteSpace, "pre-wrap");
+    assert.equal(anchor.props.title, `Saved suite path ${JSON.stringify(path)}`);
+    assert.equal(anchor.props["aria-label"], `Open saved suite path ${JSON.stringify(path)}`);
+    assert.equal(anchor.props.children, path.trim().length === 0 ? JSON.stringify(path) : path);
+    assert.equal(rendered.tc.suitePath, path);
+    let prevented = false;
+    anchor.props.onClick({ preventDefault() { prevented = true; } });
+    assert.equal(prevented, true);
+    assert.deepEqual(selected, [path]);
+    assert.doesNotMatch(rendered.html, /Saved empty suite path \(repository navigation unavailable\)/);
+    const standalone = suiteMetadata(path);
+    const standaloneAnchor = React.Children.toArray(standalone.element.props.children).find(child => React.isValidElement(child) && child.type === "a");
+    standaloneAnchor.props.onClick({ preventDefault() { assert.fail("Without the drawer callback, normal route navigation must remain unchanged"); } });
+  }
+});
 
 test("inspector reserves close-button space and keeps scenario phases legible on mobile", () => {
   const css = source("../components/CaseInspector.module.css");

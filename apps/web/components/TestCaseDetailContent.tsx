@@ -1266,9 +1266,18 @@ function TestCaseInspector({
       <div className={styles.identity}>
         <span>
           <strong>Suite:</strong>{" "}
-          {tc.suitePath ? (
+          {tc.suitePath === null ? (
+            "Unassigned"
+          ) : tc.suitePath === "" ? (
+            <span style={{ color: "var(--warning)" }} title={'Saved suite path ""'}>
+              Saved empty suite path (repository navigation unavailable)
+            </span>
+          ) : (
             <a
               href={`/projects/${projectId}/test-cases?suite=${encodeURIComponent(tc.suitePath)}`}
+              title={`Saved suite path ${JSON.stringify(tc.suitePath)}`}
+              aria-label={`Open saved suite path ${JSON.stringify(tc.suitePath)}`}
+              style={{ whiteSpace: "pre-wrap" }}
               onClick={(event) => {
                 if (onSuiteSelect && tc.suitePath) {
                   event.preventDefault();
@@ -1276,10 +1285,8 @@ function TestCaseInspector({
                 }
               }}
             >
-              {tc.suitePath}
+              {tc.suitePath.trim().length === 0 ? JSON.stringify(tc.suitePath) : tc.suitePath}
             </a>
-          ) : (
-            "Unassigned"
           )}
         </span>
         <span>
