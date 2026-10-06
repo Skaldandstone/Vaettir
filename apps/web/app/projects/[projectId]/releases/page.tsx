@@ -9,6 +9,7 @@ import { TrendChart } from "@/components/TrendChart";
 import { DistributionBar, ScoreRing } from "@/components/MetricVisuals";
 import { useProjectPermissions } from "@/lib/use-project-permissions";
 import { CreationWizard, WizardChoices } from "@/components/CreationWizard";
+import { ReleaseDraftEvidenceReview } from "@/components/ReleaseDraftEvidenceReview";
 import { useManualExecutionAccess } from "@/lib/use-manual-execution-access";
 import { retainAnalysisRequest } from "@/lib/analysis-request-recovery";
 import {
@@ -743,6 +744,12 @@ export default function ReleasesPage() {
                     ? `Goals: ${releaseGoals.join(", ")}.`
                     : ""}
                 </p>
+                <ReleaseDraftEvidenceReview
+                  retainedRequest={createRequest}
+                  releaseName={name}
+                  planName={newPlanName}
+                  criteria={newCriteria}
+                />
               </div>
             )}
           </fieldset>
