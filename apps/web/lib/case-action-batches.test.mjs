@@ -50,13 +50,12 @@ test("duplicate and empty selections never create duplicate or empty writes", as
   await runCaseActionBatches([], async () => assert.fail("no empty request"));
 });
 
-test("all five free actions use bounded execution; paid analysis remains separate", () => {
+test("four supported free actions use bounded execution; reviewed decisions and paid analysis remain separate", () => {
   const page = readFileSync(
     new URL("../app/projects/[projectId]/test-cases/page.tsx", import.meta.url),
     "utf8",
   );
   for (const mutation of [
-    "bulkReviewMutation",
     "bulkDeleteMutation",
     "bulkArchiveMutation",
     "bulkMoveMutation",
@@ -69,6 +68,9 @@ test("all five free actions use bounded execution; paid analysis remains separat
       ),
     );
   }
+  assert.doesNotMatch(page, /bulkReviewMutation|Approve selected|Reject selected/);
+  assert.match(page, /Review pending cases in the review queue/);
+  assert.match(page, /does not bulk-approve or silently omit/);
   assert.doesNotMatch(page, /ids: \[\.\.\.selected\]/);
   assert.match(page, /setBulkError\(/);
   assert.match(page, /bulkError &&\s*\(?\s*<p role="alert"/);

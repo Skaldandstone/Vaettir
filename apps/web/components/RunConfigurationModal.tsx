@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
+import { useAuth } from "@clerk/nextjs";
 import {
   GAME_PLATFORMS,
   resolveQualityExperience,
@@ -9,18 +10,25 @@ import {
 import { trpcReact } from "@/lib/trpcReact";
 import { useProjectPermissions } from "@/lib/use-project-permissions";
 import { useManualExecutionAccess } from "@/lib/use-manual-execution-access";
-import { retainAnalysisRequest } from "@/lib/analysis-request-recovery";
+import { currentSessionScope } from "@/lib/auth-query-cache";
+import {
+  emptyRunStartCompletion,
+  RunConfigCompletionController,
+  type ConfirmedRunStartAck,
+} from "@/lib/run-config-completion";
 import {
   MAX_MANUAL_CASES,
   freezeRunConfiguration,
   reviewedRunCasesMatch,
-  runConfigurationScopeMatches,
-  verifiedRunConfigurationAck,
   type RunExecutionContext,
   type ReviewedRunConfiguration,
 } from "@/lib/run-configuration-request";
 import { Modal } from "./Modal";
-import { applyRunBulkSelection, type RunBulkScope, type RunBulkSelectionMode } from "@/lib/run-bulk-selection";
+import {
+  applyRunBulkSelection,
+  type RunBulkScope,
+  type RunBulkSelectionMode,
+} from "@/lib/run-bulk-selection";
 export type {
   RunExecutionContext,
   ReviewedRunConfiguration,
@@ -149,6 +157,7 @@ export function RunConfigurationModal({
   onSelectionChange,
   onClose,
   onStart,
+  onConfirmedStart,
 }: {
   open?: boolean;
   projectId: string;
@@ -159,14 +168,16 @@ export function RunConfigurationModal({
   onSelectionChange?: (ids: string[]) => void;
   onClose: () => void;
   onStart: (configuration: ReviewedRunConfiguration) => Promise<unknown>;
+  /** Mutation-only onStart must not navigate. This callback is gated after ACK. */
+  onConfirmedStart?: (
+    acknowledgement: ConfirmedRunStartAck,
+    configuration: ReviewedRunConfiguration,
+  ) => void;
 }) {
   const { loaded, canEdit, accessError, retryAccess } =
     useProjectPermissions(projectId);
   const access = useManualExecutionAccess(projectId);
-  const accessNow = useRef(access);
-  useLayoutEffect(() => {
-    accessNow.current = access;
-  }, [access]);
+  const { isLoaded, isSignedIn, userId, sessionId } = useAuth();
   const query = trpcReact.project.experience.useQuery(
     { projectId },
     { enabled: open && access.ready, staleTime: 0, retry: false },
@@ -177,20 +188,75 @@ export function RunConfigurationModal({
   } | null>(null);
   const [context, setContext] = useState<RunExecutionContext>(emptyContext);
   const [screenId, setScreenId] = useState("configuration");
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [localError, setError] = useState<string | null>(null);
+  const [completion, setCompletion] = useState(emptyRunStartCompletion);
+  const [controller] = useState(
+    () => new RunConfigCompletionController(projectId, setCompletion),
+  );
+  const busy = completion.busy;
+  const error = localError ?? completion.error;
   const [refreshing, setRefreshing] = useState(false);
   const [reviewedCount, setReviewedCount] = useState<number | null>(null);
   const [reviewedIds, setReviewedIds] = useState<string[] | null>(null);
-  const [pendingRequest, setPendingRequest] =
-    useState<ReviewedRunConfiguration | null>(null);
+  const pendingRequest = completion.pendingRequest;
+  const confirmedStart = completion.confirmed;
   const [bulkScopeKey, setBulkScopeKey] = useState("");
   const [bulkMode, setBulkMode] = useState<RunBulkSelectionMode>("SET");
   const [bulkNotice, setBulkNotice] = useState("");
-  const everAmbiguous = useRef(false);
-  const inFlight = useRef(false);
+  const refreshingNow = useRef(false);
   const platformListId = useId();
   const headingRef = useRef<HTMLHeadingElement>(null);
+  const draftKey = JSON.stringify({
+    caseCount,
+    testCaseIds,
+    context,
+    profileHash: baseline?.profileHash ?? null,
+  });
+  useLayoutEffect(() => {
+    controller.attach();
+    return () => controller.detach();
+  }, [controller]);
+  useLayoutEffect(() => {
+    controller.bindFrame({
+      open,
+      draftKey,
+      scope:
+        isLoaded &&
+        isSignedIn &&
+        userId &&
+        sessionId &&
+        access.ready &&
+        access.origin
+          ? {
+              projectId,
+              organizationId: access.origin.organizationId,
+              clerkActorId: userId,
+              sessionId,
+            }
+          : null,
+      canWrite: loaded && canEdit && !accessError && access.canWrite,
+    });
+  }, [
+    controller,
+    open,
+    draftKey,
+    projectId,
+    isLoaded,
+    isSignedIn,
+    userId,
+    sessionId,
+    access.ready,
+    access.origin,
+    access.canWrite,
+    loaded,
+    canEdit,
+    accessError,
+  ]);
+  function liveSession() {
+    return currentSessionScope(
+      window.Clerk?.loaded ? window.Clerk.session : null,
+    );
+  }
   if (
     open &&
     access.ready &&
@@ -198,6 +264,8 @@ export function RunConfigurationModal({
     !query.error &&
     !query.isFetching &&
     !query.isPaused &&
+    query.isFetchedAfterMount &&
+    completion.authorized &&
     baseline === null
   )
     setBaseline(query.data);
@@ -212,20 +280,46 @@ export function RunConfigurationModal({
     caseCount > 0 &&
     caseCount <= MAX_MANUAL_CASES &&
     testCaseIds.length === caseCount;
-  const displayedCount = pendingRequest?.testCaseIds.length ?? caseCount;
-  const displayedContext = pendingRequest?.executionContext ?? context;
+  const retainedRequest = confirmedStart?.request ?? pendingRequest;
+  const displayedCount = retainedRequest?.testCaseIds.length ?? caseCount;
+  const displayedContext = retainedRequest?.executionContext ?? context;
   const selectionReviewed =
     reviewedCount === caseCount &&
     reviewedRunCasesMatch(reviewedIds, testCaseIds);
-  const bulkScope = bulkScopeKey ? bulkScopes?.find(scope => scope.key === bulkScopeKey) ?? null : bulkScopes?.[0] ?? null;
-  const bulkPreview = bulkScope ? applyRunBulkSelection(testCaseIds, bulkScope.testCaseIds, bulkMode) : null;
+  const bulkScope = bulkScopeKey
+    ? (bulkScopes?.find((scope) => scope.key === bulkScopeKey) ?? null)
+    : (bulkScopes?.[0] ?? null);
+  const bulkPreview = bulkScope
+    ? applyRunBulkSelection(testCaseIds, bulkScope.testCaseIds, bulkMode)
+    : null;
   function applyBulk() {
-    if (!bulkScope || !onSelectionChange || !bulkScopesReady || !access.canWrite || busy || refreshing || pendingRequest || inFlight.current) return;
-    const result = applyRunBulkSelection(testCaseIds, bulkScope.testCaseIds, bulkMode);
-    if (!result.ok) { setError(result.error); return; }
+    if (
+      !bulkScope ||
+      !onSelectionChange ||
+      !bulkScopesReady ||
+      !access.canWrite ||
+      busy ||
+      refreshingNow.current ||
+      !controller.canEdit(liveSession(), completion.activationEpoch)
+    )
+      return;
+    const result = applyRunBulkSelection(
+      testCaseIds,
+      bulkScope.testCaseIds,
+      bulkMode,
+    );
+    if (!result.ok) {
+      setError(result.error);
+      return;
+    }
     onSelectionChange(result.ids);
-    setReviewedCount(null); setReviewedIds(null); setError(null);
-    setBulkNotice(`${bulkMode === "SET" ? "Set" : bulkMode === "ADD" ? "Added from" : "Removed from"} ${bulkScope.label}: ${result.added} added, ${result.removed} removed. ${result.before} → ${result.after} selected.`);
+    controller.revokeReview();
+    setReviewedCount(null);
+    setReviewedIds(null);
+    setError(null);
+    setBulkNotice(
+      `${bulkMode === "SET" ? "Set" : bulkMode === "ADD" ? "Added from" : "Removed from"} ${bulkScope.label}: ${result.added} added, ${result.removed} removed. ${result.before} → ${result.after} selected.`,
+    );
   }
   const experience = baseline?.experience
     ? resolveQualityExperience(baseline.experience)
@@ -234,97 +328,73 @@ export function RunConfigurationModal({
     headingRef.current?.focus();
   }, [screenId]);
   function next() {
+    if (
+      refreshingNow.current ||
+      !controller.frameCurrent(liveSession(), completion.activationEpoch) ||
+      busy ||
+      confirmedStart
+    )
+      return;
     const nextScreen = screens[index + 1]!;
-    if (nextScreen.id === "review") {
+    if (nextScreen.id === "review" && !pendingRequest) {
+      if (!controller.review(liveSession(), completion.activationEpoch)) return;
       setReviewedCount(caseCount);
       setReviewedIds([...testCaseIds]);
     }
     setScreenId(nextScreen.id);
   }
   async function start() {
+    const origin = access.origin;
     if (
       !baseline ||
       !access.canWrite ||
-      !access.origin ||
-      inFlight.current ||
+      !origin ||
       !canEdit ||
       busy ||
-      refreshing ||
+      refreshingNow.current ||
       (!pendingRequest && (!countValid || !selectionReviewed))
     )
       return;
-    setBusy(true);
-    inFlight.current = true;
+    const current = controller.snapshot();
+    if (
+      !controller.frameCurrent(liveSession(), completion.activationEpoch) ||
+      (!current.canStart && !current.canRetry)
+    )
+      return;
     setError(null);
-    let requestWasSubmitted = false;
-    try {
-      const request =
-        pendingRequest ??
+    await controller.submit(
+      completion.activationEpoch,
+      () =>
         freezeRunConfiguration(
           {
             projectId,
             testCaseIds,
             expectedProfileHash: baseline.profileHash,
             executionContext: context,
-            originalOrganizationId: access.origin.organizationId,
-            expectedClerkActorId: access.origin.clerkActorId,
+            originalOrganizationId: origin.organizationId,
+            expectedClerkActorId: origin.clerkActorId,
           },
           crypto.randomUUID(),
-        );
-      if (
-        !runConfigurationScopeMatches(request, {
-          projectId,
-          organizationId: access.origin.organizationId,
-          clerkActorId: access.origin.clerkActorId,
-        })
-      )
-        throw Error(
-          "Restore the original run-start account and workspace before retrying. The retained request was not rebound.",
-        );
-      setPendingRequest(request);
-      requestWasSubmitted = true;
-      const acknowledgement = await onStart(request);
-      if (!verifiedRunConfigurationAck(request, acknowledgement))
-        throw Error(
-          "The run acknowledgement did not match its original scope and UUID. The exact request remains retained for retry.",
-        );
-      const current = accessNow.current;
-      if (
-        !current.canWrite ||
-        !current.origin ||
-        !runConfigurationScopeMatches(request, {
-          projectId,
-          organizationId: current.origin.organizationId,
-          clerkActorId: current.origin.clerkActorId,
-        })
-      )
-        throw Error(
-          "Restore original account and workspace access to confirm the acknowledged request. The retained request is unchanged.",
-        );
-      setPendingRequest(null);
-      everAmbiguous.current = false;
-      setReviewedCount(null);
-      setReviewedIds(null);
-    } catch (cause) {
-      if (requestWasSubmitted) {
-        const retain = retainAnalysisRequest(everAmbiguous.current, cause);
-        everAmbiguous.current = retain;
-        if (!retain) setPendingRequest(null);
-      }
-      setError(
-        `${cause instanceof Error ? cause.message : "The execution record could not be started."} Your configuration is retained. No automatic retry was sent.`,
-      );
-    } finally {
-      setBusy(false);
-      inFlight.current = false;
-    }
+        ),
+      onStart,
+      liveSession,
+      onConfirmedStart,
+    );
   }
   async function refreshContext() {
-    if (pendingRequest || !access.ready) return;
+    if (
+      refreshingNow.current ||
+      !controller.canEdit(liveSession(), completion.activationEpoch)
+    )
+      return;
+    const epoch = completion.activationEpoch;
+    refreshingNow.current = true;
+    controller.revokeReview();
     setRefreshing(true);
     setError(null);
     try {
       const result = await query.refetch();
+      if (!controller.frameCurrent(liveSession(), epoch)) return;
       if (result.error || !result.data) {
         setError(
           "Project context could not be refreshed. Your configuration is retained.",
@@ -336,6 +406,7 @@ export function RunConfigurationModal({
       setReviewedCount(null);
       setReviewedIds(null);
     } finally {
+      refreshingNow.current = false;
       setRefreshing(false);
     }
   }
@@ -347,7 +418,7 @@ export function RunConfigurationModal({
       onClose={onClose}
       dismissible={!busy && !refreshing}
     >
-      {!access.ready ? (
+      {!access.ready || !completion.authorized ? (
         <section role="status">
           <p>
             Verify the original account, workspace and full editor seat before
@@ -400,7 +471,7 @@ export function RunConfigurationModal({
           <h3 ref={headingRef} tabIndex={-1}>
             {screen.title}
           </h3>
-          {!pendingRequest && !countValid && (
+          {!retainedRequest && !countValid && (
             <p role="alert" style={{ color: "var(--ember)" }}>
               Select between 1 and 1,000 cases. Required prerequisites also
               count toward the server&apos;s 1,000-case limit.
@@ -412,23 +483,111 @@ export function RunConfigurationModal({
               the build is deployed or the equipment is ready.
             </p>
           )}
-          {screen.id === "configuration" && bulkScopes && onSelectionChange && <section aria-label="Build run selection" className="panel" style={{ padding: 12, marginBottom: 16 }}>
-            <h4 style={{ marginTop: 0 }}>Build the selected case set</h4>
-            <p className="text-muted">Set replaces the selection, Add keeps it and adds matches, Remove subtracts matches. Browsing suites or changing filters does not apply these operations.</p>
-            <fieldset disabled={busy || refreshing || !!pendingRequest || !access.canWrite || !bulkScopesReady} style={{ border: 0, padding: 0, minWidth: 0, display: "grid", gap: 10 }}>
-              <label>Approved scope<select value={bulkScope?.key ?? bulkScopeKey} onChange={event => setBulkScopeKey(event.target.value)} style={{ width: "100%" }}>{bulkScopeKey && !bulkScope && <option value={bulkScopeKey} disabled>Selected scope unavailable — choose an approved scope</option>}{bulkScopes.map(scope => <option key={scope.key} value={scope.key}>{scope.label} ({scope.testCaseIds.length})</option>)}</select></label>
-              <label>Selection operation<select value={bulkMode} onChange={event => setBulkMode(event.target.value as RunBulkSelectionMode)} style={{ width: "100%" }}><option value="SET">Set — replace selection</option><option value="ADD">Add — keep existing and add matches</option><option value="REMOVE">Remove — subtract matches</option></select></label>
-              {pendingRequest ? <p role="status">Selection changes are locked while confirming the original {pendingRequest.testCaseIds.length}-case request.</p> : bulkPreview?.ok ? <p role="status" style={{ margin: 0 }}>Applying this operation will add {bulkPreview.added}, remove {bulkPreview.removed}, and leave {bulkPreview.after} selected ({bulkPreview.matched} scope matches).</p> : bulkPreview && <p role="alert">{bulkPreview.error}</p>}
-              {!pendingRequest && !bulkScope && <p role="alert">Choose a currently available approved scope. The previous scope was not replaced with different cases.</p>}
-              <button type="button" className="btn-secondary" disabled={!bulkPreview?.ok} onClick={applyBulk}>Apply {bulkMode === "SET" ? "Set" : bulkMode === "ADD" ? "Add" : "Remove"} selection</button>
-            </fieldset>
-            {!bulkScopesReady && <p role="status">Verify the current loaded approved scope before applying a selection change.</p>}
-            {bulkNotice && <p role="status">{bulkNotice}</p>}
-          </section>}
+          {screen.id === "configuration" && bulkScopes && onSelectionChange && (
+            <section
+              aria-label="Build run selection"
+              className="panel"
+              style={{ padding: 12, marginBottom: 16 }}
+            >
+              <h4 style={{ marginTop: 0 }}>Build the selected case set</h4>
+              <p className="text-muted">
+                Set replaces the selection, Add keeps it and adds matches,
+                Remove subtracts matches. Browsing suites or changing filters
+                does not apply these operations.
+              </p>
+              <fieldset
+                disabled={
+                  busy || refreshing || !completion.canEdit || !bulkScopesReady
+                }
+                style={{
+                  border: 0,
+                  padding: 0,
+                  minWidth: 0,
+                  display: "grid",
+                  gap: 10,
+                }}
+              >
+                <label>
+                  Approved scope
+                  <select
+                    value={bulkScope?.key ?? bulkScopeKey}
+                    onChange={(event) => setBulkScopeKey(event.target.value)}
+                    style={{ width: "100%" }}
+                  >
+                    {bulkScopeKey && !bulkScope && (
+                      <option value={bulkScopeKey} disabled>
+                        Selected scope unavailable — choose an approved scope
+                      </option>
+                    )}
+                    {bulkScopes.map((scope) => (
+                      <option key={scope.key} value={scope.key}>
+                        {scope.label} ({scope.testCaseIds.length})
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label>
+                  Selection operation
+                  <select
+                    value={bulkMode}
+                    onChange={(event) =>
+                      setBulkMode(event.target.value as RunBulkSelectionMode)
+                    }
+                    style={{ width: "100%" }}
+                  >
+                    <option value="SET">Set — replace selection</option>
+                    <option value="ADD">
+                      Add — keep existing and add matches
+                    </option>
+                    <option value="REMOVE">Remove — subtract matches</option>
+                  </select>
+                </label>
+                {pendingRequest ? (
+                  <p role="status">
+                    Selection changes are locked while confirming the original{" "}
+                    {pendingRequest.testCaseIds.length}-case request.
+                  </p>
+                ) : bulkPreview?.ok ? (
+                  <p role="status" style={{ margin: 0 }}>
+                    Applying this operation will add {bulkPreview.added}, remove{" "}
+                    {bulkPreview.removed}, and leave {bulkPreview.after}{" "}
+                    selected ({bulkPreview.matched} scope matches).
+                  </p>
+                ) : (
+                  bulkPreview && <p role="alert">{bulkPreview.error}</p>
+                )}
+                {!pendingRequest && !bulkScope && (
+                  <p role="alert">
+                    Choose a currently available approved scope. The previous
+                    scope was not replaced with different cases.
+                  </p>
+                )}
+                <button
+                  type="button"
+                  className="btn-secondary"
+                  disabled={!bulkPreview?.ok}
+                  onClick={applyBulk}
+                >
+                  Apply{" "}
+                  {bulkMode === "SET"
+                    ? "Set"
+                    : bulkMode === "ADD"
+                      ? "Add"
+                      : "Remove"}{" "}
+                  selection
+                </button>
+              </fieldset>
+              {!bulkScopesReady && (
+                <p role="status">
+                  Verify the current loaded approved scope before applying a
+                  selection change.
+                </p>
+              )}
+              {bulkNotice && <p role="status">{bulkNotice}</p>}
+            </section>
+          )}
           <fieldset
-            disabled={
-              busy || refreshing || !!pendingRequest || !access.canWrite
-            }
+            disabled={busy || refreshing || !completion.canEdit}
             style={{ border: 0, padding: 0, margin: 0 }}
           >
             {screen.fields.map((field) => (
@@ -447,12 +606,19 @@ export function RunConfigurationModal({
                     rows={3}
                     maxLength={2000}
                     value={displayedContext[field.key]}
-                    onChange={(event) =>
+                    onChange={(event) => {
+                      if (
+                        !controller.canEdit(
+                          liveSession(),
+                          completion.activationEpoch,
+                        )
+                      )
+                        return;
                       setContext({
                         ...context,
                         [field.key]: event.target.value,
-                      })
-                    }
+                      });
+                    }}
                     style={{ width: "100%", display: "block", marginTop: 6 }}
                   />
                 ) : (
@@ -466,12 +632,19 @@ export function RunConfigurationModal({
                     maxLength={300}
                     value={displayedContext[field.key]}
                     list={field.key === "platform" ? platformListId : undefined}
-                    onChange={(event) =>
+                    onChange={(event) => {
+                      if (
+                        !controller.canEdit(
+                          liveSession(),
+                          completion.activationEpoch,
+                        )
+                      )
+                        return;
                       setContext({
                         ...context,
                         [field.key]: event.target.value,
-                      })
-                    }
+                      });
+                    }}
                     style={{ width: "100%", display: "block", marginTop: 6 }}
                   />
                 )}
@@ -546,12 +719,14 @@ export function RunConfigurationModal({
                 does not actuate machinery, execute imported code, spend AI
                 credits or certify safety/compliance.
               </p>
-              {!pendingRequest && !selectionReviewed && (
-                <p role="alert">
-                  The selection changed. Go back and review the new case count
-                  before starting.
-                </p>
-              )}
+              {!retainedRequest &&
+                (!selectionReviewed || !completion.canStart) && (
+                  <p role="alert">
+                    The selection, configuration or original access frame
+                    changed. Go back and explicitly review the current
+                    configuration and case count before starting.
+                  </p>
+                )}
             </>
           )}
           {error && (
@@ -566,6 +741,24 @@ export function RunConfigurationModal({
               if the background selection changed. Closing this dialog preserves
               it. Retry confirms the same request without creating a second run.
             </p>
+          )}
+          {confirmedStart && (
+            <section role="status" aria-label="Confirmed run start">
+              <h4>Run start confirmed</h4>
+              <p>
+                The exact original request was acknowledged. Configuration and
+                reviewed cases are retained; this draft cannot start another
+                run.
+              </p>
+              <p style={{ overflowWrap: "anywhere" }}>
+                {confirmedStart.acknowledgement.testRunId}
+              </p>
+              <p>
+                {confirmedStart.opened
+                  ? "The guarded open action was requested. No additional run start was submitted."
+                  : "Open the confirmed run after restoring this original account, session and current workspace access."}
+              </p>
+            </section>
           )}
           <footer
             style={{
@@ -592,14 +785,33 @@ export function RunConfigurationModal({
                 Cancel
               </button>
             </div>
-            {screen.id === "review" ? (
+            {confirmedStart ? (
+              <button
+                type="button"
+                className="btn-primary"
+                disabled={busy || refreshing || !completion.canOpen}
+                onClick={() =>
+                  controller.openConfirmed(
+                    liveSession(),
+                    onConfirmedStart,
+                    completion.activationEpoch,
+                  )
+                }
+              >
+                Open confirmed run
+              </button>
+            ) : screen.id === "review" || pendingRequest ? (
               <button
                 className="btn-primary"
                 disabled={
                   busy ||
                   refreshing ||
                   !access.canWrite ||
-                  (!pendingRequest && (!countValid || !selectionReviewed))
+                  (!pendingRequest &&
+                    (!countValid ||
+                      !selectionReviewed ||
+                      !completion.canStart)) ||
+                  (!!pendingRequest && !completion.canRetry)
                 }
                 onClick={() => void start()}
               >
@@ -624,7 +836,7 @@ export function RunConfigurationModal({
           {error && (
             <button
               className="btn-secondary"
-              disabled={busy || refreshing || !!pendingRequest}
+              disabled={busy || refreshing || !completion.canEdit}
               style={{ marginTop: 12 }}
               onClick={() => void refreshContext()}
             >

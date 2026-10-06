@@ -506,20 +506,11 @@ export const testCasesRouter = router({
         }),
       ),
     )
-    .query(async ({ ctx, input }) => {
-      await requireProjectAccess(ctx, input.projectId);
-      const cases = await ctx.prisma.testCase.findMany({
-        where: { projectId: input.projectId, reviewStatus: "PENDING_REVIEW", archived: false },
-        include: { source: true },
-        orderBy: { confidence: "asc" },
+    .query(() => {
+      throw new TRPCError({
+        code: "PRECONDITION_FAILED",
+        message: "Use the current native-reader caseReview.page/count workflow. The legacy unbounded pending-review read is unavailable.",
       });
-      return cases.map((c) => ({
-        id: c.id,
-        displayId: c.displayId,
-        title: c.title,
-        confidence: c.confidence,
-        sourceFilePath: c.source?.filePath ?? null,
-      }));
     }),
 
   // .output() bounds the inferred type (TS2589 once react-query's useMutation
@@ -528,73 +519,21 @@ export const testCasesRouter = router({
   approve: protectedProcedure
     .input(z.object({ id: z.string(), note: z.string().optional() }))
     .output(z.object({ id: z.string(), reviewStatus: z.string() }))
-    .mutation(async ({ ctx, input }) => {
-      const existing = await ctx.prisma.testCase.findUniqueOrThrow({
-        where: { id: input.id },
-        select: { projectId: true, title: true },
+    .mutation(() => {
+      throw new TRPCError({
+        code: "PRECONDITION_FAILED",
+        message: "Use caseReview.decide after reviewing the complete supported pending snapshot. This legacy write has no exact UUID recovery; an earlier uncertain response is not proof that it failed. Inspect current saved state before making a new decision.",
       });
-      const { project } = await requireProjectAccess(
-        ctx,
-        existing.projectId,
-        "EDITOR",
-      );
-      const updated = await ctx.prisma.testCase.update({
-        where: { id: input.id },
-        data: {
-          reviewStatus: "APPROVED",
-          reviewedById: ctx.user.id,
-          reviewedAt: new Date(),
-          reviewNote: input.note,
-          updatedById: ctx.user.id,
-        },
-      });
-      await recordAudit(ctx.prisma, {
-        organizationId: project.organizationId,
-        projectId: existing.projectId,
-        actorId: ctx.user.id,
-        entityType: "TestCase",
-        entityId: input.id,
-        action: "UPDATE",
-        summary: `Approved test case "${existing.title}"`,
-        metadata: input.note ? { note: input.note } : undefined,
-      });
-      return updated;
     }),
 
   reject: protectedProcedure
     .input(z.object({ id: z.string(), note: z.string().optional() }))
     .output(z.object({ id: z.string(), reviewStatus: z.string() }))
-    .mutation(async ({ ctx, input }) => {
-      const existing = await ctx.prisma.testCase.findUniqueOrThrow({
-        where: { id: input.id },
-        select: { projectId: true, title: true },
+    .mutation(() => {
+      throw new TRPCError({
+        code: "PRECONDITION_FAILED",
+        message: "Use caseReview.decide after reviewing the complete supported pending snapshot. This legacy write has no exact UUID recovery; an earlier uncertain response is not proof that it failed. Inspect current saved state before making a new decision.",
       });
-      const { project } = await requireProjectAccess(
-        ctx,
-        existing.projectId,
-        "EDITOR",
-      );
-      const updated = await ctx.prisma.testCase.update({
-        where: { id: input.id },
-        data: {
-          reviewStatus: "REJECTED",
-          reviewedById: ctx.user.id,
-          reviewedAt: new Date(),
-          reviewNote: input.note,
-          updatedById: ctx.user.id,
-        },
-      });
-      await recordAudit(ctx.prisma, {
-        organizationId: project.organizationId,
-        projectId: existing.projectId,
-        actorId: ctx.user.id,
-        entityType: "TestCase",
-        entityId: input.id,
-        action: "UPDATE",
-        summary: `Rejected test case "${existing.title}"`,
-        metadata: input.note ? { note: input.note } : undefined,
-      });
-      return updated;
     }),
 
   prioritySuggestion: protectedProcedure
@@ -2041,18 +1980,11 @@ export const testCasesRouter = router({
       }),
     )
     .output(z.object({ updatedCount: z.number() }))
-    .mutation(async ({ ctx, input }) => {
-      await requireProjectAccess(ctx, input.projectId, "EDITOR");
-      const result = await ctx.prisma.testCase.updateMany({
-        where: { id: { in: input.ids }, projectId: input.projectId },
-        data: {
-          reviewStatus: input.decision === "approve" ? "APPROVED" : "REJECTED",
-          reviewedById: ctx.user.id,
-          reviewedAt: new Date(),
-          updatedById: ctx.user.id,
-        },
+    .mutation(() => {
+      throw new TRPCError({
+        code: "PRECONDITION_FAILED",
+        message: "Use the review queue and caseReview.decide for each supported pending snapshot. Reviewed bulk decisions are not supported by this slice; selected cases are not silently omitted or approved. Legacy requests have no exact UUID recovery, so inspect current saved state after an earlier uncertain response.",
       });
-      return { updatedCount: result.count };
     }),
 
   bulkSetTestPlan: protectedProcedure

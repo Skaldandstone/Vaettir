@@ -15,7 +15,7 @@ export function TestCasePrerequisites({ projectId, caseId, canEdit, active = tru
   return <section aria-label="Prerequisite test cases" className={styles.prerequisites}>
     <div className={styles.row}>
       <h3>Execution prerequisites{control.readable && (saved || held) && selected.length ? ` (${selected.length})` : ""}</h3>
-      {control.readable && editable && !control.open && <button type="button" className="btn-secondary" onClick={control.show}>Edit prerequisites</button>}
+      {control.readable && editable && !control.open && <button type="button" className="btn-secondary" disabled={control.busy} onClick={control.show}>Edit prerequisites</button>}
     </div>
     <p className={styles.muted}>Conditions required before this case can run. A linked case requires a prior Pass; it never replaces Given, When, Then or procedure steps.</p>
     {!control.readable ? <div role="status">
@@ -57,7 +57,7 @@ export function TestCasePrerequisites({ projectId, caseId, canEdit, active = tru
           {saved.nextCursor && <button type="button" onClick={control.next} disabled={control.busy || !!control.pending}>Next</button>}
         </div></>}
         {selected.length >= 50 && <p className={styles.muted}>Maximum 50 direct prerequisites. The existing manual-run closure bound is 1,000 cases.</p>}
-        {held?.baseline.filter(id => !selected.includes(id)).map(id => <p key={id}>Removed in this unsaved draft: <code>{metadata.get(id)?.displayId ?? id}</code>{" "}<button type="button" disabled={control.busy || !!control.pending || !!control.settled || !baselineCurrent || !editable} onClick={() => control.change([...selected, id])}>Undo removal</button></p>)}
+        {held?.baseline.filter(id => !selected.includes(id)).map(id => <p key={id}>Removed in this unsaved draft: <code>{metadata.get(id)?.displayId ?? id}</code>{" "}<button type="button" disabled={control.busy || !!control.pending || !!control.settled || !baselineCurrent || !editable || selected.length >= 50} onClick={() => control.change([...selected, id])}>Undo removal</button></p>)}
         {held && !baselineCurrent && !control.pending && <p role="alert">Saved graph data changed or is unavailable. Your draft is retained; explicitly discard it before reviewing a new baseline.</p>}
         {control.pending && <p role="status">Request <code>{control.pending.input.requestId}</code> retains its exact original native account, workspace and complete link set. An uncertain response is not proof that the write failed. Retry the same request to recover its receipt.</p>}
         {control.settled && <p role="status">The original request was confirmed after this view changed. It will not be sent again. Confirm and discard its retained draft to start a new edit.</p>}

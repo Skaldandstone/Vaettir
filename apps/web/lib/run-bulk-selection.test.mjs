@@ -46,16 +46,18 @@ test("a frozen unknown-ACK run request cannot be edited through selection previe
 });
 
 test("modal applies only explicit operations using writable verified scopes and locks retained requests", () => {
-  const modal = source("../components/RunConfigurationModal.tsx");
-  assert.match(modal, /!bulkScopesReady \|\| !access\.canWrite \|\| busy \|\| refreshing \|\| pendingRequest \|\| inFlight\.current/);
+  const modal = source("../components/RunConfigurationModal.tsx").replace(/\s+/g, " ");
+  const completion = source("./run-config-completion.ts").replace(/\s+/g, " ");
+  assert.match(modal, /!bulkScopesReady \|\| !access\.canWrite \|\| busy \|\| refreshingNow\.current \|\| !controller\.canEdit\(liveSession\(\), completion\.activationEpoch\)/);
   assert.match(modal, /onSelectionChange\(result\.ids\)/);
   assert.match(modal, /setReviewedCount\(null\); setReviewedIds\(null\)/);
-  assert.match(modal, /onChange=\{event => setBulkScopeKey\(event\.target\.value\)\}/);
-  assert.match(modal, /bulkScopeKey \? bulkScopes\?\.find\(scope => scope\.key === bulkScopeKey\) \?\? null : bulkScopes\?\.\[0\] \?\? null/);
+  assert.match(modal, /onChange=\{\(event\) =>\s*setBulkScopeKey\(event\.target\.value\)\s*\}/);
+  assert.match(modal, /bulkScopeKey \? \(bulkScopes\?\.find\(\(scope\) => scope\.key === bulkScopeKey\) \?\? null\) : \(bulkScopes\?\.\[0\] \?\? null\)/);
   assert.match(modal, /Selected scope unavailable/);
-  assert.match(modal, /pendingRequest \?\?/);
+  assert.match(modal, /confirmedStart\?\.request \?\? pendingRequest/);
   assert.match(modal, /freezeRunConfiguration/);
-  assert.match(modal, /runConfigurationScopeMatches/);
+  assert.match(completion, /runConfigurationScopeMatches\(request, this\.origin\)/);
+  assert.match(completion, /canEdit: authorized && !this.busy && !this.pending && !this.confirmed/);
   assert.match(modal, /Selection changes are locked while confirming the original/);
 });
 

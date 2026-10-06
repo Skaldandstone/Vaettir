@@ -1443,3 +1443,94 @@ snapshot rendering, caller cutover and focused proof. A formatting-only source
 contract failure in the release suite was repaired by accepting JSX whitespace;
 the multiline prose display assertion remains enforced and all 36 checks reran.
 Earlier failed native/runtime/image-security/erasure gates are unchanged.
+
+### October 6 complaint-led comparison refresh
+
+Public research was refreshed alongside the authenticated demo work, not used
+as a substitute for it. No Gartner quadrant/ranking is asserted. Qase's dated
+first-person reviews include repeated reporting/customization friction and
+large-suite search/navigation friction: May 15 and April 25, 2026 reviewers
+describe stakeholder reports needing external rework and limited bulk/filter
+workflows; May 13 describes excessive exported PDF whitespace. September 30
+reports abandoned CI runs appearing active with no results. These are anecdotal
+user reports, many explicitly seller-invited/incentivized, not measured prevalence
+or independently reproduced current defects. Positive reports also praise
+simple organization, readable steps and run-history visibility.
+[Qase reviewer evidence](https://www.g2.com/products/qase/reviews).
+
+A separate 2024 TestRail discussion reports difficulty obtaining usable
+top-level metrics and manually extrapolating a pie chart. This older anecdote
+does not prove the current trial lacks those capabilities.
+[TestRail dashboard discussion](https://www.reddit.com/r/QualityAssurance/comments/1ewzk3o/how_do_you_use_testrail_for_dashboarding_needs/).
+
+Current official field documentation provides a concrete comparison: Qase
+describes project-specific custom fields and query/report use, while TestRail
+documents that Text, Steps and Scenarios fields cannot become case-list
+sort/filter columns. These support scoped typed fields with explicit capabilities,
+not turning useful prose into universal dropdowns.
+[Qase custom fields](https://docs.qase.io/en/articles/5563701-custom-fields),
+[TestRail custom fields](https://support.testrail.com/hc/en-us/articles/7373850291220-Configuring-custom-fields).
+
+Design inference for Vaettir: keep useful text, make project-appropriate typed
+fields searchable where supported, show both completion and outcome with exact
+scope/empty-run semantics, and keep export layouts compact without dropping
+evidence. Large-suite paging must not trap reviewers after ten cases; uncertain
+requests cannot be discarded just to free a UI slot. These are acceptance targets,
+not claims that every source or production workflow already meets them.
+
+### October 6 supported review and run-start checkpoint
+
+The separate pending-review queue now uses bounded current-native reader pages,
+stable-ID search, explicit sort and current population counts. An opened case
+shows the admitted complete snapshot: authored/effective procedure columns,
+separate prerequisites, useful prose, tags/custom values, project definitions and
+source/import context. The complete exact JSON disclosure is available but
+starts collapsed. New decisions refuse unsupported additional relationships or
+inexact/oversized content instead of omitting it. Current full-editor/native
+scope, shown content/trust hashes, an immutable request UUID and an atomic audit
+receipt protect a single pending-only decision. This is not bulk-review parity.
+Legacy approve/reject/bulk-review and unbounded pending reads now explicitly
+refuse before private database access; their callers use the supported queue.
+An older uncertain legacy response is not proof that its write failed.
+
+Mounted queue editors retain drafts and uncertain requests across close/access
+changes. An explicit child-authorized release frees an unused or known-settled
+editor slot; it never evicts a draft or UNKNOWN request to open an eleventh case.
+Detail History mounts the same decision component, but record replacement,
+route-away and reload recovery are not supplied. A remaining preview-only access
+limitation can prevent browser receipt recovery after a case is deleted,
+reparented or gains foreign relationships, although the server retains scoped
+UUID recovery. A separate project-reader recovery follow-up remains open.
+
+The library's manual-run start callback is mutation-only. Its mounted controller
+privately settles an exact original ACK before any current-frame effect, locks
+known-confirmed requests against a second start, and allows explicit Open after
+original access/session restoration. Close, changed draft, session/authority loss,
+A-B-A and unmount suppress late navigation without deleting the retained body.
+Unknown responses retry the same immutable request. Existing server payload,
+hash, 1,000-case limit and idempotency semantics are unchanged. This does not
+complete the separate quick-result, step-ACK, run-completion receipt, run-list
+reader/export, cross-reload or other run-entry-point configuration work.
+
+Final compatible working-source checks: 798 Node Web plus 266 typed Web tests
+PASS, zero skips; 65 selected pure/mocked API tests PASS; API/Web typechecks PASS.
+Scoped production lint reports zero errors, with four inherited Web effect
+warnings and one inherited API unused-variable warning still disclosed. Earlier
+source-contract failures after moving/formatting controller logic were repaired
+with equivalent guarded-completion assertions; no checks or lint rules waived.
+Synthetic actual-component queue evidence shows readable step descriptors,
+stable prerequisites, false/zero/NULL/empty custom values, read-only decisions
+disabled, hidden private material on auth loss, exact uncertain recovery and safe
+editor-slot release. This is not native authorization or transactional evidence.
+Busy prerequisite reopening and Undo at the 50-link cap now visibly refuse.
+Eight separate native metadata fixtures remain AUTHORED, NOT RUN. Native SQL,
+migration/recovery, full runtime/image-security and authenticated production
+acceptance are not established; prior failed evidence remains failed. No
+deployment, customer-data mutation, provider transmission/spend or live
+identity/security change was performed for this parity checkpoint.
+
+Independent completion review also caught SDK session loss before React's auth
+commit on a rejected response. The final controller revokes that old display
+frame before publishing all response paths, not only successful ACKs; 27 focused
+actual-controller/modal-function synthetic checks cover retained exact retries,
+late success/error, duplicate clicks and explicit same-receipt Open recovery.

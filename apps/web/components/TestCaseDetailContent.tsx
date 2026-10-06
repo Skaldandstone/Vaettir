@@ -14,6 +14,7 @@ import { CaseTraceabilityPanel } from "@/components/CaseTraceabilityPanel";
 import { CaseCustomFields } from "@/components/CaseCustomFields";
 import { CaseComments } from "@/components/CaseComments";
 import { CasePriorityField } from "@/components/CasePriorityField";
+import { CaseReviewDecision } from "@/components/CaseReviewDecision";
 import { Modal } from "@/components/Modal";
 import { automationTargetForFramework, casePresentationVisible } from "@vaettir/core";
 import { useCaseFieldAccess } from "@/lib/use-case-field-access";
@@ -1111,8 +1112,6 @@ function TestCaseInspector({
   const stepAttachments = trpcReact.testCaseAttachments.list.useQuery({
     testCaseId: id,
   });
-  const approveMutation = trpcReact.testCases.approve.useMutation();
-  const rejectMutation = trpcReact.testCases.reject.useMutation();
   const assessRiskMutation = trpcReact.testCases.assessRisk.useMutation();
   const [riskDialogOpen, setRiskDialogOpen] = useState(false);
   const [riskApproved, setRiskApproved] = useState(false);
@@ -1134,31 +1133,12 @@ function TestCaseInspector({
   const [priorityError, setPriorityError] = useState("");
   const [stepMediaError, setStepMediaError] = useState("");
   const [error, setError] = useState<string | null>(null);
-  const [reviewNote, setReviewNote] = useState("");
-  const [reviewing, setReviewing] = useState(false);
   const [assessingRisk, setAssessingRisk] = useState(false);
   const [showDiff, setShowDiff] = useState(false);
 
   function load() {
     void utils.testCases.byId.invalidate({ id });
     void utils.testCases.history.invalidate({ testCaseId: id });
-  }
-
-  async function review(decision: "approve" | "reject") {
-    setReviewing(true);
-    setError(null);
-    try {
-      await (
-        decision === "approve" ? approveMutation : rejectMutation
-      ).mutateAsync({ id, note: reviewNote || undefined });
-      setReviewNote("");
-      load();
-      onChanged?.();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setReviewing(false);
-    }
   }
 
   async function assessRisk() {
@@ -1913,6 +1893,22 @@ function TestCaseInspector({
           readOnly={readOnly}
           onChanged={onChanged}
         />
+        <CaseReviewDecision
+          key={`${projectId}:${tc.id}`}
+          projectId={projectId}
+          caseId={tc.id}
+          active={section === "History"}
+          readOnly={readOnly}
+          onSaved={async () => {
+            await Promise.all([
+              utils.testCases.byId.invalidate({ id }),
+              utils.testCases.list.invalidate({ projectId }),
+              utils.caseReview.count.invalidate({ projectId }),
+              utils.caseReview.page.invalidate(),
+            ]);
+            onChanged?.();
+          }}
+        />
         {tc.origin === "AI_REVERSE_ENGINEERED" && (
           <div
             style={{
@@ -1943,26 +1939,6 @@ function TestCaseInspector({
               <p style={{ fontStyle: "italic", margin: "6px 0" }}>
                 &ldquo;{tc.reviewNote}&rdquo;
               </p>
-            )}
-            {!readOnly && tc.reviewStatus === "PENDING_REVIEW" && (
-              <div style={{ marginTop: 8 }}>
-                <input
-                  value={reviewNote}
-                  onChange={(e) => setReviewNote(e.target.value)}
-                  placeholder="Optional note"
-                  style={{ width: "50%", marginRight: 8 }}
-                />
-                <button
-                  onClick={() => review("approve")}
-                  disabled={reviewing}
-                  style={{ marginRight: 8 }}
-                >
-                  Approve
-                </button>
-                <button onClick={() => review("reject")} disabled={reviewing}>
-                  Reject
-                </button>
-              </div>
             )}
             {tc.aiSnapshot &&
               (() => {

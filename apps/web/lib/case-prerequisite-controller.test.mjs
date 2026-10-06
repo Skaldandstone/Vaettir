@@ -70,6 +70,22 @@ test("visiting and editing many candidate pages retains metadata only for baseli
   }
   h.editor.change(["approved", "candidate-42-0"]); h.render(); assert.ok(h.editor.draft.linked.some(item => item.id === "old")); assert.equal(h.editor.draft.linked.length, 3);
 });
+test("current 50-ID draft refuses a 51st Undo target without losing IDs, then allows explicit Undo below the cap", () => {
+  const h = harness(); h.editor.show(); h.render(); h.editor.change([]); h.render();
+  for (let page = 0; page < 3; page++) {
+    h.state.items = Array.from({ length: page === 2 ? 10 : 20 }, (_, index) => ({ ...approved, id: `cap-${page}-${index}` }));
+    h.editor.setSearch(`Synthetic cap page ${page}`); h.render(); h.editor.change([...h.editor.draft.ids, ...h.state.items.map(item => item.id)]); h.render();
+  }
+  const captured = h.editor.draft; assert.equal(captured.ids.length, 50); h.editor.change([...captured.ids, "old"]); h.render(); assert.equal(h.editor.draft, captured); assert.equal(h.sent.length, 0);
+  h.editor.change(captured.ids.slice(0, 49)); h.render(); h.editor.change([...h.editor.draft.ids, "old"]); h.render(); assert.equal(h.editor.draft.ids.length, 50); assert.equal(h.editor.draft.ids.at(-1), "old");
+});
+test("closing while real controller save is pending refuses reopen until the same in-flight request settles", async () => {
+  const h = harness(); h.ready();
+  h.state.onSend = () => { h.editor.close(); h.render(); assert.equal(h.editor.open, false); assert.equal(h.editor.busy, true); h.editor.show(); h.render(); assert.equal(h.editor.open, false); };
+  // The synthetic mutation yields while its hash is computed. This assertion
+  // exercises the actual existing busy guard, not a production timing claim.
+  await h.editor.submit(); h.render(); assert.equal(h.sent.length, 1); assert.equal(h.editor.busy, false); h.editor.show(); h.render(); assert.equal(h.editor.open, true);
+});
 test("stale page Add closure refuses after search/page nonce changes, but current page retains the newer selection", () => {
   const h = harness(); h.ready(); const old = h.editor, draft = old.draft; h.editor.setSearch("Synthetic different page"); h.render(); old.change([]); assert.equal(h.render().draft, draft); h.editor.change(["old"]); h.render(); assert.equal(JSON.stringify(h.editor.draft.ids), '["old"]');
 });
@@ -148,5 +164,11 @@ test("actual component renders retained unreviewed/unavailable IDs, searchable s
   assert.match(viewer, /<button[^>]*aria-label="Add prerequisite SYN-3 Exact approved"[^>]*disabled=""[^>]*>Add<\/button>/);
   control.draft.ids = ["missing"];
   const undoViewer = renderToStaticMarkup(React.createElement(context.component, { projectId: scope.projectId, caseId: "main", canEdit: true })); assert.match(undoViewer, /<button[^>]*disabled=""[^>]*>Undo removal<\/button>/); assert.match(undoViewer, /Removed in this unsaved draft/);
+  control.freshAccess.canEdit = true; control.draft.ids = Array.from({ length: 50 }, (_, index) => `selected-${index}`);
+  const capped = renderToStaticMarkup(React.createElement(context.component, { projectId: scope.projectId, caseId: "main", canEdit: true })); assert.match(capped, /Maximum 50 direct prerequisites/); assert.match(capped, /<button[^>]*disabled=""[^>]*>Undo removal<\/button>/);
+  control.open = false; control.busy = true;
+  const busyClosed = renderToStaticMarkup(React.createElement(context.component, { projectId: scope.projectId, caseId: "main", canEdit: true })); assert.match(busyClosed, /<button[^>]*disabled=""[^>]*>Edit prerequisites<\/button>/);
+  control.busy = false;
+  const idleClosed = renderToStaticMarkup(React.createElement(context.component, { projectId: scope.projectId, caseId: "main", canEdit: true })); assert.match(idleClosed, /<button[^>]*>Edit prerequisites<\/button>/); assert.doesNotMatch(idleClosed, /<button[^>]*disabled=""[^>]*>Edit prerequisites<\/button>/);
   control.readable = false; const hidden = renderToStaticMarkup(React.createElement(context.component, { projectId: scope.projectId, caseId: "main", canEdit: true })); assert.doesNotMatch(hidden, /Exact retained pending|SYN-2|SYN-3|missing/);
 });

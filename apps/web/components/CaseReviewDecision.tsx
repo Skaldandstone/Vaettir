@@ -1,0 +1,56 @@
+"use client";
+import { trpcReact } from "@/lib/trpcReact";
+import { useCaseReviewController } from "@/lib/use-case-review-controller";
+import type { ReviewInput } from "@/lib/case-review-decision-draft";
+import type { ReviewPreview } from "@/lib/case-review-decision-draft";
+import { CaseProcedureColumns } from "./CaseProcedureColumns";
+function reviewObject(value:unknown):Record<string,unknown>{return value!==null&&typeof value==="object"&&!Array.isArray(value)?value as Record<string,unknown>:{};}
+function exactReviewText(value:unknown){return value===null?"NULL":value===""?"Empty text":typeof value==="string"?value:JSON.stringify(value);}
+export function CaseReviewSnapshotContent({snapshot}:{snapshot:NonNullable<ReviewPreview["snapshot"]>}){
+  const current=reviewObject(snapshot.case),context=reviewObject(snapshot.context),profile=reviewObject(context.projectQualityProfile),values=reviewObject(current.customFields),definitions=reviewObject(context.fieldSchema),fields=Array.isArray(definitions.fields)?definitions.fields.map(reviewObject):[],steps=Array.isArray(snapshot.effectiveSteps)?snapshot.effectiveSteps as Parameters<typeof CaseProcedureColumns>[0]["steps"]:[],prerequisites=Array.isArray(snapshot.prerequisites)?snapshot.prerequisites.map(reviewObject):[],source=reviewObject(snapshot.source);
+  return <div>
+    <header><code>{exactReviewText(current.displayId)}</code><h3 style={{whiteSpace:"pre-wrap",overflowWrap:"anywhere"}}>{exactReviewText(current.title)}</h3><div style={{display:"flex",gap:8,flexWrap:"wrap"}}>{[["Priority",current.priority],["Type",current.testType],["Domain",current.validationDomain],["Origin",snapshot.state.origin],["Review",snapshot.state.status]].map(([label,value])=><span key={String(label)} style={{border:"1px solid var(--line)",borderRadius:16,padding:"4px 10px",background:label==="Review"?"var(--panel)":undefined}}>{String(label)}: {exactReviewText(value)}</span>)}</div></header>
+    <section><h4>Background / setup</h4><p style={{whiteSpace:"pre-wrap",overflowWrap:"anywhere"}}>{exactReviewText(current.background)}</p></section>
+    {(["given","when","then"] as const).map(phase=><section key={phase}><h4>{phase.slice(0,1).toUpperCase()+phase.slice(1)}</h4>{Array.isArray(current[phase])?<ol>{(current[phase] as unknown[]).map((text,index)=><li key={index} style={{whiteSpace:"pre-wrap",overflowWrap:"anywhere"}}>{exactReviewText(text)}</li>)}</ol>:<p>See exact retained phase below.</p>}</section>)}
+    <section><h4>Effective procedure</h4><p>{snapshot.sharedProcedure===null?"Authored case steps":"Current shared-library procedure. Own stored steps remain separately visible in the exact snapshot."}</p><CaseProcedureColumns steps={steps}/></section>
+    <section><h4>Separate prerequisites</h4>{prerequisites.length?<ul>{prerequisites.map((item,index)=><li key={index}><code>{exactReviewText(item.displayId)}</code> {exactReviewText(item.title)} · {exactReviewText(item.status)} · {item.archived===true?"Archived":"Active"}<div>Internal identity: <code>{exactReviewText(item.id)}</code></div></li>)}</ul>:<p>No direct prerequisites in this snapshot.</p>}</section>
+    <section><h4>Tags and custom fields</h4><div style={{display:"flex",gap:6,flexWrap:"wrap"}}>{Array.isArray(current.tags)&&(current.tags as unknown[]).map((tag,index)=><span key={index} style={{border:"1px solid var(--line)",padding:"3px 8px",borderRadius:12,whiteSpace:"pre-wrap"}}>{exactReviewText(tag)}</span>)}</div><dl>{Object.entries(values).map(([key,value])=><div key={key}><dt>{typeof fields.find(field=>field.key===key)?.label==="string"?String(fields.find(field=>field.key===key)?.label):key} <code>{key}</code></dt><dd style={{whiteSpace:"pre-wrap",overflowWrap:"anywhere"}}>{exactReviewText(value)}</dd></div>)}</dl><p>Missing optional values are not initialized. Retired/unknown keys and non-object roots remain exact and read-only in the disclosure below.</p></section>
+    <section><h4>Source / import provenance</h4>{snapshot.source===null?<p>No retained source record.</p>:<dl>{["filePath","functionName","framework","repoUrl","lastSyncedCommitSha","contentHash","externalTestId"].map(key=><div key={key}><dt>{key}</dt><dd style={{whiteSpace:"pre-wrap",overflowWrap:"anywhere"}}>{exactReviewText(source[key])}</dd></div>)}</dl>}<p>The AI/import baseline is shown below, separately from current human-edited content. Source-file contents are not fetched.</p></section>
+    <section><h4>Project quality and domain context</h4><dl>{[["Objective","objective"],["System scope","systemScope"],["Quality objectives","qualityObjectives"],["Compliance needs","complianceNeeds"],["Regulatory needs","regulatoryNeeds"],["Execution sources","executionSources"]].filter(([,key])=>key!==undefined&&Object.hasOwn(profile,key)).map(([label,key])=><div key={key}><dt>{label}</dt><dd style={{whiteSpace:"pre-wrap",overflowWrap:"anywhere"}}>{exactReviewText(profile[key!])}</dd></div>)}</dl><p>Complete raw project quality profile, experience, custom-field definitions and presentation settings are bound and retained below, including unknown siblings. Presentation settings do not waive requirements or confer permissions.</p></section>
+    <section><h4>Trust state and complete retained context</h4><p>Saved note: <span style={{whiteSpace:"pre-wrap"}}>{exactReviewText(snapshot.state.note)}</span></p><p>Confidence: {snapshot.state.confidence===null?"Not supplied":String(snapshot.state.confidence)} · Reviewer: {exactReviewText(snapshot.state.reviewedById)} · Time: {exactReviewText(snapshot.state.reviewedAt)}</p></section>
+    <details><summary>Exact complete snapshot, including all labels/definitions, profile values, provenance, AI/import baseline, NULL distinctions, authored/shared steps and unknown siblings</summary><pre style={{whiteSpace:"pre-wrap",overflowWrap:"anywhere",maxWidth:"100%"}}>{JSON.stringify(snapshot,null,2)}</pre></details>
+  </div>;
+}
+export function CaseReviewDecision({projectId,caseId,active=true,readOnly=false,onSaved,onRelease}:{projectId:string;caseId:string;active?:boolean;readOnly?:boolean;onSaved:()=>void|Promise<void>;onRelease?:()=>void}){
+  const mutation=trpcReact.caseReview.decide.useMutation(),editor=useCaseReviewController(projectId,caseId,active,readOnly,mutation,onSaved),fresh=editor.reads.fresh;
+  const snapshot=editor.draft?.snapshot??fresh?.snapshot,editable=editor.readable&&!!fresh?.canDecide&&!readOnly&&!editor.pending&&!editor.busy&&!editor.settled;
+  const choice=editor.draft?.decision,note=editor.draft?.note??{operation:"KEEP" as const};
+  return <section aria-label="Supported case review decision">
+    <h2>Review current case</h2>
+    <p>This review binds the shown supported content, metadata, provenance and separate prerequisite states. It does not certify execution, paid risk/design/automation results, compliance or release readiness.</p>
+    {!editor.readable&&<p role="status">Current original-reader verification is required. Cached case details are withheld; retained decisions are not rebound.</p>}
+    {editor.reads.error&&<p role="alert">{editor.reads.error}</p>}
+    <button type="button" onClick={editor.reads.refresh} disabled={editor.busy}>Refresh current review</button>
+    {editor.readable&&fresh?.blockedReason&&<p role="status">{fresh.blockedReason}</p>}
+    {editor.readable&&snapshot&&<>
+      {editor.draft&&(editor.draft.contentHash!==fresh?.contentHash||editor.draft.reviewStateHash!==fresh?.reviewStateHash)&&<p role="alert">Your retained review snapshot differs from the current case. Nothing was silently rebased.</p>}
+      <h3>Complete supported snapshot</h3>
+      <p>All sections below are part of this review. Prerequisites are separate from the authored procedure. NULL, empty text, whitespace, false and zero remain unchanged. Unsupported additional relationships block new decisions.</p>
+      <CaseReviewSnapshotContent snapshot={snapshot}/>
+    </>}
+    {editor.readable&&<fieldset disabled={!editable}>
+      <legend>Decision for the shown snapshot</legend>
+      <label>Decision <select value={choice??""} onChange={event=>{if(event.target.value)editor.change(event.target.value as ReviewInput["decision"],note);}}><option value="">Choose explicitly…</option><option value="APPROVED">Approve case</option><option value="REJECTED">Reject case</option></select></label>
+      <label>Existing review note <select value={note.operation} disabled={!choice||!editable} onChange={event=>{if(choice)editor.change(choice,event.target.value==="SET"?{operation:"SET",value:note.operation==="SET"?note.value:""}:{operation:event.target.value as "KEEP"|"CLEAR"});}}><option value="KEEP">Keep exact saved note</option><option value="SET">Set exact text</option><option value="CLEAR">Clear to NULL</option></select></label>
+      {note.operation==="SET"&&<label>Review note<textarea maxLength={4000} value={note.value} onChange={event=>{if(choice)editor.change(choice,{operation:"SET",value:event.target.value});}}/></label>}
+    </fieldset>}
+    {editor.readable&&editor.pending&&<p role="status">Retained request {editor.pending.input.requestId}. Recovery retries this exact decision and hash, even if later content becomes unsupported. Closing or changing account does not replace it.</p>}
+    {editor.settled&&<p role="status">The matching acknowledgement is known. This retained decision cannot be sent again.</p>}
+    {editor.settled&&editor.readable&&fresh?.canDecide&&editor.draft&&(editor.draft.contentHash!==fresh.contentHash||editor.draft.reviewStateHash!==fresh.reviewStateHash)&&<button type="button" disabled={readOnly||editor.busy} onClick={()=>editor.change(editor.draft!.decision,editor.draft!.note)}>Start an explicit new decision for the changed pending snapshot</button>}
+    {editor.draft&&!editor.pending&&!editor.settled&&<button type="button" disabled={!editable} onClick={editor.reviewCurrent}>Explicitly review current snapshot with retained choice</button>}
+    <button type="button" disabled={!editor.canSave} onClick={()=>void editor.save()}>{editor.pending?"Recover exact review request":choice==="REJECTED"?"Reject reviewed snapshot":"Approve reviewed snapshot"}</button>
+    {editor.notice&&<p role="status">{editor.notice}</p>}
+    <p className="text-muted">Exact decisions remain retained only while this component stays mounted. Inspector record replacement, route-away and reload recovery are not supported. The dedicated review queue keeps closed instances mounted and provides explicit safe release of unused or acknowledged editors.</p>
+    {onRelease&&<><button type="button" disabled={!editor.canRelease} onClick={()=>{if(editor.release())onRelease();}}>Close and release unused / acknowledged editor</button><p>Explicit release frees this page slot only when this current reader has no draft or a matching known acknowledgement. Drafted, hashing, in-flight and uncertain requests cannot be dropped.</p></>}
+  </section>;
+}

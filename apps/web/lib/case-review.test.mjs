@@ -14,12 +14,27 @@ test("review search finds stable IDs/source paths and natural sorting does not i
   assert.equal(reviewQueuePage(fixture, "nothing", "confidence", 0).total, 0);
   assert.equal(reviewQueuePage(fixture, "", "confidence", 0).items[0].confidence, .5);
 });
-test("review route isolates active pending cases and preserves ordinary new-tab navigation", () => {
+test("review route uses native scoped pages and retained complete-snapshot decisions rather than row approval shortcuts", () => {
   const route = readFileSync(new URL("../app/projects/[projectId]/test-cases/review/page.tsx", import.meta.url), "utf8");
-  assert.match(route, /reviewQueuePage/); assert.match(route, /Search pending cases/);
-  assert.match(route, /event\.ctrlKey \|\| event\.metaKey/);
+  assert.match(route, /useCaseReviewQueue/); assert.match(route, /Search pending cases/);
+  assert.match(route, /<CaseReviewDecision/);
+  assert.match(route, /Open supported review snapshot/);
+  assert.match(route, /active=\{active\}/);
+  assert.doesNotMatch(route, /testCases\.(approve|reject|pendingReview)/);
   const api = readFileSync(new URL("../../api/src/routers/testCases.ts", import.meta.url), "utf8");
   const read = api.slice(api.indexOf("pendingReview: protectedProcedure"), api.indexOf("approve: protectedProcedure"));
-  assert.match(read, /reviewStatus: "PENDING_REVIEW", archived: false/);
-  assert.match(read, /displayId: c\.displayId/);
+  assert.match(read, /caseReview.page\/count/);
+  assert.doesNotMatch(read, /ctx\.prisma|requireProjectAccess/);
+  const native = readFileSync(new URL("../../api/src/services/caseReview.ts", import.meta.url), "utf8");
+  assert.match(native, /c\.archived=false AND c\."reviewStatus"='PENDING_REVIEW'/);
+  assert.match(native, /LIMIT 25 OFFSET/);
+  const detail = readFileSync(new URL("../components/TestCaseDetailContent.tsx", import.meta.url), "utf8");
+  assert.match(detail, /<CaseReviewDecision/);
+  assert.match(detail, /active=\{section === "History"\}/);
+  assert.doesNotMatch(detail, /testCases\.(approve|reject)\.useMutation/);
+  const library = readFileSync(new URL("../app/projects/[projectId]/test-cases/page.tsx", import.meta.url), "utf8");
+  assert.match(library, /Review pending cases in the review queue/);
+  assert.doesNotMatch(library, /testCases\.bulkReview|Approve selected|Reject selected/);
+  const overview = readFileSync(new URL("../app/projects/[projectId]/page.tsx", import.meta.url), "utf8");
+  assert.match(overview, /pendingReviewQueue\.fresh\?\.totalPending \?\? null/);
 });

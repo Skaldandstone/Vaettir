@@ -12,6 +12,7 @@ import { manualRunComparisonRouter } from "./routers/manualRunComparison.js";
 import { testPlanGovernanceRouter } from "./routers/testPlanGovernance.js";
 import { recordedExecutionTrendsRouter } from "./routers/recordedExecutionTrends.js";
 import { caseVersionReviewRouter } from "./routers/caseVersionReview.js";
+import { caseReviewRouter } from "./routers/caseReview.js";
 import { caseCloneRouter } from "./routers/caseClone.js";
 import { caseQueriesRouter } from "./routers/caseQueries.js";
 import { caseQueryExportRouter } from "./routers/caseQueryExport.js";
@@ -85,6 +86,7 @@ export const appRouter = router({
   testPlanGovernance: testPlanGovernanceRouter,
   recordedExecutionTrends: recordedExecutionTrendsRouter,
   caseVersionReview: caseVersionReviewRouter,
+  caseReview: caseReviewRouter,
   caseClone: caseCloneRouter,
   caseQueries: caseQueriesRouter,
   caseQueryExport: caseQueryExportRouter,

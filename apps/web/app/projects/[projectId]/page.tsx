@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import { trpcReact } from "@/lib/trpcReact";
 import { useProjectPermissions } from "@/lib/use-project-permissions";
+import { useCaseReviewQueue } from "@/lib/use-case-review-queue";
 import { ConnectionLink } from "@/components/SourceConnectionChips";
 import { ProductionSignalChips } from "@/components/ProductionSignalChips";
 import { ProjectPopulationModal } from "@/components/ProjectPopulationModal";
@@ -31,15 +32,13 @@ export default function ProjectOverviewPage() {
   const testCasesQuery = trpcReact.testCases.list.useQuery({ projectId });
   const testPlansQuery = trpcReact.testPlans.list.useQuery({ projectId });
   const requirementsQuery = trpcReact.requirements.list.useQuery({ projectId });
-  const pendingReviewQuery = trpcReact.testCases.pendingReview.useQuery({
-    projectId,
-  });
+  const pendingReviewQueue = useCaseReviewQueue(projectId);
 
   const project = projectQuery.data;
   const testCaseCount = testCasesQuery.data?.length ?? null;
   const testPlanCount = testPlansQuery.data?.length ?? null;
   const requirementCount = requirementsQuery.data?.length ?? null;
-  const pendingReviewCount = pendingReviewQuery.data?.length ?? null;
+  const pendingReviewCount = pendingReviewQueue.fresh?.totalPending ?? null;
   const error =
     projectQuery.error?.message ?? testCasesQuery.error?.message ?? null;
 
@@ -212,7 +211,7 @@ export default function ProjectOverviewPage() {
               color: pendingReviewCount ? "var(--ember)" : undefined,
             }}
           >
-            {pendingReviewCount}
+            {pendingReviewCount ?? "Verifying…"}
           </div>
         </a>
       </div>

@@ -48,7 +48,6 @@ import {
   unmodifiedCaseClick,
 } from "@/lib/case-repository";
 import styles from "@/components/CaseWorkbench.module.css";
-import { verifiedRunConfigurationAck } from "@/lib/run-configuration-request";
 import type { CaseFolderCatalog, FolderReviewIntent } from "@/lib/case-folder-tree";
 
 const TEST_TYPES = [
@@ -419,7 +418,6 @@ export default function TestCasesPage() {
     ],
   );
 
-  const bulkReviewMutation = trpcReact.testCases.bulkReview.useMutation();
   const bulkDeleteMutation = trpcReact.testCases.bulkDelete.useMutation();
   const bulkArchiveMutation = trpcReact.testCases.bulkArchive.useMutation();
   const bulkMoveMutation = trpcReact.testCases.bulkSetTestPlan.useMutation();
@@ -602,16 +600,6 @@ export default function TestCasesPage() {
     }
   }
 
-  async function bulkReview(decision: "approve" | "reject") {
-    await runBulkAction((ids) =>
-      bulkReviewMutation.mutateAsync({
-        projectId,
-        ids,
-        decision,
-      }),
-    );
-  }
-
   async function bulkDelete(reviewedIds: string[]) {
     const outcome = await runBulkAction(
       (ids) => bulkDeleteMutation.mutateAsync({ projectId, ids }),
@@ -757,22 +745,11 @@ export default function TestCasesPage() {
       );
     if (context.testCaseIds.length === 0)
       throw new Error("No cases were selected for this execution record.");
-    try {
-      const acknowledgement = await startRunMutation.mutateAsync({
-        ...context,
-      });
-      if (!verifiedRunConfigurationAck(context, acknowledgement))
-        throw new Error(
-          "The run-start acknowledgement did not match the retained original scope. Retry the same request before opening an execution record.",
-        );
-      router.push(
-        `/projects/${projectId}/test-runs/manual/${acknowledgement.testRunId}`,
-      );
-      return acknowledgement;
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-      throw e;
-    }
+    // Mutation-only: the mounted configuration controller verifies the exact
+    // acknowledgement and current original frame before any navigation.
+    return startRunMutation.mutateAsync({
+      ...context,
+    });
   }
 
   const startingRun = startRunMutation.isPending;
@@ -1875,20 +1852,14 @@ export default function TestCasesPage() {
           dismissible={!bulkBusy}
         >
           <div className={styles.menu}>
-            <button
-              className="btn-secondary"
-              disabled={bulkBusy}
-              onClick={() => void bulkReview("approve")}
-            >
-              Approve selected
-            </button>
-            <button
-              className="btn-secondary"
-              disabled={bulkBusy}
-              onClick={() => void bulkReview("reject")}
-            >
-              Reject selected
-            </button>
+            <a className="btn-secondary" href={`/projects/${projectId}/test-cases/review`}>
+              Review pending cases in the review queue
+            </a>
+            <p className="text-muted">
+              Review decisions require the complete supported snapshot for each
+              pending case. This slice does not bulk-approve or silently omit
+              selected cases.
+            </p>
             <button
               className="btn-secondary"
               disabled={exporting || selectedExportCount === 0}
@@ -2014,6 +1985,9 @@ export default function TestCasesPage() {
         onSelectionChange={ids => { if (readOnly || casesQuery.error || casesQuery.isFetching || casesQuery.isPaused || !casesQuery.isFetchedAfterMount) return; setRunSelection(ids); }}
         onClose={() => setRunConfigurationOpen(false)}
         onStart={startManualRun}
+        onConfirmedStart={(acknowledgement, request) => {
+          router.push(`/projects/${encodeURIComponent(request.projectId)}/test-runs/manual/${acknowledgement.testRunId}`);
+        }}
       />
     </div>
   );
