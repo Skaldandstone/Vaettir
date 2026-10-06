@@ -16,7 +16,7 @@ function harness(mode: "ok" | "missing" | "void" | "throw" = "ok", pin: ManualRu
   const sdk: { loaded: boolean; session: { id: string; user: { id: string } } | null; addListener?: (cb: () => void) => unknown } = { loaded: true, session: { id: "A", user: { id: "cl" } }, addListener: cb => { listeners.add(cb); cb(); return () => { listeners.delete(cb); cleanup.work(); }; } };
   const normalListener = sdk.addListener!; if (mode === "missing") delete sdk.addListener; if (mode === "void") sdk.addListener = () => undefined; if (mode === "throw") sdk.addListener = () => { throw Error("PRIVATE_SDK"); };
   const requests: Array<{ projection: RetestProjection; input: RetestReviewedInput; enabled: boolean }> = [], slots: Array<{ value?: unknown; setter?: (v: unknown) => void; deps?: unknown[]; cleanup?: () => void }> = [], effects = new Map<number, () => void>();
-  let dirty = false, cursor = 0, uuid = 0, reader: Reader, dead = false, beforeCommit: (() => void) | null = null;
+  let dirty = false, cursor = 0, uuid = 0, reader: Reader, dead = false, setterCalls = 0, beforeCommit: (() => void) | null = null;
   function dto(projection: RetestProjection, input: RetestReviewedInput) {
     const key = JSON.stringify([projection, retestReviewedBrowserKey(input), state.wrong]), previous = rows.get(key); if (previous !== undefined) return previous;
     const scope = { projectId: input.request.projectId, organizationId: state.wrong === "org" ? "foreign" : "o", clerkActorId: state.wrong === "Clerk" ? "other" : "cl", actorId: state.wrong === "native" ? "M" : "n" }, readContext = { requestId: state.wrong === "nonce" ? "6ee2ec04-4d34-40bf-b0e9-000000999999" : input.readRequestId, requested: state.wrong === "key" ? "stale" : retestReviewedBrowserKey(input), projection, scope };
@@ -33,8 +33,8 @@ function harness(mode: "ok" | "missing" | "void" | "throw" = "ok", pin: ManualRu
   // Cross VM realms are a harness artifact. Recreate only typed RPC inputs in
   // the reader's host realm, as JSON transport does; never repair output data.
   const context = vm.createContext({ window: { Clerk: sdk }, crypto: { randomUUID: () => `6ee2ec04-4d34-40bf-b0e9-${String(++uuid).padStart(12, "0")}` }, currentSessionScope, sameAuthScope, admitRetestRead: (raw: unknown, input: RetestReviewedInput, projection: RetestProjection, clerk: string, original: Parameters<typeof admitRetestRead>[4]) => admitRetestRead(raw, JSON.parse(JSON.stringify(input)) as RetestReviewedInput, projection, clerk, original), inspectRetestWire, retestIdentity, sameRetestOrigin, RetestReadRenderGuard,
-    useAuth: () => auth, useQueryClient: () => client, getQueryKey: (p: { projection: RetestProjection }, input: RetestReviewedInput) => [p.projection, input],
-    useState: (initial: unknown) => { const at = cursor++; slots[at] ??= { value: typeof initial === "function" ? initial() : initial }; slots[at]!.setter ??= (v: unknown) => { if (dead) throw Error("State after unmount"); const next = typeof v === "function" ? v(slots[at]!.value) : v; if (!Object.is(next, slots[at]!.value)) { slots[at]!.value = next; dirty = true; } }; return [slots[at]!.value, slots[at]!.setter]; },
+    useAuth: () => auth, useQueryClient: () => client, getQueryKey: (p: { projection: RetestProjection }, input: RetestReviewedInput) => [p.projection, input], readSetterCalls: () => setterCalls,
+    useState: (initial: unknown) => { const at = cursor++; slots[at] ??= { value: typeof initial === "function" ? initial() : initial }; slots[at]!.setter ??= (v: unknown) => { setterCalls++; if (dead) throw Error("State after unmount"); const next = typeof v === "function" ? v(slots[at]!.value) : v; if (!Object.is(next, slots[at]!.value)) { slots[at]!.value = next; dirty = true; } }; return [slots[at]!.value, slots[at]!.setter]; },
     useRef: (v: unknown) => { const at = cursor++; slots[at] ??= { value: { current: v } }; return slots[at]!.value; },
     useMemo: (make: () => unknown, deps: unknown[]) => { const at = cursor++; if (!slots[at]?.deps || deps.length !== slots[at]!.deps!.length || deps.some((v, i) => !Object.is(v, slots[at]!.deps![i]))) slots[at] = { value: make(), deps }; return slots[at]!.value; },
     useLayoutEffect: (make: () => void | (() => void), deps: unknown[]) => { const at = cursor++; slots[at] ??= {}; if (!slots[at]!.deps || deps.some((v, i) => !Object.is(v, slots[at]!.deps![i]))) effects.set(at, () => { slots[at]!.cleanup?.(); slots[at]!.deps = deps; slots[at]!.cleanup = make() || undefined; }); },
@@ -75,3 +75,20 @@ it("cache resource A-B-A cannot reauthorize its old completed object without exp
 it("registration rejected after a real cleanup return still unsubscribes after revocation", () => { const h = harness(), old = h.reader; let cleanups = 0; h.cleanup.work = () => { cleanups++; expect(old.current()).toBeNull(); expect(old.refresh()).toBe(false); }; h.rejectInstallation(); h.context.window.Clerk = { ...h.sdk }; h.render(); expect(h.reader.current()).toBeNull(); expect(cleanups).toBeGreaterThanOrEqual(2); });
 it("observed parent A-B-A remains latched; contradictory org discovery never starts an original-N query", () => { const h = harness("ok", parent()); let allowed = true; h.params.parentCurrent = () => allowed; h.params.parentActivation = "parentA"; h.render(); h.reader.refresh(); h.render(); const old = h.reader; allowed = false; expect(old.current()).toBeNull(); allowed = true; expect(old.current()).toBeNull(); h.render(); h.reader.refresh(); h.render(); expect(h.reader.current()).toBe(h.reader.snapshot); h.params.organizationId = "foreign"; h.render(); expect(h.reader.current()).toBeNull(); expect(h.reader.refresh()).toBe(false); });
 it("empty links are genuine after explicit current read, never an inferred global count; no mutation transport exists", () => { const h = harness(); h.reader.read("LINKS"); h.render(); expect(h.reader.current()).toBe(h.reader.snapshot); expect(h.reader.snapshot!.projection).toBe("LINKS"); expect(h.requests.filter(r => r.enabled && r.projection === "LINKS")).not.toHaveLength(0); expect(source).not.toContain("useMutation"); expect(source).not.toContain("@vaettir/api"); });
+it("withheld parent reads queue revocation once, never same-value render updates on subsequent getters", () => {
+  const h = harness("ok", parent()); let allowed = true;
+  h.params.parentCurrent = () => allowed; h.params.parentActivation = "parentA"; h.render(); h.reader.refresh(); h.render();
+  const old = h.reader; allowed = false; expect(old.current()).toBeNull();
+  const calls = h.context.readSetterCalls();
+  for (let i = 0; i < 30; i++) expect(old.current()).toBeNull();
+  expect(h.context.readSetterCalls()).toBe(calls);
+  allowed = true; expect(old.current()).toBeNull(); h.render(); h.reader.refresh(); h.render(); expect(h.reader.current()).toBe(h.reader.snapshot);
+});
+it("withheld SDK reads queue revocation once and never revive after silent SDK restoration", () => {
+  const h = harness(), old = h.reader; h.sdk.session = { id: "B", user: { id: "cl" } }; expect(old.current()).toBeNull();
+  const calls = h.context.readSetterCalls();
+  for (let i = 0; i < 30; i++) expect(old.current()).toBeNull();
+  expect(h.context.readSetterCalls()).toBe(calls);
+  h.sdk.session = { id: "A", user: { id: "cl" } }; expect(old.current()).toBeNull();
+  h.render(); h.reader.refresh(); h.render(); expect(h.reader.current()).toBe(h.reader.snapshot); expect(old.current()).toBeNull();
+});

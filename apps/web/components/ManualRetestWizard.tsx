@@ -31,7 +31,13 @@ function useRetestAccess(projectId: string, active: boolean, editor: boolean, pi
   // fetch makes the parent's factual access temporarily unavailable. Admission
   // grants no access: current active/actor/org/role/error/fetch/pause gates below
   // still withhold private evidence and actions, and the server authorizes reads.
-  const metadataReadEnabled = readEnabled && actorReady;
+  // Closing/opening an ALREADY mounted observer must not toggle enabled:
+  // TanStack refetches stale metadata on that transition even with
+  // refetchOnMount:false, revoking the verified parent just as review opens.
+  // Only actor readiness controls these server-authorized metadata reads;
+  // modal/role/current-native gates still control private evidence and writes.
+  const metadataReadEnabled = actorReady;
+  void readEnabled; // Retain the compatibility call signature, not read authority.
   const project = trpcReact.project.byId.useQuery({ id: projectId }, { enabled: metadataReadEnabled, staleTime: 0, retry: false, refetchOnMount: false });
   const organizations = trpcReact.organization.mine.useQuery(undefined, { enabled: metadataReadEnabled, staleTime: 0, retry: false, refetchOnMount: false });
   const projectReady = !project.error && !project.isFetching && !project.isPaused && project.data?.id === projectId;

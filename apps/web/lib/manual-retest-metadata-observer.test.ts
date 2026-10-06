@@ -14,6 +14,13 @@ const access = ast.statements.find(
 if (!access?.body) throw Error("Actual retest metadata access hook was not found.");
 const endpoints = ["project", "organizations"] as const;
 type Endpoint = (typeof endpoints)[number];
+function actualEnabled(actorReady: boolean, readEnabled: boolean) {
+  const declaration = access!.body!.statements.filter(ts.isVariableStatement)
+    .flatMap(node => [...node.declarationList.declarations])
+    .find(node => ts.isIdentifier(node.name) && node.name.text === "metadataReadEnabled");
+  if (!declaration?.initializer) throw Error("Actual metadata enabled expression is missing.");
+  return new Function("actorReady", "readEnabled", `return (${declaration.initializer.getText(ast)});`)(actorReady, readEnabled) as boolean;
+}
 
 function actualOptions(endpoint: Endpoint, enabled = true) {
   const declaration = access!.body!.statements
@@ -78,6 +85,19 @@ const queryKey = (endpoint: Endpoint) => endpoint === "project"
   : [["organization", "mine"], { type: "query" }];
 
 describe("actual installed TanStack retest metadata mount lifecycle, synthetic transport only", () => {
+  it.each(endpoints)("%s closing/opening an already mounted retest must not enable a stale observer and refetch the verified parent", async endpoint => {
+    const cache = client(), key = queryKey(endpoint), next = deferred<ReturnType<typeof metadata>>(); cache.setQueryData(key, metadata(endpoint));
+    let reads = 0; const queryFn = () => { reads++; return next.promise; };
+    const parent = new QueryObserver(cache, { queryKey: key, queryFn, ...actualOptions(endpoint) });
+    const child = new QueryObserver(cache, { queryKey: key, queryFn, ...actualOptions(endpoint, actualEnabled(true, false)) });
+    const stopParent = parent.subscribe(() => {}), stopChild = child.subscribe(() => {});
+    try {
+      child.setOptions({ queryKey: key, queryFn, ...actualOptions(endpoint, actualEnabled(true, true)) });
+      expect(reads).toBe(0); expect(parent.getCurrentResult().isFetching).toBe(false);
+      child.setOptions({ queryKey: key, queryFn, ...actualOptions(endpoint, actualEnabled(true, false)) });
+      expect(reads).toBe(0); expect(actualEnabled(true, false)).toBe(true); expect(actualEnabled(false, true)).toBe(false);
+    } finally { next.resolve(metadata(endpoint)); stopChild(); stopParent(); }
+  });
   it.each(endpoints)("%s newly mounted observer does not refetch an already populated shared metadata cache", async endpoint => {
     const cache = client(), key = queryKey(endpoint), next = deferred<ReturnType<typeof metadata>>();
     let reads = 0;

@@ -95,6 +95,11 @@ export function useManualRetestReviewedAccess(projectId: string, sourceRunId: st
   }
   function current() {
     const f = frameRef.current, v = viewRef.current;
+    // Consumers call this getter during render. Once a frame is withheld there
+    // is no remaining authority to revoke: repeatedly queuing even the SAME
+    // React state value here causes a render-phase update loop. The first
+    // failing read still clears the private ref and latches its original nonce.
+    if (!f || !v) return null;
     if (f && !parentCurrent(f.parentCurrent)) { guard.revokeCache(f.activation); viewRef.current = null; setBlocked(f.activation); return null; }
     if (!f || !guard.matchesRender(stamp) || !monitored(f) || !v || !guard.matchesRead(f.stamp, f.activation) || !f.active || !f.eligible || !parentCurrent(f.parentCurrent) || sdkEpochRef.current !== f.sdkEpoch || cacheEpochRef.current !== f.cacheEpoch || !sameAuthScope(f.session, sdkSession()) || f.session?.sessionId !== v.observedSessionId || !sameRetestOrigin(f.origin, v.origin)) return null;
     const state = client.getQueryState(f.key);

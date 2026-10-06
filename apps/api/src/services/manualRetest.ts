@@ -3,8 +3,10 @@ import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 import { Prisma, type PrismaClient } from "@vaettir/db";
 import { lockManualRetestAccess } from "./manualRetestScope.js";
-import { manualRetestExpectedScopeSchema, manualRetestReadRequestKey, type ManualRetestReadScopeInput,
+import { manualRetestReadRequestKey, type ManualRetestReadScopeInput,
   type ManualRetestObservedScope } from "./manualRetestScopeSchema.js";
+import { retestPreviewInputSchema, retestStartInputSchema } from "./manualRetestInputSchema.js";
+export { retestPreviewInputSchema, retestStartInputSchema } from "./manualRetestInputSchema.js";
 import {
   boundedRunSnapshot,
   qualityProfileHash,
@@ -17,18 +19,6 @@ import { aggregateStepStatus } from "./manualStepExecution.js";
 
 const identity = z.string().min(1).max(200);
 const MAX_ORIGINAL_RUN_CASES = 1000;
-export const retestPreviewInputSchema = z
-  .object({
-    projectId: identity,
-    sourceRunId: identity,
-    testCaseId: identity,
-    expectedScope: manualRetestExpectedScopeSchema.optional(),
-  })
-  .strict();
-export const retestStartInputSchema = retestPreviewInputSchema.extend({
-  expectedReviewHash: z.string().regex(/^[a-f0-9]{64}$/),
-  idempotencyKey: z.string().uuid(),
-});
 const fail = (
   message: string,
   code: "BAD_REQUEST" | "CONFLICT" = "BAD_REQUEST",

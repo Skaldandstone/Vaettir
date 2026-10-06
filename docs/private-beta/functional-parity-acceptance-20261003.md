@@ -3148,3 +3148,53 @@ this new consumer/helper source has no fresh rendered-browser, native SQL,
 authenticated production or deployment acceptance. Older 8901/8902 synthetic
 manual-run buffers and successful narrow metadata-mount evidence are preserved,
 not relabeled as this new consumer proof. All prior release failures remain.
+
+### October 6: actual retest browser recovery and bounded run-start metadata
+
+The two authoritative legacy retest input constructors now live in a pure
+schema module and are re-exported as the same instances. Root independently
+compared their ASTs and all remaining service/helper statements with the prior
+source: inputs, hashes, UUIDs, bounds and native service behavior are unchanged.
+This removes the server crypto/Prisma import edge from the browser DTO graph;
+it does not replace the schema or waive the earlier failed build evidence.
+
+A hash-reviewed 75-input actual React/TanStack manual-page fixture then exposed
+two additional defects: repeated getter revocation dispatched render-phase
+state updates after the private view was already withheld, and enabling an
+already mounted stale metadata observer on modal open refetched the verified
+parent. The getter now returns null before further publication once its view
+is null. Actor readiness alone keeps metadata observers subscribed; private
+modal, current-native, membership/role, fetching/error/paused and mutation
+gates remain unchanged. Installed TanStack regressions reproduced both stale
+refetches before repair. Two obsolete literal assertions were reconciled while
+preserving their original privacy, exact-request and acknowledgement guards.
+
+Root exercised the actual mounted retest controls: Failed source, explicit
+original access and FULL review, synthetic lost response, Close/reopen, fresh
+FULL read, identical retry and independently current LINKS. Two exact matching
+body/UUID sends produced one in-memory receipt and one replay. The original
+case remained Failed; progress showed 33 percent recorded and two remaining,
+not a pass rate. No real native/provider/device calls, network requests, run
+completion or navigation occurred. This is synthetic browser recovery proof,
+not database durability, real session/tenant authorization or production proof.
+Earlier failed and successful fixture versions and mounted buffers remain
+preserved locally; raw bodies, screenshots and build manifests stay out of Git.
+
+Four new, still-unmounted run-start metadata reader/hook files admit exact
+ACCESS/native identity and supported profile-only PREVIEW. They do not admit a
+case cohort/configuration/procedure, find a receipt or authorize starting a
+run. Independent review reproduced silent render/layout SDK loss, throwing
+SDK getters and repeated revoked-view setters; those failures now refuse
+generically without reviving the old nonce. Cache scans are query-specific;
+retired nonce history has finite count/byte bounds and permanent exhaustion
+refusal, never pruning or resetting another owner's draft/request. Actual
+caller/controller/namespace cutover remains open.
+
+Root checks on the final coherent source passed 807 Node and 1,412 typed Web
+assertions across 86 typed files, 2,219 total with no skips, Web types, 108
+focused metadata checks, strict changed-test compilation and scoped lint with
+no errors and two inherited Wizard warnings. The unchanged-schema API slice
+passed 99 checks across five files, API types and strict/scoped checks. These
+are compatible source/synthetic checks, not full native/runtime/image-security,
+migration/recovery or authenticated production acceptance. All original
+release failures and the broader reported workflow/parity scope remain open.

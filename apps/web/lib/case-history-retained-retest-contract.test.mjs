@@ -14,7 +14,7 @@ test("one selected retest stays mounted independently of conditional history row
 });
 test("inactive retest hides native/private bodies and guards review/start without clearing exact request", () => {
   for (const literal of ["active=true", "open={open&&active}", "if(legacyBlocked||!current())return", "const legacyHeld=attempt??retainedLegacyAttempt", "setAttempt(captureLegacyRequest(retainedLegacyAttempt))",
-    "Private evidence, links and actions are hidden", "const metadataReadEnabled = readEnabled && actorReady", "{ enabled: metadataReadEnabled, staleTime: 0, retry: false, refetchOnMount: false }", "const ready = active && !denied && !paused", "readEnabled={open}", "active={active&&canRetest&&access.ready&&access.canWrite}"])
+    "Private evidence, links and actions are hidden", "const metadataReadEnabled = actorReady", "{ enabled: metadataReadEnabled, staleTime: 0, retry: false, refetchOnMount: false }", "const ready = active && !denied && !paused", "readEnabled={open}", "active={active&&canRetest&&access.ready&&access.canWrite}"])
     assert.ok(retest.includes(literal), literal);
   assert.ok(retest.indexOf("!view.readable?<section>") < retest.indexOf("{view.known?<section>"));
   assert.ok(retest.includes("controller.view().readable&&open&&active"));
