@@ -15,7 +15,7 @@ test("one selected retest stays mounted independently of conditional history row
 test("inactive retest hides native/private bodies and guards review/start without clearing exact request", () => {
   for (const literal of ["active = true", "open={open && active}", "if (!active || !open || busy || attempt || receipt)",
     "if (!active || !open || !preview || !approved || busy || receipt || rejected)", "const request = attempt ??", "setAttempt(request)",
-    "Current history access is unavailable", "const metadataReadEnabled = readEnabled && actorReady", "{ enabled: metadataReadEnabled, staleTime: 0, retry: false }", "const ready = active && !denied && !paused", "readEnabled={open}", "active={active && canRetest && access.ready && access.canWrite && !linksDenied && !linksMismatch && !links.isPaused}"])
+    "Current history access is unavailable", "const metadataReadEnabled = readEnabled && actorReady", "{ enabled: metadataReadEnabled, staleTime: 0, retry: false, refetchOnMount: false }", "const ready = active && !denied && !paused", "readEnabled={open}", "active={active && canRetest && access.ready && access.canWrite && !linksDenied && !linksMismatch && !links.isPaused}"])
     assert.ok(retest.includes(literal), literal);
   assert.ok(retest.indexOf("!active ? <p") < retest.indexOf("{receipt ?"));
   const closedGuard = retest.search(/<\/>\}\r?\n {4}<\/Modal>/);

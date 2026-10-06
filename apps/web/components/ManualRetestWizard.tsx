@@ -42,8 +42,8 @@ function useRetestAccess(projectId: string, active: boolean, editor: boolean, pi
   // grants no access: current active/actor/org/role/error/fetch/pause gates below
   // still withhold private evidence and actions, and the server authorizes reads.
   const metadataReadEnabled = readEnabled && actorReady;
-  const project = trpcReact.project.byId.useQuery({ id: projectId }, { enabled: metadataReadEnabled, staleTime: 0, retry: false });
-  const organizations = trpcReact.organization.mine.useQuery(undefined, { enabled: metadataReadEnabled, staleTime: 0, retry: false });
+  const project = trpcReact.project.byId.useQuery({ id: projectId }, { enabled: metadataReadEnabled, staleTime: 0, retry: false, refetchOnMount: false });
+  const organizations = trpcReact.organization.mine.useQuery(undefined, { enabled: metadataReadEnabled, staleTime: 0, retry: false, refetchOnMount: false });
   const projectReady = !project.error && !project.isFetching && !project.isPaused && project.data?.id === projectId;
   const memberChecked = !organizations.error && !organizations.isFetching && !organizations.isPaused && Array.isArray(organizations.data);
   const member = memberChecked ? organizations.data?.find(row => row.id === project.data?.organizationId) : undefined;

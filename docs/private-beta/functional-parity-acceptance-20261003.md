@@ -2930,3 +2930,74 @@ types, scoped lint and exact freeze hashes. Original router/callers remain
 unchanged. Native precision, transport binding, SQL/concurrency, lossless new
 writer and rendered caller acceptance remain separate open requirements;
 these checks do not authorize a production cutover.
+
+### October 6: restored manual-run rendering and report context
+
+The earlier original-cohort restoration failure is preserved above. A later
+explicit recheck in that retained fixture restored the original three-case
+view and recovered the exact lost-ACK request, without replacing its UUID or
+multiline note. Diagnosis found a concrete mount interaction: a newly visible
+failed-case retest child refetched populated shared project/membership caches,
+revoking the parent reader immediately after its explicit current read.
+
+The mounted Wizard now declines only those two mount-triggered metadata
+refetches. Empty caches still fetch; explicit refresh, focus, invalidation,
+fetching/error/paused/role/identity checks and current-read nonce revocation
+remain intact. Fourteen new tests exercise the actual installed TanStack
+observers using the actual component's option and readiness expressions.
+Two old exact option-string assertions were updated without removing any
+privacy, pending-request or receipt assertions. Their initial failures and
+the before-patch mount reproduction remain recorded.
+
+A separately versioned actual-page bundle reproduced the full sequence:
+lost fake ACK, smaller-cohort refusal, original-cohort restoration through
+one explicit recheck, then exact UUID recovery. The newly mounted retest
+child no longer hid the restored run. All three original case DOM identities
+survived; the pending request still disabled Complete. Recovery confirmed
+revision 1 with two attempts, one receipt and one exact replay. The exact
+multiline note survived. Complete was never invoked; real network, native,
+provider and device counters stayed zero. The old fixture and its buffers
+were preserved. This is actual React/TanStack rendering with synthetic RPC,
+not native authorization, database, production or full retest acceptance.
+The bundle pins existing core-dist bytes, not a regenerated core build.
+
+The new unmounted retest controller independently pins the held native actor
+when verifying ACKs. UNKNOWN retries preserve the exact original body and
+UUID; supported current PREVIEW is conservatively required. Membership ACCESS
+is not sufficient. Matching late ACKs settle privately, and publication needs
+current LINKS containing the confirmed target. Legacy scope-absent attempts
+are retained without injecting today's pins and cannot be transmitted through
+this reviewed wrapper. Unsupported/deleted-source recovery and actual caller
+cutover remain open.
+
+The new unmounted helper publication owner binds each private result to its
+exact original client frame, selected target/input, SDK generation and latest
+lease. Supported late data stays private; retained originals are not silently
+evicted. Oversized/accessor bodies retain the prior data and uncertain intent,
+not a claimed full unsupported response. The bounded retained-content budget
+is not a total heap or transport bound. This does not authorize capture,
+foreground access, processing, spending, retry or physical-device acceptance.
+
+Root repeated 60 controller/ACK/metadata tests and 55 helper ownership/lease
+tests. Full compatible Web validation passed 807 Node plus 1,267 typed checks
+across 82 files: 2,074 total, no skips. Whole-Web types passed. Scoped lint has
+zero errors and two independently confirmed inherited Wizard warnings.
+Initial test-only excess-property type errors were repaired without loosening
+production types. Native/runtime/image-security/migration/recovery and
+authenticated production failures remain unwaived; no deployment occurred.
+
+Fresh authenticated Testmo inspection generated a read-only milestone report
+from its vendor sample. It combines manual runs, exploratory sessions and
+automation with separate status/progress sections, dates, remaining counts,
+tags and contributors. The sample explicitly distinguished 37% completed
+from 36% passed and showed 1,346 remaining out of 2,142 in its aggregate;
+these are not asserted to be unique repository cases. Individual run cards
+separately showed their own totals and remaining work, while session entries
+and automation threads used different denominators. Changing the selected
+milestone left the old report visible but disabled its PDF action until
+regeneration, a useful stale-report guard. The initially visible all-milestone
+choice produced a required-milestone validation error in this one interaction;
+that is not evidence of recurring prevalence. No sample results were changed,
+PDF was not invoked, and export fidelity or forecast validity was not tested.
+Vaettir should label each population, preserve provenance and distinguish
+remaining work from pass rate, rather than copy an ambiguous aggregate.
