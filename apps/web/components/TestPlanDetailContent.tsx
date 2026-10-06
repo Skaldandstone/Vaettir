@@ -9,7 +9,9 @@ import { CriterionDescriptionEditor } from "./CriterionDescriptionEditor";
 import { CriterionVerdictEditor } from "./CriterionVerdictEditor";
 import { PlanGovernanceHistory } from "./PlanGovernanceHistory";
 import { GovernedCriterionCollection } from "./GovernedCriterionCollection";
+import { PlanHeaderEditor } from "./PlanHeaderEditor";
 import { describeRetainedPlanValue } from "@/lib/plan-custom-fields";
+import { legacyPlanMetadataPatch, planMetadataChanges, planMetadataRecord } from "@/lib/plan-root-metadata";
 import { editStrategyRow, qaStrategyFingerprint, qaStrategyList, removeStrategyRow, sameStrategyRowValues, sameStrategySuggestionScope, strategyRows } from "@/lib/qa-strategy-fields";
 
 type Plan = RouterOutputs["testPlans"]["byId"];
@@ -190,18 +192,14 @@ function VersionHistorySection({ testPlanId }: { testPlanId: string }) {
     if (version.description !== prev.description) changes.push("description changed");
     if (version.status !== prev.status) changes.push(`status: ${prev.status} → ${version.status}`);
     if (JSON.stringify(version.executionTemplate) !== JSON.stringify(prev.executionTemplate)) changes.push("execution cases/configurations changed");
-    const allKeys = new Set([...Object.keys(version.customFields), ...Object.keys(prev.customFields)]);
-    for (const k of allKeys) {
-      if (JSON.stringify(version.customFields[k]) !== JSON.stringify(prev.customFields[k])) {
-        changes.push(`${k} changed`);
-      }
-    }
+    changes.push(...planMetadataChanges(version.customFields, prev.customFields));
     return changes.length > 0 ? changes : ["No changes"];
   }
 
   return (
     <div style={{ marginBottom: 24 }}>
       <h2>History</h2>
+      {historyQuery.error && <p role="alert">History could not be refreshed: {historyQuery.error.message}. No empty or complete history is inferred. <button type="button" onClick={() => void historyQuery.refetch()}>Retry history</button></p>}
       {loading && <p>Loading…</p>}
       {!loading && (
         <ul style={{ listStyle: "none", padding: 0 }}>
@@ -222,7 +220,7 @@ function VersionHistorySection({ testPlanId }: { testPlanId: string }) {
               {executionSummary(v.executionTemplate) && <p className="text-muted" style={{ fontSize: 12, overflowWrap: "anywhere" }}>{executionSummary(v.executionTemplate)}</p>}
             </li>
           ))}
-          {versions.length === 0 && <p className="text-muted">No history yet.</p>}
+          {versions.length === 0 && !historyQuery.error && <p className="text-muted">No history yet.</p>}
         </ul>
       )}
     </div>
@@ -510,12 +508,9 @@ export function TestPlanDetailContent({
   onChanged?: () => void;
   readOnly?: boolean;
 }) {
-  // P1-15: plan + requirements are queries (requirements dependent on the
-  // plan's projectId). The editable header fields live in a local draft
-  // layered over the plan row: untouched fields always show the latest
-  // server value, edited ones keep the user's text until save clears the
-  // draft - so a refetch after adding a criterion no longer wipes an
-  // in-progress name/description edit the way the old load() reseed did.
+  // Header edits have their own reviewed revision and retained UUID. Legacy
+  // status/custom-field drafts remain mounted independently; their save must
+  // never resend a cached name or description over a governed header edit.
   const utils = trpcReact.useUtils();
   const planQuery = trpcReact.testPlans.byId.useQuery({ id });
   const plan: Plan | null = planQuery.data ?? null;
@@ -524,14 +519,12 @@ export function TestPlanDetailContent({
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  type Draft = { name?: string; description?: string; status?: string; customFields?: Record<string, unknown> };
+  type Draft = { status?: string; customFields?: Record<string, unknown> };
   const [draft, setDraft] = useState<Draft>({});
-  const name = draft.name ?? plan?.name ?? "";
-  const description = draft.description ?? plan?.description ?? "";
+  const description = plan?.description;
   const status = draft.status ?? plan?.status ?? "DRAFT";
-  const customFields = draft.customFields ?? plan?.customFields ?? {};
-  const setName = (v: string) => setDraft((d) => ({ ...d, name: v }));
-  const setDescription = (v: string) => setDraft((d) => ({ ...d, description: v }));
+  const savedMetadata = planMetadataRecord(plan?.customFields);
+  const customFields = draft.customFields ?? savedMetadata ?? {};
   const setStatus = (v: string) => setDraft((d) => ({ ...d, status: v }));
   const setCustomFields = (v: Record<string, unknown>) => setDraft((d) => ({ ...d, customFields: v }));
 
@@ -548,9 +541,7 @@ export function TestPlanDetailContent({
     setError(null);
     setSaved(false);
     try {
-      // An untouched native NULL stays NULL. A deliberately cleared text field
-      // is the exact empty string, not an omitted update that retains old prose.
-      await updateMutation.mutateAsync({ id, name, description: draft.description ?? plan.description ?? undefined, status: status as never, customFields });
+      await updateMutation.mutateAsync({ id, status: status as never, ...legacyPlanMetadataPatch(plan.customFields, draft.customFields) });
       setSaved(true);
       setDraft({});
       load();
@@ -577,6 +568,7 @@ export function TestPlanDetailContent({
 
       {!readOnly && <button className="btn-secondary" style={{ marginBottom: 16 }} onClick={() => setExecutionOpen(true)}>Configure cases / repeat execution</button>}
       <PlanExecutionModal key={id} open={executionOpen} onClose={() => setExecutionOpen(false)} id={id} projectId={plan.projectId} onSaved={() => { load(); onChanged?.(); }} />
+      <PlanHeaderEditor key={`${plan.projectId}:${id}`} projectId={plan.projectId} testPlanId={id} readOnly={readOnly} onChanged={() => { load(); onChanged?.(); }} />
 
       {readOnly && (
         <div style={{ display: "grid", gap: 6, marginBottom: 24 }}>
@@ -589,14 +581,6 @@ export function TestPlanDetailContent({
       <div hidden={readOnly}>
         <fieldset disabled={saving} style={{ display: "grid", gap: 10, margin: "0 0 24px", padding: 0, border: 0, minWidth: 0 }}>
           <label>
-            Name
-            <input value={name} onChange={(e) => setName(e.target.value)} style={{ width: "100%" }} />
-          </label>
-          <label>
-            Description
-            <textarea value={description} onChange={(e) => setDescription(e.target.value)} style={{ width: "100%" }} rows={3} />
-          </label>
-          <label>
             Status
             <select value={status} onChange={(e) => setStatus(e.target.value)}>
               {STATUSES.map((s) => (
@@ -607,14 +591,15 @@ export function TestPlanDetailContent({
             </select>
           </label>
 
-          {plan.testPlanType.key === "qa-strategy" ? (
+          {!savedMetadata ? <section><h3>Retained plan metadata (read-only)</h3><p>This native root value is not an editable object. It stays unchanged during status or header saves; no empty replacement is created.</p><pre style={{whiteSpace:"pre-wrap",overflowWrap:"anywhere"}}>{describeRetainedPlanValue(plan.customFields, true)}</pre></section> : plan.testPlanType.key === "qa-strategy" ? (
             <QaStrategyForm projectId={plan.projectId} values={customFields} onChange={setCustomFields} />
           ) : (
             <PlanCustomFieldsForm schema={plan.testPlanType.fieldSchema} values={customFields} onChange={setCustomFields} />
           )}
 
-          <button onClick={save} disabled={saving || !name}>
-            {saving ? "Saving…" : "Save"}
+          <p className="text-muted" style={{ fontSize: 12 }}>Name and description use the separate reviewed header editor. Status and custom-field saves still use the legacy plan path; they do not have the header editor's exact-request recovery.</p>
+          <button onClick={save} disabled={saving}>
+            {saving ? "Saving…" : "Save status and fields"}
           </button>
           {saved && <p style={{ color: "var(--frost)" }}>Saved.</p>}
         </fieldset>

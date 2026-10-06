@@ -2,6 +2,7 @@ import { router } from "./trpc.js";
 import { caseCommentsRouter } from "./routers/caseComments.js";
 import { casePriorityRouter } from "./routers/casePriority.js";
 import { casePresentationRouter } from "./routers/casePresentation.js";
+import { caseFieldPresentationRouter } from "./routers/caseFieldPresentation.js";
 import { defectMapRouter } from "./routers/defectMap.js";
 import { caseTraceabilityRouter } from "./routers/caseTraceability.js";
 import { caseExecutionHistoryRouter } from "./routers/caseExecutionHistory.js";
@@ -73,6 +74,7 @@ export const appRouter = router({
   caseComments: caseCommentsRouter,
   casePriority: casePriorityRouter,
   casePresentation: casePresentationRouter,
+  caseFieldPresentation: caseFieldPresentationRouter,
   defectMap: defectMapRouter,
   caseTraceability: caseTraceabilityRouter,
   caseExecutionHistory: caseExecutionHistoryRouter,

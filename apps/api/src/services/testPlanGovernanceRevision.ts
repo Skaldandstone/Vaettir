@@ -72,6 +72,7 @@ export function validatedGovernanceReceipt(value: unknown) {
   boundedGovernanceSnapshot(before);
   boundedGovernanceSnapshot(after);
   let expectedCriteria = before.criteria;
+  const isHeader = ack.operation === "EDIT_PLAN_HEADER";
   if (
     ack.operation === "EDIT_CRITERION_DESCRIPTION" ||
     ack.operation === "SET_CRITERION_VERDICT" ||
@@ -118,6 +119,15 @@ export function validatedGovernanceReceipt(value: unknown) {
     )
       return invalid();
     expectedCriteria = before.criteria.filter((c) => c.id !== ack.criterionId);
+  } else if (isHeader) {
+    if (
+      ack.criterionId !== null ||
+      before.releaseId !== after.releaseId ||
+      (before.name === after.name &&
+        before.description === after.description) ||
+      (before.name !== after.name && !after.name.trim())
+    )
+      return invalid();
   } else if (
     ack.criterionId !== null ||
     before.releaseId !== null ||
@@ -126,6 +136,7 @@ export function validatedGovernanceReceipt(value: unknown) {
     return invalid();
   const expectedAfter = {
     ...before,
+    ...(isHeader ? { name: after.name, description: after.description } : {}),
     releaseId: after.releaseId,
     updatedAt: after.updatedAt,
     updatedById: after.updatedById,

@@ -21,6 +21,26 @@ const write = planGovernanceScopeInput.extend({
   reason: z.string().trim().min(1).max(1000),
   confirmed: z.literal(true),
 });
+export const editPlanHeaderInput = write
+  .extend({
+    name: z
+      .string()
+      .min(1)
+      .max(10000)
+      .refine((value) => value.trim().length > 0, "Plan name cannot be blank.")
+      .optional(),
+    description: z.string().max(40000).nullable().optional(),
+  })
+  .strict()
+  .refine(
+    (input) => input.name !== undefined || input.description !== undefined,
+    "Include a reviewed name or description change.",
+  )
+  .transform(({ name, description, ...input }) => ({
+    ...input,
+    ...(name !== undefined ? { name } : {}),
+    ...(description !== undefined ? { description } : {}),
+  }));
 const reviewedEditWordings = write
   .extend({
     criterionId: id,
@@ -169,6 +189,7 @@ export const planGovernanceAck = z
       "ADD_CRITERION",
       "DELETE_CRITERION",
       "SET_CRITERION_REQUIREMENT",
+      "EDIT_PLAN_HEADER",
     ]),
     testPlanId: id,
     criterionId: id.nullable(),

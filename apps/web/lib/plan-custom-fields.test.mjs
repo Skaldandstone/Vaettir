@@ -60,5 +60,7 @@ test("generic plan mount keeps existing save flow and does not use comma parsing
   assert.match(component, /Set false explicitly/); assert.match(component, /Set empty/);
   assert.doesNotMatch(component, /\.split\(|\.trim\(|filter\(Boolean\)/);
   assert.match(parent, /<PlanCustomFieldsForm schema=\{plan\.testPlanType\.fieldSchema\} values=\{customFields\} onChange=\{setCustomFields\}/);
-  assert.match(parent, /updateMutation\.mutateAsync\(\{ id, name, description: draft\.description \?\? plan\.description \?\? undefined, status: status as never, customFields \}\)/);
+  assert.match(parent, /updateMutation\.mutateAsync\(\{ id, status: status as never, \.\.\.legacyPlanMetadataPatch\(plan\.customFields, draft\.customFields\) \}\)/);
+  assert.doesNotMatch(parent, /updateMutation\.mutateAsync\(\{[^}]*\b(?:name|description)\b/);
+  assert.match(parent, /<PlanHeaderEditor key=\{`\$\{plan\.projectId\}:\$\{id\}`\}/);
 });

@@ -1,11 +1,16 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { governanceCriterionValue, governanceOperationLabel } from "./plan-governance-display.ts";
+import { governanceCriterionValue, governanceHeaderDescription, governanceOperationLabel } from "./plan-governance-display.ts";
 const rows = [{ id: "criterion", description: " exact\nwording ", status: "PENDING", requirementId: null }];
 test("all supported governance operations have distinct honest history labels", () => {
-  const operations = ["EDIT_CRITERION_DESCRIPTION", "SET_CRITERION_VERDICT", "ATTACH_UNASSIGNED_PLAN", "ADD_CRITERION", "DELETE_CRITERION", "SET_CRITERION_REQUIREMENT"];
+  const operations = ["EDIT_CRITERION_DESCRIPTION", "SET_CRITERION_VERDICT", "ATTACH_UNASSIGNED_PLAN", "ADD_CRITERION", "DELETE_CRITERION", "SET_CRITERION_REQUIREMENT", "EDIT_PLAN_HEADER"];
   assert.equal(new Set(operations.map(governanceOperationLabel)).size, operations.length);
   assert.equal(governanceOperationLabel("unknown"), "Unsupported governance operation");
+});
+test("header history retains exact prose and distinguishes native NULL from empty description", () => {
+  assert.equal(governanceHeaderDescription(null), "No description (NULL)");
+  assert.equal(governanceHeaderDescription(""), "Empty description");
+  assert.equal(governanceHeaderDescription(" \n, exact prose \t"), " \n, exact prose \t");
 });
 test("missing added/deleted criteria differ from empty retained wording", () => {
   assert.equal(governanceCriterionValue([], "criterion", "ADD_CRITERION"), "Not present in this snapshot");

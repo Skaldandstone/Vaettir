@@ -5,6 +5,7 @@ import { router, protectedProcedure, requireProjectAccess } from "../trpc.js";
 import { recordAudit } from "../services/auditLog.js";
 import { snapshotTestPlanVersion } from "../services/testPlanVersion.js";
 import { setLegacyCriterionVerdict } from "../services/testPlanGovernance.js";
+import { readTestPlanDetail, readTestPlanHistory, legacyPlanCustomFieldRecord, assertLegacyPlanMetadataRootKind } from "../services/testPlanReads.js";
 import { refreshReleaseReadiness } from "../services/releaseReadiness.js";
 import {
   chargeAiCredits,
@@ -336,7 +337,7 @@ export const testPlansRouter = router({
         description: z.string().nullable(),
         status: z.string(),
         releaseId: z.string().nullable(),
-        customFields: z.record(z.unknown()),
+        customFields: z.unknown(),
         testPlanType: z.object({
           id: z.string(),
           key: z.string(),
@@ -352,41 +353,7 @@ export const testPlansRouter = router({
         acceptanceCriteria: z.array(acceptanceCriterionOutput),
       }),
     )
-    .query(async ({ ctx, input }) => {
-      const plan = await ctx.prisma.testPlan.findUniqueOrThrow({
-        where: { id: input.id },
-        include: {
-          testPlanType: true,
-          acceptanceCriteria: { orderBy: { createdAt: "asc" } },
-          strategy: { select: { name: true } },
-          linkedPlans: {
-            select: { id: true, name: true, status: true },
-            orderBy: { updatedAt: "desc" },
-          },
-        },
-      });
-      await requireProjectAccess(ctx, plan.projectId);
-      return {
-        id: plan.id,
-        projectId: plan.projectId,
-        name: plan.name,
-        description: plan.description,
-        status: plan.status,
-        releaseId: plan.releaseId,
-        customFields: plan.customFields as Record<string, unknown>,
-        testPlanType: {
-          id: plan.testPlanType.id,
-          key: plan.testPlanType.key,
-          name: plan.testPlanType.name,
-          category: plan.testPlanType.category,
-          fieldSchema: plan.testPlanType.fieldSchema,
-        },
-        strategyId: plan.strategyId,
-        strategyName: plan.strategy?.name ?? null,
-        linkedPlans: plan.linkedPlans,
-        acceptanceCriteria: plan.acceptanceCriteria,
-      };
-    }),
+    .query(({ ctx, input }) => readTestPlanDetail(ctx.prisma, ctx.user.id, input.id, { clerkActorId: ctx.user.clerkUserId })),
 
   create: protectedProcedure
     .input(
@@ -446,13 +413,22 @@ export const testPlansRouter = router({
     .input(
       z.object({
         id: z.string(),
-        name: z.string().min(1),
+        name: z.string().min(1).optional(),
         description: z.string().optional(),
         status: z.enum(["DRAFT", "ACTIVE", "IN_REVIEW", "APPROVED"]),
-        customFields: z.record(z.unknown()).default({}),
+        customFields: legacyPlanCustomFieldRecord.optional(),
       }),
     )
     .mutation(async ({ ctx, input }) => {
+      // Header edits require a reviewed full-plan revision and exact replay
+      // identity. Reject old mixed payloads before any private lookup or write;
+      // never partially apply their status/JSON changes after refusing text.
+      if (Object.hasOwn(input, "name") || Object.hasOwn(input, "description"))
+        throw new TRPCError({
+          code: "PRECONDITION_FAILED",
+          message:
+            "Legacy header edits no longer accept writes. Review the current plan and use testPlanGovernance.editPlanHeader. An earlier unacknowledged legacy request may already have applied and may lack a durable receipt. Refresh the plan and inspect available history before a new reviewed request; do not automatically resubmit.",
+        });
       const existing = await ctx.prisma.testPlan.findUniqueOrThrow({
         where: { id: input.id },
         select: { projectId: true },
@@ -463,14 +439,14 @@ export const testPlansRouter = router({
         "EDITOR",
       );
       const updated = await ctx.prisma.$transaction(async (tx) => {
-        await tx.$queryRaw`SELECT id FROM "TestPlan" WHERE id = ${input.id} FOR UPDATE`;
+        const [locked] = await tx.$queryRaw<Array<{ id: string; metadataRootKind: string | null }>>`SELECT id,jsonb_typeof("customFields") AS "metadataRootKind" FROM "TestPlan" WHERE id=${input.id} AND "projectId"=${existing.projectId} FOR UPDATE`;
+        if (!locked) throw new TRPCError({ code: "NOT_FOUND", message: "Plan left the selected project before this legacy save." });
+        const retainedFields = assertLegacyPlanMetadataRootKind(locked.metadataRootKind, input.customFields);
         const plan = await tx.testPlan.update({
           where: { id: input.id },
           data: {
-            name: input.name,
-            description: input.description,
             status: input.status,
-            customFields: input.customFields as never,
+            ...(retainedFields === undefined ? {} : { customFields: retainedFields as never }),
             updatedById: ctx.user.id,
           },
         });
@@ -905,7 +881,7 @@ export const testPlansRouter = router({
           name: z.string(),
           description: z.string().nullable(),
           status: z.string(),
-          customFields: z.record(z.unknown()),
+          customFields: z.unknown(),
           executionTemplate: z.unknown(),
           createdAt: z.date(),
           createdBy: z
@@ -918,30 +894,7 @@ export const testPlansRouter = router({
         }),
       ),
     )
-    .query(async ({ ctx, input }) => {
-      const plan = await ctx.prisma.testPlan.findUniqueOrThrow({
-        where: { id: input.testPlanId },
-        select: { projectId: true },
-      });
-      await requireProjectAccess(ctx, plan.projectId);
-      const versions = await ctx.prisma.testPlanVersion.findMany({
-        where: { testPlanId: input.testPlanId },
-        include: {
-          createdBy: { select: { id: true, name: true, email: true } },
-        },
-        orderBy: { versionNumber: "desc" },
-      });
-      return versions.map((v) => ({
-        versionNumber: v.versionNumber,
-        name: v.name,
-        description: v.description,
-        status: v.status,
-        customFields: v.customFields as Record<string, unknown>,
-        executionTemplate: v.executionTemplate,
-        createdAt: v.createdAt,
-        createdBy: v.createdBy,
-      }));
-    }),
+    .query(({ ctx, input }) => readTestPlanHistory(ctx.prisma, ctx.user.id, input.testPlanId, { clerkActorId: ctx.user.clerkUserId })),
 
   // P4-04: the strategy picker's data source -- every QUALITY_STRATEGY-type
   // plan in the project a plan could link up to. Excludes the plan being
@@ -1019,21 +972,15 @@ export const testPlansRouter = router({
       }),
     )
     .output(acceptanceCriterionOutput)
-    .mutation(async ({ ctx, input }) => {
-      const plan = await ctx.prisma.testPlan.findUniqueOrThrow({
-        where: { id: input.testPlanId },
-        select: { projectId: true, releaseId: true },
+    .mutation(async (): Promise<z.infer<typeof acceptanceCriterionOutput>> => {
+      // Preserve the old public input/output contract, but never infer missing
+      // reviewed revisions or replay identity from a cached legacy request.
+      // No project/criterion lookup occurs, including for an unrelated ID.
+      throw new TRPCError({
+        code: "PRECONDITION_FAILED",
+        message:
+          "Legacy criterion additions no longer accept writes. Review the current plan and use testPlanGovernance.addCriterion. An earlier unacknowledged legacy request may already have applied and may lack a durable receipt. Refresh the plan and inspect available history before a new reviewed request; do not automatically resubmit.",
       });
-      await requireProjectAccess(ctx, plan.projectId, "EDITOR");
-      const created = await ctx.prisma.acceptanceCriterion.create({
-        data: {
-          testPlanId: input.testPlanId,
-          description: input.description,
-          requirementId: input.requirementId,
-        },
-      });
-      refreshReleaseReadiness(ctx.prisma, plan.releaseId);
-      return created;
     }),
 
   updateAcceptanceCriterion: protectedProcedure
@@ -1071,13 +1018,11 @@ export const testPlansRouter = router({
 
   deleteAcceptanceCriterion: protectedProcedure
     .input(z.object({ id: z.string() }))
-    .mutation(async ({ ctx, input }) => {
-      const criterion = await ctx.prisma.acceptanceCriterion.findUniqueOrThrow({
-        where: { id: input.id },
-        include: { testPlan: { select: { projectId: true, releaseId: true } } },
+    .mutation(async (): Promise<void> => {
+      throw new TRPCError({
+        code: "PRECONDITION_FAILED",
+        message:
+          "Legacy criterion removals no longer accept writes. Review the current criterion and use testPlanGovernance.deleteCriterion. An earlier unacknowledged legacy request may already have applied and may lack a durable receipt. Refresh the plan and inspect available history before a new reviewed request; do not automatically resubmit.",
       });
-      await requireProjectAccess(ctx, criterion.testPlan.projectId, "EDITOR");
-      await ctx.prisma.acceptanceCriterion.delete({ where: { id: input.id } });
-      refreshReleaseReadiness(ctx.prisma, criterion.testPlan.releaseId);
     }),
 });

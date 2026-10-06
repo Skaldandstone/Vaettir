@@ -3,7 +3,7 @@ import { useState } from "react";
 import { trpcReact } from "@/lib/trpcReact";
 import { useCaseFieldAccess } from "@/lib/use-case-field-access";
 import { sameGovernanceReader } from "@/lib/plan-governance-receipt";
-import { governanceCriterionValue, governanceOperationLabel } from "@/lib/plan-governance-display";
+import { governanceCriterionValue, governanceHeaderDescription, governanceOperationLabel } from "@/lib/plan-governance-display";
 export function PlanGovernanceHistory({
   projectId,
   testPlanId,
@@ -52,7 +52,7 @@ export function PlanGovernanceHistory({
       : null;
   return (
     <details onToggle={(event) => setOpen(event.currentTarget.open)}>
-      <summary>Governed criteria and assignment history</summary>
+      <summary>Governed header, criteria and assignment history</summary>
       <p className="text-muted">
         These new governance entries retain complete plan scalar fields, native
         criteria and release assignment, linked to a plan version. Legacy plan
@@ -83,7 +83,7 @@ export function PlanGovernanceHistory({
           {!fresh && !query.error && <p>Loading bounded history…</p>}
           {fresh?.entries.length === 0 && (
             <p>
-              No governed criterion or assignment changes on this page. Legacy
+              No governed header, criterion or assignment changes on this page. Legacy
               versions remain in the plan's own history.
             </p>
           )}
@@ -95,7 +95,14 @@ export function PlanGovernanceHistory({
                 · {new Date(entry.createdAt).toLocaleString()}
               </summary>
               <p>Reason: {entry.receipt.reason}</p>
-              {entry.receipt.ack.criterionId ? (
+              {entry.receipt.ack.operation === "EDIT_PLAN_HEADER" ? (
+                <div style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>
+                  <p>Before name: {entry.receipt.before.name}</p>
+                  <p>After name: {entry.receipt.after.name}</p>
+                  <p>Before description: {governanceHeaderDescription(entry.receipt.before.description)}</p>
+                  <p>After description: {governanceHeaderDescription(entry.receipt.after.description)}</p>
+                </div>
+              ) : entry.receipt.ack.criterionId ? (
                 <>
                   <p>
                     Before:{" "}

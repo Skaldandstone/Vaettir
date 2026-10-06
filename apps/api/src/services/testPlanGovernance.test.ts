@@ -11,12 +11,14 @@ import {
   deleteGovernedCriterion,
   setGovernedCriterionRequirement,
   listGovernanceRequirementChoices,
+  editGovernedPlanHeader,
 } from "./testPlanGovernance.js";
 import {
   MAX_GOVERNANCE_SNAPSHOT_BYTES,
   MAX_GOVERNANCE_RECEIPT_BYTES,
   MAX_GOVERNANCE_HISTORY_REVISIONS,
   editCriterionDescriptionInput,
+  editPlanHeaderInput,
 } from "./testPlanGovernanceSchema.js";
 import {
   governanceRequestHash,
@@ -60,10 +62,10 @@ function fixture() {
       releaseId: null as string | null,
       strategyId: "strategy",
       name: "Synthetic plan",
-      description: "Retained plan prose",
+      description: "Retained plan prose" as string | null,
       status: "DRAFT",
-      customFields: { unknown: ["preserve"] },
-      executionTemplate: { opaque: "retained" },
+      customFields: { unknown: ["preserve"] } as unknown,
+      executionTemplate: { opaque: "retained" } as unknown,
       createdById: "creator",
       updatedById: "creator",
       createdAt: new Date("2026-10-05T10:00:00Z"),
@@ -341,6 +343,223 @@ function fixture() {
 }
 describe("dedicated bounded plan governance (mocked transactions, not native acceptance)", () => {
   const newCriterionId = "5a3c96dc-022c-4cee-934b-cde38b710d2f";
+  async function headerInput(f: ReturnType<typeof fixture>) {
+    return {
+      ...f.scope,
+      expectedPlanRevision: (await f.preview()).planRevision,
+      requestId: "6ee2ec04-4d34-40bf-b0e9-d12bb1b851d3",
+      reason: "Reviewed synthetic header",
+      confirmed: true as const,
+    };
+  }
+  it("header description-only edits preserve exact raw name/status/JSON/criteria/assignment and NULL JSON snapshots", async () => {
+    const f = fixture();
+    f.state().plan.customFields = null;
+    f.state().plan.executionTemplate = null;
+    f.state().plan.status = "ACTIVE";
+    const input = {
+      ...(await headerInput(f)),
+      description: "  Raw header prose\nwith exact whitespace.  \n",
+    };
+    const before = (await f.preview()).snapshot;
+    const ack = await editGovernedPlanHeader(f.db, "actor", input, {
+      clerkActorId: "clerk",
+    });
+    expect(f.tx.testPlan.update).toHaveBeenCalledWith({
+      where: { id: "plan" },
+      data: { description: input.description, updatedById: "actor" },
+    });
+    const saved = validatedGovernanceReceipt(
+      [...f.state().audits.values()][0]!.metadata,
+    );
+    expect(saved.after).toMatchObject({
+      name: before.name,
+      status: "ACTIVE",
+      customFields: null,
+      executionTemplate: null,
+      releaseId: before.releaseId,
+      criteria: before.criteria,
+      description: input.description,
+    });
+    expect(ack.criterionId).toBeNull();
+  });
+  it("optional header fields distinguish absent, empty string and explicit description NULL", async () => {
+    for (const description of [null, ""]) {
+      const f = fixture();
+      await editGovernedPlanHeader(
+        f.db,
+        "actor",
+        { ...(await headerInput(f)), description },
+        { clerkActorId: "clerk" },
+      );
+      expect(f.state().plan.description).toBe(description);
+      expect(f.state().plan.name).toBe("Synthetic plan");
+    }
+    const f = fixture(),
+      input = {
+        ...(await headerInput(f)),
+        name: "  New exact name  ",
+        description: undefined,
+      };
+    const parsed = editPlanHeaderInput.parse(input);
+    expect(Object.hasOwn(parsed, "description")).toBe(false);
+    await editGovernedPlanHeader(f.db, "actor", input, {
+      clerkActorId: "clerk",
+    });
+    expect(f.state().plan.name).toBe(input.name);
+    expect(f.state().plan.description).toBe("Retained plan prose");
+    expect(f.tx.testPlan.update).toHaveBeenCalledWith({
+      where: { id: "plan" },
+      data: { name: input.name, updatedById: "actor" },
+    });
+  });
+  it("header exact replay settles before newer approval/CAS state without overwriting newer prose", async () => {
+    const f = fixture(),
+      input = { ...(await headerInput(f)), name: "Reviewed rename" };
+    const first = await editGovernedPlanHeader(f.db, "actor", input, {
+      clerkActorId: "clerk",
+    });
+    f.state().plan.status = "APPROVED";
+    f.state().plan.name = "Newer reviewed name";
+    expect(
+      await editGovernedPlanHeader(f.db, "actor", input, {
+        clerkActorId: "clerk",
+      }),
+    ).toEqual({ ...first, replayed: true });
+    expect(f.state().plan.name).toBe("Newer reviewed name");
+    expect(f.tx.testPlan.update).toHaveBeenCalledTimes(1);
+    await expect(
+      editGovernedPlanHeader(
+        f.db,
+        "actor",
+        { ...input, name: "Different intent" },
+        { clerkActorId: "clerk" },
+      ),
+    ).rejects.toMatchObject({ code: "CONFLICT" });
+  });
+  it("header schema rejects unknown write fields and blank/bounded input and never invents default patches", async () => {
+    const f = fixture(),
+      common = await headerInput(f);
+    for (const patch of [
+      {},
+      { name: undefined, description: undefined },
+      { name: " \n " },
+      { name: "x".repeat(10001) },
+      { description: "x".repeat(40001) },
+      { name: "Allowed", status: "APPROVED" },
+      { name: "Allowed", customFields: {} },
+      { description: null, releaseId: "other" },
+    ])
+      expect(() =>
+        editPlanHeaderInput.parse({ ...common, ...patch }),
+      ).toThrow();
+    expect(
+      editPlanHeaderInput.parse({
+        ...common,
+        description: null,
+        name: undefined,
+      }),
+    ).toEqual({ ...common, description: null });
+    await expect(
+      editGovernedPlanHeader(
+        f.db,
+        "actor",
+        { ...common, name: f.state().plan.name },
+        { clerkActorId: "clerk" },
+      ),
+    ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    expect(f.tx.testPlan.update).not.toHaveBeenCalled();
+    expect(f.state().audits.size).toBe(0);
+  });
+  it("header CAS includes native criteria and current original actor/role checks precede retained receipt bodies", async () => {
+    const f = fixture(),
+      input = { ...(await headerInput(f)), description: "Reviewed prose" };
+    f.state().criteria[0]!.status = "MET";
+    await expect(
+      editGovernedPlanHeader(f.db, "actor", input, { clerkActorId: "clerk" }),
+    ).rejects.toMatchObject({ code: "CONFLICT" });
+    expect(f.state().plan.description).toBe("Retained plan prose");
+    for (const changed of [
+      { role: "VIEWER" },
+      { seatType: "READ_ONLY" },
+      { suspendedAt: new Date() },
+      { clerkActorId: "another" },
+    ]) {
+      const g = fixture(),
+        next = { ...(await headerInput(g)), name: "Reviewed name" };
+      await editGovernedPlanHeader(g.db, "actor", next, {
+        clerkActorId: "clerk",
+      });
+      Object.assign(g.state(), changed);
+      g.calls.length = 0;
+      await expect(
+        editGovernedPlanHeader(g.db, "actor", next, { clerkActorId: "clerk" }),
+      ).rejects.toMatchObject({ code: "FORBIDDEN" });
+      expect(g.calls.some((call) => call.includes('FROM "AuditLog"'))).toBe(
+        false,
+      );
+    }
+  });
+  it("header editing cannot implicitly reopen an approved/archived plan or ready/shipped release", async () => {
+    for (const status of ["APPROVED", "ARCHIVED"]) {
+      const f = fixture();
+      f.state().plan.status = status;
+      await expect(
+        editGovernedPlanHeader(
+          f.db,
+          "actor",
+          { ...(await headerInput(f)), name: "Changed" },
+          { clerkActorId: "clerk" },
+        ),
+      ).rejects.toMatchObject({ code: "CONFLICT" });
+      expect(f.state().plan.status).toBe(status);
+    }
+    for (const status of ["READY", "SHIPPED"]) {
+      const f = fixture();
+      f.state().plan.releaseId = "release";
+      f.state().release.status = status;
+      await expect(
+        editGovernedPlanHeader(
+          f.db,
+          "actor",
+          { ...(await headerInput(f)), description: null },
+          { clerkActorId: "clerk" },
+        ),
+      ).rejects.toMatchObject({ code: "CONFLICT" });
+      expect(f.state().plan.description).toBe("Retained plan prose");
+    }
+  });
+  it("header receipts reject status/JSON/assignment/criteria changes even if forged after hashes match", async () => {
+    const f = fixture();
+    await editGovernedPlanHeader(
+      f.db,
+      "actor",
+      { ...(await headerInput(f)), name: "Header changed" },
+      { clerkActorId: "clerk" },
+    );
+    for (const field of [
+      "status",
+      "customFields",
+      "executionTemplate",
+      "releaseId",
+      "criteria",
+    ]) {
+      const receipt = validatedGovernanceReceipt(
+        structuredClone([...f.state().audits.values()][0]!.metadata),
+      );
+      if (field === "status") receipt.after.status = "APPROVED";
+      if (field === "customFields")
+        receipt.after.customFields = { discarded: true };
+      if (field === "executionTemplate") receipt.after.executionTemplate = [];
+      if (field === "releaseId") {
+        receipt.after.releaseId = "other";
+        receipt.ack.releaseId = "other";
+      }
+      if (field === "criteria") receipt.after.criteria = [];
+      receipt.ack.afterRevision = governanceRequestHash(receipt.after);
+      expect(() => validatedGovernanceReceipt(receipt)).toThrow();
+    }
+  });
   it("unmarked accepted UUIDs preserve the exact historical trim/hash/replay contract", async () => {
     const f = fixture(),
       raw = {

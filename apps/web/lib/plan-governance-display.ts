@@ -7,8 +7,12 @@ export function governanceOperationLabel(operation: string): string {
     ADD_CRITERION: "Criterion added",
     DELETE_CRITERION: "Criterion removed",
     SET_CRITERION_REQUIREMENT: "Requirement association",
+    EDIT_PLAN_HEADER: "Plan name and description",
   };
   return labels[operation] ?? "Unsupported governance operation";
+}
+export function governanceHeaderDescription(value: string | null): string {
+  return value === null ? "No description (NULL)" : value === "" ? "Empty description" : value;
 }
 export function governanceCriterionValue(
   criteria: Array<{ id: string; description: string; status: string; requirementId: string | null }>,

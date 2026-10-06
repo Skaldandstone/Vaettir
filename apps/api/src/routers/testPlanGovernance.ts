@@ -2,6 +2,7 @@ import { router, protectedProcedure, requireProjectAccess } from "../trpc.js";
 import { refreshReleaseReadiness } from "../services/releaseReadiness.js";
 import {
   planGovernanceScopeInput,
+  editPlanHeaderInput,
   editCriterionDescriptionInput,
   setCriterionVerdictInput,
   addGovernedCriterionInput,
@@ -17,6 +18,7 @@ import {
 } from "../services/testPlanGovernanceSchema.js";
 import {
   previewPlanGovernance,
+  editGovernedPlanHeader,
   editGovernedCriterionDescription,
   setGovernedCriterionVerdict,
   addGovernedCriterion,
@@ -27,6 +29,15 @@ import {
   listPlanGovernanceHistory,
 } from "../services/testPlanGovernance.js";
 export const testPlanGovernanceRouter = router({
+  editPlanHeader: protectedProcedure
+    .input(editPlanHeaderInput)
+    .output(planGovernanceAck)
+    .mutation(async ({ ctx, input }) => {
+      await requireProjectAccess(ctx, input.projectId, "EDITOR");
+      return editGovernedPlanHeader(ctx.prisma, ctx.user.id, input, {
+        clerkActorId: ctx.user.clerkUserId,
+      });
+    }),
   addCriterion: protectedProcedure
     .input(addGovernedCriterionInput)
     .output(planGovernanceAck)

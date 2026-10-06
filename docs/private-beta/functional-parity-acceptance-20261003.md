@@ -1094,3 +1094,82 @@ Final integrated source after the explicit encoding fix: 702 Node plus 48 typed
 Web checks (750 total, zero skips), 162 focused API pure/mocked checks and API/Web
 typechecks pass. These are local source receipts only; no native SQL/migration,
 full runtime/image-security, authenticated production or deployment gate is closed.
+
+October 6 01:45 UTC continuation: obsolete criterion add/delete endpoints now
+refuse writes without any database or private-body lookup. Their public input
+and output contracts remain compatible, but authenticated clients must review
+current state and use the governed operations. The refusal explicitly warns that
+an earlier unknown acknowledgement may already have applied; refresh available
+history before a newly reviewed request, never automatically resubmit. Eight new
+mocked router checks and 51 combined governance/version/router checks pass. No
+native execution or historical receipt recovery is implied.
+
+The 851-case risk preparation audit found repeated per-case scope, credit and
+paid-history reads. Its estimated logical database operations are not a native
+SQL trace or performance measurement. REVIEW and APPROVE have separate sequential
+bottlenecks; optimizing one does not establish end-to-end large-suite usability.
+The next bounded foundation shares the exact existing risk-input hash rather
+than changing provider context, paid-cache identity, spending, consent or limits.
+Project-specific field-control presentation and governed plan-header writes are
+being developed in separate ownership lanes. No additional native field types,
+database operations, paid jobs or Windows security bypass are authorized here.
+
+October 6 02:40 UTC integrated source continuation:
+
+- Project-specific custom-field controls now have a distinct settings service,
+  Owner/Admin review panel and case-editor integration. The new sibling preserves
+  other project context and uses current native original actor/tenant checks,
+  raw profile/schema CAS, exact UUID recovery and bounded native byte admission.
+  Native field types, values, defaults and existing receipts are unchanged.
+- Text can use a single-line or paragraph control; choices can use dropdowns or
+  radio groups; Boolean controls distinguish missing, NULL and false. Existing
+  multiline text falls back to a paragraph without browser normalization. Only
+  truly absent optional keys can hide, with an explicit reveal action. Invalid
+  numeric spelling stays in its local buffer and immediately blocks saving,
+  rather than silently submitting the last valid number. First style admission
+  requires a completed mount read; later preferences do not reseed a field draft.
+- Field forms now stay mounted across pending responses and access loss. Busy,
+  draft, confirmation and receipt references prevent duplicate UUIDs or stale
+  same-event saves. Exact known acknowledgements can settle only their own
+  request privately; visible effects require the original current frame. Unknown
+  responses retain the frozen body. Reload-persistent recovery remains open.
+- Plan names/descriptions now use a dedicated reviewed operation. Exact raw
+  prose, omitted fields, empty text and native NULL remain distinct, including
+  switching description controls without losing unsaved text. Complete native
+  revisions, audit/version snapshots and frozen-state refusal remain mandatory.
+  Obsolete mixed header writes refuse before private lookup or partial mutation.
+- Plan/history reads retain non-object root JSON rather than rejecting the
+  whole response. Current authorization and native body/count/structure admission
+  precede materialization; foreign strategy/linked-plan bodies are refused.
+  Whole-plan bounds are 128 KiB and 200 criteria/links; whole legacy history is
+  500 versions/16 MiB, not a silently truncated page. Errors cannot masquerade
+  as an empty history. Non-object metadata is read-only; status-only saves omit
+  metadata, and explicit legacy replacement is refused. Ordinary records retain
+  reserved and unknown own keys. Legacy status/JSON CAS/UUID, paged legacy history
+  and complete browser-actor integration remain separate open work.
+- Risk-input extraction preserves the exact existing paid-cache bytes/hash and
+  provider context. A strongly admitted, opt-in 851-case REVIEW/replay fixture
+  is authored but NOT RUN; it makes no approval/provider/charge call and performs
+  no destructive cleanup. Actual large-suite batching and timing remain open.
+- Chrome exercised actual synthetic controls: invalid numeric text kept the
+  prior native number and disabled the disconnected save affordance; `2.00`
+  stayed visible while its native value was 2; explicit false and revealing an
+  absent field preserved exact values without creating a key. Desktop field
+  layout is now a compact responsive grid. No authenticated API/save, native
+  persistence or mobile acceptance follows from this synthetic browser work.
+- The original 809-byte Windows launcher still exists with inherited allow
+  permissions for James and an Internet ZoneId=3 marker. This does NOT identify
+  the blocking Windows policy. No unblock, antivirus/policy change or installer
+  execution occurred; signed distribution/actual OS/device acceptance stay open.
+
+Final integrated checks: 741 Node + 66 typed Web checks (807 total, zero skips),
+215 focused API pure/mocked checks and API/Web typechecks pass. Source-contract
+failures for the obsolete mixed-header payload were replaced with exact
+status/explicit-metadata-only assertions and negative header-resend guards, not
+removed coverage. A NULL ternary formatting match and an incorrect sibling
+import path were corrected before passing checks. Focused lint had no errors;
+two existing effect-state warnings remain in the field editor integration.
+Native SQL, authored fixtures, migrations, full runtime/image-security,
+authenticated production and deployment remain unverified; earlier failed
+native/release gates are not cleared. These are source-only changes on the
+existing codex branch, not a completion claim for all reported workflows.

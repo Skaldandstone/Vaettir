@@ -15,6 +15,7 @@ import {
   MAX_GOVERNANCE_HISTORY_BYTES,
   MAX_GOVERNANCE_HISTORY_REVISIONS,
   editCriterionDescriptionInput,
+  editPlanHeaderInput,
   setCriterionVerdictInput,
   addGovernedCriterionInput,
   deleteGovernedCriterionInput,
@@ -305,6 +306,7 @@ export async function previewPlanGovernance(
   );
 }
 type Edit = z.infer<typeof editCriterionDescriptionInput>;
+type Header = z.infer<typeof editPlanHeaderInput>;
 type Verdict = z.infer<typeof setCriterionVerdictInput>;
 type Add = z.infer<typeof addGovernedCriterionInput>;
 type Delete = z.infer<typeof deleteGovernedCriterionInput>;
@@ -314,7 +316,7 @@ type Attach = z.infer<typeof attachUnassignedPlanInput>;
 async function write(
   db: PrismaClient,
   actorId: string,
-  input: Edit | Attach | Verdict | Add | Delete | Associate,
+  input: Edit | Attach | Verdict | Add | Delete | Associate | Header,
   operation: Operation,
   authorized: CaseFieldReadAuthorization,
 ) {
@@ -347,7 +349,28 @@ async function write(
             "Plan governance changed after review. Refresh and review before saving; no change was made.",
         });
       let criterionId: string | null = null;
-      if (operation === "ADD_CRITERION") {
+      let headerChanges: { name?: string; description?: string | null } = {};
+      if (operation === "EDIT_PLAN_HEADER") {
+        const header = input as Header;
+        if (before.releaseId)
+          await assertPlanningRelease(tx, input.projectId, before.releaseId);
+        if (
+          (header.name === undefined || header.name === before.name) &&
+          (header.description === undefined ||
+            header.description === before.description)
+        )
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message:
+              "The reviewed header contains no native change. Nothing was written or versioned.",
+          });
+        headerChanges = {
+          ...(header.name !== undefined ? { name: header.name } : {}),
+          ...(header.description !== undefined
+            ? { description: header.description }
+            : {}),
+        };
+      } else if (operation === "ADD_CRITERION") {
         const add = input as Add;
         if (before.criteria.length >= MAX_GOVERNANCE_CRITERIA)
           throw new TRPCError({
@@ -467,7 +490,7 @@ async function write(
       }
       const changed = await tx.testPlan.update({
         where: { id: input.testPlanId },
-        data: { updatedById: actorId },
+        data: { ...headerChanges, updatedById: actorId },
       });
       const version = await snapshotTestPlanVersion(tx, {
         testPlanId: changed.id,
@@ -518,6 +541,7 @@ async function write(
               "Removed a reviewed criterion with retained history",
             SET_CRITERION_REQUIREMENT:
               "Changed a reviewed criterion requirement association",
+            EDIT_PLAN_HEADER: "Edited reviewed plan name or description",
             ATTACH_UNASSIGNED_PLAN: "Attached an unassigned quality plan",
           }[operation],
           metadata: metadata as Prisma.InputJsonValue,
@@ -568,6 +592,20 @@ export function setGovernedCriterionVerdict(
   );
 }
 
+export function editGovernedPlanHeader(
+  db: PrismaClient,
+  actorId: string,
+  input: Header,
+  authorized: CaseFieldReadAuthorization,
+) {
+  return write(
+    db,
+    actorId,
+    editPlanHeaderInput.parse(input),
+    "EDIT_PLAN_HEADER",
+    authorized,
+  );
+}
 export function addGovernedCriterion(
   db: PrismaClient,
   actorId: string,

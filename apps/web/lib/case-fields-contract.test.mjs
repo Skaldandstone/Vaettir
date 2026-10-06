@@ -10,13 +10,21 @@ test("each metadata draft change invalidates review through a stable callback", 
   const callback = source.match(
     /const updateDraft = useCallback\(\(value: CaseFieldFormDraft \| null\) => \{([\s\S]*?)\}, \[\]\);/,
   );
-  assert.ok(callback, "Use a stable callback: an inline callback would retrigger the child publication effect");
+  assert.ok(
+    callback,
+    "Use a stable callback: an inline callback would retrigger the child publication effect",
+  );
   assert.match(source, /onChange=\{updateDraft\}/);
   assert.doesNotMatch(source, /onChange=\{setDraft\}/);
-  const changes = [], confirmations = [];
+  const changes = [],
+    confirmations = [];
   const publish = runInNewContext(`(value) => {${callback[1]}}`, {
-    setDraft: value => changes.push(value),
-    setConfirmed: value => confirmations.push(value),
+    setDraft: (value) => changes.push(value),
+    setConfirmed: (value) => confirmations.push(value),
+    draftRef: { current: null },
+    confirmedRef: { current: true },
+    busyRef: { current: false },
+    pendingRef: { current: null },
   });
   const first = { customFields: { approved: false, count: 0 }, ready: true };
   const altered = { ...first, customFields: { approved: true, count: 0 } };
@@ -32,15 +40,22 @@ test("typed native case fields use fresh scoped definitions and retain uncertain
     file("./use-case-field-access.ts"),
     /!query\.error\s*&&\s*!query\.isFetching\s*&&\s*!query\.isPaused/,
   );
-  assert.match(source, /expectedSchemaHash: draft!\.expectedFieldSchemaHash/);
   assert.match(
     source,
-    /expectedValueHash: draft!\.expectedCustomFieldRevision/,
+    /expectedSchemaHash: currentDraft!\.expectedFieldSchemaHash/,
+  );
+  assert.match(
+    source,
+    /expectedValueHash: currentDraft!\.expectedCustomFieldRevision/,
   );
   assert.match(source, /retainedCaseFieldReceipt\(attempt,\s*error\)/);
   assert.match(source, /key=\{`\$\{projectId\}:\$\{caseId\}`\}/);
-  assert.match(source, /Retained retired\/unknown metadata \(read-only\)/);
-  assert.match(source, /field\.type === "NUMBER"\s*\? "number"/);
+  assert.match(source, /<CaseFieldValueControls/);
+  const controls = file("../components/CaseFieldValueControls.tsx");
+  assert.match(controls, /resolved\.readOnly/);
+  assert.match(controls, /retained unknown metadata, read-only/);
+  assert.match(controls, /widget === "NUMBER"/);
+  assert.match(controls, /inputMode="decimal"/);
   assert.match(
     source,
     /Procedure\s+version comparison and restore preserve current\s+metadata/,
@@ -80,7 +95,7 @@ test("authoring and inspector mount required metadata without replacing procedur
 test("reviewed preset metadata applies once only to a fresh current-schema create draft", () => {
   const fields = file("../components/CaseCustomFields.tsx");
   assert.match(fields, /initial\?: ReviewedCaseFieldDefaults/);
-  assert.match(fields, /if \(!baseline && fresh\)/);
+  assert.match(fields, /!baseline &&\s*fresh &&/);
   assert.match(fields, /caseId !== undefined\s*\|\|\s*!fresh\.canEdit/);
   assert.match(
     fields,
@@ -89,10 +104,13 @@ test("reviewed preset metadata applies once only to a fresh current-schema creat
   assert.match(fields, /!field\.retired && field\.key === key/);
   assert.match(
     fields,
-    /setValues\(\{ \.\.\.fresh\.values, \.\.\.initial\.values \}\)/,
+    /const admittedValues = \{ \.\.\.fresh\.values, \.\.\.initial\.values \}/,
   );
   assert.match(fields, /Start with current fields without preset defaults/);
-  assert.match(fields, /!changed && !initialError/);
+  assert.match(
+    fields,
+    /current\.active && unchanged && !current\.initialError/,
+  );
   const form = file("../components/TestCaseForm.tsx");
   assert.match(
     form,

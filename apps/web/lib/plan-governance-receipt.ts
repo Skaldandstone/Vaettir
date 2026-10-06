@@ -6,6 +6,24 @@ export type GovernanceScope = {
   actorId: string;
   actorClerkUserId: string;
 };
+export function reviewedPlanHeaderFields(
+  baseline: { name: string; description: string | null },
+  draft: {
+    name: string;
+    description: string | null;
+    editName: boolean;
+    editDescription: boolean;
+  },
+): { name?: string; description?: string | null } {
+  return {
+    ...(draft.editName && draft.name !== baseline.name
+      ? { name: draft.name }
+      : {}),
+    ...(draft.editDescription && draft.description !== baseline.description
+      ? { description: draft.description }
+      : {}),
+  };
+}
 export function sameGovernanceReader(
   scope: GovernanceScope | undefined,
   original: CaseFieldOrigin | null,
@@ -50,7 +68,8 @@ export type GovernancePending<T> = {
     | "SET_CRITERION_VERDICT"
     | "ADD_CRITERION"
     | "DELETE_CRITERION"
-    | "SET_CRITERION_REQUIREMENT";
+    | "SET_CRITERION_REQUIREMENT"
+    | "EDIT_PLAN_HEADER";
   requestHash: string;
   uncertain: boolean;
 };

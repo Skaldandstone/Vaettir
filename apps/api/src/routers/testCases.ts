@@ -20,6 +20,7 @@ import {
 import { Prisma } from "@vaettir/db";
 import { router, protectedProcedure, requireProjectAccess } from "../trpc.js";
 import { recordAudit } from "../services/auditLog.js";
+import { buildCaseRiskInput as riskInput } from "../services/caseRiskInput.js";
 import {
   chargeAiCredits,
   AI_OPERATION_COSTS,
@@ -41,32 +42,6 @@ import {
   validationDomainSchema,
   verificationProfileSchema,
 } from "../services/physicalValidation.js";
-
-function riskInput(tc: {
-  title: string;
-  given: string[];
-  when: string[];
-  then: string[];
-  testType: string;
-  source?: { filePath: string } | null;
-}) {
-  const data = {
-    title: tc.title,
-    given: tc.given,
-    when: tc.when,
-    then: tc.then,
-    testType: tc.testType,
-    sourceFilePath: tc.source?.filePath ?? null,
-  };
-  const serialized = JSON.stringify(data);
-  if (Buffer.byteLength(serialized, "utf8") > 64_000)
-    throw new TRPCError({
-      code: "BAD_REQUEST",
-      message:
-        "This case exceeds the risk review size limit. Split it into focused cases before reviewing.",
-    });
-  return { data, hash: createHash("sha256").update(serialized).digest("hex") };
-}
 
 const prioritySchema = z.enum(["CRITICAL", "HIGH", "MEDIUM", "LOW"]);
 const priorityDecisionSchema = z.object({

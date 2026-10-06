@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import { prisma } from "@vaettir/db";
 import { appRouter } from "./router.js";
 import { runConfigurationSchema } from "./services/qualityExperienceProfile.js";
+import { assertOwnedTestDatabase } from "./testOnlyDatabaseSafety.js";
 
 const url = process.env.DATABASE_URL ? new URL(process.env.DATABASE_URL) : null;
 const isolated =
@@ -19,11 +20,14 @@ describe.skipIf(!isolated)(
     let readonly: ReturnType<typeof appRouter.createCaller>;
     let outsider: ReturnType<typeof appRouter.createCaller>;
     let projectId: string;
+    let ownerOrganizationId: string;
+    let ownerClerkActorId: string;
     let caseIds: string[];
     let otherCaseId: string;
     let typeId: string;
     const key = `plan-execution-${Date.now()}`;
     beforeAll(async () => {
+      assertOwnedTestDatabase(process.env.DATABASE_URL);
       const tier = await prisma.planTier.findUniqueOrThrow({
         where: { key: "free" },
       });
@@ -53,6 +57,8 @@ describe.skipIf(!isolated)(
         });
         return appRouter.createCaller({ prisma, user });
       }
+      ownerOrganizationId = org.id;
+      ownerClerkActorId = `${key}-owner`;
       owner = await caller("owner", org.id, "OWNER");
       viewer = await caller("viewer", org.id, "VIEWER");
       readonly = await caller("readonly", org.id, "EDITOR", "READ_ONLY");
@@ -108,6 +114,14 @@ describe.skipIf(!isolated)(
           humanObjective: "Do not replace",
           future: { retained: true },
         },
+      });
+    }
+    async function renamePlan(testPlanId: string, name: string) {
+      const scope = { projectId, testPlanId, originalOrganizationId: ownerOrganizationId, expectedClerkActorId: ownerClerkActorId };
+      const preview = await owner.testPlanGovernance.preview(scope);
+      return owner.testPlanGovernance.editPlanHeader({
+        ...scope, name, expectedPlanRevision: preview.planRevision,
+        requestId: randomUUID(), reason: "Synthetic reviewed header rename", confirmed: true,
       });
     }
     function template(ids = caseIds) {
@@ -204,9 +218,9 @@ describe.skipIf(!isolated)(
       const history = await owner.testPlans.history({ testPlanId: plan.id });
       expect(history.map((v) => v.versionNumber)).toEqual([2, 1]);
       expect(history[0]?.executionTemplate).toEqual(saved.template);
+      await renamePlan(plan.id, "Human rename");
       await owner.testPlans.update({
         id: plan.id,
-        name: "Human rename",
         status: "ACTIVE",
         customFields: { humanObjective: "Human edit" },
       });
@@ -323,9 +337,9 @@ describe.skipIf(!isolated)(
           ?.configuration.rig,
       ).toBe("Rig B");
       await configure(plan.id, template([caseIds[0]!]));
+      await renamePlan(plan.id, "Later human rename");
       await owner.testPlans.update({
         id: plan.id,
-        name: "Later human rename",
         status: "ACTIVE",
         customFields: {},
       });
@@ -438,7 +452,6 @@ describe.skipIf(!isolated)(
       await Promise.all([
         owner.testPlans.update({
           id: plan.id,
-          name: "Concurrent human edit",
           status: "ACTIVE",
           customFields: { retained: "Human content" },
         }),
@@ -448,8 +461,12 @@ describe.skipIf(!isolated)(
           template: template([...caseIds].reverse()),
         }),
       ]);
+      // Header changes now have a separately reviewed full-plan CAS. Keep the
+      // concurrent status/JSON/configuration assertion, then review the rename
+      // from its genuinely fresh resulting revision rather than inventing one.
+      await renamePlan(plan.id, "Concurrent human edit");
       const history = await owner.testPlans.history({ testPlanId: plan.id });
-      expect(history.map((v) => v.versionNumber)).toEqual([4, 3, 2, 1]);
+      expect(history.map((v) => v.versionNumber)).toEqual([5, 4, 3, 2, 1]);
       const final = await prisma.testPlan.findUniqueOrThrow({
         where: { id: plan.id },
       });
@@ -460,7 +477,7 @@ describe.skipIf(!isolated)(
         customFields: final.customFields,
         executionTemplate: final.executionTemplate,
       });
-      expect(history[2]?.executionTemplate).toEqual(saved.template);
+      expect(history[3]?.executionTemplate).toEqual(saved.template);
     });
 
     it("blocks new writes/runs on archived plans but preserves existing receipts", async () => {

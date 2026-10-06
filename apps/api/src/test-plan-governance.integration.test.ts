@@ -278,5 +278,44 @@ describe.skipIf(!isolated)(
       ).toBe(raw);
       expect(receipt.after.criteria.some((c) => c.id === newId)).toBe(false);
     });
+    it("native header edits retain NULL/empty/absent distinctions and exact receipts without changing governed scope", async () => {
+      const before = await caller.testPlanGovernance.preview(scope),
+        original = before.snapshot;
+      const input = {
+        ...scope,
+        expectedPlanRevision: before.planRevision,
+        requestId: randomUUID(),
+        reason: "Synthetic header review",
+        confirmed: true as const,
+        name: "  Exact native header name  ",
+        description: null,
+      };
+      const saved = await caller.testPlanGovernance.editPlanHeader(input);
+      expect(await caller.testPlanGovernance.editPlanHeader(input)).toEqual({
+        ...saved,
+        replayed: true,
+      });
+      const after = await caller.testPlanGovernance.preview(scope);
+      expect(after.snapshot).toMatchObject({
+        name: input.name,
+        description: null,
+        status: original.status,
+        customFields: original.customFields,
+        executionTemplate: original.executionTemplate,
+        releaseId: original.releaseId,
+        criteria: original.criteria,
+      });
+      await caller.testPlanGovernance.editPlanHeader({
+        ...scope,
+        expectedPlanRevision: after.planRevision,
+        requestId: randomUUID(),
+        reason: "Synthetic empty description",
+        confirmed: true,
+        description: "",
+      });
+      const empty = await caller.testPlanGovernance.preview(scope);
+      expect(empty.snapshot.description).toBe("");
+      expect(empty.snapshot.name).toBe(input.name);
+    });
   },
 );
