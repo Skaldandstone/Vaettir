@@ -7,7 +7,7 @@ historical, not a current source inventory. Later checkpoint sections record
 signed-in Qase/TestRail/Testmo trial observations and implementation. They do
 not establish exhaustive parity, an equivalent-task performance comparison or
 deployment. The active scope is all James's reported workflows, not only
-release gates. Latest reviewed source checkpoint: `5be3007`; subsequent drafts
+release gates. Latest reviewed implementation checkpoint: `5ab31b2`; subsequent drafts
 remain separately identified until integrated and checkpointed.
 
 The standard case-management baseline is not yet met end to end. The most important gaps are preserving imported procedures, stable human-readable references, lossless export, complete history and safe edits. More AI actions or a different layout do not compensate for those gaps.
