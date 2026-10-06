@@ -6,19 +6,31 @@ import ts from "typescript";
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import * as helpers from "./device-connector-connection.ts";
+import * as helperProtocol from "./device-helper-protocol.ts";
 import { canEditProject } from "./membership.ts";
+
+// Node strip-types cannot resolve this production module's extensionless
+// import. Transpile the unchanged source and provide only its real dependency.
+const healthModule = { exports: {} };
+const healthCompiled = ts.transpileModule(readFileSync(new URL("./device-helper-health-response.ts", import.meta.url), "utf8"), { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS } }).outputText;
+new Function("require", "module", "exports", healthCompiled)(id => { assert.equal(id, "./device-helper-protocol"); return helperProtocol; }, healthModule, healthModule.exports);
+const healthResponse = healthModule.exports;
 
 const source = readFileSync(new URL("../app/projects/[projectId]/live-app-generation/page.tsx", import.meta.url), "utf8"), ast = ts.createSourceFile("connection.tsx", source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX), printer = ts.createPrinter();
 const page = ast.statements.find(node => ts.isFunctionDeclaration(node) && node.name?.text === "LiveAppGenerationPage");
-const names = ["connectorRequest", "discoverAndroidDevices", "connectToDeviceConnector", "waitForDeviceConnector", "downloadConnectorLauncher", "cancelHelperSetupChecks", "reportBlockedWindowsHelper", "showPolicyPermittedManualSetup", "refreshAndroidDevices"];
+const names = ["connectorRequest", "discoverAndroidDevices", "connectToDeviceConnector", "downloadConnectorLauncher", "cancelHelperSetupChecks", "reportBlockedWindowsHelper", "showPolicyPermittedManualSetup", "refreshAndroidDevices"];
 const handlers = page.body.statements.filter(node => ts.isFunctionDeclaration(node) && names.includes(node.name?.text)).map(node => printer.printNode(ts.EmitHint.Unspecified, node, ast)).join("\n");
 const compiled = ts.transpileModule(handlers, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.None } }).outputText;
 function deferred() { let resolve, reject; const promise = new Promise((a, b) => { resolve = a; reject = b; }); return { promise, resolve, reject }; }
-async function drain() { for (let i = 0; i < 12; i++) await Promise.resolve(); }
 function harness() {
   const requests = [], writes = [], downloads = [], timers = new Map(); let timerId = 0;
   const state = { connectorStatus: "idle", error: null, discoveringDevices: false, androidDevices: [], deviceSerial: "retained-device-choice", manualSetupOpen: true, manualSetupRevealed: true, helperMetadataCancellationEpoch: 0 };
-  const h = { ...helpers, CONNECTOR_URL: "http://127.0.0.1:4774", AbortController, DOMException, connectionAttemptRef: { current: helpers.createDeviceConnectionGeneration() }, discoveryAttemptRef: { current: 0 }, pairingCode: "ABCDEF123456", connectorPlatform: "windows", captureMode: "android", capturing: false, generating: false, helperActorAllowed: true,
+  const h = { ...helpers, ...healthResponse,
+    // VM-created facade objects have a different Object.prototype. Recreate
+    // only the actual five primitive metadata fields/two reader functions in
+    // the host realm; run the production bounded decoder, never a stub.
+    readDeviceHelperHealthResponse: (info, reader, signal, isCurrent) => healthResponse.readDeviceHelperHealthResponse({ url: info.url, status: info.status, redirected: info.redirected, contentType: info.contentType, contentLength: info.contentLength }, { read: () => reader.read(), cancel: () => reader.cancel() }, signal, isCurrent),
+    CONNECTOR_URL: "http://127.0.0.1:4774", AbortController, DOMException, connectionAttemptRef: { current: helpers.createDeviceConnectionGeneration() }, discoveryAttemptRef: { current: 0 }, pairingCode: "ABCDEF123456", connectorPlatform: "windows", captureMode: "android", capturing: false, generating: false, helperActorAllowed: true,
     window: { location: { origin: "https://vaettir.skaldandstone.com" }, setTimeout(callback, ms) { const id = ++timerId; if (ms === 1500) queueMicrotask(callback); else timers.set(id, callback); return id; }, clearTimeout(id) { timers.delete(id); } },
     fetch(url, options) { const response = deferred(); requests.push({ url, options, response }); return response.promise; },
     setPairingCode() { assert.fail("Reporting a block must not regenerate or discard the private pairing draft"); },
@@ -26,7 +38,12 @@ function harness() {
   };
   for (const key of Object.keys(state)) h[`set${key[0].toUpperCase()}${key.slice(1)}`] = value => { const next = typeof value === "function" ? value(state[key]) : value; state[key] = next; h[key] = next; writes.push([key, next]); };
   Object.assign(h, state); vm.createContext(h); vm.runInContext(compiled, h);
-  const reply = (index, payload, ok = true) => requests[index].response.resolve({ ok, status: ok ? 200 : 400, json: async () => payload });
+  const reply = (index, payload, ok = true, overrides = {}) => {
+    const bytes = new TextEncoder().encode(JSON.stringify(payload)); let delivered = false;
+    const reader = { read: async () => delivered ? { done: true, value: undefined } : (delivered = true, { done: false, value: bytes }), cancel: async () => { reader.canceled = true; }, releaseLock: () => { reader.released = true; } };
+    requests[index].reader = reader;
+    requests[index].response.resolve({ ok, status: ok ? 200 : 400, url: requests[index].url, redirected: false, headers: { get: key => key === "content-type" ? "application/json" : String(bytes.length) }, body: { getReader: () => reader }, json: async () => payload, ...overrides });
+  };
   return { h, state, requests, writes, downloads, timers, reply };
 }
 
@@ -59,19 +76,22 @@ test("actual manual health completion after reported Windows refusal cannot reco
   assert.equal(host.state.manualSetupOpen, false); assert.equal(host.state.manualSetupRevealed, false); assert.equal(host.timers.size, 0);
 });
 
-test("actual waiting poll completion after reported block is ignored with no next poll or device request", async () => {
-  const host = harness(), epoch = helpers.beginDeviceConnection(host.h.connectionAttemptRef.current), task = host.h.waitForDeviceConnector(epoch);
-  host.h.reportBlockedWindowsHelper(); host.reply(0, { connected: true }); await task;
-  assert.equal(host.state.connectorStatus, "blocked"); assert.equal(host.requests.length, 1); assert.equal(host.state.error, null);
+test("actual unsigned launcher download makes zero health/discovery requests and preserves private drafts/status", () => {
+  const host = harness(); host.h.downloadConnectorLauncher();
+  assert.equal(host.downloads.length, 1); assert.equal(host.requests.length, 0); assert.equal(host.timers.size, 0);
+  assert.equal(host.state.connectorStatus, "idle"); assert.equal(host.state.deviceSerial, "retained-device-choice"); assert.equal(host.h.pairingCode, "ABCDEF123456");
+  assert.equal(host.state.manualSetupOpen, true); assert.equal(host.state.manualSetupRevealed, true);
+  assert.equal(host.h.connectionAttemptRef.current.controllers.size, 0); assert.ok(!handlers.includes("waitForDeviceConnector"));
 });
-test("actual waiting poll failure after reported block cannot resume retries or replace the blocked outcome", async () => {
-  const host = harness(), task = host.h.waitForDeviceConnector(helpers.beginDeviceConnection(host.h.connectionAttemptRef.current));
+test("actual explicit health failure after reported block cannot retry or replace the blocked outcome", async () => {
+  const host = harness(), task = host.h.connectToDeviceConnector();
   host.h.reportBlockedWindowsHelper(); host.requests[0].response.reject(Error("Synthetic late health failure")); await task;
   assert.equal(host.requests.length, 1); assert.equal(host.state.connectorStatus, "blocked"); assert.equal(host.state.error, null);
 });
 
 test("actual pending discovery success is ignored after reported block and cannot replace device choices", async () => {
-  const host = harness(), task = host.h.connectToDeviceConnector(); host.reply(0, { connected: true }); await drain();
+  const host = harness(), connection = host.h.connectToDeviceConnector(); host.reply(0, { connected: true, version: 2 }); await connection;
+  assert.equal(host.requests.length, 1); const task = host.h.refreshAndroidDevices();
   assert.equal(host.requests.length, 2); assert.equal(host.state.discoveringDevices, true);
   host.h.reportBlockedWindowsHelper(); assert.equal(host.requests[1].options.signal.aborted, true);
   host.reply(1, { devices: [{ id: "late-device", name: "Synthetic device", ready: true }] }); await task;
@@ -79,13 +99,15 @@ test("actual pending discovery success is ignored after reported block and canno
 });
 
 test("old discovery error/finally cannot clobber a newer explicitly reconnected discovery", async () => {
-  const host = harness(), original = host.h.connectToDeviceConnector(); host.reply(0, { connected: true }); await drain();
-  host.h.reportBlockedWindowsHelper(); const retry = host.h.connectToDeviceConnector(); host.reply(2, { connected: true }); await drain();
+  const host = harness(), connection = host.h.connectToDeviceConnector(); host.reply(0, { connected: true, version: 2 }); await connection;
+  const original = host.h.refreshAndroidDevices();
+  host.h.reportBlockedWindowsHelper(); const reconnected = host.h.connectToDeviceConnector(); host.reply(2, { connected: true, version: 2 }); await reconnected;
+  const retry = host.h.refreshAndroidDevices();
   assert.equal(host.requests.length, 4); assert.equal(host.state.discoveringDevices, true);
   host.requests[1].response.reject(Error("Synthetic old private provider error")); await original;
   assert.equal(host.state.discoveringDevices, true); assert.equal(host.state.error, null);
   host.reply(3, { devices: [{ id: "new-device", name: "Synthetic selected device", ready: true }] }); await retry;
-  assert.equal(host.state.deviceSerial, "new-device"); assert.equal(host.state.discoveringDevices, false); assert.equal(host.state.connectorStatus, "connected");
+  assert.equal(host.state.deviceSerial, "retained-device-choice"); assert.equal(host.state.androidDevices[0].id, "new-device"); assert.equal(host.state.discoveringDevices, false); assert.equal(host.state.connectorStatus, "connected");
 });
 
 test("actual explicit device refresh refusal after reported block cannot replace status/errors", async () => {
@@ -98,7 +120,7 @@ test("same-connection older discovery error/finally cannot overwrite the newest 
   host.requests[0].response.reject(Error("Synthetic stale refresh error")); await first;
   assert.equal(host.state.discoveringDevices, true); assert.equal(host.state.error, null);
   host.reply(1, { devices: [{ id: "latest-device", name: "Synthetic latest", ready: true }] }); await second;
-  assert.equal(host.state.deviceSerial, "latest-device"); assert.equal(host.state.discoveringDevices, false);
+  assert.equal(host.state.deviceSerial, "retained-device-choice"); assert.equal(host.state.androidDevices[0].id, "latest-device"); assert.equal(host.state.discoveringDevices, false);
 });
 
 test("scope/unmount generation revocation prevents manual health result and device discovery side effects", async () => {
@@ -118,8 +140,9 @@ test("actual loaded/seat/session activation revokes pending health on session lo
   assert.equal(host.h.connectionAttemptRef.current.active, true); assert.equal(host.h.pairingCode, "ABCDEF123456"); assert.equal(host.state.manualSetupOpen, false);
 });
 test("actual A-B-A scope changes and same-actor session change cannot revive an older health/discovery completion", async () => {
-  const host = harness(), activate = scopeActivation(host); let cleanup = activate(); const task = host.h.connectToDeviceConnector();
-  host.reply(0, { connected: true }); await drain(); assert.equal(host.requests.length, 2);
+  const host = harness(), activate = scopeActivation(host); let cleanup = activate(); const connection = host.h.connectToDeviceConnector();
+  host.reply(0, { connected: true, version: 2 }); await connection; assert.equal(host.requests.length, 1);
+  const task = host.h.refreshAndroidDevices(); assert.equal(host.requests.length, 2);
   host.h.actor.userId = "synthetic-other-actor"; cleanup(); cleanup = activate(); assert.equal(host.h.helperActorAllowed, false);
   host.h.actor.userId = "synthetic-original"; cleanup(); cleanup = activate();
   host.reply(1, { devices: [{ id: "stale-after-return", name: "Synthetic stale", ready: true }] }); await task;
@@ -154,12 +177,36 @@ test("actual protected project/member read admission refuses error/fetch/paused/
   }
 });
 
-test("actual health false is not connectivity; polling timeout states only no paired response and preserves privacy", async () => {
-  const manual = harness(), task = manual.h.connectToDeviceConnector(); manual.reply(0, { connected: false }); await task;
-  assert.equal(manual.state.connectorStatus, "idle"); assert.equal(manual.requests.length, 1); assert.match(manual.state.error, /No paired helper response/);
-  const poll = harness(); poll.h.fetch = async () => { throw Error("Synthetic no health response"); }; await poll.h.waitForDeviceConnector(helpers.beginDeviceConnection(poll.h.connectionAttemptRef.current));
-  assert.match(poll.state.error, /No paired helper response/); assert.doesNotMatch(poll.state.error, /helper did not start|ABCDEF123456|Synthetic no health/);
-  assert.equal(poll.h.connectionAttemptRef.current.controllers.size, 0); assert.equal(poll.timers.size, 0);
+test("actual unsupported health and transport errors remain generic with one request and no hidden retry", async () => {
+  for (const payload of [{ connected: false, version: 2 }, { connected: true }, { connected: true, version: 3 }, { connected: true, version: 2, privateError: "ABCDEF123456" }, { error: "ABCDEF123456" }]) {
+    const host = harness(), task = host.h.connectToDeviceConnector(); host.reply(0, payload); await task;
+    assert.equal(host.state.connectorStatus, "idle"); assert.equal(host.requests.length, 1); assert.equal(host.state.error, healthResponse.deviceHelperHealthResponseRefusal);
+    assert.equal(host.state.deviceSerial, "retained-device-choice"); assert.equal(host.h.connectionAttemptRef.current.controllers.size, 0); assert.equal(host.timers.size, 0);
+    assert.equal(host.requests[0].reader.released, true);
+  }
+  const host = harness(), task = host.h.connectToDeviceConnector(); host.requests[0].response.reject(Error("ABCDEF123456 synthetic private transport cause")); await task;
+  assert.equal(host.state.error, healthResponse.deviceHelperHealthResponseRefusal); assert.equal(host.requests.length, 1); assert.equal(host.timers.size, 0);
+});
+
+test("actual exact v2 health is one redirect-denied paired liveness read, not automatic discovery or target choice", async () => {
+  const host = harness(), task = host.h.connectToDeviceConnector();
+  assert.equal(host.requests[0].url, healthResponse.DEVICE_HELPER_HEALTH_URL);
+  assert.equal(host.requests[0].options.redirect, "error"); assert.equal(host.requests[0].options.credentials, "omit"); assert.equal(host.requests[0].options.cache, "no-store");
+  assert.equal(host.requests[0].options.headers["x-vaettir-pairing-code"], "ABCDEF123456");
+  host.reply(0, { connected: true, version: 2 }); await task;
+  assert.equal(host.state.connectorStatus, "connected"); assert.equal(host.requests.length, 1); assert.equal(host.state.discoveringDevices, false);
+  assert.equal(host.state.deviceSerial, "retained-device-choice"); assert.deepEqual(host.state.androidDevices, []); assert.equal(host.requests[0].reader.released, true);
+  assert.match(source, /Paired helper response received \(v2\)/); assert.match(source, /This is liveness only/); assert.match(source, /Downloading makes no helper requests/);
+});
+
+test("actual health rejects redirect, HTTP metadata and oversized bodies before public readiness", async () => {
+  for (const overrides of [{ redirected: true }, { url: "http://127.0.0.1:4774/other" }, { status: 500 }, { headers: { get: key => key === "content-type" ? "text/html" : "20" } }, { headers: { get: key => key === "content-type" ? "application/json" : "513" } }]) {
+    const host = harness(), task = host.h.connectToDeviceConnector(); host.reply(0, { connected: true, version: 2 }, true, overrides); await task;
+    assert.equal(host.state.connectorStatus, "idle"); assert.equal(host.state.error, healthResponse.deviceHelperHealthResponseRefusal);
+    assert.equal(host.requests.length, 1); assert.equal(host.requests[0].reader.canceled, true); assert.equal(host.requests[0].reader.released, true);
+  }
+  const host = harness(), task = host.h.connectToDeviceConnector(); host.reply(0, { connected: true, version: 2, largePrivateField: "X".repeat(513) }, true, { headers: { get: key => key === "content-type" ? "application/json" : null } }); await task;
+  assert.equal(host.state.connectorStatus, "idle"); assert.equal(host.state.error, healthResponse.deviceHelperHealthResponseRefusal); assert.equal(host.requests.length, 1);
 });
 
 test("actual blocked setup markup hides pairing/code and raw download until an explicit policy-permitted reveal", () => {

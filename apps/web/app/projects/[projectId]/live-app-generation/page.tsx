@@ -13,6 +13,7 @@ import {
   type DeviceConnectorPlatform,
 } from "@/lib/deviceConnectorLauncher";
 import { createDeviceConnectionGeneration, revokeDeviceConnection, beginDeviceConnection, currentDeviceConnection, registerDeviceConnectionRequest } from "@/lib/device-connector-connection";
+import { DEVICE_HELPER_HEALTH_URL, deviceHelperHealthResponseRefusal, readDeviceHelperHealthResponse } from "@/lib/device-helper-health-response";
 import { canEditProject } from "@/lib/membership";
 import {
   trpcReact,
@@ -218,10 +219,7 @@ export default function LiveAppGenerationPage() {
       );
       if (!currentDeviceConnection(connectionAttemptRef.current, attempt) || discovery !== discoveryAttemptRef.current) return [];
       setAndroidDevices(response.devices);
-      const readyDevices = response.devices.filter((device) => device.ready);
-      const onlyReadyDevice =
-        readyDevices.length === 1 ? readyDevices[0] : undefined;
-      if (onlyReadyDevice) setDeviceSerial(onlyReadyDevice.id);
+      // Discovery is not the user's target selection, even for one device.
       return response.devices;
     } catch (cause) {
       if (!currentDeviceConnection(connectionAttemptRef.current, attempt) || discovery !== discoveryAttemptRef.current) return [];
@@ -238,74 +236,35 @@ export default function LiveAppGenerationPage() {
     setDiscoveringDevices(false); setManualSetupOpen(false); setManualSetupRevealed(false);
     setConnectorStatus("connecting");
     setError(null);
+    const controller = new AbortController();
+    const release = registerDeviceConnectionRequest(connectionAttemptRef.current, attempt, controller);
+    const timeout = window.setTimeout(() => controller.abort(), 8_000);
+    let reader: ReadableStreamDefaultReader<Uint8Array> | undefined;
     try {
-      const health = await connectorRequest<{ connected: boolean }>("/health", undefined, 8_000, attempt);
+      const response = await fetch(DEVICE_HELPER_HEALTH_URL, {
+        signal: controller.signal, redirect: "error", credentials: "omit", cache: "no-store",
+        headers: { "x-vaettir-pairing-code": pairingCode.trim().toUpperCase() },
+      });
       if (!currentDeviceConnection(connectionAttemptRef.current, attempt)) return;
-      if (health.connected !== true) throw Error("No paired helper response was verified.");
+      reader = response.body?.getReader();
+      if (!reader) throw Error(deviceHelperHealthResponseRefusal);
+      const nativeReader = reader;
+      await readDeviceHelperHealthResponse({
+        url: response.url, status: response.status, redirected: response.redirected,
+        contentType: response.headers.get("content-type"), contentLength: response.headers.get("content-length"),
+      }, { read: () => nativeReader.read(), cancel: () => nativeReader.cancel() }, controller.signal,
+      () => currentDeviceConnection(connectionAttemptRef.current, attempt));
+      if (!currentDeviceConnection(connectionAttemptRef.current, attempt)) return;
+      // Exact v2 is paired liveness only. Do not discover or select a device,
+      // retry, upload or infer capture/processing permission from this reply.
       setConnectorStatus("connected");
-      if (captureMode === "android") {
-        try {
-          await discoverAndroidDevices(attempt);
-        } catch (deviceError) {
-          if (!currentDeviceConnection(connectionAttemptRef.current, attempt)) return;
-          setError(
-            deviceError instanceof Error
-              ? deviceError.message
-              : "Android device discovery failed.",
-          );
-        }
-      }
-    } catch (connectorError) {
+    } catch {
       if (!currentDeviceConnection(connectionAttemptRef.current, attempt)) return;
       setConnectorStatus("idle");
-      setError(
-        connectorError instanceof DOMException &&
-          connectorError.name === "AbortError"
-          ? "No paired helper response was received. This does not identify a Windows policy or prove that the helper launched. Review the instructions, then retry explicitly."
-          : connectorError instanceof Error
-            ? connectorError.message
-            : "Could not connect to the device helper.",
-      );
-    }
-  }
-
-  async function waitForDeviceConnector(attempt: number) {
-    for (let retry = 0; retry < 80; retry += 1) {
-      if (!currentDeviceConnection(connectionAttemptRef.current, attempt)) return;
-      try {
-        const health = await connectorRequest<{ connected: boolean }>(
-          "/health",
-          undefined,
-          1_000,
-          attempt,
-        );
-        if (!currentDeviceConnection(connectionAttemptRef.current, attempt)) return;
-        if (health.connected !== true) throw Error("No paired helper response was verified.");
-        setConnectorStatus("connected");
-        setError(null);
-        if (captureMode === "android") {
-          try {
-            await discoverAndroidDevices(attempt);
-          } catch (deviceError) {
-            if (!currentDeviceConnection(connectionAttemptRef.current, attempt)) return;
-            setError(
-              deviceError instanceof Error
-                ? deviceError.message
-                : "Android device discovery failed.",
-            );
-          }
-        }
-        return;
-      } catch {
-        if (!currentDeviceConnection(connectionAttemptRef.current, attempt)) return;
-        await new Promise((resolve) => window.setTimeout(resolve, 1_500));
-      }
-    }
-    if (currentDeviceConnection(connectionAttemptRef.current, attempt)) {
-      setConnectorStatus("idle");
-      setError(
-        "No paired helper response was received. Downloading does not prove that Windows launched it, and this timeout does not identify the cause. If Windows refused launch, report it below; otherwise review setup and retry explicitly.",
-      );
+      setError(deviceHelperHealthResponseRefusal);
+    } finally {
+      try { reader?.releaseLock(); } catch { /* Cancellation may still be settling. */ }
+      release(); window.clearTimeout(timeout);
     }
   }
 
@@ -318,24 +277,16 @@ export default function LiveAppGenerationPage() {
         pairingCode,
       });
       downloadFile(launcher.filename, launcher.content, launcher.mimeType);
-      const attempt = beginDeviceConnection(connectionAttemptRef.current);
-      if (attempt === null) return;
-      setDiscoveringDevices(false); setManualSetupOpen(false); setManualSetupRevealed(false);
-      setConnectorStatus("connecting");
-      setError(null);
-      void waitForDeviceConnector(attempt);
-    } catch (launcherError) {
-      setError(
-        launcherError instanceof Error
-          ? launcherError.message
-          : "The device helper could not be prepared.",
-      );
+      // Download prepares a local file only: no automatic health requests,
+      // retries, discovery, target selection or authority changes.
+    } catch {
+      setError("The unsigned helper could not be prepared. Launch and device access remain unverified.");
     }
   }
 
   function cancelHelperSetupChecks() {
     // The metadata surface revokes its own owner before invoking this bridge.
-    // Abort this page's polling/discovery too, without attributing retained
+    // Abort this page's health/discovery too, without attributing retained
     // captures or paid drafts to a newly reviewed identity or claiming they stopped.
     revokeDeviceConnection(connectionAttemptRef.current, { blocked: true });
     discoveryAttemptRef.current++;
@@ -557,15 +508,16 @@ export default function LiveAppGenerationPage() {
                       1
                     </span>
                     <div style={{ display: "grid", gap: 10 }}>
-                      <strong>Connect this computer</strong>
+                      <strong>Check this computer&apos;s helper</strong>
                       <p
                         className="text-muted"
                         style={{ fontSize: 13, margin: 0 }}
                       >
                         Download an unsigned launcher script and open it only
                         if your device policy permits. Pairing is
-                        already built in, and this page connects automatically
-                        once the helper is running. This is an unsigned script;
+                        already built in. Downloading makes no helper requests.
+                        After opening it, explicitly check for a paired response.
+                        This is an unsigned script;
                         your organization may block it. It does not require
                         administrator access or changes to security protection.
                         Downloading is not proof of launch, signing, device
@@ -605,8 +557,8 @@ export default function LiveAppGenerationPage() {
                           }
                         >
                           {connectorStatus === "connected"
-                            ? "Reconnect"
-                            : "I opened it - connect"}
+                            ? "Recheck paired response"
+                            : "Check paired response"}
                         </button>
                         {connectorPlatform === "windows" && <button type="button" className="btn-secondary" onClick={reportBlockedWindowsHelper} disabled={capturing || generating}>Windows blocked this helper</button>}
                       </div>
@@ -618,21 +570,21 @@ export default function LiveAppGenerationPage() {
                       >
                         <strong>
                           {connectorStatus === "connected"
-                            ? "Computer connected"
+                            ? "Paired helper response received (v2)"
                             : connectorStatus === "connecting"
                               ? "Waiting for a paired helper response..."
                               : connectorStatus === "blocked"
                                 ? "Windows launch blocked (reported by you)"
-                              : "Not connected yet"}
+                              : "Paired response not verified"}
                         </strong>
                         <span>
                           {connectorStatus === "connected"
-                            ? "Keep the helper window open while you capture screens."
+                            ? "This is liveness only, not launch acceptance, foreground app isolation, device selection or capture/processing permission. Device discovery and target selection require separate explicit actions."
                             : connectorStatus === "connecting"
-                              ? "This page has not verified launch or device access. Open the reviewed launcher only if policy permits, or report a blocked launch below."
+                              ? "One bounded paired-response check is in progress, with no automatic retry or device discovery. Launch and device access remain unverified."
                               : connectorStatus === "blocked"
                                 ? "This page stopped waiting and canceled its health/discovery requests. Already started local discovery may finish; its results are ignored. The blocking policy or product remains unverified."
-                              : "Nothing is uploaded until you capture a screen and generate drafts."}
+                              : "Downloading does not start checks or discover devices. Open the reviewed launcher only if policy permits, then choose Check paired response."}
                         </span>
                       </div>
                       {!helperActorAllowed && <p role="status">Current loaded, signed-in original-account/organization access with freshly completed protected project/member reads and a full editor seat is required. Private pairing draft and device selections remain retained but hidden; no connection/download/discovery retry is authorized. Local health is not server authorization or device acceptance.</p>}
@@ -667,7 +619,7 @@ export default function LiveAppGenerationPage() {
                             terminal in its folder and run the command below
                             with Node 22 or newer. Adjust the filename if your
                             browser renamed it. Keep the terminal open and
-                            choose Reconnect.
+                            choose Check paired response.
                           </span>
                           <code style={{ overflowWrap: "anywhere" }}>
                             {'node "vaettir-device-connector.mjs" --pairing-code '}

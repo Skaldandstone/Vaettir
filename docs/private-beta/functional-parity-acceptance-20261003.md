@@ -2816,3 +2816,62 @@ visuals are different facts and should remain labeled separately. No export
 format/fidelity, scaling, competitor ranking or recurring-defect prevalence
 is inferred from this sample interaction. The earlier dated complaint sources
 remain research inputs, not reasons to copy every vendor behavior.
+
+### October 6 explicit helper response and native run-start read foundation
+
+The actual helper page no longer polls after a launcher download. Downloading
+prepares only the local file and preserves existing pairing/device drafts.
+An explicit paired-response check makes one redirect-denied, credential-omitted
+loopback request with an eight-second abort deadline. The new stream reader
+admits exact HTTP metadata, at most 512 delivered bytes, strict UTF-8 and the
+existing two-key v2 liveness response; malformed, oversized, duplicate-key or
+stale responses refuse generically. Health no longer initiates discovery, and
+discovery no longer automatically changes the selected device. The visible
+status describes paired liveness, not launch, foreground isolation, device or
+processing permission. Existing automatic pairing initialization, installed
+session/native authority for legacy operations, capture/paid late responses,
+Windows signing/distribution and physical acceptance remain open.
+
+Additive, still-unmounted run-start ACCESS/PREVIEW routes now require an
+independently authenticated subject and fresh native org/member/project/User
+locks. ACCESS returns membership capabilities only. PREVIEW requires the
+original native actor, admits bounded complete profile text and verifies a
+native JSONB round trip before hashing the complete stored profile. Unsupported
+profiles receive no fabricated hash; current full-editor recovery capability
+does not establish receipt acceptance. No writer, UUID/hash/receipt behavior,
+legacy callers or central registration changed. Older unpinned plan attempts
+cannot be relabeled as reviewed by injecting today's identity into their body.
+
+Root repeated 18 actual extracted helper-handler checks, 56 typed helper/page
+checks across three files and 70 API schema/read/protected-transport checks
+across three files. Full compatible Web tests passed: 807 Node plus 1,127 typed
+checks across 77 files, 1,934 total with no skips. API types passed. Subsequent
+whole-Web typechecks encountered in-flight, separately owned retest foundation
+test typing failures; these failed attempts remain recorded, not substituted
+with the earlier suite result. Scoped helper lint has zero errors and the one
+previously disclosed page layout warning. Synthetic source/mocked transaction
+proof is not native SQL, full React, Windows/device or production acceptance.
+Prior native/runtime/image-security/migration/recovery failures remain failed.
+
+Fresh authenticated Qase vendor-sample interaction confirmed repository,
+test-plan and saved-query run sources. Its picker visibly selected 51/51 cases
+globally; entering a login search reduced visible folder counts to 1/1 and 6/6
+without silently discarding that original global selection. Both unsaved
+dialogs were canceled. The existing synthetic run exposed stable IDs,
+priority/automation icons, separate started/elapsed/total-time labels, team
+stats/timeline navigation and an export dialog with CSV/PDF choices. Export
+was canceled; file fidelity, result writes and scale were not tested.
+
+The current [Qase run guide](https://docs.qase.io/en/articles/5563702-test-runs)
+also documents completion visualization and repository/suite/plan/query
+selection. This contradicts treating older reporting complaints as proof that
+Qase currently lacks reporting. Two dated practitioner discussions,
+[tool-switching friction](https://www.reddit.com/r/QualityAssurance/comments/1d4duuv/test_management_systems_which_one_you_likedislike/)
+and [test-management problems](https://www.reddit.com/r/QualityAssurance/comments/1de3w0h/test_case_management_system_what_are_your_top/),
+repeat themes of search friction, fragile editing/results/attachments and
+reports that lack actionable context across teams/environments. They are
+mixed anecdotal research inputs, not current defect verification, prevalence
+estimates or vendor rankings. Vaettir's acceptance should therefore test
+retained selection versus visible filtering, lossless recovery, usable search
+and evidence-linked remaining/blocking work, not merely copy graphs or labels.
+No customer/provider/source processing, AI spend or deployment occurred.
