@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { fieldPresentationWidgets, initialFieldPresentationDraft, changeFieldPresentation, freezeFieldPresentationRequest, assertFieldPresentationAck, retainedFieldPresentationReceipt, sameFieldPresentationFrame, currentFieldPresentationBaseline, type FieldPresentationState, type FieldPresentationReceipt } from "./project-case-field-presentation";
+import { fieldPresentationWidgets, initialFieldPresentationDraft, changeFieldPresentation, freezeFieldPresentationRequest, assertFieldPresentationAck, retainedFieldPresentationReceipt, sameFieldPresentationFrame, currentFieldPresentationBaseline, fieldPresentationSessionRead, sameFieldPresentationSessionProof, type FieldPresentationState, type FieldPresentationReceipt } from "./project-case-field-presentation";
 import { resolveCaseFieldPresentation } from "@vaettir/api/src/services/caseFieldPresentationSchema";
 const origin = { projectId: "synthetic-project", organizationId: "synthetic-org", clerkActorId: "synthetic-actor", caseId: null };
 const id = "aa7d600c-453d-4c57-850c-1133f518b81d";
@@ -66,5 +66,15 @@ describe("custom field presentation draft and receipt", () => {
     const draft = initialFieldPresentationDraft(state())!;
     expect(currentFieldPresentationBaseline(draft, state())).toBe(true);
     for (const patch of [{ profileHash: "d".repeat(64) }, { fieldSchemaHash: "d".repeat(64) }, { definitionSchemaVersion: 4 }, { canConfigure: false }, { configurationSupported: false }]) expect(currentFieldPresentationBaseline(draft, { ...state(), ...patch })).toBe(false);
+  });
+  it("requires a new native full-admin read with unchanged native actor as well as Clerk/org identity", () => {
+    const data = state(), held = receipt(), args = { data, origin, nativeActorId: data.readScope.actorId, sessionId: "renewed-session", epoch: 6, beforeRevision: 100, revision: 101, input: held.input };
+    const proof = fieldPresentationSessionRead(args);
+    expect(proof.input).toBe(held.input); expect(held.sessionId).toBe("synthetic-session");
+    for (const patch of [{ revision: 100 }, { revision: NaN }, { nativeActorId: null }, { nativeActorId: "replacement-native-actor" }, { sessionId: "" }, { data: undefined }, { data: { ...data, canConfigure: false } }, { origin: { ...origin, clerkActorId: "other" } }, { origin: { ...origin, organizationId: "other" } }]) expect(() => fieldPresentationSessionRead({ ...args, ...patch })).toThrow(/new completed native read/);
+    const current = { ready: true, busy: false, origin, nativeActorId: data.readScope.actorId, sessionId: args.sessionId, epoch: args.epoch, data, revision: args.revision, input: held.input };
+    expect(sameFieldPresentationSessionProof(proof, current)).toBe(true);
+    for (const patch of [{ ready: false }, { busy: true }, { origin: null }, { nativeActorId: "other" }, { sessionId: "other" }, { epoch: 7 }, { data: structuredClone(data) }, { revision: 102 }, { input: null }]) expect(sameFieldPresentationSessionProof(proof, { ...current, ...patch })).toBe(false);
+    expect(sameFieldPresentationSessionProof(null, current)).toBe(false);
   });
 });

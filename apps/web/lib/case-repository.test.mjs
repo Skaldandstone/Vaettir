@@ -106,6 +106,10 @@ test("repository reset stays in its lifecycle lane and moves keep persisted CAS 
   assert.match(page, /setSortBy\("manual"\)/);
   assert.match(page, /tc.isFlaky &&\s*\(\s*<span/);
   assert.match(page, /tc.archived &&\s*\(\s*<span/);
-  assert.match(page, /tc.tags.map\(\(tag\)[\s\S]*?setTagFilter\(tag\)/);
+  assert.match(page, /tc.tags.map\(\(tag, index\)[\s\S]*?setTagFilter\(tag\)/);
+  assert.match(page, /matchesExactTag\(tc.tags, tagFilter\)/);
+  assert.match(page, /tagFilter !== null/);
+  assert.match(page, /projectTagHref\(projectId, tag\)/);
+  assert.doesNotMatch(page, /!tagFilter \|\| tc.tags.includes\(tagFilter\)/);
   assert.doesNotMatch(page, /data-label="Review"/);
 });

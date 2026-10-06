@@ -25,6 +25,7 @@ import {
 } from "@/components/CaseAuthoringPresets";
 import { downloadCsv } from "@/lib/csv";
 import { downloadFile } from "@/lib/download";
+import { projectTagHref, projectTagLabel, matchesExactTag } from "@/lib/project-tag-navigation";
 import { encodeCaseProcedureExport } from "@vaettir/core";
 import {
   caseExportIds,
@@ -253,14 +254,14 @@ export default function TestCasesPage() {
   const [error, setError] = useState<string | null>(null);
 
   const [search, setSearch] = useState("");
-  const [tagFilter, setTagFilter] = useState("");
+  const [tagFilter, setTagFilter] = useState<string | null>(null);
   const [typeFilter, setTypeFilter] = useState("");
   const [automationFilter, setAutomationFilter] = useState("");
   const [priorityFilter, setPriorityFilter] = useState("");
   const [reviewFilter, setReviewFilter] = useState("APPROVED");
   useEffect(() => {
     const parameters = new URLSearchParams(window.location.search);
-    setTagFilter(parameters.get("tag") ?? "");
+    setTagFilter(parameters.get("tag"));
     if (parameters.get("review") === "pending")
       setReviewFilter("PENDING_REVIEW");
     else if (parameters.get("review") === "rejected")
@@ -298,7 +299,7 @@ export default function TestCasesPage() {
     setAutomationFilter(filters.automation);
     setPriorityFilter(filters.priority);
     setReviewFilter(repositoryReviewStatus(filters.review));
-    setTagFilter("");
+    setTagFilter(null);
     setOriginFilter(filters.origin);
     setSortBy(filters.sortBy);
     setSortDescending(filters.sortDescending);
@@ -437,7 +438,7 @@ export default function TestCasesPage() {
     const filtered = pathFiltered.filter(
       (tc) =>
         (showArchived || !tc.archived) &&
-        (!tagFilter || tc.tags.includes(tagFilter)) &&
+        matchesExactTag(tc.tags, tagFilter) &&
         (!q ||
           tc.displayId.toLowerCase().includes(q) ||
           tc.title.toLowerCase().includes(q) ||
@@ -804,7 +805,7 @@ export default function TestCasesPage() {
   ].filter((item) => item.value);
   function resetFilters() {
     setSearch("");
-    setTagFilter("");
+    setTagFilter(null);
     setTypeFilter("");
     setAutomationFilter("");
     setPriorityFilter("");
@@ -872,13 +873,13 @@ export default function TestCasesPage() {
           }
           )
         </button>
-        {tagFilter && (
+        {tagFilter !== null && (
           <button
             type="button"
             className="btn-secondary"
-            onClick={() => setTagFilter("")}
+            onClick={() => setTagFilter(null)}
           >
-            Tag: {tagFilter} ×
+            Tag: {projectTagLabel(tagFilter)} ×
           </button>
         )}
       </nav>
@@ -1404,9 +1405,9 @@ export default function TestCasesPage() {
                                   gap: 4,
                                 }}
                               >
-                                {tc.tags.map((tag) => (
+                                {tc.tags.map((tag, index) => (
+                                  <span key={`${index}:${tag}`} style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
                                   <button
-                                    key={tag}
                                     type="button"
                                     className="btn-secondary"
                                     style={{
@@ -1414,11 +1415,13 @@ export default function TestCasesPage() {
                                       minHeight: 24,
                                       fontSize: 12,
                                     }}
-                                    title={`Show ${tag} cases in this lane`}
+                                    title={`Filter this lane by exact tag ${JSON.stringify(tag)}`}
                                     onClick={() => setTagFilter(tag)}
                                   >
-                                    {tag}
+                                    {projectTagLabel(tag)}
                                   </button>
+                                  <a href={projectTagHref(projectId, tag)} target="_blank" rel="noopener noreferrer" title={`Open saved associations for exact tag ${JSON.stringify(tag)} (approved active cases by default)`} aria-label={`Open tag associations for ${projectTagLabel(tag)}`}>↗</a>
+                                  </span>
                                 ))}
                               </small>
                             )}

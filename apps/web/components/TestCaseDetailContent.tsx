@@ -17,6 +17,7 @@ import { CasePriorityField } from "@/components/CasePriorityField";
 import { Modal } from "@/components/Modal";
 import { automationTargetForFramework, casePresentationVisible } from "@vaettir/core";
 import { useCaseFieldAccess } from "@/lib/use-case-field-access";
+import { projectTagHref, projectTagLabel } from "@/lib/project-tag-navigation";
 import { freshCasePresentation } from "@/lib/case-presentation-read";
 import {
   INSPECTOR_SECTIONS,
@@ -1577,8 +1578,8 @@ function TestCaseInspector({
         )}
         {tc.tags.length > 0 && (
           <ul className={styles.tags} aria-label="Case tags">
-            {tc.tags.map((tag) => (
-              <li key={tag}><a href={`/projects/${encodeURIComponent(projectId)}/test-cases?tag=${encodeURIComponent(tag)}`} title={`Find cases tagged ${tag}`}>{tag}</a></li>
+            {tc.tags.map((tag, index) => (
+              <li key={`${index}:${tag}`}><a href={projectTagHref(projectId, tag)} title={`Find saved associations for exact tag ${JSON.stringify(tag)}`} style={{ whiteSpace: "pre-wrap" }}>{projectTagLabel(tag)}</a></li>
             ))}
           </ul>
         )}

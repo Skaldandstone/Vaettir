@@ -1,8 +1,8 @@
 import { TRPCError } from "@trpc/server";
 import { Prisma } from "@vaettir/db";
 import { protectedProcedure, router } from "../trpc.js";
-import { testCasesRouter } from "./testCases.js";
 import { testDesignRouter } from "./testDesign.js";
+import { prepareRiskReviewQueue } from "../services/caseRiskReviewPreparation.js";
 import {
   analysisAccess,
   analysisBaseline,
@@ -27,6 +27,10 @@ export const caseAnalysisQueueRouter = router({
   review: protectedProcedure
     .input(caseAnalysisSelectionSchema)
     .mutation(async ({ ctx, input }) => {
+      if (input.action === "RISK") {
+        const job = await prepareRiskReviewQueue(ctx.prisma, ctx.user.id, ctx.user.clerkUserId, { ...input, action: "RISK" });
+        return readAnalysis(ctx.prisma, input.projectId, ctx.user.id, job.id, 0, input, ctx.user.clerkUserId);
+      }
       const ids = [...input.ids].sort();
       const selection = [input.projectId, input.action, ids];
       const selectionHash = analysisHash(
@@ -75,8 +79,7 @@ export const caseAnalysisQueueRouter = router({
           ctx.user.clerkUserId,
         );
       }
-      const risk = testCasesRouter.createCaller(ctx),
-        design = testDesignRouter.createCaller(ctx);
+      const design = testDesignRouter.createCaller(ctx);
       const items: Prisma.CaseAnalysisQueueItemCreateWithoutQueueInput[] = [];
       for (const [position, caseId] of ids.entries()) {
         const baseline = await analysisBaseline(
@@ -85,27 +88,13 @@ export const caseAnalysisQueueRouter = router({
           caseId,
         );
         let inputHash: string, status: string;
-        if (input.action === "RISK") {
-          const preview = await risk.riskPreview({ id: caseId });
-          inputHash = preview.inputHash;
-          status =
-            preview.savedStatus === "READY"
-              ? "SAVED"
-              : preview.savedStatus
-                ? "UNKNOWN"
-                : preview.alreadyAssessed
-                  ? "SKIPPED"
-                  : "QUEUED";
-        } else {
-          const preview = await design.preview({ id: caseId });
-          inputHash = preview.inputHash;
-          const saved = await ctx.prisma.testDesignReview.findUnique({
-            where: { testCaseId_inputHash: { testCaseId: caseId, inputHash } },
-            select: { status: true },
-          });
-          status =
-            saved?.status === "READY" ? "SAVED" : saved ? "UNKNOWN" : "QUEUED";
-        }
+        const preview = await design.preview({ id: caseId });
+        inputHash = preview.inputHash;
+        const saved = await ctx.prisma.testDesignReview.findUnique({
+          where: { testCaseId_inputHash: { testCaseId: caseId, inputHash } },
+          select: { status: true },
+        });
+        status = saved?.status === "READY" ? "SAVED" : saved ? "UNKNOWN" : "QUEUED";
         items.push({
           ...baseline,
           position,

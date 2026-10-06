@@ -1173,3 +1173,55 @@ Native SQL, authored fixtures, migrations, full runtime/image-security,
 authenticated production and deployment remain unverified; earlier failed
 native/release gates are not cleared. These are source-only changes on the
 existing codex branch, not a completion claim for all reported workflows.
+
+October 6 03:22 UTC continuing parallel source integration:
+
+- Whole-suite RISK review preparation now uses at most 32 cases per batch and
+  fixed paid-status flags rather than re-reading permissions, balances and paid
+  bodies for every case. New preparation and queue creation share one current-
+  authorized RepeatableRead snapshot and the existing 15-second budget. Exact
+  historical input/source/content hashes, sorted positions, paid-status precedence,
+  UUID recovery and maximum credit allowances remain unchanged. A separate native
+  64,000-byte source-reference admission is additive; it does not replace the
+  existing case/procedure limit or add provider context. APPROVE, workers,
+  TYPE_DESIGN and spending are unchanged. Native SQL, 851-case timing and approval
+  scalability remain untested. Pure/mocked batches at 851 are not performance proof.
+- Exact tag navigation now has a separate original-scope read-only hub for cases
+  and records linked through those cases. Native tags belong to cases only;
+  direct assigned plans/releases and active direct requirement references are
+  clearly labeled relationships, not independently tagged records or readiness.
+  Runs, historical tags, execution-template/strategy expansion and provider
+  verification remain excluded. The default is approved active cases; review and
+  archive lanes are explicit. Fifty-row pages use complete admitted counts and
+  bounded metadata, with scope/section/base-case population cursor checks.
+  Empty, whitespace and punctuation tags remain distinct. The main repository
+  also distinguishes no tag filter from a retained empty tag, and offers a
+  separate association link without losing the local lane/draft.
+- The tag hub requires each activation/session/page to receive its own completed
+  read UUID and unchanged native actor/organization echo. Cached results are
+  hidden through access loss, A-B-A transitions, fetches, errors and paused
+  reads; reconnection restarts the read. Counts say "among matching cases" rather
+  than suggesting every case has a link. Independent review corrected cursors
+  that omitted unassigned matching cases, and generic refusal now handles the
+  distinction between PostgreSQL character counts and DTO UTF-16 limits without
+  clipping native text or exposing private validation details.
+- Renewed sessions can explicitly verify and adopt the same original account,
+  organization and native actor after a separate new completed native full
+  Owner/Admin read. Original pending request content, receipt session, UUID and
+  hashes stay frozen. Busy/stale verification cannot authorize adoption, and
+  A-B-A transitions revoke callbacks/review. This is session recovery, not reload-
+  durable receipt storage or a bypass for an unreadable current schema.
+
+Fresh integrated local checks: 747 Node and 80 typed Web checks (827, zero skips),
+185 focused API pure/mocked checks and API/Web typechecks pass. New controller checks
+exercise exact tag page navigation, native-reader/session loss and paused reads.
+These changes are source-only. Native queries/fixtures, migrations, full native
+runtime/image-security, authenticated production, deployment and actual Windows
+execution remain unverified; earlier failed release evidence remains failed.
+
+Integration lint first rejected render-time ref reads in the new tag view and
+JSX constructed inside its parser try/catch. The native reader pin now uses
+immutable mounted state; only exact tag parsing is caught, before rendering.
+Fresh focused lint and six actual-controller regressions pass without disabling
+rules or loosening actor/request admission. No browser/native acceptance is
+inferred from those corrections.

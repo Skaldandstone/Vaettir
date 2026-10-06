@@ -2,6 +2,7 @@
 
 import { useId, useRef, useState } from "react";
 import { appendCaseTag, removeCaseTag, reopenLastCaseTag } from "@/lib/case-authoring-fields";
+import { projectTagHref, projectTagLabel } from "@/lib/project-tag-navigation";
 
 export function CaseTagEditor({ projectId, tags, draft, reopenedOriginal, onTagsChange, onDraftChange, onReopen }: {
   projectId: string; tags: string[]; draft: string;
@@ -23,11 +24,11 @@ export function CaseTagEditor({ projectId, tags, draft, reopenedOriginal, onTags
   return <div>
     <label htmlFor={`${prefix}-input`}>Tags</label>
     <p id={`${prefix}-help`} className="text-muted" style={{ fontSize: 12, marginBlock: 4 }}>
-      Press Enter or comma to add a tag. Backspace in an empty input edits the last tag. Chip links find saved cases in a new tab; this draft stays here.
+      Press Enter or comma to add a tag. Backspace in an empty input edits the last tag. Chip links open saved tag associations in a new tab; this draft stays here. Unsaved tags are not added to that view.
     </p>
     <ul aria-label="Case tag chips" style={{ listStyle: "none", padding: 0, margin: "8px 0", display: "flex", flexWrap: "wrap", gap: 6 }}>
       {tags.map((tag, index) => <li key={`${index}:${tag}`} style={{ display: "inline-flex", alignItems: "center", gap: 6, maxWidth: "100%", border: "1px solid var(--line)", borderRadius: 20, padding: "4px 8px", background: "var(--surface-raised)" }}>
-        <a href={`/projects/${encodeURIComponent(projectId)}/test-cases?tag=${encodeURIComponent(tag)}`} target="_blank" rel="noopener noreferrer" title={`Find saved cases tagged ${tag}`} style={{ overflowWrap: "anywhere", minWidth: 0 }}>{tag || "Empty retained tag"}</a>
+        <a href={projectTagHref(projectId, tag)} target="_blank" rel="noopener noreferrer" title={`Find saved associations for exact tag ${JSON.stringify(tag)}`} style={{ overflowWrap: "anywhere", minWidth: 0, whiteSpace: "pre-wrap" }}>{projectTagLabel(tag)}</a>
         <button type="button" aria-label={`Remove tag ${tag || "empty retained tag"} at position ${index + 1}`} onClick={() => {
           onTagsChange(removeCaseTag(tags, index));
           setAnnouncement(`Removed tag ${tag || "empty retained tag"}.`);

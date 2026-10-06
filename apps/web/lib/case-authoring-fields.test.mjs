@@ -63,8 +63,12 @@ test("case form and both saved-array callers preserve exact tag API payloads", (
 test("tag chips provide literal links, keyboard entry, composition safety and scoped removal", () => {
   const editor = file("../components/CaseTagEditor.tsx");
   assert.match(editor, /aria-label="Case tag chips"/);
-  assert.match(editor, /encodeURIComponent\(projectId\)/);
-  assert.match(editor, /encodeURIComponent\(tag\)/);
+  assert.match(editor, /projectTagHref\(projectId, tag\)/);
+  const navigation = file("./project-tag-navigation.ts");
+  assert.match(navigation, /encodeURIComponent\(projectId\)/);
+  assert.match(navigation, /encodeURIComponent\(tag\)/);
+  assert.match(navigation, /\/tags\?tag=/);
+  assert.doesNotMatch(editor, /\/test-cases\?tag=/);
   assert.match(editor, /target="_blank" rel="noopener noreferrer"/);
   assert.match(editor, /event\.nativeEvent\.isComposing/);
   assert.match(editor, /event\.key === "Enter" \|\| event\.key === ","/);

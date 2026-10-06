@@ -67,7 +67,10 @@ describe("exact legacy risk-input foundation without provider or database", () =
     expect(router).toContain('import { buildCaseRiskInput as riskInput } from "../services/caseRiskInput.js";');
     expect(router).not.toContain("function riskInput(");
     expect(router.match(/\briskInput\(/g)).toHaveLength(5);
-    expect(queue).toContain("risk.riskPreview({ id: caseId })");
+    expect(queue).toContain("prepareRiskReviewQueue(ctx.prisma");
+    expect(queue).not.toContain("risk.riskPreview({ id: caseId })");
+    const preparation = readFileSync(new URL("./caseRiskReviewPreparation.ts", import.meta.url), "utf8");
+    expect(preparation).toContain("buildCaseRiskInput(tc).hash");
     expect(worker).toContain("testCasesRouter.createCaller(ctx).assessRisk({");
     const originalPriorityFixture = readFileSync(new URL("../test-case-priority.integration.test.ts", import.meta.url), "utf8");
     expect(originalPriorityFixture).toContain("sourceFilePath: current.source?.filePath ?? null })).digest(\"hex\")");

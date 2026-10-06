@@ -9,6 +9,18 @@ export type FieldPresentationInput = ReturnType<typeof caseFieldPresentationConf
 export type FieldPresentationFrame = { ready: boolean; open: boolean; epoch: number; origin: CaseFieldOrigin | null; sessionId: string | null };
 export type FieldPresentationReceipt = { input: FieldPresentationInput; origin: CaseFieldOrigin; sessionId: string; uncertain: boolean };
 export type FieldPresentationDraft = { baseline: FieldPresentationState; configuration: CaseFieldPresentation };
+export type FieldPresentationSessionProof = {
+  origin: CaseFieldOrigin; nativeActorId: string; sessionId: string; epoch: number;
+  data: FieldPresentationState; revision: number; input: FieldPresentationInput | null;
+};
+export function fieldPresentationSessionRead(args: { data: FieldPresentationState | undefined; origin: CaseFieldOrigin; nativeActorId: string | null; sessionId: string; epoch: number; beforeRevision: number; revision: number; input: FieldPresentationInput | null }): FieldPresentationSessionProof {
+  const { data, origin, nativeActorId } = args;
+  if (!data || data.caseId !== null || !nativeActorId || !args.sessionId || !data.canConfigure || !Number.isFinite(args.revision) || args.revision <= args.beforeRevision || data.projectId !== origin.projectId || data.organizationId !== origin.organizationId || data.readScope.projectId !== origin.projectId || data.readScope.organizationId !== origin.organizationId || data.readScope.actorClerkUserId !== origin.clerkActorId || data.readScope.actorId !== nativeActorId) throw Error("A new completed native read must verify the unchanged original actor and organization with current full Owner/Admin access.");
+  return { origin, nativeActorId, sessionId: args.sessionId, epoch: args.epoch, data, revision: args.revision, input: args.input };
+}
+export function sameFieldPresentationSessionProof(proof: FieldPresentationSessionProof | null, current: { ready: boolean; busy: boolean; origin: CaseFieldOrigin | null; nativeActorId: string | null; sessionId: string | null; epoch: number; data: FieldPresentationState | undefined; revision: number; input: FieldPresentationInput | null }): boolean {
+  return !!proof && current.ready && !current.busy && sameCaseFieldOrigin(proof.origin, current.origin) && proof.nativeActorId === current.nativeActorId && proof.sessionId === current.sessionId && proof.epoch === current.epoch && proof.data === current.data && proof.revision === current.revision && proof.input === current.input && proof.data.canConfigure;
+}
 export function fieldPresentationWidgets(field: CaseFieldDefinition): CaseFieldPresentationSetting["widget"][] {
   return field.type === "TEXT" ? ["AUTO", "TEXT_INPUT", "PARAGRAPH"] : field.type === "CHOICE" ? ["AUTO", "DROPDOWN", "RADIO"] : field.type === "BOOLEAN" ? ["AUTO", "TRI_STATE", "CHECKBOX"] : ["AUTO"];
 }

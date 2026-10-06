@@ -6,7 +6,7 @@ import { useCaseFieldAccess } from "@/lib/use-case-field-access";
 import { caseFieldReadPins } from "@/lib/case-field-origin";
 import { freshCasePresentation } from "@/lib/case-presentation-read";
 import { manualSummaryReadActivation, type ManualSummaryReadState } from "@/lib/manual-run-summary";
-import { initialFieldPresentationDraft, changeFieldPresentation, fieldPresentationWidgets, freezeFieldPresentationRequest, assertFieldPresentationAck, retainedFieldPresentationReceipt, sameFieldPresentationFrame, currentFieldPresentationBaseline, type FieldPresentationDraft, type FieldPresentationReceipt, type FieldPresentationFrame } from "@/lib/project-case-field-presentation";
+import { initialFieldPresentationDraft, changeFieldPresentation, fieldPresentationWidgets, freezeFieldPresentationRequest, assertFieldPresentationAck, retainedFieldPresentationReceipt, sameFieldPresentationFrame, currentFieldPresentationBaseline, fieldPresentationSessionRead, sameFieldPresentationSessionProof, type FieldPresentationDraft, type FieldPresentationReceipt, type FieldPresentationFrame, type FieldPresentationSessionProof } from "@/lib/project-case-field-presentation";
 import type { CaseFieldPresentationSetting } from "@vaettir/api/src/services/caseFieldPresentationSchema";
 import { Modal } from "./Modal";
 
@@ -18,10 +18,11 @@ export function ProjectCaseFieldPresentation({ projectId }: { projectId: string 
  * receipts remain mounted across close/access loss, never re-bound to an actor. */
 export function ProjectCaseFieldPresentationControl({ projectId }: { projectId: string }) {
   const access = useCaseFieldAccess(projectId), auth = useAuth(), utils = trpcReact.useUtils();
-  const [open, setOpen] = useState(false), [originalSession, setOriginalSession] = useState<string | null>(null);
+  const [open, setOpen] = useState(false), [acceptedSession, setAcceptedSession] = useState<string | null>(null);
+  const nativeActor = useRef<string | null>(null);
   const currentActor = access.readable && auth.isLoaded && !!auth.isSignedIn && auth.userId === access.origin?.clerkActorId && !!auth.sessionId;
-  useEffect(() => { if (!originalSession && currentActor) setOriginalSession(auth.sessionId!); }, [originalSession, currentActor, auth.sessionId]);
-  const ready = currentActor && auth.sessionId === originalSession;
+  useEffect(() => { if (!acceptedSession && currentActor) { nativeActor.current = access.fresh?.readScope?.actorId ?? null; setAcceptedSession(auth.sessionId!); } }, [acceptedSession, currentActor, auth.sessionId, access.fresh]);
+  const ready = currentActor && auth.sessionId === acceptedSession;
   const query = trpcReact.caseFieldPresentation.get.useQuery({ projectId, ...caseFieldReadPins(access.origin) }, { enabled: ready && open, retry: false, staleTime: 0, refetchOnWindowFocus: false });
   const [readState, setReadState] = useState<ManualSummaryReadState>({ ready: false, key: "", sessionId: null, baseline: 0, epoch: 0 });
   const activation = manualSummaryReadActivation(readState, { ready: ready && open, key: JSON.stringify([projectId, access.origin?.organizationId, access.origin?.clerkActorId]), sessionId: auth.sessionId ?? null, revision: query.dataUpdatedAt });
@@ -32,15 +33,59 @@ export function ProjectCaseFieldPresentationControl({ projectId }: { projectId: 
   const [draft, setDraft] = useState<FieldPresentationDraft | null>(null), [reason, setReason] = useState(""), [reviewed, setReviewed] = useState(false), [confirmed, setConfirmed] = useState(false), [notice, setNotice] = useState("");
   const [pending, setPending] = useState<FieldPresentationReceipt | null>(null);
   const pendingRef = useRef(pending), draftRef = useRef(draft), busyRef = useRef(false), epochRef = useRef(0);
+  const [verifying, setVerifying] = useState(false), [verified, setVerified] = useState<FieldPresentationSessionProof | null>(null), [recoveryNotice, setRecoveryNotice] = useState("");
+  const verifyBusy = useRef(false), verifiedRef = useRef(verified), adoptedInput = useRef<FieldPresentationReceipt["input"] | null>(null);
+  const nativeReadGeneration = useRef(0), verifiedCacheRevision = useRef<number | null>(null);
+  // Including losses and returns prevents A -> B -> A from reauthorizing an
+  // old read/save callback merely because its final strings happen to match.
+  const authorityKey = JSON.stringify([auth.isLoaded, auth.isSignedIn, auth.userId, auth.sessionId, access.readable, access.canConfigure, access.current?.projectId, access.current?.organizationId, access.fresh?.readScope?.actorId]);
+  const [priorAuthority, setPriorAuthority] = useState(authorityKey);
   const frame = useRef<FieldPresentationFrame>({ ready: false, open: false, epoch: 0, origin: null, sessionId: null });
-  const authorized = ready && access.canConfigure && fresh?.canConfigure !== false && !!access.origin && access.owns(access.origin, "configure");
+  const liveRecovery = useRef({ eligible: false, sessionId: null as string | null, origin: access.origin, nativeActorId: nativeActor.current, epoch: epochRef.current, open: false });
+  if (priorAuthority !== authorityKey) {
+    epochRef.current++; frame.current = { ...frame.current, ready: false, epoch: epochRef.current };
+    liveRecovery.current = { ...liveRecovery.current, eligible: false, epoch: epochRef.current };
+    verifiedRef.current = null; verifiedCacheRevision.current = null; setVerified(null); setRecoveryNotice(""); setReviewed(false); setConfirmed(false); setPriorAuthority(authorityKey);
+  }
+  const nativeMatches = !!nativeActor.current && (!access.fresh || access.fresh.readScope?.actorId === nativeActor.current) && (!fresh || fresh.readScope.actorId === nativeActor.current);
+  const authorized = ready && nativeMatches && access.canConfigure && fresh?.canConfigure !== false && !!access.origin && access.owns(access.origin, "configure");
+  const recoveryEligible = currentActor && !!acceptedSession && acceptedSession !== auth.sessionId && !!access.origin && !!nativeActor.current && access.fresh?.readScope?.actorId === nativeActor.current && access.canConfigure && access.owns(access.origin, "configure");
   useLayoutEffect(() => {
     frame.current = { ready: authorized, open, epoch: epochRef.current, origin: access.origin, sessionId: auth.sessionId ?? null };
     return () => { frame.current = { ...frame.current, ready: false, open: false }; };
-  }, [authorized, open, access.origin, auth.sessionId]);
-  function invalidateReview() { epochRef.current++; frame.current = { ...frame.current, epoch: epochRef.current }; setReviewed(false); setConfirmed(false); }
-  function close() { invalidateReview(); frame.current = { ...frame.current, open: false }; setOpen(false); }
+  }, [authorized, open, access.origin, auth.sessionId, priorAuthority]);
+  useLayoutEffect(() => {
+    liveRecovery.current = { eligible: recoveryEligible, sessionId: auth.sessionId ?? null, origin: access.origin, nativeActorId: nativeActor.current, epoch: epochRef.current, open };
+    return () => { liveRecovery.current = { ...liveRecovery.current, eligible: false, open: false }; };
+  }, [recoveryEligible, auth.sessionId, access.origin, open, priorAuthority]);
+  function invalidateReview() { epochRef.current++; frame.current = { ...frame.current, epoch: epochRef.current }; liveRecovery.current = { ...liveRecovery.current, epoch: epochRef.current }; verifiedRef.current = null; verifiedCacheRevision.current = null; setVerified(null); setReviewed(false); setConfirmed(false); }
+  function close() { invalidateReview(); frame.current = { ...frame.current, open: false }; liveRecovery.current = { ...liveRecovery.current, open: false }; setOpen(false); }
   function show() { if (!authorized) return; invalidateReview(); setOpen(true); }
+  function showRecovery() { if (!recoveryEligible) return; invalidateReview(); setRecoveryNotice(""); setOpen(true); }
+  async function verifyCurrentSession() {
+    if (!recoveryEligible || !open || !access.origin || !auth.sessionId || busyRef.current || save.isPending || verifyBusy.current || query.isFetching || query.isPaused) return;
+    invalidateReview(); const started = { ...liveRecovery.current }, observedCacheRevision = query.dataUpdatedAt, beforeRevision = nativeReadGeneration.current, readGeneration = ++nativeReadGeneration.current, input = pendingRef.current?.input ?? null;
+    verifyBusy.current = true; setVerifying(true); setRecoveryNotice("");
+    try {
+      // Direct typed client calls do not consult/join React Query's cache.
+      // Even if its fetch-state observer lags, this is a new native request,
+      // not a pre-renewal read relabelled as proof of the current session.
+      const result = await utils.client.caseFieldPresentation.get.query({ projectId, ...caseFieldReadPins(started.origin) });
+      const current = liveRecovery.current;
+      if (!current.eligible || !current.open || current.epoch !== started.epoch || current.sessionId !== started.sessionId || current.nativeActorId !== started.nativeActorId || !current.origin || !access.owns(current.origin, "configure") || busyRef.current || pendingRef.current?.input !== (input ?? undefined)) return;
+      const data = freshCasePresentation({ data: result, error: null, isFetching: false, isPaused: false }, current.origin);
+      const proof = fieldPresentationSessionRead({ data, origin: current.origin, nativeActorId: current.nativeActorId, sessionId: current.sessionId!, epoch: current.epoch, beforeRevision, revision: readGeneration, input });
+      verifiedCacheRevision.current = observedCacheRevision; verifiedRef.current = proof; setVerified(proof); setRecoveryNotice("The current session has a new completed native full Owner/Admin read for the unchanged original account and organization. Adopt it explicitly before viewing or retrying retained settings.");
+    } catch (cause) {
+      if (liveRecovery.current.eligible && liveRecovery.current.epoch === started.epoch) setRecoveryNotice(cause instanceof Error ? cause.message : "Verification was refused. Retained settings remain private.");
+    } finally { verifyBusy.current = false; setVerifying(false); }
+  }
+  function adoptVerifiedSession() {
+    const proof = verifiedRef.current, current = liveRecovery.current;
+    if (!current.open || !current.origin || verifiedCacheRevision.current !== query.dataUpdatedAt || !access.owns(current.origin, "configure") || !sameFieldPresentationSessionProof(proof, { ready: current.eligible && !query.error && !query.isFetching && !query.isPaused, busy: busyRef.current || save.isPending || verifyBusy.current, origin: current.origin, nativeActorId: current.nativeActorId, sessionId: current.sessionId, epoch: current.epoch, data: proof?.data, revision: nativeReadGeneration.current, input: pendingRef.current?.input ?? null })) return;
+    adoptedInput.current = proof!.input; invalidateReview(); setAcceptedSession(proof!.sessionId); setRecoveryNotice("");
+    setNotice("Explicitly adopted the verified current session for the unchanged original actor and organization. Draft, original receipt session, UUID, hashes and request content remain unchanged. Review new writes again; pending writes retry identically.");
+  }
   function loadCurrent() {
     if (!authorized || !fresh || pendingRef.current || busyRef.current) return;
     const next = initialFieldPresentationDraft(fresh);
@@ -60,7 +105,7 @@ export function ProjectCaseFieldPresentationControl({ projectId }: { projectId: 
   async function submit() {
     if (busyRef.current || !authorized || !frame.current.open || !access.origin || !auth.sessionId) return;
     let attempt = pendingRef.current;
-    if (attempt && (attempt.sessionId !== auth.sessionId || !access.owns(attempt.origin, "configure"))) return;
+    if (attempt && ((attempt.sessionId !== auth.sessionId && adoptedInput.current !== attempt.input) || !access.owns(attempt.origin, "configure"))) return;
     if (!attempt) {
       if (!draftRef.current || !reviewed || !confirmed || !currentFieldPresentationBaseline(draftRef.current, fresh)) return;
       try { attempt = { input: freezeFieldPresentationRequest(draftRef.current, access.origin, reason, crypto.randomUUID()), origin: access.origin, sessionId: auth.sessionId, uncertain: false }; }
@@ -82,21 +127,26 @@ export function ProjectCaseFieldPresentationControl({ projectId }: { projectId: 
       const settledFrame = { ...frame.current };
       try {
         await utils.caseFieldPresentation.get.invalidate({ projectId });
-        if (!frame.current.ready || frame.current.epoch !== settledFrame.epoch || frame.current.sessionId !== attempt.sessionId || !access.owns(attempt.origin, "configure")) return;
+        if (!frame.current.ready || frame.current.epoch !== settledFrame.epoch || frame.current.sessionId !== started.sessionId || !access.owns(attempt.origin, "configure")) return;
         await utils.project.experience.invalidate({ projectId });
       }
-      catch { if (frame.current.ready && frame.current.epoch === settledFrame.epoch && frame.current.sessionId === attempt.sessionId && access.owns(attempt.origin, "configure")) setNotice("Presentation was saved; refreshing context failed. Refresh settings, not the settled write."); }
+      catch { if (frame.current.ready && frame.current.epoch === settledFrame.epoch && frame.current.sessionId === started.sessionId && access.owns(attempt.origin, "configure")) setNotice("Presentation was saved; refreshing context failed. Refresh settings, not the settled write."); }
     } catch (cause) {
       if (pendingRef.current === attempt) { const retained = retainedFieldPresentationReceipt(attempt, cause); pendingRef.current = retained; setPending(retained); }
       if (sameFieldPresentationFrame(started, frame.current) && access.owns(attempt.origin, "configure")) setNotice(cause instanceof Error ? cause.message : "Response uncertain. Restore original access and retry the identical request.");
     } finally { busyRef.current = false; }
   }
   const current = draft && currentFieldPresentationBaseline(draft, fresh);
+  const adoptionReady = verifiedCacheRevision.current === query.dataUpdatedAt && sameFieldPresentationSessionProof(verified, { ready: recoveryEligible && !query.error && !query.isFetching && !query.isPaused, busy: busyRef.current || save.isPending || verifyBusy.current, origin: access.origin, nativeActorId: nativeActor.current, sessionId: auth.sessionId ?? null, epoch: epochRef.current, data: verified?.data, revision: nativeReadGeneration.current, input: pendingRef.current?.input ?? null });
   return <>
     {authorized && <button type="button" className="btn-secondary" onClick={show}>Configure custom-field presentation</button>}
+    {recoveryEligible && !open && <button type="button" className="btn-secondary" onClick={showRecovery}>Recover retained settings in this session</button>}
     {authorized && !open && notice && <p role="status">{notice}</p>}
     <Modal open={open} onClose={close} title="Project custom-field presentation" size="wide">
-      {!authorized ? <p role="status">Restore the original signed-in session and current full Owner/Admin access. Private draft and exact pending request stay retained, not transferred.</p> : <>
+      {!authorized ? <>
+        <p role="status">Restore current full Owner/Admin access for the unchanged original account and organization. Private draft and exact pending request stay retained, not transferred.</p>
+        {recoveryEligible && <><p>A renewed session can be adopted only after a new completed native access read. No retained draft, UUID or body is shown before adoption.</p><button type="button" className="btn-secondary" disabled={verifying || busyRef.current || save.isPending || query.isFetching || query.isPaused} onClick={() => void verifyCurrentSession()}>{verifying ? "Verifying current session…" : "Verify current session"}</button>{verified && <><button type="button" className="btn-primary" disabled={!adoptionReady} onClick={adoptVerifiedSession}>Adopt verified current session</button>{!adoptionReady && <p role="status">Verification is no longer current or an operation is busy. Verify again after it settles; retained settings remain private.</p>}</>}{recoveryNotice && <p role="status">{recoveryNotice}</p>}</>}
+      </> : <>
         <p>Choose controls for existing native fields, not new field types or values. Hiding applies only when a key is absent. Null, empty text, whitespace, false and zero stay visible. Hidden absent fields have an explicit reveal action in the case editor.</p>
         {(!fresh || query.isFetching) && <p role="status">Awaiting a fresh original-scope settings read. Cached settings cannot authorize a new save.</p>}
         {query.error && <p role="alert">Settings could not be read. Retained drafts and pending requests remain unchanged. <button type="button" onClick={() => void query.refetch({ cancelRefetch: false })}>Retry settings read</button></p>}
