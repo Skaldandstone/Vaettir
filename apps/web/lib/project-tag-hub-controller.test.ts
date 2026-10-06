@@ -12,11 +12,15 @@ const declaration = ast.statements.find(node => ts.isFunctionDeclaration(node) &
 const printed = ts.createPrinter().printNode(ts.EmitHint.Unspecified, declaration, ast);
 const origin = { projectId: "project", organizationId: "org", clerkActorId: "actor", caseId: null };
 
-function harness(tag: string | null = " spaced ") {
+function harness(tag: string | null = " spaced ", bootstrapReady = true) {
   const hooks: unknown[] = [], effects: Array<() => void> = [], pushes: string[] = [];
   let cursor = 0, dirty = false, lastInput: Record<string, unknown> = {}, enabled = false, uuid = 0;
   const auth = { isLoaded: true, isSignedIn: true, userId: "actor", sessionId: "A" };
-  const access = { origin, readable: true, fresh: { readScope: { actorId: "native" } } };
+  const retries: Array<typeof origin | null> = [];
+  const access = { origin: bootstrapReady ? origin : null, readable: bootstrapReady, fresh: { readScope: { actorId: "native" } }, query: {
+    error: null as Error | null, isFetching: false,
+    refetch: async () => { retries.push(access.origin ? { ...access.origin } : null); },
+  } };
   const query = { data: undefined as unknown, isFetchedAfterMount: false, isFetching: false, isPaused: false, error: null as Error | null };
   const globals = { React, ...helpers, crypto: { randomUUID: () => `read-${++uuid}` },
     sections: { CASES: "Directly tagged cases", PLANS: "Linked plans", RELEASES: "Linked releases", REQUIREMENTS: "Linked requirements" },
@@ -34,9 +38,10 @@ function harness(tag: string | null = " spaced ") {
   function render() { for (let count = 0; count < 30; count++) { cursor = 0; dirty = false; tree = component({ projectId: "project", tag }); effects.splice(0).forEach(effect => effect()); if (!dirty) return tree; } throw Error("Controller did not settle"); }
   function elements(node: React.ReactNode): React.ReactElement<Record<string, unknown>>[] { return !React.isValidElement<Record<string, unknown>>(node) ? [] : [node, ...React.Children.toArray(node.props.children as React.ReactNode).flatMap(elements)]; }
   function html() { return renderToStaticMarkup(render()); }
-  function click(text: string) { const button = elements(render()).find(node => node.type === "button" && React.Children.toArray(node.props.children as React.ReactNode).join("") === text); expect(button).toBeTruthy(); (button!.props.onClick as () => void)(); render(); }
+  function button(text: string) { return elements(render()).find(node => node.type === "button" && React.Children.toArray(node.props.children as React.ReactNode).join("") === text); }
+  function click(text: string) { const found = button(text); expect(found).toBeTruthy(); (found!.props.onClick as () => void)(); render(); }
   function receive(patch = {}) { query.isFetchedAfterMount = true; query.error = null; query.data = { projectId: "project", organizationId: "org", clerkActorId: "actor", requestId: lastInput.requestId, tag: lastInput.tag, section: lastInput.section, archive: lastInput.archive, review: lastInput.review, scopeHash: "a".repeat(64), readScope: { projectId: "project", organizationId: "org", actorId: "native", actorClerkUserId: "actor" }, asOf: "2026-10-06T03:00:00.000Z", total: 1, matchingCases: 1, items: [{ id: "case", title: "Secret tagged title", displayId: "CASE-1", matchingCaseCount: 1, edge: "DIRECT_CASE_TAG", reviewStatus: "APPROVED", archived: false }], nextCursor: null, limitations: ["Current saved association, not frozen historical tags."], ...patch }; render(); }
-  render(); return { auth, access, query, receive, html, click, input: () => lastInput, enabled: () => enabled, pushes };
+  render(); return { auth, access, query, receive, html, click, button, retries, input: () => lastInput, enabled: () => enabled, pushes };
 }
 
 it("shows no cached body until a completed exact current read; approved/active is default and tags stay raw", () => {
@@ -78,4 +83,97 @@ it("fetching and paused reads hide body; resume needs a new request rather than 
   host.query.isFetching = false; host.query.isPaused = true; expect(host.html()).not.toContain("Secret tagged title"); expect(host.html()).toContain("Reconnecting requires a new read");
   const before = host.input().requestId; host.query.isPaused = false; expect(host.html()).not.toContain("Secret tagged title"); expect(host.input().requestId).not.toBe(before);
   host.receive(); expect(host.html()).toContain("Secret tagged title");
+});
+
+it("failed access bootstrap exposes only safe original-scope recovery, not private errors or cached tag data", () => {
+  const host = harness(); host.receive();
+  const initialOrigin = host.access.origin;
+  host.access.readable = false;
+  host.access.query.error = Error("PRIVATE_BOOTSTRAP_DETAIL original credentials/private schema");
+  const failed = host.html();
+  expect(failed).toContain("Original project access could not be verified");
+  expect(failed).toContain("retained scope was not replaced");
+  expect(failed).not.toContain("PRIVATE_BOOTSTRAP_DETAIL");
+  expect(failed).not.toContain("Secret tagged title");
+  expect(failed).not.toContain("distinct cases");
+  expect(failed).not.toContain("Waiting for current original project membership");
+  expect(host.enabled()).toBe(false);
+  expect(host.button("Refresh current scope")!.props.disabled).toBe(true);
+  expect(host.button("Retry original project access")!.props.disabled).toBe(false);
+  host.click("Retry original project access");
+  expect(host.retries).toEqual([initialOrigin]);
+  expect(host.access.origin).toBe(initialOrigin);
+  expect(host.enabled()).toBe(false);
+  expect(host.html()).not.toContain("Secret tagged title");
+  expect(host.pushes).toEqual([]);
+  host.access.query.isFetching = true;
+  expect(host.button("Retry original project access")!.props.disabled).toBe(true);
+});
+
+it("bootstrap recovery requires a fresh exact tag page after original access returns", () => {
+  const host = harness(); host.receive();
+  const originalRead = host.input().requestId;
+  host.access.readable = false; host.access.query.error = Error("Temporary failure");
+  host.html(); const failedRead = host.input().requestId;
+  host.click("Retry original project access");
+  host.access.query.error = null; host.access.readable = true;
+  expect(host.html()).not.toContain("Secret tagged title");
+  expect(host.html()).toContain("Awaiting a new completed scoped read");
+  expect(host.input().requestId).not.toBe(originalRead);
+  expect(host.input().requestId).not.toBe(failedRead);
+  expect(host.input()).toMatchObject({ projectId: "project", originalOrganizationId: "org", expectedClerkActorId: "actor", tag: " spaced ", archive: "ACTIVE", review: "APPROVED" });
+  host.receive();
+  expect(host.html()).toContain("Secret tagged title");
+  expect(host.html()).not.toContain("Retry original project access");
+  expect(host.retries).toEqual([origin]);
+});
+
+it("first bootstrap failure retries the existing unpinned read without guessing a native reader or organization", () => {
+  const host = harness(" spaced ", false);
+  host.access.query.error = Error("PRIVATE_INITIAL_ERROR");
+  expect(host.html()).toContain("Original project access could not be verified");
+  expect(host.html()).not.toContain("PRIVATE_INITIAL_ERROR");
+  expect(host.enabled()).toBe(false);
+  expect(host.input()).toMatchObject({ projectId: "project", originalOrganizationId: "pending", expectedClerkActorId: "pending" });
+  host.click("Retry original project access");
+  expect(host.retries).toEqual([null]);
+  expect(host.access.origin).toBeNull();
+  expect(host.enabled()).toBe(false);
+  host.access.origin = origin; host.access.readable = true; host.access.query.error = null;
+  expect(host.html()).not.toContain("Secret tagged title");
+  expect(host.input()).toMatchObject({ projectId: "project", originalOrganizationId: "org", expectedClerkActorId: "actor" });
+  host.receive(); expect(host.html()).toContain("Secret tagged title");
+});
+
+it("signed-out, foreign actor and native-remap withholding are not represented as bootstrap failure", () => {
+  for (const reason of ["signed-out", "foreign-actor", "missing-session", "native-remap"]) {
+    const host = harness(); host.receive(); host.access.query.error = Error("PRIVATE_OLD_ERROR");
+    if (reason === "native-remap") host.access.fresh.readScope.actorId = "replacement";
+    else {
+      host.access.readable = false;
+      if (reason === "signed-out") host.auth.isSignedIn = false;
+      if (reason === "foreign-actor") host.auth.userId = "other";
+      if (reason === "missing-session") host.auth.sessionId = "";
+    }
+    const withheld = host.html();
+    expect(withheld).toContain("Waiting for current original project membership");
+    expect(withheld).not.toContain("Original project access could not be verified");
+    expect(withheld).not.toContain("PRIVATE_OLD_ERROR");
+    expect(withheld).not.toContain("Secret tagged title");
+    expect(host.button("Retry original project access")).toBeUndefined();
+    expect(host.enabled()).toBe(false);
+    expect(host.retries).toEqual([]);
+  }
+});
+
+it("tag-page errors retain their own current-view retry, separate from bootstrap recovery", () => {
+  const host = harness(); host.receive(); host.query.error = Error("Native tag page refused");
+  const failed = host.html();
+  expect(failed).toContain("Tag associations are unavailable");
+  expect(failed).toContain("No counts are being shown as zero");
+  expect(failed).not.toContain("Secret tagged title");
+  expect(host.button("Retry original project access")).toBeUndefined();
+  host.click("Restart current view");
+  expect(host.retries).toEqual([]);
+  expect(host.access.origin).toBe(origin);
 });

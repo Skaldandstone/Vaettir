@@ -24,6 +24,14 @@ type ReviewEvent = {
   unknown: boolean;
   consumed: boolean;
 };
+type ApprovalInput = RouterInputs["caseAnalysisQueue"]["approve"] & Origin;
+type ApprovalEvent = {
+  input: ApprovalInput;
+  inFlight: boolean;
+  unknown: boolean;
+  consumed: boolean;
+  attempt: number;
+};
 function sameOrigin(a: Origin | null, b: Origin | null) {
   return (
     !!a &&
@@ -229,14 +237,21 @@ function Analysis({ projectId, selectedIds, onCompleted, buttonLabel = "Analyze 
   );
   const [reviewGeneration, setReviewGeneration] = useState(0);
   const reviewOwner = useRef<{ generation: number; event: ReviewEvent | null }>({ generation: 0, event: null });
+  const [approvalGeneration, setApprovalGeneration] = useState(0);
+  const approvalOwner = useRef<{ generation: number; event: ApprovalEvent | null }>({ generation: 0, event: null });
+  // This ref follows only the component's explicit job transitions below.
+  // Updating it synchronously prevents captured pre-commit navigation races.
+  const approvalJob = useRef(jobId);
   const canSpendNow = !!saved?.canSpend && editor;
   async function refreshConfirmed(
     input: Origin,
     label: string,
     changed = false,
+    owned?: () => boolean,
   ) {
     // ACK has already been independently verified and consumed. Read/callback
     // failure can never reclassify it as an unknown write or resubmit work.
+    if (owned && !owned()) return;
     if (
       !accessNow.current.ready ||
       !accessNow.current.open ||
@@ -249,6 +264,7 @@ function Analysis({ projectId, selectedIds, onCompleted, buttonLabel = "Analyze 
     }
     try {
       if (changed) await onCompleted();
+      if (owned && !owned()) return;
       const [s, h] = await Promise.all([
         jobId ? state.refetch() : Promise.resolve(null),
         history.refetch(),
@@ -262,8 +278,10 @@ function Analysis({ projectId, selectedIds, onCompleted, buttonLabel = "Analyze 
         h.isFetching
       )
         throw Error("Read refresh failed");
+      if (owned && !owned()) return;
       setRefreshNotice("");
     } catch {
+      if (owned && !owned()) return;
       setRefreshNotice(
         `${label} confirmed, but the current view could not be refreshed. Refresh reads only; do not resubmit the accepted write.`,
       );
@@ -271,6 +289,8 @@ function Analysis({ projectId, selectedIds, onCompleted, buttonLabel = "Analyze 
   }
   async function prepare() {
     if (!ready || !origin || busy) return;
+    if (approvalOwner.current.generation !== approvalGeneration || approvalOwner.current.event?.inFlight ||
+      (approvalOwner.current.event && !approvalOwner.current.event.consumed)) return;
     const owner = reviewOwner.current, live = accessNow.current;
     if (owner.generation !== reviewGeneration || !live.ready || !live.open || !sameOrigin(live.origin, origin)) return;
     if (owner.event && (owner.event.inFlight || owner.event.consumed || reviewRequest !== owner.event.input)) return;
@@ -304,6 +324,7 @@ function Analysis({ projectId, selectedIds, onCompleted, buttonLabel = "Analyze 
         return;
       }
       event.consumed = true;
+      approvalJob.current = result.id;
       setJobId(result.id);
       setOffset(0);
       setReviewRequest(null);
@@ -333,12 +354,18 @@ function Analysis({ projectId, selectedIds, onCompleted, buttonLabel = "Analyze 
   }
   function backToSelections() {
     const owner = reviewOwner.current, live = accessNow.current;
+    const approval = approvalOwner.current;
+    if (approval.generation !== approvalGeneration || approval.event?.inFlight || (approval.event && !approval.event.consumed)) return;
     if (!ready || !origin || busy || retained || owner.generation !== reviewGeneration ||
       !live.ready || !live.open || !sameOrigin(live.origin, origin) ||
       owner.event?.inFlight || (owner.event && !owner.event.consumed)) return;
     owner.generation++;
     owner.event = null;
     setReviewGeneration(owner.generation);
+    approval.generation++;
+    approval.event = null;
+    setApprovalGeneration(approval.generation);
+    approvalJob.current = null;
     setJobId(null);
     setConsent(false);
     setOffset(0);
@@ -346,6 +373,9 @@ function Analysis({ projectId, selectedIds, onCompleted, buttonLabel = "Analyze 
   }
   async function authorize() {
     if (!saved || !canSpendNow || !origin || !ready || busy) return;
+    const owner = approvalOwner.current, live = accessNow.current;
+    if (owner.generation !== approvalGeneration || !live.ready || !live.open || !sameOrigin(live.origin, origin) || approvalJob.current !== saved.id) return;
+    if (owner.event && (owner.event.inFlight || owner.event.consumed || approvalRequest !== owner.event.input)) return;
     if (!approvalRequest && !canApprove) return;
     const input = approvalRequest ?? {
       ...origin,
@@ -356,6 +386,18 @@ function Analysis({ projectId, selectedIds, onCompleted, buttonLabel = "Analyze 
       allowCaseProcessing: true as const,
     };
     if (!sameOrigin(input, origin)) return;
+    if (input.id !== approvalJob.current) return;
+    Object.freeze(input);
+    const event = owner.event ?? { input, inFlight: false, unknown: Boolean(approvalRequest), consumed: false, attempt: 0 };
+    owner.event = event;
+    event.inFlight = true;
+    const attempt = ++event.attempt, accessEpoch = live.epoch;
+    const ownsOriginalView = () => {
+      const current = accessNow.current;
+      return approvalOwner.current === owner && owner.event === event && owner.generation === approvalGeneration &&
+        event.attempt === attempt && approvalJob.current === input.id && current.ready && current.open &&
+        current.epoch === accessEpoch && sameOrigin(current.origin, input);
+    };
     setApprovalRequest(input);
     setMessage("");
     try {
@@ -369,15 +411,27 @@ function Analysis({ projectId, selectedIds, onCompleted, buttonLabel = "Analyze 
         throw Error(
           "Approval acknowledgement did not match the original reviewed scope.",
         );
+      if (approvalOwner.current !== owner || owner.event !== event || owner.generation !== approvalGeneration || event.attempt !== attempt) return;
+      if (!ownsOriginalView()) {
+        event.unknown = true;
+        setMessage("Approval acknowledged for the original saved job. Restore its original view and access, then retry this same approval to display it; no replacement approval was created.");
+        return;
+      }
+      event.consumed = true;
       setApprovalRequest(null);
       setConsent(false);
       setMessage(
         "Approval confirmed. The saved job will not be queued or charged twice.",
       );
-      await refreshConfirmed(input, "Approval", true);
+      await refreshConfirmed(input, "Approval", true, ownsOriginalView);
     } catch (error) {
-      const retain = retainAnalysisRequest(Boolean(approvalRequest), error);
+      if (approvalOwner.current !== owner || owner.event !== event || event.consumed || event.attempt !== attempt) return;
+      const retain = retainAnalysisRequest(event.unknown || Boolean(approvalRequest), error);
+      event.unknown = retain;
       if (!retain) {
+        owner.event = null;
+        owner.generation++;
+        setApprovalGeneration(owner.generation);
         setApprovalRequest(null);
         setConsent(false);
       }
@@ -386,12 +440,20 @@ function Analysis({ projectId, selectedIds, onCompleted, buttonLabel = "Analyze 
           ? "Approval outcome is unconfirmed. Retry the identical approval; the saved job cannot be queued or charged twice."
           : "Approval was refused before acceptance. Refresh this saved scope or go back and review the updated cases.",
       );
+    } finally {
+      if (event.attempt === attempt) event.inFlight = false;
     }
   }
   function selectJob(id: string) {
     if (!ready || busy || retained) return;
     const owner = reviewOwner.current;
     if (owner.generation !== reviewGeneration || owner.event?.inFlight || (owner.event && !owner.event.consumed)) return;
+    const approval = approvalOwner.current;
+    if (approval.generation !== approvalGeneration || approval.event?.inFlight || (approval.event && !approval.event.consumed)) return;
+    approval.generation++;
+    approval.event = null;
+    setApprovalGeneration(approval.generation);
+    approvalJob.current = id;
     setJobId(id);
     setOffset(0);
     setConsent(false);
@@ -399,6 +461,8 @@ function Analysis({ projectId, selectedIds, onCompleted, buttonLabel = "Analyze 
   }
   async function requestHelp() {
     if (!saved || !origin || !ready || busy) return;
+    if (approvalOwner.current.generation !== approvalGeneration || approvalOwner.current.event?.inFlight ||
+      (approvalOwner.current.event && !approvalOwner.current.event.consumed)) return;
     const input = adminRequest ?? { ...origin, id: saved.id, reason };
     if (!sameOrigin(input, origin)) return;
     setAdminRequest(input);
@@ -433,6 +497,8 @@ function Analysis({ projectId, selectedIds, onCompleted, buttonLabel = "Analyze 
   }
   async function cancelWork() {
     if (!saved || !origin || !ready || busy || approvalRequest) return;
+    if (approvalOwner.current.generation !== approvalGeneration || approvalOwner.current.event?.inFlight ||
+      (approvalOwner.current.event && !approvalOwner.current.event.consumed)) return;
     const input = cancelRequest ?? { ...origin, id: saved.id };
     if (!sameOrigin(input, origin)) return;
     setCancelRequest(input);

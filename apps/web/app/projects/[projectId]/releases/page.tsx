@@ -1,6 +1,7 @@
 "use client";
 
-import { useLayoutEffect, useRef, useState } from "react";
+import { useLayoutEffect, useMemo, useState } from "react";
+import { useAuth } from "@clerk/nextjs";
 import { useParams } from "next/navigation";
 import { trpcReact, type RouterInputs } from "@/lib/trpcReact";
 import { Modal } from "@/components/Modal";
@@ -12,6 +13,8 @@ import { CreationWizard, WizardChoices } from "@/components/CreationWizard";
 import { ReleaseDraftEvidenceReview } from "@/components/ReleaseDraftEvidenceReview";
 import { useManualExecutionAccess } from "@/lib/use-manual-execution-access";
 import { retainAnalysisRequest } from "@/lib/analysis-request-recovery";
+import { currentSessionScope, sameAuthScope } from "@/lib/auth-query-cache";
+import { RunHistoryRenderGuard } from "@/lib/run-history-reader";
 import {
   releaseCriteriaDraftProblem,
   saveReleaseCriterionDraft,
@@ -21,9 +24,67 @@ import {
   specializedReleaseGoalPresets,
 } from "@/lib/release-planning-draft";
 
+type ReleaseCreateInput = RouterInputs["releases"]["create"];
+type CreateFrame = Readonly<{ projectId: string; organizationId: string; clerkActorId: string; session: ReturnType<typeof currentSessionScope>; eligible: boolean; draft: string }>;
+type CreateStamp = ReturnType<RunHistoryRenderGuard["observe"]>;
+type CreateEvent = { input: ReleaseCreateInput; inFlight: boolean; unknown: boolean };
+type CreateAttempt = { event: CreateEvent; frame: CreateFrame; stamp: CreateStamp };
+function creationSession() {
+  return typeof window === "undefined" ? null : currentSessionScope(window.Clerk?.loaded ? window.Clerk.session : null);
+}
+/** Request ownership is event-owned, not a render closure. Render may retire
+ * publication, never clear an unconfirmed original UUID/body or grant access. */
+class ReleaseCreationOwner {
+  private guard = new RunHistoryRenderGuard();
+  private committed: CreateFrame | null = null;
+  private event: CreateEvent | null = null;
+  private generation = 0;
+  observe(frame: CreateFrame) { return this.guard.observe(frame, frame.eligible ? frame : null); }
+  publish(frame: CreateFrame, stamp: CreateStamp) { if (this.guard.matchesRead(stamp, null)) this.committed = frame; }
+  detach(frame: CreateFrame) { if (this.committed === frame) { this.committed = null; if (this.event?.inFlight) this.event.unknown = true; } }
+  revokeSession() { this.guard.revokeActions(); if (this.event?.inFlight) this.event.unknown = true; }
+  currentFrame(frame: CreateFrame, stamp: CreateStamp) {
+    return frame.eligible && this.committed === frame && this.guard.matchesRead(stamp, null) && sameAuthScope(frame.session, creationSession());
+  }
+  canClose(generation: number, frame: CreateFrame, stamp: CreateStamp) {
+    return generation === this.generation && this.committed === frame && this.guard.matchesRead(stamp, null);
+  }
+  canBegin(generation: number, frame: CreateFrame, stamp: CreateStamp) {
+    return generation === this.generation && !this.event?.inFlight && this.currentFrame(frame, stamp);
+  }
+  request() { return this.event?.input ?? null; }
+  begin(generation: number, frame: CreateFrame, stamp: CreateStamp, input: ReleaseCreateInput): CreateAttempt | null {
+    if (!this.canBegin(generation, frame, stamp) || input.projectId !== frame.projectId || input.originalOrganizationId !== frame.organizationId || input.expectedClerkActorId !== frame.clerkActorId || this.event && this.event.input !== input) return null;
+    if (!this.event) {
+      Object.freeze(input.testPlanIds); Object.freeze(input.goals);
+      if (input.newPlan) { Object.freeze(input.newPlan.criteria); Object.freeze(input.newPlan); }
+      Object.freeze(input);
+      this.event = { input, inFlight: false, unknown: false };
+    }
+    this.event.inFlight = true;
+    return { event: this.event, frame, stamp };
+  }
+  owns(attempt: CreateAttempt) { return this.event === attempt.event; }
+  current(attempt: CreateAttempt) { return this.owns(attempt) && this.currentFrame(attempt.frame, attempt.stamp); }
+  retain(attempt: CreateAttempt, error: unknown) {
+    if (!this.owns(attempt)) return null;
+    const retained = retainAnalysisRequest(attempt.event.unknown || !this.current(attempt), error);
+    attempt.event.unknown = retained;
+    if (!retained) { this.event = null; this.generation++; }
+    return { retained, generation: this.generation };
+  }
+  confirm(attempt: CreateAttempt) {
+    if (!this.current(attempt)) { if (this.owns(attempt)) attempt.event.unknown = true; return null; }
+    this.event = null;
+    return ++this.generation;
+  }
+  finish(attempt: CreateAttempt) { attempt.event.inFlight = false; }
+}
+
 // P1-15
 export default function ReleasesPage() {
   const { projectId } = useParams<{ projectId: string }>();
+  const auth = useAuth();
   const { canEdit } = useProjectPermissions(projectId);
   const access = useManualExecutionAccess(projectId);
   const utils = trpcReact.useUtils();
@@ -48,23 +109,48 @@ export default function ReleasesPage() {
   const [criterionDraft, setCriterionDraft] = useState("");
   const [editingCriterion, setEditingCriterion] = useState<number | null>(null);
   const [createError, setCreateError] = useState<string | null>(null);
-  const [createRequest, setCreateRequest] = useState<
+  const [publishedCreateRequest, setCreateRequest] = useState<
     RouterInputs["releases"]["create"] | null
   >(null);
-  const createUnknown = useRef(false);
-  const submitBusy = useRef(false);
-  const accessNow = useRef(access);
+  const createRequest = publishedCreateRequest;
+  const [createOwner] = useState(() => new ReleaseCreationOwner());
+  const [createGeneration, setCreateGeneration] = useState(0);
+  const [, refreshSession] = useState(0);
+  const sdk = creationSession(), sdkActor = sdk?.userId, sdkId = sdk?.sessionId,
+    session = useMemo(() => auth.userId && auth.sessionId ? { userId: auth.userId, sessionId: auth.sessionId } : null, [auth.userId, auth.sessionId]);
+  const organizationId = access.origin?.organizationId ?? "", clerkActorId = access.origin?.clerkActorId ?? "";
+  const draft = JSON.stringify([name, targetDate, selectedPlanIds, releaseGoals, goalDraft, newPlanName, newCriteria, criterionDraft, editingCriterion]);
+  const createFrame = useMemo<CreateFrame>(() => Object.freeze({ projectId, organizationId, clerkActorId, session, draft,
+    eligible: createOpen && canEdit && access.canWrite && !!organizationId && !!clerkActorId && auth.isLoaded && !!auth.isSignedIn && !!session && session.userId === clerkActorId && session.userId === sdkActor && session.sessionId === sdkId,
+  }), [projectId, organizationId, clerkActorId, session, draft, createOpen, canEdit, access.canWrite, auth.isLoaded, auth.isSignedIn, sdkActor, sdkId]);
+  const createStamp = createOwner.observe(createFrame);
   useLayoutEffect(() => {
-    accessNow.current = access;
-  }, [access]);
+    createOwner.publish(createFrame, createStamp);
+    return () => createOwner.detach(createFrame);
+  }, [createOwner, createFrame, createStamp]);
+  useLayoutEffect(() => {
+    type SDK = NonNullable<typeof window.Clerk> & { addListener?: (listener: () => void) => () => void };
+    const clerk = typeof window === "undefined" ? null : window.Clerk as SDK | null;
+    let observed = session, live = true;
+    const changed = () => {
+      const next = creationSession();
+      if (!live || observed === null && next === null || sameAuthScope(observed, next)) return;
+      observed = next; createOwner.revokeSession(); refreshSession(value => value + 1);
+    };
+    const unsubscribe = clerk?.addListener?.(changed); changed();
+    return () => { live = false; unsubscribe?.(); };
+  }, [createOwner, session]);
   const createMutation = trpcReact.releases.create.useMutation();
 
   async function submit() {
+    // The owner wins over a captured render: even an old callback recovers
+    // the original request, while the UI mirror remains presentation only.
+    const createRequest = createOwner.request() ?? publishedCreateRequest;
     if (
       !canEdit ||
       !access.canWrite ||
       !access.origin ||
-      submitBusy.current ||
+      !createOwner.canBegin(createGeneration, createFrame, createStamp) ||
       (!createRequest && !name.trim())
     )
       return;
@@ -98,8 +184,9 @@ export default function ReleasesPage() {
           }
         : undefined,
     };
+    const attempt = createOwner.begin(createGeneration, createFrame, createStamp, request);
+    if (!attempt) return;
     setCreateRequest(request);
-    submitBusy.current = true;
     try {
       const result = await createMutation.mutateAsync(request);
       if (
@@ -111,18 +198,9 @@ export default function ReleasesPage() {
         throw Error(
           "The release acknowledgement did not match the retained original request. Restore original access and retry it.",
         );
-      if (
-        !accessNow.current.canWrite ||
-        accessNow.current.origin?.organizationId !==
-          request.originalOrganizationId ||
-        accessNow.current.origin?.clerkActorId !== request.expectedClerkActorId
-      ) {
-        createUnknown.current = true;
-        setCreateError(
-          "The original request was acknowledged, but current account or workspace access changed. Restore original access to confirm it; no new request was created.",
-        );
-        return;
-      }
+      const confirmedGeneration = createOwner.confirm(attempt);
+      if (confirmedGeneration === null) return;
+      setCreateGeneration(confirmedGeneration);
       setName("");
       setTargetDate("");
       setReleaseStep(0);
@@ -136,22 +214,21 @@ export default function ReleasesPage() {
       setEditingCriterion(null);
       setCreateOpen(false);
       setCreateRequest(null);
-      createUnknown.current = false;
       void utils.releases.list.invalidate({ projectId });
       void utils.releases.trend.invalidate({ projectId });
       void utils.testPlans.list.invalidate({ projectId });
     } catch (cause) {
-      const retain = retainAnalysisRequest(createUnknown.current, cause);
-      createUnknown.current = retain;
-      if (!retain) setCreateRequest(null);
-      setCreateError(
-        cause instanceof Error
-          ? cause.message
-          : "Release creation was not acknowledged. Retained scope was not changed.",
-      );
+      const current = createOwner.current(attempt), retained = createOwner.retain(attempt, cause);
+      if (!retained || !current) return;
+      if (!retained.retained) { setCreateRequest(null); setCreateGeneration(retained.generation); }
+      setCreateError(cause instanceof Error ? cause.message : "Release creation was not acknowledged. Retained scope was not changed.");
     } finally {
-      submitBusy.current = false;
+      createOwner.finish(attempt);
     }
+  }
+
+  function closeCreate() {
+    if (createOwner.canClose(createGeneration, createFrame, createStamp)) setCreateOpen(false);
   }
 
   const loading = releasesQuery.isLoading;
@@ -365,7 +442,7 @@ export default function ReleasesPage() {
 
       <Modal
         open={canEdit && createOpen}
-        onClose={() => setCreateOpen(false)}
+        onClose={closeCreate}
         title="Plan a release"
       >
         <CreationWizard
@@ -386,7 +463,7 @@ export default function ReleasesPage() {
             ][releaseStep]
           }
           canContinue={
-            access.canWrite &&
+            createFrame.eligible &&
             (releaseStep === 0
               ? Boolean(name.trim()) && !releaseGoalDraftProblem(goalDraft)
               : !draftProblem)
@@ -415,13 +492,13 @@ export default function ReleasesPage() {
               : "Create release workspace"
           }
           onStepChange={setReleaseStep}
-          onCancel={() => setCreateOpen(false)}
+          onCancel={closeCreate}
           onSubmit={submit}
         >
-          {!access.ready && (
+          {(!access.ready || !createFrame.eligible) && (
             <p role="status">
               Verify the original signed-in account, workspace and full editor
-              seat before creating or retrying. Drafts are retained.{" "}
+              seat before creating or retrying. Drafts are retained. The active browser session must match the original account; cached access alone cannot send a request.{" "}
               <button
                 type="button"
                 className="btn-secondary"

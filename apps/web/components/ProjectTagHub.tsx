@@ -24,6 +24,7 @@ function ProjectTagHubView({ projectId, tag }: { projectId: string; tag: string 
   const candidateActor = access.readable ? access.fresh?.readScope?.actorId : null;
   if (nativeActor === null && candidateActor) setNativeActor(candidateActor);
   const ready = tag !== null && access.readable && access.origin && auth.isLoaded && auth.isSignedIn && auth.userId === access.origin.clerkActorId && !!auth.sessionId && !!nativeActor && access.fresh?.readScope?.actorId === nativeActor;
+  const bootstrapFailed = tag !== null && auth.isLoaded && auth.isSignedIn && !!auth.userId && !!auth.sessionId && (!access.origin || auth.userId === access.origin.clerkActorId) && !access.readable && !!access.query.error;
   const binding = JSON.stringify([!!ready, projectId, access.origin?.organizationId, access.origin?.clerkActorId, nativeActor, auth.sessionId, tag, section, archive, review, pages.at(-1), refresh]);
   const [cycle, setCycle] = useState({ binding: "", requestId: crypto.randomUUID() });
   if (cycle.binding !== binding) setCycle({ binding, requestId: crypto.randomUUID() });
@@ -52,7 +53,10 @@ function ProjectTagHubView({ projectId, tag }: { projectId: string; tag: string 
         <button type="button" disabled={!ready || query.isFetching} onClick={restart}>Refresh current scope</button>
       </div>
       <nav aria-label="Tag association sections" style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>{(Object.keys(sections) as TagSection[]).map(key => <button key={key} type="button" aria-pressed={section === key} onClick={() => { setSection(key); setPages([]); }}>{sections[key]}</button>)}</nav>
-      {!ready && <p role="status">Waiting for current original project membership and the same native reader. Private tag results remain hidden.</p>}
+      {!ready && (bootstrapFailed ? <div role="alert">
+        <p>Original project access could not be verified. Tag associations were not loaded, and the retained scope was not replaced.</p>
+        <button type="button" disabled={access.query.isFetching} onClick={() => void access.query.refetch()}>Retry original project access</button>
+      </div> : <p role="status">Waiting for current original project membership and the same native reader. Private tag results remain hidden.</p>)}
       {ready && !value && !query.error && <p role="status">{query.isPaused ? "The scoped read is paused. Reconnecting requires a new read before results return." : "Awaiting a new completed scoped read. Cached results are not shown as current."}</p>}
       {ready && query.error && <p role="alert">Tag associations are unavailable: {query.error.message} No counts are being shown as zero. <button type="button" disabled={query.isFetching} onClick={restart}>Restart current view</button></p>}
       {value && <>

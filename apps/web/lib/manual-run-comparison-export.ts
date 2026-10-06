@@ -6,9 +6,17 @@ function requirePage(value: ManualRunComparison) {
 }
 export function renderManualRunComparisonCsv(value: ManualRunComparison): string {
   requirePage(value);
+  const scope = `Current page: ${value.items.length} of ${value.unionCaseCount} union cases. No full history/media, runtime equivalence or verified repair.`;
+  const prefix = [value.projectId, value.baseline.id, value.candidate.id, value.baseline.startedAt, value.candidate.startedAt, value.pairHash];
+  const report = (name: string, run: ManualRunComparison["baseline"], summary: ManualRunComparison["baselineSummary"]) => `${name}: ${run.status}; finished ${run.finishedAt ?? "not recorded"}; ${summary.total} planned, ${summary.recorded} recorded, ${summary.remaining} without a verdict. Recorded is not passed or release readiness.`;
   return renderBoundedSpreadsheetCsv([
-    "Project ID", "Baseline run", "Candidate run", "Baseline started UTC", "Candidate started UTC", "Compared pair hash", "Saved case identity", "Current case ID label (not captured)", "Baseline saved title", "Baseline title is excerpt", "Candidate saved title", "Candidate title is excerpt", "Baseline recorded outcome", "Candidate recorded outcome", "Saved definition state", "Baseline definition hash", "Candidate definition hash", "Export scope",
-  ], value.items.map(item => [value.projectId, value.baseline.id, value.candidate.id, value.baseline.startedAt, value.candidate.startedAt, value.pairHash, item.caseId, item.currentCaseIdLabel ?? "Unavailable", item.baseline?.title ?? "Not in saved scope", item.baseline ? String(item.baseline.titleClipped) : "Not in saved scope", item.candidate?.title ?? "Not in saved scope", item.candidate ? String(item.candidate.titleClipped) : "Not in saved scope", item.baseline?.outcome ?? "NOT_IN_SAVED_SCOPE", item.candidate?.outcome ?? "NOT_IN_SAVED_SCOPE", item.definitionState, item.baseline?.definitionHash ?? "Not in saved scope", item.candidate?.definitionHash ?? "Not in saved scope", `Current page: ${value.items.length} of ${value.unionCaseCount} union cases. No full history/media, runtime equivalence or verified repair.`]));
+    "Project ID", "Baseline run", "Candidate run", "Baseline started UTC", "Candidate started UTC", "Compared pair hash", "Saved case identity", "Current case ID label (not captured)", "Baseline saved title", "Baseline title is excerpt", "Candidate saved title", "Candidate title is excerpt", "Baseline recorded outcome", "Candidate recorded outcome", "Saved definition state", "Baseline definition hash", "Candidate definition hash", "Export scope", "Row kind",
+  ], [
+    // Report context survives a legitimate empty pair/page without inventing a
+    // case identity, verdict or completion denominator. Never export auth echoes.
+    [...prefix, ...Array<string>(11).fill(""), `${scope} ${report("Baseline", value.baseline, value.baselineSummary)} ${report("Candidate", value.candidate, value.candidateSummary)}`, "COMPARISON_PAGE_METADATA"],
+    ...value.items.map(item => [...prefix, item.caseId, item.currentCaseIdLabel ?? "Unavailable", item.baseline?.title ?? "Not in saved scope", item.baseline ? String(item.baseline.titleClipped) : "Not in saved scope", item.candidate?.title ?? "Not in saved scope", item.candidate ? String(item.candidate.titleClipped) : "Not in saved scope", item.baseline?.outcome ?? "NOT_IN_SAVED_SCOPE", item.candidate?.outcome ?? "NOT_IN_SAVED_SCOPE", item.definitionState, item.baseline?.definitionHash ?? "Not in saved scope", item.candidate?.definitionHash ?? "Not in saved scope", scope, "CASE_COMPARISON"]),
+  ], 51);
 }
 export function renderManualRunComparisonJson(value: ManualRunComparison): string {
   requirePage(value);

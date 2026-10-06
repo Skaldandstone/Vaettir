@@ -16,6 +16,32 @@ test("CSV exports only this page, neutralizes formulas, marks clipped titles and
   assert.match(csv, /Current page: 1 of 851/);
   assert.match(csv, /Current case ID label \(not captured\)/);
   assert.doesNotMatch(csv, /PRIVATE-/);
+  assert.match(csv, /COMPARISON_PAGE_METADATA/);
+  assert.match(csv, /CASE_COMPARISON/);
+  assert.match(csv, /851 planned, 1 recorded, 850 without a verdict/);
+});
+test("empty comparison CSV retains both exact runs and page context without fabricated cases or percent completion", () => {
+  const emptySummary = { ...summary, total: 0, recorded: 0, remaining: 0, pass: 0, percentComplete: 0, ignoredOutsideScopeResults: 0 };
+  const empty = { ...value, baseline: { ...run, plannedCases: 0 }, candidate: { ...run, id: "candidate-empty", plannedCases: 0 }, baselineSummary: emptySummary, candidateSummary: emptySummary, unionCaseCount: 0, items: [], nextCursor: null, private: "PRIVATE-INCIDENTAL" };
+  const csv = renderManualRunComparisonCsv(empty);
+  const rows = csv.slice(1).trimEnd().split("\r\n");
+  assert.equal(rows.length, 2, "header plus one report-context row, not a synthetic case");
+  assert.match(rows[1], /"synthetic-project","synthetic-run","candidate-empty","2026-01-01T00:00:00.000Z","2026-01-01T00:00:00.000Z"/);
+  assert.ok(rows[1].includes(`"${hash}"`));
+  assert.match(csv, /Current page: 0 of 0 union cases/);
+  assert.match(csv, /Baseline: PARTIAL; finished not recorded; 0 planned, 0 recorded, 0 without a verdict/);
+  assert.match(csv, /Candidate: PARTIAL; finished not recorded; 0 planned, 0 recorded, 0 without a verdict/);
+  assert.match(csv, /Recorded is not passed or release readiness/);
+  assert.ok(rows[1].includes(`"${hash}",${Array(11).fill('""').join(",")},"Current page:`));
+  assert.doesNotMatch(csv, /CASE_COMPARISON|NOT_IN_SAVED_SCOPE|\b(?:0|100)%|PRIVATE-/);
+});
+test("full fifty-case page retains all original cases plus one bounded metadata row", () => {
+  const items = Array.from({ length: 50 }, (_, i) => ({ ...value.items[0], caseId: `case-${i}` }));
+  const csv = renderManualRunComparisonCsv({ ...value, items });
+  assert.equal(csv.match(/"COMPARISON_PAGE_METADATA"/g)?.length, 1);
+  assert.equal(csv.match(/"CASE_COMPARISON"/g)?.length, 50);
+  for (const item of items) assert.ok(csv.includes(`"${item.caseId}"`));
+  assert.match(csv, /Current page: 50 of 851 union cases/);
 });
 test("JSON whitelists recorded report metadata and omits incidental actor/private content at every level", () => {
   const injected = { ...value, note: "PRIVATE-TOP", baseline: { ...run, note: "PRIVATE-RUN" }, items: [{ ...value.items[0], note: "PRIVATE-ROW", baseline: { ...side, error: "PRIVATE-CASE", source: "PRIVATE-SOURCE" } }] };
