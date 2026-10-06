@@ -2917,3 +2917,16 @@ not replaced by green model checks. Eight local source/schema selfchecks,
 including accepted receipt/cohort change/restoration, pass. All real native,
 provider, device and network counters remain zero. The existing hash-bound
 bundle does not attest the new retest foundation or new helper changes.
+
+Four additional unmounted API extraction files preserve the legacy manual-run
+start parser, normalization, hash property order, durable UUID-derived identity,
+receipt-before-current-profile behavior, original transaction ordering and
+RepeatableRead/P2002 recovery. Optional independently supplied reviewed pins
+are checked inside every original authorization transaction, never injected
+into the retained inner request. Recovery-only mode cannot create a run, and
+an old unpinned receipt does not prove historical reviewed workspace/native
+provenance. Root independently repeated all 35 source/synthetic checks, API
+types, scoped lint and exact freeze hashes. Original router/callers remain
+unchanged. Native precision, transport binding, SQL/concurrency, lossless new
+writer and rendered caller acceptance remain separate open requirements;
+these checks do not authorize a production cutover.
