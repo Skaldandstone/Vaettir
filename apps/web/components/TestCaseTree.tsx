@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { FOLDER_DRAG_TYPE, caseFolderNodeCatalog, caseFolderKindLabel, encodeFolderDrag, reviewedFolderDrop, supportedCaseFolderPath, type CaseFolderCatalog, type CaseFolderNode, type FolderReviewIntent } from "@/lib/case-folder-tree";
 
 // TestRail/Qase organize test cases into a manually-curated suite/section
 // tree. Every case here gets a location in that tree -- `suitePath` is a
@@ -32,6 +33,17 @@ function buildTree(cases: TreeCase[], folderPaths: string[]): TreeNode {
   for (const tc of [...cases, ...folderPaths.map(path => ({id:"",title:"",suitePath:path,sourceFilePath:null}))]) {
     const location = effectiveLocation(tc);
     if (!location) continue;
+    // Unsupported original paths are retained as exact, flat groups. Splitting
+    // or trimming malformed segments would silently rename their identity.
+    if (!supportedCaseFolderPath(location)) {
+      // The internal discriminator cannot collide with a supported segment
+      // named e.g. "unsupported:__unassigned__"; it is never a saved path.
+      const key = `\u0000raw:${location}`;
+      let node = root.children.get(key);
+      if (!node) { node = { name: location, path: location, children: new Map(), cases: [] }; root.children.set(key, node); }
+      if (tc.id) node.cases.push(tc);
+      continue;
+    }
     const segments = location.split("/");
     let node = root;
     let path = "";
@@ -55,17 +67,34 @@ function TreeNodeView({
   selectedPath,
   onSelect,
   onDropCase,
+  catalog,
+  metadata,
+  onFolderReview,
+  onDropRefused,
 }: {
   node: TreeNode;
   depth: number;
   selectedPath: string | null;
   onSelect: (path: string | null) => void;
   onDropCase?: (caseId: string, suitePath: string | null) => void;
+  catalog: CaseFolderCatalog | null;
+  metadata: Map<string, CaseFolderNode>;
+  onFolderReview?: (intent: Omit<FolderReviewIntent, "id">) => void;
+  onDropRefused?: (message: string) => void;
 }) {
   const [open, setOpen] = useState(depth < 2);
   const [dropTarget, setDropTarget] = useState(false);
   const totalCases = node.cases.length + [...node.children.values()].reduce((sum, c) => sum + countCases(c), 0);
   const hasChildren = node.children.size > 0;
+  const entry = metadata.get(node.path)!;
+  function reviewFolder(action: "MOVE" | "RENAME") {
+    if (!catalog || !entry.canOrganize || !onFolderReview) return;
+    onFolderReview({ projectId: catalog.projectId, organizationId: catalog.organizationId, clerkActorId: catalog.clerkActorId, action, fromPath: node.path });
+  }
+  function selectNode() {
+    if (!entry.supported && node.path === UNASSIGNED) { onDropRefused?.("This exact raw source path conflicts with the Unassigned navigation marker. It is retained in All test cases; no path was normalized or moved."); return; }
+    onSelect(node.path);
+  }
 
   return (
     <div>
@@ -74,16 +103,18 @@ function TreeNodeView({
         style={{ paddingLeft: 8 + depth * 14 }}
         role="button"
         tabIndex={0}
-        aria-label={`${node.name} suite, ${totalCases} cases`}
+        aria-label={`${entry.supported ? node.name : JSON.stringify(node.path)}, ${caseFolderKindLabel(entry, !!catalog)}, ${totalCases} visible-lane cases`}
         onKeyDown={(event) => {
           if (event.key === "Enter" || event.key === " ") {
             event.preventDefault();
             if (hasChildren) setOpen((value) => !value);
-            onSelect(node.path);
+            selectNode();
           }
         }}
         onDragOver={(event) => {
-          if (!onDropCase || !event.dataTransfer.types.includes("application/x-vaettir-test-case")) return;
+          const folder = event.dataTransfer.types.includes(FOLDER_DRAG_TYPE) && entry.canOrganize && !!onFolderReview;
+          const testCase = event.dataTransfer.types.includes("application/x-vaettir-test-case") && !!onDropCase;
+          if (!folder && !testCase) return;
           event.preventDefault();
           event.stopPropagation();
           event.dataTransfer.dropEffect = "move";
@@ -92,27 +123,41 @@ function TreeNodeView({
         onDragLeave={() => setDropTarget(false)}
         onDrop={(event) => {
           setDropTarget(false);
+          if (event.dataTransfer.types.includes(FOLDER_DRAG_TYPE)) {
+            event.preventDefault(); event.stopPropagation();
+            try { if (onFolderReview) onFolderReview(reviewedFolderDrop(event.dataTransfer.getData(FOLDER_DRAG_TYPE), catalog, node.path)); }
+            catch (cause) { onDropRefused?.(cause instanceof Error ? cause.message : "Folder gesture refused. Nothing was moved."); }
+            return;
+          }
           const caseId = event.dataTransfer.getData("application/x-vaettir-test-case");
           if (!onDropCase || !caseId) return;
           event.preventDefault();
           event.stopPropagation();
+          if (!entry.canReceiveCase) { onDropRefused?.(entry.supported ? "This is a source-only or unverified group, not a current saved/case suite. Organize the group through reviewed Move/Rename first, or choose a verified native suite. No case was assigned." : "This original raw path is unsupported for folder changes. It remains visible and unchanged; choose a supported native suite."); return; }
           onDropCase(caseId, node.path);
         }}
         onClick={() => {
           if (hasChildren) setOpen((o) => !o);
-          onSelect(node.path);
+          selectNode();
         }}
       >
         {hasChildren && <span className="tree-caret">{open ? "▾" : "▸"}</span>}
-        <span className="tree-label">{node.name}</span>
+        <span className="tree-label" style={{ overflowWrap: "anywhere" }}>{entry.supported ? node.name : <code>{JSON.stringify(node.path)}</code>}<small style={{ display: "block", fontSize: 11 }}>{caseFolderKindLabel(entry, !!catalog)}</small></span>
         <span className="tree-count">{totalCases}</span>
       </div>
+      {entry.canOrganize && onFolderReview && <div style={{ display: "flex", flexWrap: "wrap", gap: 4, paddingLeft: 8 + depth * 14 }}>
+        <button type="button" className="btn-secondary" draggable aria-label={`Drag ${node.path} to review a folder move`} onDragStart={event => { if (!catalog) return; event.dataTransfer.setData(FOLDER_DRAG_TYPE, encodeFolderDrag(catalog, node.path)); event.dataTransfer.effectAllowed = "move"; }}>⠿</button>
+        <button type="button" className="btn-secondary" onClick={() => reviewFolder("MOVE")}>{entry.kind === "SOURCE_GROUP" ? "Organize source group…" : "Move…"}</button>
+        <button type="button" className="btn-secondary" onClick={() => reviewFolder("RENAME")}>Rename…</button>
+      </div>}
+      {!entry.supported && <p style={{ marginLeft: 8 + depth * 14, fontSize: 11 }}>Raw path retained. Move/rename is unsupported; no source path is normalized.</p>}
+      {!entry.supported && node.path === UNASSIGNED && <button type="button" onClick={() => onSelect(null)}>View retained raw-path cases in All test cases</button>}
       {open && (
         <>
           {[...node.children.values()]
             .sort((a, b) => a.name.localeCompare(b.name))
             .map((child) => (
-              <TreeNodeView key={child.path} node={child} depth={depth + 1} selectedPath={selectedPath} onSelect={onSelect} onDropCase={onDropCase} />
+              <TreeNodeView key={child.path} node={child} depth={depth + 1} selectedPath={selectedPath} onSelect={onSelect} onDropCase={onDropCase} catalog={catalog} metadata={metadata} onFolderReview={onFolderReview} onDropRefused={onDropRefused} />
             ))}
         </>
       )}
@@ -132,14 +177,23 @@ export function TestCaseTree({
   onSelect,
   onDropCase,
   folderPaths = [],
+  folderCatalog = null,
+  classificationCases = cases,
+  onFolderReview,
+  onDropRefused,
 }: {
   cases: TreeCase[];
   selectedPath: string | null;
   onSelect: (path: string | null) => void;
   onDropCase?: (caseId: string, suitePath: string | null) => void;
   folderPaths?: string[];
+  folderCatalog?: CaseFolderCatalog | null;
+  classificationCases?: TreeCase[];
+  onFolderReview?: (intent: Omit<FolderReviewIntent, "id">) => void;
+  onDropRefused?: (message: string) => void;
 }) {
   const tree = useMemo(() => buildTree(cases, folderPaths), [cases, folderPaths]);
+  const metadata = useMemo(() => caseFolderNodeCatalog(classificationCases, folderCatalog, [...folderPaths, ...cases.map(effectiveLocation).filter((path): path is string => path !== null)]), [cases, classificationCases, folderPaths, folderCatalog]);
   const unassignedCount = cases.filter((c) => !effectiveLocation(c)).length;
   const total = cases.length;
 
@@ -152,6 +206,13 @@ export function TestCaseTree({
         tabIndex={0}
         onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); onSelect(null); } }}
         onClick={() => onSelect(null)}
+        onDragOver={event => { if (folderCatalog?.canEdit && onFolderReview && event.dataTransfer.types.includes(FOLDER_DRAG_TYPE)) { event.preventDefault(); event.dataTransfer.dropEffect = "move"; } }}
+        onDrop={event => {
+          if (!onFolderReview || !event.dataTransfer.types.includes(FOLDER_DRAG_TYPE)) return;
+          event.preventDefault();
+          try { onFolderReview(reviewedFolderDrop(event.dataTransfer.getData(FOLDER_DRAG_TYPE), folderCatalog, null)); }
+          catch (cause) { onDropRefused?.(cause instanceof Error ? cause.message : "Root folder gesture refused."); }
+        }}
       >
         <span className="tree-label">All test cases</span>
         <span className="tree-count">{total}</span>
@@ -159,7 +220,7 @@ export function TestCaseTree({
       {[...tree.children.values()]
         .sort((a, b) => a.name.localeCompare(b.name))
         .map((child) => (
-          <TreeNodeView key={child.path} node={child} depth={0} selectedPath={selectedPath} onSelect={onSelect} onDropCase={onDropCase} />
+          <TreeNodeView key={child.path} node={child} depth={0} selectedPath={selectedPath} onSelect={onSelect} onDropCase={onDropCase} catalog={folderCatalog} metadata={metadata} onFolderReview={onFolderReview} onDropRefused={onDropRefused} />
         ))}
       {(unassignedCount > 0 || onDropCase) && (
         <div

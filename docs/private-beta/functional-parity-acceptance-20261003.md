@@ -1225,3 +1225,41 @@ immutable mounted state; only exact tag parsing is caught, before rendering.
 Fresh focused lint and six actual-controller regressions pass without disabling
 rules or loosening actor/request admission. No browser/native acceptance is
 inferred from those corrections.
+
+October 6 04:13 UTC continuing plan and folder source integration:
+
+- Plan status now has a separate reviewed transition, including explicit reopen
+  to Draft for approved/archived plans. Supported declared metadata uses unique
+  SET/REMOVE operations rather than resending a stale whole record. Both retain
+  complete revision, original native reader, frozen request body/hash/UUID and
+  exact acknowledgement recovery. Unknown keys, incompatible/native NULL values,
+  duplicate/multiline string-list rows and unrelated plan content are retained.
+  Planning status is not a test verdict, release approval or compliance sign-off.
+- The legacy whole-plan update endpoint refuses writes before database mutation;
+  old clients must refresh and use the new reviewed controls. An earlier missing
+  legacy acknowledgement is not proof its write failed. The QA strategy form and
+  scoped existing-data suggestions remain available inside the guarded editor,
+  with suggestions disabled while its original draft is private or pending.
+- New governed writes compare complete decoded snapshot JSON against native JSONB
+  before mutation/version capture. Unsupported numeric precision or SQL-null
+  representation refuses rather than rewriting rounded data. Schema provenance
+  also requires an exact native round-trip. This is an interim refusal, not a
+  precision-preserving native read codec; earlier accepted UUID replay is unchanged.
+- Folder navigation distinguishes saved folders, persisted case suites, source
+  groups and mixed groups. Folder drag and keyboard Move/Rename open the existing
+  complete-subtree review only. Source-only groups cannot silently receive case
+  assignments. Raw unsupported paths stay exact/visible, and gestures cannot
+  replace an existing draft or uncertain request. Archived/hidden cases remain
+  part of native move impact, not merely the visible review lane.
+
+Integrated local checks: 748 Node and 131 typed Web checks (879, zero skips),
+96 focused API pure/mocked checks and API/Web types pass. Focused source lint has
+no errors; seven effect/dependency/prose warnings remain disclosed. An obsolete
+QA renderer expectation was corrected with original-scope/active-state assertions;
+render-time row counters and folder receipt reads were corrected without rule
+disables. Authored native plan lifecycle/metadata/precision/execution fixtures
+were NOT RUN. Actual folder drag, native SQL, full runtime/image-security,
+authenticated production and deployment remain unverified. Earlier failed native
+release gates remain failed. Source checkpoints do not finish the broader parity
+work; Windows launch policy, whole-suite approval performance and additional
+schema-independent collaboration reads continue in separate lanes.

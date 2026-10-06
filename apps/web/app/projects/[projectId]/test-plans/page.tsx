@@ -409,6 +409,7 @@ export default function TestPlansPage() {
           <TestPlanDetailContent
             key={openPlanId}
             id={openPlanId}
+            projectId={projectId}
             onChanged={invalidatePlans}
             readOnly={readOnly}
           />

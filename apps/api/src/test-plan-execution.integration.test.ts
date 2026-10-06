@@ -55,7 +55,7 @@ describe.skipIf(!isolated)(
           },
           include: { memberships: true },
         });
-        return appRouter.createCaller({ prisma, user });
+        return appRouter.createCaller({ prisma, user, staff: null, staffAttempt: false, securityLogger: () => undefined });
       }
       ownerOrganizationId = org.id;
       ownerClerkActorId = `${key}-owner`;
@@ -103,7 +103,12 @@ describe.skipIf(!isolated)(
           steps: [{ action: "Synthetic other tenant procedure" }],
         })
       ).id;
-      typeId = (await owner.testPlans.types())[0]!.id;
+      // Synthetic declared fields permit reviewed key edits without changing
+      // any built-in/customer type. Unknown saved siblings stay retained.
+      typeId = (await prisma.testPlanType.create({ data: {
+        key: `${key}-type`, name: "Synthetic reviewed plan fields", category: "CUSTOM",
+        fieldSchema: { type: "object", properties: { humanObjective: { type: "string" }, retained: { type: "string" } } },
+      } })).id;
     });
     async function createPlan() {
       return owner.testPlans.create({
@@ -123,6 +128,17 @@ describe.skipIf(!isolated)(
         ...scope, name, expectedPlanRevision: preview.planRevision,
         requestId: randomUUID(), reason: "Synthetic reviewed header rename", confirmed: true,
       });
+    }
+    const governanceScope = (testPlanId: string) => ({ projectId, testPlanId, originalOrganizationId: ownerOrganizationId, expectedClerkActorId: ownerClerkActorId });
+    async function setPlanStatus(testPlanId: string) {
+      const scope = governanceScope(testPlanId), preview = await owner.testPlanGovernance.preview(scope);
+      if (preview.snapshot.status !== "DRAFT") throw Error("Synthetic status intent requires the genuinely current draft lifecycle.");
+      return owner.testPlanGovernance.setPlanStatus({ ...scope, expectedStatus: preview.snapshot.status, status: "ACTIVE", intent: "CHANGE", expectedPlanRevision: preview.planRevision, requestId: randomUUID(), reason: "Synthetic reviewed lifecycle change", confirmed: true });
+    }
+    async function editPlanField(testPlanId: string, change: { operation: "SET"; key: string; value: string } | { operation: "REMOVE"; key: string }) {
+      const scope = governanceScope(testPlanId), preview = await owner.testPlanGovernance.preview(scope);
+      if (!preview.metadataSchema.fieldSchemaHash) throw Error("Synthetic native field schema was unavailable; no fallback hash was invented.");
+      return owner.testPlanGovernance.editPlanCustomFields({ ...scope, expectedFieldSchemaHash: preview.metadataSchema.fieldSchemaHash, changes: [change], expectedPlanRevision: preview.planRevision, requestId: randomUUID(), reason: "Synthetic reviewed key edit", confirmed: true });
     }
     function template(ids = caseIds) {
       return {
@@ -219,11 +235,9 @@ describe.skipIf(!isolated)(
       expect(history.map((v) => v.versionNumber)).toEqual([2, 1]);
       expect(history[0]?.executionTemplate).toEqual(saved.template);
       await renamePlan(plan.id, "Human rename");
-      await owner.testPlans.update({
-        id: plan.id,
-        status: "ACTIVE",
-        customFields: { humanObjective: "Human edit" },
-      });
+      await editPlanField(plan.id, { operation: "SET", key: "humanObjective", value: "Human edit" });
+      await setPlanStatus(plan.id);
+      expect((await owner.testPlans.byId({ id: plan.id })).customFields).toEqual({ humanObjective: "Human edit", future: { retained: true } });
       expect(
         (await owner.testPlans.executionTemplate({ id: plan.id })).template,
       ).toEqual(value);
@@ -338,11 +352,9 @@ describe.skipIf(!isolated)(
       ).toBe("Rig B");
       await configure(plan.id, template([caseIds[0]!]));
       await renamePlan(plan.id, "Later human rename");
-      await owner.testPlans.update({
-        id: plan.id,
-        status: "ACTIVE",
-        customFields: {},
-      });
+      await editPlanField(plan.id, { operation: "REMOVE", key: "humanObjective" });
+      await setPlanStatus(plan.id);
+      expect((await owner.testPlans.byId({ id: plan.id })).customFields).toEqual({ future: { retained: true } });
       await prisma.testCase.update({
         where: { id: caseIds[0] },
         data: { title: "Later human case edit" },
@@ -449,11 +461,13 @@ describe.skipIf(!isolated)(
     it("serializes ordinary plan edits with configuration snapshots without losing versions", async () => {
       const plan = await createPlan();
       const saved = await configure(plan.id);
-      await Promise.all([
-        owner.testPlans.update({
-          id: plan.id,
-          status: "ACTIVE",
-          customFields: { retained: "Human content" },
+      const scope = governanceScope(plan.id), reviewed = await owner.testPlanGovernance.preview(scope);
+      if (!reviewed.metadataSchema.fieldSchemaHash) throw Error("The reviewed native type was unavailable.");
+      const outcomes = await Promise.allSettled([
+        owner.testPlanGovernance.editPlanCustomFields({
+          ...scope, expectedPlanRevision: reviewed.planRevision, expectedFieldSchemaHash: reviewed.metadataSchema.fieldSchemaHash,
+          changes: [{ operation: "SET", key: "retained", value: "Human content" }],
+          requestId: randomUUID(), reason: "Synthetic concurrent reviewed key edit", confirmed: true,
         }),
         owner.testPlans.saveExecutionTemplate({
           id: plan.id,
@@ -461,23 +475,29 @@ describe.skipIf(!isolated)(
           template: template([...caseIds].reverse()),
         }),
       ]);
-      // Header changes now have a separately reviewed full-plan CAS. Keep the
-      // concurrent status/JSON/configuration assertion, then review the rename
-      // from its genuinely fresh resulting revision rather than inventing one.
+      expect(outcomes[1]!.status).toBe("fulfilled");
+      // A newer configuration can invalidate a reviewed metadata revision.
+      // Refuse it atomically, then explicitly review a NEW request; never
+      // relabel an old UUID or pretend both conflicting writes succeeded.
+      if (outcomes[0]!.status === "rejected") {
+        expect(outcomes[0]!.reason).toMatchObject({ code: "CONFLICT" });
+        await editPlanField(plan.id, { operation: "SET", key: "retained", value: "Human content" });
+      }
+      await setPlanStatus(plan.id);
       await renamePlan(plan.id, "Concurrent human edit");
       const history = await owner.testPlans.history({ testPlanId: plan.id });
-      expect(history.map((v) => v.versionNumber)).toEqual([5, 4, 3, 2, 1]);
+      expect(history.map((v) => v.versionNumber)).toEqual([6, 5, 4, 3, 2, 1]);
       const final = await prisma.testPlan.findUniqueOrThrow({
         where: { id: plan.id },
       });
       expect(final.name).toBe("Concurrent human edit");
-      expect(final.customFields).toEqual({ retained: "Human content" });
+      expect(final.customFields).toEqual({ humanObjective: "Do not replace", future: { retained: true }, retained: "Human content" });
       expect(history[0]).toMatchObject({
         name: final.name,
         customFields: final.customFields,
         executionTemplate: final.executionTemplate,
       });
-      expect(history[3]?.executionTemplate).toEqual(saved.template);
+      expect(history[4]?.executionTemplate).toEqual(saved.template);
     });
 
     it("blocks new writes/runs on archived plans but preserves existing receipts", async () => {

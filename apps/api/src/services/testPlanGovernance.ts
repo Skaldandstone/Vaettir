@@ -16,6 +16,8 @@ import {
   MAX_GOVERNANCE_HISTORY_REVISIONS,
   editCriterionDescriptionInput,
   editPlanHeaderInput,
+  setPlanStatusInput,
+  editPlanCustomFieldsInput,
   setCriterionVerdictInput,
   addGovernedCriterionInput,
   deleteGovernedCriterionInput,
@@ -37,6 +39,15 @@ import {
   assertGovernanceReceiptBytes,
   validatedGovernanceReceipt,
 } from "./testPlanGovernanceRevision.js";
+import {
+  MAX_PLAN_FIELD_SCHEMA_BYTES,
+  MAX_PLAN_METADATA_PATCH_BYTES,
+  supportedPlanMetadataDefinition,
+  editablePlanMetadata,
+  planMetadataSchemaHash,
+  applyReviewedPlanMetadata,
+} from "./testPlanMetadataSchema.js";
+import { caseFieldPresentationJsonBytes } from "./caseFieldPresentationSchema.js";
 const ENTITY = "TestPlanGovernanceWrite";
 type Scope = Awaited<ReturnType<typeof lockCaseFieldReadScope>>;
 type ScopeInput = z.infer<typeof planGovernanceScopeInput>;
@@ -138,6 +149,97 @@ async function writeScope(
     organizationId: project.organizationId,
     actorId,
     actorClerkUserId,
+  };
+}
+async function assertNativeSnapshotJsonRoundTrip(
+  tx: Prisma.TransactionClient,
+  input: ScopeInput,
+  current: PlanGovernanceSnapshot,
+) {
+  const refused = () =>
+    new TRPCError({
+      code: "PRECONDITION_FAILED",
+      message:
+        "The complete native plan JSON cannot be represented exactly by the current governance codec. No fields, configuration or history were rewritten.",
+    });
+  let customFields: string, executionTemplate: string;
+  try {
+    for (const value of [current.customFields, current.executionTemplate])
+      if (caseFieldPresentationJsonBytes(value) > MAX_GOVERNANCE_SNAPSHOT_BYTES)
+        throw refused();
+    customFields = JSON.stringify(current.customFields);
+    executionTemplate = JSON.stringify(current.executionTemplate);
+  } catch {
+    throw refused();
+  }
+  // JSONB equality checks the native value, not the already decoded JS number.
+  // SQL NULL is deliberately distinct from encoded JSON null; the snapshot
+  // cannot attest that distinction, so SQL NULL must not be silently coerced.
+  const [exact] = await tx.$queryRaw<
+    Array<{ customFieldsExact: boolean; executionTemplateExact: boolean }>
+  >`SELECT ("customFields" IS NOT DISTINCT FROM ${customFields}::jsonb) AS "customFieldsExact",
+      ("executionTemplate" IS NOT DISTINCT FROM ${executionTemplate}::jsonb) AS "executionTemplateExact"
+    FROM "TestPlan" WHERE id=${input.testPlanId} AND "projectId"=${input.projectId}`;
+  if (
+    exact?.customFieldsExact !== true ||
+    exact.executionTemplateExact !== true
+  )
+    throw refused();
+}
+async function metadataSchema(
+  tx: Prisma.TransactionClient,
+  testPlanTypeId: string,
+) {
+  const unavailable = {
+    testPlanTypeId,
+    fieldSchema: null as unknown,
+    fieldSchemaHash: null as string | null,
+    supported: false,
+    blockedReason:
+      "The current field schema is unavailable or exceeds bounded safe native metadata. Existing plan text/status/receipts do not depend on this schema.",
+  };
+  const locked = await tx.$queryRaw<
+    Array<{ id: string }>
+  >`SELECT id FROM "TestPlanType" WHERE id=${testPlanTypeId} FOR SHARE`;
+  if (locked.length !== 1) return unavailable;
+  const [size] = await tx.$queryRaw<
+    Array<{ bytes: bigint }>
+  >`SELECT octet_length("fieldSchema"::text)::bigint AS bytes FROM "TestPlanType" WHERE id=${testPlanTypeId}`;
+  if (
+    !size ||
+    size.bytes > BigInt(MAX_PLAN_FIELD_SCHEMA_BYTES) ||
+    size.bytes < 0n
+  )
+    return unavailable;
+  const type = await tx.testPlanType.findUnique({
+    where: { id: testPlanTypeId },
+    select: { fieldSchema: true },
+  });
+  if (!type) return unavailable;
+  try {
+    if (
+      caseFieldPresentationJsonBytes(type.fieldSchema) >
+      MAX_PLAN_FIELD_SCHEMA_BYTES
+    )
+      return unavailable;
+  } catch {
+    return unavailable;
+  }
+  // Do not advertise a hash/provenance for a rounded decoded schema. This is
+  // independently unavailable, so existing non-metadata receipt recovery works.
+  const [exact] = await tx.$queryRaw<Array<{ schemaRoundTripExact: boolean }>>`
+    SELECT ("fieldSchema" IS NOT DISTINCT FROM ${JSON.stringify(type.fieldSchema)}::jsonb) AS "schemaRoundTripExact"
+    FROM "TestPlanType" WHERE id=${testPlanTypeId}`;
+  if (exact?.schemaRoundTripExact !== true) return unavailable;
+  const definition = supportedPlanMetadataDefinition(type.fieldSchema);
+  return {
+    testPlanTypeId,
+    fieldSchema: type.fieldSchema,
+    fieldSchemaHash: planMetadataSchemaHash(testPlanTypeId, type.fieldSchema),
+    supported: definition.supported,
+    blockedReason: definition.supported
+      ? null
+      : "This field schema uses unsupported shape or types. No fields were inferred, converted or removed.",
   };
 }
 async function receipt(
@@ -279,14 +381,25 @@ export async function previewPlanGovernance(
       )
         ? "Reopen this approved or archived plan before editing its governed wording or assignment."
         : null;
-      if (current.releaseId && !editBlockedReason) {
+      let statusBlockedReason: string | null = null;
+      if (current.releaseId) {
         const [release] = await tx.$queryRaw<
           Array<{ status: string }>
         >`SELECT status::text AS status FROM "Release" WHERE id=${current.releaseId} AND "projectId"=${input.projectId} FOR SHARE`;
-        if (!release || ["READY", "SHIPPED"].includes(release.status))
-          editBlockedReason =
+        if (!release || ["READY", "SHIPPED"].includes(release.status)) {
+          statusBlockedReason =
             "Reopen the attached release's planning status before editing its quality scope.";
+          editBlockedReason ??= statusBlockedReason;
+        }
       }
+      const canRecover =
+        member.seatType === "FULL" &&
+        ["OWNER", "ADMIN", "EDITOR"].includes(member.role);
+      const schema = await metadataSchema(tx, current.testPlanTypeId);
+      const metadataEditable =
+        schema.fieldSchemaHash !== null &&
+        schema.supported &&
+        editablePlanMetadata(schema.fieldSchema, current.customFields);
       return {
         scope,
         snapshot: current,
@@ -300,6 +413,31 @@ export async function previewPlanGovernance(
           ["OWNER", "ADMIN", "EDITOR"].includes(member.role),
         editBlockedReason,
         manualVerdicts: !(await hasPlanCases(tx, input)),
+        ...(input.requestId !== undefined
+          ? { requestId: input.requestId }
+          : {}),
+        canRecover,
+        statusActions: {
+          canChange:
+            canRecover &&
+            !statusBlockedReason &&
+            !["APPROVED", "ARCHIVED"].includes(current.status),
+          canReopen:
+            canRecover &&
+            !statusBlockedReason &&
+            ["APPROVED", "ARCHIVED"].includes(current.status),
+          blockedReason: statusBlockedReason,
+        },
+        metadataSchema: {
+          ...schema,
+          canEdit: canRecover && !editBlockedReason && metadataEditable,
+          blockedReason:
+            editBlockedReason ??
+            schema.blockedReason ??
+            (!metadataEditable
+              ? "The native metadata root or current declared values have no supported editable fields. Unknown, null and incompatible values remain read-only."
+              : null),
+        },
       };
     },
     { isolationLevel: "RepeatableRead", timeout: 10000, maxWait: 5000 },
@@ -307,6 +445,8 @@ export async function previewPlanGovernance(
 }
 type Edit = z.infer<typeof editCriterionDescriptionInput>;
 type Header = z.infer<typeof editPlanHeaderInput>;
+type PlanStatus = z.infer<typeof setPlanStatusInput>;
+type Metadata = z.infer<typeof editPlanCustomFieldsInput>;
 type Verdict = z.infer<typeof setCriterionVerdictInput>;
 type Add = z.infer<typeof addGovernedCriterionInput>;
 type Delete = z.infer<typeof deleteGovernedCriterionInput>;
@@ -316,252 +456,357 @@ type Attach = z.infer<typeof attachUnassignedPlanInput>;
 async function write(
   db: PrismaClient,
   actorId: string,
-  input: Edit | Attach | Verdict | Add | Delete | Associate | Header,
+  input:
+    | Edit
+    | Attach
+    | Verdict
+    | Add
+    | Delete
+    | Associate
+    | Header
+    | PlanStatus
+    | Metadata,
   operation: Operation,
   authorized: CaseFieldReadAuthorization,
 ) {
   const requestHash = governanceRequestHash({ operation, input });
-  return db.$transaction(
-    async (tx) => {
-      const scope = await writeScope(tx, actorId, input, authorized);
-      await lockPlan(tx, input, true);
-      // Exact lost-ACK replay is authorized before evaluating newer plan state or
-      // newer cumulative payload limits; it never reapplies an old assignment.
-      const auditId = governanceAuditId(
-        input.projectId,
-        actorId,
-        input.requestId,
-      );
-      const previous = await receipt(tx, auditId, scope, requestHash);
-      if (previous) return previous;
-      await historyBudget(tx, scope, input.testPlanId);
-      const before = await snapshot(tx, input, true);
-      if (["APPROVED", "ARCHIVED"].includes(before.status))
-        throw new TRPCError({
-          code: "CONFLICT",
-          message:
-            "Reopen this approved or archived plan before changing governed content. Existing approvals were not reinterpreted.",
-        });
-      if (governancePlanRevision(before) !== input.expectedPlanRevision)
-        throw new TRPCError({
-          code: "CONFLICT",
-          message:
-            "Plan governance changed after review. Refresh and review before saving; no change was made.",
-        });
-      let criterionId: string | null = null;
-      let headerChanges: { name?: string; description?: string | null } = {};
-      if (operation === "EDIT_PLAN_HEADER") {
-        const header = input as Header;
-        if (before.releaseId)
-          await assertPlanningRelease(tx, input.projectId, before.releaseId);
-        if (
-          (header.name === undefined || header.name === before.name) &&
-          (header.description === undefined ||
-            header.description === before.description)
-        )
-          throw new TRPCError({
-            code: "BAD_REQUEST",
-            message:
-              "The reviewed header contains no native change. Nothing was written or versioned.",
-          });
-        headerChanges = {
-          ...(header.name !== undefined ? { name: header.name } : {}),
-          ...(header.description !== undefined
-            ? { description: header.description }
-            : {}),
-        };
-      } else if (operation === "ADD_CRITERION") {
-        const add = input as Add;
-        if (before.criteria.length >= MAX_GOVERNANCE_CRITERIA)
-          throw new TRPCError({
-            code: "PRECONDITION_FAILED",
-            message:
-              "This plan already contains the bounded maximum criteria. Existing criteria were not removed or truncated.",
-          });
-        if (before.releaseId)
-          await assertPlanningRelease(tx, input.projectId, before.releaseId);
-        await assertSameProjectRequirement(
-          tx,
+  return db
+    .$transaction(
+      async (tx) => {
+        const scope = await writeScope(tx, actorId, input, authorized);
+        await lockPlan(tx, input, true);
+        // Exact lost-ACK replay is authorized before evaluating newer plan state or
+        // newer cumulative payload limits; it never reapplies an old assignment.
+        const auditId = governanceAuditId(
           input.projectId,
-          add.requirementId,
+          actorId,
+          input.requestId,
         );
-        const occupied = await tx.acceptanceCriterion.findUnique({
-          where: { id: add.criterionId },
-          select: { id: true },
-        });
-        if (occupied)
+        const previous = await receipt(tx, auditId, scope, requestHash);
+        if (previous) return previous;
+        await historyBudget(tx, scope, input.testPlanId);
+        const before = await snapshot(tx, input, true);
+        const explicitReopen =
+          operation === "SET_PLAN_STATUS" &&
+          (input as PlanStatus).intent === "REOPEN" &&
+          (input as PlanStatus).expectedStatus === before.status &&
+          (input as PlanStatus).status === "DRAFT";
+        if (["APPROVED", "ARCHIVED"].includes(before.status) && !explicitReopen)
           throw new TRPCError({
             code: "CONFLICT",
             message:
-              "The new criterion identity is already occupied. No existing criterion was overwritten.",
+              "Reopen this approved or archived plan before changing governed content. Existing approvals were not reinterpreted.",
           });
-        await tx.acceptanceCriterion.create({
-          data: {
-            id: add.criterionId,
-            testPlanId: input.testPlanId,
-            description: add.description,
-            requirementId: add.requirementId,
-            status: "PENDING",
-          },
-        });
-        criterionId = add.criterionId;
-      } else if (
-        operation === "EDIT_CRITERION_DESCRIPTION" ||
-        operation === "SET_CRITERION_VERDICT" ||
-        operation === "DELETE_CRITERION" ||
-        operation === "SET_CRITERION_REQUIREMENT"
-      ) {
-        const edit = input as Edit | Verdict | Delete | Associate;
-        const current = before.criteria.find((c) => c.id === edit.criterionId);
-        if (!current)
-          throw new TRPCError({
-            code: "NOT_FOUND",
-            message: "Criterion not found in this exact plan.",
-          });
-        if (
-          governanceCriterionRevision(current) !==
-          edit.expectedCriterionRevision
-        )
+        if (governancePlanRevision(before) !== input.expectedPlanRevision)
           throw new TRPCError({
             code: "CONFLICT",
             message:
-              "Criterion wording or native association changed after review. The original text was not overwritten.",
+              "Plan governance changed after review. Refresh and review before saving; no change was made.",
           });
-        if (before.releaseId)
-          await assertPlanningRelease(tx, input.projectId, before.releaseId);
-        if (
-          (operation === "DELETE_CRITERION" ||
-            operation === "SET_CRITERION_REQUIREMENT") &&
-          current.requirementId !== (edit as Delete).expectedRequirementId
-        )
-          throw new TRPCError({
-            code: "CONFLICT",
-            message:
-              "The raw requirement association changed after review. Refresh before changing or removing it.",
-          });
-        if (operation === "DELETE_CRITERION") {
-          await tx.acceptanceCriterion.delete({ where: { id: current.id } });
-        } else if (operation === "SET_CRITERION_REQUIREMENT") {
-          const associate = edit as Associate;
+        // Additive admission only for a new write; an accepted exact UUID above
+        // keeps its original request hash and replay semantics.
+        await assertNativeSnapshotJsonRoundTrip(tx, input, before);
+        let criterionId: string | null = null;
+        let headerChanges: { name?: string; description?: string | null } = {};
+        let statusChange: { status?: PlanGovernanceSnapshot["status"] } = {};
+        let metadataChange: { customFields?: Prisma.InputJsonValue } = {};
+        let metadataReview: z.infer<
+          typeof planGovernanceReceipt
+        >["metadataReview"];
+        if (operation === "SET_PLAN_STATUS") {
+          const status = input as PlanStatus;
+          if (status.expectedStatus !== before.status)
+            throw new TRPCError({
+              code: "CONFLICT",
+              message:
+                "The native plan status changed after review; no lifecycle transition was applied.",
+            });
+          if (before.releaseId)
+            await assertPlanningRelease(tx, input.projectId, before.releaseId);
+          statusChange = { status: status.status };
+        } else if (operation === "EDIT_PLAN_CUSTOM_FIELDS") {
+          const edit = input as Metadata;
+          if (before.releaseId)
+            await assertPlanningRelease(tx, input.projectId, before.releaseId);
+          const schema = await metadataSchema(tx, before.testPlanTypeId);
+          if (!schema.supported || !schema.fieldSchemaHash)
+            throw new TRPCError({
+              code: "PRECONDITION_FAILED",
+              message:
+                "The current native metadata schema is unsupported. No fields or defaults were inferred.",
+            });
+          if (schema.fieldSchemaHash !== edit.expectedFieldSchemaHash)
+            throw new TRPCError({
+              code: "CONFLICT",
+              message:
+                "The declared native metadata schema changed after review. Refresh before applying retained edits.",
+            });
+          const result = applyReviewedPlanMetadata(
+            schema.fieldSchema,
+            before.customFields,
+            edit.changes,
+          );
+          const [size] = await tx.$queryRaw<
+            Array<{ patchBytes: bigint; resultBytes: bigint }>
+          >`SELECT octet_length(${JSON.stringify(edit.changes)}::jsonb::text)::bigint AS "patchBytes",octet_length(${JSON.stringify(result)}::jsonb::text)::bigint AS "resultBytes"`;
+          if (
+            !size ||
+            size.patchBytes > BigInt(MAX_PLAN_METADATA_PATCH_BYTES) ||
+            size.resultBytes > BigInt(MAX_GOVERNANCE_SNAPSHOT_BYTES)
+          )
+            throw new TRPCError({
+              code: "PRECONDITION_FAILED",
+              message:
+                "Complete native metadata or its reviewed patch exceeds the bounded write. No keys were omitted, repaired or truncated.",
+            });
+          metadataChange = { customFields: result as Prisma.InputJsonValue };
+          metadataReview = {
+            testPlanTypeId: before.testPlanTypeId,
+            fieldSchema: schema.fieldSchema,
+            fieldSchemaHash: schema.fieldSchemaHash,
+            changes: edit.changes,
+          };
+        } else if (operation === "EDIT_PLAN_HEADER") {
+          const header = input as Header;
+          if (before.releaseId)
+            await assertPlanningRelease(tx, input.projectId, before.releaseId);
+          if (
+            (header.name === undefined || header.name === before.name) &&
+            (header.description === undefined ||
+              header.description === before.description)
+          )
+            throw new TRPCError({
+              code: "BAD_REQUEST",
+              message:
+                "The reviewed header contains no native change. Nothing was written or versioned.",
+            });
+          headerChanges = {
+            ...(header.name !== undefined ? { name: header.name } : {}),
+            ...(header.description !== undefined
+              ? { description: header.description }
+              : {}),
+          };
+        } else if (operation === "ADD_CRITERION") {
+          const add = input as Add;
+          if (before.criteria.length >= MAX_GOVERNANCE_CRITERIA)
+            throw new TRPCError({
+              code: "PRECONDITION_FAILED",
+              message:
+                "This plan already contains the bounded maximum criteria. Existing criteria were not removed or truncated.",
+            });
+          if (before.releaseId)
+            await assertPlanningRelease(tx, input.projectId, before.releaseId);
           await assertSameProjectRequirement(
             tx,
             input.projectId,
-            associate.requirementId,
+            add.requirementId,
           );
-          await tx.acceptanceCriterion.update({
-            where: { id: current.id },
-            data: { requirementId: associate.requirementId },
+          const occupied = await tx.acceptanceCriterion.findUnique({
+            where: { id: add.criterionId },
+            select: { id: true },
           });
+          if (occupied)
+            throw new TRPCError({
+              code: "CONFLICT",
+              message:
+                "The new criterion identity is already occupied. No existing criterion was overwritten.",
+            });
+          await tx.acceptanceCriterion.create({
+            data: {
+              id: add.criterionId,
+              testPlanId: input.testPlanId,
+              description: add.description,
+              requirementId: add.requirementId,
+              status: "PENDING",
+            },
+          });
+          criterionId = add.criterionId;
+        } else if (
+          operation === "EDIT_CRITERION_DESCRIPTION" ||
+          operation === "SET_CRITERION_VERDICT" ||
+          operation === "DELETE_CRITERION" ||
+          operation === "SET_CRITERION_REQUIREMENT"
+        ) {
+          const edit = input as Edit | Verdict | Delete | Associate;
+          const current = before.criteria.find(
+            (c) => c.id === edit.criterionId,
+          );
+          if (!current)
+            throw new TRPCError({
+              code: "NOT_FOUND",
+              message: "Criterion not found in this exact plan.",
+            });
+          if (
+            governanceCriterionRevision(current) !==
+            edit.expectedCriterionRevision
+          )
+            throw new TRPCError({
+              code: "CONFLICT",
+              message:
+                "Criterion wording or native association changed after review. The original text was not overwritten.",
+            });
+          if (before.releaseId)
+            await assertPlanningRelease(tx, input.projectId, before.releaseId);
+          if (
+            (operation === "DELETE_CRITERION" ||
+              operation === "SET_CRITERION_REQUIREMENT") &&
+            current.requirementId !== (edit as Delete).expectedRequirementId
+          )
+            throw new TRPCError({
+              code: "CONFLICT",
+              message:
+                "The raw requirement association changed after review. Refresh before changing or removing it.",
+            });
+          if (operation === "DELETE_CRITERION") {
+            await tx.acceptanceCriterion.delete({ where: { id: current.id } });
+          } else if (operation === "SET_CRITERION_REQUIREMENT") {
+            const associate = edit as Associate;
+            await assertSameProjectRequirement(
+              tx,
+              input.projectId,
+              associate.requirementId,
+            );
+            await tx.acceptanceCriterion.update({
+              where: { id: current.id },
+              data: { requirementId: associate.requirementId },
+            });
+          } else {
+            if (operation === "SET_CRITERION_VERDICT")
+              await assertManualVerdict(tx, input);
+            await tx.acceptanceCriterion.update({
+              where: { id: current.id },
+              data:
+                operation === "SET_CRITERION_VERDICT"
+                  ? { status: (edit as Verdict).status }
+                  : { description: (edit as Edit).description },
+            });
+          }
+          criterionId = current.id;
         } else {
-          if (operation === "SET_CRITERION_VERDICT")
-            await assertManualVerdict(tx, input);
-          await tx.acceptanceCriterion.update({
-            where: { id: current.id },
-            data:
-              operation === "SET_CRITERION_VERDICT"
-                ? { status: (edit as Verdict).status }
-                : { description: (edit as Edit).description },
+          const attach = input as Attach;
+          if (before.releaseId !== attach.expectedReleaseId)
+            throw new TRPCError({
+              code: "CONFLICT",
+              message:
+                "This plan is already assigned. No other release lost its quality scope.",
+            });
+          await assertPlanningRelease(tx, input.projectId, attach.releaseId);
+          const updated = await tx.testPlan.updateMany({
+            where: {
+              id: input.testPlanId,
+              projectId: input.projectId,
+              releaseId: null,
+            },
+            data: { releaseId: attach.releaseId, updatedById: actorId },
           });
+          if (updated.count !== 1)
+            throw new TRPCError({
+              code: "CONFLICT",
+              message:
+                "The unassigned plan changed before attachment. Nothing was moved.",
+            });
         }
-        criterionId = current.id;
-      } else {
-        const attach = input as Attach;
-        if (before.releaseId !== attach.expectedReleaseId)
-          throw new TRPCError({
-            code: "CONFLICT",
-            message:
-              "This plan is already assigned. No other release lost its quality scope.",
-          });
-        await assertPlanningRelease(tx, input.projectId, attach.releaseId);
-        const updated = await tx.testPlan.updateMany({
-          where: {
-            id: input.testPlanId,
-            projectId: input.projectId,
-            releaseId: null,
+        const changed = await tx.testPlan.update({
+          where: { id: input.testPlanId },
+          data: {
+            ...headerChanges,
+            ...statusChange,
+            ...metadataChange,
+            updatedById: actorId,
           },
-          data: { releaseId: attach.releaseId, updatedById: actorId },
         });
-        if (updated.count !== 1)
-          throw new TRPCError({
-            code: "CONFLICT",
-            message:
-              "The unassigned plan changed before attachment. Nothing was moved.",
-          });
-      }
-      const changed = await tx.testPlan.update({
-        where: { id: input.testPlanId },
-        data: { ...headerChanges, updatedById: actorId },
-      });
-      const version = await snapshotTestPlanVersion(tx, {
-        testPlanId: changed.id,
-        name: changed.name,
-        description: changed.description,
-        status: changed.status,
-        customFields: changed.customFields,
-        executionTemplate: changed.executionTemplate,
-        actorId,
-      });
-      const after = await snapshot(tx, input, false);
-      const ack = planGovernanceAck.omit({ replayed: true }).parse({
-        scope,
-        requestId: input.requestId,
-        requestHash,
-        operation,
-        testPlanId: input.testPlanId,
-        criterionId,
-        releaseId: after.releaseId,
-        versionId: version.id,
-        versionNumber: version.versionNumber,
-        beforeRevision: governancePlanRevision(before),
-        afterRevision: governancePlanRevision(after),
-      });
-      const metadata = planGovernanceReceipt.parse({
-        format: "PlanGovernance/v1",
-        ack,
-        reason: input.reason,
-        before,
-        after,
-      });
-      validatedGovernanceReceipt(metadata);
-      assertGovernanceReceiptBytes(metadata);
-      await tx.auditLog.create({
-        data: {
-          id: auditId,
-          organizationId: scope.organizationId,
-          projectId: scope.projectId,
+        const version = await snapshotTestPlanVersion(tx, {
+          testPlanId: changed.id,
+          name: changed.name,
+          description: changed.description,
+          status: changed.status,
+          customFields: changed.customFields,
+          executionTemplate: changed.executionTemplate,
           actorId,
-          entityType: ENTITY,
-          entityId: input.testPlanId,
-          action: "UPDATE",
-          summary: {
-            EDIT_CRITERION_DESCRIPTION: "Edited reviewed criterion wording",
-            SET_CRITERION_VERDICT: "Changed reviewed criterion verdict",
-            ADD_CRITERION: "Added a reviewed pending criterion",
-            DELETE_CRITERION:
-              "Removed a reviewed criterion with retained history",
-            SET_CRITERION_REQUIREMENT:
-              "Changed a reviewed criterion requirement association",
-            EDIT_PLAN_HEADER: "Edited reviewed plan name or description",
-            ATTACH_UNASSIGNED_PLAN: "Attached an unassigned quality plan",
-          }[operation],
-          metadata: metadata as Prisma.InputJsonValue,
-        },
-      });
-      // Check actual native JSONB bytes and aggregate while all scope locks are
-      // still held. Expansion never commits a partial/oversized audit snapshot.
-      const [actual] = await tx.$queryRaw<
-        Array<{ bytes: number }>
-      >`SELECT octet_length(metadata::text)::int AS bytes FROM "AuditLog" WHERE id=${auditId}`;
-      if (!actual || actual.bytes > MAX_GOVERNANCE_RECEIPT_BYTES)
-        throw new TRPCError({
-          code: "PRECONDITION_FAILED",
-          message:
-            "Native governance history exceeded its byte limit. The complete change was rolled back.",
         });
-      return planGovernanceAck.parse({ ...ack, replayed: false });
-    },
-    { timeout: 10000, maxWait: 5000 },
-  );
+        const after = await snapshot(tx, input, false);
+        const ack = planGovernanceAck.omit({ replayed: true }).parse({
+          scope,
+          requestId: input.requestId,
+          requestHash,
+          operation,
+          testPlanId: input.testPlanId,
+          criterionId,
+          releaseId: after.releaseId,
+          versionId: version.id,
+          versionNumber: version.versionNumber,
+          beforeRevision: governancePlanRevision(before),
+          afterRevision: governancePlanRevision(after),
+        });
+        const metadata = planGovernanceReceipt.parse({
+          format: "PlanGovernance/v1",
+          ack,
+          reason: input.reason,
+          before,
+          after,
+          ...(metadataReview ? { metadataReview } : {}),
+        });
+        validatedGovernanceReceipt(metadata);
+        assertGovernanceReceiptBytes(metadata);
+        await tx.auditLog.create({
+          data: {
+            id: auditId,
+            organizationId: scope.organizationId,
+            projectId: scope.projectId,
+            actorId,
+            entityType: ENTITY,
+            entityId: input.testPlanId,
+            action: "UPDATE",
+            summary: {
+              EDIT_CRITERION_DESCRIPTION: "Edited reviewed criterion wording",
+              SET_CRITERION_VERDICT: "Changed reviewed criterion verdict",
+              ADD_CRITERION: "Added a reviewed pending criterion",
+              DELETE_CRITERION:
+                "Removed a reviewed criterion with retained history",
+              SET_CRITERION_REQUIREMENT:
+                "Changed a reviewed criterion requirement association",
+              EDIT_PLAN_HEADER: "Edited reviewed plan name or description",
+              SET_PLAN_STATUS:
+                "Changed explicitly reviewed plan lifecycle status",
+              EDIT_PLAN_CUSTOM_FIELDS:
+                "Edited reviewed declared plan metadata fields",
+              ATTACH_UNASSIGNED_PLAN: "Attached an unassigned quality plan",
+            }[operation],
+            metadata: metadata as Prisma.InputJsonValue,
+          },
+        });
+        // Check actual native JSONB bytes and aggregate while all scope locks are
+        // still held. Expansion never commits a partial/oversized audit snapshot.
+        const [actual] = await tx.$queryRaw<
+          Array<{ bytes: number }>
+        >`SELECT octet_length(metadata::text)::int AS bytes FROM "AuditLog" WHERE id=${auditId}`;
+        if (!actual || actual.bytes > MAX_GOVERNANCE_RECEIPT_BYTES)
+          throw new TRPCError({
+            code: "PRECONDITION_FAILED",
+            message:
+              "Native governance history exceeded its byte limit. The complete change was rolled back.",
+          });
+        return planGovernanceAck.parse({ ...ack, replayed: false });
+      },
+      { timeout: 10000, maxWait: 5000 },
+    )
+    .catch((cause: unknown) => {
+      const native = cause as {
+        code?: unknown;
+        meta?: { code?: unknown };
+      } | null;
+      if (
+        native?.code === "P2034" ||
+        native?.code === "40001" ||
+        (native?.code === "P2010" && native.meta?.code === "40001")
+      )
+        throw new TRPCError({
+          code: "CONFLICT",
+          message:
+            "The native governance transaction conflicted and this attempt rolled back. No automatic retry was made. An earlier unacknowledged request may already have applied; preserve its exact UUID/body and inspect available history before a new reviewed request.",
+        });
+      throw cause;
+    });
 }
 export function editGovernedCriterionDescription(
   db: PrismaClient,
@@ -603,6 +848,34 @@ export function editGovernedPlanHeader(
     actorId,
     editPlanHeaderInput.parse(input),
     "EDIT_PLAN_HEADER",
+    authorized,
+  );
+}
+export function setGovernedPlanStatus(
+  db: PrismaClient,
+  actorId: string,
+  input: PlanStatus,
+  authorized: CaseFieldReadAuthorization,
+) {
+  return write(
+    db,
+    actorId,
+    setPlanStatusInput.parse(input),
+    "SET_PLAN_STATUS",
+    authorized,
+  );
+}
+export function editGovernedPlanCustomFields(
+  db: PrismaClient,
+  actorId: string,
+  input: Metadata,
+  authorized: CaseFieldReadAuthorization,
+) {
+  return write(
+    db,
+    actorId,
+    editPlanCustomFieldsInput.parse(input),
+    "EDIT_PLAN_CUSTOM_FIELDS",
     authorized,
   );
 }

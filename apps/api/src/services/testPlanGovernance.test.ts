@@ -12,6 +12,8 @@ import {
   setGovernedCriterionRequirement,
   listGovernanceRequirementChoices,
   editGovernedPlanHeader,
+  setGovernedPlanStatus,
+  editGovernedPlanCustomFields,
 } from "./testPlanGovernance.js";
 import {
   MAX_GOVERNANCE_SNAPSHOT_BYTES,
@@ -19,10 +21,13 @@ import {
   MAX_GOVERNANCE_HISTORY_REVISIONS,
   editCriterionDescriptionInput,
   editPlanHeaderInput,
+  setPlanStatusInput,
+  editPlanCustomFieldsInput,
 } from "./testPlanGovernanceSchema.js";
 import {
   governanceRequestHash,
   validatedGovernanceReceipt,
+  governancePlanRevision,
   boundedGovernanceSnapshot,
 } from "./testPlanGovernanceRevision.js";
 
@@ -33,6 +38,25 @@ function fixture() {
     suspendedAt: null as Date | null,
     clerkActorId: "clerk",
     nativePlanBytes: 1000n,
+    nativeTypeBytes: 1000n,
+    nativePatchBytes: 1000n,
+    nativeMetadataBytes: 1000n,
+    customFieldsExact: true,
+    executionTemplateExact: true,
+    schemaRoundTripExact: true,
+    typeAvailable: true,
+    type: {
+      id: "regression",
+      fieldSchema: {
+        type: "object",
+        properties: {
+          objective: { type: "string" },
+          enabled: { type: "boolean" },
+          count: { type: "number" },
+          areas: { type: "array", items: { type: "string" } },
+        },
+      },
+    } as { id: string; fieldSchema: unknown },
     nativeAuditBytes: null as number | null,
     historyCount: null as number | null,
     hasPlanCases: false,
@@ -98,6 +122,27 @@ function fixture() {
     if (text.includes('FROM "Membership"'))
       return [{ id: "member", role: state.role, seatType: state.seatType }];
     if (text.includes('FROM "Project"')) return [{ organizationId: "org" }];
+    if (text.includes('AS "customFieldsExact"'))
+      return [
+        {
+          customFieldsExact: state.customFieldsExact,
+          executionTemplateExact: state.executionTemplateExact,
+        },
+      ];
+    if (text.includes('FROM "TestPlanType"') && !state.typeAvailable) return [];
+    if (text.includes('AS "schemaRoundTripExact"'))
+      return [{ schemaRoundTripExact: state.schemaRoundTripExact }];
+    if (text.includes('FROM "TestPlanType"'))
+      return text.includes("octet_length")
+        ? [{ bytes: state.nativeTypeBytes }]
+        : [{ id: state.type.id }];
+    if (text.includes('AS "patchBytes"'))
+      return [
+        {
+          patchBytes: state.nativePatchBytes,
+          resultBytes: state.nativeMetadataBytes,
+        },
+      ];
     if (text.includes('FROM "TestPlan"') && text.includes("FOR "))
       return values[0] === state.plan.id && values[1] === state.plan.projectId
         ? [{ id: state.plan.id }]
@@ -209,6 +254,9 @@ function fixture() {
         state.plan.releaseId = "release";
         return { count: 1 };
       }),
+    },
+    testPlanType: {
+      findUnique: vi.fn(async () => ({ fieldSchema: state.type.fieldSchema })),
     },
     acceptanceCriterion: {
       findUnique: vi.fn(
@@ -1203,7 +1251,9 @@ describe("dedicated bounded plan governance (mocked transactions, not native acc
       where: { id: "criterion" },
       data: { description: "Reviewed requirement" },
     });
-    const receipt = [...f.state().audits.values()][0]!.metadata;
+    const receipt = validatedGovernanceReceipt(
+      [...f.state().audits.values()][0]!.metadata,
+    );
     expect(validatedGovernanceReceipt(receipt)).toMatchObject({
       before: { criteria: [{ description: "Original requirement" }] },
       after: {
@@ -1488,5 +1538,686 @@ describe("dedicated bounded plan governance (mocked transactions, not native acc
         criteria: Array.from({ length: 201 }, () => current.criteria[0]),
       }),
     ).toThrow("No criteria");
+  });
+  it("new status/metadata schemas reject mixed header/whole-record/defaulted intents without altering old request hashes", async () => {
+    const f = fixture(),
+      p = await f.preview(),
+      common = {
+        ...f.scope,
+        expectedPlanRevision: p.planRevision,
+        requestId: crypto.randomUUID(),
+        reason: "Reviewed native status",
+        confirmed: true as const,
+      };
+    const status = {
+      ...common,
+      expectedStatus: "DRAFT" as const,
+      status: "ACTIVE" as const,
+      intent: "CHANGE" as const,
+    };
+    expect(setPlanStatusInput.parse(status)).toEqual(status);
+    for (const patch of [
+      { name: "resend" },
+      { customFields: {} },
+      { expectedStatus: "APPROVED" },
+      { status: "DRAFT" },
+      { intent: "REOPEN" },
+    ])
+      expect(
+        setPlanStatusInput.safeParse({ ...status, ...patch }).success,
+      ).toBe(false);
+    const metadata = {
+      ...common,
+      expectedFieldSchemaHash: p.metadataSchema.fieldSchemaHash!,
+      changes: [
+        { operation: "SET" as const, key: "objective", value: " raw\n " },
+      ],
+    };
+    expect(editPlanCustomFieldsInput.parse(metadata)).toEqual(metadata);
+    for (const patch of [
+      { name: "old header" },
+      { status: "APPROVED" },
+      { customFields: {} },
+      { expectedFieldSchemaHash: undefined },
+    ])
+      expect(
+        editPlanCustomFieldsInput.safeParse({ ...metadata, ...patch }).success,
+      ).toBe(false);
+    const old = await f.edit();
+    expect(editCriterionDescriptionInput.parse(old)).toEqual(old);
+    expect(
+      governanceRequestHash({
+        operation: "EDIT_CRITERION_DESCRIPTION",
+        input: old,
+      }),
+    ).toBe(
+      governanceRequestHash({
+        operation: "EDIT_CRITERION_DESCRIPTION",
+        input: editCriterionDescriptionInput.parse(old),
+      }),
+    );
+  });
+  it("preview exposes independent recovery/status/schema capabilities and optional new read activation identity only when supplied", async () => {
+    const f = fixture(),
+      old = await f.preview();
+    expect(old).not.toHaveProperty("requestId");
+    expect(old.canRecover).toBe(true);
+    expect(old.statusActions.canChange).toBe(true);
+    expect(old.metadataSchema.canEdit).toBe(true);
+    const requestId = crypto.randomUUID();
+    expect(
+      await previewPlanGovernance(
+        f.db,
+        "actor",
+        { ...f.scope, requestId },
+        { clerkActorId: "clerk" },
+      ),
+    ).toMatchObject({ requestId, planRevision: old.planRevision });
+    f.state().plan.status = "APPROVED";
+    expect(await f.preview()).toMatchObject({
+      canRecover: true,
+      canEdit: false,
+      statusActions: { canChange: false, canReopen: true },
+      metadataSchema: { canEdit: false },
+    });
+    f.state().plan.releaseId = "release";
+    f.state().release.status = "SHIPPED";
+    expect(await f.preview()).toMatchObject({
+      canRecover: true,
+      statusActions: {
+        canChange: false,
+        canReopen: false,
+        blockedReason: expect.stringMatching(/Reopen/),
+      },
+    });
+    f.state().seatType = "READ_ONLY";
+    expect(await f.preview()).toMatchObject({ canRecover: false });
+  });
+  it("new status changes preserve all raw metadata/criteria/header/configuration and get one scoped full audit/version", async () => {
+    const f = fixture();
+    f.state().plan.customFields = null;
+    f.state().plan.executionTemplate = [" raw ", null, false];
+    const p = await f.preview(),
+      original = p.snapshot;
+    const input = {
+      ...f.scope,
+      expectedPlanRevision: p.planRevision,
+      requestId: crypto.randomUUID(),
+      reason: "Synthetic lifecycle review",
+      confirmed: true as const,
+      expectedStatus: "DRAFT" as const,
+      status: "APPROVED" as const,
+      intent: "CHANGE" as const,
+    };
+    const ack = await setGovernedPlanStatus(f.db, "actor", input, {
+      clerkActorId: "clerk",
+    });
+    expect(ack).toMatchObject({
+      operation: "SET_PLAN_STATUS",
+      criterionId: null,
+    });
+    const after = (await f.preview()).snapshot;
+    expect(after).toMatchObject({
+      name: original.name,
+      description: original.description,
+      customFields: null,
+      executionTemplate: original.executionTemplate,
+      criteria: original.criteria,
+      releaseId: original.releaseId,
+      strategyId: original.strategyId,
+      status: "APPROVED",
+    });
+    expect(f.tx.testPlan.update.mock.calls.at(-1)![0].data).toEqual({
+      status: "APPROVED",
+      updatedById: "actor",
+    });
+    expect(
+      validatedGovernanceReceipt([...f.state().audits.values()][0]!.metadata)
+        .after.status,
+    ).toBe("APPROVED");
+    expect(
+      await setGovernedPlanStatus(f.db, "actor", input, {
+        clerkActorId: "clerk",
+      }),
+    ).toEqual({ ...ack, replayed: true });
+    expect(f.tx.testPlan.update).toHaveBeenCalledTimes(1);
+  });
+  it("explicit REOPEN is the only frozen-plan transition, with attached READY/SHIPPED refusal and exact native CAS", async () => {
+    for (const frozen of ["APPROVED", "ARCHIVED"]) {
+      const f = fixture();
+      f.state().plan.status = frozen;
+      const p = await f.preview(),
+        input = {
+          ...f.scope,
+          expectedPlanRevision: p.planRevision,
+          requestId: crypto.randomUUID(),
+          reason: "Explicit reopen",
+          confirmed: true as const,
+          expectedStatus: frozen as "APPROVED" | "ARCHIVED",
+          status: "DRAFT" as const,
+          intent: "REOPEN" as const,
+        };
+      await setGovernedPlanStatus(f.db, "actor", input, {
+        clerkActorId: "clerk",
+      });
+      expect(f.state().plan.status).toBe("DRAFT");
+      const wrong = fixture();
+      wrong.state().plan.status = frozen;
+      wrong.state().plan.releaseId = "release";
+      wrong.state().release.status = "READY";
+      const blocked = await wrong.preview();
+      await expect(
+        setGovernedPlanStatus(
+          wrong.db,
+          "actor",
+          {
+            ...input,
+            expectedPlanRevision: blocked.planRevision,
+            requestId: crypto.randomUUID(),
+          },
+          { clerkActorId: "clerk" },
+        ),
+      ).rejects.toMatchObject({ code: "CONFLICT" });
+      expect(wrong.tx.testPlan.update).not.toHaveBeenCalled();
+    }
+    const f = fixture(),
+      p = await f.preview(),
+      input = {
+        ...f.scope,
+        expectedPlanRevision: p.planRevision,
+        requestId: crypto.randomUUID(),
+        reason: "Review",
+        confirmed: true as const,
+        expectedStatus: "DRAFT" as const,
+        status: "ACTIVE" as const,
+        intent: "CHANGE" as const,
+      };
+    f.state().plan.name = "concurrent header";
+    await expect(
+      setGovernedPlanStatus(f.db, "actor", input, { clerkActorId: "clerk" }),
+    ).rejects.toMatchObject({ code: "CONFLICT" });
+    expect(f.tx.testPlan.update).not.toHaveBeenCalled();
+  });
+  it("new metadata SET/REMOVE writes preserve exact unknown/native siblings and record genuine raw schema+patch provenance", async () => {
+    const f = fixture();
+    f.state().plan.customFields = JSON.parse(
+      '{"objective":"old","enabled":false,"count":0,"areas":["same","same",""],"__proto__":{"keep":true},"future":{"raw":[false,null," x "]}}',
+    );
+    const p = await f.preview(),
+      before = p.snapshot;
+    const input = {
+      ...f.scope,
+      expectedPlanRevision: p.planRevision,
+      expectedFieldSchemaHash: p.metadataSchema.fieldSchemaHash!,
+      requestId: crypto.randomUUID(),
+      reason: "Reviewed raw fields",
+      confirmed: true as const,
+      changes: [
+        {
+          operation: "SET" as const,
+          key: "objective",
+          value: " raw\n objective ",
+        },
+        { operation: "REMOVE" as const, key: "enabled" },
+        {
+          operation: "SET" as const,
+          key: "areas",
+          value: ["", "same", "same", " exact\n"],
+        },
+      ],
+    };
+    const ack = await editGovernedPlanCustomFields(f.db, "actor", input, {
+      clerkActorId: "clerk",
+    });
+    expect(ack).toMatchObject({
+      operation: "EDIT_PLAN_CUSTOM_FIELDS",
+      criterionId: null,
+    });
+    const receipt = validatedGovernanceReceipt(
+      [...f.state().audits.values()][0]!.metadata,
+    );
+    expect(receipt.metadataReview).toEqual({
+      testPlanTypeId: before.testPlanTypeId,
+      fieldSchema: f.state().type.fieldSchema,
+      fieldSchemaHash: input.expectedFieldSchemaHash,
+      changes: input.changes,
+    });
+    expect(receipt.after).toMatchObject({
+      name: before.name,
+      status: before.status,
+      criteria: before.criteria,
+      executionTemplate: before.executionTemplate,
+      releaseId: before.releaseId,
+    });
+    const after = receipt.after.customFields as Record<string, unknown>;
+    expect(after.objective).toBe(" raw\n objective ");
+    expect(after.areas).toEqual(["", "same", "same", " exact\n"]);
+    expect(Object.hasOwn(after, "enabled")).toBe(false);
+    expect(after.future).toEqual(
+      (before.customFields as Record<string, unknown>).future,
+    );
+    expect(Object.hasOwn(after, "__proto__")).toBe(true);
+    expect(
+      await editGovernedPlanCustomFields(f.db, "actor", input, {
+        clerkActorId: "clerk",
+      }),
+    ).toEqual({ ...ack, replayed: true });
+    expect(f.tx.testPlan.update).toHaveBeenCalledTimes(1);
+  });
+  it("oversized/unsupported type schema does not trap old status/header receipts or expose fabricated metadata schema/hash", async () => {
+    const f = fixture(),
+      p = await f.preview(),
+      status = {
+        ...f.scope,
+        expectedPlanRevision: p.planRevision,
+        requestId: crypto.randomUUID(),
+        reason: "Review",
+        confirmed: true as const,
+        expectedStatus: "DRAFT" as const,
+        status: "ACTIVE" as const,
+        intent: "CHANGE" as const,
+      };
+    const ack = await setGovernedPlanStatus(f.db, "actor", status, {
+      clerkActorId: "clerk",
+    });
+    f.state().nativeTypeBytes = 32769n;
+    const reads = f.tx.testPlanType.findUnique.mock.calls.length;
+    expect(await f.preview()).toMatchObject({
+      canRecover: true,
+      metadataSchema: {
+        fieldSchema: null,
+        fieldSchemaHash: null,
+        supported: false,
+        canEdit: false,
+      },
+    });
+    expect(f.tx.testPlanType.findUnique.mock.calls).toHaveLength(reads);
+    expect(
+      await setGovernedPlanStatus(f.db, "actor", status, {
+        clerkActorId: "clerk",
+      }),
+    ).toEqual({ ...ack, replayed: true });
+    expect(f.tx.testPlanType.findUnique.mock.calls).toHaveLength(reads);
+    const q = await f.preview();
+    await editGovernedPlanHeader(
+      f.db,
+      "actor",
+      {
+        ...f.scope,
+        expectedPlanRevision: q.planRevision,
+        requestId: crypto.randomUUID(),
+        reason: "Header independent of unsupported metadata type",
+        confirmed: true,
+        name: "Updated header",
+      },
+      { clerkActorId: "clerk" },
+    );
+    expect(f.state().plan.name).toBe("Updated header");
+  });
+  it("refuses new status, header, criterion and metadata writes before any mutation/version when either complete native JSON column fails round-trip", async () => {
+    for (const column of [
+      "customFieldsExact",
+      "executionTemplateExact",
+    ] as const) {
+      for (const operation of ["status", "header", "criterion", "metadata"]) {
+        const f = fixture(),
+          p = await f.preview(),
+          base = {
+            ...f.scope,
+            expectedPlanRevision: p.planRevision,
+            requestId: crypto.randomUUID(),
+            reason: "Codec boundary review",
+            confirmed: true as const,
+          };
+        f.state()[column] = false;
+        const before = structuredClone(f.state().plan);
+        const call =
+          operation === "status"
+            ? setGovernedPlanStatus(
+                f.db,
+                "actor",
+                {
+                  ...base,
+                  expectedStatus: "DRAFT",
+                  status: "ACTIVE",
+                  intent: "CHANGE",
+                },
+                { clerkActorId: "clerk" },
+              )
+            : operation === "header"
+              ? editGovernedPlanHeader(
+                  f.db,
+                  "actor",
+                  { ...base, name: "Different" },
+                  { clerkActorId: "clerk" },
+                )
+              : operation === "criterion"
+                ? editGovernedCriterionDescription(
+                    f.db,
+                    "actor",
+                    {
+                      ...base,
+                      criterionId: "criterion",
+                      expectedCriterionRevision:
+                        p.criterionRevisions.criterion!,
+                      description: "Different",
+                    },
+                    { clerkActorId: "clerk" },
+                  )
+                : editGovernedPlanCustomFields(
+                    f.db,
+                    "actor",
+                    {
+                      ...base,
+                      expectedFieldSchemaHash:
+                        p.metadataSchema.fieldSchemaHash!,
+                      changes: [
+                        {
+                          operation: "SET",
+                          key: "objective",
+                          value: "Different",
+                        },
+                      ],
+                    },
+                    { clerkActorId: "clerk" },
+                  );
+        await expect(call).rejects.toMatchObject({
+          code: "PRECONDITION_FAILED",
+          message: expect.stringContaining("codec"),
+        });
+        expect(f.state().plan).toEqual(before);
+        expect(f.tx.testPlan.update).not.toHaveBeenCalled();
+        expect(f.tx.acceptanceCriterion.update).not.toHaveBeenCalled();
+        expect(f.state().versions).toHaveLength(1);
+        expect(f.state().audits.size).toBe(0);
+      }
+    }
+  });
+  it("binds exact safely encoded complete JSON, preserving JSON null while refusing a native SQL-null mismatch", async () => {
+    const f = fixture();
+    f.state().plan.customFields = null;
+    f.state().plan.executionTemplate = [false, 0, " raw\n", { nested: null }];
+    await editGovernedPlanHeader(
+      f.db,
+      "actor",
+      { ...(await headerInput(f)), name: "Exact JSON" },
+      { clerkActorId: "clerk" },
+    );
+    const call = f.tx.$queryRaw.mock.calls.find(
+      ([query]) =>
+        Array.isArray(query) &&
+        query.join("?").includes('AS "customFieldsExact"'),
+    )!;
+    expect(call.slice(1)).toEqual([
+      "null",
+      '[false,0," raw\\n",{"nested":null}]',
+      "plan",
+      "project",
+    ]);
+    expect((call[0] as string[]).join("?")).toContain(
+      '"customFields" IS NOT DISTINCT FROM ?::jsonb',
+    );
+    const g = fixture();
+    g.state().plan.customFields = null;
+    g.state().customFieldsExact = false; // Native SQL NULL != encoded JSON null.
+    await expect(
+      editGovernedPlanHeader(
+        g.db,
+        "actor",
+        { ...(await headerInput(g)), name: "Refused SQL null" },
+        { clerkActorId: "clerk" },
+      ),
+    ).rejects.toMatchObject({ code: "PRECONDITION_FAILED" });
+    expect(g.tx.testPlan.update).not.toHaveBeenCalled();
+  });
+  it("accepted exact UUID replay bypasses later codec mismatches without new writes or version captures", async () => {
+    const f = fixture(),
+      input = {
+        ...(await headerInput(f)),
+        name: "Accepted before codec change",
+      };
+    const ack = await editGovernedPlanHeader(f.db, "actor", input, {
+      clerkActorId: "clerk",
+    });
+    f.state().customFieldsExact = false;
+    f.state().executionTemplateExact = false;
+    f.state().schemaRoundTripExact = false;
+    const checks = f.calls.filter((text) =>
+      text.includes('AS "customFieldsExact"'),
+    ).length;
+    expect(
+      await editGovernedPlanHeader(f.db, "actor", input, {
+        clerkActorId: "clerk",
+      }),
+    ).toEqual({ ...ack, replayed: true });
+    expect(
+      f.calls.filter((text) => text.includes('AS "customFieldsExact"')),
+    ).toHaveLength(checks);
+    expect(f.tx.testPlan.update).toHaveBeenCalledTimes(1);
+    expect(f.state().audits.size).toBe(1);
+  });
+  it("withholds inexact native schema provenance/hash and refuses metadata while header/status and exact recovery remain independent", async () => {
+    const f = fixture(),
+      p = await f.preview();
+    f.state().schemaRoundTripExact = false;
+    expect(await f.preview()).toMatchObject({
+      canRecover: true,
+      statusActions: { canChange: true },
+      metadataSchema: {
+        fieldSchema: null,
+        fieldSchemaHash: null,
+        supported: false,
+        canEdit: false,
+      },
+    });
+    await expect(
+      editGovernedPlanCustomFields(
+        f.db,
+        "actor",
+        {
+          ...f.scope,
+          expectedPlanRevision: p.planRevision,
+          expectedFieldSchemaHash: p.metadataSchema.fieldSchemaHash!,
+          requestId: crypto.randomUUID(),
+          reason: "Refuse inexact schema",
+          confirmed: true,
+          changes: [{ operation: "SET", key: "objective", value: "new" }],
+        },
+        { clerkActorId: "clerk" },
+      ),
+    ).rejects.toMatchObject({ code: "PRECONDITION_FAILED" });
+    expect(f.tx.testPlan.update).not.toHaveBeenCalled();
+    await editGovernedPlanHeader(
+      f.db,
+      "actor",
+      { ...(await headerInput(f)), name: "Schema-independent header" },
+      { clerkActorId: "clerk" },
+    );
+    expect(f.state().plan.name).toBe("Schema-independent header");
+  });
+  it("metadata new writes reject stale schema/native plan revision, frozen state, incompatible root/keys and native patch/result expansion before mutation", async () => {
+    const make = async (f: ReturnType<typeof fixture>) => {
+      const p = await f.preview();
+      return {
+        ...f.scope,
+        expectedPlanRevision: p.planRevision,
+        expectedFieldSchemaHash: p.metadataSchema.fieldSchemaHash!,
+        requestId: crypto.randomUUID(),
+        reason: "Synthetic metadata review",
+        confirmed: true as const,
+        changes: [
+          { operation: "SET" as const, key: "objective", value: "new" },
+        ],
+      };
+    };
+    for (const changes of [
+      { nativeTypeBytes: 32769n },
+      { typeAvailable: false },
+      { nativePatchBytes: 65537n },
+      { nativeMetadataBytes: BigInt(MAX_GOVERNANCE_SNAPSHOT_BYTES + 1) },
+    ]) {
+      const f = fixture(),
+        input = await make(f);
+      Object.assign(f.state(), changes);
+      await expect(
+        editGovernedPlanCustomFields(f.db, "actor", input, {
+          clerkActorId: "clerk",
+        }),
+      ).rejects.toMatchObject({ code: "PRECONDITION_FAILED" });
+      expect(f.tx.testPlan.update).not.toHaveBeenCalled();
+    }
+    const schema = fixture(),
+      input = await make(schema);
+    schema.state().type.fieldSchema = {
+      type: "object",
+      properties: { objective: { type: "number" } },
+    };
+    await expect(
+      editGovernedPlanCustomFields(schema.db, "actor", input, {
+        clerkActorId: "clerk",
+      }),
+    ).rejects.toMatchObject({ code: "CONFLICT" });
+    for (const changes of [
+      { status: "APPROVED" },
+      { status: "ARCHIVED" },
+      { customFields: null },
+      { customFields: ["retained"] },
+    ]) {
+      const f = fixture();
+      Object.assign(f.state().plan, changes);
+      const reviewed = await make(f);
+      await expect(
+        editGovernedPlanCustomFields(f.db, "actor", reviewed, {
+          clerkActorId: "clerk",
+        }),
+      ).rejects.toMatchObject({
+        code: ["APPROVED", "ARCHIVED"].includes(f.state().plan.status)
+          ? "CONFLICT"
+          : "PRECONDITION_FAILED",
+      });
+      expect(f.tx.testPlan.update).not.toHaveBeenCalled();
+    }
+  });
+  it("metadata receipt replay precedes later unsupported schemas and refuses new intent under an old UUID", async () => {
+    const f = fixture(),
+      p = await f.preview(),
+      input = {
+        ...f.scope,
+        expectedPlanRevision: p.planRevision,
+        expectedFieldSchemaHash: p.metadataSchema.fieldSchemaHash!,
+        requestId: crypto.randomUUID(),
+        reason: "Review",
+        confirmed: true as const,
+        changes: [
+          { operation: "SET" as const, key: "objective", value: "raw" },
+        ],
+      };
+    const ack = await editGovernedPlanCustomFields(f.db, "actor", input, {
+      clerkActorId: "clerk",
+    });
+    f.state().nativeTypeBytes = 999999n;
+    f.state().type.fieldSchema = { unsupported: "future" };
+    f.state().plan.status = "APPROVED";
+    const reads = f.tx.testPlanType.findUnique.mock.calls.length;
+    expect(
+      await editGovernedPlanCustomFields(f.db, "actor", input, {
+        clerkActorId: "clerk",
+      }),
+    ).toEqual({ ...ack, replayed: true });
+    expect(f.tx.testPlanType.findUnique.mock.calls).toHaveLength(reads);
+    await expect(
+      editGovernedPlanCustomFields(
+        f.db,
+        "actor",
+        {
+          ...input,
+          changes: [
+            { operation: "SET", key: "objective", value: "replacement" },
+          ],
+        },
+        { clerkActorId: "clerk" },
+      ),
+    ).rejects.toMatchObject({ code: "CONFLICT" });
+    expect(f.tx.testPlan.update).toHaveBeenCalledTimes(1);
+    f.state().seatType = "READ_ONLY";
+    await expect(
+      editGovernedPlanCustomFields(f.db, "actor", input, {
+        clerkActorId: "clerk",
+      }),
+    ).rejects.toMatchObject({ code: "FORBIDDEN" });
+  });
+  it("native transaction serialization/deadlock rollback is a typed conflict with no automatic retry or earlier-ACK rejection claim", async () => {
+    for (const cause of [
+      { code: "P2034" },
+      { code: "40001" },
+      { code: "P2010", meta: { code: "40001" } },
+    ]) {
+      const f = fixture(),
+        p = await f.preview(),
+        input = {
+          ...f.scope,
+          expectedPlanRevision: p.planRevision,
+          requestId: crypto.randomUUID(),
+          reason: "Review",
+          confirmed: true as const,
+          expectedStatus: "DRAFT" as const,
+          status: "ACTIVE" as const,
+          intent: "CHANGE" as const,
+        };
+      f.tx.$queryRaw.mockRejectedValueOnce(cause);
+      const error = await setGovernedPlanStatus(f.db, "actor", input, {
+        clerkActorId: "clerk",
+      }).catch((value) => value);
+      expect(error.code).toBe("CONFLICT");
+      expect(error.message).toContain("No automatic retry");
+      expect(error.message).toContain(
+        "earlier unacknowledged request may already have applied",
+      );
+      expect(f.tx.testPlan.update).not.toHaveBeenCalled();
+      expect(f.state().audits.size).toBe(0);
+    }
+  });
+  it("new receipts reject forged header/status/unknown metadata changes even when a forged after hash is recomputed", async () => {
+    const f = fixture(),
+      p = await f.preview(),
+      input = {
+        ...f.scope,
+        expectedPlanRevision: p.planRevision,
+        expectedFieldSchemaHash: p.metadataSchema.fieldSchemaHash!,
+        requestId: crypto.randomUUID(),
+        reason: "Review",
+        confirmed: true as const,
+        changes: [
+          { operation: "SET" as const, key: "objective", value: "raw" },
+        ],
+      };
+    await editGovernedPlanCustomFields(f.db, "actor", input, {
+      clerkActorId: "clerk",
+    });
+    const receipt = validatedGovernanceReceipt(
+      [...f.state().audits.values()][0]!.metadata,
+    );
+    for (const mutate of [
+      (r: ReturnType<typeof validatedGovernanceReceipt>) => {
+        r.after.status = "APPROVED";
+      },
+      (r: ReturnType<typeof validatedGovernanceReceipt>) => {
+        r.after.name = "forged";
+      },
+      (r: ReturnType<typeof validatedGovernanceReceipt>) => {
+        (r.after.customFields as Record<string, unknown>).unknown = "lost";
+      },
+      (r: ReturnType<typeof validatedGovernanceReceipt>) => {
+        delete r.metadataReview;
+      },
+      (r: ReturnType<typeof validatedGovernanceReceipt>) => {
+        r.metadataReview!.fieldSchemaHash = "a".repeat(64);
+      },
+    ]) {
+      const forged = structuredClone(receipt);
+      mutate(forged);
+      forged.ack.afterRevision = governancePlanRevision(forged.after);
+      expect(() => validatedGovernanceReceipt(forged)).toThrow();
+    }
   });
 });

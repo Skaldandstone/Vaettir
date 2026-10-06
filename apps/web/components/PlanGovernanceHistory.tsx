@@ -3,7 +3,7 @@ import { useState } from "react";
 import { trpcReact } from "@/lib/trpcReact";
 import { useCaseFieldAccess } from "@/lib/use-case-field-access";
 import { sameGovernanceReader } from "@/lib/plan-governance-receipt";
-import { governanceCriterionValue, governanceHeaderDescription, governanceOperationLabel } from "@/lib/plan-governance-display";
+import { governanceCriterionValue, governanceHeaderDescription, governanceOperationLabel, governanceMetadataValue } from "@/lib/plan-governance-display";
 export function PlanGovernanceHistory({
   projectId,
   testPlanId,
@@ -52,7 +52,7 @@ export function PlanGovernanceHistory({
       : null;
   return (
     <details onToggle={(event) => setOpen(event.currentTarget.open)}>
-      <summary>Governed header, criteria and assignment history</summary>
+      <summary>Governed plan, fields, criteria and assignment history</summary>
       <p className="text-muted">
         These new governance entries retain complete plan scalar fields, native
         criteria and release assignment, linked to a plan version. Legacy plan
@@ -83,7 +83,7 @@ export function PlanGovernanceHistory({
           {!fresh && !query.error && <p>Loading bounded history…</p>}
           {fresh?.entries.length === 0 && (
             <p>
-              No governed header, criterion or assignment changes on this page. Legacy
+              No governed plan, field, criterion or assignment changes on this page. Legacy
               versions remain in the plan's own history.
             </p>
           )}
@@ -102,6 +102,18 @@ export function PlanGovernanceHistory({
                   <p>Before description: {governanceHeaderDescription(entry.receipt.before.description)}</p>
                   <p>After description: {governanceHeaderDescription(entry.receipt.after.description)}</p>
                 </div>
+              ) : entry.receipt.ack.operation === "SET_PLAN_STATUS" ? (
+                <p>Native lifecycle: {entry.receipt.before.status} → {entry.receipt.after.status}. This label is not a compliance sign-off or proof of passing evidence; reopening does not change any criterion verdict.</p>
+              ) : entry.receipt.ack.operation === "EDIT_PLAN_CUSTOM_FIELDS" ? (
+                <section>
+                  <p>Only the reviewed declared keys changed. Other native metadata and plan status stayed retained.</p>
+                  {entry.receipt.metadataReview?.changes.map(change => <div key={change.key}>
+                    <strong>{change.operation === "REMOVE" ? "Remove" : "Set"} <code>{JSON.stringify(change.key)}</code></strong>
+                    <pre style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>Before: {governanceMetadataValue(entry.receipt.before.customFields, change.key)}</pre>
+                    <pre style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>After: {governanceMetadataValue(entry.receipt.after.customFields, change.key)}</pre>
+                  </div>)}
+                  {entry.receipt.metadataReview && <details><summary>Retained reviewed field schema</summary><code>{entry.receipt.metadataReview.fieldSchemaHash}</code><pre style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>{JSON.stringify(entry.receipt.metadataReview.fieldSchema, null, 2)}</pre></details>}
+                </section>
               ) : entry.receipt.ack.criterionId ? (
                 <>
                   <p>

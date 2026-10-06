@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { caseFieldReadScopeSchema } from "./caseFieldReadScope.js";
+import { planMetadataChanges } from "./testPlanMetadataSchema.js";
 const id = z.string().min(1).max(200),
   hash = z.string().regex(/^[a-f0-9]{64}$/);
 export const MAX_GOVERNANCE_CRITERIA = 200;
@@ -13,6 +14,7 @@ export const planGovernanceScopeInput = z
     testPlanId: id,
     originalOrganizationId: id,
     expectedClerkActorId: id,
+    requestId: z.string().uuid().optional(),
   })
   .strict();
 const write = planGovernanceScopeInput.extend({
@@ -21,6 +23,35 @@ const write = planGovernanceScopeInput.extend({
   reason: z.string().trim().min(1).max(1000),
   confirmed: z.literal(true),
 });
+export const nativePlanStatus = z.enum([
+  "DRAFT",
+  "ACTIVE",
+  "IN_REVIEW",
+  "APPROVED",
+  "ARCHIVED",
+]);
+export const setPlanStatusInput = write
+  .extend({
+    expectedStatus: nativePlanStatus,
+    status: nativePlanStatus,
+    intent: z.enum(["CHANGE", "REOPEN"]),
+  })
+  .strict()
+  .superRefine((input, ctx) => {
+    const frozen = ["APPROVED", "ARCHIVED"].includes(input.expectedStatus);
+    if (
+      input.status === input.expectedStatus ||
+      (input.intent === "REOPEN" ? !frozen || input.status !== "DRAFT" : frozen)
+    )
+      ctx.addIssue({
+        code: "custom",
+        message:
+          "Review a distinct status change, or explicitly reopen an approved/archived plan to DRAFT.",
+      });
+  });
+export const editPlanCustomFieldsInput = write
+  .extend({ expectedFieldSchemaHash: hash, changes: planMetadataChanges })
+  .strict();
 export const editPlanHeaderInput = write
   .extend({
     name: z
@@ -175,6 +206,25 @@ export const planGovernancePreviewOutput = z
     canEdit: z.boolean(),
     editBlockedReason: z.string().nullable(),
     manualVerdicts: z.boolean(),
+    canRecover: z.boolean(),
+    requestId: z.string().uuid().optional(),
+    statusActions: z
+      .object({
+        canChange: z.boolean(),
+        canReopen: z.boolean(),
+        blockedReason: z.string().nullable(),
+      })
+      .strict(),
+    metadataSchema: z
+      .object({
+        testPlanTypeId: id,
+        fieldSchema: z.unknown(),
+        fieldSchemaHash: hash.nullable(),
+        supported: z.boolean(),
+        canEdit: z.boolean(),
+        blockedReason: z.string().nullable(),
+      })
+      .strict(),
   })
   .strict();
 export const planGovernanceAck = z
@@ -190,6 +240,8 @@ export const planGovernanceAck = z
       "DELETE_CRITERION",
       "SET_CRITERION_REQUIREMENT",
       "EDIT_PLAN_HEADER",
+      "SET_PLAN_STATUS",
+      "EDIT_PLAN_CUSTOM_FIELDS",
     ]),
     testPlanId: id,
     criterionId: id.nullable(),
@@ -217,6 +269,15 @@ export const planGovernanceReceipt = z
     reason: z.string().max(1000),
     before: planGovernanceSnapshot,
     after: planGovernanceSnapshot,
+    metadataReview: z
+      .object({
+        testPlanTypeId: id,
+        fieldSchema: z.unknown(),
+        fieldSchemaHash: hash,
+        changes: planMetadataChanges,
+      })
+      .strict()
+      .optional(),
   })
   .strict();
 export const planGovernanceHistoryOutput = z

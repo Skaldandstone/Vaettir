@@ -4,7 +4,7 @@ import { readFileSync } from "node:fs";
 import vm from "node:vm";
 import React from "react";
 import ts from "typescript";
-import { legacyPlanMetadataPatch, planMetadataChanges, planMetadataRecord } from "./plan-root-metadata.ts";
+import { planMetadataChanges } from "./plan-root-metadata.ts";
 import { describeRetainedPlanValue } from "./plan-custom-fields.ts";
 
 const source = readFileSync(new URL("../components/TestPlanDetailContent.tsx", import.meta.url), "utf8");
@@ -17,75 +17,67 @@ function elements(element) {
   if (!React.isValidElement(element)) return [];
   return [element, ...React.Children.toArray(element.props.children).flatMap(elements)];
 }
-function render({ error = null, loadError = null, readOnly = false, saving = false, draft = {}, data = plan } = {}) {
-  let hook = 0;
-  const inputs = [];
+function render({ loadError = null, readOnly = false, data = plan, projectId = "synthetic-project" } = {}) {
+  const legacyAccesses = [];
   const utils = { testPlans: { byId: { invalidate() {} }, history: { invalidate() {} } } };
   const sandbox = {
     React,
-    legacyPlanMetadataPatch, planMetadataChanges, planMetadataRecord, describeRetainedPlanValue,
-    useState(initial) { const index = hook++; return [index === 0 ? saving : index === 2 ? error : index === 3 ? draft : initial, () => {}]; },
+    planMetadataChanges, describeRetainedPlanValue,
+    useAuth: () => ({ isLoaded: true, isSignedIn: true, userId: "synthetic-actor" }),
+    useState(initial) { return [typeof initial === "function" ? initial() : initial, () => {}]; },
     trpcReact: {
       useUtils: () => utils,
-      testPlans: { byId: { useQuery: () => ({ data, error: loadError && { message: loadError } }) }, update: { useMutation: () => ({ mutateAsync: async value => { inputs.push(value); } }) }, addAcceptanceCriterion: { useMutation: () => ({}) }, deleteAcceptanceCriterion: { useMutation: () => ({}) } },
+      testPlans: { byId: { useQuery: () => ({ data, error: loadError && { message: loadError } }) }, get update() { legacyAccesses.push("update"); throw Error("Legacy whole-plan writes must never be mounted"); } },
+      project: { byId: { useQuery: () => ({ data: { id: projectId, organizationId: "synthetic-org" } }) } },
       requirements: { list: { useQuery: () => ({ data: [], error: null }) } },
     },
-    PlanExecutionModal: "plan-execution", PlanCustomFieldsForm: "custom-fields",
-    CriterionDescriptionEditor: "criterion-wording", CriterionVerdictEditor: "criterion-verdict", GovernedCriterionCollection: "criterion-collection", PlanHeaderEditor: "plan-header", PlanGovernanceHistory: "governance-history", STATUSES: ["DRAFT", "ACTIVE", "IN_REVIEW", "APPROVED"],
+    PlanExecutionModal: "plan-execution", PlanStatusEditor: "plan-status", PlanCustomFieldsEditor: "plan-fields",
+    CriterionDescriptionEditor: "criterion-wording", CriterionVerdictEditor: "criterion-verdict", GovernedCriterionCollection: "criterion-collection", PlanHeaderEditor: "plan-header", PlanGovernanceHistory: "governance-history",
   };
   vm.createContext(sandbox); vm.runInContext(compiled, sandbox);
-  return { nodes: elements(sandbox.TestPlanDetailContent({ id: "synthetic", readOnly })), inputs };
+  return { nodes: elements(sandbox.TestPlanDetailContent({ id: "synthetic", projectId, readOnly })), legacyAccesses };
 }
 function renderHistory(data, error = null) {
   const sandbox = { React, planMetadataChanges, trpcReact: {testPlans: {history: {useQuery: () => ({data,error,isPending:false,refetch() {}})}}} };
   vm.createContext(sandbox);vm.runInContext(compiled,sandbox);
   return elements(sandbox.VersionHistorySection({testPlanId:"synthetic"}));
 }
-test("actual plan component keeps mounted fields and governed editors when a save/refetch reports an error", () => {
-  for (const values of [{ error: "Synthetic lost acknowledgement" }, { loadError: "Synthetic refetch failure" }]) {
+test("actual plan component keeps independent governed editors mounted across retained and unavailable read errors", () => {
+  for (const values of [{ loadError: "Synthetic refetch failure" }, { loadError: "Synthetic original access loss", data: undefined }]) {
     const { nodes } = render(values);
     assert.ok(nodes.some(node => node.props.role === "alert"));
-    for (const type of ["custom-fields", "criterion-wording", "criterion-verdict", "criterion-collection", "plan-header", "governance-history"]) assert.ok(nodes.some(node => node.type === type), `${type} stays mounted`);
+    for (const type of ["plan-fields", "plan-status", "plan-header"]) assert.ok(nodes.some(node => node.type === type), `${type} stays mounted`);
   }
 });
-test("actual plan role hiding preserves mounted edit children, and pending saves disable the complete field group", () => {
+test("actual parent role hiding preserves each independently guarded controller, not a shared legacy mutation", () => {
   const readonly = render({ readOnly: true }).nodes;
   assert.ok(readonly.some(node => node.type === "plan-header" && node.props.readOnly === true));
-  assert.ok(readonly.some(node => node.type === "custom-fields"));
-  assert.ok(readonly.some(node => node.type === "div" && node.props.hidden === true && elements(node).some(child => child.type === "custom-fields")));
-  assert.ok(render({ saving: true }).nodes.some(node => node.type === "fieldset" && node.props.disabled === true));
+  for (const type of ["plan-fields", "plan-status"]) assert.ok(readonly.some(node => node.type === type && node.props.readOnly === true));
+  assert.deepEqual(render({ readOnly: true }).legacyAccesses, []);
 });
-test("legacy settings save never resends header text, even if a retained older draft contains it", async () => {
-  for (const draft of [{}, { name: "Older cached name", description: "" }, { description: " line\n, text " }]) {
-    const { nodes, inputs } = render({ draft });
-    await nodes.find(node => node.type === "button" && node.props.children === "Save status and fields").props.onClick();
-    assert.equal(inputs.length, 1);
-    assert.equal(Object.hasOwn(inputs[0], "description"), false);
-    assert.equal(Object.hasOwn(inputs[0], "name"), false);
-    assert.equal(inputs[0].status, "DRAFT");
-    assert.equal(Object.hasOwn(inputs[0], "customFields"), false);
-  }
-  for (const values of [{ readOnly: true }, { saving: true }]) {
-    const { nodes, inputs } = render(values);
-    await nodes.find(node => node.type === "button" && ["Save status and fields", "Saving…"].includes(node.props.children)).props.onClick();
-    assert.equal(inputs.length, 0);
-  }
+test("whole-record legacy save is absent rather than resending stale header/status/metadata", () => {
+  const { nodes, legacyAccesses } = render();
+  assert.equal(nodes.some(node => node.type === "button" && node.props.children === "Save status and fields"), false);
+  assert.deepEqual(legacyAccesses, []);
+  assert.doesNotMatch(source, /testPlans\.update\.useMutation|legacyPlanMetadataPatch|updateMutation\.mutateAsync/);
+  for (const type of ["plan-header", "plan-status", "plan-fields"]) assert.ok(nodes.some(node => node.type === type));
 });
-test("retained native NULL/array/scalar metadata keeps governed editors mounted and is never replaced by a status save", async () => {
+test("retained native NULL/array/scalar metadata keeps status/field controllers mounted without fabricated defaults", () => {
   for (const customFields of [null, [" retained ", false, 0], "exact prose", false, 0]) {
-    const { nodes, inputs } = render({ data: { ...plan, customFields } });
+    const { nodes, legacyAccesses } = render({ data: { ...plan, customFields } });
     assert.ok(nodes.some(node => node.type === "plan-header"));
     assert.ok(nodes.some(node => node.type === "governance-history"));
-    assert.equal(nodes.some(node => node.type === "custom-fields"), false);
-    await nodes.find(node => node.type === "button" && node.props.children === "Save status and fields").props.onClick();
-    assert.equal(inputs.length, 1); assert.equal(Object.hasOwn(inputs[0], "customFields"), false);
+    assert.ok(nodes.some(node => node.type === "plan-status")); assert.ok(nodes.some(node => node.type === "plan-fields"));
+    assert.ok(nodes.some(node => node.type === "pre" && node.props.children === describeRetainedPlanValue(customFields, true)));
+    assert.deepEqual(legacyAccesses, []);
   }
 });
-test("explicit ordinary metadata edits remain lossless without echoing header fields", async () => {
-  const customFields = { raw: " exact\ntext ", future: [false, 0, null] };
-  const {nodes,inputs}=render({draft:{customFields}});
-  await nodes.find(node=>node.type === "button" && node.props.children === "Save status and fields").props.onClick();
-  assert.equal(inputs[0].customFields, customFields);assert.equal(Object.hasOwn(inputs[0],"name"),false);assert.equal(Object.hasOwn(inputs[0],"description"),false);
+test("route-project mismatch hides unrelated body while current-scoped controls remain mounted", () => {
+  const { nodes, legacyAccesses } = render({ data: { ...plan, projectId: "different-project" } });
+  assert.equal(nodes.some(node => node.type === "h1" && node.props.children === plan.name), false);
+  assert.ok(nodes.some(node => node.props.role === "alert"));
+  for (const type of ["plan-header", "plan-status", "plan-fields"]) assert.ok(nodes.some(node => node.type === type && node.props.projectId === "synthetic-project"));
+  assert.deepEqual(legacyAccesses, []);
 });
 test("history read errors never become No history yet, and retained root JSON is diffed without crashing",()=>{
   const failed=renderHistory([], {message:"Synthetic bounded history refusal"});
@@ -108,6 +100,8 @@ test("plan drawer and route never reuse one plan's mounted drafts as another pla
   const page = readFileSync(new URL("../app/projects/[projectId]/test-plans/[id]/page.tsx", import.meta.url), "utf8");
   assert.match(drawer, /<TestPlanDetailContent\s+key=\{openPlanId\}\s+id=\{openPlanId\}/);
   assert.match(page, /<TestPlanDetailContent key=\{params.id\} id=\{params.id\}/);
+  assert.match(drawer, /projectId=\{projectId\}/);
+  assert.match(page, /projectId=\{params.projectId\}/);
 });
 test("both plan and release mount guarded criterion collection, not unbounded legacy add/remove pickers", () => {
   const release = readFileSync(new URL("../app/projects/[projectId]/releases/[releaseId]/page.tsx", import.meta.url), "utf8");

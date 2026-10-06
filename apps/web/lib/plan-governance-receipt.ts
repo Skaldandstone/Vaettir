@@ -69,7 +69,9 @@ export type GovernancePending<T> = {
     | "ADD_CRITERION"
     | "DELETE_CRITERION"
     | "SET_CRITERION_REQUIREMENT"
-    | "EDIT_PLAN_HEADER";
+    | "EDIT_PLAN_HEADER"
+    | "SET_PLAN_STATUS"
+    | "EDIT_PLAN_CUSTOM_FIELDS";
   requestHash: string;
   uncertain: boolean;
 };

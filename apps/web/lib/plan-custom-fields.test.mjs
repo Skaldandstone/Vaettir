@@ -53,14 +53,18 @@ test("finite-number input rejects blank, invalid and nonfinite text without conv
   assert.equal(finitePlanNumber("0"), 0); assert.equal(finitePlanNumber("-0.5"), -0.5); assert.equal(finitePlanNumber("1e3"), 1000);
   for (const value of [Infinity, NaN, "1", null]) assert.equal(planCustomFields({ properties: { n: { type: "number" } } }, { n: value })[0].kind, "retained");
 });
-test("generic plan mount keeps existing save flow and does not use comma parsing", () => {
+test("generic fields retain lossless controls and mount distinct governed writes, never a whole-record legacy save", () => {
   const component = readFileSync(new URL("../components/PlanCustomFieldsForm.tsx", import.meta.url), "utf8");
   const parent = readFileSync(new URL("../components/TestPlanDetailContent.tsx", import.meta.url), "utf8");
   assert.match(component, /type="checkbox"/); assert.match(component, /<textarea/);
   assert.match(component, /Set false explicitly/); assert.match(component, /Set empty/);
   assert.doesNotMatch(component, /\.split\(|\.trim\(|filter\(Boolean\)/);
-  assert.match(parent, /<PlanCustomFieldsForm schema=\{plan\.testPlanType\.fieldSchema\} values=\{customFields\} onChange=\{setCustomFields\}/);
-  assert.match(parent, /updateMutation\.mutateAsync\(\{ id, status: status as never, \.\.\.legacyPlanMetadataPatch\(plan\.customFields, draft\.customFields\) \}\)/);
-  assert.doesNotMatch(parent, /updateMutation\.mutateAsync\(\{[^}]*\b(?:name|description)\b/);
-  assert.match(parent, /<PlanHeaderEditor key=\{`\$\{plan\.projectId\}:\$\{id\}`\}/);
+  assert.match(parent, /<PlanCustomFieldsEditor key=\{`fields:/);
+  assert.match(parent, /<PlanStatusEditor key=\{`status:/);
+  assert.match(parent, /renderFields=\{fieldsRenderer\}/);
+  assert.match(parent, /<QaStrategyForm projectId=\{context\.projectId\} active=\{context\.active\} values=\{values\} onChange=\{onChange\}/);
+  assert.match(parent, /const ready = active && !!auth\.isLoaded && !!auth\.isSignedIn/);
+  assert.match(parent, /<SuggestRiskAreasButton projectId=\{projectId\} active=\{active\}/);
+  assert.doesNotMatch(parent, /testPlans\.update\.useMutation|updateMutation\.mutateAsync|legacyPlanMetadataPatch/);
+  assert.match(parent, /<PlanHeaderEditor key=\{`\$\{controlProjectId\}:\$\{id\}`\}/);
 });

@@ -9,6 +9,7 @@ import {
   retainedTraceabilityReceipt,
   type TraceabilityReceipt,
 } from "@/lib/traceability-receipt";
+import { folderIntentMatches, type CaseFolderCatalog, type FolderReviewIntent } from "@/lib/case-folder-tree";
 
 type Change = RouterInputs["caseFolders"]["preview"];
 type Write = RouterInputs["caseFolders"]["write"];
@@ -24,11 +25,15 @@ export function TestCaseFolders({
   selectedPath,
   onFolderPaths,
   onSaved,
+  onFolderCatalog,
+  requestedIntent = null,
 }: {
   projectId: string;
   selectedPath: string | null;
   onFolderPaths: (paths: string[]) => void;
   onSaved: (path: string) => void;
+  onFolderCatalog?: (catalog: CaseFolderCatalog | null) => void;
+  requestedIntent?: FolderReviewIntent | null;
 }) {
   const { isLoaded, isSignedIn, userId } = useAuth();
   const actorReady = isLoaded && isSignedIn && !!userId;
@@ -107,6 +112,7 @@ export function TestCaseFolders({
     [message, setMessage] = useState(""),
     [approvedHash, setApprovedHash] = useState<string | null>(null);
   const receipt = useRef<TraceabilityReceipt<Write> | null>(null);
+  const consumedIntent = useRef<string | null>(null);
   const list = trpcReact.caseFolders.list.useQuery(
     { projectId },
     {
@@ -227,6 +233,25 @@ export function TestCaseFolders({
   useEffect(() => {
     onFolderPaths(paths);
   }, [paths, onFolderPaths]); // Failed/paused cached data is not an approved tree.
+  useLayoutEffect(() => {
+    onFolderCatalog?.(ready && list.data ? { projectId: list.data.projectId, organizationId: list.data.organizationId, clerkActorId: list.data.clerkActorId, paths: list.data.paths, folders: list.data.folders, canEdit: list.data.canEdit } : null);
+  }, [ready, list.data, onFolderCatalog]);
+  useEffect(() => {
+    if (!requestedIntent || consumedIntent.current === requestedIntent.id || !ready || !list.data) return;
+    consumedIntent.current = requestedIntent.id;
+    if (!folderIntentMatches(requestedIntent, list.data)) { setMessage("Folder gesture refused: restore its exact original account/project and a supported current path. Nothing was moved or normalized."); return; }
+    // A gesture is a setup intent, not an approval, and can never overwrite a
+    // closed draft or an exact uncertain request retained from an earlier view.
+    if (receipt.current || pending || mutation.isPending || draftStarted) {
+      setMessage("Existing folder draft/request retained. Finish or recover it, or explicitly discard an editable nonpending draft before starting another folder gesture. Nothing was replaced or moved.");
+      return;
+    }
+    setDraftStarted(true); setAction(requestedIntent.action); setSource(requestedIntent.fromPath);
+    setName(requestedIntent.fromPath.slice(requestedIntent.fromPath.lastIndexOf("/") + 1));
+    setParent(requestedIntent.destinationParent === undefined ? requestedIntent.fromPath.includes("/") ? requestedIntent.fromPath.slice(0, requestedIntent.fromPath.lastIndexOf("/")) : "" : requestedIntent.destinationParent ?? "");
+    mutation.reset(); setPrepared(null); setApproved(false); setApprovedHash(null); setReason(""); setFresh(false); setAccessFresh(false); setOpen(true);
+    setMessage("Folder gesture opened an unsaved review setup only. Source files/provenance stay unchanged. Review the complete native subtree impact before approving any move or rename.");
+  }, [requestedIntent, ready, list.data, pending, mutation.isPending, draftStarted]);
   const { refetch: refetchPreview } = preview;
   useEffect(() => {
     let active = true;
@@ -485,6 +510,7 @@ export function TestCaseFolders({
                   Existing case IDs, within-suite order and frozen runs remain
                   unchanged.
                 </p>
+                <p>Source-derived groups are test-case presentation, not filesystem folders. A reviewed move/rename to a different destination assigns saved suite paths and can create a new saved folder identity; original source paths/files are unchanged. Same-path promotion is not supported. The server review includes hidden, unreviewed and archived descendant cases, not just this page&apos;s visible lane or filters.</p>
                 <button
                   className="btn-primary"
                   disabled={
@@ -687,6 +713,11 @@ export function TestCaseFolders({
         <button onClick={close} style={{ marginTop: 12 }}>
           Close
         </button>
+        {ready && list.data?.canEdit && draftStarted && !pending && <button type="button" disabled={mutation.isPending} style={{ marginTop: 12, marginLeft: 8 }} onClick={() => {
+          if (mutation.isPending || receipt.current || pending || !liveScope.current.scopeReady) return;
+          setDraftStarted(false); setPrepared(null); setApproved(false); setApprovedHash(null); setFresh(false); setReason(""); setName(""); setSource(""); setParent(""); mutation.reset(); setOpen(false);
+          setMessage("Editable folder draft explicitly discarded. No saved folder, case placement or uncertain request was changed.");
+        }}>Discard editable folder draft</button>}
       </Modal>
     </>
   );

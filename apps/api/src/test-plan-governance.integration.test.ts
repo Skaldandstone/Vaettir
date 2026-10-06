@@ -317,5 +317,240 @@ describe.skipIf(!isolated)(
       expect(empty.snapshot.description).toBe("");
       expect(empty.snapshot.name).toBe(input.name);
     });
+    it("native JSONB precision canary refuses new snapshots/metadata without rewriting native numbers (AUTHORED NOT RUN)", async () => {
+      const unique = `synthetic-json-codec-${randomUUID()}`;
+      const type = await prisma.testPlanType.create({
+        data: {
+          key: unique,
+          name: unique,
+          category: "CUSTOM",
+          fieldSchema: {
+            type: "object",
+            properties: { objective: { type: "string" } },
+          },
+        },
+      });
+      for (const column of ["customFields", "executionTemplate"] as const) {
+        const plan = await prisma.testPlan.create({
+          data: {
+            projectId: scope.projectId,
+            testPlanTypeId: type.id,
+            name: `${unique}-${column}`,
+            customFields: { objective: "old" },
+          },
+        });
+        // Seed only a dedicated synthetic native row with an exact JSONB literal;
+        // constructing this number in JS would defeat the precision canary.
+        if (column === "customFields")
+          await prisma.$executeRaw`UPDATE "TestPlan" SET "customFields"=${'{"objective":"old","unknown":{"large":9007199254740993}}'}::jsonb WHERE id=${plan.id}`;
+        else
+          await prisma.$executeRaw`UPDATE "TestPlan" SET "executionTemplate"=${'{"unknown":{"large":9007199254740993}}'}::jsonb WHERE id=${plan.id}`;
+        const selected = { ...scope, testPlanId: plan.id };
+        const before = await prisma.$queryRaw<
+          Array<{ fields: string; template: string; status: string }>
+        >`SELECT "customFields"::text AS fields,"executionTemplate"::text AS template,status::text AS status FROM "TestPlan" WHERE id=${plan.id}`;
+        expect(
+          before[0]![column === "customFields" ? "fields" : "template"],
+        ).toContain("9007199254740993");
+        const reviewed = await caller.testPlanGovernance.preview(selected);
+        const base = {
+          ...selected,
+          expectedPlanRevision: reviewed.planRevision,
+          reason: "Synthetic native precision boundary",
+          confirmed: true as const,
+        };
+        await expect(
+          caller.testPlanGovernance.setPlanStatus({
+            ...base,
+            requestId: randomUUID(),
+            expectedStatus: "DRAFT",
+            status: "ACTIVE",
+            intent: "CHANGE",
+          }),
+        ).rejects.toMatchObject({ code: "PRECONDITION_FAILED" });
+        await expect(
+          caller.testPlanGovernance.editPlanCustomFields({
+            ...base,
+            requestId: randomUUID(),
+            expectedFieldSchemaHash: reviewed.metadataSchema.fieldSchemaHash!,
+            changes: [{ operation: "SET", key: "objective", value: "new" }],
+          }),
+        ).rejects.toMatchObject({ code: "PRECONDITION_FAILED" });
+        expect(
+          await prisma.$queryRaw`SELECT "customFields"::text AS fields,"executionTemplate"::text AS template,status::text AS status FROM "TestPlan" WHERE id=${plan.id}`,
+        ).toEqual(before);
+        expect(
+          await prisma.testPlanVersion.count({
+            where: { testPlanId: plan.id },
+          }),
+        ).toBe(0);
+        expect(
+          await prisma.auditLog.count({
+            where: { entityType: "TestPlanGovernanceWrite", entityId: plan.id },
+          }),
+        ).toBe(0);
+      }
+      // A rounded native type schema must not be advertised as exact provenance.
+      await prisma.$executeRaw`UPDATE "TestPlanType" SET "fieldSchema"=${'{"type":"object","description":9007199254740993,"properties":{"objective":{"type":"string"}}}'}::jsonb WHERE id=${type.id}`;
+      const schemaPlan = await prisma.testPlan.create({
+        data: {
+          projectId: scope.projectId,
+          testPlanTypeId: type.id,
+          name: `${unique}-schema`,
+          customFields: {},
+        },
+      });
+      expect(
+        await caller.testPlanGovernance.preview({
+          ...scope,
+          testPlanId: schemaPlan.id,
+        }),
+      ).toMatchObject({
+        canRecover: true,
+        metadataSchema: {
+          fieldSchema: null,
+          fieldSchemaHash: null,
+          supported: false,
+          canEdit: false,
+        },
+      });
+      // Synthetic resources are retained; no broad fixture cleanup.
+    });
+    it("native synthetic status/metadata revisions preserve unknown keys, explicit reopen and exact typed receipts", async () => {
+      // Dedicated test-owned type/plan only. Never edit a built-in or customer
+      // schema to force fixture admission. This fixture is AUTHORED NOT RUN.
+      const unique = `synthetic-governed-properties-${randomUUID()}`;
+      const type = await prisma.testPlanType.create({
+        data: {
+          key: unique,
+          name: unique,
+          category: "CUSTOM",
+          fieldSchema: {
+            type: "object",
+            properties: {
+              objective: { type: "string" },
+              areas: { type: "array", items: { type: "string" } },
+            },
+          },
+        },
+      });
+      const raw = JSON.parse(
+        '{"objective":"old","areas":["same","same",""],"__proto__":{"retained":true},"unknown":{"values":[false,0,null," raw "]}}',
+      );
+      const plan = await prisma.testPlan.create({
+        data: {
+          projectId: scope.projectId,
+          testPlanTypeId: type.id,
+          name: unique,
+          customFields: raw,
+          description: null,
+        },
+      });
+      const selected = { ...scope, testPlanId: plan.id },
+        before = await caller.testPlanGovernance.preview({
+          ...selected,
+          requestId: randomUUID(),
+        });
+      const status = {
+        ...selected,
+        expectedPlanRevision: before.planRevision,
+        expectedStatus: "DRAFT" as const,
+        status: "APPROVED" as const,
+        intent: "CHANGE" as const,
+        requestId: randomUUID(),
+        reason: "Synthetic approval lifecycle label, not qualified sign-off",
+        confirmed: true as const,
+      };
+      const approved = await caller.testPlanGovernance.setPlanStatus(status);
+      expect(await caller.testPlanGovernance.setPlanStatus(status)).toEqual({
+        ...approved,
+        replayed: true,
+      });
+      const frozen = await caller.testPlanGovernance.preview(selected);
+      expect(frozen).toMatchObject({
+        canRecover: true,
+        statusActions: { canReopen: true },
+        metadataSchema: { canEdit: false },
+      });
+      const changes = [
+        {
+          operation: "SET" as const,
+          key: "objective",
+          value: " raw\n authored ",
+        },
+        {
+          operation: "SET" as const,
+          key: "areas",
+          value: ["", "same", "same", " last\n"],
+        },
+      ];
+      await expect(
+        caller.testPlanGovernance.editPlanCustomFields({
+          ...selected,
+          expectedPlanRevision: frozen.planRevision,
+          expectedFieldSchemaHash: frozen.metadataSchema.fieldSchemaHash!,
+          changes,
+          requestId: randomUUID(),
+          reason: "Frozen refusal",
+          confirmed: true,
+        }),
+      ).rejects.toMatchObject({ code: "CONFLICT" });
+      await caller.testPlanGovernance.setPlanStatus({
+        ...selected,
+        expectedPlanRevision: frozen.planRevision,
+        expectedStatus: "APPROVED",
+        status: "DRAFT",
+        intent: "REOPEN",
+        requestId: randomUUID(),
+        reason: "Explicit synthetic reopen",
+        confirmed: true,
+      });
+      const reviewed = await caller.testPlanGovernance.preview(selected);
+      const metadata = {
+        ...selected,
+        expectedPlanRevision: reviewed.planRevision,
+        expectedFieldSchemaHash: reviewed.metadataSchema.fieldSchemaHash!,
+        changes,
+        requestId: randomUUID(),
+        reason: "Native synthetic declared-field review",
+        confirmed: true as const,
+      };
+      const saved =
+        await caller.testPlanGovernance.editPlanCustomFields(metadata);
+      expect(
+        await caller.testPlanGovernance.editPlanCustomFields(metadata),
+      ).toEqual({ ...saved, replayed: true });
+      const after = await caller.testPlanGovernance.preview(selected),
+        fields = after.snapshot.customFields as Record<string, unknown>;
+      expect(fields.objective).toBe(" raw\n authored ");
+      expect(fields.areas).toEqual(changes[1]!.value);
+      expect(fields.unknown).toEqual(raw.unknown);
+      expect(Object.hasOwn(fields, "__proto__")).toBe(true);
+      expect(fields.__proto__).toEqual(raw.__proto__);
+      expect(after.snapshot).toMatchObject({
+        name: before.snapshot.name,
+        description: null,
+        releaseId: null,
+        criteria: [],
+        executionTemplate: before.snapshot.executionTemplate,
+        status: "DRAFT",
+      });
+      const history = await caller.testPlanGovernance.history({
+        ...selected,
+        take: 5,
+      });
+      const receipt = history.entries.find(
+        (entry) => entry.receipt.ack.requestId === metadata.requestId,
+      )!.receipt;
+      expect(receipt.metadataReview).toEqual({
+        testPlanTypeId: type.id,
+        fieldSchema: type.fieldSchema,
+        fieldSchemaHash: metadata.expectedFieldSchemaHash,
+        changes,
+      });
+      expect(
+        await prisma.testPlanVersion.count({ where: { testPlanId: plan.id } }),
+      ).toBe(3);
+    });
   },
 );

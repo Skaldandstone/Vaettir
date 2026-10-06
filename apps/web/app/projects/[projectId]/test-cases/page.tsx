@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import { useAuth } from "@clerk/nextjs";
 import { useParams, useRouter } from "next/navigation";
 import { trpcReact } from "@/lib/trpcReact";
 import { useProjectPermissions } from "@/lib/use-project-permissions";
@@ -48,6 +49,7 @@ import {
 } from "@/lib/case-repository";
 import styles from "@/components/CaseWorkbench.module.css";
 import { verifiedRunConfigurationAck } from "@/lib/run-configuration-request";
+import type { CaseFolderCatalog, FolderReviewIntent } from "@/lib/case-folder-tree";
 
 const TEST_TYPES = [
   "UNIT",
@@ -216,6 +218,7 @@ export default function TestCasesPage() {
   const router = useRouter();
   const utils = trpcReact.useUtils();
   const permissions = useProjectPermissions(projectId);
+  const folderActor = useAuth();
   const readOnly = !permissions.canEdit || Boolean(permissions.accessError);
   const [runConfigurationOpen, setRunConfigurationOpen] = useState(false);
   const [runSelection, setRunSelection] = useState<string[]>([]);
@@ -247,6 +250,9 @@ export default function TestCasesPage() {
 
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
   const [folderPaths, setFolderPaths] = useState<string[]>([]);
+  const [folderCatalog, setFolderCatalog] = useState<CaseFolderCatalog | null>(null);
+  const [folderReviewIntent, setFolderReviewIntent] = useState<FolderReviewIntent | null>(null);
+  const currentFolderCatalog = folderActor.isLoaded && folderActor.isSignedIn && permissions.loaded && !permissions.accessError && folderCatalog?.projectId === projectId && folderCatalog.organizationId === permissions.organizationId && folderCatalog.clerkActorId === folderActor.userId ? folderCatalog : null;
   useEffect(() => {
     setSelectedPath(new URLSearchParams(window.location.search).get("suite"));
   }, []);
@@ -1037,6 +1043,8 @@ export default function TestCasesPage() {
         projectId={projectId}
         selectedPath={selectedPath}
         onFolderPaths={setFolderPaths}
+        onFolderCatalog={setFolderCatalog}
+        requestedIntent={folderReviewIntent}
         onSaved={(path) => {
           setSelectedPath(path);
           void casesQuery.refetch();
@@ -1049,9 +1057,13 @@ export default function TestCasesPage() {
             <h2>Suites</h2>
             <TestCaseTree
               cases={laneCases}
-              folderPaths={folderPaths}
+              folderPaths={currentFolderCatalog ? folderPaths : []}
+              folderCatalog={currentFolderCatalog}
+              classificationCases={cases}
               selectedPath={selectedPath}
               onSelect={setSelectedPath}
+              onFolderReview={readOnly ? undefined : intent => setFolderReviewIntent({ ...intent, id: crypto.randomUUID() })}
+              onDropRefused={message => setError(message)}
               onDropCase={
                 readOnly
                   ? undefined

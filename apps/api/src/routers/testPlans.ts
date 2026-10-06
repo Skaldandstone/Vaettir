@@ -5,7 +5,7 @@ import { router, protectedProcedure, requireProjectAccess } from "../trpc.js";
 import { recordAudit } from "../services/auditLog.js";
 import { snapshotTestPlanVersion } from "../services/testPlanVersion.js";
 import { setLegacyCriterionVerdict } from "../services/testPlanGovernance.js";
-import { readTestPlanDetail, readTestPlanHistory, legacyPlanCustomFieldRecord, assertLegacyPlanMetadataRootKind } from "../services/testPlanReads.js";
+import { readTestPlanDetail, readTestPlanHistory, legacyPlanCustomFieldRecord } from "../services/testPlanReads.js";
 import { refreshReleaseReadiness } from "../services/releaseReadiness.js";
 import {
   chargeAiCredits,
@@ -419,58 +419,15 @@ export const testPlansRouter = router({
         customFields: legacyPlanCustomFieldRecord.optional(),
       }),
     )
-    .mutation(async ({ ctx, input }) => {
-      // Header edits require a reviewed full-plan revision and exact replay
-      // identity. Reject old mixed payloads before any private lookup or write;
-      // never partially apply their status/JSON changes after refusing text.
-      if (Object.hasOwn(input, "name") || Object.hasOwn(input, "description"))
-        throw new TRPCError({
+    .mutation(() => {
+      // Cached clients do not supply a complete current revision, original
+      // native reader or durable UUID. Never partially apply a mixed update,
+      // guess those missing preconditions, or look up a private legacy body.
+      throw new TRPCError({
           code: "PRECONDITION_FAILED",
           message:
-            "Legacy header edits no longer accept writes. Review the current plan and use testPlanGovernance.editPlanHeader. An earlier unacknowledged legacy request may already have applied and may lack a durable receipt. Refresh the plan and inspect available history before a new reviewed request; do not automatically resubmit.",
+            "Legacy whole-plan writes no longer accept changes. Review the current plan and use testPlanGovernance.editPlanHeader, testPlanGovernance.setPlanStatus or testPlanGovernance.editPlanCustomFields for the exact operation. An earlier unacknowledged legacy request may already have applied and may lack a durable receipt. Refresh the plan and inspect available history before a new reviewed request; do not automatically resubmit.",
         });
-      const existing = await ctx.prisma.testPlan.findUniqueOrThrow({
-        where: { id: input.id },
-        select: { projectId: true },
-      });
-      const { project } = await requireProjectAccess(
-        ctx,
-        existing.projectId,
-        "EDITOR",
-      );
-      const updated = await ctx.prisma.$transaction(async (tx) => {
-        const [locked] = await tx.$queryRaw<Array<{ id: string; metadataRootKind: string | null }>>`SELECT id,jsonb_typeof("customFields") AS "metadataRootKind" FROM "TestPlan" WHERE id=${input.id} AND "projectId"=${existing.projectId} FOR UPDATE`;
-        if (!locked) throw new TRPCError({ code: "NOT_FOUND", message: "Plan left the selected project before this legacy save." });
-        const retainedFields = assertLegacyPlanMetadataRootKind(locked.metadataRootKind, input.customFields);
-        const plan = await tx.testPlan.update({
-          where: { id: input.id },
-          data: {
-            status: input.status,
-            ...(retainedFields === undefined ? {} : { customFields: retainedFields as never }),
-            updatedById: ctx.user.id,
-          },
-        });
-        await snapshotTestPlanVersion(tx, {
-          testPlanId: plan.id,
-          name: plan.name,
-          description: plan.description,
-          status: plan.status,
-          customFields: plan.customFields,
-          executionTemplate: plan.executionTemplate,
-          actorId: ctx.user.id,
-        });
-        return plan;
-      });
-      await recordAudit(ctx.prisma, {
-        organizationId: project.organizationId,
-        projectId: existing.projectId,
-        actorId: ctx.user.id,
-        entityType: "TestPlan",
-        entityId: input.id,
-        action: "UPDATE",
-        summary: `Updated test plan "${updated.name}" (status: ${updated.status})`,
-      });
-      return updated;
     }),
 
   setRelease: protectedProcedure

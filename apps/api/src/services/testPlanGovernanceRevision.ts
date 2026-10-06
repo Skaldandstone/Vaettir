@@ -8,6 +8,10 @@ import {
   planGovernanceReceipt,
   type PlanGovernanceSnapshot,
 } from "./testPlanGovernanceSchema.js";
+import {
+  applyReviewedPlanMetadata,
+  planMetadataSchemaHash,
+} from "./testPlanMetadataSchema.js";
 export function boundedGovernanceSnapshot(
   value: unknown,
 ): PlanGovernanceSnapshot {
@@ -73,6 +77,9 @@ export function validatedGovernanceReceipt(value: unknown) {
   boundedGovernanceSnapshot(after);
   let expectedCriteria = before.criteria;
   const isHeader = ack.operation === "EDIT_PLAN_HEADER";
+  const isStatus = ack.operation === "SET_PLAN_STATUS";
+  const isMetadata = ack.operation === "EDIT_PLAN_CUSTOM_FIELDS";
+  if (!isMetadata && receipt.metadataReview !== undefined) return invalid();
   if (
     ack.operation === "EDIT_CRITERION_DESCRIPTION" ||
     ack.operation === "SET_CRITERION_VERDICT" ||
@@ -119,6 +126,73 @@ export function validatedGovernanceReceipt(value: unknown) {
     )
       return invalid();
     expectedCriteria = before.criteria.filter((c) => c.id !== ack.criterionId);
+  } else if (isStatus) {
+    const frozen = ["APPROVED", "ARCHIVED"].includes(before.status);
+    if (
+      ack.criterionId !== null ||
+      before.releaseId !== after.releaseId ||
+      before.status === after.status ||
+      (frozen && after.status !== "DRAFT")
+    )
+      return invalid();
+    const expectedRequestHash = governanceRequestHash({
+      operation: ack.operation,
+      input: {
+        projectId: ack.scope.projectId,
+        testPlanId: ack.testPlanId,
+        originalOrganizationId: ack.scope.organizationId,
+        expectedClerkActorId: ack.scope.actorClerkUserId,
+        expectedPlanRevision: ack.beforeRevision,
+        requestId: ack.requestId,
+        reason: receipt.reason,
+        confirmed: true,
+        expectedStatus: before.status,
+        status: after.status,
+        intent: frozen ? "REOPEN" : "CHANGE",
+      },
+    });
+    if (expectedRequestHash !== ack.requestHash) return invalid();
+  } else if (isMetadata) {
+    const review = receipt.metadataReview;
+    if (
+      !review ||
+      ack.criterionId !== null ||
+      before.releaseId !== after.releaseId ||
+      review.testPlanTypeId !== before.testPlanTypeId
+    )
+      return invalid();
+    try {
+      if (
+        planMetadataSchemaHash(review.testPlanTypeId, review.fieldSchema) !==
+          review.fieldSchemaHash ||
+        governanceRequestHash(
+          applyReviewedPlanMetadata(
+            review.fieldSchema,
+            before.customFields,
+            review.changes,
+          ),
+        ) !== governanceRequestHash(after.customFields)
+      )
+        return invalid();
+      const expectedRequestHash = governanceRequestHash({
+        operation: ack.operation,
+        input: {
+          projectId: ack.scope.projectId,
+          testPlanId: ack.testPlanId,
+          originalOrganizationId: ack.scope.organizationId,
+          expectedClerkActorId: ack.scope.actorClerkUserId,
+          expectedPlanRevision: ack.beforeRevision,
+          requestId: ack.requestId,
+          reason: receipt.reason,
+          confirmed: true,
+          expectedFieldSchemaHash: review.fieldSchemaHash,
+          changes: review.changes,
+        },
+      });
+      if (expectedRequestHash !== ack.requestHash) return invalid();
+    } catch {
+      return invalid();
+    }
   } else if (isHeader) {
     if (
       ack.criterionId !== null ||
@@ -137,6 +211,8 @@ export function validatedGovernanceReceipt(value: unknown) {
   const expectedAfter = {
     ...before,
     ...(isHeader ? { name: after.name, description: after.description } : {}),
+    ...(isStatus ? { status: after.status } : {}),
+    ...(isMetadata ? { customFields: after.customFields } : {}),
     releaseId: after.releaseId,
     updatedAt: after.updatedAt,
     updatedById: after.updatedById,

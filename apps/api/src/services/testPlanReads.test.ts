@@ -1,6 +1,5 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import { readFileSync } from "node:fs";
-import { Prisma } from "@vaettir/db";
 const guards = vi.hoisted(() => ({ read: vi.fn(), access: vi.fn(), audit: vi.fn() }));
 vi.mock("./caseFieldReadScope.js", async original => ({ ...await original<typeof import("./caseFieldReadScope.js")>(), lockCaseFieldReadScope: guards.read }));
 vi.mock("../trpc.js", async original => ({ ...await original<typeof import("../trpc.js")>(), requireProjectAccess: guards.access }));
@@ -101,13 +100,12 @@ describe("bounded lossless plan reads and legacy retention (mock SQL only)", () 
       expect(f.tx.testPlan.update).not.toHaveBeenCalled(); expect(f.tx.testPlanVersion.create).not.toHaveBeenCalled();
     }
   });
-  it("status-only omission preserves every native root and JSON-null version sentinel without parser defaults", async () => {
+  it("deprecated status-only requests preserve every native root without mutation or version capture", async () => {
     for (const [root, kind] of [[null, "null"], [["raw", false], "array"], ["scalar", "string"], [0, "number"], [false, "boolean"], [{ retained: null }, "object"]] as const) {
       const f = fixture(); f.plan.customFields = root; f.state.metadataRootKind = kind;
-      await f.caller.update({ id: "plan", status: "ACTIVE" });
+      await expect(f.caller.update({ id: "plan", status: "ACTIVE" })).rejects.toMatchObject({ code: "PRECONDITION_FAILED" });
       expect(f.plan.customFields).toBe(root);
-      const data = (f.tx.testPlan.update.mock.calls[0] as unknown as [{ data: Record<string, unknown> }])[0].data; expect(Object.hasOwn(data, "customFields")).toBe(false);
-      const version = (f.tx.testPlanVersion.create.mock.calls[0] as unknown as [{ data: Record<string, unknown> }])[0].data; expect(version.customFields).toBe(root === null ? Prisma.JsonNull : root);
+      expect(f.tx.testPlan.update).not.toHaveBeenCalled(); expect(f.tx.testPlanVersion.create).not.toHaveBeenCalled();
     }
   });
   it("explicit object replacement of a retained nonobject root refuses before any mutation/version", async () => {
@@ -119,9 +117,10 @@ describe("bounded lossless plan reads and legacy retention (mock SQL only)", () 
     const prototype = Object.getPrototypeOf(raw), parsed = legacyPlanCustomFieldRecord.parse(raw);
     expect(parsed).toBe(raw); expect(Object.hasOwn(parsed, "__proto__")).toBe(true); expect(Object.getPrototypeOf(parsed)).toBe(prototype);
     const f = fixture(); f.state.metadataRootKind = "object"; f.plan.customFields = raw;
-    await f.caller.update({ id: "plan", status: "ACTIVE", customFields: raw });
+    await expect(f.caller.update({ id: "plan", status: "ACTIVE", customFields: raw })).rejects.toMatchObject({ code: "PRECONDITION_FAILED" });
     expect(f.plan.customFields).toBe(raw); expect(Object.keys(f.plan.customFields as object)).toEqual(Object.keys(raw)); expect(Object.getPrototypeOf(f.plan.customFields)).toBe(prototype); expect(({} as { retained?: boolean }).retained).toBeUndefined();
-    await f.caller.update({ id: "plan", status: "DRAFT" }); expect(f.plan.customFields).toBe(raw);
+    await expect(f.caller.update({ id: "plan", status: "DRAFT" })).rejects.toMatchObject({ code: "PRECONDITION_FAILED" }); expect(f.plan.customFields).toBe(raw);
+    expect(f.tx.testPlan.update).not.toHaveBeenCalled(); expect(f.tx.testPlanVersion.create).not.toHaveBeenCalled();
   });
   it("raw record acceptance does not widen to nonobject/non-JSON values or invoke serialization hooks", () => {
     for (const value of [null, [], "scalar", 0, false, { unknown: undefined }, { unknown: NaN }, { method() { return {}; } }, new Date()]) expect(legacyPlanCustomFieldRecord.safeParse(value).success).toBe(false);
@@ -132,7 +131,7 @@ describe("bounded lossless plan reads and legacy retention (mock SQL only)", () 
     const f = fixture(); await expect(f.caller.update({ id: "plan", status: "ACTIVE", name: "Forbidden mixed header" })).rejects.toMatchObject({ code: "PRECONDITION_FAILED" }); expect(f.tx.testPlan.update).not.toHaveBeenCalled();
     const source = readFileSync(new URL("../routers/testPlans.ts", import.meta.url), "utf8"), readSource = readFileSync(new URL("./testPlanReads.ts", import.meta.url), "utf8");
     const update = source.slice(source.indexOf("  update: protectedProcedure"), source.indexOf("  setRelease: protectedProcedure"));
-    expect(update).toContain("legacyPlanCustomFieldRecord.optional()"); expect(update).not.toContain(".default({})"); expect(update).toContain("retainedFields === undefined ? {} : { customFields");
+    expect(update).toContain("legacyPlanCustomFieldRecord.optional()"); expect(update).not.toContain(".default({})"); expect(update).toContain("Legacy whole-plan writes no longer accept changes"); expect(update).toContain("testPlanGovernance.setPlanStatus"); expect(update).toContain("testPlanGovernance.editPlanCustomFields"); expect(update).not.toMatch(/ctx\.prisma|testPlan\.update|snapshotTestPlanVersion\(/);
     expect(source).toContain("Legacy criterion additions no longer accept writes"); expect(source).toContain("Legacy criterion removals no longer accept writes");
     expect(readSource).toContain("statement_timeout='8000ms'"); expect(readSource).toContain("FOR SHARE OF t"); expect(readSource).toContain("FOR SHARE OF u"); expect(readSource.slice(readSource.indexOf("export async function readTestPlanDetail"))).not.toMatch(/as Record|\$queryRawUnsafe|fetch\(|invokeModel/);
   });

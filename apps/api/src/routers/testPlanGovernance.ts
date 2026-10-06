@@ -3,6 +3,8 @@ import { refreshReleaseReadiness } from "../services/releaseReadiness.js";
 import {
   planGovernanceScopeInput,
   editPlanHeaderInput,
+  setPlanStatusInput,
+  editPlanCustomFieldsInput,
   editCriterionDescriptionInput,
   setCriterionVerdictInput,
   addGovernedCriterionInput,
@@ -19,6 +21,8 @@ import {
 import {
   previewPlanGovernance,
   editGovernedPlanHeader,
+  setGovernedPlanStatus,
+  editGovernedPlanCustomFields,
   editGovernedCriterionDescription,
   setGovernedCriterionVerdict,
   addGovernedCriterion,
@@ -29,6 +33,24 @@ import {
   listPlanGovernanceHistory,
 } from "../services/testPlanGovernance.js";
 export const testPlanGovernanceRouter = router({
+  setPlanStatus: protectedProcedure
+    .input(setPlanStatusInput)
+    .output(planGovernanceAck)
+    .mutation(async ({ ctx, input }) => {
+      await requireProjectAccess(ctx, input.projectId, "EDITOR");
+      return setGovernedPlanStatus(ctx.prisma, ctx.user.id, input, {
+        clerkActorId: ctx.user.clerkUserId,
+      });
+    }),
+  editPlanCustomFields: protectedProcedure
+    .input(editPlanCustomFieldsInput)
+    .output(planGovernanceAck)
+    .mutation(async ({ ctx, input }) => {
+      await requireProjectAccess(ctx, input.projectId, "EDITOR");
+      return editGovernedPlanCustomFields(ctx.prisma, ctx.user.id, input, {
+        clerkActorId: ctx.user.clerkUserId,
+      });
+    }),
   editPlanHeader: protectedProcedure
     .input(editPlanHeaderInput)
     .output(planGovernanceAck)

@@ -4,19 +4,18 @@ import { useId, useLayoutEffect, useRef, useState } from "react";
 import { useAuth } from "@clerk/nextjs";
 import { trpcReact, type RouterOutputs } from "@/lib/trpcReact";
 import { PlanExecutionModal } from "./PlanExecutionModal";
-import { PlanCustomFieldsForm } from "./PlanCustomFieldsForm";
 import { CriterionDescriptionEditor } from "./CriterionDescriptionEditor";
 import { CriterionVerdictEditor } from "./CriterionVerdictEditor";
 import { PlanGovernanceHistory } from "./PlanGovernanceHistory";
 import { GovernedCriterionCollection } from "./GovernedCriterionCollection";
 import { PlanHeaderEditor } from "./PlanHeaderEditor";
+import { PlanStatusEditor } from "./PlanStatusEditor";
+import { PlanCustomFieldsEditor } from "./PlanCustomFieldsEditor";
 import { describeRetainedPlanValue } from "@/lib/plan-custom-fields";
-import { legacyPlanMetadataPatch, planMetadataChanges, planMetadataRecord } from "@/lib/plan-root-metadata";
+import { planMetadataChanges } from "@/lib/plan-root-metadata";
 import { editStrategyRow, qaStrategyFingerprint, qaStrategyList, removeStrategyRow, sameStrategyRowValues, sameStrategySuggestionScope, strategyRows } from "@/lib/qa-strategy-fields";
 
 type Plan = RouterOutputs["testPlans"]["byId"];
-
-const STATUSES = ["DRAFT", "ACTIVE", "IN_REVIEW", "APPROVED"];
 
 // P4-01: dedicated QA-strategy rows retain their exact string contents.
 function StringListField({
@@ -32,13 +31,17 @@ function StringListField({
   values: string[];
   onChange: (values: string[]) => void;
 }) {
-  const prefix = useId(), nextId = useRef(0);
-  const newId = () => `${prefix}:${nextId.current++}`;
-  const [rows, setRows] = useState(() => strategyRows(values, newId));
+  const prefix = useId();
+  const snapshot = (generation: number) => {
+    let nextId = 0;
+    const rows = strategyRows(values, () => `${prefix}:${generation}:${nextId++}`);
+    return { rows, generation, nextId };
+  };
+  const [state, setState] = useState(() => snapshot(0)), rows = state.rows;
   // A genuinely changed external list is a new snapshot. Do not guess which
   // identical strings moved. A same-value echo keeps the opaque local row IDs.
-  if (!sameStrategyRowValues(rows, values)) { setRows(strategyRows(values, newId)); }
-  const change = (next: typeof rows) => { setRows(next); onChange(next.map(row => row.value)); };
+  if (!sameStrategyRowValues(rows, values)) { setState(snapshot(state.generation + 1)); }
+  const change = (next: typeof rows, nextId = state.nextId) => { setState({ ...state, rows: next, nextId }); onChange(next.map(row => row.value)); };
   return (
     <div>
       <div style={{ fontWeight: 600 }}>{label}</div>
@@ -60,7 +63,7 @@ function StringListField({
           </button>
         </div>
       ))}
-      <button type="button" className="btn-secondary" style={{ fontSize: 12 }} onClick={() => change([...rows, { id: newId(), value: "" }])}>
+      <button type="button" className="btn-secondary" style={{ fontSize: 12 }} onClick={() => change([...rows, { id: `${prefix}:${state.generation}:${state.nextId}`, value: "" }], state.nextId + 1)}>
         + Add {label.toLowerCase().replace(/s$/, "")}
       </button>
     </div>
@@ -84,18 +87,20 @@ function SuggestRiskAreasButton({
   existing,
   onAdd,
   fingerprint,
+  active = true,
 }: {
   projectId: string;
   existing: string[];
   onAdd: (areas: string[]) => void;
   fingerprint: string;
+  active?: boolean;
 }) {
   const utils = trpcReact.useUtils();
   const auth = useAuth();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const latest = useRef({ ready: false, fingerprint, actorId: auth.userId, sessionId: auth.sessionId, existing, onAdd, generation: 0 });
-  const ready = !!auth.isLoaded && !!auth.isSignedIn;
+  const ready = active && !!auth.isLoaded && !!auth.isSignedIn;
   useLayoutEffect(() => {
     latest.current = { ready, fingerprint, actorId: auth.userId, sessionId: auth.sessionId, existing, onAdd, generation: latest.current.generation + 1 };
     // A transient loss/recovery must not reauthorize an earlier pending read.
@@ -140,10 +145,12 @@ function QaStrategyForm({
   projectId,
   values,
   onChange,
+  active = true,
 }: {
   projectId: string;
   values: Record<string, unknown>;
   onChange: (values: Record<string, unknown>) => void;
+  active?: boolean;
 }) {
   const fingerprint = qaStrategyFingerprint(projectId, values);
   const fields = [
@@ -161,7 +168,7 @@ function QaStrategyForm({
           {list.kind === "retained" ? <><h3>{field.label}</h3><p role="status">The complete native value is not a supported string list. It is retained read-only; no items were filtered or replaced.</p><pre style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>{describeRetainedPlanValue(list.raw, true)}</pre></> : <>
             {list.kind === "missing" && <p className="text-muted">Not set. Add a row deliberately to initialize this list.</p>}
             <StringListField label={field.label} hint={field.hint} placeholder={field.placeholder} values={list.items} onChange={items => onChange({ ...values, [field.key]: items })} />
-            {field.key === "riskAreas" && <SuggestRiskAreasButton projectId={projectId} existing={list.items} fingerprint={fingerprint} onAdd={areas => onChange({ ...values, riskAreas: [...list.items, ...areas] })} />}
+            {field.key === "riskAreas" && <SuggestRiskAreasButton projectId={projectId} active={active} existing={list.items} fingerprint={fingerprint} onAdd={areas => onChange({ ...values, riskAreas: [...list.items, ...areas] })} />}
           </>}
         </section>;
       })}
@@ -501,33 +508,29 @@ function TestCaseQualityReviewSection({ testPlanId, projectId }: { testPlanId: s
 
 export function TestPlanDetailContent({
   id,
+  projectId: routeProjectId,
   onChanged,
   readOnly = false,
 }: {
   id: string;
+  projectId?: string;
   onChanged?: () => void;
   readOnly?: boolean;
 }) {
-  // Header edits have their own reviewed revision and retained UUID. Legacy
-  // status/custom-field drafts remain mounted independently; their save must
-  // never resend a cached name or description over a governed header edit.
+  // Keep each reviewed controller mounted through unavailable parent reads.
+  // Route/project metadata discovers scope only; native echoes authorize it.
   const utils = trpcReact.useUtils();
+  const auth = useAuth();
   const planQuery = trpcReact.testPlans.byId.useQuery({ id });
-  const plan: Plan | null = planQuery.data ?? null;
-  const updateMutation = trpcReact.testPlans.update.useMutation();
-  const [saving, setSaving] = useState(false);
-  const [saved, setSaved] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  type Draft = { status?: string; customFields?: Record<string, unknown> };
-  const [draft, setDraft] = useState<Draft>({});
+  const scopeMismatch = !!routeProjectId && !!planQuery.data && planQuery.data.projectId !== routeProjectId;
+  const plan: Plan | null = scopeMismatch ? null : planQuery.data ?? null;
+  const [discovery, setDiscovery] = useState<{ id: string; projectId: string; typeKey: string } | null>(null);
+  if (plan && discovery?.id !== id) setDiscovery({ id, projectId: plan.projectId, typeKey: plan.testPlanType.key });
+  const controlProjectId = routeProjectId ?? (discovery?.id === id ? discovery.projectId : plan?.projectId);
+  const projectDiscovery = trpcReact.project.byId.useQuery({ id: controlProjectId ?? "pending" }, { enabled: !!controlProjectId && auth.isLoaded && !!auth.isSignedIn, retry: false, staleTime: 0, refetchOnWindowFocus: false });
+  const organizationId = projectDiscovery.data && projectDiscovery.data.id === controlProjectId ? projectDiscovery.data.organizationId : "";
   const description = plan?.description;
-  const status = draft.status ?? plan?.status ?? "DRAFT";
-  const savedMetadata = planMetadataRecord(plan?.customFields);
-  const customFields = draft.customFields ?? savedMetadata ?? {};
-  const setStatus = (v: string) => setDraft((d) => ({ ...d, status: v }));
-  const setCustomFields = (v: Record<string, unknown>) => setDraft((d) => ({ ...d, customFields: v }));
-
+  const status = plan?.status;
   const [executionOpen, setExecutionOpen] = useState(false);
 
   function load() {
@@ -535,40 +538,29 @@ export function TestPlanDetailContent({
     void utils.testPlans.history.invalidate({ testPlanId: id });
   }
 
-  async function save() {
-    if (saving || readOnly || !plan) return;
-    setSaving(true);
-    setError(null);
-    setSaved(false);
-    try {
-      await updateMutation.mutateAsync({ id, status: status as never, ...legacyPlanMetadataPatch(plan.customFields, draft.customFields) });
-      setSaved(true);
-      setDraft({});
-      load();
-      onChanged?.();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  const loadError = planQuery.error?.message ?? null;
-  if (!plan) return <p role={loadError ? "alert" : undefined}>{loadError ?? "Loading…"}</p>;
+  const fieldsRenderer = (plan?.testPlanType.key ?? (discovery?.id === id ? discovery.typeKey : null)) === "qa-strategy" && controlProjectId
+    ? (values: Record<string, unknown>, onChange: (values: Record<string, unknown>) => void, context: { active: boolean; projectId: string; testPlanId: string }) => <QaStrategyForm projectId={context.projectId} active={context.active} values={values} onChange={onChange} /> : undefined;
+  const reviewedControls = controlProjectId ? <section key={`reviewed:${controlProjectId}:${id}`}>
+    <PlanHeaderEditor key={`${controlProjectId}:${id}`} projectId={controlProjectId} testPlanId={id} readOnly={readOnly} onChanged={() => { load(); onChanged?.(); }} />
+    <PlanStatusEditor key={`status:${controlProjectId}:${id}`} projectId={controlProjectId} testPlanId={id} organizationId={organizationId} readOnly={readOnly} onChanged={() => { load(); onChanged?.(); }} />
+    <PlanCustomFieldsEditor key={`fields:${controlProjectId}:${id}`} projectId={controlProjectId} testPlanId={id} organizationId={organizationId} readOnly={readOnly} renderFields={fieldsRenderer} onChanged={() => { load(); onChanged?.(); }} />
+  </section> : null;
+  const loadError = scopeMismatch ? "This plan does not belong to the route’s selected project. No unrelated plan body is shown." : planQuery.error?.message ?? null;
+  if (!plan) return <div>{reviewedControls}<p role={loadError ? "alert" : undefined}>{loadError ?? "Loading saved plan…"}</p></div>;
 
   return (
     <div>
-      {(error ?? loadError) && <div role="alert" style={{ color: "var(--ember)", marginBottom: 12 }}>
-        <p>{error ?? loadError}</p>
+      {loadError && <div role="alert" style={{ color: "var(--ember)", marginBottom: 12 }}>
+        <p>{loadError}</p>
         <p>Your mounted drafts remain here. A failed response is not proof that a save was rejected.</p>
-        <button type="button" className="btn-secondary" onClick={() => { setError(null); load(); }}>Refresh saved plan without clearing drafts</button>
+        <button type="button" className="btn-secondary" onClick={load}>Refresh saved plan without clearing drafts</button>
       </div>}
       <h1 style={{ marginBottom: 2 }}>{plan.name}</h1>
       <p style={{ color: "var(--muted)" }}>{plan.testPlanType.name} plan</p>
 
       {!readOnly && <button className="btn-secondary" style={{ marginBottom: 16 }} onClick={() => setExecutionOpen(true)}>Configure cases / repeat execution</button>}
       <PlanExecutionModal key={id} open={executionOpen} onClose={() => setExecutionOpen(false)} id={id} projectId={plan.projectId} onSaved={() => { load(); onChanged?.(); }} />
-      <PlanHeaderEditor key={`${plan.projectId}:${id}`} projectId={plan.projectId} testPlanId={id} readOnly={readOnly} onChanged={() => { load(); onChanged?.(); }} />
+      {reviewedControls}
 
       {readOnly && (
         <div style={{ display: "grid", gap: 6, marginBottom: 24 }}>
@@ -578,32 +570,8 @@ export function TestPlanDetailContent({
           </p>
         </div>
       )}
-      <div hidden={readOnly}>
-        <fieldset disabled={saving} style={{ display: "grid", gap: 10, margin: "0 0 24px", padding: 0, border: 0, minWidth: 0 }}>
-          <label>
-            Status
-            <select value={status} onChange={(e) => setStatus(e.target.value)}>
-              {STATUSES.map((s) => (
-                <option key={s} value={s}>
-                  {s}
-                </option>
-              ))}
-            </select>
-          </label>
-
-          {!savedMetadata ? <section><h3>Retained plan metadata (read-only)</h3><p>This native root value is not an editable object. It stays unchanged during status or header saves; no empty replacement is created.</p><pre style={{whiteSpace:"pre-wrap",overflowWrap:"anywhere"}}>{describeRetainedPlanValue(plan.customFields, true)}</pre></section> : plan.testPlanType.key === "qa-strategy" ? (
-            <QaStrategyForm projectId={plan.projectId} values={customFields} onChange={setCustomFields} />
-          ) : (
-            <PlanCustomFieldsForm schema={plan.testPlanType.fieldSchema} values={customFields} onChange={setCustomFields} />
-          )}
-
-          <p className="text-muted" style={{ fontSize: 12 }}>Name and description use the separate reviewed header editor. Status and custom-field saves still use the legacy plan path; they do not have the header editor's exact-request recovery.</p>
-          <button onClick={save} disabled={saving}>
-            {saving ? "Saving…" : "Save status and fields"}
-          </button>
-          {saved && <p style={{ color: "var(--frost)" }}>Saved.</p>}
-        </fieldset>
-      </div>
+      <p>Status: <strong>{status}</strong>. This saved planning lifecycle does not prove passing evidence or release acceptance.</p>
+      <details><summary>Saved native plan fields (read-only)</summary><pre style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>{describeRetainedPlanValue(plan.customFields, true)}</pre></details>
 
       {plan.testPlanType.key === "qa-strategy" && <StrategySignalsSection projectId={plan.projectId} />}
 

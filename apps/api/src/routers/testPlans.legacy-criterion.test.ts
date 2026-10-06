@@ -86,6 +86,9 @@ describe("deprecated criterion writes fail closed (mock callers, no native execu
       await expect(c.api.update({ id: "unrelated-private-plan-id", name: "Cached header", status: "ACTIVE", customFields: {} })).rejects.toMatchObject({
         code: "PRECONDITION_FAILED", message: expect.stringContaining("testPlanGovernance.editPlanHeader"),
       });
+      for (const payload of [{ id: "private-plan", status: "ACTIVE" as const }, { id: "private-plan", status: "APPROVED" as const, customFields: { saved: "stale metadata" } }]) {
+        await expect(c.api.update(payload)).rejects.toMatchObject({ code: "PRECONDITION_FAILED", message: expect.stringContaining("testPlanGovernance.setPlanStatus") });
+      }
       expect(c.accesses).toEqual([]);
       expect(recordAudit).not.toHaveBeenCalled();
       expect(refreshReleaseReadiness).not.toHaveBeenCalled();
@@ -99,6 +102,7 @@ describe("deprecated criterion writes fail closed (mock callers, no native execu
         description: "Existing wording",
       }),
       c.api.deleteAcceptanceCriterion({ id: "c" }),
+      c.api.update({ id: "private-plan", status: "ACTIVE", customFields: {} }),
     ]) {
       await expect(request).rejects.toMatchObject({
         message: expect.stringContaining(
