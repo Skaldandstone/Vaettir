@@ -24,9 +24,13 @@ describe.skipIf(!scopeOptIn || !manualCaseFixtureEnabled())(
     let owner: ReturnType<typeof appRouter.createCaller>, viewer: typeof owner;
     const ownerClerk = `${prefix}-owner`,
       viewerClerk = `${prefix}-viewer`;
-    const context = (user: NonNullable<Context["user"]>): Context => ({
+    const context = (
+      user: NonNullable<Context["user"]>,
+      fixtureDeclaredSubject: string,
+    ): Context => ({
       prisma,
       user,
+      authenticatedClerkSubject: fixtureDeclaredSubject,
       staff: null,
       securityLogger: { warn: () => {} },
       staffAttempt: {
@@ -70,7 +74,7 @@ describe.skipIf(!scopeOptIn || !manualCaseFixtureEnabled())(
       });
       actorId = u.id;
       users.push(u.id);
-      owner = appRouter.createCaller(context(u));
+      owner = appRouter.createCaller(context(u, ownerClerk));
       const v = await prisma.user.create({
         data: {
           email: `${prefix}-viewer@example.com`,
@@ -87,7 +91,7 @@ describe.skipIf(!scopeOptIn || !manualCaseFixtureEnabled())(
       });
       viewerId = v.id;
       users.push(v.id);
-      viewer = appRouter.createCaller(context(v));
+      viewer = appRouter.createCaller(context(v, viewerClerk));
       projectId = (
         await owner.project.create({
           organizationId: organizations[0]!,

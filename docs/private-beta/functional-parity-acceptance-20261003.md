@@ -2674,3 +2674,12 @@ cryptography and database transport are mocked in the new tests, not native or
 production proof. Legacy direct-service provenance, native positive fixture
 contexts, renewed sessions, retest ownership and completion recovery remain
 separate validation/compatibility work; this is not a deployment checkpoint.
+
+The two owned native fixture context factories now receive independently
+declared synthetic subjects rather than inferring them from a reread native
+user. All 29 existing native scenarios and assertion semantics are retained.
+Root repeated strict authored compilation and read-only AST comparisons of
+the registration expressions, 266 assertion calls and direct historical/legacy
+service or seed calls against the preceding checkpoint; none changed. No native
+fixture, database connection, erasure, trigger or teardown was executed. These
+fixtures remain AUTHORED, NOT RUN, and do not erase prior failed native evidence.

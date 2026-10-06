@@ -52,9 +52,13 @@ describe.skipIf(!manualCaseFixtureEnabled())(
       viewer: typeof api,
       switched: typeof api;
     let viewerClerk: string, viewerId: string, switchedClerk: string;
-    const callerContext = (user: NonNullable<Context["user"]>): Context => ({
+    const callerContext = (
+      user: NonNullable<Context["user"]>,
+      fixtureDeclaredSubject: string,
+    ): Context => ({
       prisma,
       user,
+      authenticatedClerkSubject: fixtureDeclaredSubject,
       staff: null,
       securityLogger: { warn: () => {} },
       staffAttempt: {
@@ -78,9 +82,10 @@ describe.skipIf(!manualCaseFixtureEnabled())(
         else otherOrg = org.id;
       }
       for (const suffix of ["owner", "viewer", "switch"]) {
+        const fixtureDeclaredSubject = `${prefix}-${suffix}`;
         const user = await prisma.user.create({
           data: {
-            clerkUserId: `${prefix}-${suffix}`,
+            clerkUserId: fixtureDeclaredSubject,
             email: `${prefix}-${suffix}@example.com`,
             name: "Synthetic human recorder",
             memberships: {
@@ -95,20 +100,22 @@ describe.skipIf(!manualCaseFixtureEnabled())(
         });
         userIds.push(user.id);
         const caller = manualCaseResultsRouter.createCaller(
-          callerContext(user),
+          callerContext(user, fixtureDeclaredSubject),
         );
         if (suffix === "owner") {
-          owner = appRouter.createCaller(callerContext(user));
+          owner = appRouter.createCaller(
+            callerContext(user, fixtureDeclaredSubject),
+          );
           api = caller;
           actorId = user.id;
-          clerk = user.clerkUserId;
+          clerk = fixtureDeclaredSubject;
         } else if (suffix === "viewer") {
           viewer = caller;
-          viewerClerk = user.clerkUserId;
+          viewerClerk = fixtureDeclaredSubject;
           viewerId = user.id;
         } else {
           switched = caller;
-          switchedClerk = user.clerkUserId;
+          switchedClerk = fixtureDeclaredSubject;
         }
       }
       await prisma.membership.create({
@@ -744,8 +751,10 @@ describe.skipIf(!manualCaseFixtureEnabled())(
           where: { id: actorId },
           include: { memberships: true },
         });
-        const native = appRouter.createCaller(callerContext(user)),
-          fresh = manualCaseResultsRouter.createCaller(callerContext(user));
+        const native = appRouter.createCaller(callerContext(user, clerk)),
+          fresh = manualCaseResultsRouter.createCaller(
+            callerContext(user, clerk),
+          );
         const p = await native.project.create({
           organizationId: org.id,
           name: slug,
