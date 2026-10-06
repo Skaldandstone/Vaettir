@@ -2,10 +2,11 @@
 
 import { useState } from "react";
 import { trpcReact } from "@/lib/trpcReact";
+import {gitlabInstanceOrigin} from "@/lib/gitlab-instance-selection";
 
 /** Administrator-only setup, deliberately separate from the customer Connect flow. */
-export function RepositoryOAuthApplicationSetup({ projectId, providerId }: {
-  projectId: string; providerId: "github" | "gitlab";
+export function RepositoryOAuthApplicationSetup({ projectId, providerId, initialOrigin }: {
+  projectId: string; providerId: "github" | "gitlab"; initialOrigin?: string;
 }) {
   const providerName = providerId === "gitlab" ? "GitLab" : "GitHub";
   const configurations = trpcReact.repositoryConnections.configurations.useQuery({ projectId });
@@ -16,7 +17,7 @@ export function RepositoryOAuthApplicationSetup({ projectId, providerId }: {
   const github = trpcReact.repositoryConnections.configureGithub.useMutation();
   const disconnect = trpcReact.repositoryConnections.disconnect.useMutation();
   const remove = trpcReact.repositoryConnections.removeConfiguration.useMutation();
-  const [origin, setOrigin] = useState("https://gitlab.com");
+  const [origin, setOrigin] = useState(() => gitlabInstanceOrigin(initialOrigin ?? "") ?? "https://gitlab.com");
   const [clientId, setClientId] = useState("");
   const [clientSecret, setClientSecret] = useState("");
   const [error, setError] = useState("");

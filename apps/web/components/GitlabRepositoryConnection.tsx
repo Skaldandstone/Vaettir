@@ -8,6 +8,7 @@ import { connectionAccessState } from "@/lib/connection-access";
 import { ConnectionAccessGate } from "./ConnectionAccessGate";
 import {cancelRepositoryAuthorization,type RepositoryAuthorizationIntent} from "./RepositoryProviderPicker";
 import {authorizeRepositoryAccount} from "@/lib/repository-authorization";
+import {gitlabInstanceOrigin} from "@/lib/gitlab-instance-selection";
 
 type Listing = RouterOutputs["repositoryConnections"]["list"];
 const field = { display: "grid", gap: 6 } as const;
@@ -26,6 +27,7 @@ export function RepositoryOAuthConnection({ projectId, providerId, onConnected, 
   const recent = trpcReact.repositoryConnections.mine.useQuery({ projectId }, { enabled: configurations.isSuccess && configurations.data.canConnect });
   const [step, setStep] = useState<"authorize" | "repositories" | "review" | "done">("authorize");
   const [configurationId, setConfigurationId] = useState("");
+  const [instanceUrl, setInstanceUrl] = useState("");
   const [connectionId, setConnectionId] = useState("");
   const [search, setSearch] = useState("");
   const [activeSearch, setActiveSearch] = useState("");
@@ -55,9 +57,10 @@ export function RepositoryOAuthConnection({ projectId, providerId, onConnected, 
     refetchInterval: query => !query.state.error && (!query.state.data || ["PENDING", "VERIFYING"].includes(query.state.data.status)) ? 2000 : false,
   });
   const availableConfigurations = configurations.data?.configurations.filter(c => c.provider === providerId) ?? [];
+  const instanceOrigin = gitlabInstanceOrigin(instanceUrl);
   const provider = availableConfigurations.find(c => c.id === configurationId)
-    ?? availableConfigurations.find(c => c.origin === (providerId === "gitlab" ? "https://gitlab.com" : "https://github.com"))
-    ?? (availableConfigurations.length === 1 ? availableConfigurations[0] : undefined);
+    ?? availableConfigurations.find(c => c.origin === (providerId === "gitlab" ? instanceOrigin : "https://github.com"));
+  const applicationSettings = `/settings/integrations/repositories?projectId=${encodeURIComponent(projectId)}&provider=${providerId}${instanceOrigin ? `&origin=${encodeURIComponent(instanceOrigin)}` : ""}`;
   const connectionReady = configurations.data?.storageReady ?? false;
   const busy = begin.isPending || connect.isPending || disconnect.isPending || loading;
   const failure = error || configurations.error?.message || status.error?.message;
@@ -81,6 +84,8 @@ export function RepositoryOAuthConnection({ projectId, providerId, onConnected, 
   useEffect(()=>{
     if(!initialAuthorization)return;
     if(!active||initialAuthorization.isCancelled()){cancelRepositoryAuthorization(initialAuthorization);return;}
+    // The provider click does not identify a self-hosted instance. Never infer GitLab.com.
+    if(providerId === "gitlab"){cancelRepositoryAuthorization(initialAuthorization);return;}
     if(accessState==="checking-permissions"||accessState==="checking-connections"||busy)return;
     if(!initialAuthorization.claim())return;
     if(accessState!=="ready"||!connectionReady||!providerConfigurationId||connectionId){
@@ -91,7 +96,7 @@ export function RepositoryOAuthConnection({ projectId, providerId, onConnected, 
       begin:()=>beginAuthorization({projectId,configurationId:providerConfigurationId,approveMetadataAccess:true}),
       onStarted:setConnectionId,onError:setError,onPopup:opened=>{popup.current=opened;},
     });
-  },[initialAuthorization,active,accessState,busy,connectionReady,providerConfigurationId,connectionId,providerName,beginAuthorization,projectId]);
+  },[initialAuthorization,active,accessState,busy,connectionReady,providerConfigurationId,connectionId,providerName,providerId,beginAuthorization,projectId]);
 
   const load = useCallback(async (nextPage = 1, nextSearch = "") => {
     setLoading(true); setError("");
@@ -134,6 +139,13 @@ export function RepositoryOAuthConnection({ projectId, providerId, onConnected, 
     {failure && <p role="alert">{failure}</p>}
     {step === "authorize" && <>
       {!connectionId ? <>
+        {providerId === "gitlab" && <>
+          <label style={field}>GitLab instance or project URL<input style={inputStyle} type="url" maxLength={300} value={instanceUrl} placeholder="https://your-gitlab.example.org/dashboard/projects" disabled={busy} onChange={e => { setInstanceUrl(e.target.value); setConfigurationId(""); setError(""); }}/></label>
+          <p className="text-muted">Paste the page you already use, or choose a configured instance below. This only selects the host; it does not connect your account or read repositories.</p>
+          {instanceUrl && !instanceOrigin && <p role="alert">Use a public HTTPS GitLab URL without credentials, a query, a fragment or a custom port.</p>}
+          {instanceOrigin && !provider && <section role="status"><strong>This GitLab instance needs one-time setup</strong><p>An OAuth application must be configured for this exact host before account authorization. Your existing GitLab sign-in is not a Vaettir connection.</p>{configurations.data?.canConfigure ? <Link href={applicationSettings}>Set up this GitLab instance</Link> : <p>Ask a workspace Owner or Admin to configure this instance.</p>}</section>}
+          {!!availableConfigurations.length && <div role="group" aria-label="Choose GitLab instance" style={{display:"grid",gap:8}}>{availableConfigurations.map(c => <button type="button" key={c.id} className="btn-secondary" aria-pressed={provider?.id === c.id} disabled={busy} onClick={() => {setConfigurationId(c.id);setInstanceUrl(c.origin);}}>{new URL(c.origin).hostname}</button>)}</div>}
+        </>}
         {!connectionReady ? <section role="alert">
           <strong>{providerName} authorization is unavailable</strong>
           <p>Vaettir platform setup is incomplete. No account or repository was connected.</p>
@@ -143,7 +155,7 @@ export function RepositoryOAuthConnection({ projectId, providerId, onConnected, 
           <p>The application must be enabled once before users can connect. You do not need to enter application credentials here.</p>
           <button type="button" className="btn-secondary" onClick={() => void configurations.refetch()}>Check again</button>
         </section> : <>
-          {availableConfigurations.length > 1 && <div role="group" aria-label={`Choose ${providerName} instance`} style={{ display: "grid", gap: 8 }}>
+          {providerId !== "gitlab" && availableConfigurations.length > 1 && <div role="group" aria-label={`Choose ${providerName} instance`} style={{ display: "grid", gap: 8 }}>
             {availableConfigurations.map(c => <button type="button" key={c.id} className="btn-secondary" aria-pressed={provider?.id === c.id} disabled={busy} onClick={() => setConfigurationId(c.id)}>{new URL(c.origin).hostname}</button>)}
           </div>}
           <p>{provider ? <>Connect to <strong>{new URL(provider.origin).hostname}</strong>.</> : "Choose your GitLab instance above."} {providerName} opens in a separate window and uses your existing sign-in, or asks you to sign in there.</p>
@@ -156,7 +168,7 @@ export function RepositoryOAuthConnection({ projectId, providerId, onConnected, 
             setConfigurationId(config?.id ?? ""); setConnectionId(connection.id); setStep("authorize");
           }}><strong>{new URL(connection.origin).hostname}</strong> · {connection.accountLabel ?? "Your authorization"} · {statusLabel(connection.status)}</button>)}
         </div></details>}
-        {configurations.data?.canConfigure && <Link className="text-muted" href={`/settings/integrations/repositories?projectId=${encodeURIComponent(projectId)}&provider=${providerId}`}>Manage workspace applications and saved grants</Link>}
+        {configurations.data?.canConfigure && <Link className="text-muted" href={applicationSettings}>Manage workspace applications and saved grants</Link>}
         <div style={actions}><button type="button" className="btn-secondary" onClick={onClose}>Cancel</button></div>
       </> : <>
         {!status.isSuccess ? <p role={status.error ? "alert" : "status"}>{status.error ? "Connection status could not be refreshed. Retry before loading repositories." : "Checking authorization status…"}</p> : <p role="status">{status.data.status === "VERIFIED" ? `Verified as ${status.data.accountLabel ?? `your ${providerName} account`}. ${loading ? "Loading repositories…" : "Choose repositories next."}` : ["PENDING", "VERIFYING"].includes(status.data.status) ? `Waiting for ${providerName} authorization. Complete it in the popup; this screen updates automatically.` : status.data.status === "EXPIRED" || status.data.status === "REVOCATION_PENDING" ? `This ${providerName} connection cannot be used. Revoke its grant before reconnecting; the encrypted credential is retained until cleanup is confirmed.` : `Connection ${status.data.status.toLowerCase()}. Start again to authorize.`}</p>}

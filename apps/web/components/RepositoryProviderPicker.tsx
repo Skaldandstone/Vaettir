@@ -17,7 +17,7 @@ export function RepositoryProviderPicker({value,onChange,onConnect,disabled=fals
     if(disabled||!value||!repositoryProviders.some(([provider])=>provider===value))return;
     setError("");
     let intent:RepositoryAuthorizationIntent|undefined;
-    if(authorize&&oauth){
+    if(authorize&&value==="github"){
       // The click owns the popup; never open it on selection or from an effect.
       const popup=window.open("about:blank","_blank","popup,width=650,height=760");
       if(!popup){setError("Allow popups for Vaettir, then select Connect again.");return;}
@@ -39,7 +39,7 @@ export function RepositoryProviderPicker({value,onChange,onConnect,disabled=fals
         {repositoryProviders.map(([provider,label])=><option key={provider} value={provider}>{label}</option>)}
       </select>
     </label>
-    {oauth?<p className="text-muted">{value==="github"?"GitHub may grant repository read/write and organization permissions.":"GitLab uses read_api, which is broader than repository listing."} Connect opens provider authorization using your existing sign-in, or asks you to sign in. Review its permissions. You approve account verification and repository metadata only; no source files or AI processing.</p>:value==="bitbucket"||value==="azure-devops"?<p className="text-muted">Connect opens token verification and repository selection. Native OAuth is not available for this provider yet.</p>:value?<p className="text-muted">Native account authorization is not available yet. Connect opens exported evidence and unverified reference options.</p>:null}
+    {oauth?<p className="text-muted">{value==="github"?"GitHub may grant repository read/write and organization permissions. Connect opens provider authorization.":"Choose your GitLab instance next, including self-hosted GitLab. Account authorization opens only after you select the host. GitLab uses read_api, which is broader than repository listing."} Authorization uses your existing sign-in, or asks you to sign in. Review its permissions. You approve account verification and repository metadata only; no source files or AI processing.</p>:value==="bitbucket"||value==="azure-devops"?<p className="text-muted">Connect opens token verification and repository selection. Native OAuth is not available for this provider yet.</p>:value?<p className="text-muted">Native account authorization is not available yet. Connect opens exported evidence and unverified reference options.</p>:null}
     {error&&<p role="alert">{error}</p>}
     <div><button type="button" disabled={disabled||!value} onClick={connect}>Connect</button></div>
   </div>;

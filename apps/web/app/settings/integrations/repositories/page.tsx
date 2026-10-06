@@ -32,7 +32,7 @@ function RepositoryApplicationSettings() {
         {(["gitlab", "github"] as const).map(id => <button type="button" key={id} className="btn-secondary" aria-pressed={id === providerId} onClick={() => setProviderId(id)}>{id === "gitlab" ? "GitLab" : "GitHub"}</button>)}
         <button type="button" className="btn-secondary" onClick={() => setProjectId("")}>Choose another project</button>
       </div>
-      <RepositoryOAuthApplicationSetup key={`${projectId}:${providerId}`} projectId={projectId} providerId={providerId}/>
+      <RepositoryOAuthApplicationSetup key={`${projectId}:${providerId}:${search.get("origin") ?? ""}`} projectId={projectId} providerId={providerId} initialOrigin={search.get("origin") ?? undefined}/>
     </>}
   </main>;
 }

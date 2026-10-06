@@ -14,14 +14,16 @@ test('native provider dropdown always uses all seven providers, with a separate 
   const selection=picker.slice(picker.indexOf('onChange={event=>'),picker.indexOf('style={{width:',picker.indexOf('onChange={event=>')));
   assert.match(selection,/onChange\(provider\)/);assert.doesNotMatch(selection,/window.open|onConnect\(/);
 });
-test('explicit Connect opens and isolates one popup; blocked popup does not dispatch authorization',()=>{
+test('explicit GitHub Connect opens one isolated popup; GitLab first selects its host without opening a blank window',()=>{
   const open=picker.indexOf('window.open("about:blank"');
   const block=picker.indexOf('if(!popup)');
   const isolate=picker.indexOf('popup.opener=null');
   const dispatch=picker.indexOf('onConnect(value,intent)');
   assert.ok(open>0&&block>open&&isolate>block&&dispatch>isolate);
   assert.match(picker.slice(block,isolate),/return;/);
-  assert.match(picker,/if\(authorize&&oauth\)/);
+  assert.match(picker,/if\(authorize&&value==="github"\)/);
+  assert.doesNotMatch(picker,/if\(authorize&&oauth\)/);
+  assert.match(picker,/Account authorization opens only after you select the host/);
   assert.match(picker,/repository metadata only; no source files or AI processing/);
 });
 test('click receipt is one-use and fresh-access bound, inactive/denied/closed windows cannot authorize',()=>{

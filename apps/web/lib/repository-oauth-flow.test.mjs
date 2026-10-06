@@ -13,6 +13,12 @@ test("customer Connect flow never collects OAuth application or account credenti
   assert.match(customer, /By connecting, you approve account verification and repository metadata listing only/);
   assert.match(customer, /No source files are read or sent to AI/);
   assert.match(customer, /settings\/integrations\/repositories\?projectId=/);
+  assert.match(customer, /if\(providerId === "gitlab"\)\{cancelRepositoryAuthorization\(initialAuthorization\);return;\}/);
+  assert.match(customer, /GitLab instance or project URL/);
+  assert.match(customer, /c\.origin === \(providerId === "gitlab" \? instanceOrigin : "https:\/\/github.com"\)/);
+  assert.doesNotMatch(customer, /availableConfigurations\.length === 1/);
+  assert.match(customer, /Set up this GitLab instance/);
+  assert.match(admin, /gitlabInstanceOrigin\(initialOrigin \?\? ""\)/);
 });
 
 test("blocked popup does not start OAuth; popup isolates opener before server-approved authorization", () => {

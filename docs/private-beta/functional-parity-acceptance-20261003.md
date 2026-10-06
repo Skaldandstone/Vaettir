@@ -3271,3 +3271,30 @@ Web capture dispatch stays closed pending bound target and consent; iOS target
 verification, paid recovery, approved signed delivery and the reported Windows
 launch failure remain unaccepted. Later run-start caller bytes are separate
 in-flight work and are not covered by these checks.
+
+### October 6: self-hosted GitLab instance selection
+
+The connection flow accepts a pasted dashboard or project URL and selects only
+that HTTPS origin. It no longer assumes GitLab.com, even when it is the sole
+configured instance. GitLab provider selection opens the instance chooser rather
+than a premature blank authorization popup. Account authorization remains a
+separate explicit action using existing fresh access checks, followed by reviewed
+repository metadata selection. Source reads, AI processing and spending remain
+separate, unapproved actions.
+
+An unconfigured host leads to workspace application setup with the validated
+origin prefilled. No credentials appear in the customer connection form; existing
+server encryption, tenant authorization and provider DNS/SSRF checks remain
+unchanged. UI origin parsing is routing convenience, not server admission.
+
+Focused tests cover URL handling, actual-module synthetic React SSR (GitLab does
+not infer a configured cloud host; GitHub retains its cloud configuration), and
+existing fresh-access, popup, selection/review and revocation contracts. These
+The focused tranche passed 19 existing source contracts and 15 parser/actual-module
+synthetic render checks, scoped lint and Web typecheck. A concurrent full Web run
+failed in the separately owned run-start controller and its legacy host assertion;
+it is not a green whole-tree result. These checks are not authenticated connection
+or deployment proof. The live repository
+administration route returned 404 during read-only verification; no OAuth grant,
+application credential, repository link, customer source read or processing was
+performed. The missing deployed setup route remains an actual release gap.
