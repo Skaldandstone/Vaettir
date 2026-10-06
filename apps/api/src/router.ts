@@ -57,6 +57,7 @@ import { healingSuggestionsRouter } from "./routers/healingSuggestions.js";
 import { adminRouter } from "./routers/admin.js";
 import { webhooksRouter } from "./routers/webhooks.js";
 import { manualExecutionRouter } from "./routers/manualExecution.js";
+import { manualRunReadsRouter } from "./routers/manualRunReads.js";
 import { sharedStepGroupsRouter } from "./routers/sharedStepGroups.js";
 import { testCaseAttachmentsRouter } from "./routers/testCaseAttachments.js";
 import { exploratorySessionsRouter } from "./routers/exploratorySessions.js";
@@ -144,6 +145,7 @@ export const appRouter = router({
   admin: adminRouter,
   webhooks: webhooksRouter,
   manualExecution: manualExecutionRouter,
+  manualRunReads: manualRunReadsRouter,
   sharedStepGroups: sharedStepGroupsRouter,
   testCaseAttachments: testCaseAttachmentsRouter,
   exploratorySessions: exploratorySessionsRouter,

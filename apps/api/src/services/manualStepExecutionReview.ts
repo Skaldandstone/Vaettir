@@ -11,6 +11,7 @@ import { reviewedStepAckSchema, reviewedStepCurrentSchema, reviewedStepObservati
 
 const refused = () => new TRPCError({ code: "PRECONDITION_FAILED", message: "The complete frozen procedure or observations are unsupported within native bounds. No evidence was truncated, normalized or replaced." });
 const conflict = () => new TRPCError({ code: "CONFLICT", message: "The reviewed step baseline or exact request changed. Keep the original request and explicitly review current evidence." });
+const businessRefusal = (purpose: "READ" | "WRITE", code: "BAD_REQUEST" | "CONFLICT", message: string) => purpose === "WRITE" ? new TRPCError({ code, message }) : refused();
 const options = { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead, timeout: 20000, maxWait: 5000 };
 type Actor = { id: string; clerkUserId: string };
 type Ref = Pick<ReviewedStepPreviewInput, "projectId" | "testRunId" | "testCaseId" | "stepIndex" | "originalOrganizationId" | "expectedClerkActorId" | "expectedNativeActorId">;
@@ -38,8 +39,8 @@ async function access(tx: Prisma.TransactionClient, actor: Actor, ref: Ref, writ
 const frozenStep = z.object({ order: z.number().int().min(0).max(499), action: z.string().min(1).max(10000), expectedActionOrData: z.string().max(10000).nullable(), expectedResult: z.string().max(10000).nullable(), expectedResponse: z.string().max(10000).nullable(), mediaAttachmentIds: z.array(z.string().min(1).max(200)).max(100) }).strict();
 const frozenCase = runCaseDefinitionSchema.extend({ steps: z.array(frozenStep).min(1).max(500) }).passthrough();
 /** All cardinality, coordinate and byte admission happens in SQL before bodies. */
-async function state(tx: Prisma.TransactionClient, ref: Ref) {
-  const [size] = await tx.$queryRaw<Array<{ runBytes: bigint; executionBytes: bigint; scopeBytes: bigint; graphBytes: bigint; graphKeys: bigint; graphEdges: bigint; invalidGraph: boolean; cases: number; uniqueCases: bigint; definitions: number; steps: bigint; maxSteps: number; invalid: boolean; foreign: boolean }>>`
+async function state(tx: Prisma.TransactionClient, ref: Ref, purpose: "READ" | "WRITE" = "READ") {
+  const [size] = await tx.$queryRaw<Array<{ runBytes: bigint; executionBytes: bigint; scopeBytes: bigint; graphBytes: bigint; graphKeys: bigint; graphEdges: bigint; invalidGraph: boolean; cases: number; uniqueCases: bigint; definitions: number; steps: bigint; maxSteps: number; invalid: boolean; foreign: boolean; emptyLegacySnapshot: boolean }>>`
     SELECT octet_length(to_jsonb(r)::text)::bigint AS "runBytes",octet_length(r."executionContext"::text)::bigint AS "executionBytes",octet_length(r."manualTestCaseIds"::text)::bigint AS "scopeBytes",octet_length(r."manualPrerequisites"::text)::bigint AS "graphBytes",cardinality(r."manualTestCaseIds")::int AS cases,
       (SELECT count(*) FROM jsonb_object_keys(CASE WHEN jsonb_typeof(r."manualPrerequisites")='object' THEN r."manualPrerequisites" ELSE '{}'::jsonb END)) AS "graphKeys",
       (SELECT coalesce(sum(CASE WHEN jsonb_typeof(g.value)='array' THEN jsonb_array_length(g.value) ELSE 1001 END),0)::bigint FROM jsonb_each(CASE WHEN jsonb_typeof(r."manualPrerequisites")='object' THEN r."manualPrerequisites" ELSE '{}'::jsonb END) g) AS "graphEdges",
@@ -49,9 +50,12 @@ async function state(tx: Prisma.TransactionClient, ref: Ref) {
       coalesce((SELECT sum(CASE WHEN jsonb_typeof(d->'steps')='array' THEN jsonb_array_length(d->'steps') ELSE 501 END)::bigint FROM jsonb_array_elements(CASE WHEN jsonb_typeof(r."executionContext"->'caseDefinitions')='array' THEN r."executionContext"->'caseDefinitions' ELSE '[]'::jsonb END) d),0)::bigint AS steps,
       coalesce((SELECT max(CASE WHEN jsonb_typeof(d->'steps')='array' THEN jsonb_array_length(d->'steps') ELSE 501 END) FROM jsonb_array_elements(CASE WHEN jsonb_typeof(r."executionContext"->'caseDefinitions')='array' THEN r."executionContext"->'caseDefinitions' ELSE '[]'::jsonb END) d),0)::int AS "maxSteps",
       EXISTS(SELECT 1 FROM unnest(r."manualTestCaseIds") id WHERE id IS NULL OR length(id)<1 OR length(id)>200) AS invalid,
-      EXISTS(SELECT 1 FROM "TestCase" c WHERE c.id=ANY(r."manualTestCaseIds") AND c."projectId"<>${ref.projectId}) AS foreign
+      EXISTS(SELECT 1 FROM "TestCase" c WHERE c.id=ANY(r."manualTestCaseIds") AND c."projectId"<>${ref.projectId}) AS foreign,
+      (r."executionContext"='{}'::jsonb AND r."manualPrerequisites"='{}'::jsonb AND ${ref.testCaseId}=ANY(r."manualTestCaseIds") AND EXISTS(SELECT 1 FROM "TestCase" c WHERE c.id=${ref.testCaseId} AND c."projectId"=${ref.projectId})) AS "emptyLegacySnapshot"
     FROM "TestRun" r WHERE r.id=${ref.testRunId} AND r."projectId"=${ref.projectId}`;
-  if (!size || size.runBytes < 0n || size.runBytes > 4194304n || size.executionBytes < 0n || size.executionBytes > 2097152n || size.scopeBytes < 0n || size.scopeBytes > 524288n || size.graphBytes < 0n || size.graphBytes > 524288n || !Number.isInteger(size.cases) || size.cases < 1 || size.cases > 1000 || size.uniqueCases !== BigInt(size.cases) || size.definitions !== size.cases || size.graphKeys !== BigInt(size.cases) || size.graphEdges < 0n || size.graphEdges > 10000n || size.invalidGraph || size.steps < 0n || size.steps > 25000n || size.maxSteps < 0 || size.maxSteps > 500 || size.invalid || size.foreign) throw refused();
+  if (!size || size.runBytes < 0n || size.runBytes > 4194304n || size.executionBytes < 0n || size.executionBytes > 2097152n || size.scopeBytes < 0n || size.scopeBytes > 524288n || size.graphBytes < 0n || size.graphBytes > 524288n || !Number.isInteger(size.cases) || size.cases < 1 || size.cases > 1000 || size.uniqueCases !== BigInt(size.cases) || size.graphEdges < 0n || size.graphEdges > 10000n || size.invalidGraph || size.steps < 0n || size.steps > 25000n || !Number.isInteger(size.maxSteps) || size.maxSteps < 0 || size.maxSteps > 500 || size.invalid || size.foreign) throw refused();
+  const emptyLegacy = purpose === "WRITE" && size.emptyLegacySnapshot === true && size.definitions === 1001 && size.graphKeys === 0n && size.graphEdges === 0n && size.steps === 0n && size.maxSteps === 0;
+  if (!emptyLegacy && (size.definitions !== size.cases || size.graphKeys !== BigInt(size.cases))) throw refused();
   const [nativeCase] = await tx.$queryRaw<Array<{ present: boolean }>>`SELECT EXISTS(SELECT 1 FROM "TestCase" WHERE id=${ref.testCaseId} AND "projectId"=${ref.projectId}) AS present`;
   if (nativeCase?.present !== true) throw refused();
   const [headsSize] = await tx.$queryRaw<Array<{ count: bigint; caseHeads: bigint; bytes: bigint; maxBytes: bigint; selectedBytes: bigint; invalid: boolean }>>`
@@ -59,6 +63,10 @@ async function state(tx: Prisma.TransactionClient, ref: Ref) {
       coalesce(bool_or(v.id IS NULL OR h."testCaseId"<>ALL(r."manualTestCaseIds") OR v."testRunId"<>h."testRunId" OR v."testCaseId"<>h."testCaseId" OR v."stepIndex"<>h."stepIndex" OR h."revisionCount"<>v."revisionNumber" OR h."revisionCount"<1 OR h."revisionCount">100 OR h."currentPayloadBytes"<1 OR h."currentPayloadBytes">4194304 OR v.status::text NOT IN ('PASS','FAIL','BLOCKED','SKIP') OR h."stepIndex"<0 OR h."stepIndex">499 OR NOT EXISTS(SELECT 1 FROM jsonb_array_elements(r."executionContext"->'caseDefinitions') d WHERE d->>'testCaseId'=h."testCaseId" AND jsonb_typeof(d->'steps')='array' AND h."stepIndex"<jsonb_array_length(d->'steps'))),false) AS invalid
     FROM "ManualStepResultHead" h JOIN "TestRun" r ON r.id=h."testRunId" LEFT JOIN "ManualStepResultRevision" v ON v.id=h."currentRevisionId" WHERE r.id=${ref.testRunId}`;
   if (!headsSize || headsSize.count < 0n || headsSize.count > 25000n || headsSize.caseHeads < 0n || headsSize.caseHeads > 500n || headsSize.bytes < 0n || headsSize.bytes > 4194304n || headsSize.maxBytes < 0n || headsSize.maxBytes > 262144n || headsSize.invalid) throw refused();
+  if (emptyLegacy) {
+    if (headsSize.count !== 0n || headsSize.caseHeads !== 0n || headsSize.bytes !== 0n || headsSize.maxBytes !== 0n || headsSize.selectedBytes !== 0n) throw refused();
+    throw businessRefusal(purpose, "BAD_REQUEST", "Step execution requires a frozen structured procedure in this run. Start a new run with structured steps; current or legacy live definitions cannot replace the saved baseline.");
+  }
   const run = await tx.testRun.findUniqueOrThrow({ where: { id: ref.testRunId }, select: { id: true, projectId: true, manualTestCaseIds: true, manualPrerequisites: true, executionContext: true } });
   if (run.id !== ref.testRunId || run.projectId !== ref.projectId || run.manualTestCaseIds.length !== size.cases || !run.manualTestCaseIds.includes(ref.testCaseId)) throw refused();
   if (caseFieldPresentationJsonBytes(run.executionContext) > 2097152 || caseFieldPresentationJsonBytes(run.manualPrerequisites) > 524288) throw refused();
@@ -70,7 +78,9 @@ async function state(tx: Prisma.TransactionClient, ref: Ref) {
   if (new Set(definitions.map(d => d.testCaseId)).size !== run.manualTestCaseIds.length || definitions.some(d => !run.manualTestCaseIds.includes(d.testCaseId))) throw refused();
   const definitionRaw = raw.caseDefinitions.find(value => !!value && typeof value === "object" && (value as { testCaseId?: unknown }).testCaseId === ref.testCaseId);
   const parsed = frozenCase.safeParse(definitionRaw);
-  if (!parsed.success || ref.stepIndex >= parsed.data.steps.length || !parsed.data.steps.every((step, index) => step.order === index)) throw refused();
+  if (!parsed.success || !parsed.data.steps.every((step, index) => step.order === index)) throw refused();
+  const invalidRequestedStep = ref.stepIndex >= parsed.data.steps.length;
+  if (purpose === "READ" && invalidRequestedStep) throw refused();
   const graphParsed = z.record(z.array(z.string().min(1).max(200)).max(1000)).safeParse(run.manualPrerequisites);
   if (!graphParsed.success || Object.keys(graphParsed.data).length !== run.manualTestCaseIds.length) throw refused();
   const graph = graphParsed.data;
@@ -106,7 +116,9 @@ async function state(tx: Prisma.TransactionClient, ref: Ref) {
     if (!result.success) throw refused(); current = result.data;
   }
   const [mode] = await tx.$queryRaw<Array<{ whole: bigint; results: bigint; bytes: bigint; unsupported: boolean }>>`SELECT (SELECT count(*) FROM "ManualCaseResultHead" WHERE "testRunId"=${ref.testRunId} AND "testCaseId"=${ref.testCaseId}) AS whole,(SELECT count(*) FROM "TestResult" WHERE "testRunId"=${ref.testRunId} AND "testCaseId"=${ref.testCaseId}) AS results,(SELECT coalesce(sum(octet_length(concat(id,note,observations::text))),0)::bigint FROM "TestResult" WHERE "testRunId"=${ref.testRunId} AND "testCaseId"=${ref.testCaseId}) AS bytes,EXISTS(SELECT 1 FROM "TestResult" WHERE "testRunId"=${ref.testRunId} AND "testCaseId"=${ref.testCaseId} AND status::text NOT IN ('PASS','FAIL','BLOCKED','SKIP')) AS unsupported`;
-  if (!mode || mode.whole > 0n || mode.results > 1n || mode.bytes > 262144n || mode.unsupported || !heads.length && mode.results > 0n) throw refused();
+  if (!mode || typeof mode.whole !== "bigint" || mode.whole < 0n || mode.whole > 1n || typeof mode.results !== "bigint" || mode.results < 0n || mode.results > 1n || typeof mode.bytes !== "bigint" || mode.bytes < 0n || mode.bytes > 262144n || mode.unsupported !== false) throw refused();
+  if (mode.whole > 0n && (heads.length > 0 || mode.results !== 1n)) throw refused();
+  if (mode.whole > 0n || !heads.length && mode.results > 0n) throw businessRefusal(purpose, "CONFLICT", "This case retains whole-case observations. Correct those observations or start a separate run for per-step execution; prior evidence cannot be replaced.");
   const previousComplete = parsed.data.steps.every((_, index) => heads.some(h => h.stepIndex === index));
   if ((mode.results === 1n) !== previousComplete) throw refused();
   if (mode.results === 1n) {
@@ -117,6 +129,7 @@ async function state(tx: Prisma.TransactionClient, ref: Ref) {
     const [exact] = await tx.$queryRaw<Array<{ exact: boolean }>>`SELECT observations IS NOT DISTINCT FROM '{}'::jsonb AS exact FROM "TestResult" WHERE id=${projection.id}`;
     if (exact?.exact !== true) throw refused();
   }
+  if (invalidRequestedStep) throw businessRefusal(purpose, "BAD_REQUEST", "That step is not part of the frozen run procedure.");
   return { run, graph, definition: definitionRaw, steps: parsed.data.steps, heads, head, current, rawCurrent: currentRaw,
     procedureHash: qualityProfileHash({ definition: definitionRaw, graph: run.manualPrerequisites, orderedCaseIds: run.manualTestCaseIds }), currentFingerprint: qualityProfileHash({ head: head ? { revisionId: head.currentRevisionId, revisionCount: head.revisionCount, payloadBytes: head.currentPayloadBytes } : null, revision: currentRaw ? revisionJson(currentRaw) : null }), totalBytes: headsSize.bytes, selectedBytes: headsSize.selectedBytes };
 }
@@ -150,15 +163,18 @@ export async function recordReviewedStep(db: PrismaClient, actor: Actor, raw: Re
     }
     // Legacy row UUIDs cannot be retroactively labelled reviewed/native-pinned.
     if (await tx.manualStepResultRevision.count({ where: { testRunId: input.testRunId, actorId: actor.id, idempotencyKey: input.idempotencyKey } })) throw new TRPCError({ code: "CONFLICT", message: "This UUID belongs to a legacy step receipt without reviewed original-actor provenance. Keep its legacy request; no new review or result was created." });
-    if (admitted.run.provider !== "manual" || admitted.run.status !== "RUNNING") throw refused();
-    const value = await state(tx, input);
+    if (typeof admitted.run.provider !== "string" || !["RUNNING", "PASSED", "FAILED", "PARTIAL"].includes(admitted.run.status)) throw refused();
+    if (admitted.run.provider !== "manual" || admitted.run.status !== "RUNNING") throw businessRefusal("WRITE", "BAD_REQUEST", "Only an active manual run can accept new step observations. Previous receipts and history remain available.");
+    const value = await state(tx, input, "WRITE");
     if (value.procedureHash !== input.expectedProcedureHash || value.currentFingerprint !== input.expectedCurrentFingerprint || (value.head?.currentRevisionId ?? null) !== input.expectedRevisionId) throw conflict();
-    if (value.head && !input.correctionReason?.trim() || (value.head?.revisionCount ?? 0) >= 100) throw refused();
-    if (input.status === "PASS" && input.observations.measurements.some(m => m.lowerLimit !== undefined && m.value < m.lowerLimit || m.upperLimit !== undefined && m.value > m.upperLimit)) throw refused();
+    if ((value.head?.revisionCount ?? 0) >= 100) throw refused();
+    if (value.head && !input.correctionReason?.trim()) throw businessRefusal("WRITE", "BAD_REQUEST", "Explain why this recorded step needs correction. Prior observations will be retained.");
+    if (input.status === "PASS" && input.observations.measurements.some(m => m.lowerLimit !== undefined && m.value < m.lowerLimit || m.upperLimit !== undefined && m.value > m.upperLimit)) throw businessRefusal("WRITE", "BAD_REQUEST", "A reading is outside its recorded limits. Review the evidence or record Fail instead of Pass.");
     if (["PASS", "FAIL"].includes(input.status)) {
       const ids = value.graph[input.testCaseId] ?? [];
       const results = await tx.testResult.findMany({ where: { testRunId: input.testRunId, testCaseId: { in: ids } }, select: { testCaseId: true, status: true } });
-      if (results.length !== ids.length || new Set(results.map(r => r.testCaseId)).size !== ids.length || ids.some(id => results.find(r => r.testCaseId === id)?.status !== "PASS")) throw refused();
+      if (results.length > ids.length || new Set(results.map(r => r.testCaseId)).size !== results.length || results.some(r => typeof r.testCaseId !== "string" || !ids.includes(r.testCaseId) || !reviewedStepStatusSchema.safeParse(r.status).success)) throw refused();
+      if (results.length !== ids.length || ids.some(id => results.find(r => r.testCaseId === id)?.status !== "PASS")) throw businessRefusal("WRITE", "BAD_REQUEST", "Complete all prerequisite cases with Pass before executing this case.");
     }
     const result = await tx.testResult.findFirst({ where: { testRunId: input.testRunId, testCaseId: input.testCaseId }, select: { id: true, status: true } });
     if (result?.status === "PASS" && input.status !== "PASS") {
@@ -167,7 +183,8 @@ export async function recordReviewedStep(db: PrismaClient, actor: Actor, raw: Re
     }
     if (input.evidenceAttachmentIds.length) {
       const [filesSize] = await tx.$queryRaw<Array<{ count: bigint; bytes: bigint; maxBytes: bigint; invalid: boolean }>>`SELECT count(*) AS count,coalesce(sum(octet_length(concat(a.id,a."fileName",a."contentType",a."uploadVerification"::text))),0)::bigint AS bytes,coalesce(max(octet_length(concat(a.id,a."fileName",a."contentType",a."uploadVerification"::text))),0)::bigint AS "maxBytes",coalesce(bool_or(a."sizeBytes"<1 OR a."sizeBytes">26214400 OR octet_length(a."fileName")>4096 OR octet_length(a."contentType")>800),false) AS invalid FROM "TestCaseAttachment" a JOIN "TestCase" c ON c.id=a."testCaseId" WHERE a.id IN (${Prisma.join(input.evidenceAttachmentIds)}) AND c."projectId"=${input.projectId} AND a."uploadCompletedAt" IS NOT NULL`;
-      if (!filesSize || filesSize.count !== BigInt(input.evidenceAttachmentIds.length) || filesSize.bytes < 0n || filesSize.bytes > 163840n || filesSize.maxBytes > 8192n || filesSize.invalid) throw refused();
+      if (!filesSize || typeof filesSize.count !== "bigint" || filesSize.count < 0n || filesSize.count > BigInt(input.evidenceAttachmentIds.length) || typeof filesSize.bytes !== "bigint" || filesSize.bytes < 0n || filesSize.bytes > 163840n || typeof filesSize.maxBytes !== "bigint" || filesSize.maxBytes < 0n || filesSize.maxBytes > 8192n || filesSize.invalid !== false) throw refused();
+      if (filesSize.count < BigInt(input.evidenceAttachmentIds.length)) throw businessRefusal("WRITE", "BAD_REQUEST", "Selected evidence is unavailable, unconfirmed or outside this project. Review the selection before recording the step.");
     }
     const files = input.evidenceAttachmentIds.length ? await tx.testCaseAttachment.findMany({ where: { id: { in: input.evidenceAttachmentIds }, testCase: { projectId: input.projectId }, uploadCompletedAt: { not: null } }, select: { id: true, fileName: true, contentType: true, sizeBytes: true, uploadVerification: true } }) : [];
     if (files.length !== input.evidenceAttachmentIds.length) throw refused();

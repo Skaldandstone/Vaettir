@@ -4,6 +4,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useParams } from "next/navigation";
 import { useAuth } from "@clerk/nextjs";
 import { downloadFile } from "@/lib/download";
+import { DeviceHelperBlockedLaunchGuidance } from "@/components/DeviceHelperBlockedLaunchGuidance";
 import {
   buildDeviceConnectorLauncher,
   createDeviceConnectorPairingCode,
@@ -614,7 +615,7 @@ export default function LiveAppGenerationPage() {
                         </span>
                       </div>
                       {!helperActorAllowed && <p role="status">Current loaded, signed-in original-account/organization access with freshly completed protected project/member reads and a full editor seat is required. Private pairing draft and device selections remain retained but hidden; no connection/download/discovery retry is authorized. Local health is not server authorization or device acceptance.</p>}
-                      {connectorStatus === "blocked" && <div role="status" className="panel"><p>Windows refused the download you tried to open. The cause is unverified: an Internet download marker or installed security product does not identify the enforced policy. Ask the device&apos;s security administrator to review the exact filename, error and time in its protection/policy history. Do not disable protection, unblock files, add exclusions or run as administrator.</p><p>Your private pairing draft remains retained. Reporting this did not launch a helper, change policy or perform device capture. Signed trusted distribution and actual Windows/device acceptance remain separate.</p><button type="button" className="btn-secondary" onClick={showPolicyPermittedManualSetup}>Show manual instructions only if policy permits</button></div>}
+                      {connectorStatus === "blocked" && <div role="status"><DeviceHelperBlockedLaunchGuidance reportedBlocked={true} /><p>Your private pairing draft remains retained. Reporting this did not launch a helper, change policy or perform device capture. Signed trusted distribution and actual Windows/device acceptance remain separate.</p><button type="button" className="btn-secondary" onClick={showPolicyPermittedManualSetup}>Show manual instructions only if policy permits</button></div>}
                       <details open={manualSetupOpen} onToggle={event => setManualSetupOpen(event.currentTarget.open)}>
                         <summary>Manual setup and troubleshooting</summary>
                         <div style={{ display: "grid", gap: 8, marginTop: 8 }}>
@@ -624,8 +625,8 @@ export default function LiveAppGenerationPage() {
                             <code>{pairingCode || "Preparing..."}</code>
                           </span>
                           <span className="text-muted" style={{ fontSize: 13 }}>
-                            If Windows says it cannot access the helper, it has
-                            not started. Do not disable antivirus, add an
+                            If Windows says it cannot access the helper, its
+                            launch outcome remains unverified. Do not disable antivirus, add an
                             exclusion or run as administrator. Ask your security
                             administrator to review the blocked download. This
                             page cannot identify or override the blocking

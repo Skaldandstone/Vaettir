@@ -176,6 +176,11 @@ test("actual blocked setup markup hides pairing/code and raw download until an e
 
 test("reported block is unavailable during an existing capture/generation and never claims automatic Windows diagnosis", () => {
   const host = harness(); host.h.capturing = true; host.h.reportBlockedWindowsHelper(); assert.equal(host.state.connectorStatus, "idle");
-  assert.match(source, /Windows launch blocked \(reported by you\)/); assert.match(source, /cause is unverified/); assert.match(source, /Downloading is not proof of launch/);
+  assert.match(source, /Windows launch blocked \(reported by you\)/);
+  assert.match(source, /<DeviceHelperBlockedLaunchGuidance reportedBlocked=\{true\}/);
+  const guidance = readFileSync(new URL("../components/DeviceHelperBlockedLaunchGuidance.tsx", import.meta.url), "utf8");
+  assert.match(guidance, /Windows refused launch \(reported by you\)/);
+  assert.match(guidance, /blocking policy or product is unknown/);
+  assert.match(source, /Downloading is not proof of launch/);
   assert.doesNotMatch(handlers, /Unblock-File|ExecutionPolicy|RunAs|Add-MpPreference|Start-Process/);
 });

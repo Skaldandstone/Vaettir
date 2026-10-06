@@ -321,7 +321,9 @@ it("source admission is additive only, original writes/rollup/request hashes are
     new URL("./manualExecution.ts", import.meta.url),
     "utf8",
   );
-  expect(source).toContain("cases: availability.availableCaseIds");
+  const projection = readFileSync(new URL("../services/manualExecutionCurrentProjection.ts", import.meta.url), "utf8");
+  expect(source).toContain("readManualExecutionCurrentProjection(tx, ctx.user.id, ctx.user.clerkUserId, input)");
+  expect(projection).toContain("cases: availability.availableCaseIds");
   expect(source).toContain(
     "requireCompleteManualRunScopeAvailability(availability)",
   );
@@ -329,7 +331,7 @@ it("source admission is additive only, original writes/rollup/request hashes are
   expect(source).toContain(
     "const status = manualRunStatus(run.manualTestCaseIds.length",
   );
-  expect(source).not.toContain(
+  expect(source + projection).not.toContain(
     ".filter((c): c is NonNullable<typeof c> => c !== null)",
   );
 });

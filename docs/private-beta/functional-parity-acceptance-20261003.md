@@ -2369,3 +2369,70 @@ capture-ownership checks; all 71 passed, with scoped lint clean. Actual setup,
 capture caller, connector and launcher are unchanged. Current blocked Windows
 launch, physical device/foreground isolation and separately reviewed processing
 consent/paid recovery remain open. No helper was launched or queried here.
+
+### October 6 current manual-run view and actionable execution refusals
+
+The additive manualRunReads.current source route requires independently verified
+JWT authority, current locked native tenant/actor scope and an exact request nonce
+and key. Its whole supported view includes the complete planned/available/missing
+partition. Root compared the prior getter's output schema and projection ASTs
+against the extracted shared implementation; both fingerprints match exactly.
+The legacy getter retains its original wire shape and separate legacy authority
+limitations. Existing normalization is retained, not described as lossless raw
+native JSON or complete revision history. Current step recordedAt is a server
+Date but a UTC ISO string on JSON wire; browser admission must validate that wire
+representation independently. The new browser reader/export cutover is not yet
+implemented or accepted.
+
+Reviewed step writes now explain recognized closed-run, missing correction,
+out-of-limit Pass, unfinished prerequisite, unavailable evidence and unsupported
+requested-step situations. Existing whole-case observations conflict with new
+per-step execution instead of being replaced. Corrupt/oversized/unsupported native
+metadata still refuses with PRECONDITION_FAILED; exact accepted receipts recover
+before later business refusals. Read-preview recovery semantics, request hashes,
+original authorization, rollback budget and immutable revisions are unchanged.
+Native prerequisite duplicate/byte pre-admission and simultaneous same-UUID
+acceptance remain open. The strict native fixture is unchanged and unexecuted.
+
+Root repeated 279 mocked API checks across nine actual suites, then 24 read-bound
+and scope-schema checks across two suites separately. No native SQL or runtime proof is implied. Source
+contracts were relocated to the actual extracted schema/projection and now also
+assert the legacy delegation; no admission predicate was removed. One old
+unavailable-evidence assertion deliberately changed from PRECONDITION_FAILED to
+BAD_REQUEST while retaining its no-private-file-read/no-write assertions.
+
+### October 6 mounted public Windows refusal guidance
+
+The actual capture page now mounts a public checklist only in its existing
+user-reported blocked branch. It preserves the original private draft and explicit
+policy-permitted manual action. Filename/error/time collection, security-owner
+policy review and unsigned-script/Node requirements are separated from OS launch,
+paired liveness, foreground device/app verification, capture consent and paid AI
+approval. No protection bypass or cause diagnosis is offered. The old assertion
+that a failed launch proves the helper never started was corrected to unknown.
+The setup/capture/processing transport itself is unchanged and remains open.
+
+Root's seven actual-source SSR/disclosure checks and existing sixteen connection
+controller checks passed. A first controller source assertion failed after copy
+moved into the component; it now checks that mounted component and its exact
+uncertainty copy without dropping the no-OS-action assertions. Scoped lint has
+only one existing capture-page effect warning and two existing API test any
+warnings. Compatible Web checks passed 803 Node plus 715 typed checks across 64
+suites, zero skips; API/Web types passed. The first full Web pass stopped with
+three source-contract failures from the getter extraction; the relocated actual
+contracts pass. This remains local source/synthetic evidence, not Windows/device
+or authenticated production acceptance.
+
+### October 6 authenticated Testmo run-status observation
+
+The existing signed-in Space Shuttle vendor sample was inspected without saving
+results, creating runs, exporting files or touching client data. Its run list
+shows eight active/three unstarted runs, workload and a success metric. A sample
+run's Status view separately shows 73% completed, 143 of 534 remaining and 71%
+successful, with Passed/Failed/Retest/Blocked/Skipped breakdowns, creation date,
+elapsed time and forecast. From the displayed counts, excluding the three Retest
+results from completion is an inference, not a verified vendor business rule.
+These observations support separate clearly named progress/success denominators
+and remaining-work visuals, not a claim that recorded or passed means accepted.
+Export controls were visible but export fidelity was not exercised. This is
+hands-on interaction evidence, not a vendor ranking or complaint-prevalence claim.
