@@ -7,7 +7,7 @@ historical, not a current source inventory. Later checkpoint sections record
 signed-in Qase/TestRail/Testmo trial observations and implementation. They do
 not establish exhaustive parity, an equivalent-task performance comparison or
 deployment. The active scope is all James's reported workflows, not only
-release gates. Latest reviewed source checkpoint: `a17961b`; subsequent drafts
+release gates. Latest reviewed source checkpoint: `ec35aa3`; subsequent drafts
 remain separately identified until integrated and checkpointed.
 
 The standard case-management baseline is not yet met end to end. The most important gaps are preserving imported procedures, stable human-readable references, lossless export, complete history and safe edits. More AI actions or a different layout do not compensate for those gaps.
@@ -1263,3 +1263,49 @@ authenticated production and deployment remain unverified. Earlier failed native
 release gates remain failed. Source checkpoints do not finish the broader parity
 work; Windows launch policy, whole-suite approval performance and additional
 schema-independent collaboration reads continue in separate lanes.
+
+October 6 04:34 UTC further reported-workflow source repairs:
+
+- RISK approval now admits the complete payable queue's count, unique positions,
+  identities and metadata bytes before materializing only needed scalar fields.
+  Case/procedure/source baselines are rechecked in batches of at most 32, with
+  initial and post-lock native count/byte/relationship admission. Every frozen
+  payable case must match; there is no smaller approved subset or repricing.
+  Current original authorization, prior approval replay, 1,000-case bound,
+  30-second atomic transaction and one aggregate balance check remain. Credits
+  are still debited independently by the unchanged current-authorized worker;
+  no provider processing or new spend occurred. TYPE_DESIGN is unchanged.
+  Native 851-case approval timing is unverified; the REVIEW-only opt-in fixture
+  remains separate, not expanded without independently verified worker exclusion.
+- Comments no longer depend on a valid custom-field schema. A separate native
+  reader pins organization, Clerk and native actor; activation/session/page UUIDs
+  hide stale cached comments. READ_ONLY collaboration remains the existing server
+  rule, not case-edit authorization. Frozen body/hash/UUID and a synchronous
+  busy latch protect retries. Exact known ACKs settle privately after close or
+  access loss; a retained known-posted draft cannot silently become a new UUID.
+  Hidden inspector tabs stop reads. Native page-size and complete DTO admission
+  refuse unsupported retained text generically, without clipping or empty results.
+- Windows helper UI now distinguishes a user-reported launch block from detected
+  connectivity. Reporting it revokes owned health/discovery generations and
+  hides private setup; late results cannot reopen the blocked state. Explicit
+  reconnect requires current protected project/member reads and the original
+  org/account/session. Timeout only means no paired response was received.
+  No security policy was changed, no downloaded helper launched or signed, and
+  no device capture was performed. Cause diagnosis, signed distribution, actual
+  Windows/device behavior, capture/AI scope guards and reload recovery remain open.
+- Actual source folder and plan-control markup was inspected in synthetic Chrome.
+  Folder actions are compact native disclosures; metadata controls have full-width
+  inputs and responsive cards, with exact lists spanning a complete row. Invalid
+  numbers remain visible and block save; native NULL/unknown fields stay read-only.
+  The visual plan fixture replaces auth/query/controller hooks, so it proves
+  markup/interaction only, not real authorization, mutation or receipt recovery.
+
+Final integrated checks: 764 Node + 155 typed Web (919, zero skips), 159 focused
+pure/mocked API checks across 10 suites, API/Web types PASS. Scoped production lint
+has zero errors and one disclosed helper layout-effect warning; unchanged legacy
+TYPE_DESIGN router lint findings are not claimed cleared. Initial API mock teardown
+and in-progress helper harness failures were repaired and complete checks rerun;
+no admission assertions or rules were disabled. Native SQL, fixtures/migrations,
+paid provider behavior, full runtime/image-security, authenticated production and
+deployment are NOT verified. New reader/restore and priority snapshot audit gaps
+are recorded for the next bounded source lanes, not silently declared accepted.

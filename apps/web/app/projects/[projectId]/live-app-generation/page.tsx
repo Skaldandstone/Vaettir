@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useParams } from "next/navigation";
+import { useAuth } from "@clerk/nextjs";
 import { downloadFile } from "@/lib/download";
 import {
   buildDeviceConnectorLauncher,
@@ -9,6 +10,8 @@ import {
   detectDeviceConnectorPlatform,
   type DeviceConnectorPlatform,
 } from "@/lib/deviceConnectorLauncher";
+import { createDeviceConnectionGeneration, revokeDeviceConnection, beginDeviceConnection, currentDeviceConnection, registerDeviceConnectionRequest } from "@/lib/device-connector-connection";
+import { canEditProject } from "@/lib/membership";
 import {
   trpcReact,
   useReadOnlySeat,
@@ -20,7 +23,7 @@ type Draft = RouterOutputs["liveAppGeneration"]["generateFromUrl"][number];
 type DeviceCapture =
   RouterInputs["liveAppGeneration"]["generateFromDeviceCapture"]["capture"];
 type CaptureMode = "web" | "android" | "ios-connected" | "ios-remote";
-type ConnectorStatus = "idle" | "connecting" | "connected";
+type ConnectorStatus = "idle" | "connecting" | "connected" | "blocked";
 type AndroidDevice = {
   id: string;
   name: string;
@@ -42,6 +45,16 @@ const CONNECTOR_URL = "http://127.0.0.1:4774";
 export default function LiveAppGenerationPage() {
   const { projectId } = useParams<{ projectId: string }>();
   const readOnly = useReadOnlySeat(projectId);
+  const actor = useAuth();
+  const [pairingOrigin, setPairingOrigin] = useState<{ projectId: string; organizationId: string; clerkActorId: string } | null>(null);
+  const helperAuthReady = actor.isLoaded && !!actor.isSignedIn && !!actor.userId && !!actor.sessionId;
+  const helperProject = trpcReact.project.byId.useQuery({ id: projectId }, { enabled: helperAuthReady, retry: false, staleTime: 0, refetchOnWindowFocus: false });
+  const helperOrganizations = trpcReact.organization.mine.useQuery(undefined, { enabled: helperAuthReady, retry: false, staleTime: 0, refetchOnWindowFocus: false });
+  const helperOrganizationId = helperProject.data?.id === projectId ? helperProject.data.organizationId : undefined;
+  const helperMember = helperOrganizations.data?.find(organization => organization.id === helperOrganizationId);
+  const helperReadFresh = helperAuthReady && !helperProject.error && !helperProject.isFetching && !helperProject.isPaused && helperProject.isFetchedAfterMount && helperProject.data?.id === projectId && !helperOrganizations.error && !helperOrganizations.isFetching && !helperOrganizations.isPaused && helperOrganizations.isFetchedAfterMount && !!helperOrganizationId;
+  const eligibleActor = helperReadFresh && !readOnly && canEditProject(helperMember);
+  const helperActorAllowed = eligibleActor && (!pairingOrigin || pairingOrigin.projectId === projectId && pairingOrigin.organizationId === helperOrganizationId && pairingOrigin.clerkActorId === actor.userId);
 
   const [captureMode, setCaptureMode] = useState<CaptureMode>("web");
   const [startUrl, setStartUrl] = useState("");
@@ -66,15 +79,29 @@ export default function LiveAppGenerationPage() {
   const [scannedUrl, setScannedUrl] = useState<string | null>(null);
   const [committedTitles, setCommittedTitles] = useState<string[]>([]);
   const [busyIndex, setBusyIndex] = useState<number | null>(null);
-  const connectionAttemptRef = useRef(0);
+  const connectionAttemptRef = useRef(createDeviceConnectionGeneration());
+  const discoveryAttemptRef = useRef(0);
+  const [manualSetupOpen, setManualSetupOpen] = useState(false);
+  const [manualSetupRevealed, setManualSetupRevealed] = useState(false);
+  useLayoutEffect(() => {
+    const connection = connectionAttemptRef.current;
+    revokeDeviceConnection(connection, { active: helperActorAllowed });
+    // Revoke requests and stale/private setup display before the next paint.
+    setConnectorStatus(current => current === "blocked" ? "blocked" : "idle");
+    setDiscoveringDevices(false); setManualSetupOpen(false); setManualSetupRevealed(false);
+    return () => { revokeDeviceConnection(connection, { active: false }); };
+  }, [projectId, captureMode, pairingCode, readOnly, actor.isLoaded, actor.isSignedIn, actor.userId, actor.sessionId, helperReadFresh, helperOrganizationId, helperActorAllowed]);
 
   useEffect(() => {
+    if (!eligibleActor || pairingOrigin || pairingCode) return;
     const initialize = window.setTimeout(() => {
+      if (!connectionAttemptRef.current.active) return;
+      setPairingOrigin({ projectId, organizationId: helperOrganizationId!, clerkActorId: actor.userId! });
       setPairingCode(createDeviceConnectorPairingCode());
       setConnectorPlatform(detectDeviceConnectorPlatform(navigator.userAgent));
     }, 0);
     return () => window.clearTimeout(initialize);
-  }, []);
+  }, [eligibleActor, projectId, helperOrganizationId, actor.userId, actor.sessionId, pairingOrigin, pairingCode]);
 
   const generateMutation =
     trpcReact.liveAppGeneration.generateFromUrl.useMutation();
@@ -146,8 +173,10 @@ export default function LiveAppGenerationPage() {
     path: string,
     init?: RequestInit,
     timeoutMs = 8_000,
+    attempt?: number,
   ) {
     const controller = new AbortController();
+    const release = attempt === undefined ? () => undefined : registerDeviceConnectionRequest(connectionAttemptRef.current, attempt, controller);
     const timeout = window.setTimeout(() => controller.abort(), timeoutMs);
     try {
       const response = await fetch(`${CONNECTOR_URL}${path}`, {
@@ -162,6 +191,7 @@ export default function LiveAppGenerationPage() {
       const payload = (await response.json().catch(() => ({}))) as {
         error?: string;
       } & T;
+      if (attempt !== undefined && !currentDeviceConnection(connectionAttemptRef.current, attempt)) throw new DOMException("Connection request was superseded.", "AbortError");
       if (!response.ok) {
         throw new Error(
           payload.error || `Connector returned HTTP ${response.status}.`,
@@ -169,37 +199,52 @@ export default function LiveAppGenerationPage() {
       }
       return payload;
     } finally {
+      release();
       window.clearTimeout(timeout);
     }
   }
 
-  async function discoverAndroidDevices() {
+  async function discoverAndroidDevices(attempt = connectionAttemptRef.current.epoch) {
+    if (!currentDeviceConnection(connectionAttemptRef.current, attempt)) return [];
+    const discovery = ++discoveryAttemptRef.current;
     setDiscoveringDevices(true);
     try {
       const response = await connectorRequest<{ devices: AndroidDevice[] }>(
         "/devices?source=android",
+        undefined, 8_000, attempt,
       );
+      if (!currentDeviceConnection(connectionAttemptRef.current, attempt) || discovery !== discoveryAttemptRef.current) return [];
       setAndroidDevices(response.devices);
       const readyDevices = response.devices.filter((device) => device.ready);
       const onlyReadyDevice =
         readyDevices.length === 1 ? readyDevices[0] : undefined;
       if (onlyReadyDevice) setDeviceSerial(onlyReadyDevice.id);
       return response.devices;
+    } catch (cause) {
+      if (!currentDeviceConnection(connectionAttemptRef.current, attempt) || discovery !== discoveryAttemptRef.current) return [];
+      throw cause;
     } finally {
-      setDiscoveringDevices(false);
+      if (currentDeviceConnection(connectionAttemptRef.current, attempt) && discovery === discoveryAttemptRef.current) setDiscoveringDevices(false);
     }
   }
 
   async function connectToDeviceConnector() {
+    if (!helperActorAllowed) return;
+    const attempt = beginDeviceConnection(connectionAttemptRef.current);
+    if (attempt === null) return;
+    setDiscoveringDevices(false); setManualSetupOpen(false); setManualSetupRevealed(false);
     setConnectorStatus("connecting");
     setError(null);
     try {
-      await connectorRequest<{ connected: boolean }>("/health");
+      const health = await connectorRequest<{ connected: boolean }>("/health", undefined, 8_000, attempt);
+      if (!currentDeviceConnection(connectionAttemptRef.current, attempt)) return;
+      if (health.connected !== true) throw Error("No paired helper response was verified.");
       setConnectorStatus("connected");
       if (captureMode === "android") {
         try {
-          await discoverAndroidDevices();
+          await discoverAndroidDevices(attempt);
         } catch (deviceError) {
+          if (!currentDeviceConnection(connectionAttemptRef.current, attempt)) return;
           setError(
             deviceError instanceof Error
               ? deviceError.message
@@ -208,11 +253,12 @@ export default function LiveAppGenerationPage() {
         }
       }
     } catch (connectorError) {
+      if (!currentDeviceConnection(connectionAttemptRef.current, attempt)) return;
       setConnectorStatus("idle");
       setError(
         connectorError instanceof DOMException &&
           connectorError.name === "AbortError"
-          ? "The connector did not respond. Start the downloaded helper, then try again."
+          ? "No paired helper response was received. This does not identify a Windows policy or prove that the helper launched. Review the instructions, then retry explicitly."
           : connectorError instanceof Error
             ? connectorError.message
             : "Could not connect to the device helper.",
@@ -222,20 +268,23 @@ export default function LiveAppGenerationPage() {
 
   async function waitForDeviceConnector(attempt: number) {
     for (let retry = 0; retry < 80; retry += 1) {
-      if (connectionAttemptRef.current !== attempt) return;
+      if (!currentDeviceConnection(connectionAttemptRef.current, attempt)) return;
       try {
-        await connectorRequest<{ connected: boolean }>(
+        const health = await connectorRequest<{ connected: boolean }>(
           "/health",
           undefined,
           1_000,
+          attempt,
         );
-        if (connectionAttemptRef.current !== attempt) return;
+        if (!currentDeviceConnection(connectionAttemptRef.current, attempt)) return;
+        if (health.connected !== true) throw Error("No paired helper response was verified.");
         setConnectorStatus("connected");
         setError(null);
         if (captureMode === "android") {
           try {
-            await discoverAndroidDevices();
+            await discoverAndroidDevices(attempt);
           } catch (deviceError) {
+            if (!currentDeviceConnection(connectionAttemptRef.current, attempt)) return;
             setError(
               deviceError instanceof Error
                 ? deviceError.message
@@ -245,18 +294,20 @@ export default function LiveAppGenerationPage() {
         }
         return;
       } catch {
+        if (!currentDeviceConnection(connectionAttemptRef.current, attempt)) return;
         await new Promise((resolve) => window.setTimeout(resolve, 1_500));
       }
     }
-    if (connectionAttemptRef.current === attempt) {
+    if (currentDeviceConnection(connectionAttemptRef.current, attempt)) {
       setConnectorStatus("idle");
       setError(
-        "The helper did not start. Open the downloaded file, keep its window open, then choose Reconnect.",
+        "No paired helper response was received. Downloading does not prove that Windows launched it, and this timeout does not identify the cause. If Windows refused launch, report it below; otherwise review setup and retry explicitly.",
       );
     }
   }
 
   function downloadConnectorLauncher() {
+    if (!helperActorAllowed || !connectionAttemptRef.current.active) return;
     try {
       const launcher = buildDeviceConnectorLauncher({
         platform: connectorPlatform,
@@ -264,8 +315,9 @@ export default function LiveAppGenerationPage() {
         pairingCode,
       });
       downloadFile(launcher.filename, launcher.content, launcher.mimeType);
-      const attempt = connectionAttemptRef.current + 1;
-      connectionAttemptRef.current = attempt;
+      const attempt = beginDeviceConnection(connectionAttemptRef.current);
+      if (attempt === null) return;
+      setDiscoveringDevices(false); setManualSetupOpen(false); setManualSetupRevealed(false);
       setConnectorStatus("connecting");
       setError(null);
       void waitForDeviceConnector(attempt);
@@ -276,6 +328,24 @@ export default function LiveAppGenerationPage() {
           : "The device helper could not be prepared.",
       );
     }
+  }
+
+  function reportBlockedWindowsHelper() {
+    if (connectorPlatform !== "windows" || capturing || generating) return;
+    revokeDeviceConnection(connectionAttemptRef.current, { blocked: true });
+    discoveryAttemptRef.current++;
+    setConnectorStatus("blocked"); setDiscoveringDevices(false); setError(null);
+    setManualSetupOpen(false); setManualSetupRevealed(false);
+    // Pairing and selected capture drafts are deliberately retained privately.
+    // Reporting an OS refusal never runs a command or changes security policy.
+  }
+  function showPolicyPermittedManualSetup() { if (!helperActorAllowed || !connectionAttemptRef.current.active) return; setManualSetupRevealed(true); setManualSetupOpen(true); }
+  async function refreshAndroidDevices() {
+    const attempt = connectionAttemptRef.current.epoch;
+    if (!helperActorAllowed || connectorStatus !== "connected" || !currentDeviceConnection(connectionAttemptRef.current, attempt)) return;
+    setError(null);
+    try { await discoverAndroidDevices(attempt); }
+    catch (deviceError) { if (currentDeviceConnection(connectionAttemptRef.current, attempt)) setError(deviceError instanceof Error ? deviceError.message : "Android device discovery failed."); }
   }
 
   async function captureCurrentScreen() {
@@ -470,11 +540,14 @@ export default function LiveAppGenerationPage() {
                         className="text-muted"
                         style={{ fontSize: 13, margin: 0 }}
                       >
-                        Download and open the prepared helper. Pairing is
+                        Download an unsigned launcher script and open it only
+                        if your device policy permits. Pairing is
                         already built in, and this page connects automatically
                         once the helper is running. This is an unsigned script;
                         your organization may block it. It does not require
                         administrator access or changes to security protection.
+                        Downloading is not proof of launch, signing, device
+                        access or capture.
                         It requires{" "}
                         {captureMode === "android"
                           ? "Node 22 and ADB"
@@ -490,7 +563,7 @@ export default function LiveAppGenerationPage() {
                           type="button"
                           onClick={downloadConnectorLauncher}
                           disabled={
-                            !pairingCode || connectorStatus === "connecting"
+                            !helperActorAllowed || !pairingCode || connectorStatus === "connecting"
                           }
                         >
                           Download{" "}
@@ -499,20 +572,21 @@ export default function LiveAppGenerationPage() {
                             : connectorPlatform === "macos"
                               ? "macOS"
                               : "Linux"}{" "}
-                          helper
+                          unsigned launcher
                         </button>
                         <button
                           type="button"
                           className="btn-secondary"
                           onClick={() => void connectToDeviceConnector()}
                           disabled={
-                            !pairingCode || connectorStatus === "connecting"
+                            !helperActorAllowed || !pairingCode || connectorStatus === "connecting"
                           }
                         >
                           {connectorStatus === "connected"
                             ? "Reconnect"
                             : "I opened it - connect"}
                         </button>
+                        {connectorPlatform === "windows" && <button type="button" className="btn-secondary" onClick={reportBlockedWindowsHelper} disabled={capturing || generating}>Windows blocked this helper</button>}
                       </div>
                       <div
                         className={`status-panel ${
@@ -524,20 +598,27 @@ export default function LiveAppGenerationPage() {
                           {connectorStatus === "connected"
                             ? "Computer connected"
                             : connectorStatus === "connecting"
-                              ? "Waiting for the helper to open..."
+                              ? "Waiting for a paired helper response..."
+                              : connectorStatus === "blocked"
+                                ? "Windows launch blocked (reported by you)"
                               : "Not connected yet"}
                         </strong>
                         <span>
                           {connectorStatus === "connected"
                             ? "Keep the helper window open while you capture screens."
                             : connectorStatus === "connecting"
-                              ? "Open the downloaded file if your browser did not open it automatically."
+                              ? "This page has not verified launch or device access. Open the reviewed launcher only if policy permits, or report a blocked launch below."
+                              : connectorStatus === "blocked"
+                                ? "This page stopped waiting and canceled its health/discovery requests. Already started local discovery may finish; its results are ignored. The blocking policy or product remains unverified."
                               : "Nothing is uploaded until you capture a screen and generate drafts."}
                         </span>
                       </div>
-                      <details>
+                      {!helperActorAllowed && <p role="status">Current loaded, signed-in original-account/organization access with freshly completed protected project/member reads and a full editor seat is required. Private pairing draft and device selections remain retained but hidden; no connection/download/discovery retry is authorized. Local health is not server authorization or device acceptance.</p>}
+                      {connectorStatus === "blocked" && <div role="status" className="panel"><p>Windows refused the download you tried to open. The cause is unverified: an Internet download marker or installed security product does not identify the enforced policy. Ask the device&apos;s security administrator to review the exact filename, error and time in its protection/policy history. Do not disable protection, unblock files, add exclusions or run as administrator.</p><p>Your private pairing draft remains retained. Reporting this did not launch a helper, change policy or perform device capture. Signed trusted distribution and actual Windows/device acceptance remain separate.</p><button type="button" className="btn-secondary" onClick={showPolicyPermittedManualSetup}>Show manual instructions only if policy permits</button></div>}
+                      <details open={manualSetupOpen} onToggle={event => setManualSetupOpen(event.currentTarget.open)}>
                         <summary>Manual setup and troubleshooting</summary>
                         <div style={{ display: "grid", gap: 8, marginTop: 8 }}>
+                          {!helperActorAllowed || connectorStatus === "blocked" && !manualSetupRevealed ? <p>Pairing code and private setup command are hidden. Restore the original account/full seat and review device policy first, then explicitly choose “Show manual instructions only if policy permits.” This alternative is not a bypass or permission grant.</p> : <>
                           <span className="text-muted" style={{ fontSize: 13 }}>
                             Pairing code:{" "}
                             <code>{pairingCode || "Preparing..."}</code>
@@ -567,7 +648,7 @@ export default function LiveAppGenerationPage() {
                             choose Reconnect.
                           </span>
                           <code style={{ overflowWrap: "anywhere" }}>
-                            node "vaettir-device-connector.mjs" --pairing-code{" "}
+                            {'node "vaettir-device-connector.mjs" --pairing-code '}
                             {pairingCode || "YOUR_PAIRING_CODE"}
                           </code>
                           <span className="text-muted" style={{ fontSize: 13 }}>
@@ -576,6 +657,7 @@ export default function LiveAppGenerationPage() {
                             Capture and upload still require your selections on
                             this page.
                           </span>
+                          </>}
                         </div>
                       </details>
                     </div>
@@ -607,24 +689,26 @@ export default function LiveAppGenerationPage() {
                             <label style={{ flex: 1 }}>
                               Android device
                               <select
-                                value={deviceSerial}
+                                value={helperActorAllowed ? deviceSerial : ""}
                                 onChange={(event) =>
                                   setDeviceSerial(event.target.value)
                                 }
                                 disabled={
-                                  connectorStatus !== "connected" ||
+                                  !helperActorAllowed || connectorStatus !== "connected" ||
                                   discoveringDevices
                                 }
                                 style={{ width: "100%" }}
                               >
                                 <option value="">
-                                  {discoveringDevices
+                                  {!helperActorAllowed
+                                    ? "Restore original account/project access"
+                                    : discoveringDevices
                                     ? "Looking for devices..."
                                     : androidDevices.length === 0
                                       ? "No device found"
                                       : "Choose a device"}
                                 </option>
-                                {androidDevices.map((device) => (
+                                {(helperActorAllowed ? androidDevices : []).map((device) => (
                                   <option
                                     key={device.id}
                                     value={device.id}
@@ -639,26 +723,16 @@ export default function LiveAppGenerationPage() {
                             <button
                               type="button"
                               className="btn-secondary"
-                              onClick={() => {
-                                setError(null);
-                                void discoverAndroidDevices().catch(
-                                  (deviceError) =>
-                                    setError(
-                                      deviceError instanceof Error
-                                        ? deviceError.message
-                                        : "Android device discovery failed.",
-                                    ),
-                                );
-                              }}
+                              onClick={() => void refreshAndroidDevices()}
                               disabled={
-                                connectorStatus !== "connected" ||
+                                !helperActorAllowed || connectorStatus !== "connected" ||
                                 discoveringDevices
                               }
                             >
                               Refresh
                             </button>
                           </div>
-                          {androidDevices.some(
+                          {helperActorAllowed && androidDevices.some(
                             (device) => device.status === "unauthorized",
                           ) && (
                             <span
@@ -682,7 +756,7 @@ export default function LiveAppGenerationPage() {
                           <label>
                             Appium server
                             <input
-                              value={appiumUrl}
+                              value={helperActorAllowed ? appiumUrl : ""}
                               onChange={(event) =>
                                 setAppiumUrl(event.target.value)
                               }
@@ -691,19 +765,19 @@ export default function LiveAppGenerationPage() {
                                   ? "https://provider.example/wd/hub"
                                   : "http://127.0.0.1:4723"
                               }
-                              disabled={connectorStatus !== "connected"}
+                              disabled={!helperActorAllowed || connectorStatus !== "connected"}
                               style={{ width: "100%" }}
                             />
                           </label>
                           <label>
                             Active session ID
                             <input
-                              value={appiumSessionId}
+                              value={helperActorAllowed ? appiumSessionId : ""}
                               onChange={(event) =>
                                 setAppiumSessionId(event.target.value)
                               }
                               placeholder="Appium session ID"
-                              disabled={connectorStatus !== "connected"}
+                              disabled={!helperActorAllowed || connectorStatus !== "connected"}
                               style={{ width: "100%" }}
                             />
                           </label>

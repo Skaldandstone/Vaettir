@@ -1,58 +1,37 @@
 "use client";
 import { useState } from "react";
 import { trpcReact, type RouterInputs } from "@/lib/trpcReact";
-import { useCaseFieldAccess } from "@/lib/use-case-field-access";
-import { manualStartDefinitivelyRejected as definitivelyRejected } from "@/lib/manual-run-start";
-import { currentCollaborationRead } from "@/lib/case-collaboration-read";
+import { currentCommentPage } from "@/lib/case-comment-draft";
+import { useCaseCommentController } from "@/lib/use-case-comment-controller";
 
-export function CaseComments({ projectId, caseId }: { projectId: string; caseId: string }) {
-  const access = useCaseFieldAccess(projectId, caseId);
-  const [body, setBody] = useState("");
-  const [pending, setPending] = useState<{ request: RouterInputs["caseComments"]["create"]; everAmbiguous: boolean } | null>(null);
+export function CaseComments({ projectId, caseId, active = true }: { projectId: string; caseId: string; active?: boolean }) {
   const [cursor, setCursor] = useState<RouterInputs["caseComments"]["list"]["cursor"]>(undefined);
-  const [error, setError] = useState("");
-  const comments = trpcReact.caseComments.list.useQuery({ projectId, caseId, cursor, originalOrganizationId: access.origin?.organizationId ?? "", expectedClerkActorId: access.origin?.clerkActorId ?? "" }, { enabled: access.readable, retry: false });
   const create = trpcReact.caseComments.create.useMutation();
-  const fresh = currentCollaborationRead(comments, access.current);
-  async function submit() {
-    if (!body.trim() && !pending) return;
-    const original = access.origin;
-    if (!original || !access.owns(original)) return;
-    const receipt = pending ?? { request: { projectId, caseId, body: body.trim(), requestId: crypto.randomUUID(), originalOrganizationId: original.organizationId, expectedClerkActorId: original.clerkActorId }, everAmbiguous: false };
-    const request = receipt.request;
-    setPending(receipt); setError("");
-    try {
-      const saved = await create.mutateAsync(request);
-      if (!access.owns(original)) { setPending({ ...receipt, everAmbiguous: true }); return; }
-      if (saved.requestId !== request.requestId) throw new Error("The response did not identify this retained comment. Retry the same request.");
-    } catch (cause) {
-      if (access.owns(original)) setError(cause instanceof Error ? cause.message : "Comment was not acknowledged. Retry the same comment.");
-      setPending(definitivelyRejected(cause, receipt.everAmbiguous) ? null : { ...receipt, everAmbiguous: true });
-      return;
-    }
-    if (!access.owns(original)) return;
-    setPending(null); setBody(""); setCursor(undefined);
-    try { await comments.refetch(); } catch { if (access.owns(original)) setError("Comment posted, but refreshing the list failed. Refresh comments; do not post again."); }
-  }
-  if (!access.readable) return <p role="status">Comments require current access to the original account and workspace. Retained drafts were not transferred.</p>;
+  const control = useCaseCommentController(projectId, caseId, active, create, () => setCursor(undefined));
+  const origin = control.reads.origin;
+  const binding = JSON.stringify([control.reads.activation, control.readable, cursor]);
+  const [cycle, setCycle] = useState({ binding: "", requestId: crypto.randomUUID() });
+  if (cycle.binding !== binding) setCycle({ binding, requestId: crypto.randomUUID() });
+  const comments = trpcReact.caseComments.list.useQuery({ projectId, caseId, cursor, readRequestId: cycle.requestId, originalOrganizationId: origin?.organizationId ?? "", expectedClerkActorId: origin?.clerkActorId ?? "" }, { enabled: control.readable && active && cycle.binding === binding, retry: false, staleTime: 0, refetchOnWindowFocus: false });
+  const fresh = currentCommentPage(comments, origin, active && control.readable && cycle.binding === binding, cycle.requestId);
   return <section aria-label="Case comments" style={{ marginTop: 20 }}>
     <h3>Comments</h3>
-    <p className="text-muted">All current project members can comment, including read-only members. Comments do not edit or approve this case.</p>
-    <label style={{ display: "block" }}>Add a comment
-      <textarea value={pending?.request.body ?? body} onChange={event => setBody(event.target.value)} disabled={Boolean(pending) || create.isPending} maxLength={4000} rows={3} style={{ display: "block", width: "100%" }} />
-    </label>
-    <button onClick={() => void submit()} disabled={create.isPending || (!pending && !body.trim())}>{create.isPending ? "Posting…" : pending ? "Retry same comment" : "Post comment"}</button>
-    {pending && !create.isPending && <p role="status">The response was not confirmed. Your exact comment is retained; retrying cannot add a duplicate.</p>}
-    {error && <p role="alert">{error}</p>}
-    {comments.error && <p role="alert">Could not load comments. <button onClick={() => void comments.refetch()}>Retry</button></p>}
-    {comments.isLoading && <p role="status">Loading comments…</p>}
-    {comments.isFetching && !comments.isLoading && <p role="status">Refreshing current comment access…</p>}
-    {fresh?.items.length === 0 && <p>No comments on this page.</p>}
-    {fresh?.items.map(comment => <article key={comment.id} style={{ borderTop: "1px solid var(--line)", paddingBlock: 12 }}>
-      <strong>{comment.authorName}{comment.isOwn ? " (you)" : ""}</strong>{" · "}<time dateTime={new Date(comment.createdAt).toISOString()}>{new Date(comment.createdAt).toLocaleString()}</time>
-      <p style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>{comment.body}</p>
-    </article>)}
-    {cursor && <button onClick={() => setCursor(undefined)}>Newest comments</button>}
-    {fresh?.nextCursor && <button onClick={() => { const next = fresh.nextCursor!; setCursor({ id: next.id, createdAt: new Date(next.createdAt) }); }}>Older comments</button>}
+    {!control.readable ? <div role="status"><p>Checking current access to the original account and workspace. Retained comment drafts were not transferred.</p><button type="button" onClick={control.reads.refresh}>Recheck comment access</button>{control.reads.query.error && <p role="alert">{control.reads.query.error.message}</p>}</div> : <>
+      <p className="text-muted">All current project members can comment, including read-only members. Comments do not edit or approve this case.</p>
+      {control.open ? <>
+        <label style={{ display: "block" }}>Add a comment<textarea value={control.pending?.input.body ?? control.draft?.body ?? ""} onChange={event => control.change(event.target.value)} disabled={Boolean(control.pending) || control.settled || control.busy} maxLength={4000} rows={3} style={{ display: "block", width: "100%" }} /></label>
+        <button type="button" onClick={() => void control.submit()} disabled={control.busy || control.settled || (!control.pending && !control.draft?.body.trim())}>{control.busy ? "Posting…" : control.pending ? "Retry same comment" : "Post comment"}</button>{" "}<button type="button" onClick={control.close}>Close and keep draft</button>
+        {control.settled && <p role="status">This original comment was confirmed posted after the view changed. Its draft is retained, but it will not be posted again. <button type="button" onClick={control.startNew}>Confirm and start a new comment</button></p>}
+        {control.pending && !control.busy && <p role="status">The response is uncertain. The exact original body and request identity are retained; retrying confirms that request without adding another.</p>}
+      </> : <button type="button" onClick={control.show}>Open comment draft</button>}
+      {control.notice && <p role="status">{control.notice}</p>}
+      {comments.error && <p role="alert">Could not load comments. <button type="button" onClick={control.reads.refresh}>Refresh current comment access</button></p>}
+      {!fresh && !comments.error && <p role="status">Refreshing this comment page and its current reader…</p>}
+      {fresh?.items.length === 0 && <p>No comments on this page.</p>}
+      {fresh?.items.map(comment => <article key={comment.id} style={{ borderTop: "1px solid var(--line)", paddingBlock: 12 }}><strong>{comment.authorName}{comment.isOwn ? " (you)" : ""}</strong>{" · "}<time dateTime={new Date(comment.createdAt).toISOString()}>{new Date(comment.createdAt).toLocaleString()}</time><p style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>{comment.body}</p></article>)}
+      {cursor && <button type="button" disabled={!fresh} onClick={() => { if (control.canRead() && fresh) setCursor(undefined); }}>Newest comments</button>}
+      {fresh?.nextCursor && <button type="button" onClick={() => { if (!control.canRead() || !fresh.nextCursor) return; setCursor({ id: fresh.nextCursor.id, createdAt: new Date(fresh.nextCursor.createdAt) }); }}>Older comments</button>}
+      <p className="text-muted">Drafts and retry receipts stay in this mounted page only. Confirm posting before navigating away or reloading.</p>
+    </>}
   </section>;
 }

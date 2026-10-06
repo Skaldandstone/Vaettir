@@ -145,11 +145,14 @@ function TreeNodeView({
         <span className="tree-label" style={{ overflowWrap: "anywhere" }}>{entry.supported ? node.name : <code>{JSON.stringify(node.path)}</code>}<small style={{ display: "block", fontSize: 11 }}>{caseFolderKindLabel(entry, !!catalog)}</small></span>
         <span className="tree-count">{totalCases}</span>
       </div>
-      {entry.canOrganize && onFolderReview && <div style={{ display: "flex", flexWrap: "wrap", gap: 4, paddingLeft: 8 + depth * 14 }}>
+      {entry.canOrganize && onFolderReview && <details style={{ paddingLeft: 8 + depth * 14, fontSize: 12 }}>
+        <summary aria-label={`Folder actions for ${node.path}`} style={{ cursor: "pointer", color: "var(--frost)", padding: "3px 0" }}>Folder actions</summary>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 4, padding: "4px 0" }}>
         <button type="button" className="btn-secondary" draggable aria-label={`Drag ${node.path} to review a folder move`} onDragStart={event => { if (!catalog) return; event.dataTransfer.setData(FOLDER_DRAG_TYPE, encodeFolderDrag(catalog, node.path)); event.dataTransfer.effectAllowed = "move"; }}>⠿</button>
         <button type="button" className="btn-secondary" onClick={() => reviewFolder("MOVE")}>{entry.kind === "SOURCE_GROUP" ? "Organize source group…" : "Move…"}</button>
         <button type="button" className="btn-secondary" onClick={() => reviewFolder("RENAME")}>Rename…</button>
-      </div>}
+        </div>
+      </details>}
       {!entry.supported && <p style={{ marginLeft: 8 + depth * 14, fontSize: 11 }}>Raw path retained. Move/rename is unsupported; no source path is normalized.</p>}
       {!entry.supported && node.path === UNASSIGNED && <button type="button" onClick={() => onSelect(null)}>View retained raw-path cases in All test cases</button>}
       {open && (

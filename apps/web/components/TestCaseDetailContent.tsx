@@ -1889,7 +1889,7 @@ function TestCaseInspector({
         aria-labelledby={`${sectionId}-tab-Comments`}
         hidden={section !== "Comments"}
       >
-        <CaseComments key={tc.id} projectId={projectId} caseId={tc.id} />
+        <CaseComments key={tc.id} projectId={projectId} caseId={tc.id} active={section === "Comments"} />
       </section>
       <section
         className={styles.section}

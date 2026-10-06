@@ -7,7 +7,7 @@ import * as fields from "./plan-change-draft";
 import * as values from "./plan-custom-fields";
 import * as rows from "./qa-strategy-fields";
 const source = readFileSync(new URL("../components/PlanCustomFieldsEditor.tsx", import.meta.url), "utf8"), ast = ts.createSourceFile("controls.tsx", source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
-const declarations = ast.statements.filter(node => ts.isFunctionDeclaration(node)).map(node => ts.createPrinter().printNode(ts.EmitHint.Unspecified, node, ast).replace(/\bexport\s+/, ""));
+const declarations = ast.statements.filter(node => ts.isFunctionDeclaration(node) || ts.isVariableStatement(node) && node.declarationList.declarations.every(declaration => ts.isIdentifier(declaration.name) && ["fieldLabel", "fieldControl"].includes(declaration.name.text))).map(node => ts.createPrinter().printNode(ts.EmitHint.Unspecified, node, ast).replace(/\bexport\s+/, ""));
 const compiled = ts.transpileModule(`${declarations.join("\n")}\nthis.meta=PlanCustomFieldsEditor;this.rows=MetadataStringRows;`, { compilerOptions: { target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.React, module: ts.ModuleKind.None } }).outputText;
 function elements(node: React.ReactNode): React.ReactElement<any>[] { return !React.isValidElement<any>(node) ? [] : [node, ...React.Children.toArray(node.props.children).flatMap(elements)]; }
 function base() { return { origin: { projectId: "original-project", organizationId: "org", clerkActorId: "clerk", caseId: null }, snapshot: { id: "original-plan", customFields: { notes: "", n: 12, enabled: false, areas: ["", "same", "same"], nullText: null, unknown: { retain: [null, 0] } } }, metadataSchema: { supported: true, canEdit: true, fieldSchemaHash: "b".repeat(64), blockedReason: null, fieldSchema: { properties: { notes: { type: "string" }, n: { type: "number" }, enabled: { type: "boolean" }, areas: { type: "array", items: { type: "string" } }, missing: { type: "boolean" }, nullText: { type: "string" } } } } }; }
@@ -29,6 +29,14 @@ it("actual numeric handler preserves invalid text and blocks the parent save imm
   const save = next.find(node => node.type === "button" && node.props.children === "Save reviewed metadata changes")!; expect(save.props.disabled).toBe(true);
   expect(h.editor.draft.values.changes.some((change: any) => change.key === "n")).toBe(false);
   expect(next.some(node => node.type === "button" && React.Children.toArray(node.props.children).join("") === "Leave n unchanged")).toBe(true);
+});
+it("actual metadata layout gives controls full width and exact lists a complete responsive row", () => {
+  const h = controlHost(), nodes = elements(h.render());
+  const controls = nodes.filter(node => ["textarea", "select"].includes(String(node.type)) || node.type === "input" && node.props.inputMode === "decimal");
+  expect(controls.length).toBeGreaterThan(2);
+  for (const control of controls) expect(control.props.style).toMatchObject({ width: "100%", minWidth: 0, boxSizing: "border-box" });
+  expect(nodes.some(node => node.type === "div" && node.props.style?.gridTemplateColumns === "repeat(auto-fit, minmax(min(260px, 100%), 1fr))")).toBe(true);
+  expect(nodes.some(node => node.type === "section" && node.props.style?.gridColumn === "1 / -1")).toBe(true);
 });
 it("actual Boolean controls preserve absent vs false, NULL/unknown readonly and exact typed SETs", () => {
   const h = controlHost(), selects = elements(h.render()).filter(node => node.type === "select");

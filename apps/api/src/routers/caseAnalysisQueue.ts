@@ -3,6 +3,7 @@ import { Prisma } from "@vaettir/db";
 import { protectedProcedure, router } from "../trpc.js";
 import { testDesignRouter } from "./testDesign.js";
 import { prepareRiskReviewQueue } from "../services/caseRiskReviewPreparation.js";
+import { assertUnchangedRiskApprovalCases, readBoundedRiskApprovalItems } from "../services/caseRiskApprovalValidation.js";
 import {
   analysisAccess,
   analysisBaseline,
@@ -217,17 +218,25 @@ export const caseAnalysisQueueRouter = router({
               code: "CONFLICT",
               message: "This scope is no longer awaiting approval.",
             });
-          const items = await tx.caseAnalysisQueueItem.findMany({
-            where: { queueId: job.id, status: "QUEUED" },
-            orderBy: { position: "asc" },
-          });
-          for (const item of items)
-            if (!(await unchangedAnalysisCase(tx, job, item)))
-              throw new TRPCError({
-                code: "CONFLICT",
-                message:
-                  "A selected case changed. Create and review a new scope.",
-              });
+          let payableCount: number;
+          if (job.action === "RISK") {
+            const items = await readBoundedRiskApprovalItems(tx, job);
+            await assertUnchangedRiskApprovalCases(tx, job, items);
+            payableCount = items.length;
+          } else {
+            const items = await tx.caseAnalysisQueueItem.findMany({
+              where: { queueId: job.id, status: "QUEUED" },
+              orderBy: { position: "asc" },
+            });
+            for (const item of items)
+              if (!(await unchangedAnalysisCase(tx, job, item)))
+                throw new TRPCError({
+                  code: "CONFLICT",
+                  message:
+                    "A selected case changed. Create and review a new scope.",
+                });
+            payableCount = items.length;
+          }
           if (
             (await getAiCreditBalance(
               tx as unknown as typeof ctx.prisma,
@@ -243,7 +252,7 @@ export const caseAnalysisQueueRouter = router({
             where: { id: job.id },
             data: {
               approvedAt: new Date(),
-              status: items.length ? "QUEUED" : "COMPLETE",
+              status: payableCount ? "QUEUED" : "COMPLETE",
             },
           });
         },
