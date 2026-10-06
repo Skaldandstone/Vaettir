@@ -3692,3 +3692,33 @@ six additional card scenarios. Scoped lint passed; its existing repository-root
 Next pages-directory configuration notice remains, without a rule suppression.
 This is source and synthetic-render evidence, not a fresh authenticated browser
 walkthrough of the production run list or a production deployment.
+
+### October 6: optional case fields and unapplied report filters
+
+Project-specific case layouts no longer make empty optional fields impossible
+to use for an individual draft. The actual editor now offers explicit reveal
+actions for background, tags, fixture/safety notes and aligned technical/response
+columns. Revealing a field changes only the mounted draft's layout: it does not
+populate absent values, change project preferences, grant editing permission or
+change the submitted body. Existing supplied values remain visible even when
+project preferences hide empty fields. Software cases can deliberately open
+fixture/safety fields without turning every case into a compliance case.
+Inactive, locked, saving and uploading states refuse stale reveal callbacks.
+
+Recorded-outcome reports now separately disclose unapplied platform,
+environment and build edits, alongside the existing date notice. Comparisons
+use the literal draft values, including whitespace and zero, without trimming
+or applying them implicitly. Current results, refresh and reviewed export
+retain the last explicitly applied scope. The notice does not echo private
+filter values or weaken current-reader admission.
+
+Independent validation passed 39 actual-function/installed-React SSR checks
+across four suites, 12 unchanged report-contract/HTML checks, Web types and the
+full compatible Web suite: 810 Node plus 1,705 typed checks across 100 files,
+zero failures or skips. Scoped lint has zero errors and four inherited report
+component warnings; existing Next pages-directory, Node module-type and Sentry
+deprecation notices remain. Hook/RPC/metadata boundaries in these regressions
+are explicitly synthetic. This is not a new mounted-browser, native SQL,
+authenticated production or deployment acceptance. Legacy full-form
+authorization/uncertain-save and coherent versioned plan SAVE/read/run support
+remain separate open work. No migration or provider/customer operation occurred.

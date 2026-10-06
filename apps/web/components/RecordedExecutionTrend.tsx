@@ -455,6 +455,17 @@ function ExecutionTrend({ projectId, active }: { projectId: string; active: bool
                 Choose Show recorded outcomes to replace this view.
               </p>
             )}
+          {applied &&
+            (["platform", "environment", "build"] as const).some(
+              (key) => filters[key] !== (applied[key] ?? ""),
+            ) && (
+              <p role="status">
+                Configuration filter edits have not been applied. The current
+                view, refresh and export still use the last applied
+                configuration filters. Choose Show recorded outcomes to replace
+                this view.
+              </p>
+            )}
           <details>
             <summary>Recorded configuration filters (optional)</summary>
             <p>

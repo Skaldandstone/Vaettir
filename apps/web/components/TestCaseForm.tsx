@@ -15,6 +15,21 @@ import { appendCaseTag, initialCaseTags, initialCasePhaseRows, prepareCasePhaseF
 import { CaseCustomFieldsForm, type CaseFieldFormDraft, type ReviewedCaseFieldDefaults } from "./CaseCustomFields";
 
 const PRIORITIES = ["CRITICAL", "HIGH", "MEDIUM", "LOW"];
+const OPTIONAL_EDITOR_FIELDS = ["background", "tags", "hardwareFixture", "safety", "technicalBehavior", "expectedResponse"] as const;
+type OptionalEditorField = typeof OPTIONAL_EDITOR_FIELDS[number];
+/** Revocation-only display guard. This cannot authorize a save or private read;
+ * it merely rejects an old reveal callback after the form becomes unavailable. */
+class OptionalRevealFrame {
+  private key = "";
+  private revision = 0;
+  private eligible = false;
+  observe(key: string, eligible: boolean) {
+    if (key !== this.key) { this.key = key; this.revision++; }
+    this.eligible = eligible;
+    return this.revision;
+  }
+  current(revision: number) { return this.eligible && this.revision === revision; }
+}
 
 interface StepRow {
   editorKey?: string;
@@ -165,6 +180,10 @@ export default function TestCaseForm({
   const [stepAnnouncement, setStepAnnouncement] = useState("");
   const [tagDraft, setTagDraft] = useState("");
   const [reopenedTag, setReopenedTag] = useState<string | undefined>();
+  // Display-only choices for this mounted draft. Revealing a field must never
+  // populate an absent/NULL value or change project preferences/save input.
+  const [revealedFields, setRevealedFields] = useState<readonly OptionalEditorField[]>([]);
+  const [revealFrame] = useState(() => new OptionalRevealFrame());
   const [value, setValue] = useState<TestCaseFormValue>(() => ({
     ...defaultValue(),
     ...initial,
@@ -198,7 +217,7 @@ export default function TestCaseForm({
     setValue(current => ({ ...current, testType: initial?.testType ?? preferences.testTypes[0]!, validationDomain: initial?.validationDomain ?? preferences.domains[0]! }));
   }, [freshPresentation, mode, initial]);
   const context = { validationDomain: value.validationDomain, testType: value.testType };
-  const visible = {
+  const baseVisible = {
     background: casePresentationVisible(presentation, "background", value.background !== "", context),
     tags: casePresentationVisible(presentation, "tags", value.tags.length > 0 || tagDraft !== "" || reopenedTag !== undefined, context),
     hardwareFixture: casePresentationVisible(presentation, "hardwareFixture", [value.verificationProfile.setup, value.verificationProfile.instruments, value.verificationProfile.acceptanceCriteria].some(text => text !== ""), context),
@@ -206,7 +225,8 @@ export default function TestCaseForm({
     technicalBehavior: casePresentationVisible(presentation, "technicalBehavior", value.steps.some(step => step.expectedActionOrData !== null), context),
     expectedResponse: casePresentationVisible(presentation, "expectedResponse", value.steps.some(step => step.expectedResponse !== null), context),
   };
-  const retainedVisible = (Object.keys(visible) as Array<keyof typeof visible>).filter(field => presentation.fields[field] === "HIDE" && visible[field]);
+  const visible = Object.fromEntries(OPTIONAL_EDITOR_FIELDS.map(field => [field, baseVisible[field] || revealedFields.includes(field)])) as Record<OptionalEditorField, boolean>;
+  const retainedVisible = OPTIONAL_EDITOR_FIELDS.filter(field => presentation.fields[field] === "HIDE" && baseVisible[field]);
   const casesQuery = trpcReact.testCases.list.useQuery({ projectId },{enabled:active});
   const knownSuitePaths = useMemo(
     () => (casesQuery.data ? collectKnownSuitePaths(casesQuery.data) : []),
@@ -227,6 +247,7 @@ export default function TestCaseForm({
   const confirmMediaUpload = trpcReact.testCaseAttachments.confirmUpload.useMutation();
   const deleteAttachment = trpcReact.testCaseAttachments.delete.useMutation();
   const [uploadingStepKey, setUploadingStepKey] = useState<string | null>(null);
+  const revealStamp = revealFrame.observe(JSON.stringify([projectId, testCaseId ?? null, active, locked, saving, uploadingStepKey]), active && !locked && !saving && uploadingStepKey === null);
   const imageVideoAttachments = (attachmentsQuery.data ?? []).filter(a => /^(image|video)\//i.test(a.contentType));
 
   const selectedGroup = sharedGroups.find(
@@ -239,6 +260,18 @@ export default function TestCaseForm({
     expectedResult: "Expected Result",
     expectedResponse: "Expected Response",
   };
+  const optionalLabels: Record<OptionalEditorField, string> = {
+    background: "Background / description", tags: "Tag chips",
+    hardwareFixture: "Fixture setup, instruments and measurement criteria",
+    safety: "Safety prerequisites / stop conditions",
+    technicalBehavior: technicalBehaviorLabel(labels.expectedActionOrData),
+    expectedResponse: labels.expectedResponse,
+  };
+  const hiddenOptionalFields = OPTIONAL_EDITOR_FIELDS.filter(field => !visible[field]);
+  function revealField(field: OptionalEditorField) {
+    if (!active || locked || saving || uploadingStepKey !== null || !revealFrame.current(revealStamp) || !OPTIONAL_EDITOR_FIELDS.includes(field)) return;
+    setRevealedFields(current => current.includes(field) ? current : [...current, field]);
+  }
 
   function updateStep(i: number, patch: Partial<StepRow>) {
     setValue((v) => ({
@@ -349,6 +382,17 @@ export default function TestCaseForm({
         {active && <CaseDesignGuide />}
         {presentationQuery.error && <p role="status">Current built-in field preferences could not be verified. The generic editor retains all fields and values. <button type="button" onClick={() => void presentationQuery.refetch()}>Refresh preferences</button></p>}
         {retainedVisible.length > 0 && <p role="status">Fields hidden for empty cases remain visible here because this draft has supplied values: {retainedVisible.join(", ")}. Saving never clears them merely because project preferences changed.</p>}
+        {hiddenOptionalFields.length > 0 && <details>
+          <summary>Show optional fields for this draft</summary>
+          <p className="text-muted">Project preferences still choose the default layout. Show a field when this case needs it; this does not add a value, change project settings or grant editing permission.</p>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+            {hiddenOptionalFields.map(field => <button key={field} type="button" className="btn-secondary"
+              disabled={!active || locked || saving || uploadingStepKey !== null}
+              onClick={() => revealField(field)} aria-label={`Show ${optionalLabels[field]} for this draft`}>
+              Show {optionalLabels[field]}
+            </button>)}
+          </div>
+        </details>}
         <label>
           Title
           <input
@@ -425,7 +469,7 @@ export default function TestCaseForm({
             </select>
           </label>
         </div>
-        {(visible.hardwareFixture || visible.safety) && <details open={value.validationDomain !== "SOFTWARE"}>
+        {(visible.hardwareFixture || visible.safety) && <details open={value.validationDomain !== "SOFTWARE" || revealedFields.includes("hardwareFixture") || revealedFields.includes("safety")}>
           <summary>Fixture, safety and measurement criteria</summary>
           <p>
             Document approved procedures and acceptance limits. Attach diagrams
