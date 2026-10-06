@@ -3387,3 +3387,30 @@ physical device, SEA/signing or security-policy operation ran. Existing Web
 capture stays closed. This source foundation does not resolve or accept the
 reported Windows launch error, legacy paid recovery, iOS foreground verification
 or browser-side stream/SDK/target/consent admission.
+
+### October 6: unmounted browser plan-execution read foundation
+
+The browser reader admits only the complete native-pinned ACCESS or PAGE wire
+from the additive plan namespace. Raw JSONB remains separate from verified
+legacy interpretation; all saved IDs, including missing and archived rows,
+remain ordered and distinct from the current paged candidates. Whole unsupported
+values refuse, with no substitute hash, clipping or repaired configuration.
+
+The standalone hook requires installed SDK and cache monitors before reads,
+revokes old nonces on session/resource/context/cache movement, and requires
+explicit fresh access after revocation. An invalidated installed QueryObserver
+cannot revive prior template authority even if old data/status return. PAGE
+selection accepts only search, limit and optional cursor before any spread or
+nonce creation; unexpected project, plan, native actor or request IDs cannot
+replace the originally pinned read scope. Root's review found and corrected that
+input boundary before mounting or checkpointing the hook.
+
+Root independently passed 57 checks (29 pure wire/boundary and 28 actual-hook
+synthetic checks), whole Web types and four-file lint with zero errors/warnings.
+The tests use installed TanStack QueryClient/cache/QueryObserver with synthetic
+React, Clerk and RPC boundaries. The hook retains one current snapshot and two
+observed query slots, not all-page history. It explicitly grants no save, start,
+frozen cohort approval or receipt permission. Old caller/save integration,
+historical UNKNOWN recovery, actual browser/native SQL and production acceptance
+remain open. These final foundation bytes are not covered by the preceding
+2,350-check whole-Web result.
