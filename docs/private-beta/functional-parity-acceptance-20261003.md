@@ -3600,3 +3600,40 @@ contracts also pass. The compatible whole Web suite passed 810 Node and 1,676
 typed checks, 2,486 total, zero skips with the default timeouts unchanged.
 These checks do not establish an actual browser walkthrough of this new plan
 consumer, native transactions/concurrency, deployment or production acceptance.
+
+### October 6: actual plan-modal synthetic interaction and literal template codec
+
+A separately reviewed, hash-pinned local fixture now mounts the actual plan
+modal, reviewed consumer, readers, hooks, controller, installed tRPC/cache and
+application CSS. Only authentication, HTTP replies and the installed router
+context's recording value are synthetic; external requests are refused. Twelve
+independent fixture self-checks passed. Chrome verified explicit plan/profile
+access, explicit private reads, stable-ID candidate search without changing the
+ordered three-case saved cohort, and missing-case disclosure that prevents a
+new start rather than silently reducing its denominator.
+
+A lost synthetic response followed by an observed SDK A-B-A change retained the
+same request body/key across close/reopen. Original fresh access was required
+before retry or exposing the privately settled receipt. Two identical
+submissions produced one in-memory receipt and one replay. Opening the confirmed
+run required an explicit current-access action; the installed router hook
+recorded that action without navigating to a real run. Unsupported current
+profile data did not dispatch a replacement request. Console warnings/errors
+were empty. Existing failed fixtures and live buffers remain preserved.
+
+This is synthetic browser interaction proof, not native JWT/SQL/concurrency,
+durable database recovery, changed-suite-picker rendered acceptance, deployment
+or authenticated production acceptance. Template saving remains unavailable;
+the long execution-context layout still needs project-appropriate refinement.
+
+The additive version-2 template codec preserves every required raw context
+string, ordered identity and original object instead of trimming, filling or
+coercing fields. Complete bounded JSON admission refuses accessor/sparse/cyclic
+values, unsafe text and keys, unsupported numeric representations and overflow
+without clipping. Existing 500-case/20-configuration limits remain unchanged.
+Independent checks passed 51 pure codec regressions, full API types and scoped
+lint with zero errors or warnings. The original version-1 parser/hash behavior
+is tested separately and untouched. These codecs are not registered, mounted or
+used by a writer. Coherent versioned native SAVE, read, start, frozen evidence
+and replay support remains open; a codec alone does not establish save-to-run
+parity or authorize a native operation.
