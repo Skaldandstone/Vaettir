@@ -2646,3 +2646,31 @@ unassigned, unsupported or stale groups are not silently materialized. Case
 hover no longer advertises unsupported tree targets. Existing mouse payload,
 move/CAS submissions and failure behavior are unchanged. Handler/SSR source
 checks are not physical keyboard/mouse or native persistence acceptance.
+
+### October 6 Qase project-field interaction and verified case transport
+
+Fresh authenticated inspection of the authorized Qase trial's vendor DEMO
+project showed project settings for enabling milestones, steps, tags and the
+Classic step input-data field, plus a Classic/Gherkin default. Workspace fields
+separately distinguish single-select case metadata from paragraph description,
+preconditions and postconditions, with project applicability and required-state
+columns. Opening Priority showed a default and an all-projects applicability
+control; its value editor keeps stable slugs and configurable icons. This was
+read-only inspection; no setting, value or case was saved. Color semantics and
+project-specific persistence were not tested. These observations support compact
+typed metadata while retaining useful prose, not universal dropdown conversion.
+The input-data setting does not replace James's aligned per-step technical
+descriptor, and optional compliance fields must remain project-appropriate.
+
+The four reviewed whole-case routes now require the independently verified
+human transport subject before calling a service. The cached native user's
+Clerk mapping is never used as that proof; API-key backing users do not acquire
+human evidence authority. Existing native scope locks still compare the subject
+and original native-owner pins before evidence/receipt operations. Input schemas,
+request hashes and the three legacy route shapes are unchanged. Root repeated
+39 actual protected-router transport checks plus 21 existing reviewed service
+checks (60 total); API types and scoped router lint passed. Services, JWT
+cryptography and database transport are mocked in the new tests, not native or
+production proof. Legacy direct-service provenance, native positive fixture
+contexts, renewed sessions, retest ownership and completion recovery remain
+separate validation/compatibility work; this is not a deployment checkpoint.

@@ -1,4 +1,5 @@
-import { router, protectedProcedure } from "../trpc.js";
+import { TRPCError } from "@trpc/server";
+import { router, protectedProcedure, type Context } from "../trpc.js";
 import {
   manualCaseResultReadSchema,
   manualCaseResultHistorySchema,
@@ -28,30 +29,40 @@ import {
   manualCaseReviewedHistoryOutputSchema,
   manualCaseReviewedAckSchema,
 } from "../services/manualCaseResultSchema.js";
+/** Reviewed human evidence must use the verified transport subject, never a
+ * mutable cached native mapping or an API-key backing user's Clerk field. */
+function verifiedReviewedActor(ctx: Context & { user: NonNullable<Context["user"]> }) {
+  if (!ctx.authenticatedClerkSubject)
+    throw new TRPCError({
+      code: "FORBIDDEN",
+      message: "An independently verified human session is required for reviewed case evidence.",
+    });
+  return { id: ctx.user.id, clerkUserId: ctx.authenticatedClerkSubject };
+}
 export const manualCaseResultsRouter = router({
   accessReviewed: protectedProcedure
     .input(manualCaseReviewedAccessSchema)
     .output(manualCaseReviewedAccessOutputSchema)
     .query(({ ctx, input }) =>
-      accessReviewedManualCaseResult(ctx.prisma, ctx.user, input),
+      accessReviewedManualCaseResult(ctx.prisma, verifiedReviewedActor(ctx), input),
     ),
   previewReviewed: protectedProcedure
     .input(manualCaseReviewedReadSchema)
     .output(manualCaseReviewedPreviewOutputSchema)
     .query(({ ctx, input }) =>
-      previewReviewedManualCaseResult(ctx.prisma, ctx.user, input),
+      previewReviewedManualCaseResult(ctx.prisma, verifiedReviewedActor(ctx), input),
     ),
   historyReviewed: protectedProcedure
     .input(manualCaseReviewedHistorySchema)
     .output(manualCaseReviewedHistoryOutputSchema)
     .query(({ ctx, input }) =>
-      historyReviewedManualCaseResult(ctx.prisma, ctx.user, input),
+      historyReviewedManualCaseResult(ctx.prisma, verifiedReviewedActor(ctx), input),
     ),
   recordReviewed: protectedProcedure
     .input(manualCaseReviewedWriteSchema)
     .output(manualCaseReviewedAckSchema)
     .mutation(({ ctx, input }) =>
-      recordReviewedManualCaseResult(ctx.prisma, ctx.user, input),
+      recordReviewedManualCaseResult(ctx.prisma, verifiedReviewedActor(ctx), input),
     ),
   preview: protectedProcedure
     .input(manualCaseResultReadSchema)
