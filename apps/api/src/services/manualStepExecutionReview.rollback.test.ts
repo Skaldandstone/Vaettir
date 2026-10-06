@@ -450,8 +450,8 @@ describe("actual reviewed step service fresh rollback attempts; mocked native bo
       expect(h.writes).toHaveLength(1);
       expect(h.writes[0]!.attempt).toBe(2);
       expect(h.budgets).toEqual([
-        { isolationLevel: "RepeatableRead", maxWait: 5000, timeout: 15000 },
-        { isolationLevel: "RepeatableRead", maxWait: 5000, timeout: 15000 },
+        { isolationLevel: "ReadCommitted", maxWait: 5000, timeout: 15000 },
+        { isolationLevel: "ReadCommitted", maxWait: 5000, timeout: 15000 },
       ]);
     },
   );
@@ -591,7 +591,7 @@ describe("actual reviewed step service fresh rollback attempts; mocked native bo
     });
     await recordReviewedStep(h.db, h.actor, h.input);
     expect(h.budgets[1]).toEqual({
-      isolationLevel: "RepeatableRead",
+      isolationLevel: "ReadCommitted",
       timeout: 8250,
       maxWait: 2750,
     });
@@ -638,7 +638,8 @@ describe("actual reviewed step service fresh rollback attempts; mocked native bo
       "withReviewedStepRollback(budget => db.$transaction",
     );
     expect(body).not.toMatch(
-      /previewReviewedStep\(|randomUUID\(|setTimeout\(|Promise\.race|ReadCommitted/,
+      /previewReviewedStep\(|randomUUID\(|setTimeout\(|Promise\.race/,
     );
+    expect(body).toContain("isolationLevel: Prisma.TransactionIsolationLevel.ReadCommitted");
   });
 });

@@ -219,5 +219,10 @@ export async function recordReviewedStep(db: PrismaClient, actor: Actor, raw: Re
     // No post-commit healing/provider action may turn a committed receipt into
     // an uncertain browser outcome, or interpret human Pass as independent fix proof.
     return acknowledgement;
-  }, { ...options, ...budget }));
+  // WRITE-only statement snapshots must observe child receipts/heads committed
+  // while the existing project/run/UUID locks were awaited. A parent row lock
+  // does not refresh a RepeatableRead snapshot when that parent was not changed.
+  // All identity, membership, project/run and exact UUID locks remain held until
+  // commit; preview retains its independent RepeatableRead transaction above.
+  }, { ...options, isolationLevel: Prisma.TransactionIsolationLevel.ReadCommitted, ...budget }));
 }

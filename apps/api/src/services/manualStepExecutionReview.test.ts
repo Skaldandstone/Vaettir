@@ -39,10 +39,10 @@ function fixture(){
     testCaseAttachment:{findMany:vi.fn(async()=>{events.push("private-files");return flags.files;})},
   };
   const db={$transaction:vi.fn(async(fn:(tx:typeof tx)=>unknown,options:unknown)=>{
-    expect(options).toMatchObject({isolationLevel:"RepeatableRead"});
     const budget=options as {timeout:number;maxWait:number};
-    if(budget.timeout===20000) expect(budget.maxWait).toBe(5000); // Existing preview contract, unchanged.
+    if(budget.timeout===20000) { expect(options).toMatchObject({isolationLevel:"RepeatableRead"}); expect(budget.maxWait).toBe(5000); } // Existing preview contract, unchanged.
     else {
+      expect(options).toMatchObject({isolationLevel:"ReadCommitted"});
       expect(Number.isInteger(budget.timeout)&&budget.timeout>0).toBe(true);
       expect(Number.isInteger(budget.maxWait)&&budget.maxWait>0&&budget.maxWait<=5000).toBe(true);
       expect(budget.timeout+budget.maxWait).toBeLessThanOrEqual(20000);
