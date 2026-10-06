@@ -3637,3 +3637,40 @@ is tested separately and untouched. These codecs are not registered, mounted or
 used by a writer. Coherent versioned native SAVE, read, start, frozen evidence
 and replay support remains open; a codec alone does not establish save-to-run
 parity or authorize a native operation.
+
+### October 6: refreshed Testmo run-list and unsaved selection comparison
+
+The existing authenticated Testmo trial's vendor sample was inspected directly,
+not inferred from a feature list. Its run list combines summary donuts/cards for
+active and unstarted runs, latest success and estimated workload with milestone
+groups, state icons, tags, contributors and stacked colored progress bars with
+numeric percentages. This demonstrates that compact rows and meaningful visuals
+can coexist; it does not justify inventing workload estimates in Vaettir where
+native evidence is absent. Vaettir should keep completion, remaining work and
+actual start timestamps explicit rather than substitute pass rate for completion.
+
+The unsaved creation form offers Include all test cases and separate explicit
+case selection. The opened selection panel showed folder counts, a 0/534
+selected denominator, Match all/any filters and filters for state, priority,
+tags, configuration, dates and other metadata. Selection application is a
+separate button. Draft, under-review and rejected vendor cases were visible in
+that picker; Vaettir's approved-case policy should not be weakened merely to
+copy this presentation. No vendor run, case, settings or result was saved or
+submitted. This refresh is interaction evidence only, not a prevalence claim,
+Gartner ranking, full competitor audit or Vaettir production acceptance.
+
+Recurring-friction research supports improving the workflow, not copying every
+control. [Testmo's published 2024 user survey](https://www.testmo.com/blog/top-10-takeaways-2024-user-survey/)
+reports positive feedback about visual progress and adaptable workflows, while
+identifying repeated requests for more configurable reports and broader, more
+expressive search. This is a vendor-selected historical summary, not an
+independent prevalence estimate or proof of today's missing features. Its
+[April 2025 Reporting Center announcement](https://www.testmo.com/blog/announcing-the-new-testmo-reporting-center-unlock-powerful-insights-from-your-testing/)
+documents subsequent configurable reports and PDF sharing. One
+[first-person community account](https://www.reddit.com/r/QualityAssurance/comments/1nm87hy/test_management_system/)
+also described needing an external tool for release results across projects;
+that individual historical experience does not prove a current product limit.
+Our design implication is to disclose report scope and metric denominators,
+support useful current search and avoid forcing duplicate manual data entry.
+Cross-project reporting needs separate tenant-safe evidence, not assumed
+permission from a project-level dashboard.
