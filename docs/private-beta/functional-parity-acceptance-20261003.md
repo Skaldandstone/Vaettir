@@ -2345,3 +2345,27 @@ only explicit fresh native-shaped access restored them. RPC and Clerk were fake,
 not real authorization or SQL. Two screenshot requests timed out, so no new pixel
 inspection or visual acceptance is claimed. The pinned fixture and failed capture
 attempts are retained locally; no provider, customer or file action occurred.
+
+### October 6 helper setup protocol foundation, still unmounted
+
+Four additive browser files recognize only the actual helper's exact protocol-v2
+paired-liveness shape. Unknown capabilities/versions refuse whole, without a
+legacy fallback or inferred foreground target, operation receipt, Windows launch
+acceptance, capture permission or semantic redaction. Named screen/control text
+may contain sensitive values even when dedicated credential keys are absent.
+
+Injected metadata-only setup reads bind original native/org/Clerk pins and fresh
+nonces before and after an injected health read. Independent SDK/frame epochs
+revoke stale responses, blocked-launch reports abort owned attempts and private
+primitive setup buffers remain retained. Whole metadata admission is 512 KiB /
+16,000 nodes / 64 attempts, with explicit pre-health headroom; this is retained
+content accounting, not transport parsing or JavaScript heap proof. Raw native
+echo history is not promised. Synchronous local presentation rechecks cached
+original native scope plus live SDK/frame only, not fresh server seat/suspension
+or download/device/processing authority.
+
+Root reviewed all four files and repeated 41 new pure/injected checks plus 30
+capture-ownership checks; all 71 passed, with scoped lint clean. Actual setup,
+capture caller, connector and launcher are unchanged. Current blocked Windows
+launch, physical device/foreground isolation and separately reviewed processing
+consent/paid recovery remain open. No helper was launched or queried here.
