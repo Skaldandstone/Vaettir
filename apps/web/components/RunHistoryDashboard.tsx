@@ -170,6 +170,18 @@ export function RunHistoryCard({
         </p>
       )}
       <dl>
+        {manual && (
+          <>
+            <dt>Recorded run starter</dt>
+            <dd style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>
+              {run.startedByEmail === null
+                ? "Not recorded"
+                : run.startedByEmail === ""
+                  ? "Explicitly empty recorded starter"
+                  : run.startedByEmail}
+            </dd>
+          </>
+        )}
         <dt>Started UTC</dt>
         <dd>
           <time dateTime={run.startedAt}>{run.startedAt}</time>

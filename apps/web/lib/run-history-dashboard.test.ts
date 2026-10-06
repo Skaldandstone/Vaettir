@@ -325,7 +325,8 @@ it("actual dashboard SSR separates supported manual run-case completion from CI 
   ])
     expect(html).toContain(label);
   expect(html).not.toContain("100% recorded");
-  expect(html).not.toContain("private@example.invalid");
+  expect(html).toContain("Recorded run starter");
+  expect(html).toContain("private@example.invalid");
   expect(html).toContain("distribution-danger");
   expect(html).toContain('aria-label="Current run-history page"');
   expect(h.download).not.toHaveBeenCalled();
@@ -338,6 +339,8 @@ it("current reader loss removes private cards/portal children without resetting 
   h.setCurrent(null);
   const html = h.render();
   expect(html).not.toContain("feat/private");
+  expect(html).not.toContain("private@example.invalid");
+  expect(html).not.toContain("Recorded run starter");
   expect(html).not.toContain("Retained current-head mismatch");
   expect(html).not.toContain("Export exactly");
   expect(html).toContain("retained privately");
@@ -359,6 +362,60 @@ it("current reader loss removes private cards/portal children without resetting 
   expect(h.render()).not.toContain("Export exactly");
   h.button("Review current page CSV")();
   expect(h.render()).toContain("Export exactly");
+});
+it.each([
+  [null, "Not recorded"],
+  ["", "Explicitly empty recorded starter"],
+  [
+    "  tester@synthetic.invalid\n retained  ",
+    "  tester@synthetic.invalid\n retained  ",
+  ],
+  [
+    "  测试者 <script>alert('private')</script> & \"quoted\"  ",
+    "  测试者 &lt;script&gt;alert(&#x27;private&#x27;)&lt;/script&gt; &amp; &quot;quoted&quot;  ",
+  ],
+] as const)(
+  "actual manual card preserves literal starter %j with distinct null/empty states and escaped whitespace-preserving presentation",
+  (startedByEmail, expected) => {
+    const h = harness(),
+      run = { ...snapshot().page.rows[0]!, startedByEmail },
+      html = renderToStaticMarkup(h.card({ run, onView: () => undefined }));
+    expect(html).toContain("<dt>Recorded run starter</dt>");
+    expect(html).toContain(
+      `<dd style="white-space:pre-wrap;overflow-wrap:anywhere">${expected}</dd>`,
+    );
+    expect(html).not.toContain("<script>");
+    expect(html).not.toContain("Contributor");
+    expect(html).not.toContain("Assignee");
+    expect(run.startedByEmail).toBe(startedByEmail);
+    expect(html).toContain("25% recorded");
+    expect(html).toContain("3 left to test");
+  },
+);
+it("actual CI card never labels its optional recorded email as a manual starter or inferred contributor", () => {
+  const h = harness(),
+    run = snapshot().page.rows[1]!,
+    html = renderToStaticMarkup(h.card({ run, onView: () => undefined }));
+  expect(html).not.toContain("Recorded run starter");
+  expect(html).not.toContain("private@example.invalid");
+  expect(html).toContain("Branch feat/private");
+  expect(html).toContain("012345");
+  expect(html).toContain("2 ingested observations");
+  expect(html).not.toContain("100% recorded");
+});
+it("manual progress refusal does not invent a starter or hide separately admitted recorded metadata", () => {
+  const h = harness(),
+    run = {
+      ...snapshot().page.rows[2]!,
+      startedByEmail: "literal@synthetic.invalid",
+    },
+    html = renderToStaticMarkup(h.card({ run, onView: () => undefined }));
+  expect(html).toContain("Recorded run starter");
+  expect(html).toContain("literal@synthetic.invalid");
+  expect(html).toContain("Progress unavailable.");
+  expect(html).toContain("No zero or completion percentage is inferred.");
+  expect(html).not.toContain("0% recorded");
+  expect(html).toContain("Started UTC");
 });
 it("empty anchored page is not whole-project zero and unavailable current access has no old page metrics", () => {
   const h = harness(),

@@ -3674,3 +3674,21 @@ Our design implication is to disclose report scope and metric denominators,
 support useful current search and avoid forcing duplicate manual data entry.
 Cross-project reporting needs separate tenant-safe evidence, not assumed
 permission from a project-level dashboard.
+
+### October 6: recorded starter on current manual-run cards
+
+The currently mounted run-history dashboard already distinguishes recorded
+manual completion and remaining planned identities from CI ingestion counts,
+and renders colored verdict distributions, exact UTC timestamps and reviewed
+exports. Its manual cards now also show the admitted recorded run starter.
+Literal text is escaped and whitespace-preserving; absent and explicitly empty
+recorded values remain distinct. The label is not an inferred contributor,
+assignee or current viewer. CI attribution and the CSV's exclusion of private
+email are unchanged. Current-reader loss removes that metadata together with
+the private cards and retained export view.
+
+Independent actual-component SSR/reader/export tests passed 47 checks, including
+six additional card scenarios. Scoped lint passed; its existing repository-root
+Next pages-directory configuration notice remains, without a rule suppression.
+This is source and synthetic-render evidence, not a fresh authenticated browser
+walkthrough of the production run list or a production deployment.
