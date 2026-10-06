@@ -3,20 +3,24 @@ import vm from "node:vm";
 import ts from "typescript";
 import { expect, it } from "vitest";
 import { samePriorityReader } from "./case-priority-draft";
+import type { PriorityAccess } from "./use-case-priority-access";
+import type { PriorityPreview } from "./case-priority-draft";
+import type { RouterInputs } from "./trpcReact";
+type ReadInput = RouterInputs["casePriority"]["preview"];
 const source = readFileSync(new URL("./use-case-priority-access.ts", import.meta.url), "utf8"), ast = ts.createSourceFile("access.ts", source, ts.ScriptTarget.Latest, true);
 const declaration = ast.statements.find(node => ts.isFunctionDeclaration(node) && node.name?.text === "useCasePriorityAccess")!;
 const code = ts.transpileModule(`${ts.createPrinter().printNode(ts.EmitHint.Unspecified, declaration, ast).replace(/\bexport\s+/, "")}\nthis.access=useCasePriorityAccess;`, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.None } }).outputText;
 function harness() {
-  const hooks: unknown[] = []; let cursor = 0, dirty = false, uuid = 0, input: any, enabled = false, result: any;
+  const hooks: unknown[] = []; let cursor = 0, dirty = false, uuid = 0, input: ReadInput, enabled = false, result: PriorityAccess;
   const auth = { isLoaded: true, isSignedIn: true, userId: "clerk", sessionId: "A" }, params = { projectId: "project", caseId: "case", active: true };
-  const query = { data: undefined as any, isFetchedAfterMount: false, isFetching: false, isPaused: false, error: null as unknown };
+  const query = { data: undefined as PriorityPreview | undefined, isFetchedAfterMount: false, isFetching: false, isPaused: false, error: null as unknown };
   const context = vm.createContext({ useAuth: () => auth, samePriorityReader, crypto: { randomUUID: () => `read-${++uuid}` },
     useState: (initial: unknown) => { const at = cursor++; if (!Object.hasOwn(hooks, at)) hooks[at] = typeof initial === "function" ? initial() : initial; return [hooks[at], (value: unknown) => { const next = typeof value === "function" ? value(hooks[at]) : value; if (!Object.is(next, hooks[at])) { hooks[at] = next; dirty = true; } }]; },
-    trpcReact: { casePriority: { preview: { useQuery: (value: unknown, options: { enabled: boolean }) => { input = value; enabled = options.enabled; return query; } } } },
+    trpcReact: { casePriority: { preview: { useQuery: (value: ReadInput, options: { enabled: boolean }) => { input = value; enabled = options.enabled; return query; } } } },
   }); vm.runInContext(code, context);
-  const access = (context as unknown as { access: (...args: unknown[]) => unknown }).access;
+  const access = (context as unknown as { access: (...args: unknown[]) => PriorityAccess }).access;
   function render() { for (let index = 0; index < 25; index++) { cursor = 0; dirty = false; result = access(params.projectId, params.caseId, params.active); if (!dirty) return result; } throw Error("Priority reader did not settle"); }
-  function receive(patch = {}) { query.isFetchedAfterMount = true; query.data = { requestId: input.requestId, projectId: input.projectId, caseId: input.caseId, readScope: { projectId: input.projectId, organizationId: "org", actorClerkUserId: "clerk", actorId: "native" }, canChange: true, canRecover: true, priority: "MEDIUM", caseRevision: "a".repeat(64), ...patch }; return render(); }
+  function receive(patch = {}) { query.isFetchedAfterMount = true; query.data = { requestId: input.requestId, projectId: input.projectId, caseId: input.caseId, readScope: { projectId: input.projectId, organizationId: "org", actorClerkUserId: "clerk", actorId: "native" }, canChange: true, canRecover: true, priority: "MEDIUM", caseRevision: "a".repeat(64), blockedReason: null, ...patch }; return render(); }
   render(); return { auth, params, query, render, receive, input: () => input, enabled: () => enabled };
 }
 it("actual priority bootstrap pins only completed native echo, then rechecks original pins without custom-field definitions", () => {
@@ -29,12 +33,12 @@ it("session, Clerk, active and case A-B-A rotates requests and never rebinds ori
   h.auth.sessionId = "B"; expect(h.render().fresh).toBeNull(); const other = h.input().requestId; h.auth.sessionId = "A"; expect(h.render().fresh).toBeNull(); expect(h.input().requestId).not.toBe(original); expect(h.input().requestId).not.toBe(other); h.receive();
   h.auth.userId = "other"; expect(h.render().fresh).toBeNull(); expect(h.enabled()).toBe(false); h.auth.userId = "clerk"; expect(h.render().fresh).toBeNull(); h.receive();
   h.params.active = false; expect(h.render().fresh).toBeNull(); expect(h.enabled()).toBe(false); h.params.active = true; expect(h.render().fresh).toBeNull(); h.receive();
-  h.params.caseId = "other"; expect(h.render().fresh).toBeNull(); expect(h.enabled()).toBe(false); h.params.caseId = "case"; expect(h.render().fresh).toBeNull(); expect(h.render().origin.caseId).toBe("case");
+  h.params.caseId = "other"; expect(h.render().fresh).toBeNull(); expect(h.enabled()).toBe(false); h.params.caseId = "case"; expect(h.render().fresh).toBeNull(); expect(h.render().origin!.caseId).toBe("case");
 });
 it("wrong echo/organization/native mapping never supplies current access even to a dual member", () => {
-  const h = harness(); h.receive(); h.receive(); const scope = h.query.data.readScope;
+  const h = harness(); h.receive(); h.receive(); const scope = h.query.data!.readScope;
   for (const patch of [{ requestId: "old" }, { caseId: "other" }, { projectId: "other" }, { readScope: { ...scope, actorId: "replacement" } }, { readScope: { ...scope, organizationId: "foreign" } }, { readScope: { ...scope, actorClerkUserId: "other" } }]) expect(h.receive(patch).fresh).toBeNull();
-  expect(h.render().origin.nativeActorId).toBe("native"); expect(h.render().origin.organizationId).toBe("org");
+  expect(h.render().origin!.nativeActorId).toBe("native"); expect(h.render().origin!.organizationId).toBe("org");
 });
 it("completed same-reader access is still hidden on fetching/paused/error/incomplete mount and refresh", () => {
   const h = harness(); h.receive(); h.receive();
@@ -43,6 +47,6 @@ it("completed same-reader access is still hidden on fetching/paused/error/incomp
   h.render().refresh(); expect(h.render().fresh).toBeNull(); expect(h.receive().fresh).not.toBeNull();
 });
 it("later unsupported snapshot does not manufacture a revision or trap exact original FULL-editor recovery", () => {
-  const h = harness(); h.receive(); const result = h.receive({ canChange: false, canRecover: true, caseRevision: null, blockedReason: "Unsupported native snapshot" }); expect(result.fresh.canRecover).toBe(true); expect(result.fresh.caseRevision).toBeNull();
-  const readonly = h.receive({ canChange: false, canRecover: false, caseRevision: null }); expect(readonly.readable).toBe(true); expect(readonly.fresh.canRecover).toBe(false);
+  const h = harness(); h.receive(); const result = h.receive({ canChange: false, canRecover: true, caseRevision: null, blockedReason: "Unsupported native snapshot" }); expect(result.fresh!.canRecover).toBe(true); expect(result.fresh!.caseRevision).toBeNull();
+  const readonly = h.receive({ canChange: false, canRecover: false, caseRevision: null }); expect(readonly.readable).toBe(true); expect(readonly.fresh!.canRecover).toBe(false);
 });

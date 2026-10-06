@@ -4,25 +4,49 @@ import ts from "typescript";
 import { describe, expect, it } from "vitest";
 import { assertGovernanceAcknowledgement, planGovernanceRequestHash, retainedGovernancePending } from "./plan-governance-receipt";
 import * as draftHelpers from "./plan-change-draft";
+import type { RouterInputs } from "./trpcReact";
+import type { PlanChangePreview } from "./use-plan-change-access";
+import type { PlanChangeEditor, PlanChangeDraft, PlanChangePending } from "./use-plan-change-editor";
+type Input = RouterInputs["testPlanGovernance"]["setPlanStatus"] | RouterInputs["testPlanGovernance"]["editPlanCustomFields"];
+type BaseInput = Pick<Input, "projectId" | "testPlanId" | "originalOrganizationId" | "expectedClerkActorId" | "expectedPlanRevision" | "requestId" | "reason" | "confirmed">;
+type StatusValues = { status: draftHelpers.PlanStatus; intent: "CHANGE" | "REOPEN" };
+type Values = StatusValues | draftHelpers.PlanMetadataDraft;
+// Synthetic hooks supply only the fields exercised by the extracted controller.
+type SyntheticPreview = Pick<PlanChangePreview, "scope" | "planRevision" | "canRecover"> & {
+  statusActions: Pick<PlanChangePreview["statusActions"], "canChange" | "canReopen">;
+  snapshot: Pick<PlanChangePreview["snapshot"], "id" | "projectId" | "status"> & { customFields: unknown };
+  metadataSchema: Pick<PlanChangePreview["metadataSchema"], "fieldSchemaHash" | "supported" | "canEdit"> & { fieldSchema: { properties: Record<string, unknown> } | null };
+};
+type Draft = Omit<PlanChangeDraft<Values>, "baseline"> & { baseline: SyntheticPreview };
+type Pending = Omit<PlanChangePending<Values, Input>, "reviewedDraft"> & { reviewedDraft: Draft };
+type SyntheticEditor = Omit<PlanChangeEditor<Values, Input>, "draft" | "draftRef" | "pending" | "pendingRef" | "change"> & {
+  draft: Draft | null; draftRef: { current: Draft | null }; pending: Pending | null; pendingRef: { current: Pending | null };
+  change: (patch: Partial<Pick<Draft, "values" | "reason" | "confirmed">>) => void;
+};
+function metadataValues(values: Values): draftHelpers.PlanMetadataDraft { if (!("changes" in values)) throw Error("Expected synthetic metadata draft"); return values; }
+function statusValues(values: Values): StatusValues { if (!("status" in values)) throw Error("Expected synthetic status draft"); return values; }
+function metadataChanges(input: Input): Record<string, unknown>[] {
+  if (!("changes" in input) || !Array.isArray(input.changes) || !input.changes.every((change: unknown): change is Record<string, unknown> => !!change && typeof change === "object" && !Array.isArray(change))) throw Error("Expected synthetic metadata request operations");
+  return input.changes;
+}
 
 const source = readFileSync(new URL("./use-plan-change-editor.ts", import.meta.url), "utf8"), ast = ts.createSourceFile("editor.ts", source, ts.ScriptTarget.Latest, true);
 const printer = ts.createPrinter(), declaration = ast.statements.find(node => ts.isFunctionDeclaration(node) && node.name?.text === "usePlanChangeEditor")!, reader = ast.statements.find(node => ts.isVariableStatement(node) && node.declarationList.declarations.some(entry => entry.name.getText(ast) === "samePlanChangeReader"))!;
 const compiled = ts.transpileModule(`${printer.printNode(ts.EmitHint.Unspecified, reader, ast).replace(/^export /, "")}\n${printer.printNode(ts.EmitHint.Unspecified, declaration, ast).replace(/^export /, "")}\nthis.controller=usePlanChangeEditor;`, { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText;
 const origin = { projectId: "project", organizationId: "org", clerkActorId: "clerk", caseId: null };
 const scope = { projectId: "project", organizationId: "org", actorClerkUserId: "clerk", actorId: "native" };
-function baseline() { return { scope, snapshot: { id: "plan", projectId: "project", status: "DRAFT", customFields: { n: 12, notes: "Native", unknown: { retained: [null, false, 0] } } }, planRevision: "a".repeat(64), canRecover: true, statusActions: { canChange: true, canReopen: false }, metadataSchema: { fieldSchema: { properties: { n: { type: "number" }, notes: { type: "string" } } }, fieldSchemaHash: "b".repeat(64), supported: true, canEdit: true } }; }
-type AnyEditor = { show: () => void; close: () => void; review: () => void; commit: () => Promise<void>; change: (patch: Record<string, unknown>) => void; draft: any; draftRef: { current: any }; pending: any; pendingRef: { current: any }; canSave: boolean; notice: string; readable: boolean };
+function baseline(): SyntheticPreview { return { scope, snapshot: { id: "plan", projectId: "project", status: "DRAFT", customFields: { n: 12, notes: "Native", unknown: { retained: [null, false, 0] } } }, planRevision: "a".repeat(64), canRecover: true, statusActions: { canChange: true, canReopen: false }, metadataSchema: { fieldSchema: { properties: { n: { type: "number" }, notes: { type: "string" } } }, fieldSchemaHash: "b".repeat(64), supported: true, canEdit: true } }; }
 function harness(operation: "SET_PLAN_STATUS" | "EDIT_PLAN_CUSTOM_FIELDS" = "SET_PLAN_STATUS") {
-  const hooks: unknown[] = [], effects: Array<() => void> = [], cleanups = new Map<number, () => void>(); let cursor = 0, dirty = false, uuid = 0, editor: AnyEditor;
+  const hooks: unknown[] = [], effects: Array<() => void> = [], cleanups = new Map<number, () => void>(); let cursor = 0, dirty = false, uuid = 0, editor: SyntheticEditor;
   const reads = { fresh: baseline() as ReturnType<typeof baseline> | null, origin, nativeActorId: "native", activation: "activation-A", refresh: () => { effectsDone.refreshes++; } };
-  const effectsDone = { callbacks: 0, refreshes: 0 }, sent: any[] = [], state = { failure: null as unknown, wrongNative: false, wrongHash: false, onSend: null as null | (() => void), onHash: null as null | (() => void), callbackFail: false };
+  const effectsDone = { callbacks: 0, refreshes: 0 }, sent: Input[] = [], state = { failure: null as unknown, wrongNative: false, wrongHash: false, onSend: null as null | (() => void), onHash: null as null | (() => void), callbackFail: false };
   const config = {
     projectId: "project", testPlanId: "plan", organizationId: "org", readOnly: false, operation,
-    mutation: { isPending: false, mutateAsync: async (input: any) => { sent.push(input); state.onSend?.(); if (state.failure) throw state.failure; return { scope: state.wrongNative ? { ...scope, actorId: "other-native" } : scope, requestId: input.requestId, requestHash: state.wrongHash ? "f".repeat(64) : await planGovernanceRequestHash(operation, input), operation, testPlanId: input.testPlanId, criterionId: null, releaseId: null, versionId: "version", versionNumber: 2, beforeRevision: input.expectedPlanRevision, afterRevision: "c".repeat(64), replayed: sent.length > 1 }; } },
-    initialize: () => operation === "SET_PLAN_STATUS" ? { status: "DRAFT", intent: "CHANGE" } : draftHelpers.emptyPlanMetadataDraft(),
-    canChange: (current: any) => operation === "SET_PLAN_STATUS" ? current.statusActions.canChange || current.statusActions.canReopen : current.metadataSchema.canEdit && current.metadataSchema.supported && !!current.metadataSchema.fieldSchemaHash,
-    validate: (draft: any, current: any) => { if (draft.baseline.planRevision !== current.planRevision) return "Stale plan"; try { if (operation === "SET_PLAN_STATUS") draftHelpers.reviewedPlanStatus(draft.baseline.snapshot.status, draft.values.status, draft.values.intent); else { if (draft.baseline.metadataSchema.fieldSchemaHash !== current.metadataSchema.fieldSchemaHash) return "Stale schema"; if (!draftHelpers.reviewedPlanMetadataChanges(draft.baseline.metadataSchema.fieldSchema, draft.baseline.snapshot.customFields, draft.values).length) return "No changes"; } return null; } catch (cause) { return String(cause); } },
-    makeInput: (draft: any, base: any) => operation === "SET_PLAN_STATUS" ? { ...base, ...draftHelpers.reviewedPlanStatus(draft.baseline.snapshot.status, draft.values.status, draft.values.intent) } : { ...base, expectedFieldSchemaHash: draft.baseline.metadataSchema.fieldSchemaHash, changes: draftHelpers.reviewedPlanMetadataChanges(draft.baseline.metadataSchema.fieldSchema, draft.baseline.snapshot.customFields, draft.values) },
+    mutation: { isPending: false, mutateAsync: async (input: Input) => { sent.push(input); state.onSend?.(); if (state.failure) throw state.failure; return { scope: state.wrongNative ? { ...scope, actorId: "other-native" } : scope, requestId: input.requestId, requestHash: state.wrongHash ? "f".repeat(64) : await planGovernanceRequestHash(operation, input), operation, testPlanId: input.testPlanId, criterionId: null, releaseId: null, versionId: "version", versionNumber: 2, beforeRevision: input.expectedPlanRevision, afterRevision: "c".repeat(64), replayed: sent.length > 1 }; } },
+    initialize: (): Values => operation === "SET_PLAN_STATUS" ? { status: "DRAFT", intent: "CHANGE" } : draftHelpers.emptyPlanMetadataDraft(),
+    canChange: (current: SyntheticPreview) => operation === "SET_PLAN_STATUS" ? current.statusActions.canChange || current.statusActions.canReopen : current.metadataSchema.canEdit && current.metadataSchema.supported && !!current.metadataSchema.fieldSchemaHash,
+    validate: (draft: Draft, current: SyntheticPreview) => { if (draft.baseline.planRevision !== current.planRevision) return "Stale plan"; try { if (operation === "SET_PLAN_STATUS") { const values = statusValues(draft.values); draftHelpers.reviewedPlanStatus(draft.baseline.snapshot.status, values.status, values.intent); } else { if (draft.baseline.metadataSchema.fieldSchemaHash !== current.metadataSchema.fieldSchemaHash) return "Stale schema"; if (!draftHelpers.reviewedPlanMetadataChanges(draft.baseline.metadataSchema.fieldSchema, draft.baseline.snapshot.customFields, metadataValues(draft.values)).length) return "No changes"; } return null; } catch (cause) { return String(cause); } },
+    makeInput: (draft: Draft, base: BaseInput): Input => { if (operation === "SET_PLAN_STATUS") { const values = statusValues(draft.values); return { ...base, ...draftHelpers.reviewedPlanStatus(draft.baseline.snapshot.status, values.status, values.intent) }; } return { ...base, expectedFieldSchemaHash: draft.baseline.metadataSchema.fieldSchemaHash!, changes: draftHelpers.reviewedPlanMetadataChanges(draft.baseline.metadataSchema.fieldSchema, draft.baseline.snapshot.customFields, metadataValues(draft.values)) }; },
     onChanged: () => { effectsDone.callbacks++; if (state.callbackFail) throw Error("Synthetic callback failure"); }, savedNotice: "Known saved change",
   };
   const context = vm.createContext({
@@ -35,9 +59,9 @@ function harness(operation: "SET_PLAN_STATUS" | "EDIT_PLAN_CUSTOM_FIELDS" = "SET
     useLayoutEffect: (effect: () => (() => void) | void, deps: unknown[]) => { const index = cursor++, prior = hooks[index] as unknown[] | undefined; if (!prior || deps.some((value, n) => !Object.is(value, prior[n]))) { hooks[index] = deps; effects.push(() => { cleanups.get(index)?.(); const cleanup = effect(); if (cleanup) cleanups.set(index, cleanup); }); } },
   });
   vm.runInContext(compiled, context);
-  const control = (context as unknown as { controller: (config: unknown) => AnyEditor }).controller;
+  const control = (context as unknown as { controller: (options: typeof config) => SyntheticEditor }).controller;
   function render() { for (let at = 0; at < 30; at++) { cursor = 0; dirty = false; editor = control(config); effects.splice(0).forEach(effect => effect()); if (!dirty) return editor; } throw Error("Editor did not settle"); }
-  function ready() { render().show(); render().review(); render(); editor.change({ values: operation === "SET_PLAN_STATUS" ? { status: "ACTIVE", intent: "CHANGE" } : draftHelpers.setPlanMetadataNumber(editor.draft.values, "n", "2.00") }); render().change({ reason: "  Exact reviewed change  " }); render().change({ confirmed: true }); return render(); }
+  function ready() { render().show(); render().review(); render(); editor.change({ values: operation === "SET_PLAN_STATUS" ? { status: "ACTIVE", intent: "CHANGE" } : draftHelpers.setPlanMetadataNumber(metadataValues(editor.draft!.values), "n", "2.00") }); render().change({ reason: "  Exact reviewed change  " }); render().change({ confirmed: true }); return render(); }
   return { render, ready, reads, config, state, sent, effectsDone, unmount: () => { cleanups.forEach(cleanup => cleanup()); }, get editor() { return editor; } };
 }
 
@@ -50,19 +74,23 @@ describe("actual new plan status/metadata controller, synthetic hooks NOT native
   });
   it("numeric invalid buffer blocks metadata save synchronously, even before a rerender", async () => {
     const h = harness("EDIT_PLAN_CUSTOM_FIELDS"); h.ready(); const oldHandler = h.editor.commit;
-    h.editor.change({ values: draftHelpers.setPlanMetadataNumber(h.editor.draft.values, "n", "-") }); await oldHandler();
-    expect(h.sent).toEqual([]); expect(h.render().canSave).toBe(false); expect(h.editor.draft.values.numberBuffers.n).toBe("-");
+    h.editor.change({ values: draftHelpers.setPlanMetadataNumber(metadataValues(h.editor.draft!.values), "n", "-") }); await oldHandler();
+    expect(h.sent).toEqual([]); expect(h.render().canSave).toBe(false); expect(metadataValues(h.editor.draft!.values).numberBuffers.n).toBe("-");
   });
   it("frozen request and reviewed values do not share source draft arrays during hash/ACK", async () => {
-    const h = harness("EDIT_PLAN_CUSTOM_FIELDS"); h.reads.fresh!.metadataSchema.fieldSchema.properties = { ...h.reads.fresh!.metadataSchema.fieldSchema.properties, areas: { type: "array", items: { type: "string" } } } as never;
+    const h = harness("EDIT_PLAN_CUSTOM_FIELDS"); h.reads.fresh!.metadataSchema.fieldSchema!.properties = { ...h.reads.fresh!.metadataSchema.fieldSchema!.properties, areas: { type: "array", items: { type: "string" } } };
     h.ready(); const originalRows = [" exact ", "same", "same", ""];
-    h.editor.change({ values: draftHelpers.replacePlanMetadataChange(h.editor.draft.values, { operation: "SET", key: "areas", value: originalRows }) }); h.render().change({ confirmed: true }); h.render();
+    h.editor.change({ values: draftHelpers.replacePlanMetadataChange(metadataValues(h.editor.draft!.values), { operation: "SET", key: "areas", value: originalRows }) }); h.render().change({ confirmed: true }); h.render();
     h.state.onHash = () => { originalRows[0] = "Changed while hashing"; };
     h.state.onSend = () => { originalRows.push("Changed while awaiting ACK"); }; h.state.failure = Error("Lost response");
-    await h.editor.commit(); h.render(); const held = h.editor.pending, wireRows = held.input.changes.find((change: any) => change.key === "areas").value;
+    await h.editor.commit(); h.render(); const held = h.editor.pending!, wireChange = metadataChanges(held.input).find(change => change.key === "areas");
+    if (!wireChange || wireChange.operation !== "SET") throw Error("Expected frozen SET areas request");
+    const wireRows = wireChange.value;
     expect(wireRows).toEqual([" exact ", "same", "same", ""]); expect(wireRows).not.toBe(originalRows);
-    expect(held.reviewedDraft.values.changes.find((change: any) => change.key === "areas").value).toEqual(wireRows);
-    expect(Object.isFrozen(held.input)).toBe(true); expect(Object.isFrozen(held.input.changes)).toBe(true); expect(Object.isFrozen(wireRows)).toBe(true);
+    const reviewedChange = metadataValues(held.reviewedDraft.values).changes.find(change => change.key === "areas");
+    if (!reviewedChange || reviewedChange.operation !== "SET") throw Error("Expected frozen reviewed SET areas draft");
+    expect(reviewedChange.value).toEqual(wireRows);
+    expect(Object.isFrozen(held.input)).toBe(true); expect(Object.isFrozen(metadataChanges(held.input))).toBe(true); expect(Object.isFrozen(wireRows)).toBe(true);
     expect(held.requestHash).toBe(await planGovernanceRequestHash("EDIT_PLAN_CUSTOM_FIELDS", held.input));
   });
   it("hash preparation outliving actor/frame changes sends no request and retains draft", async () => {
@@ -87,17 +115,17 @@ describe("actual new plan status/metadata controller, synthetic hooks NOT native
   });
   it("unknown ACK retains exact input/hash/body; later typed refusal cannot erase its earlier ambiguity", async () => {
     const h = harness("EDIT_PLAN_CUSTOM_FIELDS"); h.ready(); h.state.failure = Error("Lost response"); await h.editor.commit(); h.render();
-    const original = h.editor.pending; expect(original.uncertain).toBe(true);
+    const original = h.editor.pending!; expect(original.uncertain).toBe(true);
     h.state.failure = { data: { code: "CONFLICT" } }; await h.editor.commit(); h.render();
-    expect(h.editor.pending.input).toBe(original.input); expect(h.editor.pending.requestHash).toBe(original.requestHash); expect(h.sent[1]).toBe(h.sent[0]); expect(h.editor.draft.identity).toBe(original.reviewedDraft.identity); expect(h.editor.draft).not.toBe(original.reviewedDraft);
+    expect(h.editor.pending!.input).toBe(original.input); expect(h.editor.pending!.requestHash).toBe(original.requestHash); expect(h.sent[1]).toBe(h.sent[0]); expect(h.editor.draft!.identity).toBe(original.reviewedDraft.identity); expect(h.editor.draft).not.toBe(original.reviewedDraft);
   });
   it("first proven rejection unlocks draft; malformed/hash/native-reader ACK remains pending", async () => {
     const rejected = harness(); rejected.ready(); rejected.state.failure = { data: { code: "BAD_REQUEST" } }; await rejected.editor.commit(); rejected.render(); expect(rejected.editor.pending).toBeNull(); expect(rejected.editor.draft).not.toBeNull();
     for (const patch of [{ wrongNative: true }, { wrongHash: true }]) { const h = harness(); h.ready(); Object.assign(h.state, patch); await h.editor.commit(); h.render(); expect(h.editor.pending?.uncertain).toBe(true); expect(h.editor.draft).not.toBeNull(); expect(h.effectsDone.callbacks).toBe(0); }
   });
   it("exact old metadata request recovers when later schema becomes unreadable/frozen, but native actor change still forbids retry", async () => {
-    const h = harness("EDIT_PLAN_CUSTOM_FIELDS"); h.ready(); h.state.failure = Error("Unknown"); await h.editor.commit(); h.render(); const input = h.editor.pending.input;
-    h.state.failure = null; h.reads.fresh = { ...baseline(), metadataSchema: { ...baseline().metadataSchema, fieldSchema: null as never, fieldSchemaHash: null as never, supported: false, canEdit: false }, statusActions: { canChange: false, canReopen: false } }; h.render(); await h.editor.commit(); h.render();
+    const h = harness("EDIT_PLAN_CUSTOM_FIELDS"); h.ready(); h.state.failure = Error("Unknown"); await h.editor.commit(); h.render(); const input = h.editor.pending!.input;
+    h.state.failure = null; h.reads.fresh = { ...baseline(), metadataSchema: { ...baseline().metadataSchema, fieldSchema: null, fieldSchemaHash: null, supported: false, canEdit: false }, statusActions: { canChange: false, canReopen: false } }; h.render(); await h.editor.commit(); h.render();
     expect(h.sent[1]).toBe(input); expect(h.editor.pending).toBeNull();
     const denied = harness(); denied.ready(); denied.state.failure = Error("Unknown"); await denied.editor.commit(); denied.render(); denied.reads.fresh = { ...baseline(), scope: { ...scope, actorId: "replacement" } }; denied.render(); await denied.editor.commit(); expect(denied.sent).toHaveLength(1);
   });

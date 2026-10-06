@@ -2,20 +2,30 @@ import { readFileSync } from "node:fs";
 import vm from "node:vm";
 import ts from "typescript";
 import { expect, it } from "vitest";
+import type { RouterInputs } from "./trpcReact";
+import type { PlanChangePreview } from "./use-plan-change-access";
+type ReadInput = RouterInputs["testPlanGovernance"]["preview"];
+// The extracted hook uses only these response fields. This is deliberately not
+// represented as a complete native preview or authenticated query result.
+type SyntheticRead = Pick<PlanChangePreview, "requestId" | "scope" | "canRecover"> & {
+  snapshot: Pick<PlanChangePreview["snapshot"], "id" | "projectId"> & { customFields?: unknown };
+  metadataSchema?: Pick<PlanChangePreview["metadataSchema"], "fieldSchemaHash" | "fieldSchema" | "supported" | "canEdit">;
+};
+type AccessResult = { fresh: SyntheticRead | null; origin: { projectId: string; organizationId: string; clerkActorId: string; caseId: null } | null; nativeActorId: string | null; refresh: () => void };
 const source = readFileSync(new URL("./use-plan-change-access.ts", import.meta.url), "utf8"), ast = ts.createSourceFile("access.ts", source, ts.ScriptTarget.Latest, true);
 const declaration = ast.statements.find(node => ts.isFunctionDeclaration(node) && node.name?.text === "usePlanChangeAccess")!;
 const code = ts.transpileModule(`${ts.createPrinter().printNode(ts.EmitHint.Unspecified, declaration, ast).replace(/\bexport\s+/, "")}\nthis.access=usePlanChangeAccess;`, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.None } }).outputText;
 function harness() {
-  const hooks: unknown[] = []; let cursor = 0, dirty = false, uuid = 0, input: any, enabled = false, result: any;
+  const hooks: unknown[] = []; let cursor = 0, dirty = false, uuid = 0, input: ReadInput, enabled = false, result: AccessResult;
   const auth = { isLoaded: true, isSignedIn: true, userId: "clerk", sessionId: "A" }, params = { org: "org", project: "project", plan: "plan", active: true };
-  const query = { data: undefined as any, isFetchedAfterMount: false, isFetching: false, isPaused: false, error: null as unknown };
+  const query = { data: undefined as SyntheticRead | undefined, isFetchedAfterMount: false, isFetching: false, isPaused: false, error: null as unknown };
   const context = vm.createContext({ useAuth: () => auth, crypto: { randomUUID: () => `read-${++uuid}` },
     useState: (initial: unknown) => { const at = cursor++; if (!Object.hasOwn(hooks, at)) hooks[at] = typeof initial === "function" ? initial() : initial; return [hooks[at], (value: unknown) => { const next = typeof value === "function" ? value(hooks[at]) : value; if (!Object.is(next, hooks[at])) { hooks[at] = next; dirty = true; } }]; },
-    trpcReact: { testPlanGovernance: { preview: { useQuery: (value: unknown, options: { enabled: boolean }) => { input = value; enabled = options.enabled; return query; } } } },
+    trpcReact: { testPlanGovernance: { preview: { useQuery: (value: ReadInput, options: { enabled: boolean }) => { input = value; enabled = options.enabled; return query; } } } },
   }); vm.runInContext(code, context);
-  const access = (context as unknown as { access: (...args: unknown[]) => unknown }).access;
+  const access = (context as unknown as { access: (project: string, plan: string, org: string, active: boolean) => AccessResult }).access;
   function render() { for (let index = 0; index < 25; index++) { cursor = 0; dirty = false; result = access(params.project, params.plan, params.org, params.active); if (!dirty) return result; } throw Error("Native reader did not settle"); }
-  function receive(patch = {}) { query.isFetchedAfterMount = true; query.data = { requestId: input.requestId, scope: { projectId: input.projectId, organizationId: input.originalOrganizationId, actorClerkUserId: input.expectedClerkActorId, actorId: "native" }, snapshot: { id: input.testPlanId, projectId: input.projectId, customFields: null }, canRecover: true, metadataSchema: { fieldSchemaHash: null, fieldSchema: null, supported: false, canEdit: false }, ...patch }; return render(); }
+  function receive(patch: Partial<SyntheticRead> = {}) { query.isFetchedAfterMount = true; query.data = { requestId: input.requestId, scope: { projectId: input.projectId, organizationId: input.originalOrganizationId, actorClerkUserId: input.expectedClerkActorId, actorId: "native" }, snapshot: { id: input.testPlanId, projectId: input.projectId, customFields: null }, canRecover: true, metadataSchema: { fieldSchemaHash: null, fieldSchema: null, supported: false, canEdit: false }, ...patch }; return render(); }
   render(); return { auth, params, query, render, receive, input: () => input, enabled: () => enabled };
 }
 it("pins only echoed current native reads, then requires its new pinned activation before admission", () => {
@@ -29,7 +39,7 @@ it("session/actor/org A-B-A never reuses a prior activation or transfers the ori
   h.auth.sessionId = "A"; expect(h.render().fresh).toBeNull(); expect(h.input().requestId).not.toBe(original); expect(h.input().requestId).not.toBe(otherSession);
   h.receive(); h.auth.userId = "other"; expect(h.render().fresh).toBeNull(); expect(h.enabled()).toBe(false); h.auth.userId = "clerk"; expect(h.render().fresh).toBeNull(); h.receive();
   h.params.org = "other-org"; expect(h.render().fresh).toBeNull(); expect(h.enabled()).toBe(false); expect(h.input().originalOrganizationId).toBe("org");
-  h.params.org = "org"; expect(h.render().fresh).toBeNull(); expect(h.render().origin.organizationId).toBe("org");
+  h.params.org = "org"; expect(h.render().fresh).toBeNull(); expect(h.render().origin!.organizationId).toBe("org");
 });
 it("missing discovery, fetching, paused and errors hide private snapshots, not blank/default metadata", () => {
   const h = harness(); h.receive(); h.receive();
@@ -38,12 +48,12 @@ it("missing discovery, fetching, paused and errors hide private snapshots, not b
   h.params.org = ""; expect(h.render().fresh).toBeNull(); expect(h.enabled()).toBe(false); h.params.org = "org"; expect(h.render().fresh).toBeNull();
 });
 it("unsupported metadata schema does not block genuine native status/receipt recovery; actor remapping still withholds", () => {
-  const h = harness(); h.receive(); const native = h.receive(); expect(native.fresh.canRecover).toBe(true); expect(native.fresh.metadataSchema.fieldSchemaHash).toBeNull();
-  const oldScope = h.query.data.scope; h.receive({ scope: { ...oldScope, actorId: "replacement" } }); expect(h.render().fresh).toBeNull(); expect(h.render().nativeActorId).toBe("native");
+  const h = harness(); h.receive(); const native = h.receive(); expect(native.fresh!.canRecover).toBe(true); expect(native.fresh!.metadataSchema!.fieldSchemaHash).toBeNull();
+  const oldScope = h.query.data!.scope; h.receive({ scope: { ...oldScope, actorId: "replacement" } }); expect(h.render().fresh).toBeNull(); expect(h.render().nativeActorId).toBe("native");
 });
 it("explicit refresh/closed views require new current read and wrong native scope/token is never relabelled", () => {
   const h = harness(); h.receive(); h.receive(); h.render().refresh(); expect(h.render().fresh).toBeNull(); h.receive();
   h.params.active = false; expect(h.render().fresh).toBeNull(); expect(h.enabled()).toBe(false); h.params.active = true; expect(h.render().fresh).toBeNull();
-  for (const patch of [{ requestId: "old" }, { snapshot: { id: "other", projectId: "project" } }, { scope: { ...h.query.data.scope, organizationId: "foreign" } }]) expect(h.receive(patch).fresh).toBeNull();
-  h.params.project = "other-project"; expect(h.render().fresh).toBeNull(); expect(h.render().origin.projectId).toBe("project");
+  for (const patch of [{ requestId: "old" }, { snapshot: { id: "other", projectId: "project" } }, { scope: { ...h.query.data!.scope, organizationId: "foreign" } }]) expect(h.receive(patch).fresh).toBeNull();
+  h.params.project = "other-project"; expect(h.render().fresh).toBeNull(); expect(h.render().origin!.projectId).toBe("project");
 });
