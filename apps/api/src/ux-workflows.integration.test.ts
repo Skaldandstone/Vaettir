@@ -8,7 +8,7 @@ vi.mock("@vaettir/ai-agent", async (importOriginal) => ({
 import { prisma } from "@vaettir/db";
 import { appRouter } from "./router.js";
 import { reviewedStepRequestHash } from "./services/manualStepExecutionReview.js";
-import type { ReviewedStepWriteInput } from "./services/manualStepExecutionReviewSchema.js";
+import { reviewedStepWriteInputSchema, type ReviewedStepWriteInput } from "./services/manualStepExecutionReviewSchema.js";
 
 // These fixtures intentionally stay in the disposable DB for inspection.
 const url = process.env.DATABASE_URL ? new URL(process.env.DATABASE_URL) : null;
@@ -38,7 +38,12 @@ describe.skipIf(!isolated)("assistive UX persistence and authorization", () => {
     const readRequestId = randomUUID(), preview = await owner.manualStepExecutionReview.preview({ ...pins, readRequestId });
     expect(preview).toMatchObject({ projectId, testRunId, testCaseId: caseId, stepIndex: 0, readRequestId, scope: { projectId, organizationId: releaseScope.originalOrganizationId, actorId, actorClerkUserId: ownerSubject }, supported: true });
     if (!preview.procedureHash || !preview.currentFingerprint) throw Error("Actual supported step preview required; no synthetic baseline may be substituted");
-    return { ...pins, expectedProcedureHash: preview.procedureHash, expectedCurrentFingerprint: preview.currentFingerprint, expectedRevisionId: preview.current?.id ?? null, status: "PASS" as const, note: null, observations, evidenceAttachmentIds: [], correctionReason: preview.current ? "Explicit synthetic correction of the saved reading" : null, idempotencyKey: randomUUID(), confirmed: true as const };
+    // Match browser freezeStepReviewInput: parse before retaining/hashing the
+    // reviewed envelope. Typed nested field order is part of the existing wire
+    // recipe; parsing preserves values but not arbitrary object insertion order.
+    const request = reviewedStepWriteInputSchema.parse({ ...pins, expectedProcedureHash: preview.procedureHash, expectedCurrentFingerprint: preview.currentFingerprint, expectedRevisionId: preview.current?.id ?? null, status: "PASS" as const, note: null, observations, evidenceAttachmentIds: [], correctionReason: preview.current ? "Explicit synthetic correction of the saved reading" : null, idempotencyKey: randomUUID(), confirmed: true as const });
+    expect(request.observations).toEqual(observations);
+    return request;
   }
 
   beforeAll(async () => {
