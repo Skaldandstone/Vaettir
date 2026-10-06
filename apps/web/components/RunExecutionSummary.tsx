@@ -123,7 +123,7 @@ export function RunExecutionSummary({
                 ]),
               );
             if (!canExport()) throw new Error("Original run access changed. Nothing was exported.");
-            downloadFile(`vaettir-run-${runId}.csv`, content, "text/csv");
+            downloadFile(`vaettir-run-${runId}.csv`, content, "text/csv", canExport);
           } catch (cause) {
             setExportError(
               cause instanceof Error
@@ -165,6 +165,7 @@ export function RunExecutionSummary({
               `vaettir-run-${runId}-current-record.json`,
               content,
               "application/json",
+              canExport,
             );
           } catch (cause) {
             setExportError(
@@ -183,7 +184,7 @@ export function RunExecutionSummary({
         try {
           const content = renderCurrentManualRunPortableHtml({ runId, projectId, status, executionContext, stepFieldLabels, cases });
           if (!canExport()) throw new Error("Original run access changed. Nothing was exported.");
-          downloadFile(`vaettir-run-${runId}-report.html`, content, "text/html");
+          downloadFile(`vaettir-run-${runId}-report.html`, content, "text/html", canExport);
         } catch (cause) { setExportError(cause instanceof Error ? cause.message : "Current run report could not be exported."); }
       }}>Export printable report · HTML</button>
       <p className="text-muted">

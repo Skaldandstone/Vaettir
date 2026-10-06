@@ -2488,3 +2488,20 @@ changelog fetch failed, so its current export implementation was not verified.
 Use these as regression prompts: retain useful prose, reduce repetitive entry,
 make export scope/format explicit and verify exact frozen procedures, not as
 evidence that more charts or fields automatically improve the workflow.
+
+### October 6 run-export browser boundary checks
+
+All three mounted manual-run export formats now pass their scope callback into
+the shared download mechanics. It checks before/after Blob preparation, after
+URL allocation and immediately before clicking the download anchor, and releases
+allocated URLs even if preparation or clicking throws. Existing three-argument
+callers retain their ordinary behavior. No file is fetched or uploaded.
+
+Root's nine actual mechanics tests, two existing summary-scope checks and six
+portable-report checks passed, as did scoped lint and Web types. The first type
+check found an unchecked test AST argument; optional access now makes a missing
+fourth argument fail the test without a TypeScript non-null assertion or waiver.
+These are synthetic local checks, not a real export/download acceptance. The
+actual manual page's older broad boolean scope callback still needs the new
+captured immutable native reader binding. This boundary change alone does not
+prove actor/session ABA safety, production deployment or full audit fidelity.
