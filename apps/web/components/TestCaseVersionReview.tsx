@@ -4,6 +4,7 @@ import { useState } from "react";
 import { trpcReact, type RouterInputs } from "@/lib/trpcReact";
 import { Modal } from "./Modal";
 import { inspectorLabel } from "@/lib/case-inspector";
+import { readComparedProcedureSteps } from "@/lib/compared-procedure-steps";
 import { currentCaseVersionPreview } from "@/lib/case-version-baseline";
 import { currentVersionRead } from "@/lib/case-version-draft";
 import {
@@ -16,16 +17,61 @@ type Restore = RouterInputs["caseVersionReview"]["restore"];
 type Field = Restore["fields"][number];
 
 function ComparisonValue({ value, field }: { value: string; field: Field }) {
+  const textStyle = {
+    whiteSpace: "pre-wrap" as const,
+    overflowWrap: "anywhere" as const,
+  };
+  if (field === "steps") {
+    const rows = readComparedProcedureSteps(value);
+    if (rows === null)
+      return (
+        <details open>
+          <summary>Unsupported stored step format</summary>
+          <p>No rows or fields were omitted. The complete stored comparison is shown below.</p>
+          <pre style={{ ...textStyle, fontSize: 12 }}>{value}</pre>
+        </details>
+      );
+    if (!rows.length) return <p className="muted">No entries recorded.</p>;
+    return (
+      <ol style={{ paddingLeft: 22 }}>
+        {rows.map((step) => (
+          <li key={step.order} style={{ marginBottom: 14 }}>
+            <p className="muted">Stored step order: {step.order}</p>
+            <strong>Action</strong>
+            <p style={textStyle}>{step.action === "" ? <em>Empty text</em> : step.action}</p>
+            <dl>
+              {(["expectedActionOrData", "expectedResult", "expectedResponse"] as const).map((key) => (
+                <div key={key}>
+                  <dt className="muted">
+                    {key === "expectedActionOrData"
+                      ? "Expected action / data"
+                      : key === "expectedResult"
+                        ? "Expected result"
+                        : "Expected response"}
+                  </dt>
+                  <dd style={{ ...textStyle, margin: "0 0 8px" }}>
+                    {step[key] === null ? "Not recorded" : step[key] === "" ? <em>Empty text</em> : step[key]}
+                  </dd>
+                </div>
+              ))}
+            </dl>
+            {step.mediaAttachmentIds.length > 0 && (
+              <div>
+                <p>Recorded image/video references:</p>
+                <ul>{step.mediaAttachmentIds.map((id) => <li key={id} style={textStyle}>{id}</li>)}</ul>
+              </div>
+            )}
+          </li>
+        ))}
+      </ol>
+    );
+  }
   let parsed: unknown;
   try {
     parsed = JSON.parse(value);
   } catch {
     parsed = value;
   }
-  const textStyle = {
-    whiteSpace: "pre-wrap" as const,
-    overflowWrap: "anywhere" as const,
-  };
   if (parsed === null) return <p className="muted">Not recorded.</p>;
   if (typeof parsed === "string")
     return (
@@ -45,59 +91,6 @@ function ComparisonValue({ value, field }: { value: string; field: Field }) {
               {entry || "Empty text"}
             </li>
           ))}
-        </ol>
-      );
-    if (
-      field === "steps" &&
-      parsed.every(
-        (entry) =>
-          entry &&
-          typeof entry === "object" &&
-          typeof entry.action === "string",
-      )
-    )
-      return (
-        <ol style={{ paddingLeft: 22 }}>
-          {parsed.map((entry, index) => {
-            const step = entry as Record<string, unknown>;
-            return (
-              <li key={index} style={{ marginBottom: 14 }}>
-                <strong>Action</strong>
-                <p style={textStyle}>{String(step.action)}</p>
-                <dl>
-                  {(
-                    [
-                      "expectedActionOrData",
-                      "expectedResult",
-                      "expectedResponse",
-                    ] as const
-                  ).map((key) => (
-                    <div key={key}>
-                      <dt className="muted">
-                        {key === "expectedActionOrData"
-                          ? "Expected action / data"
-                          : key === "expectedResult"
-                            ? "Expected result"
-                            : "Expected response"}
-                      </dt>
-                      <dd style={{ ...textStyle, margin: "0 0 8px" }}>
-                        {typeof step[key] === "string"
-                          ? String(step[key])
-                          : "Not recorded"}
-                      </dd>
-                    </div>
-                  ))}
-                </dl>
-                {Array.isArray(step.mediaAttachmentIds) &&
-                  step.mediaAttachmentIds.length > 0 && (
-                    <p style={textStyle}>
-                      Recorded image/video references:{" "}
-                      {step.mediaAttachmentIds.join(", ")}
-                    </p>
-                  )}
-              </li>
-            );
-          })}
         </ol>
       );
   }

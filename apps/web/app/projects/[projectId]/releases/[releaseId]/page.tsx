@@ -9,8 +9,7 @@ import {
 } from "@/lib/trpcReact";
 import { ReadinessBadge } from "@/components/ReadinessBadge";
 import { DistributionBar, ScoreRing } from "@/components/MetricVisuals";
-import { buildHtmlSnapshot, buildMarkdownSnapshot } from "@/lib/snapshotExport";
-import { downloadFile } from "@/lib/download";
+import { ReleaseSnapshotExport } from "@/components/ReleaseSnapshotExport";
 import { Modal } from "@/components/Modal";
 import { releasePlanChoices } from "@/lib/release-planning-draft";
 import { CriterionDescriptionEditor } from "@/components/CriterionDescriptionEditor";
@@ -253,7 +252,6 @@ export default function ReleaseReadinessPage() {
 
   const [error, setError] = useState<string | null>(null);
   const [showResolved, setShowResolved] = useState(false);
-  const [exporting, setExporting] = useState<"html" | "markdown" | null>(null);
   const [summaryModalOpen, setSummaryModalOpen] = useState(false);
 
   // Everything the original load() refetched: every releases.* query for this
@@ -268,34 +266,6 @@ export default function ReleaseReadinessPage() {
   const setReleaseMutation = trpcReact.testPlans.setRelease.useMutation();
   const resolveRiskFlagMutation =
     trpcReact.releases.resolveRiskFlag.useMutation();
-
-  async function exportSnapshot(format: "html" | "markdown") {
-    setExporting(format);
-    setError(null);
-    try {
-      const data = await utils.releases.getSnapshot.fetch({ releaseId });
-      const safeName = data.release.name
-        .replace(/[^a-z0-9]+/gi, "-")
-        .toLowerCase();
-      if (format === "html") {
-        downloadFile(
-          `${safeName}-quality-snapshot.html`,
-          buildHtmlSnapshot(data),
-          "text/html",
-        );
-      } else {
-        downloadFile(
-          `${safeName}-quality-snapshot.md`,
-          buildMarkdownSnapshot(data),
-          "text/markdown",
-        );
-      }
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setExporting(null);
-    }
-  }
 
   async function updateStatus(status: string) {
     setError(null);
@@ -412,24 +382,13 @@ export default function ReleaseReadinessPage() {
       </p>
 
       <div style={{ display: "flex", gap: 8, marginBottom: 20 }}>
-        <button
-          className="btn-secondary"
-          style={{ fontSize: 13 }}
-          onClick={() => exportSnapshot("html")}
-          disabled={exporting !== null}
-        >
-          {exporting === "html"
-            ? "Exporting…"
-            : "Export interactive HTML snapshot"}
-        </button>
-        <button
-          className="btn-secondary"
-          style={{ fontSize: 13 }}
-          onClick={() => exportSnapshot("markdown")}
-          disabled={exporting !== null}
-        >
-          {exporting === "markdown" ? "Exporting…" : "Export Markdown snapshot"}
-        </button>
+        <ReleaseSnapshotExport
+          projectId={projectId}
+          releaseId={releaseId}
+          organizationId={projectQuery.data?.organizationId}
+          active={!projectQuery.error && !projectQuery.isFetching && !projectQuery.isPaused && projectQuery.data?.id === projectId &&
+            !releaseQuery.error && !releaseQuery.isFetching && !releaseQuery.isPaused && release.projectId === projectId}
+        />
         <button
           className="btn-secondary"
           style={{ fontSize: 13 }}

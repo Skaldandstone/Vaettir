@@ -17,6 +17,13 @@ type Origin = {
   expectedClerkActorId: string;
 };
 type Queue = RouterOutputs["caseAnalysisQueue"]["byId"];
+type ReviewInput = RouterInputs["caseAnalysisQueue"]["review"] & Origin;
+type ReviewEvent = {
+  input: ReviewInput;
+  inFlight: boolean;
+  unknown: boolean;
+  consumed: boolean;
+};
 function sameOrigin(a: Origin | null, b: Origin | null) {
   return (
     !!a &&
@@ -139,9 +146,16 @@ function Analysis({ projectId, selectedIds, onCompleted, buttonLabel = "Analyze 
     ready &&
     member?.seatType === "FULL" &&
     ["OWNER", "ADMIN", "EDITOR"].includes(member.role);
-  const accessNow = useRef({ ready, origin, open });
+  const accessNow = useRef({ ready, origin, open, epoch: 0 });
   useLayoutEffect(() => {
-    accessNow.current = { ready, origin, open };
+    const previous = accessNow.current;
+    const changed = previous.ready !== ready || previous.open !== open ||
+      (previous.origin !== origin && !sameOrigin(previous.origin, origin));
+    accessNow.current = { ready, origin, open, epoch: previous.epoch + (changed ? 1 : 0) };
+    return () => {
+      const current = accessNow.current;
+      accessNow.current = { ...current, ready: false, open: false, epoch: current.epoch + 1 };
+    };
   }, [ready, origin, open]);
   const readScope = origin ?? {
     projectId,
@@ -213,6 +227,8 @@ function Analysis({ projectId, selectedIds, onCompleted, buttonLabel = "Analyze 
     cancelRequest ||
     adminRequest
   );
+  const [reviewGeneration, setReviewGeneration] = useState(0);
+  const reviewOwner = useRef<{ generation: number; event: ReviewEvent | null }>({ generation: 0, event: null });
   const canSpendNow = !!saved?.canSpend && editor;
   async function refreshConfirmed(
     input: Origin,
@@ -255,6 +271,10 @@ function Analysis({ projectId, selectedIds, onCompleted, buttonLabel = "Analyze 
   }
   async function prepare() {
     if (!ready || !origin || busy) return;
+    const owner = reviewOwner.current, live = accessNow.current;
+    if (owner.generation !== reviewGeneration || !live.ready || !live.open || !sameOrigin(live.origin, origin)) return;
+    if (owner.event && (owner.event.inFlight || owner.event.consumed || reviewRequest !== owner.event.input)) return;
+    if (!owner.event && (approvalRequest || cancelRequest || adminRequest)) return;
     const input = reviewRequest ?? {
       ...origin,
       action,
@@ -262,6 +282,10 @@ function Analysis({ projectId, selectedIds, onCompleted, buttonLabel = "Analyze 
       requestId: crypto.randomUUID(),
     };
     if (!sameOrigin(input, origin)) return;
+    const event = owner.event ?? { input, inFlight: false, unknown: Boolean(reviewRequest), consumed: false };
+    owner.event = event;
+    event.inFlight = true;
+    const accessEpoch = live.epoch;
     setReviewRequest(input);
     setMessage("");
     try {
@@ -270,6 +294,16 @@ function Analysis({ projectId, selectedIds, onCompleted, buttonLabel = "Analyze 
         throw Error(
           "Saved scope acknowledgement did not match the original request.",
         );
+      if (reviewOwner.current !== owner || owner.event !== event || owner.generation !== reviewGeneration) return;
+      const currentAccess = accessNow.current;
+      if (!currentAccess.ready || !currentAccess.open || !sameOrigin(currentAccess.origin, input) || currentAccess.epoch !== accessEpoch) {
+        // The original ACK is known, but this old view cannot publish it. Keep
+        // its exact UUID/body for explicit receipt recovery after restoration.
+        event.unknown = true;
+        setMessage("Saved scope acknowledged for the original account. Reopen under original access and retry this same request to display it; no new scope was created.");
+        return;
+      }
+      event.consumed = true;
       setJobId(result.id);
       setOffset(0);
       setReviewRequest(null);
@@ -279,14 +313,36 @@ function Analysis({ projectId, selectedIds, onCompleted, buttonLabel = "Analyze 
       );
       await refreshConfirmed(input, "Saved scope");
     } catch (error) {
-      const retain = retainAnalysisRequest(Boolean(reviewRequest), error);
-      if (!retain) setReviewRequest(null);
+      if (reviewOwner.current !== owner || owner.event !== event || event.consumed) return;
+      const retain = retainAnalysisRequest(event.unknown || Boolean(reviewRequest), error);
+      event.unknown = retain;
+      if (!retain) {
+        owner.event = null;
+        owner.generation++;
+        setReviewGeneration(owner.generation);
+        setReviewRequest(null);
+      }
       setMessage(
         retain
           ? "Could not confirm the saved scope. Retry the same request to recover it without creating duplicate work."
           : "This scope was not accepted. Check current access and selection, then review again.",
       );
+    } finally {
+      event.inFlight = false;
     }
+  }
+  function backToSelections() {
+    const owner = reviewOwner.current, live = accessNow.current;
+    if (!ready || !origin || busy || retained || owner.generation !== reviewGeneration ||
+      !live.ready || !live.open || !sameOrigin(live.origin, origin) ||
+      owner.event?.inFlight || (owner.event && !owner.event.consumed)) return;
+    owner.generation++;
+    owner.event = null;
+    setReviewGeneration(owner.generation);
+    setJobId(null);
+    setConsent(false);
+    setOffset(0);
+    setMessage("");
   }
   async function authorize() {
     if (!saved || !canSpendNow || !origin || !ready || busy) return;
@@ -334,6 +390,8 @@ function Analysis({ projectId, selectedIds, onCompleted, buttonLabel = "Analyze 
   }
   function selectJob(id: string) {
     if (!ready || busy || retained) return;
+    const owner = reviewOwner.current;
+    if (owner.generation !== reviewGeneration || owner.event?.inFlight || (owner.event && !owner.event.consumed)) return;
     setJobId(id);
     setOffset(0);
     setConsent(false);
@@ -793,12 +851,7 @@ function Analysis({ projectId, selectedIds, onCompleted, buttonLabel = "Analyze 
                   type="button"
                   className="btn-secondary"
                   disabled={busy || retained}
-                  onClick={() => {
-                    setJobId(null);
-                    setConsent(false);
-                    setOffset(0);
-                    setMessage("");
-                  }}
+                  onClick={backToSelections}
                 >
                   Back to selections
                 </button>
