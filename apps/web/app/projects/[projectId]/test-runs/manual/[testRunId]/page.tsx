@@ -13,6 +13,7 @@ import { manualProcedurePhases } from "@/lib/manual-procedure-phases";
 import { ManualCaseResultHistory, type WholeCaseReviewIntent } from "@/components/ManualCaseResultHistory";
 import { currentSessionScope } from "@/lib/auth-query-cache";
 import { RunExecutionSummary } from "@/components/RunExecutionSummary";
+import { admittedManualRunProgress } from "@/lib/manual-run-scope-availability";
 import {
   manualCaseHistoryAnchor,
   manualCaseHistorySelection,
@@ -594,6 +595,7 @@ function ManualExecutionContent() {
     );
 
   const recordedCount = data.cases.filter((c) => c.currentResult).length;
+  const plannedScope = admittedManualRunProgress(data);
   const loadedCases = data.cases;
   const matchingCases = data.cases.filter((testCase) =>
     manualRunCaseMatches(testCase, caseSearch, caseFilter),
@@ -690,8 +692,9 @@ function ManualExecutionContent() {
               className="btn-primary"
               onClick={() => {
                 if (!accessNow.current.canEdit) return;
+                if (!plannedScope || plannedScope.unavailableCaseIds.length > 0) return;
                 if (
-                  recordedCount === data.cases.length ||
+                  recordedCount === plannedScope.plannedCount ||
                   confirm(
                     "Some cases have no result. Finish as an incomplete run?",
                   )
@@ -700,6 +703,8 @@ function ManualExecutionContent() {
               }}
               disabled={
                 !canEdit ||
+                !plannedScope ||
+                plannedScope.unavailableCaseIds.length > 0 ||
                 completeMutation.isPending ||
                 unconfirmedStepCases.size > 0 ||
                 unconfirmedWholeCases.size > 0 ||
@@ -710,10 +715,12 @@ function ManualExecutionContent() {
             </button>
           </div>
           <p className="text-muted" style={{ fontSize: 13 }}>
-            {recordedCount} / {data.cases.length} recorded · status:{" "}
+            {recordedCount} / {plannedScope ? plannedScope.plannedCount : "unavailable planned scope"} recorded · status:{" "}
             {data.status}
           </p>
-          <RunExecutionSummary
+          {!plannedScope && <p role="alert">The complete saved planned identity scope could not be admitted. Progress, completion and exports are unavailable; no smaller available-case denominator was substituted.</p>}
+          {plannedScope && plannedScope.unavailableCaseIds.length > 0 && <section className="panel" aria-label="Unavailable planned procedures"><h2>Unavailable planned procedures</h2><p>These saved planned identities remain left to test. No current or frozen procedure was available; completion and whole-run exports are blocked without inventing instructions.</p><ul>{plannedScope.unavailableCaseIds.map(id => <li key={id}><code>{id}</code> · Procedure unavailable, read-only retained identity</li>)}</ul></section>}
+          {plannedScope && <RunExecutionSummary
             cases={data.cases}
             runId={testRunId}
             projectId={projectId}
@@ -721,7 +728,8 @@ function ManualExecutionContent() {
             executionContext={data.executionContext}
             stepFieldLabels={data.stepFieldLabels}
             canExport={() => accessNow.current.readable}
-          />
+            plannedScope={plannedScope}
+          />}
           <section
             className="panel"
             aria-label="Run case navigator"

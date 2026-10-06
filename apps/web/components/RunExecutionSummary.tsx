@@ -8,6 +8,7 @@ import { downloadFile } from "@/lib/download";
 import type { RouterOutputs } from "@/lib/trpcReact";
 import { renderCurrentManualRunRecordJson } from "@/lib/manual-run-record-export";
 import { renderCurrentManualRunPortableHtml } from "@/lib/manual-run-portable-report";
+import type { ManualRunProgress } from "../lib/manual-run-scope-availability";
 
 type Case =
   RouterOutputs["manualExecution"]["getForExecution"]["cases"][number];
@@ -21,6 +22,7 @@ export function RunExecutionSummary({
   executionContext,
   stepFieldLabels,
   canExport,
+  plannedScope,
 }: {
   cases: Case[];
   runId: string;
@@ -29,6 +31,7 @@ export function RunExecutionSummary({
   executionContext: RouterOutputs["manualExecution"]["getForExecution"]["executionContext"];
   stepFieldLabels: Record<string, string>;
   canExport: () => boolean;
+  plannedScope: ManualRunProgress;
 }) {
   const [exportError, setExportError] = useState<string | null>(null);
   const displayIds = new Map(
@@ -38,10 +41,9 @@ export function RunExecutionSummary({
     cases.filter((testCase) => testCase.currentResult?.status === status)
       .length;
   const recorded = cases.filter((testCase) => testCase.currentResult).length;
-  const remaining = cases.length - recorded;
-  const complete = cases.length
-    ? Math.round((recorded * 100) / cases.length)
-    : 0;
+  const remaining = plannedScope.remaining;
+  const complete = plannedScope.percentRecorded;
+  const completeExportScope = plannedScope.unavailableCaseIds.length === 0;
   return (
     <section className="panel" aria-label="Current run progress">
       <div className="run-card-progress">
@@ -50,7 +52,7 @@ export function RunExecutionSummary({
       </div>
       <progress
         aria-label="Recorded case progress"
-        max={cases.length || 1}
+        max={plannedScope.plannedCount || 1}
         value={recorded}
       />
       <DistributionBar
@@ -71,9 +73,13 @@ export function RunExecutionSummary({
               ),
             tone: "info",
           },
-          { label: "Untested", value: remaining, tone: "neutral" },
+          { label: "Untested available", value: remaining - plannedScope.unavailableCaseIds.length, tone: "neutral" },
+          { label: "Procedure unavailable", value: plannedScope.unavailableCaseIds.length, tone: "warning" },
         ]}
       />
+      <p className="text-muted">
+        {plannedScope.plannedCount} saved planned identities · {plannedScope.availableCount} available procedures · {plannedScope.unavailableCaseIds.length} unavailable. Missing procedures remain in the denominator, not silently excluded.
+      </p>
       <p className="text-muted">
         Recorded progress is not pass rate or release acceptance. Procedures and
         corrections remain in this run’s evidence record.
@@ -84,9 +90,10 @@ export function RunExecutionSummary({
       <button
         type="button"
         className="btn-secondary"
+        disabled={!completeExportScope}
         onClick={() => {
           setExportError(null);
-          if (!canExport()) {
+          if (!completeExportScope || !canExport()) {
             setExportError(
               "Current original run access must be verified before export.",
             );
@@ -131,10 +138,11 @@ export function RunExecutionSummary({
       <button
         type="button"
         className="btn-secondary"
+        disabled={!completeExportScope}
         style={{ marginLeft: 8 }}
         onClick={() => {
           setExportError(null);
-          if (!canExport()) {
+          if (!completeExportScope || !canExport()) {
             setExportError(
               "Current original run access must be verified before export.",
             );
@@ -169,9 +177,9 @@ export function RunExecutionSummary({
       >
         Export procedures and current record · JSON
       </button>
-      <button type="button" className="btn-secondary" style={{ marginLeft: 8 }} onClick={() => {
+      <button type="button" className="btn-secondary" disabled={!completeExportScope} style={{ marginLeft: 8 }} onClick={() => {
         setExportError(null);
-        if (!canExport()) { setExportError("Current original run access must be verified before export."); return; }
+        if (!completeExportScope || !canExport()) { setExportError("Current original run access and complete planned procedure scope must be verified before export."); return; }
         try {
           const content = renderCurrentManualRunPortableHtml({ runId, projectId, status, executionContext, stepFieldLabels, cases });
           if (!canExport()) throw new Error("Original run access changed. Nothing was exported.");
@@ -179,6 +187,7 @@ export function RunExecutionSummary({
         } catch (cause) { setExportError(cause instanceof Error ? cause.message : "Current run report could not be exported."); }
       }}>Export printable report · HTML</button>
       <p className="text-muted">
+        {!completeExportScope && "Whole-run exports are unavailable while saved planned procedures are missing. No smaller subset is exported. "}
         Exports include the current authorized run, not just search matches.
         JSON preserves present procedures, configuration and observations, not
         full revision history or attachment files. HTML is an offline printable

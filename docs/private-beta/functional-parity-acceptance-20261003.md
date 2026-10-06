@@ -2306,3 +2306,42 @@ simultaneous receipt/correction and erasure acceptance remain separate gates.
 Erasure-containing future fixtures require separate explicit destructive admission
 before their first connection; this helper has no connection creation or erasure
 API. No native fixture, database creation, seed, deletion or migration ran here.
+
+### October 6 saved manual scope cannot shrink around missing procedures
+
+The actual manual execution read now returns every ordered saved planned ID and
+a complete available/unavailable identity partition. A missing legacy case with
+no frozen definition becomes an ID-only read-only unavailable entry, not an empty
+executable case or an omitted denominator. Complete frozen scope can still be
+read when current mutable cases were deleted; partial/unsupported frozen scope
+refuses instead of substituting live wording. Existing legacy current-case
+fallback is labeled separately, not certified immutable or approved.
+
+The mounted summary uses saved planned scope for known recorded percentage and
+remaining work, with executable untested and unavailable procedures separate.
+Completion and whole-run exports refuse an unavailable/reduced scope. The server
+also independently checks the locked run and current case identity partition
+before rollup/status writes. This extra refusal does not clear legacy completion's
+independent actor, durable UUID/CAS or late-acknowledgement recovery gaps. Retained
+step/whole-case editors and prerequisite/history semantics remain unchanged.
+
+Root repeated 48 API pure/mocked checks and 14 new Web checks. Final complete
+compatible Web run passed 803 Node plus 667 typed checks across 61 suites, zero
+skipped; API/Web types and scoped lint passed, with four existing manual-page
+warnings unchanged. The first full Web attempt failed its original literal
+canEdit source guard after two guards were combined; the original guard was
+restored separately with the new availability refusal, without weakening tests.
+Native SQL, interleavings and authenticated production acceptance remain unrun.
+
+### October 6 actual CI detail browser fixture, DOM proof only
+
+A pinned loopback-only synthetic fixture exercised the actual CI component,
+installed Query client, reader, Drawer/DialogFrame and CSS. Twenty then three
+results paged under the same admitted ID anchor; blank linked title, distinct
+note/error, nullable and zero/negative duration labels were present. The measured
+760px drawer had no horizontal overflow. SDK-only and Query-cache A-B-A withheld
+all private rows/header/counts while the hook still reported the original actor;
+only explicit fresh native-shaped access restored them. RPC and Clerk were fake,
+not real authorization or SQL. Two screenshot requests timed out, so no new pixel
+inspection or visual acceptance is claimed. The pinned fixture and failed capture
+attempts are retained locally; no provider, customer or file action occurred.

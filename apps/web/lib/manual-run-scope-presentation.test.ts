@@ -1,0 +1,42 @@
+import { readFileSync } from "node:fs";
+import vm from "node:vm";
+import ts from "typescript";
+import React from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+import { expect, it, vi } from "vitest";
+import { admittedManualRunProgress } from "./manual-run-scope-availability";
+const source = readFileSync(new URL("../components/RunExecutionSummary.tsx", import.meta.url), "utf8");
+const functions = (value: string) => {
+  const ast = ts.createSourceFile("actual.tsx", value, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+  return ts.createPrinter().printList(ts.ListFormat.MultiLine, ts.factory.createNodeArray(ast.statements.filter(ts.isFunctionDeclaration)), ast).replaceAll(/\bexport\s+/g, "");
+};
+it("actual summary renders one of three planned identities, not one of two available procedures; unavailable is distinct from executable untested", () => {
+  const data = { plannedCaseIds: ["a", "b", "missing"], unavailableCases: [{ testCaseId: "missing", reason: "MISSING_CASE_AND_FROZEN_DEFINITION" }], scopeAvailability: { plannedCount: 3, availableCount: 2, unavailableCount: 1, complete: false, procedureBasis: "LEGACY_CURRENT_CASE_DEFINITIONS" }, cases: [{ testCaseId: "a", displayId: "CASE-1", currentResult: { status: "PASS" } }, { testCaseId: "b", displayId: "CASE-2", currentResult: null }] };
+  const visual = readFileSync(new URL("../components/MetricVisuals.tsx", import.meta.url), "utf8");
+  const context = vm.createContext({ React, useState: () => [null, vi.fn()] });
+  vm.runInContext(ts.transpileModule(`${functions(visual)}\n${functions(source)}\nthis.component=RunExecutionSummary;`, { compilerOptions: { jsx: ts.JsxEmit.React, target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.None } }).outputText, context);
+  const tree = context.component({ cases: data.cases, runId: "run", projectId: "p", status: "RUNNING", executionContext: null, stepFieldLabels: {}, canExport: () => true, plannedScope: admittedManualRunProgress(data) });
+  const html = renderToStaticMarkup(tree);
+  expect(html).toContain("33% recorded");
+  expect(html).toContain("2 left to test");
+  expect(html).toContain('max="3" value="1"');
+  expect(html).toContain("Untested available 1");
+  expect(html).toContain("Procedure unavailable 1");
+  expect(html).not.toContain("50% recorded");
+  expect((html.match(/<button[^>]*disabled/g) ?? [])).toHaveLength(3);
+  expect(html).toContain("No smaller subset is exported");
+});
+it("actual parent includes complete planned admission, read-only unavailable identities and disables/refuses shortened-scope completion without touching editors", () => {
+  const page = readFileSync(new URL("../app/projects/[projectId]/test-runs/manual/[testRunId]/page.tsx", import.meta.url), "utf8");
+  expect(page).toContain("const plannedScope = admittedManualRunProgress(data)");
+  expect(page).toContain("recordedCount === plannedScope.plannedCount");
+  expect(page).not.toContain("recordedCount === data.cases.length");
+  expect(page).toContain("if (!accessNow.current.canEdit) return;");
+  expect(page).toContain("if (!plannedScope || plannedScope.unavailableCaseIds.length > 0) return;");
+  expect(page).toContain('aria-label="Unavailable planned procedures"');
+  expect(page).toContain("Procedure unavailable, read-only retained identity");
+  expect(page).toContain("plannedScope={plannedScope}");
+  expect(page).toContain("<StepExecutionPanel");
+  expect(page).toContain("<ManualCaseResultHistory");
+  expect(source.match(/!completeExportScope \|\| !canExport\(\)/g)).toHaveLength(3);
+});

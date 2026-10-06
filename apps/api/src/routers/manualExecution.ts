@@ -13,6 +13,11 @@ import { router, protectedProcedure, requireProjectAccess } from "../trpc.js";
 import { resolveStepFieldLabels } from "@vaettir/core";
 import { lockManualExecutionReadScope } from "../services/manualExecutionReadScope.js";
 import {
+  manualRunScopeAvailability,
+  manualRunScopeAvailabilitySchema,
+  requireCompleteManualRunScopeAvailability,
+} from "../services/manualRunScopeAvailability.js";
+import {
   manualExecutionReadScopeInputSchema,
   manualExecutionReadScopeOutputSchema,
 } from "../services/manualExecutionReadScopeSchema.js";
@@ -621,6 +626,7 @@ export const manualExecutionRouter = router({
     .input(manualExecutionReadScopeInputSchema)
     .output(
       manualExecutionReadScopeOutputSchema.extend({
+        ...manualRunScopeAvailabilitySchema.shape,
         status: z.string(),
         stepFieldLabels: z.record(z.string()),
         executionContext: runExperienceSnapshotSchema.nullable(),
@@ -738,6 +744,13 @@ export const manualExecutionRouter = router({
             executionContext?.caseDefinitions.map((c) => [c.testCaseId, c]) ??
               [],
           );
+          const availability = manualRunScopeAvailability(
+            run.manualTestCaseIds,
+            cases.map((testCase) => testCase.id),
+            executionContext?.caseDefinitions.map(
+              (testCase) => testCase.testCaseId,
+            ) ?? null,
+          );
           const datasetScope = executionContext?.datasetExecution;
           const datasetBatchRuns = [];
           if (datasetScope) {
@@ -821,11 +834,18 @@ export const manualExecutionRouter = router({
               resolveStepFieldLabels(overrides as never),
             executionContext,
             datasetBatchRuns,
-            cases: run.manualTestCaseIds
+            plannedCaseIds: availability.plannedCaseIds,
+            unavailableCases: availability.unavailableCases,
+            scopeAvailability: availability.scopeAvailability,
+            cases: availability.availableCaseIds
               .map((id) => {
                 const c = casesById.get(id);
                 const frozen = frozenCases.get(id);
-                if (!c && !frozen) return null;
+                if (!c && !frozen)
+                  throw new TRPCError({
+                    code: "PRECONDITION_FAILED",
+                    message: "The admitted procedure partition is unavailable. No saved planned identity was dropped.",
+                  });
                 const result = resultByCase.get(id);
                 const heads = stepsByCase.get(id) ?? [];
                 return {
@@ -887,8 +907,7 @@ export const manualExecutionRouter = router({
                       }
                     : null,
                 };
-              })
-              .filter((c): c is NonNullable<typeof c> => c !== null),
+              }),
           };
           if (
             Buffer.byteLength(JSON.stringify(response), "utf8") > 16 * 1024 * 1024
@@ -951,6 +970,54 @@ export const manualExecutionRouter = router({
             message: "Only an active manual run can be completed",
           });
         }
+        // Additional refusal only. Existing legacy completion does not acquire
+        // new actor authority, a durable receipt or content CAS from this check.
+        const [availabilityBounds] = await tx.$queryRaw<
+          Array<{ count: number; scopeBytes: bigint; contextBytes: bigint }>
+        >`
+          SELECT cardinality("manualTestCaseIds")::int AS count,
+            octet_length("manualTestCaseIds"::text)::bigint AS "scopeBytes",
+            COALESCE(octet_length("executionContext"::text),0)::bigint AS "contextBytes"
+          FROM "TestRun" WHERE id=${run.id} AND "projectId"=${run.projectId}`;
+        if (
+          !availabilityBounds ||
+          !Number.isInteger(availabilityBounds.count) ||
+          availabilityBounds.count < 0 || availabilityBounds.count > 1000 ||
+          typeof availabilityBounds.scopeBytes !== "bigint" ||
+          availabilityBounds.scopeBytes < 0n || availabilityBounds.scopeBytes > 524288n ||
+          typeof availabilityBounds.contextBytes !== "bigint" ||
+          availabilityBounds.contextBytes < 0n || availabilityBounds.contextBytes > 4194304n
+        )
+          throw new TRPCError({
+            code: "PRECONDITION_FAILED",
+            message: "This saved run's procedure availability exceeds the supported whole-scope admission. No run was completed or shortened.",
+          });
+        const plannedAdmission = manualRunScopeAvailability(run.manualTestCaseIds, [], null);
+        if (plannedAdmission.scopeAvailability.plannedCount !== availabilityBounds.count)
+          throw new TRPCError({
+            code: "PRECONDITION_FAILED",
+            message: "The locked saved planned identity count is inconsistent. No run was completed or shortened.",
+          });
+        // Parent run remains FOR UPDATE; existing current case identities are
+        // locked through finalization so deletion cannot invalidate this check.
+        const currentCases = await tx.$queryRaw<
+          Array<{ id: string; foreign: boolean }>
+        >`
+          SELECT c.id,(c."projectId"<>r."projectId") AS foreign FROM "TestCase" c JOIN "TestRun" r ON c.id=ANY(r."manualTestCaseIds")
+          WHERE r.id=${run.id} AND r."projectId"=${run.projectId}
+          ORDER BY c.id FOR SHARE OF c`;
+        if (currentCases.some((testCase) => testCase.foreign !== false))
+          throw new TRPCError({
+            code: "PRECONDITION_FAILED",
+            message: "A saved planned case belongs outside this run's project. No case was masked as missing and no run was completed.",
+          });
+        const frozenDefinitions = readRunExperienceSnapshot(run.executionContext);
+        const availability = manualRunScopeAvailability(
+          run.manualTestCaseIds,
+          currentCases.map((testCase) => testCase.id),
+          frozenDefinitions?.caseDefinitions.map((testCase) => testCase.testCaseId) ?? null,
+        );
+        requireCompleteManualRunScopeAvailability(availability);
 
         const results = await tx.testResult.findMany({
           where: {
