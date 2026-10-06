@@ -7,6 +7,7 @@ import { renderBoundedSpreadsheetCsv } from "@vaettir/core";
 import { downloadFile } from "@/lib/download";
 import type { RouterOutputs } from "@/lib/trpcReact";
 import { renderCurrentManualRunRecordJson } from "@/lib/manual-run-record-export";
+import { renderCurrentManualRunPortableHtml } from "@/lib/manual-run-portable-report";
 
 type Case =
   RouterOutputs["manualExecution"]["getForExecution"]["cases"][number];
@@ -59,11 +60,12 @@ export function RunExecutionSummary({
           { label: "Failed", value: count("FAIL"), tone: "danger" },
           { label: "Blocked", value: count("BLOCKED"), tone: "warning" },
           { label: "Skipped", value: count("SKIP"), tone: "neutral" },
+          { label: "Flaky", value: count("FLAKY"), tone: "info" },
           {
             label: "Other recorded",
             value:
               recorded -
-              ["PASS", "FAIL", "BLOCKED", "SKIP"].reduce(
+              ["PASS", "FAIL", "BLOCKED", "SKIP", "FLAKY"].reduce(
                 (sum, status) => sum + count(status),
                 0,
               ),
@@ -91,9 +93,7 @@ export function RunExecutionSummary({
             return;
           }
           try {
-            downloadFile(
-              `vaettir-run-${runId}.csv`,
-              renderBoundedSpreadsheetCsv(
+            const content = renderBoundedSpreadsheetCsv(
                 [
                   "Run ID",
                   "Case ID",
@@ -114,9 +114,9 @@ export function RunExecutionSummary({
                     .map((id) => displayIds.get(id) ?? "Unavailable")
                     .join("; "),
                 ]),
-              ),
-              "text/csv",
-            );
+              );
+            if (!canExport()) throw new Error("Original run access changed. Nothing was exported.");
+            downloadFile(`vaettir-run-${runId}.csv`, content, "text/csv");
           } catch (cause) {
             setExportError(
               cause instanceof Error
@@ -169,10 +169,20 @@ export function RunExecutionSummary({
       >
         Export procedures and current record · JSON
       </button>
+      <button type="button" className="btn-secondary" style={{ marginLeft: 8 }} onClick={() => {
+        setExportError(null);
+        if (!canExport()) { setExportError("Current original run access must be verified before export."); return; }
+        try {
+          const content = renderCurrentManualRunPortableHtml({ runId, projectId, status, executionContext, stepFieldLabels, cases });
+          if (!canExport()) throw new Error("Original run access changed. Nothing was exported.");
+          downloadFile(`vaettir-run-${runId}-report.html`, content, "text/html");
+        } catch (cause) { setExportError(cause instanceof Error ? cause.message : "Current run report could not be exported."); }
+      }}>Export printable report · HTML</button>
       <p className="text-muted">
         Exports include the current authorized run, not just search matches.
         JSON preserves present procedures, configuration and observations, not
-        full revision history or attachment files. Legacy procedures without a
+        full revision history or attachment files. HTML is an offline printable
+        report of the same complete current run, not a signed audit. Legacy procedures without a
         saved snapshot may reflect later edits.
       </p>
     </section>

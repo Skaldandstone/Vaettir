@@ -1990,6 +1990,13 @@ export default function TestCasesPage() {
         projectId={projectId}
         caseCount={runSelection.length}
         testCaseIds={runSelection}
+        bulkScopes={[
+          { key: "filtered", label: "Current filtered approved view", testCaseIds: visibleCases.filter(testCase => !testCase.archived && testCase.reviewStatus === "APPROVED").map(testCase => testCase.id) },
+          { key: "all", label: "All loaded approved cases", testCaseIds: cases.filter(testCase => !testCase.archived && testCase.reviewStatus === "APPROVED").map(testCase => testCase.id) },
+          ...(selectedPath !== null ? [{ key: "suite", label: `Current suite: ${selectedPath === UNASSIGNED ? "Unassigned" : selectedPath}`, testCaseIds: filterCasesByPath(cases.filter(testCase => !testCase.archived && testCase.reviewStatus === "APPROVED"), selectedPath).map(testCase => testCase.id) }] : []),
+        ]}
+        bulkScopesReady={!readOnly && casesQuery.isFetchedAfterMount && !casesQuery.isFetching && !casesQuery.isPaused && !casesQuery.error}
+        onSelectionChange={ids => { if (readOnly || casesQuery.error || casesQuery.isFetching || casesQuery.isPaused || !casesQuery.isFetchedAfterMount) return; setRunSelection(ids); }}
         onClose={() => setRunConfigurationOpen(false)}
         onStart={startManualRun}
       />

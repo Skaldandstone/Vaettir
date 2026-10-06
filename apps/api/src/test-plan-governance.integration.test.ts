@@ -1,0 +1,163 @@
+// Authored native fixture only. Do not run against deployed/customer databases.
+import { beforeAll, describe, expect, it } from "vitest";
+import { randomUUID } from "node:crypto";
+import { prisma } from "@vaettir/db";
+import { appRouter } from "./router.js";
+const url = process.env.DATABASE_URL ? new URL(process.env.DATABASE_URL) : null;
+const isolated =
+  process.env.VAETTIR_PLAN_GOVERNANCE_NATIVE_FIXTURE === "1" &&
+  url &&
+  ["localhost", "127.0.0.1"].includes(url.hostname) &&
+  /test/i.test(url.pathname) &&
+  !url.searchParams.has("host");
+describe.skipIf(!isolated)(
+  "native governed criterion text and unassigned-plan CAS",
+  () => {
+    let caller: ReturnType<typeof appRouter.createCaller>,
+      viewer: ReturnType<typeof appRouter.createCaller>;
+    let scope: {
+      projectId: string;
+      testPlanId: string;
+      originalOrganizationId: string;
+      expectedClerkActorId: string;
+    };
+    let criterionId: string, releaseId: string;
+    beforeAll(async () => {
+      const key = `synthetic-plan-governance-${randomUUID()}`;
+      const tier = await prisma.planTier.findUniqueOrThrow({
+        where: { key: "free" },
+      });
+      const org = await prisma.organization.create({
+        data: { name: key, slug: key, planTierId: tier.id },
+      });
+      const owner = await prisma.user.create({
+        data: {
+          email: `${key}@example.com`,
+          clerkUserId: key,
+          memberships: { create: { organizationId: org.id, role: "OWNER" } },
+        },
+        include: { memberships: true },
+      });
+      const read = await prisma.user.create({
+        data: {
+          email: `${key}-read@example.com`,
+          clerkUserId: `${key}-read`,
+          memberships: {
+            create: {
+              organizationId: org.id,
+              role: "VIEWER",
+              seatType: "READ_ONLY",
+            },
+          },
+        },
+        include: { memberships: true },
+      });
+      const project = await prisma.project.create({
+        data: { name: key, slug: key, organizationId: org.id },
+      });
+      const type = await prisma.testPlanType.create({
+        data: {
+          name: key,
+          key,
+          category: "RELEASE_READINESS",
+          fieldSchema: {},
+        },
+      });
+      const plan = await prisma.testPlan.create({
+        data: {
+          projectId: project.id,
+          testPlanTypeId: type.id,
+          name: key,
+          customFields: { retained: [1, false] },
+          acceptanceCriteria: {
+            create: { description: "Synthetic original", status: "AT_RISK" },
+          },
+        },
+        include: { acceptanceCriteria: true },
+      });
+      releaseId = (
+        await prisma.release.create({
+          data: { projectId: project.id, name: key },
+        })
+      ).id;
+      scope = {
+        projectId: project.id,
+        testPlanId: plan.id,
+        originalOrganizationId: org.id,
+        expectedClerkActorId: key,
+      };
+      criterionId = plan.acceptanceCriteria[0]!.id;
+      caller = appRouter.createCaller({ prisma, user: owner });
+      viewer = appRouter.createCaller({ prisma, user: read });
+    });
+    it("native edit and lost-ACK replay retain a single complete history/version and raw verdict", async () => {
+      const baseline = await caller.testPlanGovernance.preview(scope);
+      const input = {
+        ...scope,
+        criterionId,
+        expectedPlanRevision: baseline.planRevision,
+        expectedCriterionRevision: baseline.criterionRevisions[criterionId]!,
+        description: "Synthetic reviewed",
+        reason: "Synthetic clarity",
+        confirmed: true as const,
+        requestId: randomUUID(),
+      };
+      const first =
+        await caller.testPlanGovernance.editCriterionDescription(input);
+      expect(
+        await caller.testPlanGovernance.editCriterionDescription(input),
+      ).toEqual({ ...first, replayed: true });
+      expect(
+        await prisma.acceptanceCriterion.findUniqueOrThrow({
+          where: { id: criterionId },
+        }),
+      ).toMatchObject({ description: "Synthetic reviewed", status: "AT_RISK" });
+      expect(
+        await prisma.testPlanVersion.count({
+          where: { testPlanId: scope.testPlanId },
+        }),
+      ).toBe(1);
+      expect(
+        (await caller.testPlanGovernance.history({ ...scope, take: 5 }))
+          .entries[0]?.receipt.before.criteria[0]?.description,
+      ).toBe("Synthetic original");
+      await expect(
+        viewer.testPlanGovernance.editCriterionDescription(input),
+      ).rejects.toMatchObject({ code: "FORBIDDEN" });
+    });
+    it("only one concurrent assignment wins without reassigning or losing the original receipt", async () => {
+      const baseline = await caller.testPlanGovernance.preview(scope);
+      const base = {
+        ...scope,
+        releaseId,
+        expectedReleaseId: null,
+        expectedPlanRevision: baseline.planRevision,
+        reason: "Synthetic assignment",
+        confirmed: true as const,
+      };
+      const attempts = await Promise.allSettled([
+        caller.testPlanGovernance.attachUnassignedPlan({
+          ...base,
+          requestId: randomUUID(),
+        }),
+        caller.testPlanGovernance.attachUnassignedPlan({
+          ...base,
+          requestId: randomUUID(),
+        }),
+      ]);
+      expect(
+        attempts.filter((result) => result.status === "fulfilled"),
+      ).toHaveLength(1);
+      expect(
+        attempts.filter((result) => result.status === "rejected"),
+      ).toHaveLength(1);
+      expect(
+        (
+          await prisma.testPlan.findUniqueOrThrow({
+            where: { id: scope.testPlanId },
+          })
+        ).releaseId,
+      ).toBe(releaseId);
+    });
+  },
+);

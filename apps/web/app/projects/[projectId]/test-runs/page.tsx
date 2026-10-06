@@ -1,6 +1,6 @@
 "use client";
 
-import { Fragment, useState, useSyncExternalStore } from "react";
+import { Fragment, useRef, useState, useSyncExternalStore } from "react";
 import { useParams } from "next/navigation";
 import { useRouter } from "next/navigation";
 import { trpcReact } from "@/lib/trpcReact";
@@ -11,6 +11,8 @@ import { inspectorLabel } from "@/lib/case-inspector";
 import { currentSessionScope, sameAuthScope } from "@/lib/auth-query-cache";
 import { RunOverview } from "@/components/RunOverview";
 import { manualStartDefinitivelyRejected, assertManualStartAcknowledgement } from "@/lib/manual-run-start";
+import { applyRunBulkSelection, type RunBulkSelectionMode } from "@/lib/run-bulk-selection";
+import { useManualExecutionAccess } from "@/lib/use-manual-execution-access";
 
 const STATUS_COLORS: Record<string, string> = {
   PASSED: "#1a7f37",
@@ -510,6 +512,8 @@ export default function TestRunsPage() {
   const { projectId } = useParams<{ projectId: string }>();
   const router = useRouter();
   const { canEdit, organizationId } = useProjectPermissions(projectId);
+  const manualAccess = useManualExecutionAccess(projectId);
+  const manualInFlight = useRef(false);
   const [historyCursors, setHistoryCursors] = useState<
     Array<{ startedAt: Date; id: string }>
   >([]);
@@ -536,6 +540,9 @@ export default function TestRunsPage() {
   const [manualSuite, setManualSuite] = useState("");
   const [manualPriority, setManualPriority] = useState("");
   const [manualType, setManualType] = useState("");
+  const [manualBulkMode, setManualBulkMode] = useState<RunBulkSelectionMode>("SET");
+  const [manualBulkScope, setManualBulkScope] = useState("matching");
+  const [manualBulkNotice, setManualBulkNotice] = useState("");
   const [manualStartRequest, setManualStartRequest] = useState<{
     projectId: string;
     testCaseIds: string[];
@@ -554,7 +561,8 @@ export default function TestRunsPage() {
     { enabled: manualOpen },
   );
   const startManualMutation = trpcReact.manualExecution.start.useMutation();
-  const eligibleCases = (casesQuery.data ?? []).filter(testCase => !testCase.archived && testCase.reviewStatus === "APPROVED");
+  const manualSourceReady = manualAccess.ready && casesQuery.isFetchedAfterMount && !casesQuery.isFetching && !casesQuery.isPaused && !casesQuery.error;
+  const eligibleCases = (manualSourceReady ? casesQuery.data ?? [] : []).filter(testCase => !testCase.archived && testCase.reviewStatus === "APPROVED");
   const manualCases = eligibleCases.filter((testCase) =>
     (!manualSuite || testCase.suitePath === manualSuite) &&
     (!manualPriority || testCase.priority === manualPriority) &&
@@ -565,7 +573,7 @@ export default function TestRunsPage() {
   );
 
   function toggleManualCase(id: string) {
-    if (manualStartRequest) return;
+    if (!manualSelectionWritable() || !eligibleCases.some(testCase => testCase.id === id)) return;
     if (!manualSelection.has(id) && manualSelection.size >= 1000) {
       setManualError("A run supports up to 1,000 cases including prerequisites. Split the reviewed scope; nothing was silently truncated.");
       return;
@@ -578,22 +586,32 @@ export default function TestRunsPage() {
     });
   }
 
-  function selectScope(scope: typeof manualCases) {
-    if (manualStartRequest) return;
-    const next = new Set([...manualSelection, ...scope.map(testCase => testCase.id)]);
-    if (next.size > 1000) { setManualError("A run supports up to 1,000 cases including prerequisites. Narrow the scope or create separate runs; nothing was silently truncated."); return; }
-    setManualSelection(next);
+  const manualBulkScopeValid = ["matching", "all", "suite"].includes(manualBulkScope) && (manualBulkScope !== "suite" || Boolean(manualSuite));
+  const manualBulkCandidates = manualBulkScope === "all" ? eligibleCases : manualBulkScope === "suite" && manualSuite ? eligibleCases.filter(testCase => testCase.suitePath === manualSuite) : manualBulkScope === "matching" ? manualCases : [];
+  const manualBulkPreview = manualBulkScopeValid ? applyRunBulkSelection([...manualSelection], manualBulkCandidates.map(testCase => testCase.id), manualBulkMode) : { ok: false as const, error: "Choose a current suite or another approved scope before applying selection. Nothing was changed." };
+  const manualBulkReady = canEdit && manualAccess.canWrite && manualSourceReady;
+  function manualSelectionWritable() {
+    const current = currentSessionScope(window.Clerk?.loaded ? window.Clerk.session : null);
+    return manualBulkReady && !!current && current.userId === manualAccess.origin?.clerkActorId && organizationId === manualAccess.origin?.organizationId && !manualStartRequest && !manualInFlight.current && !startManualMutation.isPending;
+  }
+  function selectScope() {
+    if (!manualSelectionWritable() || !manualBulkScopeValid) return;
+    const result = applyRunBulkSelection([...manualSelection], manualBulkCandidates.map(testCase => testCase.id), manualBulkMode);
+    if (!result.ok) { setManualError(result.error); return; }
+    setManualSelection(new Set(result.ids));
+    setManualBulkNotice(`${manualBulkMode === "SET" ? "Set" : manualBulkMode === "ADD" ? "Add" : "Remove"}: ${result.added} added, ${result.removed} removed. ${result.before} → ${result.after} selected.`);
     setManualError(null);
   }
 
   async function startManualRun() {
-    if (!canEdit || startManualMutation.isPending || manualSelection.size === 0) return;
+    if (!canEdit || !manualAccess.canWrite || manualInFlight.current || startManualMutation.isPending || manualSelection.size === 0) return;
     setManualError(null);
     const scope = currentSessionScope(window.Clerk?.loaded ? window.Clerk.session : null);
     if (!scope || !organizationId || (manualStartRequest && (!sameAuthScope(manualStartScope, scope) || manualStartRequest.originalOrganizationId !== organizationId))) {
       setManualError("Restore the original signed-in account and session before retrying this retained start request.");
       return;
     }
+    manualInFlight.current = true;
     try {
       // Retain the exact payload on an unknown acknowledgement. A retry must
       // not spend the same idempotency key on a newly edited selection.
@@ -619,6 +637,8 @@ export default function TestRunsPage() {
         setManualStartScope(null);
       } else setManualStartEverAmbiguous(true);
       setManualError(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      manualInFlight.current = false;
     }
   }
 
@@ -758,12 +778,15 @@ export default function TestRunsPage() {
             <select aria-label="Run case type" value={manualType} onChange={e => setManualType(e.target.value)}><option value="">All test types</option>{[...new Set(eligibleCases.map(testCase => testCase.testType))].sort().map(value => <option key={value} value={value}>{inspectorLabel(value)}</option>)}</select>
           </div>
           <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
-            <button type="button" className="btn-secondary" disabled={casesQuery.isFetching || !!casesQuery.error || !manualCases.length} onClick={() => selectScope(manualCases)}>Add all matching ({manualCases.length})</button>
-            <button type="button" className="btn-secondary" disabled={casesQuery.isFetching || !!casesQuery.error || !eligibleCases.length} onClick={() => selectScope(eligibleCases)}>Add all approved cases ({eligibleCases.length})</button>
-            <button type="button" className="btn-secondary" disabled={!!manualStartRequest} onClick={() => setManualSelection(new Set())}>Clear selection</button>
+            <label>Apply to approved scope<select value={manualBulkScope} disabled={!!manualStartRequest || startManualMutation.isPending || !manualBulkReady} onChange={event => setManualBulkScope(event.target.value)}><option value="matching">Current filter matches ({manualCases.length})</option><option value="all">All loaded approved cases ({eligibleCases.length})</option><option value="suite" disabled={!manualSuite}>{manualSuite ? `Current suite only (${eligibleCases.filter(testCase => testCase.suitePath === manualSuite).length})` : "Current suite unavailable — choose a suite or another scope"}</option></select></label>
+            <label>Selection operation<select value={manualBulkMode} disabled={!!manualStartRequest || startManualMutation.isPending || !manualBulkReady} onChange={event => setManualBulkMode(event.target.value as RunBulkSelectionMode)}><option value="SET">Set — replace selection</option><option value="ADD">Add — keep existing and add matches</option><option value="REMOVE">Remove — subtract matches</option></select></label>
+            <button type="button" className="btn-secondary" disabled={!!manualStartRequest || startManualMutation.isPending || !manualBulkReady || !manualBulkPreview.ok} onClick={selectScope}>Apply {manualBulkMode === "SET" ? "Set" : manualBulkMode === "ADD" ? "Add" : "Remove"} selection</button>
+            <button type="button" className="btn-secondary" disabled={!!manualStartRequest || startManualMutation.isPending || !manualBulkReady} onClick={() => { if (!manualSelectionWritable()) return; setManualSelection(new Set()); setManualBulkNotice("Cleared the current selection explicitly. No run was started."); }}>Clear selection</button>
           </div>
+          {manualStartRequest ? <p role="status">Selection changes are locked while confirming the original {manualStartRequest.testCaseIds.length}-case request.</p> : manualBulkPreview.ok ? <p role="status">Applying this operation will add {manualBulkPreview.added}, remove {manualBulkPreview.removed}, and leave {manualBulkPreview.after} selected ({manualBulkPreview.matched} scope matches).</p> : <p role="alert">{manualBulkPreview.error}</p>}
+          {manualBulkNotice && <p role="status">{manualBulkNotice}</p>}
           {casesQuery.error && <p role="alert">{casesQuery.error.message}</p>}
-          <p className="text-muted">Bulk additions include the complete loaded matching scope, not just checked rows. Up to 1,000 cases including required prerequisites; archived and unreviewed cases are excluded. Starting freezes the current procedures for this run.</p>
+          <p className="text-muted">Bulk operations use the complete loaded approved scope, not hidden or unloaded pages. Filter and suite browsing never changes the selection until you apply Set, Add or Remove. Up to 1,000 cases including required prerequisites; archived and unreviewed cases are excluded. Starting freezes the current procedures for this run.</p>
           <div
             style={{
               maxHeight: 320,
@@ -795,6 +818,7 @@ export default function TestRunsPage() {
                 <input
                   type="checkbox"
                   checked={manualSelection.has(testCase.id)}
+                  disabled={!!manualStartRequest || startManualMutation.isPending || !manualBulkReady}
                   onChange={() => toggleManualCase(testCase.id)}
                 />
                 <span>
@@ -828,7 +852,7 @@ export default function TestRunsPage() {
                 className="btn-primary"
                 onClick={startManualRun}
                 disabled={
-                  manualSelection.size === 0 || startManualMutation.isPending
+                  manualSelection.size === 0 || startManualMutation.isPending || !manualAccess.canWrite
                 }
               >
                 {startManualMutation.isPending

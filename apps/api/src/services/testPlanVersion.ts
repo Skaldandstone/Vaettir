@@ -22,7 +22,7 @@ export async function snapshotTestPlanVersion(
     orderBy: { versionNumber: "desc" },
     select: { versionNumber: true },
   });
-  await prisma.testPlanVersion.create({
+  return prisma.testPlanVersion.create({
     data: {
       testPlanId: args.testPlanId,
       versionNumber: (last?.versionNumber ?? 0) + 1,

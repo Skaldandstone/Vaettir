@@ -105,8 +105,16 @@ test("planning screens expose truthful draft edits, assigned-plan links and exis
     workspace,
     /allPlans.filter\(\(p\) => p.releaseId !== releaseId\)/,
   );
-  assert.match(
-    workspace,
-    /allPlans.find\(\(?plan\)? => plan.id === attachPlanId\)\?\.releaseId !== null/,
-  );
+  // Dedicated audited attachment replaces the old client-only picker guard.
+  // Preserve the guarantee at all three layers: unassigned choices, fresh
+  // reviewed preview, and native atomic null-assignment CAS.
+  const attach = readFileSync(new URL("../components/AttachUnassignedPlan.tsx", import.meta.url), "utf8");
+  const governedWrite = readFileSync(new URL("../../api/src/services/testPlanGovernance.ts", import.meta.url), "utf8");
+  assert.match(workspace, /<AttachUnassignedPlan/);
+  assert.match(workspace, /plans=\{[\s\S]*?attachablePlans/);
+  assert.match(attach, /fresh.snapshot.releaseId !== null/);
+  assert.match(attach, /expectedReleaseId: null/);
+  assert.match(governedWrite, /before.releaseId !== attach.expectedReleaseId/);
+  assert.match(governedWrite, /where:\s*\{[\s\S]*?releaseId: null/);
+  assert.match(governedWrite, /updated.count !== 1/);
 });

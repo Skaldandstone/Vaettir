@@ -11,17 +11,18 @@ import { freshCasePresentation } from "@/lib/case-presentation-read";
 import { CaseDesignGuide } from "./CaseDesignGuide";
 import { CaseProcedureColumns } from "./CaseProcedureColumns";
 import { CaseTagEditor } from "./CaseTagEditor";
-import { appendCaseTag, initialCaseTags, technicalBehaviorLabel } from "@/lib/case-authoring-fields";
+import { appendCaseTag, initialCaseTags, initialCasePhaseRows, prepareCasePhaseForSave, prepareCaseStepsForSave, technicalBehaviorLabel, type CasePhaseName, type CasePhaseRow } from "@/lib/case-authoring-fields";
 import { CaseCustomFieldsForm, type CaseFieldFormDraft, type ReviewedCaseFieldDefaults } from "./CaseCustomFields";
 
 const PRIORITIES = ["CRITICAL", "HIGH", "MEDIUM", "LOW"];
 
 interface StepRow {
   editorKey?: string;
+  editorPlaceholder?: boolean;
   action: string;
-  expectedActionOrData: string;
-  expectedResult: string;
-  expectedResponse: string;
+  expectedActionOrData: string | null;
+  expectedResult: string | null;
+  expectedResponse: string | null;
   mediaAttachmentIds: string[];
 }
 
@@ -33,9 +34,9 @@ interface TestCaseFormValue {
   priority: string;
   tags: string[];
   suitePath: string;
-  given: string[];
-  when: string[];
-  then: string[];
+  given: CasePhaseRow[];
+  when: CasePhaseRow[];
+  then: CasePhaseRow[];
   steps: StepRow[];
   stepRevision: string;
   caseRevision: string;
@@ -45,10 +46,11 @@ interface TestCaseFormValue {
 }
 
 const EMPTY_STEP: StepRow = {
+  editorPlaceholder: true,
   action: "",
-  expectedActionOrData: "",
-  expectedResult: "",
-  expectedResponse: "",
+  expectedActionOrData: null,
+  expectedResult: null,
+  expectedResponse: null,
   mediaAttachmentIds: [],
 };
 
@@ -82,7 +84,7 @@ interface TestCaseFormProps {
   mode: "create" | "edit";
   projectId: string;
   testCaseId?: string;
-  initial?: Partial<Omit<TestCaseFormValue, "tags">> & { tags?: string[] | string };
+  initial?: Partial<Omit<TestCaseFormValue, "tags" | "given" | "when" | "then">> & { tags?: string[] | string; given?: string[]; when?: string[]; then?: string[] };
   // Only a separately reviewed new draft may seed current typed defaults.
   initialCustomFields?: ReviewedCaseFieldDefaults;
   locked?: boolean;
@@ -100,44 +102,44 @@ function StringListEditor({
   items,
   onChange,
 }: {
-  label: string;
-  items: string[];
-  onChange: (items: string[]) => void;
+  label: CasePhaseName;
+  items: CasePhaseRow[];
+  onChange: (items: CasePhaseRow[]) => void;
 }) {
   const prefix = useId();
   const nextKey = useRef(items.length);
-  const [keys, setKeys] = useState(() => items.map((_, i) => `${prefix}-${i}`));
   const [announcement, setAnnouncement] = useState("");
   function move(from: number, to: number) {
     onChange(moveListItem(items, from, to));
-    setKeys(current => moveListItem(current, from, to));
     setAnnouncement(`${label} item ${from + 1} moved to position ${to + 1}.`);
   }
   return (
     <div style={{ marginBottom: 12 }}>
       <div style={{ fontWeight: 600, marginBottom: 4 }}>{label}</div>
       {items.map((item, i) => (
-        <div key={keys[i]} style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 4 }}>
-          <input
+        <div key={item.editorKey} style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 4 }}>
+          <textarea
             aria-label={`${label} item ${i + 1}`}
-            value={item}
+            value={item.text}
             onChange={(e) =>
-              onChange(items.map((v, j) => (j === i ? e.target.value : v)))
+              onChange(items.map((v, j) => (j === i ? { ...v, text: e.target.value } : v)))
             }
-            style={{ flex: "1 1 180px", minWidth: 0 }}
+            rows={2}
+            style={{ flex: "1 1 180px", minWidth: 0, resize: "vertical" }}
           />
           <button type="button" aria-label={`Move ${label} item ${i + 1} up`} disabled={i === 0} onClick={() => move(i, i - 1)}>Move up</button>
           <button type="button" aria-label={`Move ${label} item ${i + 1} down`} disabled={i === items.length - 1} onClick={() => move(i, i + 1)}>Move down</button>
           <button
             type="button"
             aria-label={`Remove ${label} item ${i + 1}`}
-            onClick={() => { onChange(items.filter((_, j) => j !== i)); setKeys(current => current.filter((_, j) => j !== i)); }}
+            onClick={() => onChange(items.filter((_, j) => j !== i))}
           >
             Remove
           </button>
+          {item.text === "" && !item.editorPlaceholder && <span className="text-muted" style={{ flexBasis: "100%", fontSize: 12 }}>Retained empty entry. It stays in this phase unless you explicitly remove it.</span>}
         </div>
       ))}
-      <button type="button" onClick={() => { const key = `${prefix}-${nextKey.current++}`; onChange([...items, ""]); setKeys(current => [...current, key]); }}>
+      <button type="button" onClick={() => { const key = `${prefix}-${nextKey.current++}`; onChange([...items, { text: "", editorKey: key, editorPlaceholder: true }]); }}>
         + Add {label} item
       </button>
       <span role="status" className="sr-only">{announcement}</span>
@@ -167,7 +169,10 @@ export default function TestCaseForm({
     ...defaultValue(),
     ...initial,
     tags: initialCaseTags(initial?.tags),
-    steps: (initial?.steps ?? []).map((step, i) => ({ ...step, mediaAttachmentIds: step.mediaAttachmentIds ?? [], editorKey: `${stepKeyPrefix}-${i}` })),
+    given: initialCasePhaseRows(initial?.given ?? [], `${stepKeyPrefix}-Given`),
+    when: initialCasePhaseRows(initial?.when ?? [], `${stepKeyPrefix}-When`),
+    then: initialCasePhaseRows(initial?.then ?? [], `${stepKeyPrefix}-Then`),
+    steps: (initial?.steps ?? []).map((step, i) => ({ ...step, editorPlaceholder: false, expectedActionOrData: step.expectedActionOrData ?? null, expectedResult: step.expectedResult ?? null, expectedResponse: step.expectedResponse ?? null, mediaAttachmentIds: step.mediaAttachmentIds ?? [], editorKey: `${stepKeyPrefix}-${i}` })),
   }));
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -198,8 +203,8 @@ export default function TestCaseForm({
     tags: casePresentationVisible(presentation, "tags", value.tags.length > 0 || tagDraft !== "" || reopenedTag !== undefined, context),
     hardwareFixture: casePresentationVisible(presentation, "hardwareFixture", [value.verificationProfile.setup, value.verificationProfile.instruments, value.verificationProfile.acceptanceCriteria].some(text => text !== ""), context),
     safety: casePresentationVisible(presentation, "safety", value.verificationProfile.safety !== "", context),
-    technicalBehavior: casePresentationVisible(presentation, "technicalBehavior", value.steps.some(step => step.expectedActionOrData !== ""), context),
-    expectedResponse: casePresentationVisible(presentation, "expectedResponse", value.steps.some(step => step.expectedResponse !== ""), context),
+    technicalBehavior: casePresentationVisible(presentation, "technicalBehavior", value.steps.some(step => step.expectedActionOrData !== null), context),
+    expectedResponse: casePresentationVisible(presentation, "expectedResponse", value.steps.some(step => step.expectedResponse !== null), context),
   };
   const retainedVisible = (Object.keys(visible) as Array<keyof typeof visible>).filter(field => presentation.fields[field] === "HIDE" && visible[field]);
   const casesQuery = trpcReact.testCases.list.useQuery({ projectId },{enabled:active});
@@ -283,6 +288,13 @@ export default function TestCaseForm({
 
   async function submit() {
     if (!active || locked || saving || uploadingStepKey !== null || !value.title.trim() || !caseFieldsDraft?.ready) return;
+    const preparedSteps = prepareCaseStepsForSave(value.sharedStepGroupId ? [] : value.steps);
+    if (!preparedSteps.ok) { setError(preparedSteps.error); return; }
+    const preparedGiven = prepareCasePhaseForSave("Given", value.given), preparedWhen = prepareCasePhaseForSave("When", value.when), preparedThen = prepareCasePhaseForSave("Then", value.then);
+    for (const phase of [preparedGiven, preparedWhen, preparedThen]) {
+      if (!phase.ok) { setError(phase.error); return; }
+    }
+    if (!preparedGiven.ok || !preparedWhen.ok || !preparedThen.ok) return;
     setSaving(true);
     setError(null);
     try {
@@ -290,20 +302,10 @@ export default function TestCaseForm({
         testPlanId: value.testPlanId || undefined,
         title: value.title,
         background: value.background || undefined,
-        given: value.given.filter((s) => s.trim()),
-        when: value.when.filter((s) => s.trim()),
-        then: value.then.filter((s) => s.trim()),
-        steps: value.sharedStepGroupId
-          ? []
-          : value.steps
-              .filter((s) => s.action.trim())
-              .map((s) => ({
-                action: s.action,
-                expectedActionOrData: s.expectedActionOrData || null,
-                expectedResult: s.expectedResult || null,
-                expectedResponse: s.expectedResponse || null,
-                mediaAttachmentIds: s.mediaAttachmentIds,
-              })),
+        given: preparedGiven.values,
+        when: preparedWhen.values,
+        then: preparedThen.values,
+        steps: preparedSteps.steps,
         sharedStepGroupId: value.sharedStepGroupId || null,
         tags: appendCaseTag(value.tags, tagDraft, reopenedTag).tags,
         testType: value.testType,
@@ -600,7 +602,7 @@ export default function TestCaseForm({
               {visible.technicalBehavior && <label>
                 {technicalBehaviorLabel(labels.expectedActionOrData)}
                 <textarea
-                  value={step.expectedActionOrData}
+                  value={step.expectedActionOrData ?? ""}
                   onChange={(e) =>
                     updateStep(i, { expectedActionOrData: e.target.value })
                   }
@@ -608,28 +610,31 @@ export default function TestCaseForm({
                   placeholder="e.g. onClick triggers GET /api/details"
                   style={{ width: "100%", minWidth: 0, resize: "vertical" }}
                 />
+                {step.expectedActionOrData === null ? <span className="text-muted">Not supplied</span> : step.expectedActionOrData === "" ? <span className="text-muted">Explicit empty text</span> : null}
               </label>}
               <label>
                 {labels.expectedResult}
                 <textarea
-                  value={step.expectedResult}
+                  value={step.expectedResult ?? ""}
                   onChange={(e) =>
                     updateStep(i, { expectedResult: e.target.value })
                   }
                   rows={3}
                   style={{ width: "100%", minWidth: 0, resize: "vertical" }}
                 />
+                {step.expectedResult === null ? <span className="text-muted">Not supplied</span> : step.expectedResult === "" ? <span className="text-muted">Explicit empty text</span> : null}
               </label>
               {visible.expectedResponse && <label>
                 {labels.expectedResponse}
                 <textarea
-                  value={step.expectedResponse}
+                  value={step.expectedResponse ?? ""}
                   onChange={(e) =>
                     updateStep(i, { expectedResponse: e.target.value })
                   }
                   rows={3}
                   style={{ width: "100%", minWidth: 0, resize: "vertical" }}
                 />
+                {step.expectedResponse === null ? <span className="text-muted">Not supplied</span> : step.expectedResponse === "" ? <span className="text-muted">Explicit empty text</span> : null}
               </label>}
             </div>
             <details open={step.mediaAttachmentIds.length > 0} style={{ marginTop: 10 }}>

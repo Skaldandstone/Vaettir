@@ -127,6 +127,9 @@ export function RunOverview({
         >
           Compare recorded CI runs
         </a>
+        <a className="btn-secondary" href={`/projects/${projectId}/manual-run-comparison`}>
+          Compare saved manual runs
+        </a>
       </div>
       <p className="text-muted">
         This dashboard covers the displayed run-history page, not hidden pages.

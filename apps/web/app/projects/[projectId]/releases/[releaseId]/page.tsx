@@ -13,6 +13,9 @@ import { buildHtmlSnapshot, buildMarkdownSnapshot } from "@/lib/snapshotExport";
 import { downloadFile } from "@/lib/download";
 import { Modal } from "@/components/Modal";
 import { releasePlanChoices } from "@/lib/release-planning-draft";
+import { CriterionDescriptionEditor } from "@/components/CriterionDescriptionEditor";
+import { AttachUnassignedPlan } from "@/components/AttachUnassignedPlan";
+import { PlanGovernanceHistory } from "@/components/PlanGovernanceHistory";
 
 const STATUSES = [
   "PLANNING",
@@ -247,7 +250,6 @@ export default function ReleaseReadinessPage() {
   const riskFlags = riskFlagsQuery.data ?? [];
   const allPlans = allPlansQuery.data ?? [];
 
-  const [attachPlanId, setAttachPlanId] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [showResolved, setShowResolved] = useState(false);
   const [exporting, setExporting] = useState<"html" | "markdown" | null>(null);
@@ -346,32 +348,6 @@ export default function ReleaseReadinessPage() {
     }
   }
 
-  async function attachPlan() {
-    if (
-      !attachPlanId ||
-      setReleaseMutation.isPending ||
-      allPlansQuery.isFetching ||
-      allPlansQuery.error
-    )
-      return;
-    if (allPlans.find((plan) => plan.id === attachPlanId)?.releaseId !== null) {
-      setError(
-        "This plan is no longer unassigned. Refresh the plan list and open its current release; no reassignment was requested.",
-      );
-      return;
-    }
-    try {
-      await setReleaseMutation.mutateAsync({
-        testPlanId: attachPlanId,
-        releaseId,
-      });
-      setAttachPlanId("");
-      reload();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-    }
-  }
-
   async function detachPlan(testPlanId: string) {
     try {
       await setReleaseMutation.mutateAsync({ testPlanId, releaseId: null });
@@ -396,7 +372,10 @@ export default function ReleaseReadinessPage() {
     testPlansQuery.error?.message ??
     riskFlagsQuery.error?.message ??
     null;
-  if (pageError) return <p style={{ color: "var(--ember)" }}>{pageError}</p>;
+  // An ordinary background read failure must not unmount retained wording or
+  // uncertain attachment requests while the original workspace is loaded.
+  if (pageError && (!release || !readiness))
+    return <p style={{ color: "var(--ember)" }}>{pageError}</p>;
   if (!release || !readiness) return <p>Loading…</p>;
 
   const { available: attachablePlans, assignedElsewhere } = releasePlanChoices(
@@ -409,6 +388,12 @@ export default function ReleaseReadinessPage() {
 
   return (
     <div style={{ maxWidth: 800 }}>
+      {pageError && (
+        <p role="alert" style={{ color: "var(--ember)" }}>
+          The workspace could not fully refresh: {pageError}. Existing drafts
+          remain mounted; current authorization is rechecked before any save.
+        </p>
+      )}
       {error && (
         <p role="alert" style={{ color: "var(--ember)" }}>
           {error} Your current workspace remains open.{" "}
@@ -601,7 +586,15 @@ export default function ReleaseReadinessPage() {
                     padding: "4px 0",
                   }}
                 >
-                  <span>{c.description}</span>
+                  <div style={{ minWidth: 0, overflowWrap: "anywhere" }}>
+                    <span>{c.description}</span>{" "}
+                    <CriterionDescriptionEditor
+                      projectId={projectId}
+                      testPlanId={p.id}
+                      criterionId={c.id}
+                      onChanged={reload}
+                    />
+                  </div>
                   {c.autoComputed ? (
                     <span
                       title="Computed live from this plan's test case results -- not manually editable"
@@ -638,6 +631,7 @@ export default function ReleaseReadinessPage() {
                 </li>
               )}
             </ul>
+            <PlanGovernanceHistory projectId={projectId} testPlanId={p.id} />
           </div>
         ))}
         {testPlans.length === 0 && (
@@ -649,38 +643,21 @@ export default function ReleaseReadinessPage() {
           </p>
         )}
 
+        <AttachUnassignedPlan
+          projectId={projectId}
+          releaseId={releaseId}
+          releaseStatus={release.status}
+          plans={
+            allPlansQuery.isFetching || allPlansQuery.error
+              ? []
+              : attachablePlans
+          }
+          onChanged={reload}
+        />
         {!readOnly && (
           <div
             style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 12 }}
           >
-            <select
-              value={attachPlanId}
-              onChange={(e) => setAttachPlanId(e.target.value)}
-              style={{ flex: 1 }}
-              disabled={
-                allPlansQuery.isFetching ||
-                !!allPlansQuery.error ||
-                setReleaseMutation.isPending
-              }
-            >
-              <option value="">Attach an existing test plan…</option>
-              {attachablePlans.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.name}
-                </option>
-              ))}
-            </select>
-            <button
-              onClick={attachPlan}
-              disabled={
-                !attachPlanId ||
-                allPlansQuery.isFetching ||
-                !!allPlansQuery.error ||
-                setReleaseMutation.isPending
-              }
-            >
-              Attach
-            </button>
             <a
               className="btn-secondary"
               href={`/projects/${projectId}/test-plans`}

@@ -6,6 +6,8 @@ import { defectMapRouter } from "./routers/defectMap.js";
 import { caseTraceabilityRouter } from "./routers/caseTraceability.js";
 import { caseExecutionHistoryRouter } from "./routers/caseExecutionHistory.js";
 import { recordedRunComparisonRouter } from "./routers/recordedRunComparison.js";
+import { manualRunComparisonRouter } from "./routers/manualRunComparison.js";
+import { testPlanGovernanceRouter } from "./routers/testPlanGovernance.js";
 import { recordedExecutionTrendsRouter } from "./routers/recordedExecutionTrends.js";
 import { caseVersionReviewRouter } from "./routers/caseVersionReview.js";
 import { caseCloneRouter } from "./routers/caseClone.js";
@@ -75,6 +77,8 @@ export const appRouter = router({
   caseTraceability: caseTraceabilityRouter,
   caseExecutionHistory: caseExecutionHistoryRouter,
   recordedRunComparison: recordedRunComparisonRouter,
+  manualRunComparison: manualRunComparisonRouter,
+  testPlanGovernance: testPlanGovernanceRouter,
   recordedExecutionTrends: recordedExecutionTrendsRouter,
   caseVersionReview: caseVersionReviewRouter,
   caseClone: caseCloneRouter,

@@ -126,9 +126,9 @@ function EditCaseSession({
             ? []
             : tc.steps.map((s) => ({
                 action: s.action,
-                expectedActionOrData: s.expectedActionOrData ?? "",
-                expectedResult: s.expectedResult ?? "",
-                expectedResponse: s.expectedResponse ?? "",
+                expectedActionOrData: s.expectedActionOrData,
+                expectedResult: s.expectedResult,
+                expectedResponse: s.expectedResponse,
                 mediaAttachmentIds: s.mediaAttachmentIds,
               })),
           stepRevision: tc.stepRevision,

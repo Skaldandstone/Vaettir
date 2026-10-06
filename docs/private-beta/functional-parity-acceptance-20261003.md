@@ -825,3 +825,82 @@ cross-entity tag views; source-derived group drag semantics; browser reload draf
 recovery; signed Windows/device acceptance and full native/rendered integration.
 The new preferences and other source fixes are NOT deployed. Prior failed
 native/runtime/migration/security/production release evidence remains unchanged.
+
+#### Dated complaint recheck, October 5
+
+Old reviews are not a current defect inventory. Testmo's
+[current changelog](https://support.testmo.com/hc/en-us/articles/38044957362317-Changelog)
+records regular case/search links and ID search in 2022-2023, a May 2026 fix
+for bulk edits including previously deselected cases and tag underscore loss,
+and August fixes for slow case edits and incomplete BDD-plus-Steps exports.
+Its current trial also exposes case links and search. An October 2025 complaint
+about sidebar-only navigation cannot therefore establish that normal new-tab
+links or search are absent today. Use these complaints to test Vaettir's actual
+selection, literal tags, complete procedure export and navigation instead.
+
+[Testmo run selection documentation](https://support.testmo.com/hc/en-us/articles/47544002336653-Test-Runs)
+distinguishes browsing a folder from adding it and exposes explicit Set/Add/Remove
+filter selection with counts. [Qase export documentation](https://docs.qase.io/en/articles/5563717-export-test-cases)
+states that applied filters carry into exports. Vaettir should distinguish
+replace/add/remove selection and label whether an export covers the whole saved
+run or only a filter; it must never silently infer scope from what is on screen.
+These are documented patterns, not proof each vendor route was exercised.
+
+The sampled [Qase reviews](https://www.g2.com/products/qase/reviews) include April
+2026 requests for smoother large-suite filtering and more flexible reporting,
+often seller-invited/incentivized. The sampled
+[Testmo reviews](https://www.g2.com/products/testmo/reviews) include organic
+October 2025 requests for better selection, editing and layouts. They support
+prioritizing usability measurements, not a quantified market consensus or an
+unsupported claim that Gartner endorses a particular control.
+
+#### Continued parallel source repairs, October 5 Pacific / October 6 UTC
+
+- Case step editing now distinguishes retained NULL from explicit empty text.
+  Missing-action rows with retained technical/result/media content refuse at
+  their exact index. Only entirely empty new placeholders are omitted. Saved
+  Given/When/Then empties, whitespace, duplicates and multiline text survive
+  unrelated edits and reordering without trim-based deletion.
+- Run selection offers explicit Set/Add/Remove on current loaded approved
+  scopes, with exact added/removed/result counts. Missing suite scopes refuse
+  instead of falling back to other cases. Pending unknown-ACK requests remain
+  immutable; over-1,000 results refuse atomically, not partially selected.
+- A printable offline current-run HTML export preserves paired step fields,
+  phases, prerequisites separately, present observations and step heads. Text
+  is escaped, active content/external fetches disabled, and output is bounded
+  to 8 MiB with no truncation. A five-case synthetic component export downloaded
+  and its rendered summary/procedure text was observed. Printing/PDF, all
+  authenticated page states and production delivery are not acceptance proof.
+- Dedicated governed criterion-wording/unassigned-plan writes retain complete
+  bounded before/after plan scalar and native-criteria snapshots linked to a
+  plan version. Current original actor/FULL-editor locks, exact UUID receipt
+  replay before CAS, null-assignment protection and native byte checks guard
+  these paths. Approved/archived plans and ready/shipped releases require
+  explicit reopening. Old TestPlanVersion records lack criteria/assignment;
+  these new entries do not invent historical snapshots or case procedures.
+- A separate manual comparison reads two complete supported frozen runs,
+  distinguishing a case absent from a saved scope from a planned case with no
+  verdict. Changed definitions/configuration and unfinished work are explicit;
+  conflicting results refuse instead of guessing a last writer. Fifty-row
+  pages/exports are pair-hash-bound, not all-history exports. Current friendly
+  ID labels are not misrepresented as captured historical labels.
+
+Independent audit found remaining correctness work before release acceptance:
+legacy criterion-status handlers resend cached description/requirement fields
+and can overwrite newer governed wording; legacy add/delete criteria do not
+produce the new complete governance history. Plan details still lack the new
+guarded wording/history controls, and their generic array editor splits commas
+and trims retained prose. Fix these coherent authoring paths next; do not treat
+the new guarded endpoints as proof all older routes are safe or deployed.
+Full field parity, global multi-run dashboard scope, separate plan/dataset
+500-case limits, native concurrency/recovery, signed Windows/device and full
+authenticated rendered acceptance remain open. New governance native fixtures
+are explicit-opt-in source only and have NOT run; no migration or deployment.
+
+Integrated local source validation for this continuation: full Web 644 Node
+plus 48 typed checks (692 total, zero skips), 106 focused API pure/mocked checks
+and API/Web typechecks pass. An intermediate full Web run failed the old
+client-only attachment assertion; it now checks the equivalent unassigned
+picker, fresh preview and native null-assignment CAS instead. Initial portable
+report and exported-hook type errors were corrected, not waived. Native fixtures
+were not invoked; no full API/native/runtime/production acceptance is inferred.

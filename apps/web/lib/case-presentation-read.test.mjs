@@ -29,6 +29,8 @@ test("case authoring visibility never conditions submitted saved fields or rewri
   assert.match(source, /mode !== "create" \|\| interacted\.current/);
   assert.match(source, /initial\?\.validationDomain \?\? preferences\.domains\[0\]/);
   assert.match(source, /verificationProfile: value\.verificationProfile/);
-  assert.match(source, /expectedActionOrData: s\.expectedActionOrData \|\| null/);
+  assert.match(source, /steps: preparedSteps\.steps/);
+  assert.match(source, /prepareCaseStepsForSave\(value\.sharedStepGroupId \? \[\] : value\.steps\)/);
+  assert.doesNotMatch(source, /s\.expectedActionOrData \|\| null/);
   assert.doesNotMatch(source, /verificationProfile: visible/);
 });

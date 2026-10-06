@@ -40,3 +40,55 @@ export function reopenLastCaseTag(tags: readonly string[], draft: string): {
     ? { tags: tags.slice(0, -1), draft: tags.at(-1)! }
     : { tags: [...tags], draft };
 }
+
+export type CaseAuthoringStep = {
+  action: string;
+  expectedActionOrData: string | null;
+  expectedResult: string | null;
+  expectedResponse: string | null;
+  mediaAttachmentIds: readonly string[];
+  editorPlaceholder?: boolean;
+};
+export type PreparedCaseStep = Omit<CaseAuthoringStep, "editorPlaceholder" | "mediaAttachmentIds"> & { mediaAttachmentIds: string[] };
+
+/** Never infer deletion from an absent action. Retained rows and supplied
+ * expected/media fields require explicit review; only untouched blank editor
+ * placeholders may be omitted. Optional NULL and empty strings stay distinct. */
+export function prepareCaseStepsForSave(rows: readonly CaseAuthoringStep[]):
+  { ok: true; steps: PreparedCaseStep[] } | { ok: false; stepNumber: number; error: string } {
+  const steps: PreparedCaseStep[] = [];
+  for (const [index, row] of rows.entries()) {
+    if (!row.action.trim()) {
+      const entirelyEmpty = row.action === "" &&
+        [row.expectedActionOrData, row.expectedResult, row.expectedResponse].every(value => value === null || value === "") &&
+        row.mediaAttachmentIds.length === 0;
+      if (row.editorPlaceholder === true && entirelyEmpty) continue;
+      return { ok: false, stepNumber: index + 1, error: `Step ${index + 1} has no tester action. Add its action or explicitly remove this row after reviewing its technical details, expected results and media. Nothing was saved.` };
+    }
+    steps.push({ action: row.action, expectedActionOrData: row.expectedActionOrData, expectedResult: row.expectedResult, expectedResponse: row.expectedResponse, mediaAttachmentIds: [...row.mediaAttachmentIds] });
+  }
+  return { ok: true, steps };
+}
+
+export type CasePhaseName = "Given" | "When" | "Then";
+export type CasePhaseRow = { text: string; editorKey: string; editorPlaceholder: boolean };
+
+export function initialCasePhaseRows(values: readonly string[], keyPrefix: string): CasePhaseRow[] {
+  return values.map((text, index) => ({ text, editorKey: `${keyPrefix}-${index}`, editorPlaceholder: false }));
+}
+
+/** Empty text is a valid retained phase value under the existing API contract.
+ * A UI placeholder is different: only a newly added, literally empty row may
+ * be omitted. Whitespace, line breaks and duplicate wording retain exact order. */
+export function prepareCasePhaseForSave(phase: CasePhaseName, rows: readonly CasePhaseRow[]):
+  { ok: true; values: string[] } | { ok: false; itemNumber: number; error: string } {
+  const values: string[] = [];
+  for (const [index, row] of rows.entries()) {
+    if (!row || typeof row.text !== "string" || typeof row.editorPlaceholder !== "boolean") {
+      return { ok: false, itemNumber: index + 1, error: `${phase} item ${index + 1} has unsupported text or origin metadata. Review this item; no value was coerced and nothing was saved.` };
+    }
+    if (row.editorPlaceholder && row.text === "") continue;
+    values.push(row.text);
+  }
+  return { ok: true, values };
+}

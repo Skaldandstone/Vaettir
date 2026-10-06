@@ -20,6 +20,7 @@ import {
   type ReviewedRunConfiguration,
 } from "@/lib/run-configuration-request";
 import { Modal } from "./Modal";
+import { applyRunBulkSelection, type RunBulkScope, type RunBulkSelectionMode } from "@/lib/run-bulk-selection";
 export type {
   RunExecutionContext,
   ReviewedRunConfiguration,
@@ -143,6 +144,9 @@ export function RunConfigurationModal({
   projectId,
   caseCount,
   testCaseIds,
+  bulkScopes,
+  bulkScopesReady = false,
+  onSelectionChange,
   onClose,
   onStart,
 }: {
@@ -150,6 +154,9 @@ export function RunConfigurationModal({
   projectId: string;
   caseCount: number;
   testCaseIds: string[];
+  bulkScopes?: RunBulkScope[];
+  bulkScopesReady?: boolean;
+  onSelectionChange?: (ids: string[]) => void;
   onClose: () => void;
   onStart: (configuration: ReviewedRunConfiguration) => Promise<unknown>;
 }) {
@@ -177,6 +184,9 @@ export function RunConfigurationModal({
   const [reviewedIds, setReviewedIds] = useState<string[] | null>(null);
   const [pendingRequest, setPendingRequest] =
     useState<ReviewedRunConfiguration | null>(null);
+  const [bulkScopeKey, setBulkScopeKey] = useState("");
+  const [bulkMode, setBulkMode] = useState<RunBulkSelectionMode>("SET");
+  const [bulkNotice, setBulkNotice] = useState("");
   const everAmbiguous = useRef(false);
   const inFlight = useRef(false);
   const platformListId = useId();
@@ -207,6 +217,16 @@ export function RunConfigurationModal({
   const selectionReviewed =
     reviewedCount === caseCount &&
     reviewedRunCasesMatch(reviewedIds, testCaseIds);
+  const bulkScope = bulkScopeKey ? bulkScopes?.find(scope => scope.key === bulkScopeKey) ?? null : bulkScopes?.[0] ?? null;
+  const bulkPreview = bulkScope ? applyRunBulkSelection(testCaseIds, bulkScope.testCaseIds, bulkMode) : null;
+  function applyBulk() {
+    if (!bulkScope || !onSelectionChange || !bulkScopesReady || !access.canWrite || busy || refreshing || pendingRequest || inFlight.current) return;
+    const result = applyRunBulkSelection(testCaseIds, bulkScope.testCaseIds, bulkMode);
+    if (!result.ok) { setError(result.error); return; }
+    onSelectionChange(result.ids);
+    setReviewedCount(null); setReviewedIds(null); setError(null);
+    setBulkNotice(`${bulkMode === "SET" ? "Set" : bulkMode === "ADD" ? "Added from" : "Removed from"} ${bulkScope.label}: ${result.added} added, ${result.removed} removed. ${result.before} → ${result.after} selected.`);
+  }
   const experience = baseline?.experience
     ? resolveQualityExperience(baseline.experience)
     : null;
@@ -392,6 +412,19 @@ export function RunConfigurationModal({
               the build is deployed or the equipment is ready.
             </p>
           )}
+          {screen.id === "configuration" && bulkScopes && onSelectionChange && <section aria-label="Build run selection" className="panel" style={{ padding: 12, marginBottom: 16 }}>
+            <h4 style={{ marginTop: 0 }}>Build the selected case set</h4>
+            <p className="text-muted">Set replaces the selection, Add keeps it and adds matches, Remove subtracts matches. Browsing suites or changing filters does not apply these operations.</p>
+            <fieldset disabled={busy || refreshing || !!pendingRequest || !access.canWrite || !bulkScopesReady} style={{ border: 0, padding: 0, minWidth: 0, display: "grid", gap: 10 }}>
+              <label>Approved scope<select value={bulkScope?.key ?? bulkScopeKey} onChange={event => setBulkScopeKey(event.target.value)} style={{ width: "100%" }}>{bulkScopeKey && !bulkScope && <option value={bulkScopeKey} disabled>Selected scope unavailable — choose an approved scope</option>}{bulkScopes.map(scope => <option key={scope.key} value={scope.key}>{scope.label} ({scope.testCaseIds.length})</option>)}</select></label>
+              <label>Selection operation<select value={bulkMode} onChange={event => setBulkMode(event.target.value as RunBulkSelectionMode)} style={{ width: "100%" }}><option value="SET">Set — replace selection</option><option value="ADD">Add — keep existing and add matches</option><option value="REMOVE">Remove — subtract matches</option></select></label>
+              {pendingRequest ? <p role="status">Selection changes are locked while confirming the original {pendingRequest.testCaseIds.length}-case request.</p> : bulkPreview?.ok ? <p role="status" style={{ margin: 0 }}>Applying this operation will add {bulkPreview.added}, remove {bulkPreview.removed}, and leave {bulkPreview.after} selected ({bulkPreview.matched} scope matches).</p> : bulkPreview && <p role="alert">{bulkPreview.error}</p>}
+              {!pendingRequest && !bulkScope && <p role="alert">Choose a currently available approved scope. The previous scope was not replaced with different cases.</p>}
+              <button type="button" className="btn-secondary" disabled={!bulkPreview?.ok} onClick={applyBulk}>Apply {bulkMode === "SET" ? "Set" : bulkMode === "ADD" ? "Add" : "Remove"} selection</button>
+            </fieldset>
+            {!bulkScopesReady && <p role="status">Verify the current loaded approved scope before applying a selection change.</p>}
+            {bulkNotice && <p role="status">{bulkNotice}</p>}
+          </section>}
           <fieldset
             disabled={
               busy || refreshing || !!pendingRequest || !access.canWrite
