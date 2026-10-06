@@ -13,7 +13,8 @@ import type { FieldPresentationState } from "./project-case-field-presentation";
 const source = readFileSync(new URL("../components/ProjectCaseFieldPresentation.tsx", import.meta.url), "utf8");
 const ast = ts.createSourceFile("control.tsx", source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX), printer = ts.createPrinter();
 const declaration = ast.statements.find(node => ts.isFunctionDeclaration(node) && node.name?.text === "ProjectCaseFieldPresentationControl")!;
-const component = printer.printNode(ts.EmitHint.Unspecified, declaration, ast).replace(/\bexport (?=function)/g, "");
+const capabilityDeclaration = ast.statements.find(node => ts.isClassDeclaration(node) && node.name?.text === "FieldPresentationCallbackCapability")!;
+const component = [capabilityDeclaration, declaration].map(node => printer.printNode(ts.EmitHint.Unspecified, node, ast)).join("\n").replace(/\bexport (?=function)/g, "");
 const widgets = { AUTO: "Native default (no value changes)", TEXT_INPUT: "Single-line text", PARAGRAPH: "Multiline paragraph", DROPDOWN: "Dropdown", RADIO: "Radio choices", TRI_STATE: "Tri-state: unset / yes / no", CHECKBOX: "Checkbox with explicit unset control" };
 const origin = { projectId: "synthetic-project", organizationId: "synthetic-org", clerkActorId: "synthetic-actor", caseId: null };
 function native(): FieldPresentationState {
@@ -28,6 +29,7 @@ function deferred() { let resolve!: (value: unknown) => void, reject!: (cause: u
 async function drain() { for (let i = 0; i < 8; i++) await Promise.resolve(); }
 function harness() {
   const hooks: unknown[] = [], effects: Array<{ deps: unknown[]; cleanup?: () => void }> = [];
+  let scheduledEffects: Array<() => void> = [];
   let cursor = 0, dirty = false, reads = 0, invalidations = 0;
   const auth = { isLoaded: true, isSignedIn: true, userId: origin.clerkActorId, sessionId: "synthetic-session" };
   const access = { origin, current: origin, fresh: { readScope: native().readScope }, readable: true, canConfigure: true, owns: (original: typeof origin) => access.canConfigure && access.readable && original.clerkActorId === auth.userId && original.organizationId === access.current.organizationId };
@@ -38,14 +40,18 @@ function harness() {
   function Modal(props: { open: boolean; children: React.ReactNode }) { return props.open ? React.createElement("div", { role: "dialog" }, props.children) : null; }
   const h: Record<string, unknown> = { React, ...helpers, manualSummaryReadActivation, freshCasePresentation, caseFieldReadPins, widgets, Modal, crypto: { randomUUID: () => "aa7d600c-453d-4c57-850c-1133f518b81d" }, useAuth: () => auth, useCaseFieldAccess: () => access,
     trpcReact: { useUtils: () => ({ client: { caseFieldPresentation: { get: { query: (input: unknown) => { reads++; nativeReadInputs.push(input); return nextRead ? nextRead.promise : Promise.reject(Error("Synthetic fixture has no new native response; cached query is not proof.")); } } } }, caseFieldPresentation: { get: { invalidate: async () => { invalidations++; if (refresh) await refresh.promise; } } }, project: { experience: { invalidate: async () => { invalidations++; } } } }), caseFieldPresentation: { get: { useQuery: (_input: unknown, options: { enabled: boolean }) => { h.enabled = options.enabled; return query; } }, configure: { useMutation: () => save } } },
-    useState: (initial: unknown) => { const index = cursor++; if (!Object.hasOwn(hooks, index)) hooks[index] = initial; return [hooks[index], (next: unknown) => { if (!Object.is(hooks[index], next)) { hooks[index] = next; dirty = true; } }]; },
+    useState: (initial: unknown) => { const index = cursor++; if (!Object.hasOwn(hooks, index)) hooks[index] = typeof initial === "function" ? initial() : initial; return [hooks[index], (next: unknown) => { const value = typeof next === "function" ? (next as (previous: unknown) => unknown)(hooks[index]) : next; if (!Object.is(hooks[index], value)) { hooks[index] = value; dirty = true; } }]; },
     useRef: (initial: unknown) => { const index = cursor++; return hooks[index] ??= { current: initial }; },
   };
-  const effect = (callback: () => (() => void) | undefined, deps: unknown[]) => { const index = cursor++, previous = effects[index]; if (!previous || deps.some((value, i) => !Object.is(value, previous.deps[i]))) { previous?.cleanup?.(); effects[index] = { deps, cleanup: callback() }; } };
+  const effect = (callback: () => (() => void) | undefined, deps: unknown[]) => { const index = cursor++, previous = effects[index]; if (!previous || deps.some((value, i) => !Object.is(value, previous.deps[i]))) scheduledEffects.push(() => { previous?.cleanup?.(); effects[index] = { deps, cleanup: callback() }; }); };
   h.useEffect = effect; h.useLayoutEffect = effect;
   vm.createContext(h); vm.runInContext(ts.transpileModule(component, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.None, jsx: ts.JsxEmit.React } }).outputText, h);
   let tree: React.ReactElement;
-  function render() { for (let i = 0; i < 15; i++) { dirty = false; cursor = 0; tree = (h.ProjectCaseFieldPresentationControl as (props: { projectId: string }) => React.ReactElement)({ projectId: origin.projectId }); if (!dirty) return tree; } throw Error("Synthetic hook controller did not settle."); }
+  function render(commit = true) { for (let i = 0; i < 15; i++) { dirty = false; cursor = 0; scheduledEffects = []; tree = (h.ProjectCaseFieldPresentationControl as (props: { projectId: string }) => React.ReactElement)({ projectId: origin.projectId }); if (commit) scheduledEffects.splice(0).forEach(run => run()); if (!dirty) return tree; } throw Error("Synthetic hook controller did not settle."); }
+  // React can discard render-phase state of an abandoned update. The already
+  // mounted capability object remains shared and can only revoke during that
+  // attempt. Ref objects are preserved; no layout/effect callbacks are run.
+  function abandonRender() { const committedHooks = hooks.slice(); render(false); hooks.splice(0,hooks.length,...committedHooks); scheduledEffects = []; }
   function button(label: string) { const match = elements(render()).find(node => node.type === "button" && React.Children.toArray(node.props.children as React.ReactNode).join("") === label); if (!match) throw Error(`Missing button: ${label}`); return match.props; }
   function click(label: string) { return (button(label).onClick as () => unknown)(); }
   function html() { return renderToStaticMarkup(render()); }
@@ -54,9 +60,140 @@ function harness() {
   function close() { const modal = elements(render()).find(node => node.type === Modal)!; (modal.props.onClose as () => void)(); render(); }
   function ack(input: unknown = calls.at(-1)) { const request = input as { requestId: string }; return { projectId: origin.projectId, organizationId: origin.organizationId, actorClerkUserId: origin.clerkActorId, requestId: request.requestId, replayed: false }; }
   function freshRead(data = native()) { const held = nextRead!; nextRead = null; held.resolve(data); }
-  return { auth, access, query, calls, nativeReadInputs, render, click, button, html, load, review, close, ack, freshRead, holdRead: () => nextRead = deferred(), response: () => response!, reads: () => reads, invalidations: () => invalidations, holdRefresh: () => refresh = deferred(), unmount: () => effects.forEach(effect => effect?.cleanup?.()) };
+  return { auth, access, query, calls, nativeReadInputs, render, abandonRender, click, button, html, load, review, close, ack, freshRead, snapshotHtml: () => renderToStaticMarkup(tree), get tree() { return tree; }, holdRead: () => nextRead = deferred(), response: () => response!, reads: () => reads, invalidations: () => invalidations, holdRefresh: () => refresh = deferred(), unmount: () => effects.forEach(effect => effect?.cleanup?.()) };
 }
 describe("actual custom-field presentation controller source", () => {
+  it("actual capability observes only revocation; forged/stale observation handles cannot publish or revive a committed callback", () => {
+    const actualClass = ts.transpileModule(printer.printNode(ts.EmitHint.Unspecified, capabilityDeclaration, ast), { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.None } }).outputText;
+    type Token = Readonly<{ stamp: number; readStamp: number }>;
+    const capability = vm.runInNewContext(actualClass + "\nnew FieldPresentationCallbackCapability()") as { observe: (key: string, authorityKey?: string) => Token; publish: (token: Token) => Token | null; owns: (token: Token | null) => boolean; revoke: (token: Token | null) => void };
+    const a = capability.observe("A"); expect(Object.isFrozen(a)).toBe(true); expect(capability.owns(a)).toBe(false);
+    expect(capability.publish({ stamp: a.stamp, readStamp: a.readStamp })).toBeNull(); expect(capability.owns(a)).toBe(false);
+    expect(capability.publish(a)).toBe(a); expect(capability.owns(a)).toBe(true);
+    const b = capability.observe("B"); expect(capability.owns(a)).toBe(false); expect(capability.owns(b)).toBe(false);
+    expect(capability.publish(a)).toBeNull();
+    const returned = capability.observe("A"); expect(returned).not.toBe(a); expect(capability.publish(b)).toBeNull(); expect(capability.owns(a)).toBe(false); expect(capability.owns(returned)).toBe(false);
+    expect(capability.publish(returned)).toBe(returned); capability.revoke(a); expect(capability.owns(returned)).toBe(true);
+    capability.revoke(returned); expect(capability.owns(returned)).toBe(false);
+    const first = capability.observe("same-projection", "raw-A"); capability.publish(first);
+    const second = capability.observe("same-projection", "raw-B"); expect(second.readStamp).toBeGreaterThan(first.readStamp); expect(capability.owns(first)).toBe(false); expect(capability.owns(second)).toBe(false);
+  });
+  it("an uncommitted session loss and A-B-A return revoke captured edit/review/confirm/send callbacks before any layout can grant replacement", () => {
+    const host = harness(); host.load(); host.review();
+    const send = host.button("Save reviewed presentation").onClick as () => void;
+    const review = host.button("Review unsaved presentation").onClick as () => void;
+    const nodes = elements(host.tree), reason = nodes.find(node => node.type === "textarea")!.props.onChange as (event: { target: { value: string } }) => void;
+    const choice = nodes.find(node => node.type === "select")!.props.onChange as (event: { target: { value: string } }) => void;
+    const confirm = nodes.find(node => node.type === "input" && node.props.type === "checkbox")!.props.onChange as (event: { target: { checked: boolean } }) => void;
+    const staleActions = () => { reason({ target: { value: "STALE_REASON_MUST_NOT_APPLY" } }); choice({ target: { value: "PARAGRAPH" } }); review(); confirm({ target: { checked: true } }); send(); };
+    host.auth.sessionId = "uncommitted-other-session"; host.render(false); staleActions();
+    expect(host.snapshotHtml()).not.toContain(" Exact native label "); expect(host.calls).toHaveLength(0);
+    host.auth.sessionId = "synthetic-session"; host.render(false); staleActions(); expect(host.calls).toHaveLength(0);
+    host.render(); host.query.dataUpdatedAt++; const html = host.html();
+    expect(html).toContain(" explicit native review "); expect(html).not.toContain("STALE_REASON_MUST_NOT_APPLY");
+    expect(host.button("Save reviewed presentation").disabled).toBe(true);
+    const notes = elements(host.tree).find(node => node.type === "select" && node.props["aria-label"] === "Control for notes")!;
+    expect(notes.props.value).toBe("AUTO"); expect(host.calls).toHaveLength(0);
+  });
+  it("discarded render-phase state cannot revive prior review/confirmation when abandoned B returns to committed A", () => {
+    const host = harness(); host.load(); host.review();
+    const oldSend = host.button("Save reviewed presentation").onClick as () => void;
+    expect(host.button("Save reviewed presentation").disabled).toBe(false);
+    host.auth.sessionId = "abandoned-other-session"; host.abandonRender(); oldSend(); expect(host.calls).toHaveLength(0);
+    host.auth.sessionId = "synthetic-session"; host.render(); oldSend(); expect(host.calls).toHaveLength(0);
+    expect(host.html()).toContain(" explicit native review "); expect(host.html()).toContain(" Exact native label ");
+    expect(host.html()).toContain("Cached settings cannot authorize a new save");
+    expect(host.button("Save reviewed presentation").disabled).toBe(true);
+    (host.button("Save reviewed presentation").onClick as () => void)(); expect(host.calls).toHaveLength(0);
+    (host.button("Review unsaved presentation").onClick as () => void)(); host.render();
+    expect(host.html()).not.toContain("I reviewed these exact"); expect(host.button("Save reviewed presentation").disabled).toBe(true);
+    (host.button("Save reviewed presentation").onClick as () => void)(); expect(host.calls).toHaveLength(0);
+    host.query.dataUpdatedAt++; host.render(); host.review(); host.click("Save reviewed presentation");
+    expect(host.calls).toHaveLength(1); expect(Object.isFrozen(host.calls[0])).toBe(true);
+  });
+  it("discarded native-identity render state still clears old committed review before replacement handlers can send", () => {
+    const host = harness(); host.load(); host.review(); const oldSend = host.button("Save reviewed presentation").onClick as () => void;
+    host.access.fresh.readScope.actorId = "abandoned-native-replacement"; host.abandonRender();
+    host.access.fresh.readScope.actorId = "synthetic-native"; host.render(); oldSend();
+    (host.button("Save reviewed presentation").onClick as () => void)();
+    expect(host.calls).toHaveLength(0); expect(host.button("Save reviewed presentation").disabled).toBe(true);
+    expect(host.html()).toContain(" explicit native review ");
+  });
+  it("discarded render-phase verification state cannot preserve an old adoption proof across abandoned session ABA", async () => {
+    const host = harness(); host.load(); host.auth.sessionId = "renewed-session"; host.render(); host.holdRead(); host.click("Verify current session"); host.freshRead(); await drain();
+    const adopt = host.button("Adopt verified current session").onClick as () => void;
+    host.auth.sessionId = "abandoned-third-session"; host.abandonRender();
+    host.auth.sessionId = "renewed-session"; host.render(); adopt();
+    expect(host.html()).not.toContain("Adopt verified current session"); expect(host.html()).not.toContain(" Exact native label "); expect(host.calls).toHaveLength(0);
+    host.holdRead(); host.click("Verify current session"); host.freshRead(); await drain(); host.click("Adopt verified current session");
+    expect(host.html()).toContain(" Exact native label "); expect(host.button("Save reviewed presentation").disabled).toBe(true);
+  });
+  it("uncommitted native replacement revokes old load and send handlers; returning exact N still requires a new committed callback", () => {
+    const host = harness(); host.render(); host.click("Configure custom-field presentation"); host.render(); host.query.dataUpdatedAt++; host.render();
+    const load = host.button("Load current settings for review").onClick as () => void;
+    host.access.fresh.readScope.actorId = "replacement-native"; host.render(false); load();
+    expect(host.snapshotHtml()).not.toContain(" Exact native label ");
+    host.access.fresh.readScope.actorId = "synthetic-native"; host.render(false); load(); expect(host.calls).toHaveLength(0);
+    host.render(); host.query.dataUpdatedAt++; host.render(); host.click("Load current settings for review"); host.review();
+    const send = host.button("Save reviewed presentation").onClick as () => void;
+    host.access.fresh.readScope.actorId = "replacement-native"; host.render(false); send();
+    host.access.fresh.readScope.actorId = "synthetic-native"; host.render(false); send(); expect(host.calls).toHaveLength(0);
+    host.render(); expect(host.html()).toContain(" explicit native review "); expect(host.button("Save reviewed presentation").disabled).toBe(true);
+  });
+  it("ACK after an abandoned authority render settles only its exact receipt and cannot clear draft or refresh by A-B-A coincidence", async () => {
+    const host = harness(); host.load(); host.review(); host.click("Save reviewed presentation"); const held = host.calls[0];
+    host.access.canConfigure = false; host.render(false); host.access.canConfigure = true; host.render(false);
+    host.response().resolve(host.ack()); await drain(); expect(host.invalidations()).toBe(0); expect(host.calls).toEqual([held]);
+    host.render(); const html = host.html(); expect(html).toContain(" Exact native label "); expect(html).toContain(" explicit native review ");
+    expect(html).not.toContain("Retry identical presentation request"); expect(host.button("Save reviewed presentation").disabled).toBe(true);
+  });
+  it("deferred native verification cannot publish after uncommitted session ABA, and a new committed verification preserves identical UNKNOWN recovery", async () => {
+    const host = harness(); host.load(); host.review(); host.click("Save reviewed presentation"); host.response().reject(Error("synthetic unknown")); await drain(); const held = host.calls[0];
+    host.auth.sessionId = "renewed-session"; host.render(); host.holdRead(); host.click("Verify current session");
+    host.auth.sessionId = "uncommitted-third-session"; host.render(false); host.auth.sessionId = "renewed-session"; host.render(false);
+    host.freshRead(); await drain(); host.render(); expect(host.html()).not.toContain("Adopt verified current session"); expect(host.html()).not.toContain(" Exact native label ");
+    host.holdRead(); host.click("Verify current session"); host.freshRead(); await drain(); host.click("Adopt verified current session");
+    host.click("Retry identical presentation request"); expect(host.calls[1]).toBe(held); expect(Object.isFrozen(host.calls[1])).toBe(true);
+    host.response().resolve(host.ack()); await drain(); expect(host.html()).toContain("Saved custom-field presentation");
+  });
+  it("uncommitted session changes cannot reuse an old explicit adoption callback or reveal its private draft", async () => {
+    const host = harness(); host.load(); host.auth.sessionId = "renewed-session"; host.render(); host.holdRead(); host.click("Verify current session"); host.freshRead(); await drain();
+    const adopt = host.button("Adopt verified current session").onClick as () => void;
+    host.auth.sessionId = "uncommitted-other-session"; host.render(false); adopt(); host.auth.sessionId = "renewed-session"; host.render(false); adopt();
+    expect(host.snapshotHtml()).not.toContain(" Exact native label "); host.render(); expect(host.html()).not.toContain("Adopt verified current session"); expect(host.calls).toHaveLength(0);
+  });
+  it("unmount revokes actual deferred verification capability and retained retry callbacks without dispatch or proof publication", async () => {
+    const host = harness(); host.load(); host.review(); host.click("Save reviewed presentation"); host.response().reject(Error("synthetic unknown")); await drain();
+    const retry = host.button("Retry identical presentation request").onClick as () => void;
+    host.auth.sessionId = "renewed-session"; host.render(); host.holdRead();
+    const verify = host.button("Verify current session").onClick as () => void; verify(); const reads = host.reads();
+    host.unmount(); retry(); verify(); expect(host.calls).toHaveLength(1); expect(host.reads()).toBe(reads);
+    host.freshRead(); await drain(); expect(host.invalidations()).toBe(0); expect(host.snapshotHtml()).not.toContain("Adopt verified current session");
+  });
+  it("a captured closed-view show callback stays revoked through an uncommitted session ABA", () => {
+    const host = harness(); host.render(); const show = host.button("Configure custom-field presentation").onClick as () => void;
+    host.auth.isSignedIn = false; host.render(false); show(); expect(host.snapshotHtml()).not.toContain("role=\"dialog\"");
+    host.auth.isSignedIn = true; host.render(false); show(); expect(host.snapshotHtml()).not.toContain("role=\"dialog\"");
+    host.render(); host.click("Configure custom-field presentation"); expect(host.html()).toContain("role=\"dialog\""); expect(host.calls).toHaveLength(0);
+  });
+  it("an uncommitted authority loss during settled refresh blocks the second cache effect", async () => {
+    const host = harness(); host.load(); host.review(); const refresh = host.holdRefresh(); host.click("Save reviewed presentation");
+    host.response().resolve(host.ack()); await drain(); expect(host.invalidations()).toBe(1);
+    host.auth.sessionId = "uncommitted-session"; host.render(false); host.auth.sessionId = "synthetic-session"; host.render(false);
+    refresh.resolve(undefined); await drain(); expect(host.invalidations()).toBe(1); expect(host.calls).toHaveLength(1);
+    host.render(); expect(host.html()).not.toContain("Retry identical presentation request");
+  });
+  it("captured settings-read and recovery-show callbacks cannot dispatch after uncommitted authority revocation", () => {
+    const host = harness(); host.load(); host.query.error = Error("synthetic fresh read refusal");
+    const retryRead = host.button("Retry settings read").onClick as () => void, reads = host.reads();
+    host.auth.isSignedIn = false; host.render(false); retryRead(); expect(host.reads()).toBe(reads);
+    host.auth.isSignedIn = true; host.render(false); retryRead(); expect(host.reads()).toBe(reads);
+    host.render(); host.close(); host.auth.sessionId = "renewed-session"; host.render();
+    const showRecovery = host.button("Recover retained settings in this session").onClick as () => void;
+    host.auth.sessionId = "uncommitted-third-session"; host.render(false); showRecovery();
+    host.auth.sessionId = "renewed-session"; host.render(false); showRecovery(); expect(host.snapshotHtml()).not.toContain("role=\"dialog\"");
+    expect(host.calls).toHaveLength(0);
+  });
   it("waits for fresh settings after open/reopen or same-session recovery; renders compatible dropdowns and exact retained mappings", () => {
     const host = harness(); host.render(); host.click("Configure custom-field presentation");
     expect(host.html()).not.toContain("Load current settings for review"); expect(host.reads()).toBe(1);
