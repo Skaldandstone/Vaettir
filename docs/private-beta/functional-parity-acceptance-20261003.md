@@ -2199,3 +2199,27 @@ two-field layout alone would not meet it. Public recurring reporting/portability
 and customization complaints already cited above remain dated signals, not
 current defect prevalence, a ranking or proof of superiority. This tranche is
 source-only and is not deployed or authenticated production acceptance.
+
+### October 6 bounded CI result detail reader foundation
+
+The additive `ciRunDetails` access/page API namespace is now registered in source.
+It requires the independently verified signed-in subject and current locked native
+organization/member/project/User scope, including supported read-only members.
+Original run/actor scope, request nonce and an explicit 1–50 result limit are echoed;
+the UTF-8 result-ID upper bound is an admitted current window, not frozen execution
+history or a globally immutable cohort. Whole foreign or missing case/healing
+references refuse before private header, counts or body publication.
+
+Native-shaped admission bounds cover 100,000 identities/16 MiB per window,
+128 KiB header, separately retained note/error text, at most 200 artifact metadata
+references and 512 KiB projected page including JSON escaping. Unsupported content
+refuses without clipping or inventing an unmatched case. Captured external IDs and
+paths remain distinct from current linked stable-ID/case/source labels; nullable,
+empty, whitespace and zero values are not coalesced. No storage/CI URL, source
+file, procedure, observations or healing/classification body/action is retrieved.
+
+Root repeated 54 service/router/schema mock and pure checks across two suites.
+Native SQL execution, concurrency, performance and authenticated runtime remain
+unrun. The six-file browser reader/component is an active separate workstream;
+the existing inline CI detail caller has not been cut over. Registration and these
+source checks do not prove current production behavior or deployment.
