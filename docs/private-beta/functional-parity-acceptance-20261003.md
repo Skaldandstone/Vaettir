@@ -2505,3 +2505,61 @@ These are synthetic local checks, not a real export/download acceptance. The
 actual manual page's older broad boolean scope callback still needs the new
 captured immutable native reader binding. This boundary change alone does not
 prove actor/session ABA safety, production deployment or full audit fidelity.
+
+### October 6 retained helper setup owner and metadata surface
+
+The new standalone setup hook/card uses the current-only native bootstrap and
+strict pinned metadata reads, with explicit fresh nonces. Actual SDK listener
+installation must return cleanup before metadata can be admitted. Observed SDK
+resource/session changes revoke old callbacks; unsupported complete bootstrap
+metadata is bounded before parsing, without invoking accessors or stripping a
+private body. Loss of current access hides retained setup buffers and uncertain
+attempts instead of rebinding them to another actor.
+
+Root repeated 24 focused owner/hook/markup checks and 41 existing protocol/setup
+checks, all passing, with scoped lint clean. These use synthetic React/Clerk/RPC
+boundaries, the actual retained owner and TanStack, plus static React markup.
+They do not verify genuine framework mounting, authentication, native SQL, helper
+HTTP, Windows launch or device operation. The hook/card remains unmounted. No
+default health transport, polling, download, discovery, capture or AI action is
+provided. A future isolated metadata mount must not make the old capture-ready
+flag, legacy source drafts or unsafe operation buttons look verified.
+
+### October 6 whole-run browser reader and private row retention
+
+The new browser reader pins the original project/run/workspace/Clerk intent
+before accepting a body, then the independently verified native actor echo. It
+admits the complete supported wire projection and ordered planned/available/
+unavailable partition; no unsupported field or procedure is dropped. Literal
+enum strings, exact UTC wire dates, NULL, empty text, multiline descriptors and
+zero measurements are preserved or refused explicitly. Client inspection caps
+are 16 MiB escaped JSON, depth 64 and one million nodes, with existing field and
+cohort limits. These are browser refusal limits, not expanded native capacity.
+
+Installed SDK monitoring, query-cache and render epochs revoke observed
+actor/session/resource A-B-A changes. Captured old callbacks stay refused after
+a newer valid layout. Cleanup revokes before SDK callbacks and withholds cleanup
+exceptions; restoring a cached pointer cannot silently restore a native nonce.
+An entirely unobserved SDK swap cannot be claimed detected. The reader owns no
+write draft, paid request or UNKNOWN outcome.
+
+The separate private mounting helper pins the first ordered planned scope of at
+most 1,000 identities, retains only one latest admitted payload per seen identity
+and keeps disappearing procedures privately mounted. Scope/order/actor or full
+retention-bound changes refuse the whole candidate without eviction or a stale
+progress/export denominator. Never-available identities get no invented row.
+Its bounds do not establish total child-draft/cache memory or performance.
+
+Root repeated 82 reader/admission checks and 33 private-retention checks, with
+scoped lint and current Web types passing. Root review found enum String coercion
+and stale callback/cleanup boundaries; the fixes add negative regressions rather
+than weaken assertions. Retained intermediate failed test/type evidence remains
+distinct from the final local checks. Actual manual-page/child/export cutover and
+synthetic real-page rendering are still unfinished. These unmounted foundations
+do not certify genuine authentication, native SQL, completion UUID/CAS recovery,
+production deployment or acceptance of James's reported workflows.
+
+The final compatible Web suite also passed: 803 Node checks and 863 typed checks
+across 70 files, with no skipped checks. This covers the reviewed source state,
+not the later drag-affordance workstream, a release build, genuine browser/device
+acceptance or any retained failed native/runtime/security gate.

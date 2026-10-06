@@ -1,0 +1,34 @@
+import { readFileSync } from "node:fs";
+import vm from "node:vm";
+import ts from "typescript";
+import React from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+import { expect, it, vi } from "vitest";
+import type { DeviceHelperSetupWorkflow, HelperSetupView } from "./use-device-helper-setup";
+const source = readFileSync(new URL("../components/DeviceHelperSetupStatus.tsx", import.meta.url), "utf8");
+const ast = ts.createSourceFile("status.tsx", source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+const functions = ast.statements.filter(ts.isFunctionDeclaration).map(node => ts.createPrinter().printNode(ts.EmitHint.Unspecified, node, ast).replace(/\bexport\s+/, "")).join("\n");
+const executable = ts.transpileModule(functions + "\nthis.component=DeviceHelperSetupStatus;", { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.None, jsx: ts.JsxEmit.React } }).outputText;
+function fixture(patch: Partial<HelperSetupView> = {}) {
+  const workflow: DeviceHelperSetupWorkflow = { view: { status: "REVIEW_REQUIRED", busy: false, canReview: true, canCheck: false, paired: false, currentScope: null, description: "Public setup metadata only", deviceOperationPerformed: false, processingPermissionGranted: false, spendingApprovalGranted: false, ...patch }, review: vi.fn(async () => undefined), checkPaired: vi.fn(async () => undefined), reportBlocked: vi.fn(), healthAvailable: false };
+  const context = vm.createContext({ React, useDeviceHelperSetup: () => workflow, DeviceHelperBlockedLaunchGuidance: () => React.createElement("p", null, "Reported refusal public guidance") });
+  vm.runInContext(executable, context);
+  const component = (context as unknown as { component(props: unknown): React.ReactElement }).component;
+  return { workflow, render: () => component({ intent: { platform: "windows" } }) };
+}
+it("actual source surface exposes only explicit metadata controls and no private details, download or capture action", () => {
+  const h = fixture(), html = renderToStaticMarkup(h.render());
+  for (const text of ["Review current setup access", "Check paired response only", "Windows refused launch", "No local health transport", "not attributed to this current identity"]) expect(html).toContain(text);
+  expect(html).not.toMatch(/href=|download=|<input|<textarea|<form|pairingCode|nativeActorId/);
+  expect(h.workflow.review).not.toHaveBeenCalled(); expect(h.workflow.checkPaired).not.toHaveBeenCalled(); expect(h.workflow.reportBlocked).not.toHaveBeenCalled();
+});
+it("private and paired-liveness-only views never imply device/capture readiness", () => {
+  const privateHtml = renderToStaticMarkup(fixture({ status: "PRIVATE", canReview: false }).render());
+  expect(privateHtml).toContain("Private setup retained"); expect((privateHtml.match(/disabled=""/g) ?? []).length).toBe(3);
+  const pairedHtml = renderToStaticMarkup(fixture({ paired: true }).render()); expect(pairedHtml).toContain("Paired response reported v2 liveness only");
+  expect(pairedHtml).toContain("Setup does not approve downloads"); expect(pairedHtml).not.toContain("Computer connected");
+});
+it("reported blocked view renders public guidance without pairing commands or an OS operation", () => {
+  const html = renderToStaticMarkup(fixture({ status: "BLOCKED" }).render()); expect(html).toContain("Reported refusal public guidance");
+  expect(source).not.toMatch(/\b(?:fetch|window|navigator|downloadFile|captureCurrentScreen|discoverAndroidDevices|generateMutation)\b/);
+});
