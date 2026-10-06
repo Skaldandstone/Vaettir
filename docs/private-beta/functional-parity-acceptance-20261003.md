@@ -2875,3 +2875,45 @@ estimates or vendor rankings. Vaettir's acceptance should therefore test
 retained selection versus visible filtering, lossless recovery, usable search
 and evidence-linked remaining/blocking work, not merely copy graphs or labels.
 No customer/provider/source processing, AI spend or deployment occurred.
+
+### October 6: reviewed retest reader and progress semantics
+
+Four new, still-unmounted browser retest reader/hook files admit complete
+supported ACCESS, PREVIEW and LINKS projections with original native actor,
+organization, Clerk actor, run/case, exact request key and fresh read nonce.
+Independent installed SDK/cache monitoring and render/layout guards revoke
+old callbacks through observed session/resource/cache changes. ACCESS is
+membership-only, not source-relationship or creation/recovery permission;
+private preview/links require an explicit current read. Original nullable,
+empty, multiline and zero values remain intact; unsupported projections are
+refused whole. Existing Wizard/callers and accepted write bodies are unchanged.
+
+Root independently repeated 59 focused reader/hook checks, scoped lint and
+whole-Web types successfully. Full compatible Web validation passed 807 Node
+and 1,186 typed checks across 79 files: 1,993 total, no skips. This repairs the
+previously recorded in-flight test typing failures, not native/runtime or
+production gates. Four-file hashes were checked against the agent freeze.
+
+Fresh authenticated TestRail vendor-sample inspection showed visual open-run
+cards with separate colored outcome counts, milestone dates and a percentage,
+plus completed runs grouped by date. Its sample run displayed 89 passed,
+21 blocked, 17 retest, 12 failed and 113 untested out of 252. The overview's
+35% was the passed fraction, not percent completed. The Progress page
+separately labeled 48% completed (122/252), started time, remaining tests/effort,
+recorded elapsed effort, forecast date and forecast accuracy. Chart PNG/CSV
+controls were visible but not clicked; export fidelity and forecast validity
+were not tested. Vaettir should explicitly distinguish recorded progress,
+pass rate, remaining work, elapsed effort and release acceptance, rather than
+copy an ambiguous percentage or an unsupported forecast. No vendor results
+or samples were modified.
+
+The retained actual-page synthetic fixture accepted one new exact whole-case
+intent with a deliberately lost fake acknowledgement. Its pending completion
+interlock disabled Complete. A subsequent smaller planned cohort withheld
+private current facts and exports while retaining the original case DOM node
+and exact UUID/body. Restoring the original cohort has not yet re-established
+rendered access in this scenario; that runtime acceptance remains open and is
+not replaced by green model checks. Eight local source/schema selfchecks,
+including accepted receipt/cohort change/restoration, pass. All real native,
+provider, device and network counters remain zero. The existing hash-bound
+bundle does not attest the new retest foundation or new helper changes.
