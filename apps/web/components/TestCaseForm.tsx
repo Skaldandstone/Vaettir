@@ -604,7 +604,9 @@ export default function TestCaseForm({
         <button type="button" disabled={!active || sharedGroupsQuery.isFetching || sharedGroupsQuery.isPaused} onClick={() => void sharedGroupsQuery.refetch()}>Refresh current shared procedure</button>
       </div>}
       {!value.sharedStepGroupId && <div role="list" aria-label="Ordered test steps">
-        {value.steps.map((step, i) => (
+        {value.steps.map((step, i) => {
+          const stepInputPrefix = step.editorKey ?? `${stepKeyPrefix}-${i}`;
+          return (
           <div
             key={step.editorKey}
             role="listitem"
@@ -649,6 +651,7 @@ export default function TestCaseForm({
                 {labels.action}
                 <textarea
                   value={step.action}
+                  aria-label={`Step ${i + 1}: ${labels.action}`}
                   onChange={(e) => updateStep(i, { action: e.target.value })}
                   rows={4}
                   style={PROSE_EDITOR_STYLE}
@@ -658,6 +661,8 @@ export default function TestCaseForm({
                 {technicalBehaviorLabel(labels.expectedActionOrData)}
                 <textarea
                   value={step.expectedActionOrData ?? ""}
+                  aria-label={`Step ${i + 1}: ${technicalBehaviorLabel(labels.expectedActionOrData)}`}
+                  aria-describedby={step.expectedActionOrData === null || step.expectedActionOrData === "" ? `${stepInputPrefix}-technical-state` : undefined}
                   onChange={(e) =>
                     updateStep(i, { expectedActionOrData: e.target.value })
                   }
@@ -665,7 +670,7 @@ export default function TestCaseForm({
                   placeholder="e.g. onClick triggers GET /api/details"
                   style={PROSE_EDITOR_STYLE}
                 />
-                {step.expectedActionOrData === null ? <span className="text-muted">Not supplied</span> : step.expectedActionOrData === "" ? <span className="text-muted">Explicit empty text</span> : null}
+                {step.expectedActionOrData === null ? <span id={`${stepInputPrefix}-technical-state`} className="text-muted">Not supplied</span> : step.expectedActionOrData === "" ? <span id={`${stepInputPrefix}-technical-state`} className="text-muted">Explicit empty text</span> : null}
               </label>}
             </div>
             <div data-step-pair="result-response" style={{ ...STEP_PAIR_STYLE, marginTop: 14 }}>
@@ -673,25 +678,29 @@ export default function TestCaseForm({
                 {labels.expectedResult}
                 <textarea
                   value={step.expectedResult ?? ""}
+                  aria-label={`Step ${i + 1}: ${labels.expectedResult}`}
+                  aria-describedby={step.expectedResult === null || step.expectedResult === "" ? `${stepInputPrefix}-result-state` : undefined}
                   onChange={(e) =>
                     updateStep(i, { expectedResult: e.target.value })
                   }
                   rows={4}
                   style={PROSE_EDITOR_STYLE}
                 />
-                {step.expectedResult === null ? <span className="text-muted">Not supplied</span> : step.expectedResult === "" ? <span className="text-muted">Explicit empty text</span> : null}
+                {step.expectedResult === null ? <span id={`${stepInputPrefix}-result-state`} className="text-muted">Not supplied</span> : step.expectedResult === "" ? <span id={`${stepInputPrefix}-result-state`} className="text-muted">Explicit empty text</span> : null}
               </label>
               {visible.expectedResponse && <label style={FIELD_LABEL_STYLE}>
                 {labels.expectedResponse}
                 <textarea
                   value={step.expectedResponse ?? ""}
+                  aria-label={`Step ${i + 1}: ${labels.expectedResponse}`}
+                  aria-describedby={step.expectedResponse === null || step.expectedResponse === "" ? `${stepInputPrefix}-response-state` : undefined}
                   onChange={(e) =>
                     updateStep(i, { expectedResponse: e.target.value })
                   }
                   rows={4}
                   style={PROSE_EDITOR_STYLE}
                 />
-                {step.expectedResponse === null ? <span className="text-muted">Not supplied</span> : step.expectedResponse === "" ? <span className="text-muted">Explicit empty text</span> : null}
+                {step.expectedResponse === null ? <span id={`${stepInputPrefix}-response-state`} className="text-muted">Not supplied</span> : step.expectedResponse === "" ? <span id={`${stepInputPrefix}-response-state`} className="text-muted">Explicit empty text</span> : null}
               </label>}
             </div>
             <details open={step.mediaAttachmentIds.length > 0} style={{ marginTop: 10 }}>
@@ -729,7 +738,8 @@ export default function TestCaseForm({
               )}
             </details>
           </div>
-        ))}</div>}
+          );
+        })}</div>}
       {!value.sharedStepGroupId && (
         <button
           type="button"

@@ -489,7 +489,7 @@ describe.skipIf(!isolated)(
           template: template([...caseIds].reverse()),
         }),
       ]);
-      expect(outcomes[1]!.status).toBe("fulfilled");
+      expect(outcomes[1]!.status, outcomes[1]!.status === "rejected" ? concurrentFailureCodes(outcomes[1]!.reason) : undefined).toBe("fulfilled");
       // A newer configuration can invalidate a reviewed metadata revision.
       // Refuse it atomically, then explicitly review a NEW request; never
       // relabel an old UUID or pretend both conflicting writes succeeded.

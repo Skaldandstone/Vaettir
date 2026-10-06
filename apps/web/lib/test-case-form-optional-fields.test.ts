@@ -61,3 +61,39 @@ it("explicit edits retain custom labels and complete multiline prose, without a 
 it("supplied empty/whitespace/custom values remain visible under HIDE before any local reveal", () => { const initial = seed(); initial.background = " \n "; initial.tags = [" exact, tag "]; initial.verificationProfile.setup = "Setup\n raw"; initial.verificationProfile.safety = " \n "; initial.steps[0]!.expectedActionOrData = ""; initial.steps[0]!.expectedResponse = " \n "; const h = harness(initial); expect(elements(h.tree).some(e => e.type === "button" && String(e.props["aria-label"] ?? "").startsWith("Show "))).toBe(false); expect(h.textarea(labels.expectedActionOrData).props.value).toBe(""); expect(h.textarea(labels.expectedResponse).props.value).toBe(" \n "); expect(h.html()).toContain("Explicit empty text"); expect(h.sent).toEqual([]); });
 it.each(["Fixture setup, instruments and measurement criteria", "Safety prerequisites / stop conditions"])("explicit %s reveal opens the group in a software draft without entering any values", label => { const h = harness(), reads = h.reads.length; h.click(`Show ${label} for this draft`); const group = elements(h.tree).find(e => e.type === "details" && text(e.props.children).startsWith("Fixture, safety and measurement criteria")); expect(group?.props.open).toBe(true); expect(h.reads).toHaveLength(reads); expect(h.sent).toEqual([]); });
 it.each(["inactive", "locked", "saving", "uploading"])("%s refuses even a captured old reveal callback, with no draft/default/write mutation", mode => { const h = harness(), old = h.button(`Show ${labels.expectedResponse} for this draft`); if (mode === "inactive") h.props.active = false; if (mode === "locked") h.props.locked = true; if (mode === "saving") { h.ready(); h.holdSave(); (h.button("Save changes").props.onClick as () => void)(); } if (mode === "uploading") h.holdUpload(); h.render(false); const reads = h.reads.length, writes = h.sent.length; (old.props.onClick as () => void)(); h.settle(); h.props.active = true; h.props.locked = false; if (mode === "inactive" || mode === "locked") { h.settle(); expect(h.button(`Show ${labels.expectedResponse} for this draft`).props.disabled).toBe(false); (old.props.onClick as () => void)(); h.settle(); } expect(h.reads).toHaveLength(reads); expect(h.sent).toHaveLength(writes); expect(h.settingsWrites).toEqual([]); expect(elements(h.tree).filter(e => e.type === "label" && text(e.props.children).startsWith(labels.expectedResponse))).toHaveLength(0); });
+it("numbered optional editor names follow current position after reorder while description IDs and exact saved data retain row identity", async () => {
+  const initial = seed(), control = harness(initial), reordered = harness(initial);
+  control.ready(); reordered.ready();
+  for (const form of [control, reordered]) {
+    form.click(`Show ${labels.expectedActionOrData} for this draft`);
+    form.click(`Show ${labels.expectedResponse} for this draft`);
+  }
+  const before = Object.values(labels).map(label => ({ label, editor: reordered.textarea(label) }));
+  for (const { label, editor } of before) expect(editor.props["aria-label"]).toBe(`Step 1: ${label}`);
+  const references = before.flatMap(({ editor }) => editor.props["aria-describedby"] ? [String(editor.props["aria-describedby"])] : []);
+  expect(new Set(references).size).toBe(3);
+  const reads = reordered.reads.length;
+  reordered.click("Move step 1 down");
+  expect(reordered.reads).toHaveLength(reads);
+  expect(reordered.sent).toEqual([]);
+  expect(reordered.settingsWrites).toEqual([]);
+  for (const label of Object.values(labels)) {
+    expect(reordered.textarea(label, 0).props["aria-label"]).toBe(`Step 1: ${label}`);
+    const retained = reordered.textarea(label, 1), prior = before.find(row => row.label === label)!.editor;
+    expect(retained.props["aria-label"]).toBe(`Step 2: ${label}`);
+    expect(retained.props.value).toBe(prior.props.value);
+    expect(retained.props["aria-describedby"]).toBe(prior.props["aria-describedby"]);
+  }
+  for (const reference of references) {
+    const notice = elements(reordered.tree).find(element => element.props.id === reference);
+    expect(notice).toBeDefined();
+    expect(["Not supplied", "Explicit empty text"]).toContain(text(notice));
+  }
+  await control.save(); await reordered.save();
+  const originalBody = control.sent[0] as { steps: unknown[] };
+  expect(reordered.sent[0]).toEqual({ ...originalBody, steps: [...originalBody.steps].reverse() });
+  expect(reordered.sent[0]).toMatchObject({ expectedStepRevision: "s".repeat(64), expectedCaseRevision: "c".repeat(64), steps: [
+    { action: " Second action ", expectedActionOrData: null, expectedResult: " Expected\n exact ", expectedResponse: null, mediaAttachmentIds: [] },
+    { action: " Click\n button ", expectedActionOrData: null, expectedResult: "", expectedResponse: null, mediaAttachmentIds: ["media-A", "media-B"] },
+  ] });
+});

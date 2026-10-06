@@ -569,7 +569,7 @@ export default function ReleaseReadinessPage() {
                   }}
                 >
                   <div style={{ minWidth: 0, overflowWrap: "anywhere" }}>
-                    <span>{c.description}</span>{" "}
+                    <span style={{ whiteSpace: "pre-wrap" }}>{c.description}</span>{" "}
                     <CriterionDescriptionEditor
                       projectId={projectId}
                       testPlanId={p.id}

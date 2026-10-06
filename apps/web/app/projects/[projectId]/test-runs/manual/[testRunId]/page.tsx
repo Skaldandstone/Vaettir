@@ -277,6 +277,8 @@ function CaseRow({
                         </div>
                       ),
                   )}
+                </>
+              )}
                   {testCase.steps.length > 0 && (
                     <div
                       role="region"
@@ -373,12 +375,12 @@ function CaseRow({
                       </table>
                     </div>
                   )}
+              {!stepMode && (
                   <p>
                     Review an observation below. Notes and optional laboratory
                     context stay in one retained editor, with raw measurement
                     buffers and an explicit review before saving.
                   </p>
-                </>
               )}
             </div>
           )}

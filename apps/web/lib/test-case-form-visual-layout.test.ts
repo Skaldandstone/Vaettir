@@ -25,7 +25,7 @@ const initial = {
   ],
 };
 
-function render(options: { locked?: boolean; active?: boolean; hide?: boolean; shared?: boolean } = {}) {
+function render(options: { locked?: boolean; active?: boolean; hide?: boolean; shared?: boolean; stepLabels?: typeof labels } = {}) {
   const presentation = core.defaultCasePresentation(null);
   for (const key of core.CASE_PRESENTATION_FIELDS) presentation.fields[key] = options.hide ? "HIDE" : "SHOW";
   const data = { projectId: "synthetic-p", organizationId: "synthetic-o", caseId: null,
@@ -59,7 +59,7 @@ function render(options: { locked?: boolean; active?: boolean; hide?: boolean; s
   if (!exports.default) throw Error("Actual form export missing");
   return renderToStaticMarkup(React.createElement(exports.default, {
     mode: "edit", projectId: "synthetic-p", testCaseId: "synthetic-case", initial: { ...initial, sharedStepGroupId: options.shared ? "synthetic-shared" : "" },
-    stepFieldLabels: labels, locked: options.locked ?? false, active: options.active ?? true,
+    stepFieldLabels: options.stepLabels ?? labels, locked: options.locked ?? false, active: options.active ?? true,
   }));
 }
 function pairs(html: string) {
@@ -117,4 +117,32 @@ it("does not conceal shared-procedure failure, bypass locked fields or make SSR 
   expect(inactive).not.toContain("data-synthetic-guide-boundary");
   expect(inactive).toContain("Show optional fields for this draft");
   expect(inactive).toMatch(/<button[^>]*disabled=""[^>]*>Save changes<\/button>/);
+});
+it("numbers all eight actual editor names with their customized visible labels and describes NULL versus explicit empty", () => {
+  const html = render();
+  const editors = [...html.matchAll(/<textarea([^>]*)>/g)].map(match => match[1]!);
+  const named = editors.filter(attributes => attributes.includes('aria-label="Step '));
+  expect(named).toHaveLength(8);
+  const names = named.map(attributes => /aria-label="([^"]+)"/.exec(attributes)![1]);
+  expect(names).toEqual([1, 2].flatMap(position => Object.values(labels).map(label => `Step ${position}: ${label}`)));
+  expect(new Set(names).size).toBe(8);
+  const notices = new Map([...html.matchAll(/<span id="([^"]+)" class="text-muted">(Not supplied|Explicit empty text)<\/span>/g)].map(match => [match[1]!, match[2]!]));
+  expect(notices.size).toBe(4);
+  for (const attributes of named) {
+    const described = /aria-describedby="([^"]+)"/.exec(attributes)?.[1];
+    if (described) expect(notices.has(described)).toBe(true);
+  }
+  const described = named.flatMap(attributes => /aria-describedby="([^"]+)"/.exec(attributes)?.[1] ?? []);
+  expect(new Set(described).size).toBe(4);
+  expect(described.map(id => notices.get(id))).toEqual(["Explicit empty text", "Explicit empty text", "Not supplied", "Not supplied"]);
+});
+it("keeps multiline and quoted custom labels literal in numbered accessible names", () => {
+  const stepLabels = { action: ' Human\n"action" ', expectedActionOrData: " Engine / API\nbehavior ", expectedResult: " Visible\n<outcome> ", expectedResponse: " Wire\nresponse " };
+  const html = render({ stepLabels });
+  for (const position of [1, 2]) for (const label of Object.values(stepLabels)) {
+    const escaped = label.replaceAll("&", "&amp;").replaceAll('"', "&quot;").replaceAll("<", "&lt;").replaceAll(">", "&gt;");
+    expect(html).toContain(`aria-label="Step ${position}: ${escaped}"`);
+  }
+  expect(html).toContain(" OnclickFunction triggers API GET\n/apiURL ");
+  expect(html).toContain("A previously linked file is unavailable");
 });

@@ -51,8 +51,15 @@ test("manual run renders every independent phase and complete ordered expected/m
   assert.match(page, /s\[field\] === null/);
   assert.match(page, /s\[field\] === ""/);
   assert.match(page, /whiteSpace: "pre-wrap"/);
-  assert.match(page, /aria-label="Complete stored procedure steps"\s+tabIndex=\{0\}/);
+  assert.match(
+    page,
+    /aria-label="Complete stored procedure steps"\s+tabIndex=\{0\}/,
+  );
   assert.match(page, /overflowX: "auto"/);
+  // The complete stored table remains readable after step mode activates;
+  // BDD phases and case-level recording guidance remain conditional.
+  assert.match(page, /\)\}\s*<\/>\s*\)\}\s*\{testCase.steps.length > 0 &&/);
+  assert.match(page, /\{!stepMode && \(\s*<p>\s*Review an observation below/);
 });
 test("prerequisite chips show stable project IDs without replacing frozen procedure or losing drafts on navigation", () => {
   assert.match(page, /displayId: prerequisite\?\.displayId \?\? null/);
