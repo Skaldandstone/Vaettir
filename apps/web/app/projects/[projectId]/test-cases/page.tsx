@@ -902,6 +902,15 @@ export default function TestCasesPage() {
             buttonLabel={`Analyze filtered suite (${visibleCases.length})`}
           />
         )}
+        {project && (
+          <DurableCaseAnalysis
+            key={`${projectId}:all-loaded-approved`}
+            projectId={projectId}
+            selectedIds={cases.filter(testCase => !testCase.archived && testCase.reviewStatus === "APPROVED").map(testCase => testCase.id)}
+            onCompleted={reload}
+            buttonLabel={`Analyze all loaded approved cases (${cases.filter(testCase => !testCase.archived && testCase.reviewStatus === "APPROVED").length})`}
+          />
+        )}
         {!readOnly && (
           <NewCaseFromAuthoringPreset
             key={projectId}

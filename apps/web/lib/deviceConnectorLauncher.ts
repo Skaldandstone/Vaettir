@@ -50,7 +50,12 @@ function connectorBootstrap(connectorUrl: string, pairingCode: string): string {
     "const {spawnSync}=require('node:child_process');",
     "let directory;let file;let fileCreated=false;",
     "try{",
-    "if(Number(process.versions.node.split('.')[0])<22)throw Error('version');",
+    "if(Number(process.versions.node.split('.')[0])<22){",
+    // Diagnostic admission only; the existing major-version refusal is unchanged.
+    // Never echo an arbitrary version/error body or private pairing arguments.
+    "const installed=/^[0-9]{1,3}\\.[0-9]{1,3}\\.[0-9]{1,4}$/.test(process.versions.node)?process.versions.node:'unavailable';",
+    "console.error('Unsupported Node.js version: '+installed+'. This helper requires Node.js 22 or newer. Install a policy-approved version from https://nodejs.org/en/download, then reopen this file.');",
+    "process.exitCode=1;return;}",
     "const response=await fetch('" +
       connectorUrl +
       "',{redirect:'error',signal:AbortSignal.timeout(30000)});",

@@ -22,6 +22,31 @@ test("actual manual summary visual exposes trusted counts, partial work, all ver
   assert.ok(html.includes("&lt;script&gt;synthetic&lt;/script&gt;")); assert.ok(!html.includes("<script>"));
   assert.match(html, /overflow-x:auto/); assert.match(html, /max="1702" value="3"/);
 });
+for (const excludedOnly of [false, true]) test(`actual ${excludedOnly ? "all-excluded" : "empty"} summary has no fabricated completion denominator`, () => {
+  const compiled = ts.transpileModule(`${distribution}\n${visual}`, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.None, jsx: ts.JsxEmit.React } }).outputText;
+  const h = { React, ...helpers }; vm.createContext(h); vm.runInContext(compiled, h);
+  const { value } = summaryFixture();
+  for (const row of [value.totals, ...value.days]) {
+    for (const key of ["runs", "trustedRuns", "excludedRuns", "inProgressTrustedRuns", "plannedInstances", "recordedInstances", "remainingInstances", "partialStepInstances", "ignoredOutsideScopeResultRows"]) row[key] = 0;
+    row.outcomes = Object.fromEntries(helpers.MANUAL_SUMMARY_OUTCOMES.map(status => [status, 0]));
+    row.exclusions = Object.fromEntries(helpers.MANUAL_SUMMARY_EXCLUSIONS.map(reason => [reason, 0]));
+  }
+  if (excludedOnly) {
+    value.days[0].runs = 2; value.days[0].excludedRuns = 2; value.days[0].exclusions.UNSUPPORTED_FROZEN_SCOPE = 2;
+    value.totals.runs = 2; value.totals.excludedRuns = 2; value.totals.exclusions.UNSUPPORTED_FROZEN_SCOPE = 2;
+  }
+  assert.equal(helpers.validateManualRunSummary(value), value, "fixture must be a coherent admitted count shape");
+  const tree = h.ManualRunSummaryVisual({ value });
+  const html = renderToStaticMarkup(tree);
+  assert.ok(!elements(tree).some(node => node.type === "progress"), "no denominator means no progress element");
+  assert.ok(!html.includes("<progress")); assert.ok(!html.includes('max="1"')); assert.ok(!/\b(?:0|100)%/.test(html));
+  assert.ok(html.includes('role="status"')); assert.ok(html.includes("No completion percentage is available without included planned tests."));
+  assert.ok(html.includes("Excluded runs are not treated as zero or complete."));
+  assert.ok(html.includes(`${excludedOnly ? 2 : 0} selected manual runs: 0 trusted and ${excludedOnly ? 2 : 0} excluded.`));
+  for (const label of ["Planned tests", "Recorded tests", "Remaining tests", "Partially tested", "Included runs", "Excluded runs", "Unsupported saved scope", "2026-01-01", "2026-01-02", "Complete applied UTC run-start days, including zero days"]) assert.ok(html.includes(label), label);
+  const distributionElement = elements(tree).find(node => node.type === h.DistributionBar);
+  assert.ok(distributionElement); assert.ok(distributionElement.props.segments.every(segment => segment.value === 0), "all admitted outcome counts remain exact zero");
+});
 const wrapperSource = readFileSync(new URL("../components/ManualRunDashboardSummary.tsx", import.meta.url), "utf8");
 test("mounted wrapper queries only explicit active original scope and rejects cached/mismatched reads", () => {
   for (const content of ["enabled: ready", "currentActor && originalSession === auth.sessionId", "manual-case-heads:${recordedExecutionTrendKey(input)}", "!query.error && !query.isFetching && !query.isPaused && query.isFetchedAfterMount", "manualSummaryScopeMatches(query.data, scope, clerkActorId, expectedKey)", "return () => { latest.current = { ready: false, value: null", "if (!active || !scope) return null"]) assert.ok(wrapperSource.includes(content), content);

@@ -252,6 +252,40 @@ test("old Node refuses before fetching; unsafe response variants never create or
   }
 });
 
+test("unsupported Node 18/20 has precise public guidance before any helper download or local resource", async () => {
+  for (const version of ["18.20.8", "20.0.0"]) {
+    const { events, state } = await syntheticBootstrap({ version });
+    assert.equal(state.exitCode, 1);
+    assert.deepEqual(events.map(([event]) => event), ["error"]);
+    const message = events[0][1];
+    assert.match(message, new RegExp(`Unsupported Node\\.js version: ${version.replaceAll(".", "\\.")}`));
+    assert.match(message, /requires Node\.js 22 or newer/);
+    assert.match(message, /policy-approved version from https:\/\/nodejs\.org\/en\/download/);
+    assert.doesNotMatch(message, /ABCDEF123456|pairing|security product|connection|Unblock|ExecutionPolicy|administrator/i);
+  }
+});
+
+test("unsupported-version diagnostic is bounded and does not echo nonstandard synthetic version contents", async () => {
+  const version = "20." + "ABCDEF123456/private\n".repeat(100);
+  const { events, state } = await syntheticBootstrap({ version });
+  assert.equal(state.exitCode, 1);
+  assert.deepEqual(events.map(([event]) => event), ["error"]);
+  assert.match(events[0][1], /Unsupported Node\.js version: unavailable/);
+  assert.ok(events[0][1].length < 256);
+  assert.doesNotMatch(events[0][1], /ABCDEF123456|private|\n/);
+});
+
+test("supported Node 22/24 retains the original successful bootstrap path", async () => {
+  for (const version of ["22.0.0", "24.0.0"]) {
+    const { events, state } = await syntheticBootstrap({ version });
+    assert.equal(state.exitCode, 0);
+    assert.equal(events.some(([event]) => event === "error"), false);
+    assert.equal(events.filter(([event]) => event === "fetch").length, 1);
+    assert.equal(events.filter(([event]) => event === "spawn").length, 1);
+    assert.deepEqual(events.at(-1), ["rmdir", "/owned/vaettir-device-unique"]);
+  }
+});
+
 test("child failures preserve nonzero exit and clean only the bootstrap-owned file/directory", async () => {
   for (const options of [
     { childStatus: 7 },

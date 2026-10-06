@@ -12,7 +12,10 @@ test("durable bulk analysis reviews the whole bounded scope and retains exact un
   assert.match(component, /reviewRequest \?\?/);
   assert.match(component, /approvalRequest \?\?/);
   assert.match(component, /allowCaseProcessing: true/);
-  assert.match(component, /saved\.balance >= saved\.maximumCredits &&\s+consent/);
+  assert.match(
+    component,
+    /saved\.balance >= saved\.maximumCredits &&\s+consent/,
+  );
   assert.match(
     component,
     /!state\.error &&\s+!state\.isFetching &&\s+!state\.isPaused/,
@@ -26,4 +29,30 @@ test("durable bulk analysis reviews the whole bounded scope and retains exact un
     component,
     /assessRisk\.useMutation|reviewTestDesign|selectedIds\.slice/,
   );
+});
+
+test("whole loaded approved scope is explicit and separate from filtered and selected scopes without bypassing durable review", () => {
+  const page = readFileSync(
+    new URL("../app/projects/[projectId]/test-cases/page.tsx", import.meta.url),
+    "utf8",
+  );
+  assert.match(page, /key=\{`\$\{projectId\}:all-loaded-approved`\}/);
+  assert.match(page, /Analyze all loaded approved cases/);
+  assert.match(
+    page,
+    /selectedIds=\{cases\.filter\(testCase => !testCase\.archived && testCase\.reviewStatus === "APPROVED"\)\.map\(testCase => testCase\.id\)\}/,
+  );
+  assert.match(
+    page,
+    /selectedIds=\{visibleCases\.map\(\(testCase\) => testCase\.id\)\}/,
+  );
+  assert.match(page, /Analyze filtered suite/);
+  assert.match(page, /selectedIds=\{\[\.\.\.selected\]\}/);
+  assert.match(component, /selectedIds.length > 1000/);
+  assert.match(
+    component,
+    /Select at most 1,000 cases. Nothing has been truncated or/,
+  );
+  assert.match(component, /reviewRequest \?\?/);
+  assert.match(component, /approvalRequest \?\?/);
 });
