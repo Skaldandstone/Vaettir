@@ -1,16 +1,12 @@
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 import { protectedProcedure, requireProjectAccess, router } from "../trpc.js";
+import { prerequisiteAccessInput, prerequisiteAccessOutput, prerequisitePageInput, prerequisitePageOutput, prerequisiteSetInput, prerequisiteSetOutput } from "../services/casePrerequisiteSchema.js";
+import { readPrerequisiteAccess, readPrerequisitePage, setReviewedPrerequisites } from "../services/casePrerequisites.js";
 
 const suitePathSchema = z.string().trim().min(1).max(240).nullable();
 const placementInput = z.object({ projectId: z.string().min(1) });
 const MAX_SUITE_CASES = 2000;
-const MAX_PROJECT_DEPENDENCIES = 10000;
-
-function sameIds(a: string[], b: string[]) {
-  const sortedB = [...b].sort();
-  return a.length === b.length && [...a].sort().every((id, i) => id === sortedB[i]);
-}
 
 export const testCaseStructureRouter = router({
   list: protectedProcedure.input(placementInput).query(async ({ ctx, input }) => {
@@ -111,87 +107,16 @@ export const testCaseStructureRouter = router({
     }, { timeout: 20000 });
   }),
 
-  // Full-set replacement with an expected baseline is safer than individual
-  // add/remove toggles under concurrent editors. Cycles are forbidden.
+  prerequisiteAccess: protectedProcedure.input(prerequisiteAccessInput).output(prerequisiteAccessOutput).query(({ ctx, input }) => readPrerequisiteAccess(ctx.prisma, ctx.user.id, input, { clerkActorId: ctx.user.clerkUserId })),
+  prerequisitePage: protectedProcedure.input(prerequisitePageInput).output(prerequisitePageOutput).query(({ ctx, input }) => readPrerequisitePage(ctx.prisma, ctx.user.id, input, { clerkActorId: ctx.user.clerkUserId })),
+  reviewedSetPrerequisites: protectedProcedure.input(prerequisiteSetInput).output(prerequisiteSetOutput).mutation(({ ctx, input }) => setReviewedPrerequisites(ctx.prisma, ctx.user.id, input, { clerkActorId: ctx.user.clerkUserId })),
+  // Legacy callers have no original native actor/tenant pins or exact receipt.
+  // Fail before reading or mutating any native data; never imply UI-only safety.
   setPrerequisites: protectedProcedure.input(placementInput.extend({
     dependentId: z.string().min(1),
     prerequisiteIds: z.array(z.string().min(1)).max(50),
     expectedPrerequisiteIds: z.array(z.string().min(1)).max(50),
-  })).mutation(async ({ ctx, input }) => {
-    const { project } = await requireProjectAccess(ctx, input.projectId, "EDITOR");
-    if (new Set(input.prerequisiteIds).size !== input.prerequisiteIds.length || input.prerequisiteIds.includes(input.dependentId)) {
-      throw new TRPCError({ code: "BAD_REQUEST", message: "Choose unique prerequisite cases other than this case." });
-    }
-    return ctx.prisma.$transaction(async (tx) => {
-      await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${input.projectId}))::text`;
-      const ids = [input.dependentId, ...input.prerequisiteIds];
-      const cases = await tx.testCase.findMany({
-        where: { id: { in: ids }, projectId: input.projectId, archived: false },
-        select: { id: true, title: true },
-      });
-      if (cases.length !== ids.length) {
-        throw new TRPCError({ code: "BAD_REQUEST", message: "Prerequisites must be active cases in the same project." });
-      }
-      const links = await tx.testCasePrerequisite.findMany({
-        where: { projectId: input.projectId },
-        select: { dependentId: true, prerequisiteId: true },
-        take: MAX_PROJECT_DEPENDENCIES + 1,
-      });
-      if (links.length > MAX_PROJECT_DEPENDENCIES) {
-        throw new TRPCError({ code: "BAD_REQUEST", message: "Project has too many prerequisite links to edit safely." });
-      }
-      const existing = links.filter(link => link.dependentId === input.dependentId).map(link => link.prerequisiteId);
-      if (!sameIds(existing, input.expectedPrerequisiteIds)) {
-        throw new TRPCError({ code: "CONFLICT", message: "Prerequisites changed since you opened this case. Refresh before saving." });
-      }
-      const graph = new Map<string, string[]>();
-      for (const link of links) {
-        if (link.dependentId === input.dependentId) continue;
-        graph.set(link.dependentId, [...(graph.get(link.dependentId) ?? []), link.prerequisiteId]);
-      }
-      graph.set(input.dependentId, input.prerequisiteIds);
-      // Iterative topological check avoids unbounded JS recursion on a long
-      // but otherwise valid chain in a larger customer's project.
-      const indegree = new Map<string, number>();
-      for (const [dependentId, prerequisiteIds] of graph) {
-        indegree.set(dependentId, indegree.get(dependentId) ?? 0);
-        for (const prerequisiteId of prerequisiteIds) indegree.set(prerequisiteId, (indegree.get(prerequisiteId) ?? 0) + 1);
-      }
-      const queue = [...indegree].filter(([, degree]) => degree === 0).map(([id]) => id);
-      let processed = 0;
-      while (queue.length) {
-        const id = queue.pop()!;
-        processed++;
-        for (const next of graph.get(id) ?? []) {
-          const degree = indegree.get(next)! - 1;
-          indegree.set(next, degree);
-          if (degree === 0) queue.push(next);
-        }
-      }
-      if (processed !== indegree.size) {
-        throw new TRPCError({ code: "BAD_REQUEST", message: "Prerequisites cannot form a cycle." });
-      }
-      if (sameIds(existing, input.prerequisiteIds)) return { prerequisiteIds: existing };
-      await tx.testCasePrerequisite.deleteMany({ where: { projectId: input.projectId, dependentId: input.dependentId } });
-      if (input.prerequisiteIds.length) await tx.testCasePrerequisite.createMany({
-        data: input.prerequisiteIds.map(prerequisiteId => ({
-          projectId: input.projectId,
-          dependentId: input.dependentId,
-          prerequisiteId,
-          createdById: ctx.user.id,
-        })),
-      });
-      await tx.auditLog.create({ data: {
-        organizationId: project.organizationId,
-        projectId: input.projectId,
-        actorId: ctx.user.id,
-        entityType: "TestCase",
-        entityId: input.dependentId,
-        action: "UPDATE",
-        summary: `Updated prerequisites for “${cases.find(c => c.id === input.dependentId)?.title ?? "test case"}”`,
-        metadata: { from: existing, to: input.prerequisiteIds },
-      } });
-      return { prerequisiteIds: input.prerequisiteIds };
-    }, { timeout: 20000 });
+  })).mutation(() => {
+    throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Open the current reviewed prerequisite editor. This legacy request cannot safely replace saved links." });
   }),
 });

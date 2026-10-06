@@ -7,31 +7,40 @@ import { lockCaseFieldReadScope } from "../services/caseFieldReadScope.js";
 import {
   previewCaseVersion,
   restoreCaseVersion,
-  versionScopeSchema,
-  versionPreviewSchema,
-  versionPreviewOutputSchema,
   versionRestoreSchema,
   versionRestoreOutputSchema,
   compareHistoricalCaseVersions,
-  historicalComparisonSchema,
-  historicalComparisonOutputSchema,
+  versionListReadSchema,
+  versionPreviewReadSchema,
+  historicalComparisonReadSchema,
+  versionPreviewReadOutputSchema,
+  historicalComparisonReadOutputSchema,
+  versionAccessReadSchema,
+  versionReadContextSchema,
+  readCaseVersionAccess,
+  caseVersionReadContext,
+  versionRestoreReviewedSchema,
+  versionRestoreReviewedOutputSchema,
 } from "../services/caseVersionReview.js";
 
 export const caseVersionReviewRouter = router({
   list: protectedProcedure
-    .input(
-      versionScopeSchema
-        .extend({
-          take: z.number().int().min(1).max(20).default(10),
-          before: z.number().int().positive().optional(),
-        })
-        .strict(),
-    )
+    .input(versionListReadSchema)
     .query(async ({ ctx, input }) => {
       await requireProjectAccess(ctx, input.projectId);
       return ctx.prisma.$transaction(
         async (tx) => {
-          await lockCaseFieldReadScope(tx, ctx.user.id, { projectId: input.projectId, caseId: input.testCaseId }, { clerkActorId: ctx.user.clerkUserId });
+          const scope = await lockCaseFieldReadScope(
+            tx,
+            ctx.user.id,
+            {
+              projectId: input.projectId,
+              caseId: input.testCaseId,
+              originalOrganizationId: input.originalOrganizationId,
+              expectedClerkActorId: input.expectedClerkActorId,
+            },
+            { clerkActorId: ctx.user.clerkUserId },
+          );
           await requireCurrentPlanAccess(tx, ctx.user.id, input.projectId);
           const tc = await tx.testCase.findFirst({
             where: { id: input.testCaseId, projectId: input.projectId },
@@ -141,6 +150,11 @@ export const caseVersionReviewRouter = router({
               ) ?? null,
           }));
           return {
+            ...(await caseVersionReadContext(tx, ctx.user.id, input, scope, {
+              kind: "LIST",
+              take: input.take,
+              before: input.before ?? null,
+            })),
             items,
             restorationNotice: latestRestore
               ? (latestRestore.entityType === "TestCaseProcedureRestore"
@@ -163,24 +177,56 @@ export const caseVersionReviewRouter = router({
       );
     }),
   preview: protectedProcedure
-    .input(versionPreviewSchema)
-    .output(versionPreviewOutputSchema)
+    .input(versionPreviewReadSchema)
+    .output(versionPreviewReadOutputSchema)
     .query(async ({ ctx, input }) => {
       await requireProjectAccess(ctx, input.projectId);
-      return previewCaseVersion(ctx.prisma, ctx.user.id, input, { clerkActorId: ctx.user.clerkUserId });
+      return previewCaseVersion(ctx.prisma, ctx.user.id, input, {
+        clerkActorId: ctx.user.clerkUserId,
+      });
     }),
   compareHistorical: protectedProcedure
-    .input(historicalComparisonSchema)
-    .output(historicalComparisonOutputSchema)
+    .input(historicalComparisonReadSchema)
+    .output(historicalComparisonReadOutputSchema)
     .query(async ({ ctx, input }) => {
       await requireProjectAccess(ctx, input.projectId);
-      return compareHistoricalCaseVersions(ctx.prisma, ctx.user.id, input, { clerkActorId: ctx.user.clerkUserId });
+      return compareHistoricalCaseVersions(ctx.prisma, ctx.user.id, input, {
+        clerkActorId: ctx.user.clerkUserId,
+      });
+    }),
+  access: protectedProcedure
+    .input(versionAccessReadSchema)
+    .output(versionReadContextSchema)
+    .query(async ({ ctx, input }) => {
+      await requireProjectAccess(ctx, input.projectId);
+      return readCaseVersionAccess(ctx.prisma, ctx.user.id, input, {
+        clerkActorId: ctx.user.clerkUserId,
+      });
+    }),
+  restoreReviewed: protectedProcedure
+    .input(versionRestoreReviewedSchema)
+    .output(versionRestoreReviewedOutputSchema)
+    .mutation(async ({ ctx, input }) => {
+      await requireProjectAccess(ctx, input.request.projectId, "EDITOR");
+      return restoreCaseVersion(
+        ctx.prisma,
+        ctx.user.id,
+        input.request,
+        { clerkActorId: ctx.user.clerkUserId },
+        {
+          originalOrganizationId: input.originalOrganizationId,
+          expectedClerkActorId: input.expectedClerkActorId,
+          expectedNativeActorId: input.expectedNativeActorId,
+        },
+      );
     }),
   restore: protectedProcedure
     .input(versionRestoreSchema)
     .output(versionRestoreOutputSchema)
     .mutation(async ({ ctx, input }) => {
       await requireProjectAccess(ctx, input.projectId, "EDITOR");
-      return restoreCaseVersion(ctx.prisma, ctx.user.id, input, { clerkActorId: ctx.user.clerkUserId });
+      return restoreCaseVersion(ctx.prisma, ctx.user.id, input, {
+        clerkActorId: ctx.user.clerkUserId,
+      });
     }),
 });

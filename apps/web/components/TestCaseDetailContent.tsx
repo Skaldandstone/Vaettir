@@ -1546,6 +1546,7 @@ function TestCaseInspector({
           projectId={projectId}
           caseId={tc.id}
           canEdit={!readOnly}
+          active={section === "Procedure"}
         />
         <CaseCustomFields projectId={projectId} caseId={tc.id} />
         <DatasetSection

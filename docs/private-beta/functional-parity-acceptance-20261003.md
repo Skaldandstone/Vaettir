@@ -7,7 +7,7 @@ historical, not a current source inventory. Later checkpoint sections record
 signed-in Qase/TestRail/Testmo trial observations and implementation. They do
 not establish exhaustive parity, an equivalent-task performance comparison or
 deployment. The active scope is all James's reported workflows, not only
-release gates. Latest reviewed source checkpoint: `ec35aa3`; subsequent drafts
+release gates. Latest reviewed source checkpoint: `5be3007`; subsequent drafts
 remain separately identified until integrated and checkpointed.
 
 The standard case-management baseline is not yet met end to end. The most important gaps are preserving imported procedures, stable human-readable references, lossless export, complete history and safe edits. More AI actions or a different layout do not compensate for those gaps.
@@ -1309,3 +1309,89 @@ no admission assertions or rules were disabled. Native SQL, fixtures/migrations,
 paid provider behavior, full runtime/image-security, authenticated production and
 deployment are NOT verified. New reader/restore and priority snapshot audit gaps
 are recorded for the next bounded source lanes, not silently declared accepted.
+
+October 6 04:53 UTC continuing source, integration UNVALIDATED:
+
+The release wizard now retains complete inline criterion prose, including leading
+and trailing whitespace, multiline text, ordering and duplicates. New requests
+explicitly select nested wordingMode EXACT. Separate parser branches preserve
+the old absent-marker trimming behavior, property order and UUID request hash;
+old retained requests are not silently upgraded. Exact new text refuses blank,
+oversized, null-character and incomplete-Unicode values rather than clipping.
+An unadded whitespace draft also requires explicit clearing before Continue.
+Eleven parser/identity API checks, five Web draft checks, two standalone leaf
+TypeScript checks and focused lint pass. Full integrated types/render/native
+creation are pending the active priority/version/prerequisite writer freeze;
+these new bytes are not covered by the earlier 919/159 checkpoint.
+
+October 6 05:06 UTC read-only trial continuation:
+
+The signed-in Qase Fields screen's Priority editor was opened and its General
+and Values tabs inspected, then canceled without saving. The actual control is
+single-select with a default value, all-project availability and named/icon
+choices. Prose remains a separate Paragraph field. This supports a normal
+priority dropdown, not a separate business-rationale text box for every case;
+it does not prove Vaettir supports Qase's complete configurable system-field set.
+TestRail's synthetic run overview still exposes outcome segments, remaining
+Untested counts, date/author and milestone timing. One observed row shows 35%
+alongside 89 Passed, 21 Blocked, 113 Untested, 17 Retest and 12 Failed. Progress
+and pass rate must have explicit, separate meanings in Vaettir rather than
+copying an unlabeled percentage. Testmo's vendor sample run has folder navigation,
+search, selectable columns and Results/Status/Activity/Issues views. No vendor
+record, result, configuration, integration or customer data was changed.
+
+Independent source review also caught collapsed multiline release criterion
+wording; the draft display now preserves whitespace and wraps long prose.
+Cross-page draft transfer was not implemented or claimed by this change.
+
+### Native-reader workflow source checkpoint, October 6 UTC
+
+Priority uses an independent fresh native reader rather than requiring a valid
+custom-field schema. New reviewed requests pin the original native author inside
+the locked transaction before receipt recovery; the legacy inner payload, hash
+and three-field output are retained. Complete case/procedure preflight and JSONB
+round-trip checks refuse unsupported representation. Priority-local history copies
+the native profile column instead of coercing JSON null. New own-procedure snapshots
+retain all six authored step fields without relational row IDs, so they do not
+introduce unsupported historical procedure shapes. Actual native SQL is not proved.
+
+Version list/current/historical reads echo exact native reader, request nonce and
+projection. The UI suppresses stale, failed, paused, inactive and mismatched reads;
+separately frozen restore reviews retain selected fields/reason and old request
+hashes inside an additive native-scope envelope. Exact late acknowledgements settle
+only their original private receipt, not another draft or returned view. Historical
+comparisons remain read-only. New reviewed writes explicitly refuse inexact or
+SQL-null/JSON-null profiles before applying or versioning; this interim refusal is
+not a native precision-preserving read codec or full historical reconstruction.
+
+Prerequisites have independent current native access, stable-ID/title search,
+numeric Case ID order, explicit Title text order and 20-row population-bound pages.
+New links require current approved active same-project cases; retained pending,
+rejected, archived or unavailable links stay labeled and explicitly removable.
+The whole stored graph and complete saved direct-link set are reviewed with CAS
+and atomic native-author UUID/audit recovery. Legacy unreviewed setters refuse
+before mutation. Complete graph/text/DTO bounds refuse rather than clip. Drafts,
+uncertain requests and removal/Undo labels remain retained across close and tab
+changes; stale row closures cannot drop newer choices, and same-session authority
+loss revokes old response effects. A refused page can still be narrowed, while
+candidate actions remain bound to an admitted page. Draft metadata is bounded.
+Reload recovery, renewed-session adoption and native title-collation parity remain
+unsupported; old client comparator checks are not evidence of native SQL behavior.
+
+Integrated source checks: 794 Node + 202 typed Web = 996 PASS, zero skips; 192
+focused pure/mocked API checks across 10 suites PASS; API/Web types PASS. Scoped
+production lint has zero errors and one disclosed prerequisite origin-capture
+layout-effect warning. Independent review exposed stale selection/filter/authority
+issues and a procedure snapshot shape error; these were corrected with regressions.
+An initial old source-contract mismatch and new render-ref lint errors were also
+corrected without disabling admission rules or tests. Synthetic controller/SSR
+checks are not authenticated browser or native transaction acceptance. No native
+SQL, migration, provider spending, full runtime/image-security, production or
+deployment acceptance was run or inferred; all earlier failed gates remain failed.
+
+Next bounded review-queue audit remains open: current legacy approval/rejection
+branches lack current native FULL-seat authorization, content/review CAS and atomic
+UUID/audit recovery. The bulk branch can silently omit requested cases. Those
+findings require a coherent reviewed workflow/caller cutover, not a claim that
+the existing repository/review queue is production accepted. All reported gaps
+remain in scope; this checkpoint does not stop implementation or trigger deployment.

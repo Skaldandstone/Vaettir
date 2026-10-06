@@ -1,20 +1,17 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import {
-  trpcReact,
-  type RouterInputs,
-  type RouterOutputs,
-} from "@/lib/trpcReact";
+import { useState } from "react";
+import { trpcReact, type RouterInputs } from "@/lib/trpcReact";
 import { Modal } from "./Modal";
 import { inspectorLabel } from "@/lib/case-inspector";
 import { currentCaseVersionPreview } from "@/lib/case-version-baseline";
+import { currentVersionRead } from "@/lib/case-version-draft";
 import {
-  retainedTraceabilityReceipt,
-  type TraceabilityReceipt,
-} from "@/lib/traceability-receipt";
+  useCaseVersionAccess,
+  useVersionReadNonce,
+} from "@/lib/use-case-version-access";
+import { useCaseVersionRestore } from "@/lib/use-case-version-restore";
 
-type Preview = RouterOutputs["caseVersionReview"]["preview"];
 type Restore = RouterInputs["caseVersionReview"]["restore"];
 type Field = Restore["fields"][number];
 
@@ -149,127 +146,191 @@ export function TestCaseVersionReview({
   const [cursors, setCursors] = useState<Array<number | undefined>>([
     undefined,
   ]);
-  const list = trpcReact.caseVersionReview.list.useQuery(
-    { projectId, testCaseId, take: 10, before: cursors[cursors.length - 1] },
-    { enabled: active, retry: false },
+  const reads = useCaseVersionAccess(projectId, testCaseId, active);
+  const before = cursors[cursors.length - 1];
+  const listCycle = useVersionReadNonce(
+    JSON.stringify([active, reads.activation, before]),
   );
-  const [version, setVersion] = useState<number | null>(null);
-  const [fromVersion, setFromVersion] = useState<number | null>(null);
-  const [open, setOpen] = useState(false);
-  const [baseline, setBaseline] = useState<Preview | null>(null);
-  const [fields, setFields] = useState<Field[]>([]);
-  const [reason, setReason] = useState("");
-  const [confirmed, setConfirmed] = useState(false);
-  const [pending, setPending] = useState<TraceabilityReceipt<Restore> | null>(
-    null,
-  );
-  const [notice, setNotice] = useState<string | null>(null);
-  const compare = trpcReact.caseVersionReview.preview.useQuery(
-    { projectId, testCaseId, versionNumber: version ?? 1 },
+  const pins = reads.origin
+    ? {
+        originalOrganizationId: reads.origin.organizationId,
+        expectedClerkActorId: reads.origin.clerkActorId,
+      }
+    : {};
+  const listQuery = trpcReact.caseVersionReview.list.useQuery(
     {
-      enabled:
-        open &&
-        version !== null &&
-        fromVersion === null &&
-        !baseline &&
-        !pending,
+      projectId,
+      testCaseId,
+      take: 10,
+      before,
+      ...pins,
+      readRequestId: listCycle.requestId,
+    },
+    {
+      enabled: active && reads.readable && listCycle.ready,
       retry: false,
       staleTime: 0,
       refetchOnWindowFocus: false,
     },
   );
-  const historical = trpcReact.caseVersionReview.compareHistorical.useQuery(
+  const admittedList = currentVersionRead(
+    listQuery,
+    reads.origin,
+    active && reads.readable && listCycle.ready,
+    listCycle.requestId,
+    { kind: "LIST", take: 10, before: before ?? null },
+  );
+  const list = {
+    ...listQuery,
+    data: admittedList ?? undefined,
+    error: reads.readable ? listQuery.error : null,
+  };
+  const [version, setVersion] = useState<number | null>(null);
+  const [fromVersion, setFromVersion] = useState<number | null>(null);
+  const [open, setOpen] = useState(false);
+  const [comparisonEpoch, setComparisonEpoch] = useState(0);
+  const compareCycle = useVersionReadNonce(
+    JSON.stringify([
+      open,
+      active,
+      reads.activation,
+      version,
+      fromVersion,
+      comparisonEpoch,
+    ]),
+  );
+  const compareQuery = trpcReact.caseVersionReview.preview.useQuery(
     {
       projectId,
       testCaseId,
-      fromVersionNumber: fromVersion ?? 1,
-      toVersionNumber: version ?? 1,
+      versionNumber: version ?? 1,
+      ...pins,
+      readRequestId: compareCycle.requestId,
     },
     {
-      enabled: open && fromVersion !== null && version !== null && !pending,
+      enabled:
+        active &&
+        reads.readable &&
+        compareCycle.ready &&
+        open &&
+        version !== null &&
+        fromVersion === null,
       retry: false,
+      staleTime: 0,
       refetchOnWindowFocus: false,
     },
   );
+  const historicalCycle = useVersionReadNonce(
+    JSON.stringify([
+      open,
+      active,
+      reads.activation,
+      fromVersion,
+      version,
+      comparisonEpoch,
+    ]),
+  );
+  const historicalQuery =
+    trpcReact.caseVersionReview.compareHistorical.useQuery(
+      {
+        projectId,
+        testCaseId,
+        fromVersionNumber: fromVersion ?? 1,
+        toVersionNumber: version ?? 1,
+        ...pins,
+        readRequestId: historicalCycle.requestId,
+      },
+      {
+        enabled:
+          active &&
+          reads.readable &&
+          historicalCycle.ready &&
+          open &&
+          fromVersion !== null &&
+          version !== null,
+        retry: false,
+        refetchOnWindowFocus: false,
+      },
+    );
+  const admittedPreview = currentVersionRead(
+    compareQuery,
+    reads.origin,
+    active && reads.readable && compareCycle.ready,
+    compareCycle.requestId,
+    { kind: "CURRENT", versionNumber: version ?? 1 },
+  );
+  const compare = { ...compareQuery, data: admittedPreview ?? undefined };
   const freshPreview = currentCaseVersionPreview(compare, version);
-  useEffect(() => {
-    if (open && !baseline && !pending && fromVersion === null && freshPreview) {
-      setBaseline(freshPreview);
-      setFields(
-        freshPreview.fields
-          .filter((f) => f.changed && f.restorable)
-          .map((f) => f.key),
-      );
-    }
-  }, [open, baseline, pending, freshPreview, fromVersion]);
-  const restore = trpcReact.caseVersionReview.restore.useMutation();
+  const admittedHistorical = currentVersionRead(
+    historicalQuery,
+    reads.origin,
+    active && reads.readable && historicalCycle.ready,
+    historicalCycle.requestId,
+    {
+      kind: "HISTORICAL",
+      fromVersionNumber: fromVersion ?? 1,
+      toVersionNumber: version ?? 1,
+    },
+  );
+  const historical = {
+    ...historicalQuery,
+    data: admittedHistorical ?? undefined,
+  };
+  const restore = trpcReact.caseVersionReview.restoreReviewed.useMutation();
+  const editor = useCaseVersionRestore({
+    projectId,
+    testCaseId,
+    active,
+    open,
+    version,
+    fromVersion,
+    readOnly,
+    reads,
+    preview: freshPreview,
+    mutation: restore,
+    navigationActivation: listCycle.requestId,
+    navigationReady: !!admittedList,
+    afterConfirmed: () => {
+      setOpen(false);
+      setComparisonEpoch((value) => value + 1);
+      reads.refresh();
+      void Promise.all([
+        utils.caseVersionReview.list.invalidate({ projectId, testCaseId }),
+        utils.testCases.byId.invalidate({ id: testCaseId }),
+        utils.testCases.list.invalidate({ projectId }),
+        utils.testCases.history.invalidate({ testCaseId }),
+      ]).catch(() => {});
+      onChanged?.();
+    },
+  });
+  const baseline = editor.draft?.baseline ?? null,
+    fields = editor.draft?.fields ?? [],
+    reason = editor.draft?.reason ?? "",
+    confirmed = editor.draft?.confirmed ?? false,
+    pending = editor.pending,
+    notice = editor.notice;
+  const setFields = (next: (value: Field[]) => Field[]) =>
+    editor.change({ fields: next(editor.draftRef.current?.fields ?? []) });
+  const setReason = (value: string) => editor.change({ reason: value });
+  const setConfirmed = (value: boolean) => editor.change({ confirmed: value });
+  const applyRestore = editor.commit;
   function changeComparison(nextVersion: number, nextFrom: number | null) {
-    if (pending || restore.isPending) return;
+    if (!editor.clearComparison()) return;
     setVersion(nextVersion);
     setFromVersion(nextFrom);
-    setBaseline(null);
-    setFields([]);
-    setReason("");
-    setConfirmed(false);
-    setNotice(null);
+    setComparisonEpoch((value) => value + 1);
   }
   function chooseVersion(next: number) {
-    if (pending) {
+    if (!active || !reads.readable || editor.busyRef.current) return;
+    if (editor.pendingRef.current) {
       setOpen(true);
       return;
     }
-    changeComparison(next, null);
+    if (!editor.clearComparison(true)) return;
+    setVersion(next);
+    setFromVersion(null);
+    setComparisonEpoch((value) => value + 1);
     setOpen(true);
-  }
-  async function applyRestore() {
-    if (
-      restore.isPending ||
-      fromVersion !== null ||
-      readOnly ||
-      !baseline?.canRestore ||
-      baseline.versionNumber !== version
-    )
-      return;
-    const attempt = pending ?? {
-      input: {
-        projectId,
-        testCaseId,
-        versionNumber: baseline.versionNumber,
-        expectedCaseRevision: baseline.expectedCaseRevision,
-        expectedVersionRevision: baseline.expectedVersionRevision,
-        fields,
-        reason,
-        confirmed: true as const,
-        requestId: crypto.randomUUID(),
-      },
-      uncertain: false,
-    };
-    if (!pending && (!confirmed || !fields.length || !reason.trim())) return;
-    setPending(attempt);
-    setNotice(null);
-    try {
-      const result = await restore.mutateAsync(attempt.input);
-      setPending(null);
-      setOpen(false);
-      setBaseline(null);
-      setConfirmed(false);
-      setNotice(
-        `Restored selected fields from v${result.restoredVersionNumber} as new v${result.createdVersionNumber}${result.replayed ? " (confirmed prior request)" : ""}. Existing risk/design assessments, paid drafts and review decisions were retained and may need renewed review.`,
-      );
-      void utils.caseVersionReview.list.invalidate({ projectId, testCaseId });
-      void utils.testCases.byId.invalidate({ id: testCaseId });
-      void utils.testCases.list.invalidate({ projectId });
-      void utils.testCases.history.invalidate({ testCaseId });
-      onChanged?.();
-    } catch (error) {
-      const retained = retainedTraceabilityReceipt(attempt, error);
-      setPending(retained);
-      setNotice(
-        retained
-          ? "The restore response is uncertain. Your exact reviewed request is retained; retry it to confirm, not to create another restore."
-          : "Restore was not applied. Review the error and refresh the comparison if the case changed.",
-      );
-    }
   }
   return (
     <section
@@ -286,8 +347,16 @@ export function TestCaseVersionReview({
         Compare the current case or any two saved versions. Restore only from a
         separately reviewed current-case comparison.
       </p>
-      {notice && !open && <p role="status">{notice}</p>}
-      {pending && !open && (
+      {active && !reads.readable && (
+        <p role="status">
+          Verify current original access to load case versions. Any pending
+          restore stays retained.
+        </p>
+      )}
+      {notice && !open && active && reads.readable && (
+        <p role="status">{notice}</p>
+      )}
+      {pending && !open && active && reads.readable && (
         <button
           type="button"
           className="btn-secondary"
@@ -353,7 +422,7 @@ export function TestCaseVersionReview({
                   <button
                     type="button"
                     className="btn-secondary"
-                    disabled={Boolean(pending)}
+                    disabled={editor.busy || Boolean(pending)}
                     onClick={() => chooseVersion(v.versionNumber)}
                   >
                     Compare v{v.versionNumber}
@@ -370,7 +439,9 @@ export function TestCaseVersionReview({
                   type="button"
                   className="btn-secondary"
                   disabled={list.isFetching}
-                  onClick={() => setCursors((c) => c.slice(0, -1))}
+                  onClick={() => {
+                    if (editor.canBrowse()) setCursors((c) => c.slice(0, -1));
+                  }}
                 >
                   Newer versions
                 </button>
@@ -381,6 +452,7 @@ export function TestCaseVersionReview({
                   className="btn-secondary"
                   disabled={list.isFetching}
                   onClick={() =>
+                    editor.canBrowse() &&
                     setCursors((c) => [...c, list.data!.nextCursor!])
                   }
                 >
@@ -393,18 +465,21 @@ export function TestCaseVersionReview({
       )}
       <Modal
         size="wide"
-        open={open}
-        onClose={() => setOpen(false)}
+        open={open && active && reads.readable}
+        onClose={() => {
+          editor.closeFrame();
+          setOpen(false);
+        }}
         title={
           fromVersion === null
             ? `Compare current case with v${version ?? ""}`
             : `Compare saved v${fromVersion} with v${version ?? ""}`
         }
-        dismissible={!restore.isPending}
+        dismissible={!editor.busy}
       >
         {version !== null && (
           <fieldset
-            disabled={restore.isPending || Boolean(pending)}
+            disabled={editor.busy || Boolean(pending)}
             style={{ border: 0, padding: 0, minWidth: 0 }}
           >
             <legend>Choose comparison versions</legend>
@@ -482,7 +557,9 @@ export function TestCaseVersionReview({
                   type="button"
                   className="btn-secondary"
                   disabled={list.isFetching}
-                  onClick={() => setCursors((c) => c.slice(0, -1))}
+                  onClick={() => {
+                    if (editor.canBrowse()) setCursors((c) => c.slice(0, -1));
+                  }}
                 >
                   Browse newer versions
                 </button>
@@ -493,6 +570,7 @@ export function TestCaseVersionReview({
                   className="btn-secondary"
                   disabled={list.isFetching}
                   onClick={() =>
+                    editor.canBrowse() &&
                     setCursors((c) => [...c, list.data!.nextCursor!])
                   }
                 >
@@ -639,7 +717,12 @@ export function TestCaseVersionReview({
               ))}
             </ul>
             <fieldset
-              disabled={restore.isPending || Boolean(pending)}
+              disabled={
+                editor.busy ||
+                Boolean(pending) ||
+                readOnly ||
+                !reads.fresh?.canRecover
+              }
               style={{ border: 0, padding: 0, minWidth: 0 }}
             >
               <legend>Review and select changed fields to restore</legend>
@@ -751,12 +834,10 @@ export function TestCaseVersionReview({
               <button
                 type="button"
                 className="btn-secondary"
-                disabled={restore.isPending || Boolean(pending)}
+                disabled={editor.busy || Boolean(pending)}
                 onClick={() => {
-                  setBaseline(null);
-                  setConfirmed(false);
-                  setNotice(null);
-                  void compare.refetch();
+                  if (!editor.clearComparison()) return;
+                  setComparisonEpoch((value) => value + 1);
                 }}
               >
                 Refresh comparison
@@ -764,15 +845,10 @@ export function TestCaseVersionReview({
               <button
                 type="button"
                 className="btn-primary"
-                disabled={
-                  restore.isPending ||
-                  readOnly ||
-                  !baseline.canRestore ||
-                  (!pending && (!confirmed || !reason.trim() || !fields.length))
-                }
+                disabled={!editor.canCommit}
                 onClick={() => void applyRestore()}
               >
-                {restore.isPending
+                {editor.busy
                   ? "Restoring…"
                   : pending
                     ? "Retry reviewed restore"

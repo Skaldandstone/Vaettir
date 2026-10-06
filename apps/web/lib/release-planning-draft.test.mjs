@@ -10,7 +10,7 @@ test("editing a wizard draft preserves all other criteria and never writes persi
   const original = ["First", "Second"];
   assert.deepEqual(saveReleaseCriterionDraft(original, " Edited second ", 1), [
     "First",
-    "Edited second",
+    " Edited second ",
   ]);
   assert.deepEqual(original, ["First", "Second"]);
   assert.deepEqual(saveReleaseCriterionDraft(original, "Third", null), [
@@ -18,9 +18,19 @@ test("editing a wizard draft preserves all other criteria and never writes persi
     "Second",
     "Third",
   ]);
-  for (const value of ["", "x".repeat(2001)])
+  for (const value of ["", " \n ", "x".repeat(2001), "nul\0text", "\ud800"])
     assert.throws(() => saveReleaseCriterionDraft(original, value, null));
   assert.throws(() => saveReleaseCriterionDraft(original, "Changed", 2));
+});
+test("release criteria retain exact multiline whitespace, duplicate wording and explicit unfinished blank drafts", () => {
+  const raw = " \t First line\n  Second line \n";
+  assert.deepEqual(saveReleaseCriterionDraft([raw], raw, null), [raw, raw]);
+  assert.deepEqual(saveReleaseCriterionDraft(["Other", raw], "\n Changed \t", 0), ["\n Changed \t", raw]);
+  assert.match(releaseCriteriaDraftProblem({ criteria: [raw], planName: "Plan", criterionDraft: " \t", editingIndex: null }), /clear its draft/);
+  const wizard = readFileSync(new URL("../app/projects/[projectId]/releases/page.tsx", import.meta.url), "utf8");
+  assert.match(wizard, /wordingMode: "EXACT" as const/);
+  assert.match(wizard, /const request = createRequest \?\?/);
+  assert.match(wizard, /<span style=\{\{ whiteSpace: "pre-wrap", overflowWrap: "anywhere" \}\}>\{criterion\}<\/span>/);
 });
 test("50-criterion limit permits editing and explicit clearing unadded text releases the Continue gate", () => {
   const criteria = Array.from({ length: 50 }, (_, i) => `Criterion ${i}`);

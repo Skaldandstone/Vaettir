@@ -13,6 +13,27 @@ export const releaseTargetDateSchema = z
   ])
   .pipe(z.date());
 
+const inlinePlanName = z.string().trim().min(1).max(200);
+// Absence preserves the original parser, output property order and UUID hash.
+// New clients opt into exact prose; old receipts are never reinterpreted.
+const inlinePlanSchema = z.union([
+  z.object({
+    name: inlinePlanName,
+    criteria: z.array(z.string().trim().min(1).max(2000)).min(1).max(50),
+    wordingMode: z.never().optional(),
+  }).strict().transform(({ wordingMode: _omitted, ...plan }) => plan),
+  z.object({
+    name: inlinePlanName,
+    criteria: z.array(z.string().min(1).max(2000)
+      .refine(value => value.trim().length > 0, "Criterion wording cannot be blank.")
+      .refine(value => !value.includes("\0") && Array.from(value).every(character => {
+        const point = character.codePointAt(0)!;
+        return point < 0xd800 || point > 0xdfff;
+      }), "Criterion wording must be valid native text.")).min(1).max(50),
+    wordingMode: z.literal("EXACT"),
+  }).strict(),
+]);
+
 export const releaseCreationSchema = z
   .object({
     requestId: z.string().uuid(),
@@ -23,13 +44,7 @@ export const releaseCreationSchema = z
     targetDate: releaseTargetDateSchema.optional(),
     testPlanIds: z.array(z.string().min(1).max(200)).max(200).default([]),
     goals: z.array(z.string().trim().min(1).max(200)).max(20).default([]),
-    newPlan: z
-      .object({
-        name: z.string().trim().min(1).max(200),
-        criteria: z.array(z.string().trim().min(1).max(2000)).min(1).max(50),
-      })
-      .strict()
-      .optional(),
+    newPlan: inlinePlanSchema.optional(),
   })
   .strict();
 

@@ -83,6 +83,7 @@ export default function ReleasesPage() {
             name:
               newPlanName.trim() || `${name.trim()} quality plan`.slice(0, 200),
             criteria: [...newCriteria],
+            wordingMode: "EXACT" as const,
           }
         : undefined,
     };
@@ -579,7 +580,7 @@ export default function ReleasesPage() {
                   <ul>
                     {newCriteria.map((criterion, index) => (
                       <li key={index}>
-                        {criterion}{" "}
+                        <span style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>{criterion}</span>{" "}
                         <button
                           type="button"
                           className="btn-secondary"

@@ -184,25 +184,31 @@ test("procedure comes before on-demand editing and all tab panels remain mounted
 
 test("case version comparison retains reviewed requests and gates selected-field restores", () => {
   const versions = source("../components/TestCaseVersionReview.tsx");
+  const controller = source("./use-case-version-restore.ts");
+  const draft = source("./case-version-draft.ts");
   assert.match(versions, /caseVersionReview.list.useQuery/);
   assert.match(versions, /enabled: active/);
   assert.match(
     versions,
-    /enabled:\s*open &&\s*version !== null &&\s*fromVersion === null &&\s*!baseline &&\s*!pending/,
+    /enabled:\s*active &&\s*reads.readable &&\s*compareCycle.ready &&\s*open &&\s*version !== null &&\s*fromVersion === null/,
   );
-  assert.match(versions, /f.changed && f.restorable/);
-  assert.match(versions, /expectedCaseRevision: baseline.expectedCaseRevision/);
+  assert.match(controller, /field.changed && field.restorable/);
+  assert.match(controller, /expectedCaseRevision: captured.baseline.expectedCaseRevision/);
   assert.match(
-    versions,
-    /expectedVersionRevision: baseline.expectedVersionRevision/,
+    controller,
+    /expectedVersionRevision: captured.baseline.expectedVersionRevision/,
   );
-  assert.match(versions, /requestId: crypto.randomUUID\(\)/);
-  assert.match(versions, /const attempt = pending \?\?/);
-  assert.match(versions, /retainedTraceabilityReceipt\(attempt, error\)/);
+  assert.match(controller, /requestId: crypto.randomUUID\(\)/);
+  assert.match(controller, /let retained = held/);
+  assert.match(controller, /retainedTraceabilityReceipt\(/);
+  assert.match(controller, /mutation.mutateAsync\(sent.input\)/);
+  assert.match(controller, /assertVersionRestoreAck\(result, sent\)/);
+  assert.match(draft, /expectedNativeActorId: origin.nativeActorId/);
+  assert.match(versions, /caseVersionReview.restoreReviewed.useMutation/);
   assert.match(versions, /Retry reviewed restore/);
   assert.match(
-    versions,
-    /!confirmed \|\| !reason.trim\(\) \|\| !fields.length/,
+    controller,
+    /!captured.confirmed[\s\S]*?!captured.fields.length[\s\S]*?!captured.reason.trim\(\)/,
   );
   assert.match(versions, /readOnly \|\| !baseline.canRestore/);
   assert.match(versions, /restorationNotice/);
@@ -214,13 +220,19 @@ test("case version comparison retains reviewed requests and gates selected-field
 
 test("version restore review rejects stale cached refresh failures and paused queries", () => {
   const versions = source("../components/TestCaseVersionReview.tsx");
+  const controller = source("./use-case-version-restore.ts"), reader = source("./case-version-draft.ts");
   assert.match(versions, /currentCaseVersionPreview\(compare, version\)/);
   assert.match(versions, /staleTime: 0/);
   assert.match(
-    versions,
-    /if \(\s*open &&\s*!baseline &&\s*!pending &&\s*fromVersion === null &&\s*freshPreview\s*\)/,
+    controller,
+    /!preview[\s\S]*?fromVersion !== null[\s\S]*?draftRef.current[\s\S]*?pendingRef.current/,
   );
-  assert.match(versions, /setBaseline\(freshPreview\)/);
+  assert.match(versions, /preview: freshPreview/);
+  assert.match(controller, /baseline: freezeVersionReview\(preview\)/);
+  assert.match(reader, /query.isFetchedAfterMount/);
+  assert.match(reader, /!query.error[\s\S]*?!query.isFetching[\s\S]*?!query.isPaused/);
+  assert.match(reader, /context\?\.readRequestId === readRequestId/);
+  assert.match(reader, /sameVersionReader\(context.readScope, origin\)/);
   assert.match(versions, /compare.isPaused && !baseline/);
   assert.match(versions, /Waiting for a connection to refresh the comparison/);
   assert.match(versions, /compare.error && !baseline/);
@@ -235,7 +247,7 @@ test("historical version pairs stay read-only and require a separate current-cas
   assert.match(versions, /toVersionNumber: version \?\? 1/);
   assert.match(
     versions,
-    /enabled: open && fromVersion !== null && version !== null && !pending/,
+    /enabled:\s*active &&\s*reads.readable &&\s*historicalCycle.ready &&\s*open &&\s*fromVersion !== null &&\s*version !== null/,
   );
   assert.match(versions, /Choose comparison versions/);
   assert.match(versions, /<select[\s\S]*?value=\{fromVersion \?\? "current"\}/);
@@ -271,12 +283,14 @@ test("historical version pairs stay read-only and require a separate current-cas
   );
   assert.match(
     versions,
-    /function changeComparison[\s\S]*?if \(pending \|\| restore.isPending\) return;[\s\S]*?setBaseline\(null\)[\s\S]*?setFields\(\[\]\)[\s\S]*?setReason\(""\)[\s\S]*?setConfirmed\(false\)/,
+    /function changeComparison[\s\S]*?if \(!editor.clearComparison\(\)\) return;[\s\S]*?setVersion\(nextVersion\)[\s\S]*?setFromVersion\(nextFrom\)/,
   );
+  const controller = source("./use-case-version-restore.ts");
   assert.match(
-    versions,
-    /function applyRestore[\s\S]*?fromVersion !== null[\s\S]*?baseline.versionNumber !== version/,
+    controller,
+    /async function commit[\s\S]*?fromVersion !== null[\s\S]*?captured.baseline.versionNumber !== version/,
   );
+  assert.match(controller, /function clearComparison[\s\S]*?busyRef.current[\s\S]*?pendingRef.current[\s\S]*?draftRef.current = null[\s\S]*?setDraft\(null\)/);
   const historicalBlock = versions.slice(
     versions.indexOf("Historical comparison only"),
     versions.indexOf("{fromVersion === null && baseline &&"),
@@ -301,22 +315,37 @@ test("viewer can browse paid design recommendations without evidence intake, cha
   assert.match(design, /!readOnly && [\s\S]*Back to evidence/);
 });
 
-test("prerequisite edits retain expected baseline, unavailable selections and explicit cancel/save", () => {
+test("prerequisite edits retain expected native baseline, unavailable selections and explicit close/discard/save", () => {
   const prerequisites = source("../components/TestCasePrerequisites.tsx");
-  assert.match(prerequisites, /enabled: editing \|\| baseline.length > 0/);
+  const detail = source("../components/TestCaseDetailContent.tsx");
+  assert.match(detail, /<TestCasePrerequisites[\s\S]*?active=\{section === "Procedure"\}/);
+  const controller = source("./use-case-prerequisites.ts"), draft = source("./case-prerequisite-draft.ts");
+  assert.match(controller, /testCaseStructure.prerequisiteAccess.useQuery/);
+  assert.match(controller, /testCaseStructure.prerequisitePage.useQuery/);
+  assert.match(controller, /testCaseStructure.reviewedSetPrerequisites.useMutation/);
+  assert.match(controller, /readRequestId: cycle.id/);
+  assert.match(controller, /readRequestId === pageCycle.id/);
+  assert.match(controller, /samePrerequisiteReader/);
+  assert.doesNotMatch(controller, /testCases.list|caseFields.get|setPrerequisites.useMutation/);
   assert.match(prerequisites, /type="search"/);
-  assert.match(prerequisites, /hidden=\{!editing\}/);
-  assert.match(prerequisites, /canEdit && editing &&/);
-  assert.match(prerequisites, /expectedPrerequisiteIds:/);
-  assert.match(prerequisites, /draft.baseline/);
-  assert.match(prerequisites, /Your draft is retained/);
+  assert.match(prerequisites, /hidden=\{!control.open\}/);
+  assert.match(prerequisites, /control.open && editable &&/);
+  assert.match(draft, /expectedPrerequisiteIds: Object.freeze\(\[\.\.\.draft.baseline\]\)/);
+  assert.match(draft, /expectedActorId: draft.origin.actorId/);
+  assert.match(controller, /existing\?\.baseline \?\? Object.freeze/);
+  assert.match(prerequisites, /Your draft remains retained/);
   assert.match(prerequisites, /Unavailable case/);
-  assert.match(prerequisites, /Cancel changes/);
-  assert.match(prerequisites, /Save prerequisites/);
+  assert.match(prerequisites, /Close and keep draft/);
+  assert.match(prerequisites, /Discard retained draft/);
+  assert.match(prerequisites, /Review and save prerequisites/);
+  assert.match(prerequisites, /Retry same prerequisite request/);
+  assert.match(prerequisites, /New links must be currently approved active cases/);
+  assert.match(prerequisites, /Maximum 50 direct prerequisites/);
+  assert.match(prerequisites, /saved.offset \/ 20/);
   assert.match(prerequisites, /Execution prerequisites/);
   assert.match(
     prerequisites,
-    /does not replace Given, When, Then or any steps/,
+    /never replaces Given, When, Then or procedure steps/,
   );
   assert.match(prerequisites, /\{item.displayId\}/);
   assert.match(prerequisites, /aria-label="Sort prerequisite cases"/);

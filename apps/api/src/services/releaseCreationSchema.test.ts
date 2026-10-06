@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
+import { createHash } from "node:crypto";
 import {
   releaseCreationSchema,
   releaseTargetDateSchema,
@@ -12,6 +13,30 @@ const scope = {
 };
 
 describe("release creation JSON boundary", () => {
+  it("opt-in EXACT retains complete prose/order/duplicates while old parsed body and UUID hash stay unchanged", () => {
+    const raw = " \t Verify λ🎮\n  Keep this exact second line \n";
+    const old = releaseCreationIdentity({ ...scope, projectId: "p", name: " Release ", newPlan: { name: " Checks ", criteria: [raw, raw] } }, "actor");
+    const oldBody = { ...scope, projectId: "p", name: "Release", testPlanIds: [], goals: [], newPlan: { name: "Checks", criteria: [raw.trim(), raw.trim()] } };
+    expect(old.input).toEqual(oldBody);
+    expect(JSON.stringify(old.input)).toBe(JSON.stringify(oldBody));
+    expect(old.requestHash).toBe(createHash("sha256").update(JSON.stringify(oldBody)).digest("hex"));
+    expect(old.input.newPlan).not.toHaveProperty("wordingMode");
+    const exact = releaseCreationIdentity({ ...scope, projectId: "p", name: " Release ", newPlan: { name: " Checks ", criteria: [raw, raw], wordingMode: "EXACT" } }, "actor");
+    expect(exact.input.newPlan).toEqual({ name: "Checks", criteria: [raw, raw], wordingMode: "EXACT" });
+    expect(releaseCreationIdentity(exact.input, "actor")).toEqual(exact);
+    expect(releaseCreationIdentity(JSON.parse(JSON.stringify(exact.input)), "actor")).toEqual(exact);
+    expect(exact.requestHash).not.toBe(old.requestHash);
+    expect(exact.releaseId).toBe(old.releaseId);
+    expect(releaseCreationIdentity({ ...exact.input, newPlan: { ...exact.input.newPlan!, criteria: [raw.trim(), raw] } }, "actor").requestHash).not.toBe(exact.requestHash);
+  });
+  it("old trimming bounds remain compatible; EXACT refuses blank, oversized and invalid native text without clipping", () => {
+    const padded = " ".repeat(2001) + "Keep";
+    expect(releaseCreationSchema.parse({ ...scope, projectId: "p", name: "Release", newPlan: { name: "Checks", criteria: [padded] } }).newPlan?.criteria).toEqual(["Keep"]);
+    for (const value of ["", " \n ", padded, "x\0y", "\ud800"]) {
+      expect(releaseCreationSchema.safeParse({ ...scope, projectId: "p", name: "Release", newPlan: { name: "Checks", criteria: [value], wordingMode: "EXACT" } }).success).toBe(false);
+    }
+    expect(releaseCreationSchema.safeParse({ ...scope, projectId: "p", name: "Release", newPlan: { name: "Checks", criteria: ["Keep"], wordingMode: "trim" } }).success).toBe(false);
+  });
   it("accepts exactly the date the browser serializes", () => {
     const input = JSON.parse(
       JSON.stringify({

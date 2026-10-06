@@ -6,7 +6,7 @@ export function releaseCriteriaDraftProblem(values: {
 }): string | null {
   if (values.editingIndex !== null)
     return "Save or cancel this criterion edit before continuing.";
-  if (values.criterionDraft.trim())
+  if (values.criterionDraft.length > 0)
     return values.criteria.length >= 50
       ? "This plan already has 50 criteria. Edit an existing criterion or clear the extra draft to continue."
       : "Add this criterion or clear its draft before continuing.";
@@ -19,9 +19,12 @@ export function saveReleaseCriterionDraft(
   draft: string,
   editingIndex: number | null,
 ): string[] {
-  const description = draft.trim();
-  if (!description || description.length > 2000)
-    throw Error("A criterion needs between 1 and 2,000 characters.");
+  const description = draft;
+  if (!description.trim() || description.length > 2000 || description.includes("\0") || Array.from(description).some(character => {
+    const point = character.codePointAt(0)!;
+    return point >= 0xd800 && point <= 0xdfff;
+  }))
+    throw Error("A criterion needs nonblank native text of at most 2,000 characters, without null characters or incomplete Unicode.");
   if (editingIndex !== null) {
     if (
       !Number.isInteger(editingIndex) ||

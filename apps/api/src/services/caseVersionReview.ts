@@ -10,6 +10,7 @@ import {
   verificationProfileSchema,
 } from "./physicalValidation.js";
 import { snapshotTestCaseVersion } from "./testCaseVersion.js";
+import { caseFieldPresentationJsonBytes } from "./caseFieldPresentationSchema.js";
 import {
   assertCaseFieldAuthoring,
   lockCaseFieldProject,
@@ -18,6 +19,8 @@ import {
   lockCaseFieldReadScope,
   lockCurrentCaseFieldActor,
   caseFieldReadScopeSchema,
+  caseFieldReadPinFields,
+  pairedCaseFieldReadPins,
   type CaseFieldReadAuthorization,
 } from "./caseFieldReadScope.js";
 
@@ -111,6 +114,210 @@ export const versionRestoreOutputSchema = z.object({
   displayId: z.string(),
   replayed: z.boolean(),
 });
+// Read activation fields are deliberately NOT put into versionPreviewSchema:
+// legacy restore inherits that schema and hashes its exact parsed input.
+const readFields = {
+  ...caseFieldReadPinFields,
+  readRequestId: z.string().uuid().optional(),
+};
+export const versionListReadSchema = versionScopeSchema
+  .extend({
+    ...readFields,
+    take: z.number().int().min(1).max(20).default(10),
+    before: z.number().int().positive().optional(),
+  })
+  .strict()
+  .superRefine(pairedCaseFieldReadPins);
+export const versionPreviewReadSchema = versionPreviewSchema
+  .extend(readFields)
+  .strict()
+  .superRefine(pairedCaseFieldReadPins);
+export const historicalComparisonReadSchema = historicalComparisonSchema
+  .extend(readFields)
+  .strict()
+  .superRefine(pairedCaseFieldReadPins);
+export const versionAccessReadSchema = versionScopeSchema
+  .extend({ ...readFields, readRequestId: z.string().uuid() })
+  .strict()
+  .superRefine(pairedCaseFieldReadPins);
+const readProjectionSchema = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("ACCESS") }).strict(),
+  z
+    .object({
+      kind: z.literal("LIST"),
+      take: z.number().int().min(1).max(20),
+      before: z.number().int().positive().nullable(),
+    })
+    .strict(),
+  z
+    .object({
+      kind: z.literal("CURRENT"),
+      versionNumber: z.number().int().positive(),
+    })
+    .strict(),
+  z
+    .object({
+      kind: z.literal("HISTORICAL"),
+      fromVersionNumber: z.number().int().positive(),
+      toVersionNumber: z.number().int().positive(),
+    })
+    .strict(),
+]);
+export const versionReadContextSchema = z
+  .object({
+    readRequestId: z.string().uuid(),
+    readScope: caseFieldReadScopeSchema,
+    caseId: z.string().min(1).max(200),
+    canRecover: z.boolean(),
+    projection: readProjectionSchema,
+  })
+  .strict();
+export const versionPreviewReadOutputSchema = versionPreviewOutputSchema.extend(
+  { readContext: versionReadContextSchema.optional() },
+);
+export const historicalComparisonReadOutputSchema =
+  historicalComparisonOutputSchema.extend({
+    readContext: versionReadContextSchema.optional(),
+  });
+export const versionRestoreReviewedSchema = z
+  .object({
+    request: versionRestoreSchema,
+    originalOrganizationId: z.string().min(1).max(200),
+    expectedClerkActorId: z.string().min(1).max(200),
+    expectedNativeActorId: z.string().min(1).max(200),
+  })
+  .strict();
+export const versionRestoreReviewedOutputSchema = versionRestoreOutputSchema
+  .extend({
+    requestId: z.string().uuid(),
+    requestHash: z.string().regex(/^[a-f0-9]{64}$/),
+    caseId: z.string().min(1).max(200),
+    readScope: caseFieldReadScopeSchema,
+    scopeProof: z.literal("CURRENT_LOCKED_AUTHORIZATION"),
+  })
+  .strict();
+type ReadInput =
+  | z.infer<typeof versionPreviewReadSchema>
+  | z.infer<typeof historicalComparisonReadSchema>
+  | z.infer<typeof versionListReadSchema>
+  | z.infer<typeof versionAccessReadSchema>;
+type ReviewedPins = Pick<
+  z.infer<typeof versionRestoreReviewedSchema>,
+  "originalOrganizationId" | "expectedClerkActorId" | "expectedNativeActorId"
+>;
+
+export async function caseVersionReadContext(
+  tx: Prisma.TransactionClient,
+  userId: string,
+  input: ReadInput,
+  scope: z.infer<typeof caseFieldReadScopeSchema>,
+  projection: z.infer<typeof readProjectionSchema>,
+): Promise<{ readContext?: z.infer<typeof versionReadContextSchema> }> {
+  if (input.readRequestId === undefined) return {};
+  const member = await tx.membership.findFirst({
+    where: { userId, organizationId: scope.organizationId },
+    select: { role: true, seatType: true },
+  });
+  return {
+    readContext: versionReadContextSchema.parse({
+      readRequestId: input.readRequestId,
+      readScope: scope,
+      caseId: input.testCaseId,
+      projection,
+      canRecover:
+        !!member &&
+        member.seatType === "FULL" &&
+        ["OWNER", "ADMIN", "EDITOR"].includes(member.role),
+    }),
+  };
+}
+export async function readCaseVersionAccess(
+  db: PrismaClient,
+  userId: string,
+  input: z.infer<typeof versionAccessReadSchema>,
+  authorized?: CaseFieldReadAuthorization,
+) {
+  return db.$transaction(
+    async (tx) => {
+      const scope = await lockCaseFieldReadScope(
+        tx,
+        userId,
+        {
+          projectId: input.projectId,
+          caseId: input.testCaseId,
+          originalOrganizationId: input.originalOrganizationId,
+          expectedClerkActorId: input.expectedClerkActorId,
+        },
+        authorized,
+      );
+      await requireCurrentPlanAccess(tx, userId, input.projectId);
+      return versionReadContextSchema.parse(
+        (
+          await caseVersionReadContext(tx, userId, input, scope, {
+            kind: "ACCESS",
+          })
+        ).readContext,
+      );
+    },
+    {
+      isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead,
+      timeout: 10000,
+    },
+  );
+}
+/** Interim NEW-reviewed-write admission only. The shared version helper cannot
+ * attest SQL NULL versus JSON null from a JS null, so both are refused here.
+ * This is not a precision-preserving native read codec or a legacy migration. */
+export async function assertReviewedVersionProfileRoundTrip(
+  tx: Prisma.TransactionClient,
+  input: z.infer<typeof versionPreviewSchema>,
+  currentProfile: unknown,
+  historical?: { value: unknown },
+) {
+  const refused = () =>
+    new TRPCError({
+      code: "PRECONDITION_FAILED",
+      message:
+        "The native verification profile cannot be versioned exactly by the current reviewed-restore codec. No profile or history was converted or overwritten.",
+    });
+  const encode = (value: unknown) => {
+    try {
+      if (caseFieldPresentationJsonBytes(value) > 524288) throw refused();
+      return JSON.stringify(value);
+    } catch {
+      throw refused();
+    }
+  };
+  const currentJson = encode(currentProfile);
+  const [current] = await tx.$queryRaw<
+    Array<{ exact: boolean; nativeKind: string }>
+  >`
+    SELECT ("verificationProfile" IS NOT DISTINCT FROM ${currentJson}::jsonb) AS exact,
+      CASE WHEN "verificationProfile" IS NULL THEN 'SQL_NULL' WHEN "verificationProfile"='null'::jsonb THEN 'JSON_NULL' ELSE 'VALUE' END AS "nativeKind"
+    FROM "TestCase" WHERE id=${input.testCaseId} AND "projectId"=${input.projectId}`;
+  if (
+    current?.exact !== true ||
+    current.nativeKind !== "VALUE" ||
+    currentProfile === null
+  )
+    throw refused();
+  if (historical) {
+    const savedJson = encode(historical.value);
+    const [saved] = await tx.$queryRaw<
+      Array<{ exact: boolean; nativeKind: string }>
+    >`
+      SELECT (v."verificationProfile" IS NOT DISTINCT FROM ${savedJson}::jsonb) AS exact,
+        CASE WHEN v."verificationProfile" IS NULL THEN 'SQL_NULL' WHEN v."verificationProfile"='null'::jsonb THEN 'JSON_NULL' ELSE 'VALUE' END AS "nativeKind"
+      FROM "TestCaseVersion" v JOIN "TestCase" c ON c.id=v."testCaseId"
+      WHERE c."projectId"=${input.projectId} AND v."testCaseId"=${input.testCaseId} AND v."versionNumber"=${input.versionNumber}`;
+    if (
+      saved?.exact !== true ||
+      saved.nativeKind !== "VALUE" ||
+      historical.value === null
+    )
+      throw refused();
+  }
+}
 const freshnessNotice =
   "Retained risk/design assessments, paid drafts and review decisions may refer to other case content. Review them again; this restore does not recertify them.";
 const text = z.string().max(10000);
@@ -147,12 +354,22 @@ const labels: Record<z.infer<typeof restoreFieldSchema>, string> = {
 export async function compareHistoricalCaseVersions(
   db: PrismaClient,
   userId: string,
-  input: z.infer<typeof historicalComparisonSchema>,
+  input: z.infer<typeof historicalComparisonReadSchema>,
   authorized?: CaseFieldReadAuthorization,
 ) {
   return db.$transaction(
     async (tx) => {
-      await lockCaseFieldReadScope(tx, userId, { projectId: input.projectId, caseId: input.testCaseId }, authorized);
+      const scope = await lockCaseFieldReadScope(
+        tx,
+        userId,
+        {
+          projectId: input.projectId,
+          caseId: input.testCaseId,
+          originalOrganizationId: input.originalOrganizationId,
+          expectedClerkActorId: input.expectedClerkActorId,
+        },
+        authorized,
+      );
       await requireCurrentPlanAccess(tx, userId, input.projectId);
       const currentIdentity = await tx.testCase.findFirst({
         where: { id: input.testCaseId, projectId: input.projectId },
@@ -225,6 +442,11 @@ export async function compareHistoricalCaseVersions(
         };
       });
       return {
+        ...(await caseVersionReadContext(tx, userId, input, scope, {
+          kind: "HISTORICAL",
+          fromVersionNumber: input.fromVersionNumber,
+          toVersionNumber: input.toVersionNumber,
+        })),
         caseId: currentIdentity.id,
         displayId: currentIdentity.displayId,
         from: {
@@ -259,7 +481,10 @@ async function reviewState(
   scope: z.infer<typeof caseFieldReadScopeSchema>,
 ) {
   if (scope.projectId !== input.projectId)
-    throw new TRPCError({ code: "FORBIDDEN", message: "Version review belongs to a different project." });
+    throw new TRPCError({
+      code: "FORBIDDEN",
+      message: "Version review belongs to a different project.",
+    });
   const [size] = await tx.$queryRaw<
     Array<{ currentBytes: number; savedBytes: number }>
   >`
@@ -438,7 +663,10 @@ async function reviewState(
         scope,
         caseId: current.id,
         versionNumber: saved.versionNumber,
-        savedRevision: qualityProfileHash({ ...saved, createdAt: saved.createdAt.toISOString() }),
+        savedRevision: qualityProfileHash({
+          ...saved,
+          createdAt: saved.createdAt.toISOString(),
+        }),
       }),
       fields,
       warnings,
@@ -449,12 +677,22 @@ async function reviewState(
 export async function previewCaseVersion(
   db: PrismaClient,
   userId: string,
-  input: z.infer<typeof versionPreviewSchema>,
+  input: z.infer<typeof versionPreviewReadSchema>,
   authorized?: CaseFieldReadAuthorization,
 ) {
   return db.$transaction(
     async (tx) => {
-      const scope = await lockCaseFieldReadScope(tx, userId, { projectId: input.projectId, caseId: input.testCaseId }, authorized);
+      const scope = await lockCaseFieldReadScope(
+        tx,
+        userId,
+        {
+          projectId: input.projectId,
+          caseId: input.testCaseId,
+          originalOrganizationId: input.originalOrganizationId,
+          expectedClerkActorId: input.expectedClerkActorId,
+        },
+        authorized,
+      );
       await requireCurrentPlanAccess(tx, userId, input.projectId);
       const membership = await tx.membership.findFirst({
         where: {
@@ -464,6 +702,10 @@ export async function previewCaseVersion(
         select: { role: true, seatType: true },
       });
       return {
+        ...(await caseVersionReadContext(tx, userId, input, scope, {
+          kind: "CURRENT",
+          versionNumber: input.versionNumber,
+        })),
         ...(await reviewState(tx, input, scope)).preview,
         canRestore: Boolean(
           membership &&
@@ -479,11 +721,25 @@ export async function previewCaseVersion(
   );
 }
 
+export function restoreCaseVersion(
+  db: PrismaClient,
+  userId: string,
+  input: z.infer<typeof versionRestoreSchema>,
+  authorized: CaseFieldReadAuthorization | undefined,
+  reviewedPins: ReviewedPins,
+): Promise<z.infer<typeof versionRestoreReviewedOutputSchema>>;
+export function restoreCaseVersion(
+  db: PrismaClient,
+  userId: string,
+  input: z.infer<typeof versionRestoreSchema>,
+  authorized?: CaseFieldReadAuthorization,
+): Promise<z.infer<typeof versionRestoreOutputSchema>>;
 export async function restoreCaseVersion(
   db: PrismaClient,
   userId: string,
   input: z.infer<typeof versionRestoreSchema>,
   authorized?: CaseFieldReadAuthorization,
+  reviewedPins?: ReviewedPins,
 ) {
   const requestHash = qualityProfileHash({
     ...input,
@@ -492,9 +748,45 @@ export async function restoreCaseVersion(
   return db.$transaction(
     async (tx) => {
       await lockCaseFieldProject(tx, userId, input.projectId);
-      const actorClerkUserId = await lockCurrentCaseFieldActor(tx, userId, authorized);
-      const originalProject = await tx.project.findUniqueOrThrow({ where: { id: input.projectId }, select: { organizationId: true } });
-      const scope = caseFieldReadScopeSchema.parse({ projectId: input.projectId, organizationId: originalProject.organizationId, actorId: userId, actorClerkUserId });
+      const actorClerkUserId = await lockCurrentCaseFieldActor(
+        tx,
+        userId,
+        authorized,
+      );
+      const originalProject = await tx.project.findUniqueOrThrow({
+        where: { id: input.projectId },
+        select: { organizationId: true },
+      });
+      const scope = caseFieldReadScopeSchema.parse({
+        projectId: input.projectId,
+        organizationId: originalProject.organizationId,
+        actorId: userId,
+        actorClerkUserId,
+      });
+      if (
+        reviewedPins &&
+        (scope.organizationId !== reviewedPins.originalOrganizationId ||
+          scope.actorClerkUserId !== reviewedPins.expectedClerkActorId ||
+          scope.actorId !== reviewedPins.expectedNativeActorId)
+      )
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message:
+            "Restore the original organization and signed-in native actor before retrying this reviewed restore. Retained requests were not rebound.",
+        });
+      const acknowledgement = (
+        result: z.infer<typeof versionRestoreOutputSchema>,
+      ) =>
+        reviewedPins
+          ? versionRestoreReviewedOutputSchema.parse({
+              ...result,
+              requestId: input.requestId,
+              requestHash,
+              caseId: input.testCaseId,
+              readScope: scope,
+              scopeProof: "CURRENT_LOCKED_AUTHORIZATION",
+            })
+          : result;
       await tx.$queryRaw`SELECT id FROM "TestCase" WHERE id = ${input.testCaseId} AND "projectId" = ${input.projectId} FOR UPDATE`;
       await tx.$queryRaw`SELECT id FROM "TestCaseStep" WHERE "testCaseId" = ${input.testCaseId} FOR UPDATE`;
       await tx.$queryRaw`SELECT g.id FROM "SharedStepGroup" g JOIN "TestCase" c ON c."sharedStepGroupId" = g.id WHERE c.id = ${input.testCaseId} AND c."projectId" = ${input.projectId} FOR SHARE OF g`;
@@ -512,7 +804,11 @@ export async function restoreCaseVersion(
       });
       if (receipt) {
         if (receipt.organizationId !== scope.organizationId)
-          throw new TRPCError({ code: "FORBIDDEN", message: "This restore receipt belongs to the project's original organization and cannot be replayed after an ownership change." });
+          throw new TRPCError({
+            code: "FORBIDDEN",
+            message:
+              "This restore receipt belongs to the project's original organization and cannot be replayed after an ownership change.",
+          });
         const metadata = z
           .object({
             requestHash: z.string(),
@@ -527,18 +823,24 @@ export async function restoreCaseVersion(
             message:
               "This restore request identity was already used for a different review.",
           });
-        return {
+        return acknowledgement({
           restoredVersionNumber: metadata.data.restoredVersionNumber,
           createdVersionNumber: metadata.data.createdVersionNumber,
           displayId: metadata.data.displayId,
           replayed: true,
-        };
+        });
       }
       // Old versions do not contain custom metadata. Keep current values;
       // explicit content restoration requires current required fields complete.
-      await assertCaseFieldAuthoring(tx, userId, input.projectId, {
-        caseId: input.testCaseId,
-      }, authorized);
+      await assertCaseFieldAuthoring(
+        tx,
+        userId,
+        input.projectId,
+        {
+          caseId: input.testCaseId,
+        },
+        authorized,
+      );
       const { current, saved, normalizedSteps, preview } = await reviewState(
         tx,
         input,
@@ -562,6 +864,15 @@ export async function restoreCaseVersion(
           message:
             "Choose only changed, supported fields from this comparison.",
         });
+      if (reviewedPins)
+        await assertReviewedVersionProfileRoundTrip(
+          tx,
+          input,
+          current.verificationProfile,
+          input.fields.includes("verificationProfile")
+            ? { value: saved.verificationProfile }
+            : undefined,
+        );
       const data: Prisma.TestCaseUpdateInput = {
         updatedBy: { connect: { id: userId } },
       };
@@ -678,12 +989,12 @@ export async function restoreCaseVersion(
           },
         },
       });
-      return {
+      return acknowledgement({
         restoredVersionNumber: saved.versionNumber,
         createdVersionNumber: newVersion.versionNumber,
         displayId: current.displayId,
         replayed: false,
-      };
+      });
     },
     { timeout: 10000 },
   );
