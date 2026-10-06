@@ -126,7 +126,7 @@ function fixture() {
     $transaction: vi.fn(
       async (run: (transaction: typeof tx) => unknown, options: unknown) => {
         expect(options).toMatchObject({
-          isolationLevel: "RepeatableRead",
+          isolationLevel: "ReadCommitted",
           timeout: 20000,
         });
         return run(tx);

@@ -925,7 +925,10 @@ export async function recordReviewedManualCaseResult(
           });
         return ack(revision, false);
       },
-      { isolationLevel: "RepeatableRead", timeout: 20000 },
+      // Identity discovery precedes the namespace lock. A fresh statement snapshot
+      // after waiting must see committed receipts/heads; the existing project/run
+      // locks still serialize conforming writes. Read projections retain RR.
+      { isolationLevel: "ReadCommitted", timeout: 20000 },
     );
   } catch (error) {
     if (

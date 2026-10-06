@@ -36,7 +36,7 @@ const scope = {
     clerkActorId: "cl",
   },
   actor = { id: "n", clerkUserId: "cl" };
-function fixture(count = 851) {
+function fixture(count = 851, expectedIsolation: "ReadCommitted" | "RepeatableRead" | Array<"ReadCommitted" | "RepeatableRead"> = "ReadCommitted") {
   const ids = Array.from({ length: count }, (_, i) =>
       i === 0 ? "c" : `c${i}`,
     ),
@@ -250,11 +250,12 @@ function fixture(count = 851) {
       findUniqueOrThrow: vi.fn(async () => ({ name: "Synthetic member" })),
     },
   };
+  let transactionIndex = 0;
   const db = {
     $transaction: vi.fn(
       async (fn: (arg: typeof tx) => unknown, opts: unknown) => {
         expect(opts).toMatchObject({
-          isolationLevel: "RepeatableRead",
+          isolationLevel: Array.isArray(expectedIsolation) ? expectedIsolation[transactionIndex++] : expectedIsolation,
           timeout: 20000,
         });
         return fn(tx);
@@ -305,7 +306,7 @@ describe("whole-case reviewed native contracts MOCKED SQL only, no native execut
     expect(h.events.indexOf("native-run-admission")).toBeLessThan(h.events.indexOf("private-run-body"));
   });
   it("history nonce/raw observation/SQL-NULL vs JSON-NULL classification are bounded before bodies and not normalized", async () => {
-    const h = fixture(),
+    const h = fixture(851, "RepeatableRead"),
       rows = [
         {
           id: "v",
@@ -545,7 +546,7 @@ describe("whole-case reviewed native contracts MOCKED SQL only, no native execut
     ).rejects.toMatchObject({ code: "PRECONDITION_FAILED" });
   });
   it("current unknown/JSON-null retained root remains read-only and no replacement; precision refusal generic", async () => {
-    const h = fixture();
+    const h = fixture(851, ["RepeatableRead", "ReadCommitted", "RepeatableRead"]);
     h.state.result = {
       id: "legacy",
       status: "FAIL",
@@ -567,7 +568,7 @@ describe("whole-case reviewed native contracts MOCKED SQL only, no native execut
     expect(h.tx.testResult.update).not.toHaveBeenCalled();
   });
   it("preview fresh nonce/native scope and independent read-only recovery signal do not load run bodies for access", async () => {
-    const h = fixture();
+    const h = fixture(851, "RepeatableRead");
     h.state.seatType = "READ_ONLY";
     h.state.runBytes = 999999999n;
     expect(
