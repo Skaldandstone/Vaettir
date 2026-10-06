@@ -3,90 +3,16 @@
 import { useState } from "react";
 import { trpcReact, type RouterOutputs } from "@/lib/trpcReact";
 import { PlanExecutionModal } from "./PlanExecutionModal";
+import { PlanCustomFieldsForm } from "./PlanCustomFieldsForm";
+import { CriterionDescriptionEditor } from "./CriterionDescriptionEditor";
+import { CriterionVerdictEditor } from "./CriterionVerdictEditor";
+import { PlanGovernanceHistory } from "./PlanGovernanceHistory";
 
 type Plan = RouterOutputs["testPlans"]["byId"];
-type FieldSchema = { type?: string; properties?: Record<string, { type?: string; items?: { type?: string } }> };
 
 const STATUSES = ["DRAFT", "ACTIVE", "IN_REVIEW", "APPROVED"];
-const CRITERION_STATUSES = ["PENDING", "MET", "NOT_MET", "AT_RISK"];
 
-// Renders one input per property in the plan type's fieldSchema (a small
-// subset of JSON Schema: string/number/boolean, and array-of-string as a
-// comma-separated field). Good enough for the seeded built-in plan types;
-// extend if a custom plan type needs a richer property type.
-function CustomFieldsForm({
-  schema,
-  values,
-  onChange,
-}: {
-  schema: FieldSchema;
-  values: Record<string, unknown>;
-  onChange: (values: Record<string, unknown>) => void;
-}) {
-  const properties = schema.properties ?? {};
-  const keys = Object.keys(properties);
-  if (keys.length === 0) return null;
-
-  return (
-    <div style={{ display: "grid", gap: 10 }}>
-      {keys.map((key) => {
-        const prop = properties[key];
-        const value = values[key];
-        if (prop?.type === "array") {
-          const arr = Array.isArray(value) ? (value as string[]) : [];
-          return (
-            <label key={key}>
-              {key} <span style={{ color: "var(--muted-dim)" }}>(comma-separated)</span>
-              <input
-                value={arr.join(", ")}
-                onChange={(e) =>
-                  onChange({
-                    ...values,
-                    [key]: e.target.value
-                      .split(",")
-                      .map((s) => s.trim())
-                      .filter(Boolean),
-                  })
-                }
-                style={{ width: "100%" }}
-              />
-            </label>
-          );
-        }
-        if (prop?.type === "number") {
-          return (
-            <label key={key}>
-              {key}
-              <input
-                type="number"
-                value={typeof value === "number" ? value : ""}
-                onChange={(e) => onChange({ ...values, [key]: e.target.value === "" ? undefined : Number(e.target.value) })}
-                style={{ width: "100%" }}
-              />
-            </label>
-          );
-        }
-        return (
-          <label key={key}>
-            {key}
-            <input
-              value={typeof value === "string" ? value : ""}
-              onChange={(e) => onChange({ ...values, [key]: e.target.value })}
-              style={{ width: "100%" }}
-            />
-          </label>
-        );
-      })}
-    </div>
-  );
-}
-
-// P4-01: a repeatable-row editor for one array-of-string field -- one row
-// per item, add/remove buttons, rather than the generic CustomFieldsForm's
-// single comma-separated text input for the same data. Comma-separated is
-// fine for a quick built-in type nobody's staring at for long; a QA
-// strategy's risk areas/entry/exit criteria are exactly the fields someone
-// is meant to sit down and think through one at a time.
+// P4-01: dedicated QA-strategy rows retain their exact string contents.
 function StringListField({
   label,
   hint,
@@ -108,18 +34,20 @@ function StringListField({
       </p>
       {values.map((v, i) => (
         <div key={i} style={{ display: "flex", gap: 6, marginBottom: 6 }}>
-          <input
+          <textarea
+            rows={2}
+            aria-label={`${label} ${i + 1}`}
             value={v}
             onChange={(e) => onChange(values.map((vv, j) => (j === i ? e.target.value : vv)))}
             placeholder={placeholder}
             style={{ flex: 1 }}
           />
-          <button className="btn-secondary" onClick={() => onChange(values.filter((_, j) => j !== i))}>
+          <button type="button" className="btn-secondary" onClick={() => onChange(values.filter((_, j) => j !== i))}>
             Remove
           </button>
         </div>
       ))}
-      <button className="btn-secondary" style={{ fontSize: 12 }} onClick={() => onChange([...values, ""])}>
+      <button type="button" className="btn-secondary" style={{ fontSize: 12 }} onClick={() => onChange([...values, ""])}>
         + Add {label.toLowerCase().replace(/s$/, "")}
       </button>
     </div>
@@ -127,7 +55,7 @@ function StringListField({
 }
 
 // P4-01: the QA Strategy plan type's own guided form, in place of the
-// generic CustomFieldsForm, since this is the plan type the roadmap calls
+// generic PlanCustomFieldsForm, since this is the plan type the roadmap calls
 // out by name for a "structured, guided form rather than raw JSON." Every
 // other plan type (built-in or custom, per P3-09) still gets the generic
 // renderer -- this one earns a dedicated form because its four fields are
@@ -591,7 +519,6 @@ export function TestPlanDetailContent({
   const requirements = requirementsQuery.data ?? [];
   const updateMutation = trpcReact.testPlans.update.useMutation();
   const addCriterionMutation = trpcReact.testPlans.addAcceptanceCriterion.useMutation();
-  const updateCriterionMutation = trpcReact.testPlans.updateAcceptanceCriterion.useMutation();
   const deleteCriterionMutation = trpcReact.testPlans.deleteAcceptanceCriterion.useMutation();
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
@@ -650,11 +577,6 @@ export function TestPlanDetailContent({
     }
   }
 
-  async function updateCriterionStatus(criterionId: string, description: string, requirementId: string | null, statusValue: string) {
-    await updateCriterionMutation.mutateAsync({ id: criterionId, description, status: statusValue as never, requirementId });
-    load();
-  }
-
   async function removeCriterion(criterionId: string) {
     await deleteCriterionMutation.mutateAsync({ id: criterionId });
     load();
@@ -703,7 +625,7 @@ export function TestPlanDetailContent({
           {plan.testPlanType.key === "qa-strategy" ? (
             <QaStrategyForm projectId={plan.projectId} values={customFields} onChange={setCustomFields} />
           ) : (
-            <CustomFieldsForm schema={plan.testPlanType.fieldSchema as FieldSchema} values={customFields} onChange={setCustomFields} />
+            <PlanCustomFieldsForm schema={plan.testPlanType.fieldSchema} values={customFields} onChange={setCustomFields} />
           )}
 
           <button onClick={save} disabled={saving || !name}>
@@ -725,21 +647,15 @@ export function TestPlanDetailContent({
       <ul style={{ listStyle: "none", padding: 0 }}>
         {plan.acceptanceCriteria.map((c) => (
           <li key={c.id} style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 6 }}>
-            <span style={{ flex: 1 }}>{c.description}</span>
+            <div style={{ flex: 1, minWidth: 0, overflowWrap: "anywhere" }}>
+              <span style={{ whiteSpace: "pre-wrap" }}>{c.description}</span>{" "}
+              <span hidden={readOnly}><CriterionDescriptionEditor projectId={plan.projectId} testPlanId={id} criterionId={c.id} onChanged={load} /></span>
+            </div>
+            <div hidden={readOnly}><CriterionVerdictEditor projectId={plan.projectId} testPlanId={id} criterionId={c.id} status={c.status} onChanged={load} /></div>
             {readOnly ? (
               <span className="text-muted" style={{ fontSize: 12 }}>{c.status}</span>
             ) : (
               <>
-                <select
-                  value={c.status}
-                  onChange={(e) => updateCriterionStatus(c.id, c.description, c.requirementId, e.target.value)}
-                >
-                  {CRITERION_STATUSES.map((s) => (
-                    <option key={s} value={s}>
-                      {s}
-                    </option>
-                  ))}
-                </select>
                 <button onClick={() => removeCriterion(c.id)}>Remove</button>
               </>
             )}
@@ -747,6 +663,7 @@ export function TestPlanDetailContent({
         ))}
         {plan.acceptanceCriteria.length === 0 && <p style={{ color: "var(--muted)" }}>No acceptance criteria yet.</p>}
       </ul>
+      <PlanGovernanceHistory projectId={plan.projectId} testPlanId={id} />
 
       {!readOnly && (
         <div style={{ display: "flex", gap: 8, marginTop: 12 }}>

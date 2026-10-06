@@ -44,7 +44,10 @@ export async function planGovernanceRequestHash(
 export type GovernancePending<T> = {
   input: T;
   origin: CaseFieldOrigin;
-  operation: "EDIT_CRITERION_DESCRIPTION" | "ATTACH_UNASSIGNED_PLAN";
+  operation:
+    | "EDIT_CRITERION_DESCRIPTION"
+    | "ATTACH_UNASSIGNED_PLAN"
+    | "SET_CRITERION_VERDICT";
   requestHash: string;
   uncertain: boolean;
 };

@@ -14,6 +14,7 @@ import { downloadFile } from "@/lib/download";
 import { Modal } from "@/components/Modal";
 import { releasePlanChoices } from "@/lib/release-planning-draft";
 import { CriterionDescriptionEditor } from "@/components/CriterionDescriptionEditor";
+import { CriterionVerdictEditor } from "@/components/CriterionVerdictEditor";
 import { AttachUnassignedPlan } from "@/components/AttachUnassignedPlan";
 import { PlanGovernanceHistory } from "@/components/PlanGovernanceHistory";
 
@@ -24,7 +25,6 @@ const STATUSES = [
   "SHIPPED",
   "BLOCKED",
 ] as const;
-const CRITERION_STATUSES = ["PENDING", "MET", "AT_RISK", "NOT_MET"] as const;
 
 // 2026-08-28: a stakeholder-readable narrative draft of this release's
 // readiness, generated from the exact same live readiness/risk-flag data
@@ -264,8 +264,6 @@ export default function ReleaseReadinessPage() {
   }
 
   const updateStatusMutation = trpcReact.releases.updateStatus.useMutation();
-  const updateCriterionMutation =
-    trpcReact.testPlans.updateAcceptanceCriterion.useMutation();
   const setReleaseMutation = trpcReact.testPlans.setRelease.useMutation();
   const resolveRiskFlagMutation =
     trpcReact.releases.resolveRiskFlag.useMutation();
@@ -323,23 +321,6 @@ export default function ReleaseReadinessPage() {
     try {
       await updateStatusMutation.mutateAsync({
         id: releaseId,
-        status: status as never,
-      });
-      reload();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-    }
-  }
-
-  async function updateCriterionStatus(
-    id: string,
-    description: string,
-    status: string,
-  ) {
-    try {
-      await updateCriterionMutation.mutateAsync({
-        id,
-        description,
         status: status as never,
       });
       reload();
@@ -595,34 +576,14 @@ export default function ReleaseReadinessPage() {
                       onChanged={reload}
                     />
                   </div>
-                  {c.autoComputed ? (
-                    <span
-                      title="Computed live from this plan's test case results -- not manually editable"
-                      style={{ fontSize: 12 }}
-                    >
-                      {c.status} <span className="text-muted">(live)</span>
-                    </span>
-                  ) : readOnly ? (
-                    <span style={{ fontSize: 12 }}>{c.status}</span>
-                  ) : (
-                    <select
-                      value={c.status}
-                      onChange={(e) =>
-                        updateCriterionStatus(
-                          c.id,
-                          c.description,
-                          e.target.value,
-                        )
-                      }
-                      style={{ fontSize: 12 }}
-                    >
-                      {CRITERION_STATUSES.map((s) => (
-                        <option key={s} value={s}>
-                          {s}
-                        </option>
-                      ))}
-                    </select>
-                  )}
+                  <CriterionVerdictEditor
+                    projectId={projectId}
+                    testPlanId={p.id}
+                    criterionId={c.id}
+                    status={c.status}
+                    computed={c.autoComputed}
+                    onChanged={reload}
+                  />
                 </li>
               ))}
               {p.acceptanceCriteria.length === 0 && (

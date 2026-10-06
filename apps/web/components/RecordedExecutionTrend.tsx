@@ -31,22 +31,24 @@ import {
 } from "@/lib/recorded-execution-trend";
 type Trend = RouterOutputs["recordedExecutionTrends"]["summary"];
 const fieldStyle = { width: "100%", boxSizing: "border-box" as const };
-export function RecordedExecutionTrend({ projectId }: { projectId: string }) {
-  return <ExecutionTrend key={projectId} projectId={projectId} />;
+export function RecordedExecutionTrend({ projectId, active = true }: { projectId: string; active?: boolean }) {
+  return <ExecutionTrend key={projectId} projectId={projectId} active={active} />;
 }
-function ExecutionTrend({ projectId }: { projectId: string }) {
+function ExecutionTrend({ projectId, active }: { projectId: string; active: boolean }) {
   const { isLoaded, isSignedIn, userId } = useAuth();
   const project = trpcReact.project.byId.useQuery(
     { id: projectId },
-    { retry: false, staleTime: 0 },
+    { enabled: active, retry: false, staleTime: 0 },
   );
   const organizations = trpcReact.organization.mine.useQuery(undefined, {
+    enabled: active,
     retry: false,
     staleTime: 0,
   });
   const organizationId =
     project.data?.id === projectId ? project.data.organizationId : undefined;
   const accessReady =
+    active &&
     isLoaded &&
     !!isSignedIn &&
     !!userId &&
@@ -102,7 +104,7 @@ function ExecutionTrend({ projectId }: { projectId: string }) {
       originalOrganizationId: organizationId ?? "unavailable",
       ...dates,
     },
-    { enabled: !!applied && sameOrigin, retry: false, staleTime: 0 },
+    { enabled: active && !!applied && sameOrigin, retry: false, staleTime: 0 },
   );
   const availableData =
     sameOrigin &&
@@ -167,6 +169,7 @@ function ExecutionTrend({ projectId }: { projectId: string }) {
     setReviewedFormat(null);
     setReviewedEpoch(-1);
   }, [
+    active,
     query.dataUpdatedAt,
     query.isFetching,
     query.isPaused,
@@ -179,6 +182,7 @@ function ExecutionTrend({ projectId }: { projectId: string }) {
     exportFormat,
   ]);
   const latest = useRef<{
+    active: boolean;
     data: Trend | null;
     exportOpen: boolean;
     grouping: ExecutionTrendGrouping;
@@ -186,6 +190,7 @@ function ExecutionTrend({ projectId }: { projectId: string }) {
     exportFormat: "CSV" | "HTML";
     epoch: number;
   }>({
+    active: false,
     data: null,
     exportOpen: false,
     grouping: "DAY",
@@ -195,8 +200,9 @@ function ExecutionTrend({ projectId }: { projectId: string }) {
   });
   useLayoutEffect(() => {
     latest.current = {
+      active,
       data,
-      exportOpen,
+      exportOpen: active && exportOpen,
       grouping,
       includeRecordedDuration,
       exportFormat,
@@ -204,6 +210,7 @@ function ExecutionTrend({ projectId }: { projectId: string }) {
     };
     return () => {
       latest.current = {
+        active: false,
         data: null,
         exportOpen: false,
         grouping: "DAY",
@@ -213,6 +220,7 @@ function ExecutionTrend({ projectId }: { projectId: string }) {
       };
     };
   }, [
+    active,
     data,
     exportOpen,
     grouping,
@@ -260,6 +268,7 @@ function ExecutionTrend({ projectId }: { projectId: string }) {
   }
   function download() {
     if (
+      !active ||
       !exportOpen ||
       !data ||
       reviewed !== data ||
@@ -283,6 +292,7 @@ function ExecutionTrend({ projectId }: { projectId: string }) {
               includeRecordedDuration,
             );
       if (
+        !latest.current.active ||
         latest.current.data !== data ||
         !latest.current.exportOpen ||
         latest.current.grouping !== grouping ||
@@ -790,7 +800,7 @@ function ExecutionTrend({ projectId }: { projectId: string }) {
         </>
       )}
       <DialogFrame
-        open={exportOpen}
+        open={active && exportOpen}
         onClose={() => {
           latest.current.exportOpen = false;
           setExportOpen(false);

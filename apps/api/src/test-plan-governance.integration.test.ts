@@ -159,5 +159,41 @@ describe.skipIf(!isolated)(
         ).releaseId,
       ).toBe(releaseId);
     });
+    it("native verdict-only writes retain current words and replay one audited decision", async () => {
+      const baseline = await caller.testPlanGovernance.preview(scope);
+      const input = {
+        ...scope,
+        criterionId,
+        expectedPlanRevision: baseline.planRevision,
+        expectedCriterionRevision: baseline.criterionRevisions[criterionId]!,
+        status: "MET" as const,
+        reason: "Synthetic evidence reviewed",
+        confirmed: true as const,
+        requestId: randomUUID(),
+      };
+      const first = await caller.testPlanGovernance.setCriterionVerdict(input);
+      expect(
+        await caller.testPlanGovernance.setCriterionVerdict(input),
+      ).toEqual({ ...first, replayed: true });
+      expect(
+        await prisma.acceptanceCriterion.findUniqueOrThrow({
+          where: { id: criterionId },
+        }),
+      ).toMatchObject({ description: "Synthetic reviewed", status: "MET" });
+      const receipt = (
+        await caller.testPlanGovernance.history({ ...scope, take: 5 })
+      ).entries.find(
+        (row) => row.receipt.ack.requestId === input.requestId,
+      )!.receipt;
+      expect(receipt.before.criteria[0]!.status).toBe("AT_RISK");
+      expect(receipt.after.criteria[0]!.status).toBe("MET");
+      await expect(
+        caller.testPlans.updateAcceptanceCriterion({
+          id: criterionId,
+          description: "Stale/intentional words",
+          status: "NOT_MET",
+        }),
+      ).rejects.toMatchObject({ code: "CONFLICT" });
+    });
   },
 );

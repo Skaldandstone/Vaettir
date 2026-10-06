@@ -4,6 +4,7 @@ import { generateQaStrategyDraft } from "@vaettir/ai-agent";
 import { router, protectedProcedure, requireProjectAccess } from "../trpc.js";
 import { recordAudit } from "../services/auditLog.js";
 import { snapshotTestPlanVersion } from "../services/testPlanVersion.js";
+import { setLegacyCriterionVerdict } from "../services/testPlanGovernance.js";
 import { refreshReleaseReadiness } from "../services/releaseReadiness.js";
 import {
   chargeAiCredits,
@@ -1048,17 +1049,22 @@ export const testPlansRouter = router({
     .mutation(async ({ ctx, input }) => {
       const criterion = await ctx.prisma.acceptanceCriterion.findUniqueOrThrow({
         where: { id: input.id },
-        include: { testPlan: { select: { projectId: true, releaseId: true } } },
-      });
-      await requireProjectAccess(ctx, criterion.testPlan.projectId, "EDITOR");
-      const updated = await ctx.prisma.acceptanceCriterion.update({
-        where: { id: input.id },
-        data: {
-          description: input.description,
-          status: input.status,
-          requirementId: input.requirementId,
+        select: {
+          testPlanId: true,
+          testPlan: { select: { projectId: true, releaseId: true } },
         },
       });
+      await requireProjectAccess(ctx, criterion.testPlan.projectId, "EDITOR");
+      const updated = await setLegacyCriterionVerdict(
+        ctx.prisma,
+        ctx.user.id,
+        {
+          ...input,
+          projectId: criterion.testPlan.projectId,
+          testPlanId: criterion.testPlanId,
+        },
+        { clerkActorId: ctx.user.clerkUserId },
+      );
       refreshReleaseReadiness(ctx.prisma, criterion.testPlan.releaseId);
       return updated;
     }),

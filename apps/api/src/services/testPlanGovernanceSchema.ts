@@ -31,6 +31,19 @@ export const editCriterionDescriptionInput = write
 export const attachUnassignedPlanInput = write
   .extend({ releaseId: id, expectedReleaseId: z.null() })
   .strict();
+export const criterionVerdict = z.enum([
+  "PENDING",
+  "MET",
+  "NOT_MET",
+  "AT_RISK",
+]);
+export const setCriterionVerdictInput = write
+  .extend({
+    criterionId: id,
+    expectedCriterionRevision: hash,
+    status: criterionVerdict,
+  })
+  .strict();
 export const governanceCriterionSnapshot = z
   .object({
     id,
@@ -73,6 +86,7 @@ export const planGovernancePreviewOutput = z
     criterionRevisions: z.record(hash),
     canEdit: z.boolean(),
     editBlockedReason: z.string().nullable(),
+    manualVerdicts: z.boolean(),
   })
   .strict();
 export const planGovernanceAck = z
@@ -80,7 +94,11 @@ export const planGovernanceAck = z
     scope: caseFieldReadScopeSchema,
     requestId: z.string().uuid(),
     requestHash: hash,
-    operation: z.enum(["EDIT_CRITERION_DESCRIPTION", "ATTACH_UNASSIGNED_PLAN"]),
+    operation: z.enum([
+      "EDIT_CRITERION_DESCRIPTION",
+      "ATTACH_UNASSIGNED_PLAN",
+      "SET_CRITERION_VERDICT",
+    ]),
     testPlanId: id,
     criterionId: id.nullable(),
     releaseId: id.nullable(),

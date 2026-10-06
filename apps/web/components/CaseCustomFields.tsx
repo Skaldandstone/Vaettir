@@ -84,6 +84,16 @@ function ValueInputs({
                   ))
                 )}
               </select>
+            ) : field.type === "TEXT" ? (
+              <textarea
+                disabled={disabled}
+                required={field.required}
+                maxLength={2000}
+                rows={4}
+                style={{ width: "100%", minWidth: 0, resize: "vertical" }}
+                value={typeof values[field.key] === "string" ? String(values[field.key]) : ""}
+                onChange={(event) => onChange({ ...values, [field.key]: event.target.value === "" ? null : event.target.value })}
+              />
             ) : (
               <input
                 disabled={disabled}

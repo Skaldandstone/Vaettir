@@ -904,3 +904,43 @@ client-only attachment assertion; it now checks the equivalent unassigned
 picker, fresh preview and native null-assignment CAS instead. Initial portable
 report and exported-hook type errors were corrected, not waived. Native fixtures
 were not invoked; no full API/native/runtime/production acceptance is inferred.
+
+Further signed-in Qase field inspection observed system single-select fields,
+paragraph Description/Pre-conditions/Post-conditions and a searched/sorted
+workspace field list. Its unsaved custom-field dialog exposed Number, Short
+text, Paragraph, single/multi-select, Checkbox, Radio, User picker, URL and
+Date picker, plus project applicability, placeholder/default, required and
+order controls. The dialog was cancelled without creating/changing any field.
+Vaettir's supported native TEXT control now uses a multiline textarea without
+changing its stored type, 2,000-character limit or original-scope CAS/retry
+contract. Nine focused source/component tests pass; this does not establish
+complete Qase field parity or authenticated rendered acceptance.
+
+Follow-up coherence repair: both plan and release criterion surfaces now mount
+the scoped wording, verdict and governance-history controls. Verdict-only writes
+preserve wording/requirement links and use the same bounded revision/UUID/audit
+protocol; computed case-evidence decisions cannot be manually substituted.
+The legacy status route retains its input shape but treats raw wording and an
+optional requirement as locked expectations and changes only status. Mismatches
+refuse; it does not invent durable UUID, original-verdict CAS or full history.
+Broader legacy criterion add/delete governance remains a separate open gap.
+
+Generic plan fields now use exact multiline string/list rows, native Boolean
+controls and finite-number input, retaining unknown or unsupported values
+read-only. Synthetic browser interaction preserved commas/newlines/whitespace,
+removed only one duplicate row, retained an unknown JSON sibling and refused
+an overflowing number without replacing zero. QA-strategy's separate mismatch
+filtering and the legacy plan-header write concurrency model are still open.
+
+Test Runs now offers an explicitly loaded all-pages recorded dashboard using
+the existing bounded trend reader. It retains draft dates/filters on collapse,
+suppresses hidden portal/export/read activity and requires fresh original access
+on reopen. It counts recorded observations across the applied UTC run-start
+window, not global manual planned cases or remaining work. No new aggregate
+query, native scope limit or raw-result denominator was invented.
+
+Fresh integrated source checks: 666 Node plus 48 typed Web tests (714 total,
+zero skips), 115 focused API pure/mocked checks and API/Web types pass. The
+initial nullable TEXT display type error was corrected while retaining raw
+stored values. New native fixtures remain authored NOT RUN. No deployment,
+database/customer/provider/security mutation or passing runtime acceptance.

@@ -1,7 +1,9 @@
 import { router, protectedProcedure, requireProjectAccess } from "../trpc.js";
+import { refreshReleaseReadiness } from "../services/releaseReadiness.js";
 import {
   planGovernanceScopeInput,
   editCriterionDescriptionInput,
+  setCriterionVerdictInput,
   attachUnassignedPlanInput,
   planGovernancePreviewOutput,
   planGovernanceAck,
@@ -11,10 +13,29 @@ import {
 import {
   previewPlanGovernance,
   editGovernedCriterionDescription,
+  setGovernedCriterionVerdict,
   attachGovernedUnassignedPlan,
   listPlanGovernanceHistory,
 } from "../services/testPlanGovernance.js";
 export const testPlanGovernanceRouter = router({
+  setCriterionVerdict: protectedProcedure
+    .input(setCriterionVerdictInput)
+    .output(planGovernanceAck)
+    .mutation(async ({ ctx, input }) => {
+      await requireProjectAccess(ctx, input.projectId, "EDITOR");
+      const saved = await setGovernedCriterionVerdict(
+        ctx.prisma,
+        ctx.user.id,
+        input,
+        {
+          clerkActorId: ctx.user.clerkUserId,
+        },
+      );
+      // Preserve the existing post-commit readiness refresh for a new manual
+      // decision. Replaying a lost ACK does not schedule a second transition.
+      if (!saved.replayed) refreshReleaseReadiness(ctx.prisma, saved.releaseId);
+      return saved;
+    }),
   preview: protectedProcedure
     .input(planGovernanceScopeInput)
     .output(planGovernancePreviewOutput)

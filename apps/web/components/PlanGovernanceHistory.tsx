@@ -92,7 +92,9 @@ export function PlanGovernanceHistory({
                 Version {entry.receipt.ack.versionNumber} ·{" "}
                 {entry.receipt.ack.operation === "EDIT_CRITERION_DESCRIPTION"
                   ? "Criterion wording"
-                  : "Plan attachment"}{" "}
+                  : entry.receipt.ack.operation === "SET_CRITERION_VERDICT"
+                    ? "Criterion verdict"
+                    : "Plan attachment"}{" "}
                 · {new Date(entry.createdAt).toLocaleString()}
               </summary>
               <p>Reason: {entry.receipt.reason}</p>
@@ -100,19 +102,23 @@ export function PlanGovernanceHistory({
                 <>
                   <p>
                     Before:{" "}
-                    {
-                      entry.receipt.before.criteria.find(
-                        (c) => c.id === entry.receipt.ack.criterionId,
-                      )?.description
-                    }
+                    {entry.receipt.ack.operation === "SET_CRITERION_VERDICT"
+                      ? entry.receipt.before.criteria.find(
+                          (c) => c.id === entry.receipt.ack.criterionId,
+                        )?.status
+                      : entry.receipt.before.criteria.find(
+                          (c) => c.id === entry.receipt.ack.criterionId,
+                        )?.description}
                   </p>
                   <p>
                     After:{" "}
-                    {
-                      entry.receipt.after.criteria.find(
-                        (c) => c.id === entry.receipt.ack.criterionId,
-                      )?.description
-                    }
+                    {entry.receipt.ack.operation === "SET_CRITERION_VERDICT"
+                      ? entry.receipt.after.criteria.find(
+                          (c) => c.id === entry.receipt.ack.criterionId,
+                        )?.status
+                      : entry.receipt.after.criteria.find(
+                          (c) => c.id === entry.receipt.ack.criterionId,
+                        )?.description}
                   </p>
                 </>
               ) : (

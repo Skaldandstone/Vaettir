@@ -66,7 +66,10 @@ export function validatedGovernanceReceipt(value: unknown) {
   const receipt = parsed.data,
     { before, after, ack } = receipt;
   let expectedCriteria = before.criteria;
-  if (ack.operation === "EDIT_CRITERION_DESCRIPTION") {
+  if (
+    ack.operation === "EDIT_CRITERION_DESCRIPTION" ||
+    ack.operation === "SET_CRITERION_VERDICT"
+  ) {
     if (
       !ack.criterionId ||
       !before.criteria.some((c) => c.id === ack.criterionId) ||
@@ -76,7 +79,11 @@ export function validatedGovernanceReceipt(value: unknown) {
     const changed = after.criteria.find((c) => c.id === ack.criterionId);
     if (!changed) return invalid();
     expectedCriteria = before.criteria.map((c) =>
-      c.id === ack.criterionId ? { ...c, description: changed.description } : c,
+      c.id === ack.criterionId
+        ? ack.operation === "SET_CRITERION_VERDICT"
+          ? { ...c, status: changed.status }
+          : { ...c, description: changed.description }
+        : c,
     );
   } else if (
     ack.criterionId !== null ||

@@ -15,6 +15,7 @@ import {
   MAX_GOVERNANCE_HISTORY_BYTES,
   MAX_GOVERNANCE_HISTORY_REVISIONS,
   editCriterionDescriptionInput,
+  setCriterionVerdictInput,
   attachUnassignedPlanInput,
   planGovernanceScopeInput,
   planGovernanceHistoryInput,
@@ -209,6 +210,23 @@ async function assertPlanningRelease(
         "Reopen the release's planning status before changing its quality scope. Its reviewed or shipped state was not silently invalidated.",
     });
 }
+async function hasPlanCases(tx: Prisma.TransactionClient, input: ScopeInput) {
+  const rows = await tx.$queryRaw<
+    Array<{ id: string }>
+  >`SELECT id FROM "TestCase" WHERE "testPlanId"=${input.testPlanId} AND "projectId"=${input.projectId} LIMIT 1 FOR SHARE`;
+  return rows.length > 0;
+}
+async function assertManualVerdict(
+  tx: Prisma.TransactionClient,
+  input: ScopeInput,
+) {
+  if (await hasPlanCases(tx, input))
+    throw new TRPCError({
+      code: "CONFLICT",
+      message:
+        "This plan's effective criterion verdicts are computed from its case evidence. Record case results instead; no manual verdict was substituted.",
+    });
+}
 export async function previewPlanGovernance(
   db: PrismaClient,
   actorId: string,
@@ -260,18 +278,23 @@ export async function previewPlanGovernance(
           member.seatType === "FULL" &&
           ["OWNER", "ADMIN", "EDITOR"].includes(member.role),
         editBlockedReason,
+        manualVerdicts: !(await hasPlanCases(tx, input)),
       };
     },
     { isolationLevel: "RepeatableRead", timeout: 10000, maxWait: 5000 },
   );
 }
 type Edit = z.infer<typeof editCriterionDescriptionInput>;
+type Verdict = z.infer<typeof setCriterionVerdictInput>;
 type Attach = z.infer<typeof attachUnassignedPlanInput>;
 async function write(
   db: PrismaClient,
   actorId: string,
-  input: Edit | Attach,
-  operation: "EDIT_CRITERION_DESCRIPTION" | "ATTACH_UNASSIGNED_PLAN",
+  input: Edit | Attach | Verdict,
+  operation:
+    | "EDIT_CRITERION_DESCRIPTION"
+    | "ATTACH_UNASSIGNED_PLAN"
+    | "SET_CRITERION_VERDICT",
   authorized: CaseFieldReadAuthorization,
 ) {
   const requestHash = governanceRequestHash({ operation, input });
@@ -303,8 +326,11 @@ async function write(
             "Plan governance changed after review. Refresh and review before saving; no change was made.",
         });
       let criterionId: string | null = null;
-      if (operation === "EDIT_CRITERION_DESCRIPTION") {
-        const edit = input as Edit;
+      if (
+        operation === "EDIT_CRITERION_DESCRIPTION" ||
+        operation === "SET_CRITERION_VERDICT"
+      ) {
+        const edit = input as Edit | Verdict;
         const current = before.criteria.find((c) => c.id === edit.criterionId);
         if (!current)
           throw new TRPCError({
@@ -322,9 +348,14 @@ async function write(
           });
         if (before.releaseId)
           await assertPlanningRelease(tx, input.projectId, before.releaseId);
+        if (operation === "SET_CRITERION_VERDICT")
+          await assertManualVerdict(tx, input);
         await tx.acceptanceCriterion.update({
           where: { id: current.id },
-          data: { description: edit.description },
+          data:
+            operation === "SET_CRITERION_VERDICT"
+              ? { status: (edit as Verdict).status }
+              : { description: (edit as Edit).description },
         });
         criterionId = current.id;
       } else {
@@ -365,21 +396,19 @@ async function write(
         actorId,
       });
       const after = await snapshot(tx, input, false);
-      const ack = planGovernanceAck
-        .omit({ replayed: true })
-        .parse({
-          scope,
-          requestId: input.requestId,
-          requestHash,
-          operation,
-          testPlanId: input.testPlanId,
-          criterionId,
-          releaseId: after.releaseId,
-          versionId: version.id,
-          versionNumber: version.versionNumber,
-          beforeRevision: governancePlanRevision(before),
-          afterRevision: governancePlanRevision(after),
-        });
+      const ack = planGovernanceAck.omit({ replayed: true }).parse({
+        scope,
+        requestId: input.requestId,
+        requestHash,
+        operation,
+        testPlanId: input.testPlanId,
+        criterionId,
+        releaseId: after.releaseId,
+        versionId: version.id,
+        versionNumber: version.versionNumber,
+        beforeRevision: governancePlanRevision(before),
+        afterRevision: governancePlanRevision(after),
+      });
       const metadata = planGovernanceReceipt.parse({
         format: "PlanGovernance/v1",
         ack,
@@ -401,7 +430,9 @@ async function write(
           summary:
             operation === "EDIT_CRITERION_DESCRIPTION"
               ? "Edited reviewed criterion wording"
-              : "Attached an unassigned quality plan",
+              : operation === "SET_CRITERION_VERDICT"
+                ? "Changed reviewed criterion verdict"
+                : "Attached an unassigned quality plan",
           metadata: metadata as Prisma.InputJsonValue,
         },
       });
@@ -433,6 +464,87 @@ export function editGovernedCriterionDescription(
     editCriterionDescriptionInput.parse(input),
     "EDIT_CRITERION_DESCRIPTION",
     authorized,
+  );
+}
+export function setGovernedCriterionVerdict(
+  db: PrismaClient,
+  actorId: string,
+  input: Verdict,
+  authorized: CaseFieldReadAuthorization,
+) {
+  return write(
+    db,
+    actorId,
+    setCriterionVerdictInput.parse(input),
+    "SET_CRITERION_VERDICT",
+    authorized,
+  );
+}
+
+/** Compatibility only: old callers have no retained UUID or original verdict
+ * revision. Their wording/optional requirement is an expectation, never an
+ * edit. Locked current FULL-editor/actor checks and status-only UPDATE prevent
+ * stale forms from overwriting governed text. This is not durable receipt or
+ * complete version-history coverage; use the dedicated route for new writes. */
+export async function setLegacyCriterionVerdict(
+  db: PrismaClient,
+  actorId: string,
+  input: {
+    projectId: string;
+    testPlanId: string;
+    id: string;
+    description: string;
+    status: Verdict["status"];
+    requirementId?: string | null;
+  },
+  authorized: CaseFieldReadAuthorization,
+) {
+  return db.$transaction(
+    async (tx) => {
+      const project = await tx.project.findUniqueOrThrow({
+        where: { id: input.projectId },
+        select: { organizationId: true },
+      });
+      const pins = {
+        projectId: input.projectId,
+        testPlanId: input.testPlanId,
+        originalOrganizationId: project.organizationId,
+        expectedClerkActorId: authorized.clerkActorId,
+      };
+      await writeScope(tx, actorId, pins, authorized);
+      await lockPlan(tx, pins, true);
+      const current = await snapshot(tx, pins, true),
+        criterion = current.criteria.find((c) => c.id === input.id);
+      if (!criterion)
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Criterion not found in the original plan.",
+        });
+      if (
+        criterion.description !== input.description ||
+        (input.requirementId !== undefined &&
+          criterion.requirementId !== input.requirementId)
+      )
+        throw new TRPCError({
+          code: "CONFLICT",
+          message:
+            "Criterion wording or requirement association changed. Refresh before changing its verdict; use the governed wording editor for intentional text changes.",
+        });
+      if (["APPROVED", "ARCHIVED"].includes(current.status))
+        throw new TRPCError({
+          code: "CONFLICT",
+          message:
+            "Reopen this approved or archived plan before changing its verdict.",
+        });
+      if (current.releaseId)
+        await assertPlanningRelease(tx, input.projectId, current.releaseId);
+      await assertManualVerdict(tx, pins);
+      return tx.acceptanceCriterion.update({
+        where: { id: criterion.id },
+        data: { status: input.status },
+      });
+    },
+    { timeout: 10000, maxWait: 5000 },
   );
 }
 export function attachGovernedUnassignedPlan(

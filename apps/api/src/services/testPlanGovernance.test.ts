@@ -3,6 +3,8 @@ import type { PrismaClient } from "@vaettir/db";
 import {
   previewPlanGovernance,
   editGovernedCriterionDescription,
+  setGovernedCriterionVerdict,
+  setLegacyCriterionVerdict,
   attachGovernedUnassignedPlan,
   listPlanGovernanceHistory,
 } from "./testPlanGovernance.js";
@@ -26,6 +28,7 @@ function fixture() {
     nativePlanBytes: 1000n,
     nativeAuditBytes: null as number | null,
     historyCount: null as number | null,
+    hasPlanCases: false,
     plan: {
       id: "plan",
       projectId: "project",
@@ -84,6 +87,8 @@ function fixture() {
       ];
     if (text.includes('FROM "AcceptanceCriterion"'))
       return state.criteria.map((c) => ({ id: c.id }));
+    if (text.includes('FROM "TestCase"'))
+      return state.hasPlanCases ? [{ id: "case" }] : [];
     if (text.includes("SELECT id,octet_length(metadata")) {
       const row = state.audits.get(values[0] as string);
       return row
@@ -149,12 +154,10 @@ function fixture() {
         structuredClone({
           ...state.plan,
           acceptanceCriteria: state.criteria,
-          versions: state.versions
-            .slice(-1)
-            .map((version) => ({
-              id: version.id,
-              versionNumber: version.versionNumber,
-            })),
+          versions: state.versions.slice(-1).map((version) => ({
+            id: version.id,
+            versionNumber: version.versionNumber,
+          })),
         }),
       ),
       update: vi.fn(async ({ data }: { data: Record<string, unknown> }) => {
@@ -169,10 +172,16 @@ function fixture() {
       }),
     },
     acceptanceCriterion: {
-      update: vi.fn(async ({ data }: { data: { description: string } }) => {
-        state.criteria[0]!.description = data.description;
-        return state.criteria[0];
-      }),
+      update: vi.fn(
+        async ({
+          data,
+        }: {
+          data: { description?: string; status?: string };
+        }) => {
+          Object.assign(state.criteria[0]!, data);
+          return state.criteria[0];
+        },
+      ),
     },
     testPlanVersion: {
       findFirst: vi.fn(async () => state.versions.at(-1)),
@@ -235,6 +244,209 @@ function fixture() {
   return { db, tx, scope, calls, preview, edit, state: () => state };
 }
 describe("dedicated bounded plan governance (mocked transactions, not native acceptance)", () => {
+  async function verdict(f: ReturnType<typeof fixture>) {
+    const { description: _description, ...input } = await f.edit();
+    return { ...input, status: "MET" as const };
+  }
+  it("verdict-only mutation preserves exact raw wording/requirement and all unrelated native plan fields", async () => {
+    const f = fixture(),
+      input = await verdict(f);
+    const ack = await setGovernedCriterionVerdict(f.db, "actor", input, {
+      clerkActorId: "clerk",
+    });
+    expect(f.tx.acceptanceCriterion.update).toHaveBeenCalledWith({
+      where: { id: "criterion" },
+      data: { status: "MET" },
+    });
+    expect(f.state().criteria[0]).toMatchObject({
+      description: "Original requirement",
+      requirementId: "requirement",
+      status: "MET",
+    });
+    const saved = validatedGovernanceReceipt(
+      [...f.state().audits.values()][0]!.metadata,
+    );
+    expect(saved.ack.operation).toBe("SET_CRITERION_VERDICT");
+    expect(saved.before.criteria[0]!.status).toBe("AT_RISK");
+    expect(saved.after.criteria[0]!.status).toBe("MET");
+    expect(ack.versionNumber).toBe(2);
+  });
+  it("exact verdict replay precedes newer approval/case-evidence/CAS state and never records a second decision", async () => {
+    const f = fixture(),
+      input = await verdict(f),
+      first = await setGovernedCriterionVerdict(f.db, "actor", input, {
+        clerkActorId: "clerk",
+      });
+    f.state().plan.status = "APPROVED";
+    f.state().hasPlanCases = true;
+    expect(
+      await setGovernedCriterionVerdict(f.db, "actor", input, {
+        clerkActorId: "clerk",
+      }),
+    ).toEqual({ ...first, replayed: true });
+    expect(f.tx.acceptanceCriterion.update).toHaveBeenCalledTimes(1);
+    await expect(
+      setGovernedCriterionVerdict(
+        f.db,
+        "actor",
+        { ...input, status: "NOT_MET" },
+        { clerkActorId: "clerk" },
+      ),
+    ).rejects.toMatchObject({ code: "CONFLICT" });
+  });
+  it("refuses verdict updates after raw wording or native status changes", async () => {
+    for (const changed of [
+      { description: "New governed wording" },
+      { status: "NOT_MET" },
+      { requirementId: "new-requirement" },
+    ]) {
+      const f = fixture(),
+        input = await verdict(f);
+      Object.assign(f.state().criteria[0]!, changed);
+      await expect(
+        setGovernedCriterionVerdict(f.db, "actor", input, {
+          clerkActorId: "clerk",
+        }),
+      ).rejects.toMatchObject({ code: "CONFLICT" });
+      expect(f.tx.acceptanceCriterion.update).not.toHaveBeenCalled();
+    }
+  });
+  it("rechecks current actor/role/seat/suspension before verdict receipt replay", async () => {
+    for (const changed of [
+      { role: "VIEWER" },
+      { seatType: "READ_ONLY" },
+      { suspendedAt: new Date() },
+      { clerkActorId: "other" },
+    ]) {
+      const f = fixture(),
+        input = await verdict(f);
+      await setGovernedCriterionVerdict(f.db, "actor", input, {
+        clerkActorId: "clerk",
+      });
+      Object.assign(f.state(), changed);
+      f.calls.length = 0;
+      await expect(
+        setGovernedCriterionVerdict(f.db, "actor", input, {
+          clerkActorId: "clerk",
+        }),
+      ).rejects.toMatchObject({ code: "FORBIDDEN" });
+      expect(f.calls.some((call) => call.includes('FROM "AuditLog"'))).toBe(
+        false,
+      );
+    }
+  });
+  it("does not substitute manual verdicts for effective computed case evidence", async () => {
+    const f = fixture(),
+      input = await verdict(f);
+    f.state().hasPlanCases = true;
+    expect(await f.preview()).toMatchObject({ manualVerdicts: false });
+    await expect(
+      setGovernedCriterionVerdict(f.db, "actor", input, {
+        clerkActorId: "clerk",
+      }),
+    ).rejects.toMatchObject({ code: "CONFLICT" });
+    expect(f.state().criteria[0]!.status).toBe("AT_RISK");
+    expect(f.state().audits.size).toBe(0);
+  });
+  it("verdict receipts cannot change wording even when a forged after-hash is recomputed", async () => {
+    const f = fixture(),
+      input = await verdict(f);
+    await setGovernedCriterionVerdict(f.db, "actor", input, {
+      clerkActorId: "clerk",
+    });
+    const saved = validatedGovernanceReceipt(
+      [...f.state().audits.values()][0]!.metadata,
+    );
+    saved.after.criteria[0]!.description = "Silently overwritten";
+    saved.ack.afterRevision = governanceRequestHash(saved.after);
+    expect(() => validatedGovernanceReceipt(saved)).toThrow(
+      "complete scoped snapshot",
+    );
+  });
+  it("legacy status alias never writes supplied wording or requirement and refuses stale/intentional text changes", async () => {
+    const f = fixture(),
+      input = {
+        projectId: "project",
+        testPlanId: "plan",
+        id: "criterion",
+        description: "Original requirement",
+        status: "MET" as const,
+        requirementId: "requirement",
+      };
+    await setLegacyCriterionVerdict(f.db, "actor", input, {
+      clerkActorId: "clerk",
+    });
+    expect(f.tx.acceptanceCriterion.update).toHaveBeenCalledWith({
+      where: { id: "criterion" },
+      data: { status: "MET" },
+    });
+    expect(f.state().audits.size).toBe(0); // No UUID/history guarantee was invented for legacy input.
+    for (const changed of [
+      { description: "Old/intentional text edit" },
+      { requirementId: null },
+    ])
+      await expect(
+        setLegacyCriterionVerdict(
+          f.db,
+          "actor",
+          { ...input, ...changed },
+          { clerkActorId: "clerk" },
+        ),
+      ).rejects.toMatchObject({ code: "CONFLICT" });
+    expect(f.state().criteria[0]!.description).toBe("Original requirement");
+  });
+  it("legacy alias shares current role/actor and reopened-state guards", async () => {
+    for (const changed of [
+      { role: "VIEWER" },
+      { clerkActorId: "other" },
+      { suspendedAt: new Date() },
+      { seatType: "READ_ONLY" },
+      { hasPlanCases: true },
+    ]) {
+      const f = fixture();
+      Object.assign(f.state(), changed);
+      await expect(
+        setLegacyCriterionVerdict(
+          f.db,
+          "actor",
+          {
+            projectId: "project",
+            testPlanId: "plan",
+            id: "criterion",
+            description: "Original requirement",
+            status: "MET",
+          },
+          { clerkActorId: "clerk" },
+        ),
+      ).rejects.toBeDefined();
+      expect(f.tx.acceptanceCriterion.update).not.toHaveBeenCalled();
+    }
+  });
+  it("new verdict decisions explicitly refuse reviewed or frozen planning states", async () => {
+    for (const status of ["APPROVED", "ARCHIVED"]) {
+      const f = fixture();
+      f.state().plan.status = status;
+      const input = await verdict(f);
+      await expect(
+        setGovernedCriterionVerdict(f.db, "actor", input, {
+          clerkActorId: "clerk",
+        }),
+      ).rejects.toMatchObject({ code: "CONFLICT" });
+      expect(f.state().criteria[0]!.status).toBe("AT_RISK");
+    }
+    for (const status of ["READY", "SHIPPED"]) {
+      const f = fixture();
+      f.state().plan.releaseId = "release";
+      f.state().release.status = status;
+      const input = await verdict(f);
+      await expect(
+        setGovernedCriterionVerdict(f.db, "actor", input, {
+          clerkActorId: "clerk",
+        }),
+      ).rejects.toMatchObject({ code: "CONFLICT" });
+      expect(f.state().criteria[0]!.status).toBe("AT_RISK");
+    }
+  });
   it("description-only edit preserves raw status/requirement/plan JSON and captures complete linked version snapshots", async () => {
     const f = fixture(),
       input = await f.edit();

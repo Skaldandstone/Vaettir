@@ -10,6 +10,7 @@ import { useProjectPermissions } from "@/lib/use-project-permissions";
 import { inspectorLabel } from "@/lib/case-inspector";
 import { currentSessionScope, sameAuthScope } from "@/lib/auth-query-cache";
 import { RunOverview } from "@/components/RunOverview";
+import { RunAllPagesDashboard } from "@/components/RunAllPagesDashboard";
 import { manualStartDefinitivelyRejected, assertManualStartAcknowledgement } from "@/lib/manual-run-start";
 import { applyRunBulkSelection, type RunBulkSelectionMode } from "@/lib/run-bulk-selection";
 import { useManualExecutionAccess } from "@/lib/use-manual-execution-access";
@@ -670,6 +671,8 @@ export default function TestRunsPage() {
 
       {loading && <p>Loading…</p>}
       {error && <p style={{ color: "var(--ember)" }}>{error}</p>}
+
+      <RunAllPagesDashboard key={projectId} projectId={projectId} />
 
       {!loading &&
         !error &&

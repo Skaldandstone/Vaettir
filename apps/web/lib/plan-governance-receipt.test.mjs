@@ -40,12 +40,23 @@ test("controls keep original pending bodies mounted and only submit description-
   assert.match(attach, /expectedReleaseId: null/); assert.match(page, /<AttachUnassignedPlan/);
   assert.doesNotMatch(page, /async function attachPlan\(/); assert.match(page, /<CriterionDescriptionEditor/);
 });
+test("both actual criterion surfaces mount guarded wording/verdict/history without stale field resubmission", () => {
+  for (const path of ["../components/TestPlanDetailContent.tsx", "../app/projects/[projectId]/releases/[releaseId]/page.tsx"]) {
+    const source = readFileSync(new URL(path, import.meta.url), "utf8");
+    for (const name of ["CriterionDescriptionEditor", "CriterionVerdictEditor", "PlanGovernanceHistory"]) assert.match(source, new RegExp(`<${name}\\b`));
+    assert.doesNotMatch(source, /updateAcceptanceCriterion\.useMutation\(|async function updateCriterionStatus\(/);
+  }
+  const plan = readFileSync(new URL("../components/TestPlanDetailContent.tsx", import.meta.url), "utf8");
+  assert.match(plan, /<span hidden=\{readOnly\}><CriterionDescriptionEditor/);
+  assert.match(plan, /<div hidden=\{readOnly\}><CriterionVerdictEditor/);
+});
 function controllerHarness(component, { allowed = true, editable = true, lateActor = false, wrongAck = false, failure } = {}) {
   const source = readFileSync(new URL(`../components/${component}.tsx`, import.meta.url), "utf8").replaceAll("\r\n", "\n");
-  const start = source.indexOf("  async function commit()"), end = source.indexOf(component === "CriterionDescriptionEditor" ? "  const readable" : "  if (!access.readable)", start);
+  const start = source.indexOf("  async function commit()"), end = source.indexOf(component === "AttachUnassignedPlan" ? "  if (!access.readable)" : "  const readable", start);
   assert.ok(start > 0 && end > start);
   const attachment = component === "AttachUnassignedPlan";
-  const held = attachment ? { ...pending, operation: "ATTACH_UNASSIGNED_PLAN", input: { ...input, criterionId: undefined, releaseId: "release" } } : pending;
+  const { description: _description, ...verdictInput } = input;
+  const held = attachment ? { ...pending, operation: "ATTACH_UNASSIGNED_PLAN", input: { ...input, criterionId: undefined, releaseId: "release" } } : component === "CriterionVerdictEditor" ? { ...pending, operation: "SET_CRITERION_VERDICT", input: { ...verdictInput, status: "MET" } } : pending;
   const state = { pending: held }, calls = [];
   let currentAllowed = allowed;
   const context = {
@@ -60,22 +71,30 @@ function controllerHarness(component, { allowed = true, editable = true, lateAct
   return { commit: runInNewContext(`${compiled}; commit`, context), state, calls, held };
 }
 test("actual wording and attachment retry controllers refuse revoked or changed actors without sending retained private bodies", async () => {
-  for (const component of ["CriterionDescriptionEditor", "AttachUnassignedPlan"]) for (const options of [{ allowed: false }, { editable: false }]) {
+  for (const component of ["CriterionDescriptionEditor", "AttachUnassignedPlan", "CriterionVerdictEditor"]) for (const options of [{ allowed: false }, { editable: false }]) {
     const h = controllerHarness(component, options); await h.commit(); assert.deepEqual(h.calls, []); assert.equal(h.state.pending, h.held);
   }
 });
 test("actual controllers retain exact pending requests after wrong ACK or late actor switch without refreshing another account", async () => {
-  for (const component of ["CriterionDescriptionEditor", "AttachUnassignedPlan"]) for (const options of [{ wrongAck: true }, { lateActor: true }]) {
+  for (const component of ["CriterionDescriptionEditor", "AttachUnassignedPlan", "CriterionVerdictEditor"]) for (const options of [{ wrongAck: true }, { lateActor: true }]) {
     const h = controllerHarness(component, options); await h.commit(); assert.equal(h.calls.length, 1); assert.equal(h.state.pending.input, h.held.input); assert.equal(h.state.pending.uncertain, true);
   }
 });
 test("actual controllers never discard an earlier uncertain request after later definite rejection", async () => {
-  for (const component of ["CriterionDescriptionEditor", "AttachUnassignedPlan"]) {
+  for (const component of ["CriterionDescriptionEditor", "AttachUnassignedPlan", "CriterionVerdictEditor"]) {
     const h = controllerHarness(component, { failure: { data: { code: "CONFLICT" } } }); await h.commit(); assert.equal(h.state.pending.input, h.held.input); assert.equal(h.state.pending.uncertain, true);
   }
 });
 test("only matching acknowledged controller requests clear and refresh the current original workspace", async () => {
-  for (const component of ["CriterionDescriptionEditor", "AttachUnassignedPlan"]) {
+  for (const component of ["CriterionDescriptionEditor", "AttachUnassignedPlan", "CriterionVerdictEditor"]) {
     const h = controllerHarness(component); await h.commit(); assert.equal(h.state.pending, null); assert.equal(h.calls[0], h.held.input); assert.equal(h.calls.at(-1), "changed");
   }
+});
+test("verdict control sends only the reviewed native verdict and refuses fake computed evidence", () => {
+  const control = readFileSync(new URL("../components/CriterionVerdictEditor.tsx", import.meta.url), "utf8");
+  const page = readFileSync(new URL("../app/projects/[projectId]/releases/[releaseId]/page.tsx", import.meta.url), "utf8");
+  assert.match(control, /SET_CRITERION_VERDICT/); assert.match(control, /fresh.manualVerdicts/); assert.match(control, /keepMounted/);
+  const request = control.slice(control.indexOf("const input: Input"), control.indexOf("setPreparing(true)", control.indexOf("const input: Input")));
+  assert.doesNotMatch(request, /description:|requirementId:/); assert.match(request, /status: draft.status/);
+  assert.match(page, /<CriterionVerdictEditor/); assert.doesNotMatch(page, /updateAcceptanceCriterion|updateCriterionStatus/);
 });
