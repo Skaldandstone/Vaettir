@@ -2683,3 +2683,57 @@ the registration expressions, 266 assertion calls and direct historical/legacy
 service or seed calls against the preceding checkpoint; none changed. No native
 fixture, database connection, erasure, trigger or teardown was executed. These
 fixtures remain AUTHORED, NOT RUN, and do not erase prior failed native evidence.
+
+### October 6 reviewed run creation and nested execution recovery
+
+The run list now sends its all/filter/suite selection into the existing,
+always-mounted configuration review instead of a second direct start mutation.
+The selected approved native IDs are frozen by an explicit user event; captured
+older selection callbacks cannot replace them. Pre-send scope edits still use
+the modal's SET/ADD/REMOVE controls. The first send locks that cohort, and an
+uncertain acknowledgement retains the original configuration/body/UUID. Only
+the controller's matching acknowledgement navigates to the original project's
+run. Transport errors are classified without displaying raw private messages.
+The dashboard CSV path also rechecks the captured authorized review at the
+actual download boundary. This does not add a new-run/reset workflow to the
+same mounted host, nor certify SDK-only session A-B-A safety in the older run
+configuration access layer.
+
+Whole-case review now distinguishes the immutable original owner/session from
+an explicitly renewed current session of that same owner. A separately
+installed Clerk listener, layout-published access proof and fresh original
+native-owner read must agree before current handlers are admitted. Session
+changes do not rebase an unsent review or uncertain request. Recovery can
+acknowledge the exact earlier request; read-only access cannot create evidence.
+
+Root exercised the actual manual page, nested editors, current reader and real
+TanStack provider in an ignored loopback-only synthetic browser fixture. The
+first attempt failed because the fixture bundled two TanStack provider copies;
+the corrected fixture binds one actual installed module, not a fake provider.
+Nested rendering then exposed a real first-observation defect: an unadmitted
+waiting frame poisoned the access UUID that would later receive its first
+completed read. A new regression failed before the fix. Only positively admitted
+readers now acquire the revocation latch; waiting frames remain unauthorized.
+Both new waiting-frame regressions and all 49 earlier controller tests pass.
+The real nested whole-case editor subsequently opened successfully.
+
+The same rendered fixture retained separate whole-case and step requests after
+lost synthetic acknowledgements, dialog close, filtering and native refusal.
+An exact step retry acknowledged only that step while the whole-case request
+continued to block completion. The later whole-case retry acknowledged its own
+original UUID and multiline note. Visible fixture metrics showed two synthetic
+receipts, two byte-exact replays, stable case DOM identities, zero completion
+calls and zero network/native/provider/device operations. The aligned saved
+tester/technical/expected procedure columns were readable in the inspected
+desktop rendering. Missing-row recovery, full concurrent rendering, physical
+devices and production behavior were not established by this exercise.
+
+Root repeated the full compatible Web suite: 805 Node checks plus 1,032 typed
+checks across 75 files, 1,837 passing with no skips. Web types and scoped
+17-path lint passed with no errors or warnings. Earlier source-contract and
+fixture build failures remain recorded locally; no original test predicate was
+dropped to manufacture a passing result. The preview's approved source hashes
+include existing core distribution inputs, not a fresh core-build attestation.
+Native ABI/runtime/image-security, migrations/recovery and authenticated
+production acceptance remain separate, unwaived gates. This is a source
+checkpoint, not a deployment or completion of every reported parity gap.

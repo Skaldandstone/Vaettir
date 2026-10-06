@@ -89,6 +89,44 @@ function fixture() {
   };
 }
 describe("actual run-start completion controller (synthetic, not native auth)", () => {
+  it("does not publish raw factory errors or submit an unreviewable configuration", async () => {
+    const h = fixture();
+    let submissions = 0;
+    await h.controller.submit(
+      h.controller.snapshot().activationEpoch,
+      () => { throw Error("PRIVATE_SYNTHETIC_FACTORY_DETAILS"); },
+      async () => { submissions++; return {}; },
+      () => session,
+      h.open,
+    );
+    expect(submissions).toBe(0);
+    expect(h.controller.snapshot().error).toContain("No request was submitted");
+    expect(JSON.stringify(h.published)).not.toContain("PRIVATE_SYNTHETIC_FACTORY_DETAILS");
+    expect(h.controller.snapshot().pendingRequest).toBeNull();
+  });
+  it("keeps original refusal classification and unknown UUID while withholding raw transport error text", async () => {
+    for (const definitive of [false, true]) {
+      const h = fixture();
+      let submitted: ReviewedRunConfiguration | null = null;
+      await h.controller.submit(
+        h.controller.snapshot().activationEpoch,
+        h.factory,
+        async request => {
+          submitted = request;
+          throw Object.assign(Error("PRIVATE_SYNTHETIC_TRANSPORT_DETAILS"),
+            definitive ? { data: { code: "PRECONDITION_FAILED" } } : {});
+        },
+        () => session,
+        h.open,
+      );
+      expect(h.generated).toBe(1);
+      expect(h.opens).toBe(0);
+      expect(h.controller.snapshot().pendingRequest).toBe(definitive ? null : submitted);
+      expect(h.controller.snapshot().error).toContain(definitive ? "refused" : "unconfirmed");
+      expect(JSON.stringify(h.published)).not.toContain("PRIVATE_SYNTHETIC_TRANSPORT_DETAILS");
+      expect(h.controller.snapshot().error).toContain("no automatic retry was sent");
+    }
+  });
   it("navigates only once after exact current-frame ACK, retaining the original configuration/body", async () => {
     const h = fixture(),
       before = JSON.stringify(context);

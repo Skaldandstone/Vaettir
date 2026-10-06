@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
+import { sourceCodeIncludes } from "./source-contract-tokens.mjs";
 import { toggleRunDashboard } from "./run-dashboard-visibility.ts";
 const source = path => readFileSync(new URL(path, import.meta.url), "utf8");
 
@@ -55,7 +56,7 @@ test("inactive reader denies cached evidence, closes portalled export and invali
 
 test("run history pagination/refetch and empty pages do not unmount dashboard scope", () => {
   const page = source("../app/projects/[projectId]/test-runs/page.tsx");
-  assert.match(page, /<RunHistoryDashboard key=\{projectId\} projectId=\{projectId\} organizationId=\{organizationId\} onView=\{setOpenRunId\} \/>\s*<RunAllPagesDashboard key=\{projectId\} projectId=\{projectId\} \/>/);
+  assert.ok(sourceCodeIncludes(page, '<RunHistoryDashboard key={projectId} projectId={projectId} organizationId={organizationId} onView={setOpenRunId} /> <RunAllPagesDashboard key={projectId} projectId={projectId} />'));
   assert.equal([...page.matchAll(/<RunAllPagesDashboard/g)].length, 1);
   assert.equal([...page.matchAll(/<RunHistoryDashboard/g)].length, 1);
   assert.doesNotMatch(page, /runsQuery|historyCursors|<RunOverview|testRuns\.list/);

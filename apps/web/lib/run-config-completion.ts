@@ -249,11 +249,9 @@ export class RunConfigCompletionController {
         owned = { request, scope: this.origin!, ambiguous: false };
         this.pending = owned;
       }
-    } catch (cause) {
+    } catch {
       this.error =
-        cause instanceof Error
-          ? cause.message
-          : "The configuration could not be reviewed.";
+        "The configuration could not be reviewed. Check the original project, account, workspace and selected cases. No request was submitted.";
       this.emit();
       return false;
     }
@@ -308,7 +306,11 @@ export class RunConfigCompletionController {
         this.pending = null;
         this.reviewedEpoch = null;
       }
-      this.error = `${cause instanceof Error ? cause.message : "Run start response unknown."} Configuration is retained. No automatic retry was sent.`;
+      // Transport/validation messages can contain private native values. Keep
+      // the original cause for refusal classification, never mirror its body.
+      this.error = retain
+        ? "Run start acknowledgement is unconfirmed. Configuration and the exact original request are retained. Retry only that request; no automatic retry was sent."
+        : "The reviewed start request was refused. Configuration is retained. Recheck the original access and explicitly review again; no automatic retry was sent.";
       return false;
     } finally {
       const observedSession = currentSession();

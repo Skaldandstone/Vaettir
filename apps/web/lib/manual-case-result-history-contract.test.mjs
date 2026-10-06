@@ -138,7 +138,11 @@ test("native origin and fresh actual query guards withhold old private caches bu
   assert.ok(flattened.includes("readerActivation: access.activation"));
   assert.ok(completion.includes("this.observeSession(session)"));
   assert.ok(completion.includes("this.blockedReaders.has"));
-  assert.ok(reader.includes('Reflect.get(clerk, "addListener")'));
+  assert.ok(reader.includes('Reflect.get(resource, "addListener")'));
+  for (const literal of ["monitorRef.current === monitor", "monitor.resource === window.Clerk", "sdkEpochRef.current === sdkEpoch", "cleanupRef.current", 'if (!unsubscribe || !live', "guard.matches(key, stamp)", "observedSessionId: readable ? intent!.sessionId : null"])
+    assert.ok(reader.includes(literal), literal);
+  for (const literal of ["readerCurrent = access.readable && currentRead()", "enabled: readerCurrent && parentReadable", "observedSessionId,", "currentRead,"])
+    assert.ok(flattened.includes(literal), literal);
   assert.ok(reader.includes("!blocked.has(cycle.requestId)"));
   assert.ok(reader.includes("sdkSession?.userId === auth.userId"));
   assert.ok(reader.includes("sdkSession.sessionId === auth.sessionId"));

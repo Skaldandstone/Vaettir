@@ -212,6 +212,8 @@ export function ManualCaseResultHistory({
     parentCurrent,
     parentActivation,
   );
+  const { current: currentRead, observedSessionId } = access;
+  const readerCurrent = access.readable && currentRead();
   const parentReadable = parentRunScope !== null && currentWholeCaseParent(parentCurrent, parentActivation) && (parentRunScope === undefined || !!access.origin && access.origin.projectId === parentRunScope.projectId && access.origin.testRunId === parentRunScope.testRunId && access.origin.organizationId === parentRunScope.organizationId && access.origin.clerkActorId === parentRunScope.clerkActorId && access.origin.nativeActorId === parentRunScope.nativeActorId);
   const [open, setOpen] = useState(false),
     [draft, setDraft] = useState<WholeCaseDraft | null>(null),
@@ -246,13 +248,13 @@ export function ManualCaseResultHistory({
     readRequestId: readNonce.requestId,
   };
   const preview = trpcReact.manualCaseResults.previewReviewed.useQuery(input, {
-    enabled: access.readable && parentReadable && open && readNonce.ready,
+    enabled: readerCurrent && parentReadable && open && readNonce.ready,
     retry: false,
     staleTime: 0,
     refetchOnWindowFocus: false,
   });
   const baseline =
-    access.readable &&
+    readerCurrent &&
     parentReadable &&
     readNonce.ready &&
     preview.isFetchedAfterMount &&
@@ -282,14 +284,14 @@ export function ManualCaseResultHistory({
   const history = trpcReact.manualCaseResults.historyReviewed.useQuery(
     historyInput,
     {
-      enabled: access.readable && parentReadable && historyNonce.ready,
+      enabled: readerCurrent && parentReadable && historyNonce.ready,
       retry: false,
       staleTime: 0,
       refetchOnWindowFocus: false,
     },
   );
   const page =
-    access.readable &&
+    readerCurrent &&
     parentReadable &&
     historyNonce.ready &&
     history.isFetchedAfterMount &&
@@ -309,6 +311,8 @@ export function ManualCaseResultHistory({
       readerActivation: access.activation,
       parentCurrent,
       parentActivation,
+      observedSessionId,
+      currentRead,
     }), [
     access.origin,
     access.readable,
@@ -323,20 +327,23 @@ export function ManualCaseResultHistory({
     readNonce.requestId,
     parentCurrent,
     parentActivation,
+    observedSessionId,
+    currentRead,
   ]);
   const view = controller.renderView(frame);
   useLayoutEffect(() => { controller.bind(frame); }, [controller, frame]);
   useLayoutEffect(() => {
-    const observe = () => controller.observeSession(liveSession());
+    let live = true;
+    const observe = () => { if (live) controller.observeSession(liveSession()); };
     observe();
     const clerk = typeof window !== "undefined" ? window.Clerk : null,
       addListener = clerk ? Reflect.get(clerk, "addListener") : undefined;
-    const unsubscribe =
-      typeof addListener === "function"
-        ? addListener.call(clerk, observe)
-        : undefined;
+    let unsubscribe: unknown;
+    try { unsubscribe = typeof addListener === "function" ? addListener.call(clerk, observe) : undefined; }
+    catch { live = false; /* The independently installed access monitor remains the authority. */ }
     return () => {
-      if (typeof unsubscribe === "function") unsubscribe();
+      live = false;
+      try { if (typeof unsubscribe === "function") unsubscribe(); } catch { /* Observation is already detached; no SDK error body is published. */ }
     };
   }, [controller, access.activation, access.origin]);
   useEffect(() => {
@@ -487,7 +494,7 @@ export function ManualCaseResultHistory({
         Immutable human observations retain corrections. They are not new
         executions, defect resolutions or qualified sign-offs.
       </p>
-      {!access.readable || !parentReadable ? (
+      {!readerCurrent || !parentReadable ? (
         <p role="status">
           Current original native reader/session must be verified. Private
           cached observations are hidden; retained drafts and requests remain
@@ -502,7 +509,7 @@ export function ManualCaseResultHistory({
           history or raw server error was exposed.
           <button
             type="button"
-            onClick={() => setBaselineRefresh((n) => n + 1)}
+            onClick={() => { if (currentRead()) setBaselineRefresh((n) => n + 1); }}
           >
             Retry current history
           </button>
@@ -517,7 +524,7 @@ export function ManualCaseResultHistory({
               value={limit}
               disabled={view.busy}
               onChange={(e) => {
-                if (!parentReadable || !currentWholeCaseParent(parentCurrent, parentActivation)) return;
+                if (!currentRead() || !parentReadable || !currentWholeCaseParent(parentCurrent, parentActivation)) return;
                 setLimit(parseInt(e.target.value, 10));
                 setBefore(undefined);
               }}
@@ -593,21 +600,21 @@ export function ManualCaseResultHistory({
           <button
             type="button"
             disabled={!before || view.busy}
-            onClick={() => { if (parentReadable && currentWholeCaseParent(parentCurrent, parentActivation)) setBefore(undefined); }}
+            onClick={() => { if (currentRead() && parentReadable && currentWholeCaseParent(parentCurrent, parentActivation)) setBefore(undefined); }}
           >
             Latest revisions
           </button>
           <button
             type="button"
             disabled={!page.nextCursor || view.busy}
-            onClick={() => { if (parentReadable && currentWholeCaseParent(parentCurrent, parentActivation)) setBefore(page.nextCursor ?? undefined); }}
+            onClick={() => { if (currentRead() && parentReadable && currentWholeCaseParent(parentCurrent, parentActivation)) setBefore(page.nextCursor ?? undefined); }}
           >
             Older revisions
           </button>
         </>
       )}
-      {access.readable && parentReadable && access.canRecover && !disabled && (
-        <button type="button" onClick={() => { if (currentWholeCaseParent(parentCurrent, parentActivation)) setOpen(true); }}>
+      {readerCurrent && parentReadable && access.canRecover && !disabled && (
+        <button type="button" onClick={() => { if (currentRead() && currentWholeCaseParent(parentCurrent, parentActivation)) setOpen(true); }}>
           {view.pending
             ? "Recover identical observation UUID"
             : view.confirmed

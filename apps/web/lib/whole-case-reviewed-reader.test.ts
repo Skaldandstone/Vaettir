@@ -41,6 +41,7 @@ function harness() {
   const slots: unknown[] = [],
     requests: ManualCaseReviewedAccess[] = [];
   const effects: Array<() => void> = [],
+    setters = new Map<number, (value: unknown) => void>(),
     cleanups = new Map<number, () => void>(),
     listeners = new Set<() => void>();
   let cursor = 0,
@@ -87,13 +88,19 @@ function harness() {
         !prior ||
         deps.some((value, index) => !Object.is(value, prior[index]))
       ) {
-        slots[at] = deps;
         effects.push(() => {
+          slots[at] = deps;
           cleanups.get(at)?.();
           const cleanup = work();
           if (cleanup) cleanups.set(at, cleanup);
         });
       }
+    },
+    useMemo: (factory: () => unknown, deps: unknown[]) => {
+      const at = cursor++, prior = slots[at] as { deps: unknown[]; value: unknown } | undefined;
+      if (!prior || deps.length !== prior.deps.length || deps.some((value, index) => !Object.is(value, prior.deps[index])))
+        slots[at] = { deps, value: factory() };
+      return (slots[at] as { value: unknown }).value;
     },
     useState: (initial: unknown) => {
       const at = cursor++;
@@ -102,16 +109,14 @@ function harness() {
           typeof initial === "function"
             ? (initial as () => unknown)()
             : initial;
-      return [
-        slots[at],
-        (value: unknown) => {
-          slots[at] =
+      if (!setters.has(at)) setters.set(at, (value: unknown) => {
+          const next =
             typeof value === "function"
               ? (value as (v: unknown) => unknown)(slots[at])
               : value;
-          dirty = true;
-        },
-      ];
+          if (!Object.is(slots[at], next)) { slots[at] = next; dirty = true; }
+        });
+      return [slots[at], setters.get(at)];
     },
     trpcReact: {
       project: {
@@ -162,12 +167,15 @@ function harness() {
     for (let n = 0; n < 30; n++) {
       dirty = false;
       cursor = 0;
+      effects.length = 0;
       result = (ctx.hook as (...args: unknown[]) => typeof result)(
         "p",
         "r",
         "c",
         true,
       );
+      // React discards adjustment renders before committing layout effects.
+      if (dirty) continue;
       while (effects.length) effects.shift()!();
       if (!dirty) return result;
     }
@@ -190,8 +198,9 @@ describe("ACTUAL whole-case native-reader admission hook", () => {
     h.browser.Clerk.session = { id: "A", user: { id: "cl" } };
     h.emit();
     const blocked = h.render();
-    expect(blocked.activation).toBe(initial.activation);
+    expect(initial.current()).toBe(false);
     expect(blocked.readable).toBe(false);
+    expect(blocked.current()).toBe(false);
     blocked.refresh();
     const fresh = h.render();
     expect(fresh.activation).not.toBe(initial.activation);
@@ -239,14 +248,22 @@ describe("ACTUAL whole-case native-reader admission hook", () => {
     h.state.auth.sessionId = "B";
     h.state.auth.userId = "other";
     h.browser.Clerk.session = { id: "B", user: { id: "other" } };
+    h.emit();
     const b = h.render();
     h.state.auth.sessionId = "A";
     h.state.auth.userId = "cl";
     h.browser.Clerk.session = { id: "A", user: { id: "cl" } };
+    h.emit();
     const next = h.render();
     expect(a.activation).not.toBe(b.activation);
     expect(next.activation).not.toBe(a.activation);
-    expect(next.readable).toBe(true);
+    expect(next.readable).toBe(false);
+    expect(a.current()).toBe(false);
+    next.refresh();
+    const fresh = h.render();
+    expect(fresh.readable).toBe(true);
+    expect(fresh.origin).toBe(a.origin);
+    expect(fresh.activation).not.toBe(a.activation);
     h.state.wrongNonce = true;
     expect(h.render().readable).toBe(false);
   });

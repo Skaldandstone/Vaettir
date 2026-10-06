@@ -143,6 +143,8 @@ function harness() {
       readable: true,
       canRecover: true,
       activation: "nativeA",
+      observedSessionId: "sessionA" as string | null,
+      current: (): boolean => access.readable && browser.Clerk.session.user.id === origin.clerkActorId && browser.Clerk.session.id === access.observedSessionId,
       error: null,
       refresh: () => {
         access.activation += "next";
@@ -455,6 +457,43 @@ function harness() {
   };
 }
 describe("ACTUAL whole-case reviewed editor synthetic controller/render proof", () => {
+  it.each(["missing", "void", "throw"] as const)("auxiliary %s SDK observer cannot crash or reveal a withheld original native access frame", mode => {
+    const h = harness(); h.click("Review whole-case observation"); h.change("Note representation", "TEXT"); h.change("What actually happened", " PRIVATE listener draft ");
+    h.access.readable = false; h.access.activation = "withheldSDKInstallation";
+    Reflect.set(h.browser.Clerk, "addListener", mode === "missing" ? undefined : () => { if (mode === "throw") throw Error("PRIVATE_SDK_MARKER"); });
+    expect(() => h.render()).not.toThrow(); expect(nodes(h.tree()).filter(n => n.type === "textarea")).toHaveLength(0);
+    expect(text(h.tree())).not.toContain("PRIVATE listener draft"); expect(text(h.tree())).not.toContain("PRIVATE_SDK_MARKER"); expect(h.sent).toHaveLength(0);
+  });
+  it("renewed same-owner session with explicit fresh native B can recover exact UNKNOWN with NULL and zero without replacing draft or UUID", async () => {
+    const h = harness(); h.click("Review whole-case observation"); h.change("Observed status", "FAIL");
+    h.change("Note representation", "TEXT"); h.change("What actually happened", " Original\n multiline draft "); h.change("Note representation", "NULL");
+    h.click("Add reading"); h.change("Name", " Raw\n name "); h.change("Unit", " V "); h.change("Value", "0");
+    h.click("Review exact observation"); h.state.waiting = deferred(); h.click("Confirm reviewed observation");
+    const originalBody = JSON.stringify(h.sent[0]);
+    h.browser.Clerk.session = { id: "sessionB", user: { id: "cl" } }; h.emit(); h.state.waiting.reject(Error("UNKNOWN")); await h.settle();
+    expect(nodes(h.tree()).filter(n => n.type === "textarea")).toHaveLength(0); expect(h.sent).toHaveLength(1); expect(h.changed).not.toHaveBeenCalled();
+    h.access.observedSessionId = "sessionB"; h.access.activation = "explicitNativeB"; h.state.writable = false; h.state.waiting = null; h.render();
+    expect(h.access.origin.sessionId).toBe("sessionA"); expect(h.field("What actually happened").props.value).toBe(" Original\n multiline draft "); expect(h.field("Value").props.value).toBe("0");
+    h.click("Retry identical UUID"); await h.settle();
+    expect(h.sent.map(input => JSON.stringify(input))).toEqual([originalBody, originalBody]); expect(h.sent[1]).toMatchObject({ note: null, observations: { measurements: [{ value: 0 }] } });
+    expect(h.changed).toHaveBeenCalledTimes(1);
+  });
+  it("known late A receipt remains private through B until explicit fresh native B; receipt refresh sends no new write", async () => {
+    const h = harness(); h.click("Review whole-case observation"); h.change("Observed status", "FAIL"); h.click("Review exact observation");
+    h.state.waiting = deferred(); h.click("Confirm reviewed observation");
+    h.browser.Clerk.session = { id: "sessionB", user: { id: "cl" } }; h.emit(); h.state.waiting.resolve(await h.ack(h.sent[0]!)); await h.settle();
+    expect(h.changed).not.toHaveBeenCalled(); expect(nodes(h.tree()).filter(n => n.type === "textarea")).toHaveLength(0);
+    h.access.observedSessionId = "sessionB"; h.access.activation = "explicitNativeB"; h.render(); h.click("Refresh confirmed observation");
+    expect(h.changed).toHaveBeenCalledTimes(1); expect(h.sent).toHaveLength(1); expect(h.access.origin.sessionId).toBe("sessionA");
+  });
+  it("unsent raw A draft stays literal through renewed B but needs another deliberate review", () => {
+    const h = harness(); h.click("Review whole-case observation"); h.change("Observed status", "FAIL"); h.change("Note representation", "TEXT"); h.change("What actually happened", " Raw\n unsent B "); h.click("Review exact observation");
+    const confirm = h.button("Confirm reviewed observation").props.onClick!;
+    h.browser.Clerk.session = { id: "sessionB", user: { id: "cl" } }; h.emit(); h.render(); confirm(); expect(h.sent).toHaveLength(0);
+    h.access.observedSessionId = "sessionB"; h.access.activation = "explicitNativeB"; h.render();
+    expect(h.field("What actually happened").props.value).toBe(" Raw\n unsent B "); expect(h.button("Confirm reviewed observation").props.disabled).toBe(true);
+    h.click("Review exact observation"); expect(h.button("Confirm reviewed observation").props.disabled).toBe(false); expect(h.sent).toHaveLength(0);
+  });
   it("parent frame loss hides retained private fields/history/portal and rejects captured confirm BEFORE layout; fresh original frame restores the same raw draft", async () => {
     const h = harness(); let current = true;
     h.props.parentRunScope = { projectId: "p", testRunId: "r", organizationId: "o", clerkActorId: "cl", nativeActorId: "n" }; h.props.parentCurrent = () => current; h.props.parentActivation = "parentA"; h.render();

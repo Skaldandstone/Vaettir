@@ -62,18 +62,36 @@ test("modal applies only explicit operations using writable verified scopes and 
 });
 
 test("both callers use only loaded approved scopes; missing suite and navigation cannot infer selection", () => {
-  const runs = source("../app/projects/[projectId]/test-runs/page.tsx"), library = source("../app/projects/[projectId]/test-cases/page.tsx");
+  const runs = source("../app/projects/[projectId]/test-runs/page.tsx").replace(/\s+/g, " "), library = source("../app/projects/[projectId]/test-cases/page.tsx");
   assert.match(runs, /manualBulkScope !== "suite" \|\| Boolean\(manualSuite\)/);
   assert.match(runs, /manualBulkScope === "suite" && manualSuite/);
-  assert.match(runs, /manualSourceReady \? casesQuery\.data/);
+  assert.match(runs, /manualSourceReady \? \(casesQuery\.data \?\? \[\]\) : \[\]/);
   assert.match(runs, /!testCase\.archived && testCase\.reviewStatus === "APPROVED"/);
   assert.match(runs, /if \(!manualSelectionWritable\(\) \|\| !manualBulkScopeValid\) return/);
-  assert.match(runs, /if \(!manualSelectionWritable\(\)\) return; setManualSelection/);
+  assert.match(runs, /if \(!manualSelectionWritable\(\)\) return; publishSelection\(new Set\(\)\)/);
   assert.match(runs, /current\.userId === manualAccess\.origin\?\.clerkActorId/);
-  assert.match(runs, /!manualStartRequest && !manualInFlight\.current && !startManualMutation\.isPending/);
-  assert.match(runs, /onChange=\{e => setManualSuite\(e\.target\.value\)\}/);
+  assert.match(runs, /configurationSelection === null && retainedSelection\.current === null && selectionRevision === selectionEvents\.current\.revision && !startManualMutation\.isPending/);
+  assert.match(runs, /if \(!manualSelectionWritable\(\) \|\| manualSelection\.size === 0\) return/);
+  assert.match(runs, /ids\.some\(\(id\) => !eligibleCases\.some\(\(testCase\) => testCase\.id === id\)\)/);
+  assert.match(runs, /Object\.freeze\(ids\); retainedSelection\.current = \{ projectId, ids \}; setConfigurationSelection\(ids\)/);
+  assert.match(runs, /<RunConfigurationModal key=\{projectId\} open=\{configurationOpen\}/);
+  assert.match(runs, /testCaseIds=\{configurationSelection \?\? \[\]\}/);
+  assert.match(runs, /return startManualMutation\.mutateAsync\(configuration\)/);
+  assert.doesNotMatch(runs, /manualStartRequest|crypto\.randomUUID|assertManualStartAcknowledgement/);
+  assert.match(runs, /onChange=\{\(e\) => setManualSuite\(e\.target\.value\)\}/);
   assert.match(library, /label: "All loaded approved cases"/);
   assert.match(library, /bulkScopesReady=\{!readOnly && casesQuery\.isFetchedAfterMount/);
   assert.match(library, /onSelectionChange=\{ids => \{ if \(readOnly/);
   assert.doesNotMatch(runs + library, /testCaseIds\.slice\(0,\s*1000\)/);
+});
+
+test("851-case all/filter/suite operations retain stable selection and never change frozen review IDs", () => {
+  const all = Array.from({ length: 851 }, (_, index) => `case-${index}`);
+  const selected = applyRunBulkSelection([], all, "SET");
+  assert.equal(selected.after, 851);
+  const frozen = Object.freeze([...selected.ids]);
+  assert.deepEqual(applyRunBulkSelection(selected.ids, all.slice(10, 20), "REMOVE").ids, [...all.slice(0, 10), ...all.slice(20)]);
+  assert.deepEqual(applyRunBulkSelection(all.slice(0, 400), all.slice(200), "ADD").ids, all);
+  assert.deepEqual(applyRunBulkSelection(all, all.slice(700), "SET").ids, all.slice(700));
+  assert.deepEqual(frozen, all);
 });

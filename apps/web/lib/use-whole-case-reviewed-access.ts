@@ -1,5 +1,5 @@
 "use client";
-import { useState, useRef, useLayoutEffect } from "react";
+import { useState, useRef, useLayoutEffect, useMemo } from "react";
 import { useAuth } from "@clerk/nextjs";
 import { trpcReact } from "./trpcReact";
 import { currentSessionScope } from "./auth-query-cache";
@@ -19,6 +19,18 @@ function sameWholeCaseParentScope(a: ManualRunCurrentOrigin, b: ManualRunCurrent
 function wholeCaseParentCurrent(callback: (() => boolean) | null | undefined) {
   try { return callback === undefined || typeof callback === "function" && callback() === true; } catch { return false; }
 }
+function wholeCaseSdkSession() {
+  return typeof window === "undefined" ? null : currentSessionScope(window.Clerk?.loaded ? window.Clerk.session : null);
+}
+function wholeCaseAccessGuard() {
+  let key = "", generation = 0;
+  return {
+    observe(next: string) { if (key !== next) { key = next; generation++; } return generation; },
+    revoke() { generation++; },
+    matches(candidate: string, stamp: number) { return key === candidate && generation === stamp; },
+  };
+}
+type WholeCaseMonitor = Readonly<{ resource: NonNullable<typeof window.Clerk> }>;
 export function useWholeCaseReadNonce(binding: string) {
   const [cycle, setCycle] = useState({ binding: "", id: crypto.randomUUID() });
   if (cycle.binding !== binding) setCycle({ binding, id: crypto.randomUUID() });
@@ -29,6 +41,8 @@ export type WholeCaseAccess = {
   readable: boolean;
   canRecover: boolean;
   activation: string;
+  observedSessionId: string | null;
+  current: () => boolean;
   error: string | null;
   refresh: () => void;
 };
@@ -45,6 +59,17 @@ export function useWholeCaseReviewedAccess(
   const auth = useAuth(),
     [origin, setOrigin] = useState<WholeCaseOrigin | null>(null),
     [refresh, setRefresh] = useState(0);
+  const resource = typeof window === "undefined" ? null : window.Clerk ?? null,
+    sdk = wholeCaseSdkSession();
+  const [monitor, setMonitor] = useState<WholeCaseMonitor | null>(null), monitorRef = useRef<WholeCaseMonitor | null>(null),
+    [sdkEpoch, setSdkEpoch] = useState(0), sdkEpochRef = useRef(0),
+    [installation, setInstallation] = useState(0), cleanupRef = useRef(false),
+    lastResource = useRef<typeof resource>(null),
+    acceptedOrigin = useRef<WholeCaseOrigin | null>(null),
+    [guard] = useState(wholeCaseAccessGuard),
+    published = useRef<{ key: string; stamp: number; activation: string; readable: boolean } | null>(null),
+    [intent, setIntent] = useState<{ sessionId: string; clerkActorId: string; sdkEpoch: number } | null>(null),
+    [originalRead, setOriginalRead] = useState<{ projectId: string; testRunId: string; testCaseId: string; organizationId: string; clerkActorId: string } | null>(null);
   const [presentationRequired, setPresentationRequired] = useState(parentCurrent !== undefined);
   if (!presentationRequired && parentCurrent !== undefined) setPresentationRequired(true);
   const parentPresented = wholeCaseParentCurrent(parentCurrent) && (!presentationRequired || typeof parentCurrent === "function" && typeof parentActivation === "string" && parentActivation.length > 0 && parentActivation.length <= 200);
@@ -76,7 +101,7 @@ export function useWholeCaseReviewedAccess(
     parent.pin?.organizationId ??
     (projectReady ? project.data?.organizationId : undefined) ??
     "pending";
-  const enabled =
+  const baseEligible =
     active &&
     parentMatches &&
     parentPresented &&
@@ -90,8 +115,12 @@ export function useWholeCaseReviewedAccess(
         origin.testRunId === testRunId &&
         origin.testCaseId === testCaseId &&
         origin.clerkActorId === auth.userId &&
-        origin.sessionId === auth.sessionId &&
         origin.organizationId === (parent.required ? parent.pin?.organizationId : project.data?.organizationId)));
+  const sdkMatches = !!sdk && sdk.userId === auth.userId && sdk.sessionId === auth.sessionId;
+  const originalMatches = !originalRead || originalRead.projectId === projectId && originalRead.testRunId === testRunId && originalRead.testCaseId === testCaseId && originalRead.organizationId === organizationId && originalRead.clerkActorId === auth.userId;
+  if (!originalRead && baseEligible && sdkMatches) setOriginalRead(Object.freeze({ projectId, testRunId, testCaseId, organizationId, clerkActorId: auth.userId! }));
+  if (!intent && baseEligible && originalMatches && sdkMatches) setIntent(Object.freeze({ sessionId: auth.sessionId!, clerkActorId: auth.userId!, sdkEpoch }));
+  const enabled = baseEligible && originalMatches && sdkMatches && !!monitor && monitor.resource === resource && !!intent && intent.sessionId === auth.sessionId && intent.clerkActorId === auth.userId && intent.sdkEpoch === sdkEpoch;
   const cycle = useWholeCaseReadNonce(
     JSON.stringify([
       enabled,
@@ -107,6 +136,8 @@ export function useWholeCaseReviewedAccess(
       parentMatches,
       parentPresented,
       parentActivation ?? null,
+      sdkEpoch,
+      intent,
     ]),
   );
   const input = {
@@ -128,11 +159,7 @@ export function useWholeCaseReviewedAccess(
     refetchOnWindowFocus: false,
   });
   const c = query.data?.readContext;
-  const sdkSession = currentSessionScope(
-    typeof window !== "undefined" && window.Clerk?.loaded
-      ? window.Clerk.session
-      : null,
-  );
+  const sdkSession = wholeCaseSdkSession();
   const candidate =
     enabled &&
     !blocked.has(cycle.requestId) &&
@@ -150,45 +177,53 @@ export function useWholeCaseReviewedAccess(
     c.scope.organizationId === organizationId &&
     c.scope.clerkActorId === auth.userId &&
     (!input.expectedNativeActorId || c.scope.actorId === input.expectedNativeActorId) &&
-    !!c.scope.actorId
+    typeof c.scope.actorId === "string" && c.scope.actorId.length > 0 && c.scope.actorId.length <= 200 &&
+    typeof c.canRecover === "boolean"
       ? c
       : null;
   useLayoutEffect(() => {
-    if (!cycle.ready || !auth.userId || !auth.sessionId) return;
-    const reader = cycle.requestId,
-      clerkActorId = origin?.clerkActorId ?? auth.userId,
-      sessionId = origin?.sessionId ?? auth.sessionId;
-    const observe = () => {
-      const sdk = currentSessionScope(
-        typeof window !== "undefined" && window.Clerk?.loaded
-          ? window.Clerk.session
-          : null,
-      );
-      if (sdk?.userId !== clerkActorId || sdk.sessionId !== sessionId) {
-        if (!blockedRef.current.has(reader)) {
-          blockedRef.current.add(reader);
-          setBlocked((previous) => new Set(previous).add(reader));
-        }
+    const epochHolder = sdkEpochRef;
+    cleanupRef.current = false;
+    if (lastResource.current && lastResource.current !== resource) sdkEpochRef.current++;
+    lastResource.current = resource;
+    setSdkEpoch(sdkEpochRef.current);
+    const addListener = resource ? Reflect.get(resource, "addListener") : undefined;
+    if (typeof addListener !== "function") { monitorRef.current = null; published.current = null; setMonitor(null); return; }
+    const proof: WholeCaseMonitor = Object.freeze({ resource: resource! });
+    let live = true, observed = wholeCaseSdkSession(), unsubscribe: (() => void) | undefined;
+    const revoke = () => {
+      guard.revoke();
+      const prior = published.current;
+      if (prior && !blockedRef.current.has(prior.activation)) {
+        blockedRef.current.add(prior.activation); setBlocked(previous => new Set(previous).add(prior.activation));
       }
+      published.current = null; sdkEpochRef.current++; setSdkEpoch(sdkEpochRef.current);
     };
-    observe();
-    const clerk = typeof window !== "undefined" ? window.Clerk : null,
-      addListener = clerk ? Reflect.get(clerk, "addListener") : undefined;
-    const unsubscribe =
-      typeof addListener === "function"
-        ? addListener.call(clerk, observe)
-        : undefined;
+    const changed = () => {
+      if (!live) return;
+      if (typeof window === "undefined" || window.Clerk !== resource) {
+        live = false; monitorRef.current = null; setMonitor(null); revoke(); setInstallation(value => value + 1); return;
+      }
+      const next = wholeCaseSdkSession();
+      if (observed?.userId !== next?.userId || observed?.sessionId !== next?.sessionId) { observed = next; revoke(); }
+    };
+    try {
+      const result = addListener.call(resource, changed);
+      if (typeof result === "function") unsubscribe = result;
+      if (!unsubscribe || !live || typeof window === "undefined" || window.Clerk !== resource) throw Error("Listener unavailable");
+      monitorRef.current = proof; setMonitor(proof); changed();
+    } catch {
+      live = false; monitorRef.current = null; published.current = null; setMonitor(null); guard.revoke(); cleanupRef.current = true;
+      try { unsubscribe?.(); } catch { /* Already revoked. */ }
+      cleanupRef.current = false;
+      return;
+    }
     return () => {
-      if (typeof unsubscribe === "function") unsubscribe();
+      live = false; cleanupRef.current = true; monitorRef.current = null; published.current = null; guard.revoke();
+      if (acceptedOrigin.current) epochHolder.current++;
+      try { unsubscribe?.(); } catch { /* Revocation precedes cleanup. */ }
     };
-  }, [
-    cycle.requestId,
-    cycle.ready,
-    auth.userId,
-    auth.sessionId,
-    origin?.clerkActorId,
-    origin?.sessionId,
-  ]);
+  }, [resource, installation, guard]);
   if (!origin && candidate && auth.userId && auth.sessionId)
     setOrigin(
       Object.freeze({
@@ -198,24 +233,61 @@ export function useWholeCaseReviewedAccess(
         organizationId,
         clerkActorId: auth.userId,
         nativeActorId: candidate.scope.actorId,
-        sessionId: auth.sessionId,
+        sessionId: intent!.sessionId,
       }),
     );
   const readable =
     !!origin && !!candidate && candidate.scope.actorId === origin.nativeActorId;
+  const key = JSON.stringify([projectId, testRunId, testCaseId, organizationId, active, baseEligible, originalMatches, parentMatches, parentPresented, parentActivation ?? null, auth.isLoaded, auth.isSignedIn, auth.userId, auth.sessionId, sdk?.userId, sdk?.sessionId, sdkEpoch, intent, cycle.requestId, cycle.ready, readable, !!query.error, query.isFetching, query.isPaused, query.isFetchedAfterMount, c?.requestId, c?.requested, c?.projection, c?.scope, c?.canRecover]);
+  const stamp = guard.observe(key);
+  useLayoutEffect(() => {
+    if (!guard.matches(key, stamp)) return;
+    const verified = !!monitor && monitorRef.current === monitor && typeof window !== "undefined" && monitor.resource === window.Clerk && sdkEpochRef.current === sdkEpoch;
+    published.current = { key, stamp, activation: cycle.requestId, readable: readable && verified };
+    if (origin && verified) acceptedOrigin.current = origin;
+    return () => { published.current = null; };
+  }, [key, stamp, guard, monitor, sdkEpoch, cycle.requestId, readable, origin]);
+  const current = useMemo(() => () => {
+    const live = published.current, now = wholeCaseSdkSession();
+    if (!monitor || monitorRef.current !== monitor || cleanupRef.current || typeof window === "undefined" || window.Clerk !== monitor.resource || now?.userId !== auth.userId || now?.sessionId !== intent?.sessionId || sdkEpochRef.current !== intent?.sdkEpoch) {
+      if (live && monitor && monitorRef.current === monitor && !cleanupRef.current && (live.readable || now?.userId !== auth.userId || now?.sessionId !== auth.sessionId || typeof window === "undefined" || window.Clerk !== monitor.resource)) {
+        guard.revoke(); published.current = null;
+        if (!blockedRef.current.has(live.activation)) { blockedRef.current.add(live.activation); setBlocked(previous => new Set(previous).add(live.activation)); }
+        sdkEpochRef.current++; setSdkEpoch(sdkEpochRef.current);
+        if (typeof window === "undefined" || window.Clerk !== monitor.resource) { monitorRef.current = null; setMonitor(null); setInstallation(value => value + 1); }
+      }
+      return false;
+    }
+    return !!live?.readable && live.key === key && live.stamp === stamp && guard.matches(key, stamp) && wholeCaseParentCurrent(parentCurrent);
+  }, [monitor, auth.userId, auth.sessionId, intent, key, stamp, guard, parentCurrent, setBlocked, setSdkEpoch, setMonitor, setInstallation]);
+  const refreshCurrent = useMemo(() => () => {
+    const live = published.current, now = wholeCaseSdkSession();
+    if (cleanupRef.current || !live || live.key !== key || live.stamp !== stamp || !guard.matches(key, stamp) || !baseEligible || !originalMatches || !parentMatches || !parentPresented || !wholeCaseParentCurrent(parentCurrent)) return false;
+    if (now?.userId !== auth.userId || now?.sessionId !== auth.sessionId || monitor && typeof window !== "undefined" && window.Clerk !== monitor.resource) {
+      guard.revoke(); published.current = null;
+      if (!blockedRef.current.has(live.activation)) { blockedRef.current.add(live.activation); setBlocked(previous => new Set(previous).add(live.activation)); }
+      sdkEpochRef.current++; setSdkEpoch(sdkEpochRef.current);
+      if (monitor && typeof window !== "undefined" && window.Clerk !== monitor.resource) { monitorRef.current = null; setMonitor(null); setInstallation(value => value + 1); }
+      return false;
+    }
+    if (!monitor || monitorRef.current !== monitor) { setInstallation(value => value + 1); return false; }
+    guard.revoke(); published.current = null;
+    setIntent(Object.freeze({ sessionId: now.sessionId, clerkActorId: now.userId, sdkEpoch: sdkEpochRef.current }));
+    setRefresh(value => value + 1);
+    if (!parent.required) void project.refetch();
+    return true;
+  }, [key, stamp, guard, baseEligible, originalMatches, parentMatches, parentPresented, parentCurrent, auth.userId, auth.sessionId, monitor, parent.required, project, setBlocked, setSdkEpoch, setMonitor, setInstallation, setIntent, setRefresh]);
   return {
     origin,
     readable,
     canRecover: readable && !!candidate?.canRecover,
     activation: cycle.requestId,
+    observedSessionId: readable ? intent!.sessionId : null,
+    current,
     error:
       query.error || !parent.required && project.error
         ? "Current original project read could not be admitted. Retained private evidence is hidden."
         : null,
-    refresh: () => {
-      if (!parentMatches || !parentPresented || !wholeCaseParentCurrent(parentCurrent)) return;
-      setRefresh((n) => n + 1);
-      if (!parent.required) void project.refetch();
-    },
+    refresh: refreshCurrent,
   };
 }

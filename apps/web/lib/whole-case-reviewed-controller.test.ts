@@ -122,6 +122,82 @@ function deferred() {
   return { promise, resolve, reject };
 }
 describe("ACTUAL whole-case completion controller, synthetic boundaries only", () => {
+  it("an unadmitted waiting reader cannot poison its first completed native activation", () => {
+    const h = fixture(), c = new WholeCaseReviewedController(() => {});
+    c.attach();
+    const waiting = { ...h.frame, origin: null, canRecover: false, canWrite: false,
+      observedSessionId: "sessionA", readerActivation: "firstNativeRead", activation: "firstNativeRead",
+      currentRead: () => false };
+    c.bind(waiting);
+    expect(c.snapshot().authorized).toBe(false);
+    const candidate = { ...waiting, origin, canRecover: true, currentRead: () => false };
+    c.renderView(candidate);
+    c.bind({ ...candidate, currentRead: () => true });
+    expect(c.snapshot().authorized).toBe(true);
+  });
+  it("renewed waiting metadata cannot acquire authority or be poisoned by the auxiliary session observer", () => {
+    const h = fixture();
+    let nativeCurrent = true;
+    h.c.bind({ ...h.frame, observedSessionId: "sessionA", currentRead: () => nativeCurrent });
+    nativeCurrent = false;
+    expect(h.c.snapshot().authorized).toBe(false);
+    const waiting = { ...h.frame, origin: null, canRecover: false, canWrite: false,
+      observedSessionId: null, readerActivation: "completedB", activation: "completedB", currentRead: () => false };
+    h.c.bind(waiting);
+    h.c.observeSession({ userId: "cl", sessionId: "sessionB" });
+    expect(h.c.snapshot().authorized).toBe(false);
+    const candidate = { ...waiting, origin, canRecover: true, observedSessionId: "sessionB", currentRead: () => false };
+    h.c.bind(candidate);
+    expect(h.c.snapshot().authorized).toBe(false);
+    h.c.bind({ ...candidate, currentRead: () => true });
+    expect(h.c.snapshot().authorized).toBe(true);
+    expect(origin.sessionId).toBe("sessionA");
+  });
+  it("fresh observed B permits identical UNKNOWN recovery without rewriting original session, raw body or UUID", async () => {
+    const h = fixture(); let nativeCurrent = true;
+    const frameA = { ...h.frame, observedSessionId: "sessionA", currentRead: () => nativeCurrent };
+    h.c.bind(frameA); h.draft.note = null; h.draft.readings = [{ name: " Raw\n measurement ", unit: " V ", value: "0", lowerLimit: null, upperLimit: null, instrument: undefined }]; h.draft.measurementsPresent = true;
+    const request = wholeCaseRequest(h.draft, origin, randomUUID());
+    expect(h.c.review(request, baseline, h.session(), h.c.snapshot().epoch)).toBe(true);
+    const send = vi.fn().mockRejectedValueOnce(Error("UNKNOWN")).mockImplementationOnce(async () => ({ ...(await h.ack()), idempotencyKey: request.idempotencyKey, requestHash: await wholeCaseRequestHash(request), recovered: true }));
+    await h.c.submit(h.c.snapshot().epoch, send, h.session, h.after);
+    const held = h.c.snapshot().pending, raw = JSON.stringify(held);
+    h.setSession({ userId: "cl", sessionId: "sessionB" }); nativeCurrent = false;
+    expect(h.c.current(h.session(), h.c.snapshot().epoch)).toBe(false);
+    expect(await h.c.submit(h.c.snapshot().epoch, send, h.session, h.after)).toBe(false);
+    nativeCurrent = true; h.c.bind({ ...frameA, activation: "freshB", readerActivation: "freshB", observedSessionId: "sessionB", canWrite: false });
+    expect(h.c.snapshot().canRetry).toBe(true); expect(h.c.snapshot().pending).toBe(held);
+    expect(await h.c.submit(h.c.snapshot().epoch, send, h.session, h.after)).toBe(true);
+    expect(send.mock.calls.map(args => JSON.stringify(args[0]))).toEqual([raw, raw]);
+    expect(origin.sessionId).toBe("sessionA"); expect(request.note).toBeNull(); expect(request.observations.measurements![0]!.value).toBe(0);
+    expect(h.after).toHaveBeenCalledTimes(1);
+  });
+  it("late matching A receipt during renewal privately settles; explicit fresh B read publishes without resend", async () => {
+    const h = fixture(); let nativeCurrent = true;
+    const frameA = { ...h.frame, observedSessionId: "sessionA", currentRead: () => nativeCurrent };
+    h.c.bind(frameA); h.review(); const wait = deferred(), send = vi.fn(() => wait.promise), pending = h.c.submit(h.c.snapshot().epoch, send, h.session, h.after);
+    h.setSession({ userId: "cl", sessionId: "sessionB" }); nativeCurrent = false;
+    wait.resolve(await h.ack()); expect(await pending).toBe(true);
+    expect(h.after).not.toHaveBeenCalled(); expect(h.c.snapshot().pending).toBeNull(); expect(h.c.snapshot().confirmed).not.toBeNull();
+    nativeCurrent = true; h.c.bind({ ...frameA, observedSessionId: "sessionB" });
+    expect(h.c.snapshot().canPublish).toBe(false);
+    h.c.bind({ ...frameA, activation: "freshB", readerActivation: "freshB", observedSessionId: "sessionB" });
+    expect(h.c.publishConfirmed(h.session(), h.c.snapshot().epoch, h.after)).toBe(true);
+    expect(h.after).toHaveBeenCalledTimes(1); expect(send).toHaveBeenCalledTimes(1); expect(origin.sessionId).toBe("sessionA");
+  });
+  it("unsent A review never becomes submit authority in B; fresh native B requires explicit review", () => {
+    const h = fixture(); const frameA = { ...h.frame, observedSessionId: "sessionA", currentRead: () => true };
+    h.c.bind(frameA); h.review(); h.setSession({ userId: "cl", sessionId: "sessionB" });
+    h.c.bind({ ...frameA, activation: "freshB", readerActivation: "freshB", observedSessionId: "sessionB" });
+    expect(h.c.snapshot().canSubmit).toBe(false); expect(h.c.snapshot().canEdit).toBe(true);
+    expect(h.c.review(h.request, baseline, h.session(), h.c.snapshot().epoch)).toBe(true); expect(h.c.snapshot().canSubmit).toBe(true);
+    expect(h.draft.note).toBe(" Raw\n note "); expect(origin.sessionId).toBe("sessionA");
+  });
+  it.each([null, () => false, () => { throw Error("PRIVATE_READ_MARKER"); }])("missing/refused/throwing configured native current read cannot recover or publish", currentRead => {
+    const h = fixture(); h.c.bind({ ...h.frame, observedSessionId: "sessionB", currentRead }); h.setSession({ userId: "cl", sessionId: "sessionB" });
+    expect(h.c.snapshot().authorized).toBe(false); expect(h.c.review(h.request, baseline, h.session(), h.c.snapshot().epoch)).toBe(false);
+    h.c.bind({ ...h.frame, activation: "fresh", currentRead: undefined }); expect(h.c.snapshot().authorized).toBe(false);
+  });
   it("parent render loss revokes older handlers BEFORE layout, with no silent origin/request replacement", () => {
     const h = fixture(); let current = true;
     const frame = { ...h.frame, parentCurrent: () => current, parentActivation: "parentA" };

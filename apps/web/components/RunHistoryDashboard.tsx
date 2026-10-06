@@ -50,6 +50,9 @@ class RunHistoryExportOwner {
   canDownload(review: RunHistoryPageReview) {
     return this.owns(review) && this.opened && !this.wasConsumed(review);
   }
+  downloadOpen(review: RunHistoryPageReview) {
+    return this.owns(review) && this.opened;
+  }
   consume(review: RunHistoryPageReview) {
     if (!this.canDownload(review)) return false;
     this.consumed.add(review);
@@ -298,7 +301,17 @@ export function RunHistoryDashboard({
         reader.current,
         (filename, content, mime) => {
           if (!exportOwner.consume(captured.review)) return;
-          downloadFile(filename, content, mime);
+          downloadFile(
+            filename,
+            content,
+            mime,
+            () =>
+              exportOwner.owns(captured.review) &&
+              exportOwner.wasConsumed(captured.review) &&
+              exportOwner.downloadOpen(captured.review) &&
+              sameRenderedPage(rendered, reader.current()) &&
+              matchesRunHistoryPageReview(captured.review, reader.current()),
+          );
         },
       );
       if (!sent) return;

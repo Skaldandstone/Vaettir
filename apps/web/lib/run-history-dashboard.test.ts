@@ -16,6 +16,7 @@ import {
 } from "./run-history-reader";
 import { runHistoryReadKey } from "@vaettir/api/src/services/runHistoryReadSchema";
 import type { useRunHistory } from "./use-run-history";
+import { downloadFile as actualDownloadFile } from "./download";
 const source = readFileSync(
     new URL("../components/RunHistoryDashboard.tsx", import.meta.url),
     "utf8",
@@ -522,6 +523,96 @@ it("source uses protected reader/current-page reviewed download and retained mod
   expect(source).not.toMatch(
     /testRuns\.list|RunOverview|renderBoundedSpreadsheetCsv|parseInt|\.trim\(/,
   );
+});
+it.each(["Blob", "URL", "anchor"])(
+  "actual dashboard download denies %s-boundary revocation before clicking and retains consumed review",
+  (boundary) => {
+    const h = harness(),
+      click = vi.fn(),
+      revoke = vi.fn();
+    h.button("Review current page CSV")();
+    h.render();
+    const captured = h.button("Download reviewed current page CSV");
+    const anchor = {
+      set href(_value: string) {
+        if (boundary === "anchor") h.setCurrent(null);
+      },
+      download: "",
+      click,
+    };
+    vi.stubGlobal(
+      "Blob",
+      class {
+        constructor() {
+          if (boundary === "Blob") h.setCurrent(null);
+        }
+      },
+    );
+    vi.stubGlobal("URL", {
+      createObjectURL: vi.fn(() => {
+        if (boundary === "URL") h.setCurrent(null);
+        return "blob:synthetic";
+      }),
+      revokeObjectURL: revoke,
+    });
+    vi.stubGlobal("document", { createElement: () => anchor });
+    try {
+      h.download.mockImplementation(
+        (
+          filename: string,
+          content: string,
+          mime: string,
+          allowed: () => boolean,
+        ) => {
+          expect(typeof allowed).toBe("function");
+          actualDownloadFile(filename, content, mime, allowed);
+        },
+      );
+      captured();
+      captured();
+      expect(h.download).toHaveBeenCalledOnce();
+      expect(click).not.toHaveBeenCalled();
+      if (boundary === "Blob") expect(revoke).not.toHaveBeenCalled();
+      else expect(revoke).toHaveBeenCalledWith("blob:synthetic");
+      h.setCurrent(snapshot());
+      h.render();
+      h.button("Download reviewed current page CSV")();
+      expect(h.download).toHaveBeenCalledOnce();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  },
+);
+it("actual dashboard consumed review can click once only while owned/open/current", () => {
+  const h = harness(),
+    click = vi.fn(),
+    revoke = vi.fn();
+  h.button("Review current page CSV")();
+  h.render();
+  vi.stubGlobal("URL", {
+    createObjectURL: () => "blob:synthetic",
+    revokeObjectURL: revoke,
+  });
+  vi.stubGlobal("document", {
+    createElement: () => ({ href: "", download: "", click }),
+  });
+  try {
+    h.download.mockImplementation(
+      (
+        filename: string,
+        content: string,
+        mime: string,
+        allowed: () => boolean,
+      ) => actualDownloadFile(filename, content, mime, allowed),
+    );
+    const captured = h.button("Download reviewed current page CSV");
+    captured();
+    captured();
+    expect(click).toHaveBeenCalledOnce();
+    expect(revoke).toHaveBeenCalledWith("blob:synthetic");
+  } finally {
+    vi.unstubAllGlobals();
+  }
 });
 it.each([
   ["RUNNING", "info"],

@@ -17,6 +17,8 @@ type Frame = {
   readerActivation?: string;
   parentCurrent?: (() => boolean) | null;
   parentActivation?: string;
+  observedSessionId?: string | null;
+  currentRead?: (() => boolean) | null;
 };
 type Held = {
   request: ManualCaseReviewedWrite;
@@ -25,6 +27,7 @@ type Held = {
   ambiguous: boolean;
   reviewEpoch: number;
   readerActivation: string;
+  observedReviewSessionId: string;
 };
 export type WholeCaseCompletion = {
   epoch: number;
@@ -53,7 +56,7 @@ export const emptyWholeCaseCompletion = (): WholeCaseCompletion => ({
   canPublish: false,
 });
 const same = (a: WholeCaseOrigin | null, b: WholeCaseOrigin | null) =>
-  !!a && !!b && JSON.stringify(a) === JSON.stringify(b);
+  !!a && !!b && a.projectId === b.projectId && a.testRunId === b.testRunId && a.testCaseId === b.testCaseId && a.organizationId === b.organizationId && a.clerkActorId === b.clerkActorId && a.nativeActorId === b.nativeActorId;
 function immutable<T>(value: T): T {
   const copied = structuredClone(value);
   const freeze = (v: unknown) => {
@@ -89,6 +92,10 @@ export class WholeCaseReviewedController {
   private blockedReaders = new Set<string>();
   private parentRequired = false;
   private renderBlocked = false;
+  private currentReadRequired = false;
+  // Waiting or pre-layout candidate frames are not admitted reads. Revocation
+  // must not permanently poison their UUID before the first completed echo.
+  private admittedReader: string | null = null;
   constructor(private readonly publish: (v: WholeCaseCompletion) => void) {}
   attach() {
     this.alive = true;
@@ -99,7 +106,13 @@ export class WholeCaseReviewedController {
     this.epoch++;
   }
   private frameKey(frame: Frame) {
-    return JSON.stringify([frame.origin, frame.open, frame.canRecover, frame.canWrite, frame.activation, frame.readerActivation ?? null, frame.parentActivation ?? null]);
+    return JSON.stringify([frame.origin, frame.open, frame.canRecover, frame.canWrite, frame.activation, frame.readerActivation ?? null, frame.parentActivation ?? null, this.observedSession(frame)]);
+  }
+  private observedSession(frame: Frame) { return frame.observedSessionId === undefined ? frame.origin?.sessionId ?? null : frame.observedSessionId; }
+  private nativeReadCurrent(frame: Frame) {
+    if (frame.currentRead !== undefined) this.currentReadRequired = true;
+    if (!this.currentReadRequired && frame.currentRead === undefined) return true;
+    try { return typeof frame.currentRead === "function" && frame.currentRead() === true; } catch { return false; }
   }
   private parentCurrent(frame: Frame) {
     if (frame.parentCurrent !== undefined) this.parentRequired = true;
@@ -108,34 +121,41 @@ export class WholeCaseReviewedController {
   }
   /** Revocation only before layout. No parent callback becomes write authority. */
   renderView(frame: Frame) {
-    if ((this.frameKey(frame) !== this.frameKey(this.frame) || !this.parentCurrent(frame)) && !this.renderBlocked) { this.renderBlocked = true; this.epoch++; }
+    if ((this.frameKey(frame) !== this.frameKey(this.frame) || !this.parentCurrent(frame) || !this.nativeReadCurrent(frame)) && !this.renderBlocked) { this.renderBlocked = true; this.epoch++; }
     return this.snapshot();
   }
   bind(frame: Frame) {
+    const priorReader = this.frame.readerActivation ?? this.frame.activation;
+    if (this.admittedReader === priorReader && (!this.parentCurrent(this.frame) || !this.nativeReadCurrent(this.frame))) {
+      if (!this.blockedReaders.has(priorReader)) { this.blockedReaders.add(priorReader); this.epoch++; }
+    }
     if (this.frameKey(frame) !== this.frameKey(this.frame)) this.epoch++;
     this.renderBlocked = false;
+    const reader = frame.readerActivation ?? frame.activation;
+    const admitted = !!frame.origin && this.parentCurrent(frame) && this.nativeReadCurrent(frame);
+    this.admittedReader = admitted ? reader : null;
     this.frame = {
       ...frame,
       origin: frame.origin ? immutable(frame.origin) : null,
       canRecover:
-        frame.canRecover &&
+        frame.canRecover && admitted &&
         !this.blockedReaders.has(frame.readerActivation ?? frame.activation),
       canWrite:
-        frame.canWrite &&
+        frame.canWrite && admitted &&
         !this.blockedReaders.has(frame.readerActivation ?? frame.activation),
     };
-    if (!this.origin && frame.origin && frame.canRecover)
+    if (!this.origin && this.frame.origin && this.frame.canRecover)
       this.origin = this.frame.origin;
     this.emit();
   }
   snapshot(): WholeCaseCompletion {
-    const parentCurrent = this.parentCurrent(this.frame);
-    if (!parentCurrent) {
+    const parentCurrent = this.parentCurrent(this.frame), nativeCurrent = this.nativeReadCurrent(this.frame);
+    if ((!parentCurrent || !nativeCurrent) && this.admittedReader === (this.frame.readerActivation ?? this.frame.activation)) {
       const reader = this.frame.readerActivation ?? this.frame.activation;
       if (reader && !this.blockedReaders.has(reader)) { this.blockedReaders.add(reader); this.epoch++; }
     }
     const authorized =
-      !this.renderBlocked && parentCurrent &&
+      !this.renderBlocked && parentCurrent && nativeCurrent && !!this.observedSession(this.frame) &&
       this.alive &&
       this.frame.open &&
       this.frame.canRecover &&
@@ -162,6 +182,7 @@ export class WholeCaseReviewedController {
         this.frame.canWrite &&
         !this.busy &&
         this.reviewed?.reviewEpoch === this.epoch &&
+        this.reviewed?.observedReviewSessionId === this.observedSession(this.frame) &&
         !this.pending &&
         !this.confirmed,
       canRetry:
@@ -185,7 +206,7 @@ export class WholeCaseReviewedController {
       epoch === this.epoch &&
       this.snapshot().authorized &&
       session?.userId === this.origin?.clerkActorId &&
-      session?.sessionId === this.origin?.sessionId
+      session?.sessionId === this.observedSession(this.frame)
     );
   }
   review(
@@ -251,6 +272,7 @@ export class WholeCaseReviewedController {
       ambiguous: false,
       reviewEpoch: this.epoch,
       readerActivation: this.frame.readerActivation ?? this.frame.activation,
+      observedReviewSessionId: this.observedSession(this.frame)!,
     };
     this.error = null;
     this.emit();
@@ -365,7 +387,7 @@ export class WholeCaseReviewedController {
   private revokeWrongSession(session: Session, held: Held) {
     if (
       session?.userId !== held.origin.clerkActorId ||
-      session?.sessionId !== held.origin.sessionId
+      session?.sessionId !== held.observedReviewSessionId
     ) {
       this.blockReader(held.readerActivation);
       this.observeSession(session);
@@ -375,9 +397,10 @@ export class WholeCaseReviewedController {
    * A returned SDK A alone cannot unlock A's old native read. */
   observeSession(session: Session) {
     if (
+      this.admittedReader === (this.frame.readerActivation ?? this.frame.activation) &&
       this.origin &&
       (session?.userId !== this.origin.clerkActorId ||
-        session?.sessionId !== this.origin.sessionId)
+        session?.sessionId !== this.observedSession(this.frame))
     )
       this.blockReader(this.frame.readerActivation ?? this.frame.activation);
   }
