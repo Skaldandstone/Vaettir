@@ -4,6 +4,15 @@ import {
   verifiedRunConfigurationAck,
   type ReviewedRunConfiguration,
 } from "./run-configuration-request";
+import {
+  freezeReviewedRunStart,
+  reviewedRunStartAccessMatches,
+  verifyReviewedRunStartAck,
+  type OwnedReviewedRunStart,
+  type ReviewedRunStartTransport,
+  type ReviewedRunStartAck,
+} from "./run-start-reviewed-write";
+import type { RunStartReadSnapshot } from "./manual-run-start-reviewed-reader";
 
 export type ConfirmedRunStartAck = {
   testRunId: string;
@@ -47,6 +56,8 @@ export type RunStartCompletionView = {
   canOpen: boolean;
   canEdit: boolean;
   recheckRequired: boolean;
+  pendingEnvelope?: OwnedReviewedRunStart | null;
+  reviewedAcknowledgement?: ReviewedRunStartAck | null;
 };
 export const emptyRunStartCompletion = (): RunStartCompletionView => ({
   activationEpoch: 0,
@@ -77,6 +88,14 @@ const rememberSession = (session: Session): Session =>
  * legacy payload/UUID/hash contract or creates a second request after known ACK.
  * React receives mirrored snapshots; action guards stay synchronous/private. */
 export class RunConfigCompletionController {
+  private readonly reviewedOwners = new WeakMap<
+    ReviewedRunConfiguration,
+    OwnedReviewedRunStart
+  >();
+  private readonly reviewedAcks = new WeakMap<
+    ReviewedRunConfiguration,
+    ReviewedRunStartAck
+  >();
   private frame: RunStartFrame = { scope: null, open: false, canWrite: false };
   private origin: RunStartScope | null = null;
   private alive = false;
@@ -184,6 +203,12 @@ export class RunConfigCompletionController {
       recheckRequired:
         this.requireInstalledMonitor &&
         (this.blocked || !this.monitor?.installed),
+      pendingEnvelope: this.pending
+        ? (this.reviewedOwners.get(this.pending.request) ?? null)
+        : null,
+      reviewedAcknowledgement: this.confirmed
+        ? (this.reviewedAcks.get(this.confirmed.request) ?? null)
+        : null,
     };
   }
   private revokeAdmission() {
@@ -503,7 +528,7 @@ export class RunConfigCompletionController {
       if (this.pending !== attempt) return false;
       const retain = retainAnalysisRequest(attempt.ambiguous, cause);
       attempt.ambiguous = retain;
-      if (!retain) {
+      if (!retain && !this.reviewedOwners.has(attempt.request)) {
         this.pending = null;
         this.reviewedEpoch = null;
       }
@@ -511,7 +536,9 @@ export class RunConfigCompletionController {
       // the original cause for refusal classification, never mirror its body.
       this.error = retain
         ? "Run start acknowledgement is unconfirmed. Configuration and the exact original request are retained. Retry only that request; no automatic retry was sent."
-        : "The reviewed start request was refused. Configuration is retained. Recheck the original access and explicitly review again; no automatic retry was sent.";
+        : this.reviewedOwners.has(attempt.request)
+          ? "The reviewed start request was refused. Its exact original body/key and configuration remain retained. No replacement or automatic retry was sent."
+          : "The reviewed start request was refused. Configuration is retained. Recheck the original access and explicitly review again; no automatic retry was sent.";
       return false;
     } finally {
       const observedSession = currentSession();
@@ -528,5 +555,102 @@ export class RunConfigCompletionController {
       this.busy = false;
       this.emit();
     }
+  }
+  /** Additive prospective transport. A legacy owner without a recorded native
+   * envelope is opaque; no fresh read can retrofit that old pending intent. */
+  async submitReviewed(
+    expectedEpoch: number,
+    factory: () => ReviewedRunConfiguration,
+    transport: ReviewedRunStartTransport,
+    currentSession: () => Session,
+    currentMetadata: () => RunStartReadSnapshot | null,
+    onConfirmed?: (
+      ack: ConfirmedRunStartAck,
+      request: ReviewedRunConfiguration,
+    ) => void,
+  ) {
+    if (this.pending && !this.reviewedOwners.has(this.pending.request)) {
+      this.error =
+        "This older unconfirmed request has no recorded submission-time native author. Its exact body/key remains retained and was not retransmitted or upgraded.";
+      this.emit();
+      return false;
+    }
+    let submittedRead: RunStartReadSnapshot | null = null;
+    return this.submit(
+      expectedEpoch,
+      () => {
+        const current = currentMetadata();
+        if (
+          !current ||
+          current.observedSessionId !== currentSession()?.sessionId
+        )
+          throw Error();
+        const request = factory(),
+          owned = freezeReviewedRunStart(request, current);
+        this.reviewedOwners.set(owned.request, owned);
+        return owned.request;
+      },
+      async (request) => {
+        const owned = this.reviewedOwners.get(request),
+          current = currentMetadata();
+        if (
+          !owned ||
+          !reviewedRunStartAccessMatches(owned, current) ||
+          current?.observedSessionId !== currentSession()?.sessionId
+        )
+          throw Error(
+            "Original current access is unavailable; the exact reviewed request is retained.",
+          );
+        submittedRead = current;
+        const raw = await transport(owned.envelope),
+          ack = await verifyReviewedRunStartAck(owned, raw);
+        this.reviewedAcks.set(request, ack);
+        return ack.legacyAck;
+      },
+      currentSession,
+      (ack, request) => {
+        const owned = this.reviewedOwners.get(request),
+          current = currentMetadata();
+        if (
+          !owned ||
+          current !== submittedRead ||
+          !reviewedRunStartAccessMatches(owned, current) ||
+          !onConfirmed
+        )
+          throw Error();
+        onConfirmed(ack, request);
+      },
+    );
+  }
+  openReviewedConfirmed(
+    session: Session,
+    currentMetadata: () => RunStartReadSnapshot | null,
+    callback:
+      | ((ack: ConfirmedRunStartAck, request: ReviewedRunConfiguration) => void)
+      | undefined,
+    expectedEpoch: number,
+  ) {
+    return this.openConfirmed(
+      session,
+      (ack, request) => {
+        const owned = this.reviewedOwners.get(request),
+          current = currentMetadata();
+        if (
+          !owned ||
+          !this.reviewedAcks.has(request) ||
+          !current ||
+          !current.data.canRecover ||
+          current.origin.projectId !== request.projectId ||
+          current.origin.organizationId !== request.originalOrganizationId ||
+          current.origin.clerkActorId !== request.expectedClerkActorId ||
+          current.observedSessionId !== session?.sessionId ||
+          !reviewedRunStartAccessMatches(owned, current) ||
+          !callback
+        )
+          throw Error();
+        callback(ack, request);
+      },
+      expectedEpoch,
+    );
   }
 }

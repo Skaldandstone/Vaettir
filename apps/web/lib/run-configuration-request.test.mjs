@@ -96,33 +96,72 @@ test("library configuration stays mounted through close, sends only retained sco
     new URL("../components/RunConfigurationModal.tsx", import.meta.url),
     "utf8",
   );
-  const completion = readFileSync(new URL("./run-config-completion.ts", import.meta.url), "utf8").replace(/\s+/g, " ");
+  const completion = readFileSync(
+    new URL("./run-config-completion.ts", import.meta.url),
+    "utf8",
+  ).replace(/\s+/g, " ");
   const modalFlat = modal.replace(/\s+/g, " ");
   assert.doesNotMatch(page, /runConfigurationOpen &&/);
   assert.match(page, /open=\{runConfigurationOpen\}/);
   assert.match(page, /testCaseIds=\{runSelection\}/);
+  assert.match(page, /envelope.projectId !== projectId/);
+  assert.match(page, /const context = envelope.request/);
   assert.match(page, /context.projectId !== projectId/);
-  assert.match(page, /startRunMutation.mutateAsync\(\{\s*\.\.\.context/);
-  assert.match(modalFlat, /controller\.submit\(\s*completion\.activationEpoch, \(\) =>\s*freezeRunConfiguration/);
+  assert.match(page, /manualRunStartReviewed\.start\.useMutation/);
+  assert.match(page, /startRunMutation.mutateAsync\(envelope\)/);
+  assert.match(
+    modalFlat,
+    /controller\.submitReviewed\(\s*completion\.activationEpoch, \(\) =>\s*freezeRunConfiguration/,
+  );
   assert.match(completion, /let owned = this\.pending/);
   assert.match(completion, /if \(!owned\) \{\s*const request = factory\(\)/);
   assert.match(completion, /await onStart\(attempt\.request\)/);
-  assert.match(completion, /verifiedRunConfigurationAck\(attempt\.request, acknowledgement\)/);
-  assert.match(completion, /retainAnalysisRequest\(attempt\.ambiguous, cause\)/);
-  assert.match(completion, /this\.epoch === submittedEpoch && this\.actionAllowed\(currentSession\(\)\)/);
+  assert.match(
+    completion,
+    /verifiedRunConfigurationAck\(attempt\.request, acknowledgement\)/,
+  );
+  assert.match(
+    completion,
+    /retainAnalysisRequest\(attempt\.ambiguous, cause\)/,
+  );
+  assert.match(
+    completion,
+    /this\.epoch === submittedEpoch && this\.actionAllowed\(currentSession\(\)\)/,
+  );
   assert.match(completion, /this\.pending = null;\s*this\.confirmed =/);
-  const mutationOnly = page.slice(page.indexOf("async function startManualRun("), page.indexOf("async function startManualRun(") + 1200);
+  const mutationOnly = page.slice(
+    page.indexOf("async function startManualRun("),
+    page.indexOf("async function startManualRun(") + 1200,
+  );
   assert.match(mutationOnly, /return startRunMutation\.mutateAsync/);
   assert.doesNotMatch(mutationOnly.split("\n  }")[0], /router\.push|setError/);
-  assert.match(page, /onConfirmedStart=\{\(acknowledgement, request\) => \{\s*router\.push\(`\/projects\/\$\{encodeURIComponent\(request\.projectId\)\}/);
-  assert.match(modal, /!access.ready \|\| !completion.authorized \?/);
+  assert.match(
+    page,
+    /onConfirmedStart=\{\(acknowledgement, request\) => \{\s*router\.push\(`\/projects\/\$\{encodeURIComponent\(request\.projectId\)\}/,
+  );
+  assert.match(
+    modal,
+    /!access.ready \|\| !completion.authorized \|\| !native \?/,
+  );
   assert.match(modal, /Private configuration is hidden/);
   assert.match(
     modal,
     /disabled=\{\s*busy \|\| refreshing \|\| !completion.canEdit/,
   );
-  assert.match(completion, /runConfigurationScopeMatches\(request, this\.origin\)/);
-  assert.match(modalFlat, /currentSessionScope\(\s*window.Clerk\?\.loaded \? window.Clerk.session : null,?\s*\)/);
+  assert.match(
+    completion,
+    /runConfigurationScopeMatches\(request, this\.origin\)/,
+  );
+  assert.match(
+    modalFlat,
+    /function liveSession\(\) \{ return safeRunStartSDKRead\(\).session; \}/,
+  );
+  assert.match(modal, /useManualRunStartReviewedAccess/);
+  assert.match(
+    completion,
+    /this.pending && !this.reviewedOwners.has\(this.pending.request\)/,
+  );
+  assert.match(completion, /verifyReviewedRunStartAck\(owned, raw\)/);
 });
 test("scoped run acknowledgements match the exact original UUID and actor; missing or changed echoes retain retry intent", () => {
   const request = freezeRunConfiguration(draft(), "retained-uuid");

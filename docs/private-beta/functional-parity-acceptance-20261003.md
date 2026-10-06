@@ -3326,3 +3326,64 @@ deployment or production acceptance was executed. The old plan execution caller
 and private-read endpoint remain unchanged pending the separately owned current
 reader/controller integration. Concurrent run-start Web fixture failures remain
 open until independently retested; this is not a green whole-tree result.
+
+### October 6: reviewed ordinary run-start caller cutover
+
+The case repository and run list now forward the complete reviewed-start envelope
+through the additive namespace. Their existing approved selection, retained
+ordered IDs, project keys and write locks remain. Only a new unsent intent can
+record original native identity from a current supported profile read. Original
+body, UUID and envelope survive refusal or lost acknowledgement; retries do not
+rebuild them. Profile metadata alone does not approve selected cases, procedures
+or execution configuration.
+
+The shared modal/controller validates the bounded complete outer acknowledgement
+and its deterministic original-native-actor/UUID run ID before privately recording
+confirmation. Late confirmation may settle privately but cannot publish or
+navigate under a replaced session/read. Opening a known result requires the
+original owned envelope, strict acknowledgement, current original access and an
+actual guarded navigation callback. Legacy unpinned pending or known requests
+remain opaque, not upgraded from a current native read.
+
+Root independently passed 136 focused typed caller/controller/writer checks.
+The later compatible Web run passed 807 Node and 1,543 typed checks across 93
+typed files, with no skips, and Web typecheck passed. This includes then-current
+uncommitted plan-reader tests, not their final freeze or caller integration.
+Earlier full-run failures are retained: obsolete legacy caller fixtures were
+updated to exercise the actual reviewed protocol, and a resource test's forty
+immediate-turn wait was replaced with a finite two-second deadline while retaining
+the independent forty-render cap. Its new eighty-turn contention regression
+passes without additional dispatch or nonce replacement. No production hook or
+retry policy changed for that test repair.
+
+Scoped lint has zero errors and four disclosed state-effect warnings: three
+existing repository effects and one finite native-staging modal effect. Actual
+new-source browser/native API/SQL/recovery and authenticated production acceptance
+remain open. This supersedes the earlier source-fixture failures only for the
+tested source; it does not waive any retained release failure or prove deployment.
+
+### October 6: distinct Android window protocol, browser dispatch still closed
+
+An additive authenticated `/capture/android-window-v1` route accepts a complete
+bounded request with original nonce, explicit serial/package and raw label. Old
+helpers or unsupported paths cannot fall back to legacy `/capture`. The returned
+unchanged version-1 manifest is bound to the collector's actual in-memory target
+observations. Before/after foreground observations are expressly non-atomic and
+not app-exclusive; processing permission, spending permission and durable receipt
+availability remain false.
+
+The request reader bounds bytes, iterator yields and a ten-second deadline;
+whole malformed, oversized, duplicate-key or stalled inputs refuse with generic
+errors and owned iterator cleanup. The pure browser decoder checks the complete
+bounded response, exact route/metadata/nonce/target echoes and explicit limitations
+without getters, clipping, defaults or network dispatch. Raw capture remains
+data, not consent or write authority.
+
+Root independently passed 21 actual-handler synthetic Node tests and 14 typed
+protocol checks, including the actual iterator's 8,192-yield refusal and an
+injected-clock stalled-read deadline. Native command outputs, pairing and
+transport are synthetic; no helper/server startup, helper HTTP, ADB/Appium,
+physical device, SEA/signing or security-policy operation ran. Existing Web
+capture stays closed. This source foundation does not resolve or accept the
+reported Windows launch error, legacy paid recovery, iOS foreground verification
+or browser-side stream/SDK/target/consent admission.

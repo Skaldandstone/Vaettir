@@ -1,6 +1,7 @@
 // Actual route handlers + existing completion controller, with synthetic hooks,
 // native metadata/auth/RPC boundaries. Not React DOM, SDK lifecycle or SQL proof.
 import { readFileSync } from "node:fs";
+import { createHash } from "node:crypto";
 import vm from "node:vm";
 import ts from "typescript";
 import React from "react";
@@ -13,6 +14,8 @@ import {
   type ReviewedRunConfiguration,
 } from "./run-configuration-request";
 import type { RunConfigurationModal as ModalType } from "../components/RunConfigurationModal";
+import { admitRunStartRead, runStartReviewedReadKey, type RunStartReadSnapshot } from "./manual-run-start-reviewed-reader";
+import { freezeReviewedRunStart, type ReviewedRunStartEnvelope } from "./run-start-reviewed-write";
 const source = readFileSync(
   new URL("../app/projects/[projectId]/test-runs/page.tsx", import.meta.url),
   "utf8",
@@ -92,7 +95,7 @@ function harness() {
     isLoading: false,
     error: null as Error | null,
   };
-  const send = vi.fn<(request: ReviewedRunConfiguration) => Promise<unknown>>(),
+  const send = vi.fn<(request: ReviewedRunStartEnvelope) => Promise<unknown>>(),
     navigate = vi.fn();
   const mutation = { isPending: false, mutateAsync: send };
   const context = vm.createContext({
@@ -123,7 +126,7 @@ function harness() {
     applyRunBulkSelection,
     trpcReact: {
       testCases: { list: { useQuery: () => query } },
-      manualExecution: { start: { useMutation: () => mutation } },
+      manualRunStartReviewed: { start: { useMutation: () => mutation } },
     },
     RunConfigurationModal: stub,
     Modal: stub,
@@ -233,12 +236,31 @@ function request(ids: string[]) {
     "00000000-0000-4000-8000-000000000001",
   );
 }
+function metadata(): RunStartReadSnapshot {
+  const input = { projectId: "project", originalOrganizationId: "org", expectedClerkActorId: "clerk", expectedNativeActorId: "native", requestId: "00000000-0000-4000-8000-000000000002" };
+  const raw = { readContext: { projection: "PREVIEW", requestId: input.requestId, requestedKey: runStartReviewedReadKey(input, "PREVIEW"), scope: { projectId: "project", organizationId: "org", actorId: "native", actorClerkUserId: "clerk" } }, canConfigure: true, canRecover: true, canStart: true, profile: { kind: "SUPPORTED", experience: null, profileHash: "b".repeat(64) }, limitations: [] };
+  const admitted = admitRunStartRead(raw, input, "PREVIEW", "clerk");
+  if (!admitted) throw Error("Synthetic native metadata refused");
+  return Object.freeze({ ...admitted, projection: "PREVIEW", observedSessionId: "A", epoch: 0, revision: 1, receivedAt: "2026-10-06T17:00:00.000Z" });
+}
+const nativeMetadata = metadata();
+function envelope(input: ReviewedRunConfiguration) {
+  return freezeReviewedRunStart(input, nativeMetadata).envelope;
+}
 function ack(input: ReviewedRunConfiguration) {
+  const testRunId = `manual_${createHash("sha256").update(JSON.stringify([input.projectId, "native", input.idempotencyKey])).digest("hex")}`;
   return {
-    testRunId: `manual_${"a".repeat(64)}`,
+    mode: "START",
+    currentScope: { projectId: input.projectId, organizationId: input.originalOrganizationId, actorId: "native", actorClerkUserId: input.expectedClerkActorId },
+    historicalOuterProvenance: "UNRECORDED",
+    interpretation: "LEGACY_NORMALIZED_NOT_RAW_LOSSLESS",
+    idempotencyKey: input.idempotencyKey,
+    legacyAck: {
+    testRunId,
     originalOrganizationId: input.originalOrganizationId,
     expectedClerkActorId: input.expectedClerkActorId,
     idempotencyKey: input.idempotencyKey,
+    },
   };
 }
 // Execute the actual modal's applyBulk closure with its real completion
@@ -455,17 +477,19 @@ it("host mutation forwards the complete frozen body but never navigates itself o
   const props = h.config(),
     input = request(props.testCaseIds);
   h.send.mockResolvedValue(ack(input));
-  expect(await props.onStart(input)).toEqual(ack(input));
-  expect(h.send).toHaveBeenCalledWith(input);
+  const retainedEnvelope = envelope(input);
+  expect(await props.onStart(retainedEnvelope)).toEqual(ack(input));
+  expect(h.send).toHaveBeenCalledWith(retainedEnvelope);
   expect(h.navigate).not.toHaveBeenCalled();
-  expect(h.send.mock.calls[0]![0]).toBe(input);
+  expect(h.send.mock.calls[0]![0]).toBe(retainedEnvelope);
+  expect(h.send.mock.calls[0]![0].expectedNativeActorId).toBe("native");
   expect(input.executionContext).toMatchObject({
     configuration: "line one\nline two",
     platform: "",
     build: "0",
   });
   await expect(
-    props.onStart({ ...input, testCaseIds: ["replacement"] }),
+    props.onStart({ ...retainedEnvelope, request: { ...input, testCaseIds: ["replacement"] } }),
   ).rejects.toThrow("originally reviewed selection");
   expect(h.send).toHaveBeenCalledOnce();
 });
@@ -560,11 +584,12 @@ it.each(["pending", "unknown", "confirmed"])(
     else if (mode === "unknown")
       h.send.mockRejectedValue(Error("Synthetic lost response"));
     else h.send.mockResolvedValue(ack(input));
-    const submission = controller.submit(
+    const submission = controller.submitReviewed(
       controller.snapshot().activationEpoch,
       () => input,
       props.onStart,
       () => session,
+      () => nativeMetadata,
       props.onConfirmedStart,
     );
     if (mode !== "pending") await submission;
@@ -605,25 +630,27 @@ it("unknown ACK retries through actual controller with identical request/UUID, n
     return request(props.testCaseIds);
   };
   h.send.mockRejectedValueOnce(Error("synthetic lost response"));
-  await c.submit(
+  await c.submitReviewed(
     c.snapshot().activationEpoch,
     factory,
     props.onStart,
     () => session,
+    () => nativeMetadata,
     props.onConfirmedStart,
   );
   const retained = c.snapshot().pendingRequest!;
   h.send.mockResolvedValueOnce(ack(retained));
-  await c.submit(
+  await c.submitReviewed(
     c.snapshot().activationEpoch,
     factory,
     props.onStart,
     () => session,
+    () => nativeMetadata,
     props.onConfirmedStart,
   );
   expect(generated).toBe(1);
-  expect(h.send.mock.calls[0]![0]).toBe(retained);
-  expect(h.send.mock.calls[1]![0]).toBe(retained);
+  expect(h.send.mock.calls[0]![0].request).toEqual(retained);
+  expect(h.send.mock.calls[1]![0]).toBe(h.send.mock.calls[0]![0]);
   expect(h.navigate).toHaveBeenCalledOnce();
 });
 it.each(["close", "role", "session"])(
@@ -654,13 +681,16 @@ it.each(["close", "role", "session"])(
         }),
     );
     const input = request(props.testCaseIds),
-      pending = c.submit(
+      pending = c.submitReviewed(
         c.snapshot().activationEpoch,
         () => input,
         props.onStart,
         () => session,
+        () => nativeMetadata,
         props.onConfirmedStart,
       );
+    const retainedBeforeFrameChange = c.snapshot().pendingRequest;
+    expect(retainedBeforeFrameChange).toEqual(input);
     c.bindFrame(
       mode === "close"
         ? { ...frame, open: false }
@@ -672,11 +702,13 @@ it.each(["close", "role", "session"])(
     resolve(ack(input));
     await pending;
     expect(h.navigate).not.toHaveBeenCalled();
-    expect(c.snapshot().confirmed?.request).toBe(input);
+    expect(c.snapshot().confirmed?.request).toBe(retainedBeforeFrameChange);
+    expect(c.snapshot().confirmed?.request).toEqual(input);
     expect(c.snapshot().pendingRequest).toBeNull();
     expect(
-      c.openConfirmed(
+      c.openReviewedConfirmed(
         session,
+        () => nativeMetadata,
         props.onConfirmedStart,
         c.snapshot().activationEpoch,
       ),

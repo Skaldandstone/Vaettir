@@ -172,3 +172,87 @@ test("actual command wrappers bound native output/time and expose no stderr; no 
   assert.match(publicSource, /\/session\/\$\{sessionId\}\/source/); // Historical unverified iOS path remains separate.
   assert.equal(publicSource.includes("activeAppInfo"), false); assert.equal(cliSource.includes("activeAppInfo"), false);
 });
+
+const windowIntent = extra => ({ protocolVersion: 1, requestNonce: "00000000-0000-4000-8000-000000000001", serial: "DEVICE-A", expectedPackage: packageName, label: " Exact\nlabel ", ...extra });
+function windowRouteFixture(changes = {}, clock = { setTimeout, clearTimeout }) {
+  const f = fixture("public", changes), names = ["ANDROID_WINDOW_PATH", "ANDROID_WINDOW_REQUEST_BYTES", "ANDROID_WINDOW_RESPONSE_BYTES", "ANDROID_WINDOW_OBSERVATION", "parseAndroidWindowJson", "admitAndroidWindowRequest", "readAndroidWindowRequest", "buildAndroidWindowResponse", "handleAndroidWindowCapture", "send", "corsHeaders", "safeEqual", "allowedOrigins", "server"];
+  const code = declarations(publicSource, names);
+  let handler;
+  const api = new Function("captureRefusal", "completeCaptureJsonBytes", "exactText", "admitAndroidCaptureOptions", "androidCaptureOrigins", "captureAndroid", "createServer", "pairingCode", "timingSafeEqual", "listAndroidDevices", "readJson", "captureIos", "setTimeout", "clearTimeout", `${code}\nreturn {${names.filter(name => name !== "server").join(",")}};`)(
+    f.api.captureRefusal, f.api.completeCaptureJsonBytes, f.api.exactText, f.api.admitAndroidCaptureOptions, f.api.androidCaptureOrigins, f.capture,
+    callback => { handler = callback; return {}; }, "SYNTHETIC-PAIR", (a, b) => a.equals(b), () => { throw Error("Discovery must not be invoked"); }, () => { throw Error("Legacy fallback must not be invoked"); }, () => { throw Error("iOS must not be invoked"); }, clock.setTimeout, clock.clearTimeout);
+  const request = (raw, headers = {}) => ({ method: "POST", url: api.ANDROID_WINDOW_PATH,
+    headers: { origin: "https://vaettir.skaldandstone.com", "x-vaettir-pairing-code": "SYNTHETIC-PAIR", ...headers },
+    async *[Symbol.asyncIterator]() { for (const chunk of Array.isArray(raw) ? raw : [Buffer.from(raw)]) yield chunk; } });
+  const invoke = async (raw = JSON.stringify(windowIntent()), headers = {}, path) => {
+    const response = { status: null, body: null, writeHead(status) { this.status = status; }, end(body) { this.body = body === undefined ? undefined : JSON.parse(body); } };
+    const req = request(raw, headers); if (path) req.url = path;
+    await handler(req, response); return response;
+  };
+  return { ...f, api, invoke };
+}
+test("actual distinct versioned route authenticates before parsing/native reads; unsupported old/malformed requests never fall back", async () => {
+  for (const [headers, status] of [[{ origin: "https://foreign.invalid" }, 403], [{ "x-vaettir-pairing-code": "WRONG" }, 401]]) {
+    const f = windowRouteFixture(); const result = await f.invoke("PRIVATE MALFORMED", headers); assert.equal(result.status, status); assert.deepEqual(f.calls, []);
+  }
+  for (const raw of [JSON.stringify(windowIntent({ protocolVersion: 2 })), JSON.stringify(windowIntent({ label: undefined })), JSON.stringify(windowIntent({ source: "android" })),
+    JSON.stringify(windowIntent({ serial: "" })), JSON.stringify(windowIntent({ expectedPackage: "com.synthetic.app " })),
+    JSON.stringify(windowIntent()).replace('"protocolVersion":1', '"protocolVersion":2,"protocolVersion":1'),
+    JSON.stringify(windowIntent()).replace('"label":', '"\\u006cabel":"duplicate","label":'),
+    " ".repeat(4097), [new Uint8Array([0xff])], "\ufeff" + JSON.stringify(windowIntent())]) {
+    const f = windowRouteFixture(), result = await f.invoke(raw); assert.equal(result.status, 400); assert.deepEqual(f.calls, []); assert.deepEqual(result.body, { error: "No complete supported Android window response was admitted. No fallback or automatic retry was performed." });
+  }
+  const old = windowRouteFixture(); assert.equal((await old.invoke("{}", {}, "/capture/android-window-v2")).status, 404); assert.deepEqual(old.calls, []);
+});
+test("real route returns exact native-bound echoes, unchanged manifest and explicit non-atomic/no-permission/no-receipt evidence", async () => {
+  const f = windowRouteFixture(), result = await f.invoke(); assert.equal(result.status, 200);
+  const output = result.body; assert.deepEqual(Object.keys(output), ["protocolVersion", "requestNonce", "serial", "expectedPackage", "label", "observation", "capture", "processingPermissionGranted", "spendingPermissionGranted", "operationReceiptAvailable"]);
+  assert.deepEqual(output.observation, { kind: "BEFORE_AFTER_WINDOW_OBSERVATIONS_NOT_ATOMIC", beforePackage: packageName, afterPackage: packageName, appExclusive: false });
+  for (const key of Object.keys(windowIntent())) assert.equal(output[key], windowIntent()[key]);
+  assert.equal(output.capture.version, 1); assert.equal(output.capture.appName, packageName); assert.equal(output.capture.screens[0].label, windowIntent().label);
+  assert.equal(output.capture.screens[0].elements[0].name, " Exact\nraw control ");
+  assert.equal(output.processingPermissionGranted, false); assert.equal(output.spendingPermissionGranted, false); assert.equal(output.operationReceiptAvailable, false);
+  const bound = f.capture(options()); assert.throws(() => f.api.buildAndroidWindowResponse(windowIntent(), JSON.parse(JSON.stringify(bound))));
+  assert.throws(() => f.api.buildAndroidWindowResponse(windowIntent({ serial: "DEVICE-B" }), bound));
+  bound.screens[0].label = "PRIVATE manual edit"; assert.throws(() => f.api.buildAndroidWindowResponse(windowIntent(), bound));
+});
+test("new request raw byte/iterator admission is complete; exact4096 accepts, overflow/deep/duplicate/private native failure whole-refuses", async () => {
+  const text = JSON.stringify(windowIntent()), exact = text + " ".repeat(4096 - Buffer.byteLength(text));
+  const accepted = windowRouteFixture(); assert.equal((await accepted.invoke([Buffer.from(exact).subarray(0, 1), Buffer.from(exact).subarray(1)])).status, 200);
+  const refused = windowRouteFixture(); assert.equal((await refused.invoke([Buffer.from(exact), Buffer.from(" ")])).status, 400); assert.deepEqual(refused.calls, []);
+  const f = windowRouteFixture({ after: "SYNTHETIC PRIVATE native error" }); const result = await f.invoke(); assert.equal(result.status, 400); assert.equal(JSON.stringify(result.body).includes("PRIVATE"), false);
+  assert.throws(() => f.api.parseAndroidWindowJson("[".repeat(65) + "0" + "]".repeat(65), 4096));
+  assert.throws(() => f.api.parseAndroidWindowJson('{"a":1,"\\u0061":2}', 4096));
+  let getter = 0; const intent = windowIntent(); Object.defineProperty(intent, "serial", { enumerable: true, get() { getter++; return "DEVICE-A"; } });
+  assert.throws(() => f.api.admitAndroidWindowRequest(intent)); assert.equal(getter, 0);
+});
+
+test("actual reader refuses8192 empty/incomplete yields as a whole and returns iterator without private error publication", async () => {
+  for (const initial of [Buffer.alloc(0), Buffer.from('{"protocolVersion":1')]) {
+    let reads = 0, returned = 0, armed = 0, cleared = 0;
+    const f = windowRouteFixture({}, { setTimeout(_callback, delay) { assert.equal(delay, 10000); armed++; return 17; }, clearTimeout(timer) { assert.equal(timer, 17); cleared++; } });
+    const request = { [Symbol.asyncIterator]() { return {
+      async next() { reads++; return { done: false, value: reads === 1 ? initial : Buffer.alloc(0) }; },
+      return() { returned++; return Promise.reject(Error("SYNTHETIC PRIVATE cleanup detail")); },
+    }; } };
+    const response = { writeHead(status) { this.status = status; }, end(body) { this.body = JSON.parse(body); } };
+    await f.api.handleAndroidWindowCapture(request, response, {});
+    assert.equal(reads, 8192); assert.equal(returned, 1); assert.equal(armed, 1); assert.equal(cleared, 1);
+    assert.equal(response.status, 400); assert.equal(JSON.stringify(response.body).includes("PRIVATE"), false); assert.deepEqual(f.calls, []);
+    assert.deepEqual(response.body, { error: "No complete supported Android window response was admitted. No fallback or automatic retry was performed." });
+  }
+});
+test("actual stalled reader10s deadline uses injected clock, cancels iterator once and never starts native capture or retry", async () => {
+  let deadline, reads = 0, returned = 0, cleared = 0;
+  const f = windowRouteFixture({}, { setTimeout(callback, delay) { assert.equal(delay, 10000); assert.equal(deadline, undefined); deadline = callback; return 23; }, clearTimeout(timer) { assert.equal(timer, 23); cleared++; } });
+  const request = { [Symbol.asyncIterator]() { return {
+    next() { reads++; return new Promise(() => undefined); },
+    return() { returned++; throw Error("SYNTHETIC PRIVATE stalled cleanup detail"); },
+  }; } };
+  const response = { writeHead(status) { this.status = status; }, end(body) { this.body = JSON.parse(body); } };
+  const pending = f.api.handleAndroidWindowCapture(request, response, {});
+  assert.equal(typeof deadline, "function"); assert.equal(reads, 1); deadline();
+  await pending;
+  assert.equal(returned, 1); assert.equal(cleared, 1); assert.equal(reads, 1); assert.equal(response.status, 400); assert.deepEqual(f.calls, []);
+  assert.deepEqual(response.body, { error: "No complete supported Android window response was admitted. No fallback or automatic retry was performed." });
+});

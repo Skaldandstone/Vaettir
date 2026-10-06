@@ -1,6 +1,13 @@
 "use client";
 
-import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
+import {
+  useEffect,
+  useId,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { useAuth } from "@clerk/nextjs";
 import {
   GAME_PLATFORMS,
@@ -10,7 +17,11 @@ import {
 import { trpcReact } from "@/lib/trpcReact";
 import { useProjectPermissions } from "@/lib/use-project-permissions";
 import { useManualExecutionAccess } from "@/lib/use-manual-execution-access";
-import { currentSessionScope } from "@/lib/auth-query-cache";
+import { useManualRunStartReviewedAccess } from "@/lib/use-manual-run-start-reviewed-access";
+import {
+  safeRunStartSDKRead,
+  type ReviewedRunStartTransport,
+} from "@/lib/run-start-reviewed-write";
 import {
   emptyRunStartCompletion,
   RunConfigCompletionController,
@@ -168,7 +179,7 @@ export function RunConfigurationModal({
   bulkScopesReady?: boolean;
   onSelectionChange?: (ids: string[]) => void;
   onClose: () => void;
-  onStart: (configuration: ReviewedRunConfiguration) => Promise<unknown>;
+  onStart: ReviewedRunStartTransport;
   /** Mutation-only onStart must not navigate. This callback is gated after ACK. */
   onConfirmedStart?: (
     acknowledgement: ConfirmedRunStartAck,
@@ -179,10 +190,49 @@ export function RunConfigurationModal({
     useProjectPermissions(projectId);
   const access = useManualExecutionAccess(projectId);
   const { isLoaded, isSignedIn, userId, sessionId } = useAuth();
-  const query = trpcReact.project.experience.useQuery(
-    { projectId },
-    { enabled: open && access.ready, staleTime: 0, retry: false },
+  const utils = trpcReact.useUtils();
+  const metadataAdapter = useMemo(
+    () => ({
+      access: (
+        input: Parameters<
+          typeof utils.client.manualRunStartReviewed.access.query
+        >[0],
+      ) => utils.client.manualRunStartReviewed.access.query(input),
+      preview: (
+        input: Parameters<
+          typeof utils.client.manualRunStartReviewed.preview.query
+        >[0],
+      ) => utils.client.manualRunStartReviewed.preview.query(input),
+      key: (projection: "ACCESS" | "PREVIEW") => [
+        "manualRunStartReviewed",
+        projection,
+      ],
+    }),
+    [utils],
   );
+  const metadata = useManualRunStartReviewedAccess(
+    projectId,
+    access.origin?.organizationId,
+    metadataAdapter,
+    { active: open && loaded && canEdit && !accessError },
+  );
+  const native = metadata.current();
+  const nativeProfile =
+    native?.projection === "PREVIEW" &&
+    "profile" in native.data &&
+    native.data.profile.kind === "SUPPORTED"
+      ? {
+          experience: native.data.profile.experience,
+          profileHash: native.data.profile.profileHash,
+        }
+      : null;
+  const query = {
+    data: nativeProfile,
+    error: metadata.error,
+    isFetching: metadata.loading,
+    isPaused: false,
+    isFetchedAfterMount: !!nativeProfile,
+  };
   const [baseline, setBaseline] = useState<{
     experience: ExperienceProfile | null;
     profileHash: string;
@@ -198,8 +248,7 @@ export function RunConfigurationModal({
   const [recheckCandidate, setRecheckCandidate] =
     useState<RunStartRecheckToken | null>(null);
   const recheckOperation = useRef(0);
-  const sdkResource =
-    typeof window === "undefined" ? null : (window.Clerk ?? null);
+  const sdkResource = safeRunStartSDKRead().resource;
   const busy = completion.busy;
   const error = localError ?? completion.error;
   const [refreshing, setRefreshing] = useState(false);
@@ -212,6 +261,12 @@ export function RunConfigurationModal({
   const [bulkNotice, setBulkNotice] = useState("");
   const refreshingNow = useRef(false);
   const platformListId = useId();
+  const [nativeFlow, setNativeFlow] = useState<{
+    token: RunStartRecheckToken | null;
+    mode: "ACCESS" | "PROFILE";
+    operation: number;
+    replaceProfile: boolean;
+  } | null>(null);
   const headingRef = useRef<HTMLHeadingElement>(null);
   const draftKey = JSON.stringify({
     caseCount,
@@ -229,7 +284,7 @@ export function RunConfigurationModal({
     const release = controller.installSdkMonitor(
       sdkResource,
       liveSession,
-      () => (typeof window === "undefined" ? null : (window.Clerk ?? null)),
+      () => safeRunStartSDKRead().resource,
     );
     return () => {
       operationHolder.current++;
@@ -247,16 +302,21 @@ export function RunConfigurationModal({
         isSignedIn &&
         userId &&
         sessionId &&
-        access.ready &&
-        access.origin
+        native &&
+        native.data.canRecover
           ? {
               projectId,
-              organizationId: access.origin.organizationId,
-              clerkActorId: userId,
+              organizationId: native.origin.organizationId,
+              clerkActorId: native.origin.clerkActorId,
               sessionId,
             }
           : null,
-      canWrite: loaded && canEdit && !accessError && access.canWrite,
+      canWrite:
+        loaded &&
+        canEdit &&
+        !accessError &&
+        access.canWrite &&
+        !!native?.data.canRecover,
     });
   }, [
     controller,
@@ -273,14 +333,13 @@ export function RunConfigurationModal({
     loaded,
     canEdit,
     accessError,
+    native,
   ]);
   function liveSession() {
-    return currentSessionScope(
-      window.Clerk?.loaded ? window.Clerk.session : null,
-    );
+    return safeRunStartSDKRead().session;
   }
   useLayoutEffect(() => {
-    if (recheckCandidate)
+    if (recheckCandidate && metadata.current()?.data.canRecover)
       controller.finishRecheck(recheckCandidate, liveSession());
     // The controller consumes this exact token once and publishes its mirrored
     // state. Keeping the last token does not loop or grant a second admission.
@@ -293,6 +352,7 @@ export function RunConfigurationModal({
     loaded,
     canEdit,
     accessError,
+    metadata,
   ]);
   if (
     open &&
@@ -318,6 +378,9 @@ export function RunConfigurationModal({
     caseCount <= MAX_MANUAL_CASES &&
     testCaseIds.length === caseCount;
   const retainedRequest = confirmedStart?.request ?? pendingRequest;
+  const legacyOpaque =
+    (!!pendingRequest && !completion.pendingEnvelope) ||
+    (!!confirmedStart && !completion.reviewedAcknowledgement);
   const displayedCount = retainedRequest?.testCaseIds.length ?? caseCount;
   const displayedContext = retainedRequest?.executionContext ?? context;
   const selectionReviewed =
@@ -381,9 +444,17 @@ export function RunConfigurationModal({
     setScreenId(nextScreen.id);
   }
   async function start() {
-    const origin = access.origin;
+    const source = metadata.current();
+    const origin = source?.origin;
     if (
-      !baseline ||
+      legacyOpaque ||
+      (!pendingRequest &&
+        (!baseline ||
+          source?.projection !== "PREVIEW" ||
+          !("profile" in source.data) ||
+          source.data.profile.kind !== "SUPPORTED" ||
+          !source.data.canStart)) ||
+      !source?.data.canRecover ||
       !access.canWrite ||
       !origin ||
       !canEdit ||
@@ -399,14 +470,14 @@ export function RunConfigurationModal({
     )
       return;
     setError(null);
-    await controller.submit(
+    await controller.submitReviewed(
       completion.activationEpoch,
       () =>
         freezeRunConfiguration(
           {
             projectId,
             testCaseIds,
-            expectedProfileHash: baseline.profileHash,
+            expectedProfileHash: baseline!.profileHash,
             executionContext: context,
             originalOrganizationId: origin.organizationId,
             expectedClerkActorId: origin.clerkActorId,
@@ -415,6 +486,7 @@ export function RunConfigurationModal({
         ),
       onStart,
       liveSession,
+      metadata.current,
       onConfirmedStart,
     );
   }
@@ -424,39 +496,28 @@ export function RunConfigurationModal({
       !controller.canEdit(liveSession(), completion.activationEpoch)
     )
       return;
-    const epoch = completion.activationEpoch;
     const operation = ++recheckOperation.current;
+    if (!metadata.readPreview()) return;
     refreshingNow.current = true;
     controller.revokeReview();
     setRefreshing(true);
     setError(null);
-    try {
-      const result = await query.refetch();
-      if (!controller.frameCurrent(liveSession(), epoch)) return;
-      if (result.error || !result.data) {
-        setError(
-          "Project context could not be refreshed. Your configuration is retained.",
-        );
-        return;
-      }
-      setBaseline(result.data);
-      setScreenId("configuration");
-      setReviewedCount(null);
-      setReviewedIds(null);
-    } finally {
-      if (operation === recheckOperation.current) {
-        refreshingNow.current = false;
-        setRefreshing(false);
-      }
-    }
+    setNativeFlow({
+      token: null,
+      mode: "PROFILE",
+      operation,
+      replaceProfile: true,
+    });
   }
   async function recheckOriginalAccess() {
     if (refreshingNow.current || busy) return;
     const token = controller.beginRecheck(liveSession());
-    if (!token) {
+    if (!token || !metadata.refresh()) {
       // Explicitly retry installation only. No cached/session-return admission
       // is granted; another explicit recheck needs fresh metadata results.
       setMonitorRetry((value) => value + 1);
+      metadata.refresh();
+      void access.refresh();
       setError(
         "Installed session monitoring is unavailable or original access is not ready. Drafts are retained; explicitly recheck again after restoring the original account.",
       );
@@ -467,62 +528,88 @@ export function RunConfigurationModal({
     refreshingNow.current = true;
     setRefreshing(true);
     setError(null);
-    try {
-      const [projectResult, organizationsResult] = await access.refresh();
-      const profileResult = await query.refetch();
-      if (operation !== recheckOperation.current) return;
-      const origin = access.origin;
-      const member = organizationsResult.data?.find(
-        (row) => row.id === origin?.organizationId,
-      );
-      if (
-        !origin ||
-        !projectResult.isSuccess ||
-        !organizationsResult.isSuccess ||
-        !profileResult.isSuccess ||
-        projectResult.fetchStatus !== "idle" ||
-        organizationsResult.fetchStatus !== "idle" ||
-        profileResult.fetchStatus !== "idle" ||
-        projectResult.isError ||
-        organizationsResult.isError ||
-        profileResult.isError ||
-        projectResult.isFetching ||
-        organizationsResult.isFetching ||
-        profileResult.isFetching ||
-        projectResult.isPaused ||
-        organizationsResult.isPaused ||
-        profileResult.isPaused ||
-        !projectResult.isFetchedAfterMount ||
-        !organizationsResult.isFetchedAfterMount ||
-        !profileResult.isFetchedAfterMount ||
-        projectResult.data?.id !== projectId ||
-        projectResult.data.organizationId !== origin.organizationId ||
-        !member ||
-        member.seatType !== "FULL" ||
-        !["OWNER", "ADMIN", "EDITOR"].includes(member.role) ||
-        !profileResult.data ||
-        !/^[a-f0-9]{64}$/.test(profileResult.data.profileHash)
-      ) {
-        setError(
-          "Original access and project context could not be freshly verified. Drafts and identical requests remain retained.",
-        );
-        return;
-      }
-      // Hook/layout currentness is checked by the controller when publishing;
-      // fresh metadata is not a native scope nonce or new write permission.
-      setRecheckCandidate(token);
-    } catch {
-      if (operation === recheckOperation.current)
-        setError(
-          "Original access could not be rechecked. Drafts and identical requests remain retained.",
-        );
-    } finally {
-      if (operation === recheckOperation.current) {
+    setNativeFlow({ token, mode: "ACCESS", operation, replaceProfile: false });
+  }
+  useLayoutEffect(() => {
+    if (!open || busy) return;
+    const current = metadata.current();
+    if (nativeFlow && nativeFlow.operation !== recheckOperation.current) {
+      setNativeFlow(null);
+      return;
+    }
+    if (!current) {
+      if (nativeFlow && metadata.error && !metadata.loading) {
+        setNativeFlow(null);
         refreshingNow.current = false;
         setRefreshing(false);
+        setError(
+          "Original native access could not be freshly verified. Drafts and exact requests remain retained.",
+        );
       }
+      return;
     }
-  }
+    if (nativeFlow && !current.data.canRecover) {
+      setNativeFlow(null);
+      refreshingNow.current = false;
+      setRefreshing(false);
+      setError(
+        "Original native access could not be freshly verified. Drafts and exact requests remain retained.",
+      );
+      return;
+    }
+    if (current.projection === "ACCESS" && current.data.canRecover) {
+      if (pendingRequest || confirmedStart) {
+        if (nativeFlow) {
+          if (nativeFlow.token) setRecheckCandidate(nativeFlow.token);
+          setNativeFlow(null);
+          refreshingNow.current = false;
+          setRefreshing(false);
+        }
+      } else if (baseline === null || nativeFlow?.mode === "ACCESS") {
+        if (metadata.readPreview())
+          setNativeFlow({
+            token: nativeFlow?.token ?? null,
+            mode: "PROFILE",
+            operation: nativeFlow?.operation ?? recheckOperation.current,
+            replaceProfile: nativeFlow?.replaceProfile ?? false,
+          });
+      }
+    } else if (
+      current.projection === "PREVIEW" &&
+      "profile" in current.data &&
+      nativeFlow
+    ) {
+      if (current.data.profile.kind === "SUPPORTED" && current.data.canStart) {
+        if (nativeFlow.replaceProfile && !pendingRequest && !confirmedStart) {
+          setBaseline({
+            experience: current.data.profile.experience,
+            profileHash: current.data.profile.profileHash,
+          });
+          setScreenId("configuration");
+          setReviewedCount(null);
+          setReviewedIds(null);
+        }
+        if (nativeFlow.token) setRecheckCandidate(nativeFlow.token);
+      } else
+        setError(
+          "Current profile metadata is unsupported for a new start. Retained request recovery uses original access without substituting a profile.",
+        );
+      setNativeFlow(null);
+      refreshingNow.current = false;
+      setRefreshing(false);
+    }
+  }, [
+    open,
+    busy,
+    metadata,
+    nativeFlow,
+    metadata.snapshot,
+    metadata.error,
+    metadata.loading,
+    pendingRequest,
+    confirmedStart,
+    baseline,
+  ]);
   return (
     <Modal
       open={open}
@@ -531,7 +618,7 @@ export function RunConfigurationModal({
       onClose={onClose}
       dismissible={!busy && !refreshing}
     >
-      {!access.ready || !completion.authorized ? (
+      {!access.ready || !completion.authorized || !native ? (
         <section role="status">
           <p>
             Verify the original account, workspace and full editor seat before
@@ -547,6 +634,15 @@ export function RunConfigurationModal({
             Recheck original access
           </button>
           {localError && <p role="alert">{localError}</p>}
+        </section>
+      ) : legacyOpaque ? (
+        <section role="status">
+          <p>
+            This older request or confirmation has no recorded submission-time
+            native author. Its original body, UUID and known record remain
+            retained privately. No current native identity was adopted and no
+            replacement or recovery was sent.
+          </p>
         </section>
       ) : accessError ? (
         <div>
@@ -570,7 +666,7 @@ export function RunConfigurationModal({
           </p>
           <button
             className="btn-secondary"
-            onClick={() => void query.refetch()}
+            onClick={() => void recheckOriginalAccess()}
           >
             Try again
           </button>
@@ -729,6 +825,7 @@ export function RunConfigurationModal({
                         )
                       )
                         return;
+                      controller.revokeReview();
                       setContext({
                         ...context,
                         [field.key]: event.target.value,
@@ -755,6 +852,7 @@ export function RunConfigurationModal({
                         )
                       )
                         return;
+                      controller.revokeReview();
                       setContext({
                         ...context,
                         [field.key]: event.target.value,
@@ -906,8 +1004,9 @@ export function RunConfigurationModal({
                 className="btn-primary"
                 disabled={busy || refreshing || !completion.canOpen}
                 onClick={() =>
-                  controller.openConfirmed(
+                  controller.openReviewedConfirmed(
                     liveSession(),
+                    metadata.current,
                     onConfirmedStart,
                     completion.activationEpoch,
                   )
@@ -926,7 +1025,7 @@ export function RunConfigurationModal({
                     (!countValid ||
                       !selectionReviewed ||
                       !completion.canStart)) ||
-                  (!!pendingRequest && !completion.canRetry)
+                  (!!pendingRequest && (!completion.canRetry || legacyOpaque))
                 }
                 onClick={() => void start()}
               >

@@ -2,6 +2,7 @@
 // No browser authentication, network, database or production proof is implied.
 import { readFileSync } from "node:fs";
 import vm from "node:vm";
+import { createHash } from "node:crypto";
 import ts from "typescript";
 import React from "react";
 import { describe, expect, it } from "vitest";
@@ -17,6 +18,13 @@ import {
   type ReviewedRunConfiguration,
 } from "./run-configuration-request";
 import { applyRunBulkSelection } from "./run-bulk-selection";
+import {
+  admitRunStartRead,
+  runStartReadIdentity,
+  runStartReviewedReadKey,
+  type RunStartReadSnapshot,
+} from "./manual-run-start-reviewed-reader";
+import type { ReviewedRunStartEnvelope } from "./run-start-reviewed-write";
 const source = readFileSync(
   new URL("../components/RunConfigurationModal.tsx", import.meta.url),
   "utf8",
@@ -58,6 +66,35 @@ const compiled = ts.transpileModule(
     compilerOptions: {
       target: ts.ScriptTarget.ES2022,
       jsx: ts.JsxEmit.React,
+      module: ts.ModuleKind.None,
+    },
+  },
+).outputText;
+const sdkSource = readFileSync(
+    new URL("./run-start-reviewed-write.ts", import.meta.url),
+    "utf8",
+  ),
+  sdkAST = ts.createSourceFile(
+    "sdk.ts",
+    sdkSource,
+    ts.ScriptTarget.Latest,
+    true,
+  );
+const sdkCode = ts.transpileModule(
+  ts
+    .createPrinter()
+    .printNode(
+      ts.EmitHint.Unspecified,
+      sdkAST.statements.find(
+        (n) =>
+          ts.isFunctionDeclaration(n) && n.name?.text === "safeRunStartSDKRead",
+      )!,
+      sdkAST,
+    )
+    .replace(/\bexport\s+/, ""),
+  {
+    compilerOptions: {
+      target: ts.ScriptTarget.ES2022,
       module: ts.ModuleKind.None,
     },
   },
@@ -104,7 +141,8 @@ function harness(
   let cursor = 0,
     dirty = false,
     tree: unknown,
-    uuid = 0;
+    uuid = 0,
+    setterCalls = 0;
   const auth = {
     isLoaded: true,
     isSignedIn: true,
@@ -176,7 +214,7 @@ function harness(
       addListener: monitorMode === "absent" ? undefined : addListener,
     },
   };
-  const sent: ReviewedRunConfiguration[] = [],
+  const sent: ReviewedRunStartEnvelope[] = [],
     opened: unknown[] = [];
   let waiting: ReturnType<typeof deferred> | null = null,
     badAck = false;
@@ -196,7 +234,7 @@ function harness(
     onClose: () => {
       props.open = false;
     },
-    onStart: async (request: ReviewedRunConfiguration) => {
+    onStart: async (request: ReviewedRunStartEnvelope) => {
       sent.push(request);
       if (waiting) return waiting.promise;
       return acknowledgement(request);
@@ -204,14 +242,182 @@ function harness(
     onConfirmedStart: (ack: unknown, request: ReviewedRunConfiguration) =>
       opened.push({ ack, request }),
   };
-  function acknowledgement(request: ReviewedRunConfiguration) {
+  function acknowledgement(envelope: ReviewedRunStartEnvelope) {
+    const request = envelope.request;
     return {
-      testRunId: `manual_${"f".repeat(64)}`,
-      originalOrganizationId: request.originalOrganizationId,
-      expectedClerkActorId: request.expectedClerkActorId,
-      idempotencyKey: badAck ? "wrong" : request.idempotencyKey,
+      mode: "START",
+      currentScope: {
+        projectId: envelope.projectId,
+        organizationId: envelope.originalOrganizationId,
+        actorId: envelope.expectedNativeActorId,
+        actorClerkUserId: envelope.expectedClerkActorId,
+      },
+      idempotencyKey: request.idempotencyKey,
+      legacyAck: {
+        testRunId: `manual_${createHash("sha256")
+          .update(
+            JSON.stringify([
+              envelope.projectId,
+              envelope.expectedNativeActorId,
+              request.idempotencyKey,
+            ]),
+          )
+          .digest("hex")}`,
+        originalOrganizationId: request.originalOrganizationId,
+        expectedClerkActorId: request.expectedClerkActorId,
+        idempotencyKey: badAck ? "wrong" : request.idempotencyKey,
+      },
+      historicalOuterProvenance: "UNRECORDED",
+      interpretation: "LEGACY_NORMALIZED_NOT_RAW_LOSSLESS",
     };
   }
+  const nativeState = {
+    blocked: false,
+    projection: "PREVIEW" as "ACCESS" | "PREVIEW",
+    nonce: 1,
+    nativeActorId: "native",
+    unsupported: false,
+    full: true,
+  };
+  const metadataRows = new Map<string, RunStartReadSnapshot>();
+  function currentMetadata(): RunStartReadSnapshot | null {
+    if (
+      !props.open ||
+      !auth.isSignedIn ||
+      !access.ready ||
+      !access.canWrite ||
+      !permissions.canEdit ||
+      nativeState.blocked ||
+      query.error ||
+      query.isFetching ||
+      query.isPaused ||
+      !query.isFetchedAfterMount
+    ) {
+      if (!props.open || !permissions.canEdit || !access.canWrite)
+        nativeState.blocked = true;
+      return null;
+    }
+    try {
+      if (
+        browser.Clerk.session.id !== auth.sessionId ||
+        browser.Clerk.session.user.id !== auth.userId
+      )
+        return null;
+    } catch {
+      return null;
+    }
+    const key = JSON.stringify([nativeState, query.data, auth.sessionId]);
+    const existing = metadataRows.get(key);
+    if (existing) return existing;
+    const input = {
+      projectId: "project",
+      originalOrganizationId: "org",
+      expectedClerkActorId: "clerk",
+      expectedNativeActorId: nativeState.nativeActorId,
+      requestId: `10000000-0000-4000-8000-${String(nativeState.nonce).padStart(12, "0")}`,
+    };
+    const readContext = {
+      projection: nativeState.projection,
+      requestId: input.requestId,
+      requestedKey: runStartReviewedReadKey(input, nativeState.projection),
+      scope: {
+        projectId: "project",
+        organizationId: "org",
+        actorId: nativeState.nativeActorId,
+        actorClerkUserId: "clerk",
+      },
+    };
+    const raw =
+      nativeState.projection === "ACCESS"
+        ? {
+            readContext,
+            canConfigure: nativeState.full,
+            canRecover: nativeState.full,
+          }
+        : {
+            readContext,
+            canConfigure: nativeState.full,
+            canRecover: nativeState.full,
+            canStart: nativeState.full && !nativeState.unsupported,
+            profile: nativeState.unsupported
+              ? { kind: "UNSUPPORTED", reason: "PROFILE_UNAVAILABLE" }
+              : {
+                  kind: "SUPPORTED",
+                  experience: null,
+                  profileHash: query.data.profileHash,
+                },
+            limitations: [],
+          };
+    const admitted = admitRunStartRead(
+      raw,
+      input,
+      nativeState.projection,
+      "clerk",
+    );
+    if (!admitted) return null;
+    const snapshot = Object.freeze({
+      origin: admitted.origin,
+      observedSessionId: auth.sessionId,
+      projection: nativeState.projection,
+      epoch: 0,
+      revision: 1,
+      receivedAt: "2026-10-06T00:00:00.000Z",
+      data: admitted.data,
+    });
+    metadataRows.set(key, snapshot);
+    return snapshot;
+  }
+  const metadata = {
+    current: currentMetadata,
+    get snapshot() {
+      return currentMetadata();
+    },
+    get error() {
+      return nativeState.blocked ||
+        query.error ||
+        query.isPaused ||
+        !query.isFetchedAfterMount ||
+        (nativeState.projection === "PREVIEW" &&
+          !/^[a-f0-9]{64}$/.test(query.data.profileHash))
+        ? "Current metadata withheld"
+        : null;
+    },
+    get loading() {
+      return query.isFetching;
+    },
+    refresh: () => {
+      try {
+        if (
+          browser.Clerk.session.id !== auth.sessionId ||
+          !props.open ||
+          !permissions.canEdit
+        )
+          return false;
+      } catch {
+        return false;
+      }
+      nativeState.blocked = false;
+      nativeState.projection = "ACCESS";
+      nativeState.nonce++;
+      dirty = true;
+      return true;
+    },
+    readPreview: () => {
+      if (!currentMetadata()) return false;
+      nativeState.projection = "PREVIEW";
+      nativeState.nonce++;
+      dirty = true;
+      return true;
+    },
+  };
+  const utils = {
+    client: {
+      manualRunStartReviewed: {
+        access: { query: async () => null },
+        preview: { query: async () => null },
+      },
+    },
+  };
   const effect = (work: () => void | (() => void), deps: unknown[]) => {
     const at = cursor++,
       prior = hooks[at] as unknown[] | undefined;
@@ -233,6 +439,7 @@ function harness(
     RunConfigCompletionController,
     emptyRunStartCompletion,
     currentSessionScope,
+    runStartReadIdentity,
     freezeRunConfiguration,
     MAX_MANUAL_CASES,
     reviewedRunCasesMatch,
@@ -249,7 +456,16 @@ function harness(
     useAuth: () => auth,
     useManualExecutionAccess: () => access,
     useProjectPermissions: () => permissions,
-    trpcReact: { project: { experience: { useQuery: () => query } } },
+    trpcReact: { useUtils: () => utils },
+    useManualRunStartReviewedAccess: () => metadata,
+    useMemo: (factory: () => unknown, deps: unknown[]) => {
+      const at = cursor++;
+      const previous = hooks[at] as
+        { deps: unknown[]; value: unknown } | undefined;
+      if (!previous || deps.some((v, i) => !Object.is(v, previous.deps[i])))
+        hooks[at] = { deps, value: factory() };
+      return (hooks[at] as { value: unknown }).value;
+    },
     useState: (initial: unknown) => {
       const at = cursor++;
       if (!Object.hasOwn(hooks, at))
@@ -260,6 +476,7 @@ function harness(
       return [
         hooks[at],
         (value: unknown) => {
+          setterCalls++;
           const next =
             typeof value === "function"
               ? (value as (before: unknown) => unknown)(hooks[at])
@@ -283,7 +500,7 @@ function harness(
     useLayoutEffect: effect,
     useEffect: effect,
   });
-  vm.runInContext(compiled, context);
+  vm.runInContext(sdkCode + compiled, context);
   function render() {
     let loops = 0;
     do {
@@ -318,6 +535,7 @@ function harness(
     render();
   }
   function session(id: string, commit = true) {
+    nativeState.blocked = true;
     auth.sessionId = id;
     browser.Clerk.session.id = id;
     for (const listener of [...listeners]) listener();
@@ -329,6 +547,7 @@ function harness(
     access,
     permissions,
     query,
+    nativeState,
     browser,
     listeners,
     sent,
@@ -345,6 +564,7 @@ function harness(
     get ids() {
       return uuid;
     },
+    setterCalls: () => setterCalls,
     value(key: string) {
       return children(tree).find(
         (node) => node.props.id === `synthetic-prefix-${key}`,
@@ -354,11 +574,16 @@ function harness(
       waiting = deferred();
       return waiting;
     },
+    releaseWait() {
+      waiting = null;
+    },
     malformed() {
       badAck = true;
     },
     async flush() {
       for (let tick = 0; tick < 8; tick++) await Promise.resolve();
+      for (let tick = 0; tick < 8; tick++)
+        await new Promise<void>((resolve) => setImmediate(resolve));
       render();
     },
     async recheck() {
@@ -372,6 +597,69 @@ function harness(
   };
 }
 describe("actual mounted run configuration synthetic controller", () => {
+  it("stable repeated render invokes no setters and staged metadata never creates a native write", () => {
+    const h = harness();
+    const before = h.setterCalls();
+    for (let n = 0; n < 50; n++) h.render();
+    expect(h.setterCalls()).toBe(before);
+    expect(h.sent).toHaveLength(0);
+    expect(h.ids).toBe(0);
+  });
+  it.each(["Clerk", "loaded", "session", "user", "userId"] as const)(
+    "throwing SDK %s getter hides private form generically and does not dispatch on repeated renders",
+    (field) => {
+      const h = harness();
+      h.edit("build", "private original draft");
+      const resource = h.browser.Clerk,
+        session = resource.session;
+      const target =
+        field === "Clerk"
+          ? h.browser
+          : field === "loaded" || field === "session"
+            ? resource
+            : field === "user"
+              ? session
+              : session.user;
+      const key =
+        field === "Clerk" ? "Clerk" : field === "userId" ? "id" : field;
+      Object.defineProperty(target, key, {
+        configurable: true,
+        get() {
+          throw Error("PRIVATE_GETTER_CAUSE");
+        },
+      });
+      expect(() => h.render()).not.toThrow();
+      const settled = h.setterCalls();
+      for (let n = 0; n < 20; n++) expect(() => h.render()).not.toThrow();
+      expect(h.setterCalls()).toBe(settled);
+      expect(h.content).not.toContain("private original draft");
+      expect(h.content).not.toContain("PRIVATE_GETTER_CAUSE");
+      expect(h.sent).toHaveLength(0);
+    },
+  );
+  it("owned lost response recovers same UUID/body with current unsupported profile using ACCESS only", async () => {
+    const h = harness();
+    h.review();
+    const wait = h.wait();
+    h.click("Start execution record");
+    const envelope = h.sent[0]!;
+    wait.reject(Error("lost"));
+    await h.flush();
+    h.releaseWait();
+    h.nativeState.unsupported = true;
+    h.props.open = false;
+    h.render();
+    h.props.open = true;
+    h.render();
+    await h.recheck();
+    expect(h.nativeState.projection).toBe("ACCESS");
+    h.click("Retry retained run start");
+    await h.flush();
+    expect(h.sent).toHaveLength(2);
+    expect(h.sent[1]).toBe(envelope);
+    expect(h.ids).toBe(1);
+    expect(h.opened).toHaveLength(1);
+  });
   it("current matching ACK invokes only guarded confirmation, with exact original payload and one UUID", async () => {
     const h = harness();
     h.edit("configuration", "  exact multi\nline configuration  ");
@@ -380,7 +668,7 @@ describe("actual mounted run configuration synthetic controller", () => {
     await h.flush();
     expect(h.sent).toHaveLength(1);
     expect(h.opened).toHaveLength(1);
-    expect(h.sent[0]?.executionContext.configuration).toBe(
+    expect(h.sent[0]?.request.executionContext?.configuration).toBe(
       "exact multi\nline configuration",
     );
     expect(h.ids).toBe(1);
@@ -417,7 +705,7 @@ describe("actual mounted run configuration synthetic controller", () => {
       h.permissions.canEdit = true;
       h.props.open = true;
       h.render();
-      if (reason === "ABA") await h.recheck();
+      await h.recheck();
       expect(h.content).toContain("Run start confirmed");
       expect(h.content).toContain("reviewed build");
       h.click("Open confirmed run");
@@ -439,6 +727,7 @@ describe("actual mounted run configuration synthetic controller", () => {
     h.props.caseCount = 1;
     h.props.open = true;
     h.render();
+    await h.recheck();
     h.click("Retry retained run start");
     await h.flush();
     expect(h.sent).toHaveLength(2);
@@ -615,13 +904,7 @@ describe("actual mounted run configuration synthetic controller", () => {
       if (mode === "cached") h.query.isFetchedAfterMount = false;
       if (mode === "profile") h.query.data.profileHash = "invalid";
       if (mode === "role") {
-        const refresh = h.access.refresh;
-        h.access.refresh = async () => {
-          const results = await refresh();
-          const rows = results[1]!.data;
-          if (Array.isArray(rows)) rows[0]!.seatType = "READ_ONLY";
-          return results;
-        };
+        h.nativeState.full = false;
       }
       await h.recheck();
       expect(h.content).not.toContain("private retained build");
@@ -649,23 +932,15 @@ describe("actual mounted run configuration synthetic controller", () => {
     h.session("session-B", false);
     h.session("session-A", false);
     h.render();
-    let resume!: () => void;
-    const refresh = h.access.refresh;
-    h.access.refresh = async () => {
-      await new Promise<void>((yes) => {
-        resume = yes;
-      });
-      return refresh();
-    };
+    h.query.isFetching = true;
     const pending = h.button("Recheck original access").props.onClick!();
     h.session("session-B", false);
     h.session("session-A", false);
-    resume();
+    h.query.isFetching = false;
     await pending;
     h.render();
     expect(h.content).not.toContain("private retained build");
     expect(h.sent).toHaveLength(0);
-    h.access.refresh = refresh;
     await h.recheck();
     expect(h.value("build")).toBe("private retained build");
   });
@@ -675,25 +950,17 @@ describe("actual mounted run configuration synthetic controller", () => {
     h.session("session-B", false);
     h.session("session-A", false);
     h.render();
-    let resume!: () => void;
-    const refresh = h.access.refresh;
-    h.access.refresh = async () => {
-      await new Promise<void>((yes) => {
-        resume = yes;
-      });
-      return refresh();
-    };
+    h.query.isFetching = true;
     const pending = h.button("Recheck original access").props.onClick!();
     h.props.open = false;
     h.render();
     h.props.open = true;
     h.render();
-    resume();
+    h.query.isFetching = false;
     await pending;
     h.render();
     expect(h.value("build")).toBeUndefined();
     expect(h.sent).toHaveLength(0);
-    h.access.refresh = refresh;
     await h.recheck();
     expect(h.value("build")).toBe("original private build");
   });

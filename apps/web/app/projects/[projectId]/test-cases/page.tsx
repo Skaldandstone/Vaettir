@@ -36,8 +36,8 @@ import {
 import { runCaseActionBatches } from "@/lib/case-action-batches";
 import {
   RunConfigurationModal,
-  type ReviewedRunConfiguration,
 } from "@/components/RunConfigurationModal";
+import type { ReviewedRunStartEnvelope } from "@/lib/run-start-reviewed-write";
 import { Modal } from "@/components/Modal";
 import { PageHeading } from "@/components/ui/Workspace";
 import { caseLabel, suiteChoices } from "@/lib/case-workbench";
@@ -422,7 +422,7 @@ export default function TestCasesPage() {
   const bulkArchiveMutation = trpcReact.testCases.bulkArchive.useMutation();
   const bulkMoveMutation = trpcReact.testCases.bulkSetTestPlan.useMutation();
   const bulkTagMutation = trpcReact.testCases.bulkAddTags.useMutation();
-  const startRunMutation = trpcReact.manualExecution.start.useMutation();
+  const startRunMutation = trpcReact.manualRunStartReviewed.start.useMutation();
 
   const laneCases = useMemo(
     () =>
@@ -738,8 +738,9 @@ export default function TestCasesPage() {
     }
   }
 
-  async function startManualRun(context: ReviewedRunConfiguration) {
-    if (context.projectId !== projectId)
+  async function startManualRun(envelope: ReviewedRunStartEnvelope) {
+    const context = envelope.request;
+    if (envelope.projectId !== projectId || context.projectId !== projectId)
       throw new Error(
         "Restore the original project before retrying its retained run start.",
       );
@@ -747,9 +748,7 @@ export default function TestCasesPage() {
       throw new Error("No cases were selected for this execution record.");
     // Mutation-only: the mounted configuration controller verifies the exact
     // acknowledgement and current original frame before any navigation.
-    return startRunMutation.mutateAsync({
-      ...context,
-    });
+    return startRunMutation.mutateAsync(envelope);
   }
 
   const startingRun = startRunMutation.isPending;

@@ -40,6 +40,10 @@ test("CI detail uses the independently scoped reader instead of legacy body/cach
   assert.match(runs, /onStart=\{startManualRun\}/);
   assert.match(runs, /onConfirmedStart=\{\(acknowledgement, request\) => \{/);
   assert.ok(sourceCodeIncludes(runs, 'router.push(`/projects/${encodeURIComponent(request.projectId)}/test-runs/manual/${encodeURIComponent(acknowledgement.testRunId)}`,);'));
-  assert.ok(sourceCodeIncludes(runs, 'return startManualMutation.mutateAsync(configuration)'));
+  assert.ok(sourceCodeIncludes(runs, 'return startManualMutation.mutateAsync(envelope)'));
+  assert.match(runs, /manualRunStartReviewed\.start\.useMutation/);
+  assert.match(runs, /const configuration = envelope\.request/);
+  assert.match(runs, /envelope\.projectId !== projectId/);
+  assert.doesNotMatch(runs, /manualExecution\.start\.useMutation/);
   assert.doesNotMatch(runs, /manualStartRequest|assertManualStartAcknowledgement|crypto\.randomUUID/);
 });

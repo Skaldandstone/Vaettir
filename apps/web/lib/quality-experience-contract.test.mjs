@@ -32,7 +32,11 @@ test("manual runs open reviewed configuration and render frozen evidence", () =>
     /activeSelectedIds = selectedCases\s*\.filter\(\(item\) => !item.archived\)\s*\.map\(\(item\) => item.id\)/,
   );
   assert.match(cases, /testCaseIds=\{runSelection\}/);
-  assert.match(cases, /startRunMutation.mutateAsync\(\{\s*\.\.\.context/);
+  assert.match(cases, /startRunMutation\.mutateAsync\(envelope\)/);
+  assert.match(cases, /manualRunStartReviewed\.start\.useMutation/);
+  assert.match(cases, /const context = envelope\.request/);
+  assert.match(cases, /envelope\.projectId !== projectId \|\| context\.projectId !== projectId/);
+  assert.doesNotMatch(cases, /manualExecution\.start\.useMutation/);
   assert.match(cases, /caseCount=\{runSelection.length\}/);
   const execution = source(
     "../app/projects/[projectId]/test-runs/manual/[testRunId]/page.tsx",

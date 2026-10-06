@@ -431,6 +431,113 @@ async function readJson(request) {
   return JSON.parse(raw || "{}");
 }
 
+const ANDROID_WINDOW_PATH = "/capture/android-window-v1";
+const ANDROID_WINDOW_REQUEST_BYTES = 4096;
+const ANDROID_WINDOW_RESPONSE_BYTES = 2 * 1024 * 1024;
+const ANDROID_WINDOW_OBSERVATION = "BEFORE_AFTER_WINDOW_OBSERVATIONS_NOT_ATOMIC";
+
+// Reject duplicate decoded property names BEFORE JSON.parse can overwrite
+// them. Whole JSON grammar, depth and node admission precede private values.
+function parseAndroidWindowJson(text, maximumBytes) {
+  if (typeof text !== "string" || text.length > maximumBytes || Buffer.byteLength(text, "utf8") > maximumBytes) throw captureRefusal();
+  let offset = 0, nodes = 0;
+  const whitespace = () => { while (/[ \t\r\n]/.test(text[offset] ?? "!") && offset < text.length) offset++; };
+  const string = () => {
+    const start = offset;
+    if (text[offset++] !== '"') throw captureRefusal();
+    while (offset < text.length) {
+      const character = text[offset++];
+      if (character === '"') { const value = JSON.parse(text.slice(start, offset)); exactText(value, maximumBytes, 0); return value; }
+      if (character.charCodeAt(0) < 32) throw captureRefusal();
+      if (character === "\\") {
+        const escaped = text[offset++];
+        if (escaped === "u") { if (!/^[0-9a-fA-F]{4}$/.test(text.slice(offset, offset + 4))) throw captureRefusal(); offset += 4; }
+        else if (!escaped || !'"\\/bfnrt'.includes(escaped)) throw captureRefusal();
+      }
+    }
+    throw captureRefusal();
+  };
+  const value = depth => {
+    if (++nodes > 100000 || depth > 64) throw captureRefusal();
+    whitespace(); const character = text[offset];
+    if (character === '"') { string(); return; }
+    if (character === "{" || character === "[") {
+      const object = character === "{", close = object ? "}" : "]", names = new Set(); let count = 0;
+      offset++; whitespace(); if (text[offset] === close) { offset++; return; }
+      while (offset < text.length) {
+        if (++count > (object ? 10000 : 1000)) throw captureRefusal();
+        if (object) { whitespace(); const name = string(); if (names.has(name)) throw captureRefusal(); names.add(name); whitespace(); if (text[offset++] !== ":") throw captureRefusal(); }
+        value(depth + 1); whitespace(); if (text[offset] === close) { offset++; return; }
+        if (text[offset++] !== ",") throw captureRefusal();
+      }
+      throw captureRefusal();
+    }
+    const match = /^(?:true|false|null|-?(?:0|[1-9][0-9]*)(?:\.[0-9]+)?(?:[eE][+-]?[0-9]+)?)/.exec(text.slice(offset));
+    if (!match) throw captureRefusal(); offset += match[0].length;
+  };
+  value(0); whitespace(); if (offset !== text.length) throw captureRefusal();
+  return JSON.parse(text);
+}
+
+function admitAndroidWindowRequest(raw) {
+  completeCaptureJsonBytes(raw);
+  if (!raw || typeof raw !== "object" || Array.isArray(raw) || Object.getPrototypeOf(raw) !== Object.prototype) throw captureRefusal();
+  const fields = ["protocolVersion", "requestNonce", "serial", "expectedPackage", "label"], descriptors = Object.getOwnPropertyDescriptors(raw), keys = Reflect.ownKeys(descriptors);
+  if (keys.length !== fields.length || keys.some(key => typeof key !== "string" || !fields.includes(key))) throw captureRefusal();
+  if (descriptors.protocolVersion?.value !== 1 || typeof descriptors.requestNonce?.value !== "string" || !/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/.test(descriptors.requestNonce.value)) throw captureRefusal();
+  const target = admitAndroidCaptureOptions({ source: "android", serial: descriptors.serial?.value, expectedPackage: descriptors.expectedPackage?.value, label: descriptors.label?.value });
+  const request = Object.freeze({ protocolVersion: 1, requestNonce: descriptors.requestNonce.value, serial: target.serial, expectedPackage: target.expectedPackage, label: target.label });
+  if (completeCaptureJsonBytes(request) > ANDROID_WINDOW_REQUEST_BYTES) throw captureRefusal();
+  return request;
+}
+
+async function readAndroidWindowRequest(request) {
+  const iterator = request[Symbol.asyncIterator]();
+  let timer, failed = true;
+  const timeout = new Promise((_, reject) => { timer = setTimeout(() => reject(captureRefusal()), 10000); });
+  void timeout.catch(() => undefined);
+  try {
+    const buffer = Buffer.alloc(ANDROID_WINDOW_REQUEST_BYTES); let size = 0;
+    for (let reads = 0; reads < 8192; reads++) {
+      const part = await Promise.race([iterator.next(), timeout]);
+      if (part.done) {
+        const text = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(buffer.subarray(0, size));
+        const output = admitAndroidWindowRequest(parseAndroidWindowJson(text, ANDROID_WINDOW_REQUEST_BYTES)); failed = false; return output;
+      }
+      if (!(part.value instanceof Uint8Array) || part.value.byteLength + size > ANDROID_WINDOW_REQUEST_BYTES) throw captureRefusal();
+      buffer.set(part.value, size); size += part.value.byteLength;
+    }
+    throw captureRefusal();
+  } finally {
+    clearTimeout(timer);
+    if (failed && typeof iterator.return === "function") { try { void Promise.resolve(iterator.return()).catch(() => undefined); } catch { /* No private error publication. */ } }
+  }
+}
+
+function buildAndroidWindowResponse(request, capture) {
+  const intent = admitAndroidWindowRequest(request);
+  completeCaptureJsonBytes(capture);
+  const origin = androidCaptureOrigins.get(capture);
+  if (!origin || origin.serial !== intent.serial || origin.expectedPackage !== intent.expectedPackage || origin.signature !== JSON.stringify(capture) || capture.source !== "ANDROID_ADB" || capture.appName !== intent.expectedPackage || capture.screens.length !== 1 || capture.screens[0].label !== intent.label) throw captureRefusal();
+  // These fields describe the collector's supported before/after observations,
+  // never an atomic app-exclusive read, permission or recoverable receipt.
+  const output = { ...intent, observation: { kind: ANDROID_WINDOW_OBSERVATION,
+    beforePackage: origin.expectedPackage, afterPackage: origin.expectedPackage, appExclusive: false },
+    capture, processingPermissionGranted: false, spendingPermissionGranted: false, operationReceiptAvailable: false };
+  if (completeCaptureJsonBytes(output) > ANDROID_WINDOW_RESPONSE_BYTES) throw captureRefusal();
+  return output;
+}
+
+async function handleAndroidWindowCapture(request, response, cors) {
+  try {
+    const intent = await readAndroidWindowRequest(request);
+    const capture = captureAndroid({ source: "android", serial: intent.serial, expectedPackage: intent.expectedPackage, label: intent.label });
+    return send(response, 200, buildAndroidWindowResponse(intent, capture), cors);
+  } catch {
+    return send(response, 400, { error: "No complete supported Android window response was admitted. No fallback or automatic retry was performed." }, cors);
+  }
+}
+
 const args = parseArguments(process.argv.slice(2));
 const port = Number(args.port || 4774);
 const pairingCode =
@@ -470,6 +577,9 @@ const server = createServer(async (request, response) => {
         cors,
       );
     }
+  }
+  if (request.method === "POST" && request.url === ANDROID_WINDOW_PATH) {
+    return handleAndroidWindowCapture(request, response, cors);
   }
   if (request.method === "POST" && request.url === "/capture") {
     try {

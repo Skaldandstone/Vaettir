@@ -76,7 +76,11 @@ test("both callers use only loaded approved scopes; missing suite and navigation
   assert.match(runs, /Object\.freeze\(ids\); retainedSelection\.current = \{ projectId, ids \}; setConfigurationSelection\(ids\)/);
   assert.match(runs, /<RunConfigurationModal key=\{projectId\} open=\{configurationOpen\}/);
   assert.match(runs, /testCaseIds=\{configurationSelection \?\? \[\]\}/);
-  assert.match(runs, /return startManualMutation\.mutateAsync\(configuration\)/);
+  assert.match(runs, /return startManualMutation\.mutateAsync\(envelope\)/);
+  assert.match(runs, /const configuration = envelope\.request/);
+  assert.match(runs, /envelope\.projectId !== projectId/);
+  assert.match(runs, /manualRunStartReviewed\.start\.useMutation/);
+  assert.doesNotMatch(runs, /manualExecution\.start\.useMutation/);
   assert.doesNotMatch(runs, /manualStartRequest|crypto\.randomUUID|assertManualStartAcknowledgement/);
   assert.match(runs, /onChange=\{\(e\) => setManualSuite\(e\.target\.value\)\}/);
   assert.match(library, /label: "All loaded approved cases"/);

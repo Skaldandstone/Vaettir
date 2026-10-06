@@ -14,8 +14,8 @@ import { CiRunDetail } from "@/components/CiRunDetail";
 import { RunAllPagesDashboard } from "@/components/RunAllPagesDashboard";
 import {
   RunConfigurationModal,
-  type ReviewedRunConfiguration,
 } from "@/components/RunConfigurationModal";
+import type { ReviewedRunStartEnvelope } from "@/lib/run-start-reviewed-write";
 import {
   applyRunBulkSelection,
   type RunBulkSelectionMode,
@@ -175,7 +175,7 @@ export default function TestRunsPage() {
     { projectId },
     { enabled: manualOpen || configurationOpen },
   );
-  const startManualMutation = trpcReact.manualExecution.start.useMutation();
+  const startManualMutation = trpcReact.manualRunStartReviewed.start.useMutation();
   const manualSourceReady =
     manualAccess.ready &&
     casesQuery.isFetchedAfterMount &&
@@ -348,8 +348,10 @@ export default function TestRunsPage() {
     setConfigurationSelection(ids);
     setManualError(null);
   }
-  async function startManualRun(configuration: ReviewedRunConfiguration) {
+  async function startManualRun(envelope: ReviewedRunStartEnvelope) {
+    const configuration = envelope.request;
     if (
+      envelope.projectId !== projectId ||
       configuration.projectId !== projectId ||
       !retainedSelection.current ||
       retainedSelection.current.projectId !== projectId ||
@@ -368,7 +370,7 @@ export default function TestRunsPage() {
     // even when no response arrives; no callback can replace its case cohort.
     selectionWriteLocked.current = true;
     setSelectionWriteStarted(true);
-    return startManualMutation.mutateAsync(configuration);
+    return startManualMutation.mutateAsync(envelope);
   }
 
   return (

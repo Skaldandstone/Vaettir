@@ -24,11 +24,40 @@ function harness(kind: "HISTORY" | "EVIDENCE" = "HISTORY") {
   });
   vm.runInContext(executable, context); const invoke = (context as { hook: (...args: unknown[]) => StepExecutionResources }).hook;
   function render(commit = true) { for (let n = 0; n < 40; n++) { cursor = 0; dirty = false; workflow = invoke(params.kind, params.origin, params.active, params.hash, transport); if (!commit) return workflow; beforeCommit?.(); beforeCommit = null; effects.splice(0).forEach(fn => fn()); if (!dirty) return workflow; } throw Error("Resource hook failed to settle."); }
-  async function settle() { for (let n = 0; n < 40; n++) { await new Promise<void>(resolve => setImmediate(resolve)); render(); if (!workflow.view.busy && (workflow.view.data || workflow.view.error || !workflow.view.canRequest)) return workflow; } throw Error("Synthetic resource read did not settle."); }
+  async function settle() {
+    // Event-loop turns are not a deadline: real WebCrypto may still be running
+    // after forty immediate callbacks under whole-suite worker contention.
+    // Keep a finite wait; render() independently retains its forty-render cap.
+    const deadline = performance.now() + 2000;
+    for (let n = 0; n < 400 && performance.now() < deadline; n++) {
+      await new Promise<void>(resolve => setTimeout(resolve, 5));
+      render();
+      if (!workflow.view.busy && (workflow.view.data || workflow.view.error || !workflow.view.canRequest)) return workflow;
+    }
+    throw Error("Synthetic resource read did not settle within its bounded deadline.");
+  }
   render(); return { params, auth, sdk, sent, render, settle, response, get workflow() { return workflow; }, setResponder: (fn: typeof responder) => { responder = fn; }, beforeCommit: (fn: () => void) => { beforeCommit = fn; }, emit: (session: typeof sdk.session) => { sdk.session = session; Array.from(listeners).forEach(fn => fn()); }, unmount: () => { Array.from(cleanups.values()).forEach(fn => fn()); cleanups.clear(); } };
 }
 
 describe("actual resource hook + real reader, only React/Clerk/RPC synthetic", () => {
+  it("settles a completed read after scheduler contention without issuing another request or replacing its nonce", async () => {
+    const h = harness();
+    await h.settle();
+    const before = h.sent.length;
+    h.setResponder(async input => {
+      // Real WebCrypto can finish after many immediate turns when the whole
+      // suite runs in workers. Simulate that scheduling, not an RPC retry.
+      for (let turn = 0; turn < 80; turn++)
+        await new Promise<void>(resolve => setImmediate(resolve));
+      return h.response(input);
+    });
+    const pending = h.workflow.refresh();
+    const settled = await h.settle();
+    await pending;
+    expect(settled.view.data?.scope.actorId).toBe("n");
+    expect(h.sent).toHaveLength(before + 1);
+    expect(settled.view.data?.readRequestId).toBe(h.sent.at(-1)?.readRequestId);
+  });
   it("reads exact native-shaped scope/nonce and keeps resource body private until matching current procedure authority", async () => { const h = harness(); await h.settle(); expect(h.workflow.view.data?.scope.actorId).toBe("n"); expect(h.sent[0]).toMatchObject({ expectedNativeActorId: "n", expectedClerkActorId: "cl", originalOrganizationId: "o", limit: 10, cursor: null }); h.params.hash = null; h.render(); await h.settle(); expect(h.workflow.view.data).toBeNull(); expect(h.workflow.view.error).toContain("procedure authority"); h.params.hash = "a".repeat(64); h.render(); await h.settle(); expect(h.workflow.view.data).not.toBeNull(); });
   it("installed SDK A-B-A before React commit prevents late body publication and requires a fresh nonce", async () => { const h = harness(); await h.settle(); let release: ((value: unknown) => void) | undefined, entered: (() => void) | undefined; const dispatched = new Promise<void>(resolve => { entered = resolve; }); h.setResponder(input => new Promise(resolve => { release = resolve; entered!(); void input; })); const refreshing = h.workflow.refresh(); await dispatched; const input = h.sent.at(-1)!; h.emit({ id: "B", user: { id: "cl" } }); h.emit({ id: "A", user: { id: "cl" } }); release!(await h.response(input)); await refreshing; h.setResponder(h.response); expect(h.render(false).view.data).toBeNull(); h.render(); await h.settle(); expect(h.workflow.view.data).not.toBeNull(); expect(h.sent.at(-1)?.readRequestId).not.toBe(input.readRequestId); });
   it("SDK movement between render and layout commit cannot dispatch or commit private reads", async () => { const h = harness(); await h.settle(); const count = h.sent.length; h.params.active = false; h.render(); h.params.active = true; h.beforeCommit(() => { h.sdk.session = { id: "B", user: { id: "cl" } }; }); h.render(); await h.settle(); expect(h.sent).toHaveLength(count); expect(h.workflow.view.data).toBeNull(); expect(h.workflow.view.canRequest).toBe(false); });

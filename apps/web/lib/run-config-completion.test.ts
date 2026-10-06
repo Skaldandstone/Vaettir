@@ -1,4 +1,11 @@
 import { describe, expect, it } from "vitest";
+import { createHash } from "node:crypto";
+import {
+  admitRunStartRead,
+  runStartReviewedReadKey,
+  type RunStartReadSnapshot,
+} from "./manual-run-start-reviewed-reader";
+import type { ReviewedRunStartEnvelope } from "./run-start-reviewed-write";
 import {
   RunConfigCompletionController,
   type RunStartFrame,
@@ -33,6 +40,84 @@ const ack = (request: ReviewedRunConfiguration) => ({
   expectedClerkActorId: request.expectedClerkActorId,
   idempotencyKey: request.idempotencyKey,
 });
+function nativeSnapshot(
+  projection: "ACCESS" | "PREVIEW" = "PREVIEW",
+  supported = true,
+): RunStartReadSnapshot {
+  const input = {
+    projectId: "project",
+    originalOrganizationId: "org",
+    expectedClerkActorId: "clerk",
+    expectedNativeActorId: "native",
+    requestId: "10000000-0000-4000-8000-000000000001",
+  };
+  const readContext = {
+    projection,
+    requestId: input.requestId,
+    requestedKey: runStartReviewedReadKey(input, projection),
+    scope: {
+      projectId: "project",
+      organizationId: "org",
+      actorId: "native",
+      actorClerkUserId: "clerk",
+    },
+  };
+  const raw =
+    projection === "ACCESS"
+      ? { readContext, canConfigure: true, canRecover: true }
+      : {
+          readContext,
+          canConfigure: true,
+          canRecover: true,
+          canStart: supported,
+          profile: supported
+            ? {
+                kind: "SUPPORTED",
+                experience: null,
+                profileHash: "a".repeat(64),
+              }
+            : { kind: "UNSUPPORTED", reason: "PROFILE_UNAVAILABLE" },
+          limitations: [],
+        };
+  const admitted = admitRunStartRead(raw, input, projection, "clerk")!;
+  return Object.freeze({
+    origin: admitted.origin,
+    observedSessionId: "session-A",
+    projection,
+    epoch: 0,
+    revision: 1,
+    receivedAt: "2026-10-06T00:00:00.000Z",
+    data: admitted.data,
+  });
+}
+function reviewedAck(envelope: ReviewedRunStartEnvelope) {
+  return {
+    mode: "START",
+    currentScope: {
+      projectId: "project",
+      organizationId: "org",
+      actorId: "native",
+      actorClerkUserId: "clerk",
+    },
+    idempotencyKey: envelope.request.idempotencyKey,
+    legacyAck: {
+      testRunId: `manual_${createHash("sha256")
+        .update(
+          JSON.stringify([
+            "project",
+            "native",
+            envelope.request.idempotencyKey,
+          ]),
+        )
+        .digest("hex")}`,
+      originalOrganizationId: "org",
+      expectedClerkActorId: "clerk",
+      idempotencyKey: envelope.request.idempotencyKey,
+    },
+    historicalOuterProvenance: "UNRECORDED",
+    interpretation: "LEGACY_NORMALIZED_NOT_RAW_LOSSLESS",
+  };
+}
 
 function monitoredFixture() {
   const published: RunStartCompletionView[] = [],
@@ -122,6 +207,256 @@ function monitoredFixture() {
     },
   };
 }
+describe("additive scoped run-start ownership (native read/RPC synthetic boundary)", () => {
+  it("an exact reviewed ACK without a host open callback remains privately confirmed and explicitly openable", async () => {
+    const h = monitoredFixture(),
+      current = nativeSnapshot();
+    await h.controller.submitReviewed(
+      h.controller.snapshot().activationEpoch,
+      h.factory,
+      async (envelope) => reviewedAck(envelope),
+      h.read,
+      () => current,
+    );
+    const confirmed = h.controller.snapshot().confirmed!;
+    expect(confirmed.opened).toBe(false);
+    expect(h.controller.snapshot().canOpen).toBe(true);
+    expect(h.opens).toBe(0);
+    expect(h.generated).toBe(1);
+    expect(
+      h.controller.openReviewedConfirmed(
+        session,
+        () => current,
+        h.open,
+        h.controller.snapshot().activationEpoch,
+      ),
+    ).toBe(true);
+    expect(h.opens).toBe(1);
+    expect(h.controller.snapshot().confirmed!.request).toBe(confirmed.request);
+    expect(h.generated).toBe(1);
+  });
+  it("new exact native envelope privately confirms once and forwards legacy-compatible guarded callback", async () => {
+    const h = monitoredFixture(),
+      current = nativeSnapshot(),
+      sent: ReviewedRunStartEnvelope[] = [];
+    await h.controller.submitReviewed(
+      h.controller.snapshot().activationEpoch,
+      h.factory,
+      async (envelope) => {
+        sent.push(envelope);
+        return reviewedAck(envelope);
+      },
+      h.read,
+      () => current,
+      h.open,
+    );
+    expect(sent).toHaveLength(1);
+    expect(sent[0]!.expectedNativeActorId).toBe("native");
+    expect(
+      h.controller.snapshot().reviewedAcknowledgement?.currentScope.actorId,
+    ).toBe("native");
+    expect(h.opens).toBe(1);
+    expect(h.generated).toBe(1);
+  });
+  it("pre-existing legacy UNKNOWN stays opaque, retaining pointer/body/key without current-N adoption or callback", async () => {
+    const h = monitoredFixture();
+    await h.controller.submit(
+      h.controller.snapshot().activationEpoch,
+      h.factory,
+      async () => {
+        throw Error("lost");
+      },
+      h.read,
+      h.open,
+    );
+    const r = h.controller.snapshot().pendingRequest!,
+      body = JSON.stringify(r);
+    let calls = 0;
+    await h.controller.submitReviewed(
+      h.controller.snapshot().activationEpoch,
+      () => {
+        throw Error("no factory");
+      },
+      async () => {
+        calls++;
+        return null;
+      },
+      h.read,
+      () => nativeSnapshot(),
+      h.open,
+    );
+    expect(calls).toBe(0);
+    expect(h.controller.snapshot().pendingRequest).toBe(r);
+    expect(JSON.stringify(r)).toBe(body);
+    expect(h.controller.snapshot().pendingEnvelope).toBeNull();
+    expect(h.opens).toBe(0);
+  });
+  it("pre-existing known legacy confirmation remains private and cannot open through new native callback", async () => {
+    const h = monitoredFixture();
+    await h.controller.submit(
+      h.controller.snapshot().activationEpoch,
+      h.factory,
+      async (r) => ack(r),
+      h.read,
+    );
+    const confirmed = h.controller.snapshot().confirmed!;
+    expect(
+      h.controller.openReviewedConfirmed(
+        session,
+        () => nativeSnapshot("ACCESS"),
+        h.open,
+        h.controller.snapshot().activationEpoch,
+      ),
+    ).toBe(false);
+    expect(h.opens).toBe(0);
+    expect(h.controller.snapshot().confirmed!.request).toBe(confirmed.request);
+    expect(h.controller.snapshot().reviewedAcknowledgement).toBeNull();
+  });
+  it("lost ACK retries exactly owned envelope through original ACCESS despite current unsupported profile", async () => {
+    const h = monitoredFixture(),
+      sent: ReviewedRunStartEnvelope[] = [];
+    let current = nativeSnapshot();
+    await h.controller.submitReviewed(
+      h.controller.snapshot().activationEpoch,
+      h.factory,
+      async (e) => {
+        sent.push(e);
+        throw Error("lost");
+      },
+      h.read,
+      () => current,
+      h.open,
+    );
+    const r = h.controller.snapshot().pendingRequest!,
+      body = JSON.stringify(sent[0]);
+    current = nativeSnapshot("PREVIEW", false);
+    await h.controller.submitReviewed(
+      h.controller.snapshot().activationEpoch,
+      () => {
+        throw Error("no factory");
+      },
+      async (e) => {
+        sent.push(e);
+        return reviewedAck(e);
+      },
+      h.read,
+      () => current,
+      h.open,
+    );
+    expect(sent[1]).toBe(sent[0]);
+    expect(JSON.stringify(sent[1])).toBe(body);
+    expect(h.controller.snapshot().confirmed!.request).toBe(r);
+    expect(h.generated).toBe(1);
+    expect(h.opens).toBe(1);
+  });
+  it("new scoped first refusal never automatically clears body/key or permits a replacement factory", async () => {
+    const h = monitoredFixture(),
+      current = nativeSnapshot();
+    await h.controller.submitReviewed(
+      h.controller.snapshot().activationEpoch,
+      h.factory,
+      async () => {
+        throw { data: { code: "FORBIDDEN" } };
+      },
+      h.read,
+      () => current,
+      h.open,
+    );
+    const r = h.controller.snapshot().pendingRequest!;
+    expect(r).not.toBeNull();
+    expect(h.controller.snapshot().canEdit).toBe(false);
+    await h.controller.submitReviewed(
+      h.controller.snapshot().activationEpoch,
+      () => {
+        throw Error("no replacement");
+      },
+      async (e) => reviewedAck(e),
+      h.read,
+      () => nativeSnapshot("ACCESS"),
+      h.open,
+    );
+    expect(h.generated).toBe(1);
+    expect(h.controller.snapshot().confirmed!.request).toBe(r);
+  });
+  it("late matching ACK after new native read generation settles privately but cannot auto-open", async () => {
+    const h = monitoredFixture(),
+      waiting = deferred();
+    let current: RunStartReadSnapshot | null = nativeSnapshot();
+    let e!: ReviewedRunStartEnvelope;
+    const pending = h.controller.submitReviewed(
+      h.controller.snapshot().activationEpoch,
+      h.factory,
+      async (value) => {
+        e = value;
+        return waiting.promise;
+      },
+      h.read,
+      () => current,
+      h.open,
+    );
+    current = nativeSnapshot("ACCESS");
+    waiting.resolve(reviewedAck(e));
+    await pending;
+    expect(h.opens).toBe(0);
+    expect(h.controller.snapshot().pendingRequest).toBeNull();
+    expect(h.controller.snapshot().confirmed).not.toBeNull();
+    expect(
+      h.controller.openReviewedConfirmed(
+        session,
+        () => current,
+        h.open,
+        h.controller.snapshot().activationEpoch,
+      ),
+    ).toBe(true);
+    expect(h.opens).toBe(1);
+  });
+  it("wrong native mapping cannot retransmit or open an exact known receipt", async () => {
+    const h = monitoredFixture();
+    let current = nativeSnapshot();
+    await h.controller.submitReviewed(
+      h.controller.snapshot().activationEpoch,
+      h.factory,
+      async (e) => reviewedAck(e),
+      h.read,
+      () => current,
+    );
+    current = Object.freeze({
+      ...nativeSnapshot("ACCESS"),
+      origin: Object.freeze({
+        ...nativeSnapshot("ACCESS").origin,
+        nativeActorId: "foreign",
+      }),
+    });
+    expect(
+      h.controller.openReviewedConfirmed(
+        session,
+        () => current,
+        h.open,
+        h.controller.snapshot().activationEpoch,
+      ),
+    ).toBe(false);
+    expect(h.opens).toBe(0);
+    expect(h.controller.snapshot().confirmed).not.toBeNull();
+  });
+  it("unsupported source/current metadata cannot create a new owned envelope", async () => {
+    const h = monitoredFixture();
+    let calls = 0;
+    await h.controller.submitReviewed(
+      h.controller.snapshot().activationEpoch,
+      h.factory,
+      async () => {
+        calls++;
+        return null;
+      },
+      h.read,
+      () => nativeSnapshot("PREVIEW", false),
+      h.open,
+    );
+    expect(calls).toBe(0);
+    expect(h.controller.snapshot().pendingRequest).toBeNull();
+    expect(h.opens).toBe(0);
+  });
+});
 describe("installed-resource run-start lifecycle (synthetic SDK, not native authority)", () => {
   it("observed SDK A-B-A without bindFrame permanently revokes old review until explicit fresh admission", async () => {
     const h = monitoredFixture(),
