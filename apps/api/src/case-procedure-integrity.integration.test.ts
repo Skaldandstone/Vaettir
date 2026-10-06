@@ -3,6 +3,7 @@ import { beforeAll, describe, expect, it, vi } from "vitest";
 import { prisma } from "@vaettir/db";
 import { appRouter } from "./router.js";
 import { commitImportedTestCases } from "./services/importCommit.js";
+import { prerequisiteRequestHash } from "./services/casePrerequisiteSchema.js";
 
 const failures = vi.hoisted(() => ({ snapshot: false }));
 vi.mock("./services/testCaseVersion.js", async importOriginal => {
@@ -20,6 +21,7 @@ if (!database || !["localhost", "127.0.0.1"].includes(database.hostname) || !/te
 
 describe("case procedure integrity and retry-safe legacy import", () => {
   const key = `procedure-integrity-${randomUUID()}`;
+  const ownerSubject = key, viewerSubject = `${key}-viewer`, readOnlySubject = `${key}-read`;
   let owner: ReturnType<typeof appRouter.createCaller>;
   let viewer: ReturnType<typeof appRouter.createCaller>;
   let readOnlyEditor: ReturnType<typeof appRouter.createCaller>;
@@ -42,7 +44,7 @@ describe("case procedure integrity and retry-safe legacy import", () => {
       prisma.user.create({ data: { clerkUserId: `${key}-read`, email: `${key}-read@example.com`, memberships: { create: { organizationId, role: "EDITOR", seatType: "READ_ONLY" } } }, include: { memberships: true } }),
     ]);
     actorId = users[0]!.id;
-    [owner, viewer, readOnlyEditor] = users.map(user => appRouter.createCaller({ prisma, user }));
+    [owner, viewer, readOnlyEditor] = users.map((user, index) => appRouter.createCaller({ prisma, user, authenticatedClerkSubject: [ownerSubject, viewerSubject, readOnlySubject][index]! }));
     const project = await prisma.project.create({ data: { organizationId, name: key, slug: key } });
     projectId = project.id;
     const otherProject = await prisma.project.create({ data: { organizationId: otherOrg.id, name: `${key}-foreign`, slug: `${key}-foreign` } });
@@ -101,7 +103,16 @@ describe("case procedure integrity and retry-safe legacy import", () => {
     const tc = await prisma.testCase.findFirstOrThrow({ where: { projectId, title: "Mixed imported procedure" } });
     const prior = await owner.testCases.byId({ id: tc.id });
     const login = await owner.testCases.create({ projectId, title: "Login prerequisite", testType: "FUNCTIONAL", steps: [{ action: "Sign in" }] });
-    await owner.testCaseStructure.setPrerequisites({ projectId, dependentId: tc.id, prerequisiteIds: [login.id], expectedPrerequisiteIds: [] });
+    const readRequestId = randomUUID(), access = await owner.testCaseStructure.prerequisiteAccess({ projectId, caseId: tc.id, readRequestId });
+    expect(access).toMatchObject({ projectId, caseId: tc.id, readRequestId, canEdit: true, readScope: { projectId, organizationId, actorId, actorClerkUserId: ownerSubject } });
+    const pins = { projectId, caseId: tc.id, originalOrganizationId: access.readScope.organizationId, expectedClerkActorId: access.readScope.actorClerkUserId, expectedActorId: access.readScope.actorId };
+    const pageRequestId = randomUUID(), page = await owner.testCaseStructure.prerequisitePage({ ...pins, readRequestId: pageRequestId, search: login.displayId, sort: "case-id" });
+    expect(page).toMatchObject({ projectId, caseId: tc.id, readRequestId: pageRequestId, readScope: access.readScope, prerequisiteIds: [] });
+    expect(page.items.map(item => item.id)).toContain(login.id);
+    const input = { ...pins, requestId: randomUUID(), expectedGraphHash: page.graphHash, expectedPrerequisiteIds: page.prerequisiteIds, prerequisiteIds: [login.id], confirmed: true as const };
+    const saved = await owner.testCaseStructure.reviewedSetPrerequisites(input);
+    expect(saved).toEqual({ projectId, caseId: tc.id, organizationId, actorId, actorClerkUserId: ownerSubject, requestId: input.requestId, requestHash: prerequisiteRequestHash(input), prerequisiteIds: [login.id], replayed: false });
+    expect(await owner.testCaseStructure.reviewedSetPrerequisites(input)).toEqual({ ...saved, replayed: true });
     const after = await owner.testCases.byId({ id: tc.id });
     expect(after.given).toEqual(prior.given);
     expect(after.when).toEqual(prior.when);

@@ -798,7 +798,9 @@ async function write(
       if (
         native?.code === "P2034" ||
         native?.code === "40001" ||
-        (native?.code === "P2010" && native.meta?.code === "40001")
+        native?.code === "40P01" ||
+        (native?.code === "P2010" &&
+          (native.meta?.code === "40001" || native.meta?.code === "40P01"))
       )
         throw new TRPCError({
           code: "CONFLICT",

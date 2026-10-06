@@ -7,6 +7,8 @@ vi.mock("@vaettir/ai-agent", async (importOriginal) => ({
 }));
 import { prisma } from "@vaettir/db";
 import { appRouter } from "./router.js";
+import { reviewedStepRequestHash } from "./services/manualStepExecutionReview.js";
+import type { ReviewedStepWriteInput } from "./services/manualStepExecutionReviewSchema.js";
 
 // These fixtures intentionally stay in the disposable DB for inspection.
 const url = process.env.DATABASE_URL ? new URL(process.env.DATABASE_URL) : null;
@@ -22,11 +24,22 @@ describe.skipIf(!isolated)("assistive UX persistence and authorization", () => {
   let otherProjectId: string;
   let caseId: string;
   let secondCaseId: string;
+  let actorId: string;
+  let viewerActorId: string;
   let releaseScope: {
     originalOrganizationId: string;
     expectedClerkActorId: string;
   };
   const key = `ux-${Date.now()}`;
+  const ownerSubject = key, viewerSubject = `${key}-viewer`;
+
+  async function stepIntent(testRunId: string, observations: ReviewedStepWriteInput["observations"]) {
+    const pins = { projectId, testRunId, testCaseId: caseId, stepIndex: 0, originalOrganizationId: releaseScope.originalOrganizationId, expectedClerkActorId: ownerSubject, expectedNativeActorId: actorId };
+    const readRequestId = randomUUID(), preview = await owner.manualStepExecutionReview.preview({ ...pins, readRequestId });
+    expect(preview).toMatchObject({ projectId, testRunId, testCaseId: caseId, stepIndex: 0, readRequestId, scope: { projectId, organizationId: releaseScope.originalOrganizationId, actorId, actorClerkUserId: ownerSubject }, supported: true });
+    if (!preview.procedureHash || !preview.currentFingerprint) throw Error("Actual supported step preview required; no synthetic baseline may be substituted");
+    return { ...pins, expectedProcedureHash: preview.procedureHash, expectedCurrentFingerprint: preview.currentFingerprint, expectedRevisionId: preview.current?.id ?? null, status: "PASS" as const, note: null, observations, evidenceAttachmentIds: [], correctionReason: preview.current ? "Explicit synthetic correction of the saved reading" : null, idempotencyKey: randomUUID(), confirmed: true as const };
+  }
 
   beforeAll(async () => {
     const tier = await prisma.planTier.findUniqueOrThrow({
@@ -55,8 +68,9 @@ describe.skipIf(!isolated)("assistive UX persistence and authorization", () => {
       },
       include: { memberships: true },
     });
-    owner = appRouter.createCaller({ prisma, user });
-    viewer = appRouter.createCaller({ prisma, user: readUser });
+    actorId = user.id; viewerActorId = readUser.id;
+    owner = appRouter.createCaller({ prisma, user, authenticatedClerkSubject: ownerSubject });
+    viewer = appRouter.createCaller({ prisma, user: readUser, authenticatedClerkSubject: viewerSubject });
     const project = await owner.project.create({
       organizationId: org.id,
       name: "HIL bench",
@@ -275,11 +289,8 @@ describe.skipIf(!isolated)("assistive UX persistence and authorization", () => {
       projectId,
       testCaseIds: [caseId, secondCaseId],
     });
-    const input = {
-      testRunId: run.testRunId,
-      testCaseId: caseId,
-      status: "PASS" as const,
-      observations: {
+    const observations = {
+        specimen: "", hardwareRevision: "", firmwareVersion: "", environment: " exact\nbench ",
         measurements: [
           {
             name: "Rail",
@@ -287,14 +298,21 @@ describe.skipIf(!isolated)("assistive UX persistence and authorization", () => {
             unit: "V",
             lowerLimit: 4.8,
             upperLimit: 5.2,
+            instrument: "Calibrated DMM",
           },
         ],
-      },
     };
-    await Promise.all([
-      owner.manualExecution.recordResult(input),
-      owner.manualExecution.recordResult(input),
+    // Prepare once, before concurrency. Both sends retain the original reviewed
+    // UUID, frozen procedure hash and current-result CAS, not two new intents.
+    const input = await stepIntent(run.testRunId, observations);
+    const receipts = await Promise.all([
+      owner.manualStepExecutionReview.record(input),
+      owner.manualStepExecutionReview.record(input),
     ]);
+    for (const receipt of receipts) expect(receipt).toMatchObject({ projectId, testRunId: run.testRunId, testCaseId: caseId, stepIndex: 0, scope: { projectId, organizationId: releaseScope.originalOrganizationId, actorId, actorClerkUserId: ownerSubject }, idempotencyKey: input.idempotencyKey, requestHash: reviewedStepRequestHash(input), caseStatus: "PASS", provenance: "REVIEWED_REQUEST_BOUND_AT_WRITE" });
+    expect(receipts[0]!.revisionId).toBe(receipts[1]!.revisionId);
+    expect(receipts.map(receipt => receipt.recovered).sort()).toEqual([false, true]);
+    expect(await prisma.manualStepResultRevision.count({ where: { testRunId: run.testRunId, testCaseId: caseId, stepIndex: 0 } })).toBe(1);
     expect(
       await prisma.testResult.count({
         where: { testRunId: run.testRunId, testCaseId: caseId },
@@ -304,28 +322,33 @@ describe.skipIf(!isolated)("assistive UX persistence and authorization", () => {
       testRunId: run.testRunId,
     });
     expect(
-      execution.cases[0]?.currentResult?.observations.measurements[0]?.value,
+      execution.cases[0]?.stepResults[0]?.current?.observations.measurements[0]?.value,
     ).toBe(5);
+    expect(execution.cases[0]?.currentResult?.status).toBe("PASS");
+    const current = await owner.manualStepExecutionReview.preview({ projectId, testRunId: run.testRunId, testCaseId: caseId, stepIndex: 0, originalOrganizationId: releaseScope.originalOrganizationId, expectedClerkActorId: ownerSubject, expectedNativeActorId: actorId, readRequestId: randomUUID() });
+    expect(current.current?.observations).toEqual(observations);
     await expect(
-      owner.manualExecution.recordResult({
-        ...input,
-        observations: {
+      owner.manualStepExecutionReview.record(await stepIntent(run.testRunId, {
+          ...observations,
           measurements: [
-            { name: "Rail", value: 6, unit: "V", upperLimit: 5.2 },
+            { name: "Rail", value: 6, unit: "V", upperLimit: 5.2, instrument: "Calibrated DMM" },
           ],
-        },
-      }),
+      })),
     ).rejects.toMatchObject({ code: "BAD_REQUEST" });
     await expect(
-      viewer.manualExecution.recordResult(input),
+      viewer.manualStepExecutionReview.record({ ...input, expectedClerkActorId: viewerSubject, expectedNativeActorId: viewerActorId, idempotencyKey: randomUUID() }),
     ).rejects.toMatchObject({ code: "FORBIDDEN" });
     expect(
       (await owner.manualExecution.complete({ testRunId: run.testRunId }))
         .status,
     ).toBe("PARTIAL");
     await expect(
-      owner.manualExecution.recordResult(input),
+      owner.manualStepExecutionReview.record(await stepIntent(run.testRunId, observations)),
     ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    expect(await owner.manualStepExecutionReview.record(input)).toEqual({ ...receipts[0]!, recovered: true });
+    const retained = await owner.manualStepExecutionReview.preview({ projectId, testRunId: run.testRunId, testCaseId: caseId, stepIndex: 0, originalOrganizationId: releaseScope.originalOrganizationId, expectedClerkActorId: ownerSubject, expectedNativeActorId: actorId, readRequestId: randomUUID() });
+    expect(retained.current?.observations).toEqual(observations);
+    expect(await prisma.manualStepResultRevision.count({ where: { testRunId: run.testRunId, testCaseId: caseId, stepIndex: 0 } })).toBe(1);
   });
 
   it("hides and restores frameworks only in the selected project", async () => {

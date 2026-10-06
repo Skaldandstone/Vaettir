@@ -3,6 +3,7 @@ import { beforeAll, describe, expect, it } from "vitest";
 import { prisma } from "@vaettir/db";
 import { appRouter } from "./router.js";
 import { commitImportedTestCases } from "./services/importCommit.js";
+import { prerequisiteRequestHash } from "./services/casePrerequisiteSchema.js";
 
 const url = process.env.DATABASE_URL ? new URL(process.env.DATABASE_URL) : null;
 const isolated = url && ["localhost", "127.0.0.1"].includes(url.hostname)
@@ -10,6 +11,7 @@ const isolated = url && ["localhost", "127.0.0.1"].includes(url.hostname)
 
 describe.skipIf(!isolated)("stable human-readable test case identities", () => {
   const run = `case-id-${randomUUID()}`;
+  const ownerSubject = run, viewerSubject = `${run}-viewer`, outsiderSubject = `${run}-outsider`;
   let owner: ReturnType<typeof appRouter.createCaller>;
   let viewer: ReturnType<typeof appRouter.createCaller>;
   let outsider: ReturnType<typeof appRouter.createCaller>;
@@ -30,9 +32,9 @@ describe.skipIf(!isolated)("stable human-readable test case identities", () => {
       prisma.user.create({ data: { email: `${run}-outsider@example.com`, clerkUserId: `${run}-outsider`, memberships: { create: { organizationId: otherOrgId, role: "OWNER" } } }, include: { memberships: true } }),
     ]);
     actorId = ownerUser.id;
-    owner = appRouter.createCaller({ prisma, user: ownerUser });
-    viewer = appRouter.createCaller({ prisma, user: viewerUser });
-    outsider = appRouter.createCaller({ prisma, user: outsiderUser });
+    owner = appRouter.createCaller({ prisma, user: ownerUser, authenticatedClerkSubject: ownerSubject });
+    viewer = appRouter.createCaller({ prisma, user: viewerUser, authenticatedClerkSubject: viewerSubject });
+    outsider = appRouter.createCaller({ prisma, user: outsiderUser, authenticatedClerkSubject: outsiderSubject });
     projectId = (await owner.project.create({ organizationId, name: "aTwist", caseKey: "aTwist" })).id;
     otherProjectId = (await outsider.project.create({ organizationId: otherOrgId, name: "aTwist", caseKey: "atwist" })).id;
   });
@@ -103,7 +105,16 @@ describe.skipIf(!isolated)("stable human-readable test case identities", () => {
   it("uses human IDs to find prerequisites without changing procedure steps", async () => {
     const login = await owner.testCases.byDisplayId({ projectId, displayId: "atwist-01" });
     const premium = await prisma.testCase.create({ data: { projectId, title: "Premium", testType: "FUNCTIONAL", given: ["member"], when: ["subscribe"], then: ["enabled"] } });
-    await owner.testCaseStructure.setPrerequisites({ projectId, dependentId: premium.id, prerequisiteIds: [login.id], expectedPrerequisiteIds: [] });
+    const readRequestId = randomUUID(), access = await owner.testCaseStructure.prerequisiteAccess({ projectId, caseId: premium.id, readRequestId });
+    expect(access).toMatchObject({ projectId, caseId: premium.id, readRequestId, canEdit: true, readScope: { projectId, organizationId, actorId, actorClerkUserId: ownerSubject } });
+    const pins = { projectId, caseId: premium.id, originalOrganizationId: access.readScope.organizationId, expectedClerkActorId: access.readScope.actorClerkUserId, expectedActorId: access.readScope.actorId };
+    const pageRequestId = randomUUID(), page = await owner.testCaseStructure.prerequisitePage({ ...pins, readRequestId: pageRequestId, search: login.displayId, sort: "case-id" });
+    expect(page).toMatchObject({ projectId, caseId: premium.id, readRequestId: pageRequestId, readScope: access.readScope, prerequisiteIds: [] });
+    expect(page.items).toContainEqual(expect.objectContaining({ id: login.id, displayId: "atwist-01", unavailable: false }));
+    const input = { ...pins, requestId: randomUUID(), expectedGraphHash: page.graphHash, expectedPrerequisiteIds: page.prerequisiteIds, prerequisiteIds: [login.id], confirmed: true as const };
+    const saved = await owner.testCaseStructure.reviewedSetPrerequisites(input);
+    expect(saved).toEqual({ projectId, caseId: premium.id, organizationId, actorId, actorClerkUserId: ownerSubject, requestId: input.requestId, requestHash: prerequisiteRequestHash(input), prerequisiteIds: [login.id], replayed: false });
+    expect(await owner.testCaseStructure.reviewedSetPrerequisites(input)).toEqual({ ...saved, replayed: true });
     const after = await owner.testCases.byId({ id: premium.id });
     expect(after.displayId).toBe(premium.displayId);
     expect([after.given, after.when, after.then]).toEqual([premium.given, premium.when, premium.then]);

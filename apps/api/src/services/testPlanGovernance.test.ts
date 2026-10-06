@@ -2151,6 +2151,8 @@ describe("dedicated bounded plan governance (mocked transactions, not native acc
       { code: "P2034" },
       { code: "40001" },
       { code: "P2010", meta: { code: "40001" } },
+      { code: "40P01" },
+      { code: "P2010", meta: { code: "40P01" } },
     ]) {
       const f = fixture(),
         p = await f.preview(),
@@ -2173,6 +2175,34 @@ describe("dedicated bounded plan governance (mocked transactions, not native acc
       expect(error.message).toContain(
         "earlier unacknowledged request may already have applied",
       );
+      expect(f.tx.testPlan.update).not.toHaveBeenCalled();
+      expect(f.state().audits.size).toBe(0);
+    }
+  });
+  it("unknown completion and unrelated SQL errors retain their original uncertainty instead of being classified as rolled-back conflicts", async () => {
+    // SQLSTATE 40003 is completion-unknown, not the supported serialization or
+    // deadlock rollback codes: https://www.postgresql.org/docs/16/errcodes-appendix.html
+    for (const cause of [
+      { code: "40003" },
+      { code: "P2010", meta: { code: "40003" } },
+      { code: "P2010", meta: { code: "XX000", message: "40P01" } },
+      { code: "P2010", meta: { code: "55P03" } },
+    ]) {
+      const f = fixture(), p = await f.preview();
+      const input = {
+        ...f.scope,
+        expectedPlanRevision: p.planRevision,
+        requestId: crypto.randomUUID(),
+        reason: "Review",
+        confirmed: true as const,
+        expectedStatus: "DRAFT" as const,
+        status: "ACTIVE" as const,
+        intent: "CHANGE" as const,
+      };
+      f.tx.$queryRaw.mockRejectedValueOnce(cause);
+      await expect(setGovernedPlanStatus(f.db, "actor", input, {
+        clerkActorId: "clerk",
+      })).rejects.toBe(cause);
       expect(f.tx.testPlan.update).not.toHaveBeenCalled();
       expect(f.state().audits.size).toBe(0);
     }
