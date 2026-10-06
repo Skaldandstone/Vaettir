@@ -3070,3 +3070,31 @@ an initial BigInt test-title collection failure are preserved as failed evidence
 before correction. No native SQL, precision codec, concurrent commits, mounted
 transport/caller or production acceptance is established. Reviewed transport
 and retained caller cutover continue separately; no deployment occurred.
+
+### October 6: reviewed run-start write transport
+
+The unmounted reviewed router now adds START and LEGACY_RECOVERY endpoints.
+New starts require the complete originally reviewed profile/configuration,
+distinct supported case IDs, original tenant/Clerk/native author and durable
+UUID. Recovery retains old inner omissions and exact key order; it does not
+inject newer pins, read a new profile or authorize replacement creation.
+Descriptor/byte admission rejects unsupported whole envelopes before getters,
+normalization or cloning. The separately frozen writer still owns legacy
+normalization, request hashing and every current held-lock authorization check.
+
+A response confirms the deterministic original native-author/UUID run ID and
+exact compatible legacy acknowledgement. Its current-scope echo explicitly
+marks historical outer provenance UNRECORDED and interpretation
+LEGACY_NORMALIZED_NOT_RAW_LOSSLESS. It cannot prove retrospectively recorded
+Clerk provenance, raw-native fidelity, or distinguish new creation from replay.
+Malformed acknowledgements and private error bodies remain generic UNKNOWN
+responses; no automatic retry, UUID replacement or private cause is published.
+
+Root repeated 190 checks across five pure/mocked suites, API types, strict
+standalone compilation of both new/modified tests and scoped four-file lint
+with no errors or warnings. All original ACCESS/PREVIEW describe assertions
+remain AST-identical; new write tests are additive. Two initial negative tests
+incorrectly defaulted an omitted synthetic subject and were corrected without
+relaxing production checks. No native SQL, real JWT/RPC, registered route,
+caller or production acceptance is established. Actual caller cutover remains
+independent work; no deployment, migration or live permission change occurred.
