@@ -3414,3 +3414,27 @@ frozen cohort approval or receipt permission. Old caller/save integration,
 historical UNKNOWN recovery, actual browser/native SQL and production acceptance
 remain open. These final foundation bytes are not covered by the preceding
 2,350-check whole-Web result.
+
+### October 6: unmounted complete Android response consumption
+
+A separate injected response reader consumes one response for an exact frozen
+request. It validates response metadata before any read, bounds delivered bytes
+to 2 MiB and reads to 8,192, and requires complete EOF within a 30-second deadline.
+Abort, original local-attempt loss, malformed/overbound chunks, wrong echoes or
+unsupported complete data refuse generically. Cleanup cancels once without
+awaiting potentially stalled or rejecting cancellation. Deadline revocation
+precedes cleanup callbacks; no late chunk can become a successful response.
+
+This foundation creates no fetch, fallback, retry, helper operation, SDK/native
+authorization or consent. The caller still owns the native stream lock, action
+lease and incomplete-operation UNKNOWN handling. Failure does not establish that
+capture never happened or that the complete raw response was retained. In
+particular, the new response must not be stripped into legacy capture state,
+which could enable an unrepaired paid-generation path. Actual Web dispatch,
+signed helper and device/foreground/processing/spending acceptance remain closed.
+
+Root independently passed 39 focused checks (25 injected-stream and 14 existing
+protocol checks), Web typecheck and two-file lint with zero errors/warnings.
+Streams, clocks, cancellation and foreground DTOs are synthetic; no helper HTTP,
+device operation or actual browser dispatch ran. These final files are outside
+the preceding whole-Web result and require separate consumer/rendered acceptance.
