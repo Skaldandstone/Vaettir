@@ -29,18 +29,24 @@ beforeEach(() => {
 });
 describe("verified Clerk identity survives native membership reread", () => {
   it("admits the exact verified subject and current native user together", async () => {
-    expect((await createContext(request())).user).toEqual(user);
+    const context = await createContext(request());
+    expect(context.user).toEqual(user);
+    expect(context.authenticatedClerkSubject).toBe("clerk-original");
     expect(mocks.mirror).toHaveBeenCalledWith("clerk-original");
     expect(mocks.reread).toHaveBeenCalledWith({ where: { id: user.id }, include: { memberships: true } });
   });
   it("refuses a native mapping changed between mirror resolution and the context reread", async () => {
     mocks.reread.mockResolvedValue({ ...user, clerkUserId: "clerk-replacement" });
-    expect((await createContext(request())).user).toBeNull();
+    const context = await createContext(request());
+    expect(context.user).toBeNull();
+    expect(context.authenticatedClerkSubject).toBeNull();
     expect(mocks.verify).toHaveBeenCalledWith("synthetic-session");
   });
   it("does not resolve or admit a user after failed token verification", async () => {
     mocks.verify.mockResolvedValue(null);
-    expect((await createContext(request())).user).toBeNull();
+    const context = await createContext(request());
+    expect(context.user).toBeNull();
+    expect(context.authenticatedClerkSubject).toBeNull();
     expect(mocks.mirror).not.toHaveBeenCalled();
     expect(mocks.reread).not.toHaveBeenCalled();
   });
@@ -53,9 +59,26 @@ describe("verified Clerk identity survives native membership reread", () => {
     mocks.apiKey.mockResolvedValue({ id: "key-synthetic", serviceUserId: service.id, revokedAt: null });
     mocks.touchKey.mockResolvedValue({});
     mocks.serviceUser.mockResolvedValue(service);
-    expect((await createContext(request("vt_synthetic-only"))).user).toEqual(service);
+    const context = await createContext(request("vt_synthetic-only"));
+    expect(context.user).toEqual(service);
+    expect(context.authenticatedClerkSubject).toBeNull();
     expect(mocks.verify).not.toHaveBeenCalled();
     expect(mocks.mirror).not.toHaveBeenCalled();
     expect(mocks.serviceUser).toHaveBeenCalledWith({ where: { id: service.id }, include: { memberships: true } });
+  });
+  it("does not invent human-session proof from an anonymous context or supplied subject header", async () => {
+    const options = { req: { headers: { "x-clerk-subject": "clerk-original" }, log: {} } } as unknown as CreateFastifyContextOptions;
+    const context = await createContext(options);
+    expect(context.user).toBeNull();
+    expect(context.authenticatedClerkSubject).toBeNull();
+    expect(mocks.verify).not.toHaveBeenCalled();
+    expect(mocks.reread).not.toHaveBeenCalled();
+  });
+  it("ignores an untrusted subject header while preserving the independently verified JWT subject", async () => {
+    const options = request();
+    options.req.headers["x-clerk-subject"] = "clerk-replacement";
+    const context = await createContext(options);
+    expect(context.user).toEqual(user);
+    expect(context.authenticatedClerkSubject).toBe("clerk-original");
   });
 });

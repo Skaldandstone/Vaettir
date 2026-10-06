@@ -41,6 +41,9 @@ function resolveStaff(headers: CreateFastifyContextOptions["req"]["headers"]): {
 
 export async function createContext({ req }: CreateFastifyContextOptions) {
   const token = extractBearerToken(req.headers.authorization);
+  // Preserve the independently verified transport subject, not a native row's
+  // current mapping. API keys deliberately do not acquire human-session proof.
+  let authenticatedClerkSubject: string | null = null;
 
   const user = !token
     ? null
@@ -52,7 +55,9 @@ export async function createContext({ req }: CreateFastifyContextOptions) {
                 const current = await prisma.user.findUniqueOrThrow({ where: { id: u.id }, include: { memberships: true } });
                 // Verified-email recovery can remap this native row between
                 // mirroring and rereading. Never replace the verified JWT subject.
-                return current.clerkUserId === clerkUserId ? current : null;
+                if (current.clerkUserId !== clerkUserId) return null;
+                authenticatedClerkSubject = clerkUserId;
+                return current;
               })
             : null,
         );
@@ -60,6 +65,7 @@ export async function createContext({ req }: CreateFastifyContextOptions) {
   return {
     prisma,
     user,
+    authenticatedClerkSubject,
     staff: resolveStaff(req.headers),
     securityLogger: req.log as SecurityEventLogger,
     staffAttempt: {
@@ -70,7 +76,11 @@ export async function createContext({ req }: CreateFastifyContextOptions) {
   };
 }
 
-export type Context = Awaited<ReturnType<typeof createContext>>;
+// Existing internal callers/fixtures may omit transport provenance. New
+// human-session-only endpoints must refuse absence; never infer it from user.
+export type Context = Omit<Awaited<ReturnType<typeof createContext>>, "authenticatedClerkSubject"> & {
+  authenticatedClerkSubject?: string | null;
+};
 
 const t = initTRPC.context<Context>().create({
   errorFormatter({ shape, error }) {

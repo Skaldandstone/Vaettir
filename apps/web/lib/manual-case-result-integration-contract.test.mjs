@@ -23,13 +23,13 @@ test("deferred polymorphic native-result trigger only evaluates erasure-only OLD
   assert.match(migration, /IF TG_OP='DELETE' THEN\s+IF EXISTS\(SELECT 1 FROM "Organization" WHERE id=OLD\."organizationId"\)/);
 });
 
-test("step mode refuses tracked whole-case evidence after recovering original receipts but before procedure/body loads", () => {
+test("legacy step transport can only recover an accepted receipt without whole-case or frozen procedure loads", () => {
   const record = steps.slice(steps.indexOf("export async function recordManualStepResult"));
-  const recovered = record.indexOf("recovered: true");
-  const guard = record.indexOf("await tx.manualCaseResultHead.count");
-  const procedure = record.indexOf("const definition = frozenStructuredCase");
-  assert.ok(recovered >= 0 && guard > recovered && procedure > guard);
-  assert.match(record.slice(guard, procedure), /code: "CONFLICT"/);
+  assert.match(record, /await lockManualRetestAccess/);
+  assert.match(record, /recovered: true/);
+  assert.match(record, /code: "PRECONDITION_FAILED"/);
+  assert.doesNotMatch(record, /manualCaseResultHead|frozenStructuredCase|requirePassedPrerequisites|executionContext|manualTestCaseIds/);
+  assert.doesNotMatch(record, /\.create\(|\.update\(|\.upsert\(|\.delete\(|\$executeRaw/);
 });
 
 test("all unversioned manual writes refuse before private state; existing rows cannot stand in for missing receipts", () => {

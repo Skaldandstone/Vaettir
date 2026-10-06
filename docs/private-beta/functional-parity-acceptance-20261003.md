@@ -2101,3 +2101,25 @@ Sixty legacy native-fixture callsites still require current reviewed-positive or
 explicit historical-seed migration; they are not silently declared green. No
 fixture was executed, no accepted row was erased or rewritten, and no native/runtime,
 production, device, recovery or deployment acceptance follows from this checkpoint.
+
+### October 6 explicit transport provenance and compatibility assertion repair
+
+The server context now preserves the independently verified Clerk JWT subject
+separately from the native User mapping. Anonymous, invalid/remapped sessions and
+API-key principals receive no human-session subject, even if a service User has a
+populated Clerk field. Existing internal contexts may omit this additive field;
+human-session-only endpoints must refuse absence rather than infer authentication.
+No header or caller input can supply the subject. The legacy step recovery router
+now uses that verified subject explicitly; currently locked native mapping and
+membership checks still apply. This does not change live identity or seat policy,
+grant a feature, or authenticate a device operation.
+
+Root repeated 98 focused context/recovery/reviewed-step/router checks across five
+suites. A subsequent full Web run exposed one old source assertion expecting a
+new legacy write's whole-case guard and frozen-procedure load. The endpoint is now
+recovery-only, so that assertion was replaced with stronger checks requiring locked
+authorization, an accepted ACK, generic new-intent refusal, and no procedure,
+whole-case private body or writes at all. The failed run is retained as failed;
+the corrected full rerun passed 803 Node checks and 554 typed checks across 55
+typed suites, with zero skips. Native fixture error semantics and sixty legacy
+positive callsites remain separately unmigrated, not repaired by this source test.

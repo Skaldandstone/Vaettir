@@ -98,9 +98,16 @@ export const manualExecutionRouter = router({
     // Compatibility transport only: new legacy observations are refused by the
     // recovery adapter. Returning an accepted old ACK never re-heals, recomputes
     // or mutates a current case projection.
-    .mutation(({ ctx, input }) =>
-      recordManualStepResult(ctx.prisma, ctx.user, input),
-    ),
+    .mutation(({ ctx, input }) => {
+      if (!ctx.authenticatedClerkSubject) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "A verified human session is required to recover a legacy step receipt." });
+      }
+      return recordManualStepResult(ctx.prisma, {
+        id: ctx.user.id,
+        name: ctx.user.name,
+        clerkUserId: ctx.authenticatedClerkSubject,
+      }, input);
+    }),
 
   stepResultHistory: protectedProcedure
     .input(
