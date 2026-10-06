@@ -121,20 +121,24 @@ export function RunHistoryCard({
           <div className="run-card-progress">
             <strong>
               {manual
-                ? `${progress.percentComplete}% recorded`
+                ? progress.total === 0
+                  ? "No planned test identities"
+                  : `${progress.percentComplete}% recorded`
                 : `${progress.recorded} ingested observations`}
             </strong>
             <span>
               {manual
-                ? `${progress.remaining} left to test`
+                ? progress.total === 0
+                  ? "Recorded percentage not applicable"
+                  : `${progress.remaining} left to test`
                 : "Planned CI completion unavailable"}
             </span>
           </div>
-          {manual && (
+          {manual && progress.total > 0 && (
             <progress
               aria-label={`Run ${run.id} recorded manual completion`}
               value={progress.recorded}
-              max={progress.total || 1}
+              max={progress.total}
             />
           )}
           <p>

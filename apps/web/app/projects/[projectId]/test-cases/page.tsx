@@ -1228,6 +1228,7 @@ export default function TestCasesPage() {
                             if (
                               !readOnly &&
                               !tc.archived &&
+                              !moveMutation.isPending &&
                               event.dataTransfer.types.includes(
                                 "application/x-vaettir-test-case",
                               )

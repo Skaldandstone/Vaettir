@@ -403,6 +403,101 @@ it("actual CI card never labels its optional recorded email as a manual starter 
   expect(html).toContain("2 ingested observations");
   expect(html).not.toContain("100% recorded");
 });
+it.each(["RUNNING", "COMPLETED", "CANCELED"])(
+  "actual admitted empty manual %s card and dashboard retain exact zeros without a fabricated percentage or gauge",
+  (status) => {
+    const h = harness(),
+      current = snapshot(),
+      run = current.page.rows[0]!;
+    run.status = status;
+    run.resultCount = 0;
+    run.progress = {
+      total: 0,
+      recorded: 0,
+      remaining: 0,
+      percentComplete: 0,
+      pass: 0,
+      fail: 0,
+      blocked: 0,
+      skip: 0,
+      flaky: 0,
+      other: 0,
+    };
+    current.page.rows = [run];
+    h.setCurrent(current);
+    for (const html of [
+      renderToStaticMarkup(h.card({ run, onView: h.onView })),
+      h.render(),
+    ]) {
+      expect(html).toContain("No planned test identities");
+      expect(html).toContain("Recorded percentage not applicable");
+      expect(html).toContain("0 of 0 planned identities recorded");
+      expect(html).not.toContain("<progress");
+      expect(html).not.toMatch(/\b(?:0|100)% recorded/);
+      expect(html).not.toContain('max="1"');
+      expect(html).not.toContain("Progress unavailable.");
+      expect(html).toContain("Recorded run starter");
+      expect(html).toContain("private@example.invalid");
+      expect(html).toContain("2026-09-01T00:00:00.000Z");
+      expect(html).toContain("current planned identity verdicts");
+      expect(html).toContain(status);
+    }
+    expect(h.render()).toContain("0 / 0");
+    expect(run.progress).toEqual({
+      total: 0,
+      recorded: 0,
+      remaining: 0,
+      percentComplete: 0,
+      pass: 0,
+      fail: 0,
+      blocked: 0,
+      skip: 0,
+      flaky: 0,
+      other: 0,
+    });
+    expect(h.navigate).not.toHaveBeenCalled();
+    expect(h.onView).not.toHaveBeenCalled();
+    expect(h.download).not.toHaveBeenCalled();
+  },
+);
+it("actual positive manual gauge keeps its exact admitted numerator and denominator", () => {
+  const h = harness(),
+    run = snapshot().page.rows[0]!,
+    html = renderToStaticMarkup(h.card({ run, onView: h.onView }));
+  expect(html).toContain("25% recorded");
+  expect(html).toContain("3 left to test");
+  expect(html).toContain("1 of 4 planned identities recorded");
+  expect(html).toContain(
+    '<progress aria-label="Run manual recorded manual completion" value="1" max="4"></progress>',
+  );
+  expect(html).not.toContain("No planned test identities");
+  expect(html).not.toContain("Recorded percentage not applicable");
+});
+it("actual zero-ingestion CI card stays distinct from an empty manual planned scope", () => {
+  const h = harness(),
+    run = snapshot().page.rows[1]!;
+  run.resultCount = 0;
+  run.progress = {
+    total: 0,
+    recorded: 0,
+    remaining: 0,
+    percentComplete: 0,
+    pass: 0,
+    fail: 0,
+    blocked: 0,
+    skip: 0,
+    flaky: 0,
+    other: 0,
+  };
+  const html = renderToStaticMarkup(h.card({ run, onView: h.onView }));
+  expect(html).toContain("0 ingested observations");
+  expect(html).toContain("Planned CI completion unavailable");
+  expect(html).toContain("0 ingested result observations; not the planned CI scope");
+  expect(html).not.toContain("<progress");
+  expect(html).not.toContain("0% recorded");
+  expect(html).not.toContain("No planned test identities");
+  expect(html).not.toContain("Recorded percentage not applicable");
+});
 it("manual progress refusal does not invent a starter or hide separately admitted recorded metadata", () => {
   const h = harness(),
     run = {

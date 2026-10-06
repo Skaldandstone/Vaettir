@@ -4,6 +4,7 @@ import { generateQaStrategyDraft } from "@vaettir/ai-agent";
 import { router, protectedProcedure, requireProjectAccess } from "../trpc.js";
 import { recordAudit } from "../services/auditLog.js";
 import { snapshotTestPlanVersion } from "../services/testPlanVersion.js";
+import { lockCaseFieldProject } from "../services/caseFields.js";
 import { setLegacyCriterionVerdict } from "../services/testPlanGovernance.js";
 import { readTestPlanDetail, readTestPlanHistory, legacyPlanCustomFieldRecord } from "../services/testPlanReads.js";
 import { refreshReleaseReadiness } from "../services/releaseReadiness.js";
@@ -151,10 +152,27 @@ export const testPlansRouter = router({
         });
       return ctx.prisma.$transaction(
         async (tx) => {
+          // Match governed writes: project scope precedes the plan and the
+          // audit's project foreign-key check. No automatic retry is inferred.
+          await lockCaseFieldProject(tx, ctx.user.id, found.projectId);
+          const lockedProject = await tx.project.findUniqueOrThrow({
+            where: { id: found.projectId },
+            select: { organizationId: true },
+          });
+          if (lockedProject.organizationId !== project.organizationId)
+            throw new TRPCError({
+              code: "FORBIDDEN",
+              message: "Project ownership changed. Refresh before saving this configuration.",
+            });
           await tx.$queryRaw`SELECT id FROM "TestPlan" WHERE id = ${input.id} FOR UPDATE`;
           const plan = await tx.testPlan.findUniqueOrThrow({
             where: { id: input.id },
           });
+          if (plan.projectId !== found.projectId)
+            throw new TRPCError({
+              code: "FORBIDDEN",
+              message: "The plan changed projects. Refresh before saving this configuration.",
+            });
           await requireCurrentPlanAccess(tx, ctx.user.id, plan.projectId, true);
           if (plan.status === "ARCHIVED")
             throw new TRPCError({

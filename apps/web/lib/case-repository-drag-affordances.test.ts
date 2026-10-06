@@ -5,6 +5,7 @@ import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { expect, it, vi } from "vitest";
 import { FOLDER_DRAG_TYPE, supportedCaseFolderPath } from "./case-folder-tree";
+import { rowDropTarget } from "./case-repository";
 
 const page = readFileSync(new URL("../app/projects/[projectId]/test-cases/page.tsx", import.meta.url), "utf8");
 const tree = readFileSync(new URL("../components/TestCaseTree.tsx", import.meta.url), "utf8");
@@ -86,4 +87,62 @@ it("actual native suite case hover and reviewed folder hover preserve existing v
     h.row.props.onDragOver({ preventDefault, stopPropagation, dataTransfer }); expect(preventDefault).toHaveBeenCalledOnce(); expect(stopPropagation).toHaveBeenCalledOnce();
     expect(h.states).toContain(true); expect(dataTransfer.dropEffect).toBe("move"); expect(h.onDropCase).not.toHaveBeenCalled(); expect(h.onFolderReview).not.toHaveBeenCalled();
   }
+});
+
+type RowEvent = { preventDefault(): void; dataTransfer: { types: string[]; dropEffect: string; getData(type: string): string } };
+// Actual UI callbacks and target helper; transport/cursor events are synthetic.
+// No native drag geometry, persisted move or authorization acceptance is claimed.
+function caseRow(options: { pending?: boolean; readOnly?: boolean; archived?: boolean; foreignPayload?: boolean } = {}) {
+  const row = find(pageAst, node => ts.isJsxElement(node) && node.openingElement.tagName.getText(pageAst) === "tr" &&
+    node.openingElement.attributes.properties.some(attribute => ts.isJsxAttribute(attribute) && attribute.name.getText(pageAst) === "onDragOver"));
+  if (!row || !ts.isJsxElement(row)) throw Error("Actual repository drop row missing");
+  const handler = (name: string) => {
+    const attribute = row.openingElement.attributes.properties.find(value => ts.isJsxAttribute(value) && value.name.getText(pageAst) === name);
+    if (!attribute || !ts.isJsxAttribute(attribute) || !attribute.initializer || !ts.isJsxExpression(attribute.initializer) || !attribute.initializer.expression) throw Error("Actual row handler missing: " + name);
+    return attribute.initializer.expression.getText(pageAst);
+  };
+  const code = ts.transpileModule(`this.hover=(${handler("onDragOver")});this.drop=(${handler("onDrop")});`, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.None } }).outputText;
+  const moving = { id: "stable-moving-case", suitePath: "Release/Smoke", sourceFilePath: null };
+  const tc = { id: "stable-target-case", suitePath: "Target/Suite", sourceFilePath: null, archived: options.archived ?? false };
+  const moveMutation = { isPending: options.pending ?? false }, moveCase = vi.fn(), setError = vi.fn();
+  const context = vm.createContext({ tc, cases: [moving, tc], readOnly: options.readOnly ?? false, moveMutation, moveCase, setError, rowDropTarget });
+  vm.runInContext(code, context);
+  const callbacks = context as unknown as { hover(event: RowEvent): void; drop(event: RowEvent): void };
+  const type = "application/x-vaettir-test-case", types = options.foreignPayload ? ["text/plain"] : [type];
+  const getData = vi.fn((requested: string) => types.includes(requested) ? moving.id : "");
+  const preventDefault = vi.fn(), event = { preventDefault, dataTransfer: { types, dropEffect: "none", getData } };
+  return { ...callbacks, event, preventDefault, getData, moveMutation, moveCase, setError };
+}
+it.each([{ pending: true }, { readOnly: true }, { archived: true }, { foreignPayload: true }])("actual repository row refuses hover/drop admission %j without a move or protected hover-payload read", options => {
+  const h = caseRow(options);
+  h.hover(h.event);
+  expect(h.preventDefault).not.toHaveBeenCalled();
+  expect(h.event.dataTransfer.dropEffect).toBe("none");
+  expect(h.getData).not.toHaveBeenCalled();
+  expect(h.moveCase).not.toHaveBeenCalled();
+  h.drop(h.event);
+  expect(h.preventDefault).not.toHaveBeenCalled();
+  expect(h.moveCase).not.toHaveBeenCalled();
+  expect(h.setError).not.toHaveBeenCalled();
+  if (!options.foreignPayload) expect(h.getData).not.toHaveBeenCalled();
+});
+it("actual enabled repository row retains move feedback and exact stable-ID/suite/before-target drop", () => {
+  const h = caseRow();
+  h.hover(h.event);
+  expect(h.preventDefault).toHaveBeenCalledOnce();
+  expect(h.event.dataTransfer.dropEffect).toBe("move");
+  expect(h.getData).not.toHaveBeenCalled();
+  expect(h.moveCase).not.toHaveBeenCalled();
+  h.drop(h.event);
+  expect(h.preventDefault).toHaveBeenCalledTimes(2);
+  expect(h.getData).toHaveBeenCalledWith("application/x-vaettir-test-case");
+  expect(h.moveCase).toHaveBeenCalledExactlyOnceWith("stable-moving-case", "Target/Suite", "stable-target-case");
+  expect(h.setError).not.toHaveBeenCalled();
+});
+it("a move becoming pending after allowed hover still refuses the actual drop without another write", () => {
+  const h = caseRow();
+  h.hover(h.event); h.moveMutation.isPending = true; h.drop(h.event);
+  expect(h.preventDefault).toHaveBeenCalledOnce();
+  expect(h.getData).not.toHaveBeenCalled();
+  expect(h.moveCase).not.toHaveBeenCalled();
 });
