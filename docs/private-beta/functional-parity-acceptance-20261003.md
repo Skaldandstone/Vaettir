@@ -1994,3 +1994,29 @@ and diff-check passed. The initial root strict-compile command used the workspac
 root without Node type definitions; rerunning in the API package context passed.
 All 15 native registrations remain AUTHORED NOT RUN. This preserves a compatible
 future runtime gate; it does not turn a source comparison into native acceptance.
+
+### October 6 Windows-helper delivery guidance correction
+
+The device-capture guide now matches the actual delivered unsigned desktop
+launchers and raw Node connector rather than guaranteeing launch/connection.
+It names the existing Node 22 prerequisite, bounded first-party download,
+no-redirect/unique exclusive temporary-file safeguards and explicit connection
+controls. A reported Windows refusal is not diagnosed from the screenshot,
+download marker or file ACL. Security-administrator review of the blocked file,
+error and time remains the supported policy route; no protection, execution-policy,
+Mark-of-the-Web or administrator bypass is offered.
+
+Manual setup uses the current downloaded `.mjs` and existing approved Node runtime
+only if policy permits. Pairing is private and remains separate from selected
+device/app access, capture, client-source processing, AI use and provider spending.
+The page does not deliver a signed Windows installer. An unsigned internal binary
+is not trusted public distribution or physical-device acceptance. Earlier downloaded
+launchers may be old bytes; neither a readable original nor a fresh download proves
+the Windows launch problem fixed.
+
+Root independently reviewed the guide/test sources and repeated 13 generated-text
+and VM-only bootstrap checks; all passed. The five new guidance checks are wired
+into the existing device-capture test command. Owned lint/diff-check passed; the
+existing Node package-type warning was disclosed without changing package mode.
+No helper, device, provider command or Windows policy was executed or changed.
+Actual approved Windows/device acceptance remains open.
