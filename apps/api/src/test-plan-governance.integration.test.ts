@@ -3,6 +3,7 @@ import { beforeAll, describe, expect, it } from "vitest";
 import { randomUUID } from "node:crypto";
 import { prisma } from "@vaettir/db";
 import { appRouter } from "./router.js";
+import { assertOwnedTestDatabase } from "./testOnlyDatabaseSafety.js";
 const url = process.env.DATABASE_URL ? new URL(process.env.DATABASE_URL) : null;
 const isolated =
   process.env.VAETTIR_PLAN_GOVERNANCE_NATIVE_FIXTURE === "1" &&
@@ -21,9 +22,13 @@ describe.skipIf(!isolated)(
       originalOrganizationId: string;
       expectedClerkActorId: string;
     };
-    let criterionId: string, releaseId: string;
+    let criterionId: string, releaseId: string, ownerId: string;
     beforeAll(async () => {
+      assertOwnedTestDatabase(process.env.DATABASE_URL);
       const key = `synthetic-plan-governance-${randomUUID()}`;
+      // Independent synthetic transport declarations, not JWT verification or
+      // subjects inferred from a later mutable native User mapping.
+      const ownerSubject = key, viewerSubject = `${key}-read`;
       const tier = await prisma.planTier.findUniqueOrThrow({
         where: { key: "free" },
       });
@@ -33,15 +38,15 @@ describe.skipIf(!isolated)(
       const owner = await prisma.user.create({
         data: {
           email: `${key}@example.com`,
-          clerkUserId: key,
-          memberships: { create: { organizationId: org.id, role: "OWNER" } },
+          clerkUserId: ownerSubject,
+          memberships: { create: { organizationId: org.id, role: "OWNER", seatType: "FULL" } },
         },
         include: { memberships: true },
       });
       const read = await prisma.user.create({
         data: {
           email: `${key}-read@example.com`,
-          clerkUserId: `${key}-read`,
+          clerkUserId: viewerSubject,
           memberships: {
             create: {
               organizationId: org.id,
@@ -84,14 +89,17 @@ describe.skipIf(!isolated)(
         projectId: project.id,
         testPlanId: plan.id,
         originalOrganizationId: org.id,
-        expectedClerkActorId: key,
+        expectedClerkActorId: ownerSubject,
       };
       criterionId = plan.acceptanceCriteria[0]!.id;
-      caller = appRouter.createCaller({ prisma, user: owner });
-      viewer = appRouter.createCaller({ prisma, user: read });
+      ownerId = owner.id;
+      caller = appRouter.createCaller({ prisma, user: owner, authenticatedClerkSubject: ownerSubject });
+      viewer = appRouter.createCaller({ prisma, user: read, authenticatedClerkSubject: viewerSubject });
     });
     it("native edit and lost-ACK replay retain a single complete history/version and raw verdict", async () => {
       const baseline = await caller.testPlanGovernance.preview(scope);
+      const nativeScope = { projectId: scope.projectId, organizationId: scope.originalOrganizationId, actorId: ownerId, actorClerkUserId: scope.expectedClerkActorId };
+      expect(baseline.scope).toEqual(nativeScope);
       const input = {
         ...scope,
         criterionId,
@@ -104,6 +112,7 @@ describe.skipIf(!isolated)(
       };
       const first =
         await caller.testPlanGovernance.editCriterionDescription(input);
+      expect(first.scope).toEqual(nativeScope);
       expect(
         await caller.testPlanGovernance.editCriterionDescription(input),
       ).toEqual({ ...first, replayed: true });
@@ -117,10 +126,9 @@ describe.skipIf(!isolated)(
           where: { testPlanId: scope.testPlanId },
         }),
       ).toBe(1);
-      expect(
-        (await caller.testPlanGovernance.history({ ...scope, take: 5 }))
-          .entries[0]?.receipt.before.criteria[0]?.description,
-      ).toBe("Synthetic original");
+      const history = await caller.testPlanGovernance.history({ ...scope, take: 5 });
+      expect(history.scope).toEqual(nativeScope);
+      expect(history.entries[0]?.receipt.before.criteria[0]?.description).toBe("Synthetic original");
       await expect(
         viewer.testPlanGovernance.editCriterionDescription(input),
       ).rejects.toMatchObject({ code: "FORBIDDEN" });

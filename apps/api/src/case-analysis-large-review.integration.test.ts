@@ -22,9 +22,9 @@ vi.mock("@vaettir/ai-agent", async original => ({
 type Metrics = { phase: string; elapsedMs: number; logicalCalls: number; operations: Record<string, number>; observedSqlEvents: number; observedSqlDurationMs: number };
 const optIn = process.env.VAETTIR_OWNED_LARGE_REVIEW_FIXTURE === "yes";
 describe.skipIf(!optIn)("owned 851-case native risk REVIEW (AUTHORED NOT RUN)", () => {
-  const namespace = `risk-large-review-${randomUUID()}`;
+  const namespace = `risk-large-review-${randomUUID()}`, clerkId = `${namespace}-actor`;
   let client: PrismaClient | undefined, db: PrismaClient, caller: ReturnType<typeof AppRouter.createCaller>;
-  let organizationId: string, projectId: string, actorId: string, clerkId: string;
+  let organizationId: string, projectId: string, actorId: string;
   let activeMetric: Metrics | null = null;
   const metrics: Metrics[] = [], ids = Array.from({ length: 851 }, (_, index) => `${namespace}-case-${String(index).padStart(4, "0")}`);
   const sha = (value: unknown) => createHash("sha256").update(JSON.stringify(value)).digest("hex");
@@ -69,10 +69,11 @@ describe.skipIf(!optIn)("owned 851-case native risk REVIEW (AUTHORED NOT RUN)", 
     const tier = await db.planTier.findUniqueOrThrow({ where: { key: "free" } });
     organizationId = (await db.organization.create({ data: { name: namespace, slug: namespace, planTierId: tier.id } })).id;
     projectId = (await db.project.create({ data: { organizationId, name: namespace, slug: `${namespace}-project` } })).id;
-    clerkId = `${namespace}-actor`;
     const user = await db.user.create({ data: { clerkUserId: clerkId, email: `${namespace}@example.invalid`, memberships: { create: { organizationId, role: "OWNER", seatType: "FULL" } } }, include: { memberships: true } });
-    actorId = user.id; caller = appRouter.createCaller({ prisma: db as Context["prisma"], user, staff: null, securityLogger: { warn: () => {} }, staffAttempt: { tokenConfigured: false, tokenPresented: false, actorHeaderPresented: false } });
-    await db.testCase.createMany({ data: ids.map((id, index) => ({ id, projectId, caseNumber: index + 1, displayId: `TC-${index + 1}`, title: `Synthetic review ${String(index).padStart(4, "0")}`, background: "Synthetic setup only", given: ["", " exact, retained setup ", "same", "same"], when: ["Synthetic action\nno external system"], then: ["Synthetic observation"], tags: ["synthetic-owned-review"], testType: "FUNCTIONAL", reviewStatus: "APPROVED" })) });
+    actorId = user.id; caller = appRouter.createCaller({ prisma: db as Context["prisma"], user, authenticatedClerkSubject: clerkId, staff: null, securityLogger: { warn: () => {} }, staffAttempt: { tokenConfigured: false, tokenPresented: false, actorHeaderPresented: false } });
+    // Supply internal fixture IDs only. The real native allocator owns every
+    // project-local case number/display ID; this fixture cannot prescribe them.
+    await db.testCase.createMany({ data: ids.map((id, index) => ({ id, projectId, title: `Synthetic review ${String(index).padStart(4, "0")}`, background: "Synthetic setup only", given: ["", " exact, retained setup ", "same", "same"], when: ["Synthetic action\nno external system"], then: ["Synthetic observation"], tags: ["synthetic-owned-review"], testType: "FUNCTIONAL", reviewStatus: "APPROVED" })) });
   }, 120000); // Infrastructure hang guard, not a passing performance threshold.
   afterAll(async () => {
     // Disconnect only; retain the exact synthetic namespace and all evidence.
@@ -81,6 +82,13 @@ describe.skipIf(!optIn)("owned 851-case native risk REVIEW (AUTHORED NOT RUN)", 
   it("records all 851 exact baselines and unchanged risk hashes, recovers one UUID scope and observes only metadata performance facts", async () => {
     const source = await db.testCase.findMany({ where: { projectId, id: { in: ids } }, orderBy: { id: "asc" }, include: { steps: { orderBy: { order: "asc" } }, sharedStepGroup: { select: { projectId: true, steps: true, archivedAt: true } }, source: { select: { filePath: true, framework: true, lastSyncedCommitSha: true } } } });
     expect(source.map(row => row.id)).toEqual(ids);
+    const identity = await caller.project.caseIdentity({ projectId });
+    expect(identity).toMatchObject({ allocatedCount: 851, keyLocked: true });
+    expect(identity.caseKey).toMatch(/^[a-z][a-z0-9-]{0,23}$/);
+    expect(new Set(source.map(row => row.displayId)).size).toBe(851);
+    expect(new Set(source.map(row => row.caseNumber)).size).toBe(851);
+    expect(source.map(row => row.caseNumber).sort((a, b) => a - b)).toEqual(Array.from({ length: 851 }, (_, index) => index + 1));
+    for (const row of source) expect(row.displayId).toBe(`${identity.caseKey}-${String(row.caseNumber).padStart(2, "0")}`);
     const input = { projectId, originalOrganizationId: organizationId, expectedClerkActorId: clerkId, ids: [...ids].reverse(), action: "RISK" as const, requestId: randomUUID() };
     const first = await measured("review-851", () => caller.caseAnalysisQueue.review(input));
     expect(first).toMatchObject({ caseCount: 851, maximumCredits: 1702, status: "REVIEW", counts: { QUEUED: 851 }, approvedAt: null });
@@ -103,6 +111,8 @@ describe.skipIf(!optIn)("owned 851-case native risk REVIEW (AUTHORED NOT RUN)", 
     expect(stored.every(item => item.chargeId === null)).toBe(true);
     expect(await db.aiCreditTransaction.count({ where: { organizationId } })).toBe(0);
     expect(await db.testCaseRiskReview.count({ where: { testCaseId: { in: ids } } })).toBe(0);
+    const retainedIdentities = await db.testCase.findMany({ where: { projectId, id: { in: ids } }, orderBy: { id: "asc" }, select: { id: true, caseNumber: true, displayId: true } });
+    expect(retainedIdentities).toEqual(source.map(({ id, caseNumber, displayId }) => ({ id, caseNumber, displayId })));
     const provider = await import("@vaettir/ai-agent");
     expect(provider.assessTestCaseRisk).not.toHaveBeenCalled(); expect(provider.reviewTestDesign).not.toHaveBeenCalled();
     // No maximum time/query-count assertion: these are measurements to compare
