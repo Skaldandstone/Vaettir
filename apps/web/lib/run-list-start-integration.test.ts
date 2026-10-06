@@ -998,3 +998,66 @@ it("generic source error is rendered without leaking private query text; host al
   );
   expect(source).toContain("onConfirmedStart");
 });
+it.each(["fetching", "paused", "error", "cached", "access"] as const)(
+  "unavailable %s source never claims empty matches and disables only new Continue",
+  mode => {
+    const h = harness(); h.selectAll();
+    const selected = h.all.map(row => row.id);
+    if (mode === "fetching") h.query.isFetching = true;
+    if (mode === "paused") h.query.isPaused = true;
+    if (mode === "error") h.query.error = Error("private query diagnostics must remain hidden");
+    if (mode === "cached") h.query.isFetchedAfterMount = false;
+    if (mode === "access") h.access.ready = false;
+    const tree = h.render(), rendered = text(tree);
+    expect(rendered).not.toContain("No approved test cases match");
+    expect(rendered).not.toContain("No approved test cases are available");
+    expect(rendered).not.toContain("Import or create cases");
+    expect(rendered).not.toContain("private query diagnostics");
+    expect(rendered).toContain("selection is retained");
+    if (mode === "fetching") expect(rendered).toContain("Refreshing approved test cases");
+    if (mode === "paused") expect(rendered).toContain("Case loading is paused");
+    if (mode === "cached" || mode === "access") expect(rendered).toContain("Waiting for current access and approved test cases");
+    const next = elements(tree).find(node => node.type === "button" && text(node.props.children) === "Continue to configuration")!;
+    expect(next.props.disabled).toBe(true);
+    h.button("Continue to configuration")(); h.render();
+    expect(h.config().open).toBe(false); expect(h.send).not.toHaveBeenCalled();
+    h.query.isFetching = false; h.query.isPaused = false; h.query.error = null; h.query.isFetchedAfterMount = true; h.access.ready = true;
+    const restored = h.render();
+    expect(elements(restored).find(node => node.type === "button" && text(node.props.children) === "Continue to configuration")!.props.disabled).toBe(false);
+    h.button("Continue to configuration")(); h.render();
+    expect(h.config().testCaseIds).toEqual(selected); expect(h.send).not.toHaveBeenCalled();
+  },
+);
+it("initial loading has a status announcement rather than a false empty/search suggestion", () => {
+  const h = harness(); h.query.isLoading = true; h.query.isFetching = true; h.query.isFetchedAfterMount = false;
+  const tree = h.render();
+  expect(elements(tree).some(node => node.props.role === "status" && text(node.props.children) === "Loading test cases…")).toBe(true);
+  expect(text(tree)).not.toContain("No approved test cases"); expect(text(tree)).not.toContain("Import or create cases");
+});
+it("a fresh empty approved scope differs from a real filter miss without changing selection", () => {
+  const h = harness(); h.selectAll(); h.search("Definitely no synthetic case matches");
+  const filtered = h.render();
+  expect(text(filtered)).toContain("No approved test cases match the current filters. Adjust the search, suite, priority or test type.");
+  expect(text(filtered)).not.toContain("Import or create cases");
+  h.query.data = h.query.data.filter(row => row.archived || row.reviewStatus !== "APPROVED");
+  expect(text(h.render())).toContain("No approved test cases are available. Import or create cases, or review pending cases first.");
+  h.query.data = h.all; h.search(""); h.button("Continue to configuration")(); h.render();
+  expect(h.config().testCaseIds).toEqual(h.all.map(row => row.id)); expect(h.send).not.toHaveBeenCalled();
+});
+it.each(["fetching", "paused", "error", "cached"] as const)(
+  "retained configuration reopen stays enabled across %s source loss and keeps original selection identity",
+  mode => {
+    const h = harness(); h.selectAll(); h.button("Continue to configuration")(); h.render();
+    const original = h.config().testCaseIds; h.config().onClose();
+    if (mode === "fetching") h.query.isFetching = true;
+    if (mode === "paused") h.query.isPaused = true;
+    if (mode === "error") h.query.error = Error("private retained metadata error");
+    if (mode === "cached") h.query.isFetchedAfterMount = false;
+    const tree = h.render();
+    const reopen = elements(tree).find(node => node.type === "button" && text(node.props.children) === "Reopen retained configuration")!;
+    expect(reopen.props.disabled).toBe(false);
+    h.button("Reopen retained configuration")(); h.render();
+    expect(h.config().open).toBe(true); expect(h.config().testCaseIds).toBe(original);
+    expect(h.config().bulkScopesReady).toBe(false); expect(h.send).not.toHaveBeenCalled(); expect(h.navigate).not.toHaveBeenCalled();
+  },
+);

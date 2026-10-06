@@ -838,12 +838,11 @@ export default function TestCasesPage() {
         >
           Approved repository
         </button>
-        <button
-          type="button"
+        <Link
+          href={`/projects/${projectId}/test-cases/review`}
           className={
             reviewFilter !== "APPROVED" ? "btn-primary" : "btn-secondary"
           }
-          onClick={() => setReviewFilter("PENDING_REVIEW")}
         >
           Review queue (
           {
@@ -854,7 +853,7 @@ export default function TestCasesPage() {
             ).length
           }
           )
-        </button>
+        </Link>
         {tagFilter !== null && (
           <button
             type="button"

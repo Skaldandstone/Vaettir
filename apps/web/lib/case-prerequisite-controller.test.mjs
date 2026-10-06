@@ -172,3 +172,82 @@ test("actual component renders retained unreviewed/unavailable IDs, searchable s
   const idleClosed = renderToStaticMarkup(React.createElement(context.component, { projectId: scope.projectId, caseId: "main", canEdit: true })); assert.match(idleClosed, /<button[^>]*>Edit prerequisites<\/button>/); assert.doesNotMatch(idleClosed, /<button[^>]*disabled=""[^>]*>Edit prerequisites<\/button>/);
   control.readable = false; const hidden = renderToStaticMarkup(React.createElement(context.component, { projectId: scope.projectId, caseId: "main", canEdit: true })); assert.doesNotMatch(hidden, /Exact retained pending|SYN-2|SYN-3|missing/);
 });
+
+test("actual picker explains an all-chosen current page without changing native totals, IDs, paging or privacy", () => {
+  // Actual component with a synthetic controller boundary. This is rendered
+  // structure/retention evidence, not server paging or authenticated acceptance.
+  const text = readFileSync(new URL("../components/TestCasePrerequisites.tsx", import.meta.url), "utf8"), parsed = ts.createSourceFile("component.tsx", text, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX), component = parsed.statements.find(node => ts.isFunctionDeclaration(node));
+  const compiled = ts.transpileModule(`${ts.createPrinter().printNode(ts.EmitHint.Unspecified, component, parsed).replace(/\bexport\s+/, "")}\nthis.component=TestCasePrerequisites;`, { compilerOptions: { target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.React, module: ts.ModuleKind.None } }).outputText;
+  const candidates = Array.from({ length: 20 }, (_, index) => ({ ...approved, id: `page-case-${index}`, displayId: `SYN-${index + 10}`, title: "Repeated title" }));
+  const draft = { identity: "synthetic-all-page-draft", origin: {}, baseline: [row.id], ids: [row.id, ...candidates.map(item => item.id)], graphHash, linked: [row, ...candidates] };
+  const control = { readable: true, freshAccess: { canEdit: true }, freshPage: { graphHash, prerequisiteIds: [row.id], linked: [row], items: candidates, total: 851, offset: 0, nextCursor: { offset: 20 } }, origin: {}, open: true, draft, pending: null, settled: null, busy: false, notice: "", search: "", sort: "case-id", cursors: [], access: {}, page: {} };
+  const context = vm.createContext({ React, styles: {}, useCasePrerequisites: () => control }); vm.runInContext(compiled, context);
+  const render = () => renderToStaticMarkup(React.createElement(context.component, { projectId: scope.projectId, caseId: "main", canEdit: true }));
+  const allChosen = render();
+  assert.match(allChosen, /All 20 matching cases on this page are already selected in your draft above/);
+  assert.match(allChosen, /Other pages may contain additional cases/);
+  assert.match(allChosen, /<ul aria-label="Available prerequisite cases"><\/ul>/);
+  assert.match(allChosen, /Page 1 of 43 · 851 approved candidates/);
+  assert.match(allChosen, /<button[^>]*>Next<\/button>/);
+  for (const candidate of candidates) assert.ok(allChosen.includes(`>${candidate.displayId}</code>`));
+  assert.doesNotMatch(allChosen, /aria-label="Add prerequisite|No matching approved candidates/);
+  assert.equal(control.draft, draft);
+  assert.deepEqual(control.draft.ids, [row.id, ...candidates.map(item => item.id)]);
+
+  control.search = candidates[0].displayId;
+  control.freshPage = { ...control.freshPage, items: [candidates[0]], total: 1, nextCursor: null };
+  const selectedIdSearch = render();
+  assert.match(selectedIdSearch, /The matching case on this page is already selected in your draft above/);
+  assert.match(selectedIdSearch, /value="SYN-10"/);
+  assert.match(selectedIdSearch, /Page 1 of 1 · 1 approved candidates/);
+  assert.doesNotMatch(selectedIdSearch, /Other pages may contain additional cases|>Next<\/button>|No matching approved candidates/);
+
+  control.freshPage = { ...control.freshPage, items: [], total: 0 };
+  const genuinelyEmpty = render();
+  assert.match(genuinelyEmpty, /No matching approved candidates/);
+  assert.doesNotMatch(genuinelyEmpty, /already selected in your draft above/);
+  assert.ok(genuinelyEmpty.includes(">SYN-10</code>"));
+
+  control.freshPage = { ...control.freshPage, items: [candidates[0], { ...approved, id: "another-page-case", displayId: "SYN-900" }], total: 2 };
+  const mixed = render();
+  assert.match(mixed, /aria-label="Add prerequisite SYN-900 Exact approved"/);
+  assert.doesNotMatch(mixed, /aria-label="Add prerequisite SYN-10 |already selected in your draft above/);
+  assert.match(mixed, /Page 1 of 1 · 2 approved candidates/);
+
+  control.freshAccess.canEdit = false;
+  const readOnly = render();
+  assert.match(readOnly, /<button[^>]*aria-label="Add prerequisite SYN-900 Exact approved"[^>]*disabled=""[^>]*>Add<\/button>/);
+  assert.doesNotMatch(readOnly, /aria-label="Remove /);
+  assert.ok(readOnly.includes(">SYN-10</code>"));
+  const mixedPage = control.freshPage;
+  control.freshPage = { ...mixedPage, items: candidates, total: 851, nextCursor: { offset: 20 } };
+  const readOnlyChosen = render();
+  assert.match(readOnlyChosen, /All 20 matching cases on this page are already selected in your draft above/);
+  assert.doesNotMatch(readOnlyChosen, /aria-label="Remove |aria-label="Add prerequisite/);
+  assert.equal(control.draft, draft);
+  control.freshPage = mixedPage;
+
+  control.freshAccess.canEdit = true;
+  const retainedRequest = { draft, input: { requestId: "synthetic-retained-unknown-uuid" }, requestHash: "c".repeat(64), everAmbiguous: true };
+  control.pending = retainedRequest;
+  const unknown = render();
+  assert.match(unknown, /Retry same prerequisite request/);
+  assert.match(unknown, /synthetic-retained-unknown-uuid/);
+  assert.match(unknown, /<button[^>]*aria-label="Add prerequisite SYN-900 Exact approved"[^>]*disabled=""[^>]*>Add<\/button>/);
+  assert.match(unknown, /<input[^>]*type="search"[^>]*disabled=""/);
+  assert.equal(control.pending, retainedRequest);
+  assert.equal(control.pending.draft, draft);
+  control.freshPage = { ...mixedPage, items: candidates, total: 851, nextCursor: { offset: 20 } };
+  const unknownChosen = render();
+  assert.match(unknownChosen, /All 20 matching cases on this page are already selected in your draft above/);
+  assert.match(unknownChosen, /Retry same prerequisite request/);
+  assert.match(unknownChosen, /Page 1 of 43 · 851 approved candidates/);
+  assert.match(unknownChosen, /<button[^>]*disabled=""[^>]*>Next<\/button>/);
+  assert.equal(control.pending, retainedRequest);
+
+  control.readable = false;
+  const privateView = render();
+  assert.doesNotMatch(privateView, /SYN-10|SYN-900|Repeated title|synthetic-retained-unknown-uuid|already selected in your draft above|851 approved candidates/);
+  assert.equal(control.pending, retainedRequest);
+  assert.equal(control.draft, draft);
+});

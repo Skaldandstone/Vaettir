@@ -8,6 +8,7 @@ export function TestCasePrerequisites({ projectId, caseId, canEdit, active = tru
   const saved = control.freshPage;
   const held = control.pending?.draft ?? control.draft;
   const selected = held?.ids ?? saved?.prerequisiteIds ?? [];
+  const availablePageItems = saved?.items.filter(item => !selected.includes(item.id)) ?? [];
   const metadata = new Map([...(held?.linked ?? []), ...(saved?.linked ?? []), ...(saved?.items ?? [])].map(item => [item.id, item]));
   const dirty = !!held && JSON.stringify([...held.ids].sort()) !== JSON.stringify([...held.baseline].sort());
   const baselineCurrent = !!saved && (!held || held.graphHash === saved.graphHash);
@@ -47,11 +48,14 @@ export function TestCasePrerequisites({ projectId, caseId, canEdit, active = tru
           <option value="case-id">Case ID</option><option value="title">Title (text order)</option><option value="inventory">Recent activity</option>
         </select></label>
         {saved && <><ul className={styles.matches} aria-label="Available prerequisite cases">
-          {saved.items.filter(item => !selected.includes(item.id)).map(item => <li key={item.id}>
+          {availablePageItems.map(item => <li key={item.id}>
             <span><code className="status-pill">{item.displayId}</code>{" "}{item.title}</span>
             <button type="button" className="btn-secondary" aria-label={`Add prerequisite ${item.displayId} ${item.title}`} disabled={control.busy || !!control.pending || !!control.settled || !baselineCurrent || !editable || selected.length >= 50} onClick={() => control.change([...selected, item.id])}>Add</button>
           </li>)}
-        </ul><div className={styles.row}>
+        </ul>{held && saved.items.length > 0 && availablePageItems.length === 0 && <p role="status" className={styles.muted}>
+          {saved.items.length === 1 ? "The matching case on this page is" : `All ${saved.items.length} matching cases on this page are`} already selected in your draft above.
+          {(saved.nextCursor || control.cursors.length > 0) && " Other pages may contain additional cases."}
+        </p>}<div className={styles.row}>
           <span role="status" className={styles.muted}>{saved.total ? `Page ${Math.floor(saved.offset / 20) + 1} of ${Math.ceil(saved.total / 20)} · ${saved.total} approved candidates in the saved native scope` : "No matching approved candidates."} Locally selected additions remain in your draft above.</span>
           {control.cursors.length > 0 && <button type="button" onClick={control.previous} disabled={control.busy || !!control.pending}>Previous</button>}
           {saved.nextCursor && <button type="button" onClick={control.next} disabled={control.busy || !!control.pending}>Next</button>}

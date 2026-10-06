@@ -641,13 +641,24 @@ export default function TestRunsPage() {
             }}
           >
             {casesQuery.isLoading && (
-              <p className="text-muted" style={{ padding: 12 }}>
+              <p role="status" className="text-muted" style={{ padding: 12 }}>
                 Loading test cases…
               </p>
             )}
-            {!casesQuery.isLoading && manualCases.length === 0 && (
+            {!casesQuery.error && !casesQuery.isLoading && !manualSourceReady && (
+              <p role="status" className="text-muted" style={{ padding: 12 }}>
+                {casesQuery.isPaused
+                  ? "Case loading is paused. Your selection is retained; wait for the current approved scope before continuing."
+                  : casesQuery.isFetching
+                    ? "Refreshing approved test cases. Your selection is retained; wait for the current scope before continuing."
+                    : "Waiting for current access and approved test cases. Your selection is retained; no empty scope was inferred."}
+              </p>
+            )}
+            {manualSourceReady && manualCases.length === 0 && (
               <p className="text-muted" style={{ padding: 12 }}>
-                No test cases match this search. Import or create cases first.
+                {eligibleCases.length === 0
+                  ? "No approved test cases are available. Import or create cases, or review pending cases first."
+                  : "No approved test cases match the current filters. Adjust the search, suite, priority or test type."}
               </p>
             )}
             {manualCases.map((testCase) => (
@@ -706,7 +717,8 @@ export default function TestRunsPage() {
                 disabled={
                   manualSelection.size === 0 ||
                   startManualMutation.isPending ||
-                  !manualAccess.canWrite
+                  !manualAccess.canWrite ||
+                  (configurationSelection === null && !manualBulkReady)
                 }
               >
                 {startManualMutation.isPending

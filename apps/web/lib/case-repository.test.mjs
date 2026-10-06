@@ -61,7 +61,10 @@ test("case links preserve modified clicks, new tabs, middle-button and cancelled
     page,
     /if \(\s*readOnly \|\|\s*tc.archived \|\|\s*moveMutation.isPending\s*\)\s*return/,
   );
-  assert.match(page, /sameSuiteAfterAnchor\(\s*target.suitePath,\s*after,?\s*\)/);
+  assert.match(
+    page,
+    /sameSuiteAfterAnchor\(\s*target.suitePath,\s*after,?\s*\)/,
+  );
 });
 
 test("row drops reorder exact persisted suite or unassigned placements, never derived source folders", () => {
@@ -112,4 +115,12 @@ test("repository reset stays in its lifecycle lane and moves keep persisted CAS 
   assert.match(page, /projectTagHref\(projectId, tag\)/);
   assert.doesNotMatch(page, /!tagFilter \|\| tc.tags.includes\(tagFilter\)/);
   assert.doesNotMatch(page, /data-label="Review"/);
+  assert.match(
+    page,
+    /<Link\s+href=\{`\/projects\/\$\{projectId\}\/test-cases\/review`\}[\s\S]*?Review queue \(/,
+  );
+  assert.doesNotMatch(
+    page,
+    /onClick=\{\(\) => setReviewFilter\("PENDING_REVIEW"\)\}/,
+  );
 });
