@@ -40,10 +40,10 @@ function run(command, args) {
     return execFileSync(command, args, {
       encoding: "utf8",
       stdio: ["ignore", "pipe", "pipe"],
-    }).trim();
+      maxBuffer: 1024 * 1024, timeout: 10000, windowsHide: true,
+    });
   } catch (error) {
-    const detail = error?.stderr?.toString().trim() || error.message;
-    throw new Error(`${command} failed: ${detail}`, { cause: error });
+    throw new Error("A local device command did not return a complete supported result.", { cause: error });
   }
 }
 
@@ -80,27 +80,175 @@ function listAndroidDevices() {
     });
 }
 
+const captureRefusal = () => new Error("The complete selected capture is unsupported or outside its explicit observed target. No value was clipped or substituted.");
+const MAX_HIERARCHY_BYTES = 1024 * 1024;
+
+function exactText(value, max, min = 1) {
+  if (typeof value !== "string" || value.length < min || value.length > max || Array.from(value).some(c => {
+    const n = c.codePointAt(0); return n === 0 || n >= 0xd800 && n <= 0xdfff;
+  })) throw captureRefusal();
+  return value;
+}
+
 function decodeXml(value) {
-  return value
-    .replaceAll("&quot;", '"')
-    .replaceAll("&apos;", "'")
-    .replaceAll("&lt;", "<")
-    .replaceAll("&gt;", ">")
-    .replaceAll("&amp;", "&");
+  if (value.includes("<") || Array.from(value).some(c => { const n = c.codePointAt(0); return n < 32 && ![9, 10, 13].includes(n) || n === 0xfffe || n === 0xffff; }) || /&(?!quot;|apos;|lt;|gt;|amp;|#\d+;|#x[0-9a-fA-F]+;)/.test(value)) throw captureRefusal();
+  return value.replace(/&(quot|apos|lt|gt|amp|#\d+|#x[0-9a-fA-F]+);/g, (_, entity) => {
+    const named = { quot: '"', apos: "'", lt: "<", gt: ">", amp: "&" };
+    if (Object.hasOwn(named, entity)) return named[entity];
+    const n = entity.startsWith("#x") ? Number.parseInt(entity.slice(2), 16) : Number(entity.slice(1));
+    if (!Number.isSafeInteger(n) || n < 0 || n > 0x10ffff || n >= 0xd800 && n <= 0xdfff || n === 0xfffe || n === 0xffff || n < 32 && ![9, 10, 13].includes(n)) throw captureRefusal();
+    return String.fromCodePoint(n);
+  });
 }
 
 function attributesOf(tag) {
   const attributes = {};
-  for (const match of tag.matchAll(/([\w:-]+)="([^"]*)"/g)) {
-    attributes[match[1]] = decodeXml(match[2]).trim();
+  for (const match of tag.matchAll(/([A-Za-z_][A-Za-z0-9_.:-]*)\s*=\s*"([^"]*)"/g)) {
+    if (Object.hasOwn(attributes, match[1])) throw captureRefusal();
+    Object.defineProperty(attributes, match[1], { value: decodeXml(match[2]), enumerable: true });
   }
   return attributes;
 }
 
-function extractElements(xml, maximum = 150) {
+function hierarchyTags(xml) {
+  exactText(xml, MAX_HIERARCHY_BYTES);
+  if (Buffer.byteLength(xml, "utf8") > MAX_HIERARCHY_BYTES) throw captureRefusal();
+  const tokens = /<\?xml[^?]*\?>|<\/?[A-Za-z_][A-Za-z0-9_.:-]*(?:\s+[A-Za-z_][A-Za-z0-9_.:-]*\s*=\s*"[^"]*")*\s*\/?>/g;
+  const stack = [], tags = []; let end = 0, roots = 0, count = 0, declaration = false;
+  for (const match of xml.matchAll(tokens)) {
+    if (!/^\s*$/.test(xml.slice(end, match.index)) || ++count > 5000) throw captureRefusal();
+    end = match.index + match[0].length;
+    const token = match[0];
+    if (token.startsWith("<?")) {
+      if (declaration || roots || stack.length) throw captureRefusal();
+      declaration = true; continue;
+    }
+    const name = token.match(/^<\/?([A-Za-z_][A-Za-z0-9_.:-]*)/)[1];
+    if (!["hierarchy", "node"].includes(name) && !name.startsWith("XCUIElementType")) throw captureRefusal();
+    if (token.startsWith("</")) {
+      if (!/^<\/[A-Za-z_][A-Za-z0-9_.:-]*\s*>$/.test(token) || stack.pop() !== name) throw captureRefusal();
+    } else {
+      if (!stack.length && ++roots > 1) throw captureRefusal();
+      attributesOf(token); // Refuse duplicate/unsupported entities even in unnamed nodes.
+      if (name === "node" || name.startsWith("XCUIElementType")) tags.push(token);
+      if (!token.endsWith("/>")) { stack.push(name); if (stack.length > 64) throw captureRefusal(); }
+    }
+  }
+  if (stack.length || roots !== 1 || !/^\s*$/.test(xml.slice(end))) throw captureRefusal();
+  return tags;
+}
+
+function admitAndroidCaptureOptions(options, packageKey = "expectedPackage") {
+  if (!["expectedPackage", "expected-package"].includes(packageKey)) throw captureRefusal();
+  if (!options || typeof options !== "object" || Array.isArray(options) || Object.getPrototypeOf(options) !== Object.prototype) throw captureRefusal();
+  const allowed = packageKey === "expectedPackage" ? ["source", "serial", packageKey, "label"] : ["source", "serial", packageKey, "label", "output", "append"];
+  const descriptors = Object.getOwnPropertyDescriptors(options), keys = Reflect.ownKeys(descriptors);
+  if (keys.length > allowed.length || keys.some(key => typeof key !== "string" || !allowed.includes(key) || !descriptors[key].enumerable || !Object.hasOwn(descriptors[key], "value"))) throw captureRefusal();
+  for (const key of keys) if (key === "append" ? typeof descriptors[key].value !== "boolean" : typeof descriptors[key].value !== "string") throw captureRefusal();
+  if (descriptors.source?.value !== (packageKey === "expectedPackage" ? "android" : "adb")) throw captureRefusal();
+  const serial = exactText(descriptors.serial?.value, 200), expectedPackage = exactText(descriptors[packageKey]?.value, 200);
+  if (!/^[A-Za-z0-9._:-]+$/.test(serial) || !/^[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)+$/.test(expectedPackage)) throw captureRefusal();
+  if (descriptors.label) exactText(descriptors.label.value, 200);
+  if (descriptors.output) exactText(descriptors.output.value, 4096);
+  return Object.freeze({ serial, expectedPackage, label: descriptors.label?.value ?? "Current Android screen" });
+}
+
+function requireAndroidForeground(output, expectedPackage) {
+  exactText(output, MAX_HIERARCHY_BYTES);
+  const focus = Array.from(output.matchAll(/\bmCurrentFocus=([^\r\n]*)/g));
+  if (focus.length !== 1) throw captureRefusal();
+  const observed = focus[0][1].match(/^\s*Window\{[a-fA-F0-9]+\s+u\d+\s+([A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)+)\/[A-Za-z0-9_.$]+\}\s*$/)?.[1];
+  if (observed !== expectedPackage) throw captureRefusal();
+  return observed;
+}
+
+function requireAndroidHierarchy(hierarchy, expectedPackage) {
+  const tags = hierarchyTags(hierarchy);
+  if (!tags.length) throw captureRefusal();
+  for (const tag of tags) {
+    if (!tag.startsWith("<node")) throw captureRefusal();
+    const attributes = attributesOf(tag);
+    if (attributes.visible !== "false" && attributes.displayed !== "false" && attributes.package !== expectedPackage) throw captureRefusal();
+  }
+}
+
+// Only this in-memory collector binds an observed device/package to its exact
+// result. A stored v1 file or caller-supplied labels cannot recreate the binding.
+const androidCaptureOrigins = new WeakMap();
+
+function completeCaptureJsonBytes(value) {
+  let nodes = 0, bytes = 0; const seen = new Set();
+  const add = text => { bytes += Buffer.byteLength(text, "utf8"); if (bytes > 2 * 1024 * 1024) throw captureRefusal(); };
+  function visit(item, depth) {
+    if (++nodes > 100000 || depth > 64) throw captureRefusal();
+    if (item === null || typeof item === "boolean" || typeof item === "number" && Number.isFinite(item)) { add(JSON.stringify(item)); return; }
+    if (typeof item === "string") { exactText(item, 2 * 1024 * 1024, 0); add(JSON.stringify(item)); return; }
+    if (!item || typeof item !== "object" || seen.has(item)) throw captureRefusal();
+    const array = Array.isArray(item), descriptors = Object.getOwnPropertyDescriptors(item), keys = Reflect.ownKeys(descriptors);
+    if (Object.getPrototypeOf(item) !== (array ? Array.prototype : Object.prototype) || keys.some(key => typeof key !== "string") || keys.length > 10000) throw captureRefusal();
+    seen.add(item); add(array ? "[" : "{");
+    const names = array ? keys.filter(key => key !== "length") : keys;
+    if (array && (item.length > 1000 || names.length !== item.length || names.some(key => !/^(0|[1-9]\d*)$/.test(key) || Number(key) >= item.length))) throw captureRefusal();
+    for (let index = 0; index < names.length; index++) {
+      const key = array ? String(index) : names[index], d = descriptors[key];
+      if (!d?.enumerable || !Object.hasOwn(d, "value")) throw captureRefusal();
+      if (index) add(","); if (!array) add(JSON.stringify(key) + ":"); visit(d.value, depth + 1);
+    }
+    add(array ? "]" : "}"); seen.delete(item);
+  }
+  visit(value, 0); return bytes;
+}
+function captureAndroidWindow(options, native, packageKey = "expectedPackage") {
+  const target = admitAndroidCaptureOptions(options, packageKey);
+  const adb = (...args) => native.adb(target.serial, args);
+  let attempted = false, failed = false, captured, dumpPath;
+  try {
+    const devices = native.listDevices();
+    if (!Array.isArray(devices) || devices.length > 100 || devices.filter(device => device.id === target.serial && device.ready === true && device.status === "device").length !== 1) throw captureRefusal();
+    requireAndroidForeground(adb("shell", "dumpsys", "window", "windows"), target.expectedPackage);
+    dumpPath = native.dumpPath();
+    if (typeof dumpPath !== "string" || !/^\/sdcard\/vaettir-window-[a-f0-9]{32}\.xml$/.test(dumpPath)) throw captureRefusal();
+    attempted = true;
+    adb("shell", "uiautomator", "dump", dumpPath);
+    const hierarchy = adb("exec-out", "cat", dumpPath);
+    requireAndroidForeground(adb("shell", "dumpsys", "window", "windows"), target.expectedPackage);
+    requireAndroidHierarchy(hierarchy, target.expectedPackage);
+    const rawModel = adb("shell", "getprop", "ro.product.model");
+    const model = typeof rawModel === "string" ? rawModel.replace(/\r?\n$/, "") : rawModel;
+    captured = buildCaptureManifest({ source: "ANDROID_ADB", deviceName: model === "" ? target.serial : model,
+      appName: target.expectedPackage, label: target.label, hierarchy });
+  } catch { failed = true; }
+  finally { if (attempted) { try { adb("shell", "rm", "-f", dumpPath); } catch { failed = true; } } }
+  if (failed || !captured) throw captureRefusal();
+  androidCaptureOrigins.set(captured, Object.freeze({ source: "ANDROID_ADB", serial: target.serial,
+    expectedPackage: target.expectedPackage, signature: JSON.stringify(captured) }));
+  // Before/after focus and hierarchy package observations are NOT atomic
+  // app-exclusive collection, source-processing consent or an operation receipt.
+  return captured;
+}
+
+function nativeRole(attributes, tag) {
+  const type = [attributes.class, attributes.type, tag]
+    .filter(Boolean)
+    .join(" ");
+  return (
+    ROLE_BY_NATIVE_TYPE.find(([pattern]) => pattern.test(type))?.[1] ??
+    (attributes.clickable === "true" ? "button" : "element")
+  );
+}
+
+function eventForRole(role) {
+  if (role === "textbox") return "fill";
+  if (["checkbox", "radio", "switch"].includes(role)) return "check";
+  if (role === "combobox") return "select";
+  if (role === "link") return "navigate";
+  return "click";
+}
+
+function extractElementsFromHierarchy(xml, maximum = 150) {
+  if (!Number.isSafeInteger(maximum) || maximum < 1 || maximum > 150) throw captureRefusal();
   const elements = [];
-  const seen = new Set();
-  const tags = xml.match(/<(?:node|XCUIElementType[\w]+)\b[^>]*>/g) ?? [];
+  const tags = hierarchyTags(xml);
   for (const tag of tags) {
     const attributes = attributesOf(tag);
     if (attributes.visible === "false" || attributes.displayed === "false")
@@ -112,100 +260,72 @@ function extractElements(xml, maximum = 150) {
       attributes.name,
       attributes.value,
       attributes["resource-id"],
-    ].find((value) => value && value !== "true" && value !== "false");
+    ].find((value) => typeof value === "string" && value.length > 0);
     if (!name) continue;
-    const type = [attributes.class, attributes.type, tag]
-      .filter(Boolean)
-      .join(" ");
-    const role =
-      ROLE_BY_NATIVE_TYPE.find(([pattern]) => pattern.test(type))?.[1] ??
-      (attributes.clickable === "true" ? "button" : "element");
-    const normalizedName = name.slice(0, 200);
+    const role = nativeRole(attributes, tag);
+    const normalizedName = exactText(name, 200);
     const androidId = attributes["resource-id"];
     const iosId = tag.startsWith("<XCUIElementType")
       ? attributes.name
       : undefined;
-    const stableId = (androidId || iosId || "").slice(0, 200) || undefined;
+    const stableId = androidId || iosId || undefined;
+    if (stableId !== undefined) exactText(stableId, 200);
     const selector = androidId
       ? `resource-id=${androidId}`
       : iosId
         ? `accessibility-id=${iosId}`
         : undefined;
-    const event =
-      role === "textbox"
-        ? "fill"
-        : ["checkbox", "radio", "switch"].includes(role)
-          ? "check"
-          : role === "combobox"
-            ? "select"
-            : role === "link"
-              ? "navigate"
-              : "click";
-    const key = `${role}\u0000${normalizedName}\u0000${stableId ?? ""}`;
-    if (seen.has(key)) continue;
-    seen.add(key);
+    if (selector !== undefined) exactText(selector, 500);
     elements.push({
       role,
       name: normalizedName,
       ...(stableId ? { stableId } : {}),
       ...(selector ? { selector } : {}),
-      event,
+      event: eventForRole(role),
     });
-    if (elements.length >= maximum) break;
+    if (elements.length > maximum) throw captureRefusal();
   }
   return elements;
 }
 
-function manifest({ source, deviceName, appName, label, hierarchy }) {
-  const elements = extractElements(hierarchy);
+function buildCaptureManifest({
+  source,
+  deviceName,
+  appName,
+  label,
+  hierarchy,
+}) {
+  if (!["ANDROID_ADB", "IOS_CONNECTED", "IOS_REMOTE"].includes(source)) {
+    throw captureRefusal();
+  }
+  const elements = extractElementsFromHierarchy(hierarchy);
   if (elements.length === 0) {
-    throw new Error(
-      "The current screen has no named accessibility elements to capture.",
-    );
+    throw captureRefusal();
   }
   const capturedAt = new Date().toISOString();
-  return {
+  const captured = {
     version: 1,
     source,
-    deviceName: String(deviceName || "Unknown device").slice(0, 200),
-    ...(appName ? { appName: String(appName).slice(0, 200) } : {}),
+    deviceName: exactText(deviceName, 200),
+    ...(appName !== undefined ? { appName: exactText(appName, 200) } : {}),
     capturedAt,
     screens: [
       {
         id: `screen-${capturedAt.replace(/[^0-9]/g, "")}`,
-        label: String(label || "Current screen").slice(0, 200),
+        label: exactText(label === undefined ? "Current screen" : label, 200),
         elements,
       },
     ],
   };
+  completeCaptureJsonBytes(captured);
+  return captured;
 }
 
 function captureAndroid(options) {
-  const devices = listAndroidDevices()
-    .filter((device) => device.ready)
-    .map((device) => device.id);
-  const serial =
-    options.serial || (devices.length === 1 ? devices[0] : undefined);
-  if (!serial) {
-    throw new Error(
-      devices.length === 0
-        ? "No authorized Android device was found. Connect one and enable USB debugging."
-        : "Multiple Android devices are connected. Enter the device serial shown by adb devices.",
-    );
-  }
-  const adb = (...args) => run("adb", ["-s", serial, ...args]);
-  adb("shell", "uiautomator", "dump", "/sdcard/vaettir-window.xml");
-  const hierarchy = adb("exec-out", "cat", "/sdcard/vaettir-window.xml");
-  adb("shell", "rm", "/sdcard/vaettir-window.xml");
-  const model = adb("shell", "getprop", "ro.product.model") || serial;
-  const focusedWindow = adb("shell", "dumpsys", "window", "windows");
-  const packageName = focusedWindow.match(/mCurrentFocus=.*?\s([\w.]+)\//)?.[1];
-  return manifest({
-    source: "ANDROID_ADB",
-    deviceName: model,
-    appName: options.appName || packageName,
-    label: options.label || "Current Android screen",
-    hierarchy,
+  return captureAndroidWindow(options, {
+    listDevices: listAndroidDevices,
+    adb: (serial, args) => run("adb", ["-s", serial, ...args]),
+    dumpPath: () => `/sdcard/vaettir-window-${randomBytes(16).toString("hex")}.xml`,
   });
 }
 
@@ -255,7 +375,7 @@ async function captureIos(options) {
     headers,
   ).catch(() => ({}));
   const capabilities = details.value?.capabilities || details.value || {};
-  return manifest({
+  return buildCaptureManifest({
     source: options.source === "ios-remote" ? "IOS_REMOTE" : "IOS_CONNECTED",
     deviceName:
       options.deviceName ||

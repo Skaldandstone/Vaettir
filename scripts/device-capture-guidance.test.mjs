@@ -64,10 +64,24 @@ test("manual command is the actual Node raw-connector path, not a security bypas
 });
 
 test("connection, private pairing and processing approval remain distinct", () => {
-  assert.match(normalizedPage, /No paired helper response was received\. Downloading does not prove that Windows launched it/);
+  assert.match(normalizedPage, /Downloading does not start checks or discover devices/);
+  assert.match(normalizedPage, /<DeviceHelperSetupStatus/);
+  assert.match(normalizedPage, /foreground-app verification or scoped capture\/processing-consent admission/);
   assert.match(normalizedGuidance, /successful download or a launched terminal does not prove connection, device access or capture/);
   assert.match(normalizedGuidance, /Do not share the launcher, code or screenshots that reveal it/);
   assert.match(normalizedGuidance, /Pairing does not approve capture, upload, AI processing, provider charges or access to another app\/source/);
   assert.match(normalizedGuidance, /Saving a draft creates or updates a case for review, not an approved execution result/);
   assert.doesNotMatch(normalizedGuidance, /the page connects automatically|Download Windows helper|guaranteed (?:launch|connection|capture)/i);
+});
+
+test("Android guidance requires exact targets and never describes persisted append as proven scope", () => {
+  assert.match(normalizedGuidance, /--serial DEVICE_ID --expected-package com\.example\.app/);
+  assert.match(normalizedGuidance, /required even when one device is connected/);
+  assert.match(normalizedGuidance, /before\/after foreground and hierarchy-package observations/);
+  assert.match(normalizedGuidance, /not atomic app-exclusive collection/);
+  assert.match(normalizedGuidance, /Existing files are never overwritten/);
+  assert.match(normalizedGuidance, /Persisted version-1 manifests do not contain trusted original target bindings/);
+  assert.match(normalizedGuidance, /refused before collection when the output exists/);
+  assert.match(normalizedGuidance, /Duplicate named controls and raw whitespace remain distinct/);
+  assert.doesNotMatch(guidance, /--label "Home" --append/);
 });

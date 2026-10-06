@@ -16,6 +16,7 @@ test("extracts named Android controls without retaining hierarchy XML", () => {
   assert.deepEqual(elements, [
     { role: "button", name: "Continue", event: "click" },
     { role: "textbox", name: "Email address", event: "fill" },
+    { role: "button", name: "Continue", event: "click" },
   ]);
 });
 
@@ -53,7 +54,7 @@ test("retains Android object ids and selectors for executable steps", () => {
   ]);
 });
 
-test("appends screens only for the same device and source", () => {
+test("display-only manifests cannot establish original target authority for append", () => {
   const first = buildCaptureManifest({
     source: "ANDROID_ADB",
     deviceName: "Pixel",
@@ -66,9 +67,14 @@ test("appends screens only for the same device and source", () => {
     label: "Home",
     hierarchy: '<node class="android.widget.Button" text="Settings" />',
   });
-  assert.equal(appendCapture(first, second).screens.length, 2);
-  assert.throws(
-    () => appendCapture(first, { ...second, deviceName: "Other" }),
-    /same source and device/,
-  );
+  const original = JSON.stringify(first), incoming = JSON.stringify(second);
+  // Even identical labels/source cannot recreate a native collector binding.
+  assert.throws(() => appendCapture(first, second), /complete selected capture/);
+  for (const replacement of [
+    { ...second, deviceName: "Other" },
+    { ...second, source: "IOS_CONNECTED" },
+    JSON.parse(incoming),
+  ]) assert.throws(() => appendCapture(first, replacement), /complete selected capture/);
+  assert.equal(JSON.stringify(first), original);
+  assert.equal(JSON.stringify(second), incoming);
 });

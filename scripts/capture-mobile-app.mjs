@@ -2,7 +2,8 @@
 import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { appendCapture, buildCaptureManifest } from "./device-capture-lib.mjs";
+import { randomBytes } from "node:crypto";
+import { buildCaptureManifest, captureAndroidWindow } from "./device-capture-lib.mjs";
 
 function parseArguments(argv) {
   const values = {};
@@ -22,43 +23,21 @@ function run(command, args) {
     return execFileSync(command, args, {
       encoding: "utf8",
       stdio: ["ignore", "pipe", "pipe"],
-    }).trim();
+      maxBuffer: 1024 * 1024, timeout: 10000, windowsHide: true,
+    });
   } catch (error) {
-    const detail = error?.stderr?.toString().trim() || error.message;
-    throw new Error(`${command} failed: ${detail}`);
+    throw new Error("A local device command did not return a complete supported result.", { cause: error });
   }
 }
 
 function captureAndroid(options) {
-  const devices = run("adb", ["devices"])
-    .split(/\r?\n/)
-    .slice(1)
-    .map((line) => line.trim().split(/\s+/))
-    .filter(([, state]) => state === "device")
-    .map(([serial]) => serial);
-  const serial =
-    options.serial || (devices.length === 1 ? devices[0] : undefined);
-  if (!serial) {
-    throw new Error(
-      devices.length === 0
-        ? "No authorized ADB device is connected."
-        : "Multiple ADB devices are connected; pass --serial <device>.",
-    );
-  }
-  const adb = (...args) => run("adb", ["-s", serial, ...args]);
-  adb("shell", "uiautomator", "dump", "/sdcard/vaettir-window.xml");
-  const hierarchy = adb("exec-out", "cat", "/sdcard/vaettir-window.xml");
-  adb("shell", "rm", "/sdcard/vaettir-window.xml");
-  const model = adb("shell", "getprop", "ro.product.model") || serial;
-  const focusedWindow = adb("shell", "dumpsys", "window", "windows");
-  const packageName = focusedWindow.match(/mCurrentFocus=.*?\s([\w.]+)\//)?.[1];
-  return buildCaptureManifest({
-    source: "ANDROID_ADB",
-    deviceName: model,
-    appName: options["app-name"] || packageName,
-    label: options.label || "Current Android screen",
-    hierarchy,
-  });
+  return captureAndroidWindow(options, {
+    listDevices: () => run("adb", ["devices"]).split(/\r?\n/).slice(1).map(line => line.trim()).filter(Boolean).map(line => {
+      const [id, status] = line.split(/\s+/); return { id, status, ready: status === "device" };
+    }),
+    adb: (serial, args) => run("adb", ["-s", serial, ...args]),
+    dumpPath: () => `/sdcard/vaettir-window-${randomBytes(16).toString("hex")}.xml`,
+  }, "expected-package");
 }
 
 function appiumRequestOptions(url) {
@@ -163,17 +142,17 @@ async function main() {
     );
   }
   const outputPath = resolve(options.output || "vaettir-device-capture.json");
+  // A persisted v1 file has no trusted original device/package binding. Refuse
+  // before native collection or any file write; never infer identity from names.
+  if (existsSync(outputPath)) throw new Error("The output already exists and has no trusted in-memory capture binding. Nothing was overwritten. Choose a new output filename.");
   const captured =
     options.source === "adb"
       ? captureAndroid(options)
       : await captureIos(options);
-  const manifest =
-    options.append && existsSync(outputPath)
-      ? appendCapture(JSON.parse(readFileSync(outputPath, "utf8")), captured)
-      : captured;
-  writeFileSync(outputPath, `${JSON.stringify(manifest, null, 2)}\n`, {
+  writeFileSync(outputPath, `${JSON.stringify(captured, null, 2)}\n`, {
     encoding: "utf8",
     mode: 0o600,
+    flag: "wx",
   });
   process.stdout.write(
     `Captured ${captured.screens[0].elements.length} named elements to ${outputPath}\n`,

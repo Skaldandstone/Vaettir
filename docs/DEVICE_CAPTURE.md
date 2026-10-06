@@ -9,6 +9,13 @@ The manifest intentionally excludes screenshots, raw hierarchy XML, Appium endpo
 and session IDs. Vaettir accepts at most 25 screens and 150 named elements per screen. Generated drafts are
 not saved automatically. Saving a draft creates or updates a case for review, not an approved execution result.
 
+Current source limitation: the hosted page refuses capture before helper HTTP dispatch when independently
+bound target and processing consent are unavailable. Pairing does not fill that gap. The Android collector
+requires an explicit device serial and expected package; its before/after foreground and hierarchy-package
+observations are bounded window evidence, not atomic app-exclusive collection. iOS target validation,
+signed Windows delivery and actual device acceptance remain unverified. The workflow below describes
+separate actions to review, not proof that the current release supports an accepted end-to-end capture.
+
 ## Pair the browser
 
 1. Open **Live App Generation** and choose **Android / ADB**, **Connected iOS**, or **Remote iOS**. Review the
@@ -89,14 +96,24 @@ For an existing repository setup, this command is a separate, explicitly authori
 a Windows launch-policy workaround:
 
 ```powershell
-pnpm capture:device -- --source adb --output vaettir-device.json --label "Sign in"
+pnpm capture:device -- --source adb --serial DEVICE_ID --expected-package com.example.app --output vaettir-sign-in.json --label "Sign in"
 ```
 
-If more than one device is connected, add `--serial <device-id>`. Navigate to another app state and append it:
+Replace both target placeholders with the independently approved device serial and actual Android package.
+They are required even when one device is connected; device display names and `--app-name` are not identity.
+The collector checks native foreground before and after the hierarchy read and refuses unexpected packages.
+For another separately authorized state, choose a fresh output file:
 
 ```powershell
-pnpm capture:device -- --source adb --output vaettir-device.json --label "Home" --append
+pnpm capture:device -- --source adb --serial DEVICE_ID --expected-package com.example.app --output vaettir-home.json --label "Home"
 ```
+
+Existing files are never overwritten. Persisted version-1 manifests do not contain trusted original target
+bindings, so name-only `--append` cannot authorize aggregation and is refused before collection when the
+output exists. The internal collector can append only its exact, unchanged in-memory captures of the same
+observed serial/package. Complete over-limit or unsupported values refuse rather than truncate: at most
+150 named elements per screen, 200 UTF-16 units per retained label/name/ID and 25 whole screens. Duplicate
+named controls and raw whitespace remain distinct. These source checks are not consent or native acceptance.
 
 ## Connected iPhone or iPad
 

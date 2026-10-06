@@ -3243,3 +3243,31 @@ lack original submission-native stamps and must remain opaque, never upgraded
 from a current read. Plan-template private-read ordering and the Windows helper
 collector remain separately owned work; all previous native/runtime/security,
 migration/recovery, deployment and authenticated production gates remain open.
+
+### October 6: bounded Android collector source repair, not Windows acceptance
+
+The public self-contained connector and repository collector now require an
+explicit approved Android serial/package before collection. Native foreground
+is observed before and after the hierarchy read, and unexpected hierarchy
+packages refuse. This is window-scope evidence, not atomic app-exclusive capture,
+processing consent, a durable operation receipt or physical-device acceptance.
+Raw whitespace, numeric XML entities and duplicate named controls are retained;
+unsupported/over-limit complete values refuse rather than silently clip.
+
+Only exact unchanged in-memory captures bound privately by the collector may
+append within the same observed serial/package. Persisted version-1 files lack
+that original authority, so name-only append refuses. CLI existing outputs refuse
+before collection and exclusive writes prevent racing overwrite. Documented
+Android commands now require both target flags and fresh filenames.
+
+Root independently passed 34 source/synthetic checks across collector, legacy
+pure extraction, guidance and launcher construction tests, plus scoped lint with
+zero errors/warnings. The old duplicate-coalescing/name-only append assertions
+were replaced with exact-retention and refusal assertions, not bypassed. A stale
+guidance assertion was strengthened against the actual mounted metadata status
+surface. No helper startup, helper HTTP, ADB/Appium, device/provider, actual
+capture/file output, source/AI processing, SEA/signing or security changes ran.
+Web capture dispatch stays closed pending bound target and consent; iOS target
+verification, paid recovery, approved signed delivery and the reported Windows
+launch failure remain unaccepted. Later run-start caller bytes are separate
+in-flight work and are not covered by these checks.
