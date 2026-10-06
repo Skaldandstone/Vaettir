@@ -20,7 +20,10 @@ test("complete folder procedure review uses the ordered expected-field table wit
     assert.ok(columns.includes(`"${field}"`));
   }
   assert.ok(columns.includes('whiteSpace: "pre-wrap"'));
-  assert.ok(columns.includes('step[field] == null || step[field] === ""'));
+  assert.ok(columns.includes("step[field] == null"));
+  assert.ok(columns.includes('step[field] === ""'));
+  assert.ok(columns.includes('<em>Empty text</em>'));
+  assert.ok(!columns.includes('step[field] == null || step[field] === ""'));
   assert.ok(columns.includes("{index + 1}"));
 });
 

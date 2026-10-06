@@ -3198,3 +3198,48 @@ passed 99 checks across five files, API types and strict/scoped checks. These
 are compatible source/synthetic checks, not full native/runtime/image-security,
 migration/recovery or authenticated production acceptance. All original
 release failures and the broader reported workflow/parity scope remain open.
+
+### October 6: procedure preview fidelity and refreshed Testmo evidence
+
+The mounted shared procedure renderer previously displayed explicit empty text
+and absent/NULL expected fields identically. The actual-component SSR regression
+reproduced three failures before the repair. It now labels explicit empty text
+separately, while preserving raw whitespace, multiline values, custom labels,
+stored order, duplicate steps and media-reference counts. No stored procedure,
+hash, API or permission changed. Two old source contracts requiring the
+conflating expression were strengthened; their other predicates remain intact.
+Root's compatible Web run passed 807 Node plus 1,419 typed checks (87 typed
+files), 2,226 total, with no skips; Web types and scoped four-path lint passed.
+The first full Node run retained 806 passes/one obsolete-literal failure before
+that second contract correction. Static synthetic Chrome rendering of the
+actual component and application CSS showed aligned technical descriptors,
+explicit-empty/absent labels and multiline rows. This is not a saved-case,
+authenticated tenant, native-reader or production acceptance check.
+
+Fresh authenticated Testmo trial inspection used its Space Shuttle vendor
+sample only: repository search/folders, compact priority/latest-status columns,
+tag counts, template/estimate metadata, ordered prose steps and a separate
+Comments editor were visible. No case, comment, run or settings were saved.
+This supports keeping useful prose and project-specific templates; it does not
+establish read-only-member comment permissions, export fidelity or superiority.
+
+Historical [April 2023 discussion](https://www.reddit.com/r/QualityAssurance/comments/12x9mke/test_case_management_tools_question/)
+included both praise for project-specific templates and missing API/reporting
+features. A [September 2025 discussion](https://www.reddit.com/r/QualityAssurance/comments/1nm87hy/test_management_system/)
+described cross-project release reporting workarounds. These are dated individual
+experiences, not prevalence estimates or confirmed current defects. The current
+[Testmo changelog](https://support.testmo.com/hc/en-us/articles/38044957362317-Changelog)
+documents later case APIs/reporting, 2026 automation linking, and fixes for
+mixed BDD/step exports, deselected-case bulk edits and retry authentication.
+Therefore older absence claims must not be repeated as current facts. Our
+acceptance opportunities are lossless mixed-field exports, exact reviewed bulk
+cohorts, stable manual/automation identity links and honest cross-project
+report scope, not copying every vendor interaction or asserting a ranking.
+
+Ordinary run-start integration is a separate active repair. Its additive reviewed
+namespace is being wired to the two shared configuration callers; metadata-only
+PREVIEW is not cohort/configuration approval. Existing legacy UNKNOWN requests
+lack original submission-native stamps and must remain opaque, never upgraded
+from a current read. Plan-template private-read ordering and the Windows helper
+collector remain separately owned work; all previous native/runtime/security,
+migration/recovery, deployment and authenticated production gates remain open.

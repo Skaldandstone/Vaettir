@@ -35,8 +35,8 @@ export function CaseProcedureColumns({
         style={{ minWidth: 640, width: "100%", tableLayout: "fixed" }}
       >
         <caption>
-          Steps in stored order. Empty expected fields are shown as not
-          supplied.
+          Steps in stored order. Explicit empty text is labeled separately;
+          absent fields are shown as not supplied.
         </caption>
         <thead>
           <tr>
@@ -74,9 +74,11 @@ export function CaseProcedureColumns({
                     verticalAlign: "top",
                   }}
                 >
-                  {step[field] == null || step[field] === ""
+                  {step[field] == null
                     ? "Not supplied"
-                    : step[field]}
+                    : step[field] === ""
+                      ? <em>Empty text</em>
+                      : step[field]}
                 </td>
               ))}
               {hasMedia && (

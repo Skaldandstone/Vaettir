@@ -38,7 +38,10 @@ test("ordered procedure preview retains all expected columns, native labels and 
     "expectedResponse",
   ])
     assert.ok(columns.includes(`labels?.${field}`));
-  assert.ok(columns.includes('step[field] == null || step[field] === ""'));
+  assert.ok(columns.includes("step[field] == null"));
+  assert.ok(columns.includes('step[field] === ""'));
+  assert.ok(columns.includes('<em>Empty text</em>'));
+  assert.ok(!columns.includes('step[field] == null || step[field] === ""'));
   assert.ok(columns.includes('whiteSpace: "pre-wrap"'));
   assert.ok(columns.includes("this preview does not fetch or verify media"));
   assert.ok(columns.includes("{index + 1}"));
