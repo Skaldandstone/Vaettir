@@ -7,6 +7,9 @@ import { prepareManualRetest, startManualRetest, manualRetestRequestHash } from 
 import { manualRetestReadRequestKey } from "./services/manualRetestScopeSchema.js";
 import { boundedRunSnapshot } from "./services/qualityExperienceProfile.js";
 import { hardDeleteOrganization } from "./services/orgHardDelete.js";
+import { manualCaseReviewedExactWriteSchema, manualCaseReviewedReadKey } from "./services/manualCaseResultSchema.js";
+import { manualCaseReviewedRequestHash } from "./services/manualCaseResultsReviewed.js";
+
 const url = process.env.DATABASE_URL ? new URL(process.env.DATABASE_URL) : null;
 const isolated = url && ["localhost", "127.0.0.1"].includes(url.hostname) && /test/i.test(url.pathname) && !url.searchParams.has("host");
 describe.skipIf(!isolated)("manual retest scoped actor original tenant and retained receipt", () => {
@@ -23,13 +26,13 @@ describe.skipIf(!isolated)("manual retest scoped actor original tenant and retai
       if (suffix === "original") organizationId = org.id; else otherOrganizationId = org.id;
     }
     for (const suffix of ["owner", "second", "viewer"]) {
-      const clerkUserId = `${prefix}-${suffix}`;
-      const user = await prisma.user.create({ data: { clerkUserId, email: `${clerkUserId}@example.com`, memberships: { create: {
+      const authenticatedClerkSubject = `${prefix}-${suffix}`;
+      const user = await prisma.user.create({ data: { clerkUserId: authenticatedClerkSubject, email: `${authenticatedClerkSubject}@example.com`, memberships: { create: {
         organizationId, role: suffix === "viewer" ? "VIEWER" : "OWNER", seatType: suffix === "viewer" ? "READ_ONLY" : "FULL" } } }, include: { memberships: true } });
-      ownedUsers.push(user.id); const caller = appRouter.createCaller({ prisma, user });
-      if (suffix === "owner") { owner = caller; ownerId = user.id; ownerClerk = clerkUserId; }
-      else if (suffix === "second") { second = caller; secondId = user.id; secondClerk = clerkUserId; }
-      else { viewer = caller; viewerId = user.id; viewerClerk = clerkUserId; }
+      ownedUsers.push(user.id); const caller = appRouter.createCaller({ prisma, user, authenticatedClerkSubject });
+      if (suffix === "owner") { owner = caller; ownerId = user.id; ownerClerk = authenticatedClerkSubject; }
+      else if (suffix === "second") { second = caller; secondId = user.id; secondClerk = authenticatedClerkSubject; }
+      else { viewer = caller; viewerId = user.id; viewerClerk = authenticatedClerkSubject; }
     }
     await prisma.membership.create({ data: { organizationId: otherOrganizationId, userId: ownerId, role: "OWNER", seatType: "FULL" } });
     projectId = (await owner.project.create({ organizationId, name: `${prefix} project` })).id;
@@ -48,10 +51,35 @@ describe.skipIf(!isolated)("manual retest scoped actor original tenant and retai
         expect(await prisma.organizationDeletionLog.count({ where: { organizationId: fixture.id, deletedById: ownerId } })).toBe(1);
   });
   const origin = () => ({ projectId, organizationId, clerkActorId: ownerClerk });
+  // Real reviewed router calls in the owned disposable DB, not a receipt mock.
+    // Caller subjects below are declared synthetic contexts, not JWT verification.
+    async function recordCaseOutcome(input: Parameters<typeof owner.manualExecution.recordResult>[0]) {
+      const expectedScope = origin();
+      const accessInput = { projectId, testRunId: input.testRunId, testCaseId: input.testCaseId, expectedScope, readRequestId: randomUUID() };
+      const access = await owner.manualCaseResults.accessReviewed(accessInput);
+      expect(access.readContext).toMatchObject({ requestId: accessInput.readRequestId, requested: manualCaseReviewedReadKey(accessInput), projection: "ACCESS", scope: { ...expectedScope, actorId: ownerId } });
+      const previewInput = { ...accessInput, expectedNativeActorId: access.readContext.scope.actorId, readRequestId: randomUUID() };
+      const preview = await owner.manualCaseResults.previewReviewed(previewInput);
+      expect(preview.readContext).toMatchObject({ requestId: previewInput.readRequestId, requested: manualCaseReviewedReadKey(previewInput), projection: "PREVIEW", scope: { ...expectedScope, actorId: ownerId } });
+      const request = manualCaseReviewedExactWriteSchema.parse({
+        mode: "EXACT", projectId, testRunId: input.testRunId, testCaseId: input.testCaseId, expectedScope, expectedNativeActorId: ownerId,
+        expectedFrozenEvidenceHash: preview.frozenEvidenceHash, expectedRevisionId: preview.currentRevisionId, expectedCurrentFingerprint: preview.currentFingerprint,
+        status: input.status, note: input.note ?? null, observations: input.observations ?? {},
+        correctionReason: preview.current ? "Synthetic explicitly reviewed correction" : null, idempotencyKey: randomUUID(),
+      });
+      const ack = await owner.manualCaseResults.recordReviewed(request);
+      expect(ack).toMatchObject({ mode: "EXACT", scope: { ...expectedScope, actorId: ownerId }, testRunId: input.testRunId, testCaseId: input.testCaseId, idempotencyKey: request.idempotencyKey, requestHash: manualCaseReviewedRequestHash(request), recovered: false });
+      expect(await prisma.manualCaseResultRevision.findUniqueOrThrow({ where: { id: ack.revisionId } })).toMatchObject({
+        testRunId: input.testRunId, testCaseId: input.testCaseId, actorId: ownerId, actorClerkUserId: expectedScope.clerkActorId,
+        status: request.status, note: request.note, observations: request.observations, idempotencyKey: request.idempotencyKey, requestHash: ack.requestHash,
+      });
+      return ack;
+    }
+
   async function fixture() {
     const c = await owner.testCases.create({ projectId, title: `${prefix} original`, testType: "FUNCTIONAL", given: ["Original Given"], when: ["Original When"], then: ["Original Then"] });
     const run = await owner.manualExecution.start({ projectId, testCaseIds: [c.id], executionContext: { platform: "Synthetic PC", environment: "Original environment", build: "original-build" }, idempotencyKey: randomUUID() });
-    await owner.manualExecution.recordResult({ testRunId: run.testRunId, testCaseId: c.id, status: "FAIL", note: "Original retained failure" });
+    await recordCaseOutcome({ testRunId: run.testRunId, testCaseId: c.id, status: "FAIL", note: "Original retained failure" });
     const read = { projectId, sourceRunId: run.testRunId, testCaseId: c.id, expectedScope: origin() };
     const preview = await owner.manualRetest.preview(read);
     return { read, preview, start: { ...read, expectedReviewHash: preview.reviewHash, idempotencyKey: randomUUID() } };
@@ -112,7 +140,7 @@ describe.skipIf(!isolated)("manual retest scoped actor original tenant and retai
   });
   it("historical identical replay recovers before changed source/procedure validation and copies no new result", async () => {
     const f = await fixture(), original = await owner.manualRetest.start(f.start);
-    await owner.manualExecution.recordResult({ testRunId: f.read.sourceRunId, testCaseId: f.read.testCaseId, status: "PASS", note: "Later correction" });
+    await recordCaseOutcome({ testRunId: f.read.sourceRunId, testCaseId: f.read.testCaseId, status: "PASS", note: "Later correction" });
     await prisma.testCase.update({ where: { id: f.read.testCaseId }, data: { archived: true, given: ["Current changed Given"] } });
     expect(await owner.manualRetest.start(f.start)).toEqual({ ...original, recovered: true });
     const retained = boundedRunSnapshot((await prisma.testRun.findUniqueOrThrow({ where: { id: original.testRunId } })).executionContext);
@@ -175,7 +203,7 @@ describe.skipIf(!isolated)("manual retest scoped actor original tenant and retai
     try { await expect(owner.manualRetest.start(f.start)).rejects.toThrow("bounded snapshot limit"); }
     finally { await prisma.testRun.update({ where: { id: ack.testRunId }, data: { executionContext: receipt.executionContext as Prisma.InputJsonValue } }); }
     const original = await prisma.testRun.findUniqueOrThrow({ where: { id: f.read.sourceRunId }, select: { manualTestCaseIds: true } });
-    await prisma.testRun.update({ where: { id: f.read.sourceRunId }, data: { manualTestCaseIds: Array.from({ length: 501 }, (_, i) => `owned-synthetic-${i}`) } });
+    await prisma.testRun.update({ where: { id: f.read.sourceRunId }, data: { manualTestCaseIds: Array.from({ length: 1001 }, (_, i) => `owned-synthetic-${i}`) } });
     try { await expect(owner.manualRetest.preview(f.read)).rejects.toThrow("bounded retest review"); }
     finally { await prisma.testRun.update({ where: { id: f.read.sourceRunId }, data: { manualTestCaseIds: original.manualTestCaseIds } }); }
   });

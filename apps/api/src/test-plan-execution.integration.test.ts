@@ -5,6 +5,19 @@ import { appRouter } from "./router.js";
 import { runConfigurationSchema } from "./services/qualityExperienceProfile.js";
 import { assertOwnedTestDatabase } from "./testOnlyDatabaseSafety.js";
 
+// Safe failure diagnostics for owned synthetic concurrency only. Never print
+// SQL, statements, native messages, query parameters or arbitrary error fields.
+function ownDataProperty(value: unknown, key: string): unknown {
+  if (value === null || typeof value !== "object") return undefined;
+  const descriptor = Object.getOwnPropertyDescriptor(value, key);
+  return descriptor && "value" in descriptor ? descriptor.value as unknown : undefined;
+}
+function concurrentFailureCodes(value: unknown) {
+  const code = (candidate: unknown) => typeof candidate === "string" && /^[A-Z0-9_]{1,32}$/.test(candidate) ? candidate : "UNAVAILABLE";
+  const cause = ownDataProperty(value, "cause");
+  return JSON.stringify({ outerCode: code(ownDataProperty(value, "code")), nativeCode: code(ownDataProperty(cause, "code")), sqlState: code(ownDataProperty(ownDataProperty(cause, "meta"), "code")) });
+}
+
 const url = process.env.DATABASE_URL ? new URL(process.env.DATABASE_URL) : null;
 const isolated =
   url &&
@@ -47,18 +60,19 @@ describe.skipIf(!isolated)(
         role: "OWNER" | "VIEWER" | "EDITOR",
         seatType: "FULL" | "READ_ONLY" = "FULL",
       ) {
+        const authenticatedClerkSubject = `${key}-${suffix}`;
         const user = await prisma.user.create({
           data: {
             email: `${key}-${suffix}@example.com`,
-            clerkUserId: `${key}-${suffix}`,
+            clerkUserId: authenticatedClerkSubject,
             memberships: { create: { organizationId, role, seatType } },
           },
           include: { memberships: true },
         });
-        return appRouter.createCaller({ prisma, user, staff: null, staffAttempt: false, securityLogger: () => undefined });
+        if (suffix === "owner") ownerClerkActorId = authenticatedClerkSubject;
+        return appRouter.createCaller({ prisma, user, authenticatedClerkSubject, staff: null, staffAttempt: false, securityLogger: () => undefined });
       }
       ownerOrganizationId = org.id;
-      ownerClerkActorId = `${key}-owner`;
       owner = await caller("owner", org.id, "OWNER");
       viewer = await caller("viewer", org.id, "VIEWER");
       readonly = await caller("readonly", org.id, "EDITOR", "READ_ONLY");
@@ -480,7 +494,7 @@ describe.skipIf(!isolated)(
       // Refuse it atomically, then explicitly review a NEW request; never
       // relabel an old UUID or pretend both conflicting writes succeeded.
       if (outcomes[0]!.status === "rejected") {
-        expect(outcomes[0]!.reason).toMatchObject({ code: "CONFLICT" });
+        expect(outcomes[0]!.reason, concurrentFailureCodes(outcomes[0]!.reason)).toMatchObject({ code: "CONFLICT" });
         await editPlanField(plan.id, { operation: "SET", key: "retained", value: "Human content" });
       }
       await setPlanStatus(plan.id);
@@ -607,7 +621,8 @@ describe.skipIf(!isolated)(
         search: "No matched title",
       });
       expect(hidden.cases.map((c) => c.id).sort()).toEqual(selectedIds.sort());
-      // The500cap applies to the graph, not total inventory:1selected+500required fails atomically.
+      // Inventory pages still contain505 identical titles; the current run
+      // closure limit is1,000, so1selected+1,000required must fail atomically.
       const creator = await prisma.user.findUniqueOrThrow({
         where: { email: `${key}-owner@example.com` },
         select: { id: true },
@@ -622,11 +637,25 @@ describe.skipIf(!isolated)(
             createdById: creator.id,
           })),
       });
+      const additionalPrerequisites = Array.from({ length: 500 }, (_, i) => ({
+        id: `${prefix}separate-${String(i).padStart(4, "0")}`,
+        projectId,
+        title: "Separate synthetic graph prerequisite",
+        testType: "FUNCTIONAL" as const,
+        given: ["Synthetic precondition"],
+        when: ["Synthetic action"],
+        then: ["Synthetic result"],
+        tags: [],
+      }));
+      await prisma.testCase.createMany({ data: additionalPrerequisites });
+      await prisma.testCasePrerequisite.createMany({ data: additionalPrerequisites.map(c => ({
+        projectId, dependentId: data[504]!.id, prerequisiteId: c.id, createdById: creator.id,
+      })) });
       const bounded = await configure(plan.id, template([data[504]!.id]));
       const before = await prisma.testRun.count({ where: { projectId } });
       await expect(
         owner.manualExecution.start(await request(plan.id, bounded)),
-      ).rejects.toThrow("more than 500");
+      ).rejects.toThrow("more than 1,000");
       expect(await prisma.testRun.count({ where: { projectId } })).toBe(before);
     });
   },

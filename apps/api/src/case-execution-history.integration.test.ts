@@ -1,7 +1,15 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { prisma, Prisma, type TestResultStatus } from "@vaettir/db";
 import { appRouter } from "./router.js";
+import {
+  reviewedStepWriteInputSchema,
+  reviewedStepWriteKey,
+  type ReviewedStepWriteInput,
+  type ReviewedStepAck,
+} from "./services/manualStepExecutionReviewSchema.js";
+import { assertOwnedTestDatabase } from "./testOnlyDatabaseSafety.js";
+import { lockManualRetestAccess } from "./services/manualRetestScope.js";
 import { hardDeleteOrganization } from "./services/orgHardDelete.js";
 
 const url = process.env.DATABASE_URL ? new URL(process.env.DATABASE_URL) : null;
@@ -19,9 +27,11 @@ describe.skipIf(!isolated)("case-centric execution history", () => {
   let organizationId: string,
     otherOrgId: string,
     actorId: string,
+    ownerSubject: string,
     projectId: string,
     otherProjectId: string;
   beforeAll(async () => {
+    assertOwnedTestDatabase(process.env.DATABASE_URL);
     const tier = await prisma.planTier.findUniqueOrThrow({
       where: { key: "free" },
     });
@@ -38,11 +48,12 @@ describe.skipIf(!isolated)("case-centric execution history", () => {
       orgId: string,
       role: "OWNER" | "VIEWER",
     ) {
+      const authenticatedClerkSubject = `${key}-${suffix}`;
       const user = await prisma.user.create({
         data: {
           email: `${key}-${suffix}@example.com`,
           name: `Synthetic ${suffix}`,
-          clerkUserId: `${key}-${suffix}`,
+          clerkUserId: authenticatedClerkSubject,
           memberships: {
             create: {
               organizationId: orgId,
@@ -53,8 +64,15 @@ describe.skipIf(!isolated)("case-centric execution history", () => {
         },
         include: { memberships: true },
       });
-      if (suffix === "owner") actorId = user.id;
-      return appRouter.createCaller({ prisma, user });
+      if (suffix === "owner") {
+        actorId = user.id;
+        ownerSubject = authenticatedClerkSubject;
+      }
+      return appRouter.createCaller({
+        prisma,
+        user,
+        authenticatedClerkSubject,
+      });
     }
     owner = await caller("owner", org.id, "OWNER");
     viewer = await caller("viewer", org.id, "VIEWER");
@@ -101,6 +119,115 @@ describe.skipIf(!isolated)("case-centric execution history", () => {
         expectedResult: `Expected ${i}`,
       })),
     });
+  }
+  type StepDraft = Parameters<typeof owner.manualExecution.recordStepResult>[0];
+  const preparedSteps = new Map<string, Promise<ReviewedStepWriteInput>>();
+  const acknowledgements: ReviewedStepAck[] = [];
+  function freeze<T>(value: T): T {
+    if (value && typeof value === "object") {
+      Object.values(value).forEach(freeze);
+      Object.freeze(value);
+    }
+    return value;
+  }
+  function fields(raw: StepDraft) {
+    return {
+      testRunId: raw.testRunId,
+      testCaseId: raw.testCaseId,
+      stepIndex: raw.stepIndex,
+      status: raw.status,
+      expectedRevisionId: raw.expectedRevisionId,
+      note: raw.note ?? null,
+      correctionReason: raw.correctionReason ?? null,
+      evidenceAttachmentIds: [...(raw.evidenceAttachmentIds ?? [])],
+      observations: {
+        specimen: raw.observations?.specimen ?? "",
+        hardwareRevision: raw.observations?.hardwareRevision ?? "",
+        firmwareVersion: raw.observations?.firmwareVersion ?? "",
+        environment: raw.observations?.environment ?? "",
+        measurements: (raw.observations?.measurements ?? []).map((row) => ({
+          ...row,
+          instrument: row.instrument ?? "",
+        })),
+      },
+    };
+  }
+  async function prepareStep(raw: StepDraft) {
+    let prepared = preparedSteps.get(raw.idempotencyKey);
+    if (!prepared) {
+      prepared = (async () => {
+        const readRequestId = randomUUID(),
+          preview = await owner.manualStepExecutionReview.preview({
+            projectId,
+            testRunId: raw.testRunId,
+            testCaseId: raw.testCaseId,
+            stepIndex: raw.stepIndex,
+            originalOrganizationId: organizationId,
+            expectedClerkActorId: ownerSubject,
+            expectedNativeActorId: actorId,
+            readRequestId,
+          });
+        expect(preview.readRequestId).toBe(readRequestId);
+        expect(preview.scope).toEqual({
+          projectId,
+          organizationId,
+          actorId: actorId,
+          actorClerkUserId: ownerSubject,
+        });
+        expect(preview.supported).toBe(true);
+        expect(preview.procedureHash).not.toBeNull();
+        expect(preview.currentFingerprint).not.toBeNull();
+        return freeze(
+          reviewedStepWriteInputSchema.parse({
+            projectId,
+            ...fields(raw),
+            originalOrganizationId: organizationId,
+            expectedClerkActorId: ownerSubject,
+            expectedNativeActorId: actorId,
+            expectedProcedureHash: preview.procedureHash,
+            expectedCurrentFingerprint: preview.currentFingerprint,
+            idempotencyKey: raw.idempotencyKey,
+            confirmed: true,
+          }),
+        );
+      })();
+      preparedSteps.set(raw.idempotencyKey, prepared); // One immutable preview/envelope for concurrent retries.
+    }
+    const original = await prepared,
+      candidate = reviewedStepWriteInputSchema.parse({
+        ...original,
+        ...fields(raw),
+      });
+    // Deliberately changed negative payloads retain the ORIGINAL baseline;
+    // they exercise the server's hash/CAS refusal, never acquire a fresh one.
+    return reviewedStepWriteKey(candidate) === reviewedStepWriteKey(original)
+      ? original
+      : freeze(candidate);
+  }
+  async function recordStep(raw: StepDraft, caller = owner) {
+    const request = await prepareStep(raw),
+      ack = await caller.manualStepExecutionReview.record(request);
+    expect(ack).toMatchObject({
+      projectId,
+      testRunId: request.testRunId,
+      testCaseId: request.testCaseId,
+      stepIndex: request.stepIndex,
+      idempotencyKey: request.idempotencyKey,
+      scope: {
+        projectId,
+        organizationId,
+        actorId: actorId,
+        actorClerkUserId: ownerSubject,
+      },
+      requestHash: createHash("sha256")
+        .update(reviewedStepWriteKey(request))
+        .digest("hex"),
+      provenance: "REVIEWED_REQUEST_BOUND_AT_WRITE",
+    });
+    expect(typeof ack.recovered).toBe("boolean");
+    acknowledgements.push(ack);
+    // Explicit old-wire comparison view; full scoped ACK is checked above.
+    return { revisionId: ack.revisionId, caseStatus: ack.caseStatus };
   }
   async function ciRun(
     caseId: string,
@@ -219,7 +346,7 @@ describe.skipIf(!isolated)("case-centric execution history", () => {
       build: "synthetic-build",
       definition: { stepCount: 2 },
     });
-    await owner.manualExecution.recordStepResult({
+    await recordStep({
       testRunId: run.testRunId,
       testCaseId: c.id,
       stepIndex: 0,
@@ -249,18 +376,18 @@ describe.skipIf(!isolated)("case-centric execution history", () => {
       idempotencyKey: randomUUID(),
       evidenceAttachmentIds: [],
     };
-    const first = await owner.manualExecution.recordStepResult({
+    const first = await recordStep({
       ...input,
       status: "FAIL",
     });
-    const second = await owner.manualExecution.recordStepResult({
+    const second = await recordStep({
       ...input,
       expectedRevisionId: first.revisionId,
       idempotencyKey: randomUUID(),
       status: "PASS",
       correctionReason: "Synthetic mistyped verdict",
     });
-    await owner.manualExecution.recordStepResult({
+    await recordStep({
       ...input,
       expectedRevisionId: second.revisionId,
       idempotencyKey: randomUUID(),
@@ -318,24 +445,104 @@ describe.skipIf(!isolated)("case-centric execution history", () => {
     });
     expect((await query(c.id)).items).toHaveLength(2); // A new execution, not an inferred verified retest.
   });
-  it("labels GWT-only snapshots accurately and explains mutable whole-case history limits", async () => {
+  it("labels owned historical GWT-only mutable outcomes accurately without reviving retired writes", async () => {
     const c = await newCase();
     const { testRunId } = await owner.manualExecution.start({
       projectId,
       testCaseIds: [c.id],
     });
-    await owner.manualExecution.recordResult({
-      testRunId,
-      testCaseId: c.id,
-      status: "FAIL",
-      note: "First note",
+    // This explicitly historical, unversioned native fixture retains the old
+    // limitation being tested. Current reviewed writes must NOT masquerade as
+    // a mutable legacy row, and no immutable head/receipt is removed or minted.
+    assertOwnedTestDatabase(process.env.DATABASE_URL);
+    await expect(
+      owner.manualExecution.recordResult({
+        testRunId,
+        testCaseId: c.id,
+        status: "FAIL",
+        note: "First note",
+      }),
+    ).rejects.toMatchObject({ code: "PRECONDITION_FAILED" });
+    await prisma.$transaction(async (tx) => {
+      const scope = await lockManualRetestAccess(
+        tx,
+        actorId,
+        {
+          projectId,
+          sourceRunId: testRunId,
+          testCaseId: c.id,
+          expectedScope: {
+            projectId,
+            organizationId,
+            clerkActorId: ownerSubject,
+          },
+        },
+        true,
+        ownerSubject,
+        true,
+      );
+      expect(scope).toEqual({
+        projectId,
+        organizationId,
+        actorId,
+        clerkActorId: ownerSubject,
+      });
+      expect(
+        (
+          await tx.organization.findUniqueOrThrow({
+            where: { id: organizationId },
+          })
+        ).slug,
+      ).toBe(key);
+      expect(
+        (await tx.testCase.findUniqueOrThrow({ where: { id: c.id } }))
+          .projectId,
+      ).toBe(projectId);
+      const [run] = await tx.$queryRaw<
+        Array<{
+          projectId: string;
+          ciProvider: string;
+          status: string;
+          manualTestCaseIds: string[];
+        }>
+      >`
+        SELECT "projectId","ciProvider",status::text AS status,"manualTestCaseIds" FROM "TestRun" WHERE id=${testRunId} FOR UPDATE`;
+      expect(run).toEqual({
+        projectId,
+        ciProvider: "manual",
+        status: "RUNNING",
+        manualTestCaseIds: [c.id],
+      });
+      const where = { testRunId, testCaseId: c.id };
+      expect(
+        await Promise.all([
+          tx.testResult.count({ where }),
+          tx.manualStepResultHead.count({ where }),
+          tx.manualStepResultRevision.count({ where }),
+          tx.manualCaseResultHead.count({ where }),
+          tx.manualCaseResultRevision.count({ where }),
+        ]),
+      ).toEqual([0, 0, 0, 0, 0]);
+      const legacy = await tx.testResult.create({
+        data: { ...where, status: "FAIL", note: "First note" },
+      });
+      await tx.testResult.update({
+        where: { id: legacy.id },
+        data: { status: "PASS", note: "Changed note" },
+      });
     });
-    await owner.manualExecution.recordResult({
-      testRunId,
-      testCaseId: c.id,
-      status: "PASS",
-      note: "Changed note",
-    });
+    await expect(
+      owner.manualExecution.recordResult({
+        testRunId,
+        testCaseId: c.id,
+        status: "FAIL",
+      }),
+    ).rejects.toMatchObject({ code: "PRECONDITION_FAILED" });
+    expect(
+      await prisma.testResult.findFirstOrThrow({
+        where: { testRunId, testCaseId: c.id },
+      }),
+    ).toMatchObject({ status: "PASS", note: "Changed note" });
     const item = (await query(c.id)).items[0]!;
     expect(item).toMatchObject({
       outcome: "PASS",

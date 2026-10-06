@@ -8,6 +8,11 @@ import {
   prepareDatasetExecution,
 } from "./services/datasetExecution.js";
 
+import { manualCaseReviewedExactWriteSchema, manualCaseReviewedReadKey } from "./services/manualCaseResultSchema.js";
+import { manualCaseReviewedRequestHash } from "./services/manualCaseResultsReviewed.js";
+import { reviewedStepWriteInputSchema } from "./services/manualStepExecutionReviewSchema.js";
+import { reviewedStepRequestHash, reviewedStepLegacyHash } from "./services/manualStepExecutionReview.js";
+
 const url = process.env.DATABASE_URL ? new URL(process.env.DATABASE_URL) : null;
 const isolated =
   url &&
@@ -21,7 +26,7 @@ describe.skipIf(!isolated)(
       viewer: typeof owner,
       readonly: typeof owner,
       outsider: typeof owner;
-    let projectId: string, ownerId: string, otherProjectId: string;
+    let projectId: string, ownerId: string, otherProjectId: string, organizationId: string, ownerClerkActorId: string;
     const key = `dataset-execution-${Date.now()}-${randomUUID().slice(0, 8)}`;
     beforeAll(async () => {
       const tier = await prisma.planTier.findUniqueOrThrow({
@@ -30,6 +35,7 @@ describe.skipIf(!isolated)(
       const org = await prisma.organization.create({
         data: { name: key, slug: key, planTierId: tier.id },
       });
+      organizationId = org.id;
       const other = await prisma.organization.create({
         data: {
           name: `${key}-other`,
@@ -43,16 +49,17 @@ describe.skipIf(!isolated)(
         role: "OWNER" | "EDITOR" | "VIEWER",
         seatType: "FULL" | "READ_ONLY" = "FULL",
       ) {
+        const authenticatedClerkSubject = `${key}-${suffix}`;
         const user = await prisma.user.create({
           data: {
             email: `${key}-${suffix}@example.com`,
-            clerkUserId: `${key}-${suffix}`,
+            clerkUserId: authenticatedClerkSubject,
             memberships: { create: { organizationId, role, seatType } },
           },
           include: { memberships: true },
         });
-        if (suffix === "owner") ownerId = user.id;
-        return appRouter.createCaller({ prisma, user });
+        if (suffix === "owner") { ownerId = user.id; ownerClerkActorId = authenticatedClerkSubject; }
+        return appRouter.createCaller({ prisma, user, authenticatedClerkSubject });
       }
       owner = await caller("owner", org.id, "OWNER");
       viewer = await caller("viewer", org.id, "VIEWER");
@@ -71,6 +78,55 @@ describe.skipIf(!isolated)(
         })
       ).id;
     });
+    // Real reviewed router calls in the owned disposable DB, not a receipt mock.
+    // Caller subjects below are declared synthetic contexts, not JWT verification.
+    async function recordCaseOutcome(input: Parameters<typeof owner.manualExecution.recordResult>[0]) {
+      const expectedScope = { projectId, organizationId, clerkActorId: ownerClerkActorId };
+      const accessInput = { projectId, testRunId: input.testRunId, testCaseId: input.testCaseId, expectedScope, readRequestId: randomUUID() };
+      const access = await owner.manualCaseResults.accessReviewed(accessInput);
+      expect(access.readContext).toMatchObject({ requestId: accessInput.readRequestId, requested: manualCaseReviewedReadKey(accessInput), projection: "ACCESS", scope: { ...expectedScope, actorId: ownerId } });
+      const previewInput = { ...accessInput, expectedNativeActorId: access.readContext.scope.actorId, readRequestId: randomUUID() };
+      const preview = await owner.manualCaseResults.previewReviewed(previewInput);
+      expect(preview.readContext).toMatchObject({ requestId: previewInput.readRequestId, requested: manualCaseReviewedReadKey(previewInput), projection: "PREVIEW", scope: { ...expectedScope, actorId: ownerId } });
+      const request = manualCaseReviewedExactWriteSchema.parse({
+        mode: "EXACT", projectId, testRunId: input.testRunId, testCaseId: input.testCaseId, expectedScope, expectedNativeActorId: ownerId,
+        expectedFrozenEvidenceHash: preview.frozenEvidenceHash, expectedRevisionId: preview.currentRevisionId, expectedCurrentFingerprint: preview.currentFingerprint,
+        status: input.status, note: input.note ?? null, observations: input.observations ?? {},
+        correctionReason: preview.current ? "Synthetic explicitly reviewed correction" : null, idempotencyKey: randomUUID(),
+      });
+      const ack = await owner.manualCaseResults.recordReviewed(request);
+      expect(ack).toMatchObject({ mode: "EXACT", scope: { ...expectedScope, actorId: ownerId }, testRunId: input.testRunId, testCaseId: input.testCaseId, idempotencyKey: request.idempotencyKey, requestHash: manualCaseReviewedRequestHash(request), recovered: false });
+      expect(await prisma.manualCaseResultRevision.findUniqueOrThrow({ where: { id: ack.revisionId } })).toMatchObject({
+        testRunId: input.testRunId, testCaseId: input.testCaseId, actorId: ownerId, actorClerkUserId: expectedScope.clerkActorId,
+        status: request.status, note: request.note, observations: request.observations, idempotencyKey: request.idempotencyKey, requestHash: ack.requestHash,
+      });
+      return ack;
+    }
+
+    async function recordReviewedStepOutcome(input: Parameters<typeof owner.manualExecution.recordStepResult>[0]) {
+      const pins = { originalOrganizationId: organizationId, expectedClerkActorId: ownerClerkActorId, expectedNativeActorId: ownerId };
+      const read = { projectId, testRunId: input.testRunId, testCaseId: input.testCaseId, stepIndex: input.stepIndex, ...pins, readRequestId: randomUUID() };
+      const preview = await owner.manualStepExecutionReview.preview(read);
+      expect(preview).toMatchObject({ projectId, testRunId: input.testRunId, testCaseId: input.testCaseId, stepIndex: input.stepIndex, readRequestId: read.readRequestId, scope: { projectId, organizationId, actorId: ownerId, actorClerkUserId: ownerClerkActorId } });
+      if (!preview.procedureHash || !preview.currentFingerprint) throw Error("The actual frozen step could not be reviewed; no hash was invented.");
+      const request = reviewedStepWriteInputSchema.parse({
+        projectId, testRunId: input.testRunId, testCaseId: input.testCaseId, stepIndex: input.stepIndex, ...pins,
+        expectedProcedureHash: preview.procedureHash, expectedCurrentFingerprint: preview.currentFingerprint, expectedRevisionId: input.expectedRevisionId,
+        status: input.status, note: input.note ?? null, correctionReason: input.correctionReason ?? null, evidenceAttachmentIds: input.evidenceAttachmentIds ?? [],
+        observations: { specimen: "", hardwareRevision: "", firmwareVersion: "", environment: "", ...input.observations,
+          measurements: (input.observations?.measurements ?? []).map(reading => ({ ...reading, instrument: reading.instrument ?? "" })) },
+        idempotencyKey: input.idempotencyKey, confirmed: true,
+      });
+      const ack = await owner.manualStepExecutionReview.record(request);
+      expect(ack).toMatchObject({ scope: preview.scope, idempotencyKey: input.idempotencyKey, requestHash: reviewedStepRequestHash(request), recovered: false, provenance: "REVIEWED_REQUEST_BOUND_AT_WRITE" });
+      expect(await prisma.manualStepResultRevision.findUniqueOrThrow({ where: { id: ack.revisionId } })).toMatchObject({
+        testRunId: input.testRunId, testCaseId: input.testCaseId, stepIndex: input.stepIndex, status: request.status, note: request.note,
+        observations: request.observations, idempotencyKey: input.idempotencyKey, requestHash: reviewedStepLegacyHash(request),
+      });
+      expect((await prisma.auditLog.findFirstOrThrow({ where: { actorId: ownerId, entityId: input.testRunId, entityType: "ManualStepExecutionReview/v1", metadata: { path: ["idempotencyKey"], equals: input.idempotencyKey } } })).metadata).toMatchObject({ requestHash: ack.requestHash, revisionId: ack.revisionId, scope: preview.scope });
+      return ack;
+    }
+
     const context = runConfigurationSchema.parse({
       platform: "Synthetic console",
       build: "synthetic-1",
@@ -250,7 +306,7 @@ describe.skipIf(!isolated)(
         batch = await owner.manualExecution.startDatasetExecution(start);
       const one = batch.runs[0]!.testRunId,
         two = batch.runs[1]!.testRunId;
-      await owner.manualExecution.recordStepResult({
+      await recordReviewedStepOutcome({
         testRunId: one,
         testCaseId: scope.prerequisiteId!,
         stepIndex: 0,
@@ -258,7 +314,7 @@ describe.skipIf(!isolated)(
         expectedRevisionId: null,
         idempotencyKey: randomUUID(),
       });
-      await owner.manualExecution.recordStepResult({
+      await recordReviewedStepOutcome({
         testRunId: one,
         testCaseId: scope.testCaseId,
         stepIndex: 0,
@@ -267,7 +323,7 @@ describe.skipIf(!isolated)(
         idempotencyKey: randomUUID(),
       });
       await expect(
-        owner.manualExecution.recordStepResult({
+        recordReviewedStepOutcome({
           testRunId: two,
           testCaseId: scope.testCaseId,
           stepIndex: 0,
@@ -295,7 +351,7 @@ describe.skipIf(!isolated)(
         another.start,
       );
       await expect(
-        owner.manualExecution.recordResult({
+        recordCaseOutcome({
           testRunId: newBatch.runs[0]!.testRunId,
           testCaseId: scope.testCaseId,
           status: "PASS",
