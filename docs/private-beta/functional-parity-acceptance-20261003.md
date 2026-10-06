@@ -7,7 +7,7 @@ historical, not a current source inventory. Later checkpoint sections record
 signed-in Qase/TestRail/Testmo trial observations and implementation. They do
 not establish exhaustive parity, an equivalent-task performance comparison or
 deployment. The active scope is all James's reported workflows, not only
-release gates. Latest fully integrated metadata checkpoint: `5ab31b2`; later
+release gates. Latest fully integrated workflow checkpoint: `97fde98`; later
 bounded increments and separately unvalidated drafts are identified below.
 
 The standard case-management baseline is not yet met end to end. The most important gaps are preserving imported procedures, stable human-readable references, lossless export, complete history and safe edits. More AI actions or a different layout do not compensate for those gaps.
@@ -1534,3 +1534,69 @@ commit on a rejected response. The final controller revokes that old display
 frame before publishing all response paths, not only successful ACKs; 27 focused
 actual-controller/modal-function synthetic checks cover retained exact retries,
 late success/error, duplicate clicks and explicit same-receipt Open recovery.
+
+### October 6 native reader and immutable-result follow-up boundaries
+
+The next case-review browser increment separates an actual original-project
+access read from the actual supported case preview. Only an already immutable
+pending UUID/body/hash can retry through current original-project FULL authority
+when a deleted/reparented/foreign/unsupported case prevents a new preview. No
+new decision or private case/note display is authorized by project-only access.
+Root review also identified a missing current SDK session guard before React's
+auth state commits; private SDK error-message suppression is not that guard.
+The six-path browser recovery increment now passes 74 focused Web checks,
+API/Web typechecks and scoped production lint. Actual SDK user/session checks
+guard actions and every completion path, and SDK resource notifications revoke
+old activations before React auth commits. Matching original ACKs settle privately
+before current-frame effects. A fresh native activation is required after observed
+session loss; returning SDK state alone does not restore cached authority.
+Synthetic actual-component evidence demonstrates the same pending UUID recovering
+after a missing preview without displaying procedure/note content, and suppresses
+late ACK display when only the SDK session changes. The preview bundle predates
+the final SDK resource-listener addition; its complete lifecycle is covered by
+focused hook/controller checks, not claimed browser or native acceptance. Other
+queue metadata caches are not claimed SDK-hardened by this bounded increment.
+
+Whole-case and per-step execution lanes are separately owned. The existing
+whole-case observation service still has two local 500-case checks while manual
+execution admits 1,000 cases. Shared retest closure already supports 1,000 IDs
+and 10,000 edges; it must not be changed based on the initial contrary suspicion.
+A coherent cutover requires native identity/body/relationship admission, reviewed
+frozen procedures, lossless prior observations, current native author before
+receipt lookup and exact scoped ACK recovery. Current quick controls are not
+removed before the compatible replacement is ready.
+
+Per-step source already has frozen procedures, head-ID CAS and current FULL-seat
+checks. The audit found missing original native/write pins, revision-ID-only
+browser ACK checks, state-only duplicate-click ownership, incomplete native
+coordinate coverage and unguarded late callbacks. This is not a demonstrated
+cross-actor UI exploit: the parent original-reader gate and scoped transport are
+existing protections. New reviewed step source must retain them, refuse unsupported
+raw/null/precision values instead of guessing, and keep derived Pass distinct
+from independent healing or deployment verification. Neither new execution lane
+has native or production acceptance merely because its source is being authored.
+
+The separate five-file reviewed-step API first phase passes 33 pure/mock checks,
+API typechecking and scoped lint. It adds original native/org/Clerk pins, atomic
+scoped reviewed receipts, complete graph/coordinate admission, exact aggregate
+prior evidence and native JSON/size guards. Explicit timestamp projection retains
+native revision equality without treating a Prisma Date as plain JSON. The new
+namespace is not yet registered in this first-phase checkpoint; old step callers
+and UI remain unchanged. Native SQL and runtime behavior have not been exercised.
+
+The concurrent whole-case replacement is still in flight and excluded from this
+bounded recovery/step-source checkpoint. A full current Web Node run has five
+failing legacy source/render contracts around that changed component; they remain
+failed pending equivalent assertions against the reviewed replacement. The
+passing focused increments and 344 passing typed Web checks do not establish an
+all-green working tree, completed execution cutover or deployment.
+
+Authenticated Notion access was refreshed and its existing Vaettir handoff was
+narrowly updated with the source checkpoint and these acceptance limits, preserving
+earlier sections and child references. The project fetch remains partially
+truncated with three unsupported external blocks, not a complete PRD audit.
+Linear's connector still requires reauthentication; the signed-in existing browser
+ticket remains In Progress, with no new browser comment transmission in this
+follow-up. Qase's unsaved all-projects checkbox again timed out and remained
+checked; its per-project chooser interaction is not claimed verified. The dialog
+was canceled without saving, subscribing or changing trial data.

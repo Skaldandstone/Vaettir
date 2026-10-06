@@ -28,10 +28,10 @@ export function CaseReviewDecision({projectId,caseId,active=true,readOnly=false,
   return <section aria-label="Supported case review decision">
     <h2>Review current case</h2>
     <p>This review binds the shown supported content, metadata, provenance and separate prerequisite states. It does not certify execution, paid risk/design/automation results, compliance or release readiness.</p>
-    {!editor.readable&&<p role="status">Current original-reader verification is required. Cached case details are withheld; retained decisions are not rebound.</p>}
-    {editor.reads.error&&<p role="alert">{editor.reads.error}</p>}
+    {!editor.readable&&<p role="status">A supported current case preview is required for new decisions and private case details. Historical snapshot and note contents are withheld. A completed original-project full-reader verification permits only recovery of an already retained exact request.</p>}
+    {editor.reads.error&&<p role="alert">{editor.readable?editor.reads.error:"Current case preview or project verification failed. Historical details are withheld; refresh current native access."}</p>}
     <button type="button" onClick={editor.reads.refresh} disabled={editor.busy}>Refresh current review</button>
-    {editor.readable&&fresh?.blockedReason&&<p role="status">{fresh.blockedReason}</p>}
+    {editor.projectReadable&&fresh?.blockedReason&&<p role="status">{fresh.blockedReason}</p>}
     {editor.readable&&snapshot&&<>
       {editor.draft&&(editor.draft.contentHash!==fresh?.contentHash||editor.draft.reviewStateHash!==fresh?.reviewStateHash)&&<p role="alert">Your retained review snapshot differs from the current case. Nothing was silently rebased.</p>}
       <h3>Complete supported snapshot</h3>
@@ -44,11 +44,11 @@ export function CaseReviewDecision({projectId,caseId,active=true,readOnly=false,
       <label>Existing review note <select value={note.operation} disabled={!choice||!editable} onChange={event=>{if(choice)editor.change(choice,event.target.value==="SET"?{operation:"SET",value:note.operation==="SET"?note.value:""}:{operation:event.target.value as "KEEP"|"CLEAR"});}}><option value="KEEP">Keep exact saved note</option><option value="SET">Set exact text</option><option value="CLEAR">Clear to NULL</option></select></label>
       {note.operation==="SET"&&<label>Review note<textarea maxLength={4000} value={note.value} onChange={event=>{if(choice)editor.change(choice,{operation:"SET",value:event.target.value});}}/></label>}
     </fieldset>}
-    {editor.readable&&editor.pending&&<p role="status">Retained request {editor.pending.input.requestId}. Recovery retries this exact decision and hash, even if later content becomes unsupported. Closing or changing account does not replace it.</p>}
-    {editor.settled&&<p role="status">The matching acknowledgement is known. This retained decision cannot be sent again.</p>}
+    {editor.projectReadable&&editor.pending&&<p role="status">Retained request {editor.pending.input.requestId}. Recovery retries only this immutable original UUID, body and hash. Project-only verification does not authorize a new decision or reveal historical case content.</p>}
+    {editor.projectReadable&&editor.settled&&<p role="status">The matching acknowledgement is known. This retained decision cannot be sent again.</p>}
     {editor.settled&&editor.readable&&fresh?.canDecide&&editor.draft&&(editor.draft.contentHash!==fresh.contentHash||editor.draft.reviewStateHash!==fresh.reviewStateHash)&&<button type="button" disabled={readOnly||editor.busy} onClick={()=>editor.change(editor.draft!.decision,editor.draft!.note)}>Start an explicit new decision for the changed pending snapshot</button>}
     {editor.draft&&!editor.pending&&!editor.settled&&<button type="button" disabled={!editable} onClick={editor.reviewCurrent}>Explicitly review current snapshot with retained choice</button>}
-    <button type="button" disabled={!editor.canSave} onClick={()=>void editor.save()}>{editor.pending?"Recover exact review request":choice==="REJECTED"?"Reject reviewed snapshot":"Approve reviewed snapshot"}</button>
+    <button type="button" disabled={!editor.canSave} onClick={()=>void editor.save()}>{editor.pending?"Recover exact review request":!editor.readable?"Save reviewed decision":choice==="REJECTED"?"Reject reviewed snapshot":"Approve reviewed snapshot"}</button>
     {editor.notice&&<p role="status">{editor.notice}</p>}
     <p className="text-muted">Exact decisions remain retained only while this component stays mounted. Inspector record replacement, route-away and reload recovery are not supported. The dedicated review queue keeps closed instances mounted and provides explicit safe release of unused or acknowledged editors.</p>
     {onRelease&&<><button type="button" disabled={!editor.canRelease} onClick={()=>{if(editor.release())onRelease();}}>Close and release unused / acknowledged editor</button><p>Explicit release frees this page slot only when this current reader has no draft or a matching known acknowledgement. Drafted, hashing, in-flight and uncertain requests cannot be dropped.</p></>}
