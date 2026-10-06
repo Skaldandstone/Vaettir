@@ -14,6 +14,10 @@ import { retainAnalysisRequest } from "@/lib/analysis-request-recovery";
 import {
   releaseCriteriaDraftProblem,
   saveReleaseCriterionDraft,
+  addReleaseGoal,
+  releaseGoalDraftProblem,
+  releaseGoalPresets,
+  specializedReleaseGoalPresets,
 } from "@/lib/release-planning-draft";
 
 // P1-15
@@ -35,6 +39,8 @@ export default function ReleasesPage() {
   const [releaseStep, setReleaseStep] = useState(0);
   const [selectedPlanIds, setSelectedPlanIds] = useState<string[]>([]);
   const [releaseGoals, setReleaseGoals] = useState<string[]>([]);
+  const [goalDraft, setGoalDraft] = useState("");
+  const [goalError, setGoalError] = useState<string | null>(null);
   const [showSpecializedGoals, setShowSpecializedGoals] = useState(false);
   const [newPlanName, setNewPlanName] = useState("");
   const [newCriteria, setNewCriteria] = useState<string[]>([]);
@@ -61,6 +67,10 @@ export default function ReleasesPage() {
       (!createRequest && !name.trim())
     )
       return;
+    if (!createRequest && releaseGoalDraftProblem(goalDraft)) {
+      setCreateError(releaseGoalDraftProblem(goalDraft));
+      return;
+    }
     if (
       createRequest &&
       (createRequest.originalOrganizationId !== access.origin.organizationId ||
@@ -117,6 +127,8 @@ export default function ReleasesPage() {
       setReleaseStep(0);
       setSelectedPlanIds([]);
       setReleaseGoals([]);
+      setGoalDraft("");
+      setGoalError(null);
       setNewPlanName("");
       setNewCriteria([]);
       setCriterionDraft("");
@@ -374,19 +386,23 @@ export default function ReleasesPage() {
           }
           canContinue={
             access.canWrite &&
-            (releaseStep === 0 ? Boolean(name.trim()) : !draftProblem)
+            (releaseStep === 0
+              ? Boolean(name.trim()) && !releaseGoalDraftProblem(goalDraft)
+              : !draftProblem)
           }
           validationMessage={
             releaseStep === 0
               ? !name.trim()
                 ? "Enter a release name to continue."
-                : undefined
+                : (releaseGoalDraftProblem(goalDraft) ?? undefined)
               : (draftProblem ?? undefined)
           }
           onInvalid={() =>
             setCreateError(
               releaseStep === 0
-                ? "Enter a release name to continue."
+                ? !name.trim()
+                  ? "Enter a release name to continue."
+                  : releaseGoalDraftProblem(goalDraft)
                 : (draftProblem ??
                     "Review the current release draft before continuing."),
             )
@@ -449,29 +465,112 @@ export default function ReleasesPage() {
                 <WizardChoices
                   title="Primary goals"
                   options={[
-                    "Regular release",
-                    "Feature release",
-                    "Bug-fix release",
-                    "Customer launch",
-                    "Internal milestone",
-                    "Maintenance release",
+                    ...releaseGoalPresets,
                     ...(showSpecializedGoals
-                      ? [
-                          "Regulatory submission",
-                          "Pilot/manufacturing build",
-                          "Field trial",
-                        ]
+                      ? specializedReleaseGoalPresets
                       : []),
                   ]}
                   selected={releaseGoals}
-                  onToggle={(goal) =>
-                    setReleaseGoals((goals) =>
-                      goals.includes(goal)
-                        ? goals.filter((item) => item !== goal)
-                        : [...goals, goal],
-                    )
-                  }
+                  onToggle={(goal) => {
+                    setGoalError(null);
+                    try {
+                      setReleaseGoals(
+                        releaseGoals.includes(goal)
+                          ? releaseGoals.filter((item) => item !== goal)
+                          : addReleaseGoal(releaseGoals, goal),
+                      );
+                    } catch (error) {
+                      setGoalError(
+                        error instanceof Error
+                          ? error.message
+                          : "This goal could not be added.",
+                      );
+                    }
+                  }}
                 />
+                <label>
+                  Custom release goal{" "}
+                  <span className="text-muted">(optional)</span>
+                  <input
+                    value={goalDraft}
+                    maxLength={200}
+                    onChange={(event) => {
+                      setGoalDraft(event.target.value);
+                      setGoalError(null);
+                    }}
+                    placeholder="For example: Improve checkout reliability"
+                  />
+                </label>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                  <button
+                    type="button"
+                    className="btn-secondary"
+                    disabled={!goalDraft.trim()}
+                    onClick={() => {
+                      try {
+                        setReleaseGoals(
+                          addReleaseGoal(releaseGoals, goalDraft),
+                        );
+                        setGoalDraft("");
+                        setGoalError(null);
+                      } catch (error) {
+                        setGoalError(
+                          error instanceof Error
+                            ? error.message
+                            : "This goal could not be added.",
+                        );
+                      }
+                    }}
+                  >
+                    Add goal
+                  </button>
+                  {goalDraft.length > 0 && (
+                    <button
+                      type="button"
+                      className="btn-secondary"
+                      onClick={() => {
+                        setGoalDraft("");
+                        setGoalError(null);
+                      }}
+                    >
+                      Clear goal draft
+                    </button>
+                  )}
+                </div>
+                {goalError && <p role="alert">{goalError}</p>}
+                {releaseGoals.length > 0 && (
+                  <div
+                    aria-label="Selected release goals"
+                    style={{
+                      display: "flex",
+                      flexWrap: "wrap",
+                      gap: 8,
+                      marginTop: 12,
+                    }}
+                  >
+                    {releaseGoals.map((goal) => (
+                      <button
+                        key={goal}
+                        type="button"
+                        className="btn-secondary"
+                        style={{
+                          maxWidth: "100%",
+                          whiteSpace: "normal",
+                          overflowWrap: "anywhere",
+                        }}
+                        aria-label={`Remove release goal ${goal}`}
+                        onClick={() => {
+                          setReleaseGoals(
+                            releaseGoals.filter((item) => item !== goal),
+                          );
+                          setGoalError(null);
+                        }}
+                      >
+                        {goal} ×
+                      </button>
+                    ))}
+                  </div>
+                )}
                 <label>
                   <input
                     type="checkbox"
@@ -580,7 +679,14 @@ export default function ReleasesPage() {
                   <ul>
                     {newCriteria.map((criterion, index) => (
                       <li key={index}>
-                        <span style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>{criterion}</span>{" "}
+                        <span
+                          style={{
+                            whiteSpace: "pre-wrap",
+                            overflowWrap: "anywhere",
+                          }}
+                        >
+                          {criterion}
+                        </span>{" "}
                         <button
                           type="button"
                           className="btn-secondary"

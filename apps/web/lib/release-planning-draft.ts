@@ -1,3 +1,45 @@
+export const releaseGoalPresets = [
+  "Regular release",
+  "Feature release",
+  "Bug-fix release",
+  "Customer launch",
+  "Internal milestone",
+  "Maintenance release",
+] as const;
+export const specializedReleaseGoalPresets = [
+  "Regulatory submission",
+  "Pilot/manufacturing build",
+  "Field trial",
+] as const;
+export function addReleaseGoal(
+  goals: readonly string[],
+  raw: string,
+): string[] {
+  const goal = raw.trim();
+  if (
+    !goal ||
+    goal.length > 200 ||
+    goal.includes("\0") ||
+    Array.from(goal).some((character) => {
+      const point = character.codePointAt(0)!;
+      return point >= 0xd800 && point <= 0xdfff;
+    })
+  )
+    throw Error(
+      "Use a nonblank goal of at most 200 characters, without null characters or incomplete Unicode.",
+    );
+  if (goals.includes(goal)) return [...goals];
+  if (goals.length >= 20)
+    throw Error(
+      "A release supports up to 20 goals. Remove a selected goal before adding another.",
+    );
+  return [...goals, goal];
+}
+export function releaseGoalDraftProblem(draft: string): string | null {
+  return draft.length
+    ? "Add your custom goal or clear its draft before continuing."
+    : null;
+}
 export function releaseCriteriaDraftProblem(values: {
   planName: string;
   criteria: readonly string[];
@@ -20,11 +62,18 @@ export function saveReleaseCriterionDraft(
   editingIndex: number | null,
 ): string[] {
   const description = draft;
-  if (!description.trim() || description.length > 2000 || description.includes("\0") || Array.from(description).some(character => {
-    const point = character.codePointAt(0)!;
-    return point >= 0xd800 && point <= 0xdfff;
-  }))
-    throw Error("A criterion needs nonblank native text of at most 2,000 characters, without null characters or incomplete Unicode.");
+  if (
+    !description.trim() ||
+    description.length > 2000 ||
+    description.includes("\0") ||
+    Array.from(description).some((character) => {
+      const point = character.codePointAt(0)!;
+      return point >= 0xd800 && point <= 0xdfff;
+    })
+  )
+    throw Error(
+      "A criterion needs nonblank native text of at most 2,000 characters, without null characters or incomplete Unicode.",
+    );
   if (editingIndex !== null) {
     if (
       !Number.isInteger(editingIndex) ||

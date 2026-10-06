@@ -143,5 +143,10 @@ test("actual component renders retained unreviewed/unavailable IDs, searchable s
   control.draft = { identity: "synthetic-draft", origin: {}, baseline: ["old", "missing"], ids: ["old", "missing"], graphHash, linked: [{ ...row, title: "Stale retained title", reviewStatus: "REJECTED" }, { id: "missing", unavailable: true }] };
   control.freshPage.linked[0] = { ...row, title: "Fresh admitted title", reviewStatus: "APPROVED", archived: true };
   const current = renderToStaticMarkup(React.createElement(context.component, { projectId: scope.projectId, caseId: "main", canEdit: true })); assert.match(current, /Fresh admitted title/); assert.match(current, /Archived retained case/); assert.match(current, /Unavailable retained case/); assert.doesNotMatch(current, /Stale retained title|Retained rejected/);
+  control.freshAccess.canEdit = false;
+  const viewer = renderToStaticMarkup(React.createElement(context.component, { projectId: scope.projectId, caseId: "main", canEdit: true })); assert.match(viewer, /<button[^>]*disabled=""[^>]*>Discard retained draft<\/button>/); assert.doesNotMatch(viewer, /aria-label="Remove /); assert.match(viewer, /Fresh admitted title/);
+  assert.match(viewer, /<button[^>]*aria-label="Add prerequisite SYN-3 Exact approved"[^>]*disabled=""[^>]*>Add<\/button>/);
+  control.draft.ids = ["missing"];
+  const undoViewer = renderToStaticMarkup(React.createElement(context.component, { projectId: scope.projectId, caseId: "main", canEdit: true })); assert.match(undoViewer, /<button[^>]*disabled=""[^>]*>Undo removal<\/button>/); assert.match(undoViewer, /Removed in this unsaved draft/);
   control.readable = false; const hidden = renderToStaticMarkup(React.createElement(context.component, { projectId: scope.projectId, caseId: "main", canEdit: true })); assert.doesNotMatch(hidden, /Exact retained pending|SYN-2|SYN-3|missing/);
 });

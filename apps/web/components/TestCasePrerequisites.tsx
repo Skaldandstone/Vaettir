@@ -49,7 +49,7 @@ export function TestCasePrerequisites({ projectId, caseId, canEdit, active = tru
         {saved && <><ul className={styles.matches} aria-label="Available prerequisite cases">
           {saved.items.filter(item => !selected.includes(item.id)).map(item => <li key={item.id}>
             <span><code className="status-pill">{item.displayId}</code>{" "}{item.title}</span>
-            <button type="button" className="btn-secondary" aria-label={`Add prerequisite ${item.displayId} ${item.title}`} disabled={control.busy || !!control.pending || !!control.settled || !baselineCurrent || selected.length >= 50} onClick={() => control.change([...selected, item.id])}>Add</button>
+            <button type="button" className="btn-secondary" aria-label={`Add prerequisite ${item.displayId} ${item.title}`} disabled={control.busy || !!control.pending || !!control.settled || !baselineCurrent || !editable || selected.length >= 50} onClick={() => control.change([...selected, item.id])}>Add</button>
           </li>)}
         </ul><div className={styles.row}>
           <span role="status" className={styles.muted}>{saved.total ? `Page ${Math.floor(saved.offset / 20) + 1} of ${Math.ceil(saved.total / 20)} · ${saved.total} approved candidates in the saved native scope` : "No matching approved candidates."} Locally selected additions remain in your draft above.</span>
@@ -57,13 +57,13 @@ export function TestCasePrerequisites({ projectId, caseId, canEdit, active = tru
           {saved.nextCursor && <button type="button" onClick={control.next} disabled={control.busy || !!control.pending}>Next</button>}
         </div></>}
         {selected.length >= 50 && <p className={styles.muted}>Maximum 50 direct prerequisites. The existing manual-run closure bound is 1,000 cases.</p>}
-        {held?.baseline.filter(id => !selected.includes(id)).map(id => <p key={id}>Removed in this unsaved draft: <code>{metadata.get(id)?.displayId ?? id}</code>{" "}<button type="button" disabled={control.busy || !!control.pending || !!control.settled || !baselineCurrent} onClick={() => control.change([...selected, id])}>Undo removal</button></p>)}
+        {held?.baseline.filter(id => !selected.includes(id)).map(id => <p key={id}>Removed in this unsaved draft: <code>{metadata.get(id)?.displayId ?? id}</code>{" "}<button type="button" disabled={control.busy || !!control.pending || !!control.settled || !baselineCurrent || !editable} onClick={() => control.change([...selected, id])}>Undo removal</button></p>)}
         {held && !baselineCurrent && !control.pending && <p role="alert">Saved graph data changed or is unavailable. Your draft is retained; explicitly discard it before reviewing a new baseline.</p>}
         {control.pending && <p role="status">Request <code>{control.pending.input.requestId}</code> retains its exact original native account, workspace and complete link set. An uncertain response is not proof that the write failed. Retry the same request to recover its receipt.</p>}
         {control.settled && <p role="status">The original request was confirmed after this view changed. It will not be sent again. Confirm and discard its retained draft to start a new edit.</p>}
         <div className={styles.row}>
           <button type="button" className="btn-secondary" onClick={control.close}>Close and keep draft</button>
-          {held && <button type="button" className="btn-secondary" disabled={control.busy || !!control.pending} onClick={control.discard}>Discard retained draft</button>}
+          {held && <button type="button" className="btn-secondary" disabled={control.busy || !!control.pending || !editable} onClick={control.discard}>Discard retained draft</button>}
           <button type="button" className="btn-primary" disabled={control.busy || !editable || !!control.settled || (!control.pending && (!dirty || !baselineCurrent))} onClick={() => void control.submit()}>{control.busy ? "Saving…" : control.pending ? "Retry same prerequisite request" : "Review and save prerequisites"}</button>
         </div>
       </div>

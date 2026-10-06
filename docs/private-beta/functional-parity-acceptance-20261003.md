@@ -7,8 +7,8 @@ historical, not a current source inventory. Later checkpoint sections record
 signed-in Qase/TestRail/Testmo trial observations and implementation. They do
 not establish exhaustive parity, an equivalent-task performance comparison or
 deployment. The active scope is all James's reported workflows, not only
-release gates. Latest reviewed implementation checkpoint: `5ab31b2`; subsequent drafts
-remain separately identified until integrated and checkpointed.
+release gates. Latest fully integrated metadata checkpoint: `5ab31b2`; later
+bounded increments and separately unvalidated drafts are identified below.
 
 The standard case-management baseline is not yet met end to end. The most important gaps are preserving imported procedures, stable human-readable references, lossless export, complete history and safe edits. More AI actions or a different layout do not compensate for those gaps.
 
@@ -1395,3 +1395,51 @@ UUID/audit recovery. The bulk branch can silently omit requested cases. Those
 findings require a coherent reviewed workflow/caller cutover, not a claim that
 the existing repository/review queue is production accepted. All reported gaps
 remain in scope; this checkpoint does not stop implementation or trigger deployment.
+
+### October 6 scoped goals and rendered prerequisite affordances
+
+Release planning now allows optional custom goal labels alongside ordinary release
+presets. Specialized regulatory/hardware/field presets remain opt-in, while every
+selected goal stays visible and removable even when those suggestions are hidden.
+The existing server limit of 20 goals and 200 characters per label is unchanged;
+empty, null-character and incomplete-Unicode drafts refuse. Unadded text must be
+explicitly added or cleared before proceeding or creating a new request. Previously
+retained release requests keep their exact original body and UUID. This is a
+release-local choice, not persisted project-wide goal configuration or a repair of
+the separately open calendar-day/time-zone semantics.
+
+Actual prerequisite rendering with real controllers and TanStack Query cache but
+synthetic Clerk/RPC exposed apparent Discard, Add and Undo buttons that could look
+enabled after current authority became read-only. The controller already refused
+those actions; the narrow markup now disables them consistently, without changing
+authorization or discarding retained selections. Focused prerequisite/controller
+SSR plus release-draft checks: 36 PASS. Working-source API/Web typechecks and scoped
+changed-production lint passed; these do not validate all concurrently authored
+review-queue source. The inherited origin-capture lint warning remains disclosed.
+Root independently inspected local mobile retained-draft and desktop side-by-side
+version-comparison captures. Agent measured desktop document 1,265px inside a
+1,280px viewport and mobile document/body 375px inside a 390px viewport; ordinary
+captures succeeded, while two full-page captures timed out and are not proof.
+Post-rebuild synthetic read-only Add/Undo/Discard/Save were visibly disabled.
+These demonstrate synthetic layout, not real native authorization, transaction
+recovery or production acceptance. Two further apparent-action edges (busy
+reopening and undo at the 50-link cap) remain a separate source follow-up.
+
+Qase's authenticated unsaved Create custom field dialog was refreshed read-only:
+entity, input type, placeholder/default, requiredness, ordering and an all-projects
+availability control were visible. A checkbox interaction timed out and remained
+checked, so project-selection behavior was not verified. The dialog was canceled;
+no field was saved. This is not a claim of complete configurable-field parity.
+
+Separate native metadata fixture/driver source remains AUTHORED, NOT RUN. Root
+review found a nested native-test registration that compilation had not caught,
+and a tracked pure test depending on an ignored local driver. Both were corrected
+before their separate checkpoint: 25 tracked pure/AST/source checks pass, with
+two ignored-local driver contracts reported separately. Strict fixture/test
+compilation, API types and scoped lint pass; the eight native fixtures remain
+NOT RUN. The byte-exact original failed source remains local. Review-queue
+service/UI and central registration remain separately unvalidated until complete
+snapshot rendering, caller cutover and focused proof. A formatting-only source
+contract failure in the release suite was repaired by accepting JSX whitespace;
+the multiline prose display assertion remains enforced and all 36 checks reran.
+Earlier failed native/runtime/image-security/erasure gates are unchanged.
