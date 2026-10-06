@@ -3289,7 +3289,7 @@ unchanged. UI origin parsing is routing convenience, not server admission.
 
 Focused tests cover URL handling, actual-module synthetic React SSR (GitLab does
 not infer a configured cloud host; GitHub retains its cloud configuration), and
-existing fresh-access, popup, selection/review and revocation contracts. These
+existing fresh-access, popup, selection/review and revocation contracts.
 The focused tranche passed 19 existing source contracts and 15 parser/actual-module
 synthetic render checks, scoped lint and Web typecheck. A concurrent full Web run
 failed in the separately owned run-start controller and its legacy host assertion;
@@ -3298,3 +3298,31 @@ or deployment proof. The live repository
 administration route returned 404 during read-only verification; no OAuth grant,
 application credential, repository link, customer source read or processing was
 performed. The missing deployed setup route remains an actual release gap.
+
+### October 6: additive plan execution reads and reviewed-start registration
+
+The new plan execution read namespace separates identity-only access from a
+bounded template/candidate page. Independently verified transport identity and
+current native project, organization, actor and membership are checked before
+private template or case metadata. Native byte/count admission and whole saved
+selection checks precede materialization. Candidate search is literal and paged;
+saved order includes missing and archived cases rather than silently dropping
+them. Current pages are not an immutable suite snapshot or execution approval.
+
+Exact native JSONB text is kept separately from the explicitly labeled legacy
+interpretation. Existing legacy parsing and hashing are unchanged. Native JSONB
+equality must pass before hashing, so a lossy numeric parse cannot acquire a
+substitute hash. Unsupported complete values refuse rather than trim, clip or
+invent a template. Access does not grant save/start authority, and historical
+UNKNOWN requests cannot acquire original native stamps from a current read.
+
+Both this read namespace and the existing reviewed run-start namespace are now
+registered additively in the source router. Root independently passed 282 checks
+across eight API test files, API typecheck and scoped lint with zero errors or
+warnings. This includes 73 new plan read/schema checks, three unchanged legacy
+parser checks and 206 existing reviewed-start checks. Database queries, transport identity and failures are
+synthetically mocked; no SQL, authenticated API, native transaction, migration,
+deployment or production acceptance was executed. The old plan execution caller
+and private-read endpoint remain unchanged pending the separately owned current
+reader/controller integration. Concurrent run-start Web fixture failures remain
+open until independently retested; this is not a green whole-tree result.

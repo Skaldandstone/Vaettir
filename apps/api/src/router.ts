@@ -41,6 +41,7 @@ import { testDesignRouter } from "./routers/testDesign.js";
 import { creditUseRequestsRouter } from "./routers/creditUseRequests.js";
 import { testCasesRouter } from "./routers/testCases.js";
 import { testPlansRouter } from "./routers/testPlans.js";
+import { planExecutionReadsRouter } from "./routers/planExecutionReads.js";
 import { agentRouter } from "./routers/agent.js";
 import { organizationRouter } from "./routers/organization.js";
 import { projectRouter } from "./routers/project.js";
@@ -58,6 +59,7 @@ import { adminRouter } from "./routers/admin.js";
 import { webhooksRouter } from "./routers/webhooks.js";
 import { manualExecutionRouter } from "./routers/manualExecution.js";
 import { manualRunReadsRouter } from "./routers/manualRunReads.js";
+import { manualRunStartReviewedRouter } from "./routers/manualRunStartReviewed.js";
 import { deviceCaptureAccessRouter } from "./routers/deviceCaptureAccess.js";
 import { deviceHelperSetupAccessRouter } from "./routers/deviceHelperSetupAccess.js";
 import { sharedStepGroupsRouter } from "./routers/sharedStepGroups.js";
@@ -131,6 +133,7 @@ export const appRouter = router({
   testCaseStructure: testCaseStructureRouter,
   reports: reportsRouter,
   testPlans: testPlansRouter,
+  planExecutionReads: planExecutionReadsRouter,
   agent: agentRouter,
   organization: organizationRouter,
   project: projectRouter,
@@ -148,6 +151,7 @@ export const appRouter = router({
   webhooks: webhooksRouter,
   manualExecution: manualExecutionRouter,
   manualRunReads: manualRunReadsRouter,
+  manualRunStartReviewed: manualRunStartReviewedRouter,
   deviceCaptureAccess: deviceCaptureAccessRouter,
   deviceHelperSetupAccess: deviceHelperSetupAccessRouter,
   sharedStepGroups: sharedStepGroupsRouter,
