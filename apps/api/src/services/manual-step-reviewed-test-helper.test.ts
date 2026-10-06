@@ -855,6 +855,32 @@ describe("reviewed step source fixture support; pure/mocked only, native SQL NOT
       new URL("../manual-step-execution.integration.test.ts", import.meta.url),
       "utf8",
     );
-    expect(fixtureSource.match(/\bit\(/g)).toHaveLength(14); // Existing native registrations still frozen, not executed.
+    expect(fixtureSource.match(/\bit\(/g)).toHaveLength(15); // Original fourteen plus explicit retired-write refusal; native execution remains separate.
+    const originalRegistrations = [
+      "records each frozen step, derives a verdict only when complete, and preserves the saved definition",
+      "does not conceal an observed FAIL/BLOCKED when other steps remain unrecorded",
+      "aggregates FAIL before BLOCKED before SKIP before PASS",
+      "retains justified correction history, rejects stale edits and recovers actor-bound original receipts",
+      "serializes simultaneous retries and lets only one competing correction advance the head",
+      "does not replace case-level results or permit a case-level override after step activation",
+      "does not masquerade legacy live or BDD definitions as frozen structured steps",
+      "guards measured PASS and keeps every value with its step revision",
+      "requires passed prerequisites and protects their historical premise after partial dependent execution",
+      "restricts completed evidence to this project and snapshots safe labels without fetching bytes",
+      "rechecks live tenant/editor/full-seat/suspension access even for recovered receipts",
+      "prevents case deletion from cascading away evidence used by another case's retained revisions",
+      "retains frozen step media when its owning case has no verdict or step observations",
+      "inventories and removes revision chains only in explicitly authorized disposable organization erasure",
+    ];
+    const addedRefusalRegistration =
+      "refuses new retired writes but recovers only an explicitly owned historical legacy receipt";
+    const actualRegistrations = Array.from(
+      fixtureSource.matchAll(/\bit\("([^"]+)",/g),
+      (match) => match[1],
+    );
+    expect(originalRegistrations).toHaveLength(14);
+    expect(actualRegistrations.sort()).toEqual(
+      [...originalRegistrations, addedRefusalRegistration].sort(),
+    );
   });
 });

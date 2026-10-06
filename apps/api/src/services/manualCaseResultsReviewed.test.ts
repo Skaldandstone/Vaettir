@@ -286,6 +286,24 @@ beforeEach(() => {
   Object.values(locks).forEach((f) => f.mockReset());
 });
 describe("whole-case reviewed native contracts MOCKED SQL only, no native execution", () => {
+  it("qualifies every unnested frozen identity and retains tenant parameter bindings in generated admission SQL (not PostgreSQL acceptance)", async () => {
+    const h = fixture(2);
+    await recordReviewedManualCaseResult(h.db, actor, h.write);
+    const admission = h.tx.$queryRaw.mock.calls.find(([raw]) => Array.isArray(raw) && raw.join("?").includes('AS "runBytes"'));
+    if (!admission || !Array.isArray(admission[0])) throw Error("The actual native admission template was not called.");
+    const sql = admission[0].join("?");
+    expect(sql.match(/AS frozen_case\(case_id\)/g)).toHaveLength(3);
+    expect(sql).toContain('count(DISTINCT frozen_case.case_id)::int');
+    expect(sql).toContain('LEFT JOIN "TestCase" c ON c.id=frozen_case.case_id AND c."projectId"=? WHERE c.id IS NULL');
+    expect(sql).toContain('WHERE frozen_case.case_id IS NULL OR length(frozen_case.case_id)=0 OR length(frozen_case.case_id)>200');
+    expect(sql).toContain('FROM "TestRun" r WHERE r.id=? AND r."projectId"=?');
+    expect(sql).not.toMatch(/\b(?:DISTINCT id|c\.id=id|WHERE id IS NULL)\b/);
+    // Template-tag arguments are captured at the synthetic native boundary.
+    // They are not interpolated into SQL, nor are mocked rows parser proof.
+    const taggedCall = admission as unknown as readonly [readonly string[], ...unknown[]];
+    expect(taggedCall.slice(1)).toEqual(["p", "r", "p"]);
+    expect(h.events.indexOf("native-run-admission")).toBeLessThan(h.events.indexOf("private-run-body"));
+  });
   it("history nonce/raw observation/SQL-NULL vs JSON-NULL classification are bounded before bodies and not normalized", async () => {
     const h = fixture(),
       rows = [

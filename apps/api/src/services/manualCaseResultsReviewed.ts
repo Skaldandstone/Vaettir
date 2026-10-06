@@ -181,11 +181,11 @@ async function frozenRun(tx: Tx, input: ManualCaseReviewedRead) {
     }>
   >`
     SELECT cardinality(r."manualTestCaseIds")::int AS count,
-      (SELECT count(DISTINCT id)::int FROM unnest(r."manualTestCaseIds") id) AS unique,
+      (SELECT count(DISTINCT frozen_case.case_id)::int FROM unnest(r."manualTestCaseIds") AS frozen_case(case_id)) AS unique,
       octet_length(r."manualTestCaseIds"::text)::bigint AS "idsBytes",coalesce(octet_length(r."manualPrerequisites"::text),0)::bigint AS "graphBytes",
       octet_length(to_jsonb(r)::text)::bigint AS "runBytes",
-      (SELECT count(*)::int FROM unnest(r."manualTestCaseIds") id LEFT JOIN "TestCase" c ON c.id=id AND c."projectId"=${input.projectId} WHERE c.id IS NULL) AS foreign,
-      (SELECT count(*)::int FROM unnest(r."manualTestCaseIds") id WHERE id IS NULL OR length(id)=0 OR length(id)>200) AS invalid
+      (SELECT count(*)::int FROM unnest(r."manualTestCaseIds") AS frozen_case(case_id) LEFT JOIN "TestCase" c ON c.id=frozen_case.case_id AND c."projectId"=${input.projectId} WHERE c.id IS NULL) AS foreign,
+      (SELECT count(*)::int FROM unnest(r."manualTestCaseIds") AS frozen_case(case_id) WHERE frozen_case.case_id IS NULL OR length(frozen_case.case_id)=0 OR length(frozen_case.case_id)>200) AS invalid
     FROM "TestRun" r WHERE r.id=${input.testRunId} AND r."projectId"=${input.projectId}`;
   if (
     !admission ||
