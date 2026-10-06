@@ -1862,3 +1862,40 @@ columns, using synthetic auth/RPC only. Its earlier bundle, capture timeout and
 same-UUID lost-response evidence are preserved locally. Final source re-pinning
 and late-ACK rendered proof remain separately recorded in the local handoff.
 These checks are not PostgreSQL, authenticated production or device acceptance.
+
+### October 6 browser-native run page and explicit portable review
+
+The browser reader pins the first native project/organization/Clerk/native actor
+separately from the currently observed session. Current cache data, revision,
+query keys, posted frame and installed SDK must still agree at every paging,
+refresh and export action. Render-time revocation and synchronous cache-generation
+revocation prevent old callbacks or a posted layout from restoring an A-B-A
+response. Renewed same-actor sessions require explicit refresh and a fresh native
+echo. No old page is treated as current after access/refetch refusal.
+
+Current-page CSV is a cloned, frozen review, checked against the actual reader
+again before and after encoding. The export labels its page, anchor, receive
+time, limit, undisplayed history and progress basis, excluding email, CI URL,
+notes, procedures, media and lookahead. Unsupported progress is unavailable, not
+zero. It is not a full backup, stakeholder approval, all-project completion or
+release-readiness artifact. Independent reader/hook/CSV checks passed 49/3
+suites, API/Web types passed, scoped lint passed. The actual central list/card
+caller remains separate pending review of its additive visual component.
+
+The authenticated Testmo vendor-sample report center was also exercised. Its
+milestone report offered selectable sections and card/table display, including
+manual runs, sessions and automation. Generating with the visible "All milestones"
+default returned "The milestone field is required." Selecting the existing
+Spacecraft rollout milestone then produced a rendered report with progress,
+remaining work, status distributions, forecasts and run/session/automation cards.
+Print/PDF became enabled but was not used, so print/export fidelity is unverified.
+This is one observed trial interaction, not a generalized vendor defect claim.
+
+Its headline work-item denominator includes planned manual cases and sessions;
+individual session result entries contribute differently to status distributions.
+Those totals are therefore not interchangeable. Vaettir should label its own
+work units and distinguish planned-case completion, ingested observations,
+session work, pass rate and readiness, rather than copying an unlabeled aggregate
+percentage. Only synthetic/vendor samples were used; no run or customer content
+was submitted. Earlier dated reporting complaints remain research signals, not
+current defect reproductions or unsupported market rankings.
