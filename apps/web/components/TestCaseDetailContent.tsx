@@ -33,6 +33,11 @@ const cellStyle: CSSProperties = {
   padding: "6px 10px",
   textAlign: "left",
 };
+const procedureTextCellStyle: CSSProperties = {
+  ...cellStyle,
+  whiteSpace: "pre-wrap",
+  overflowWrap: "anywhere",
+};
 
 function arraysEqual(a: string[], b: string[]): boolean {
   return a.length === b.length && a.every((v, i) => v === b[i]);
@@ -1403,10 +1408,10 @@ function TestCaseInspector({
                   <tr key={index}>
                     <td style={cellStyle}>{index + 1}</td>
                     <td style={cellStyle}>{step.phase}</td>
-                    <td style={cellStyle}>
+                    <td style={procedureTextCellStyle}>
                       {step.phase !== "Then" ? step.text : "—"}
                     </td>
-                    <td style={cellStyle}>
+                    <td style={procedureTextCellStyle}>
                       {step.phase === "Then" ? step.text : "—"}
                     </td>
                   </tr>
@@ -1453,7 +1458,7 @@ function TestCaseInspector({
                 {tc.steps.map((s) => (
                   <tr key={s.order}>
                     <td style={cellStyle}>{s.order + 1}</td>
-                    <td style={cellStyle}>
+                    <td style={procedureTextCellStyle}>
                       <div>{s.action}</div>
                       {s.mediaAttachmentIds.length > 0 && (
                         <ul
@@ -1492,9 +1497,9 @@ function TestCaseInspector({
                         </ul>
                       )}
                     </td>
-                    {showTechnicalBehavior && <td style={cellStyle}>{s.expectedActionOrData === null ? "Not supplied" : s.expectedActionOrData === "" ? <em>Empty text</em> : s.expectedActionOrData}</td>}
-                    <td style={cellStyle}>{s.expectedResult ?? "—"}</td>
-                    {showExpectedResponse && <td style={cellStyle}>{s.expectedResponse === null ? "Not supplied" : s.expectedResponse === "" ? <em>Empty text</em> : s.expectedResponse}</td>}
+                    {showTechnicalBehavior && <td style={procedureTextCellStyle}>{s.expectedActionOrData === null ? "Not supplied" : s.expectedActionOrData === "" ? <em>Empty text</em> : s.expectedActionOrData}</td>}
+                    <td style={procedureTextCellStyle}>{s.expectedResult ?? "—"}</td>
+                    {showExpectedResponse && <td style={procedureTextCellStyle}>{s.expectedResponse === null ? "Not supplied" : s.expectedResponse === "" ? <em>Empty text</em> : s.expectedResponse}</td>}
                   </tr>
                 ))}
               </tbody>

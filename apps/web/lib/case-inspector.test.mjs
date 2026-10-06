@@ -36,6 +36,130 @@ function suiteMetadata(suitePath, onSuiteSelect) {
   return { html: renderToStaticMarkup(element), element, tc };
 }
 
+// Render only the exact current procedure table and its actual cell styles.
+// This checks React output/raw text, not browser geometry, native reads or auth.
+function procedureTable(kind, tc, { showTechnicalBehavior = true, showExpectedResponse = true, attachments = [] } = {}) {
+  const text = source("../components/TestCaseDetailContent.tsx");
+  const file = ts.createSourceFile("TestCaseDetailContent.tsx", text, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+  const tables = [], declarations = [];
+  function visit(node) {
+    if (ts.isJsxElement(node) && node.openingElement.tagName.getText(file) === "table" &&
+      node.getText(file).includes(kind === "scenario" ? "...tc.given.map" : "tc.steps.map")) tables.push(node);
+    if (ts.isVariableDeclaration(node) && ["cellStyle", "procedureTextCellStyle"].includes(node.name.getText(file))) declarations.push(node);
+    ts.forEachChild(node, visit);
+  }
+  visit(file);
+  assert.equal(tables.length, 1, "Render exactly one actual procedure table");
+  assert.equal(declarations.length, 2, "Use both actual source cell-style declarations");
+  const compiled = ts.transpileModule(`${declarations.map(node => `const ${node.getText(file)};`).join("\n")}
+    exports.renderTable = (tc, showTechnicalBehavior, showExpectedResponse, stepAttachments, viewStepMedia) => (${tables[0].getText(file)});`, {
+    compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.React },
+  }).outputText;
+  const exports = {}, mediaRequests = [];
+  new Function("exports", "React", compiled)(exports, React);
+  const element = exports.renderTable(tc, showTechnicalBehavior, showExpectedResponse, { data: attachments, isLoading: false }, id => mediaRequests.push(id));
+  return { element, html: renderToStaticMarkup(element), mediaRequests };
+}
+
+function childrenOfType(element, type) {
+  return React.Children.toArray(element.props.children).filter(child => React.isValidElement(child) && child.type === type);
+}
+
+function tableRows(table) {
+  return childrenOfType(childrenOfType(table, "tbody")[0], "tr");
+}
+
+function assertProcedureProseCell(cell) {
+  assert.equal(cell.props.style.whiteSpace, "pre-wrap");
+  assert.equal(cell.props.style.overflowWrap, "anywhere");
+  assert.equal(cell.props.style.border, "1px solid var(--line)");
+  assert.equal(cell.props.style.padding, "6px 10px");
+  assert.equal(cell.props.style.textAlign, "left");
+}
+
+test("actual structured procedure pairs complete multiline prose with unchanged order and media references", () => {
+  const tc = {
+    stepFieldLabels: { action: "Tester action", expectedActionOrData: "Technical behavior", expectedResult: "Visible result", expectedResponse: "API response" },
+    steps: [{
+      order: 4, action: '  Click this button\n\tKeep <script>alert("literal")</script> text  ',
+      expectedActionOrData: "OnclickFunction triggers API GET\napiURL: /episodes?next=1&mode=2\n  keep indentation",
+      expectedResult: "First visible result\n\nSecond paragraph  retained",
+      expectedResponse: '{\n  "ok": true,\n  "literal": "<img src=x onerror=alert(1)>"\n}',
+      mediaAttachmentIds: ["original-image-reference", "unavailable-reference"],
+    }, { order: 0, action: "Second original row", expectedActionOrData: null, expectedResult: null, expectedResponse: null, mediaAttachmentIds: [] },
+    { order: 2, action: "Third original row", expectedActionOrData: "", expectedResult: "", expectedResponse: "", mediaAttachmentIds: [] }],
+  };
+  const original = structuredClone(tc);
+  const rendered = procedureTable("structured", tc, { attachments: [{ id: "original-image-reference", contentType: "image/png", fileName: 'Original <image> "name".png' }] });
+  const rows = tableRows(rendered.element);
+  assert.deepEqual(rows.map(row => childrenOfType(row, "td")[0].props.children), [5, 1, 3]);
+  const cells = childrenOfType(rows[0], "td");
+  assert.equal(cells.length, 5);
+  assert.equal(cells[0].props.style.whiteSpace, undefined, "Number layout is not changed to prose style");
+  for (const cell of cells.slice(1)) assertProcedureProseCell(cell);
+  assert.equal(childrenOfType(cells[1], "div")[0].props.children, tc.steps[0].action);
+  assert.deepEqual(cells.slice(2).map(cell => cell.props.children), [tc.steps[0].expectedActionOrData, tc.steps[0].expectedResult, tc.steps[0].expectedResponse]);
+  const media = childrenOfType(childrenOfType(cells[1], "ul")[0], "li");
+  assert.deepEqual(media.map(item => item.key), [".$original-image-reference", ".$unavailable-reference"]);
+  const mediaButton = childrenOfType(media[0], "button")[0];
+  mediaButton.props.onClick();
+  assert.deepEqual(rendered.mediaRequests, ["original-image-reference"]);
+  assert.equal(childrenOfType(media[1], "span")[0].props.children, "Media unavailable (unavaila)");
+  assert.match(rendered.html, /white-space:pre-wrap;overflow-wrap:anywhere/);
+  assert.match(rendered.html, /OnclickFunction triggers API GET\napiURL: \/episodes\?next=1&amp;mode=2\n {2}keep indentation/);
+  assert.match(rendered.html, /&lt;script&gt;alert\(&quot;literal&quot;\)&lt;\/script&gt;/);
+  assert.match(rendered.html, /&lt;img src=x onerror=alert\(1\)&gt;/);
+  assert.doesNotMatch(rendered.html, /<script\b|<img\b/);
+  const headers = childrenOfType(childrenOfType(childrenOfType(rendered.element, "thead")[0], "tr")[0], "th");
+  assert.deepEqual(headers.map(header => header.props.children), ["#", "Tester action", "Technical behavior", "Visible result", "API response"]);
+  for (const header of headers) assert.equal(header.props.style.whiteSpace, undefined, "Headers retain the original style");
+  const nullCells = childrenOfType(rows[1], "td"), emptyCells = childrenOfType(rows[2], "td");
+  assert.deepEqual(nullCells.slice(2).map(cell => cell.props.children), ["Not supplied", "—", "Not supplied"]);
+  assert.equal(childrenOfType(emptyCells[2], "em")[0].props.children, "Empty text");
+  assert.equal(emptyCells[3].props.children, "", "Explicit empty result remains an empty result, not NULL");
+  assert.equal(childrenOfType(emptyCells[4], "em")[0].props.children, "Empty text");
+  assert.deepEqual(tc, original, "No prose, labels, ordering or media identity is rewritten");
+});
+
+test("actual structured procedure preserves optional descriptor visibility without changing its visible prose cells", () => {
+  const tc = { stepFieldLabels: { action: "Action", expectedActionOrData: "Technical", expectedResult: "Result", expectedResponse: "Response" }, steps: [
+    { order: 0, action: "Click\n  button", expectedActionOrData: "Hidden technical value", expectedResult: "Visible\n  result", expectedResponse: "Hidden response value", mediaAttachmentIds: [] },
+  ] };
+  const original = structuredClone(tc);
+  const rendered = procedureTable("structured", tc, { showTechnicalBehavior: false, showExpectedResponse: false });
+  const cells = childrenOfType(tableRows(rendered.element)[0], "td");
+  assert.equal(cells.length, 3);
+  assertProcedureProseCell(cells[1]);
+  assertProcedureProseCell(cells[2]);
+  assert.equal(childrenOfType(cells[1], "div")[0].props.children, tc.steps[0].action);
+  assert.equal(cells[2].props.children, tc.steps[0].expectedResult);
+  assert.doesNotMatch(rendered.html, /Hidden technical value|Hidden response value/);
+  assert.deepEqual(tc, original);
+});
+
+test("actual scenario procedure preserves multiline conditions and outcomes without changing phase order", () => {
+  const tc = { given: ["  Given condition\n\tkept indentation", ""], when: ["When action\n<svg onload=alert(1)>"], then: ["Then outcome\n\n  second paragraph"] };
+  const original = structuredClone(tc);
+  const rendered = procedureTable("scenario", tc);
+  const rows = tableRows(rendered.element);
+  assert.deepEqual(rows.map(row => childrenOfType(row, "td")[0].props.children), [1, 2, 3, 4]);
+  assert.deepEqual(rows.map(row => childrenOfType(row, "td")[1].props.children), ["Given", "Given", "When", "Then"]);
+  assert.deepEqual(rows.map(row => childrenOfType(row, "td").slice(2).map(cell => cell.props.children)), [
+    [tc.given[0], "—"], ["", "—"], [tc.when[0], "—"], ["—", tc.then[0]],
+  ]);
+  for (const row of rows) {
+    const cells = childrenOfType(row, "td");
+    assert.equal(cells[0].props.style.whiteSpace, undefined);
+    assert.equal(cells[1].props.style.whiteSpace, undefined, "Existing single-line phase styling stays unchanged");
+    for (const cell of cells.slice(2)) assertProcedureProseCell(cell);
+  }
+  assert.match(rendered.html, /Given condition\n\tkept indentation/);
+  assert.match(rendered.html, /Then outcome\n\n {2}second paragraph/);
+  assert.match(rendered.html, /&lt;svg onload=alert\(1\)&gt;/);
+  assert.doesNotMatch(rendered.html, /<svg\b/);
+  assert.deepEqual(tc, original);
+});
+
 test("actual suite metadata distinguishes native NULL from retained empty path without an unsupported route", () => {
   const unassigned = suiteMetadata(null), empty = suiteMetadata("");
   assert.equal(unassigned.html, "<span><strong>Suite:</strong> Unassigned</span>");

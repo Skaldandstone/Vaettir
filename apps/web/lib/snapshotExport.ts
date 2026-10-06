@@ -61,6 +61,17 @@ function esc(s: string): string {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 }
 
+// Encode literal punctuation before Markdown parsing: entities cannot create
+// table delimiters, links, formatting or HTML. Only our line-break tag is markup.
+// Wiki renderers may normalize indentation; this is not a lossless backup.
+function literalMarkdownCell(value: string): string {
+  return value.replace(/\r\n|[\r\n]|[\u0021-\u002f\u003a-\u0040\u005b-\u0060\u007b-\u007e]/g, (character) =>
+    character === "\r\n" || character === "\r" || character === "\n"
+      ? "<br>"
+      : `&#${character.charCodeAt(0)};`,
+  );
+}
+
 function sparklinePath(
   values: (number | null)[],
   width: number,
@@ -119,7 +130,7 @@ export function buildHtmlSnapshot(data: SnapshotData): string {
       const rows = plan.acceptanceCriteria
         .map(
           (c) =>
-            `<li><span class="${statusBadgeClass(c.status)}">${esc(c.status)}</span> ${esc(c.description)}${c.autoComputed ? ' <span class="muted">(live)</span>' : ""}</li>`,
+            `<li><span class="${statusBadgeClass(c.status)}">${esc(c.status)}</span> <span class="criterion-text">${esc(c.description)}</span>${c.autoComputed ? ' <span class="muted">(live)</span>' : ""}</li>`,
         )
         .join("");
       return `<details open>
@@ -188,6 +199,7 @@ export function buildHtmlSnapshot(data: SnapshotData): string {
   .criteria-list { list-style: none; padding: 0; margin: 8px 0 0; font-size: 13px; }
   .criteria-list li { padding: 4px 0; border-top: 1px solid #f0f0f0; }
   .criteria-list li:first-child { border-top: none; }
+  .criterion-text { white-space: pre-wrap; overflow-wrap: anywhere; }
   table { width: 100%; border-collapse: collapse; font-size: 13px; margin-top: 8px; }
   th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid #eee; }
   th { cursor: pointer; user-select: none; color: #555; font-size: 12px; text-transform: uppercase; letter-spacing: 0.03em; }
@@ -270,10 +282,10 @@ export function buildHtmlSnapshot(data: SnapshotData): string {
 
 export function buildMarkdownSnapshot(data: SnapshotData): string {
   const lines: string[] = [];
-  lines.push(`# ${data.release.name}`);
+  lines.push(`# ${literalMarkdownCell(data.release.name)}`);
   lines.push("");
   lines.push(
-    `${data.projectName} · status ${data.release.status}${data.release.targetDate ? ` · target ${new Date(data.release.targetDate).toLocaleDateString()}` : ""}`,
+    `${literalMarkdownCell(data.projectName)} · status ${literalMarkdownCell(data.release.status)}${data.release.targetDate ? ` · target ${new Date(data.release.targetDate).toLocaleDateString()}` : ""}`,
   );
   lines.push("");
   lines.push(`**Readiness: ${data.readiness.score}/100 — ${data.readiness.label}**`);
@@ -285,7 +297,7 @@ export function buildMarkdownSnapshot(data: SnapshotData): string {
   lines.push("## Acceptance criteria");
   lines.push("");
   for (const plan of data.testPlans) {
-    lines.push(`<details open><summary><strong>${plan.name}</strong> (${plan.testPlanType.name}, ${plan.status})</summary>`);
+    lines.push(`<details open><summary><strong>${literalMarkdownCell(plan.name)}</strong> (${literalMarkdownCell(plan.testPlanType.name)}, ${literalMarkdownCell(plan.status)})</summary>`);
     lines.push("");
     if (plan.acceptanceCriteria.length === 0) {
       lines.push("_No acceptance criteria._");
@@ -293,7 +305,7 @@ export function buildMarkdownSnapshot(data: SnapshotData): string {
       lines.push("| Status | Criterion |");
       lines.push("|---|---|");
       for (const c of plan.acceptanceCriteria) {
-        lines.push(`| ${c.status}${c.autoComputed ? " (live)" : ""} | ${c.description.replace(/\|/g, "\\|")} |`);
+        lines.push(`| ${literalMarkdownCell(c.status)}${c.autoComputed ? " (live)" : ""} | ${literalMarkdownCell(c.description)} |`);
       }
     }
     lines.push("");
@@ -309,7 +321,7 @@ export function buildMarkdownSnapshot(data: SnapshotData): string {
     lines.push("|---|---|---|---|---|");
     for (const f of data.riskFlags) {
       lines.push(
-        `| ${f.severity} | ${f.source} | ${f.description.replace(/\|/g, "\\|")} | ${f.relatedFilePath ?? ""} | ${f.resolvedAt ? "Resolved" : "Open"} |`,
+        `| ${literalMarkdownCell(f.severity)} | ${literalMarkdownCell(f.source)} | ${literalMarkdownCell(f.description)} | ${literalMarkdownCell(f.relatedFilePath ?? "")} | ${f.resolvedAt ? "Resolved" : "Open"} |`,
       );
     }
   }
@@ -322,11 +334,11 @@ export function buildMarkdownSnapshot(data: SnapshotData): string {
     const passRate = t.passRate === null ? "—" : `${(t.passRate * 100).toFixed(0)}%`;
     const coverage = t.coveragePct === null ? "—" : `${t.coveragePct.toFixed(0)}%`;
     const mttg = t.meanTimeToGreenMs === null ? "—" : `${(t.meanTimeToGreenMs / 3_600_000).toFixed(1)}h`;
-    lines.push(`| ${t.name} | ${t.runCount} | ${passRate} | ${coverage} | ${t.flakyCount} | ${mttg} |`);
+    lines.push(`| ${literalMarkdownCell(t.name)} | ${t.runCount} | ${passRate} | ${coverage} | ${t.flakyCount} | ${mttg} |`);
   }
   lines.push("");
   lines.push(
-    `---\n_Generated by Vaettir on ${new Date(data.generatedAt).toLocaleString()} - a point-in-time snapshot, not a live view; reopen this export any time but the numbers won't update. \`<details>\` blocks render as collapsible sections on GitHub and most wikis; Notion converts them to a static block on import - use the HTML export there for real interactivity._`,
+    `---\n_Generated by Vaettir on ${new Date(data.generatedAt).toLocaleString()} - a point-in-time snapshot, not a live view; reopen this export any time but the numbers won't update. Markdown renderers may trim cell-edge whitespace or normalize indentation; this is not a lossless backup. \`<details>\` blocks render as collapsible sections on GitHub and most wikis; Notion converts them to a static block on import - use the HTML export there for real interactivity._`,
   );
   return lines.join("\n");
 }

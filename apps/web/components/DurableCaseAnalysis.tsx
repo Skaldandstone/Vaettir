@@ -461,7 +461,7 @@ function Analysis({ projectId, selectedIds, onCompleted, buttonLabel = "Analyze 
                   cases. Maximum 1,000 per reviewed queue. Saved reviews and
                   existing risk assessments are preserved.
                 </p>
-                {selectedIds.length > 1000 && (
+                {!reviewRequest && selectedIds.length > 1000 && (
                   <p role="alert">
                     Select at most 1,000 cases. Nothing has been truncated or
                     queued.
