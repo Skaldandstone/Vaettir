@@ -213,11 +213,13 @@ test("phase form wiring preserves stable row origin and full raw API arrays, wit
 
 test("execution dialog displays frozen expected response and preserves multiline technical descriptors", () => {
   const execution = file("../components/StepExecutionPanel.tsx");
-  assert.match(execution, /aria-label="Frozen step definition"/);
-  assert.match(execution, /selectedStep\.expectedResponse != null/);
-  assert.match(execution, /stepFieldLabels\.expectedResponse \?\? "Expected response"/);
   assert.match(execution, /technicalBehaviorLabel\(stepFieldLabels\.expectedActionOrData\)/);
-  assert.match(execution, /whiteSpace: "pre-wrap"/);
-  assert.match(execution, /selectedStep\.expectedResponse \|\| <em>Empty text<\/em>/);
+  assert.match(execution, /stepFieldLabels=\{\{/);
+  const reviewed = file("../components/ReviewedStepObservation.tsx");
+  assert.match(reviewed, /aria-label="Current frozen step procedure"/);
+  assert.match(reviewed, /\["expectedResponse", "Expected response"\]/);
+  assert.match(reviewed, /labels\[key\] \|\| label/);
+  assert.match(reviewed, /whiteSpace: "pre-wrap"/);
+  assert.match(reviewed, /value === "" \? <em>Empty text<\/em>/);
   assert.match(file("../components/CaseProcedureColumns.tsx"), /technicalBehaviorLabel\(labels\?\.expectedActionOrData\)/);
 });

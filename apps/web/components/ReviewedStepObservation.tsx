@@ -10,7 +10,7 @@ function exactStepText(value: unknown, supplied: boolean): ReactNode {
   return !supplied ? <em>Unset</em> : value === null ? <em>NULL (retained)</em> : value === "" ? <em>Empty text</em> : typeof value === "string" ? value : <em>Unsupported value; see exact disclosure</em>;
 }
 /** Stored coordinate and technical descriptor stay aligned, never live fallback. */
-export function StepFrozenObservation({ definition, stepIndex }: { definition: unknown; stepIndex: number }) {
+export function StepFrozenObservation({ definition, stepIndex, labels = {} }: { definition: unknown; stepIndex: number; labels?: Record<string, string> }) {
   const record = definition && typeof definition === "object" && !Array.isArray(definition) ? definition as Record<string, unknown> : null;
   const steps = record?.steps;
   const raw = Array.isArray(steps) ? steps[stepIndex] : null;
@@ -19,7 +19,7 @@ export function StepFrozenObservation({ definition, stepIndex }: { definition: u
   return <section aria-label="Current frozen step procedure">
     <h4>Frozen step {stepIndex + 1}</h4>
     {supported && step ? <dl style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(min(100%,240px),1fr))", gap: 16 }}>
-      {([["action", "Tester action"], ["expectedActionOrData", "Technical behavior / data"], ["expectedResult", "Expected result"], ["expectedResponse", "Expected response"]] as const).map(([key, label]) => <div key={key}><dt>{stepIndex + 1}. {label}</dt><dd style={{ margin: "6px 0", whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>{exactStepText(step[key], Object.hasOwn(step, key))}</dd></div>)}
+      {([["action", "Tester action"], ["expectedActionOrData", "Technical behavior / data"], ["expectedResult", "Expected result"], ["expectedResponse", "Expected response"]] as const).map(([key, label]) => <div key={key}><dt>{stepIndex + 1}. {labels[key] || label}</dt><dd style={{ margin: "6px 0", whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>{exactStepText(step[key], Object.hasOwn(step, key))}</dd></div>)}
     </dl> : <p>Friendly step view is unsupported for this saved representation. No current case or default procedure was substituted.</p>}
     <p className="text-muted">Procedure saved with this run. Preconditions remain separate from its numbered steps.</p>
     <details><summary>Exact frozen case procedure, including unknown fields and media references</summary><pre style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>{JSON.stringify(definition, null, 2)}</pre></details>
@@ -62,14 +62,14 @@ export type StepObservationResourceProps = {
 };
 /** Additive actual editor. Parent must keep it mounted through row collapse and
  * modal close. Central step-panel cutover/file opening remain separate work. */
-export function ReviewedStepObservation({ projectId, testRunId, testCaseId, stepIndex, active, disabled, physical = false, onChanged, onUnconfirmedChange, renderResources }: {
+export function ReviewedStepObservation({ projectId, testRunId, testCaseId, stepIndex, active, disabled, physical = false, initiallyOpen = false, stepFieldLabels, onChanged, onUnconfirmedChange, renderResources }: {
   projectId: string; testRunId: string; testCaseId: string; stepIndex: number; active: boolean; disabled: boolean; physical?: boolean;
-  onChanged?: () => Promise<unknown>; onUnconfirmedChange?: (pending: boolean) => void;
+  initiallyOpen?: boolean; stepFieldLabels?: Record<string, string>; onChanged?: () => Promise<unknown>; onUnconfirmedChange?: (pending: boolean) => void;
   renderResources?: (props: StepObservationResourceProps) => ReactNode;
 }) {
   const [original] = useState({ projectId, testRunId, testCaseId, stepIndex });
   const same = original.projectId === projectId && original.testRunId === testRunId && original.testCaseId === testCaseId && original.stepIndex === stepIndex;
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(initiallyOpen);
   const workflow = useStepExecutionReviewController(original, original.stepIndex, active && same && open, disabled, async () => {
     onUnconfirmedChange?.(false); await onChanged?.();
   }, onUnconfirmedChange);
@@ -92,9 +92,9 @@ export function ReviewedStepObservation({ projectId, testRunId, testCaseId, step
       {!view.authorityReadable && <p role="status">Current original-reader access is not verified. Private fields are withheld; retained entries and requests were not rebound.</p>}
       {view.notice && <p role="status">{view.notice}</p>}
       {view.readable && fresh ? <>
-        <StepFrozenObservation definition={fresh.frozenDefinition} stepIndex={original.stepIndex} />
+        <StepFrozenObservation definition={fresh.frozenDefinition} stepIndex={original.stepIndex} labels={stepFieldLabels} />
         {fresh.current && <section><h4>Current saved observation</h4><p>{fresh.current.status} · {fresh.current.actorName} · {fresh.current.recordedAt}</p><p style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>Actual: {exactStepText(fresh.current.note, true)}</p><p>Historical correction reason: {exactStepText(fresh.current.correctionReason, true)}</p><details><summary>Exact current observation and retained metadata</summary><pre style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>{JSON.stringify(fresh.rawCurrent, null, 2)}</pre></details></section>}
-        {view.baselineChanged && <p role="alert">The current native baseline changed. Your entered buffer is retained. Explicitly review it against the current frozen procedure before a new request.</p>}
+        {view.baselineChanged && !view.acknowledgement && <p role="alert">The current native baseline changed. Your entered buffer is retained. Explicitly review it against the current frozen procedure before a new request.</p>}
         {!buffer && view.canEdit && <button type="button" className="btn-primary" onClick={() => { if (fresh) workflow.change(stepObservationBuffer(fresh)); }}>Start a draft from this current step</button>}
         {buffer && <><StepObservationFields buffer={buffer} correction={view.draft?.expectedRevisionId !== null} physical={physical} editingEnabled={view.canEdit} onChange={workflow.change} />
           <details><summary>Exact retained entered buffer</summary><pre style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>{JSON.stringify(buffer, null, 2)}</pre></details>

@@ -167,8 +167,14 @@ export class StepReviewCompletionController {
     catch { this.observeSession(this.currentSession(), false); if (this.current(epoch) && this.frame.activation === activation) this.notice = "The receipt remains acknowledged; current view refresh failed."; }
     finally { this.observeSession(this.currentSession(), false); this.busy = false; this.emit(); }
   }
-  finishAcknowledged(epoch: number) {
+  finishAcknowledged(epoch: number, releasePending?: () => void) {
     if (!this.current(epoch) || !this.bodyReadable() || !this.acknowledgement || this.busy || this.pending) return false;
+    // A late ACK may have settled privately without notifying its original
+    // parent. Explicit release under a fresh original read can clear that one
+    // step's pending barrier; it does not submit or refresh any native result.
+    try { releasePending?.(); } catch { this.notice = "The receipt remains acknowledged; its parent pending state could not be released."; this.emit(); return false; }
+    this.observeSession(this.currentSession(), false);
+    if (!this.current(epoch) || !this.bodyReadable()) return false;
     this.draft = null; this.reviewedIdentity = null; this.acknowledgement = null; this.notice = ""; this.emit(); return true;
   }
 }

@@ -39,8 +39,11 @@ test("withheld case/step/retest content retains mounted original draft/request s
   assert.ok(native.includes("const data = readable ? dataQuery.data : retainedNativeData"));
   assert.ok(!native.includes("retainedNativeData.current"), "Mounted data is ordinary render state, not render-time ref reads/writes");
   assert.ok(sourceCodeIncludes(native, "useLayoutEffect(() => { accessNow.current = { readable, canEdit, ready: access.ready }; }, [readable, canEdit, access.ready])"));
-  for (const text of ["if (!readable) return null", "enabled: readable && open && evidenceOpen", "{ testRunId, ...readScope }", "if (readableNow.current) window.open", "const [attempt, setAttempt]"]) assert.ok(step.includes(text), text);
-  assert.ok(!step.includes("if (!readable) setAttempt(null)"));
+  for (const text of ["const visible = readable && same", "original.organizationId === readScope?.originalOrganizationId", "original.clerkActorId === readScope?.expectedClerkActorId", "<div hidden={!visible || !canBrowse}>{visited.map", "active={visible && canBrowse}", "retention.markPending(index, pending)"]) assert.ok(step.includes(text), text);
+  assert.ok(!step.includes("if (!readable) return null"), "Visited child editors remain mounted while private presentation is withheld");
+  assert.ok(!step.includes("recordStepResult"));
+  assert.ok(!step.includes("window.open"));
+  assert.ok(sourceCodeIncludes(native, "readable={readable && expanded && !hidden}"));
 });
 test("later same-run result corrections do not unmount a retained separate-retest request", () => {
   assert.ok(native.includes("if (!readable || !dataQuery.data) return"));

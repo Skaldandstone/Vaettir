@@ -377,10 +377,10 @@ function CaseRow({
           testRunId={testRunId}
           testCase={testCase}
           stepFieldLabels={stepFieldLabels}
-          readable={readable}
+          readable={readable && expanded && !hidden}
           readScope={readScope}
           active={stepMode}
-          disabled={disabled || runClosed || wholeCasePending}
+          disabled={disabled || wholeCasePending}
           blockedBy={blockedBy}
           onModeActive={() => setStepModeChosen(true)}
           onChanged={onStepsChanged}

@@ -1930,3 +1930,47 @@ ordinary teardown disconnects without deleting evidence. These fixtures are not
 expected-pass mocks, skips or proof of current concurrency. The old placement
 callers and prior native failures remain intact. No native SQL or migration was
 executed, and no deployment gate is cleared by this source checkpoint.
+
+### October 6 actual central step caller cutover
+
+`StepExecutionPanel` now calls the reviewed native editor rather than its old
+unversioned mutation/trimmed draft/history/file-open implementation. An explicit
+first visit opens that original numbered step's editor. Visited editors remain
+mounted outside the conditional summary list through collapse, filter exclusion,
+current-reader refusal and summary refresh. Original project/run/case/step keys
+and tenant/actor presentation pins are retained. Custom project step labels are
+passed through; only the existing legacy technical label uses its established
+display normalization. Raw stored keys and values remain unchanged.
+
+The actual manual page supplies expansion/filter visibility to the retained
+panel, so closing a row also deactivates its portalled dialog. Step-specific
+pending state aggregates synchronously: acknowledging or releasing one step
+cannot clear another step's uncertain request. An explicitly released matched
+late ACK under a fresh original read can clear that step's parent pending state
+without another mutation or summary refresh. Closing the run does not locally
+block identical accepted-request recovery; current FULL access and native
+`canRecord/canRecover` govern new writes versus exact replay separately.
+
+Independent checks passed 44 focused typed checks and 29 Node checks initially;
+the final compatible Web run passed 803 Node plus 535 typed checks in 54 suites,
+zero skips. Web types passed. New caller/editor/helper/controller lint is clean;
+four existing manual-page warnings (three effect-state warnings and one prose
+apostrophe) remain disclosed, not suppressed. One obsolete legacy source assertion
+initially failed after the closed-run recovery cutover, was updated to check the
+new native contract, and then the complete Web run passed. Native checks were not
+run. The selected API source/mock tranche passed 174 checks across 11 suites.
+
+Root reviewed the pinned actual-panel browser captures and matching source hashes:
+two step requests retained separate UUIDs and raw entered buffers across collapse,
+filtering and auth loss; one ACK/release left the other request pending. Both exact
+replays produced two fake revisions, not duplicate writes. Separate SDK A-B-A late
+ACK withheld private fields until a fresh native-shaped read; explicit ACK release
+cleared pending without a new mutation/refresh. Read-only history remained visible
+with recording disabled. Both fixture tabs had empty warning/error logs. Only
+auth/RPC and a minimal parent summary are synthetic; this is not the production
+manual page, native CAS/concurrency, real file, device or deployment proof.
+
+The old server step route and remaining legacy native-fixture migrations are
+separate compatibility/recovery work, not declared safe or removed by this caller
+checkpoint. Prior failed native/runtime/image/security/recovery gates remain
+FAILED/open. Production parity and authenticated acceptance remain incomplete.

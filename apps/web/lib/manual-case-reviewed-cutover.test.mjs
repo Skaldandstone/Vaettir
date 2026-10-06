@@ -65,10 +65,11 @@ test("blocked prerequisites allow only Blocked or Skip review intent", () => {
     assert.equal(h.intents.length, status === "BLOCKED" || status === "SKIP" ? 1 : 0);
   }
 });
-test("closed status blocks new quick/step work but not native whole-case receipt recovery; hidden rows retain mounted editor", () => {
+test("closed status blocks new quick intents while native case/step review controls preserve receipt recovery; hidden rows retain editors", () => {
   assert.match(source, /runClosed=\{data.status !== "RUNNING"\}/);
   assert.match(source, /rowFrame.current = \{ readable, disabled: disabled \|\| runClosed/);
-  assert.match(source, /disabled=\{disabled \|\| runClosed \|\| wholeCasePending\}/);
+  assert.match(source, /disabled=\{disabled \|\| wholeCasePending\}/);
+  assert.doesNotMatch(source, /disabled=\{disabled \|\| runClosed \|\| wholeCasePending\}/, "Native canRecord blocks new closed-run edits without blocking original exact-receipt recovery");
   const mount = source.slice(source.indexOf("<ManualCaseResultHistory"), source.indexOf("</div>", source.indexOf("<ManualCaseResultHistory")));
   assert.match(mount, /active=\{readable && expanded && !hidden && !stepMode\}/);
   assert.match(mount, /disabled=\{disabled\}/);

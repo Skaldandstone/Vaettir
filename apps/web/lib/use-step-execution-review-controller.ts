@@ -36,5 +36,5 @@ export function useStepExecutionReviewController(ref: StepReviewCaseRef, stepInd
     save: () => controller.matchesFrame(frame) ? controller.submit(view.epoch, input => mutation.mutateAsync(input), onAcknowledged, onUnconfirmedChange) : Promise.resolve(),
     discardUnsaved: () => controller.matchesFrame(frame) && controller.discardUnsaved(view.epoch, view.draft?.identity ?? null),
     synchronizeAcknowledged: () => controller.matchesFrame(frame) && onAcknowledged ? controller.synchronizeAcknowledged(view.epoch, onAcknowledged) : Promise.resolve(),
-    finishAcknowledged: () => controller.matchesFrame(frame) && controller.finishAcknowledged(view.epoch) };
+    finishAcknowledged: () => controller.matchesFrame(frame) && controller.finishAcknowledged(view.epoch, () => onUnconfirmedChange?.(false)) };
 }

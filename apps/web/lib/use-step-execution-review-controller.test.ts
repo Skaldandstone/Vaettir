@@ -45,6 +45,14 @@ function harness() {
 }
 
 describe("actual step reader/controller hooks and private class, synthetic RPC only", () => {
+  it("explicit fresh-read ACK release clears only parent pending, without a result submission or refresh callback", async () => {
+    const h = harness(); h.prepare();
+    h.setRecord(async input => { h.emit({ id: "B", user: { id: "cl" } }); h.emit({ id: "A", user: { id: "cl" } }); return h.ack(input); });
+    await h.workflow.save(); expect(h.calls.pending).toEqual([true]); expect(h.calls.acknowledged).toBe(0);
+    h.render(); expect(h.workflow.view.acknowledgement?.revisionId).toBe("new");
+    expect(h.workflow.finishAcknowledged()).toBe(true); expect(h.calls.pending).toEqual([true, false]);
+    expect(h.calls.sent).toHaveLength(1); expect(h.calls.acknowledged).toBe(0);
+  });
   it.each(["close", "readonly", "fetch", "step"])("render %s revokes old private bodies/handlers BEFORE layout effects", async loss => {
     const h = harness(); h.prepare(); const prior = h.workflow, draft = prior.view.draft;
     if (loss === "close") h.params.visible = false;
