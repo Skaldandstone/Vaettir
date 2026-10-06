@@ -2436,3 +2436,55 @@ These observations support separate clearly named progress/success denominators
 and remaining-work visuals, not a claim that recorded or passed means accepted.
 Export controls were visible but export fidelity was not exercised. This is
 hands-on interaction evidence, not a vendor ranking or complaint-prevalence claim.
+
+### October 6 bounded prerequisite result admission
+
+Reviewed step writes now admit prerequisite scalar counts, duplicate identity,
+tenant identity and native byte bounds before materializing case/status rows.
+The original current-authorized locked transaction, accepted-receipt recovery,
+frozen graph/CAS and exact request hashes are unchanged. Empty dependencies do
+not issue prerequisite SQL. A genuinely missing or non-Pass prerequisite remains
+an actionable business refusal; malformed, duplicate or oversized evidence is
+not disguised as missing. No note, observation or attachment body is fetched by
+this helper, and no cohort is clipped or deduplicated into a fabricated Pass.
+
+Root repeated 189 mocked checks across five actual suites. The original 58-case
+semantic describe block's AST remains identical to the preceding checkpoint.
+This bounds transferred metadata, not database scan cost, latest-live all-writer
+currentness, native performance or simultaneous same-UUID ACK acceptance. Those
+native gates remain open; the retained strict native fixture was not run.
+
+### October 6 current helper setup identity bootstrap
+
+The additive setup identity endpoint establishes only a new current metadata
+scope using independently verified JWT identity and the existing four-lock FULL
+editor read. Later reads retain the original native actor pin through the distinct
+deviceCaptureAccess.read endpoint. Root registered both metadata reads; neither
+grants helper launch, foreground target verification, capture consent, source
+processing, spending approval or attribution of an old draft/unknown request.
+No legacy capture button or operation handler was adopted by this registration.
+Root's 50 mocked bootstrap/current-access checks and API types/scoped lint passed.
+Actual guarded setup caller integration, OS launch and physical-device acceptance
+remain unfinished. No helper request, launch or live identity change was made.
+
+### October 6 recurring-friction research refresh
+
+The [current Qase run guide](https://docs.qase.io/en/articles/5563702-test-runs)
+documents suite/plan/saved-query selection, result-based completion, status
+visuals, start/time context, exports and separate retest/clone workflows. Its
+snapshot rule distinguishes untested source updates from recorded frozen cases.
+These are documented capabilities, not this turn's hands-on acceptance. Vaettir
+must keep its own frozen procedure, missing-scope and reviewed correction rules;
+copying a visual does not justify mutating recorded evidence or public sharing.
+
+A [June 2026 first-person discussion](https://www.reddit.com/r/QualityAssurance/comments/1tz5j5z/search_for_good_test_management_tool/)
+describes friction in manual result entry despite tools' integration/reporting
+focus. A [January 2024 Testmo discussion](https://www.reddit.com/r/QualityAssurance/comments/1947q9v/testmo/)
+mixes positive everyday usability with spreadsheet markup/PDF-layout complaints
+and older Qase archive/field concerns. These are dated anecdotes, not prevalence,
+current vendor defects or rankings. The current Qase guide contradicts treating
+the old archive complaint as a confirmed present limitation. A direct Testmo
+changelog fetch failed, so its current export implementation was not verified.
+Use these as regression prompts: retain useful prose, reduce repetitive entry,
+make export scope/format explicit and verify exact frozen procedures, not as
+evidence that more charts or fields automatically improve the workflow.

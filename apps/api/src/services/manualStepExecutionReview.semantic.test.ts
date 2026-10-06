@@ -119,9 +119,12 @@ function fixture() {
     revisionExact: true,
     receipt: null as unknown,
     receiptCount: 0n,
+    prerequisiteAdmission: null as Record<string, unknown> | null,
+    missingPrerequisiteAdmission: false,
   };
   const heads = [] as ReturnType<typeof storedHead>[];
   const prerequisites = [] as { testCaseId: string; status: string }[];
+  const prerequisiteEvents: string[] = [];
   const writes = vi.fn();
   const tx = {
     $queryRaw: vi.fn(async (raw: readonly string[] | { sql: string }) => {
@@ -147,6 +150,26 @@ function fixture() {
       if (sql.includes("observations IS NOT DISTINCT"))
         return [{ exact: flags.revisionExact }];
       if (sql.includes(" AS whole")) return [mode];
+      if (sql.includes('count(DISTINCT r."testCaseId")')) {
+        prerequisiteEvents.push("native-prerequisite-admission");
+        if (flags.missingPrerequisiteAdmission) return [];
+        return [
+          flags.prerequisiteAdmission ?? {
+            count: BigInt(prerequisites.length),
+            distinctCases: BigInt(
+              new Set(prerequisites.map((row) => row.testCaseId)).size,
+            ),
+            bytes: BigInt(prerequisites.length * 100),
+            maxBytes: prerequisites.length ? 100n : 0n,
+            invalid: prerequisites.some(
+              (row) =>
+                typeof row.testCaseId !== "string" ||
+                !run.manualPrerequisites.case.includes(row.testCaseId) ||
+                !["PASS", "FAIL", "BLOCKED", "SKIP"].includes(row.status),
+            ),
+          },
+        ];
+      }
       if (sql.includes('FROM "TestCaseAttachment" a JOIN')) return [fileSize];
       if (sql.includes("CASE WHEN octet_length(name)"))
         return [{ name: "Synthetic author" }];
@@ -179,7 +202,11 @@ function fixture() {
       update: writes,
     },
     testResult: {
-      findMany: vi.fn(async () => prerequisites),
+      findMany: vi.fn(async (...args: unknown[]) => {
+        expect(args).toHaveLength(1);
+        prerequisiteEvents.push("scalar-prerequisite-fetch");
+        return prerequisites;
+      }),
       findFirst: vi.fn(async () => null),
       count: vi.fn(async () => 0),
       create: writes,
@@ -208,6 +235,7 @@ function fixture() {
     flags,
     heads,
     prerequisites,
+    prerequisiteEvents,
     writes,
   };
 }
@@ -303,6 +331,144 @@ function prerequisite(h: Fixture) {
   });
 }
 beforeEach(() => lock.mockReset());
+describe("reviewed writer integration admits prerequisite scalars before materialization", () => {
+  it.each([
+    { count: 2n, distinctCases: 1n },
+    { count: 1001n },
+    { bytes: 1048577n },
+    { maxBytes: 1025n },
+    { invalid: true },
+    { count: -1n },
+    { distinctCases: null },
+  ])(
+    "native unsupported admission stays PRE/no fetch/no write %#",
+    async (patch) => {
+      const h = fixture();
+      prerequisite(h);
+      h.prerequisites.push({ testCaseId: "dependency", status: "PASS" });
+      h.flags.prerequisiteAdmission = {
+        count: 1n,
+        distinctCases: 1n,
+        bytes: 100n,
+        maxBytes: 100n,
+        invalid: false,
+        ...patch,
+      };
+      await refusal(h, "PRECONDITION_FAILED");
+      expect(h.prerequisiteEvents).toEqual(["native-prerequisite-admission"]);
+      expect(h.tx.testResult.findMany).not.toHaveBeenCalled();
+    },
+  );
+  it("missing native admission row is unsupported rather than a missing prerequisite", async () => {
+    const h = fixture();
+    prerequisite(h);
+    h.flags.missingPrerequisiteAdmission = true;
+    await refusal(h, "PRECONDITION_FAILED");
+    expect(h.tx.testResult.findMany).not.toHaveBeenCalled();
+  });
+  it("genuine smaller valid cohort still gets business missing-prerequisite BAD", async () => {
+    const h = fixture();
+    prerequisite(h);
+    await refusal(h, "BAD_REQUEST", "prerequisite cases with Pass");
+    expect(h.prerequisiteEvents).toEqual([
+      "native-prerequisite-admission",
+      "scalar-prerequisite-fetch",
+    ]);
+  });
+  it("all passed cohort is admitted before exact scalar selection and unchanged raw result write", async () => {
+    const h = fixture();
+    prerequisite(h);
+    h.prerequisites.push({ testCaseId: "dependency", status: "PASS" });
+    const ack = await recordReviewedStep(h.db, actor, h.input);
+    expect(ack.requestHash).toBe(reviewedStepRequestHash(h.input));
+    expect(h.prerequisiteEvents).toEqual([
+      "native-prerequisite-admission",
+      "scalar-prerequisite-fetch",
+    ]);
+    expect(h.tx.testResult.findMany).toHaveBeenCalledWith({
+      where: { testRunId: "run", testCaseId: { in: ["dependency"] } },
+      select: { testCaseId: true, status: true },
+    });
+    expect(h.tx.manualStepResultRevision.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ note: " raw \nprose " }),
+      }),
+    );
+  });
+  it.each(["empty", "duplicate", "unsupported", "foreign"])(
+    "native/projected %s disagreement stays PRE/no write",
+    async (kind) => {
+      const h = fixture();
+      prerequisite(h);
+      h.flags.prerequisiteAdmission = {
+        count: 1n,
+        distinctCases: 1n,
+        bytes: 100n,
+        maxBytes: 100n,
+        invalid: false,
+      };
+      if (kind !== "empty")
+        h.prerequisites.push({
+          testCaseId: kind === "foreign" ? "other" : "dependency",
+          status: kind === "unsupported" ? "FLAKY" : "PASS",
+        });
+      if (kind === "duplicate")
+        h.prerequisites.push({ testCaseId: "dependency", status: "PASS" });
+      await refusal(h, "PRECONDITION_FAILED");
+      expect(h.prerequisiteEvents).toEqual([
+        "native-prerequisite-admission",
+        "scalar-prerequisite-fetch",
+      ]);
+    },
+  );
+  it("no dependencies performs zero prerequisite SQL or fetch", async () => {
+    const h = fixture();
+    await recordReviewedStep(h.db, actor, h.input);
+    expect(h.prerequisiteEvents).toEqual([]);
+    expect(h.tx.testResult.findMany).not.toHaveBeenCalled();
+  });
+  it("frozen CAS refusal happens before prerequisite admission", async () => {
+    const h = fixture();
+    prerequisite(h);
+    h.input.expectedProcedureHash = "f".repeat(64);
+    await refusal(h, "CONFLICT", "baseline");
+    expect(h.prerequisiteEvents).toEqual([]);
+  });
+  it("accepted original receipt bypasses later prerequisite admission entirely", async () => {
+    const h = fixture();
+    prerequisite(h);
+    h.flags.status = "PASSED";
+    h.size.runBytes = 99999999n;
+    h.flags.missingPrerequisiteAdmission = true;
+    h.flags.receiptCount = 1n;
+    h.flags.receipt = {
+      organizationId: "org",
+      projectId: "project",
+      entityId: "run",
+      metadata: {
+        projectId: "project",
+        testRunId: "run",
+        testCaseId: "case",
+        stepIndex: 0,
+        scope,
+        idempotencyKey: h.input.idempotencyKey,
+        requestHash: reviewedStepRequestHash(h.input),
+        revisionId: "accepted",
+        caseStatus: null,
+        recovered: false,
+        provenance: "REVIEWED_REQUEST_BOUND_AT_WRITE",
+      },
+    };
+    expect(await recordReviewedStep(h.db, actor, h.input)).toMatchObject({
+      recovered: true,
+      revisionId: "accepted",
+      requestHash: reviewedStepRequestHash(h.input),
+    });
+    expect(h.prerequisiteEvents).toEqual([]);
+    expect(h.tx.testResult.findMany).not.toHaveBeenCalled();
+    expect(h.writes).not.toHaveBeenCalled();
+  });
+});
 describe("reviewed step recognized business refusals; mocked native boundaries only", () => {
   it.each(["PASSED", "FAILED", "PARTIAL"])(
     "closed %s new write is actionable without body reads",

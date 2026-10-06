@@ -7,6 +7,7 @@ import { qualityProfileHash, runCaseDefinitionSchema } from "./qualityExperience
 import { aggregateStepStatus, savedStepEvidenceSchema, safeEvidenceFileName } from "./manualStepExecution.js";
 import { caseFieldPresentationJsonBytes } from "./caseFieldPresentationSchema.js";
 import { freezeReviewedStepValue, withReviewedStepRollback } from "./manualStepReviewedRollback.js";
+import { loadBoundedStepPrerequisites } from "./manualStepPrerequisiteAdmission.js";
 import { reviewedStepAckSchema, reviewedStepCurrentSchema, reviewedStepObservationsSchema, reviewedStepPreviewInputSchema, reviewedStepPreviewOutputSchema, reviewedStepScopeSchema, reviewedStepStatusSchema, reviewedStepWriteInputSchema, reviewedStepWriteKey, type ReviewedStepPreviewInput, type ReviewedStepWriteInput } from "./manualStepExecutionReviewSchema.js";
 
 const refused = () => new TRPCError({ code: "PRECONDITION_FAILED", message: "The complete frozen procedure or observations are unsupported within native bounds. No evidence was truncated, normalized or replaced." });
@@ -172,7 +173,7 @@ export async function recordReviewedStep(db: PrismaClient, actor: Actor, raw: Re
     if (input.status === "PASS" && input.observations.measurements.some(m => m.lowerLimit !== undefined && m.value < m.lowerLimit || m.upperLimit !== undefined && m.value > m.upperLimit)) throw businessRefusal("WRITE", "BAD_REQUEST", "A reading is outside its recorded limits. Review the evidence or record Fail instead of Pass.");
     if (["PASS", "FAIL"].includes(input.status)) {
       const ids = value.graph[input.testCaseId] ?? [];
-      const results = await tx.testResult.findMany({ where: { testRunId: input.testRunId, testCaseId: { in: ids } }, select: { testCaseId: true, status: true } });
+      const results = await loadBoundedStepPrerequisites(tx, { projectId: input.projectId, testRunId: input.testRunId, caseIds: ids });
       if (results.length > ids.length || new Set(results.map(r => r.testCaseId)).size !== results.length || results.some(r => typeof r.testCaseId !== "string" || !ids.includes(r.testCaseId) || !reviewedStepStatusSchema.safeParse(r.status).success)) throw refused();
       if (results.length !== ids.length || ids.some(id => results.find(r => r.testCaseId === id)?.status !== "PASS")) throw businessRefusal("WRITE", "BAD_REQUEST", "Complete all prerequisite cases with Pass before executing this case.");
     }
