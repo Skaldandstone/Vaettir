@@ -27,20 +27,14 @@ test("provider keeps installed observers and drafts mounted but advances actor/s
   );
   assert.match(provider, /headers: \(\) => getAuthHeaders\(scope\)/);
 });
-test("late healing ACKs cannot be assigned as data in the current namespace", () => {
-  assert.doesNotMatch(runs, /byTestResult\.setData\(/);
-  assert.equal((runs.match(/onMutate: initiatingScope/g) ?? []).length, 2);
-  assert.equal(
-    (
-      runs.match(
-        /sameAuthScope\(originalScope \?\? null, initiatingScope\(\)\)/g,
-      ) ?? []
-    ).length,
-    2,
-  );
-  assert.equal(
-    (runs.match(/byTestResult\.invalidate\(\{ testResultId \}\)/g) ?? [])
-      .length,
-    2,
-  );
+test("CI detail uses the independently scoped reader instead of legacy body/cache/healing mutation callers", () => {
+  assert.doesNotMatch(runs, /testRuns\.byId|LinkResultPicker|HealingSuggestionPanel|byTestResult|linkResultToTestCase|healingSuggestions\.(?:classify|review)/);
+  assert.match(runs, /import \{ CiRunDetail \} from "@\/components\/CiRunDetail"/);
+  assert.match(runs, /<CiRunDetail key=\{`\$\{projectId\}:\$\{openRunId\}`\} projectId=\{projectId\} testRunId=\{openRunId\} organizationId=\{organizationId\} active=\{Boolean\(openRunId\)\}/);
+  assert.match(runs, /<Drawer open=\{Boolean\(openRunId\)\}/);
+  // Separate existing manual execution and dashboard scope must not disappear
+  // merely because the unsafe CI detail caller was replaced.
+  assert.match(runs, /<RunHistoryDashboard/);
+  assert.match(runs, /<RunAllPagesDashboard/);
+  assert.match(runs, /\/test-runs\/manual\/\$\{result\.testRunId\}/);
 });

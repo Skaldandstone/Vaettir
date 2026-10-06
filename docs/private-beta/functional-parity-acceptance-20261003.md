@@ -2223,3 +2223,65 @@ Native SQL execution, concurrency, performance and authenticated runtime remain
 unrun. The six-file browser reader/component is an active separate workstream;
 the existing inline CI detail caller has not been cut over. Registration and these
 source checks do not prove current production behavior or deployment.
+
+### October 6 Qase execution and complaint-driven acceptance recheck
+
+In the authenticated trial's vendor DEMO sample, the existing synthetic run's
+list is a table, not a visual-card precedent. Its dashboard exposes a completion
+donut, started time, estimation/total/elapsed time, grouped suites, stable IDs,
+compact priority/manual symbols, search/filter controls and readable text status.
+Opening DEMO-8 in its execution side panel displayed description, prerequisites,
+postconditions and three numbered actions with separate expected results and
+per-step outcome controls. No result, assignment, edit or completion was submitted.
+The export dialog visibly offered CSV and PDF; it was canceled without exporting
+or sharing. These observations establish interactions, not export fidelity,
+readonly-member permissions or frozen-procedure semantics.
+
+Two public practitioner discussions retrieved October 6 describe cramped long
+titles/procedures, excess result-entry clicks, rigid step structure and reporting
+or export friction. These are anecdotal design signals, not verified current
+vendor defects, prevalence estimates or rankings. One discussion also contains
+positive Qase experience; no universal negative conclusion is inferred.
+Sources: [test-management search discussion](https://www.reddit.com/r/QualityAssurance/comments/1tz5j5z/search_for_good_test_management_tool/),
+[test-management friction discussion](https://www.reddit.com/r/QualityAssurance/comments/1r7a3ih/why_all_test_management_tools_are_so_bad/).
+
+Acceptance therefore retains useful prose, readable full supported titles and
+procedures in execution context, explicit action/expected-result/technical
+descriptor distinctions, searchable stable IDs and honest scoped counts. Actual
+click costs, responsive readability and export fidelity need Vaettir fixtures;
+visible vendor buttons do not clear those checks.
+
+### October 6 device foundation aggregate admission revision
+
+The still-unmounted browser controller now bounds retained plain-JSON content
+across original buffers, paid drafts, operation metadata, response history and
+current capture views to 32 MiB and 256,000 nodes. It reserves two full per-value
+maxima before injected transport and refuses whole without evicting earlier
+buffers or retrying. Accounting includes keys and bookkeeping; it is not a claim
+about transient parsing, total JavaScript heap or durable recovery. Root repeated
+30 pure checks. Actual capture caller/foreground targeting, helper usability,
+processing consent, native receipts and physical-device acceptance remain open.
+
+### October 6 actual CI detail caller cutover, source checks only
+
+The test-runs page now mounts the six-file independently scoped CI reader/detail
+under its exact project/run key and original organization discovery. It replaces
+the old unbounded inline body/cache, unmatched-title inference and automatic
+per-result healing reads. Manual run execution routing and both existing run
+dashboards remain mounted. The new readonly detail shows current admitted outcome
+distribution, UTC metadata, distinct note/error, stable IDs, captured identifiers
+and separately disclosed current source/artifact metadata without retrieving files.
+Mapping and healing writes are intentionally unavailable in this detail until
+their separately reviewed current-authority/receipt workflows exist; this is not
+full parity or acceptance of those deferred actions.
+
+SDK-only changes, cache/render A-B-A and obsolete paging handlers revoke private
+detail authority; restoration requires an explicit original-scope native refresh.
+Nullable, blank, whitespace and zero values remain distinct. ID-window paging is
+not immutable history, planned scope, unique-case completion or execution order.
+Root reviewed all six files and repeated the complete compatible Web suite:
+803 Node checks plus 653 typed checks across 59 suites passed, with zero skipped.
+Web typecheck, scoped caller/device lint and source-adoption checks passed.
+These include mocked actual-hook and static React-rendering fixtures, not a new
+browser-rendered/native SQL/performance/provider or authenticated production test.
+No deployment, customer mutation, processing permission or native gate was cleared.

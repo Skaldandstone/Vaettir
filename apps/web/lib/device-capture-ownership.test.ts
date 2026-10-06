@@ -1,11 +1,12 @@
 import { createHash } from "node:crypto";
 import { describe, expect, it, vi } from "vitest";
 import { deviceCaptureAccessRequestText, type DeviceCaptureAccessInput } from "../../api/src/services/deviceCaptureAccessSchema";
-import { DeviceCaptureOwnership, captureAccessClientRequestKey, retainCaptureJson, type CaptureSession, type DeviceCaptureFrame } from "./device-capture-ownership";
+import { DeviceCaptureOwnership, captureAccessClientRequestKey, retainCaptureJson, captureJsonContentCost, fitsCaptureRetainedContent,
+  CAPTURE_RETAINED_CONTENT_BYTES, CAPTURE_RETAINED_CONTENT_NODES, type CaptureSession, type DeviceCaptureFrame } from "./device-capture-ownership";
 
 function deferred<T>() { let resolve!: (value: T) => void, reject!: (error: unknown) => void; const promise = new Promise<T>((r, j) => { resolve = r; reject = j; }); return { promise, resolve, reject }; }
 function semantic(screen = "one", appName = "synthetic.app", deviceName = "Same model") { return { version: 1, source: "ANDROID_ADB", deviceName, appName, capturedAt: "2026-10-06T08:00:00.000Z", screens: [{ id: screen, label: " exact screen ", elements: [{ role: "button", name: " exact button " }] }] }; }
-function fixture() {
+function fixture(initialDrafts: readonly unknown[] = [{ title: " paid draft ", unknown: [0, false, null, ""] }]) {
   const origin = { projectId: "p", organizationId: "o", nativeActorId: "n", clerkActorId: "c" };
   let session: CaptureSession | null = { userId: "c", sessionId: "A" };
   let frame: DeviceCaptureFrame | null = { origin, active: true, loaded: true, signedIn: true, hookSession: session,
@@ -13,7 +14,7 @@ function fixture() {
     selection: { mode: "android", serial: "physical-one", approvedForegroundAppLabel: " approved foreground app " }, screenLabel: " raw label " };
   const listeners = new Set<() => void>();
   const sdk = { current: () => session, subscribe: (callback: () => void) => { listeners.add(callback); callback(); return () => { listeners.delete(callback); }; } };
-  const controller = new DeviceCaptureOwnership(origin, sdk, () => frame, [{ title: " paid draft ", unknown: [0, false, null, ""] }]); controller.update(frame);
+  const controller = new DeviceCaptureOwnership(origin, sdk, () => frame, initialDrafts); controller.update(frame);
   const read = vi.fn(async (input: DeviceCaptureAccessInput) => ({ readRequestId: input.readRequestId, requestKey: await captureAccessClientRequestKey(input), scope: origin,
     role: "EDITOR", seatType: "FULL", authorization: "CURRENT_LOCKED_FULL_EDITOR_READ", processingPermissionGranted: false, foregroundTargetVerified: false, deviceOperationPerformed: false }));
   function patch(value: Partial<DeviceCaptureFrame>) { frame = { ...frame!, ...value }; controller.update(frame); }
@@ -111,5 +112,58 @@ describe("unmounted capture ownership foundation: synthetic transports only, no 
     for (const raw of [cyclic, { number: NaN }, { number: 9007199254740992 }, { number: -0 }, { date: new Date() }, "x".repeat(8388609)]) expect(() => retainCaptureJson(raw)).toThrow();
     expect(retainCaptureJson({ values: [0, false, null, "", " exact\n prose "] })).toEqual({ values: [0, false, null, "", " exact\n prose "] });
     const shared = { value: "same exact repeated field" }; expect(retainCaptureJson([shared, shared])).toEqual([shared, shared]);
+  });
+  it("aggregate exact boundaries and reservation count bytes/nodes, never negative credit or eviction", () => {
+    expect(fitsCaptureRetainedContent([{ bytes: CAPTURE_RETAINED_CONTENT_BYTES, nodes: CAPTURE_RETAINED_CONTENT_NODES }])).toBe(true);
+    expect(fitsCaptureRetainedContent([{ bytes: CAPTURE_RETAINED_CONTENT_BYTES, nodes: 0 }], { bytes: 1, nodes: 0 })).toBe(false);
+    expect(fitsCaptureRetainedContent([{ bytes: 0, nodes: CAPTURE_RETAINED_CONTENT_NODES }], { bytes: 0, nodes: 1 })).toBe(false);
+    expect(fitsCaptureRetainedContent([{ bytes: 16 * 1024 * 1024, nodes: 56000 }], { bytes: 16 * 1024 * 1024, nodes: 200000 })).toBe(true);
+    expect(fitsCaptureRetainedContent([{ bytes: 16 * 1024 * 1024 + 1, nodes: 56000 }], { bytes: 16 * 1024 * 1024, nodes: 200000 })).toBe(false);
+    for (const invalid of [{ bytes: -1, nodes: 0 }, { bytes: 0, nodes: -1 }, { bytes: Infinity, nodes: 0 }, { bytes: 0, nodes: NaN }]) expect(fitsCaptureRetainedContent([invalid])).toBe(false);
+  });
+  it("retained paid draft plus large valid capture exhaust byte reservation before another transport", async () => {
+    const paid = " paid original\n" + "x".repeat(7 * 1024 * 1024) + "  ", h = fixture([paid]);
+    const body = semantic(); body.screens = Array.from({ length: 25 }, (_, index) => ({ id: `s${index}`, label: "exact", elements: Array.from({ length: 150 }, () => ({
+      role: "r".repeat(80), name: "n".repeat(200), stableId: "s".repeat(200), selector: "q".repeat(500), event: "e".repeat(80), route: "u".repeat(500),
+    })) }));
+    expect(captureJsonContentCost(body).bytes).toBeLessThan(8388608);
+    let op = h.controller.beginIntent(true)!; expect(await h.controller.authorize(op, h.read)).toBe(true); expect(await h.controller.capture(op, async () => ({ capture: body }))).toBe(true);
+    const previous = h.controller.view().capture; op = h.controller.beginIntent(true)!; expect(await h.controller.authorize(op, h.read)).toBe(true);
+    const send = vi.fn(async () => ({ capture: semantic("new") })); expect(await h.controller.capture(op, send)).toBe(false); expect(send).not.toHaveBeenCalled();
+    expect(h.controller.view().capture).toBe(previous); expect(h.controller.view().capture?.screens).toHaveLength(25); expect(h.controller.view().unsupported).toBe(true);
+    const retained = h.controller.view().drafts[0]; expect(typeof retained).toBe("string"); expect(createHash("sha256").update(String(retained)).digest("hex")).toBe(createHash("sha256").update(paid).digest("hex"));
+    expect(h.controller.beginIntent(true)).toBeNull();
+  });
+  it("retained source groups and their raw histories count toward structural reservation", async () => {
+    const h = fixture(), body = semantic(); body.screens = Array.from({ length: 25 }, (_, index) => ({ id: `s${index}`, label: "exact", elements: Array.from({ length: 150 }, () => ({ role: "button", name: "exact" })) }));
+    for (let index = 0; index < 3; index++) {
+      h.patch({ selection: { mode: "android", serial: `physical-${index}`, approvedForegroundAppLabel: "approved foreground app" } }); const op = h.controller.beginIntent(true)!; expect(await h.controller.authorize(op, h.read)).toBe(true); expect(await h.controller.capture(op, async () => ({ capture: body }))).toBe(true);
+    }
+    const previous = h.controller.view().capture, op = h.controller.beginIntent(true)!; expect(await h.controller.authorize(op, h.read)).toBe(true);
+    const send = vi.fn(async () => ({ capture: semantic("new") })); expect(await h.controller.capture(op, send)).toBe(false); expect(send).not.toHaveBeenCalled(); expect(h.controller.view().capture).toBe(previous); expect(previous?.screens).toHaveLength(25);
+  });
+  it("current-map replacement never credits away earlier raw response history", async () => {
+    const h = fixture(["p".repeat(7 * 1024 * 1024)]);
+    const elements = Array.from({ length: 150 }, () => ({ role: "r".repeat(80), name: "n".repeat(200), stableId: "s".repeat(200), selector: "q".repeat(500), event: "e".repeat(80), route: "u".repeat(500) }));
+    let completed = 0, refused = false;
+    for (let index = 0; index < 25; index++) {
+      const op = h.controller.beginIntent(true)!; expect(await h.controller.authorize(op, h.read)).toBe(true);
+      const previous = h.controller.view().capture, body = semantic(`screen-${index}`); body.screens[0]!.elements = elements;
+      const send = vi.fn(async () => ({ capture: body }));
+      if (!await h.controller.capture(op, send)) {
+        expect(send).not.toHaveBeenCalled(); expect(h.controller.view().capture).toBe(previous); expect(previous?.screens).toHaveLength(completed); refused = true; break;
+      }
+      completed++; expect(h.controller.view().capture?.screens).toHaveLength(completed);
+    }
+    // Without charging historical raw replies, just the current aggregate and
+    // paid draft would fit this reservation through all25 screens.
+    expect(refused).toBe(true); expect(completed).toBeGreaterThan(10); expect(completed).toBeLessThan(25);
+    expect(h.controller.beginIntent(true)).toBeNull();
+  }, 10000);
+  it("over-bound reply is not claimed retained and cannot replace/retry prior values", async () => {
+    const h = fixture(); let op = h.controller.beginIntent(true)!; await h.controller.authorize(op, h.read); await h.controller.capture(op, async () => ({ capture: semantic() }));
+    const previous = h.controller.view().capture; op = h.controller.beginIntent(true)!; await h.controller.authorize(op, h.read);
+    expect(await h.controller.capture(op, async () => ({ capture: semantic("two"), unsupportedPrivate: "x".repeat(8388609) }))).toBe(false);
+    expect(h.controller.view().capture).toBe(previous); expect(h.controller.view().uncertain).toBe(true); expect(h.controller.beginIntent(true)).toBeNull();
   });
 });
