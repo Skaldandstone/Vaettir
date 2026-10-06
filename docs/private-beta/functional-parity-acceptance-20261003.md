@@ -3001,3 +3001,32 @@ that is not evidence of recurring prevalence. No sample results were changed,
 PDF was not invoked, and export fidelity or forecast validity was not tested.
 Vaettir should label each population, preserve provenance and distinguish
 remaining work from pass rate, rather than copy an ambiguous aggregate.
+
+### October 6: case-field and comment interaction follow-up
+
+Fresh signed-in Qase vendor-sample inspection found stable-ID case links and
+compact priority/automation indicators with named tooltips. Case detail keeps
+description and pre/post conditions as prose, while priority, severity,
+status, behavior, type, layer, flaky state and automation use dropdown fields.
+The unsaved editor exposes per-step action, data and expected-result cells,
+plus separate parameter, tag and attachment sections. Its Configure fields
+affordance was observed, but its settings behavior was not verified: attempted
+navigation opened an unsaved-editor confirmation, and later browser focus
+inspection stalled. No field value was entered or saved.
+
+The separate Comments tab exposes its own composer and a disabled empty Send
+action. No comment was posted. This owner-session observation does not prove
+read-only member comment permissions, and no vendor role or access policy was
+changed. Vaettir's aligned technical descriptor remains a distinct per-step
+field, not a claim that Qase's data cell has that same meaning. Useful prose
+must remain prose; compact icons still need accessible names, exact searchable
+case IDs and separate author/current-role acceptance.
+
+The existing authenticated Notion roadmap now has a current source/workflow
+review above its historical ledger. It records all of James's reported
+requirements, the exact 6d3a279 source and synthetic-browser evidence, current
+In Progress scope and open native/production gates without relabeling old
+deployed identities or marking the whole parity effort complete. The update's
+async completion and exact content were fetched and verified. Root separately
+repeated 84 existing mocked retest transport/schema/large-scope checks across
+four files; this is not native database or current in-flight consumer proof.
