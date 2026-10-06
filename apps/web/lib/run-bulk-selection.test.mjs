@@ -63,8 +63,15 @@ test("modal applies only explicit operations using writable verified scopes and 
 
 test("both callers use only loaded approved scopes; missing suite and navigation cannot infer selection", () => {
   const runs = source("../app/projects/[projectId]/test-runs/page.tsx").replace(/\s+/g, " "), library = source("../app/projects/[projectId]/test-cases/page.tsx");
-  assert.match(runs, /manualBulkScope !== "suite" \|\| Boolean\(manualSuite\)/);
-  assert.match(runs, /manualBulkScope === "suite" && manualSuite/);
+  assert.match(runs, /\[manualSuite, setManualSuite\] = useState\(RUN_SUITE_ALL_VALUE\)/);
+  assert.match(runs, /resolveRunSuiteScope\(\s*manualSuite,\s*suiteCatalog\.options,?\s*\)/);
+  assert.match(runs, /manualSuiteSelection\.available && \["matching", "all", "suite"\]\.includes\(manualBulkScope\)/);
+  assert.match(runs, /manualBulkScope !== "suite" \|\| manualSuiteSelection\.specific/);
+  assert.match(runs, /manualBulkScope === "suite" && manualSuiteSelection\.specific \? manualSuiteCases/);
+  assert.match(runs, /manualSuiteSelection\.available \? eligibleCases\.filter\(\(testCase\) => runSuiteScopeMatches\(manualSuiteSelection\.scope, testCase\.suitePath\),?\s*\) : \[\]/);
+  assert.match(runs, /bulkScopesReady=\{ configurationOpen && manualBulkReady && manualSuiteSelection\.available && !selectionWriteStarted \}/);
+  assert.match(runs, /no All-suites fallback or selection change was applied/);
+  assert.doesNotMatch(runs, /Boolean\(manualSuite\)|suitePath === manualSuite|filter\(Boolean\)/);
   assert.match(runs, /manualSourceReady \? \(casesQuery\.data \?\? \[\]\) : \[\]/);
   assert.match(runs, /!testCase\.archived && testCase\.reviewStatus === "APPROVED"/);
   assert.match(runs, /if \(!manualSelectionWritable\(\) \|\| !manualBulkScopeValid\) return/);

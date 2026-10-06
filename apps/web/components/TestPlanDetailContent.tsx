@@ -552,6 +552,7 @@ export function TestPlanDetailContent({
   const executionControls = controlProjectId ? <PlanExecutionModal key={id}
     open={executionOpen && !!plan && auth.isLoaded && !!auth.isSignedIn && !readOnly && !loadError}
     onClose={() => setExecutionOpen(false)} id={id} projectId={controlProjectId}
+    organizationId={organizationId || undefined}
     onSaved={() => { load(); onChanged?.(); }} /> : null;
   if (!plan) return <div>{executionControls}{reviewedControls}<p role={loadError ? "alert" : undefined}>{loadError ?? "Loading saved plan…"}</p></div>;
 

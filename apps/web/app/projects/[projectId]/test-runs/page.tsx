@@ -12,15 +12,19 @@ import { currentSessionScope } from "@/lib/auth-query-cache";
 import { RunHistoryDashboard } from "@/components/RunHistoryDashboard";
 import { CiRunDetail } from "@/components/CiRunDetail";
 import { RunAllPagesDashboard } from "@/components/RunAllPagesDashboard";
-import {
-  RunConfigurationModal,
-} from "@/components/RunConfigurationModal";
+import { RunConfigurationModal } from "@/components/RunConfigurationModal";
 import type { ReviewedRunStartEnvelope } from "@/lib/run-start-reviewed-write";
 import {
   applyRunBulkSelection,
   type RunBulkSelectionMode,
 } from "@/lib/run-bulk-selection";
 import { useManualExecutionAccess } from "@/lib/use-manual-execution-access";
+import {
+  RUN_SUITE_ALL_VALUE,
+  resolveRunSuiteScope,
+  runSuiteScopeMatches,
+  runSuiteScopeOptions,
+} from "@/lib/run-suite-scope";
 
 const subscribeRunHash = (notify: () => void) => {
   window.addEventListener("hashchange", notify);
@@ -147,7 +151,7 @@ export default function TestRunsPage() {
   const openRunId = selectedRunId === undefined ? linkedRunId : selectedRunId;
   const [manualOpen, setManualOpen] = useState(false);
   const [manualSearch, setManualSearch] = useState("");
-  const [manualSuite, setManualSuite] = useState("");
+  const [manualSuite, setManualSuite] = useState(RUN_SUITE_ALL_VALUE);
   const [manualPriority, setManualPriority] = useState("");
   const [manualType, setManualType] = useState("");
   const [manualBulkMode, setManualBulkMode] =
@@ -175,7 +179,8 @@ export default function TestRunsPage() {
     { projectId },
     { enabled: manualOpen || configurationOpen },
   );
-  const startManualMutation = trpcReact.manualRunStartReviewed.start.useMutation();
+  const startManualMutation =
+    trpcReact.manualRunStartReviewed.start.useMutation();
   const manualSourceReady =
     manualAccess.ready &&
     casesQuery.isFetchedAfterMount &&
@@ -187,9 +192,20 @@ export default function TestRunsPage() {
   ).filter(
     (testCase) => !testCase.archived && testCase.reviewStatus === "APPROVED",
   );
-  const manualCases = eligibleCases.filter(
+  const suiteCatalog = runSuiteScopeOptions(
+      eligibleCases.map((testCase) => testCase.suitePath),
+    ),
+    manualSuiteSelection = resolveRunSuiteScope(
+      manualSuite,
+      suiteCatalog.options,
+    ),
+    manualSuiteCases = manualSuiteSelection.available
+      ? eligibleCases.filter((testCase) =>
+          runSuiteScopeMatches(manualSuiteSelection.scope, testCase.suitePath),
+        )
+      : [];
+  const manualCases = manualSuiteCases.filter(
     (testCase) =>
-      (!manualSuite || testCase.suitePath === manualSuite) &&
       (!manualPriority || testCase.priority === manualPriority) &&
       (!manualType || testCase.testType === manualType) &&
       `${testCase.displayId} ${testCase.title} ${testCase.tags.join(" ")}`
@@ -231,13 +247,14 @@ export default function TestRunsPage() {
   }
 
   const manualBulkScopeValid =
+    manualSuiteSelection.available &&
     ["matching", "all", "suite"].includes(manualBulkScope) &&
-    (manualBulkScope !== "suite" || Boolean(manualSuite));
+    (manualBulkScope !== "suite" || manualSuiteSelection.specific);
   const manualBulkCandidates =
     manualBulkScope === "all"
       ? eligibleCases
-      : manualBulkScope === "suite" && manualSuite
-        ? eligibleCases.filter((testCase) => testCase.suitePath === manualSuite)
+      : manualBulkScope === "suite" && manualSuiteSelection.specific
+        ? manualSuiteCases
         : manualBulkScope === "matching"
           ? manualCases
           : [];
@@ -461,20 +478,16 @@ export default function TestRunsPage() {
               value={manualSuite}
               onChange={(e) => setManualSuite(e.target.value)}
             >
-              <option value="">All suites</option>
-              {[
-                ...new Set(
-                  eligibleCases
-                    .map((testCase) => testCase.suitePath)
-                    .filter((path): path is string => !!path),
-                ),
-              ]
-                .sort()
-                .map((path) => (
-                  <option key={path} value={path}>
-                    {path}
-                  </option>
-                ))}
+              {!manualSuiteSelection.available && (
+                <option value={manualSuite} disabled>
+                  Suite scope unavailable — explicitly choose a current scope
+                </option>
+              )}
+              {suiteCatalog.options.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
             </select>
             <select
               aria-label="Run case priority"
@@ -503,6 +516,19 @@ export default function TestRunsPage() {
                 ))}
             </select>
           </div>
+          {!manualSuiteSelection.available && (
+            <p role="alert">
+              The selected suite scope is unavailable. Choose an exact current
+              scope; no All-suites fallback or selection change was applied.
+            </p>
+          )}
+          {suiteCatalog.unsupportedCount > 0 && (
+            <p role="status">
+              {suiteCatalog.unsupportedCount} approved case(s) have unavailable
+              suite metadata. They were not interpreted as unassigned; All
+              suites still includes every loaded approved identity.
+            </p>
+          )}
           <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
             <label>
               Apply to approved scope
@@ -521,9 +547,9 @@ export default function TestRunsPage() {
                 <option value="all">
                   All loaded approved cases ({eligibleCases.length})
                 </option>
-                <option value="suite" disabled={!manualSuite}>
-                  {manualSuite
-                    ? `Current suite only (${eligibleCases.filter((testCase) => testCase.suitePath === manualSuite).length})`
+                <option value="suite" disabled={!manualSuiteSelection.specific}>
+                  {manualSuiteSelection.specific
+                    ? `${manualSuiteSelection.label} only (${manualSuiteCases.length})`
                     : "Current suite unavailable — choose a suite or another scope"}
                 </option>
               </select>
@@ -710,20 +736,21 @@ export default function TestRunsPage() {
             label: "All loaded approved cases",
             testCaseIds: eligibleCases.map((testCase) => testCase.id),
           },
-          ...(manualSuite
+          ...(manualSuiteSelection.specific
             ? [
                 {
                   key: "suite",
-                  label: `Current suite: ${manualSuite}`,
-                  testCaseIds: eligibleCases
-                    .filter((testCase) => testCase.suitePath === manualSuite)
-                    .map((testCase) => testCase.id),
+                  label: `Current suite: ${manualSuiteSelection.label}`,
+                  testCaseIds: manualSuiteCases.map((testCase) => testCase.id),
                 },
               ]
             : []),
         ]}
         bulkScopesReady={
-          configurationOpen && manualBulkReady && !selectionWriteStarted
+          configurationOpen &&
+          manualBulkReady &&
+          manualSuiteSelection.available &&
+          !selectionWriteStarted
         }
         onSelectionChange={changeConfigurationSelection}
         onClose={() => setConfigurationOpen(false)}

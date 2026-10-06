@@ -3,41 +3,53 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 const source = path => readFileSync(new URL(path, import.meta.url), "utf8");
 
-test("reusable plan configuration has reviewed writes and explicit preserved conflicts", () => {
+test("legacy plan owner retains opaque state without legacy reads, save or start dispatch", () => {
   const modal = source("../components/PlanExecutionModal.tsx");
-  assert.match(modal, /<Modal\s+open=\{open\}/);
-  assert.match(modal, /screen !== "save-review"/);
-  assert.match(modal, /expectedTemplateHash: baseline.templateHash/);
-  assert.match(modal, /Your draft is retained/);
-  assert.match(modal, /Discard draft and load current state/);
-  assert.match(modal, /Keep my draft/);
-  assert.match(modal, /type="checkbox"/);
-  assert.match(modal, /caseLimitReached/);
-  assert.match(modal, /Move case \$\{index \+ 1\} up/);
-  assert.match(modal, /maxLength=\{200\}/);
-  assert.match(modal, /"FOOD_SAFETY", "CLINICAL", "LABORATORY", "MANUFACTURING"/);
-  assert.match(modal, /"hardwareRevision",\s*"firmwareVersion",\s*"rig",\s*"calibrationReference"/);
+  assert.match(modal, /\[draft, setDraft\] = useState<Template>\(emptyTemplate\)/);
+  assert.match(modal, /\[runAttempt, setRunAttempt\] = useState<RunRequest \| null>\(null\)/);
+  assert.match(modal, /\[startedRunId, setStartedRunId\] = useState<string \| null>\(null\)/);
+  assert.match(modal, /legacyBlocked = !!runAttempt \|\| !!startedRunId \|\| busy/);
+  assert.equal(modal.match(/enabled: false/g)?.length, 2);
+  assert.match(modal, /<PlanExecutionReviewed projectId=\{projectId\} testPlanId=\{id\}/);
+  assert.match(modal, /legacyBlocked=\{legacyBlocked\} legacyHasDraft=\{legacyHasDraft\}/);
+  assert.doesNotMatch(modal, /mutateAsync\(|\.refetch\(|query\.data|profileQuery\.data|setRunAttempt\(|setStartedRunId\(/);
 });
 
-test("plan starts use saved baseline and actor-reviewed stable retry receipt", () => {
-  const modal = source("../components/PlanExecutionModal.tsx");
-  assert.match(modal, /const request = runAttempt \?\?/);
-  assert.match(modal, /testCaseIds: \[\.\.\.baseline.template.testCaseIds\]/);
-  assert.match(modal, /executionContext: \{ \.\.\.preset!\.context \}/);
-  assert.match(modal, /idempotencyKey: crypto.randomUUID\(\)/);
-  assert.match(modal, /setRunAttempt\(request\)/);
-  assert.match(modal, /mutateAsync\(request\)/);
-  assert.match(modal, /configurationId: preset!\.id/);
-  assert.match(modal, /Boolean\(runAttempt\)/);
-  assert.match(modal, /rejected && !everAmbiguous/);
-  assert.match(modal, /if \(!rejected\) setEverAmbiguous\(true\)/);
-  assert.match(modal, /Configure another separate execution/);
-  assert.match(modal, /setSelectedCaseLabels/);
+test("native plan browsing preserves complete identities and refuses unavailable template SAVE", () => {
+  const modal = source("../components/PlanExecutionReviewed.tsx");
+  assert.match(modal, /originalNativeActorId: plan\.origin\?\.nativeActorId \?\? null/);
+  assert.match(modal, /currentPlan === plan\.snapshot/);
+  assert.match(modal, /currentProfile === profile\.snapshot/);
+  assert.match(modal, /page\.selected\.map/);
+  assert.match(modal, /item\.metadata\?\.displayId \|\| item\.testCaseId/);
+  assert.match(modal, /Missing, archived or unapproved selected cases/);
+  assert.match(modal, /Browsing candidates never changes this selection/);
   assert.match(modal, /previousCursors/);
-  assert.match(modal, /No AI credits, source reading, code execution or device control/);
-  assert.match(modal, /!permission.canEdit/);
-  assert.match(modal, /setStartedRunId\(result.testRunId\)/);
-  assert.doesNotMatch(modal, /window.location|router.push|setTimeout\(.*start\(/);
+  assert.match(modal, /maxLength=\{200\}/);
+  assert.match(modal, /page\.rawTemplate\.sqlNull \? "SQL NULL" : page\.rawTemplate\.jsonText/);
+  assert.match(modal, /disabled>Save reusable template \(reviewed native-save protocol unavailable\)/);
+  assert.doesNotMatch(modal, /saveExecutionTemplate|manualExecution\.start/);
+});
+
+test("plan starts retain original native-pinned body and privately settle exact ACK before visible callbacks", () => {
+  const modal = source("../components/PlanExecutionReviewed.tsx");
+  const controller = source("./plan-execution-reviewed-controller.ts");
+  assert.match(modal, /manualRunStartReviewed\.start\.useMutation/);
+  assert.match(modal, /controller\.submit\(input => start\.mutateAsync\(input\), onSaved\)/);
+  assert.match(modal, /Retry exact held request/);
+  assert.match(modal, /controller\.view\(\)\.confirmedRunId !== view\.confirmedRunId/);
+  assert.match(controller, /interpretation === "EXACT_SUPPORTED"/);
+  assert.match(controller, /testCaseIds: \[\.\.\.page\.template!\.testCaseIds\]/);
+  assert.match(controller, /executionContext: \{ \.\.\.preset\.context \}/);
+  assert.match(controller, /idempotencyKey: this\.uuid\(\)/);
+  assert.match(controller, /freezeReviewedPlanStart/);
+  assert.match(controller, /transport\(held\.owned\.envelope\)/);
+  assert.match(controller, /verifyReviewedPlanStartAck\(held\.owned, raw\)/);
+  assert.match(controller, /this\.pending = null; this\.known = Object\.freeze\(\{ held, ack \}\)/);
+  assert.ok(controller.indexOf("this.known = Object.freeze({ held, ack })") < controller.indexOf("onConfirmed?.()"));
+  assert.match(controller, /this\.epoch === startedEpoch && this\.fullProfile\(held\)/);
+  assert.match(controller, /retained\.everAmbiguous \|\| !definitive/);
+  assert.doesNotMatch(controller, /window.location|router.push|setTimeout/);
 });
 
 test("plan detail keeps configuration modal mounted on the current page", () => {
@@ -45,6 +57,7 @@ test("plan detail keeps configuration modal mounted on the current page", () => 
   assert.match(detail, /const executionControls = controlProjectId \? <PlanExecutionModal key=\{id\}/);
   assert.match(detail, /open=\{executionOpen && !!plan && auth\.isLoaded && !!auth\.isSignedIn && !readOnly && !loadError\}/);
   assert.match(detail, /projectId=\{controlProjectId\}/);
+  assert.match(detail, /organizationId=\{organizationId \|\| undefined\}/);
   assert.match(detail, /if \(!plan\) return <div>\{executionControls\}\{reviewedControls\}/);
   assert.equal(detail.match(/<PlanExecutionModal\b/g)?.length, 1);
   assert.equal(detail.match(/\{executionControls\}/g)?.length, 2);

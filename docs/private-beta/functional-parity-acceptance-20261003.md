@@ -3539,3 +3539,64 @@ individual accounts inform acceptance tasks, not current vendor defect counts
 or Gartner rankings. Completion, passing evidence, reviewed exceptions and
 release sign-off must remain distinct, and exports must preserve field identity
 rather than rely on a cosmetic column position.
+
+### October 6: exact unassigned-suite selection and synthetic run-start interaction
+
+The current run-list suite picker now distinguishes All suites, genuinely
+unassigned native `null`, and exact saved paths, including an empty path,
+whitespace, Unicode and names that resemble JSON selectors. One shared matcher
+feeds first-stage filtering and second-stage configuration bulk scopes. Changing
+a scope does not apply Set/Add/Remove or change a held request. Malformed,
+noncanonical, stale or unsupported selectors remain unavailable instead of
+falling back to All. Unsupported suite metadata is disclosed; it is not
+interpreted as unassigned. The 64 KiB selector bound refuses the exact selector
+without clipping saved metadata or excluding identities from the explicit All
+cohort. Approval, archive, ordering, the 1,000-case bound and original-request
+recovery guards remain unchanged.
+
+Independent focused checks passed 25 helper and 47 actual-host synthetic tests,
+including all 34 prior host scenarios plus mixed 851-case regressions. Eight
+existing bulk-operation contracts also pass. Formatting-only static assertion
+failures were retained and corrected without relaxing selection guards. These
+checks are not rendered acceptance of the changed suite picker or native SQL.
+
+A separate complete-module local browser fixture exercised the actual ordinary
+run-start modal, installed React/TanStack/tRPC and application CSS: Set all 851,
+explicit filtered removal and suite addition, preserved multiline configuration,
+fresh review after cache invalidation, lost-ACK retry and privately settled late
+ACK after an SDK change. Two identical synthetic submissions produced one
+in-memory receipt and one exact replay. Changed native identity and read-only
+access withheld the private form; restoring original current access recovered
+the same known record without another submission. External, customer, provider
+and native operations were disabled. The first fixture's missing `/trpc` route
+failure remains preserved. This proves local interaction only, not database
+durability, the new plan consumer, deployment or authenticated production.
+
+### October 6: mounted native-read plan execution, with template saving still open
+
+The plan modal now keeps the original legacy hook/state owner mounted but makes
+its old reads, seeding, save and start callbacks inert. Existing held drafts,
+uncertain bodies and known targets remain private and are not assigned a newly
+observed native identity. The separate current flow first reads native plan
+ACCESS, then pins the independent run-profile reader to that observed identity.
+Private saved case/configuration details require an explicit completed PAGE;
+new starts additionally require current profile PREVIEW and an exact supported
+saved template. Missing, archived and unapproved saved identities remain visible
+in the full denominator and block a new start. Candidate search/paging does not
+edit the saved cohort. Raw stored JSONB and legacy-normalized display are
+distinguished; normalized display cannot approve a new start.
+
+An explicitly reviewed new request owns its original body/key. Current original
+FULL ACCESS may retry that same uncertain request without rereading or changing
+the cohort. Late exact acknowledgement settles privately before refresh or
+navigation. Legacy opaque requests are not migrated. Reusable-template saving
+is visibly unavailable until an independently reviewed native-save protocol
+exists; this is an open workflow gap, not claimed feature parity.
+
+Independent checks passed 15 controller and 14 actual-component/installed-SSR
+synthetic tests, with an immutable 26-slot original-hook fixture rather than
+comparing against a changing Git HEAD. Parent retention and integration
+contracts also pass. The compatible whole Web suite passed 810 Node and 1,676
+typed checks, 2,486 total, zero skips with the default timeouts unchanged.
+These checks do not establish an actual browser walkthrough of this new plan
+consumer, native transactions/concurrency, deployment or production acceptance.

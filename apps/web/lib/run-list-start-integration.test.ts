@@ -14,8 +14,22 @@ import {
   type ReviewedRunConfiguration,
 } from "./run-configuration-request";
 import type { RunConfigurationModal as ModalType } from "../components/RunConfigurationModal";
-import { admitRunStartRead, runStartReviewedReadKey, type RunStartReadSnapshot } from "./manual-run-start-reviewed-reader";
-import { freezeReviewedRunStart, type ReviewedRunStartEnvelope } from "./run-start-reviewed-write";
+import {
+  admitRunStartRead,
+  runStartReviewedReadKey,
+  type RunStartReadSnapshot,
+} from "./manual-run-start-reviewed-reader";
+import {
+  freezeReviewedRunStart,
+  type ReviewedRunStartEnvelope,
+} from "./run-start-reviewed-write";
+import {
+  RUN_SUITE_ALL_VALUE,
+  encodeRunSuiteScope,
+  resolveRunSuiteScope,
+  runSuiteScopeMatches,
+  runSuiteScopeOptions,
+} from "./run-suite-scope";
 const source = readFileSync(
   new URL("../app/projects/[projectId]/test-runs/page.tsx", import.meta.url),
   "utf8",
@@ -59,7 +73,7 @@ function text(node: unknown): string {
 }
 type ConfigurationProps = React.ComponentProps<typeof ModalType>;
 const stub = () => null;
-function harness() {
+function harness(mixedSuites = false) {
   const slots: unknown[] = [];
   let cursor = 0,
     tree: unknown;
@@ -72,17 +86,38 @@ function harness() {
   const browser = {
     Clerk: { loaded: true, session: { id: "A", user: { id: "clerk" } } },
   };
-  const all = Array.from({ length: 851 }, (_, i) => ({
-    id: `case-${i}`,
-    displayId: `TC-${i}`,
-    title: `Case ${i}`,
-    testType: "FUNCTIONAL",
-    priority: i < 10 ? "HIGH" : "MEDIUM",
-    tags: [i < 10 ? "matching" : "other"],
-    suitePath: i % 2 ? "Suite A" : "Suite B",
-    archived: false,
-    reviewStatus: "APPROVED",
-  }));
+  const mixedPaths: readonly (string | null)[] = [
+    null,
+    "",
+    "  \n",
+    "Unassigned",
+    '{"kind":"ALL"}',
+    ' x "quoted"/🎮\nretained ',
+    "Suite A",
+    "Suite B",
+  ];
+  const all = Array.from({ length: 851 }, (_, i) => {
+    const suitePath = mixedSuites
+      ? mixedPaths[i % mixedPaths.length]
+      : i % 2
+        ? "Suite A"
+        : "Suite B";
+    if (suitePath === undefined)
+      throw Error(
+        "Synthetic suite metadata missing; no unassigned value was inferred.",
+      );
+    return {
+      id: `case-${i}`,
+      displayId: `TC-${i}`,
+      title: `Case ${i}`,
+      testType: "FUNCTIONAL",
+      priority: i < 10 ? "HIGH" : "MEDIUM",
+      tags: [i < 10 ? "matching" : "other"],
+      suitePath,
+      archived: false,
+      reviewStatus: "APPROVED",
+    };
+  });
   const query = {
     data: [
       ...all,
@@ -124,6 +159,10 @@ function harness() {
     useManualExecutionAccess: () => access,
     currentSessionScope,
     applyRunBulkSelection,
+    RUN_SUITE_ALL_VALUE,
+    resolveRunSuiteScope,
+    runSuiteScopeMatches,
+    runSuiteScopeOptions,
     trpcReact: {
       testCases: { list: { useQuery: () => query } },
       manualRunStartReviewed: { start: { useMutation: () => mutation } },
@@ -177,6 +216,26 @@ function harness() {
       (node) => node.type === stub && node.props.onStart,
     )?.props as ConfigurationProps;
   }
+  function suite(path: string | null) {
+    change(
+      "Run case suite",
+      encodeRunSuiteScope(
+        path === null ? { kind: "UNASSIGNED" } : { kind: "PATH", path },
+      ),
+    );
+  }
+  function search(value: string) {
+    const input = elements(tree).find(
+      (node) =>
+        node.type === "input" &&
+        node.props["aria-label"] === "Search test cases",
+    );
+    if (!input) throw Error("Missing actual case search input");
+    (input.props.onChange as (event: { target: { value: string } }) => void)({
+      target: { value },
+    });
+    render();
+  }
   function toggleCase(displayId: string) {
     const label = elements(tree).find(
       (node) =>
@@ -200,6 +259,8 @@ function harness() {
     render,
     button,
     change,
+    suite,
+    search,
     config,
     toggleCase,
     selectAll,
@@ -237,29 +298,70 @@ function request(ids: string[]) {
   );
 }
 function metadata(): RunStartReadSnapshot {
-  const input = { projectId: "project", originalOrganizationId: "org", expectedClerkActorId: "clerk", expectedNativeActorId: "native", requestId: "00000000-0000-4000-8000-000000000002" };
-  const raw = { readContext: { projection: "PREVIEW", requestId: input.requestId, requestedKey: runStartReviewedReadKey(input, "PREVIEW"), scope: { projectId: "project", organizationId: "org", actorId: "native", actorClerkUserId: "clerk" } }, canConfigure: true, canRecover: true, canStart: true, profile: { kind: "SUPPORTED", experience: null, profileHash: "b".repeat(64) }, limitations: [] };
+  const input = {
+    projectId: "project",
+    originalOrganizationId: "org",
+    expectedClerkActorId: "clerk",
+    expectedNativeActorId: "native",
+    requestId: "00000000-0000-4000-8000-000000000002",
+  };
+  const raw = {
+    readContext: {
+      projection: "PREVIEW",
+      requestId: input.requestId,
+      requestedKey: runStartReviewedReadKey(input, "PREVIEW"),
+      scope: {
+        projectId: "project",
+        organizationId: "org",
+        actorId: "native",
+        actorClerkUserId: "clerk",
+      },
+    },
+    canConfigure: true,
+    canRecover: true,
+    canStart: true,
+    profile: {
+      kind: "SUPPORTED",
+      experience: null,
+      profileHash: "b".repeat(64),
+    },
+    limitations: [],
+  };
   const admitted = admitRunStartRead(raw, input, "PREVIEW", "clerk");
   if (!admitted) throw Error("Synthetic native metadata refused");
-  return Object.freeze({ ...admitted, projection: "PREVIEW", observedSessionId: "A", epoch: 0, revision: 1, receivedAt: "2026-10-06T17:00:00.000Z" });
+  return Object.freeze({
+    ...admitted,
+    projection: "PREVIEW",
+    observedSessionId: "A",
+    epoch: 0,
+    revision: 1,
+    receivedAt: "2026-10-06T17:00:00.000Z",
+  });
 }
 const nativeMetadata = metadata();
 function envelope(input: ReviewedRunConfiguration) {
   return freezeReviewedRunStart(input, nativeMetadata).envelope;
 }
 function ack(input: ReviewedRunConfiguration) {
-  const testRunId = `manual_${createHash("sha256").update(JSON.stringify([input.projectId, "native", input.idempotencyKey])).digest("hex")}`;
+  const testRunId = `manual_${createHash("sha256")
+    .update(JSON.stringify([input.projectId, "native", input.idempotencyKey]))
+    .digest("hex")}`;
   return {
     mode: "START",
-    currentScope: { projectId: input.projectId, organizationId: input.originalOrganizationId, actorId: "native", actorClerkUserId: input.expectedClerkActorId },
+    currentScope: {
+      projectId: input.projectId,
+      organizationId: input.originalOrganizationId,
+      actorId: "native",
+      actorClerkUserId: input.expectedClerkActorId,
+    },
     historicalOuterProvenance: "UNRECORDED",
     interpretation: "LEGACY_NORMALIZED_NOT_RAW_LOSSLESS",
     idempotencyKey: input.idempotencyKey,
     legacyAck: {
-    testRunId,
-    originalOrganizationId: input.originalOrganizationId,
-    expectedClerkActorId: input.expectedClerkActorId,
-    idempotencyKey: input.idempotencyKey,
+      testRunId,
+      originalOrganizationId: input.originalOrganizationId,
+      expectedClerkActorId: input.expectedClerkActorId,
+      idempotencyKey: input.idempotencyKey,
     },
   };
 }
@@ -364,7 +466,7 @@ it("filter and suite scopes are explicit and browsing does not alter the already
   h.button("Apply Set selection")();
   h.render();
   h.change("Run case priority", "");
-  h.change("Run case suite", "Suite A");
+  h.suite("Suite A");
   h.button("Continue to configuration")();
   h.render();
   expect(h.config().testCaseIds).toEqual(
@@ -373,7 +475,7 @@ it("filter and suite scopes are explicit and browsing does not alter the already
   const suite = harness();
   suite.button("Start manual run")();
   suite.render();
-  suite.change("Run case suite", "Suite A");
+  suite.suite("Suite A");
   suite.change("Apply to approved scope", "suite");
   suite.button("Apply Set selection")();
   suite.render();
@@ -384,6 +486,171 @@ it("filter and suite scopes are explicit and browsing does not alter the already
       .filter((item) => item.suitePath === "Suite A")
       .map((item) => item.id),
   );
+});
+it.each([
+  null,
+  "",
+  "  \n",
+  "Unassigned",
+  '{"kind":"ALL"}',
+  ' x "quoted"/🎮\nretained ',
+  "Suite A",
+  "Suite B",
+])(
+  "mixed851 Stage1 and Stage2 use the same exact native suite %j, not an ALL or unassigned alias",
+  (path) => {
+    const h = harness(true);
+    h.button("Start manual run")();
+    h.render();
+    h.suite(path);
+    h.change("Apply to approved scope", "suite");
+    expect(h.config().caseCount).toBe(0);
+    expect(h.send).not.toHaveBeenCalled();
+    h.button("Apply Set selection")();
+    h.render();
+    h.button("Continue to configuration")();
+    h.render();
+    const expected = h.all
+      .filter((item) => item.suitePath === path)
+      .map((item) => item.id);
+    expect(h.config().testCaseIds).toEqual(expected);
+    expect(
+      h.config().bulkScopes!.find((scope) => scope.key === "suite")!
+        .testCaseIds,
+    ).toEqual(expected);
+    expect(
+      h.config().bulkScopes!.find((scope) => scope.key === "matching")!
+        .testCaseIds,
+    ).toEqual(expected);
+    expect(
+      h.config().bulkScopes!.find((scope) => scope.key === "all")!.testCaseIds,
+    ).toHaveLength(851);
+    expect(h.config().bulkScopesReady).toBe(true);
+    expect(h.config().testCaseIds).not.toContain("archived");
+    expect(h.config().testCaseIds).not.toContain("pending");
+    expect(h.send).not.toHaveBeenCalled();
+  },
+);
+it("null and empty-path Set/Add/Remove keep exact ordered identities without implicitly applying a browsed scope", () => {
+  const h = harness(true);
+  h.button("Start manual run")();
+  h.render();
+  h.suite(null);
+  h.change("Apply to approved scope", "suite");
+  h.button("Apply Set selection")();
+  h.render();
+  const nullIds = h.all
+      .filter((item) => item.suitePath === null)
+      .map((item) => item.id),
+    emptyIds = h.all
+      .filter((item) => item.suitePath === "")
+      .map((item) => item.id);
+  h.suite("");
+  h.change("Selection operation", "ADD");
+  h.button("Apply Add selection")();
+  h.render();
+  h.suite(null);
+  h.change("Selection operation", "REMOVE");
+  h.button("Apply Remove selection")();
+  h.render();
+  h.suite("Unassigned"); // Browsing a real path must not apply its namesake.
+  h.button("Continue to configuration")();
+  h.render();
+  const union = applyRunBulkSelection(nullIds, emptyIds, "ADD");
+  if (!union.ok) throw Error("Expected synthetic union refused.");
+  const removed = applyRunBulkSelection(union.ids, nullIds, "REMOVE");
+  if (!removed.ok) throw Error("Expected synthetic subtraction refused.");
+  expect(h.config().testCaseIds).toEqual(removed.ids);
+  expect(h.config().testCaseIds).toEqual(emptyIds);
+  expect(h.send).not.toHaveBeenCalled();
+});
+it("matching filter preserves conjunction of null suite, search, priority and test type", () => {
+  const h = harness(true);
+  h.button("Start manual run")();
+  h.render();
+  h.suite(null);
+  h.change("Run case priority", "HIGH");
+  h.change("Run case type", "FUNCTIONAL");
+  h.search("Case 8");
+  h.button("Apply Set selection")();
+  h.render();
+  h.button("Continue to configuration")();
+  h.render();
+  expect(h.config().testCaseIds).toEqual(["case-8"]);
+  expect(
+    h.config().bulkScopes!.find((scope) => scope.key === "suite")!.testCaseIds,
+  ).toEqual(
+    h.all.filter((item) => item.suitePath === null).map((item) => item.id),
+  );
+  expect(h.send).not.toHaveBeenCalled();
+});
+it.each(["malformed", "stale"])(
+  "%s suite refuses bulk apply instead of clearing/replacing the prior explicit851 cohort",
+  (mode) => {
+    const h = harness(true);
+    h.selectAll();
+    h.suite(null);
+    if (mode === "malformed")
+      h.change("Run case suite", '{"kind":"UNASSIGNED","unexpected":true}');
+    else {
+      h.query.data = h.query.data.map((item) => ({
+        ...item,
+        suitePath: item.suitePath === null ? "Now assigned" : item.suitePath,
+      }));
+      h.render();
+    }
+    h.change("Apply to approved scope", "suite");
+    h.button("Apply Set selection")(); // Invoke even the disabled captured UI action.
+    h.render();
+    h.button("Continue to configuration")();
+    h.render();
+    expect(h.config().testCaseIds).toEqual(h.all.map((item) => item.id));
+    expect(h.config().bulkScopesReady).toBe(false);
+    expect(h.config().bulkScopes!.some((scope) => scope.key === "suite")).toBe(
+      false,
+    );
+    expect(h.send).not.toHaveBeenCalled();
+  },
+);
+it("mixed null/empty metadata changes cannot replace an UNKNOWN original envelope or unlock its first-send cohort", async () => {
+  const h = harness(true);
+  h.button("Start manual run")();
+  h.render();
+  h.suite(null);
+  h.change("Apply to approved scope", "suite");
+  h.button("Apply Set selection")();
+  h.render();
+  h.button("Continue to configuration")();
+  h.render();
+  const props = h.config(),
+    input = request(props.testCaseIds),
+    { controller, session } = reviewedController();
+  h.send.mockRejectedValue(Error("Synthetic lost ACK"));
+  await controller.submitReviewed(
+    controller.snapshot().activationEpoch,
+    () => input,
+    props.onStart,
+    () => session,
+    () => nativeMetadata,
+    props.onConfirmedStart,
+  );
+  const pending = controller.snapshot().pendingRequest!,
+    body = JSON.stringify(controller.snapshot().pendingEnvelope!.envelope);
+  h.query.data = h.query.data.map((item) => ({
+    ...item,
+    suitePath: item.suitePath === null ? "" : null,
+  }));
+  h.render();
+  h.config().onSelectionChange!(["case-1"]);
+  h.render();
+  expect(h.config().testCaseIds).toBe(props.testCaseIds);
+  expect(h.config().bulkScopesReady).toBe(false);
+  expect(controller.snapshot().pendingRequest).toBe(pending);
+  expect(JSON.stringify(controller.snapshot().pendingEnvelope!.envelope)).toBe(
+    body,
+  );
+  expect(h.send).toHaveBeenCalledOnce();
+  expect(h.navigate).not.toHaveBeenCalled();
 });
 it.each(["fetching", "paused", "cached", "role", "actor", "retired"])(
   "first Continue refuses %s source/scope without starting",
@@ -448,7 +715,7 @@ it.each(["SET", "ADD", "REMOVE", "toggle", "clear"])(
     if (operation === "clear") h.button("Clear selection")();
     else if (operation === "toggle") h.toggleCase("TC-0");
     else {
-      h.change("Run case suite", "Suite A");
+      h.suite("Suite A");
       h.change("Apply to approved scope", "suite");
       h.change("Selection operation", operation);
       h.button(
@@ -489,7 +756,10 @@ it("host mutation forwards the complete frozen body but never navigates itself o
     build: "0",
   });
   await expect(
-    props.onStart({ ...retainedEnvelope, request: { ...input, testCaseIds: ["replacement"] } }),
+    props.onStart({
+      ...retainedEnvelope,
+      request: { ...input, testCaseIds: ["replacement"] },
+    }),
   ).rejects.toThrow("originally reviewed selection");
   expect(h.send).toHaveBeenCalledOnce();
 });

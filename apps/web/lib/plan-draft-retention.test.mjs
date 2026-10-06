@@ -21,6 +21,7 @@ function render(options = {}) {
   const { loadError = null, readOnly = false, projectId = "synthetic-project", signedIn = true, open = false } = options;
   // Explicitly absent query data must not accidentally use the fixture plan.
   const data = Object.hasOwn(options, "data") ? options.data : plan;
+  const projectData = Object.hasOwn(options, "projectData") ? options.projectData : { id: projectId, organizationId: "synthetic-org" };
   const legacyAccesses = [];
   const utils = { testPlans: { byId: { invalidate() {} }, history: { invalidate() {} } } };
   const sandbox = {
@@ -31,7 +32,7 @@ function render(options = {}) {
     trpcReact: {
       useUtils: () => utils,
       testPlans: { byId: { useQuery: () => ({ data, error: loadError && { message: loadError } }) }, get update() { legacyAccesses.push("update"); throw Error("Legacy whole-plan writes must never be mounted"); } },
-      project: { byId: { useQuery: () => ({ data: { id: projectId, organizationId: "synthetic-org" } }) } },
+      project: { byId: { useQuery: () => ({ data: projectData }) } },
       requirements: { list: { useQuery: () => ({ data: [], error: null }) } },
     },
     PlanExecutionModal: "plan-execution", PlanStatusEditor: "plan-status", PlanCustomFieldsEditor: "plan-fields",
@@ -77,6 +78,18 @@ test("actual parent role hiding preserves each independently guarded controller,
   assert.ok(readonly.some(node => node.type === "plan-header" && node.props.readOnly === true));
   for (const type of ["plan-fields", "plan-status"]) assert.ok(readonly.some(node => node.type === type && node.props.readOnly === true));
   assert.deepEqual(render({ readOnly: true }).legacyAccesses, []);
+});
+test("execution discovery passes only the route project's organization and never fabricates native identity", () => {
+  const current = render().nodes.find(node => node.type === "plan-execution");
+  assert.equal(current.props.organizationId, "synthetic-org");
+  assert.equal(Object.hasOwn(current.props, "nativeOrganizationId"), false);
+  for (const projectData of [undefined, { id: "different-project", organizationId: "unrelated-org" }]) {
+    const retained = render({ projectData }).nodes.find(node => node.type === "plan-execution");
+    assert.ok(retained);
+    assert.equal(retained.key, current.key);
+    assert.equal(retained.props.organizationId, undefined);
+    assert.equal(Object.hasOwn(retained.props, "nativeOrganizationId"), false);
+  }
 });
 test("whole-record legacy save is absent rather than resending stale header/status/metadata", () => {
   const { nodes, legacyAccesses } = render();
