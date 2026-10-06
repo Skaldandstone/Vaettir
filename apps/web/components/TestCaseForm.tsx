@@ -1,6 +1,6 @@
 "use client";
 
-import { type ChangeEvent, useEffect, useId, useMemo, useRef, useState } from "react";
+import { type ChangeEvent, type CSSProperties, useEffect, useId, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { trpcReact, type RouterOutputs } from "@/lib/trpcReact";
 import { collectKnownSuitePaths } from "@/components/TestCaseTree";
@@ -17,6 +17,11 @@ import { CaseCustomFieldsForm, type CaseFieldFormDraft, type ReviewedCaseFieldDe
 const PRIORITIES = ["CRITICAL", "HIGH", "MEDIUM", "LOW"];
 const OPTIONAL_EDITOR_FIELDS = ["background", "tags", "hardwareFixture", "safety", "technicalBehavior", "expectedResponse"] as const;
 type OptionalEditorField = typeof OPTIONAL_EDITOR_FIELDS[number];
+const FIELD_LABEL_STYLE: CSSProperties = { display: "grid", gap: 6, minWidth: 0, color: "var(--fg)" };
+const PROSE_EDITOR_STYLE: CSSProperties = { display: "block", width: "100%", minWidth: 0, resize: "vertical", lineHeight: 1.55, borderRadius: 6 };
+const SECONDARY_ACTION_STYLE: CSSProperties = { padding: "6px 10px", minHeight: 36, fontSize: 12, borderRadius: 3 };
+const SECTION_HEADING_STYLE: CSSProperties = { fontSize: 16, margin: "24px 0 6px", paddingTop: 18, borderTop: "1px solid var(--line)" };
+const STEP_PAIR_STYLE: CSSProperties = { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(280px, 100%), 1fr))", gap: 14, alignItems: "start" };
 /** Revocation-only display guard. This cannot authorize a save or private read;
  * it merely rejects an old reveal callback after the form becomes unavailable. */
 class OptionalRevealFrame {
@@ -129,7 +134,7 @@ function StringListEditor({
     setAnnouncement(`${label} item ${from + 1} moved to position ${to + 1}.`);
   }
   return (
-    <div style={{ marginBottom: 12 }}>
+    <div style={{ marginBottom: 12, minWidth: 0 }}>
       <div style={{ fontWeight: 600, marginBottom: 4 }}>{label}</div>
       {items.map((item, i) => (
         <div key={item.editorKey} style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 4 }}>
@@ -139,13 +144,15 @@ function StringListEditor({
             onChange={(e) =>
               onChange(items.map((v, j) => (j === i ? { ...v, text: e.target.value } : v)))
             }
-            rows={2}
-            style={{ flex: "1 1 180px", minWidth: 0, resize: "vertical" }}
+            rows={3}
+            style={{ ...PROSE_EDITOR_STYLE, flex: "1 1 100%" }}
           />
-          <button type="button" aria-label={`Move ${label} item ${i + 1} up`} disabled={i === 0} onClick={() => move(i, i - 1)}>Move up</button>
-          <button type="button" aria-label={`Move ${label} item ${i + 1} down`} disabled={i === items.length - 1} onClick={() => move(i, i + 1)}>Move down</button>
+          <button type="button" className="btn-secondary" style={SECONDARY_ACTION_STYLE} aria-label={`Move ${label} item ${i + 1} up`} disabled={i === 0} onClick={() => move(i, i - 1)}>Move up</button>
+          <button type="button" className="btn-secondary" style={SECONDARY_ACTION_STYLE} aria-label={`Move ${label} item ${i + 1} down`} disabled={i === items.length - 1} onClick={() => move(i, i + 1)}>Move down</button>
           <button
             type="button"
+            className="btn-secondary"
+            style={SECONDARY_ACTION_STYLE}
             aria-label={`Remove ${label} item ${i + 1}`}
             onClick={() => onChange(items.filter((_, j) => j !== i))}
           >
@@ -154,7 +161,7 @@ function StringListEditor({
           {item.text === "" && !item.editorPlaceholder && <span className="text-muted" style={{ flexBasis: "100%", fontSize: 12 }}>Retained empty entry. It stays in this phase unless you explicitly remove it.</span>}
         </div>
       ))}
-      <button type="button" onClick={() => { const key = `${prefix}-${nextKey.current++}`; onChange([...items, { text: "", editorKey: key, editorPlaceholder: true }]); }}>
+      <button type="button" className="btn-secondary" style={SECONDARY_ACTION_STYLE} onClick={() => { const key = `${prefix}-${nextKey.current++}`; onChange([...items, { text: "", editorKey: key, editorPlaceholder: true }]); }}>
         + Add {label} item
       </button>
       <span role="status" className="sr-only">{announcement}</span>
@@ -377,8 +384,8 @@ export default function TestCaseForm({
   }
 
   return (
-    <fieldset disabled={locked || saving || uploadingStepKey !== null} onChangeCapture={() => { interacted.current = true; }} aria-label={mode === "edit" ? "Edit test case draft" : "New test case draft"} style={{ border: 0, padding: 0, margin: 0, maxWidth: 720, minWidth: 0, overflowWrap: "anywhere" }}>
-      <div style={{ display: "grid", gap: 8, marginBottom: 20 }}>
+    <fieldset disabled={locked || saving || uploadingStepKey !== null} onChangeCapture={() => { interacted.current = true; }} aria-label={mode === "edit" ? "Edit test case draft" : "New test case draft"} style={{ border: 0, padding: 0, margin: 0, width: "100%", maxWidth: 1120, minWidth: 0, overflowWrap: "anywhere" }}>
+      <div style={{ display: "grid", gap: 12, marginBottom: 20 }}>
         {active && <CaseDesignGuide />}
         {presentationQuery.error && <p role="status">Current built-in field preferences could not be verified. The generic editor retains all fields and values. <button type="button" onClick={() => void presentationQuery.refetch()}>Refresh preferences</button></p>}
         {retainedVisible.length > 0 && <p role="status">Fields hidden for empty cases remain visible here because this draft has supplied values: {retainedVisible.join(", ")}. Saving never clears them merely because project preferences changed.</p>}
@@ -393,15 +400,15 @@ export default function TestCaseForm({
             </button>)}
           </div>
         </details>}
-        <label>
+        <label style={FIELD_LABEL_STYLE}>
           Title
           <input
             value={value.title}
             onChange={(e) => setValue((v) => ({ ...v, title: e.target.value }))}
-            style={{ width: "100%" }}
+            style={{ width: "100%", minWidth: 0, borderRadius: 6, fontSize: 16 }}
           />
         </label>
-        {visible.background && <label>
+        {visible.background && <label style={FIELD_LABEL_STYLE}>
           Background{" "}
           <span style={{ color: "var(--muted-dim)" }}>
             (optional, shared context)
@@ -411,12 +418,12 @@ export default function TestCaseForm({
             onChange={(e) =>
               setValue((v) => ({ ...v, background: e.target.value }))
             }
-            rows={2}
-            style={{ width: "100%" }}
+            rows={3}
+            style={PROSE_EDITOR_STYLE}
           />
         </label>}
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 12 }}>
-          <label>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(180px, 100%), 1fr))", gap: 12 }}>
+          <label style={FIELD_LABEL_STYLE}>
             Validation domain
             <select
               value={value.validationDomain}
@@ -436,7 +443,7 @@ export default function TestCaseForm({
               ))}
             </select>
           </label>
-          <label>
+          <label style={FIELD_LABEL_STYLE}>
             Type
             <select
               value={value.testType}
@@ -452,7 +459,7 @@ export default function TestCaseForm({
               ))}
             </select>
           </label>
-          <label>
+          <label style={FIELD_LABEL_STYLE}>
             Priority
             <select
               value={value.priority}
@@ -494,10 +501,10 @@ export default function TestCaseForm({
               ],
             ] as const
           ).filter(([key]) => key === "safety" ? visible.safety : visible.hardwareFixture).map(([key, label]) => (
-            <label key={key} style={{ display: "block", marginBottom: 10 }}>
+            <label key={key} style={{ ...FIELD_LABEL_STYLE, marginBottom: 12 }}>
               {workspace && experience?.offerings.length === 1 && workspace.physical ? workspace.caseFieldLabels[key] : label}
               <textarea
-                style={{ width: "100%" }}
+                style={PROSE_EDITOR_STYLE}
                 rows={3}
                 value={value.verificationProfile[key]}
                 onChange={(e) =>
@@ -514,7 +521,7 @@ export default function TestCaseForm({
           ))}
         </details>}
         {visible.tags && <CaseTagEditor projectId={projectId} tags={value.tags} draft={tagDraft} reopenedOriginal={reopenedTag} onReopen={setReopenedTag} onTagsChange={tags => setValue(v => ({ ...v, tags }))} onDraftChange={setTagDraft} />}
-        <label>
+        <label style={FIELD_LABEL_STYLE}>
           Suite{" "}
           <span style={{ color: "var(--muted-dim)" }}>
             (optional, e.g. &ldquo;auth/password-reset&rdquo; — leave blank to stay
@@ -526,7 +533,7 @@ export default function TestCaseForm({
             onChange={(e) =>
               setValue((v) => ({ ...v, suitePath: e.target.value }))
             }
-            style={{ width: "100%" }}
+            style={{ display: "block", width: "100%", minWidth: 0, borderRadius: 6 }}
           />
           <datalist id="known-suite-paths">
             {knownSuitePaths.map((p) => (
@@ -536,19 +543,19 @@ export default function TestCaseForm({
         </label>
       </div>
 
-      <h2>Given / When / Then</h2>
-      <p style={{ color: "var(--muted)", fontSize: 13 }}>
+      <h2 style={SECTION_HEADING_STYLE}>Given / When / Then</h2>
+      <p style={{ color: "var(--muted)", fontSize: 13, margin: "0 0 14px" }}>
         Fill this in, or the structured step table below, or both — at least one
         is required.
       </p>
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(210px, 1fr))", gap: 12 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(240px, 100%), 1fr))", gap: 16 }}>
         <StringListEditor label="Given" items={value.given} onChange={(given) => setValue((v) => ({ ...v, given }))} />
         <StringListEditor label="When" items={value.when} onChange={(when) => setValue((v) => ({ ...v, when }))} />
         <StringListEditor label="Then" items={value.then} onChange={(then) => setValue((v) => ({ ...v, then }))} />
       </div>
 
-      <h2>Structured steps</h2>
-      <p className="text-muted">Each numbered row keeps the tester action beside its technical behavior, expected visible result and expected response. Parameter datasets are separate. Use as much prose as the procedure needs.</p>
+      <h2 style={SECTION_HEADING_STYLE}>Structured steps</h2>
+      <p className="text-muted" style={{ fontSize: 13, margin: "0 0 14px" }}>Each numbered row keeps the tester action beside its technical behavior, expected visible result and expected response. Parameter datasets are separate. Use as much prose as the procedure needs.</p>
       {sharedGroups.length > 0 && (
         <label style={{ display: "block", marginBottom: 10 }}>
           Use a shared step library{" "}
@@ -603,9 +610,11 @@ export default function TestCaseForm({
             role="listitem"
             style={{
               border: "1px solid var(--line)",
-              borderRadius: 8,
-              padding: 12,
-              marginBottom: 10,
+              borderRadius: 7,
+              padding: 16,
+              marginBottom: 14,
+              minWidth: 0,
+              background: "var(--panel)",
             }}
           >
             <div
@@ -613,15 +622,17 @@ export default function TestCaseForm({
                 display: "flex",
                 flexWrap: "wrap",
                 gap: 6,
-                justifyContent: "space-between",
-                marginBottom: 6,
+                alignItems: "center",
+                marginBottom: 14,
               }}
             >
-              <strong>Step {i + 1}</strong>
-              <button type="button" aria-label={`Move step ${i + 1} up`} disabled={i === 0} onClick={() => { setValue(v => ({ ...v, steps: moveListItem(v.steps, i, i - 1) })); setStepAnnouncement(`Step ${i + 1} moved to position ${i}.`); }}>Move up</button>
-              <button type="button" aria-label={`Move step ${i + 1} down`} disabled={i === value.steps.length - 1} onClick={() => { setValue(v => ({ ...v, steps: moveListItem(v.steps, i, i + 1) })); setStepAnnouncement(`Step ${i + 1} moved to position ${i + 2}.`); }}>Move down</button>
+              <strong style={{ marginRight: "auto", fontSize: 14 }}>Step {i + 1}</strong>
+              <button type="button" className="btn-secondary" style={SECONDARY_ACTION_STYLE} aria-label={`Move step ${i + 1} up`} disabled={i === 0} onClick={() => { setValue(v => ({ ...v, steps: moveListItem(v.steps, i, i - 1) })); setStepAnnouncement(`Step ${i + 1} moved to position ${i}.`); }}>Move up</button>
+              <button type="button" className="btn-secondary" style={SECONDARY_ACTION_STYLE} aria-label={`Move step ${i + 1} down`} disabled={i === value.steps.length - 1} onClick={() => { setValue(v => ({ ...v, steps: moveListItem(v.steps, i, i + 1) })); setStepAnnouncement(`Step ${i + 1} moved to position ${i + 2}.`); }}>Move down</button>
               <button
                 type="button"
+                className="btn-secondary"
+                style={SECONDARY_ACTION_STYLE}
                 aria-label={`Remove step ${i + 1}`}
                 onClick={() =>
                   setValue((v) => ({
@@ -633,50 +644,52 @@ export default function TestCaseForm({
                 Remove step
               </button>
             </div>
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(155px, 1fr))", gap: 8, alignItems: "start" }}>
-              <label>
+            <div data-step-pair="action-technical" style={STEP_PAIR_STYLE}>
+              <label style={FIELD_LABEL_STYLE}>
                 {labels.action}
                 <textarea
                   value={step.action}
                   onChange={(e) => updateStep(i, { action: e.target.value })}
-                  rows={3}
-                  style={{ width: "100%", minWidth: 0, resize: "vertical" }}
+                  rows={4}
+                  style={PROSE_EDITOR_STYLE}
                 />
               </label>
-              {visible.technicalBehavior && <label>
+              {visible.technicalBehavior && <label style={FIELD_LABEL_STYLE}>
                 {technicalBehaviorLabel(labels.expectedActionOrData)}
                 <textarea
                   value={step.expectedActionOrData ?? ""}
                   onChange={(e) =>
                     updateStep(i, { expectedActionOrData: e.target.value })
                   }
-                  rows={3}
+                  rows={4}
                   placeholder="e.g. onClick triggers GET /api/details"
-                  style={{ width: "100%", minWidth: 0, resize: "vertical" }}
+                  style={PROSE_EDITOR_STYLE}
                 />
                 {step.expectedActionOrData === null ? <span className="text-muted">Not supplied</span> : step.expectedActionOrData === "" ? <span className="text-muted">Explicit empty text</span> : null}
               </label>}
-              <label>
+            </div>
+            <div data-step-pair="result-response" style={{ ...STEP_PAIR_STYLE, marginTop: 14 }}>
+              <label style={FIELD_LABEL_STYLE}>
                 {labels.expectedResult}
                 <textarea
                   value={step.expectedResult ?? ""}
                   onChange={(e) =>
                     updateStep(i, { expectedResult: e.target.value })
                   }
-                  rows={3}
-                  style={{ width: "100%", minWidth: 0, resize: "vertical" }}
+                  rows={4}
+                  style={PROSE_EDITOR_STYLE}
                 />
                 {step.expectedResult === null ? <span className="text-muted">Not supplied</span> : step.expectedResult === "" ? <span className="text-muted">Explicit empty text</span> : null}
               </label>
-              {visible.expectedResponse && <label>
+              {visible.expectedResponse && <label style={FIELD_LABEL_STYLE}>
                 {labels.expectedResponse}
                 <textarea
                   value={step.expectedResponse ?? ""}
                   onChange={(e) =>
                     updateStep(i, { expectedResponse: e.target.value })
                   }
-                  rows={3}
-                  style={{ width: "100%", minWidth: 0, resize: "vertical" }}
+                  rows={4}
+                  style={PROSE_EDITOR_STYLE}
                 />
                 {step.expectedResponse === null ? <span className="text-muted">Not supplied</span> : step.expectedResponse === "" ? <span className="text-muted">Explicit empty text</span> : null}
               </label>}
@@ -720,6 +733,8 @@ export default function TestCaseForm({
       {!value.sharedStepGroupId && (
         <button
           type="button"
+          className="btn-secondary"
+          style={SECONDARY_ACTION_STYLE}
           onClick={() => {
             const editorKey = `${stepKeyPrefix}-${nextStepKey.current++}`;
             setValue((v) => ({ ...v, steps: [...v.steps, { ...EMPTY_STEP, editorKey }] }));
@@ -739,7 +754,7 @@ export default function TestCaseForm({
         onChange={setCaseFieldsDraft}
       />
 
-      <div style={{ marginTop: 24 }}>
+      <div style={{ marginTop: 24, paddingTop: 16, borderTop: "1px solid var(--line)" }}>
         <button onClick={submit} disabled={saving || !value.title || !caseFieldsDraft?.ready}>
           {saving
             ? "Saving…"

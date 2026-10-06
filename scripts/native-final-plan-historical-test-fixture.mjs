@@ -19,6 +19,7 @@ export function historicalNativeFinalPlanFixture(){
 const historicalV2Sha256="2bd9aec0a28942513e5186b419fc0bc00d576b696f3f8139741e21612e6aa889";
 const reviewedDiagnosticsV2Sha256="5a255a874c4245dd6ae6095346ce6cf0d30509c4a84fe52fa24a50065b3b9487";
 const reviewedDiagnosticsAndCgroupV2Sha256="48211b7b812e823714e030ea7ac8a783e3dbb42289cac386c80f108c45fc9b69";
+const reviewedConstructorDiagnosticsV2Sha256="939adbc2675d08eafca59b51b37d20dcc72246ee9a298244fc0032f7b475ed4f";
 // Explicit TEST ONLY reviewed minimal diagnostics overlay. Exact historical
 // derivation remains intact; this is never used by a production source reader.
 const diagnosticsEdits=[
@@ -63,6 +64,25 @@ const diagnosticsEdits=[
     "after": "  };\n  const writeControl = `${common}const clock=JSON.parse(bounded('${prefix}clock.json',512));assert.match(clock.deadlineNs,/^[0-9]{1,30}$/);assert.ok(BigInt(clock.deadlineNs)>process.hrtime.bigint());const c=${JSON.stringify(control)};c.deadlineNs=clock.deadlineNs;const b=Buffer.from(JSON.stringify(c));assert.ok(b.length<=131072);fs.writeFileSync('${prefix}capsule/control.json',b,{flag:'wx',mode:0o400});fs.writeFileSync('${prefix}control-sha',sha(b),{flag:'wx'});const payload=JSON.stringify({capsuleBase64:bounded('${prefix}capsule.json',1048576).toString('base64'),controlBase64:b.toString('base64')});assert.ok(Buffer.byteLength(payload)<=2097152);fs.writeFileSync('${prefix}stdin.json',payload,{flag:'wx',mode:0o600});`;\n  const bootstrap = (stage) =>\n    `${common}const publicFailure=${nativeFinalPublicFailure.toString()};let failureStage='bootstrap-materialize';async function run(){const dir='${dir}',pins=${JSON.stringify(identity.capsule.members)};assert.equal(process.env.PYTHONDONTWRITEBYTECODE,'1');assert.equal(fs.realpathSync('/tmp'),'/tmp');if('${stage}'==='pre'){assert.equal(fs.existsSync(dir),false);const parts=[],buf=Buffer.alloc(65536);let total=0;for(;;){const n=fs.readSync(0,buf,0,buf.length,null);if(!n)break;total+=n;assert.ok(total<=2097152);parts.push(Buffer.from(buf.subarray(0,n)));}const p=JSON.parse(Buffer.concat(parts).toString());assert.deepEqual(Object.keys(p).sort(),['capsuleBase64','controlBase64']);const raw=Buffer.from(p.capsuleBase64,'base64');assert.equal(raw.toString('base64'),p.capsuleBase64);assert.equal(raw.length,${identity.capsule.bytes});assert.equal(sha(raw),'${identity.capsule.sha256}');const c=JSON.parse(raw);assert.deepEqual(Object.keys(c.members).sort(),Object.keys(pins).sort());const control=Buffer.from(p.controlBase64,'base64');assert.equal(control.toString('base64'),p.controlBase64);assert.ok(control.length<=131072);assert.equal(sha(control),process.env.VAETTIR_FINAL_CONTROL_SHA);fs.mkdirSync(dir,{mode:0o700});for(const[n,h]of Object.entries(pins)){const b=Buffer.from(c.members[n].base64,'base64');assert.equal(b.length,h.bytes);assert.equal(sha(b),h.sha256);fs.writeFileSync(dir+'/'+n,b,{flag:'wx',mode:0o400});}fs.writeFileSync(dir+'/control.json',control,{flag:'wx',mode:0o400});}failureStage='bootstrap-control';assert.equal(fs.realpathSync(dir),dir);assert.ok(fs.lstatSync(dir).isDirectory()&&!fs.lstatSync(dir).isSymbolicLink());for(const[n,p]of Object.entries(pins)){const b=bounded(dir+'/'+n,262144);assert.equal(b.length,p.bytes);assert.equal(sha(b),p.sha256);}const b=bounded(dir+'/control.json',131072);assert.equal(sha(b),process.env.VAETTIR_FINAL_CONTROL_SHA);const c=JSON.parse(b);assert.equal(c.planSha256,'${planSha256}');failureStage='bootstrap-import';const{runtime}=await import(dir+'/native-fresh-final-runner.mjs');failureStage='bootstrap-runtime';await runtime('${stage}',c);}run().catch(error=>{console.error('NATIVE_FRESH_FINAL_FAILURE='+JSON.stringify(publicFailure(failureStage,error)));console.error('Pinned final verification refused');process.exitCode=1});`;\n  const containerGuard = (stage) =>\n    `${common}const a=JSON.parse(bounded('${prefix}${stage}-inspect.json',2097152));assert.equal(a.length,1);const[i]=a;assert.equal(i.Id,bounded('${prefix}${stage}-cid',64).toString());assert.equal(i.Config.Labels['vaettir.final-owner'],'${planSha256}');assert.equal(i.HostConfig.NetworkMode,'none');assert.equal(i.HostConfig.Privileged,false);assert.deepEqual(i.HostConfig.CapDrop,['ALL']);assert.ok(i.HostConfig.SecurityOpt.includes('no-new-privileges'));assert.equal(i.HostConfig.Memory,15032385536);assert.equal(i.HostConfig.NanoCpus,8000000000);assert.equal(i.HostConfig.PidsLimit,2048);assert.deepEqual(i.Mounts,[]);assert.deepEqual(i.Config.Env.filter(x=>x.startsWith('PYTHONDONTWRITEBYTECODE=')),['PYTHONDONTWRITEBYTECODE=1']);assert.equal(i.Image,${stage === \"pre\" ? JSON.stringify(identity.expectedParent.imageConfigDigest) : `bounded('${prefix}commit-id',80).toString().trim()`});`;\n  const admission = `${common}const clock=JSON.parse(bounded('${prefix}clock.json',512));assert.ok(BigInt(clock.deadlineNs)-process.hrtime.bigint()>=${(identity.resources.recipeSeconds + identity.resources.verificationReserveSeconds) * 1000000000}n,'Global remaining budget cannot admit final');`;"
   }
 ];
+// TEST ONLY third explicit overlay: the exact reviewed edd1431 constructor
+// diagnostics and matching capsule pin. No current-file or caller authority.
+const constructorDiagnosticsEdits=[
+  {
+    before:'  let errorCode = "UNCLASSIFIED";\n  const frames = [];',
+    after:'  const adapterChecks = [\n    "options", "platform-identity", "deadline", "memory-read",\n    "memory-admission", "final-log-hash", "filesystem-capability",\n    "checkpoint-read", "checkpoint-hash", "checkpoint-import-scope",\n    "checkpoint-import", "checkpoint-rehash", "checkpoint-exports",\n    "abi-read", "abi-hash", "abi-import-scope", "abi-import",\n    "abi-rehash", "abi-exports",\n  ];\n  let errorCode = "UNCLASSIFIED", adapterCheck;\n  const frames = [];',
+    sha256:"fc9356d5bee04bfe5a3b26fdc3299f3c7bbc4fefcb0cbc1cc64cd0dab84a6743",
+  },
+  {
+    before:'    if (typeof code === "string" && codes.includes(code)) errorCode = code;\n    const stack = Object.getOwnPropertyDescriptor(error, "stack")?.value;',
+    after:'    if (typeof code === "string" && codes.includes(code)) errorCode = code;\n    const check = Object.getOwnPropertyDescriptor(error, "nativeFinalAdapterCheck")?.value;\n    if ((stage === "runtime-adapter" || stage === "bootstrap-runtime") &&\n        typeof check === "string" && adapterChecks.includes(check)) adapterCheck = check;\n    const stack = Object.getOwnPropertyDescriptor(error, "stack")?.value;',
+    sha256:"9dcc65de7aac257702bba8b84e760d3c8de877620bee05640f829fcc530d3999",
+  },
+  {
+    before:'    errorCode,\n    frames,\n  };\n}\n\n// Serialized as trusted capsule source.',
+    after:'    errorCode,\n    frames,\n    ...(adapterCheck === undefined ? {} : {adapterCheck}),\n  };\n}\n\n// Serialized as trusted capsule source.',
+    sha256:"935cb126501590ca0fe7739cf3fa19e387d5339067eaedce9c440187b19533a2",
+  },
+];
 export function reviewedNativeFinalDiagnosticsTestOverlay(historicalV2){
   assert.equal(arguments.length,1);assert.ok(Buffer.isBuffer(historicalV2));
   const sha=bytes=>createHash("sha256").update(bytes).digest("hex");
@@ -75,7 +95,19 @@ export function reviewedNativeFinalDiagnosticsTestOverlay(historicalV2){
   const oldAdapter="5b0e360140ac894f81d62ce4aaf552fd58e85df4b880d13e16c4de3a3050d21b";
   const currentAdapter="e668eee94bc13f87affcdf6565a9853f867724772a55bc80e5b9b29cc6476a25";
   assert.equal(text.split(oldAdapter).length,2);text=text.replace(oldAdapter,currentAdapter);
-  const result=Buffer.from(text);assert.equal(sha(result),reviewedDiagnosticsAndCgroupV2Sha256);
+  assert.equal(sha(Buffer.from(text)),reviewedDiagnosticsAndCgroupV2Sha256);
+  for(const e of constructorDiagnosticsEdits){
+    assert.equal(text.split(e.before).length,2,"Exact reviewed constructor diagnostics anchor required");
+    text=text.replace(e.before,e.after);assert.equal(sha(Buffer.from(text)),e.sha256);
+  }
+  const constructorAdapter="bbb313210d6826fc64fa57f1c85b5466c40075f05d88c46d6ed88a1316bae092";
+  assert.equal(text.split(currentAdapter).length,2);text=text.replace(currentAdapter,constructorAdapter);
+  const result=Buffer.from(text);assert.equal(sha(result),reviewedConstructorDiagnosticsV2Sha256);
+  assert.equal(text.split(constructorAdapter).length,2);text=text.replace(constructorAdapter,currentAdapter);
+  for(const e of [...constructorDiagnosticsEdits].reverse()){
+    assert.equal(text.split(e.after).length,2);text=text.replace(e.after,e.before);
+  }
+  assert.equal(sha(Buffer.from(text)),reviewedDiagnosticsAndCgroupV2Sha256);
   assert.equal(text.split(currentAdapter).length,2);text=text.replace(currentAdapter,oldAdapter);
   for(const e of [...diagnosticsEdits].reverse()){assert.equal(text.split(e.after).length,2);text=text.replace(e.after,e.before);}
   assert.deepEqual(Buffer.from(text),historicalV2,"All original gates/bytes must restore exactly");

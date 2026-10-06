@@ -83,7 +83,7 @@ test("deterministic narrowly corrected recipe/derived import/pin/purpose bytes r
   const s=source(),before=Object.fromEntries(Object.entries(s.modules).map(([n,b])=>[n,sha(b)])),r=deriveNativePackagingV2(s),again=deriveNativePackagingV2(s);
   assert.deepEqual(r,again);
   // Historical derivation remains exact. The CURRENT final planner has only
-  // the explicit hash-admitted test diagnostics overlay; every other current
+  // the explicit hash-admitted test diagnostics overlays; every other current
   // V2 producer still equals the original derivation byte-for-byte.
   for(const name of [...Object.values(V2_MODULE_NAMES),"native-builder-fresh-final-adapter.mjs"]){
     const canonical=fixtureLf(readFileSync(new URL("scripts/"+name,root)));
@@ -93,7 +93,7 @@ test("deterministic narrowly corrected recipe/derived import/pin/purpose bytes r
     }else if(name==="native-builder-fresh-final-adapter.mjs"){
       assert.equal(sha(r.modules[name]),LEGACY_SOURCE_PINS[name]);
       assert.notDeepEqual(canonical,r.modules[name],"Current cgroup reader is not historical adapter evidence");
-      assert.equal(sha(canonical),"e668eee94bc13f87affcdf6565a9853f867724772a55bc80e5b9b29cc6476a25");
+      assert.equal(sha(canonical),"bbb313210d6826fc64fa57f1c85b5466c40075f05d88c46d6ed88a1316bae092");
     }else assert.deepEqual(canonical,r.modules[name]);
   }
   assert.match(r.correctedRecipe.toString(),/-Tdebian\/libllvm19\.substvars -f\/build\/libllvm19\.files/);
@@ -104,6 +104,29 @@ test("deterministic narrowly corrected recipe/derived import/pin/purpose bytes r
   assert.equal(r.policy.freshNullParentRequired,true);
   assert.ok(Object.values(r.acceptance).every(x=>x===false));
   for(const name of ["native-builder-recovery.mjs","native-builder-continuation.mjs","native-builder-fresh-final-adapter.mjs","native-builder-fresh-final-verifier.mjs"])assert.deepEqual(r.modules[name],s.modules[name]);
+});
+test("constructor diagnostics TEST overlay admits only complete immutable historical v2 bytes",()=>{
+  const historical=deriveNativePackagingV2(source()).modules["native-packaging-v2-builder-fresh-final-plan.mjs"];
+  const preserved=Buffer.from(historical),result=reviewedNativeFinalDiagnosticsTestOverlay(historical);
+  assert.equal(sha(historical),"2bd9aec0a28942513e5186b419fc0bc00d576b696f3f8139741e21612e6aa889");
+  assert.equal(sha(result),"939adbc2675d08eafca59b51b37d20dcc72246ee9a298244fc0032f7b475ed4f");
+  assert.deepEqual(historical,preserved,"Overlay cannot mutate historical source authority");
+  const changed=Buffer.from(historical);changed[0]^=1;
+  for(const candidate of [changed,historical.subarray(0,-1),Buffer.concat([historical,Buffer.from("\n")]),result,Buffer.alloc(0),historical.toString(),[historical],null])
+    assert.throws(()=>reviewedNativeFinalDiagnosticsTestOverlay(candidate));
+  assert.throws(()=>reviewedNativeFinalDiagnosticsTestOverlay(historical,{replacement:result}));
+  assert.throws(()=>reviewedNativeFinalDiagnosticsTestOverlay());
+  result[0]^=1;
+  assert.equal(sha(reviewedNativeFinalDiagnosticsTestOverlay(historical)),"939adbc2675d08eafca59b51b37d20dcc72246ee9a298244fc0032f7b475ed4f");
+  assert.deepEqual(historical,preserved);
+});
+test("historical final planner TEST source stays exact and cannot accept caller replacements",()=>{
+  const original=historicalNativeFinalPlanFixture();
+  assert.equal(original.length,41490);
+  assert.equal(sha(original),"aa57331900911078457f44716b86b121f44bb45360cb90d02ac9ecb96b8b843e");
+  original[0]^=1;
+  assert.equal(sha(historicalNativeFinalPlanFixture()),"aa57331900911078457f44716b86b121f44bb45360cb90d02ac9ecb96b8b843e");
+  assert.throws(()=>historicalNativeFinalPlanFixture(Buffer.from("unreviewed")));
 });
 test("unknown/truncated/modified original source or already-corrected recipe never derives",()=>{
   for(const mutate of [s=>s.recipe[0]^=1,s=>s.recipe=deriveNativePackagingV2(s).correctedRecipe,s=>s.modules.extra=Buffer.from("public but unreviewed"),s=>s.modules["native-builder-fresh-core.mjs"][0]^=1,s=>delete s.modules["native-builder-fresh-prepare.mjs"]]){const s=source();mutate(s);assert.throws(()=>deriveNativePackagingV2(s));}
