@@ -21,6 +21,27 @@ function harness(hash?: (input: Readonly<ReviewedStepWriteInput>) => Promise<str
   return { controller, prepare, record, sent, counts, submit, bind, onPublish(effect: (view: StepReviewCompletionView) => void) { publishEffect = effect; }, get view() { return view; }, get fresh() { return fresh; }, setFresh(value: Record<string, unknown>) { fresh = decodeStepReviewWire(value); }, setSession(value: StepReviewSession, emit = false) { session = value; if (emit) controller.observeSession(value); }, setVisible(value: boolean) { visible = value; bind(); }, setReadOnly(value: boolean) { readOnly = value; bind(); } };
 }
 describe("actual step completion class synthetic workflow, not native/browser proof", () => {
+  it("parent callback loss revokes authority synchronously and A-B-A requires a fresh own/native activation, never a replaced draft", () => {
+    const h = harness(); let current = true;
+    const frame = { visible: true, readOnly: false, activation: h.fresh.readRequestId, observedSessionId: "A", observedSdkGeneration: h.controller.sessionGeneration(), fresh: h.fresh, parentCurrent: () => current, parentActivation: "parentA" };
+    h.controller.bindFrame(frame); h.prepare(); const original = h.view.draft, epoch = h.view.epoch;
+    current = false; expect(h.controller.renderView(frame).draft).toBeNull(); expect(h.controller.reviewCurrent(epoch, original!.identity)).toBe(false);
+    current = true; h.controller.bindFrame(frame); expect(h.view.readable).toBe(false);
+    const fresh = decodeStepReviewWire({ ...h.fresh, readRequestId: randomUUID() }); h.controller.bindFrame({ ...frame, activation: fresh.readRequestId, fresh, parentActivation: "parentB" });
+    expect(h.view.draft).toBe(original); expect(h.view.readable).toBe(true);
+  });
+  it("parent loss during request hash dispatches nothing, keeping exact entered buffers and UUIDs private", async () => {
+    let release!: (value: string) => void, current = true; const h = harness(() => new Promise(resolve => { release = resolve; }));
+    const frame = { visible: true, readOnly: false, activation: h.fresh.readRequestId, observedSessionId: "A", observedSdkGeneration: h.controller.sessionGeneration(), fresh: h.fresh, parentCurrent: () => current, parentActivation: "parentA" };
+    h.controller.bindFrame(frame); h.prepare(); const draft = h.view.draft!; const pending = h.submit(); current = false; release("a".repeat(64)); await pending;
+    expect(h.sent).toHaveLength(0); expect(h.view.hasPending).toBe(false); expect(h.view.draft).toBeNull();
+    current = true; const fresh = decodeStepReviewWire({ ...h.fresh, readRequestId: randomUUID() }); h.controller.bindFrame({ ...frame, activation: fresh.readRequestId, fresh, parentActivation: "parentB" });
+    expect(h.view.draft?.buffer).toEqual(draft.buffer);
+  });
+  it.each([null, () => false, () => { throw Error("PRIVATE_PARENT_MARKER"); }])("explicit unavailable parent cannot render/edit while native preview alone succeeds", parentCurrent => {
+    const h = harness(); h.controller.bindFrame({ visible: true, readOnly: false, activation: h.fresh.readRequestId, observedSessionId: "A", observedSdkGeneration: h.controller.sessionGeneration(), fresh: h.fresh, parentCurrent, parentActivation: "parentA" });
+    expect(h.view.readable).toBe(false); expect(h.view.canEdit).toBe(false); expect(h.view.canSave).toBe(false); expect(h.view.notice).not.toContain("PRIVATE_PARENT_MARKER");
+  });
   it("a posted fresh frame cannot commit after SDK A-B-A between render and layout", () => {
     const h = harness(); h.prepare(); const retained = h.view.draft;
     const posted = { visible: true, readOnly: false, activation: randomUUID(), observedSessionId: "A", observedSdkGeneration: h.controller.sessionGeneration(), fresh: h.fresh };

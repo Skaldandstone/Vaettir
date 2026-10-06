@@ -16,6 +16,7 @@ const code = ts.transpileModule(ts.createPrinter().printNode(ts.EmitHint.Unspeci
 function harness() {
   const h = {
     rowFrame: { current: { readable: true, disabled: false, hidden: false, stepMode: false, wholeCasePending: false } },
+    parentCurrent: () => true,
     testCase: { currentResult: null }, blockedBy: [],
     readScope: { expectedClerkActorId: "original-clerk" },
     window: { Clerk: { loaded: true, session: { id: "original-session", user: { id: "original-clerk" } } } },
@@ -58,6 +59,11 @@ test("actual SDK account mismatch or unavailable session refuses even before aut
   }
   const h = harness(); h.window.Clerk.loaded = false; h.reviewOutcome("SKIP");
   assert.equal(h.intents.length, 0);
+});
+
+test("exact parent snapshot/frame revocation refuses even while legacy row booleans and SDK actor still match", () => {
+  const h = harness(); h.parentCurrent = () => false; h.reviewOutcome("PASS");
+  assert.equal(h.expanded.length, 0); assert.equal(h.intents.length, 0);
 });
 test("blocked prerequisites allow only Blocked or Skip review intent", () => {
   for (const status of ["PASS", "FAIL", "BLOCKED", "SKIP"]) {

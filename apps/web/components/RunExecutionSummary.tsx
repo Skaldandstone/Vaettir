@@ -104,6 +104,7 @@ export function RunExecutionSummary({
                 [
                   "Run ID",
                   "Case ID",
+                  "Case record ID",
                   "Title",
                   "Domain",
                   "Current outcome",
@@ -112,13 +113,14 @@ export function RunExecutionSummary({
                 ],
                 cases.map((testCase) => [
                   runId,
-                  testCase.displayId ?? "Unavailable",
+                  testCase.displayId ?? testCase.testCaseId,
+                  testCase.testCaseId,
                   testCase.title,
                   testCase.validationDomain,
                   testCase.currentResult?.status ?? "UNTESTED",
                   testCase.steps.length,
                   testCase.prerequisiteIds
-                    .map((id) => displayIds.get(id) ?? "Unavailable")
+                    .map((id) => displayIds.get(id) ?? id)
                     .join("; "),
                 ]),
               );

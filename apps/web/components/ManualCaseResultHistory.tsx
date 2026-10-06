@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Modal } from "./Modal";
 import { CaseProcedureColumns } from "./CaseProcedureColumns";
 import { trpcReact } from "@/lib/trpcReact";
@@ -20,6 +20,10 @@ import {
   type WholeCaseReading,
 } from "@/lib/whole-case-reviewed-draft";
 import type { ManualCaseReviewedExactWrite } from "@vaettir/api/src/services/manualCaseResultSchema";
+import type { ManualRunCurrentOrigin } from "@/lib/manual-run-current-reader";
+function currentWholeCaseParent(callback: (() => boolean) | null | undefined, activation?: string) {
+  try { return callback === undefined || typeof callback === "function" && typeof activation === "string" && activation.length > 0 && activation.length <= 200 && callback() === true; } catch { return false; }
+}
 export type WholeCaseReviewIntent = {
   seedId: string;
   status: ManualCaseReviewedExactWrite["status"];
@@ -178,6 +182,9 @@ export function ManualCaseResultHistory({
   onUnconfirmedChange,
   onChanged,
   reviewIntent,
+  parentRunScope,
+  parentCurrent,
+  parentActivation,
 }: {
   projectId: string;
   testRunId: string;
@@ -187,6 +194,9 @@ export function ManualCaseResultHistory({
   onUnconfirmedChange?: (pending: boolean) => void;
   onChanged?: () => Promise<unknown>;
   reviewIntent?: WholeCaseReviewIntent | null;
+  parentRunScope?: ManualRunCurrentOrigin | null;
+  parentCurrent?: (() => boolean) | null;
+  parentActivation?: string;
 }) {
   const [nativeOrigin] = useState({ projectId, testRunId, testCaseId });
   const nativeSame =
@@ -198,12 +208,16 @@ export function ManualCaseResultHistory({
     nativeOrigin.testRunId,
     nativeOrigin.testCaseId,
     active && nativeSame,
+    parentRunScope,
+    parentCurrent,
+    parentActivation,
   );
+  const parentReadable = parentRunScope !== null && currentWholeCaseParent(parentCurrent, parentActivation) && (parentRunScope === undefined || !!access.origin && access.origin.projectId === parentRunScope.projectId && access.origin.testRunId === parentRunScope.testRunId && access.origin.organizationId === parentRunScope.organizationId && access.origin.clerkActorId === parentRunScope.clerkActorId && access.origin.nativeActorId === parentRunScope.nativeActorId);
   const [open, setOpen] = useState(false),
     [draft, setDraft] = useState<WholeCaseDraft | null>(null),
     [before, setBefore] = useState<string | undefined>(),
     [limit, setLimit] = useState(10);
-  const [view, setView] = useState(emptyWholeCaseCompletion),
+  const [, setView] = useState(emptyWholeCaseCompletion),
     [notice, setNotice] = useState<string | null>(null),
     [baselineRefresh, setBaselineRefresh] = useState(0);
   const [controller] = useState(() => new WholeCaseReviewedController(setView));
@@ -219,7 +233,7 @@ export function ManualCaseResultHistory({
     };
   }, [controller]);
   const readNonce = useWholeCaseReadNonce(
-    JSON.stringify([access.activation, access.readable, open, baselineRefresh]),
+    JSON.stringify([access.activation, access.readable, open, baselineRefresh, parentActivation ?? null]),
   );
   const input = {
     ...nativeOrigin,
@@ -232,13 +246,14 @@ export function ManualCaseResultHistory({
     readRequestId: readNonce.requestId,
   };
   const preview = trpcReact.manualCaseResults.previewReviewed.useQuery(input, {
-    enabled: access.readable && open && readNonce.ready,
+    enabled: access.readable && parentReadable && open && readNonce.ready,
     retry: false,
     staleTime: 0,
     refetchOnWindowFocus: false,
   });
   const baseline =
     access.readable &&
+    parentReadable &&
     readNonce.ready &&
     preview.isFetchedAfterMount &&
     !preview.error &&
@@ -255,6 +270,7 @@ export function ManualCaseResultHistory({
       before,
       limit,
       baselineRefresh,
+      parentActivation ?? null,
     ]),
   );
   const historyInput = {
@@ -266,7 +282,7 @@ export function ManualCaseResultHistory({
   const history = trpcReact.manualCaseResults.historyReviewed.useQuery(
     historyInput,
     {
-      enabled: access.readable && historyNonce.ready,
+      enabled: access.readable && parentReadable && historyNonce.ready,
       retry: false,
       staleTime: 0,
       refetchOnWindowFocus: false,
@@ -274,6 +290,7 @@ export function ManualCaseResultHistory({
   );
   const page =
     access.readable &&
+    parentReadable &&
     historyNonce.ready &&
     history.isFetchedAfterMount &&
     !history.error &&
@@ -283,19 +300,19 @@ export function ManualCaseResultHistory({
     wholeCaseReadMatches(historyInput, history.data, "HISTORY")
       ? history.data
       : null;
-  useLayoutEffect(() => {
-    controller.bind({
-      origin: access.readable ? access.origin : null,
+  const frame = useMemo(() => ({
+      origin: access.readable && parentReadable ? access.origin : null,
       open: open && active && nativeSame,
-      canRecover: access.canRecover && !disabled,
+      canRecover: access.canRecover && parentReadable && !disabled,
       canWrite: !!baseline?.canWrite && !disabled,
       activation: JSON.stringify([access.activation, readNonce.requestId]),
       readerActivation: access.activation,
-    });
-  }, [
-    controller,
+      parentCurrent,
+      parentActivation,
+    }), [
     access.origin,
     access.readable,
+    parentReadable,
     access.canRecover,
     access.activation,
     open,
@@ -304,7 +321,11 @@ export function ManualCaseResultHistory({
     disabled,
     baseline?.canWrite,
     readNonce.requestId,
+    parentCurrent,
+    parentActivation,
   ]);
+  const view = controller.renderView(frame);
+  useLayoutEffect(() => { controller.bind(frame); }, [controller, frame]);
   useLayoutEffect(() => {
     const observe = () => controller.observeSession(liveSession());
     observe();
@@ -427,6 +448,7 @@ export function ManualCaseResultHistory({
     }
   }
   const afterConfirmed = () => {
+    if (!parentReadable || !currentWholeCaseParent(parentCurrent, parentActivation)) return;
     const epoch = controller.snapshot().epoch;
     onUnconfirmedChange?.(false);
     setBaselineRefresh((n) => n + 1);
@@ -465,7 +487,7 @@ export function ManualCaseResultHistory({
         Immutable human observations retain corrections. They are not new
         executions, defect resolutions or qualified sign-offs.
       </p>
-      {!access.readable ? (
+      {!access.readable || !parentReadable ? (
         <p role="status">
           Current original native reader/session must be verified. Private
           cached observations are hidden; retained drafts and requests remain
@@ -495,6 +517,7 @@ export function ManualCaseResultHistory({
               value={limit}
               disabled={view.busy}
               onChange={(e) => {
+                if (!parentReadable || !currentWholeCaseParent(parentCurrent, parentActivation)) return;
                 setLimit(parseInt(e.target.value, 10));
                 setBefore(undefined);
               }}
@@ -570,21 +593,21 @@ export function ManualCaseResultHistory({
           <button
             type="button"
             disabled={!before || view.busy}
-            onClick={() => setBefore(undefined)}
+            onClick={() => { if (parentReadable && currentWholeCaseParent(parentCurrent, parentActivation)) setBefore(undefined); }}
           >
             Latest revisions
           </button>
           <button
             type="button"
             disabled={!page.nextCursor || view.busy}
-            onClick={() => setBefore(page.nextCursor ?? undefined)}
+            onClick={() => { if (parentReadable && currentWholeCaseParent(parentCurrent, parentActivation)) setBefore(page.nextCursor ?? undefined); }}
           >
             Older revisions
           </button>
         </>
       )}
-      {access.readable && access.canRecover && !disabled && (
-        <button type="button" onClick={() => setOpen(true)}>
+      {access.readable && parentReadable && access.canRecover && !disabled && (
+        <button type="button" onClick={() => { if (currentWholeCaseParent(parentCurrent, parentActivation)) setOpen(true); }}>
           {view.pending
             ? "Recover identical observation UUID"
             : view.confirmed
@@ -593,13 +616,13 @@ export function ManualCaseResultHistory({
         </button>
       )}
       <Modal
-        open={open && active && nativeSame}
+        open={open && active && nativeSame && parentReadable}
         onClose={() => setOpen(false)}
         title="Review whole-case observation"
         size="wide"
         dismissible={!view.busy}
       >
-        {!view.authorized ? (
+        {!view.authorized || !parentReadable ? (
           <p role="status">
             Original native author/session access is unavailable. Private
             evidence and actions are hidden; exact local draft/UUID remain
@@ -937,11 +960,11 @@ export function ManualCaseResultHistory({
                       void controller.submit(
                         view.epoch,
                         (input) => {
-                          onUnconfirmedChange?.(true);
                           return mutation.mutateAsync(input);
                         },
                         liveSession,
                         afterConfirmed,
+                        () => onUnconfirmedChange?.(true),
                       )
                     }
                   >

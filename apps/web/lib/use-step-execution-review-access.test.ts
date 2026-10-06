@@ -4,13 +4,14 @@ import ts from "typescript";
 import { describe, expect, it } from "vitest";
 import { currentSessionScope, sameAuthScope } from "./auth-query-cache";
 import { decodeStepReviewWire, sameStepReviewReader } from "./step-execution-review-draft";
+import type { ManualRunCurrentOrigin } from "./manual-run-current-reader";
 const source = readFileSync(new URL("./use-step-execution-review-access.ts", import.meta.url), "utf8"), ast = ts.createSourceFile("access.ts", source, ts.ScriptTarget.Latest, true);
 const declarations = ast.statements.filter(node => ts.isFunctionDeclaration(node));
 const code = ts.transpileModule(declarations.map(node => ts.createPrinter().printNode(ts.EmitHint.Unspecified, node, ast).replace(/\bexport\s+/, "")).join("\n") + "\nthis.access=useStepExecutionReviewAccess;", { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.None } }).outputText;
-function harness() {
+function harness(parentRunScope?: ManualRunCurrentOrigin | null, firstWrong = "", parentCurrent?: (() => boolean) | null, parentActivation?: string) {
   const hooks: unknown[] = [], cleanups = new Map<number, () => void>(), effects: Array<() => void> = [], listeners = new Set<() => void>();
   const auth = { isLoaded: true, isSignedIn: true, userId: "cl", sessionId: "A" }, sdk = { loaded: true, session: { id: "A", user: { id: "cl" } } as null | { id: string; user: { id: string } }, addListener: (fn: () => void) => { listeners.add(fn); fn(); return () => { listeners.delete(fn); }; } };
-  const params = { projectId: "p", testRunId: "r", testCaseId: "c", stepIndex: 0, visible: true }, query = { error: null as unknown, isFetching: false, isPaused: false, isFetchedAfterMount: true, wrong: "", supported: true };
+  const params = { projectId: "p", testRunId: "r", testCaseId: "c", stepIndex: 0, visible: true, parentRunScope, parentCurrent, parentActivation }, query = { error: null as unknown, isFetching: false, isPaused: false, isFetchedAfterMount: true, wrong: firstWrong, supported: true };
   const requests: Array<{ input: Record<string, unknown>; options: { enabled: boolean } }> = []; let cursor = 0, dirty = false, counter = 0, reads: ReturnType<typeof import("./use-step-execution-review-access").useStepExecutionReviewAccess>, beforeCommit: (() => void) | null = null;
   const context = vm.createContext({ window: { Clerk: sdk }, Object, JSON, currentSessionScope, sameAuthScope, decodeStepReviewWire, sameStepReviewReader, crypto: { randomUUID: () => `6ee2ec04-4d34-40bf-b0e9-${String(++counter).padStart(12, "0")}` }, useAuth: () => auth,
     useState: (initial: unknown) => { const index = cursor++; if (!Object.hasOwn(hooks, index)) hooks[index] = typeof initial === "function" ? initial() : initial; return [hooks[index], (value: unknown) => { const next = typeof value === "function" ? value(hooks[index]) : value; if (!Object.is(next, hooks[index])) { hooks[index] = next; dirty = true; } }]; },
@@ -19,10 +20,45 @@ function harness() {
     useLayoutEffect: (fn: () => void | (() => void), deps: unknown[]) => { const index = cursor++, previous = hooks[index] as unknown[] | undefined; if (!previous || deps.some((value, n) => !Object.is(value, previous[n]))) { hooks[index] = deps; effects.push(() => { cleanups.get(index)?.(); const cleanup = fn(); if (cleanup) cleanups.set(index, cleanup); }); } },
     trpcReact: { manualStepExecutionReview: { preview: { useQuery: (input: Record<string, unknown>, options: { enabled: boolean }) => { requests.push({ input, options }); const scope = { projectId: "p", organizationId: query.wrong === "org" ? "foreign" : "o", actorId: query.wrong === "native" ? "replacement" : "n", actorClerkUserId: query.wrong === "Clerk" ? "other" : "cl" }; return { ...query, data: { projectId: "p", testRunId: "r", testCaseId: "c", stepIndex: input.stepIndex, readRequestId: query.wrong === "nonce" ? "00000000-0000-4000-8000-000000000000" : input.readRequestId, scope, canRecover: true, canRecord: query.supported, supported: query.supported, blockedReason: null, frozenDefinition: query.supported ? { testCaseId: "c", steps: [{ order: 0, action: "First" }, { order: 1, action: "Next" }] } : null, current: null, rawCurrent: null, procedureHash: query.supported ? "a".repeat(64) : null, currentFingerprint: query.supported ? "b".repeat(64) : null, provenance: "CURRENT_AUTHORITY_LEGACY_ORIGINAL_TENANCY_UNRECORDED" } }; } } } } });
   vm.runInContext(code, context); const invokeAccess = (context as { access: (...args: unknown[]) => typeof reads }).access;
-  function render() { for (let n = 0; n < 40; n++) { cursor = 0; dirty = false; reads = invokeAccess(params.projectId, params.testRunId, params.testCaseId, params.stepIndex, params.visible); beforeCommit?.(); beforeCommit = null; effects.splice(0).forEach(fn => fn()); if (!dirty) return reads; } throw Error("Reader failed to settle."); }
+  function render() { for (let n = 0; n < 40; n++) { cursor = 0; dirty = false; reads = invokeAccess(params.projectId, params.testRunId, params.testCaseId, params.stepIndex, params.visible, params.parentRunScope, params.parentCurrent, params.parentActivation); beforeCommit?.(); beforeCommit = null; effects.splice(0).forEach(fn => fn()); if (!dirty) return reads; } throw Error("Reader failed to settle."); }
   render(); return { auth, sdk, params, query, requests, render, get reads() { return reads; }, beforeCommit: (fn: () => void) => { beforeCommit = fn; }, emit: (session: typeof sdk.session) => { sdk.session = session; Array.from(listeners).forEach(fn => fn()); } };
 }
 describe("actual step reader hook synthetic nonce/resource guards, no native acceptance", () => {
+  const parent = (): ManualRunCurrentOrigin => ({ projectId: "p", testRunId: "r", organizationId: "o", clerkActorId: "cl", nativeActorId: "n" });
+  it.each([null, () => false, () => { throw Error("PRIVATE_PARENT_MARKER"); }])("parent current refusal admits no step query/body/refresh", parentCurrent => {
+    const h = harness(parent(), "", parentCurrent, "parentA"), activation = h.reads.activation;
+    expect(h.requests.every(request => !request.options.enabled)).toBe(true); expect(h.reads.origin).toBeNull();
+    h.reads.refresh(); h.render(); expect(h.reads.activation).toBe(activation); expect(h.reads.error ?? "").not.toContain("PRIVATE_PARENT_MARKER");
+  });
+  it("parent closure loss blocks captured refresh before React and explicit activation renewal preserves original pins", () => {
+    let current = true; const h = harness(parent(), "", () => current, "parentA"), old = h.reads, origin = old.origin;
+    current = false; old.refresh(); h.render(); expect(h.reads.fresh).toBeNull();
+    current = true; h.params.parentActivation = "parentB"; h.render(); expect(h.reads.origin).toBe(origin); expect(h.reads.activation).not.toBe(old.activation);
+    h.params.parentCurrent = undefined; h.render(); expect(h.reads.fresh).toBeNull();
+  });
+  it("FIRST preview forwards parent native/org/Clerk pins; an echoed replacement native actor is never adopted", () => {
+    const h = harness(parent(), "native");
+    expect(h.reads.origin).toBeNull(); expect(h.reads.fresh).toBeNull();
+    expect(h.requests.filter(request => request.options.enabled)[0]?.input).toMatchObject({ originalOrganizationId: "o", expectedClerkActorId: "cl", expectedNativeActorId: "n" });
+    h.query.wrong = ""; h.reads.refresh(); h.render(); expect(h.reads.origin?.nativeActorId).toBe("n");
+  });
+  it("explicit NULL required parent remains private through absent props, then binds valid pins before first native read", () => {
+    const h = harness(null); expect(h.requests.every(request => !request.options.enabled)).toBe(true); expect(h.reads.origin).toBeNull();
+    h.params.parentRunScope = undefined; h.render(); expect(h.reads.fresh).toBeNull();
+    h.params.parentRunScope = parent(); h.render(); expect(h.requests.filter(request => request.options.enabled)[0]?.input.expectedNativeActorId).toBe("n");
+    expect(h.reads.fresh).not.toBeNull();
+  });
+  it.each(["projectId", "testRunId", "organizationId", "clerkActorId", "nativeActorId"] as const)("parent %s change refuses rather than rebasing own accepted origin", key => {
+    const h = harness(parent()), origin = h.reads.origin;
+    h.params.parentRunScope = { ...parent(), [key]: "foreign" }; h.render(); expect(h.reads.fresh).toBeNull(); expect(h.reads.origin).toBe(origin); expect(h.requests.at(-1)?.options.enabled).toBe(false);
+    h.params.parentRunScope = parent(); h.render(); expect(h.reads.origin).toBe(origin);
+  });
+  it("retained parent pins are a private exact copy; caller mutation/removal cannot bypass required mode", () => {
+    const pin = { ...parent() }, h = harness(pin), origin = h.reads.origin;
+    pin.nativeActorId = "replacement"; h.render(); expect(h.reads.fresh).toBeNull();
+    h.params.parentRunScope = undefined; h.render(); expect(h.reads.fresh).toBeNull();
+    h.params.parentRunScope = parent(); h.render(); expect(h.reads.origin).toBe(origin);
+  });
   it("bootstraps current native origin then pins all three identities; step selection does not rebind native case context", () => { const h = harness(), origin = h.reads.origin; expect(h.reads.fresh).not.toBeNull(); expect(h.requests.at(-1)?.input).toMatchObject({ originalOrganizationId: "o", expectedClerkActorId: "cl", expectedNativeActorId: "n" }); h.params.stepIndex = 1; h.render(); expect(h.reads.origin).toMatchObject({ ...origin, stepIndex: 1 }); expect(h.reads.fresh?.stepIndex).toBe(1); });
   it.each(["nonce", "native", "org", "Clerk"])("%s mismatch refuses cached body and never overwrites original native identity", wrong => { const h = harness(), origin = h.reads.origin; h.query.wrong = wrong; expect(h.render().fresh).toBeNull(); expect(h.reads.origin).toBe(origin); });
   it("fetch/error/paused/incomplete states are not freshly admitted native reads", () => { for (const key of ["isFetching", "error", "isPaused", "isFetchedAfterMount"]) { const h = harness(); Object.assign(h.query, { [key]: key === "error" ? Error("private") : key !== "isFetchedAfterMount" }); expect(h.render().fresh).toBeNull(); } });

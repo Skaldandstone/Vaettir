@@ -48,7 +48,7 @@ import {
   unmodifiedCaseClick,
 } from "@/lib/case-repository";
 import styles from "@/components/CaseWorkbench.module.css";
-import type { CaseFolderCatalog, FolderReviewIntent } from "@/lib/case-folder-tree";
+import { supportedCaseFolderPath, type CaseFolderCatalog, type FolderReviewIntent } from "@/lib/case-folder-tree";
 
 const TEST_TYPES = [
   "UNIT",
@@ -1136,7 +1136,11 @@ export default function TestCasesPage() {
                   ? "Manual suite order"
                   : `Sorted by ${sortBy}`}
               </span>
+              {!readOnly && sortBy !== "manual" && <button type="button" className="btn-secondary" onClick={() => setSortBy("manual")}>View manual order</button>}
             </div>
+            {!readOnly && <p className="text-muted" style={{ fontSize: 12 }}>
+              Keyboard ordering: activate a case&apos;s drag handle to view manual order in its verified case suite, then use Up/Down. In All suites, source groups or Unassigned, select a persisted case suite first. Viewing an order does not move cases or create folders; source paths stay unchanged.
+            </p>}
             {visibleCases.length > 0 && (
               <label
                 style={{
@@ -1263,8 +1267,12 @@ export default function TestCasesPage() {
                                 className="btn-secondary"
                                 draggable
                                 disabled={moveMutation.isPending}
-                                aria-label={`Drag ${tc.title} to reorder or move to a suite`}
-                                title="Drag to reorder or move to a suite"
+                                aria-label={`Drag ${tc.displayId}: ${tc.title}, or activate to view manual ordering`}
+                                title="Drag to reorder or move to a suite. Click or press Enter/Space to view manual order; keyboard Up/Down requires a verified case suite."
+                                onClick={() => {
+                                  setSortBy("manual");
+                                  if (tc.suitePath !== null && supportedCaseFolderPath(tc.suitePath) && currentFolderCatalog?.paths.includes(tc.suitePath) && placements.get(tc.id)?.suitePath === tc.suitePath) setSelectedPath(tc.suitePath);
+                                }}
                                 onDragStart={(event) => {
                                   event.dataTransfer.setData(
                                     "application/x-vaettir-test-case",

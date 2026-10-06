@@ -26,8 +26,10 @@ test("foreign, missing, malformed, legacy and duplicated targets never select fi
 const native = readFileSync(new URL("../app/projects/[projectId]/test-runs/manual/[testRunId]/page.tsx", import.meta.url), "utf8");
 const summary = readFileSync(new URL("../../api/src/services/caseExecutionHistory.ts", import.meta.url), "utf8");
 test("native query and exact-case expansion preserve mounted draft identities without recording", () => {
-  for (const text of ['searchParams.getAll("caseId")', "fresh: readable", "ready: access.ready, error: !!dataQuery.error, fetching: dataQuery.isFetching, paused: dataQuery.isPaused", 'historySelection.kind === "SELECTED" && historySelection.caseId === tc.testCaseId',
-    "if (selectedFromHistory) setExpanded(true)", "id={manualCaseHistoryAnchor(testCase.testCaseId) ?? undefined}", "No other case was selected", "<Suspense", "scrollIntoView", 'key={`${projectId}:${testRunId}:${tc.testCaseId}`}']) assert.ok(sourceCodeIncludes(native, text), text);
+  for (const text of ['searchParams.getAll("caseId")', "fresh: readable", "useManualRunCurrentReader(projectId, testRunId, access.origin?.organizationId, { ready: access.ready })", "reader.current() === snapshot", 'historySelection.kind === "SELECTED" && historySelection.caseId === tc.testCaseId',
+    "if (parentCurrent() && selectedFromHistory) setExpanded(true)", "id={manualCaseHistoryAnchor(testCase.testCaseId) ?? undefined}", "No other case was selected", "<Suspense", "scrollIntoView", 'key={`${projectId}:${testRunId}:${tc.testCaseId}`}']) assert.ok(sourceCodeIncludes(native, text), text);
+  const currentReader = readFileSync(new URL("./use-manual-run-current-reader.ts", import.meta.url), "utf8");
+  for (const text of ["query.isFetchedAfterMount", "!query.error", "!query.isFetching", "!query.isPaused", "expectedNativeActorId: intent.origin.nativeActorId"]) assert.ok(currentReader.includes(text), text);
   assert.ok(!native.includes("if (selectedFromHistory) record("));
   assert.ok(!native.includes("setExpanded(selectedFromHistory)"));
   assert.ok(summary.includes("For unversioned observations, earlier changes, observer and observation time were not recorded"));

@@ -15,6 +15,8 @@ type Frame = {
   canWrite: boolean;
   activation: string;
   readerActivation?: string;
+  parentCurrent?: (() => boolean) | null;
+  parentActivation?: string;
 };
 type Held = {
   request: ManualCaseReviewedWrite;
@@ -85,6 +87,8 @@ export class WholeCaseReviewedController {
   } | null = null;
   private error: string | null = null;
   private blockedReaders = new Set<string>();
+  private parentRequired = false;
+  private renderBlocked = false;
   constructor(private readonly publish: (v: WholeCaseCompletion) => void) {}
   attach() {
     this.alive = true;
@@ -94,8 +98,22 @@ export class WholeCaseReviewedController {
     this.alive = false;
     this.epoch++;
   }
+  private frameKey(frame: Frame) {
+    return JSON.stringify([frame.origin, frame.open, frame.canRecover, frame.canWrite, frame.activation, frame.readerActivation ?? null, frame.parentActivation ?? null]);
+  }
+  private parentCurrent(frame: Frame) {
+    if (frame.parentCurrent !== undefined) this.parentRequired = true;
+    if (!this.parentRequired && frame.parentCurrent === undefined) return true;
+    try { return typeof frame.parentCurrent === "function" && typeof frame.parentActivation === "string" && frame.parentActivation.length > 0 && frame.parentActivation.length <= 200 && frame.parentCurrent() === true; } catch { return false; }
+  }
+  /** Revocation only before layout. No parent callback becomes write authority. */
+  renderView(frame: Frame) {
+    if ((this.frameKey(frame) !== this.frameKey(this.frame) || !this.parentCurrent(frame)) && !this.renderBlocked) { this.renderBlocked = true; this.epoch++; }
+    return this.snapshot();
+  }
   bind(frame: Frame) {
-    if (JSON.stringify(frame) !== JSON.stringify(this.frame)) this.epoch++;
+    if (this.frameKey(frame) !== this.frameKey(this.frame)) this.epoch++;
+    this.renderBlocked = false;
     this.frame = {
       ...frame,
       origin: frame.origin ? immutable(frame.origin) : null,
@@ -111,7 +129,13 @@ export class WholeCaseReviewedController {
     this.emit();
   }
   snapshot(): WholeCaseCompletion {
+    const parentCurrent = this.parentCurrent(this.frame);
+    if (!parentCurrent) {
+      const reader = this.frame.readerActivation ?? this.frame.activation;
+      if (reader && !this.blockedReaders.has(reader)) { this.blockedReaders.add(reader); this.epoch++; }
+    }
     const authorized =
+      !this.renderBlocked && parentCurrent &&
       this.alive &&
       this.frame.open &&
       this.frame.canRecover &&
@@ -276,6 +300,7 @@ export class WholeCaseReviewedController {
     send: (input: ManualCaseReviewedWrite) => Promise<unknown>,
     session: () => Session,
     afterConfirmed: () => void,
+    beforeDispatch?: () => void,
   ) {
     if (
       !this.current(session(), epoch) ||
@@ -284,11 +309,17 @@ export class WholeCaseReviewedController {
       return false;
     const held = this.pending ?? this.reviewed;
     if (!held) return false;
+    const previouslySubmitted = this.pending !== null;
+    let dispatched = false;
     this.pending = held;
     this.busy = true;
     this.error = null;
     this.emit();
     try {
+      if (!this.current(session(), epoch)) return false;
+      beforeDispatch?.();
+      if (!this.current(session(), epoch)) return false;
+      dispatched = true;
       const response = await send(held.request),
         ack = await wholeCaseAck(held.request, held.baseline, response);
       this.revokeWrongSession(session(), held);
@@ -316,15 +347,16 @@ export class WholeCaseReviewedController {
         "UNAUTHORIZED",
         "NOT_FOUND",
       ].includes(code ?? "");
-      if (!definite) held.ambiguous = true;
+      if (!definite && dispatched) held.ambiguous = true;
       // A definite FIRST refusal allows explicit re-review without losing prose.
-      if (definite && !held.ambiguous) {
+      if (definite && dispatched && !held.ambiguous) {
         this.pending = null;
         this.reviewed = null;
       }
       this.error = `${error instanceof Error ? error.message : "Observation response unknown."} ${held.ambiguous ? "Keep and retry only this identical original UUID." : "Retain your draft and explicitly review a fresh baseline."}`;
       return false;
     } finally {
+      if (!dispatched && !previouslySubmitted && this.pending === held) this.pending = null;
       this.revokeWrongSession(session(), held);
       this.busy = false;
       this.emit();

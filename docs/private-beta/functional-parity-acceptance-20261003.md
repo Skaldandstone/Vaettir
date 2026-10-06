@@ -2563,3 +2563,86 @@ The final compatible Web suite also passed: 803 Node checks and 863 typed checks
 across 70 files, with no skipped checks. This covers the reviewed source state,
 not the later drag-affordance workstream, a release build, genuine browser/device
 acceptance or any retained failed native/runtime/security gate.
+
+### October 6 actual manual-page cutover (source in progress)
+
+The actual manual execution page now uses the held whole-native reader rather
+than the legacy query. Its private row union is React state, with immutable
+candidate identity consumed once, including refusal. Missing procedures retain
+their original keyed editors but do not appear in current facts, progress,
+prerequisite verdicts or exports. Never-available procedures are still honest
+unavailable identities, not invented instructions. No draft or pending UUID is
+cleared when the reader is withheld.
+
+Navigation, quick outcome intents, filter changes, linked-page navigation and
+all three current-run exports require the captured posted page stamp and exact
+reader snapshot equality. Render can revoke an older frame; only layout posts
+a new action stamp. Serialization and final download still recheck this same
+held snapshot. Explicit metadata-discovery retry is separate from a fresh
+native-read intent, avoiding adoption of a newer actor after an awaited lookup.
+Children receive the parent's original native pin before their first read;
+exact parent presentation/controller integration is being validated separately.
+
+These are in-progress source changes, not a completed rendered workflow or
+production acceptance. Initial integration types failed on the not-yet-added
+child presentation props and two readonly test-fixture mutations; that evidence
+is retained. Root repeated 17 private-row publication checks, six migrated
+current-scope source contracts, two progress checks and nine download checks;
+53 existing/first-pin child checks also passed at that intermediate source
+state. The final full compatible suite and mounted synthetic page checks remain
+separate, as do real framework mounting and native API verification.
+
+Legacy run completion still lacks a reviewed durable UUID/receipt, original
+native intent and result-cohort CAS/recovery protocol. Guarding its confirmation
+and late response presentation does not repair those server boundaries. Retest
+still lacks a server-native actor pin. Whole-case access currently fixes the
+original observed session, so renewed same-owner session recovery requires a
+separate protocol without rewriting held request provenance. None is claimed
+resolved by parent props, source tests or a successful metadata read.
+
+Fresh authenticated Testmo vendor-only inspection showed folder context,
+priority/latest-result/tag columns, and a case-name/ID search with six matches
+across multiple sample folders. Its search-result selection explicitly resets
+filters. This is observed interaction feedback, not proof of sort/drag
+persistence, customer-scale performance, export fidelity or a recurring vendor
+defect. Vaettir should make selection/filter transitions explicit and provide
+stable-ID context; it must not mistake a view-only ordering action for a move.
+Opening one matching sample showed compact template/estimate/priority/tag
+metadata, distinct prose description and expected behavior, and separate
+comments/results/issues/history sections. No edit or comment was submitted.
+The signed-in trial user's comment box is not proof of read-only-member
+permissions. Preserve useful prose and distinguish test data from aligned
+per-step technical descriptors rather than replacing every field with a menu.
+
+The final compatible Web source check for this cutover passed 804 Node checks
+and 969 typed checks across 74 files (1,773 total, no skips); Web types passed.
+Root independently repeated 165 child hook/controller checks across nine files,
+the 23 actual-page boundary checks, and 10 new drag-affordance checks plus five
+existing repository contracts. Scoped lint has zero errors and nine disclosed
+page warnings; no rule was disabled. Intermediate source-contract extraction,
+tuple/type and CSV-quote failures were repaired without removing the original
+permission, frozen-procedure, receipt or lossless-data predicates.
+
+Private pending completion counters now update synchronously without revoking
+the submitting child's own presentation frame. A real reviewed-step controller
+driven through the actual page callback made exactly one synthetic submission
+and one exact ACK, retained multiline text/zero/UUID/hash, and blocked completion
+before React rerender. Native scope and export facts do not change merely
+because a private draft is pending. CSV now carries each exact case record ID
+even when human display IDs are absent, with native prerequisite-ID fallback;
+filtering never silently shrinks its authorized complete run scope.
+
+This remains source/mock proof, not full nested React/concurrent browser or
+native/production acceptance. The whole-case reviewed and retest routers still
+need independent authenticated-subject transport review; cached native Clerk
+metadata must not stand in for verified JWT authority. Retest native-owner pins,
+whole-case renewed-session recovery, legacy completion recovery and prior failed
+native/runtime/image-security/migration/recovery/release gates remain open.
+
+Repository drag-handle activation now provides a view-only route into manual
+ordering, selecting a suite only when its raw supported path is in the current
+persisted catalog and agrees with the exact placement baseline. Source-only,
+unassigned, unsupported or stale groups are not silently materialized. Case
+hover no longer advertises unsupported tree targets. Existing mouse payload,
+move/CAS submissions and failure behavior are unchanged. Handler/SSR source
+checks are not physical keyboard/mouse or native persistence acceptance.

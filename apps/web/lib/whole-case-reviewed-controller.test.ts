@@ -122,6 +122,44 @@ function deferred() {
   return { promise, resolve, reject };
 }
 describe("ACTUAL whole-case completion controller, synthetic boundaries only", () => {
+  it("parent render loss revokes older handlers BEFORE layout, with no silent origin/request replacement", () => {
+    const h = fixture(); let current = true;
+    const frame = { ...h.frame, parentCurrent: () => current, parentActivation: "parentA" };
+    h.c.bind(frame); h.review(); const epoch = h.c.snapshot().epoch;
+    current = false; expect(h.c.renderView(frame).authorized).toBe(false); expect(h.c.current(h.session(), epoch)).toBe(false);
+    current = true; h.c.bind(frame); expect(h.c.snapshot().authorized).toBe(false);
+    h.c.bind({ ...frame, activation: "freshOwnRead", readerActivation: "freshOwnRead", parentActivation: "parentB" });
+    expect(h.c.snapshot().authorized).toBe(true); expect(h.c.snapshot().canSubmit).toBe(false); expect(h.c.snapshot().pending).toBeNull();
+  });
+  it("parent-current loss after send settles a known exact ACK privately, then explicitly publishes only under a fresh original own/native frame", async () => {
+    const h = fixture(); let current = true; const frame = { ...h.frame, parentCurrent: () => current, parentActivation: "parentA" };
+    h.c.bind(frame); h.review(); const wait = deferred(); const pending = h.c.submit(h.c.snapshot().epoch, () => wait.promise, h.session, h.after);
+    const body = h.c.snapshot().pending; current = false; wait.resolve(await h.ack()); expect(await pending).toBe(true);
+    expect(h.after).not.toHaveBeenCalled(); expect(h.c.snapshot().authorized).toBe(false); expect(h.c.snapshot().pending).toBeNull(); expect(h.c.snapshot().confirmed?.requestHash).toBe(await wholeCaseRequestHash(h.request));
+    current = true; h.c.bind({ ...frame, activation: "freshOwnRead", readerActivation: "freshOwnRead", parentActivation: "parentB" });
+    expect(h.c.publishConfirmed(h.session(), h.c.snapshot().epoch, h.after)).toBe(true); expect(h.after).toHaveBeenCalledTimes(1);
+    expect(body).toEqual(h.request); expect(JSON.stringify(body)).not.toContain("parentA");
+  });
+  it.each([null, () => false, () => { throw Error("PRIVATE_PARENT_MARKER"); }])("null/false/throwing parent callback never grants a private write frame", parentCurrent => {
+    const h = fixture(); h.c.bind({ ...h.frame, parentCurrent, parentActivation: "parentA" });
+    expect(h.c.snapshot().authorized).toBe(false); expect(h.c.review(h.request, baseline, h.session(), h.c.snapshot().epoch)).toBe(false);
+    expect(h.c.snapshot().error ?? "").not.toContain("PRIVATE_PARENT_MARKER");
+  });
+  it("parent activation changes invalidate captured frame without serializing callbacks or waiving native/role constraints", () => {
+    const h = fixture(), parentCurrent = () => true; h.c.bind({ ...h.frame, parentCurrent, parentActivation: "parentA" }); h.review(); const epoch = h.c.snapshot().epoch;
+    h.c.renderView({ ...h.frame, parentCurrent, parentActivation: "parentB" }); expect(h.c.current(h.session(), epoch)).toBe(false);
+    h.c.bind({ ...h.frame, parentCurrent, parentActivation: "parentB", canRecover: false }); expect(h.c.snapshot().authorized).toBe(false);
+  });
+  it("parent loss during synchronous pre-dispatch callback sends nothing and does not manufacture UNKNOWN for an unsent reviewed UUID", async () => {
+    const h = fixture(); let current = true; h.c.bind({ ...h.frame, parentCurrent: () => current, parentActivation: "parentA" }); h.review(); const send = vi.fn(async () => h.ack());
+    expect(await h.c.submit(h.c.snapshot().epoch, send, h.session, h.after, () => { current = false; })).toBe(false);
+    expect(send).not.toHaveBeenCalled(); expect(h.c.snapshot().pending).toBeNull(); expect(h.after).not.toHaveBeenCalled();
+  });
+  it("pre-dispatch callback error is local and cannot turn an unsubmitted reviewed request into an ambiguous native request", async () => {
+    const h = fixture(); h.review(); const send = vi.fn(async () => h.ack());
+    expect(await h.c.submit(h.c.snapshot().epoch, send, h.session, h.after, () => { throw Error("LOCAL_CALLBACK_FAILURE"); })).toBe(false);
+    expect(send).not.toHaveBeenCalled(); expect(h.c.snapshot().pending).toBeNull(); expect(h.c.snapshot().error).not.toContain("identical original UUID");
+  });
   it("synchronous SDK mismatch revokes admitted reader, same activation/preview rebinding cannot reauthorize, fresh reader can recover", () => {
     const h = fixture();
     h.review();

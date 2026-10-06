@@ -1,12 +1,13 @@
 "use client";
 
-import { Suspense, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { resolveQualityExperience } from "@vaettir/core";
 import { trpcReact, type RouterOutputs } from "@/lib/trpcReact";
 import { useManualExecutionAccess } from "@/lib/use-manual-execution-access";
-import { manualExecutionReadMatches } from "@/lib/manual-execution-read-policy";
-import { manualExecutionReadRequestKey } from "@vaettir/api/src/services/manualExecutionReadScopeSchema";
+import { useManualRunCurrentReader } from "@/lib/use-manual-run-current-reader";
+import { useRetainedManualRunRows } from "@/lib/use-retained-manual-run-rows";
+import { ManualRunCurrentRenderGuard, type ManualRunCurrentOrigin, type ManualRunCurrentSnapshot } from "@/lib/manual-run-current-reader";
 import { StepExecutionPanel } from "@/components/StepExecutionPanel";
 import { ManualRetestActions } from "@/components/ManualRetestWizard";
 import { manualProcedurePhases } from "@/lib/manual-procedure-phases";
@@ -53,6 +54,9 @@ function CaseRow({
   navigationTarget,
   navigationRevision,
   onOpenCase,
+  parentCurrent,
+  parentActivation,
+  parentRunScope,
 }: {
   projectId: string;
   testCase: ExecutionCase;
@@ -82,19 +86,24 @@ function CaseRow({
   navigationTarget: boolean;
   navigationRevision: number;
   onOpenCase: (id: string) => void;
+  parentCurrent: () => boolean;
+  parentActivation: string;
+  parentRunScope: ManualRunCurrentOrigin | null;
 }) {
   const [expanded, setExpanded] = useState(initiallyExpanded);
   const heading = useRef<HTMLButtonElement | null>(null);
+  const focusedRevision = useRef(0);
   useEffect(() => {
-    if (navigationTarget && navigationRevision > 0) {
+    if (parentCurrent() && navigationTarget && navigationRevision > focusedRevision.current) {
+      focusedRevision.current = navigationRevision;
       setExpanded(true);
       heading.current?.focus({ preventScroll: true });
       heading.current?.scrollIntoView({ block: "nearest" });
     }
-  }, [navigationTarget, navigationRevision]);
+  }, [navigationTarget, navigationRevision, parentCurrent]);
   useEffect(() => {
-    if (selectedFromHistory) setExpanded(true);
-  }, [selectedFromHistory]);
+    if (parentCurrent() && selectedFromHistory) setExpanded(true);
+  }, [selectedFromHistory, parentCurrent]);
   const [stepModeChosen, setStepModeChosen] = useState(false);
   const [wholeCasePending, setWholeCasePending] = useState(false);
   const [reviewIntent, setReviewIntent] = useState<WholeCaseReviewIntent | null>(null);
@@ -107,7 +116,7 @@ function CaseRow({
   function reviewOutcome(status: "PASS" | "FAIL" | "BLOCKED" | "SKIP") {
     const frame = rowFrame.current;
     const session = currentSessionScope(window.Clerk?.loaded ? window.Clerk.session : null);
-    if (!frame.readable || frame.disabled || frame.hidden || frame.stepMode ||
+    if (!parentCurrent() || !frame.readable || frame.disabled || frame.hidden || frame.stepMode ||
       frame.wholeCasePending || testCase.currentResult ||
       !session || session.userId !== readScope.expectedClerkActorId ||
       ((status === "PASS" || status === "FAIL") && blockedBy.length > 0)) return;
@@ -143,6 +152,7 @@ function CaseRow({
               ref={heading}
               aria-expanded={expanded}
               onClick={() => {
+                if (!parentCurrent()) return;
                 if (!expanded) onOpenCase(testCase.testCaseId);
                 setExpanded((v) => !v);
               }}
@@ -157,7 +167,7 @@ function CaseRow({
               }}
             >
               {expanded ? "▾" : "▸"}{" "}
-              {testCase.displayId ?? "Case ID unavailable"} · {testCase.title}
+              <span title={testCase.displayId ? "Case ID" : "Stable case record ID"}>{testCase.displayId ?? testCase.testCaseId}</span> · {testCase.title}
             </button>
             {currentStatus && (
               <span
@@ -188,6 +198,7 @@ function CaseRow({
                   }}
                 >
                   <a
+                    onClick={event => { if (!parentCurrent()) event.preventDefault(); }}
                     href={`/projects/${encodeURIComponent(projectId)}/test-cases/${encodeURIComponent(id)}`}
                     target="_blank"
                     rel="noopener noreferrer"
@@ -198,7 +209,7 @@ function CaseRow({
                       padding: "2px 8px",
                     }}
                   >
-                    {displayId ?? "Case ID unavailable"}
+                    {displayId ?? id}
                   </a>
                   <span>
                     {title} ({status ?? "not run"})
@@ -380,10 +391,13 @@ function CaseRow({
           stepFieldLabels={stepFieldLabels}
           readable={readable && expanded && !hidden}
           readScope={readScope}
+          parentRunScope={parentRunScope}
+          parentCurrent={parentCurrent}
+          parentActivation={parentActivation}
           active={stepMode}
           disabled={disabled || wholeCasePending}
           blockedBy={blockedBy}
-          onModeActive={() => setStepModeChosen(true)}
+          onModeActive={() => { if (parentCurrent()) setStepModeChosen(true); }}
           onChanged={onStepsChanged}
           onUnconfirmedChange={onUnconfirmedStep}
         />
@@ -392,6 +406,9 @@ function CaseRow({
           projectId={projectId}
           testRunId={testRunId}
           testCaseId={testCase.testCaseId}
+          parentRunScope={parentRunScope}
+          parentCurrent={parentCurrent}
+          parentActivation={parentActivation}
           active={readable && expanded && !hidden && !stepMode}
           disabled={disabled}
           reviewIntent={reviewIntent}
@@ -471,34 +488,17 @@ function ManualExecutionContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const access = useManualExecutionAccess(projectId);
-  const utils = trpcReact.useUtils();
+  const reader = useManualRunCurrentReader(projectId, testRunId, access.origin?.organizationId, { ready: access.ready });
+  const rows = useRetainedManualRunRows(reader.snapshot);
+  const snapshot = rows.current === reader.snapshot ? rows.current : null;
+  const fresh = snapshot?.data.view;
+  const original = snapshot?.origin ?? rows.retained?.origin;
   const readInput = {
     testRunId,
     projectId,
-    originalOrganizationId: access.origin?.organizationId,
-    expectedClerkActorId: access.origin?.clerkActorId,
+    originalOrganizationId: original?.organizationId,
+    expectedClerkActorId: original?.clerkActorId,
   };
-  const dataQuery = trpcReact.manualExecution.getForExecution.useQuery(
-    readInput,
-    { enabled: access.ready, staleTime: 0, retry: false },
-  );
-  const readable = manualExecutionReadMatches(
-    {
-      projectId,
-      testRunId,
-      organizationId: access.origin?.organizationId,
-      clerkActorId: access.origin?.clerkActorId,
-      requestKey: manualExecutionReadRequestKey(readInput),
-      ready: access.ready,
-      error: !!dataQuery.error,
-      fetching: dataQuery.isFetching,
-      paused: dataQuery.isPaused,
-    },
-    dataQuery.data,
-  );
-  const canEdit =
-    readable && access.canWrite && dataQuery.data?.canWrite === true;
-  const accessNow = useRef({ readable, canEdit, ready: access.ready });
   const [caseSearch, setCaseSearch] = useState("");
   const [caseFilter, setCaseFilter] = useState<ManualRunCaseFilter>("ALL");
   const [navigation, setNavigation] = useState<{
@@ -506,9 +506,6 @@ function ManualExecutionContent() {
     revision: number;
   }>({ id: null, revision: 0 });
   const [navigationNotice, setNavigationNotice] = useState("");
-  useLayoutEffect(() => {
-    accessNow.current = { readable, canEdit, ready: access.ready };
-  }, [readable, canEdit, access.ready]);
   const [error, setError] = useState<string | null>(null);
   const [unconfirmedStepCases, setUnconfirmedStepCases] = useState<Set<string>>(
     () => new Set(),
@@ -516,17 +513,43 @@ function ManualExecutionContent() {
   const [unconfirmedWholeCases, setUnconfirmedWholeCases] = useState<
     Set<string>
   >(() => new Set());
+  // Private event-owned completion interlock, never read authority.
+  // Reporting one's pending state must not revoke its own already reviewed
+  // native request immediately before dispatch or its matching ACK callback.
+  const [pendingCompletion] = useState(() => ({ step: new Set<string>(), whole: new Set<string>() }));
   const [retainedRetestCases, setRetainedRetestCases] = useState<Set<string>>(
     () => new Set(),
   );
+  const completeMutation = trpcReact.manualExecution.complete.useMutation();
+  const [pageGuard] = useState(() => new ManualRunCurrentRenderGuard());
+  const frame = useMemo(() => ({ snapshot, caseSearch, caseFilter, navigation, error, completePending: completeMutation.isPending }),
+    [snapshot, caseSearch, caseFilter, navigation, error, completeMutation.isPending]);
+  const stamp = pageGuard.observe(frame, snapshot);
+  const postedStamp = useRef<typeof stamp | null>(null);
+  const [committedStamp, setCommittedStamp] = useState<typeof stamp | null>(null);
+  useLayoutEffect(() => {
+    if (!pageGuard.matchesRender(stamp)) return;
+    postedStamp.current = stamp;
+    setCommittedStamp(stamp);
+    return () => { if (postedStamp.current === stamp) postedStamp.current = null; };
+  }, [pageGuard, stamp]);
+  const readable = !!snapshot && committedStamp === stamp;
+  const canEdit = readable && access.canWrite && fresh?.canWrite === true;
+  function currentFrame() {
+    return !!snapshot && postedStamp.current === stamp && pageGuard.matchesRender(stamp) && reader.current() === snapshot;
+  }
+  function currentCase(id: string) {
+    return currentFrame() && snapshot!.data.view.cases.some(testCase => testCase.testCaseId === id);
+  }
+  const parentActivation = `${snapshot?.data.readContext.requestId ?? "private"}:${stamp.renderGeneration}`;
   useEffect(() => {
-    if (!readable || !dataQuery.data) return;
-    const qualifying = dataQuery.data.cases
+    if (!readable || !fresh || !currentFrame()) return;
+    const qualifying = fresh.cases
       .filter(
         (tc) =>
           tc.currentResult?.status === "FAIL" ||
           tc.currentResult?.status === "BLOCKED" ||
-          dataQuery.data?.executionContext?.retest?.sourceCaseId ===
+          fresh.executionContext?.retest?.sourceCaseId ===
             tc.testCaseId,
       )
       .map((tc) => tc.testCaseId);
@@ -534,26 +557,17 @@ function ManualExecutionContent() {
       if (qualifying.every((id) => current.has(id))) return current;
       return new Set([...current, ...qualifying]);
     });
-  }, [readable, dataQuery.data]);
-
-  const completeMutation = trpcReact.manualExecution.complete.useMutation({
-    onSuccess: () => {
-      if (accessNow.current.readable)
-        router.push(`/projects/${projectId}/test-runs`);
-    },
-    onError: (e) => setError(e.message),
-  });
+  }, [readable, fresh, snapshot, stamp]);
 
   // React state preserves the mounted native rows/drafts through denied or
   // paused reads. A guarded same-component adjustment cannot publish an
   // uncommitted ref value; factual row rendering remains gated by readable.
   const [retainedNativeData, setRetainedNativeData] = useState<
-    RouterOutputs["manualExecution"]["getForExecution"] | undefined
+    ManualRunCurrentSnapshot["data"]["view"] | undefined
   >(undefined);
-  if (readable && dataQuery.data && retainedNativeData !== dataQuery.data)
-    setRetainedNativeData(dataQuery.data);
-  const data = readable ? dataQuery.data : retainedNativeData;
-  const pageError = error ?? dataQuery.error?.message ?? null;
+  if (fresh && retainedNativeData !== fresh) setRetainedNativeData(fresh);
+  const data = readable ? fresh : retainedNativeData;
+  const pageError = error ?? reader.error ?? (rows.reason && rows.reason !== "NO_CURRENT_READ" ? "The whole current run cannot be published without changing original scope or exceeding private retention bounds. Entries remain retained." : null);
   const historySelection = manualCaseHistorySelection({
     requestedCaseIds: searchParams.getAll("caseId"),
     projectId,
@@ -564,15 +578,17 @@ function ManualExecutionContent() {
   const selectedHistoryAnchor =
     historySelection.kind === "SELECTED" ? historySelection.anchor : null;
   useEffect(() => {
-    if (selectedHistoryAnchor)
+    if (currentFrame() && selectedHistoryAnchor)
       document
         .getElementById(selectedHistoryAnchor)
         ?.scrollIntoView({ block: "start" });
-  }, [selectedHistoryAnchor]);
+  }, [selectedHistoryAnchor, snapshot, stamp]);
 
-  async function recheckAccess() {
-    await access.refresh();
-    if (accessNow.current.ready) await dataQuery.refetch();
+  function recheckAccess() {
+    // Discovery retry and native intent are separate explicit actions. Never
+    // adopt a newer actor/frame after awaiting metadata discovery.
+    if (!access.ready) { void access.refresh(); return; }
+    reader.refresh();
   }
   if (!data)
     return (
@@ -595,17 +611,18 @@ function ManualExecutionContent() {
     );
 
   const recordedCount = data.cases.filter((c) => c.currentResult).length;
-  const plannedScope = admittedManualRunProgress(data);
+  const plannedScope = readable ? admittedManualRunProgress(data) : null;
   const loadedCases = data.cases;
   const matchingCases = data.cases.filter((testCase) =>
     manualRunCaseMatches(testCase, caseSearch, caseFilter),
   );
   function navigateToCase(id: string, resetFilters = false) {
     if (
-      !accessNow.current.readable ||
+      !currentFrame() ||
       !loadedCases.some((testCase) => testCase.testCaseId === id)
     )
       return;
+    pageGuard.revokeActions();
     if (resetFilters) {
       setCaseSearch("");
       setCaseFilter("ALL");
@@ -621,7 +638,7 @@ function ManualExecutionContent() {
   return (
     <div style={{ maxWidth: 800 }}>
       {!readable && (
-        <section role={access.denied || !!dataQuery.error ? "alert" : "status"}>
+        <section role={access.denied || !!pageError ? "alert" : "status"}>
           <p>
             Current original actor, workspace and exact saved run must be
             verified. Private cached procedures and observations are hidden;
@@ -659,8 +676,9 @@ function ManualExecutionContent() {
               <button
                 className="btn-secondary"
                 onClick={() => {
+                  if (!currentFrame()) return;
                   setError(null);
-                  void dataQuery.refetch();
+                  reader.refresh();
                 }}
               >
                 Refresh run without discarding drafts
@@ -691,15 +709,23 @@ function ManualExecutionContent() {
             <button
               className="btn-primary"
               onClick={() => {
-                if (!accessNow.current.canEdit) return;
+                if (!currentFrame() || !canEdit || completeMutation.isPending || pendingCompletion.step.size || pendingCompletion.whole.size || data.status !== "RUNNING") return;
                 if (!plannedScope || plannedScope.unavailableCaseIds.length > 0) return;
                 if (
                   recordedCount === plannedScope.plannedCount ||
                   confirm(
                     "Some cases have no result. Finish as an incomplete run?",
                   )
-                )
-                  completeMutation.mutate({ testRunId });
+                ) {
+                  if (!currentFrame() || pendingCompletion.step.size || pendingCompletion.whole.size) return;
+                  // Legacy completion is NOT a reviewed UUID/CAS recovery path.
+                  // Keep its response presentation tied to this exact native read.
+                  const submittedSnapshot = snapshot;
+                  completeMutation.mutate({ testRunId }, {
+                    onSuccess: () => { if (submittedSnapshot && reader.current() === submittedSnapshot) router.push(`/projects/${projectId}/test-runs`); },
+                    onError: () => { if (submittedSnapshot && reader.current() === submittedSnapshot) setError("Run completion could not be confirmed. Retain evidence and recheck original run access; this is not a recovered completion receipt."); },
+                  });
+                }
               }}
               disabled={
                 !canEdit ||
@@ -727,7 +753,7 @@ function ManualExecutionContent() {
             status={data.status}
             executionContext={data.executionContext}
             stepFieldLabels={data.stepFieldLabels}
-            canExport={() => accessNow.current.readable}
+            canExport={currentFrame}
             plannedScope={plannedScope}
           />}
           <section
@@ -747,7 +773,7 @@ function ManualExecutionContent() {
                 Find a run case
                 <input
                   value={caseSearch}
-                  onChange={(event) => setCaseSearch(event.target.value)}
+                  onChange={(event) => { if (currentFrame()) { pageGuard.revokeActions(); setCaseSearch(event.target.value); } }}
                   placeholder="Search case ID or title"
                 />
               </label>
@@ -755,9 +781,11 @@ function ManualExecutionContent() {
                 Show
                 <select
                   value={caseFilter}
-                  onChange={(event) =>
-                    setCaseFilter(event.target.value as ManualRunCaseFilter)
-                  }
+                  onChange={(event) => {
+                    if (!currentFrame()) return;
+                    pageGuard.revokeActions();
+                    setCaseFilter(event.target.value as ManualRunCaseFilter);
+                  }}
                 >
                   <option value="ALL">All outcomes</option>
                   <option value="UNTESTED">Untested</option>
@@ -784,6 +812,7 @@ function ManualExecutionContent() {
                   !data.cases.some((testCase) => !testCase.currentResult)
                 }
                 onClick={() => {
+                  if (!currentFrame()) return;
                   const id = nextUntestedManualCase(
                     data.cases,
                     navigation.id ??
@@ -803,6 +832,8 @@ function ManualExecutionContent() {
                 type="button"
                 className="btn-secondary"
                 onClick={() => {
+                  if (!currentFrame()) return;
+                  pageGuard.revokeActions();
                   setCaseSearch("");
                   setCaseFilter("ALL");
                   setNavigationNotice("");
@@ -872,6 +903,7 @@ function ManualExecutionContent() {
                         <strong>Current row: {row.rowName}</strong>
                       ) : (
                         <a
+                          onClick={event => { if (!currentFrame()) event.preventDefault(); }}
                           href={`/projects/${projectId}/test-runs/manual/${row.testRunId}`}
                         >
                           Row {row.rowIndex + 1}: {row.rowName}
@@ -907,6 +939,7 @@ function ManualExecutionContent() {
                     <dt>Plan</dt>
                     <dd style={{ marginLeft: 0 }}>
                       <a
+                        onClick={event => { if (!currentFrame()) event.preventDefault(); }}
                         href={`/projects/${projectId}/test-plans/${data.executionContext.plan.testPlanId}`}
                       >
                         {data.executionContext.plan.name}
@@ -972,7 +1005,7 @@ function ManualExecutionContent() {
         </>
       )}
 
-      {data.cases
+      {(rows.retained?.rows ?? [])
         .filter(
           (tc) =>
             retainedRetestCases.has(tc.testCaseId) ||
@@ -989,8 +1022,9 @@ function ManualExecutionContent() {
               marginBottom: 12,
               minWidth: 0,
             }}
+            hidden={!readable || !fresh?.cases.some(current => current.testCaseId === tc.testCaseId)}
           >
-            {readable && (
+            {readable && fresh?.cases.some(current => current.testCaseId === tc.testCaseId) && (
               <h2 style={{ fontSize: 16 }}>
                 Retest relationships · {tc.displayId ?? tc.title}
               </h2>
@@ -1000,9 +1034,9 @@ function ManualExecutionContent() {
               projectId={projectId}
               sourceRunId={testRunId}
               testCaseId={tc.testCaseId}
-              active={readable}
+              active={readable && !!fresh?.cases.some(current => current.testCaseId === tc.testCaseId)}
               canRetest={
-                canEdit &&
+                canEdit && !!fresh?.cases.some(current => current.testCaseId === tc.testCaseId) &&
                 (tc.currentResult?.status === "FAIL" ||
                   tc.currentResult?.status === "BLOCKED")
               }
@@ -1010,7 +1044,7 @@ function ManualExecutionContent() {
           </section>
         ))}
 
-      {data.cases.map((tc) => (
+      {(rows.retained?.rows ?? []).map((tc) => (
         <CaseRow
           key={`${projectId}:${testRunId}:${tc.testCaseId}`}
           projectId={projectId}
@@ -1023,36 +1057,42 @@ function ManualExecutionContent() {
               data.cases[0]
             )?.testCaseId
           }
-          hidden={!manualRunCaseMatches(tc, caseSearch, caseFilter)}
+          hidden={!readable || !fresh?.cases.some(current => current.testCaseId === tc.testCaseId) || !manualRunCaseMatches(tc, caseSearch, caseFilter)}
           navigationTarget={navigation.id === tc.testCaseId}
           navigationRevision={navigation.revision}
-          onOpenCase={(id) => setNavigation((current) => ({ ...current, id }))}
+          onOpenCase={(id) => { if (currentCase(id)) { pageGuard.revokeActions(); setNavigation((current) => ({ ...current, id })); } }}
           selectedFromHistory={
             historySelection.kind === "SELECTED" &&
             historySelection.caseId === tc.testCaseId
           }
-          readable={readable}
+          readable={readable && !!fresh?.cases.some(current => current.testCaseId === tc.testCaseId)}
           readScope={readInput}
-          onStepsChanged={() =>
-            utils.manualExecution.getForExecution.invalidate({ testRunId })
-          }
-          onUnconfirmedStep={(pending) =>
+          parentRunScope={snapshot?.origin ?? null}
+          parentCurrent={() => currentCase(tc.testCaseId)}
+          parentActivation={parentActivation}
+          onStepsChanged={async () => { if (currentCase(tc.testCaseId)) reader.refresh(); }}
+          onUnconfirmedStep={(pending) => {
+            if (pending) pendingCompletion.step.add(tc.testCaseId);
+            else pendingCompletion.step.delete(tc.testCaseId);
             setUnconfirmedStepCases((current) => {
+              if (current.has(tc.testCaseId) === pending) return current;
               const next = new Set(current);
               if (pending) next.add(tc.testCaseId);
               else next.delete(tc.testCaseId);
               return next;
-            })
-          }
-          onUnconfirmedWholeCase={(pending) =>
+            });
+          }}
+          onUnconfirmedWholeCase={(pending) => {
+            if (pending) pendingCompletion.whole.add(tc.testCaseId);
+            else pendingCompletion.whole.delete(tc.testCaseId);
             setUnconfirmedWholeCases((current) => {
               if (current.has(tc.testCaseId) === pending) return current;
               const next = new Set(current);
               if (pending) next.add(tc.testCaseId);
               else next.delete(tc.testCaseId);
               return next;
-            })
-          }
+            });
+          }}
           prerequisites={tc.prerequisiteIds.map((id) => {
             const prerequisite = data.cases.find(
               (candidate) => candidate.testCaseId === id,
@@ -1074,7 +1114,7 @@ function ManualExecutionContent() {
               const prerequisite = data.cases.find(
                 (candidate) => candidate.testCaseId === id,
               );
-              return `${prerequisite?.displayId ?? "Case ID unavailable"} · ${prerequisite?.title ?? "Unavailable case"}`;
+              return `${prerequisite?.displayId ?? id} · ${prerequisite?.title ?? "Unavailable case"}`;
             })}
           stepFieldLabels={data.stepFieldLabels}
           runClosed={data.status !== "RUNNING"}

@@ -8,7 +8,7 @@ import type { StepReviewBuffer } from "./step-execution-review-draft";
 const source = readFileSync(new URL("../components/ReviewedStepObservation.tsx", import.meta.url), "utf8");
 const ast = ts.createSourceFile("ReviewedStepObservation.tsx", source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
 const functions = ast.statements.filter(ts.isFunctionDeclaration).map(node => ts.createPrinter().printNode(ts.EmitHint.Unspecified, node, ast).replace(/\bexport\s+/, "")).join("\n");
-const executable = ts.transpileModule(functions + "\nthis.fields=StepObservationFields;this.procedure=StepFrozenObservation;", { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.None, jsx: ts.JsxEmit.React } }).outputText;
+const executable = ts.transpileModule(functions + "\nthis.fields=StepObservationFields;this.procedure=StepFrozenObservation;this.editor=ReviewedStepObservation;", { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.None, jsx: ts.JsxEmit.React } }).outputText;
 type FieldsProps = { buffer: Readonly<StepReviewBuffer>; editingEnabled: boolean; correction: boolean; physical?: boolean; onChange: (buffer: StepReviewBuffer) => boolean };
 type InputProps = { id?: string; value?: string; onChange: (event: { target: { value: string } }) => void };
 function renderer() { const context = vm.createContext({ React, useId: () => "synthetic-field-prefix" }); vm.runInContext(executable, context); return context as unknown as { fields: (props: FieldsProps) => React.ReactElement; procedure: (props: { definition: unknown; stepIndex: number }) => React.ReactElement }; }
@@ -54,4 +54,29 @@ it("actual editor uses one guarded completion owner, mounted close retention and
   expect(source).toContain('<Modal size="wide" keepMounted'); expect(source).toContain("useStepExecutionReviewController(original"); expect(source).toContain("workflow.change(stepObservationBuffer(fresh))");
   expect(source).toContain("workflow.change(stepObservationEvidence(buffer, id, selected))"); expect(source).toContain("Retry identical reviewed request");
   expect(source).not.toMatch(/recordStepResult|parseStepMeasurements|\.trim\(|Number\(/);
+});
+it("actual step component forwards parent first-read native pins into its existing controller without altering the original case/step ref", () => {
+  const calls: unknown[][] = [], pin = { projectId: "p", testRunId: "r", organizationId: "o", clerkActorId: "cl", nativeActorId: "n" };
+  const context = vm.createContext({ React, useState: (initial: unknown) => [initial, () => {}], Modal: (props: { children: React.ReactNode }) => React.createElement("div", null, props.children),
+    useStepExecutionReviewController: (...args: unknown[]) => { calls.push(args); return { reads: { fresh: null, origin: null, error: null, refresh: () => {} }, view: { draft: null, busy: false, readable: false, authorityReadable: false, notice: "" } }; },
+  });
+  vm.runInContext(executable, context);
+  const editor = context.editor as (props: Record<string, unknown>) => React.ReactElement;
+  for (const parentRunScope of [pin, null, undefined]) {
+    const parentCurrent = () => true;
+    renderToStaticMarkup(editor({ projectId: "p", testRunId: "r", testCaseId: "c", stepIndex: 2, active: true, disabled: false, initiallyOpen: true, renderResources: () => null, parentRunScope, parentCurrent, parentActivation: "parentA" }));
+    expect(calls.at(-1)?.[0]).toEqual({ projectId: "p", testRunId: "r", testCaseId: "c", stepIndex: 2 });
+    expect(calls.at(-1)?.[6]).toBe(parentRunScope);
+    expect(calls.at(-1)?.[7]).toBe(parentCurrent); expect(calls.at(-1)?.[8]).toBe("parentA");
+  }
+});
+it("actual step editor independently withholds stale private hook contents and portal/resource actions when its exact parent frame is gone", () => {
+  const entered = buffer("PRIVATE_NOTE_MARKER"), calls: unknown[][] = [];
+  const context = vm.createContext({ React, useState: (initial: unknown) => [initial, () => {}], Modal: (props: { children: React.ReactNode; open: boolean }) => React.createElement("div", { "data-open": String(props.open) }, props.children),
+    useStepExecutionReviewController: (...args: unknown[]) => { calls.push(args); return { reads: { fresh: { frozenDefinition: { steps: [{ order: 0, action: "PRIVATE_PROCEDURE_MARKER" }] }, current: null }, origin: null, error: null, refresh: () => {} }, view: { draft: { buffer: entered }, busy: false, readable: true, authorityReadable: true, notice: "PRIVATE_NOTICE_MARKER", canEdit: true } }; },
+  });
+  vm.runInContext(executable, context); const editor = context.editor as (props: Record<string, unknown>) => React.ReactElement;
+  let activeResource = true;
+  const html = renderToStaticMarkup(editor({ projectId: "p", testRunId: "r", testCaseId: "c", stepIndex: 0, active: true, disabled: false, initiallyOpen: true, parentCurrent: () => false, parentActivation: "parentA", renderResources: (props: { active: boolean }) => { activeResource = props.active; return null; } }));
+  expect(html).not.toContain("PRIVATE_"); expect(html).not.toContain("textarea"); expect(html).toContain('data-open="false"'); expect(activeResource).toBe(false); expect(entered.note).toBe("PRIVATE_NOTE_MARKER");
 });

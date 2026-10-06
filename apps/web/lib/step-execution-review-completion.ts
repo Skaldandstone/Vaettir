@@ -5,7 +5,7 @@ import type { ReviewedStepAck, ReviewedStepWriteInput } from "@vaettir/api/src/s
 
 export type StepReviewSession = Readonly<{ userId: string; sessionId: string }> | null;
 export type StepReviewCaseRef = Readonly<{ projectId: string; testRunId: string; testCaseId: string }>;
-export type StepReviewFrame = Readonly<{ visible: boolean; readOnly: boolean; activation: string; observedSessionId: string | null; observedSdkGeneration: number; fresh: StepReviewWire | null }>;
+export type StepReviewFrame = Readonly<{ visible: boolean; readOnly: boolean; activation: string; observedSessionId: string | null; observedSdkGeneration: number; fresh: StepReviewWire | null; parentCurrent?: (() => boolean) | null; parentActivation?: string }>;
 export type StepReviewCompletionView = Readonly<{ epoch: number; readable: boolean; authorityReadable: boolean; busy: boolean; canEdit: boolean; canReview: boolean; canSave: boolean; reviewed: boolean; baselineChanged: boolean; hasPending: boolean; pendingKey: string | null; draft: StepReviewDraft | null; acknowledgement: Readonly<ReviewedStepAck> | null; notice: string }>;
 type NativeContext = Omit<StepReviewOrigin, "stepIndex">;
 const sessionMatches = (session: StepReviewSession, user: string, id: string | null) => !!session && !!id && session.userId === user && session.sessionId === id;
@@ -27,18 +27,24 @@ export class StepReviewCompletionController {
   private notice = "";
   private noticePrivate = false;
   private blockedActivations = new Set<string>();
+  private parentRequired = false;
   constructor(private readonly ref: StepReviewCaseRef, private readonly publish: (view: StepReviewCompletionView) => void, private readonly currentSession: () => StepReviewSession,
     private readonly hash: (input: Readonly<ReviewedStepWriteInput>) => Promise<string> = stepReviewRequestHash) { this.ref = Object.freeze({ ...ref }); this.sdkIdentity = JSON.stringify(currentSession()); }
   attach() { this.attached = true; this.epoch++; }
   detach() { this.attached = false; this.epoch++; }
   private keyFor(frame: StepReviewFrame) {
     const fresh = frame.fresh;
-    return JSON.stringify([frame.visible, frame.readOnly, frame.activation, frame.observedSessionId, frame.observedSdkGeneration, !!fresh, fresh?.projectId, fresh?.testRunId, fresh?.testCaseId, fresh?.stepIndex, fresh?.scope, fresh?.canRecover, fresh?.canRecord, fresh?.supported, fresh?.procedureHash, fresh?.currentFingerprint]);
+    return JSON.stringify([frame.visible, frame.readOnly, frame.activation, frame.observedSessionId, frame.observedSdkGeneration, !!fresh, fresh?.projectId, fresh?.testRunId, fresh?.testCaseId, fresh?.stepIndex, fresh?.scope, fresh?.canRecover, fresh?.canRecord, fresh?.supported, fresh?.procedureHash, fresh?.currentFingerprint, frame.parentActivation ?? null]);
+  }
+  private parentCurrent(frame: StepReviewFrame) {
+    if (frame.parentCurrent !== undefined) this.parentRequired = true;
+    if (!this.parentRequired && frame.parentCurrent === undefined) return true;
+    try { return typeof frame.parentCurrent === "function" && typeof frame.parentActivation === "string" && frame.parentActivation.length > 0 && frame.parentActivation.length <= 200 && frame.parentCurrent() === true; } catch { return false; }
   }
   /** Render may revoke old authority before layout, but cannot grant new reads.
    * Retained buffers/requests remain private until the actual frame is bound. */
   renderView(frame: StepReviewFrame): StepReviewCompletionView {
-    if (this.frameKey !== this.keyFor(frame) && !this.renderBlocked) {
+    if ((this.frameKey !== this.keyFor(frame) || !this.parentCurrent(frame)) && !this.renderBlocked) {
       this.renderBlocked = true; this.epoch++;
     }
     return this.snapshot();
@@ -72,6 +78,7 @@ export class StepReviewCompletionController {
   sessionGeneration() { this.observeSession(this.currentSession(), false); return this.sdkGeneration; }
   private authorityReadable() {
     const fresh = this.frame.fresh;
+    if (!this.parentCurrent(this.frame)) { if (this.frame.activation && !this.blockedActivations.has(this.frame.activation)) { this.blockedActivations.add(this.frame.activation); this.epoch++; } return false; }
     if (this.renderBlocked || !this.attached || !this.frame.visible || !fresh || !this.frame.activation || fresh.readRequestId !== this.frame.activation || fresh.projectId !== this.ref.projectId || fresh.testRunId !== this.ref.testRunId || fresh.testCaseId !== this.ref.testCaseId || this.blockedActivations.has(this.frame.activation)) return false;
     this.observeSession(this.currentSession(), false);
     if (this.frame.observedSdkGeneration !== this.sdkGeneration || this.blockedActivations.has(this.frame.activation) || !sessionMatches(this.currentSession(), fresh.scope.actorClerkUserId, this.frame.observedSessionId)) return false;

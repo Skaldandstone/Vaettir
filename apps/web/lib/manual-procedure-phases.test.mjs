@@ -59,5 +59,8 @@ test("prerequisite chips show stable project IDs without replacing frozen proced
   assert.match(page, /encodeURIComponent\(id\)/);
   assert.match(page, /target="_blank"\s+rel="noopener noreferrer"/);
   assert.match(page, /not this run's frozen procedure/);
-  assert.match(page, /testCase.displayId \?\? "Case ID unavailable"/);
+  assert.match(page, /testCase.displayId \?\? testCase.testCaseId/);
+  assert.match(page, /Stable case record ID/);
+  assert.match(page, /displayId \?\? id/);
+  assert.match(page, /if \(!parentCurrent\(\)\) event.preventDefault\(\)/);
 });

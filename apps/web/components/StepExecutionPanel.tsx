@@ -6,6 +6,10 @@ import { currentSessionScope } from "@/lib/auth-query-cache";
 import { StepPanelRetention } from "@/lib/step-panel-retention";
 import { technicalBehaviorLabel } from "@/lib/case-authoring-fields";
 import { ReviewedStepObservation } from "./ReviewedStepObservation";
+import type { ManualRunCurrentOrigin } from "@/lib/manual-run-current-reader";
+function currentPanelParent(callback: (() => boolean) | null | undefined, activation?: string) {
+  try { return callback === undefined || typeof callback === "function" && typeof activation === "string" && activation.length > 0 && activation.length <= 200 && callback() === true; } catch { return false; }
+}
 
 type ExecutionCase = RouterOutputs["manualExecution"]["getForExecution"]["cases"][number];
 type ReadScope = { projectId: string; originalOrganizationId?: string; expectedClerkActorId?: string };
@@ -13,21 +17,23 @@ type ReadScope = { projectId: string; originalOrganizationId?: string; expectedC
 /** Actual caller cutover. Visited original step editors never unmount on row
  * collapse, filtering, auth loss or a later case-summary refresh. The child
  * native reader/controller, not these presentation props, authorizes writes. */
-export function StepExecutionPanel({ testRunId, testCase, stepFieldLabels, active, readable = true, readScope, disabled, blockedBy, onModeActive, onChanged, onUnconfirmedChange }: {
+export function StepExecutionPanel({ testRunId, testCase, stepFieldLabels, active, readable = true, readScope, disabled, blockedBy, onModeActive, onChanged, onUnconfirmedChange, parentRunScope, parentCurrent, parentActivation }: {
   testRunId: string; testCase: ExecutionCase; stepFieldLabels: Record<string, string>; active: boolean; readable?: boolean; readScope?: ReadScope;
   disabled: boolean; blockedBy: string[]; onModeActive: () => void; onChanged: () => Promise<unknown>; onUnconfirmedChange?: (pending: boolean) => void;
+  parentRunScope?: ManualRunCurrentOrigin | null;
+  parentCurrent?: (() => boolean) | null; parentActivation?: string;
 }) {
   const [original] = useState({ testRunId, testCaseId: testCase.testCaseId, projectId: readScope?.projectId ?? "", organizationId: readScope?.originalOrganizationId ?? "", clerkActorId: readScope?.expectedClerkActorId ?? "" });
   const [retention] = useState(() => new StepPanelRetention());
   const [visited, setVisited] = useState<number[]>([]);
   const same = original.testRunId === testRunId && original.testCaseId === testCase.testCaseId && original.projectId === readScope?.projectId && original.organizationId === readScope?.originalOrganizationId && original.clerkActorId === readScope?.expectedClerkActorId;
-  const visible = readable && same && !!original.projectId && !!original.organizationId && !!original.clerkActorId;
+  const visible = readable && same && currentPanelParent(parentCurrent, parentActivation) && !!original.projectId && !!original.organizationId && !!original.clerkActorId && (parentRunScope === undefined || !!parentRunScope && parentRunScope.projectId === original.projectId && parentRunScope.testRunId === original.testRunId && parentRunScope.organizationId === original.organizationId && parentRunScope.clerkActorId === original.clerkActorId);
   const hasSteps = testCase.stepResults.some(item => item.current);
   const canBrowse = visible && (active || hasSteps);
   const supported = testCase.stepExecutionAvailable || hasSteps;
   function currentPresentation() {
     const session = currentSessionScope(window.Clerk?.loaded ? window.Clerk.session : null);
-    return visible && session?.userId === original.clerkActorId;
+    return visible && currentPanelParent(parentCurrent, parentActivation) && session?.userId === original.clerkActorId;
   }
   function visit(index: number) {
     if (!currentPresentation() || !canBrowse || !supported || !retention.visit(index, testCase.steps.length)) return;
@@ -49,8 +55,10 @@ export function StepExecutionPanel({ testRunId, testCase, stepFieldLabels, activ
         a visited draft, UUID, ACK or resource-search intent. */}
     <div hidden={!visible || !canBrowse}>{visited.map(index => <ReviewedStepObservation key={`${original.projectId}:${original.testRunId}:${original.testCaseId}:${index}`}
       projectId={original.projectId} testRunId={original.testRunId} testCaseId={original.testCaseId} stepIndex={index}
+      parentRunScope={parentRunScope}
+      parentCurrent={parentCurrent} parentActivation={parentActivation}
       initiallyOpen active={visible && canBrowse} disabled={disabled} physical={testCase.validationDomain !== "SOFTWARE"} stepFieldLabels={{ ...stepFieldLabels, expectedActionOrData: technicalBehaviorLabel(stepFieldLabels.expectedActionOrData) }}
-      onChanged={async () => { onModeActive(); await onChanged(); }}
-      onUnconfirmedChange={pending => { onUnconfirmedChange?.(retention.markPending(index, pending)); }} />)}</div>
+      onChanged={async () => { if (!currentPresentation()) return; onModeActive(); if (currentPresentation()) await onChanged(); }}
+      onUnconfirmedChange={pending => { if (currentPresentation()) onUnconfirmedChange?.(retention.markPending(index, pending)); }} />)}</div>
   </section>;
 }

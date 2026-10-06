@@ -7,6 +7,7 @@ import { StepReviewCompletionController } from "./step-execution-review-completi
 import { decodeStepReviewWire, sameStepReviewReader, stepReviewRequestHash, type StepReviewBuffer } from "./step-execution-review-draft";
 import type { ReviewedStepWriteInput } from "@vaettir/api/src/services/manualStepExecutionReviewSchema";
 import type { StepReviewController } from "./use-step-execution-review-controller";
+import type { ManualRunCurrentOrigin } from "./manual-run-current-reader";
 
 // Execute both actual hooks and the real private completion class. Only React
 // bookkeeping, Clerk and RPC are synthetic. These are not native/browser tests.
@@ -17,10 +18,10 @@ const code = ["use-step-execution-review-access.ts", "use-step-execution-review-
 const executable = ts.transpileModule(code + "\nthis.workflow=useStepExecutionReviewController;", { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.None } }).outputText;
 const buffer = (): StepReviewBuffer => ({ status: "PASS", note: " exact ", context: { specimen: "", hardwareRevision: "", firmwareVersion: "", environment: "" }, readings: [], evidenceAttachmentIds: [], correctionReason: null });
 
-function harness() {
+function harness(parentRunScope?: ManualRunCurrentOrigin | null, wrongNative = false, parentCurrent?: (() => boolean) | null, parentActivation?: string) {
   const hooks: unknown[] = [], cleanups = new Map<number, () => void>(), effects: Array<() => void> = [], listeners = new Set<() => void>(), cache = new Map<string, unknown>();
   const auth = { isLoaded: true, isSignedIn: true, userId: "cl", sessionId: "A" }, sdk = { loaded: true, session: { id: "A", user: { id: "cl" } } as null | { id: string; user: { id: string } }, addListener: (fn: () => void) => { listeners.add(fn); fn(); return () => { listeners.delete(fn); }; } };
-  const params = { visible: true, readOnly: false, stepIndex: 0 }, query = { isFetching: false, isPaused: false, error: null as unknown, isFetchedAfterMount: true, supported: true, wrongNative: false };
+  const params = { visible: true, readOnly: false, stepIndex: 0, parentRunScope, parentCurrent, parentActivation }, query = { isFetching: false, isPaused: false, error: null as unknown, isFetchedAfterMount: true, supported: true, wrongNative };
   const scope = { projectId: "p", organizationId: "o", actorId: "n", actorClerkUserId: "cl" }, calls = { acknowledged: 0, pending: [] as boolean[], sent: [] as Readonly<ReviewedStepWriteInput>[] };
   let cursor = 0, dirty = false, counter = 0, workflow: StepReviewController, record: (input: Readonly<ReviewedStepWriteInput>) => Promise<unknown>;
   const acknowledge = () => { calls.acknowledged++; }, unconfirmed = (value: boolean) => { calls.pending.push(value); };
@@ -37,14 +38,40 @@ function harness() {
       record: { useMutation: () => ({ mutateAsync: (input: Readonly<ReviewedStepWriteInput>) => { calls.sent.push(input); return record(input); } }) }
     } } });
   vm.runInContext(executable, context); const invokeWorkflow = (context as { workflow: (...args: unknown[]) => StepReviewController }).workflow;
-  function render() { for (let n = 0; n < 40; n++) { cursor = 0; dirty = false; workflow = invokeWorkflow({ projectId: "p", testRunId: "r", testCaseId: "c" }, params.stepIndex, params.visible, params.readOnly, acknowledge, unconfirmed); effects.splice(0).forEach(fn => fn()); if (!dirty) return workflow; } throw Error("Workflow failed to settle."); }
-  function beforeLayout() { cursor = 0; dirty = false; return invokeWorkflow({ projectId: "p", testRunId: "r", testCaseId: "c" }, params.stepIndex, params.visible, params.readOnly, acknowledge, unconfirmed); }
+  function render() { for (let n = 0; n < 40; n++) { cursor = 0; dirty = false; workflow = invokeWorkflow({ projectId: "p", testRunId: "r", testCaseId: "c" }, params.stepIndex, params.visible, params.readOnly, acknowledge, unconfirmed, params.parentRunScope, params.parentCurrent, params.parentActivation); effects.splice(0).forEach(fn => fn()); if (!dirty) return workflow; } throw Error("Workflow failed to settle."); }
+  function beforeLayout() { cursor = 0; dirty = false; return invokeWorkflow({ projectId: "p", testRunId: "r", testCaseId: "c" }, params.stepIndex, params.visible, params.readOnly, acknowledge, unconfirmed, params.parentRunScope, params.parentCurrent, params.parentActivation); }
   function prepare() { workflow.change(buffer()); render(); workflow.reviewCurrent(); render(); }
   function emit(session: typeof sdk.session) { sdk.session = session; Array.from(listeners).forEach(fn => fn()); }
   render(); return { params, query, auth, sdk, calls, render, beforeLayout, prepare, ack, emit, setRecord: (fn: typeof record) => { record = fn; }, get workflow() { return workflow; }, unmount: () => { Array.from(cleanups.values()).forEach(fn => fn()); cleanups.clear(); } };
 }
 
 describe("actual step reader/controller hooks and private class, synthetic RPC only", () => {
+  const parent = (): ManualRunCurrentOrigin => ({ projectId: "p", testRunId: "r", organizationId: "o", clerkActorId: "cl", nativeActorId: "n" });
+  it("parent loss before layout hides held draft and denies all old handlers without changing request identity", async () => {
+    let current = true; const h = harness(parent(), false, () => current, "parentA"); h.prepare(); const prior = h.workflow, draft = prior.view.draft;
+    current = false; const rendered = h.beforeLayout(); expect(rendered.view.draft).toBeNull(); expect(rendered.view.canSave).toBe(false);
+    expect(prior.change(buffer())).toBe(false); await prior.save(); expect(h.calls.sent).toHaveLength(0);
+    h.render(); current = true; h.params.parentActivation = "parentB"; h.render(); expect(h.workflow.view.draft?.buffer).toEqual(draft?.buffer); expect(h.workflow.reads.activation).not.toBe(prior.reads.activation); expect(prior.reviewCurrent()).toBe(false); expect(h.calls.sent).toHaveLength(0);
+  });
+  it("exact late ACK after parent loss privately settles without callbacks; explicit current frame synchronization never resends", async () => {
+    let current = true; const h = harness(parent(), false, () => current, "parentA"); h.prepare();
+    h.setRecord(async input => { current = false; return h.ack(input); }); await h.workflow.save(); h.render();
+    expect(h.calls.sent).toHaveLength(1); expect(h.calls.acknowledged).toBe(0); expect(h.calls.pending).toEqual([true]); expect(h.workflow.view.acknowledgement).toBeNull(); expect(h.workflow.view.hasPending).toBe(false);
+    current = true; h.params.parentActivation = "parentB"; h.render(); expect(h.workflow.view.acknowledgement?.revisionId).toBe("new");
+    await h.workflow.synchronizeAcknowledged(); expect(h.calls.sent).toHaveLength(1); expect(h.calls.acknowledged).toBe(1); expect(JSON.stringify(h.calls.sent[0])).not.toContain("parentA");
+  });
+  it("actual controller forwards initial parent pins and cannot seed a replacement native mapping", () => {
+    const h = harness(parent(), true); expect(h.workflow.reads.origin).toBeNull(); expect(h.workflow.view.canEdit).toBe(false); expect(h.workflow.change(buffer())).toBe(false); expect(h.calls.sent).toHaveLength(0);
+    h.query.wrongNative = false; h.render(); expect(h.workflow.reads.origin?.nativeActorId).toBe("n"); expect(h.workflow.view.canEdit).toBe(true);
+  });
+  it("parent pin loss/change preserves exact uncertain request and raw buffer; restoration retries identical inner request without rebinding", async () => {
+    const h = harness(parent()); h.prepare(); h.setRecord(async () => { throw Error("lost ACK"); }); await h.workflow.save(); h.render();
+    const held = h.calls.sent[0], entered = h.workflow.view.draft!.buffer;
+    h.params.parentRunScope = { ...parent(), nativeActorId: "replacement" }; h.render(); expect(h.workflow.view.draft).toBeNull(); expect(h.workflow.view.hasPending).toBe(true); await h.workflow.save(); expect(h.calls.sent).toHaveLength(1);
+    h.params.parentRunScope = null; h.render(); expect(h.workflow.view.draft).toBeNull();
+    h.params.parentRunScope = parent(); h.render(); expect(h.workflow.view.draft!.buffer).toEqual(entered);
+    h.setRecord(h.ack); await h.workflow.save(); expect(h.calls.sent[1]).toBe(held); expect(h.calls.sent[1]?.expectedNativeActorId).toBe("n");
+  });
   it("explicit fresh-read ACK release clears only parent pending, without a result submission or refresh callback", async () => {
     const h = harness(); h.prepare();
     h.setRecord(async input => { h.emit({ id: "B", user: { id: "cl" } }); h.emit({ id: "A", user: { id: "cl" } }); return h.ack(input); });

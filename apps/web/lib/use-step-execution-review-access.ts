@@ -4,29 +4,49 @@ import { useAuth } from "@clerk/nextjs";
 import { trpcReact } from "./trpcReact";
 import { currentSessionScope, sameAuthScope } from "./auth-query-cache";
 import { decodeStepReviewWire, sameStepReviewReader, type StepReviewOrigin, type StepReviewWire } from "./step-execution-review-draft";
+import type { ManualRunCurrentOrigin } from "./manual-run-current-reader";
+function validStepParentScope(scope: ManualRunCurrentOrigin | null | undefined, projectId: string, testRunId: string): scope is ManualRunCurrentOrigin {
+  return !!scope && scope.projectId === projectId && scope.testRunId === testRunId && [scope.projectId, scope.testRunId, scope.organizationId, scope.clerkActorId, scope.nativeActorId].every(value => typeof value === "string" && value.length > 0 && value.length <= 200);
+}
+function copyStepParentScope(scope: ManualRunCurrentOrigin) {
+  return Object.freeze({ projectId: scope.projectId, testRunId: scope.testRunId, organizationId: scope.organizationId, clerkActorId: scope.clerkActorId, nativeActorId: scope.nativeActorId });
+}
+function sameStepParentScope(a: ManualRunCurrentOrigin, b: ManualRunCurrentOrigin) {
+  return a.projectId === b.projectId && a.testRunId === b.testRunId && a.organizationId === b.organizationId && a.clerkActorId === b.clerkActorId && a.nativeActorId === b.nativeActorId;
+}
+function stepParentCurrent(callback: (() => boolean) | null | undefined) {
+  try { return callback === undefined || typeof callback === "function" && callback() === true; } catch { return false; }
+}
 export type StepReviewAccess = { origin: StepReviewOrigin | null; activation: string; observedSessionId: string | null; fresh: StepReviewWire | null; error: string | null; refresh: () => void };
 type NativeOrigin = Omit<StepReviewOrigin, "stepIndex">;
 export function currentStepReviewSession() { return typeof window === "undefined" ? null : currentSessionScope(window.Clerk?.loaded ? window.Clerk.session : null); }
 type ResourceListener = { addListener?: (callback: () => void) => () => void };
 /** Query activation is original scope + current SDK/hook agreement, not an auth
  * cache hit. Session IDs are browser observation only, never native proof. */
-export function useStepExecutionReviewAccess(projectId: string, testRunId: string, testCaseId: string, stepIndex: number, visible: boolean): StepReviewAccess {
+export function useStepExecutionReviewAccess(projectId: string, testRunId: string, testCaseId: string, stepIndex: number, visible: boolean, parentRunScope?: ManualRunCurrentOrigin | null, parentCurrent?: (() => boolean) | null, parentActivation?: string): StepReviewAccess {
   const auth = useAuth();
   const [nativeOrigin, setOrigin] = useState<NativeOrigin | null>(null), [refresh, setRefresh] = useState(0), [sdkEpoch, setSdkEpoch] = useState(0);
+  const [presentationRequired, setPresentationRequired] = useState(parentCurrent !== undefined);
+  if (!presentationRequired && parentCurrent !== undefined) setPresentationRequired(true);
+  const parentPresented = stepParentCurrent(parentCurrent) && (!presentationRequired || typeof parentCurrent === "function" && typeof parentActivation === "string" && parentActivation.length > 0 && parentActivation.length <= 200);
+  const [parent, setParent] = useState(() => ({ required: parentRunScope !== undefined, pin: validStepParentScope(parentRunScope, projectId, testRunId) ? copyStepParentScope(parentRunScope) : null }));
+  if (!parent.required && parentRunScope !== undefined) setParent({ required: true, pin: validStepParentScope(parentRunScope, projectId, testRunId) ? copyStepParentScope(parentRunScope) : null });
+  else if (parent.required && !parent.pin && validStepParentScope(parentRunScope, projectId, testRunId)) setParent({ required: true, pin: copyStepParentScope(parentRunScope) });
+  const parentMatches = !parent.required && parentRunScope === undefined || !!parent.pin && validStepParentScope(parentRunScope, projectId, testRunId) && sameStepParentScope(parent.pin, parentRunScope) && auth.userId === parent.pin.clerkActorId && (!nativeOrigin || nativeOrigin.organizationId === parent.pin.organizationId && nativeOrigin.clerkActorId === parent.pin.clerkActorId && nativeOrigin.nativeActorId === parent.pin.nativeActorId);
   const hookScope = useMemo(() => auth.userId && auth.sessionId ? { userId: auth.userId, sessionId: auth.sessionId } : null, [auth.userId, auth.sessionId]);
   const observedSdkScope = currentStepReviewSession();
   const sdkScope = useMemo(() => observedSdkScope?.userId && observedSdkScope?.sessionId ? { userId: observedSdkScope.userId, sessionId: observedSdkScope.sessionId } : null, [observedSdkScope?.userId, observedSdkScope?.sessionId]);
-  const clerk = nativeOrigin?.clerkActorId ?? auth.userId ?? "";
+  const clerk = nativeOrigin?.clerkActorId ?? parent.pin?.clerkActorId ?? auth.userId ?? "";
   const origin = useMemo<StepReviewOrigin | null>(() => nativeOrigin ? Object.freeze({ ...nativeOrigin, stepIndex }) : null, [nativeOrigin, stepIndex]);
-  const ready = visible && auth.isLoaded && auth.isSignedIn && !!projectId && !!testRunId && !!testCaseId && Number.isInteger(stepIndex) && stepIndex >= 0 && stepIndex <= 499 && auth.userId === clerk && sameAuthScope(hookScope, sdkScope) && (!nativeOrigin || nativeOrigin.projectId === projectId && nativeOrigin.testRunId === testRunId && nativeOrigin.testCaseId === testCaseId);
-  const binding = JSON.stringify([ready, visible, projectId, testRunId, testCaseId, stepIndex, nativeOrigin, hookScope, sdkScope, sdkEpoch, refresh]);
+  const ready = visible && parentMatches && parentPresented && auth.isLoaded && auth.isSignedIn && !!projectId && !!testRunId && !!testCaseId && Number.isInteger(stepIndex) && stepIndex >= 0 && stepIndex <= 499 && auth.userId === clerk && sameAuthScope(hookScope, sdkScope) && (!nativeOrigin || nativeOrigin.projectId === projectId && nativeOrigin.testRunId === testRunId && nativeOrigin.testCaseId === testCaseId);
+  const binding = JSON.stringify([ready, visible, projectId, testRunId, testCaseId, stepIndex, nativeOrigin, hookScope, sdkScope, sdkEpoch, refresh, parent.pin, parentMatches, parentPresented, parentActivation ?? null]);
   const [cycle, setCycle] = useState({ binding: "", requestId: crypto.randomUUID() });
   if (cycle.binding !== binding) setCycle({ binding, requestId: crypto.randomUUID() });
   const query = trpcReact.manualStepExecutionReview.preview.useQuery({ projectId, testRunId, testCaseId, stepIndex, readRequestId: cycle.requestId,
-    ...(nativeOrigin ? { originalOrganizationId: nativeOrigin.organizationId, expectedClerkActorId: nativeOrigin.clerkActorId, expectedNativeActorId: nativeOrigin.nativeActorId } : {}) },
+    ...(nativeOrigin || parent.pin ? { originalOrganizationId: nativeOrigin?.organizationId ?? parent.pin!.organizationId, expectedClerkActorId: nativeOrigin?.clerkActorId ?? parent.pin!.clerkActorId, expectedNativeActorId: nativeOrigin?.nativeActorId ?? parent.pin!.nativeActorId } : {}) },
   { enabled: ready && cycle.binding === binding, retry: false, staleTime: 0, refetchOnWindowFocus: false });
   const decoded = useMemo(() => { if (!query.data) return null; try { return decodeStepReviewWire(query.data); } catch { return null; } }, [query.data]);
-  const candidate = ready && cycle.binding === binding && query.isFetchedAfterMount && !query.error && !query.isFetching && !query.isPaused && decoded?.readRequestId === cycle.requestId && decoded.projectId === projectId && decoded.testRunId === testRunId && decoded.testCaseId === testCaseId && decoded.stepIndex === stepIndex && decoded.scope.projectId === projectId && decoded.scope.actorClerkUserId === clerk ? decoded : null;
+  const candidate = ready && cycle.binding === binding && query.isFetchedAfterMount && !query.error && !query.isFetching && !query.isPaused && decoded?.readRequestId === cycle.requestId && decoded.projectId === projectId && decoded.testRunId === testRunId && decoded.testCaseId === testCaseId && decoded.stepIndex === stepIndex && decoded.scope.projectId === projectId && decoded.scope.actorClerkUserId === clerk && (!parent.pin || decoded.scope.organizationId === parent.pin.organizationId && decoded.scope.actorId === parent.pin.nativeActorId) ? decoded : null;
   if (!nativeOrigin && candidate) setOrigin(Object.freeze({ projectId, testRunId, testCaseId, organizationId: candidate.scope.organizationId, clerkActorId: candidate.scope.actorClerkUserId, nativeActorId: candidate.scope.actorId }));
   const fresh = origin && candidate && sameStepReviewReader(candidate.scope, origin) ? candidate : null;
   // This is permission to ask the protected server for a new read, not native
@@ -49,5 +69,5 @@ export function useStepExecutionReviewAccess(projectId: string, testRunId: strin
   }, [cycle.requestId, cycle.binding, binding, ready, auth.sessionId, clerk, auth.userId, hookScope, sdkScope]);
   return { origin, fresh, activation: cycle.requestId, observedSessionId: fresh ? auth.sessionId ?? null : null,
     error: query.error || query.data && !decoded ? "The current original-reader step response could not be verified. Entries and identical requests remain retained." : null,
-    refresh: () => { const current = live.current; if (ready && current?.activation === cycle.requestId && current.userId === clerk && current.sessionId === auth.sessionId && sameAuthScope(hookScope, currentStepReviewSession())) setRefresh(value => value + 1); } };
+    refresh: () => { const current = live.current; if (ready && stepParentCurrent(parentCurrent) && current?.activation === cycle.requestId && current.userId === clerk && current.sessionId === auth.sessionId && sameAuthScope(hookScope, currentStepReviewSession())) setRefresh(value => value + 1); } };
 }

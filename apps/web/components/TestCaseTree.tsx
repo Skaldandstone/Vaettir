@@ -113,7 +113,7 @@ function TreeNodeView({
         }}
         onDragOver={(event) => {
           const folder = event.dataTransfer.types.includes(FOLDER_DRAG_TYPE) && entry.canOrganize && !!onFolderReview;
-          const testCase = event.dataTransfer.types.includes("application/x-vaettir-test-case") && !!onDropCase;
+          const testCase = event.dataTransfer.types.includes("application/x-vaettir-test-case") && !!onDropCase && entry.canReceiveCase;
           if (!folder && !testCase) return;
           event.preventDefault();
           event.stopPropagation();

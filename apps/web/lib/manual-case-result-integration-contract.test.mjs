@@ -85,11 +85,16 @@ test("destructive admin action refuses old, foreign or blocked whole-case previe
 test("native mounted history retains original case through collapse and blocks completion while responses remain unknown", () => {
   assert.match(central, /manualCaseResults: manualCaseResultsRouter/);
   assert.match(page, /ManualCaseResultHistory\s+key=\{`\$\{projectId\}:\$\{testRunId\}:\$\{testCase.testCaseId\}`\}/);
-  assert.match(page, /testCaseId=\{testCase.testCaseId\}\s+active=\{readable && expanded && !hidden && !stepMode\}/);
+  const mountedHistory = page.slice(page.indexOf("<ManualCaseResultHistory"), page.indexOf("/>", page.indexOf("<ManualCaseResultHistory")));
+  assert.match(mountedHistory, /testCaseId=\{testCase.testCaseId\}/);
+  assert.match(mountedHistory, /active=\{readable && expanded && !hidden && !stepMode\}/);
+  assert.match(mountedHistory, /parentCurrent=\{parentCurrent\}/);
+  assert.match(mountedHistory, /parentRunScope=\{parentRunScope\}/);
   assert.match(page, /unconfirmedWholeCases.size > 0 \|\|/);
   assert.match(page, /current.has\(tc.testCaseId\) === pending\) return current/);
   assert.match(page, /wholeCasePending\s*\|\|\s*!!testCase.currentResult/);
-  assert.match(ui, /canRecover: access.canRecover && !disabled/);
+  assert.match(ui, /canRecover: access.canRecover && parentReadable && !disabled/);
+  assert.match(page, /pendingCompletion.whole.size/);
   assert.match(ui, /canWrite: !!baseline\?\.canWrite && !disabled/);
   assert.match(ui, /open: open && active && nativeSame/);
   assert.match(page, /reviewIntent=\{reviewIntent\}/);

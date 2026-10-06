@@ -19,6 +19,7 @@ import {
 } from "./whole-case-reviewed-draft";
 import { currentSessionScope } from "./auth-query-cache";
 import { technicalBehaviorLabel } from "./case-authoring-fields";
+import type { ManualRunCurrentOrigin } from "./manual-run-current-reader";
 import {
   manualCaseReviewedReadKey,
   type ManualCaseReviewedRead,
@@ -120,6 +121,7 @@ function deferred() {
   return { promise, resolve, reject };
 }
 function harness() {
+  const accessCalls: unknown[][] = [];
   const slots: unknown[] = [],
     effects: Array<() => void> = [],
     cleanups = new Map<number, () => void>();
@@ -183,6 +185,9 @@ function harness() {
       context: { environment: string };
       readings: [];
     };
+    parentRunScope?: ManualRunCurrentOrigin | null;
+    parentCurrent?: (() => boolean) | null;
+    parentActivation?: string;
   } = {
     projectId: "p",
     testRunId: "r",
@@ -285,6 +290,11 @@ function harness() {
     window: browser,
     crypto: webcrypto,
     useState,
+    useMemo: (make: () => unknown, deps: unknown[]) => {
+      const at = cursor++, previous = slots[at] as { value: unknown; deps: unknown[] } | undefined;
+      if (!previous || deps.length !== previous.deps.length || deps.some((value, i) => !Object.is(value, previous.deps[i]))) slots[at] = { value: make(), deps };
+      return (slots[at] as { value: unknown }).value;
+    },
     useRef: (initial: unknown) => {
       const at = cursor++;
       if (!(at in slots)) slots[at] = { current: initial };
@@ -292,7 +302,7 @@ function harness() {
     },
     useEffect: effect,
     useLayoutEffect: effect,
-    useWholeCaseReviewedAccess: () => access,
+    useWholeCaseReviewedAccess: (...args: unknown[]) => { accessCalls.push(args); return access; },
     useWholeCaseReadNonce: (binding: string) => {
       const [cycle, set] = useState(() => ({
         binding,
@@ -388,6 +398,7 @@ function harness() {
   render();
   return {
     render,
+    beforeLayout: () => { dirty = false; cursor = 0; effects.splice(0); tree = (context.component as (props: unknown) => unknown)(props); return tree; },
     click,
     change,
     field,
@@ -395,6 +406,7 @@ function harness() {
     props,
     state,
     access,
+    accessCalls,
     browser,
     sent,
     changed,
@@ -443,6 +455,24 @@ function harness() {
   };
 }
 describe("ACTUAL whole-case reviewed editor synthetic controller/render proof", () => {
+  it("parent frame loss hides retained private fields/history/portal and rejects captured confirm BEFORE layout; fresh original frame restores the same raw draft", async () => {
+    const h = harness(); let current = true;
+    h.props.parentRunScope = { projectId: "p", testRunId: "r", organizationId: "o", clerkActorId: "cl", nativeActorId: "n" }; h.props.parentCurrent = () => current; h.props.parentActivation = "parentA"; h.render();
+    h.click("Review whole-case observation"); h.change("Observed status", "FAIL"); h.change("Note representation", "TEXT"); h.change("What actually happened", " Private raw\n note "); h.click("Review exact observation");
+    const confirm = h.button("Confirm reviewed observation").props.onClick!;
+    current = false; const during = h.beforeLayout(); expect(nodes(during).filter(node => node.type === "textarea")).toHaveLength(0); expect(text(during)).not.toContain(" Private raw\n note ");
+    expect(nodes(during).find(node => node.type === "synthetic-modal")!.props.open).toBe(false); confirm(); await h.settle(); expect(h.sent).toHaveLength(0);
+    current = true; h.props.parentActivation = "parentB"; h.access.activation = "nativeFresh"; h.render();
+    expect(h.field("What actually happened").props.value).toBe(" Private raw\n note "); expect(h.sent).toHaveLength(0);
+  });
+  it("actual late matching receipt after parent loss stays private and only fresh original read can explicitly publish, without another submission", async () => {
+    const h = harness(); let current = true; h.props.parentCurrent = () => current; h.props.parentActivation = "parentA"; h.render();
+    h.click("Review whole-case observation"); h.change("Observed status", "FAIL"); h.click("Review exact observation"); h.state.waiting = deferred(); h.click("Confirm reviewed observation");
+    current = false; h.state.waiting.resolve(await h.ack(h.sent[0]!)); await h.settle();
+    expect(h.sent).toHaveLength(1); expect(h.changed).not.toHaveBeenCalled(); expect(nodes(h.tree()).filter(node => node.type === "textarea")).toHaveLength(0);
+    current = true; h.props.parentActivation = "parentB"; h.access.activation = "nativeFresh"; h.render(); h.click("Refresh confirmed observation");
+    expect(h.changed).toHaveBeenCalledTimes(1); expect(h.sent).toHaveLength(1);
+  });
   it("actual shared procedure columns render saved BDD/action/technical/response text without live substitution", () => {
     const h = harness(),
       saved = {
@@ -653,6 +683,13 @@ describe("ACTUAL whole-case reviewed editor synthetic controller/render proof", 
       );
       expect(h.sent).toHaveLength(0);
     }
+  });
+  it("actual mounted history forwards parent first-read pins unchanged, including explicit NULL; draft/private UUID ownership stays in the existing controller", () => {
+    const h = harness(), pin = { projectId: "p", testRunId: "r", organizationId: "o", clerkActorId: "cl", nativeActorId: "n" };
+    h.props.parentRunScope = pin; h.render(); expect(h.accessCalls.at(-1)?.slice(0, 5)).toEqual(["p", "r", "c", true, pin]);
+    h.click("Review whole-case observation"); h.change("Note representation", "TEXT"); h.change("What actually happened", " exact retained\n draft ");
+    h.props.parentRunScope = null; h.render(); expect(h.accessCalls.at(-1)?.[4]).toBeNull();
+    h.props.parentRunScope = pin; h.render(); expect(h.field("What actually happened").props.value).toBe(" exact retained\n draft "); expect(h.sent).toHaveLength(0);
   });
   it("inactive/readonly toggles retain mounted draft and suppress new writes", () => {
     const h = harness();

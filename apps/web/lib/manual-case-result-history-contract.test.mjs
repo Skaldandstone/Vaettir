@@ -148,7 +148,10 @@ test("reviewed correction ACK stays separate from refresh failure and unknown re
   const submit = completion.slice(completion.indexOf("async submit("));
   assert.ok(submit.indexOf("this.confirmed = { held, ack:") < submit.indexOf("this.publishConfirmed"));
   assert.ok(submit.includes("this.pending = null"));
-  assert.ok(submit.includes("if (definite && !held.ambiguous)"));
+  assert.ok(submit.includes("if (definite && dispatched && !held.ambiguous)"));
+  assert.ok(submit.includes("beforeDispatch?.()"));
+  assert.ok(submit.includes("if (!this.current(session(), epoch)) return false"));
+  assert.ok(submit.includes("if (!dispatched && !previouslySubmitted && this.pending === held) this.pending = null"));
   assert.ok(submit.includes("this.revokeWrongSession(session(), held)"));
   assert.ok(completion.includes("!this.pending &&"));
   assert.ok(completion.includes("this.pending ?? this.reviewed"));

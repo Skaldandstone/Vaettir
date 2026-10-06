@@ -25,20 +25,27 @@ test("foreign project/run/tenant/original tenant/actor/request echoes refuse wit
 const native = readFileSync(new URL("../app/projects/[projectId]/test-runs/manual/[testRunId]/page.tsx", import.meta.url), "utf8");
 const hook = readFileSync(new URL("./use-manual-execution-access.ts", import.meta.url), "utf8");
 const step = readFileSync(new URL("../components/StepExecutionPanel.tsx", import.meta.url), "utf8");
+const currentReader = readFileSync(new URL("./use-manual-run-current-reader.ts", import.meta.url), "utf8");
+const retention = readFileSync(new URL("./use-retained-manual-run-rows.ts", import.meta.url), "utf8");
 test("original actor/organization pin and fresh response gate protect reads and current writes", () => {
   for (const text of ["!origin && actorReady && projectReady && canRead", "userId !== origin.clerkActorId", "origin.organizationId", 'member?.seatType === "FULL"', '"READ_ONLY"', "!project.error && !project.isFetching && !project.isPaused", "!organizations.error && !organizations.isFetching && !organizations.isPaused"]) assert.ok(hook.includes(text), text);
   assert.ok(!hook.includes("setOrigin(undefined)"));
-  for (const text of ["originalOrganizationId: access.origin?.organizationId", "expectedClerkActorId: access.origin?.clerkActorId", "enabled: access.ready, staleTime: 0, retry: false", "manualExecutionReadMatches", "dataQuery.data?.canWrite === true", "if (!accessNow.current.canEdit)", "Private cached procedures and observations are hidden"]) assert.ok(sourceCodeIncludes(native, text), text);
+  for (const text of ["useManualRunCurrentReader(projectId, testRunId, access.origin?.organizationId, { ready: access.ready })", "useRetainedManualRunRows(reader.snapshot)", "rows.current === reader.snapshot", "fresh?.canWrite === true", "!currentFrame() || !canEdit", "Private cached procedures and observations are hidden", "reader.current() === snapshot", "postedStamp.current === stamp", "pageGuard.matchesRender(stamp)"]) assert.ok(sourceCodeIncludes(native, text), text);
+  for (const text of ["originalOrganizationId: organizationId", "expectedClerkActorId: intent?.session.userId", "expectedNativeActorId: intent.origin.nativeActorId", "admitManualRunCurrent(query.data, input, origin)", "query.isFetchedAfterMount", "!query.isFetching", "!query.isPaused", "listenerRef.current !== frame.listenerProof", "sdkEpochRef.current !== frame.sdkEpoch"]) assert.ok(sourceCodeIncludes(currentReader, text), text);
+  assert.ok(!native.includes("manualExecution.getForExecution.useQuery"), "Actual page uses current held native reader, not the legacy query.");
 });
 test("withheld case/step/retest content retains mounted original draft/request state instead of dropping rows", () => {
   assert.match(native, /\{readable\s*&&\s*\(?\s*<>/);
-  for (const text of ["readable={readable}", "readScope={readInput}", "active={readable && expanded && !hidden && !stepMode}", "active={readable} canRetest", 'key={`${projectId}:${testRunId}:${tc.testCaseId}`}']) assert.ok(sourceCodeIncludes(native, text), text);
+  for (const text of ["readScope={readInput}", "active={readable && expanded && !hidden && !stepMode}", "active={readable && !!fresh?.cases.some", 'key={`${projectId}:${testRunId}:${tc.testCaseId}`}', "parentRunScope={snapshot?.origin ?? null}", "parentCurrent={() => currentCase(tc.testCaseId)}", "(rows.retained?.rows ?? []).map((tc)"]) assert.ok(sourceCodeIncludes(native, text), text);
   assert.ok(!native.includes("readable && data.cases.map"));
-  assert.ok(sourceCodeIncludes(native, 'const [retainedNativeData, setRetainedNativeData] = useState<RouterOutputs["manualExecution"]["getForExecution"] | undefined>'));
-  assert.ok(sourceCodeIncludes(native, "if (readable && dataQuery.data && retainedNativeData !== dataQuery.data) setRetainedNativeData(dataQuery.data)"));
-  assert.ok(native.includes("const data = readable ? dataQuery.data : retainedNativeData"));
+  assert.ok(sourceCodeIncludes(native, 'const [retainedNativeData, setRetainedNativeData] = useState<ManualRunCurrentSnapshot["data"]["view"] | undefined>'));
+  assert.ok(sourceCodeIncludes(native, "if (fresh && retainedNativeData !== fresh) setRetainedNativeData(fresh)"));
+  assert.ok(native.includes("const data = readable ? fresh : retainedNativeData"));
+  assert.ok(retention.includes("publication.seenCandidate !== candidate"));
+  assert.ok(retention.includes("retainManualRunRows(publication.result.retained, candidate)"));
   assert.ok(!native.includes("retainedNativeData.current"), "Mounted data is ordinary render state, not render-time ref reads/writes");
-  assert.ok(sourceCodeIncludes(native, "useLayoutEffect(() => { accessNow.current = { readable, canEdit, ready: access.ready }; }, [readable, canEdit, access.ready])"));
+  assert.ok(sourceCodeIncludes(native, "postedStamp.current = stamp; setCommittedStamp(stamp)"));
+  assert.ok(!native.includes("postedStamp.current = stamp;\n  const"), "Action publication belongs to layout, not render.");
   for (const text of ["const visible = readable && same", "original.organizationId === readScope?.originalOrganizationId", "original.clerkActorId === readScope?.expectedClerkActorId", "<div hidden={!visible || !canBrowse}>{visited.map", "active={visible && canBrowse}", "retention.markPending(index, pending)"]) assert.ok(step.includes(text), text);
   assert.ok(!step.includes("if (!readable) return null"), "Visited child editors remain mounted while private presentation is withheld");
   assert.ok(!step.includes("recordStepResult"));
@@ -46,7 +53,7 @@ test("withheld case/step/retest content retains mounted original draft/request s
   assert.ok(sourceCodeIncludes(native, "readable={readable && expanded && !hidden}"));
 });
 test("later same-run result corrections do not unmount a retained separate-retest request", () => {
-  assert.ok(native.includes("if (!readable || !dataQuery.data) return"));
+  assert.ok(native.includes("if (!readable || !fresh || !currentFrame()) return"));
   assert.ok(native.includes("new Set([...current, ...qualifying])"));
   assert.ok(sourceCodeIncludes(native, "retainedRetestCases.has(tc.testCaseId) || tc.currentResult?.status"));
   assert.ok(!native.includes("setRetainedRetestCases(new Set(qualifying))"));

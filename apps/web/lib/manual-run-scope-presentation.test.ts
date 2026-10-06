@@ -28,10 +28,12 @@ it("actual summary renders one of three planned identities, not one of two avail
 });
 it("actual parent includes complete planned admission, read-only unavailable identities and disables/refuses shortened-scope completion without touching editors", () => {
   const page = readFileSync(new URL("../app/projects/[projectId]/test-runs/manual/[testRunId]/page.tsx", import.meta.url), "utf8");
-  expect(page).toContain("const plannedScope = admittedManualRunProgress(data)");
+  expect(page).toContain("const plannedScope = readable ? admittedManualRunProgress(data) : null");
   expect(page).toContain("recordedCount === plannedScope.plannedCount");
   expect(page).not.toContain("recordedCount === data.cases.length");
-  expect(page).toContain("if (!accessNow.current.canEdit) return;");
+  expect(page).toContain("!currentFrame() || !canEdit");
+  expect(page).toContain("reader.current() === snapshot");
+  expect(page).toContain("if (!currentFrame()) return;");
   expect(page).toContain("if (!plannedScope || plannedScope.unavailableCaseIds.length > 0) return;");
   expect(page).toContain('aria-label="Unavailable planned procedures"');
   expect(page).toContain("Procedure unavailable, read-only retained identity");

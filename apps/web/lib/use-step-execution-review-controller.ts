@@ -5,6 +5,7 @@ import { currentStepReviewSession, useStepExecutionReviewAccess, type StepReview
 import { StepReviewCompletionController, type StepReviewCaseRef, type StepReviewCompletionView } from "./step-execution-review-completion";
 import type { StepReviewBuffer } from "./step-execution-review-draft";
 import type { ReviewedStepAck } from "@vaettir/api/src/services/manualStepExecutionReviewSchema";
+import type { ManualRunCurrentOrigin } from "./manual-run-current-reader";
 type ResourceListener = { addListener?: (callback: () => void) => () => void };
 export type StepReviewController = {
   reads: StepReviewAccess; view: StepReviewCompletionView;
@@ -13,13 +14,13 @@ export type StepReviewController = {
   synchronizeAcknowledged: () => Promise<void>; finishAcknowledged: () => boolean;
 };
 export function useStepExecutionReviewController(ref: StepReviewCaseRef, stepIndex: number, visible: boolean, readOnly: boolean,
-  onAcknowledged?: (ack: Readonly<ReviewedStepAck>) => void | Promise<void>, onUnconfirmedChange?: (pending: boolean) => void): StepReviewController {
-  const reads = useStepExecutionReviewAccess(ref.projectId, ref.testRunId, ref.testCaseId, stepIndex, visible);
+  onAcknowledged?: (ack: Readonly<ReviewedStepAck>) => void | Promise<void>, onUnconfirmedChange?: (pending: boolean) => void, parentRunScope?: ManualRunCurrentOrigin | null, parentCurrent?: (() => boolean) | null, parentActivation?: string): StepReviewController {
+  const reads = useStepExecutionReviewAccess(ref.projectId, ref.testRunId, ref.testCaseId, stepIndex, visible, parentRunScope, parentCurrent, parentActivation);
   const mutation = trpcReact.manualStepExecutionReview.record.useMutation();
   const [, setView] = useState<StepReviewCompletionView>({ epoch: 0, readable: false, authorityReadable: false, busy: false, canEdit: false, canReview: false, canSave: false, reviewed: false, baselineChanged: false, hasPending: false, pendingKey: null, draft: null, acknowledgement: null, notice: "" });
   const [controller] = useState(() => new StepReviewCompletionController(ref, setView, currentStepReviewSession));
   const observedSdkGeneration = controller.sessionGeneration();
-  const frame = useMemo(() => ({ visible, readOnly, activation: reads.activation, observedSessionId: reads.observedSessionId, observedSdkGeneration, fresh: reads.fresh }), [visible, readOnly, reads.activation, reads.observedSessionId, observedSdkGeneration, reads.fresh]);
+  const frame = useMemo(() => ({ visible, readOnly, activation: reads.activation, observedSessionId: reads.observedSessionId, observedSdkGeneration, fresh: reads.fresh, parentCurrent, parentActivation }), [visible, readOnly, reads.activation, reads.observedSessionId, observedSdkGeneration, reads.fresh, parentCurrent, parentActivation]);
   const view = controller.renderView(frame);
   useLayoutEffect(() => { controller.attach(); return () => controller.detach(); }, [controller]);
   const resource = (typeof window === "undefined" ? null : window.Clerk) as ResourceListener | null | undefined;

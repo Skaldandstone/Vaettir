@@ -129,10 +129,13 @@ test("display filtering keeps all keyed row components mounted and navigation on
     ),
     "utf8",
   );
-  assert.match(source, /data\.cases\.map\(\(tc\) =>/);
-  assert.match(source, /hidden=\{!manualRunCaseMatches/);
+  assert.match(source, /\(rows\.retained\?\.rows \?\? \[\]\)\.map\(\(tc\) =>/);
+  assert.match(source, /hidden=\{!readable \|\| !fresh\?\.cases\.some/);
+  assert.match(source, /\|\| !manualRunCaseMatches\(tc, caseSearch, caseFilter\)/);
   assert.doesNotMatch(source, /matchingCases\.map\(/);
-  assert.match(source, /navigationTarget && navigationRevision > 0/);
+  assert.match(source, /parentCurrent\(\) && navigationTarget && navigationRevision > focusedRevision\.current/);
+  assert.match(source, /focusedRevision\.current = navigationRevision/);
+  assert.match(source, /reader\.current\(\) === snapshot/);
   assert.match(source, /setExpanded\(true\)/);
 });
 test("manual cards open the execution record and expose truthful broader report routes", () => {
