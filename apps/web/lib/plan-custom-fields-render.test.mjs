@@ -58,6 +58,42 @@ test("actual generic row keys survive edits/removal/same-value echoes and reset 
   assert.deepEqual(elements(render(props())).filter(node => node.type === "textarea").map(node => node.props.value), values);
   assert.ok(Array.from(next).every(item => typeof item === "string"), "native writes never contain local row IDs");
 });
+test("actual state-owned row allocation never collides after repeated adds, removal or external replacement", () => {
+  const h = harness(), render = rowHost(h); let values = ["same", "same", "line\nnext", ""], next;
+  const props = () => ({ label: "Areas", hint: "Synthetic", values, onChange: value => { next = value; } });
+  const keys = nodes => nodes.filter(node => node.type === "div" && String(node.key).includes("synthetic-plan-row")).map(node => node.key);
+  let nodes = elements(render(props())), prior = keys(nodes);
+  const initial = [...prior];
+  for (let i = 0; i < 4; i++) {
+    nodes.find(node => node.type === "button" && !node.props["aria-label"]).props.onClick();
+    values = Array.from(next); nodes = elements(render(props()));
+    const current = keys(nodes);
+    assert.deepEqual(current.slice(0,-1), prior);
+    assert.equal(current.length, new Set(current).size);
+    assert.equal(prior.includes(current.at(-1)), false);
+    assert.deepEqual(values.slice(0,4), ["same", "same", "line\nnext", ""]);
+    prior = current;
+  }
+  nodes.find(node => node.type === "button" && node.props["aria-label"] === "Remove Areas row 2").props.onClick();
+  values = Array.from(next); nodes = elements(render(props()));
+  assert.deepEqual(keys(nodes), prior.filter((_, index) => index !== 1));
+  const retired = [...prior]; values = ["external", "snapshot", "snapshot"];
+  render(props()); nodes = elements(render(props()));
+  assert.equal(keys(nodes).some(key => retired.includes(key) || initial.includes(key)), false);
+  nodes.find(node => node.type === "button" && !node.props["aria-label"]).props.onClick();
+  values = Array.from(next); nodes = elements(render(props()));
+  assert.equal(keys(nodes).length, new Set(keys(nodes)).size);
+  assert.deepEqual(values, ["external", "snapshot", "snapshot", ""]);
+  assert.ok(values.every(value => typeof value === "string"), "Only native string values are emitted");
+});
+test("actual pure row allocator repeats exact identities without mutation during render preparation", () => {
+  const h = harness(), values = ["", "same", "same", "line\nnext"];
+  const first = h.planStringRowState(values, "synthetic-prefix", 9), second = h.planStringRowState(values, "synthetic-prefix", 9);
+  assert.deepEqual(first, second);
+  assert.deepEqual(Array.from(first.rows, row => row.id), ["synthetic-prefix:9", "synthetic-prefix:10", "synthetic-prefix:11", "synthetic-prefix:12"]);
+  assert.deepEqual(Array.from(first.rows, row => row.value), values);
+  assert.equal(first.nextId, 13); assert.deepEqual(values, ["", "same", "same", "line\nnext"]);
+});
 test("actual boolean/text handlers preserve native types and unknown siblings", () => {
   const h = harness(), values = { enabled: false, notes: " original\ntext, ", legacy: { retain: [null, 3] } }, changes = [];
   const props = { schema: { properties: { enabled: { type: "boolean" }, notes: { type: "string" } } }, values, onChange: value => changes.push(value) };

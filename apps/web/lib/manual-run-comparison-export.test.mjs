@@ -9,7 +9,7 @@ const side = { title: "=SUM(A1)", titleClipped: true, definitionHash: hash, outc
 const value = { projectId: "synthetic-project", organizationId: "synthetic-org", clerkActorId: "PRIVATE-ACTOR", requestId: "PRIVATE-REQUEST", requestKey: "PRIVATE-AUTH-ECHO", pairHash: hash, baseline: run, candidate: { ...run, id: "candidate" }, baselineSummary: summary, candidateSummary: summary, configuration: { baselineHash: hash, candidateHash: hash, sameRecordedConfiguration: true }, unionCaseCount: 851, items: [{ caseId: "case-1", currentCaseIdLabel: "TC-1", baseline: side, candidate: null, definitionState: "BASELINE_ONLY" }], nextCursor: { caseId: "case-1", expectedPairHash: hash }, limitations: ["Current recorded comparison, not verified recovery; not full history/media"] };
 test("CSV exports only this page, neutralizes formulas, marks clipped titles and preserves absent-scope distinction", () => {
   const csv = renderManualRunComparisonCsv(value);
-  assert.match(csv, /'\=SUM\(A1\)/);
+  assert.match(csv, /'=SUM\(A1\)/);
   assert.match(csv, /Baseline title is excerpt/);
   assert.match(csv, /,"true",/);
   assert.match(csv, /NOT_IN_SAVED_SCOPE/);
