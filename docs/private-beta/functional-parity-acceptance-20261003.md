@@ -1899,3 +1899,34 @@ session work, pass rate and readiness, rather than copying an unlabeled aggregat
 percentage. Only synthetic/vendor samples were used; no run or customer content
 was submitted. Earlier dated reporting complaints remain research signals, not
 current defect reproductions or unsupported market rankings.
+
+### October 6 reviewed placement prototype and retained native concurrency gate
+
+The additive placement service preserves exact raw NULL/empty/Unicode paths,
+stable IDs, hidden review-lane membership and complete bounded source/target
+metadata. It uses strict original organization/Clerk/native actor pins, current
+FULL write authorization, deterministic order review/CAS and a distinct versioned
+request hash/receipt in the existing native unique `CaseFolderWrite` store.
+Old folder receipt UUIDs are not adopted as new placement requests. Only placement
+fields and the intentional moving actor are changed; procedures/history remain
+separate. Independent schema/service mock checks passed 31, and 13 pure native
+fixture-safety checks passed. Types and owned lint passed.
+
+This is an UNMOUNTED prototype, not a safe drag/drop cutover. Its Repeatable Read
+snapshot begins before the project fence; existing-row locks/repeated reads do
+not establish exclusion of all outside-cohort suite-entry/unarchive writers.
+An existing INSERT identity trigger may cause an insert serialization refusal,
+but that does not clear the independent UPDATE paths. An all-writer, pre-tuple
+lock protocol plus a compatible post-fence snapshot must be reviewed across the
+actual callers before mounting this route. SERIALIZABLE alone, a late row trigger
+or an advisory lock acquired after the snapshot is not asserted as a solution.
+
+Three isolated native interleaving regressions are AUTHORED NOT RUN: genuine
+transaction B commits insert, suite-entry or unarchive changes while transaction
+A is paused after real native reads. They require a native CONFLICT with no
+placement receipt/audit rewrite. Exact loopback/named disposable database opt-in,
+synthetic ownership and separate backend identity are checked before operations;
+ordinary teardown disconnects without deleting evidence. These fixtures are not
+expected-pass mocks, skips or proof of current concurrency. The old placement
+callers and prior native failures remain intact. No native SQL or migration was
+executed, and no deployment gate is cleared by this source checkpoint.
