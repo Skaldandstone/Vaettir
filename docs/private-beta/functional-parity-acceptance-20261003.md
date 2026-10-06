@@ -1584,10 +1584,10 @@ native revision equality without treating a Prisma Date as plain JSON. The new
 namespace is not yet registered in this first-phase checkpoint; old step callers
 and UI remain unchanged. Native SQL and runtime behavior have not been exercised.
 
-The concurrent whole-case replacement is still in flight and excluded from this
-bounded recovery/step-source checkpoint. A full current Web Node run has five
-failing legacy source/render contracts around that changed component; they remain
-failed pending equivalent assertions against the reviewed replacement. The
+The concurrent whole-case replacement was still in flight and excluded from the
+bounded recovery/step-source checkpoint. Its initial full Web Node run had five
+failing legacy source/render contracts around that changed component, retained
+as failed evidence until equivalent assertions covered the replacement. The
 passing focused increments and 344 passing typed Web checks do not establish an
 all-green working tree, completed execution cutover or deployment.
 
@@ -1600,3 +1600,53 @@ ticket remains In Progress, with no new browser comment transmission in this
 follow-up. Qase's unsaved all-projects checkbox again timed out and remained
 checked; its per-project chooser interaction is not claimed verified. The dialog
 was canceled without saving, subscribing or changing trial data.
+
+### October 6 reviewed whole-case caller checkpoint
+
+The manual page's quick outcomes now open an explicit reviewed observation
+editor; they do not record an unversioned result or convert numbers. One mounted
+editor owns the raw note, absent/empty context and measurement buffers. Numeric
+blank, non-finite, inverted and precision-losing inputs refuse rather than becoming
+zero, an absent limit or rounded evidence. NULL notes remain distinct from exact
+empty/multiline text. Known historical context is friendly labelled prose beside
+the complete read-only JSON, including unknown roots/siblings. Saved procedure
+columns and BDD wording remain distinct from separate prerequisite cases.
+
+The additive exact server pathway admits the whole saved 1,000-case graph and
+bounded native observations without relaxing shared dataset/plan limits. New
+writes bind original native/org/Clerk authority, frozen procedure evidence and
+current result/head fingerprints. Receipt lookup follows current native author
+locks and precedes later body/status/cap admissions. Accepted parsed legacy
+receipts can recover without creating new legacy writes or fabricating old
+review provenance. Raw native JSON roundtrip refusal prevents uncertain facts
+being silently normalized, replaced or partially accepted. Friendly current
+display does not certify independent execution, defect healing or sign-off.
+
+Actual SDK resource observations and synchronous actions latch revoked native
+read nonces through A-B-A and close/reopen; only a new native read can restore
+that activation. Exact ACKs settle privately before current-frame callbacks.
+Closed status blocks new quick/step writes separately from same-UUID recovery;
+filter-hidden/collapsed rows retain mounted buffers without enabling their effects.
+Route-away/reload recovery is still unsupported. Legacy unversioned server routes
+and older whole-case API writes remain separate mixed-caller cutover work; removing
+the current page's old call is not proof every legacy write path is closed.
+
+Independent checks after the repair: 803 Node Web and 359 typed Web checks PASS,
+zero skips; 65 focused pure/mock API checks PASS (32 whole-case/legacy-schema and
+33 reviewed-step). API/Web types PASS. New whole-case production modules lint
+clean; the shared manual page retains its four previously disclosed warnings.
+The earlier five obsolete source/render contracts were reconciled against actual
+new readers/controller/request construction with equivalent or stronger scope,
+escaping, exact text/CAS/ACK assertions, not removed or waived. A later single
+source contract still expected the old hidden-row expression; the stronger
+hidden-row authority check is now asserted and the complete Node suite rerun.
+
+The reviewed-step protected namespace is now registered for the separately owned
+browser-helper phase; the StepExecutionPanel caller has not yet been cut over.
+New raw buffer/wire helpers remain outside this whole-case checkpoint until frozen.
+Simple linked-plan/type/org-label case-review V2 is also independently in flight;
+the prior case-review snapshot does not bind organization-custom step labels.
+New rendered whole-case fixtures are pending. No native SQL/concurrency, migrations,
+full runtime/image-security, authenticated production or deployment acceptance is
+established. Prior native failed evidence remains FAILED; no cloud, database,
+customer, provider or live identity/security operations were performed here.

@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+export { accessReviewedManualCaseResult, previewReviewedManualCaseResult, historyReviewedManualCaseResult, recordReviewedManualCaseResult } from "./manualCaseResultsReviewed.js";
 import { TRPCError } from "@trpc/server";
 import { Prisma, type PrismaClient } from "@vaettir/db";
 import { z } from "zod";

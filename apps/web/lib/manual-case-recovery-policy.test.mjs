@@ -23,12 +23,17 @@ test("running parent write freeze remains respected while restored running acces
   assert.equal(manualCaseRecoveryAllowed({ ...original, runStatus: "RUNNING", parentWriteDisabled: false }), true);
 });
 const ui = readFileSync(new URL("../components/ManualCaseResultHistory.tsx", import.meta.url), "utf8");
+const completion = readFileSync(new URL("./whole-case-reviewed-controller.ts", import.meta.url), "utf8");
+const reviewed = readFileSync(new URL("../../api/src/services/manualCaseResultsReviewed.ts", import.meta.url), "utf8");
 test("closed-run recovery resumes same reviewed attempt rather than building or rebasing a new correction", () => {
-  assert.match(ui, /exactRetainedRequest: !!attempt && sameScope/);
-  assert.match(ui, /attempt.testRunId === nativeOrigin.testRunId/);
-  assert.match(ui, /attempt.testCaseId === nativeOrigin.testCaseId/);
-  assert.match(ui, /\(!editor && !canRetryRetained\)/);
-  assert.match(ui, /attempt \?\? buildRequest\(\)/);
-  assert.match(ui, /Resume identical receipt recovery/);
-  assert.match(ui, /canInspectRetainedReceipt/);
+  const compact = completion.replace(/\s+/g, " ");
+  assert.match(compact, /canRetry: authorized && !this.busy && !!this.pending && same\(this.pending.origin, this.frame.origin\)/);
+  assert.match(compact, /const held = this.pending \?\? this.reviewed/);
+  assert.match(compact, /send\(held.request\)/);
+  assert.match(compact, /input.testRunId !== this.origin.testRunId/);
+  assert.match(compact, /input.testCaseId !== this.origin.testCaseId/);
+  assert.match(ui, /Recover identical observation UUID/);
+  assert.match(ui, /disabled=\{!view.canSubmit && !view.canRetry\}/);
+  assert.ok(reviewed.indexOf("return ack(receipt, true)") < reviewed.indexOf('identity.status !== "RUNNING"'));
+  assert.match(reviewed, /Legacy recovery cannot create a new write/);
 });

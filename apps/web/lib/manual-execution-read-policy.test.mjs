@@ -32,7 +32,7 @@ test("original actor/organization pin and fresh response gate protect reads and 
 });
 test("withheld case/step/retest content retains mounted original draft/request state instead of dropping rows", () => {
   assert.match(native, /\{readable\s*&&\s*\(?\s*<>/);
-  for (const text of ["readable={readable}", "readScope={readInput}", "active={readable && expanded && !stepMode}", "active={readable} canRetest", 'key={`${projectId}:${testRunId}:${tc.testCaseId}`}']) assert.ok(sourceCodeIncludes(native, text), text);
+  for (const text of ["readable={readable}", "readScope={readInput}", "active={readable && expanded && !hidden && !stepMode}", "active={readable} canRetest", 'key={`${projectId}:${testRunId}:${tc.testCaseId}`}']) assert.ok(sourceCodeIncludes(native, text), text);
   assert.ok(!native.includes("readable && data.cases.map"));
   assert.ok(sourceCodeIncludes(native, 'const [retainedNativeData, setRetainedNativeData] = useState<RouterOutputs["manualExecution"]["getForExecution"] | undefined>'));
   assert.ok(sourceCodeIncludes(native, "if (readable && dataQuery.data && retainedNativeData !== dataQuery.data) setRetainedNativeData(dataQuery.data)"));

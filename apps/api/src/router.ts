@@ -26,6 +26,7 @@ import { caseAuthoringPresetsRouter } from "./routers/caseAuthoringPresets.js";
 import { caseProcedureReimportRouter } from "./routers/caseProcedureReimport.js";
 import { manualRetestRouter } from "./routers/manualRetest.js";
 import { manualCaseResultsRouter } from "./routers/manualCaseResults.js";
+import { manualStepExecutionReviewRouter } from "./routers/manualStepExecutionReview.js";
 import { reportSnapshotsRouter } from "./routers/reportSnapshots.js";
 import {driveConnectionsRouter} from "./routers/driveConnections.js";
 import {linearConnectionsRouter} from "./routers/linearConnections.js";
@@ -100,6 +101,7 @@ export const appRouter = router({
   caseProcedureReimport: caseProcedureReimportRouter,
   manualRetest: manualRetestRouter,
   manualCaseResults: manualCaseResultsRouter,
+  manualStepExecutionReview: manualStepExecutionReviewRouter,
   reportSnapshots: reportSnapshotsRouter,
   driveConnections:driveConnectionsRouter,
   linearConnections:linearConnectionsRouter,
