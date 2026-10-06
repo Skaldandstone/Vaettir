@@ -1974,3 +1974,23 @@ The old server step route and remaining legacy native-fixture migrations are
 separate compatibility/recovery work, not declared safe or removed by this caller
 checkpoint. Prior failed native/runtime/image/security/recovery gates remain
 FAILED/open. Production parity and authenticated acceptance remain incomplete.
+
+### October 6 scoped case-history fixture source migration
+
+The existing native scope-history fixture now authors its three current positive
+observations through the frozen reviewed access/preview/EXACT helper. Historical
+unversioned evidence uses the explicitly owned test-only seed, not the retired
+mutable application writer. Exact named-disposable loopback opt-ins are required
+before the first database operation. Ordinary teardown retains minted rows,
+users, history and failures and disconnects only; this reader suite is not an
+organization-erasure scenario.
+
+Root independently reviewed the complete fixture, compared native test ASTs with
+the prior source and confirmed all 15 titles and all 51 full assertion chains
+unchanged. Population 20,001, metadata volume 450, raw configuration, UTC bounds,
+stable cursor, READ_ONLY, recorder and reparent expectations remain intact.
+Sixteen helper pure/mock checks, strict standalone fixture compile, owned lint
+and diff-check passed. The initial root strict-compile command used the workspace
+root without Node type definitions; rerunning in the API package context passed.
+All 15 native registrations remain AUTHORED NOT RUN. This preserves a compatible
+future runtime gate; it does not turn a source comparison into native acceptance.
