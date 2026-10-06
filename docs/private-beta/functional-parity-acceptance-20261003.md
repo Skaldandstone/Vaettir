@@ -2285,3 +2285,24 @@ Web typecheck, scoped caller/device lint and source-adoption checks passed.
 These include mocked actual-hook and static React-rendering fixtures, not a new
 browser-rendered/native SQL/performance/provider or authenticated production test.
 No deployment, customer mutation, processing permission or native gate was cleared.
+
+### October 6 reviewed-step native fixture support, authored not executed
+
+Two test-only helper files now prepare an exact immutable reviewed step envelope
+through actual service APIs after explicit owned-loopback admission, independent
+synthetic transport identity and native ownership/current FULL scope checks.
+Retries submit the same retained UUID/body without helper retries, serialization,
+new previews or altered recovered metadata. A distinct first historical seed
+retains original normalized legacy hashes and nullable aggregate semantics; it
+refuses occupied results, heads, revisions and reviewed UUID namespaces. It does
+not invent original Clerk/tenant provenance or disable native constraints.
+
+Root reviewed both files and repeated 78 new mocked/pure checks plus the existing
+16 whole-case fixture-helper checks; all 94 passed. API typecheck passed. These
+are injected source tests, not native SQL or concurrency proof. The original
+14-registration manual-step integration fixture remains byte-for-byte unchanged
+and unmigrated. Semantic BAD_REQUEST/CONFLICT, prerequisite/history/media,
+simultaneous receipt/correction and erasure acceptance remain separate gates.
+Erasure-containing future fixtures require separate explicit destructive admission
+before their first connection; this helper has no connection creation or erasure
+API. No native fixture, database creation, seed, deletion or migration ran here.
