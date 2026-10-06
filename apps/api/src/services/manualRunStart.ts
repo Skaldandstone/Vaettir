@@ -21,6 +21,10 @@ import {
   type ManualRunStartLegacyRawInput,
 } from "./manualRunStartLegacySchema.js";
 import { manualRunStartReviewedAuthenticatedSubject as identity } from "./manualRunStartReviewedWireSchema.js";
+import {
+  admitReviewedRunStart,
+  reviewedStartReceipt,
+} from "./manualRunStartReviewedAdmission.js";
 
 export type ManualRunStartContext = Context & {
   user: NonNullable<Context["user"]>;
@@ -188,6 +192,16 @@ export async function startManualRun(
   async function previousRunInTransaction(tx: Prisma.TransactionClient) {
     if (!durableId) return null;
     await tx.$queryRaw`SELECT id FROM "TestRun" WHERE id=${durableId} FOR SHARE`;
+    if (reviewed) {
+      const retained = await reviewedStartReceipt(
+        tx,
+        durableId,
+        input.projectId,
+        ctx.user.id,
+        startRequestHash,
+      );
+      return retained ? acknowledgeRun(retained) : null;
+    }
     const existing = await tx.testRun.findUnique({
       where: { id: durableId },
       select: {
@@ -241,13 +255,18 @@ export async function startManualRun(
         await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${input.projectId}))::text`;
         const replay = await previousRunInTransaction(tx);
         if (replay) return replay;
-        const project = await tx.project.findUnique({
-          where: { id: input.projectId },
-          select: {
-            qualityProfile: true,
-            organization: { select: { stepFieldLabels: true } },
-          },
-        });
+        const admitted = reviewed
+          ? await admitReviewedRunStart(tx, input)
+          : null;
+        const project = reviewed
+          ? admitted!.project
+          : await tx.project.findUnique({
+              where: { id: input.projectId },
+              select: {
+                qualityProfile: true,
+                organization: { select: { stepFieldLabels: true } },
+              },
+            });
         if (!project)
           throw new TRPCError({
             code: "NOT_FOUND",
@@ -265,9 +284,11 @@ export async function startManualRun(
           });
         }
         const plan = input.planReference
-          ? await tx.testPlan.findUnique({
-              where: { id: input.planReference.testPlanId },
-            })
+          ? reviewed
+            ? admitted!.plan
+            : await tx.testPlan.findUnique({
+                where: { id: input.planReference.testPlanId },
+              })
           : null;
         if (input.planReference && !plan)
           throw new TRPCError({
@@ -284,11 +305,13 @@ export async function startManualRun(
                 configuration,
               )
             : undefined;
-        const links = await tx.testCasePrerequisite.findMany({
-          where: { projectId: input.projectId },
-          select: { dependentId: true, prerequisiteId: true },
-          take: 10001,
-        });
+        const links = reviewed
+          ? admitted!.links
+          : await tx.testCasePrerequisite.findMany({
+              where: { projectId: input.projectId },
+              select: { dependentId: true, prerequisiteId: true },
+              take: 10001,
+            });
         if (links.length > 10000)
           throw new TRPCError({
             code: "BAD_REQUEST",
@@ -337,18 +360,20 @@ export async function startManualRun(
               });
           }
         }
-        const cases = await tx.testCase.findMany({
-          where: {
-            id: { in: ordered },
-            projectId: input.projectId,
-            archived: false,
-          },
-          include: {
-            steps: { orderBy: { order: "asc" } },
-            sharedStepGroup: true,
-            dataset: { select: { id: true } },
-          },
-        });
+        const cases = reviewed
+          ? admitted!.cases
+          : await tx.testCase.findMany({
+              where: {
+                id: { in: ordered },
+                projectId: input.projectId,
+                archived: false,
+              },
+              include: {
+                steps: { orderBy: { order: "asc" } },
+                sharedStepGroup: true,
+                dataset: { select: { id: true } },
+              },
+            });
         if (cases.length !== ordered.length) {
           throw new TRPCError({
             code: "BAD_REQUEST",

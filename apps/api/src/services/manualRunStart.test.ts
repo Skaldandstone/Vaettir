@@ -20,7 +20,11 @@ const mocks = vi.hoisted(() => ({
 }));
 vi.mock("@vaettir/db", () => ({
   Prisma: {
-    sql: (strings: TemplateStringsArray) => ({ sql: strings.join("") }),
+    sql: (strings: TemplateStringsArray, ...values: unknown[]) => ({
+      sql: strings.map((part, index) => part + (values[index] && typeof values[index] === "object" && "sql" in values[index] ? (values[index] as { sql: string }).sql : index < values.length ? "<parameter>" : "")).join(""),
+      values,
+    }),
+    join: (values: unknown[]) => ({ sql: values.map(() => "<parameter>").join(","), values }),
     PrismaClientKnownRequestError: mocks.KnownError,
   },
 }));
@@ -128,8 +132,28 @@ function fixture(request: ManualRunStartLegacyRawInput = raw) {
     return 0;
   });
   const query = vi.fn(
-    async (strings: TemplateStringsArray, ..._values: unknown[]) => {
-      const sql = strings.join("");
+    async (strings: TemplateStringsArray | { sql: string; values: unknown[] }, ..._values: unknown[]) => {
+      const sql = Array.isArray(strings) ? strings.join("") : (strings as { sql: string }).sql;
+      const stage = /reviewed-start-([\w-]+)/.exec(sql)?.[1];
+      if (stage) {
+        log.push(stage);
+        if (stage.endsWith("-size")) {
+          const key = stage.slice(0, -5);
+          const count = key === "receipt" ? state.existing ? 1n : 0n : key === "graph" ? BigInt(state.links.length) : key === "cases" ? BigInt(cases.length) : 1n;
+          const wire = key === "project" ? [JSON.stringify({ qualityProfile: state.profile, stepFieldLabels: {} })] : key === "cases" ? cases.map(value => JSON.stringify(value)) : key === "graph" ? state.links.map(value => JSON.stringify(value)) : [];
+          const bytes = wire.length ? BigInt(wire.reduce((total, body) => total + Buffer.byteLength(body, "utf8"), 0)) : count ? 200n : 0n;
+          return [{ count, bytes, invalid: false }];
+        }
+        if (stage === "receipt-scalars") {
+          const existing = state.existing;
+          return existing ? [{ id: existing.id, projectId: existing.projectId, startedById: existing.startedById, startRequestHash: (existing.executionContext as { startRequestHash: string }).startRequestHash }] : [];
+        }
+        if (stage === "project-body") return [{ body: JSON.stringify({ qualityProfile: state.profile, stepFieldLabels: {} }) }];
+        if (stage === "cases-body") return cases.map(value => ({ body: JSON.stringify(value) }));
+        if (stage === "project-exact") return [{ exact: true }];
+        if (stage === "case-exact") return [{ count: BigInt(cases.length), exact: true }];
+        throw Error("Unexpected synthetic reviewed SQL stage " + stage);
+      }
       if (sql.includes('FROM "Organization"')) {
         log.push("org");
         return [{ suspendedAt: state.suspended }];
@@ -289,7 +313,7 @@ function declarations(source: string, names: string[]) {
   visit(ast);
   return result;
 }
-function semantics(code: string) {
+function semantics(code: string, legacyReceiptOnly = false) {
   const ast = ts.createSourceFile(
     "semantic.ts",
     code,
@@ -300,6 +324,12 @@ function semantics(code: string) {
     if (ts.isParenthesizedExpression(node)) return visit(node.expression);
     const children: unknown[] = [];
     ts.forEachChild(node, (child) => {
+      if (legacyReceiptOnly && ts.isIfStatement(child) && child.expression.getText(ast) === "reviewed") {
+        // Verify the exact additive branch, then compare EVERY unchanged
+        // legacy receipt statement against the still-mounted original router.
+        expect(child.getText(ast).replace(/\s+/g, " ")).toBe("if (reviewed) { const retained = await reviewedStartReceipt(tx, durableId, input.projectId, ctx.user.id, startRequestHash); return retained ? acknowledgeRun(retained) : null; }");
+        return;
+      }
       children.push(visit(child));
     });
     return [
@@ -338,7 +368,7 @@ describe("unmounted manual run-start extraction (source/mock only)", () => {
         names,
       );
     for (const name of names)
-      expect(semantics(extracted[name]!), name).toEqual(
+      expect(semantics(extracted[name]!, name === "previousRunInTransaction"), name).toEqual(
         semantics(original[name]!),
       );
   });
@@ -444,7 +474,8 @@ describe("unmounted manual run-start extraction (source/mock only)", () => {
     await startManualRun(h.ctx, scoped, reviewed);
     expect(JSON.stringify(h.ctx.user)).toBe(before);
     expect(mocks.cached).not.toHaveBeenCalled();
-    expect(h.log.indexOf("user")).toBeLessThan(h.log.indexOf("receipt"));
+    expect(h.log.indexOf("user")).toBeLessThan(h.log.indexOf("receipt-size"));
+    expect(h.receipt).not.toHaveBeenCalled();
   });
   it.each([
     "projectId",
@@ -533,7 +564,9 @@ describe("unmounted manual run-start extraction (source/mock only)", () => {
       { code: "FORBIDDEN" },
     );
     expect(h.transaction).toHaveBeenCalledTimes(3);
-    expect(h.receipt).toHaveBeenCalledTimes(2);
+    expect(h.receipt).not.toHaveBeenCalled();
+    expect(h.log.filter(entry => entry === "receipt-size")).toHaveLength(2);
+    expect(h.log).not.toContain("receipt-scalars");
   });
   it("P2034/unknown errors remain original and are not retried by extraction", async () => {
     const h = fixture(scoped),
@@ -602,7 +635,9 @@ describe("unmounted manual run-start extraction (source/mock only)", () => {
       { code: "FORBIDDEN" },
     );
     expect(h.transaction).toHaveBeenCalledTimes(2);
-    expect(h.receipt).toHaveBeenCalledOnce();
+    expect(h.receipt).not.toHaveBeenCalled();
+    expect(h.log.filter(entry => entry === "receipt-size")).toHaveLength(1);
+    expect(h.log).not.toContain("receipt-scalars");
     expect(h.log).not.toContain("profile");
     expect(h.create).not.toHaveBeenCalled();
   });
@@ -612,7 +647,9 @@ describe("unmounted manual run-start extraction (source/mock only)", () => {
     h.create.mockRejectedValue(cause);
     await expect(startManualRun(h.ctx, scoped, reviewed)).rejects.toBe(cause);
     expect(h.transaction).toHaveBeenCalledTimes(2);
-    expect(h.receipt).toHaveBeenCalledTimes(2);
+    expect(h.receipt).not.toHaveBeenCalled();
+    expect(h.log.filter(entry => entry === "receipt-size")).toHaveLength(2);
+    expect(h.log).not.toContain("receipt-scalars");
   });
   it.each(["archived-or-missing", "review", "dataset", "cycle", "profile"])(
     "original %s refusal remains before create with no partial run",

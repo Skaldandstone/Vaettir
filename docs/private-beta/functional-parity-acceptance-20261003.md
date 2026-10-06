@@ -3030,3 +3030,43 @@ deployed identities or marking the whole parity effort complete. The update's
 async completion and exact content were fetched and verified. Root separately
 repeated 84 existing mocked retest transport/schema/large-scope checks across
 four files; this is not native database or current in-flight consumer proof.
+
+### October 6: reviewed run-start body admission
+
+The still-unmounted extracted writer now has a reviewed-only admission path.
+Under its existing locked authorization, exact receipt recovery reads bounded
+ID/project/starter/request-hash scalars rather than materializing a whole saved
+execution context. Accepted-UUID recovery does not require a newly supported
+profile, current procedure cohort or a new creation. The legacy branch keeps
+its original parsing, configuration normalization, hashing, ordering,
+acknowledgement, UUID and transaction/recovery behavior.
+
+For new reviewed starts, native graph/cohort/profile/template count, byte,
+type and relationship probes precede private JSON decoding. Narrow projections
+exclude unrelated custom/source/risk bodies. Shared procedures must belong to
+the same project and remain unarchived. Full supported cohort admission
+refuses unsupported precision or authored-field normalization; no partial
+subset or clipped procedure is substituted. Existing 1,000-case, 10,000-link,
+500-entry procedure and 2 MiB frozen-context limits remain. Equality checks
+are batched across at most 32 cases per probe; the synthetic 1,000-case test
+uses 32 probes, not evidence of native latency or concurrency acceptance.
+
+Known missing verification/step fields still have an explicitly supported
+legacy default interpretation. That distinction is currently internal, not
+persisted or consumer-visible; it cannot be advertised as arbitrary raw or
+lossless snapshot fidelity. Native JSONB equality can detect unsupported
+JavaScript numeric representation, not preserve every original decimal spelling.
+Unknown authored verification/step properties refuse instead of disappearing.
+
+Root checked the frozen source hashes and independently repeated 83 tests
+across three source/mocked suites, API types, strict standalone compilation of
+both modified test files and scoped lint with zero errors/warnings. Existing
+legacy AST comparisons now verify the exact additive reviewed receipt branch
+before comparing every unchanged legacy statement. Reviewed mocks model the
+new bounded SQL projection and its byte counts; original authorization,
+P2002/unknown recovery, hashes and receipt-first assertions remain enforced.
+Initial old-mock and branch-comparison failures, two Root adapter attempts and
+an initial BigInt test-title collection failure are preserved as failed evidence
+before correction. No native SQL, precision codec, concurrent commits, mounted
+transport/caller or production acceptance is established. Reviewed transport
+and retained caller cutover continue separately; no deployment occurred.
