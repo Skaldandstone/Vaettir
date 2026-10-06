@@ -1681,3 +1681,44 @@ Independent focused checks: 72 pure/mock API and 75 actual renderer/controller/
 reader Web checks PASS; API/Web types and scoped production lint PASS. These are
 source and synthetic SSR checks, not native SQL/concurrency, authenticated browser,
 runtime/security, deployment or exhaustive competitor parity acceptance.
+
+### October 6 legacy outcome cutover and reviewed step browser foundations
+
+The unversioned `manualExecution.recordResult` endpoint now refuses before any
+database access. Its old parser/protected transport and result wire type remain,
+but a matching current result is not an immutable receipt or permission to
+overwrite evidence. No request is forwarded with an invented UUID, and no
+healing or flaky-state side effect is inferred from a human observation.
+
+The old whole-case `recordManualCaseResult` adapter preserves its historical
+parser, canonical key/hash and acknowledgement shape. It now delegates only
+LEGACY_PARSED recovery to the reviewed service: current original FULL/native
+actor/Clerk/organization authorization precedes receipt lookup, and an exact
+accepted UUID can recover before later run completion or unsupported/oversized
+private bodies. A missing or mismatched receipt cannot create a new observation.
+Positive native integration fixtures using retired writes still need explicit
+reviewed-path migration; historical synthetic seeds must remain test-only, not
+a production compatibility bypass. That fixture work is authored separately
+and is not covered by the pure/mock proof below.
+
+Additive step browser helpers decode actual ISO-string JSON timestamps and keep
+raw NULL/empty/multiline notes, context, exact numeric entry buffers and selected
+evidence identities. Explicit Review Current binds original native scope and
+the complete frozen procedure/current revision. UNKNOWN requests retain their
+UUID/hash/body/reviewed session, and a renewed browser session cannot silently
+adopt an unsent review. SDK-only movement revokes stale native activations;
+matching late acknowledgements settle privately before any refresh callback.
+Root review caught a refused-preview Refresh dead end; a current explicit read
+retry now requests a new nonce without relying on stale body/write authority.
+These helpers are not yet the StepExecutionPanel caller cutover. Existing step
+history/evidence read contracts and caller visibility wiring remain open.
+
+Independent final source checks: 803 Node plus 418 typed Web checks (44 typed
+suites) PASS, zero skips; 44 selected legacy/reviewed whole-case API checks and
+33 reviewed-step API checks PASS; API/Web types PASS. Scoped owned lint is
+clean. An ignored actual-component whole-case browser fixture additionally
+checked retained raw buffers, exact lost-ACK retry after fake run completion,
+SDK-only authority revocation and explicit known-receipt refresh using fake RPC
+and authentication only. This is not native SQL, production authentication,
+device/runtime/security, migration/recovery or deployment proof. Earlier failed
+native gates remain FAILED; no release gate was waived.

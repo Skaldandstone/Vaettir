@@ -33,7 +33,6 @@ import {
 } from "../services/qualityExperienceProfile.js";
 import {
   manualRunStatus,
-  measurementVerdict,
   observationsSchema,
   verificationProfileSchema,
   validationDomainSchema,
@@ -41,7 +40,6 @@ import {
 import {
   boundedCurrentStepBytes,
   frozenStructuredCase,
-  protectExecutedDependents,
   recordManualStepResult,
   recordStepResultInputSchema,
   safeEvidenceFileName,
@@ -904,10 +902,9 @@ export const manualExecutionRouter = router({
       );
     }),
 
-  // Idempotent by design: re-recording a case already executed in this
-  // run updates the existing TestResult in place rather than creating a
-  // duplicate - a tester correcting a mis-click, or deliberately
-  // re-verifying, shouldn't fork the run's own record of "what happened."
+  // This historical endpoint has no reviewed UUID, frozen-procedure CAS or
+  // immutable correction receipt. A matching current result is not recovery
+  // proof. Keep its input/wire shape for older callers but refuse before DB.
   recordResult: protectedProcedure
     .input(
       z.object({
@@ -918,153 +915,12 @@ export const manualExecutionRouter = router({
         observations: observationsSchema.optional(),
       }),
     )
-    .mutation(async ({ ctx, input }) => {
-      const authorizedRun = await ctx.prisma.testRun.findUniqueOrThrow({
-        where: { id: input.testRunId },
+    .output(z.object({ id: z.string(), status: z.enum(["PASS", "FAIL", "BLOCKED", "SKIP"]) }))
+    .mutation(() => {
+      throw new TRPCError({
+        code: "PRECONDITION_FAILED",
+        message: "Unversioned manual outcomes are no longer writable. Open the current run and explicitly review an immutable case or step observation. No result was changed, inferred as recovered or forwarded with a new receipt.",
       });
-      await requireProjectAccess(ctx, authorizedRun.projectId, "EDITOR");
-
-      const result = await ctx.prisma.$transaction(async (tx) => {
-        // Serialize result changes and completion for this run, including parallel
-        // tabs. This also prevents duplicate first-result inserts.
-        await tx.$queryRaw`SELECT id FROM "TestRun" WHERE id = ${input.testRunId} FOR UPDATE`;
-        const run = await tx.testRun.findUniqueOrThrow({
-          where: { id: input.testRunId },
-        });
-        await requireCurrentPlanAccess(tx, ctx.user.id, run.projectId, true);
-
-        if (run.ciProvider !== "manual" || run.status !== "RUNNING") {
-          throw new TRPCError({
-            code: "BAD_REQUEST",
-            message: "Only an active manual run can accept results",
-          });
-        }
-
-        if (!run.manualTestCaseIds.includes(input.testCaseId)) {
-          throw new TRPCError({
-            code: "BAD_REQUEST",
-            message: "That test case isn't part of this run's planned scope",
-          });
-        }
-
-        // Current run lock serializes first history activation with legacy writes.
-        // Refuse before loading the native observation body or changing its verdict.
-        if (
-          await tx.manualCaseResultHead.count({
-            where: { testRunId: run.id, testCaseId: input.testCaseId },
-          })
-        )
-          throw new TRPCError({
-            code: "CONFLICT",
-            message:
-              "This case has immutable whole-case observation history. Review its current result and record a reasoned correction instead of overwriting it.",
-          });
-        const existing = await tx.testResult.findFirst({
-          where: { testRunId: input.testRunId, testCaseId: input.testCaseId },
-        });
-        if (
-          await tx.manualStepResultHead.count({
-            where: { testRunId: run.id, testCaseId: input.testCaseId },
-          })
-        )
-          throw new TRPCError({
-            code: "CONFLICT",
-            message:
-              "This case is being executed per step. Record or correct its step outcomes; the derived case verdict cannot be overwritten.",
-          });
-
-        const prerequisites = z
-          .record(z.array(z.string()))
-          .parse(run.manualPrerequisites);
-        const requiredIds = prerequisites[input.testCaseId] ?? [];
-        if (
-          input.status !== "BLOCKED" &&
-          input.status !== "SKIP" &&
-          requiredIds.length
-        ) {
-          const passed = await tx.testResult.findMany({
-            where: {
-              testRunId: run.id,
-              testCaseId: { in: requiredIds },
-              status: "PASS",
-            },
-            select: { testCaseId: true },
-          });
-          if (passed.length !== requiredIds.length) {
-            throw new TRPCError({
-              code: "BAD_REQUEST",
-              message:
-                "Complete all prerequisite cases with Pass before executing this case.",
-            });
-          }
-        }
-        if (existing?.status === "PASS" && input.status !== "PASS") {
-          await protectExecutedDependents(tx, run, input.testCaseId);
-          const dependents = Object.entries(prerequisites)
-            .filter(([, ids]) => ids.includes(input.testCaseId))
-            .map(([id]) => id);
-          const executedDependents = await tx.testResult.count({
-            where: {
-              testRunId: run.id,
-              testCaseId: { in: dependents },
-              status: { in: ["PASS", "FAIL"] },
-            },
-          });
-          if (executedDependents) {
-            throw new TRPCError({
-              code: "CONFLICT",
-              message:
-                "A dependent case has already run. Correct or reset it before changing this prerequisite result.",
-            });
-          }
-        }
-
-        const observations =
-          input.observations ??
-          observationsSchema.parse(existing?.observations ?? {});
-        if (
-          input.status === "PASS" &&
-          observations.measurements.some(
-            (m) => measurementVerdict(m) === "OUT_OF_RANGE",
-          )
-        ) {
-          throw new TRPCError({
-            code: "BAD_REQUEST",
-            message:
-              "A reading is outside its recorded limits. Review the evidence or record Fail instead of Pass.",
-          });
-        }
-
-        const result = existing
-          ? await tx.testResult.update({
-              where: { id: existing.id },
-              data: {
-                status: input.status,
-                note: input.note ?? null,
-                observations,
-              },
-            })
-          : await tx.testResult.create({
-              data: {
-                testRunId: input.testRunId,
-                testCaseId: input.testCaseId,
-                status: input.status,
-                note: input.note ?? null,
-                observations,
-              },
-            });
-
-        return result;
-      });
-
-      // Same real-time signals a CI-ingested result already triggers
-      // (P5-05, P6.5-04) - a manually-recorded PASS/FAIL is just as real.
-      await recomputeFlaky(ctx.prisma, input.testCaseId);
-      if (input.status === "PASS") {
-        await resolveHealingSuggestionsOnPass(ctx.prisma, input.testCaseId);
-      }
-
-      return { id: result.id, status: result.status };
     }),
 
   // Aggregate status mirrors ingestJUnit's own rollup rule exactly (any

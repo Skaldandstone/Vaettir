@@ -7,22 +7,34 @@ const access = readFileSync(new URL("./use-whole-case-reviewed-access.ts", impor
 const completion = readFileSync(new URL("./whole-case-reviewed-controller.ts", import.meta.url), "utf8");
 const exactDraft = readFileSync(new URL("./whole-case-reviewed-draft.ts", import.meta.url), "utf8");
 const service = readFileSync(new URL("../../api/src/services/manualCaseResults.ts", import.meta.url), "utf8");
+const reviewedService = readFileSync(new URL("../../api/src/services/manualCaseResultsReviewed.ts", import.meta.url), "utf8");
 const migration = readFileSync(new URL("../../../packages/db/prisma/migrations/20261004080000_manual_case_result_history/migration.sql", import.meta.url), "utf8");
 const erasure = readFileSync(new URL("../../api/src/services/manualCaseResultErasure.ts", import.meta.url), "utf8");
 const orgErasure = readFileSync(new URL("../../api/src/services/orgHardDelete.ts", import.meta.url), "utf8");
 test("original scope and deterministic current native CAS precede private result replacement", () => {
-  for (const literal of ["lockManualRetestAccess", "run.projectId !== input.projectId", "input.expectedCurrentFingerprint", "state.head?.currentRevisionId", "manualStepResultHead.count", "size.count > 1"]) assert.ok(service.includes(literal), literal);
-  const record = service.slice(service.indexOf("export async function recordManualCaseResult"));
-  assert.ok(record.indexOf("accessRun") < record.indexOf("const receipt ="));
-  assert.ok(record.indexOf("return acknowledgement(receipt, true)") < record.indexOf("const [historySize]"));
-  assert.ok(record.includes("historySize.count >= 10000")); assert.ok(record.includes("16n * 1024n * 1024n"));
-  assert.ok(record.includes("const [incomingSize]"));
-  assert.ok(record.includes("JSON.stringify(input.observations)}::jsonb::text"));
-  assert.ok(record.includes("const payloadBytes = Number(incomingSize.bytes)"));
+  const complete = reviewedService.replace(/\s+/g, " ");
+  for (const literal of ["lockManualRetestAccess", "row.projectId !== input.projectId", "input.expectedNativeActorId !== scope.actorId", "envelope.expectedCurrentFingerprint", "state.head?.currentRevisionId", "manualStepResultHead.count", "size.count > 1", "frozen.frozenEvidenceHash !== envelope.expectedFrozenEvidenceHash", "observations IS NOT DISTINCT FROM ${safeJson(result.observations)}::jsonb"]) assert.ok(complete.includes(literal), literal);
+  const record = complete.slice(complete.indexOf("export async function recordReviewedManualCaseResult"));
+  const auth = record.indexOf("await lockedScope"), receipt = record.indexOf("const receipt ="), replay = record.indexOf("return ack(receipt, true)"), recoveryOnly = record.indexOf('if (envelope.mode !== "EXACT")'), privateRun = record.indexOf("await lockRunIdentity"), cumulative = record.indexOf("const [history]"), current = record.indexOf("state = await currentState"), replace = record.indexOf("await tx.testResult.create");
+  assert.ok(auth >= 0 && receipt > auth && replay > receipt && recoveryOnly > replay && privateRun > recoveryOnly && cumulative > privateRun && current > cumulative && replace > current, "Current original FULL/native authorization and exact recovery precede new-body admission/CAS/writes");
+  assert.ok(record.includes("receipt.actorClerkUserId !== actor.clerkUserId"));
+  assert.ok(record.includes("receipt.requestHash !== requestHash"));
+  assert.ok(record.includes("history.count >= 10000")); assert.ok(record.includes("16n * 1024n * 1024n"));
+  assert.ok(record.includes("const [incoming]"));
+  assert.ok(record.includes("JSON.stringify(envelope.observations)}::jsonb::text"));
+  assert.ok(record.includes("payloadBytes: Number(incoming.bytes)"));
+  assert.ok(record.indexOf("history.bytes + incoming.bytes") < replace, "Actual native jsonb bytes admit the complete incoming revision before the first observation write");
+  const adapter = service.slice(service.indexOf("export async function recordManualCaseResult"));
+  assert.ok(adapter.includes("manualCaseResultWriteSchema.parse(raw)"));
+  assert.ok(adapter.includes('mode: "LEGACY_PARSED"'));
+  assert.ok(adapter.includes("expectedNativeActorId: actor.id"));
+  assert.ok(adapter.includes("manualCaseResultAckSchema.parse(legacyAcknowledgement)"));
+  assert.doesNotMatch(adapter, /testResult\.(create|update)|manualCaseResult(Head|Revision)\.(create|update)|randomUUID/);
 });
 test("immutable prior payload and unknown legacy recorder/time are not fabricated earlier revisions", () => {
-  for (const literal of ["UNVERSIONED_OBSERVATION_CAPTURED_NOW", "originalRecorder: null", "originalRecordedAt: null", "observations: state.result.observations", "previousRevisionId: state.head?.currentRevisionId ?? null", "input.correctionReason"]) assert.ok(service.includes(literal), literal);
-  assert.ok(!service.includes("recomputeFlaky")); assert.ok(!service.includes("resolveHealingSuggestionsOnPass"));
+  const record = reviewedService.replace(/\s+/g, " ");
+  for (const literal of ["UNVERSIONED_OBSERVATION_CAPTURED_NOW", "originalRecorder: null", "originalRecordedAt: null", "observations: state.result.observations", "previousRevisionId: state.head?.currentRevisionId ?? null", "input.correctionReason", "Retained unknown or incompatible observation fields cannot be silently replaced."]) assert.ok(record.includes(literal), literal);
+  for (const source of [service, reviewedService]) { assert.ok(!source.includes("recomputeFlaky")); assert.ok(!source.includes("resolveHealingSuggestionsOnPass")); }
 });
 test("database final projection and whole-org erasure guard have no session bypass/backfill", () => {
   for (const literal of ["DEFERRABLE INITIALLY DEFERRED", "manual_case_projection_required", "manual_case_revision_immutable", "manual_case_head_progression", "manual_case_cumulative_bound", "manual_case_tenant_erasure_only", 'WHERE id=OLD."organizationId"', 'WHERE id=OLD."testResultId"']) assert.ok(migration.includes(literal), literal);

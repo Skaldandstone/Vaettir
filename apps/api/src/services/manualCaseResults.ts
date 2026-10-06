@@ -1,23 +1,15 @@
 import { createHash } from "node:crypto";
+import { recordReviewedManualCaseResult } from "./manualCaseResultsReviewed.js";
 export { accessReviewedManualCaseResult, previewReviewedManualCaseResult, historyReviewedManualCaseResult, recordReviewedManualCaseResult } from "./manualCaseResultsReviewed.js";
 import { TRPCError } from "@trpc/server";
 import { Prisma, type PrismaClient } from "@vaettir/db";
-import { z } from "zod";
 import { lockManualRetestAccess } from "./manualRetestScope.js";
-import { measurementVerdict } from "./physicalValidation.js";
 import { qualityProfileHash } from "./qualityExperienceProfile.js";
-import { retestClosure } from "./manualRetest.js";
-import { protectExecutedDependents, requirePassedPrerequisites } from "./manualStepExecution.js";
 import { manualCaseObservationSchema, manualCaseResultReadKey, manualCaseResultWriteKey, manualCaseResultWriteSchema, manualCaseResultRevisionOutputSchema,
   manualCaseResultReadSchema, manualCaseResultHistorySchema, manualCaseResultPreviewOutputSchema, manualCaseResultHistoryOutputSchema, manualCaseResultAckSchema, type ManualCaseResultRead, type ManualCaseResultWrite } from "./manualCaseResultSchema.js";
 const fail = (message: string, code: "BAD_REQUEST" | "CONFLICT" | "FORBIDDEN" | "NOT_FOUND" = "BAD_REQUEST"): never => { throw new TRPCError({ code, message }); };
 const limitations = ["Whole-case human observation revisions are not step revisions or new executions.", "Legacy prior evidence is captured at first correction; its original recorder and time remain unknown.", "A corrected Pass does not verify a defect fix, mitigation, release readiness or qualified regulatory approval."];
 const byteSize = (value: unknown) => Buffer.byteLength(JSON.stringify(value), "utf8");
-function boundedActorLabel(name: string | null) {
-  let label = "";
-  for (const character of name?.trim() ?? "") { if (label.length + character.length > 200) break; label += character; }
-  return label || "Workspace member";
-}
 export const manualCaseResultRequestHash = (input: ManualCaseResultWrite) => createHash("sha256").update(manualCaseResultWriteKey(input)).digest("hex");
 
 async function accessRun(tx: Prisma.TransactionClient, actor: { id: string; clerkUserId: string }, input: ManualCaseResultRead, write: boolean) {
@@ -91,60 +83,15 @@ export async function historyManualCaseResult(db: PrismaClient, actor: { id: str
   }, { isolationLevel: "RepeatableRead", timeout: 20000 });
 }
 export async function recordManualCaseResult(db: PrismaClient, actor: { id: string; clerkUserId: string }, raw: ManualCaseResultWrite) {
-  const input = manualCaseResultWriteSchema.parse(raw), requestHash = manualCaseResultRequestHash(input);
-  if (byteSize(input) > 256 * 1024) return fail("Entered case observations exceed the bounded review.");
-  const execute = () => db.$transaction(async tx => {
-    const access = await accessRun(tx, actor, input, true);
-    const receipt = await tx.manualCaseResultRevision.findUnique({ where: { organizationId_actorId_idempotencyKey: { organizationId: access.scope.organizationId, actorId: actor.id, idempotencyKey: input.idempotencyKey } }, select: { id: true, projectId: true, testRunId: true, testCaseId: true, testResultId: true, revisionNumber: true, requestHash: true, actorClerkUserId: true } });
-    const acknowledgement = (r: { id: string; testResultId: string; revisionNumber: number }, recovered: boolean) => manualCaseResultAckSchema.parse({ scope: access.scope, testRunId: input.testRunId, testCaseId: input.testCaseId, resultId: r.testResultId, revisionId: r.id, revisionNumber: r.revisionNumber, idempotencyKey: input.idempotencyKey, requestHash, recovered });
-    if (receipt) {
-      if (receipt.projectId !== input.projectId || receipt.testRunId !== input.testRunId || receipt.testCaseId !== input.testCaseId || receipt.actorClerkUserId !== actor.clerkUserId || receipt.requestHash !== requestHash)
-        return fail("This original actor UUID belongs to a different reviewed observation. It was not replaced.", "CONFLICT");
-      return acknowledgement(receipt, true); // Successful receipt independent of later completion/current head.
-    }
-    if (access.run.status !== "RUNNING") return fail("Only an active manual execution can accept a new observation revision. Prior receipts and history remain available.");
-    const state = await currentState(tx, input);
-    if ((state.head?.currentRevisionId ?? null) !== input.expectedRevisionId || state.fingerprint !== input.expectedCurrentFingerprint)
-      return fail("The current case observation changed. Retain your draft, refresh, and explicitly review a new correction; nothing was overwritten.", "CONFLICT");
-    if (state.result && !input.correctionReason) return fail("Explain the reason for correcting the existing observation. Earlier evidence is retained.");
-    if ((state.head?.revisionCount ?? 0) >= 100) return fail("This case reached its 100-revision bound. Start a new run rather than replacing history.");
-    // Run UPDATE lock covers a cumulative persisted-history cap, not merely
-    // current-head sizes. Successful receipts above remain recoverable at cap.
-    const [historySize] = await tx.$queryRaw<Array<{ count: number; bytes: bigint }>>`SELECT count(*)::int AS count,coalesce(sum(octet_length(concat(note,observations::text,"legacyPrior"::text,"actorLabel","correctionReason"))+2048),0)::bigint AS bytes FROM "ManualCaseResultRevision" WHERE "testRunId"=${input.testRunId}`;
-    if (!historySize || historySize.count >= 10000 || historySize.bytes > 16n * 1024n * 1024n) return fail("This run reached its cumulative 10,000-revision or 16 MiB history bound. Exact prior receipts remain recoverable; start a new run instead of expanding retained history.");
-    const run = await tx.testRun.findUniqueOrThrow({ where: { id: input.testRunId }, select: { id: true, manualPrerequisites: true, manualTestCaseIds: true } });
-    const graph = z.record(z.array(z.string().min(1).max(200)).max(500)).parse(run.manualPrerequisites);
-    if (Object.keys(graph).length > 500 || Object.values(graph).reduce((n, ids) => n + ids.length, 0) > 10000) return fail("Prerequisite references exceed the bounded case review.");
-    const closure = retestClosure(run.manualTestCaseIds, run.manualPrerequisites, input.testCaseId);
-    if ((await tx.testCase.count({ where: { projectId: input.projectId, id: { in: closure.ordered } } })) !== closure.ordered.length) return fail("The frozen prerequisite scope contains unavailable or foreign current case identities. No foreign evidence was used.");
-    await requirePassedPrerequisites(tx, run, input.testCaseId, input.status);
-    if (state.result?.status === "PASS" && input.status !== "PASS") await protectExecutedDependents(tx, run, input.testCaseId);
-    if (input.status === "PASS" && input.observations.measurements.some(m => measurementVerdict(m) === "OUT_OF_RANGE")) return fail("A measured value is outside its recorded limits; it cannot be marked Pass.");
-    const native = state.result ?? await tx.testResult.create({ data: { testRunId: input.testRunId, testCaseId: input.testCaseId, status: input.status, note: input.note, observations: input.observations } });
-    const legacyPrior = state.result && !state.head ? { basis: "UNVERSIONED_OBSERVATION_CAPTURED_NOW", originalRecorder: null, originalRecordedAt: null,
-      captured: { resultId: state.result.id, status: state.result.status, note: state.result.note, observations: state.result.observations } } : null;
-    const actorRow = await tx.user.findUniqueOrThrow({ where: { id: actor.id }, select: { name: true } });
-    const actorLabel = boundedActorLabel(actorRow.name);
-    // Match stored PostgreSQL jsonb text bytes, not compact JavaScript JSON:
-    // jsonb formatting can expand a valid many-reading observation materially.
-    const [incomingSize] = await tx.$queryRaw<Array<{ bytes: bigint }>>`SELECT (octet_length(concat(${input.note}::text,${JSON.stringify(input.observations)}::jsonb::text,${legacyPrior === null ? null : JSON.stringify(legacyPrior)}::jsonb::text,${actorLabel}::text,${input.correctionReason}::text))+2048)::bigint AS bytes`;
-    if (!incomingSize || incomingSize.bytes < 2048n || incomingSize.bytes > 256n * 1024n) return fail("The complete incoming observation exceeds the bounded persisted evidence view. Nothing was replaced.");
-    const payloadBytes = Number(incomingSize.bytes);
-    if (historySize.bytes + BigInt(payloadBytes) > 16n * 1024n * 1024n) return fail("This correction would exceed the run's cumulative 16 MiB retained-history bound. Previous evidence and receipts remain unchanged.");
-    const total = await tx.manualCaseResultHead.aggregate({ where: { testRunId: input.testRunId }, _sum: { currentPayloadBytes: true } });
-    if (payloadBytes > 256 * 1024 || (total._sum.currentPayloadBytes ?? 0) - (state.head?.currentPayloadBytes ?? 0) + payloadBytes > 4 * 1024 * 1024)
-      return fail("This revision or run's current observations exceed the bounded evidence view. Nothing was replaced.");
-    const revision = await tx.manualCaseResultRevision.create({ data: { organizationId: access.scope.organizationId, projectId: input.projectId, testRunId: input.testRunId, testCaseId: input.testCaseId, testResultId: native.id,
-      revisionNumber: (state.head?.revisionCount ?? 0) + 1, status: input.status, note: input.note, observations: input.observations,
-      legacyPrior: legacyPrior ?? Prisma.DbNull, correctionReason: input.correctionReason, actorId: actor.id, actorClerkUserId: actor.clerkUserId, actorLabel,
-      previousRevisionId: state.head?.currentRevisionId ?? null, idempotencyKey: input.idempotencyKey, requestHash, payloadBytes } });
-    // Explicit branch avoids native INSERT ... ON CONFLICT firing first-head
-    // BEFORE INSERT validation on a later correction. Run lock serializes both.
-    if (state.head) await tx.manualCaseResultHead.update({ where: { testRunId_testCaseId: { testRunId: input.testRunId, testCaseId: input.testCaseId } },
-      data: { currentRevisionId: revision.id, revisionCount: revision.revisionNumber, currentPayloadBytes: payloadBytes } });
-    else await tx.manualCaseResultHead.create({ data: { organizationId: access.scope.organizationId, projectId: input.projectId, testRunId: input.testRunId, testCaseId: input.testCaseId, testResultId: native.id, currentRevisionId: revision.id, revisionCount: revision.revisionNumber, currentPayloadBytes: payloadBytes } });
-    if (state.result) await tx.testResult.update({ where: { id: native.id }, data: { status: input.status, note: input.note, observations: input.observations } });
-    return acknowledgement(revision, false);
-  }, { isolationLevel: "RepeatableRead", timeout: 20000 });
-  try { return await execute(); } catch (e) { if (e instanceof Prisma.PrismaClientKnownRequestError && ["P2002", "P2034"].includes(e.code)) return execute(); throw e; }
+  // Keep the historical parser and canonical request key exactly. This adapter
+  // authorizes recovery only; it must not recreate unreviewed legacy writes or
+  // read later run/body limits before an already accepted actor UUID.
+  const request = manualCaseResultWriteSchema.parse(raw);
+  const acknowledgement = await recordReviewedManualCaseResult(db, actor, {
+    mode: "LEGACY_PARSED",
+    expectedNativeActorId: actor.id,
+    request,
+  });
+  const { mode: _mode, ...legacyAcknowledgement } = acknowledgement;
+  return manualCaseResultAckSchema.parse(legacyAcknowledgement);
 }

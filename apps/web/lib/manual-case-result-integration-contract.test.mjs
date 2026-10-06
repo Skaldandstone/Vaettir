@@ -32,18 +32,15 @@ test("step mode refuses tracked whole-case evidence after recovering original re
   assert.match(record.slice(guard, procedure), /code: "CONFLICT"/);
 });
 
-test("legacy manual writes refuse tracked observations under the run lock before private body materialization", () => {
+test("all unversioned manual writes refuse before private state; existing rows cannot stand in for missing receipts", () => {
   const start = legacy.indexOf("recordResult:");
   assert.ok(start >= 0);
-  const body = legacy.slice(start);
-  const lock = body.indexOf('SELECT id FROM "TestRun"');
-  const access = body.indexOf("await requireCurrentPlanAccess");
-  const planned = body.indexOf("run.manualTestCaseIds.includes");
-  const guard = body.indexOf("await tx.manualCaseResultHead.count");
-  const privateRead = body.indexOf("const existing = await tx.testResult.findFirst");
-  assert.ok(lock >= 0 && access > lock && planned > access && guard > planned && privateRead > guard);
-  assert.match(body.slice(guard, privateRead), /code: "CONFLICT"/);
-  assert.match(body.slice(guard, privateRead), /immutable whole-case observation history/);
+  const body = legacy.slice(start, legacy.indexOf("// Aggregate status mirrors", start));
+  assert.match(body, /recordResult: protectedProcedure/);
+  assert.match(body, /code: "PRECONDITION_FAILED"/);
+  assert.match(body, /No result was changed, inferred as recovered or forwarded with a new receipt/);
+  assert.doesNotMatch(body, /ctx\.prisma|\$transaction|testResult\.|recomputeFlaky|resolveHealingSuggestionsOnPass/);
+  assert.doesNotMatch(body, /randomUUID|recordReviewedManualCaseResult/);
 });
 test("exact original history metadata is previewed and unsupported scope refuses before all child deletions", () => {
   assert.match(erasure, /manualCaseResultScope: \{/);

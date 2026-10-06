@@ -30,6 +30,11 @@ export type ReviewedStepPreviewInput = z.infer<typeof reviewedStepPreviewInputSc
 export type ReviewedStepWriteInput = z.infer<typeof reviewedStepWriteInputSchema>;
 export type ReviewedStepPreview = z.infer<typeof reviewedStepPreviewOutputSchema>;
 export type ReviewedStepAck = z.infer<typeof reviewedStepAckSchema>;
+// Browser wire shape is additive. The server's Date DTO remains unchanged;
+// JSON transport has no SuperJSON and must not pretend a received string is Date.
+const reviewedStepWireTimestamp = z.string().regex(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/).refine(value => { const parsed = new Date(value); return Number.isFinite(parsed.getTime()) && parsed.toISOString() === value; }, "Unsupported timestamp representation.");
+export const reviewedStepWirePreviewSchema = reviewedStepPreviewOutputSchema.extend({ current: reviewedStepCurrentSchema.omit({ recordedAt: true }).extend({ recordedAt: reviewedStepWireTimestamp }).nullable() });
+export type ReviewedStepWirePreview = z.infer<typeof reviewedStepWirePreviewSchema>;
 /** Complete reviewed envelope; old normalized step receipt hash is separate. */
 export function reviewedStepWriteKey(value: ReviewedStepWriteInput) { return JSON.stringify({ projectId: value.projectId, testRunId: value.testRunId, testCaseId: value.testCaseId, stepIndex: value.stepIndex,
   originalOrganizationId: value.originalOrganizationId, expectedClerkActorId: value.expectedClerkActorId, expectedNativeActorId: value.expectedNativeActorId,
