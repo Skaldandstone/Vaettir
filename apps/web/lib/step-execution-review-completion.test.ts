@@ -7,19 +7,38 @@ const scope = { projectId: "p", organizationId: "o", actorId: "n", actorClerkUse
 const buffer = (): StepReviewBuffer => ({ status: "PASS", note: " exact ", context: { specimen: "", hardwareRevision: "", firmwareVersion: "", environment: "" }, readings: [{ name: "Voltage", value: "0", unit: "V", lowerLimit: "", upperLimit: "", instrument: "" }], evidenceAttachmentIds: [], correctionReason: null });
 function harness(hash?: (input: Readonly<ReviewedStepWriteInput>) => Promise<string>) {
   let session: StepReviewSession = { userId: "cl", sessionId: "A" }, view: StepReviewCompletionView;
+  let publishEffect: ((view: StepReviewCompletionView) => void) | undefined;
   const initial = { projectId: "p", testRunId: "r", testCaseId: "c", stepIndex: 0, readRequestId: randomUUID(), scope, canRecover: true, canRecord: true, supported: true, blockedReason: null, frozenDefinition: { testCaseId: "c", steps: [{ order: 0, action: "Original" }, { order: 1, action: "Next" }] }, current: null, rawCurrent: null, procedureHash: "a".repeat(64), currentFingerprint: "b".repeat(64), provenance: "CURRENT_AUTHORITY_LEGACY_ORIGINAL_TENANCY_UNRECORDED" };
   let fresh = decodeStepReviewWire(initial), visible = true, readOnly = false;
-  const controller = new StepReviewCompletionController({ projectId: "p", testRunId: "r", testCaseId: "c" }, next => { view = next; }, () => session, hash);
+  const controller = new StepReviewCompletionController({ projectId: "p", testRunId: "r", testCaseId: "c" }, next => { view = next; publishEffect?.(next); }, () => session, hash);
   controller.attach();
-  function bind() { controller.bindFrame({ visible, readOnly, activation: fresh.readRequestId, observedSessionId: session?.sessionId ?? null, fresh }); return view; }
+  function bind() { controller.bindFrame({ visible, readOnly, activation: fresh.readRequestId, observedSessionId: session?.sessionId ?? null, observedSdkGeneration: controller.sessionGeneration(), fresh }); return view; }
   bind();
   function prepare() { controller.change(buffer(), view.epoch, view.draft?.identity ?? null); controller.reviewCurrent(view.epoch, view.draft!.identity); }
   const sent: Readonly<ReviewedStepWriteInput>[] = [], counts = { callbacks: 0, pending: [] as boolean[] };
   async function record(input: Readonly<ReviewedStepWriteInput>) { sent.push(input); return { projectId: input.projectId, testRunId: input.testRunId, testCaseId: input.testCaseId, stepIndex: input.stepIndex, scope, idempotencyKey: input.idempotencyKey, requestHash: await stepReviewRequestHash(input), revisionId: "new", caseStatus: null, recovered: false, provenance: "REVIEWED_REQUEST_BOUND_AT_WRITE" }; }
   const submit = (sender = record) => controller.submit(view.epoch, sender, () => { counts.callbacks++; }, value => counts.pending.push(value));
-  return { controller, prepare, record, sent, counts, submit, bind, get view() { return view; }, get fresh() { return fresh; }, setFresh(value: Record<string, unknown>) { fresh = decodeStepReviewWire(value); }, setSession(value: StepReviewSession, emit = false) { session = value; if (emit) controller.observeSession(value); }, setVisible(value: boolean) { visible = value; bind(); }, setReadOnly(value: boolean) { readOnly = value; bind(); } };
+  return { controller, prepare, record, sent, counts, submit, bind, onPublish(effect: (view: StepReviewCompletionView) => void) { publishEffect = effect; }, get view() { return view; }, get fresh() { return fresh; }, setFresh(value: Record<string, unknown>) { fresh = decodeStepReviewWire(value); }, setSession(value: StepReviewSession, emit = false) { session = value; if (emit) controller.observeSession(value); }, setVisible(value: boolean) { visible = value; bind(); }, setReadOnly(value: boolean) { readOnly = value; bind(); } };
 }
 describe("actual step completion class synthetic workflow, not native/browser proof", () => {
+  it("a posted fresh frame cannot commit after SDK A-B-A between render and layout", () => {
+    const h = harness(); h.prepare(); const retained = h.view.draft;
+    const posted = { visible: true, readOnly: false, activation: randomUUID(), observedSessionId: "A", observedSdkGeneration: h.controller.sessionGeneration(), fresh: h.fresh };
+    const fresh = decodeStepReviewWire({ ...posted.fresh, readRequestId: posted.activation });
+    h.setSession({ userId: "cl", sessionId: "B" }, true); h.setSession({ userId: "cl", sessionId: "A" }, true);
+    h.controller.bindFrame({ ...posted, fresh });
+    expect(h.view.readable).toBe(false); expect(h.view.draft).toBeNull(); expect(h.view.canSave).toBe(false);
+    h.setFresh({ ...fresh, readRequestId: randomUUID() }); h.bind(); expect(h.view.draft).toBe(retained);
+  });
+  it("known-receipt synchronization rechecks SDK after publishing busy, before any parent callback", async () => {
+    const h = harness(); h.prepare(); await h.submit();
+    const ack = h.view.acknowledgement; let armed = true;
+    h.onPublish(view => { if (armed && view.busy) { armed = false; h.setSession({ userId: "cl", sessionId: "B" }); } });
+    await h.controller.synchronizeAcknowledged(h.view.epoch, () => { h.counts.callbacks++; });
+    expect(h.counts.callbacks).toBe(1); expect(h.sent).toHaveLength(1); expect(h.view.acknowledgement).toBeNull();
+    h.setSession({ userId: "cl", sessionId: "A" }); h.setFresh({ ...h.fresh, readRequestId: randomUUID() }); h.bind();
+    expect(h.view.acknowledgement).toBe(ack); expect(h.view.hasPending).toBe(false);
+  });
   it("requires explicit review, synchronously owns busy and sends one immutable request despite same-tick submits", async () => { const h = harness(); h.controller.change(buffer(), h.view.epoch, null); expect(h.view.canSave).toBe(false); h.controller.reviewCurrent(h.view.epoch, h.view.draft!.identity); await Promise.all([h.submit(), h.submit()]); expect(h.sent).toHaveLength(1); expect(Object.isFrozen(h.sent[0])).toBe(true); expect(Object.isFrozen(h.sent[0]!.observations.measurements)).toBe(true); expect(h.counts).toEqual({ callbacks: 1, pending: [true, false] }); expect(h.view.acknowledgement?.revisionId).toBe("new"); await h.submit(); expect(h.sent).toHaveLength(1); });
   it.each(["close", "readOnly", "SDK", "listener-A-B-A", "unmount"])("matching late ACK after %s settles only privately, not old visible callbacks", async loss => { const h = harness(); h.prepare(); const original = h.view.draft; await h.submit(async input => { if (loss === "close") h.setVisible(false); if (loss === "readOnly") h.setReadOnly(true); if (loss === "SDK") h.setSession({ userId: "cl", sessionId: "B" }); if (loss === "listener-A-B-A") { h.setSession({ userId: "cl", sessionId: "B" }, true); h.setSession({ userId: "cl", sessionId: "A" }, true); } if (loss === "unmount") h.controller.detach(); return h.record(input); }); expect(h.counts.callbacks).toBe(0); expect(h.view.hasPending).toBe(false); expect(h.controller.snapshot().canSave).toBe(false); if (loss === "readOnly") { expect(h.view.draft).toBe(original); expect(h.view.canEdit).toBe(false); } else expect(h.view.draft).toBeNull(); });
   it("all response kinds latch SDK loss before React commit; returning SDK A cannot revive old native read", async () => { for (const kind of ["ACK", "rejected", "malformed"]) { const h = harness(); h.prepare(); await h.submit(async input => { h.setSession({ userId: "cl", sessionId: "B" }); if (kind === "rejected") throw { data: { code: "FORBIDDEN" } }; const ack = await h.record(input); return kind === "malformed" ? { ...ack, requestHash: "f".repeat(64) } : ack; }); h.setSession({ userId: "cl", sessionId: "A" }); h.bind(); expect(h.view.authorityReadable).toBe(false); expect(h.view.canSave).toBe(false); expect(h.view.notice).toBe(""); expect(h.counts.callbacks).toBe(0); if (kind !== "ACK") expect(h.view.hasPending).toBe(true); } });

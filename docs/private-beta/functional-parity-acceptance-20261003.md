@@ -1822,3 +1822,43 @@ and mocked transport proof, not executed PostgreSQL, production large-history
 performance or authenticated runtime. The existing list/card/dashboard/export
 callers are NOT yet cut over; additive browser activation and explicit scoped
 current-page export are the next workstream. No deployment is inferred.
+
+### October 6 reviewed step-observation editor and resource controls
+
+An additive actual editor now displays the tester action alongside the saved
+technical descriptor at the same numbered coordinate. Expected result and
+response retain their own columns; unset, NULL and empty text are distinguished.
+The full frozen procedure, unknown metadata and media references remain available
+as exact disclosures rather than being replaced with current-case content.
+Outcome is a dropdown, while actual observations and correction reasons remain
+prose. Measurement inputs remain exact string buffers until explicit review,
+including zero, decimal precision and optional blank limits. Historical reasons
+do not approve a new correction.
+
+Explicit draft creation, current-baseline review and immutable submitted-request
+recovery share the actual completion controller. Close/collapse retains state on
+this page. Rendering can revoke old private fields and handlers before layout;
+only a newly admitted native frame can restore them. Monotonic installed-SDK
+generations also reject a posted frame after session A-B-A, and known-ACK refresh
+rechecks authority after publishing busy, immediately before its parent callback.
+Read-only access does not grant edit authority. Reload/route-away recovery remains
+unsupported and is disclosed.
+
+The retained history and confirmed-project evidence controls use separate fresh
+native reads with explicit literal search, paging and refresh. Refused reads do
+not trap refresh or silently prune selected unavailable references. Exact current
+DTO/cache/session checks precede selection callbacks. Version metadata is not
+file-retrieval proof; no file-open, signing, upload, device or provider operation
+is supplied by the new editor. The central `StepExecutionPanel` caller has NOT
+yet been cut over, so this is not an assertion that the reported live page works.
+
+Independent source checks: 120 step-focused checks across nine suites passed,
+including real controller/hook execution and actual JSX rendering. The full Web
+run then passed 803 Node checks and 529 typed checks across 52 suites, zero skips;
+API/Web types passed. A subsequently corrected hook dependency warning was
+followed by 38 focused checks and clean hook lint. The isolated actual-component
+browser fixture shows a readable 900px dialog with aligned tester/technical
+columns, using synthetic auth/RPC only. Its earlier bundle, capture timeout and
+same-UUID lost-response evidence are preserved locally. Final source re-pinning
+and late-ACK rendered proof remain separately recorded in the local handoff.
+These checks are not PostgreSQL, authenticated production or device acceptance.

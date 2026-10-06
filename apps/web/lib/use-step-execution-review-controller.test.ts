@@ -38,12 +38,26 @@ function harness() {
     } } });
   vm.runInContext(executable, context); const invokeWorkflow = (context as { workflow: (...args: unknown[]) => StepReviewController }).workflow;
   function render() { for (let n = 0; n < 40; n++) { cursor = 0; dirty = false; workflow = invokeWorkflow({ projectId: "p", testRunId: "r", testCaseId: "c" }, params.stepIndex, params.visible, params.readOnly, acknowledge, unconfirmed); effects.splice(0).forEach(fn => fn()); if (!dirty) return workflow; } throw Error("Workflow failed to settle."); }
+  function beforeLayout() { cursor = 0; dirty = false; return invokeWorkflow({ projectId: "p", testRunId: "r", testCaseId: "c" }, params.stepIndex, params.visible, params.readOnly, acknowledge, unconfirmed); }
   function prepare() { workflow.change(buffer()); render(); workflow.reviewCurrent(); render(); }
   function emit(session: typeof sdk.session) { sdk.session = session; Array.from(listeners).forEach(fn => fn()); }
-  render(); return { params, query, auth, sdk, calls, render, prepare, ack, emit, setRecord: (fn: typeof record) => { record = fn; }, get workflow() { return workflow; }, unmount: () => { Array.from(cleanups.values()).forEach(fn => fn()); cleanups.clear(); } };
+  render(); return { params, query, auth, sdk, calls, render, beforeLayout, prepare, ack, emit, setRecord: (fn: typeof record) => { record = fn; }, get workflow() { return workflow; }, unmount: () => { Array.from(cleanups.values()).forEach(fn => fn()); cleanups.clear(); } };
 }
 
 describe("actual step reader/controller hooks and private class, synthetic RPC only", () => {
+  it.each(["close", "readonly", "fetch", "step"])("render %s revokes old private bodies/handlers BEFORE layout effects", async loss => {
+    const h = harness(); h.prepare(); const prior = h.workflow, draft = prior.view.draft;
+    if (loss === "close") h.params.visible = false;
+    if (loss === "readonly") h.params.readOnly = true;
+    if (loss === "fetch") h.query.isFetching = true;
+    if (loss === "step") h.params.stepIndex = 1;
+    const duringRender = h.beforeLayout();
+    expect(duringRender.view.draft).toBeNull(); expect(duringRender.view.acknowledgement).toBeNull(); expect(duringRender.view.canSave).toBe(false);
+    expect(prior.change({ ...buffer(), note: "stale render callback" })).toBe(false);
+    expect(prior.discardUnsaved()).toBe(false); await prior.save(); expect(h.calls.sent).toHaveLength(0);
+    h.params.visible = true; h.params.readOnly = false; h.params.stepIndex = 0; h.query.isFetching = false;
+    h.render(); expect(h.workflow.view.draft?.buffer).toEqual(draft?.buffer);
+  });
   it("captures admitted handler identity and synchronously refuses double submit before React updates", async () => { const h = harness(), stale = h.workflow; expect(stale.view.canEdit).toBe(true); h.prepare(); expect(stale.change({ ...buffer(), note: "stale" })).toBe(false); const save = h.workflow.save; await Promise.all([save(), save()]); h.render(); expect(h.calls.sent).toHaveLength(1); expect(h.calls.acknowledged).toBe(1); expect(h.workflow.view.acknowledgement?.revisionId).toBe("new"); });
   it.each(["ACK", "rejected", "malformed"])("installed SDK listeners revoke A-B-A before React commit for late %s", async kind => { const h = harness(); h.prepare(); const activation = h.workflow.reads.activation; h.setRecord(async input => { h.emit({ id: "B", user: { id: "cl" } }); h.emit({ id: "A", user: { id: "cl" } }); if (kind === "rejected") throw { data: { code: "FORBIDDEN" } }; const ack = await h.ack(input); return kind === "malformed" ? { ...ack, requestHash: "f".repeat(64) } : ack; }); await h.workflow.save(); expect(h.calls.acknowledged).toBe(0); const current = h.render(); expect(current.reads.activation).not.toBe(activation); if (kind === "ACK") { expect(current.view.canSave).toBe(false); expect(current.view.acknowledgement?.revisionId).toBe("new"); await current.synchronizeAcknowledged(); expect(h.calls.acknowledged).toBe(1); expect(h.calls.sent).toHaveLength(1); } else { expect(current.view.hasPending).toBe(true); expect(current.view.canEdit).toBe(false); } });
   it("close and unmount make a matched ACK private while original frozen request remains exact", async () => { for (const loss of ["close", "unmount"]) { const h = harness(); h.prepare(); h.setRecord(async input => { if (loss === "close") { h.params.visible = false; h.render(); } else h.unmount(); return h.ack(input); }); await h.workflow.save(); expect(h.calls.acknowledged).toBe(0); expect(h.calls.sent).toHaveLength(1); expect(Object.isFrozen(h.calls.sent[0])).toBe(true); } });
