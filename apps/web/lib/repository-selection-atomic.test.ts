@@ -6,6 +6,8 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 import { connectionAccessState } from "./connection-access";
 import { gitlabInstanceOrigin } from "./gitlab-instance-selection";
+import { currentSessionScope, sameAuthScope } from "./auth-query-cache";
+import { caseFieldReadOrigin, sameCaseFieldOrigin, type CaseFieldOrigin } from "./case-field-origin";
 import type { RouterOutputs } from "./trpcReact";
 
 type Props = Parameters<typeof import("../components/GitlabRepositoryConnection").RepositoryOAuthConnection>[0];
@@ -44,27 +46,44 @@ function harness(initial: Selection, currentListing = listing([repository("new-a
   // Hook state and metadata replies are synthetic; this is not OAuth/provider,
   // native catalog, authorization, connection acceptance or browser evidence.
   const hooks: unknown[] = ["repositories", "", "", "synthetic-connection", "", "", 1, currentListing, initial, false, ""];
-  let cursor = 0;
+  let cursor = 0, memoCursor = 0, dirty = false;
+  const memos: Array<{ value: unknown; dependencies: unknown[] }> = [];
   const updaterChecks: Array<{ before: Selection; after: Selection; repeated: Selection }> = [];
   const writes = vi.fn(async () => { throw Error("External/write action forbidden in synthetic selection model"); });
-  const fetch = vi.fn(async (_input: { id: string; page: number; search: string }): Promise<Listing> => { throw Error("Unprepared synthetic metadata reply"); });
+  const fetch = vi.fn(async (_input: { id: string; page: number; search: string; restartCatalogue?: boolean }): Promise<Listing> => { throw Error("Unprepared synthetic metadata reply"); });
   const query = <T,>(data: T) => ({ data, isSuccess: true, error: null, isFetching: false, refetch: writes });
-  const context = vm.createContext({ React, connectionAccessState, gitlabInstanceOrigin, URL,
+  const auth = { isLoaded: true, isSignedIn: true, userId: "synthetic-clerk", sessionId: "synthetic-session" };
+  const nativeReaderEcho = { projectId: "synthetic-project", caseId: null, organizationId: "synthetic-org",
+    readScope: { projectId: "synthetic-project", organizationId: "synthetic-org", actorId: "synthetic-native", actorClerkUserId: auth.userId } };
+  const origin = caseFieldReadOrigin(nativeReaderEcho, nativeReaderEcho.projectId, null, auth.userId)!;
+  const reader = { origin, current: origin as CaseFieldOrigin | null, readable: true, canEdit: true,
+    owns: (original: CaseFieldOrigin, mode?: "read" | "edit" | "configure") => sameCaseFieldOrigin(original, reader.current) && reader.readable && (mode !== "edit" || reader.canEdit),
+    query: { refetch: writes } };
+  const utils = { repositoryConnections: { list: { fetch } } };
+  const context = vm.createContext({ React, connectionAccessState, gitlabInstanceOrigin, currentSessionScope, sameAuthScope, sameCaseFieldOrigin, URL,
+    useAuth: () => auth, useCaseFieldAccess: () => reader,
+    window: { Clerk: { loaded: true, session: { id: auth.sessionId, user: { id: auth.userId } } } },
+    useMemo: (make: () => unknown, dependencies: unknown[]) => {
+      const index = memoCursor++, previous = memos[index];
+      if (!previous || dependencies.length !== previous.dependencies.length || dependencies.some((value, at) => !Object.is(value, previous.dependencies[at])))
+        memos[index] = { value: make(), dependencies };
+      return memos[index]!.value;
+    },
     useState: (initialValue: unknown) => {
-      const index = cursor++; if (!(index in hooks)) hooks[index] = initialValue;
+      const index = cursor++; if (!(index in hooks)) hooks[index] = typeof initialValue === "function" ? initialValue() : initialValue;
       return [hooks[index], (next: unknown) => {
-        if (typeof next !== "function") { hooks[index] = next; return; }
+        if (typeof next !== "function") { if (!Object.is(next, hooks[index])) dirty = true; hooks[index] = next; return; }
         const before = hooks[index], after = next(before);
         // React can replay a pure updater. Invoke twice on the same input to
         // check deterministic output and ensure the previous state is untouched.
         if (index === 8) updaterChecks.push({ before: before as Selection, after, repeated: next(before) });
-        hooks[index] = after;
+        if (!Object.is(after, before)) dirty = true; hooks[index] = after;
       }];
     },
     useRef: (initialValue: unknown) => { const index = cursor++; return hooks[index] ??= { current: initialValue }; },
     useCallback: (callback: unknown) => callback, useEffect: (callback: () => void) => callback(), useLayoutEffect: (callback: () => void) => callback(),
-    trpcReact: { useUtils: () => ({ repositoryConnections: { list: { fetch } } }), repositoryConnections: {
-      configurations: { useQuery: () => query({ canConnect: true, canConfigure: false, storageReady: true, configurations: [] }) },
+    trpcReact: { useUtils: () => utils, repositoryConnections: {
+      configurations: { useQuery: () => query({ organizationId: origin.organizationId, canConnect: true, canConfigure: false, storageReady: true, configurations: [] }) },
       mine: { useQuery: () => query([]) }, status: { useQuery: () => query({ status: "VERIFIED" }) },
       begin: { useMutation: () => ({ isPending: false, mutateAsync: writes }) },
       connectSelected: { useMutation: () => ({ isPending: false, mutateAsync: writes }) },
@@ -78,7 +97,10 @@ function harness(initial: Selection, currentListing = listing([repository("new-a
   vm.runInContext(compiled, context);
   const actual = (context as unknown as { actual(props: Props): React.ReactElement }).actual;
   const props: Props = { projectId: "synthetic-project", providerId: "gitlab", onConnected: writes, onClose: writes };
-  const render = () => { cursor = 0; return actual(props); };
+  const render = () => {
+    for (let turn = 0; turn < 10; turn++) { cursor = 0; memoCursor = 0; dirty = false; const tree = actual(props); if (!dirty) return tree; }
+    throw Error("Synthetic repository hooks did not settle");
+  };
   const button = (label: string) => {
     const found = elements(render()).find(node => node.type === "button" && text(node.props.children) === label);
     if (!found) throw Error(`Missing actual button ${label}`); return found;
@@ -147,10 +169,14 @@ describe("actual repository selection transitions (synthetic hooks/metadata only
     h.chips()[0]!.props.onClick!(); h.assertCoherent(); h.button("Review 1 selected").props.onClick!();
     const html = renderToStaticMarkup(h.render()); expect(html).toContain("Connect 1 repository"); expect(html).toContain("synthetic/fresh"); expect(html).not.toContain("synthetic/visited-");
   });
-  it("Clear selection and the existing local connect-more transition reset both halves coherently", () => {
+  it("Clear selection remains local, while connect-more resets both halves only after a fresh catalogue ACK", async () => {
     const h = harness(selection(3)); h.button("Clear selection").props.onClick!(); expect(h.selected()).toEqual({ ids: [], details: {} }); h.assertCoherent();
     // Seed the existing done UI, without asserting any native connect occurred.
-    h.hooks[0] = "done"; h.hooks[8] = selection(3); h.button("Connect more repositories").props.onClick!();
-    expect(h.hooks[0]).toBe("repositories"); expect(h.selected()).toEqual({ ids: [], details: {} }); h.assertCoherent(); expect(h.fetch).not.toHaveBeenCalled();
+    h.hooks[0] = "done"; h.hooks[8] = selection(3); const original = h.selected();
+    h.fetch.mockResolvedValueOnce(listing([repository("fresh")], true)); h.button("Connect more repositories").props.onClick!();
+    expect(h.hooks[0]).toBe("done"); expect(h.selected()).toBe(original);
+    expect(h.fetch).toHaveBeenCalledExactlyOnceWith({ id: "synthetic-connection", page: 1, search: "", restartCatalogue: true });
+    await h.flush();
+    expect(h.hooks[0]).toBe("repositories"); expect(h.selected()).toEqual({ ids: [], details: {} }); h.assertCoherent();
   });
 });

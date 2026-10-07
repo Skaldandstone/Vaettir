@@ -1,6 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useAuth } from "@clerk/nextjs";
 import Link from "next/link";
 import { trpcReact, type RouterOutputs } from "@/lib/trpcReact";
 import { ProviderMark } from "./SourceConnectionChips";
@@ -9,6 +10,9 @@ import { ConnectionAccessGate } from "./ConnectionAccessGate";
 import {cancelRepositoryAuthorization,type RepositoryAuthorizationIntent} from "./RepositoryProviderPicker";
 import {authorizeRepositoryAccount} from "@/lib/repository-authorization";
 import {gitlabInstanceOrigin} from "@/lib/gitlab-instance-selection";
+import { useCaseFieldAccess } from "@/lib/use-case-field-access";
+import { currentSessionScope, sameAuthScope } from "@/lib/auth-query-cache";
+import { sameCaseFieldOrigin, type CaseFieldOrigin } from "@/lib/case-field-origin";
 
 type Listing = RouterOutputs["repositoryConnections"]["list"];
 type RepositorySelection = { ids: string[]; details: Record<string, Listing["repositories"][number]> };
@@ -23,6 +27,8 @@ export function RepositoryOAuthConnection({ projectId, providerId, onConnected, 
   initialAuthorization?:RepositoryAuthorizationIntent;active?:boolean;
 }) {
   const providerName = providerId === "github" ? "GitHub" : "GitLab";
+  const auth = useAuth();
+  const reader = useCaseFieldAccess(projectId, undefined, active);
   const utils = trpcReact.useUtils();
   const configurations = trpcReact.repositoryConnections.configurations.useQuery({ projectId });
   const recent = trpcReact.repositoryConnections.mine.useQuery({ projectId }, { enabled: configurations.isSuccess && configurations.data.canConnect });
@@ -38,6 +44,8 @@ export function RepositoryOAuthConnection({ projectId, providerId, onConnected, 
   const selected = selection.ids, selectedDetails = selection.details;
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [privateOwner, publishPrivateOwner] = useState<{ origin: CaseFieldOrigin; providerId: "github" | "gitlab" } | null>(null);
+  const privateScope = useRef<typeof privateOwner>(null);
   const popup = useRef<Window | null>(null);
   const automaticallyLoaded = useRef("");
   const screenHeading = useRef<HTMLParagraphElement>(null);
@@ -70,6 +78,26 @@ export function RepositoryOAuthConnection({ projectId, providerId, onConnected, 
   const accessState = connectionAccessState(configurations, recent);
   const providerConfigurationId=provider?.id;
   const canConnect=configurations.isSuccess&&configurations.data?.canConnect===true;
+  const original = reader.origin, currentOrigin = reader.current;
+  const readable = reader.readable, canEdit = reader.canEdit;
+  const frame = useMemo(() => ({ projectId, providerId, connectionId, original, currentOrigin,
+    userId: auth.userId ?? "", sessionId: auth.sessionId ?? "",
+    eligible: active && !!(auth.isLoaded && auth.isSignedIn) && readable && canEdit &&
+      original?.projectId === projectId && original.clerkActorId === auth.userId &&
+      configurations.data?.organizationId === original.organizationId &&
+      canConnect && recent.isSuccess && !configurations.error && !recent.error &&
+      !configurations.isFetching && !configurations.isPaused && !recent.isFetching && !recent.isPaused,
+  }), [projectId, providerId, connectionId, original, currentOrigin, auth.userId, auth.sessionId, auth.isLoaded, auth.isSignedIn,
+    active, readable, canEdit, configurations.data?.organizationId, canConnect, recent.isSuccess,
+    configurations.error, recent.error, configurations.isFetching, configurations.isPaused, recent.isFetching, recent.isPaused]);
+  const committed = useRef<typeof frame | null>(null);
+  const listingOwner = useRef({ generation: 0, inFlight: false });
+  useLayoutEffect(() => { committed.current = frame; return () => { if (committed.current === frame) committed.current = null; }; }, [frame]);
+  const ownsOriginal = reader.owns;
+  const current = useCallback(() => committed.current === frame && frame.eligible && !!frame.original &&
+    (!privateScope.current || privateScope.current.providerId === frame.providerId && sameCaseFieldOrigin(privateScope.current.origin, frame.original)) &&
+    ownsOriginal(frame.original, "edit") && sameAuthScope({ userId: frame.userId, sessionId: frame.sessionId },
+      typeof window === "undefined" ? null : currentSessionScope(window.Clerk?.loaded ? window.Clerk.session : null)), [frame, ownsOriginal]);
   const beginAuthorization=begin.mutateAsync;
   function authorize() {
     if (!providerConfigurationId || !connectionReady || busy || !canConnect) return;
@@ -99,10 +127,19 @@ export function RepositoryOAuthConnection({ projectId, providerId, onConnected, 
     });
   },[initialAuthorization,active,accessState,busy,connectionReady,providerConfigurationId,connectionId,providerName,providerId,beginAuthorization,projectId]);
 
-  const load = useCallback(async (nextPage = 1, nextSearch = "") => {
+  const load = useCallback(async (nextPage = 1, nextSearch = "", restartCatalogue = false) => {
+    if (!connectionId || !current() || listingOwner.current.inFlight) return;
+    const owner = ++listingOwner.current.generation;
+    listingOwner.current.inFlight = true;
+    if (!privateScope.current && frame.original) {
+      privateScope.current = { origin: frame.original, providerId: frame.providerId };
+      publishPrivateOwner(privateScope.current);
+    }
     setLoading(true); setError("");
     try {
-      const result = await utils.repositoryConnections.list.fetch({ id: connectionId, page: nextPage, search: nextSearch });
+      const result = await utils.repositoryConnections.list.fetch({ id: connectionId, page: nextPage, search: nextSearch, ...(restartCatalogue ? { restartCatalogue: true } : {}) });
+      if (listingOwner.current.generation !== owner || !current()) return;
+      if (restartCatalogue && result.catalogReset !== true) throw Error("Fresh catalogue acknowledgement required");
       if (result.catalogReset) setSelection({ ids: [], details: {} });
       else setSelection(current => {
         const next = { ...current.details };
@@ -110,9 +147,18 @@ export function RepositoryOAuthConnection({ projectId, providerId, onConnected, 
         return { ids: current.ids, details: next };
       });
       setListing(result); setPage(nextPage); setActiveSearch(nextSearch); setStep("repositories");
-    } catch { setError("The repository list could not be verified. Check connection status or reconnect, then try again."); }
-    finally { setLoading(false); }
-  }, [connectionId, utils]);
+      if (restartCatalogue) setSearch(nextSearch);
+    } catch {
+      if (listingOwner.current.generation === owner && current()) setError(restartCatalogue
+        ? "Could not start a fresh selection batch. Your existing choices are retained; retry with the same saved connection."
+        : "The repository list could not be verified. Check connection status or reconnect, then try again.");
+    }
+    finally {
+      // Release only this operation's busy flag. No private metadata, choices,
+      // errors or step is published after original scope loss.
+      if (listingOwner.current.generation === owner) { listingOwner.current.inFlight = false; setLoading(false); }
+    }
+  }, [connectionId, utils, current, frame]);
 
   // One automatic metadata listing per verified attempt. Failed requests stay retryable,
   // not an effect loop. Back/review never restarts authorization or writes repositories.
@@ -134,6 +180,11 @@ export function RepositoryOAuthConnection({ projectId, providerId, onConnected, 
     } catch { setError("The connection could not be disconnected. Refresh its status before retrying."); }
   }
 
+  if (!active || !reader.readable || !auth.isLoaded || !auth.isSignedIn || original?.projectId !== projectId || original.clerkActorId !== auth.userId ||
+    privateOwner && (privateOwner.providerId !== providerId || !sameCaseFieldOrigin(privateOwner.origin, currentOrigin)) ||
+    configurations.data?.organizationId && configurations.data.organizationId !== original.organizationId ||
+    !sameAuthScope({ userId: auth.userId ?? "", sessionId: auth.sessionId ?? "" }, typeof window === "undefined" ? null : currentSessionScope(window.Clerk?.loaded ? window.Clerk.session : null)))
+    return <section role="status"><p>Restore the original signed-in account and project access. Saved repository choices remain retained and withheld here.</p><button type="button" className="btn-secondary" onClick={() => void reader.query.refetch()}>Refresh original access</button></section>;
   if (accessState !== "ready") return <ConnectionAccessGate state={accessState} busy={busy || configurations.isFetching || recent.isFetching} onClose={onClose} onRetry={() => void (async () => { const refreshed = await configurations.refetch(); if (refreshed.isSuccess && refreshed.data.canConnect) await recent.refetch(); })()}/>;
   return <div style={{ display: "grid", gap: 16, minWidth: 0 }}>
     <p ref={screenHeading} tabIndex={-1} className="text-muted" role="status" aria-live="polite">{({ authorize: "1. Connect your account", repositories: "2. Choose repositories", review: "3. Review connections", done: "Repositories connected" })[step]}</p>
@@ -181,6 +232,8 @@ export function RepositoryOAuthConnection({ projectId, providerId, onConnected, 
     {step === "repositories" && <>
       <form style={actions} onSubmit={e => { e.preventDefault(); void load(1, search); }}><label style={{ ...field, flex: "1 1 180px" }}>{providerId === "github" ? "Filter this page" : "Find repositories"}<input style={inputStyle} value={search} onChange={e => setSearch(e.target.value)} maxLength={100}/></label><button type="submit" disabled={busy}>{providerId === "github" ? "Filter" : "Search"}</button></form>
       <p className="text-muted">Page {page}. {providerId === "github" ? "Search filters this page only. Browse other pages to find more repositories. " : ""}Selections stay in place as you browse pages or search. Review up to 100 repositories within this ten-minute verified listing session.</p>
+      <p className="text-muted">Each selection batch can browse 500 repositories and connect up to 100. Starting a fresh batch clears unsaved choices after a successful refresh; saved connections stay in the project.</p>
+      <button type="button" className="btn-secondary" disabled={busy || !frame.eligible} onClick={() => load(1, search, true)}>Start a new selection batch</button>
       <div style={actions}><span role="status">{selected.length} selected across visited pages</span><button type="button" className="btn-secondary" disabled={busy || !selected.length} onClick={() => setSelection({ ids: [], details: {} })}>Clear selection</button></div>
       <div className="source-chip-list" role="group" aria-label="Verified repositories" style={{ maxHeight: 300, overflowY: "auto" }}>
         {listing?.repositories.map(repo => <button type="button" key={repo.id} className="source-connection-chip" aria-pressed={selected.includes(repo.id)} disabled={busy || (selected.length >= 100 && !selected.includes(repo.id))} onClick={() => {
@@ -207,6 +260,6 @@ export function RepositoryOAuthConnection({ projectId, providerId, onConnected, 
         catch { setError("Connection could not be saved. Your permissions or repository list may have changed. Go back and refresh the list before reviewing again."); }
       }}>{connect.isPending ? "Connecting…" : "Approve and connect"}</button></div>
     </>}
-    {step === "done" && <><p role="status">Repository connections saved. Access was verified; source discovery has not run.</p><div style={actions}><button type="button" className="btn-secondary" onClick={() => { setSelection({ ids: [], details: {} }); setStep("repositories"); }}>Connect more repositories</button><button type="button" onClick={onClose}>Done</button></div></>}
+    {step === "done" && <><p role="status">Repository connections saved. Access was verified; source discovery has not run.</p><p className="text-muted">Connect more starts a fresh 500-repository selection batch and clears unsaved choices only after a successful refresh. Existing saved connections stay in the project.</p><div style={actions}><button type="button" className="btn-secondary" disabled={busy || !frame.eligible} onClick={() => load(1, "", true)}>Connect more repositories</button><button type="button" disabled={busy} onClick={onClose}>Done</button></div></>}
   </div>;
 }
