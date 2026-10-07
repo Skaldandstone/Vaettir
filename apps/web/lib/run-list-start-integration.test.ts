@@ -612,6 +612,56 @@ it.each(["malformed", "stale"])(
     expect(h.send).not.toHaveBeenCalled();
   },
 );
+it.each(["malformed", "stale"])(
+  "explicit all851 is independent of a %s suite selector without fallback or filter reset",
+  (mode) => {
+    const h = harness(true);
+    h.button("Start manual run")(); h.render(); h.suite(null);
+    if (mode === "malformed") h.change("Run case suite", '{"kind":"UNASSIGNED","unexpected":true}');
+    else { h.query.data = h.query.data.map(row => ({ ...row, suitePath: row.suitePath === null ? "Now assigned" : row.suitePath })); h.render(); }
+    // Matching remains unavailable; there is no automatic all-scope fallback.
+    h.change("Apply to approved scope", "matching"); h.button("Apply Set selection")();
+    expect(text(h.render())).toContain("Choose a current suite or another approved scope");
+    expect(text(h.render())).toContain("0 selected");
+    h.change("Apply to approved scope", "all");
+    const before = h.render(), apply = elements(before).find(node => node.type === "button" && text(node.props.children) === "Apply Set selection")!;
+    expect(apply.props.disabled).toBe(false);
+    expect(text(before)).toContain("All loaded approved cases (851)");
+    expect(text(before)).toContain("The selected suite scope is unavailable");
+    h.button("Apply Set selection")(); const after = h.render();
+    expect(text(after)).toContain("851 selected");
+    expect(text(after)).toContain("The selected suite scope is unavailable");
+    // An explicit independent all action never rewrites the suite selector.
+    expect(elements(after).find(node => node.type === "select" && node.props["aria-label"] === "Run case suite")!.props.value)
+      .toBe(elements(before).find(node => node.type === "select" && node.props["aria-label"] === "Run case suite")!.props.value);
+    h.button("Continue to configuration")(); h.render();
+    expect(h.config().testCaseIds).toEqual(h.all.map(row => row.id));
+    expect(h.config().bulkScopesReady).toBe(false);
+    expect(h.config().bulkScopes!.some(scope => scope.key === "suite")).toBe(false);
+    expect(h.send).not.toHaveBeenCalled(); expect(h.navigate).not.toHaveBeenCalled();
+  },
+);
+it.each(["malformed", "stale"])(
+  "explicit all1001 with a %s suite is refused unsliced without replacing the prior selected identity",
+  (mode) => {
+    const h = harness(true);
+    h.button("Start manual run")(); h.render(); h.toggleCase("TC-0"); h.render(); h.suite(null);
+    h.query.data = [
+      ...h.all.map(row => ({ ...row, suitePath: mode === "stale" && row.suitePath === null ? "Now assigned" : row.suitePath })),
+      ...Array.from({ length: 150 }, (_, index) => ({ ...h.all[0]!, id: `extra-${index}`, displayId: `EX-${index}`, suitePath: "Extra" })),
+    ];
+    h.render();
+    if (mode === "malformed") h.change("Run case suite", '{"kind":"UNASSIGNED","unexpected":true}');
+    h.change("Apply to approved scope", "all"); const tree = h.render();
+    expect(text(tree)).toContain("All loaded approved cases (1001)");
+    expect(text(tree)).toContain("This operation would select 1,001 cases");
+    expect(elements(tree).find(node => node.type === "button" && text(node.props.children) === "Apply Set selection")!.props.disabled).toBe(true);
+    h.button("Apply Set selection")(); expect(text(h.render())).toContain("1 selected");
+    h.button("Continue to configuration")(); h.render();
+    expect(h.config().testCaseIds).toEqual(["case-0"]); expect(h.config().bulkScopesReady).toBe(false);
+    expect(h.send).not.toHaveBeenCalled(); expect(h.navigate).not.toHaveBeenCalled();
+  },
+);
 it("mixed null/empty metadata changes cannot replace an UNKNOWN original envelope or unlock its first-send cohort", async () => {
   const h = harness(true);
   h.button("Start manual run")();

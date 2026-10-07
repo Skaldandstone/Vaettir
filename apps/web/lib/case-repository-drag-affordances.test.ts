@@ -64,16 +64,37 @@ it("actual manual-view guidance is discoverable without claiming a move or enabl
   for (const text of ["In All suites, source groups or Unassigned", "select a persisted case suite first", "Viewing an order does not move cases or create folders"]) expect(page).toContain(text);
 });
 
-function treeNode(receives: boolean, supported = true) {
+type TreeBindings = {
+  onDropCase?: (caseId: string, suitePath: string | null) => void;
+  onFolderReview?: (intent: unknown) => void;
+};
+function parentTreeBindings(readOnly = false, pending = false) {
+  const node = find(pageAst, node => ts.isJsxSelfClosingElement(node) && node.tagName.getText(pageAst) === "TestCaseTree");
+  if (!node || !ts.isJsxSelfClosingElement(node)) throw Error("Actual repository suite tree missing");
+  const attributes = node.attributes.properties;
+  function expression(name: string) {
+    const attribute = attributes.find(value => ts.isJsxAttribute(value) && value.name.getText(pageAst) === name);
+    if (!attribute || !ts.isJsxAttribute(attribute) || !attribute.initializer || !ts.isJsxExpression(attribute.initializer) || !attribute.initializer.expression) throw Error("Actual tree binding missing: " + name);
+    return attribute.initializer.expression.getText(pageAst);
+  }
+  const code = ts.transpileModule(`this.caseDrop=(${expression("onDropCase")});this.folderReview=(${expression("onFolderReview")});`, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.None } }).outputText;
+  const moveCase = vi.fn(), setFolderReviewIntent = vi.fn();
+  const context = vm.createContext({ readOnly, moveMutation: { isPending: pending }, moveCase, setFolderReviewIntent, crypto: { randomUUID: () => "synthetic-folder-intent" } });
+  vm.runInContext(code, context);
+  const callbacks = context as unknown as { caseDrop: TreeBindings["onDropCase"]; folderReview: TreeBindings["onFolderReview"] };
+  return { bindings: { onDropCase: callbacks.caseDrop, onFolderReview: callbacks.folderReview }, moveCase, setFolderReviewIntent };
+}
+
+function treeNode(receives: boolean, supported = true, bindings?: TreeBindings) {
   const functions = treeAst.statements.filter(ts.isFunctionDeclaration).map(node => ts.createPrinter().printNode(ts.EmitHint.Unspecified, node, treeAst).replace(/\bexport\s+/, "")).join("\n");
   const code = ts.transpileModule(functions + "\nthis.render=TreeNodeView;", { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.None, jsx: ts.JsxEmit.React } }).outputText;
-  const states: unknown[] = [], onDropCase = vi.fn(), onFolderReview = vi.fn(), onDropRefused = vi.fn();
+  const states: unknown[] = [], onDropCase = bindings ? bindings.onDropCase : vi.fn(), onFolderReview = bindings ? bindings.onFolderReview : vi.fn(), onDropRefused = vi.fn();
   const context = vm.createContext({ React, FOLDER_DRAG_TYPE, UNASSIGNED: "__unassigned__", useState: (initial: unknown) => [initial, (next: unknown) => states.push(next)], caseFolderKindLabel: () => receives ? "Case suite" : "Source group" });
   vm.runInContext(code, context);
   const props = { node: { path: "tests/source", name: "source", cases: [], children: new Map() }, depth: 0, selectedPath: null, onSelect: vi.fn(), onDropCase, onFolderReview, onDropRefused,
     catalog: { paths: ["tests/source"], canEdit: true }, metadata: new Map([["tests/source", { supported, canReceiveCase: receives, canOrganize: supported, kind: "SOURCE_GROUP" }]]) };
   const root = (context as unknown as { render(props: unknown): React.ReactElement }).render(props);
-  const row = descendants(root).find(node => (node.props as { role?: string }).role === "button") as React.ReactElement<{ onDragOver(event: unknown): void }>;
+  const row = descendants(root).find(node => (node.props as { role?: string }).role === "button") as React.ReactElement<{ onDragOver(event: unknown): void; onDrop(event: unknown): void }>;
   return { row, states, onDropCase, onFolderReview, onDropRefused };
 }
 it.each([true, false])("actual source-only/unsupported tree target supported=%s never advertises a valid case drop or writes", supported => {
@@ -87,6 +108,71 @@ it("actual native suite case hover and reviewed folder hover preserve existing v
     h.row.props.onDragOver({ preventDefault, stopPropagation, dataTransfer }); expect(preventDefault).toHaveBeenCalledOnce(); expect(stopPropagation).toHaveBeenCalledOnce();
     expect(h.states).toContain(true); expect(dataTransfer.dropEffect).toBe("move"); expect(h.onDropCase).not.toHaveBeenCalled(); expect(h.onFolderReview).not.toHaveBeenCalled();
   }
+});
+
+// Execute the actual page's callback availability and actual tree handlers.
+// Events and writes are synthetic; this is not native persistence acceptance.
+it.each([{ readOnly: false, pending: true }, { readOnly: true, pending: false }])("actual parent withholds suite case hover/drop while unavailable %j", ({ readOnly, pending }) => {
+  const parent = parentTreeBindings(readOnly, pending), h = treeNode(true, true, parent.bindings);
+  expect(parent.bindings.onDropCase).toBeUndefined();
+  const preventDefault = vi.fn(), stopPropagation = vi.fn(), getData = vi.fn(() => "stable-native-id");
+  const event = { preventDefault, stopPropagation, dataTransfer: { types: ["application/x-vaettir-test-case"], dropEffect: "none", getData } };
+  h.row.props.onDragOver(event);
+  expect(preventDefault).not.toHaveBeenCalled(); expect(stopPropagation).not.toHaveBeenCalled();
+  expect(event.dataTransfer.dropEffect).toBe("none"); expect(h.states).toEqual([]);
+  h.row.props.onDrop(event);
+  expect(preventDefault).not.toHaveBeenCalled(); expect(stopPropagation).not.toHaveBeenCalled();
+  expect(parent.moveCase).not.toHaveBeenCalled(); expect(parent.setFolderReviewIntent).not.toHaveBeenCalled();
+});
+
+it("actual enabled parent and native-suite drop retain the exact stable case ID/path without changing folder review", () => {
+  const parent = parentTreeBindings(), h = treeNode(true, true, parent.bindings);
+  const preventDefault = vi.fn(), stopPropagation = vi.fn(), getData = vi.fn(() => "stable-native-id");
+  const event = { preventDefault, stopPropagation, dataTransfer: { types: ["application/x-vaettir-test-case"], dropEffect: "none", getData } };
+  h.row.props.onDragOver(event); expect(event.dataTransfer.dropEffect).toBe("move");
+  expect(getData).not.toHaveBeenCalled(); expect(parent.moveCase).not.toHaveBeenCalled();
+  h.row.props.onDrop(event);
+  expect(parent.moveCase).toHaveBeenCalledExactlyOnceWith("stable-native-id", "tests/source", null);
+  expect(parent.setFolderReviewIntent).not.toHaveBeenCalled();
+});
+
+it("pending case moves leave actual parent folder-review availability and tree folder hover unchanged", () => {
+  const parent = parentTreeBindings(false, true), h = treeNode(false, true, parent.bindings);
+  expect(parent.bindings.onDropCase).toBeUndefined(); expect(parent.bindings.onFolderReview).toBeTypeOf("function");
+  const preventDefault = vi.fn(), stopPropagation = vi.fn(), getData = vi.fn();
+  const event = { preventDefault, stopPropagation, dataTransfer: { types: [FOLDER_DRAG_TYPE], dropEffect: "none", getData } };
+  h.row.props.onDragOver(event);
+  expect(preventDefault).toHaveBeenCalledOnce(); expect(stopPropagation).toHaveBeenCalledOnce();
+  expect(event.dataTransfer.dropEffect).toBe("move"); expect(getData).not.toHaveBeenCalled();
+  parent.bindings.onFolderReview?.({ action: "MOVE", fromPath: "tests/source" });
+  expect(parent.setFolderReviewIntent).toHaveBeenCalledExactlyOnceWith({ action: "MOVE", fromPath: "tests/source", id: "synthetic-folder-intent" });
+  expect(parent.moveCase).not.toHaveBeenCalled();
+});
+
+function unassignedTree(bindings: TreeBindings) {
+  const node = find(treeAst, node => ts.isJsxElement(node) && node.openingElement.tagName.getText(treeAst) === "div" &&
+    node.openingElement.attributes.properties.some(attribute => ts.isJsxAttribute(attribute) && attribute.name.getText(treeAst) === "className" && attribute.getText(treeAst).includes("selectedPath === UNASSIGNED")));
+  if (!node) throw Error("Actual Unassigned tree target missing");
+  const code = ts.transpileModule(`this.render=()=>(${node.getText(treeAst)});`, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.None, jsx: ts.JsxEmit.React } }).outputText;
+  const context = vm.createContext({ React, selectedPath: null, UNASSIGNED: "__unassigned__", unassignedCount: 1, onDropCase: bindings.onDropCase, onSelect: vi.fn() });
+  vm.runInContext(code, context);
+  return (context as unknown as { render(): React.ReactElement<{ onDragOver(event: unknown): void; onDrop(event: unknown): void }> }).render();
+}
+
+it.each([{ readOnly: false, pending: true }, { readOnly: true, pending: false }, { readOnly: false, pending: false }])("actual Unassigned target uses the same parent move availability %j", ({ readOnly, pending }) => {
+  const parent = parentTreeBindings(readOnly, pending), row = unassignedTree(parent.bindings);
+  const preventDefault = vi.fn(), getData = vi.fn(() => "stable-native-id");
+  const event = { preventDefault, dataTransfer: { types: ["application/x-vaettir-test-case"], dropEffect: "none", getData } };
+  row.props.onDragOver(event);
+  expect(getData).not.toHaveBeenCalled(); expect(parent.moveCase).not.toHaveBeenCalled();
+  row.props.onDrop(event);
+  if (readOnly || pending) {
+    expect(preventDefault).not.toHaveBeenCalled(); expect(event.dataTransfer.dropEffect).toBe("none"); expect(parent.moveCase).not.toHaveBeenCalled();
+  } else {
+    expect(preventDefault).toHaveBeenCalledTimes(2); expect(event.dataTransfer.dropEffect).toBe("move");
+    expect(parent.moveCase).toHaveBeenCalledExactlyOnceWith("stable-native-id", null, null);
+  }
+  expect(parent.setFolderReviewIntent).not.toHaveBeenCalled();
 });
 
 type RowEvent = { preventDefault(): void; dataTransfer: { types: string[]; dropEffect: string; getData(type: string): string } };

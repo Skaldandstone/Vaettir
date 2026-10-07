@@ -65,7 +65,7 @@ test("both callers use only loaded approved scopes; missing suite and navigation
   const runs = source("../app/projects/[projectId]/test-runs/page.tsx").replace(/\s+/g, " "), library = source("../app/projects/[projectId]/test-cases/page.tsx");
   assert.match(runs, /\[manualSuite, setManualSuite\] = useState\(RUN_SUITE_ALL_VALUE\)/);
   assert.match(runs, /resolveRunSuiteScope\(\s*manualSuite,\s*suiteCatalog\.options,?\s*\)/);
-  assert.match(runs, /manualSuiteSelection\.available && \["matching", "all", "suite"\]\.includes\(manualBulkScope\)/);
+  assert.match(runs, /\["matching", "all", "suite"\]\.includes\(manualBulkScope\) && \(manualBulkScope === "all" \|\| \(manualSuiteSelection\.available && \(manualBulkScope !== "suite" \|\| manualSuiteSelection\.specific\)\)\)/);
   assert.match(runs, /manualBulkScope !== "suite" \|\| manualSuiteSelection\.specific/);
   assert.match(runs, /manualBulkScope === "suite" && manualSuiteSelection\.specific \? manualSuiteCases/);
   assert.match(runs, /manualSuiteSelection\.available \? eligibleCases\.filter\(\(testCase\) => runSuiteScopeMatches\(manualSuiteSelection\.scope, testCase\.suitePath\),?\s*\) : \[\]/);

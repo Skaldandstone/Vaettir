@@ -1049,7 +1049,7 @@ export default function TestCasesPage() {
               onFolderReview={readOnly ? undefined : intent => setFolderReviewIntent({ ...intent, id: crypto.randomUUID() })}
               onDropRefused={message => setError(message)}
               onDropCase={
-                readOnly
+                readOnly || moveMutation.isPending
                   ? undefined
                   : (caseId, suitePath) =>
                       void moveCase(caseId, suitePath, null)

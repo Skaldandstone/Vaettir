@@ -191,10 +191,18 @@ describe("release creation JSON boundary", () => {
       "utf8",
     );
     expect(page).toContain("const request = createRequest ??");
+    // Recovery moved from a render-owned ref to the event owner. Keep checking
+    // the original ambiguity history and current-attempt guard, not the old
+    // variable spelling. Actual deferred-callback tests live in Web alongside
+    // the real page controller; this remains a source integration contract.
     expect(page).toContain(
-      "retainAnalysisRequest(createUnknown.current, cause)",
+      "retainAnalysisRequest(attempt.event.unknown || !this.current(attempt), error)",
     );
-    expect(page).toContain("if (!retain) setCreateRequest(null)");
+    expect(page).toContain("attempt.event.unknown = retained");
+    expect(page).toContain("createOwner.request() ?? publishedCreateRequest");
+    expect(page).toContain("createOwner.retain(attempt, cause)");
+    expect(page).toContain("if (!retained || !current) return");
+    expect(page).toContain("if (!retained.retained) { setCreateRequest(null);");
     expect(page).toContain("result.requestId !== request.requestId");
     expect(page).toContain("useManualExecutionAccess(projectId)");
     expect(page).toMatch(

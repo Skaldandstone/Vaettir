@@ -114,9 +114,9 @@ test("actual structured procedure pairs complete multiline prose with unchanged 
   assert.deepEqual(headers.map(header => header.props.children), ["#", "Tester action", "Technical behavior", "Visible result", "API response"]);
   for (const header of headers) assert.equal(header.props.style.whiteSpace, undefined, "Headers retain the original style");
   const nullCells = childrenOfType(rows[1], "td"), emptyCells = childrenOfType(rows[2], "td");
-  assert.deepEqual(nullCells.slice(2).map(cell => cell.props.children), ["Not supplied", "—", "Not supplied"]);
+  assert.deepEqual(nullCells.slice(2).map(cell => cell.props.children), ["Not supplied", "Not supplied", "Not supplied"]);
   assert.equal(childrenOfType(emptyCells[2], "em")[0].props.children, "Empty text");
-  assert.equal(emptyCells[3].props.children, "", "Explicit empty result remains an empty result, not NULL");
+  assert.equal(childrenOfType(emptyCells[3], "em")[0].props.children, "Empty text", "Explicit empty result is labeled distinctly, not displayed as NULL");
   assert.equal(childrenOfType(emptyCells[4], "em")[0].props.children, "Empty text");
   assert.deepEqual(tc, original, "No prose, labels, ordering or media identity is rewritten");
 });

@@ -1498,7 +1498,7 @@ function TestCaseInspector({
                       )}
                     </td>
                     {showTechnicalBehavior && <td style={procedureTextCellStyle}>{s.expectedActionOrData === null ? "Not supplied" : s.expectedActionOrData === "" ? <em>Empty text</em> : s.expectedActionOrData}</td>}
-                    <td style={procedureTextCellStyle}>{s.expectedResult ?? "—"}</td>
+                    <td style={procedureTextCellStyle}>{s.expectedResult === null ? "Not supplied" : s.expectedResult === "" ? <em>Empty text</em> : s.expectedResult}</td>
                     {showExpectedResponse && <td style={procedureTextCellStyle}>{s.expectedResponse === null ? "Not supplied" : s.expectedResponse === "" ? <em>Empty text</em> : s.expectedResponse}</td>}
                   </tr>
                 ))}

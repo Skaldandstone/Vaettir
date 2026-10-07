@@ -247,9 +247,10 @@ export default function TestRunsPage() {
   }
 
   const manualBulkScopeValid =
-    manualSuiteSelection.available &&
     ["matching", "all", "suite"].includes(manualBulkScope) &&
-    (manualBulkScope !== "suite" || manualSuiteSelection.specific);
+    (manualBulkScope === "all" ||
+      (manualSuiteSelection.available &&
+        (manualBulkScope !== "suite" || manualSuiteSelection.specific)));
   const manualBulkCandidates =
     manualBulkScope === "all"
       ? eligibleCases
