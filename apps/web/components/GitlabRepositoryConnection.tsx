@@ -11,6 +11,7 @@ import {authorizeRepositoryAccount} from "@/lib/repository-authorization";
 import {gitlabInstanceOrigin} from "@/lib/gitlab-instance-selection";
 
 type Listing = RouterOutputs["repositoryConnections"]["list"];
+type RepositorySelection = { ids: string[]; details: Record<string, Listing["repositories"][number]> };
 const field = { display: "grid", gap: 6 } as const;
 const inputStyle = { width: "100%", minWidth: 0, boxSizing: "border-box" } as const;
 const actions = { display: "flex", gap: 8, flexWrap: "wrap" } as const;
@@ -33,8 +34,8 @@ export function RepositoryOAuthConnection({ projectId, providerId, onConnected, 
   const [activeSearch, setActiveSearch] = useState("");
   const [page, setPage] = useState(1);
   const [listing, setListing] = useState<Listing | null>(null);
-  const [selected, setSelected] = useState<string[]>([]);
-  const [selectedDetails, setSelectedDetails] = useState<Record<string, Listing["repositories"][number]>>({});
+  const [selection, setSelection] = useState<RepositorySelection>({ ids: [], details: {} });
+  const selected = selection.ids, selectedDetails = selection.details;
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const popup = useRef<Window | null>(null);
@@ -102,11 +103,11 @@ export function RepositoryOAuthConnection({ projectId, providerId, onConnected, 
     setLoading(true); setError("");
     try {
       const result = await utils.repositoryConnections.list.fetch({ id: connectionId, page: nextPage, search: nextSearch });
-      if (result.catalogReset) { setSelected([]); setSelectedDetails({}); }
-      else setSelectedDetails(details => {
-        const next = { ...details };
+      if (result.catalogReset) setSelection({ ids: [], details: {} });
+      else setSelection(current => {
+        const next = { ...current.details };
         for (const repo of result.repositories) if (next[repo.id]) next[repo.id] = repo;
-        return next;
+        return { ids: current.ids, details: next };
       });
       setListing(result); setPage(nextPage); setActiveSearch(nextSearch); setStep("repositories");
     } catch { setError("The repository list could not be verified. Check connection status or reconnect, then try again."); }
@@ -128,7 +129,7 @@ export function RepositoryOAuthConnection({ projectId, providerId, onConnected, 
     setError("");
     try {
       await disconnect.mutateAsync({ id: connectionId });
-      popup.current?.close(); setConnectionId(""); setListing(null); setSelected([]); setSelectedDetails({}); setStep("authorize");
+      popup.current?.close(); setConnectionId(""); setListing(null); setSelection({ ids: [], details: {} }); setStep("authorize");
       await recent.refetch();
     } catch { setError("The connection could not be disconnected. Refresh its status before retrying."); }
   }
@@ -180,12 +181,16 @@ export function RepositoryOAuthConnection({ projectId, providerId, onConnected, 
     {step === "repositories" && <>
       <form style={actions} onSubmit={e => { e.preventDefault(); void load(1, search); }}><label style={{ ...field, flex: "1 1 180px" }}>{providerId === "github" ? "Filter this page" : "Find repositories"}<input style={inputStyle} value={search} onChange={e => setSearch(e.target.value)} maxLength={100}/></label><button type="submit" disabled={busy}>{providerId === "github" ? "Filter" : "Search"}</button></form>
       <p className="text-muted">Page {page}. {providerId === "github" ? "Search filters this page only. Browse other pages to find more repositories. " : ""}Selections stay in place as you browse pages or search. Review up to 100 repositories within this ten-minute verified listing session.</p>
-      <div style={actions}><span role="status">{selected.length} selected across visited pages</span><button type="button" className="btn-secondary" disabled={busy || !selected.length} onClick={() => { setSelected([]); setSelectedDetails({}); }}>Clear selection</button></div>
+      <div style={actions}><span role="status">{selected.length} selected across visited pages</span><button type="button" className="btn-secondary" disabled={busy || !selected.length} onClick={() => setSelection({ ids: [], details: {} })}>Clear selection</button></div>
       <div className="source-chip-list" role="group" aria-label="Verified repositories" style={{ maxHeight: 300, overflowY: "auto" }}>
         {listing?.repositories.map(repo => <button type="button" key={repo.id} className="source-connection-chip" aria-pressed={selected.includes(repo.id)} disabled={busy || (selected.length >= 100 && !selected.includes(repo.id))} onClick={() => {
-          const chosen = !selected.includes(repo.id);
-          setSelected(ids => chosen ? [...ids, repo.id] : ids.filter(id => id !== repo.id));
-          setSelectedDetails(details => { const next = { ...details }; if (chosen) next[repo.id] = repo; else delete next[repo.id]; return next; });
+          setSelection(current => {
+            const chosen = !current.ids.includes(repo.id);
+            if (chosen && current.ids.length >= 100) return current;
+            const details = { ...current.details };
+            if (chosen) details[repo.id] = repo; else delete details[repo.id];
+            return { ids: chosen ? [...current.ids, repo.id] : current.ids.filter(id => id !== repo.id), details };
+          });
         }} style={{ maxWidth: "100%", textAlign: "left" }}><ProviderMark id={providerId}/><span style={{ minWidth: 0, overflowWrap: "anywhere" }}><strong>{repo.name}</strong><small>{repo.defaultBranch ?? "No default branch"} · Metadata only</small></span>{selected.includes(repo.id) && <span aria-hidden="true">✓</span>}</button>)}
       </div>
       {listing && !listing.repositories.length && <p>{providerId === "github" ? "No repositories on this page matched. Change the filter or browse another page." : "No accessible repositories matched. Try a different search."}</p>}
@@ -202,6 +207,6 @@ export function RepositoryOAuthConnection({ projectId, providerId, onConnected, 
         catch { setError("Connection could not be saved. Your permissions or repository list may have changed. Go back and refresh the list before reviewing again."); }
       }}>{connect.isPending ? "Connecting…" : "Approve and connect"}</button></div>
     </>}
-    {step === "done" && <><p role="status">Repository connections saved. Access was verified; source discovery has not run.</p><div style={actions}><button type="button" className="btn-secondary" onClick={() => { setSelected([]); setSelectedDetails({}); setStep("repositories"); }}>Connect more repositories</button><button type="button" onClick={onClose}>Done</button></div></>}
+    {step === "done" && <><p role="status">Repository connections saved. Access was verified; source discovery has not run.</p><div style={actions}><button type="button" className="btn-secondary" onClick={() => { setSelection({ ids: [], details: {} }); setStep("repositories"); }}>Connect more repositories</button><button type="button" onClick={onClose}>Done</button></div></>}
   </div>;
 }

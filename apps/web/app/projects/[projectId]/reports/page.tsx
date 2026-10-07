@@ -181,7 +181,7 @@ export default function ProjectReportsPage() {
       <section className="panel" style={{ marginTop: 16 }} aria-labelledby="report-recent-runs"><h2 id="report-recent-runs" style={{ marginTop: 0 }}>Recent runs in window</h2>
         {data.recentRuns.length === 0 ? <p className="text-muted">No runs in this window. Choose a wider window or add execution evidence.</p> :
           <div className="table-scroll"><table className="workspace-table"><thead><tr><th scope="col">Started</th><th scope="col">Provider</th><th scope="col">Status</th><th scope="col">Results</th><th scope="col">Reference</th></tr></thead>
-            <tbody>{data.recentRuns.map(run => <tr key={run.id}><td><Link href={`/projects/${projectId}/test-runs#run-${run.id}`}>{dateTime(run.startedAt)}</Link></td><td>{run.ciProvider}</td><td>{readable(run.status)}</td><td>{run.resultCount}</td><td>{run.ciProvider === "manual" ? "Manual execution" : <span title={run.commitSha}>{run.branch} · {run.commitSha.slice(0, 9)}</span>}</td></tr>)}</tbody></table></div>}
+            <tbody>{data.recentRuns.map(run => <tr key={run.id}><td><Link href={run.ciProvider === "manual" ? `/projects/${encodeURIComponent(projectId)}/test-runs/manual/${encodeURIComponent(run.id)}` : `/projects/${projectId}/test-runs#run-${run.id}`}>{dateTime(run.startedAt)}</Link></td><td>{run.ciProvider}</td><td>{readable(run.status)}</td><td>{run.resultCount}</td><td>{run.ciProvider === "manual" ? "Manual execution" : <span title={run.commitSha}>{run.branch} · {run.commitSha.slice(0, 9)}</span>}</td></tr>)}</tbody></table></div>}
       </section>
     </>}
     <Modal open={queryOpen && accessReady} onClose={() => setQueryOpen(false)} title="Build case query">

@@ -1472,13 +1472,13 @@ export default function TestCasesPage() {
                                   ? "Not assessed"
                                   : `${tc.riskScore}/100`}
                               </span>
-                              <i>
+                              {tc.riskScore != null && <i>
                                 <b
                                   style={{
-                                    width: `${Math.max(tc.riskScore ?? 0, 4)}%`,
+                                    width: `${tc.riskScore}%`,
                                   }}
                                 />
-                              </i>
+                              </i>}
                             </div>
                           </td>
                           <td data-label="Priority">
