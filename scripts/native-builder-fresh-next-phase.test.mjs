@@ -26,6 +26,7 @@ import { createRequire } from "node:module";
 import { Script, createContext } from "node:vm";
 import { spawnSync } from "node:child_process";
 import { historicalNativeV1RecipeFixture } from "./native-v1-recipe-test-fixture.mjs";
+import { historicalRuntimeDockerfileFixture } from "./historical-runtime-dockerfile-test-fixture.mjs";
 import {
   planNativeFreshPrepare,
   FRESH_NATIVE_SCRIPT_LF_HASHES,
@@ -105,6 +106,8 @@ function fixture() {
     // Historical v1 SYNTHETIC bytes, never a current canonical Git export.
     const bytes = name === "build-llvm-runtime.sh"
       ? historicalNativeV1RecipeFixture(raw).bytes
+      : name === "Dockerfile.api"
+      ? historicalRuntimeDockerfileFixture(Buffer.from(raw.toString("utf8").replaceAll("\r\n", "\n"))).bytes
       : Buffer.from(raw.toString("utf8").replaceAll("\r\n", "\n"));
     gitBlobs[name] = bytes;
     gitModes[name] = "100644";
