@@ -254,6 +254,63 @@ test("compact registry requires exact one-layer digest/config, scratch policy an
   assert.throws(()=>validate(f));
 });
 
+test("canonical Docker scratch defaults preserve raw config identity and remain separate from full builder", () => {
+  const f = fixture();
+  rebindRegistry(f, c => {
+    c.config.Env = ["PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"];
+    c.config.WorkingDir = "/";
+    delete c.config.Cmd;
+    delete c.config.Entrypoint;
+  });
+  // Actual Docker-shaped SYNTHETIC regression, never production acceptance.
+  const raw = Buffer.from(f.completed.registryConfigBase64, "base64");
+  const before = clone(f), result = validate(f);
+  assert.equal(result.imageConfigDigest, "sha256:" + sha(raw));
+  assert.notEqual(result.fullLocalImageConfigDigest, result.imageConfigDigest);
+  assert.deepEqual(f, before, "Validator must not normalize or rewrite raw config/digest");
+  assert.deepEqual(Buffer.from(f.completed.registryConfigBase64, "base64"), raw);
+  for (const env of [null, [], undefined]) for (const dir of [null, "", "/", undefined]) {
+    const value = fixture();
+    rebindRegistry(value, c => {
+      if (env === undefined) delete c.config.Env; else c.config.Env = env;
+      if (dir === undefined) delete c.config.WorkingDir; else c.config.WorkingDir = dir;
+    });
+    assert.doesNotThrow(() => validate(value));
+  }
+});
+
+test("scratch default allowance never admits changed PATH, additional environment or executable configuration", () => {
+  const path = "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin";
+  const changes = [
+    c => { c.config.Env = [path, "SECRET=synthetic"]; },
+    c => { c.config.Env = [path, path]; },
+    c => { c.config.Env = ["PATH=/bin:/usr/bin"]; },
+    c => { c.config.Env = [path + ":/build"]; },
+    c => { c.config.Env = [path + " "]; },
+    c => { c.config.Env = [path.toLowerCase()]; },
+    c => { c.config.Env = path; },
+    c => { c.config.Env = ["HOME=/"]; },
+    c => { c.config.WorkingDir = "//"; },
+    c => { c.config.WorkingDir = "/build"; },
+    c => { c.config.WorkingDir = "."; },
+    c => { c.config.WorkingDir = "/\0"; },
+    c => { c.config.Cmd = ["sh"]; },
+    c => { c.config.Entrypoint = ["sh"]; },
+    c => { c.config.OnBuild = ["RUN false"]; },
+    c => { c.config.Shell = ["sh", "-c"]; },
+    c => { c.config.User = "root"; },
+    c => { c.config.Healthcheck = {Test: ["CMD", "sh"]}; },
+    c => { c.config.StopSignal = "SIGTERM"; },
+    c => { c.config.Volumes = {"/build": {}}; },
+    c => { c.config.ExposedPorts = {"80/tcp": {}}; },
+  ];
+  for (const change of changes) {
+    const f = fixture();
+    rebindRegistry(f, c => { c.config.Env = [path]; c.config.WorkingDir = "/"; change(c); });
+    assert.throws(() => validate(f));
+  }
+});
+
 test("new V2 fixture mechanical adaptation preserves the entire original recipe/lineage construction body", () => {
   const original=readFileSync(new URL("./native-final-runtime-recipe-fixture.mjs",import.meta.url),"utf8").replaceAll("\r\n","\n");
   assert.equal(sha(original),"d21a00d62295a71566e96963d36f0659bc0e1c9453c1236a99af5f0062659eac");

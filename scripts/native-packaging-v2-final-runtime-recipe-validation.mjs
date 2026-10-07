@@ -593,7 +593,14 @@ export function validateFreshNativeCompactFinalCompleted(
   assert.equal(config.rootfs.type, "layers");
   assert.ok(Array.isArray(config.rootfs.diff_ids) && config.rootfs.diff_ids.length === 1);
   assert.match(config.rootfs.diff_ids[0], digest);
-  for (const key of ["Env","Cmd","Entrypoint","OnBuild","Shell"])
+  // Docker may materialize these exact inert scratch defaults. Preserve raw
+  // config bytes/digest; no arbitrary process environment or path is admitted.
+  const env = config.config.Env;
+  assert.ok(env == null || Array.isArray(env) &&
+    (env.length === 0 || env.length === 1 &&
+      env[0] === "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"),
+    "Compact artifact donor permits only the canonical Docker default PATH");
+  for (const key of ["Cmd","Entrypoint","OnBuild","Shell"])
     assert.ok(config.config[key] == null ||
       Array.isArray(config.config[key]) && config.config[key].length === 0,
       "Compact artifact donor cannot carry process/environment configuration");
@@ -601,8 +608,9 @@ export function validateFreshNativeCompactFinalCompleted(
     assert.ok(config.config[key] == null ||
       typeof config.config[key] === "object" && !Array.isArray(config.config[key]) &&
       Object.keys(config.config[key]).length === 0);
-  for (const key of ["User","WorkingDir"])
-    assert.ok(config.config[key] == null || config.config[key] === "");
+  assert.ok(config.config.User == null || config.config.User === "");
+  assert.ok(config.config.WorkingDir == null || config.config.WorkingDir === "" ||
+    config.config.WorkingDir === "/");
   assert.ok(config.config.Healthcheck == null);
   assert.ok(config.config.StopSignal == null || config.config.StopSignal === "");
   const labels = {
