@@ -300,7 +300,7 @@ async function runtime(stage, control) {
   const { createHash } = await import("node:crypto");
   const { spawnSync } = await import("node:child_process");
   const hash = (b) => createHash("sha256").update(b).digest("hex");
-  assert.ok(stage === "pre" || stage === "image");
+  assert.ok(stage === "recipe" || stage === "pre" || stage === "image");
   assert.equal(process.env.PYTHONDONTWRITEBYTECODE, "1");
   const dir = control.externalDirectory;
   assert.equal(dir, "/tmp/vaettir-fresh-final-capsule-" + control.planSha256);
@@ -325,7 +325,7 @@ async function runtime(stage, control) {
     Number((BigInt(control.deadlineNs) - process.hrtime.bigint()) / 1000000n);
   assert.ok(remaining() > 0 && remaining() <= 2445000);
   const logPath = dir + "/final.log";
-  if (stage === "pre") {
+  if (stage === "recipe") {
     assert.equal(fs.existsSync(logPath), false);
     assert.ok(
       remaining() >=
@@ -369,6 +369,30 @@ async function runtime(stage, control) {
     }
   };
   checkMembers();
+  const handoffPath = dir + "/recipe-handoff.json";
+  const handoff = {
+    stage: "recipe-unverified",
+    planSha256: control.planSha256,
+    controlSha256: process.env.VAETTIR_FINAL_CONTROL_SHA,
+    deadlineNs: control.deadlineNs,
+    finalLogSha256: hash(rawLog),
+    finalReceiptSha256: hash(finalRaw),
+    runtimeAcceptance: false,
+    authenticatedAcceptance: false,
+    deploymentAcceptance: false,
+  };
+  if (stage === "recipe") {
+    assert.ok(remaining() >= control.verificationReserveSeconds * 1000);
+    assert.equal(fs.existsSync("/build/llvm-phase-active.json"), false);
+    assert.equal(fs.existsSync(handoffPath), false);
+    fs.writeFileSync(handoffPath, JSON.stringify(handoff) + "\n", {
+      flag: "wx", mode: 0o400,
+    });
+    // This is a transport boundary only. No adapter/verifier review, accepted
+    // donor, runtime candidate or registry publication may follow this alone.
+    return;
+  }
+  assert.deepEqual(JSON.parse(read(handoffPath, 4096)), handoff);
   diagnosticStage = "runtime-module-import";
   const { createNativeFreshFinalAdapter } = await import(
     dir + "/native-builder-fresh-final-adapter.mjs"
@@ -709,23 +733,27 @@ function assemble(identity) {
   };
   const writeControl = `${common}const clock=JSON.parse(bounded('${prefix}clock.json',512));assert.match(clock.deadlineNs,/^[0-9]{1,30}$/);assert.ok(BigInt(clock.deadlineNs)>process.hrtime.bigint());const c=${JSON.stringify(control)};c.deadlineNs=clock.deadlineNs;const b=Buffer.from(JSON.stringify(c));assert.ok(b.length<=131072);fs.writeFileSync('${prefix}capsule/control.json',b,{flag:'wx',mode:0o400});fs.writeFileSync('${prefix}control-sha',sha(b),{flag:'wx'});const payload=JSON.stringify({capsuleBase64:bounded('${prefix}capsule.json',1048576).toString('base64'),controlBase64:b.toString('base64')});assert.ok(Buffer.byteLength(payload)<=2097152);fs.writeFileSync('${prefix}stdin.json',payload,{flag:'wx',mode:0o600});`;
   const bootstrap = (stage) =>
-    `${common}const publicFailure=${nativeFinalPublicFailure.toString()};let failureStage='bootstrap-materialize';async function run(){const dir='${dir}',pins=${JSON.stringify(identity.capsule.members)};assert.equal(process.env.PYTHONDONTWRITEBYTECODE,'1');assert.equal(fs.realpathSync('/tmp'),'/tmp');if('${stage}'==='pre'){assert.equal(fs.existsSync(dir),false);const parts=[],buf=Buffer.alloc(65536);let total=0;for(;;){const n=fs.readSync(0,buf,0,buf.length,null);if(!n)break;total+=n;assert.ok(total<=2097152);parts.push(Buffer.from(buf.subarray(0,n)));}const p=JSON.parse(Buffer.concat(parts).toString());assert.deepEqual(Object.keys(p).sort(),['capsuleBase64','controlBase64']);const raw=Buffer.from(p.capsuleBase64,'base64');assert.equal(raw.toString('base64'),p.capsuleBase64);assert.equal(raw.length,${identity.capsule.bytes});assert.equal(sha(raw),'${identity.capsule.sha256}');const c=JSON.parse(raw);assert.deepEqual(Object.keys(c.members).sort(),Object.keys(pins).sort());const control=Buffer.from(p.controlBase64,'base64');assert.equal(control.toString('base64'),p.controlBase64);assert.ok(control.length<=131072);assert.equal(sha(control),process.env.VAETTIR_FINAL_CONTROL_SHA);fs.mkdirSync(dir,{mode:0o700});for(const[n,h]of Object.entries(pins)){const b=Buffer.from(c.members[n].base64,'base64');assert.equal(b.length,h.bytes);assert.equal(sha(b),h.sha256);fs.writeFileSync(dir+'/'+n,b,{flag:'wx',mode:0o400});}fs.writeFileSync(dir+'/control.json',control,{flag:'wx',mode:0o400});}failureStage='bootstrap-control';assert.equal(fs.realpathSync(dir),dir);assert.ok(fs.lstatSync(dir).isDirectory()&&!fs.lstatSync(dir).isSymbolicLink());for(const[n,p]of Object.entries(pins)){const b=bounded(dir+'/'+n,262144);assert.equal(b.length,p.bytes);assert.equal(sha(b),p.sha256);}const b=bounded(dir+'/control.json',131072);assert.equal(sha(b),process.env.VAETTIR_FINAL_CONTROL_SHA);const c=JSON.parse(b);assert.equal(c.planSha256,'${planSha256}');failureStage='bootstrap-import';const{runtime}=await import(dir+'/native-fresh-final-runner.mjs');failureStage='bootstrap-runtime';await runtime('${stage}',c);}run().catch(error=>{console.error('NATIVE_FRESH_FINAL_FAILURE='+JSON.stringify(publicFailure(failureStage,error)));console.error('Pinned final verification refused');process.exitCode=1});`;
-  const containerGuard = (stage) =>
-    `${common}const a=JSON.parse(bounded('${prefix}${stage}-inspect.json',2097152));assert.equal(a.length,1);const[i]=a;assert.equal(i.Id,bounded('${prefix}${stage}-cid',64).toString());assert.equal(i.Config.Labels['vaettir.final-owner'],'${planSha256}');assert.equal(i.HostConfig.NetworkMode,'none');assert.equal(i.HostConfig.Privileged,false);assert.deepEqual(i.HostConfig.CapDrop,['ALL']);assert.ok(i.HostConfig.SecurityOpt.includes('no-new-privileges'));assert.equal(i.HostConfig.Memory,15032385536);assert.equal(i.HostConfig.NanoCpus,8000000000);assert.equal(i.HostConfig.PidsLimit,2048);assert.deepEqual(i.Mounts,[]);assert.deepEqual(i.Config.Env.filter(x=>x.startsWith('PYTHONDONTWRITEBYTECODE=')),['PYTHONDONTWRITEBYTECODE=1']);assert.equal(i.Image,${stage === "pre" ? JSON.stringify(identity.expectedParent.imageConfigDigest) : `bounded('${prefix}commit-id',80).toString().trim()`});`;
+    `${common}const publicFailure=${nativeFinalPublicFailure.toString()};let failureStage='bootstrap-materialize';async function run(){const dir='${dir}',pins=${JSON.stringify(identity.capsule.members)};assert.equal(process.env.PYTHONDONTWRITEBYTECODE,'1');assert.equal(fs.realpathSync('/tmp'),'/tmp');if('${stage}'==='recipe'){assert.equal(fs.existsSync(dir),false);const parts=[],buf=Buffer.alloc(65536);let total=0;for(;;){const n=fs.readSync(0,buf,0,buf.length,null);if(!n)break;total+=n;assert.ok(total<=2097152);parts.push(Buffer.from(buf.subarray(0,n)));}const p=JSON.parse(Buffer.concat(parts).toString());assert.deepEqual(Object.keys(p).sort(),['capsuleBase64','controlBase64']);const raw=Buffer.from(p.capsuleBase64,'base64');assert.equal(raw.toString('base64'),p.capsuleBase64);assert.equal(raw.length,${identity.capsule.bytes});assert.equal(sha(raw),'${identity.capsule.sha256}');const c=JSON.parse(raw);assert.deepEqual(Object.keys(c.members).sort(),Object.keys(pins).sort());const control=Buffer.from(p.controlBase64,'base64');assert.equal(control.toString('base64'),p.controlBase64);assert.ok(control.length<=131072);assert.equal(sha(control),process.env.VAETTIR_FINAL_CONTROL_SHA);fs.mkdirSync(dir,{mode:0o700});for(const[n,h]of Object.entries(pins)){const b=Buffer.from(c.members[n].base64,'base64');assert.equal(b.length,h.bytes);assert.equal(sha(b),h.sha256);fs.writeFileSync(dir+'/'+n,b,{flag:'wx',mode:0o400});}fs.writeFileSync(dir+'/control.json',control,{flag:'wx',mode:0o400});}failureStage='bootstrap-control';assert.equal(fs.realpathSync(dir),dir);assert.ok(fs.lstatSync(dir).isDirectory()&&!fs.lstatSync(dir).isSymbolicLink());for(const[n,p]of Object.entries(pins)){const b=bounded(dir+'/'+n,262144);assert.equal(b.length,p.bytes);assert.equal(sha(b),p.sha256);}const b=bounded(dir+'/control.json',131072);assert.equal(sha(b),process.env.VAETTIR_FINAL_CONTROL_SHA);const c=JSON.parse(b);assert.equal(c.planSha256,'${planSha256}');failureStage='bootstrap-import';const{runtime}=await import(dir+'/native-fresh-final-runner.mjs');failureStage='bootstrap-runtime';await runtime('${stage}',c);}run().catch(error=>{console.error('NATIVE_FRESH_FINAL_FAILURE='+JSON.stringify(publicFailure(failureStage,error)));console.error('Pinned final verification refused');process.exitCode=1});`;
+  const containerGuard = (stage, stopped = false) =>
+    `${common}const a=JSON.parse(bounded('${prefix}${stage}-inspect.json',2097152));assert.equal(a.length,1);const[i]=a;assert.equal(i.Id,bounded('${prefix}${stage}-cid',64).toString());assert.equal(i.Config.Labels['vaettir.final-owner'],'${planSha256}');assert.deepEqual(i.Config.Env.filter(x=>x.startsWith('VAETTIR_FINAL_CONTROL_SHA=')),['VAETTIR_FINAL_CONTROL_SHA='+bounded('${prefix}control-sha',64)]);${stopped ? "assert.equal(i.State.Running,false);assert.equal(i.State.Status,'exited');assert.equal(i.State.ExitCode,0);" : ""}assert.equal(i.HostConfig.NetworkMode,'none');assert.equal(i.HostConfig.Privileged,false);assert.deepEqual(i.HostConfig.CapDrop,['ALL']);assert.ok(i.HostConfig.SecurityOpt.includes('no-new-privileges'));assert.equal(i.HostConfig.Memory,15032385536);assert.equal(i.HostConfig.NanoCpus,8000000000);assert.equal(i.HostConfig.PidsLimit,2048);assert.deepEqual(i.Mounts,[]);assert.deepEqual(i.Config.Env.filter(x=>x.startsWith('PYTHONDONTWRITEBYTECODE=')),['PYTHONDONTWRITEBYTECODE=1']);assert.equal(i.Image,${stage === "recipe" ? JSON.stringify(identity.expectedParent.imageConfigDigest) : stage === "pre" ? `bounded('${prefix}recipe-image-id',80).toString().trim()` : `bounded('${prefix}commit-id',80).toString().trim()`});`;
   const admission = `${common}const clock=JSON.parse(bounded('${prefix}clock.json',512));assert.ok(BigInt(clock.deadlineNs)-process.hrtime.bigint()>=${(identity.resources.recipeSeconds + identity.resources.verificationReserveSeconds) * 1000000000}n,'Global remaining budget cannot admit final');`;
+  const verificationAdmission = `${common}const clock=JSON.parse(bounded('${prefix}clock.json',512));assert.ok(BigInt(clock.deadlineNs)-process.hrtime.bigint()>=${identity.resources.verificationReserveSeconds * 1000000000}n,'Global remaining budget cannot admit fresh verification');`;
   const imageGuard = `${common}const a=JSON.parse(bounded('${prefix}parent-inspect.json',2097152));assert.equal(a.length,1);const[i]=a;assert.equal(i.Id,'${identity.expectedParent.imageConfigDigest}');assert.equal(i.Os,'linux');assert.equal(i.Architecture,'amd64');assert.ok(i.RepoDigests.includes('${parent}'));assert.ok(i.Size>0&&i.Size<64*1024**3);const l=i.Config.Labels;for(const[k,v]of Object.entries(${JSON.stringify({ "vaettir.source-commit": identity.sourceCommit, "vaettir.source-sha256": identity.sourceSha256, "vaettir.prepare-plan": identity.preparePlanSha256, "vaettir.continuation-plan": identity.expectedParent.planSha256, "vaettir.continuation-phase": "assertion-compile-3", "vaettir.runtime-eligible": "false", "vaettir.artifact-purpose": "llvm-builder-checkpoint" })}))assert.equal(l[k],v);`;
+  // Unverified local snapshot only, never tagged/pushed or admitted as a donor.
+  const recipeImageGuard = `${common}const id=bounded('${prefix}recipe-image-id',80).toString().trim();assert.match(id,/^sha256:[a-f0-9]{64}$/);const a=JSON.parse(bounded('${prefix}recipe-image-inspect.json',2097152)),p=JSON.parse(bounded('${prefix}parent-inspect.json',2097152));assert.equal(a.length,1);assert.equal(p.length,1);const[i]=a;assert.equal(i.Id,id);assert.equal(i.Os,'linux');assert.equal(i.Architecture,'amd64');assert.ok(i.Size>0&&i.Size<64*1024**3);assert.equal(i.RootFS.Type,'layers');assert.equal(p[0].Id,'${identity.expectedParent.imageConfigDigest}');assert.equal(i.RootFS.Layers.length,p[0].RootFS.Layers.length+1);assert.deepEqual(i.RootFS.Layers.slice(0,-1),p[0].RootFS.Layers);assert.ok(i.RootFS.Layers.every(x=>/^sha256:[a-f0-9]{64}$/.test(x)));for(const[k,v]of Object.entries(${JSON.stringify({ "vaettir.source-commit": identity.sourceCommit, "vaettir.source-sha256": identity.sourceSha256, "vaettir.prepare-plan": identity.preparePlanSha256, "vaettir.continuation-plan": planSha256, "vaettir.continuation-phase": "final-recipe-unverified", "vaettir.runtime-eligible": "false", "vaettir.artifact-purpose": "llvm-builder-checkpoint", "vaettir.final-owner": planSha256 })}))assert.equal(i.Config.Labels[k],v);assert.deepEqual(i.Config.Env.filter(x=>x.startsWith('PYTHONDONTWRITEBYTECODE=')),['PYTHONDONTWRITEBYTECODE=1']);assert.deepEqual(i.Config.Env.filter(x=>x.startsWith('VAETTIR_FINAL_CONTROL_SHA=')),['VAETTIR_FINAL_CONTROL_SHA='+bounded('${prefix}control-sha',64)]);const h=JSON.parse(bounded('${prefix}recipe-handoff.json',4096)),c=JSON.parse(bounded('${prefix}capsule/control.json',131072));assert.deepEqual(Object.keys(h).sort(),['stage','planSha256','controlSha256','deadlineNs','finalLogSha256','finalReceiptSha256','runtimeAcceptance','authenticatedAcceptance','deploymentAcceptance'].sort());assert.equal(h.stage,'recipe-unverified');assert.equal(h.planSha256,'${planSha256}');assert.equal(h.controlSha256,bounded('${prefix}control-sha',64).toString());assert.equal(h.deadlineNs,c.deadlineNs);assert.match(h.finalLogSha256,/^[a-f0-9]{64}$/);assert.match(h.finalReceiptSha256,/^[a-f0-9]{64}$/);for(const k of ['runtimeAcceptance','authenticatedAcceptance','deploymentAcceptance'])assert.equal(h[k],false);`;
   const compare = `${common}const pre=JSON.parse(bounded('${prefix}pre-review.json',262144)),image=JSON.parse(bounded('${prefix}image-review.json',262144));assert.equal(pre.stage,'pre');assert.equal(image.stage,'image');for(const x of [pre,image]){assert.equal(x.planSha256,'${planSha256}');assert.equal(x.review.completeInputsAndObjectsRecomputed,true);assert.equal(x.review.runtimeAcceptance,false);assert.equal(x.review.authenticatedAcceptance,false);assert.equal(x.review.deploymentAcceptance,false);assert.equal(x.provenance.memoryLimitBytes,15032385536);}assert.deepEqual(pre.review,image.review);assert.equal(pre.finalReceiptBase64,image.finalReceiptBase64);const raw=Buffer.from(pre.finalReceiptBase64,'base64');assert.equal(raw.toString('base64'),pre.finalReceiptBase64);assert.equal(sha(raw),pre.review.finalReceiptSha256);fs.writeFileSync('${prefix}verified.json',JSON.stringify({planSha256:'${planSha256}',pre,image})+String.fromCharCode(10),{flag:'wx'});`;
   const registry = `${common}const r=JSON.parse(bounded('${prefix}registry.json',2097152));assert.deepEqual(r.failures??[],[]);assert.equal(r.images.length,1);const i=r.images[0],digest='sha256:'+sha(i.imageManifest),m=JSON.parse(i.imageManifest);assert.equal(i.imageId.imageDigest,digest);assert.equal(i.imageId.imageTag,'${image.split(":").at(-1)}');assert.equal(m.schemaVersion,2);assert.equal(m.mediaType,'application/vnd.docker.distribution.manifest.v2+json');assert.equal(m.config.digest,bounded('${prefix}commit-id',80).toString().trim());assert.ok(m.layers.length>0&&m.layers.length<=100&&m.layers.every(l=>/^sha256:[a-f0-9]{64}$/.test(l.digest)&&Number.isSafeInteger(l.size)&&l.size>0));assert.ok(m.layers.reduce((n,l)=>n+l.size,0)<16*1024**3);const pushes=bounded('${prefix}push.log',1048576).toString().split(String.fromCharCode(10)).map(x=>/digest: (sha256:[a-f0-9]{64})(?:\\s|$)/.exec(x)).filter(Boolean);assert.equal(pushes.length,1);assert.equal(pushes[0][1],digest);fs.writeFileSync('${prefix}registry-identity.json',JSON.stringify({imageDigest:digest,imageConfigDigest:m.config.digest}),{flag:'wx'});`;
   const configReadback = `${common}async function readback(){const expected=JSON.parse(bounded('${prefix}registry-identity.json',512)),download=JSON.parse(bounded('${prefix}download.json',8192));assert.equal(download.layerDigest,expected.imageConfigDigest);const url=new URL(download.downloadUrl);assert.equal(url.protocol,'https:');assert.equal(url.username,'');assert.equal(url.password,'');assert.equal(url.port,'');assert.ok(/(^|\\.)s3([.-]us-east-2)?\\.amazonaws\\.com$/.test(url.hostname));const response=await fetch(url,{redirect:'error',signal:AbortSignal.timeout(30000)});assert.equal(response.status,200);const declared=Number(response.headers.get('content-length'));assert.ok(Number.isSafeInteger(declared)&&declared>0&&declared<=262144);let parts=[],size=0;for await(const part of response.body){size+=part.length;assert.ok(size<=262144);parts.push(part);}const bytes=Buffer.concat(parts);assert.equal(bytes.length,declared);assert.equal('sha256:'+sha(bytes),expected.imageConfigDigest);const c=JSON.parse(bytes);assert.equal(c.os,'linux');assert.equal(c.architecture,'amd64');const l=c.config.Labels;for(const[k,v]of Object.entries(${JSON.stringify({ "vaettir.source-commit": identity.sourceCommit, "vaettir.source-sha256": identity.sourceSha256, "vaettir.continuation-plan": planSha256, "vaettir.continuation-phase": "final", "vaettir.runtime-eligible": "false", "vaettir.artifact-purpose": "llvm-builder-checkpoint", "vaettir.final-owner": planSha256 })}))assert.equal(l[k],v);assert.deepEqual(c.config.Env.filter(x=>x.startsWith('PYTHONDONTWRITEBYTECODE=')),['PYTHONDONTWRITEBYTECODE=1']);fs.writeFileSync('${prefix}registry-config.bin',bytes,{flag:'wx'});const proof=JSON.parse(bounded('${prefix}verified.json',524288));console.log('NATIVE_FRESH_FINAL_VERIFIED='+JSON.stringify({...proof,...expected,registryRawConfigSha256:sha(bytes),actualPrecommitAndCommittedImageVerified:true,digestPullEvidence:false,...${JSON.stringify(flags)}}));}readback().catch(()=>{console.error('Final registry readback refused; signed URL withheld');process.exitCode=1});`;
-  const readCleanupIds = `${common}const done=(process.env.VAETTIR_FINAL_CLEANUP_DONE||'').split(' ').filter(Boolean),ids=[];for(const name of ['image','pre']){const path='${prefix}'+name+'-cid';if(fs.existsSync(path)){const id=bounded(path,64).toString();assert.match(id,/^[a-f0-9]{64}$/);if(!done.includes(id))ids.push(id);}}assert.equal(new Set(ids).size,ids.length);process.stdout.write(ids.join(' '));`;
-  const cleanup = `${common}const ids=process.env.VAETTIR_FINAL_CLEANUP_IDS.split(' ');assert.ok(ids.length>0&&ids.length<=2&&ids.every(x=>/^[a-f0-9]{64}$/.test(x)));const a=JSON.parse(bounded('${prefix}cleanup-inspect.json',2097152));assert.equal(a.length,ids.length);assert.deepEqual(a.map(x=>x.Id).sort(),[...ids].sort());for(const i of a){assert.equal(i.Config.Labels['vaettir.final-owner'],'${planSha256}');assert.deepEqual(i.Mounts,[]);assert.ok(i.Image==='${identity.expectedParent.imageConfigDigest}'||i.Image===bounded('${prefix}commit-id',80).toString().trim());}`;
+  const readCleanupIds = `${common}const done=(process.env.VAETTIR_FINAL_CLEANUP_DONE||'').split(' ').filter(Boolean),ids=[];for(const name of ['image','pre','recipe']){const path='${prefix}'+name+'-cid';if(fs.existsSync(path)){const id=bounded(path,64).toString();assert.match(id,/^[a-f0-9]{64}$/);if(!done.includes(id))ids.push(id);}}assert.equal(new Set(ids).size,ids.length);process.stdout.write(ids.join(' '));`;
+  const cleanup = `${common}const ids=process.env.VAETTIR_FINAL_CLEANUP_IDS.split(' ');assert.ok(ids.length>0&&ids.length<=2&&ids.every(x=>/^[a-f0-9]{64}$/.test(x)));const a=JSON.parse(bounded('${prefix}cleanup-inspect.json',2097152));assert.equal(a.length,ids.length);assert.deepEqual(a.map(x=>x.Id).sort(),[...ids].sort());for(const i of a){assert.equal(i.Config.Labels['vaettir.final-owner'],'${planSha256}');assert.deepEqual(i.Mounts,[]);const recipe=bounded('${prefix}recipe-cid',64).toString();if(i.Id===recipe){assert.equal(i.Image,'${identity.expectedParent.imageConfigDigest}');}else if(fs.existsSync('${prefix}pre-cid')&&i.Id===bounded('${prefix}pre-cid',64).toString()){assert.equal(i.Image,bounded('${prefix}recipe-image-id',80).toString().trim());}else{assert.equal(i.Id,bounded('${prefix}image-cid',64).toString());assert.equal(i.Image,bounded('${prefix}commit-id',80).toString().trim());}}`;
   const commands = [
     "trap 'exit 124' TERM",
     'test "$CODEBUILD_BUILD_SUCCEEDING" = 1',
     `mkdir ${prefix.slice(0, -1)}`,
     `timeout 20s node -e ${quote(start)}`,
     "native_final_cleanup_done=' '",
-    //10+20+10+20<=60s for BOTH containers, inside the shared75s grace.
+    //10+20+10+20<=60s batch cleanup inside the shared75s grace. Recipe
+    // is removed before pre exists, so at most TWO unresolved owned IDs remain.
     `cleanup_native_validation(){ native_final_ids=$(VAETTIR_FINAL_CLEANUP_DONE="$native_final_cleanup_done" timeout 10s node -e ${quote(readCleanupIds)}) || return 70; test -n "$native_final_ids" || return 0; timeout 20s docker inspect $native_final_ids >${prefix}cleanup-inspect.json || return 70; VAETTIR_FINAL_CLEANUP_IDS="$native_final_ids" timeout 10s node -e ${quote(cleanup)} || return 70; timeout 20s docker rm -f $native_final_ids >/dev/null || return 70; native_final_cleanup_done="$native_final_cleanup_done$native_final_ids "; }`,
     `timeout 20s node -e ${quote("const fs=require('node:fs'),assert=require('node:assert/strict');const s=fs.statfsSync('/var/lib/docker',{bigint:true});assert.ok(s.bavail*s.bsize>=77309411328n);")}`,
     `timeout 60s aws s3 cp s3://${bucket}/${identity.capsule.s3Key} ${prefix}capsule.json --region us-east-2 --only-show-errors`,
@@ -736,13 +764,28 @@ function assemble(identity) {
     `timeout 20s docker image inspect ${parent} >${prefix}parent-inspect.json`,
     `timeout 20s node -e ${quote(imageGuard)}`,
     `native_final_control=$(timeout 20s node -e ${quote(`${common}process.stdout.write(bounded('${prefix}control-sha',64).toString());`)})`,
-    `timeout 30s docker create --interactive --cidfile ${prefix}pre-cid --label vaettir.final-owner=${planSha256} --network none --cap-drop ALL --security-opt no-new-privileges --pids-limit 2048 --memory 14g --cpus 8 --env PYTHONDONTWRITEBYTECODE=1 --env VAETTIR_FINAL_CONTROL_SHA="$native_final_control" --entrypoint node ${parent} -e ${quote(bootstrap("pre"))}`,
+    `timeout 30s docker create --interactive --cidfile ${prefix}recipe-cid --label vaettir.final-owner=${planSha256} --network none --cap-drop ALL --security-opt no-new-privileges --pids-limit 2048 --memory 14g --cpus 8 --env PYTHONDONTWRITEBYTECODE=1 --env VAETTIR_FINAL_CONTROL_SHA="$native_final_control" --entrypoint node ${parent} -e ${quote(bootstrap("recipe"))}`,
+    `native_final_recipe=$(timeout 20s node -e ${quote(`${common}process.stdout.write(bounded('${prefix}recipe-cid',64).toString());`)})`,
+    `timeout 20s docker inspect "$native_final_recipe" >${prefix}recipe-inspect.json`,
+    `timeout 20s node -e ${quote(containerGuard("recipe"))}`,
+    `timeout 20s node -e ${quote(admission)}`,
+    `docker start --attach --interactive "$native_final_recipe" <${prefix}stdin.json`,
+    `timeout 20s docker inspect "$native_final_recipe" >${prefix}recipe-inspect.json`,
+    `timeout 20s node -e ${quote(containerGuard("recipe", true))}`,
+    `timeout 20s docker cp "$native_final_recipe:${dir}/recipe-handoff.json" ${prefix}recipe-handoff.json`,
+    `timeout 60s docker commit --change ${quote("LABEL vaettir.continuation-plan=" + planSha256 + " vaettir.continuation-phase=final-recipe-unverified")} "$native_final_recipe" >${prefix}recipe-image-id`,
+    `native_final_recipe_image=$(timeout 20s node -e ${quote(`${common}const id=bounded('${prefix}recipe-image-id',80).toString().trim();assert.match(id,/^sha256:[a-f0-9]{64}$/);process.stdout.write(id);`)})`,
+    `timeout 20s docker image inspect "$native_final_recipe_image" >${prefix}recipe-image-inspect.json`,
+    `timeout 20s node -e ${quote(recipeImageGuard)}`,
+    "cleanup_native_validation",
+    `timeout 20s node -e ${quote(verificationAdmission)}`,
+    `timeout 30s docker create --cidfile ${prefix}pre-cid --label vaettir.final-owner=${planSha256} --network none --cap-drop ALL --security-opt no-new-privileges --pids-limit 2048 --memory 14g --cpus 8 --env PYTHONDONTWRITEBYTECODE=1 --env VAETTIR_FINAL_CONTROL_SHA="$native_final_control" --entrypoint node "$native_final_recipe_image" -e ${quote(bootstrap("pre"))}`,
     `native_final_pre=$(timeout 20s node -e ${quote(`${common}process.stdout.write(bounded('${prefix}pre-cid',64).toString());`)})`,
     `timeout 20s docker inspect "$native_final_pre" >${prefix}pre-inspect.json`,
     `timeout 20s node -e ${quote(containerGuard("pre"))}`,
-    `timeout 20s node -e ${quote(admission)}`,
-    `docker start --attach --interactive "$native_final_pre" <${prefix}stdin.json`,
-    'test "$(timeout 20s docker inspect --format \'{{.State.ExitCode}}\' "$native_final_pre")" = 0',
+    'docker start -a "$native_final_pre"',
+    `timeout 20s docker inspect "$native_final_pre" >${prefix}pre-inspect.json`,
+    `timeout 20s node -e ${quote(containerGuard("pre", true))}`,
     `timeout 20s docker cp "$native_final_pre:${dir}/pre-review.json" ${prefix}pre-review.json`,
     `timeout 60s docker commit --change ${quote("LABEL vaettir.continuation-plan=" + planSha256 + " vaettir.continuation-phase=final")} "$native_final_pre" ${image} >${prefix}commit-id`,
     `timeout 30s docker create --cidfile ${prefix}image-cid --label vaettir.final-owner=${planSha256} --network none --cap-drop ALL --security-opt no-new-privileges --pids-limit 2048 --memory 14g --cpus 8 --env PYTHONDONTWRITEBYTECODE=1 --env VAETTIR_FINAL_CONTROL_SHA="$native_final_control" --entrypoint node ${image} -e ${quote(bootstrap("image"))}`,
@@ -832,12 +875,18 @@ function assemble(identity) {
       start,
       capsuleGate,
       writeControl,
+      bootstrapRecipe: bootstrap("recipe"),
       bootstrapPre: bootstrap("pre"),
       bootstrapImage: bootstrap("image"),
+      containerGuardRecipe: containerGuard("recipe"),
+      stoppedContainerGuardRecipe: containerGuard("recipe", true),
+      stoppedContainerGuardPre: containerGuard("pre", true),
       containerGuardPre: containerGuard("pre"),
       containerGuardImage: containerGuard("image"),
       admission,
+      verificationAdmission,
       imageGuard,
+      recipeImageGuard,
       compare,
       registry,
       configReadback,

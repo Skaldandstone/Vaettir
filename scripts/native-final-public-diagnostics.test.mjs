@@ -108,6 +108,7 @@ async function runSynthetic(module,failure) {
  const injected=error(),logs=[],writes=[],calls=[];
  const final={phase:"final",predecessorSha256:"p",inputsSha256:"i",proof:{"llvm-arm-policy":"r","llvm-cpu-jit":"j"}};
  const files=new Map([[dir+"/final.log",Buffer.from("synthetic compiler log")],["/build/llvm-phase-receipts/final.json",Buffer.from(JSON.stringify(final))]]);
+ if(failure!=="runtime-recipe") files.set(dir+"/recipe-handoff.json",Buffer.from(JSON.stringify({stage:"recipe-unverified",planSha256:plan,controlSha256:"9".repeat(64),deadlineNs:"2400000000000",finalLogSha256:sha(files.get(dir+"/final.log")),finalReceiptSha256:sha(files.get("/build/llvm-phase-receipts/final.json")),runtimeAcceptance:false,authenticatedAcceptance:false,deploymentAcceptance:false})));
  const fds=new Map();let next=1;
  const fs={constants:{O_RDONLY:0,O_NOFOLLOW:0},existsSync:()=>false,lstatSync(path){const bytes=files.get(path);assert.ok(bytes);return{isFile:()=>true,isSymbolicLink:()=>false,size:bytes.length,ino:1};},openSync(path){const fd=next++;fds.set(fd,path);return fd;},fstatSync:()=>({ino:1}),readFileSync:fd=>files.get(fds.get(fd)),closeSync:fd=>fds.delete(fd),writeFileSync(path){writes.push(path);}};
  const adapter={ops:{},provenance:{},cleanupOwnedExtraction(){calls.push("cleanup");if(failure==="runtime-cleanup")throw injected;}};
@@ -123,10 +124,10 @@ async function runSynthetic(module,failure) {
   throw new Error("Unexpected synthetic import");
  };
  const source=runner(module).replace("export async function runtime","async function runtime").replaceAll(/\bimport\(/g,"fakeImport(");
- const sandbox={fakeImport,Buffer,process:{env:{PYTHONDONTWRITEBYTECODE:"1"},hrtime:{bigint:()=>0n}},console:{error:x=>logs.push(x),log:x=>logs.push(x)},control:{planSha256:plan,externalDirectory:dir,deadlineNs:"2400000000000",recipeSeconds:60,verificationReserveSeconds:600,parentReceiptSha256:"p",inputsSha256:"i",scriptPins:{},capsuleMembers:{},receipts:[]}};
+ const sandbox={fakeImport,Buffer,process:{env:{PYTHONDONTWRITEBYTECODE:"1",VAETTIR_FINAL_CONTROL_SHA:"9".repeat(64)},hrtime:{bigint:()=>0n}},console:{error:x=>logs.push(x),log:x=>logs.push(x)},control:{planSha256:plan,externalDirectory:dir,deadlineNs:"2400000000000",recipeSeconds:60,verificationReserveSeconds:600,parentReceiptSha256:"p",inputsSha256:"i",scriptPins:{},capsuleMembers:{},receipts:[]}};
  // Import interception is fixture-only; all generated stage/try/finally/catch
  // logic executes verbatim, no native calls or trusted proof substituted.
- await assert.rejects(new Script(source+"\nruntime('pre',control)").runInNewContext(sandbox,{timeout:2000}));
+ await assert.rejects(new Script(source+"\nruntime('"+(failure==="runtime-recipe"?"recipe":"pre")+"',control)").runInNewContext(sandbox,{timeout:2000}));
  const diagnostic=logs.filter(x=>x.startsWith("NATIVE_FRESH_FINAL_FAILURE="));assert.equal(diagnostic.length,1);
  const value=JSON.parse(diagnostic[0].slice("NATIVE_FRESH_FINAL_FAILURE=".length));
  assert.equal(value.stage,failure);assert.equal(value.errorCode,"ERR_ASSERTION");
@@ -138,15 +139,15 @@ for(const[name,module]of [["original",original],["packaging-v2",v2]]) {
  for(const failure of ["runtime-recipe","runtime-adapter","runtime-verifier","runtime-cleanup"])test(name+": actual generated runner "+failure+" still rejects with bounded diagnostics",async()=>{
   const calls=await runSynthetic(module,failure);
   if(failure==="runtime-recipe")assert.deepEqual(calls,["recipe"]);
-  if(failure==="runtime-adapter")assert.deepEqual(calls,["recipe","adapter"]);
-  if(failure==="runtime-verifier"||failure==="runtime-cleanup")assert.deepEqual(calls,["recipe","adapter","verifier","cleanup"]);
+  if(failure==="runtime-adapter")assert.deepEqual(calls,["adapter"]);
+  if(failure==="runtime-verifier"||failure==="runtime-cleanup")assert.deepEqual(calls,["adapter","verifier","cleanup"]);
  });
 }
 
 for(const[name,module,file]of [["original",original,"native-builder-fresh-final-plan.mjs"],["packaging-v2",v2,"native-packaging-v2-builder-fresh-final-plan.mjs"]]) {
  test(name+": actual bootstrap failure catch publishes only bounded metadata and retains exit1",async()=>{
   const text=readFileSync(new URL(file,import.meta.url),"utf8");
-  const match=/  const bootstrap = \(stage\) =>\n\s+(\x60[\s\S]*?\x60);\n  const containerGuard/.exec(text.replaceAll("\r\n","\n"));
+  const match=/ {2}const bootstrap = \(stage\) =>\n\s+(\x60[\s\S]*?\x60);\n {2}const containerGuard/.exec(text.replaceAll("\r\n","\n"));
   assert.ok(match,"Actual generated bootstrap template required");
   const logs=[],proc={env:{},exitCode:undefined};
   const scope={common:"const fs=mockFs,assert=mockAssert;",nativeFinalPublicFailure:module.nativeFinalPublicFailure,dir,identity:{capsule:{members:{},bytes:1,sha256:"b".repeat(64)}},planSha256:plan,console:{error:x=>logs.push(x)},process:proc,mockFs:{},mockAssert:assert};

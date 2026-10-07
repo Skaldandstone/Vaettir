@@ -693,7 +693,7 @@ test("operation preserves original sh-x final with full default adapters twice,1
   assert.match(runner, /createNativeFreshFinalAdapter/);
   assert.match(runner, /cleanupOwnedExtraction/);
   assert.match(runner, /PYTHONDONTWRITEBYTECODE: "1"/);
-  assert.equal((p.operation.match(/--memory 14g --cpus 8/g) ?? []).length, 2);
+  assert.equal((p.operation.match(/--memory 14g --cpus 8/g) ?? []).length, 3);
   assert.match(
     p.generatedPrograms.containerGuardImage,
     /PYTHONDONTWRITEBYTECODE=1/,
@@ -702,7 +702,8 @@ test("operation preserves original sh-x final with full default adapters twice,1
     p.generatedPrograms.compare,
     /assert.deepEqual\(pre.review,image.review\)/,
   );
-  assert.match(p.generatedPrograms.bootstrapPre, /fs.existsSync\(dir\),false/);
+  assert.match(p.generatedPrograms.bootstrapRecipe, /if\('recipe'==='recipe'\)\{assert.equal\(fs.existsSync\(dir\),false/);
+  assert.match(p.generatedPrograms.bootstrapPre, /if\('pre'==='recipe'\)/);
   assert.ok(
     p.generatedPrograms.capsuleGate.indexOf("assert.equal(sha(b)") <
       p.generatedPrograms.capsuleGate.indexOf("fs.mkdirSync"),
@@ -908,11 +909,11 @@ function containerRecord(p, stage = "pre") {
     Id: "c".repeat(64),
     Image:
       stage === "pre"
-        ? p.identity.expectedParent.imageConfigDigest
+        ? "sha256:" + "a".repeat(64)
         : "sha256:" + "d".repeat(64),
     Config: {
       Labels: { "vaettir.final-owner": p.planSha256 },
-      Env: ["OTHER=synthetic", "PYTHONDONTWRITEBYTECODE=1"],
+      Env: ["OTHER=synthetic", "PYTHONDONTWRITEBYTECODE=1", "VAETTIR_FINAL_CONTROL_SHA=" + "9".repeat(64)],
     },
     HostConfig: {
       NetworkMode: "none",
@@ -935,6 +936,8 @@ test("executed container and cleanup guards reject wrong owner/resources/bytecod
         [prefix + stage + "-cid"]: record.Id,
         [prefix + stage + "-inspect.json"]: JSON.stringify([record]),
         [prefix + "commit-id"]: "sha256:" + "d".repeat(64) + "\n",
+        [prefix + "recipe-image-id"]: "sha256:" + "a".repeat(64),
+        [prefix + "control-sha"]: "9".repeat(64),
       };
     vmFixture(initial).run(
       p.generatedPrograms[
@@ -975,6 +978,10 @@ test("executed container and cleanup guards reject wrong owner/resources/bytecod
   const initial = {
     [prefix + "cleanup-inspect.json"]: JSON.stringify(records),
     [prefix + "commit-id"]: "sha256:" + "d".repeat(64),
+    [prefix + "recipe-cid"]: "e".repeat(64),
+    [prefix + "pre-cid"]: records[0].Id,
+    [prefix + "image-cid"]: records[1].Id,
+    [prefix + "recipe-image-id"]: "sha256:" + "a".repeat(64),
   };
   const good = vmFixture(initial);
   good.process.env.VAETTIR_FINAL_CLEANUP_IDS = ids;

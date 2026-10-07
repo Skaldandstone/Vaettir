@@ -8,6 +8,7 @@ import {deriveNativePackagingV2,LEGACY_SOURCE_PINS,V2_MODULE_NAMES} from "./nati
 import {historicalNativeV1RecipeFixture} from "./native-v1-recipe-test-fixture.mjs";
 import {historicalNativeFinalPlanFixture,reviewedNativeFinalDiagnosticsTestOverlay} from "./native-final-plan-historical-test-fixture.mjs";
 import {historicalNativeFinalAdapterFixture} from "./native-final-adapter-historical-test-fixture.mjs";
+import {reviewedRecipeIsolationTestOverlay} from "./native-final-recipe-isolation-test-overlay.mjs";
 const root=new URL("../",import.meta.url);
 const sha=b=>createHash("sha256").update(b).digest("hex");
 const fixtureName="native-final-runtime-recipe-fixture.mjs";
@@ -30,7 +31,6 @@ function reviewedMemoryDiagnosticsOverlay(historicalDiagnostics){
   assert.ok(Buffer.isBuffer(historicalDiagnostics));
   assert.equal(sha(historicalDiagnostics),"939adbc2675d08eafca59b51b37d20dcc72246ee9a298244fc0032f7b475ed4f");
   const current=fixtureLf(readFileSync(new URL("scripts/native-packaging-v2-builder-fresh-final-plan.mjs",root)));
-  assert.equal(sha(current),"3071479df0917cb68829480039e574a72c77bee82ccda2098dde390e1f9ca018");
   const before=historicalDiagnostics.toString(),after=current.toString();
   const extract=text=>{
     const start=text.indexOf("export function nativeFinalPublicFailure(stage, error) {");
@@ -42,9 +42,10 @@ function reviewedMemoryDiagnosticsOverlay(historicalDiagnostics){
   assert.equal(before.split(oldFunction).length,2);assert.equal(after.split(newFunction).length,2);
   const oldPin="bbb313210d6826fc64fa57f1c85b5466c40075f05d88c46d6ed88a1316bae092",newPin="666a502ca862578bd6c9f49768f8df2107bd113db542637304c4a871a15426a5";
   assert.equal(before.split(oldPin).length,2);assert.equal(after.split(newPin).length,2);
-  assert.equal(before.replace(oldFunction,newFunction).replace(oldPin,newPin),after);
-  assert.equal(after.replace(newFunction,oldFunction).replace(newPin,oldPin),before);
-  return Buffer.from(current);
+  const memory=before.replace(oldFunction,newFunction).replace(oldPin,newPin);
+  assert.equal(sha(memory),"3071479df0917cb68829480039e574a72c77bee82ccda2098dde390e1f9ca018");
+  assert.equal(memory.replace(newFunction,oldFunction).replace(newPin,oldPin),before);
+  return Buffer.from(memory);
 }
 function source(){
   const canonicalRecipe=readFileSync(new URL("scripts/build-llvm-runtime.sh",root));
@@ -112,7 +113,7 @@ test("deterministic narrowly corrected recipe/derived import/pin/purpose bytes r
     const canonical=fixtureLf(readFileSync(new URL("scripts/"+name,root)));
     if(name==="native-packaging-v2-builder-fresh-final-plan.mjs"){
       assert.notDeepEqual(canonical,r.modules[name],"Current diagnostics are not historical final bytes");
-      assert.deepEqual(canonical,reviewedMemoryDiagnosticsOverlay(reviewedNativeFinalDiagnosticsTestOverlay(r.modules[name])));
+      assert.deepEqual(canonical,reviewedRecipeIsolationTestOverlay(reviewedMemoryDiagnosticsOverlay(reviewedNativeFinalDiagnosticsTestOverlay(r.modules[name]))));
     }else if(name==="native-builder-fresh-final-adapter.mjs"){
       assert.equal(sha(r.modules[name]),LEGACY_SOURCE_PINS[name]);
       assert.notDeepEqual(canonical,r.modules[name],"Current cgroup reader is not historical adapter evidence");
