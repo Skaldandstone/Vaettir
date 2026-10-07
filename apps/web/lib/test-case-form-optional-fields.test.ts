@@ -18,11 +18,11 @@ function elements(value: unknown, all: Element[] = []): Element[] { if (React.is
 function text(value: unknown): string { return typeof value === "string" || typeof value === "number" ? String(value) : React.isValidElement(value) ? text((value as Element).props.children) : Array.isArray(value) ? value.map(text).join("") : ""; }
 function seed() { return { title: "Case\nExact", priority: "MEDIUM", testType: "FUNCTIONAL", validationDomain: "SOFTWARE", background: "", tags: [] as string[], suitePath: "suite/exact", testPlanId: "", sharedStepGroupId: "", stepRevision: "s".repeat(64), caseRevision: "c".repeat(64), given: ["", " Given\n raw "], when: [" When "], then: [" Then "], verificationProfile: { setup: "", safety: "", instruments: "", acceptanceCriteria: "" }, steps: [{ action: " Click\n button ", expectedActionOrData: null as string | null, expectedResult: "" as string | null, expectedResponse: null as string | null, mediaAttachmentIds: ["media-A", "media-B"] }, { action: " Second action ", expectedActionOrData: null as string | null, expectedResult: " Expected\n exact " as string | null, expectedResponse: null as string | null, mediaAttachmentIds: [] as string[] }] }; }
 const labels = { action: "Human\n action", expectedActionOrData: "Engine / API\n behavior", expectedResult: "Visible outcome", expectedResponse: " Wire\n response " };
-function harness(initial = seed(), automatic = false) {
+function harness(initial = seed(), automatic = false, mode: "create" | "edit" = "edit") {
   type Slot = { value?: unknown; deps?: readonly unknown[]; cleanup?: () => void; memo?: unknown };
   const slots: Slot[] = [], effects: Array<() => void> = [], sent: unknown[] = [], reads: string[] = [], settingsWrites: unknown[] = [], navigation: string[] = [];
   let cursor = 0, dirty = true, tree: React.ReactNode = null;
-  const props = { mode: "edit", projectId: "p", testCaseId: "case", initial, stepFieldLabels: labels, active: true, locked: false };
+  const props = { mode, projectId: "p", testCaseId: mode === "edit" ? "case" : undefined, initial, stepFieldLabels: labels, active: true, locked: false };
   const presentation = core.defaultCasePresentation(null);
   if (!automatic) for (const key of core.CASE_PRESENTATION_FIELDS) presentation.fields[key] = "HIDE";
   const data = { projectId: "p", organizationId: "o", caseId: null, readScope: { projectId: "p", organizationId: "o", actorId: "N", actorClerkUserId: "cl" }, configuration: presentation, defaults: presentation };
@@ -52,8 +52,46 @@ function harness(initial = seed(), automatic = false) {
   function ready() { const child = elements(tree).find(e => e.type === FieldBoundary); if (!child) throw Error("Actual metadata readiness callback missing"); (child.props.onChange as (value: unknown) => void)({ ready: true, customFields: { untouched: false, zero: 0, empty: "" }, expectedFieldSchemaHash: "f".repeat(64), expectedCustomFieldRevision: "m".repeat(64) }); settle(); }
   function textarea(label: string, occurrence = 0) { const parent = elements(tree).filter(e => e.type === "label" && text(e.props.children).startsWith(label))[occurrence]; if (!parent) throw Error(`Label absent: ${label}`); const child = elements(parent).find(e => e.type === "textarea"); if (!child) throw Error(`Textarea absent: ${label}`); return child; }
   settle();
-  return { props, sent, reads, settingsWrites, navigation, button, click, ready, render, settle, textarea, get tree() { return tree; }, html: () => { settle(); return renderToStaticMarkup(tree); }, change: (label: string, value: string, occurrence = 0) => { (textarea(label, occurrence).props.onChange as (event: { target: { value: string } }) => void)({ target: { value } }); settle(); }, save: async () => { const b = button("Save changes"); expect(b.props.disabled).not.toBe(true); await (b.props.onClick as () => Promise<void>)(); settle(); }, holdSave: () => { mutate = () => new Promise(() => {}); }, holdUpload: () => { upload = () => new Promise(() => {}); const input = elements(tree).find(e => e.type === "input" && e.props.type === "file"); if (!input) throw Error("Actual upload input missing"); (input.props.onChange as (event: { target: { files: File[]; value: string } }) => void)({ target: { files: [new File(["synthetic"], "synthetic.png", { type: "image/png" })], value: "synthetic" } }); settle(); } };
+  return { props, sent, reads, settingsWrites, navigation, button, click, ready, render, settle, textarea, get tree() { return tree; }, html: () => { settle(); return renderToStaticMarkup(tree); }, change: (label: string, value: string, occurrence = 0) => { (textarea(label, occurrence).props.onChange as (event: { target: { value: string } }) => void)({ target: { value } }); settle(); }, save: async () => { const b = button(mode === "create" ? "Create test case" : "Save changes"); expect(b.props.disabled).not.toBe(true); await (b.props.onClick as () => Promise<void>)(); settle(); }, holdSave: () => { mutate = () => new Promise(() => {}); }, holdUpload: () => { upload = () => new Promise(() => {}); const input = elements(tree).find(e => e.type === "input" && e.props.type === "file"); if (!input) throw Error("Actual upload input missing"); (input.props.onChange as (event: { target: { files: File[]; value: string } }) => void)({ target: { files: [new File(["synthetic"], "synthetic.png", { type: "image/png" })], value: "synthetic" } }); settle(); } };
 }
+it.each(["Original background\nUseful prose", " \n\t "])("clearing saved Background %j sends explicit empty text and preserves every other save field", async background => {
+  const initial = seed(); initial.background = background;
+  const untouched = harness(initial), cleared = harness(initial);
+  untouched.ready(); cleared.ready();
+  cleared.change("Background", "");
+  // HIDE may hide the now-empty control, but revealing it restores the same
+  // deliberately cleared value without changing preference or saved content.
+  cleared.click("Show Background / description for this draft");
+  expect(cleared.textarea("Background").props.value).toBe("");
+  await untouched.save(); await cleared.save();
+  expect(untouched.sent).toHaveLength(1); expect(cleared.sent).toHaveLength(1);
+  expect(untouched.sent[0]).toHaveProperty("background", background);
+  expect(cleared.sent[0]).toEqual({ ...untouched.sent[0] as Record<string, unknown>, background: "" });
+  expect(cleared.settingsWrites).toEqual([]);
+  expect(cleared.navigation).toEqual(["/projects/p/test-cases/case"]);
+});
+it.each([null, ""])("initial saved Background %j projected to the empty editor retains omitted behavior on unrelated save", async background => {
+  const initial = seed(); initial.background = background ?? "";
+  // The real edit route projects native NULL with tc.background ?? "";
+  // this remains a synthetic form payload test, not native NULL acceptance.
+  const h = harness(initial); h.ready(); await h.save();
+  expect(h.sent).toHaveLength(1); expect(h.sent[0]).toHaveProperty("background", undefined);
+  expect(h.sent[0]).toMatchObject({ expectedCaseRevision: "c".repeat(64), expectedStepRevision: "s".repeat(64), expectedPriority: "MEDIUM", customFields: { untouched: false, zero: 0, empty: "" } });
+});
+it("new draft keeps initial blank or deliberately cleared template Background omitted", async () => {
+  for (const background of ["", "Template background\nRaw prose"]) {
+    const initial = seed(); initial.background = background;
+    const h = harness(initial, false, "create"); h.ready();
+    if (background !== "") h.change("Background", "");
+    await h.save(); expect(h.sent).toHaveLength(1); expect(h.sent[0]).toHaveProperty("background", undefined);
+    expect(h.sent[0]).toHaveProperty("projectId", "p"); expect(h.sent[0]).not.toHaveProperty("expectedCaseRevision"); expect(h.settingsWrites).toEqual([]);
+  }
+});
+it("nonempty edited Background retains all raw whitespace, multiline and literal markup", async () => {
+  const initial = seed(); initial.background = "Original";
+  const h = harness(initial); h.ready(); const raw = ' \n<not HTML> & "literal"\n\tretained prose  ';
+  h.change("Background", raw); await h.save(); expect(h.sent).toHaveLength(1); expect(h.sent[0]).toHaveProperty("background", raw); expect(initial.background).toBe("Original");
+});
 it("HIDE presents six explicit reveal controls and no compliance mapper/default/setting write", () => { const h = harness(), before = h.reads.length, html = h.html(); expect(html).toContain("Show optional fields for this draft"); expect(elements(h.tree).filter(e => e.type === "button" && String(e.props["aria-label"] ?? "").startsWith("Show "))).toHaveLength(6); expect(html).not.toContain("Compliance controls"); expect(html).toContain("Priority"); h.click("Show Engine / API\n behavior for this draft"); expect(h.reads).toHaveLength(before); expect(h.sent).toEqual([]); expect(h.settingsWrites).toEqual([]); expect(h.textarea(labels.expectedActionOrData).props.value).toBe(""); expect(h.html()).toContain("Not supplied"); });
 it("hardware AUTO keeps expected response hidden by default but the same numbered row can explicitly reveal it", () => { const initial = seed(); initial.validationDomain = "HARDWARE"; const h = harness(initial, true); expect(h.html()).toContain("Show optional fields for this draft"); h.click("Show  Wire\n response  for this draft"); const list = elements(h.tree).find(e => e.props["aria-label"] === "Ordered test steps"); if (!list) throw Error("Actual step list missing"); const rows = elements(list).filter(e => e.props.role === "listitem"); expect(rows).toHaveLength(2); expect(text(rows[0])).toContain(labels.action); expect(text(rows[0])).toContain(labels.expectedResponse); expect(h.sent).toEqual([]); });
 it("revealing ALL six fields alone leaves unrelated save shape, ordered raw/NULL/empty/media/phases/CAS exactly unchanged", async () => { const untouched = harness(), revealed = harness(); untouched.ready(); revealed.ready(); const before = revealed.reads.length; for (const label of ["Background / description", "Tag chips", "Fixture setup, instruments and measurement criteria", "Safety prerequisites / stop conditions", labels.expectedActionOrData, labels.expectedResponse]) revealed.click(`Show ${label} for this draft`); expect(revealed.reads).toHaveLength(before); expect(revealed.settingsWrites).toEqual([]); expect(revealed.sent).toEqual([]); await untouched.save(); await revealed.save(); expect(revealed.sent).toEqual(untouched.sent); expect(revealed.sent[0]).toMatchObject({ expectedStepRevision: "s".repeat(64), expectedCaseRevision: "c".repeat(64), expectedPriority: "MEDIUM", steps: [{ action: " Click\n button ", expectedActionOrData: null, expectedResult: "", expectedResponse: null, mediaAttachmentIds: ["media-A", "media-B"] }, { action: " Second action ", expectedActionOrData: null, expectedResult: " Expected\n exact ", expectedResponse: null, mediaAttachmentIds: [] }], given: ["", " Given\n raw "], customFields: { untouched: false, zero: 0, empty: "" } }); });

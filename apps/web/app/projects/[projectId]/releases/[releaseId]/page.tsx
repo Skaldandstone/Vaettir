@@ -285,8 +285,8 @@ export default function ReleaseReadinessPage() {
           if (!proceed) return;
         }
       } catch {
-        // Gate check failing shouldn't block the whole status update flow --
-        // fall through and let the mutation itself be the source of truth.
+        setError("Release gates could not be checked. Refresh the workspace and try READY again; no status change was requested.");
+        return;
       }
     }
     try {

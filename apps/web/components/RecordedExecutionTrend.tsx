@@ -1037,7 +1037,7 @@ function TrendRunDrilldown({
                   borderRadius: 8,
                 }}
               >
-                <Link href={`/projects/${projectId}/test-runs#run-${run.id}`}>
+                <Link href={run.provider === "manual" && !run.providerExcerpt ? `/projects/${encodeURIComponent(projectId)}/test-runs/manual/${encodeURIComponent(run.id)}` : `/projects/${projectId}/test-runs#run-${run.id}`}>
                   {run.startedAt} · {run.status}
                 </Link>
                 <p>

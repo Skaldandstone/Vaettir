@@ -341,7 +341,7 @@ export default function TestCaseForm({
       const payload = {
         testPlanId: value.testPlanId || undefined,
         title: value.title,
-        background: value.background || undefined,
+        background: value.background || (mode === "edit" && baseline?.background ? "" : undefined),
         given: preparedGiven.values,
         when: preparedWhen.values,
         then: preparedThen.values,
