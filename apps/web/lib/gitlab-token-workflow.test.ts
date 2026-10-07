@@ -411,4 +411,105 @@ describe("GitLab token connection actual component workflow (synthetic)", () => 
     expect(h.connect.mutateAsync).not.toHaveBeenCalled();
     expect(h.forbidden).not.toHaveBeenCalled();
   });
+
+  it("Connect more explicitly starts an acknowledged fresh catalogue batch without inherited choices", async () => {
+    const h = harness(); fillVerification(h);
+    await h.submit(); h.render();
+    h.button("Select this page (up to 100 total)").props.onClick!(); h.render();
+    h.button("Review 2 selected").props.onClick!(); h.render();
+    await h.button("Approve and connect").props.onClick!(); h.render();
+    h.fetchList.mockResolvedValueOnce({ ...listing(["fresh-batch"], false, true), catalogVersion: "d".repeat(64) });
+    h.button("Connect more repositories").props.onClick!(); await h.settle();
+    expect(at(h.fetchList.mock.calls, 1)[0]).toEqual({ id: "synthetic-connection", page: 1, search: "", restartCatalogue: true });
+    expect(h.html()).toContain("0 selected across visited pages");
+    expect(h.html()).toContain("Synthetic fresh-batch");
+    h.button("Select this page (up to 100 total)").props.onClick!(); h.render();
+    h.button("Review 1 selected").props.onClick!(); h.render();
+    await h.button("Approve and connect").props.onClick!(); h.render();
+    expect(at(h.connect.mutateAsync.mock.calls, 1)[0]).toEqual({ id: "synthetic-connection", repositoryIds: ["fresh-batch"], catalogVersion: "d".repeat(64), approved: true });
+    expect(h.forbidden).not.toHaveBeenCalled();
+  });
+
+  it("normal paging and search never request catalogue restart or clear an admitted visited selection", async () => {
+    const h = harness(); fillVerification(h);
+    h.fetchList.mockImplementation(async input => listing(input.search ? ["search-only"] : input.page === 1 ? ["first", "second"] : ["third"], !input.search && input.page === 1));
+    await h.submit(); h.render();
+    h.button("Select this page (up to 100 total)").props.onClick!(); h.render();
+    h.button("Next page").props.onClick!(); await h.settle();
+    expect(h.html()).toContain("2 selected across visited pages");
+    h.change("Search repositories", "Synthetic query"); await h.submit(); await h.settle();
+    expect(h.html()).toContain("2 selected across visited pages");
+    expect(h.fetchList.mock.calls.map(call => call[0])).toEqual([
+      { id: "synthetic-connection", page: 1, search: "" },
+      { id: "synthetic-connection", page: 2, search: "" },
+      { id: "synthetic-connection", page: 1, search: "Synthetic query" },
+    ]);
+    expect(h.forbidden).not.toHaveBeenCalled();
+  });
+
+  it("explicit new selection batch discloses clearing but retains choices until active reset acknowledgement", async () => {
+    const h = harness(), reset = deferred<Listing>(); fillVerification(h);
+    await h.submit(); h.render();
+    h.button("Select this page (up to 100 total)").props.onClick!(); h.render();
+    expect(h.html()).toContain("browse 500 repositories and connect up to 100");
+    expect(h.html()).toContain("clears unsaved choices after a successful refresh");
+    h.fetchList.mockReturnValueOnce(reset.promise);
+    h.button("Start a new selection batch").props.onClick!(); h.render();
+    expect(h.html()).toContain("2 selected across visited pages");
+    expect(at(h.fetchList.mock.calls, 1)[0]).toEqual({ id: "synthetic-connection", page: 1, search: "", restartCatalogue: true });
+    reset.resolve(listing(["fresh-only"], false, true)); await h.settle();
+    expect(h.html()).toContain("0 selected across visited pages");
+    expect(h.html()).toContain("Synthetic fresh-only");
+    expect(h.connect.mutateAsync).not.toHaveBeenCalled();
+  });
+
+  it("failed or unacknowledged restart retains original selected IDs and metadata for deliberate retry", async () => {
+    for (const failure of ["rejected", "no-reset-ack"]) {
+      const h = harness(); fillVerification(h);
+      await h.submit(); h.render();
+      h.button("Select this page (up to 100 total)").props.onClick!(); h.render();
+      if (failure === "rejected") h.fetchList.mockRejectedValueOnce(new Error("Synthetic reset failure"));
+      else h.fetchList.mockResolvedValueOnce(listing(["unacknowledged-new-row"], false, false));
+      h.button("Start a new selection batch").props.onClick!(); await h.settle();
+      expect(h.html()).toContain("2 selected across visited pages");
+      expect(h.html()).toContain("Your existing choices are retained");
+      expect(h.html()).not.toContain("unacknowledged-new-row");
+      h.button("Review 2 selected").props.onClick!(); h.render();
+      expect(elements(h.tree()).filter(node => node.type === "li").map(node => node.key)).toEqual(["repo-1", "repo-2"]);
+      // A failed read is not native catalogue acceptance. Retention is checked
+      // without asking a synthetic mutation to approve an old catalogue hash.
+      expect(h.connect.mutateAsync).not.toHaveBeenCalled();
+      expect(h.forbidden).not.toHaveBeenCalled();
+    }
+  });
+
+  it("late reset after deactivation cannot clear retained selection or publish replacement metadata", async () => {
+    const h = harness(), reset = deferred<Listing>(); fillVerification(h);
+    await h.submit(); h.render();
+    h.button("Select this page (up to 100 total)").props.onClick!(); h.render();
+    h.fetchList.mockReturnValueOnce(reset.promise);
+    h.button("Start a new selection batch").props.onClick!(); h.render();
+    h.props.active = false; h.render();
+    reset.resolve(listing(["late-reset-row"], false, true)); await h.settle();
+    expect(h.html()).not.toContain("late-reset-row");
+    h.props.active = true; h.render();
+    expect(h.html()).toContain("2 selected across visited pages");
+    expect(h.html()).not.toContain("late-reset-row");
+    expect(h.connect.mutateAsync).not.toHaveBeenCalled();
+    expect(h.forbidden).not.toHaveBeenCalled();
+  });
+
+  it("captured original-account reset callback sends no read after current actor changes", async () => {
+    const h = harness(); fillVerification(h);
+    await h.submit(); h.render();
+    h.button("Select this page (up to 100 total)").props.onClick!(); h.render();
+    const reset = h.button("Start a new selection batch").props.onClick!, reads = h.fetchList.mock.calls.length;
+    h.auth.userId = "other-clerk"; h.auth.sessionId = "other-session";
+    h.sdk.session = { id: h.auth.sessionId, user: { id: h.auth.userId } }; h.render();
+    reset(); await h.settle();
+    expect(h.fetchList).toHaveBeenCalledTimes(reads);
+    expect(h.html()).not.toContain("Synthetic repo-1");
+    expect(h.connect.mutateAsync).not.toHaveBeenCalled();
+    expect(h.forbidden).not.toHaveBeenCalled();
+  });
 });

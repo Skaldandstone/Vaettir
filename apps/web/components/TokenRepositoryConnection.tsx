@@ -55,21 +55,22 @@ export function TokenRepositoryConnection({projectId,providerId,onConnected,onCl
   function canEditDraft(){if(!current(frame)||verification.current||draftOrigin.current&&!sameOrigin(draftOrigin.current))return false;if(!draftOrigin.current){draftOrigin.current=frame;publishPrivateOrigin(frame);}return true;}
   const draftLocked=busy||!!requestId;
   const savedAccess=recent.data?.filter(c=>c.provider===providerId&&(providerId!=="gitlab"||c.accessMethod==="token"))??[];
-  async function load(id:string,nextPage=1,query=search){
+  async function load(id:string,nextPage=1,query=search,restartCatalogue=false){
     if(!current(frame))return;
     const owner=++listingOwner.current;
     setLoading(true);setError("");
     try{
-      const result=await utils.repositoryConnections.list.fetch({id,page:nextPage,search:query});
+      const result=await utils.repositoryConnections.list.fetch({id,page:nextPage,search:query,...(restartCatalogue?{restartCatalogue:true}:{})});
       if(owner!==listingOwner.current||!current(frame))return;
+      if(restartCatalogue&&!result.catalogReset)throw Error("Fresh selection was not acknowledged.");
       setSelected(previous=>{
         if(result.catalogReset)return {};
         const updated={...previous};
         for(const repo of result.repositories)if(updated[repo.id])updated[repo.id]=repo;
         return updated;
       });
-      setListing(result);setConnectionId(id);setPage(nextPage);setActiveSearch(query);setStep("repositories");
-    }catch{if(owner===listingOwner.current&&current(frame))setError("Could not refresh repository access. Check your saved connection or verify a new token.");}
+      setListing(result);setConnectionId(id);setPage(nextPage);setActiveSearch(query);if(restartCatalogue)setSearch(query);setStep("repositories");
+    }catch{if(owner===listingOwner.current&&current(frame))setError(restartCatalogue?"Could not start a fresh selection batch. Your existing choices are retained; retry with the same saved connection.":"Could not refresh repository access. Check your saved connection or verify a new token.");}
     finally{if(owner===listingOwner.current)setLoading(false);}
   }
   if(privateOrigin&&(!sameOrigin(privateOrigin)||!sameAuthScope({userId:frame.actorId,sessionId:frame.sessionId},liveSession())))return <section role="status"><p>This connection draft belongs to another original account or workspace. Restore that access to continue; its token, repository choices and original request are withheld here.</p><button type="button" className="btn-secondary" onClick={()=>void capabilities.refetch()}>Refresh original access</button></section>;
@@ -143,9 +144,10 @@ export function TokenRepositoryConnection({projectId,providerId,onConnected,onCl
       {!listing?.repositories.length&&<p>No accessible repositories match this search.</p>}
       {providerId==="bitbucket"&&page===10&&<p className="text-muted">This listing is limited to ten pages. Narrow the search to find other repositories.</p>}
       <div style={actions}><button type="button" className="btn-secondary" disabled={busy||page<=1} onClick={()=>void load(connectionId,page-1,activeSearch)}>Previous page</button><button type="button" className="btn-secondary" disabled={busy||!listing?.hasMore} onClick={()=>void load(connectionId,page+1,activeSearch)}>Next page</button></div>
+      <div><p className="text-muted">Each selection batch can browse 500 repositories and connect up to 100. Starting a fresh batch clears unsaved choices after a successful refresh; saved connections stay in the project.</p><button type="button" className="btn-secondary" disabled={busy} onClick={()=>void load(connectionId,1,search,true)}>Start a new selection batch</button></div>
       <div style={actions}><button type="button" className="btn-secondary" disabled={busy} onClick={()=>setStep("access")}>Back</button><button type="button" disabled={busy||!choices.length} onClick={()=>setStep("review")}>Review {choices.length} selected</button></div>
     </>}
     {step==="review"&&<><p>Connect {choices.length} {name} repositories to this project?</p><ul style={{overflowWrap:"anywhere",maxHeight:250,overflowY:"auto"}}>{choices.map(repo=><li key={repo.id}>{repo.name}</li>)}</ul><p>Existing revision references stay in place. Source discovery can be approved after these connections are saved.</p><div style={actions}><button type="button" className="btn-secondary" disabled={busy} onClick={()=>setStep("repositories")}>Back</button><button type="button" disabled={busy||!listing||!frame.eligible} onClick={async()=>{if(!listing||!current(frame))return;try{await connect.mutateAsync({id:connectionId,repositoryIds:choices.map(c=>c.id),catalogVersion:listing.catalogVersion,approved:true});if(!current(frame))return;setStep("done");onConnected();}catch{if(current(frame))setError("Could not save. Refresh the repository list and review your choices again.");}}}>{connect.isPending?"Saving…":"Approve and connect"}</button></div></>}
-    {step==="done"&&<><p role="status">Repository connections saved. Source files have not been read.</p><div style={actions}><button type="button" className="btn-secondary" onClick={()=>{setSelected({});void load(connectionId);}}>Connect more repositories</button><button type="button" onClick={onClose}>Done</button></div></>}
+    {step==="done"&&<><p role="status">Repository connections saved. Source files have not been read.</p><div style={actions}><button type="button" className="btn-secondary" disabled={busy} onClick={()=>void load(connectionId,1,"",true)}>Connect more repositories</button><button type="button" disabled={busy} onClick={onClose}>Done</button></div></>}
   </div>;
 }

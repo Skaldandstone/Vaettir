@@ -338,7 +338,7 @@ export const repositoryConnectionsRouter=router({
     });
     return{disconnected:true};
   }),
-  list:protectedProcedure.input(z.object({id:z.string(),page:z.number().int().min(1).max(100).default(1),search:z.string().trim().max(100).default("")})).query(async({ctx,input})=>{
+  list:protectedProcedure.input(z.object({id:z.string(),page:z.number().int().min(1).max(100).default(1),search:z.string().trim().max(100).default(""),restartCatalogue:z.boolean().default(false)})).query(async({ctx,input})=>{
     const row=await ownConnection(ctx,input.id);requireVerified(row);
     await ctx.prisma.$transaction(async tx=>{await liveEditor(tx,row.organizationId,ctx.user.id);const current=await tx.repositoryConnection.findUniqueOrThrow({where:{id:row.id}});requireVerified(current);if(JSON.stringify(current.encryptedToken)!==JSON.stringify(row.encryptedToken))throw new TRPCError({code:"CONFLICT",message:"Connection changed. Refresh before listing."});});
     if(!["gitlab","github","bitbucket","azure-devops"].includes(row.provider))throw new TRPCError({code:"PRECONDITION_FAILED",message:"This provider does not support verified repository listing."});
@@ -363,13 +363,14 @@ export const repositoryConnectionsRouter=router({
       requireVerified(current);
       if(JSON.stringify(current.encryptedToken)!==JSON.stringify(row.encryptedToken))
         throw new TRPCError({code:"CONFLICT",message:"Connection changed. Refresh before selecting repositories."});
-      const fresh=current.catalogAt && current.catalogAt.getTime()>=Date.now()-600000;
+      const fresh=!input.restartCatalogue && current.catalogAt && current.catalogAt.getTime()>=Date.now()-600000;
       const previous=fresh && current.catalog ? z.array(repositorySelectionSchema).parse(current.catalog) : [];
       const combined=new Map(previous.map(repo=>[repo.id,repo]));
       for(const repo of visible)combined.set(repo.id,repo);
-      if(combined.size>500)throw new TRPCError({code:"PRECONDITION_FAILED",message:"This selection includes too many listed repositories. Connect a reviewed batch, then start a new authorization to continue."});
+      if(combined.size>500)throw new TRPCError({code:"PRECONDITION_FAILED",message:"This batch includes too many listed repositories. Connect a reviewed batch or restart repository selection with your saved connection."});
       const catalog=[...combined.values()];
       const catalogAt=fresh?current.catalogAt!:new Date();
+      if(input.restartCatalogue && current.catalogAt && catalogAt.getTime()<=current.catalogAt.getTime())throw new TRPCError({code:"CONFLICT",message:"The catalogue clock has not advanced. Retry the explicit fresh selection batch; no previous catalogue or approval was changed."});
       await tx.repositoryConnection.update({where:{id:row.id},data:{catalog,catalogAt}});
       return {catalog,catalogReset:!fresh,catalogAt};
     });
