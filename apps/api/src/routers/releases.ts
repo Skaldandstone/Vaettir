@@ -217,13 +217,14 @@ export const releasesRouter = router({
               id: { in: planIds },
               projectId: input.projectId,
               releaseId: null,
+              status: { notIn: ["APPROVED", "ARCHIVED"] },
             },
           });
           if (eligibleCount !== planIds.length)
             throw new TRPCError({
               code: "CONFLICT",
               message:
-                "A selected plan belongs to another project or is already assigned to a release. Refresh the plan selection.",
+                "A selected plan belongs to another project, is already assigned, or is approved or archived. Refresh the selection and explicitly reopen approved or archived plans before attaching them.",
             });
           const release = await tx.release.create({
             data: {
@@ -242,6 +243,7 @@ export const releasesRouter = router({
               id: { in: planIds },
               projectId: input.projectId,
               releaseId: null,
+              status: { notIn: ["APPROVED", "ARCHIVED"] },
             },
             data: { releaseId: release.id, updatedById: ctx.user.id },
           });
@@ -249,7 +251,7 @@ export const releasesRouter = router({
             throw new TRPCError({
               code: "CONFLICT",
               message:
-                "A selected plan was assigned elsewhere. Nothing was created; refresh and retry.",
+                "A selected plan was assigned elsewhere or approved or archived after review. Nothing was created; refresh the selection and explicitly reopen approved or archived plans before attaching them.",
             });
           if (input.newPlan) {
             // Use the maintained seeded plan type, not a new migration or a

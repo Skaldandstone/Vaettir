@@ -671,7 +671,9 @@ export default function ReleasesPage() {
                   <legend>Link unassigned test plans</legend>
                   {(plansQuery.data ?? [])
                     .filter((plan) => !plan.releaseId)
-                    .map((plan) => (
+                    .map((plan) => {
+                      const requiresReopen = plan.status === "APPROVED" || plan.status === "ARCHIVED";
+                      return (
                       <label
                         key={plan.id}
                         style={{ display: "block", margin: "10px 0" }}
@@ -679,26 +681,38 @@ export default function ReleasesPage() {
                         <input
                           type="checkbox"
                           checked={selectedPlanIds.includes(plan.id)}
-                          onChange={(e) =>
+                          disabled={requiresReopen && !selectedPlanIds.includes(plan.id)}
+                          onChange={(e) => {
+                            // Keep a changed selected identity removable, but never
+                            // select a lifecycle-locked plan or infer reopening.
+                            if (e.target.checked && requiresReopen) return;
                             setSelectedPlanIds((ids) =>
                               e.target.checked
                                 ? [...ids, plan.id]
                                 : ids.filter((id) => id !== plan.id),
-                            )
-                          }
+                            );
+                          }}
                         />{" "}
                         {plan.name} · {plan.acceptanceCriteria.length}{" "}
                         acceptance criteria
+                        {requiresReopen && (
+                          <span className="text-muted">
+                            {" "}· {plan.status === "APPROVED" ? "Approved" : "Archived"}. Reopen the plan before linking it.
+                            {selectedPlanIds.includes(plan.id) && " Remove this selection or explicitly reopen the plan; it was not removed from your draft automatically."}
+                          </span>
+                        )}
                       </label>
-                    ))}
+                      );
+                    })}
                   {plansQuery.isLoading && <p>Loading plans…</p>}
                   {plansQuery.error && (
                     <p role="alert">{plansQuery.error.message}</p>
                   )}
-                  {plansQuery.data?.every((plan) => !!plan.releaseId) && (
+                  {plansQuery.data?.every((plan) => !!plan.releaseId || plan.status === "APPROVED" || plan.status === "ARCHIVED") && (
                     <p>
-                      No unassigned plans. Add a quality plan below, or continue
-                      without one.
+                      No linkable unassigned plans. Approved or archived plans need
+                      explicit reopening first. Add a quality plan below, or
+                      continue without one.
                     </p>
                   )}
                 </fieldset>
