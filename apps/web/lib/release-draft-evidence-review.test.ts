@@ -319,7 +319,7 @@ describe("actual release draft evidence review renderer, no transport or native 
     }
     expect(finalStep).toBe(true);
     expect(pageSource).toContain(
-      "{selectedPlanIds.length} test plan(s) will contribute",
+      "{reviewedPlanIds.length} test plan(s) will contribute",
     );
     expect(pageSource).toContain(
       "A new quality plan with {newCriteria.length} pending",

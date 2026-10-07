@@ -376,6 +376,12 @@ export function RunHistoryDashboard({
       >
         <h2>Run history</h2>
         <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+          <a
+            className="btn-secondary"
+            href={`/projects/${encodeURIComponent(projectId)}/manual-run-comparison`}
+          >
+            Compare saved manual runs
+          </a>
           <button
             className="btn-secondary"
             type="button"

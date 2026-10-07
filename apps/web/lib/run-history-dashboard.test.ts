@@ -80,9 +80,9 @@ const visualSource = readFileSync(
     },
   ).outputText;
 type Run = RunHistoryPageData["rows"][number];
-function snapshot(): RunHistoryReadSnapshot {
+function snapshot(projectId = "p"): RunHistoryReadSnapshot {
   const input = {
-    projectId: "p",
+    projectId,
     originalOrganizationId: "o",
     expectedClerkActorId: "cl",
     expectedNativeActorId: "n",
@@ -149,7 +149,7 @@ function snapshot(): RunHistoryReadSnapshot {
   };
   return {
     origin: {
-      projectId: "p",
+      projectId,
       organizationId: "o",
       clerkActorId: "cl",
       nativeActorId: "n",
@@ -161,7 +161,7 @@ function snapshot(): RunHistoryReadSnapshot {
     page: {
       readContext: {
         scope: {
-          projectId: "p",
+          projectId,
           organizationId: "o",
           actorId: "n",
           actorClerkUserId: "cl",
@@ -181,6 +181,8 @@ function snapshot(): RunHistoryReadSnapshot {
 }
 type ElementProps = {
   children?: unknown;
+  href?: string;
+  target?: string;
   onClick?: () => void;
   disabled?: boolean;
   open?: boolean;
@@ -194,8 +196,8 @@ function elements(node: unknown): React.ReactElement<ElementProps>[] {
   if (!React.isValidElement<ElementProps>(node)) return [];
   return [node, ...elements(node.props.children)];
 }
-function harness() {
-  let current: RunHistoryReadSnapshot | null = snapshot(),
+function harness(projectId = "p") {
+  let current: RunHistoryReadSnapshot | null = snapshot(projectId),
     cursor = 0,
     tree: React.ReactElement;
   const slots: unknown[] = [];
@@ -264,7 +266,7 @@ function harness() {
     }) => React.ReactElement;
   function render() {
     cursor = 0;
-    tree = dashboard({ projectId: "p", organizationId: "o", onView });
+    tree = dashboard({ projectId, organizationId: "o", onView });
     return renderToStaticMarkup(tree);
   }
   function button(text: string) {
@@ -301,6 +303,51 @@ function harness() {
     },
   };
 }
+it("actual current dashboard exposes one ordinary accessible saved-manual comparison link without running actions", () => {
+  const h = harness(), html = h.render(), links = elements(h.tree).filter(node => node.type === "a" && renderToStaticMarkup(node).includes("Compare saved manual runs"));
+  expect(links).toHaveLength(1);
+  expect(links[0]!.props.href).toBe("/projects/p/manual-run-comparison");
+  expect(links[0]!.props.children).toBe("Compare saved manual runs");
+  expect(links[0]!.props.onClick).toBeUndefined(); expect(links[0]!.props.target).toBeUndefined();
+  expect(html).toContain('href="/projects/p/manual-run-comparison"');
+  expect(html).toContain("25% recorded"); expect(html).toContain("3 left to test");
+  for (const action of [h.download, h.navigate, h.onView, h.refresh, h.first, h.older, h.newer]) expect(action).not.toHaveBeenCalled();
+});
+it.each([
+  "project /?#+% λ🎮",
+  "project%2Fencoded",
+  'javascript:synthetic()/../p"<script>literal</script>',
+])("actual comparison destination preserves one encoded project path segment %s", projectId => {
+  const h = harness(projectId), html = h.render(), link = elements(h.tree).find(node => node.type === "a" && node.props.children === "Compare saved manual runs");
+  expect(link).toBeDefined();
+  const href = link!.props.href!;
+  expect(href).toBe(`/projects/${encodeURIComponent(projectId)}/manual-run-comparison`);
+  const parts = href.split("/"); expect(parts).toHaveLength(4);
+  expect(decodeURIComponent(parts[2]!)).toBe(projectId);
+  expect(href).not.toMatch(/[?#]/); expect(href).not.toContain("javascript:");
+  expect(html).not.toContain("<script>"); expect(h.download).not.toHaveBeenCalled(); expect(h.navigate).not.toHaveBeenCalled();
+});
+it("ordinary comparison navigation remains discoverable without using unavailable history as permission", () => {
+  const h = harness(); h.setCurrent(null);
+  const html = h.render(), link = elements(h.tree).find(node => node.type === "a" && node.props.children === "Compare saved manual runs");
+  expect(link!.props.href).toBe("/projects/p/manual-run-comparison");
+  expect(link!.props.disabled).toBeUndefined(); expect(link!.props.onClick).toBeUndefined();
+  expect(html).toContain("Current native run history is unavailable");
+  expect(html).not.toContain("private@example.invalid"); expect(html).not.toContain("25% recorded");
+  expect(elements(h.tree).find(node => node.type === "button" && renderToStaticMarkup(node).includes("Review current page CSV"))!.props.disabled).toBe(true);
+  for (const action of [h.download, h.navigate, h.onView, h.refresh, h.first, h.older, h.newer]) expect(action).not.toHaveBeenCalled();
+});
+it("comparison anchor neither opens a CSV review nor changes a retained explicit review", () => {
+  const h = harness(); expect(h.render()).not.toContain("Export exactly");
+  h.button("Review current page CSV")();
+  const reviewed = h.render(); expect(reviewed).toContain("Export exactly 3 run");
+  expect(elements(h.tree).filter(node => node.type === "a" && node.props.children === "Compare saved manual runs")).toHaveLength(1);
+  expect(h.download).not.toHaveBeenCalled(); expect(h.navigate).not.toHaveBeenCalled();
+  h.button("Keep review and close")();
+  expect(h.render()).toContain("Reopen reviewed current-page CSV");
+  expect(elements(h.tree).find(node => node.type === "a" && node.props.children === "Compare saved manual runs")!.props.href).toBe("/projects/p/manual-run-comparison");
+  expect(h.download).not.toHaveBeenCalled(); expect(h.navigate).not.toHaveBeenCalled();
+});
 it("actual dashboard SSR separates supported manual run-case completion from CI ingestion and untrusted unavailable progress", () => {
   const h = harness(),
     html = h.render();

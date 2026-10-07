@@ -113,6 +113,8 @@ export default function ReleasesPage() {
     RouterInputs["releases"]["create"] | null
   >(null);
   const createRequest = publishedCreateRequest;
+  const reviewedPlanIds = createRequest?.testPlanIds ?? selectedPlanIds;
+  const reviewedPlanProjectId = createRequest?.projectId ?? projectId;
   const [createOwner] = useState(() => new ReleaseCreationOwner());
   const [createGeneration, setCreateGeneration] = useState(0);
   const [, refreshSession] = useState(0);
@@ -811,7 +813,7 @@ export default function ReleasesPage() {
                     : "No target date"}
                 </p>
                 <p style={{ margin: 0, fontSize: 13 }}>
-                  {selectedPlanIds.length} test plan(s) will contribute
+                  {reviewedPlanIds.length} test plan(s) will contribute
                   acceptance criteria.{" "}
                   {newCriteria.length > 0 && (
                     <>
@@ -829,6 +831,25 @@ export default function ReleasesPage() {
                   planName={newPlanName}
                   criteria={newCriteria}
                 />
+                <section aria-label="Selected existing quality plans" style={{ marginTop: 16 }}>
+                  <h4>Selected quality plans (current names)</h4>
+                  <p className="text-muted">
+                    Open a plan to review its current criteria. Creating this release links these plans without editing them.
+                  </p>
+                  {reviewedPlanIds.length ? (
+                    <ul>
+                      {reviewedPlanIds.map((id) => {
+                        const plan = reviewedPlanProjectId === projectId ? plansQuery.data?.find((item) => item.id === id) : undefined;
+                        return <li key={id} style={{ overflowWrap: "anywhere", marginBottom: 8 }}>
+                          <a href={`/projects/${encodeURIComponent(reviewedPlanProjectId)}/test-plans/${encodeURIComponent(id)}`} style={{ whiteSpace: "pre-wrap" }}>
+                            {plan ? plan.name : "Plan metadata unavailable"}
+                          </a>{" "}
+                          <code>{id}</code>
+                        </li>;
+                      })}
+                    </ul>
+                  ) : <p>No existing quality plans are selected.</p>}
+                </section>
               </div>
             )}
           </fieldset>

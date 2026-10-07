@@ -134,6 +134,22 @@ function FieldDefinitions({ projectId }: { projectId: string }) {
       !access.owns(original, "configure")
     )
       return;
+    const keptField = selected < 0 ? emptyField : schema.fields[selected];
+    if (
+      !keptField ||
+      field.key !== keptField.key ||
+      field.label !== keptField.label ||
+      field.type !== keptField.type ||
+      field.required !== keptField.required ||
+      field.retired !== keptField.retired ||
+      field.options.length !== keptField.options.length ||
+      field.options.some((option, index) => option !== keptField.options[index])
+    ) {
+      setImpact(null);
+      setConfirmed(false);
+      setNotice("Keep this field in the draft before reviewing changes.");
+      return;
+    }
     const originalBaseline = baseline;
     setNotice(null);
     setImpact(null);

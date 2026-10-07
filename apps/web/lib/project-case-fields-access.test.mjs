@@ -29,7 +29,7 @@ function fixture() {
   const baseline = { projectId: original.projectId, organizationId: original.organizationId, caseId: null, canConfigure: true, expectedSchemaHash: "synthetic-actor-bound-hash", schema: { version: 1, fields: [{ key: "private_key", label: "Private A draft", type: "TEXT", required: true, retired: false, options: [] }] } };
   const state = {
     projectId: original.projectId, busy: false, canApprove: true, baseline,
-    schema: baseline.schema, field: baseline.schema.fields[0], selected: -1,
+    schema: baseline.schema, field: baseline.schema.fields[0], selected: 0,
     emptyField: { key: "", label: "", type: "TEXT", required: false, retired: false, options: [] },
     fresh: baseline, open: true, reason: "Original human rationale", confirmed: true,
     notice: "Original A notice", pending: null, submitted: [], refetches: 0, invalidations: 0,
@@ -52,6 +52,105 @@ function fixture() {
   return { state, handlers: runInContext(`${compiled}; ({${names.join(",")}})`, context) };
 }
 function switchActor(state) { state.access.current = { ...original, clerkActorId: "synthetic-b" }; }
+
+test("new unkept field properties refuse impact review and retain the exact editor draft", async () => {
+  const changes = [
+    { key: "component" }, { label: "Component" }, { type: "CHOICE" },
+    { required: true }, { retired: true }, { options: [" Web ", "Mobile"] },
+  ];
+  for (const change of changes) {
+    const { state, handlers } = fixture();
+    state.selected = -1;
+    state.field = { ...state.emptyField, ...change };
+    const field = state.field, schema = state.schema, rationale = state.reason;
+    let reviews = 0;
+    state.review.mutateAsync = async () => { reviews++; throw Error("Unkept field must not reach review"); };
+    await handlers.compare();
+    assert.equal(reviews, 0);
+    assert.equal(state.field, field);
+    assert.equal(state.schema, schema);
+    assert.equal(state.reason, rationale);
+    assert.equal(state.submitted.length, 0);
+    assert.equal(state.impact, null);
+    assert.equal(state.confirmed, false);
+    assert.equal(state.notice, "Keep this field in the draft before reviewing changes.");
+  }
+});
+
+test("existing unkept exact scalar and literal ordered-choice edits refuse review", async () => {
+  const changes = [
+    { key: "different_key" }, { label: " Updated label " }, { type: "TEXT" },
+    { required: true }, { retired: true },
+    { options: ["Web", "Mobile"] }, { options: ["Mobile", " Web "] },
+    { options: [" Web "] }, { options: [" Web ", "Mobile", "Other"] },
+  ];
+  for (const change of changes) {
+    const { state, handlers } = fixture();
+    const kept = { key: "component", label: "Component", type: "CHOICE", required: false, retired: false, options: [" Web ", "Mobile"] };
+    state.schema = { version: 1, fields: [kept] };
+    state.field = { ...kept, ...change };
+    const field = state.field, schema = state.schema, rationale = state.reason;
+    let reviews = 0;
+    state.review.mutateAsync = async () => { reviews++; throw Error("Unkept edit must not reach review"); };
+    await handlers.compare();
+    assert.equal(reviews, 0);
+    assert.equal(state.field, field);
+    assert.equal(state.schema, schema);
+    assert.equal(state.reason, rationale);
+    assert.equal(state.submitted.length, 0);
+    assert.equal(state.impact, null);
+    assert.equal(state.confirmed, false);
+    assert.equal(state.notice, "Keep this field in the draft before reviewing changes.");
+  }
+});
+
+test("pristine new field and restored equal definitions remain reviewable without normalization", async () => {
+  for (const kind of ["empty", "restored"]) {
+    const { state, handlers } = fixture();
+    if (kind === "empty") {
+      state.selected = -1;
+      state.field = { ...state.emptyField, options: [] };
+    } else {
+      const kept = { ...state.schema.fields[0], label: " Literal label ", type: "CHOICE", options: [" Web ", "Mobile"] };
+      state.schema = { version: 1, fields: [kept] };
+      state.field = { ...kept, label: "Changed" };
+      state.field = { ...state.field, label: kept.label, options: [...kept.options] };
+    }
+    const schema = state.schema, field = state.field, response = state.impact;
+    const reviews = [];
+    state.review.mutateAsync = async (input) => { reviews.push(input); return response; };
+    await handlers.compare();
+    assert.equal(reviews.length, 1);
+    assert.equal(reviews[0].schema, schema);
+    assert.equal(state.field, field);
+    assert.equal(state.impact, response);
+    assert.equal(state.notice, null);
+    assert.equal(state.submitted.length, 0);
+  }
+});
+
+test("explicit Keep admits review of the exact new or updated field while keeping rationale", async () => {
+  for (const selected of [-1, 0]) {
+    const { state, handlers } = fixture();
+    state.selected = selected;
+    state.field = { key: selected < 0 ? "component" : "private_key", label: " Component label ", type: "CHOICE", required: false, retired: false, options: [" Web ", "Mobile"] };
+    const field = state.field, rationale = state.reason, response = state.impact;
+    handlers.applyField();
+    const schema = state.schema;
+    assert.equal(schema.fields[selected < 0 ? 1 : 0], field);
+    assert.equal(state.field, state.emptyField);
+    assert.equal(state.selected, -1);
+    assert.equal(state.reason, rationale);
+    const reviews = [];
+    state.review.mutateAsync = async (input) => { reviews.push(input); return response; };
+    await handlers.compare();
+    assert.equal(reviews.length, 1);
+    assert.equal(reviews[0].schema, schema);
+    assert.equal(state.impact, response);
+    assert.equal(state.reason, rationale);
+    assert.equal(state.submitted.length, 0);
+  }
+});
 
 test("ordinary authorized reopening retains definitions field rationale and exact pending UUID", async () => {
   const { state, handlers } = fixture();
