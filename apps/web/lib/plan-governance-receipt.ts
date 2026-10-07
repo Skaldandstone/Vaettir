@@ -65,6 +65,7 @@ export type GovernancePending<T> = {
   operation:
     | "EDIT_CRITERION_DESCRIPTION"
     | "ATTACH_UNASSIGNED_PLAN"
+    | "DETACH_ATTACHED_PLAN"
     | "SET_CRITERION_VERDICT"
     | "ADD_CRITERION"
     | "DELETE_CRITERION"
@@ -102,7 +103,8 @@ export function assertGovernanceAcknowledgement(
     testPlanId: string;
     expectedPlanRevision: string;
     criterionId?: string;
-    releaseId?: string;
+    releaseId?: string | null;
+    expectedReleaseId?: string | null;
   }>,
 ) {
   const input = pending.input;
@@ -113,6 +115,8 @@ export function assertGovernanceAcknowledgement(
     saved.operation !== pending.operation ||
     saved.testPlanId !== input.testPlanId ||
     saved.criterionId !== (input.criterionId ?? null) ||
+    (pending.operation === "DETACH_ATTACHED_PLAN" &&
+      (input.releaseId !== null || typeof input.expectedReleaseId !== "string" || !input.expectedReleaseId || saved.criterionId !== null)) ||
     (input.releaseId !== undefined && saved.releaseId !== input.releaseId) ||
     saved.beforeRevision !== input.expectedPlanRevision ||
     !saved.versionId ||

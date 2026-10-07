@@ -107,6 +107,9 @@ export const editCriterionDescriptionInput = write
 export const attachUnassignedPlanInput = write
   .extend({ releaseId: id, expectedReleaseId: z.null() })
   .strict();
+export const detachAttachedPlanInput = write
+  .extend({ releaseId: z.null(), expectedReleaseId: id })
+  .strict();
 export const criterionVerdict = z.enum([
   "PENDING",
   "MET",
@@ -235,6 +238,7 @@ export const planGovernanceAck = z
     operation: z.enum([
       "EDIT_CRITERION_DESCRIPTION",
       "ATTACH_UNASSIGNED_PLAN",
+      "DETACH_ATTACHED_PLAN",
       "SET_CRITERION_VERDICT",
       "ADD_CRITERION",
       "DELETE_CRITERION",

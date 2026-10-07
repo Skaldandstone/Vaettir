@@ -17,6 +17,7 @@ import { CriterionVerdictEditor } from "@/components/CriterionVerdictEditor";
 import { AttachUnassignedPlan } from "@/components/AttachUnassignedPlan";
 import { PlanGovernanceHistory } from "@/components/PlanGovernanceHistory";
 import { GovernedCriterionCollection } from "@/components/GovernedCriterionCollection";
+import { PlanReleaseDetach } from "@/components/PlanReleaseDetach";
 
 const STATUSES = [
   "PLANNING",
@@ -263,7 +264,6 @@ export default function ReleaseReadinessPage() {
   }
 
   const updateStatusMutation = trpcReact.releases.updateStatus.useMutation();
-  const setReleaseMutation = trpcReact.testPlans.setRelease.useMutation();
   const resolveRiskFlagMutation =
     trpcReact.releases.resolveRiskFlag.useMutation();
 
@@ -300,15 +300,6 @@ export default function ReleaseReadinessPage() {
     }
   }
 
-  async function detachPlan(testPlanId: string) {
-    try {
-      await setReleaseMutation.mutateAsync({ testPlanId, releaseId: null });
-      reload();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-    }
-  }
-
   async function toggleResolve(id: string, resolved: boolean) {
     try {
       await resolveRiskFlagMutation.mutateAsync({ id, resolved });
@@ -324,11 +315,16 @@ export default function ReleaseReadinessPage() {
     testPlansQuery.error?.message ??
     riskFlagsQuery.error?.message ??
     null;
+  const detachControl = <PlanReleaseDetach projectId={projectId} releaseId={releaseId}
+    releaseStatus={release?.status ?? ""} plans={testPlansQuery.error || testPlansQuery.isFetching || testPlansQuery.isPaused ? [] : testPlans}
+    active={!readOnly && !projectQuery.error && !projectQuery.isFetching && !projectQuery.isPaused && projectQuery.data?.id === projectId &&
+      !releaseQuery.error && !releaseQuery.isFetching && !releaseQuery.isPaused && release?.projectId === projectId}
+    onChanged={reload} />;
   // An ordinary background read failure must not unmount retained wording or
   // uncertain attachment requests while the original workspace is loaded.
   if (pageError && (!release || !readiness))
-    return <p style={{ color: "var(--ember)" }}>{pageError}</p>;
-  if (!release || !readiness) return <p>Loading…</p>;
+    return <div style={{ maxWidth: 800 }}>{detachControl}<p style={{ color: "var(--ember)" }}>{pageError}</p></div>;
+  if (!release || !readiness) return <div style={{ maxWidth: 800 }}>{detachControl}<p>Loading…</p></div>;
 
   const { available: attachablePlans, assignedElsewhere } = releasePlanChoices(
     allPlans,
@@ -340,6 +336,7 @@ export default function ReleaseReadinessPage() {
 
   return (
     <div style={{ maxWidth: 800 }}>
+      {detachControl}
       {pageError && (
         <p role="alert" style={{ color: "var(--ember)" }}>
           The workspace could not fully refresh: {pageError}. Existing drafts
@@ -496,15 +493,6 @@ export default function ReleaseReadinessPage() {
                   [{p.testPlanType.name}]
                 </span>
               </strong>
-              {!readOnly && (
-                <button
-                  className="btn-secondary"
-                  onClick={() => detachPlan(p.id)}
-                  style={{ fontSize: 12 }}
-                >
-                  Detach
-                </button>
-              )}
             </div>
             <a
               className="btn-secondary"

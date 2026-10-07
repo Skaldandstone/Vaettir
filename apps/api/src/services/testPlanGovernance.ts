@@ -24,6 +24,7 @@ import {
   setGovernedCriterionRequirementInput,
   requirementChoiceInput,
   attachUnassignedPlanInput,
+  detachAttachedPlanInput,
   planGovernanceScopeInput,
   planGovernanceHistoryInput,
   planGovernanceReceipt,
@@ -301,6 +302,7 @@ async function assertPlanningRelease(
   tx: Prisma.TransactionClient,
   projectId: string,
   releaseId: string,
+  onlyPlanning = false,
 ) {
   const [release] = await tx.$queryRaw<
     Array<{ id: string; status: string }>
@@ -310,7 +312,7 @@ async function assertPlanningRelease(
       code: "NOT_FOUND",
       message: "Release not found in this project.",
     });
-  if (["READY", "SHIPPED"].includes(release.status))
+  if (["READY", "SHIPPED"].includes(release.status) || onlyPlanning && release.status !== "PLANNING")
     throw new TRPCError({
       code: "CONFLICT",
       message:
@@ -453,12 +455,14 @@ type Delete = z.infer<typeof deleteGovernedCriterionInput>;
 type Associate = z.infer<typeof setGovernedCriterionRequirementInput>;
 type Operation = z.infer<typeof planGovernanceAck>["operation"];
 type Attach = z.infer<typeof attachUnassignedPlanInput>;
+type Detach = z.infer<typeof detachAttachedPlanInput>;
 async function write(
   db: PrismaClient,
   actorId: string,
   input:
     | Edit
     | Attach
+    | Detach
     | Verdict
     | Add
     | Delete
@@ -682,6 +686,23 @@ async function write(
             });
           }
           criterionId = current.id;
+        } else if (operation === "DETACH_ATTACHED_PLAN") {
+          const detach = input as Detach;
+          if (before.releaseId !== detach.expectedReleaseId)
+            throw new TRPCError({
+              code: "CONFLICT",
+              message: "This plan's release assignment changed after review. No release lost its quality scope.",
+            });
+          await assertPlanningRelease(tx, input.projectId, detach.expectedReleaseId, true);
+          const updated = await tx.testPlan.updateMany({
+            where: { id: input.testPlanId, projectId: input.projectId, releaseId: detach.expectedReleaseId },
+            data: { releaseId: null, updatedById: actorId },
+          });
+          if (updated.count !== 1)
+            throw new TRPCError({
+              code: "CONFLICT",
+              message: "The attached plan changed before detachment. Nothing was detached.",
+            });
         } else {
           const attach = input as Attach;
           if (before.releaseId !== attach.expectedReleaseId)
@@ -771,6 +792,7 @@ async function write(
               EDIT_PLAN_CUSTOM_FIELDS:
                 "Edited reviewed declared plan metadata fields",
               ATTACH_UNASSIGNED_PLAN: "Attached an unassigned quality plan",
+              DETACH_ATTACHED_PLAN: "Detached a reviewed quality plan from its planning release",
             }[operation],
             metadata: metadata as Prisma.InputJsonValue,
           },
@@ -1074,6 +1096,14 @@ export function attachGovernedUnassignedPlan(
     "ATTACH_UNASSIGNED_PLAN",
     authorized,
   );
+}
+export function detachGovernedAttachedPlan(
+  db: PrismaClient,
+  actorId: string,
+  input: Detach,
+  authorized: CaseFieldReadAuthorization,
+) {
+  return write(db, actorId, detachAttachedPlanInput.parse(input), "DETACH_ATTACHED_PLAN", authorized);
 }
 export async function listPlanGovernanceHistory(
   db: PrismaClient,

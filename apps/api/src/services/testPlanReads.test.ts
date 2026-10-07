@@ -1,9 +1,10 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import { readFileSync } from "node:fs";
-const guards = vi.hoisted(() => ({ read: vi.fn(), access: vi.fn(), audit: vi.fn() }));
+const guards = vi.hoisted(() => ({ read: vi.fn(), access: vi.fn(), audit: vi.fn(), readiness: vi.fn() }));
 vi.mock("./caseFieldReadScope.js", async original => ({ ...await original<typeof import("./caseFieldReadScope.js")>(), lockCaseFieldReadScope: guards.read }));
 vi.mock("../trpc.js", async original => ({ ...await original<typeof import("../trpc.js")>(), requireProjectAccess: guards.access }));
 vi.mock("./auditLog.js", () => ({ recordAudit: guards.audit }));
+vi.mock("./releaseReadiness.js", () => ({ refreshReleaseReadiness: guards.readiness }));
 vi.mock("@vaettir/ai-agent", () => ({ generateQaStrategyDraft: vi.fn() }));
 import { readTestPlanDetail, readTestPlanHistory, legacyPlanCustomFieldRecord, assertLegacyPlanMetadataRetention, assertLegacyPlanMetadataRootKind } from "./testPlanReads.js";
 import { testPlansRouter } from "../routers/testPlans.js";
@@ -38,7 +39,32 @@ function fixture() {
   return { db, tx, state, plan, versions, events, caller };
 }
 describe("bounded lossless plan reads and legacy retention (mock SQL only)", () => {
-  beforeEach(() => { guards.read.mockReset().mockResolvedValue(scope); guards.access.mockReset().mockResolvedValue({ project: { organizationId: "org" } }); guards.audit.mockReset().mockResolvedValue(undefined); });
+  beforeEach(() => { guards.read.mockReset().mockResolvedValue(scope); guards.access.mockReset().mockResolvedValue({ project: { organizationId: "org" } }); guards.audit.mockReset().mockResolvedValue(undefined); guards.readiness.mockReset(); });
+  it.each([null,"release","private-foreign-release",""])("registered legacy setRelease %j uniformly refuses without private lookup, writes or invented recovery",async releaseId=>{
+    const f=fixture(),before=structuredClone(f.plan),versions=structuredClone(f.versions);
+    const request={testPlanId:"private-plan-identity",releaseId};
+    const failure=f.caller.setRelease(request);
+    await expect(failure).rejects.toMatchObject({code:"PRECONDITION_FAILED",message:expect.stringContaining("Legacy plan release assignment writes no longer accept changes")});
+    await expect(failure).rejects.toThrow("testPlanGovernance.detachAttachedPlan");
+    await expect(failure).rejects.toThrow("testPlanGovernance.attachUnassignedPlan");
+    await expect(failure).rejects.toThrow("may already have applied");await expect(failure).rejects.toThrow("may lack a durable receipt");
+    await expect(failure).rejects.toThrow("do not automatically resubmit");await expect(failure).rejects.not.toThrow(request.testPlanId);
+    expect(f.plan).toEqual(before);expect(f.versions).toEqual(versions);expect(f.events).toEqual([]);
+    for(const callback of [f.db.$transaction,f.tx.$queryRaw,f.tx.$executeRaw,f.tx.testPlan.findUniqueOrThrow,f.tx.testPlan.findFirstOrThrow,f.tx.testPlan.update,
+      f.tx.testPlanVersion.findFirst,f.tx.testPlanVersion.findMany,f.tx.testPlanVersion.create,guards.access,guards.read,guards.audit,guards.readiness])expect(callback).not.toHaveBeenCalled();
+  });
+  it("retired assignment does not infer missing pins/revision/UUID or adopt extra old-client intent",async()=>{
+    const f=fixture(),input={testPlanId:"plan",releaseId:null,projectId:"foreign",originalOrganizationId:"foreign",expectedClerkActorId:"foreign",expectedPlanRevision:"a".repeat(64),requestId:"46b926fe-cf36-4bc1-a0d3-c615fbac3dd1",confirmed:true};
+    await expect(f.caller.setRelease(input)).rejects.toMatchObject({code:"PRECONDITION_FAILED"});
+    expect(f.tx.testPlan.findUniqueOrThrow).not.toHaveBeenCalled();expect(f.tx.testPlan.update).not.toHaveBeenCalled();expect(guards.readiness).not.toHaveBeenCalled();
+    const source=readFileSync(new URL("../routers/testPlans.ts",import.meta.url),"utf8"),legacy=source.slice(source.indexOf("  setRelease: protectedProcedure"),source.indexOf("  // P4-02:"));
+    expect(legacy).toContain('.mutation(() =>');expect(legacy).not.toMatch(/ctx\.prisma|requireProjectAccess\(|snapshotTestPlanVersion\(|refreshReleaseReadiness\(|requestId:|expectedPlanRevision:|\.update\(/);
+  });
+  it("retirement remains behind the actual protected procedure for signed-out callers",async()=>{
+    const f=fixture(),signedOut=testPlansRouter.createCaller({prisma:f.db,user:null} as never);
+    await expect(signedOut.setRelease({testPlanId:"private-plan",releaseId:null})).rejects.toMatchObject({code:"UNAUTHORIZED"});
+    expect(f.tx.testPlan.findUniqueOrThrow).not.toHaveBeenCalled();expect(f.tx.testPlan.update).not.toHaveBeenCalled();expect(guards.readiness).not.toHaveBeenCalled();
+  });
   it("current original actor/tenant authorization precedes bodies and bounded relation locks", async () => {
     const f = fixture(), value = await readTestPlanDetail(f.db as never, "actor", "plan", authorized);
     expect(value.customFields).toBeNull(); expect(value.strategyName).toBeNull();

@@ -3,7 +3,7 @@ import test from "node:test";
 import { governanceCriterionValue, governanceHeaderDescription, governanceOperationLabel, governanceMetadataValue } from "./plan-governance-display.ts";
 const rows = [{ id: "criterion", description: " exact\nwording ", status: "PENDING", requirementId: null }];
 test("all supported governance operations have distinct honest history labels", () => {
-  const operations = ["EDIT_CRITERION_DESCRIPTION", "SET_CRITERION_VERDICT", "ATTACH_UNASSIGNED_PLAN", "ADD_CRITERION", "DELETE_CRITERION", "SET_CRITERION_REQUIREMENT", "EDIT_PLAN_HEADER", "SET_PLAN_STATUS", "EDIT_PLAN_CUSTOM_FIELDS"];
+  const operations = ["EDIT_CRITERION_DESCRIPTION", "SET_CRITERION_VERDICT", "ATTACH_UNASSIGNED_PLAN", "DETACH_ATTACHED_PLAN", "ADD_CRITERION", "DELETE_CRITERION", "SET_CRITERION_REQUIREMENT", "EDIT_PLAN_HEADER", "SET_PLAN_STATUS", "EDIT_PLAN_CUSTOM_FIELDS"];
   assert.equal(new Set(operations.map(governanceOperationLabel)).size, operations.length);
   assert.equal(governanceOperationLabel("unknown"), "Unsupported governance operation");
 });

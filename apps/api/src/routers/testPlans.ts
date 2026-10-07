@@ -452,33 +452,11 @@ export const testPlansRouter = router({
     .input(
       z.object({ testPlanId: z.string(), releaseId: z.string().nullable() }),
     )
-    .mutation(async ({ ctx, input }) => {
-      const plan = await ctx.prisma.testPlan.findUniqueOrThrow({
-        where: { id: input.testPlanId },
-        select: { projectId: true, releaseId: true },
+    .mutation(() => {
+      throw new TRPCError({
+        code: "PRECONDITION_FAILED",
+        message: "Legacy plan release assignment writes no longer accept changes. Review the current plan and use testPlanGovernance.detachAttachedPlan or testPlanGovernance.attachUnassignedPlan for the exact operation. An earlier unacknowledged legacy request may already have applied and may lack a durable receipt. Refresh the current plan and inspect available history before a deliberate new reviewed request; do not automatically resubmit.",
       });
-      await requireProjectAccess(ctx, plan.projectId, "EDITOR");
-      if (input.releaseId) {
-        const release = await ctx.prisma.release.findUniqueOrThrow({
-          where: { id: input.releaseId },
-        });
-        if (release.projectId !== plan.projectId) {
-          throw new TRPCError({
-            code: "BAD_REQUEST",
-            message: "That release does not belong to this project",
-          });
-        }
-      }
-      const updated = await ctx.prisma.testPlan.update({
-        where: { id: input.testPlanId },
-        data: { releaseId: input.releaseId, updatedById: ctx.user.id },
-        select: { id: true, releaseId: true },
-      });
-      // Both sides move: the release that lost the plan's criteria and the
-      // one that gained them.
-      refreshReleaseReadiness(ctx.prisma, plan.releaseId);
-      refreshReleaseReadiness(ctx.prisma, input.releaseId);
-      return updated;
     }),
 
   // P4-02: drafts a starter QA strategy from a short user prompt plus a real

@@ -42,13 +42,13 @@ function harness() {
     useState: (initial: unknown) => { const index = cursor++; if (!(index in hooks)) hooks[index] = initial;
       return [hooks[index], (next: unknown) => { hooks[index] = typeof next === "function" ? next(hooks[index]) : next; }]; },
     ReadinessBadge: stub, DistributionBar: stub, ScoreRing: stub, ReleaseSnapshotExport: stub, Modal: stub,
-    CriterionDescriptionEditor: stub, CriterionVerdictEditor: stub, AttachUnassignedPlan: stub, PlanGovernanceHistory: stub, GovernedCriterionCollection: stub,
+    CriterionDescriptionEditor: stub, CriterionVerdictEditor: stub, AttachUnassignedPlan: stub, PlanGovernanceHistory: stub, GovernedCriterionCollection: stub, PlanReleaseDetach: stub,
     trpcReact: { useUtils: () => ({ releases: { invalidate: invalidateRelease, checkGate: { fetch: gate } }, testPlans: { list: { invalidate: invalidatePlans } } }),
       project: { byId: { useQuery: () => query({ id: release.projectId, organizationId: "synthetic-org", repoUrl: null, defaultBranch: "main" }) } },
       releases: { byId: { useQuery: () => query(release) }, readiness: { useQuery: () => query(readiness) },
         listTestPlans: { useQuery: () => query([]) }, listRiskFlags: { useQuery: () => query([]) }, readinessHistory: { useQuery: () => query([]) },
         updateStatus: { useMutation: () => ({ mutateAsync: mutation }) }, resolveRiskFlag: { useMutation: () => ({ mutateAsync: forbidden }) } },
-      testPlans: { list: { useQuery: () => query([]) }, setRelease: { useMutation: () => ({ mutateAsync: forbidden }) } },
+      testPlans: { list: { useQuery: () => query([]) } },
     },
   });
   vm.runInContext(code, context);

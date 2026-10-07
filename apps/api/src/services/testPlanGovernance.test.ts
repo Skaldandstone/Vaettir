@@ -1,11 +1,16 @@
 import { describe, it, expect, vi } from "vitest";
 import type { PrismaClient } from "@vaettir/db";
+import type { Context } from "../trpc.js";
+import { testPlanGovernanceRouter } from "../routers/testPlanGovernance.js";
+import { refreshReleaseReadiness } from "./releaseReadiness.js";
+vi.mock("./releaseReadiness.js", () => ({ refreshReleaseReadiness: vi.fn() }));
 import {
   previewPlanGovernance,
   editGovernedCriterionDescription,
   setGovernedCriterionVerdict,
   setLegacyCriterionVerdict,
   attachGovernedUnassignedPlan,
+  detachGovernedAttachedPlan,
   listPlanGovernanceHistory,
   addGovernedCriterion,
   deleteGovernedCriterion,
@@ -23,6 +28,7 @@ import {
   editPlanHeaderInput,
   setPlanStatusInput,
   editPlanCustomFieldsInput,
+  detachAttachedPlanInput,
 } from "./testPlanGovernanceSchema.js";
 import {
   governanceRequestHash,
@@ -249,9 +255,10 @@ function fixture() {
         state.plan.updatedAt = new Date(state.plan.updatedAt.getTime() + 1);
         return structuredClone(state.plan);
       }),
-      updateMany: vi.fn(async () => {
-        if (state.plan.releaseId !== null) return { count: 0 };
-        state.plan.releaseId = "release";
+      updateMany: vi.fn(async ({where,data}:{where:{id:string;projectId:string;releaseId:string|null};data:{releaseId:string|null;updatedById:string}}) => {
+        if (state.plan.id !== where.id || state.plan.projectId !== where.projectId || state.plan.releaseId !== where.releaseId) return { count: 0 };
+        state.plan.releaseId = data.releaseId;
+        state.plan.updatedById = data.updatedById;
         return { count: 1 };
       }),
     },
@@ -389,6 +396,140 @@ function fixture() {
   };
   return { db, tx, scope, calls, preview, edit, state: () => state };
 }
+describe("reviewed attached-plan detach (actual service, mocked transactions only)", () => {
+  async function inputFor(f: ReturnType<typeof fixture>) {
+    f.state().plan.releaseId = "release";
+    return { ...f.scope, expectedPlanRevision: (await f.preview()).planRevision, expectedReleaseId: "release", releaseId: null,
+      requestId: "46b926fe-cf36-4bc1-a0d3-c615fbac3dd1", reason: "Detach this reviewed synthetic scope", confirmed: true as const };
+  }
+  it("detaches exact planning scope with one CAS/version/complete before-after receipt and unchanged criteria/prose/procedures", async () => {
+    const f=fixture(), input=await inputFor(f), before=(await f.preview()).snapshot;
+    f.calls.length=0;
+    const ack=await detachGovernedAttachedPlan(f.db,"actor",input,{clerkActorId:"clerk"});
+    expect(ack).toMatchObject({operation:"DETACH_ATTACHED_PLAN",releaseId:null,criterionId:null,requestId:input.requestId,versionNumber:2,replayed:false});
+    expect(ack.requestHash).toBe(governanceRequestHash({operation:"DETACH_ATTACHED_PLAN",input}));
+    expect(f.tx.testPlan.updateMany).toHaveBeenCalledExactlyOnceWith({where:{id:"plan",projectId:"project",releaseId:"release"},data:{releaseId:null,updatedById:"actor"}});
+    expect(f.tx.testPlanVersion.create).toHaveBeenCalledOnce();expect(f.state().audits.size).toBe(1);
+    const receipt=validatedGovernanceReceipt([...f.state().audits.values()][0]!.metadata);
+    expect(receipt.before).toEqual(before);expect(receipt.after.releaseId).toBeNull();
+    for(const key of ["criteria","name","description","customFields","executionTemplate","strategyId","status","testPlanTypeId","createdAt","createdById"] as const)
+      expect(receipt.after[key]).toEqual(before[key]);
+    expect(receipt.ack.requestHash).toBe(ack.requestHash);expect(receipt.ack.afterRevision).toBe(governancePlanRevision(receipt.after));
+    expect(f.calls.findIndex(sql=>sql.includes('FROM "TestPlan"')&&sql.includes("FOR UPDATE"))).toBeLessThan(f.calls.findIndex(sql=>sql.includes('FROM "Release"')&&sql.includes("FOR SHARE")));
+  });
+  it.each(["DRAFT","ACTIVE","IN_REVIEW"])("mutable plan %s can detach without changing its lifecycle",async status=>{
+    const f=fixture();f.state().plan.status=status;const input=await inputFor(f);
+    expect((await detachGovernedAttachedPlan(f.db,"actor",input,{clerkActorId:"clerk"})).releaseId).toBeNull();expect(f.state().plan.status).toBe(status);
+  });
+  it.each(["APPROVED","ARCHIVED"])("frozen plan %s refuses a new detach without changing approval or evidence",async status=>{
+    const f=fixture();f.state().plan.status=status;const input=await inputFor(f),before=structuredClone(f.state());
+    await expect(detachGovernedAttachedPlan(f.db,"actor",input,{clerkActorId:"clerk"})).rejects.toMatchObject({code:"CONFLICT"});
+    expect(f.state()).toEqual(before);expect(f.tx.testPlan.updateMany).not.toHaveBeenCalled();
+  });
+  it.each(["READY","SHIPPED","IN_TESTING","BLOCKED"])("source release %s cannot lose quality scope until explicitly PLANNING",async status=>{
+    const f=fixture(),input=await inputFor(f);f.state().release.status=status;const before=structuredClone(f.state());
+    await expect(detachGovernedAttachedPlan(f.db,"actor",input,{clerkActorId:"clerk"})).rejects.toMatchObject({code:"CONFLICT"});
+    expect(f.state()).toEqual(before);expect(f.tx.testPlan.updateMany).not.toHaveBeenCalled();
+  });
+  it.each(["missing","foreign"])("%s same-project source release cannot be detached",async mode=>{
+    const f=fixture(),input=await inputFor(f);if(mode==="missing")f.state().release.id="different";else f.state().release.projectId="foreign";
+    const before=structuredClone(f.state());await expect(detachGovernedAttachedPlan(f.db,"actor",input,{clerkActorId:"clerk"})).rejects.toMatchObject({code:"NOT_FOUND"});expect(f.state()).toEqual(before);
+  });
+  it("changed plan revision or original assignment refuses without updating another release",async()=>{
+    for(const change of ["revision","assignment"]){
+      const f=fixture(),input=await inputFor(f);if(change==="revision")f.state().plan.description="Later manual edit";else f.state().plan.releaseId="another-release";
+      const before=structuredClone(f.state());await expect(detachGovernedAttachedPlan(f.db,"actor",input,{clerkActorId:"clerk"})).rejects.toMatchObject({code:"CONFLICT"});
+      expect(f.state()).toEqual(before);expect(f.tx.testPlan.updateMany).not.toHaveBeenCalled();
+    }
+  });
+  it("conditional old-release selector must change exactly one row or the complete attempt rolls back",async()=>{
+    const f=fixture(),input=await inputFor(f),before=structuredClone(f.state());f.tx.testPlan.updateMany.mockResolvedValueOnce({count:0});
+    await expect(detachGovernedAttachedPlan(f.db,"actor",input,{clerkActorId:"clerk"})).rejects.toMatchObject({code:"CONFLICT"});
+    expect(f.state()).toEqual(before);expect(f.tx.testPlanVersion.create).not.toHaveBeenCalled();expect(f.state().audits.size).toBe(0);
+  });
+  it("accepted exact UUID replay precedes later plan/release/CAS/codec budgets and cannot detach a later reassignment",async()=>{
+    const f=fixture(),input=await inputFor(f),ack=await detachGovernedAttachedPlan(f.db,"actor",input,{clerkActorId:"clerk"});
+    f.state().plan.releaseId="later-release";f.state().plan.status="APPROVED";f.state().plan.description="Later exact prose";f.state().release.status="SHIPPED";
+    f.state().customFieldsExact=false;f.state().nativePlanBytes=999999n;f.state().historyCount=MAX_GOVERNANCE_HISTORY_REVISIONS;
+    expect(await detachGovernedAttachedPlan(f.db,"actor",input,{clerkActorId:"clerk"})).toEqual({...ack,replayed:true});
+    expect(f.state().plan.releaseId).toBe("later-release");expect(f.state().plan.description).toBe("Later exact prose");
+    expect(f.tx.testPlan.updateMany).toHaveBeenCalledOnce();expect(f.tx.testPlanVersion.create).toHaveBeenCalledOnce();expect(f.state().audits.size).toBe(1);
+    await expect(detachGovernedAttachedPlan(f.db,"actor",{...input,expectedReleaseId:"later-release"},{clerkActorId:"clerk"})).rejects.toMatchObject({code:"CONFLICT"});
+  });
+  it.each(["role","seat","suspension","actor","organization"])("current %s revocation refuses both new detach and receipt replay",async mode=>{
+    for(const replay of [false,true]){
+      const f=fixture(),input=await inputFor(f);if(replay)await detachGovernedAttachedPlan(f.db,"actor",input,{clerkActorId:"clerk"});
+      if(mode==="role")f.state().role="VIEWER";if(mode==="seat")f.state().seatType="READ_ONLY";if(mode==="suspension")f.state().suspendedAt=new Date();
+      if(mode==="actor")f.state().clerkActorId="remapped";if(mode==="organization")f.tx.project.findUniqueOrThrow.mockResolvedValueOnce({organizationId:"different-org"});
+      const before=structuredClone(f.state());await expect(detachGovernedAttachedPlan(f.db,"actor",input,{clerkActorId:"clerk"})).rejects.toMatchObject({code:"FORBIDDEN"});expect(f.state()).toEqual(before);
+      expect(f.tx.testPlan.updateMany).toHaveBeenCalledTimes(replay?1:0);
+    }
+  });
+  it.each(["history","snapshot","codec","native-receipt"])("%s admission failure retains complete plan/criteria/version/receipt state",async mode=>{
+    const f=fixture(),input=await inputFor(f);
+    if(mode==="history")f.state().historyCount=MAX_GOVERNANCE_HISTORY_REVISIONS;
+    if(mode==="snapshot")f.state().nativePlanBytes=BigInt(MAX_GOVERNANCE_SNAPSHOT_BYTES+1);
+    if(mode==="codec")f.state().executionTemplateExact=false;
+    if(mode==="native-receipt")f.state().nativeAuditBytes=MAX_GOVERNANCE_RECEIPT_BYTES+1;
+    const before=structuredClone(f.state());await expect(detachGovernedAttachedPlan(f.db,"actor",input,{clerkActorId:"clerk"})).rejects.toMatchObject({code:"PRECONDITION_FAILED"});expect(f.state()).toEqual(before);
+  });
+  it("sequential model of competing captured revisions preserves the first winner; native concurrency remains separately unproved",async()=>{
+    const f=fixture(),first=await inputFor(f),second={...first,requestId:"393ca86f-9c46-4160-8273-62705cb367cc"};
+    const ack=await detachGovernedAttachedPlan(f.db,"actor",first,{clerkActorId:"clerk"}),before=structuredClone(f.state());
+    await expect(detachGovernedAttachedPlan(f.db,"actor",second,{clerkActorId:"clerk"})).rejects.toMatchObject({code:"CONFLICT"});
+    expect(f.state()).toEqual(before);expect(f.tx.testPlan.updateMany).toHaveBeenCalledOnce();expect(f.state().versions.at(-1)?.id).toBe(ack.versionId);
+  });
+  it("strict detach input rejects null/missing source, nonnull destination, hidden fields or unconfirmed/blank intent",async()=>{
+    const f=fixture(),input=await inputFor(f);
+    for(const invalid of [{...input,expectedReleaseId:null},{...input,expectedReleaseId:undefined},{...input,releaseId:"other"},{...input,releaseId:undefined},
+      {...input,confirmed:false},{...input,reason:"   "},{...input,unreviewed:true}])expect(detachAttachedPlanInput.safeParse(invalid).success).toBe(false);
+    expect(detachAttachedPlanInput.parse(input)).toEqual(input);expect(f.tx.testPlan.updateMany).not.toHaveBeenCalled();
+  });
+  it("forged null transition/source/hash/operation/unrelated prose cannot validate even after revision recomputation",async()=>{
+    const f=fixture(),input=await inputFor(f);await detachGovernedAttachedPlan(f.db,"actor",input,{clerkActorId:"clerk"});
+    const receipt=validatedGovernanceReceipt([...f.state().audits.values()][0]!.metadata);
+    const mutations:Array<(value:typeof receipt)=>void>=[
+      value=>{value.before.releaseId=null;},value=>{value.after.releaseId="different";value.ack.releaseId="different";},value=>{value.before.releaseId="different-source";},
+      value=>{value.ack.requestHash="a".repeat(64);},value=>{value.ack.operation="ATTACH_UNASSIGNED_PLAN";},value=>{value.after.description="forged manual prose";},
+      value=>{value.after.criteria[0]!.status="MET";},value=>{value.ack.criterionId="criterion";},value=>{value.reason="different reason";},
+    ];
+    for(const change of mutations){const forged=structuredClone(receipt);change(forged);forged.ack.beforeRevision=governancePlanRevision(forged.before);forged.ack.afterRevision=governancePlanRevision(forged.after);
+      expect(()=>validatedGovernanceReceipt(forged)).toThrow();}
+  });
+  it("historical v1 attachment hash and receipt replay remain exact after later changed assignment/status",async()=>{
+    const f=fixture(),input={...f.scope,expectedPlanRevision:(await f.preview()).planRevision,requestId:"e0bf661c-d183-4978-8f94-56f297f0cc3c",reason:"Original attachment",confirmed:true as const,releaseId:"release",expectedReleaseId:null};
+    const ack=await attachGovernedUnassignedPlan(f.db,"actor",input,{clerkActorId:"clerk"});
+    expect(ack.requestHash).toBe(governanceRequestHash({operation:"ATTACH_UNASSIGNED_PLAN",input}));
+    expect(validatedGovernanceReceipt([...f.state().audits.values()][0]!.metadata).format).toBe("PlanGovernance/v1");
+    f.state().plan.status="ARCHIVED";f.state().plan.releaseId="later-release";f.state().release.status="SHIPPED";
+    expect(await attachGovernedUnassignedPlan(f.db,"actor",input,{clerkActorId:"clerk"})).toEqual({...ack,replayed:true});
+    expect(f.state().plan.releaseId).toBe("later-release");expect(f.tx.testPlan.updateMany).toHaveBeenCalledOnce();
+  });
+  it("current read-only governance history retains the complete detach transition without granting replay or editing",async()=>{
+    const f=fixture(),input=await inputFor(f);await detachGovernedAttachedPlan(f.db,"actor",input,{clerkActorId:"clerk"});
+    f.state().role="VIEWER";f.state().seatType="READ_ONLY";
+    const history=await listPlanGovernanceHistory(f.db,"actor",{...f.scope,take:5},{clerkActorId:"clerk"});
+    expect(history.entries).toHaveLength(1);expect(history.entries[0]!.receipt.ack.operation).toBe("DETACH_ATTACHED_PLAN");
+    expect(history.entries[0]!.receipt.before.releaseId).toBe("release");expect(history.entries[0]!.receipt.after.releaseId).toBeNull();
+    expect(history.entries[0]!.receipt.after.criteria).toEqual(history.entries[0]!.receipt.before.criteria);
+    await expect(detachGovernedAttachedPlan(f.db,"actor",input,{clerkActorId:"clerk"})).rejects.toMatchObject({code:"FORBIDDEN"});expect(f.tx.testPlan.updateMany).toHaveBeenCalledOnce();
+  });
+  function caller(f:ReturnType<typeof fixture>,subject:string|null|undefined){
+    Object.assign(f.db,{project:f.tx.project,organization:{findUnique:async()=>({suspendedAt:f.state().suspendedAt})}});
+    const user={id:"actor",clerkUserId:"clerk",email:"synthetic@example.invalid",memberships:[{organizationId:"org",role:"EDITOR",seatType:"FULL"}]};
+    return testPlanGovernanceRouter.createCaller({prisma:f.db,user,authenticatedClerkSubject:subject,staff:null,securityLogger:undefined,staffAttempt:{tokenConfigured:false,tokenPresented:false,actorHeaderPresented:false}} as unknown as Context);
+  }
+  it("registered endpoint refreshes only the exact old source readiness after a new commit, not receipt replay",async()=>{
+    vi.mocked(refreshReleaseReadiness).mockClear();const f=fixture(),input=await inputFor(f),route=caller(f,"clerk");
+    const ack=await route.detachAttachedPlan(input);expect(ack.releaseId).toBeNull();expect(refreshReleaseReadiness).toHaveBeenCalledExactlyOnceWith(f.db,"release");
+    expect(await route.detachAttachedPlan(input)).toEqual({...ack,replayed:true});expect(refreshReleaseReadiness).toHaveBeenCalledOnce();
+  });
+  it.each([undefined,null,"different-subject"])("registered endpoint independently verified subject %s cannot be inferred from the cached native user",async subject=>{
+    vi.mocked(refreshReleaseReadiness).mockClear();const f=fixture(),input=await inputFor(f);
+    await expect(caller(f,subject).detachAttachedPlan(input)).rejects.toMatchObject({code:"FORBIDDEN"});expect(f.tx.testPlan.updateMany).not.toHaveBeenCalled();expect(refreshReleaseReadiness).not.toHaveBeenCalled();
+  });
+});
+
 describe("dedicated bounded plan governance (mocked transactions, not native acceptance)", () => {
   const newCriterionId = "5a3c96dc-022c-4cee-934b-cde38b710d2f";
   async function headerInput(f: ReturnType<typeof fixture>) {

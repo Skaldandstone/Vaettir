@@ -128,7 +128,7 @@ export function PlanGovernanceHistory({
               ) : (
                 <p>
                   Assignment: {entry.receipt.before.releaseId ?? "Unassigned"} →{" "}
-                  {entry.receipt.after.releaseId}
+                  {entry.receipt.after.releaseId ?? "Unassigned"}
                 </p>
               )}
               <details>

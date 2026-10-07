@@ -1,4 +1,5 @@
 import { router, protectedProcedure, requireProjectAccess } from "../trpc.js";
+import { TRPCError } from "@trpc/server";
 import { refreshReleaseReadiness } from "../services/releaseReadiness.js";
 import {
   planGovernanceScopeInput,
@@ -13,6 +14,7 @@ import {
   requirementChoiceInput,
   requirementChoiceOutput,
   attachUnassignedPlanInput,
+  detachAttachedPlanInput,
   planGovernancePreviewOutput,
   planGovernanceAck,
   planGovernanceHistoryInput,
@@ -30,6 +32,7 @@ import {
   setGovernedCriterionRequirement,
   listGovernanceRequirementChoices,
   attachGovernedUnassignedPlan,
+  detachGovernedAttachedPlan,
   listPlanGovernanceHistory,
 } from "../services/testPlanGovernance.js";
 export const testPlanGovernanceRouter = router({
@@ -152,6 +155,19 @@ export const testPlanGovernanceRouter = router({
       return attachGovernedUnassignedPlan(ctx.prisma, ctx.user.id, input, {
         clerkActorId: ctx.user.clerkUserId,
       });
+    }),
+  detachAttachedPlan: protectedProcedure
+    .input(detachAttachedPlanInput)
+    .output(planGovernanceAck)
+    .mutation(async ({ ctx, input }) => {
+      if (!ctx.authenticatedClerkSubject || ctx.authenticatedClerkSubject !== ctx.user.clerkUserId)
+        throw new TRPCError({ code: "FORBIDDEN", message: "Current authenticated actor access is required for reviewed plan detachment." });
+      await requireProjectAccess(ctx, input.projectId, "EDITOR");
+      const saved = await detachGovernedAttachedPlan(ctx.prisma, ctx.user.id, input, {
+        clerkActorId: ctx.authenticatedClerkSubject,
+      });
+      if (!saved.replayed) refreshReleaseReadiness(ctx.prisma, input.expectedReleaseId);
+      return saved;
     }),
   history: protectedProcedure
     .input(planGovernanceHistoryInput)

@@ -4,6 +4,7 @@ export function governanceOperationLabel(operation: string): string {
     EDIT_CRITERION_DESCRIPTION: "Criterion wording",
     SET_CRITERION_VERDICT: "Criterion verdict",
     ATTACH_UNASSIGNED_PLAN: "Plan attachment",
+    DETACH_ATTACHED_PLAN: "Plan detachment",
     ADD_CRITERION: "Criterion added",
     DELETE_CRITERION: "Criterion removed",
     SET_CRITERION_REQUIREMENT: "Requirement association",

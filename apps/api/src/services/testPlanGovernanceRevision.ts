@@ -202,6 +202,25 @@ export function validatedGovernanceReceipt(value: unknown) {
       (before.name !== after.name && !after.name.trim())
     )
       return invalid();
+  } else if (ack.operation === "DETACH_ATTACHED_PLAN") {
+    if (ack.criterionId !== null || !before.releaseId || after.releaseId !== null)
+      return invalid();
+    const expectedRequestHash = governanceRequestHash({
+      operation: ack.operation,
+      input: {
+        projectId: ack.scope.projectId,
+        testPlanId: ack.testPlanId,
+        originalOrganizationId: ack.scope.organizationId,
+        expectedClerkActorId: ack.scope.actorClerkUserId,
+        expectedPlanRevision: ack.beforeRevision,
+        requestId: ack.requestId,
+        reason: receipt.reason,
+        confirmed: true,
+        releaseId: null,
+        expectedReleaseId: before.releaseId,
+      },
+    });
+    if (expectedRequestHash !== ack.requestHash) return invalid();
   } else if (
     ack.criterionId !== null ||
     before.releaseId !== null ||

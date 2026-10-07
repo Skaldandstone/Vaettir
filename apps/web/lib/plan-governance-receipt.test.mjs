@@ -19,6 +19,26 @@ test("attachment acknowledgement cannot name a different release", () => {
   assertGovernanceAcknowledgement({ ...ack, operation: attachment.operation, criterionId: null, releaseId: "release" }, attachment);
   assert.throws(() => assertGovernanceAcknowledgement({ ...ack, operation: attachment.operation, criterionId: null, releaseId: "other" }, attachment));
 });
+test("detachment acknowledgement requires an explicit NULL target and original non-null release", () => {
+  const detach = { ...pending, operation: "DETACH_ATTACHED_PLAN", input: { requestId: input.requestId, testPlanId: "plan", expectedPlanRevision: input.expectedPlanRevision, expectedReleaseId: "source-release", releaseId: null } };
+  const saved = { ...ack, operation: detach.operation, criterionId: null, releaseId: null };
+  assertGovernanceAcknowledgement(saved, detach);
+  for (const change of [{ releaseId: "source-release" }, { releaseId: undefined }, { criterionId: "criterion" }, { operation: "ATTACH_UNASSIGNED_PLAN" }, { requestHash: "d".repeat(64) }, { beforeRevision: "d".repeat(64) }]) assert.throws(() => assertGovernanceAcknowledgement({ ...saved, ...change }, detach));
+  for (const change of [{ releaseId: undefined }, { expectedReleaseId: null }, { expectedReleaseId: "" }, { expectedReleaseId: undefined }]) assert.throws(() => assertGovernanceAcknowledgement(saved, { ...detach, input: { ...detach.input, ...change } }));
+});
+test("detachment hash binds exact original release, NULL target and unchanged revision", async () => {
+  const operation = "DETACH_ATTACHED_PLAN", body = { testPlanId: "plan", expectedReleaseId: "source-release", releaseId: null, expectedPlanRevision: "a".repeat(64) };
+  const hash = await planGovernanceRequestHash(operation, body);
+  const expected = createHash("sha256").update('{"input":{"expectedPlanRevision":"' + "a".repeat(64) + '","expectedReleaseId":"source-release","releaseId":null,"testPlanId":"plan"},"operation":"DETACH_ATTACHED_PLAN"}').digest("hex");
+  assert.equal(hash, expected);
+  for (const change of [{ expectedReleaseId: "other-release" }, { releaseId: "other-release" }, { expectedPlanRevision: "b".repeat(64) }]) assert.notEqual(await planGovernanceRequestHash(operation, { ...body, ...change }), hash);
+  const missingTarget = { ...body }; delete missingTarget.releaseId;
+  assert.notEqual(await planGovernanceRequestHash(operation, missingTarget), hash);
+});
+test("detachment history renders the retained NULL assignment as Unassigned", () => {
+  const source = readFileSync(new URL("../components/PlanGovernanceHistory.tsx", import.meta.url), "utf8");
+  assert.match(source, /entry\.receipt\.after\.releaseId \?\? "Unassigned"/);
+});
 test("unknown first acknowledgement latches the original input through later refusals", () => {
   const unknown = retainedGovernancePending({ ...pending, uncertain: false }, new Error("timeout"));
   assert.equal(unknown.input, input); assert.equal(unknown.uncertain, true);
