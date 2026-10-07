@@ -6,6 +6,7 @@ import {createHash} from "node:crypto";
 import vm from "node:vm";
 import {deriveNativePackagingV2,LEGACY_SOURCE_PINS,V2_MODULE_NAMES} from "./native-packaging-v2-derivation.mjs";
 import {historicalNativeV1RecipeFixture} from "./native-v1-recipe-test-fixture.mjs";
+import {historicalRuntimeDockerfileFixture} from "./historical-runtime-dockerfile-test-fixture.mjs";
 import {historicalNativeFinalPlanFixture,reviewedNativeFinalDiagnosticsTestOverlay} from "./native-final-plan-historical-test-fixture.mjs";
 import {historicalNativeFinalAdapterFixture} from "./native-final-adapter-historical-test-fixture.mjs";
 import {reviewedRecipeIsolationTestOverlay} from "./native-final-recipe-isolation-test-overlay.mjs";
@@ -25,6 +26,22 @@ function fixtureLf(raw){
   assert.ok(Buffer.from(text).equals(raw));
   return Buffer.from(text.replaceAll("\r\n","\n"));
 }
+function restoreAbsenceFixtureSource(raw){
+  assert.ok(Buffer.isBuffer(raw));
+  assert.equal(sha(raw),"39e7030a57b2903bd553406eb503f7053b20619464f946b116f322d77b96da23","Unknown complete fixture edit");
+  const source=raw.toString();
+  const imported='import { historicalRuntimeDockerfileFixture } from "./historical-runtime-dockerfile-test-fixture.mjs";\n';
+  const branch='      : name === "Dockerfile.api"\n      ? historicalRuntimeDockerfileFixture(Buffer.from(raw.toString("utf8").replaceAll("\\r\\n", "\\n"))).bytes\n';
+  assert.equal(source.split(imported).length,2);assert.equal(source.split(branch).length,2);
+  const restored=Buffer.from(source.replace(imported,"").replace(branch,""));
+  assert.equal(sha(restored),fixturePin);return restored;
+}
+test("exact absence fixture inverse rejects unknown source and preserves original whole pin",()=>{
+  const raw=fixtureLf(readFileSync(new URL("scripts/"+fixtureName,root)));
+  assert.equal(sha(restoreAbsenceFixtureSource(raw)),fixturePin);
+  assert.throws(()=>restoreAbsenceFixtureSource(Buffer.concat([raw,Buffer.from("\n")])));
+  assert.throws(()=>restoreAbsenceFixtureSource(Buffer.from(raw.toString().replace("historicalRuntimeDockerfileFixture","otherFixture"))));
+});
 // TEST ONLY fixed whole-hash-admitted memory diagnostics delta. The historical
 // three overlays keep their exact original bytes and assertions. This fourth
 // review permits only the public failure function and matching adapter pin.
@@ -62,9 +79,10 @@ function sourcesForTest(input,v2){
   // constructed. Never replace entries after archival or claim a historical
   // fixture represents the actual current canonical source checkpoint.
   publicBytes["build-llvm-runtime.sh"]=v2?derived.correctedRecipe:input.recipe;
+  publicBytes["Dockerfile.api"]=historicalRuntimeDockerfileFixture(fixtureLf(publicBytes["Dockerfile.api"])).bytes;
   publicBytes["native-builder-fresh-final-verifier.mjs"]=input.modules["native-builder-fresh-final-verifier.mjs"];
   publicBytes["native-builder-fresh-final-adapter.mjs"]=input.modules["native-builder-fresh-final-adapter.mjs"];
-  const raw=fixtureLf(readFileSync(new URL("scripts/"+fixtureName,root)));assert.equal(sha(raw),fixturePin);
+  const raw=restoreAbsenceFixtureSource(fixtureLf(readFileSync(new URL("scripts/"+fixtureName,root))));assert.equal(sha(raw),fixturePin);
   const helper=fixtureLf(readFileSync(new URL("scripts/"+historicalHelperName,root)));assert.equal(sha(helper),historicalHelperPin);
   let fixture=raw.toString();
   if(v2){

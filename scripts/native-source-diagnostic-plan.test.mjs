@@ -7,6 +7,7 @@ import { createRequire } from "node:module";
 import { Script, createContext, runInNewContext } from "node:vm";
 import { spawnSync } from "node:child_process";
 import { historicalNativeV1RecipeFixture } from "./native-v1-recipe-test-fixture.mjs";
+import { historicalRuntimeDockerfileFixture } from "./historical-runtime-dockerfile-test-fixture.mjs";
 import test from "node:test";
 import { planNativeSourceDiagnostic } from "./native-source-diagnostic-plan.mjs";
 import {
@@ -81,6 +82,7 @@ function fixture() {
     readFileSync,
     // Exact historical v1 synthetic recipe admission, not a production bypass.
     historicalNativeV1RecipeFixture,
+    historicalRuntimeDockerfileFixture,
     planNativeFreshPrepare,
     planNativeFreshCore: (input) => planNativeFreshCore(clone(input)),
     FRESH_NATIVE_SCRIPT_LF_HASHES,

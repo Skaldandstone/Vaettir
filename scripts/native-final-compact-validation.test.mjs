@@ -311,10 +311,39 @@ test("scratch default allowance never admits changed PATH, additional environmen
   }
 });
 
+// Test-only closed inverse of the two absence-fixture adaptations. Production
+// native/Dockerfile pins remain historical and are not changed by this helper.
+function restoreHistoricalDockerFixtureSource(kind, source) {
+  const pins = {
+    original: ["39e7030a57b2903bd553406eb503f7053b20619464f946b116f322d77b96da23", "d21a00d62295a71566e96963d36f0659bc0e1c9453c1236a99af5f0062659eac"],
+    compact: ["3c208a9da150eeec05c2e154fe37fbae9b5facff72bc80fa8bd606c55b679cad", "e6a92cb2a06ce4d3c352f6e0afe35c6252c13162c76ef9ce9e01814d3aa83c67"],
+  };
+  assert.ok(Object.hasOwn(pins, kind));
+  assert.equal(typeof source, "string");
+  assert.equal(sha(source), pins[kind][0], "Unknown complete test fixture edit");
+  const imported = 'import { historicalRuntimeDockerfileFixture } from "./historical-runtime-dockerfile-test-fixture.mjs";\n';
+  const branch = '      : name === "Dockerfile.api"\n      ? historicalRuntimeDockerfileFixture(Buffer.from(raw.toString("utf8").replaceAll("\\r\\n", "\\n"))).bytes\n';
+  assert.equal(source.split(imported).length, 2);
+  assert.equal(source.split(branch).length, 2);
+  const restored = source.replace(imported, "").replace(branch, "");
+  assert.equal(sha(restored), pins[kind][1]);
+  return restored;
+}
+
+test("historical fixture source inverse rejects unknown/tampered changes", () => {
+  for (const [kind, path] of [["original", "native-final-runtime-recipe-fixture.mjs"], ["compact", "native-final-compact-fixture.mjs"]]) {
+    const source=readFileSync(new URL("./"+path,import.meta.url),"utf8").replaceAll("\r\n","\n");
+    assert.doesNotThrow(() => restoreHistoricalDockerFixtureSource(kind, source));
+    for (const changed of [source+"\n", source.replace("historicalRuntimeDockerfileFixture", "otherFixture"), source.replace("fixture()", "otherFixture()")])
+      assert.throws(() => restoreHistoricalDockerFixtureSource(kind, changed));
+  }
+  assert.throws(() => restoreHistoricalDockerFixtureSource("unknown", ""));
+});
+
 test("new V2 fixture mechanical adaptation preserves the entire original recipe/lineage construction body", () => {
-  const original=readFileSync(new URL("./native-final-runtime-recipe-fixture.mjs",import.meta.url),"utf8").replaceAll("\r\n","\n");
+  const original=restoreHistoricalDockerFixtureSource("original",readFileSync(new URL("./native-final-runtime-recipe-fixture.mjs",import.meta.url),"utf8").replaceAll("\r\n","\n"));
   assert.equal(sha(original),"d21a00d62295a71566e96963d36f0659bc0e1c9453c1236a99af5f0062659eac");
-  const current=readFileSync(new URL("./native-final-compact-fixture.mjs",import.meta.url),"utf8").replaceAll("\r\n","\n");
+  const current=restoreHistoricalDockerFixtureSource("compact",readFileSync(new URL("./native-final-compact-fixture.mjs",import.meta.url),"utf8").replaceAll("\r\n","\n"));
   let base=current.slice(0,current.indexOf("\n// Reuses genuine current V2"));
   assert.ok(base.length>0);
   for(const name of ["native-builder-fresh-final-plan.mjs","native-builder-fresh-prepare.mjs",
