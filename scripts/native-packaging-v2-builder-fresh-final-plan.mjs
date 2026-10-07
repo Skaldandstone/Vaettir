@@ -688,6 +688,7 @@ export function planNativeFreshFinal(input) {
       cleanupGraceSeconds: 75,
       decoderWatchdogSeconds: 2550,
       recipeCommit: { timeoutSeconds: 300, killAfterSeconds: 20 },
+      registryPush: { timeoutSeconds: 600, killAfterSeconds: 20 },
       memoryBytes: 14 * 1024 ** 3,
       cpus: 8,
       compilerJobs: 5,
@@ -742,6 +743,11 @@ function assemble(identity) {
   const recipeCommitAdmission = `${common}const clock=JSON.parse(bounded('${prefix}clock.json',512));assert.ok(BigInt(clock.deadlineNs)-process.hrtime.bigint()>=${(identity.resources.recipeCommit.timeoutSeconds + identity.resources.recipeCommit.killAfterSeconds + identity.resources.verificationReserveSeconds) * 1000000000}n,'Global remaining budget cannot admit unverified recipe commit and fresh verification');`;
   const recipeCommitBegin = "NATIVE_FRESH_FINAL_RECIPE_COMMIT=" + JSON.stringify({ schemaVersion: 1, planSha256, stage: "recipe-commit", event: "begin", ...flags });
   const recipeCommitResult = "NATIVE_FRESH_FINAL_RECIPE_COMMIT=" + JSON.stringify({ schemaVersion: 1, planSha256, stage: "recipe-commit", event: "result", ...flags });
+  // Original operation clock: push/kill620 + diagnostics20 + original
+  // registry/config170 + owned cleanup60 + shared outer grace75 =945 seconds.
+  const registryPushAdmission = `${common}const clock=JSON.parse(bounded('${prefix}clock.json',512));assert.ok(BigInt(clock.deadlineNs)-process.hrtime.bigint()>=${(identity.resources.registryPush.timeoutSeconds + identity.resources.registryPush.killAfterSeconds + 20 + 170 + 60 + identity.resources.cleanupGraceSeconds) * 1000000000}n,'Global remaining budget cannot admit registry push and complete readback/cleanup');`;
+  const registryPushBegin = "NATIVE_FRESH_FINAL_REGISTRY_PUSH=" + JSON.stringify({ schemaVersion: 1, planSha256, stage: "registry-push", event: "begin", ...flags });
+  const registryPushResult = `${common}const status=Number(process.env.VAETTIR_FINAL_PUSH_STATUS);assert.ok(/^[0-9]{1,3}$/.test(process.env.VAETTIR_FINAL_PUSH_STATUS??'')&&Number.isInteger(status)&&status>=0&&status<=255);let diagnostic={logReadRefused:false,logPresent:false,logBytes:0,tailBytes:0,tailSha256:null,authenticationText:false,timeoutText:false,connectionText:false};try{diagnostic.logPresent=fs.existsSync('${prefix}push.log');assert.ok(diagnostic.logPresent);const raw=bounded('${prefix}push.log',1048576),tail=raw.subarray(Math.max(0,raw.length-8192)),text=tail.toString();diagnostic={...diagnostic,logBytes:raw.length,tailBytes:tail.length,tailSha256:sha(tail),authenticationText:/unauthorized|authentication required|access denied/i.test(text),timeoutText:/timed out|timeout/i.test(text),connectionText:/connection refused|connection reset|no route to host/i.test(text)};}catch{diagnostic.logReadRefused=true;}console.log('NATIVE_FRESH_FINAL_REGISTRY_PUSH='+JSON.stringify({...${JSON.stringify({schemaVersion:1,planSha256,stage:'registry-push',event:'result',...flags})},exitStatus:status,...diagnostic}));if(status===0&&diagnostic.logReadRefused)process.exitCode=1;`;
   const imageGuard = `${common}const a=JSON.parse(bounded('${prefix}parent-inspect.json',2097152));assert.equal(a.length,1);const[i]=a;assert.equal(i.Id,'${identity.expectedParent.imageConfigDigest}');assert.equal(i.Os,'linux');assert.equal(i.Architecture,'amd64');assert.ok(i.RepoDigests.includes('${parent}'));assert.ok(i.Size>0&&i.Size<64*1024**3);const l=i.Config.Labels;for(const[k,v]of Object.entries(${JSON.stringify({ "vaettir.source-commit": identity.sourceCommit, "vaettir.source-sha256": identity.sourceSha256, "vaettir.prepare-plan": identity.preparePlanSha256, "vaettir.continuation-plan": identity.expectedParent.planSha256, "vaettir.continuation-phase": "assertion-compile-3", "vaettir.runtime-eligible": "false", "vaettir.artifact-purpose": "llvm-builder-checkpoint" })}))assert.equal(l[k],v);`;
   // Unverified local snapshot only, never tagged/pushed or admitted as a donor.
   const recipeImageGuard = `${common}const id=bounded('${prefix}recipe-image-id',80).toString().trim();assert.match(id,/^sha256:[a-f0-9]{64}$/);const a=JSON.parse(bounded('${prefix}recipe-image-inspect.json',2097152)),p=JSON.parse(bounded('${prefix}parent-inspect.json',2097152));assert.equal(a.length,1);assert.equal(p.length,1);const[i]=a;assert.equal(i.Id,id);assert.equal(i.Os,'linux');assert.equal(i.Architecture,'amd64');assert.ok(i.Size>0&&i.Size<64*1024**3);assert.equal(i.RootFS.Type,'layers');assert.equal(p[0].Id,'${identity.expectedParent.imageConfigDigest}');assert.equal(i.RootFS.Layers.length,p[0].RootFS.Layers.length+1);assert.deepEqual(i.RootFS.Layers.slice(0,-1),p[0].RootFS.Layers);assert.ok(i.RootFS.Layers.every(x=>/^sha256:[a-f0-9]{64}$/.test(x)));for(const[k,v]of Object.entries(${JSON.stringify({ "vaettir.source-commit": identity.sourceCommit, "vaettir.source-sha256": identity.sourceSha256, "vaettir.prepare-plan": identity.preparePlanSha256, "vaettir.continuation-plan": planSha256, "vaettir.continuation-phase": "final-recipe-unverified", "vaettir.runtime-eligible": "false", "vaettir.artifact-purpose": "llvm-builder-checkpoint", "vaettir.final-owner": planSha256 })}))assert.equal(i.Config.Labels[k],v);assert.deepEqual(i.Config.Env.filter(x=>x.startsWith('PYTHONDONTWRITEBYTECODE=')),['PYTHONDONTWRITEBYTECODE=1']);assert.deepEqual(i.Config.Env.filter(x=>x.startsWith('VAETTIR_FINAL_CONTROL_SHA=')),['VAETTIR_FINAL_CONTROL_SHA='+bounded('${prefix}control-sha',64)]);const h=JSON.parse(bounded('${prefix}recipe-handoff.json',4096)),c=JSON.parse(bounded('${prefix}capsule/control.json',131072));assert.deepEqual(Object.keys(h).sort(),['stage','planSha256','controlSha256','deadlineNs','finalLogSha256','finalReceiptSha256','runtimeAcceptance','authenticatedAcceptance','deploymentAcceptance'].sort());assert.equal(h.stage,'recipe-unverified');assert.equal(h.planSha256,'${planSha256}');assert.equal(h.controlSha256,bounded('${prefix}control-sha',64).toString());assert.equal(h.deadlineNs,c.deadlineNs);assert.match(h.finalLogSha256,/^[a-f0-9]{64}$/);assert.match(h.finalReceiptSha256,/^[a-f0-9]{64}$/);for(const k of ['runtimeAcceptance','authenticatedAcceptance','deploymentAcceptance'])assert.equal(h[k],false);`;
@@ -808,7 +814,17 @@ function assemble(identity) {
     'test "$(timeout 20s docker inspect --format \'{{.State.ExitCode}}\' "$native_final_image")" = 0',
     `timeout 20s docker cp "$native_final_image:${dir}/image-review.json" ${prefix}image-review.json`,
     `timeout 20s node -e ${quote(compare)}`,
-    `timeout --signal=TERM --kill-after=20s 180s docker push ${image} >${prefix}push.log`,
+    [
+    `timeout 20s node -e ${quote(registryPushAdmission)}`,
+    `printf '%s\\n' ${quote(registryPushBegin)}`,
+    `if (ulimit -f 1024 && timeout --signal=TERM --kill-after=${identity.resources.registryPush.killAfterSeconds}s ${identity.resources.registryPush.timeoutSeconds}s docker push ${image}) >${prefix}push.log 2>&1; then`,
+    `  VAETTIR_FINAL_PUSH_STATUS=0 timeout 20s node -e ${quote(registryPushResult)}`,
+    "else",
+    "  native_final_push_status=$?",
+    `  VAETTIR_FINAL_PUSH_STATUS="$native_final_push_status" timeout 20s node -e ${quote(registryPushResult)} || :`,
+    '  exit "$native_final_push_status"',
+    "fi",
+    ].join("\n"),
     `timeout 60s aws ecr batch-get-image --repository-name vaettir-api --image-ids imageTag=${image.split(":").at(-1)} --accepted-media-types application/vnd.docker.distribution.manifest.v2+json --region us-east-2 --output json >${prefix}registry.json`,
     `timeout 20s node -e ${quote(registry)}`,
     `native_final_config=$(timeout 20s node -e ${quote(`${common}const x=JSON.parse(bounded('${prefix}registry-identity.json',512));assert.match(x.imageConfigDigest,/^sha256:[a-f0-9]{64}$/);process.stdout.write(x.imageConfigDigest);`)})`,
@@ -898,6 +914,8 @@ function assemble(identity) {
       admission,
       verificationAdmission,
       recipeCommitAdmission,
+      registryPushAdmission,
+      registryPushResult,
       imageGuard,
       recipeImageGuard,
       compare,
