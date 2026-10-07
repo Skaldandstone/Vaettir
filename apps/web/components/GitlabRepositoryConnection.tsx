@@ -160,6 +160,20 @@ export function RepositoryOAuthConnection({ projectId, providerId, onConnected, 
     }
   }, [connectionId, utils, current, frame]);
 
+  const continuationFrame = useMemo(() => ({ step, page, activeSearch, listing,
+    eligible: (step === "repositories" || step === "done") && providerId === "gitlab" && frame.eligible && !busy && listing?.hasMore === true && page >= 1 && page < 100 &&
+      status.isSuccess && status.data?.status === "VERIFIED" && !status.error && !status.isFetching && !status.isPaused,
+  }), [step, page, activeSearch, listing, providerId, frame, busy, status.isSuccess, status.data?.status, status.error, status.isFetching, status.isPaused]);
+  const continuation = useRef<typeof continuationFrame | null>(null);
+  useLayoutEffect(() => {
+    continuation.current = continuationFrame;
+    return () => { if (continuation.current === continuationFrame) continuation.current = null; };
+  }, [continuationFrame]);
+  function continueCatalogue() {
+    if (continuation.current !== continuationFrame || !continuationFrame.eligible || !current()) return;
+    return load(continuationFrame.page + 1, continuationFrame.activeSearch, true);
+  }
+
   // One automatic metadata listing per verified attempt. Failed requests stay retryable,
   // not an effect loop. Back/review never restarts authorization or writes repositories.
   useEffect(() => {
@@ -234,6 +248,10 @@ export function RepositoryOAuthConnection({ projectId, providerId, onConnected, 
       <p className="text-muted">Page {page}. {providerId === "github" ? "Search filters this page only. Browse other pages to find more repositories. " : ""}Selections stay in place as you browse pages or search. Review up to 100 repositories within this ten-minute verified listing session.</p>
       <p className="text-muted">Each selection batch can browse 500 repositories and connect up to 100. Starting a fresh batch clears unsaved choices after a successful refresh; saved connections stay in the project.</p>
       <button type="button" className="btn-secondary" disabled={busy || !frame.eligible} onClick={() => load(1, search, true)}>Start a new selection batch</button>
+      {providerId === "gitlab" && listing?.hasMore && page < 100 && <>
+        <p className="text-muted">Continue from page {page + 1} in a fresh batch to browse beyond this batch’s 500-repository limit. Unsaved choices clear only after a successful refresh; saved connections stay in the project.</p>
+        <button type="button" className="btn-secondary" disabled={!continuationFrame.eligible} onClick={continueCatalogue}>Continue from next page in a fresh batch</button>
+      </>}
       <div style={actions}><span role="status">{selected.length} selected across visited pages</span><button type="button" className="btn-secondary" disabled={busy || !selected.length} onClick={() => setSelection({ ids: [], details: {} })}>Clear selection</button></div>
       <div className="source-chip-list" role="group" aria-label="Verified repositories" style={{ maxHeight: 300, overflowY: "auto" }}>
         {listing?.repositories.map(repo => <button type="button" key={repo.id} className="source-connection-chip" aria-pressed={selected.includes(repo.id)} disabled={busy || (selected.length >= 100 && !selected.includes(repo.id))} onClick={() => {
@@ -260,6 +278,11 @@ export function RepositoryOAuthConnection({ projectId, providerId, onConnected, 
         catch { setError("Connection could not be saved. Your permissions or repository list may have changed. Go back and refresh the list before reviewing again."); }
       }}>{connect.isPending ? "Connecting…" : "Approve and connect"}</button></div>
     </>}
-    {step === "done" && <><p role="status">Repository connections saved. Access was verified; source discovery has not run.</p><p className="text-muted">Connect more starts a fresh 500-repository selection batch and clears unsaved choices only after a successful refresh. Existing saved connections stay in the project.</p><div style={actions}><button type="button" className="btn-secondary" disabled={busy || !frame.eligible} onClick={() => load(1, "", true)}>Connect more repositories</button><button type="button" disabled={busy} onClick={onClose}>Done</button></div></>}
+    {step === "done" && <><p role="status">Repository connections saved. Access was verified; source discovery has not run.</p><p className="text-muted">Connect more starts a fresh 500-repository selection batch and clears unsaved choices only after a successful refresh. Existing saved connections stay in the project.</p>
+      {providerId === "gitlab" && listing?.hasMore && page < 100 && <>
+        <p className="text-muted">Continue from page {page + 1} in a fresh batch to browse beyond this batch’s 500-repository limit. Unsaved choices clear only after a successful refresh; saved connections stay in the project.</p>
+        <button type="button" className="btn-secondary" disabled={!continuationFrame.eligible} onClick={continueCatalogue}>Continue from next page in a fresh batch</button>
+      </>}
+      <div style={actions}><button type="button" className="btn-secondary" disabled={busy || !frame.eligible} onClick={() => load(1, "", true)}>Connect more repositories</button><button type="button" disabled={busy} onClick={onClose}>Done</button></div></>}
   </div>;
 }

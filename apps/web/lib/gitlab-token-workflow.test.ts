@@ -499,6 +499,195 @@ describe("GitLab token connection actual component workflow (synthetic)", () => 
     expect(h.forbidden).not.toHaveBeenCalled();
   });
 
+  it("continues from page six beyond the first 500 visited repositories with one explicit reset and exact reviewed next 100 IDs", async () => {
+    const h = harness(), pending = deferred<Listing>(), visited = new Set<string>(); fillVerification(h);
+    h.fetchList.mockImplementation(async input => {
+      const ids = Array.from({ length: 100 }, (_, index) => String((input.page! - 1) * 100 + index + 1));
+      const next = input.restartCatalogue ? new Set(ids) : new Set([...visited, ...ids]);
+      // Synthetic native cap model, not PostgreSQL/provider acceptance.
+      if (next.size > 500) throw Error("Synthetic visited catalogue cap");
+      visited.clear(); for (const id of next) visited.add(id);
+      return listing(ids, true, !!input.restartCatalogue);
+    });
+    await h.submit(); h.render();
+    for (let page = 2; page <= 5; page++) { h.button("Next page").props.onClick!(); await h.settle(); }
+    h.button("Select this page (up to 100 total)").props.onClick!(); h.render();
+    h.button("Next page").props.onClick!(); await h.settle();
+    expect(visited.size).toBe(500);
+    expect(h.button("Continue from page 6 in a fresh batch").props.disabled).toBe(false);
+    expect(h.html()).toContain("100 selected across visited pages");
+    expect(h.html()).toContain("clears unsaved choices only after a successful refresh");
+    const before = h.fetchList.mock.calls.length, advance = h.button("Continue from page 6 in a fresh batch").props.onClick!;
+    h.fetchList.mockReturnValueOnce(pending.promise);
+    advance(); advance(); h.render();
+    expect(h.fetchList).toHaveBeenCalledTimes(before + 1);
+    expect(at(h.fetchList.mock.calls, before)[0]).toEqual({ id: "synthetic-connection", page: 6, search: "", restartCatalogue: true });
+    expect(h.html()).toContain("100 selected across visited pages");
+    expect(h.button("Continue from page 6 in a fresh batch").props.disabled).toBe(true);
+    const nextIds = Array.from({ length: 100 }, (_, index) => String(501 + index));
+    pending.resolve({ ...listing(nextIds, true, true), catalogVersion: "d".repeat(64) }); await h.settle();
+    expect(h.html()).toContain("0 selected across visited pages");
+    expect(h.html()).toContain("Synthetic 501");
+    expect(h.button("Continue from page 7 in a fresh batch")).toBeDefined();
+    advance(); await h.settle(); expect(h.fetchList).toHaveBeenCalledTimes(before + 1);
+    h.button("Select this page (up to 100 total)").props.onClick!(); h.render();
+    h.button("Review 100 selected").props.onClick!(); h.render();
+    expect(h.connect.mutateAsync).not.toHaveBeenCalled();
+    await h.button("Approve and connect").props.onClick!(); h.render();
+    expect(h.connect.mutateAsync).toHaveBeenCalledExactlyOnceWith({ id: "synthetic-connection", repositoryIds: nextIds, catalogVersion: "d".repeat(64), approved: true });
+    expect(h.verify.mutateAsync).toHaveBeenCalledTimes(1);
+    expect(h.forbidden).not.toHaveBeenCalled();
+  });
+
+  it("saved page-five batch can continue directly from done at page six without re-browsing or another automatic connection", async () => {
+    const h = harness(), pending = deferred<Listing>(); fillVerification(h);
+    h.fetchList.mockImplementation(async input => listing(["page-" + input.page], true, !!input.restartCatalogue));
+    await h.submit(); h.render();
+    for (let page = 2; page <= 5; page++) { h.button("Next page").props.onClick!(); await h.settle(); }
+    h.button("Select this page (up to 100 total)").props.onClick!(); h.render();
+    const beforeSave = h.button("Continue from page 6 in a fresh batch").props.onClick!;
+    h.button("Review 1 selected").props.onClick!(); h.render();
+    await h.button("Approve and connect").props.onClick!(); h.render();
+    expect(h.html()).toContain("Repository connections saved");
+    expect(h.button("Connect more repositories")).toBeDefined();
+    const reads = h.fetchList.mock.calls.length; beforeSave(); await h.settle();
+    expect(h.fetchList).toHaveBeenCalledTimes(reads);
+    h.fetchList.mockReturnValueOnce(pending.promise);
+    const advance = h.button("Continue from page 6 in a fresh batch").props.onClick!;
+    advance(); advance(); h.render();
+    expect(h.fetchList).toHaveBeenCalledTimes(reads + 1);
+    expect(at(h.fetchList.mock.calls, reads)[0]).toEqual({ id: "synthetic-connection", page: 6, search: "", restartCatalogue: true });
+    expect(h.html()).toContain("Repository connections saved");
+    expect(h.html()).not.toContain("page-6");
+    pending.resolve(listing(["page-6"], true, true)); await h.settle();
+    expect(h.html()).toContain("Choose repositories");
+    expect(h.html()).toContain("0 selected across visited pages");
+    expect(h.html()).toContain("page-6");
+    expect(h.connect.mutateAsync).toHaveBeenCalledTimes(1);
+    expect(h.props.onConnected).toHaveBeenCalledTimes(1);
+    expect(h.forbidden).not.toHaveBeenCalled();
+  });
+
+  it("next-page continuation keeps the last applied search and retires old page/search/review callbacks", async () => {
+    const h = harness(); fillVerification(h);
+    h.fetchList.mockImplementation(async input => listing(["page-" + input.page], true, !!input.restartCatalogue));
+    await h.submit(); h.render();
+    const beforeSearch = h.button("Continue from page 2 in a fresh batch").props.onClick!;
+    h.change("Search repositories", "applied-search"); await h.submit(); await h.settle();
+    const afterSearchReads = h.fetchList.mock.calls.length; beforeSearch(); await h.settle();
+    expect(h.fetchList).toHaveBeenCalledTimes(afterSearchReads);
+    h.change("Search repositories", "not-yet-applied");
+    h.button("Continue from page 2 in a fresh batch").props.onClick!(); await h.settle();
+    expect(at(h.fetchList.mock.calls, afterSearchReads)[0]).toEqual({ id: "synthetic-connection", page: 2, search: "applied-search", restartCatalogue: true });
+    expect(h.input("Search repositories").props.value).toBe("applied-search");
+    const beforeReview = h.button("Continue from page 3 in a fresh batch").props.onClick!;
+    h.button("Select this page (up to 100 total)").props.onClick!(); h.render();
+    h.button("Review 1 selected").props.onClick!(); h.render();
+    const beforeReviewReads = h.fetchList.mock.calls.length; beforeReview(); await h.settle();
+    expect(h.fetchList).toHaveBeenCalledTimes(beforeReviewReads);
+    expect(h.connect.mutateAsync).not.toHaveBeenCalled();
+  });
+
+  it.each(["refused", "missing-reset-ack"])("next-page %s preserves original selection and page until a deliberate acknowledged retry", async failure => {
+    const h = harness(); fillVerification(h);
+    h.fetchList.mockResolvedValue(listing(["old-choice"], true));
+    await h.submit(); h.render();
+    h.button("Select this page (up to 100 total)").props.onClick!(); h.render();
+    if (failure === "refused") h.fetchList.mockRejectedValueOnce(Error("Synthetic private failure"));
+    else h.fetchList.mockResolvedValueOnce(listing(["unacknowledged-next-page"], true, false));
+    h.button("Continue from page 2 in a fresh batch").props.onClick!(); await h.settle();
+    expect(h.html()).toContain("1 selected across visited pages");
+    expect(h.html()).not.toContain("unacknowledged-next-page");
+    expect(h.html()).not.toContain("Synthetic private failure");
+    expect(h.html()).toContain("Your existing choices are retained");
+    expect(h.button("Continue from page 2 in a fresh batch").props.disabled).toBe(false);
+    h.fetchList.mockResolvedValueOnce(listing(["reviewed-next-page"], true, true));
+    h.button("Continue from page 2 in a fresh batch").props.onClick!(); await h.settle();
+    expect(h.html()).toContain("0 selected across visited pages");
+    expect(h.html()).toContain("reviewed-next-page");
+    expect(h.connect.mutateAsync).not.toHaveBeenCalled();
+  });
+
+  it.each(["actor", "project", "inactive", "unmount"])("next-page ACK after %s loss cannot replace retained choices or expose new metadata", async loss => {
+    const h = harness(), pending = deferred<Listing>(); fillVerification(h);
+    h.fetchList.mockResolvedValue(listing(["old-choice"], true));
+    await h.submit(); h.render();
+    h.button("Select this page (up to 100 total)").props.onClick!(); h.render();
+    h.fetchList.mockReturnValueOnce(pending.promise);
+    const advance = h.button("Continue from page 2 in a fresh batch").props.onClick!;
+    advance(); h.render();
+    if (loss === "actor") { h.auth.userId = "other-clerk"; h.sdk.session.user.id = "other-clerk"; }
+    if (loss === "project") h.props.projectId = "other-project";
+    if (loss === "inactive") h.props.active = false;
+    if (loss === "unmount") h.unmount();
+    h.render();
+    pending.resolve(listing(["foreign-late-next-page"], true, true)); await h.settle();
+    expect(h.html()).not.toContain("foreign-late-next-page");
+    h.auth.userId = "synthetic-clerk"; h.sdk.session.user.id = "synthetic-clerk";
+    h.props.projectId = "synthetic-project"; h.props.active = true; h.render();
+    expect(h.html()).toContain("1 selected across visited pages");
+    const reads = h.fetchList.mock.calls.length; advance(); await h.settle();
+    expect(h.fetchList).toHaveBeenCalledTimes(reads);
+    expect(h.connect.mutateAsync).not.toHaveBeenCalled();
+    expect(h.forbidden).not.toHaveBeenCalled();
+  });
+
+  it("superseded next-page reset cannot replace a later admitted listing or clear its retained choices", async () => {
+    const h = harness(), pending = deferred<Listing>(); fillVerification(h);
+    h.fetchList.mockResolvedValue(listing(["old-choice"], true));
+    await h.submit(); h.render();
+    h.button("Select this page (up to 100 total)").props.onClick!(); h.render();
+    const next = h.button("Next page").props.onClick!;
+    h.fetchList.mockReturnValueOnce(pending.promise);
+    h.button("Continue from page 2 in a fresh batch").props.onClick!(); h.render();
+    h.fetchList.mockResolvedValueOnce(listing(["later-admitted-page"], true)); next(); await h.settle();
+    pending.resolve(listing(["superseded-reset-page"], true, true)); await h.settle();
+    expect(h.html()).toContain("later-admitted-page");
+    expect(h.html()).not.toContain("superseded-reset-page");
+    expect(h.html()).toContain("1 selected across visited pages");
+    expect(h.connect.mutateAsync).not.toHaveBeenCalled();
+  });
+
+  it("next-page continuation refuses exhausted listing, page 100, uncertainty and current-access loss without widening native bounds", async () => {
+    const exhausted = harness(); fillVerification(exhausted);
+    await exhausted.submit(); exhausted.render();
+    const disabled = exhausted.button("Continue from page 2 in a fresh batch");
+    expect(disabled.props.disabled).toBe(true); disabled.props.onClick!(); await exhausted.settle();
+    expect(exhausted.fetchList).toHaveBeenCalledTimes(1);
+    const h = harness(); fillVerification(h);
+    h.fetchList.mockImplementation(async input => listing(["page-" + input.page], true));
+    await h.submit(); h.render();
+    for (let page = 2; page <= 100; page++) { h.button("Next page").props.onClick!(); await h.settle(); }
+    expect(h.button("Continue from page 101 in a fresh batch").props.disabled).toBe(true);
+    expect(h.button("Next page").props.disabled).toBe(true);
+    const reads = h.fetchList.mock.calls.length, maximumPageNext = h.button("Next page").props.onClick!;
+    h.button("Continue from page 101 in a fresh batch").props.onClick!(); maximumPageNext(); await h.settle();
+    expect(h.fetchList).toHaveBeenCalledTimes(reads);
+    expect(h.fetchList.mock.calls.some(call => at(call, 0).page === 101)).toBe(false);
+    const lost = harness(); fillVerification(lost); lost.fetchList.mockResolvedValue(listing(["choice"], true));
+    await lost.submit(); lost.render(); const advance = lost.button("Continue from page 2 in a fresh batch").props.onClick!;
+    lost.capabilities.isSuccess = false; lost.render(); advance(); await lost.settle();
+    expect(lost.fetchList).toHaveBeenCalledTimes(1);
+    const uncertain = harness(); fillVerification(uncertain);
+    uncertain.verify.mutateAsync.mockRejectedValueOnce(Error("Synthetic unknown verification"));
+    await uncertain.submit(); uncertain.render();
+    expect(uncertain.html()).not.toContain("Continue from page");
+    expect(uncertain.button("Retry original verification")).toBeDefined();
+    expect(uncertain.fetchList).not.toHaveBeenCalled();
+  });
+
+  it.each(["bitbucket", "azure-devops"])("does not add GitLab catalogue continuation to %s", async provider => {
+    const h = harness(); h.props.providerId = provider; h.render();
+    if (provider === "bitbucket") { h.change("Bitbucket workspace", "synthetic-workspace"); h.change("Atlassian account email", "synthetic@example.invalid"); }
+    else h.change("Organization URL", "https://dev.azure.com/synthetic");
+    h.change("API token", "synthetic-token"); h.consent();
+    h.fetchList.mockResolvedValue(listing(["choice"], true));
+    await h.submit(); h.render();
+    expect(h.button("Next page")).toBeDefined();
+    expect(h.html()).not.toContain("Continue from page");
+    expect(h.forbidden).not.toHaveBeenCalled();
+  });
+
   it("captured original-account reset callback sends no read after current actor changes", async () => {
     const h = harness(); fillVerification(h);
     await h.submit(); h.render();

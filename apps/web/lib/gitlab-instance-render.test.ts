@@ -99,7 +99,7 @@ function workflow() {
   const props: Parameters<typeof Component>[0] = { projectId: origin.projectId, providerId: "gitlab", active: true, onConnected: vi.fn(), onClose: vi.fn() };
   const configurations = { isSuccess: true, isFetching: false, isPaused: false, error: null as unknown, data: { organizationId: origin.organizationId, canConnect: true, canConfigure: false, storageReady: true, configurations: [{ id: "synthetic-config", provider: "gitlab", origin: "https://synthetic-gitlab.example.com" }] }, refetch: vi.fn() };
   const recent = { isSuccess: true, isFetching: false, isPaused: false, error: null as unknown, data: [{ id: "synthetic-connection", provider: "gitlab", origin: "https://synthetic-gitlab.example.com", accessMethod: "oauth", accountLabel: "Synthetic account", status: "VERIFIED" }], refetch: vi.fn() };
-  const status = { isSuccess: true, error: null as unknown, data: { status: "VERIFIED", accountLabel: "Synthetic account" }, refetch: vi.fn() };
+  const status = { isSuccess: true, isFetching: false, isPaused: false, error: null as unknown, data: { status: "VERIFIED", accountLabel: "Synthetic account" }, refetch: vi.fn() };
   const fetchList = vi.fn<(input: ListInput) => Promise<Listing>>(async () => listing(["repo-1", "repo-2"]));
   const connect = { isPending: false, mutateAsync: vi.fn<(input: ConnectInput) => Promise<{ connected: number }>>(async input => ({ connected: input.repositoryIds.length })) };
   const forbidden = vi.fn(() => { throw Error("No OAuth popup, credential, provider or source actions in fixture"); });
@@ -127,7 +127,8 @@ function workflow() {
   async function settle() { for (let n = 0; n < 8; n++) { await Promise.resolve(); render(); } }
   async function resume() { required(button(/Synthetic account/).props.onClick)(); render(); await settle(); }
   async function done() { await resume(); required(button("Synthetic repo-1main · Metadata only").props.onClick)(); render(); required(button("Review 1 selected").props.onClick)(); render(); await required(button("Approve and connect").props.onClick)(); render(); }
-  return { props, auth, liveSdk, reader, configurations, recent, status, fetchList, connect, forbidden, render, button, settle, resume, done, tree: () => current, html: () => renderToStaticMarkup(current), unmount: () => { for (const held of slots) held.cleanup?.(); } };
+  async function browseTo(target: number) { for (let next = 2; next <= target; next++) { fetchList.mockResolvedValueOnce(listing([`page-${next}`])); required(button("Next page").props.onClick)(); await settle(); } }
+  return { props, auth, liveSdk, reader, configurations, recent, status, fetchList, connect, forbidden, render, button, settle, resume, done, browseTo, tree: () => current, html: () => renderToStaticMarkup(current), unmount: () => { for (const held of slots) held.cleanup?.(); } };
 }
 
 describe("OAuth metadata fresh selection batch actual workflow", () => {
@@ -182,5 +183,95 @@ describe("OAuth metadata fresh selection batch actual workflow", () => {
     expect(h.html()).not.toContain("Synthetic repo-1"); expect(h.html()).not.toContain("Synthetic account"); expect(h.html()).not.toContain("Start a new selection batch"); expect(h.fetchList).toHaveBeenCalledTimes(1);
     h.props.providerId = "gitlab"; h.configurations.data.organizationId = "other-org"; h.render(); expect(h.html()).not.toContain("Synthetic repo-1"); expect(h.fetchList).toHaveBeenCalledTimes(1);
     h.configurations.data.organizationId = "synthetic-org"; h.render(); expect(h.html()).toContain("Synthetic repo-1"); expect(h.forbidden).not.toHaveBeenCalled();
+  });
+
+  it("continues beyond the visited500 catalogue from page6 with active search and acknowledges reset before clearing choices", async () => {
+    const h = workflow(); await h.resume();
+    const input = required(elements(h.tree()).find(node => node.type === "input")); required(input.props.onChange)({ preventDefault: vi.fn(), target: { value: "submitted search" } }); h.render();
+    required(required(elements(h.tree()).find(node => node.type === "form")).props.onSubmit)({ preventDefault: vi.fn(), target: { value: "" } }); await h.settle();
+    required(h.button("Synthetic repo-1main · Metadata only").props.onClick)(); h.render(); await h.browseTo(5);
+    required(required(elements(h.tree()).find(node => node.type === "input")).props.onChange)({ preventDefault: vi.fn(), target: { value: "unsubmitted search" } }); h.render();
+    const held = deferred<Listing>(); h.fetchList.mockReturnValueOnce(held.promise);
+    const continueClick = required(h.button("Continue from next page in a fresh batch").props.onClick), first = continueClick(), duplicate = continueClick(); h.render();
+    expect(h.fetchList).toHaveBeenLastCalledWith({ id: "synthetic-connection", page: 6, search: "submitted search", restartCatalogue: true }); expect(h.fetchList).toHaveBeenCalledTimes(7);
+    expect(h.html()).toContain("Continue from page 6"); expect(h.html()).toContain("1 selected across visited pages"); expect(h.html()).toContain("500-repository limit"); expect(h.html()).toContain("Unsaved choices clear only after a successful refresh"); expect(h.button("Continue from next page in a fresh batch").props.disabled).toBe(true);
+    held.resolve(listing(["repo-501"], true)); await first; await duplicate; h.render();
+    expect(h.html()).toContain("Page 6."); expect(h.html()).toContain("Synthetic repo-501"); expect(h.html()).toContain("0 selected across visited pages");
+    await continueClick(); expect(h.fetchList).toHaveBeenCalledTimes(7); // Captured prior batch/page cannot start another reset.
+    expect(h.connect.mutateAsync).not.toHaveBeenCalled(); expect(h.forbidden).not.toHaveBeenCalled();
+  });
+
+  it.each(["failure", "missing-ack"])("next-page fresh batch %s preserves current page, active search and selected metadata", async outcome => {
+    const h = workflow(); await h.resume(); required(h.button("Synthetic repo-1main · Metadata only").props.onClick)(); h.render(); await h.browseTo(5);
+    if (outcome === "failure") h.fetchList.mockRejectedValueOnce(new Error("private uncertain provider result")); else h.fetchList.mockResolvedValueOnce(listing(["unacknowledged-501"], false));
+    await required(h.button("Continue from next page in a fresh batch").props.onClick)(); h.render();
+    expect(h.fetchList).toHaveBeenLastCalledWith({ id: "synthetic-connection", page: 6, search: "", restartCatalogue: true }); expect(h.html()).toContain("Page 5."); expect(h.html()).toContain("1 selected across visited pages"); expect(h.html()).not.toContain("unacknowledged-501"); expect(h.html()).not.toContain("private uncertain provider result");
+    h.fetchList.mockResolvedValueOnce(listing(["acknowledged-501"], true)); await required(h.button("Continue from next page in a fresh batch").props.onClick)(); h.render();
+    expect(h.fetchList).toHaveBeenLastCalledWith({ id: "synthetic-connection", page: 6, search: "", restartCatalogue: true }); expect(h.html()).toContain("Page 6."); expect(h.html()).toContain("0 selected across visited pages"); expect(h.forbidden).not.toHaveBeenCalled();
+  });
+
+  it("can recover the 501st-repository ordinary-list limit through a disclosed next-page reset without restarting page1", async () => {
+    const h = workflow(); await h.resume(); required(h.button("Synthetic repo-1main · Metadata only").props.onClick)(); h.render(); await h.browseTo(5);
+    h.fetchList.mockRejectedValueOnce(new Error("Synthetic500 visited catalogue limit")); required(h.button("Next page").props.onClick)(); await h.settle();
+    expect(h.fetchList).toHaveBeenLastCalledWith({ id: "synthetic-connection", page: 6, search: "" }); expect(h.html()).toContain("Page 5."); expect(h.html()).toContain("1 selected across visited pages");
+    h.fetchList.mockResolvedValueOnce(listing(["repo-501"], true)); await required(h.button("Continue from next page in a fresh batch").props.onClick)(); h.render();
+    expect(h.fetchList).toHaveBeenLastCalledWith({ id: "synthetic-connection", page: 6, search: "", restartCatalogue: true }); expect(h.html()).toContain("Page 6."); expect(h.html()).toContain("Synthetic repo-501"); expect(h.html()).toContain("0 selected across visited pages"); expect(h.forbidden).not.toHaveBeenCalled();
+  });
+
+  it("saved page5 batch can continue directly to fresh page6 without repeating browsing or saving twice", async () => {
+    const h = workflow(); await h.resume(); required(h.button("Synthetic repo-1main · Metadata only").props.onClick)(); h.render(); await h.browseTo(5);
+    required(h.button("Review 1 selected").props.onClick)(); h.render(); await required(h.button("Approve and connect").props.onClick)(); h.render();
+    expect(h.html()).toContain("Repository connections saved"); expect(h.html()).toContain("Continue from page 6"); expect(h.html()).toContain("saved connections stay in the project");
+    const held = deferred<Listing>(); h.fetchList.mockReturnValueOnce(held.promise); const click = required(h.button("Continue from next page in a fresh batch").props.onClick), pending = click(), duplicate = click(); h.render();
+    expect(h.fetchList).toHaveBeenLastCalledWith({ id: "synthetic-connection", page: 6, search: "", restartCatalogue: true }); expect(h.button("Continue from next page in a fresh batch").props.disabled).toBe(true); expect(h.button("Connect more repositories").props.disabled).toBe(true); expect(h.button("Done").props.disabled).toBe(true);
+    held.resolve(listing(["saved-batch-repo-501"], true)); await pending; await duplicate; h.render(); expect(h.html()).toContain("Page 6."); expect(h.html()).toContain("0 selected across visited pages"); expect(h.html()).toContain("Synthetic saved-batch-repo-501"); expect(h.connect.mutateAsync).toHaveBeenCalledTimes(1); expect(h.props.onConnected).toHaveBeenCalledTimes(1); expect(h.forbidden).not.toHaveBeenCalled();
+  });
+
+  it("retires the captured repository continuation before review/save while admitting the fresh done callback", async () => {
+    const h = workflow(); await h.resume(); required(h.button("Synthetic repo-1main · Metadata only").props.onClick)(); h.render();
+    const beforeReview = required(h.button("Continue from next page in a fresh batch").props.onClick);
+    required(h.button("Review 1 selected").props.onClick)(); h.render(); await beforeReview();
+    expect(h.fetchList).toHaveBeenCalledTimes(1); expect(h.connect.mutateAsync).not.toHaveBeenCalled(); expect(h.html()).toContain("Connect 1 repository");
+    required(h.button("Back").props.onClick)(); h.render(); const beforeSave = required(h.button("Continue from next page in a fresh batch").props.onClick);
+    required(h.button("Review 1 selected").props.onClick)(); h.render(); await required(h.button("Approve and connect").props.onClick)(); h.render(); await beforeSave();
+    expect(h.fetchList).toHaveBeenCalledTimes(1); expect(h.html()).toContain("Repository connections saved"); expect(h.connect.mutateAsync).toHaveBeenCalledTimes(1);
+    h.fetchList.mockResolvedValueOnce(listing(["fresh-done-batch"], true)); await required(h.button("Continue from next page in a fresh batch").props.onClick)(); h.render();
+    expect(h.fetchList).toHaveBeenLastCalledWith({ id: "synthetic-connection", page: 2, search: "", restartCatalogue: true }); expect(h.fetchList).toHaveBeenCalledTimes(2); expect(h.html()).toContain("Page 2."); expect(h.html()).toContain("0 selected across visited pages"); expect(h.html()).toContain("Synthetic fresh-done-batch"); expect(h.connect.mutateAsync).toHaveBeenCalledTimes(1); expect(h.forbidden).not.toHaveBeenCalled();
+  });
+
+  it.each(["fetching", "paused", "error", "expired", "unverified", "write-pending"])("captured fresh continuation refuses %s uncertainty instead of clearing choices or reading metadata", async uncertainty => {
+    const h = workflow(); await h.resume(); required(h.button("Synthetic repo-1main · Metadata only").props.onClick)(); h.render(); const click = required(h.button("Continue from next page in a fresh batch").props.onClick);
+    if (uncertainty === "fetching") h.status.isFetching = true;
+    if (uncertainty === "paused") h.status.isPaused = true;
+    if (uncertainty === "error") h.status.error = new Error("private status failure");
+    if (uncertainty === "expired") h.status.data.status = "EXPIRED";
+    if (uncertainty === "unverified") h.status.isSuccess = false;
+    if (uncertainty === "write-pending") h.connect.isPending = true;
+    h.render(); expect(h.button("Continue from next page in a fresh batch").props.disabled).toBe(true); await click(); expect(h.fetchList).toHaveBeenCalledTimes(1); expect(h.html()).toContain("1 selected across visited pages"); expect(h.connect.mutateAsync).not.toHaveBeenCalled(); expect(h.forbidden).not.toHaveBeenCalled();
+  });
+
+  it("withholds continuation at the terminal page/bound, for GitHub and after old-page navigation", async () => {
+    const h = workflow(); await h.resume(); const captured = required(h.button("Continue from next page in a fresh batch").props.onClick); await h.browseTo(2); await captured(); expect(h.fetchList).toHaveBeenCalledTimes(2);
+    h.fetchList.mockResolvedValueOnce(listing(["last-page"], false, false)); required(h.button("Next page").props.onClick)(); await h.settle(); expect(h.html()).not.toContain("Continue from next page in a fresh batch");
+    const bounded = workflow(); await bounded.resume(); await bounded.browseTo(100); expect(bounded.html()).toContain("Page 100."); expect(bounded.html()).not.toContain("Continue from next page in a fresh batch"); expect(bounded.button("Next page").props.disabled).toBe(true); expect(bounded.fetchList).toHaveBeenCalledTimes(100);
+    const github = workflow(); github.props.providerId = "github"; github.recent.data[0]!.provider = "github"; github.recent.data[0]!.origin = "https://github.com"; github.configurations.data.configurations[0]!.provider = "github"; github.configurations.data.configurations[0]!.origin = "https://github.com"; github.render(); await github.resume(); expect(github.html()).not.toContain("Continue from next page in a fresh batch"); expect(github.forbidden).not.toHaveBeenCalled();
+  });
+
+  it.each(["actor", "organization", "project", "sdk", "readonly", "inactive", "unmount"])("fresh continuation retains original access guards for %s loss", async loss => {
+    const h = workflow(); await h.resume(); const click = required(h.button("Continue from next page in a fresh batch").props.onClick);
+    if (loss === "actor") { h.auth.userId = "other-clerk"; h.reader.current = { ...h.reader.origin, clerkActorId: "other-clerk" }; h.reader.readable = false; }
+    if (loss === "organization") { h.reader.current = { ...h.reader.origin, organizationId: "other-org" }; h.reader.readable = false; }
+    if (loss === "project") h.props.projectId = "other-project";
+    if (loss === "sdk") h.liveSdk.session = { id: "other-session", user: { id: "other-clerk" } };
+    if (loss === "readonly") h.reader.canEdit = false;
+    if (loss === "inactive") h.props.active = false;
+    if (loss === "unmount") h.unmount(); else h.render();
+    await click(); expect(h.fetchList).toHaveBeenCalledTimes(1); expect(h.connect.mutateAsync).not.toHaveBeenCalled(); expect(h.forbidden).not.toHaveBeenCalled();
+  });
+
+  it("late next-page reset ACK after current scope loss cannot rebind metadata or discard original choices", async () => {
+    const h = workflow(); await h.resume(); required(h.button("Synthetic repo-1main · Metadata only").props.onClick)(); h.render(); const held = deferred<Listing>(); h.fetchList.mockReturnValueOnce(held.promise);
+    const pending = required(h.button("Continue from next page in a fresh batch").props.onClick)(); h.props.active = false; h.render(); held.resolve(listing(["foreign-late-501"], true)); await pending; h.render(); expect(h.html()).not.toContain("foreign-late-501");
+    h.props.active = true; h.render(); expect(h.html()).toContain("Page 1."); expect(h.html()).toContain("1 selected across visited pages"); expect(h.html()).not.toContain("foreign-late-501"); expect(h.forbidden).not.toHaveBeenCalled();
   });
 });
