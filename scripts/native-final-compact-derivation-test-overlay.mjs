@@ -85,10 +85,37 @@ const changes={
     ]
   ]
 };
+// TEST ONLY: exact 80f1556 canonical scratch defaults inverse. Old compact
+// and legacy hashes above stay immutable; no runtime admission is changed.
+export const CANONICAL_SCRATCH_TEST_SOURCE_PIN=Object.freeze({
+  name:"native-packaging-v2-final-runtime-recipe-validation.mjs",
+  sha256:"90e9f79f5aacfa09798a4d8ebd96042979e5c57aad40157562ece7c6126a189d",
+  bytes:27312
+});
+const scratchChanges=[["  for (const key of [\"Env\",\"Cmd\",\"Entrypoint\",\"OnBuild\",\"Shell\"])\n    assert.ok(config.config[key] == null ||\n      Array.isArray(config.config[key]) && config.config[key].length === 0,\n      \"Compact artifact donor cannot carry process/environment configuration\");","  // Docker may materialize these exact inert scratch defaults. Preserve raw\n  // config bytes/digest; no arbitrary process environment or path is admitted.\n  const env = config.config.Env;\n  assert.ok(env == null || Array.isArray(env) &&\n    (env.length === 0 || env.length === 1 &&\n      env[0] === \"PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin\"),\n    \"Compact artifact donor permits only the canonical Docker default PATH\");\n  for (const key of [\"Cmd\",\"Entrypoint\",\"OnBuild\",\"Shell\"])\n    assert.ok(config.config[key] == null ||\n      Array.isArray(config.config[key]) && config.config[key].length === 0,\n      \"Compact artifact donor cannot carry process/environment configuration\");"],["  for (const key of [\"User\",\"WorkingDir\"])\n    assert.ok(config.config[key] == null || config.config[key] === \"\");","  assert.ok(config.config.User == null || config.config.User === \"\");\n  assert.ok(config.config.WorkingDir == null || config.config.WorkingDir === \"\" ||\n    config.config.WorkingDir === \"/\");"]];
+export function restoreReviewedCanonicalScratchTestSource(raw){
+  assert.equal(arguments.length,1);assert.ok(Buffer.isBuffer(raw));
+  assert.equal(raw.length,CANONICAL_SCRATCH_TEST_SOURCE_PIN.bytes);
+  assert.equal(sha(raw),CANONICAL_SCRATCH_TEST_SOURCE_PIN.sha256);
+  const text=new TextDecoder("utf-8",{fatal:true}).decode(raw);
+  assert.ok(Buffer.from(text).equals(raw));assert.ok(!text.includes("\r"));
+  let restored=text;
+  for(const[before,after]of [...scratchChanges].reverse()){
+    assert.equal(restored.split(after).length,2);restored=restored.replace(after,before);
+  }
+  const historical=Buffer.from(restored),pin=COMPACT_LEGACY_TEST_SOURCE_PINS[CANONICAL_SCRATCH_TEST_SOURCE_PIN.name];
+  assert.equal(historical.length,pin.compactBytes);assert.equal(sha(historical),pin.compactSha256);
+  let forward=restored;
+  for(const[before,after]of scratchChanges){assert.equal(forward.split(before).length,2);forward=forward.replace(before,after);}
+  assert.equal(forward,text);
+  return historical;
+}
 export function restoreReviewedCompactLegacyTestSource(name,compact){
   assert.equal(arguments.length,2);
   assert.ok(typeof name==="string"&&Object.hasOwn(COMPACT_LEGACY_TEST_SOURCE_PINS,name));
   assert.ok(Buffer.isBuffer(compact));
+  if(name===CANONICAL_SCRATCH_TEST_SOURCE_PIN.name&&sha(compact)===CANONICAL_SCRATCH_TEST_SOURCE_PIN.sha256)
+    compact=restoreReviewedCanonicalScratchTestSource(compact);
   const pin=COMPACT_LEGACY_TEST_SOURCE_PINS[name];
   assert.equal(compact.length,pin.compactBytes);
   assert.equal(sha(compact),pin.compactSha256);

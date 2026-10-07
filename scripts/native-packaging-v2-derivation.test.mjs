@@ -9,7 +9,7 @@ import {historicalNativeV1RecipeFixture} from "./native-v1-recipe-test-fixture.m
 import {historicalNativeFinalPlanFixture,reviewedNativeFinalDiagnosticsTestOverlay} from "./native-final-plan-historical-test-fixture.mjs";
 import {historicalNativeFinalAdapterFixture} from "./native-final-adapter-historical-test-fixture.mjs";
 import {reviewedRecipeIsolationTestOverlay} from "./native-final-recipe-isolation-test-overlay.mjs";
-import {restoreReviewedCompactLegacyTestSource,COMPACT_LEGACY_TEST_SOURCE_PINS} from "./native-final-compact-derivation-test-overlay.mjs";
+import {restoreReviewedCompactLegacyTestSource,COMPACT_LEGACY_TEST_SOURCE_PINS,restoreReviewedCanonicalScratchTestSource,CANONICAL_SCRATCH_TEST_SOURCE_PIN} from "./native-final-compact-derivation-test-overlay.mjs";
 const root=new URL("../",import.meta.url);
 const sha=b=>createHash("sha256").update(b).digest("hex");
 const fixtureName="native-final-runtime-recipe-fixture.mjs";
@@ -137,7 +137,8 @@ test("strict compact TEST inverse restores all three complete legacy modules and
   assert.equal(Object.keys(COMPACT_LEGACY_TEST_SOURCE_PINS).length,3);
   for(const [name,pins]of Object.entries(COMPACT_LEGACY_TEST_SOURCE_PINS)){
     const compact=fixtureLf(readFileSync(new URL("scripts/"+name,root))),preserved=Buffer.from(compact);
-    assert.equal(sha(compact),pins.compactSha256);
+    const historicalCompact=name===CANONICAL_SCRATCH_TEST_SOURCE_PIN.name?restoreReviewedCanonicalScratchTestSource(compact):compact;
+    assert.equal(sha(historicalCompact),pins.compactSha256);
     const restored=restoreReviewedCompactLegacyTestSource(name,compact);
     assert.equal(sha(restored),pins.legacySha256);
     assert.deepEqual(compact,preserved,"Test inverse cannot mutate the complete reviewed producer");
@@ -158,6 +159,19 @@ test("strict compact TEST inverse restores all three complete legacy modules and
     assert.throws(()=>restoreReviewedCompactLegacyTestSource(name,bytes));
   assert.throws(()=>restoreReviewedCompactLegacyTestSource());
 });
+test("canonical scratch TEST inverse admits exact80f bytes and restores unchanged historical compact authority",()=>{
+  const pin=CANONICAL_SCRATCH_TEST_SOURCE_PIN,raw=fixtureLf(readFileSync(new URL("scripts/"+pin.name,root))),preserved=Buffer.from(raw);
+  assert.equal(raw.length,pin.bytes);assert.equal(sha(raw),pin.sha256);
+  const historical=restoreReviewedCanonicalScratchTestSource(raw),oldPin=COMPACT_LEGACY_TEST_SOURCE_PINS[pin.name];
+  assert.equal(historical.length,oldPin.compactBytes);assert.equal(sha(historical),oldPin.compactSha256);
+  assert.equal(sha(restoreReviewedCompactLegacyTestSource(pin.name,raw)),oldPin.legacySha256);
+  const tampered=Buffer.from(raw);tampered[0]^=1;
+  for(const candidate of [historical,tampered,raw.subarray(0,-1),Buffer.concat([raw,Buffer.from("\n")]),Buffer.from(raw.toString().replaceAll("\n","\r\n")),Buffer.from("unknown"),Buffer.alloc(0),raw.toString(),null])
+    assert.throws(()=>restoreReviewedCanonicalScratchTestSource(candidate));
+  assert.throws(()=>restoreReviewedCanonicalScratchTestSource(raw,historical));assert.throws(()=>restoreReviewedCanonicalScratchTestSource());
+  historical[0]^=1;assert.deepEqual(raw,preserved);assert.equal(sha(restoreReviewedCanonicalScratchTestSource(raw)),oldPin.compactSha256);
+});
+
 test("constructor diagnostics TEST overlay admits only complete immutable historical v2 bytes",()=>{
   const historical=deriveNativePackagingV2(source()).modules["native-packaging-v2-builder-fresh-final-plan.mjs"];
   const preserved=Buffer.from(historical),result=reviewedNativeFinalDiagnosticsTestOverlay(historical);
