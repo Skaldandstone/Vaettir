@@ -75,9 +75,9 @@ function ComparisonView({ projectId }: { projectId: string }) {
         </div>
         {catalogFresh && !choices.length && <p>No manual runs in this catalogue interval. This is not missing comparison evidence; choose a different interval.</p>}
         <nav aria-label="Manual catalogue pages" style={{ display: "flex", gap: 8, marginTop: 12 }}>
-          <button type="button" disabled={!catalogFresh || !catalogPages.length} onClick={() => setCatalogPages(current => current.slice(0, -1))}>Newer runs</button>
+          <button type="button" disabled={!catalogFresh || !catalogPages.length} onClick={() => setCatalogPages(current => current === catalogPages ? current.slice(0, -1) : current)}>Newer runs</button>
           <span>Catalogue page {catalogPages.length + 1}</span>
-          <button type="button" disabled={!catalogFresh || !catalog.data?.nextCursor} onClick={() => { if (catalog.data?.nextCursor) setCatalogPages(current => [...current, catalog.data!.nextCursor!]); }}>Older runs</button>
+          <button type="button" disabled={!catalogFresh || !catalog.data?.nextCursor} onClick={() => { if (catalog.data?.nextCursor) setCatalogPages(current => current === catalogPages ? [...current, catalog.data!.nextCursor!] : current); }}>Older runs</button>
         </nav>
         <button type="button" className="btn-primary" style={{ marginTop: 12 }} disabled={!access.ready || !baseline || !candidate || baseline === candidate || comparison.isFetching} onClick={restartPair}>Compare selected saved runs</button>
         {baseline && baseline === candidate && <p role="alert">Choose two different runs.</p>}
@@ -105,7 +105,7 @@ function ComparisonView({ projectId }: { projectId: string }) {
             {(["baseline", "candidate"] as const).map(side => { const saved = item[side]; return <td key={side}>{saved ? <><p>{saved.title}{saved.titleClipped && " (excerpt)"}</p><strong>{saved.outcome === "NO_CASE_VERDICT" ? "No recorded case verdict" : label(saved.outcome)}</strong><p><a href={`/projects/${projectId}/test-runs/manual/${value[side].id}?caseId=${encodeURIComponent(item.caseId)}`}>Open exact saved case</a></p></> : "Not in this run’s saved scope"}</td>; })}
             <td>{label(item.definitionState)}</td></tr>)}
         </tbody></table></div>}
-        <nav aria-label="Comparison case pages" style={{ display: "flex", gap: 8, marginTop: 12 }}><button type="button" disabled={!pages.length} onClick={() => { setExpectedPairHash(value.pairHash); setPages(current => current.slice(0, -1)); }}>Previous cases</button><button type="button" disabled={!value.nextCursor} onClick={() => { if (value.nextCursor) { setExpectedPairHash(value.pairHash); setPages(current => [...current, value.nextCursor!]); } }}>Next cases</button></nav>
+        <nav aria-label="Comparison case pages" style={{ display: "flex", gap: 8, marginTop: 12 }}><button type="button" disabled={!pages.length} onClick={() => { setExpectedPairHash(value.pairHash); setPages(current => current === pages ? current.slice(0, -1) : current); }}>Previous cases</button><button type="button" disabled={!value.nextCursor} onClick={() => { if (value.nextCursor) { setExpectedPairHash(value.pairHash); setPages(current => current === pages ? [...current, value.nextCursor!] : current); } }}>Next cases</button></nav>
         <details style={{ marginTop: 16 }}><summary>What this comparison does and does not establish</summary><ul>{value.limitations.map(note => <li key={note}>{note}</li>)}</ul></details>
       </>}
     </>}

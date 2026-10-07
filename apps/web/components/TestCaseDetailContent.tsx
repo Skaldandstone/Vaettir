@@ -1976,26 +1976,37 @@ function TestCaseInspector({
                   !arraysEqual(snap.when, tc.when) ||
                   !arraysEqual(snap.then, tc.then) ||
                   !arraysEqual(snap.tags, tc.tags);
+                const comparisonScope = (
+                  <p className="text-muted" style={{ fontSize: 11, marginTop: 8 }}>
+                    This comparison covers title, background, Given, When, Then
+                    and tags only. Structured steps, technical descriptors,
+                    media, priority and custom fields are not compared. Version
+                    history shows recorded snapshots where available, not
+                    complete edit provenance.
+                  </p>
+                );
                 if (!changed) {
                   return (
-                    <p
-                      className="text-muted"
-                      style={{ fontSize: 12, marginTop: 8 }}
-                    >
-                      Matches what the AI originally generated — no human edits
-                      since.
-                    </p>
+                    <>
+                      <p
+                        className="text-muted"
+                        style={{ fontSize: 12, marginTop: 8 }}
+                      >
+                        No differences shown in the compared generation fields.
+                      </p>
+                      {comparisonScope}
+                    </>
                   );
                 }
                 return (
                   <div style={{ marginTop: 10 }}>
+                    {comparisonScope}
                     <button
                       className="btn-secondary"
                       style={{ fontSize: 12 }}
                       onClick={() => setShowDiff((v) => !v)}
                     >
-                      {showDiff ? "Hide" : "Show"} changes since AI generated
-                      this
+                      {showDiff ? "Hide" : "Show"} compared generation-field changes
                     </button>
                     {showDiff && (
                       <div
@@ -2010,10 +2021,10 @@ function TestCaseInspector({
                           style={{ fontSize: 11, margin: "0 0 8px" }}
                         >
                           <span style={{ color: "var(--ember)" }}>
-                            AI original
+                            AI original compared fields
                           </span>{" "}
                           vs{" "}
-                          <span style={{ color: "var(--frost)" }}>current</span>
+                          <span style={{ color: "var(--frost)" }}>current compared fields</span>
                         </p>
                         {snap.title !== tc.title && (
                           <DiffField

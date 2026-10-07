@@ -12,7 +12,7 @@ import type { RouterInputs, RouterOutputs } from "./trpcReact";
 
 type Request = RouterInputs["releases"]["create"];
 type Plan = RouterOutputs["testPlans"]["list"][number];
-type Element = React.ReactElement<{ children?: React.ReactNode; "aria-label"?: string; href?: string; style?: React.CSSProperties }>;
+type Element = React.ReactElement<{ children?: React.ReactNode; "aria-label"?: string; href?: string; target?: string; rel?: string; onClick?: () => void; style?: React.CSSProperties }>;
 const source = readFileSync(new URL("../app/projects/[projectId]/releases/page.tsx", import.meta.url), "utf8");
 const ast = ts.createSourceFile("release.tsx", source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX), printer = ts.createPrinter();
 const code = ts.transpileModule(ast.statements.filter(node => !ts.isImportDeclaration(node))
@@ -72,7 +72,7 @@ describe("actual release selected-plan review (synthetic final-step presentation
     expect(result.links[0]!.props.href).toBe("/projects/synthetic-project/test-plans/checkout");
     expect(result.html).not.toContain("Playback regression"); expect(result.html).not.toContain("criterion-checkout");
     expect(result.html).toContain("Selected quality plans (current names)");
-    expect(result.html).toContain("Open a plan to review its current criteria. Creating this release links these plans without editing them.");
+    expect(result.html).toContain("Open a plan in a new tab to review its current criteria without leaving this draft. Creating this release links these plans without editing them.");
   });
   it("retained original IDs and order override changed current draft selections", () => {
     const request = retained(["original-b", "original-a"]), bytes = JSON.stringify(request);
@@ -112,5 +112,22 @@ describe("actual release selected-plan review (synthetic final-step presentation
     const result = render({ ids: ["changed"], plans: [plan("original", "Current project metadata")], projectId: "current-project", request: retained(["original"], "original/project") });
     expect(result.links[0]!.props.href).toBe("/projects/original%2Fproject/test-plans/original");
     expect(text(result.list[0])).toBe("Plan metadata unavailable original"); expect(result.html).not.toContain("Current project metadata");
+  });
+  it("plan inspection is a disclosed isolated user-click new-tab link, never an implicit handler or write", () => {
+    const request = retained(["original", "missing"]), bytes = JSON.stringify(request);
+    const cases = [
+      { ids: ["current"], plans: [plan("current", "Current plan")] },
+      { ids: ["changed"], plans: [plan("original", "Original plan")], request },
+      { ids: ["changed"], plans: [plan("original", "Unrelated current plan")], request, projectId: "different-project" },
+    ];
+    for (const props of cases) {
+      const result = render(props);
+      expect(result.links.length).toBeGreaterThan(0);
+      for (const link of result.links) {
+        expect(link.props.target).toBe("_blank"); expect(link.props.rel).toBe("noopener noreferrer"); expect(link.props.onClick).toBeUndefined();
+      }
+      expect(result.html).toContain("in a new tab"); expect(result.html).toContain("without leaving this draft");
+    }
+    expect(JSON.stringify(request)).toBe(bytes);
   });
 });

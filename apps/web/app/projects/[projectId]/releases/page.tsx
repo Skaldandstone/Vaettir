@@ -834,14 +834,14 @@ export default function ReleasesPage() {
                 <section aria-label="Selected existing quality plans" style={{ marginTop: 16 }}>
                   <h4>Selected quality plans (current names)</h4>
                   <p className="text-muted">
-                    Open a plan to review its current criteria. Creating this release links these plans without editing them.
+                    Open a plan in a new tab to review its current criteria without leaving this draft. Creating this release links these plans without editing them.
                   </p>
                   {reviewedPlanIds.length ? (
                     <ul>
                       {reviewedPlanIds.map((id) => {
                         const plan = reviewedPlanProjectId === projectId ? plansQuery.data?.find((item) => item.id === id) : undefined;
                         return <li key={id} style={{ overflowWrap: "anywhere", marginBottom: 8 }}>
-                          <a href={`/projects/${encodeURIComponent(reviewedPlanProjectId)}/test-plans/${encodeURIComponent(id)}`} style={{ whiteSpace: "pre-wrap" }}>
+                          <a href={`/projects/${encodeURIComponent(reviewedPlanProjectId)}/test-plans/${encodeURIComponent(id)}`} target="_blank" rel="noopener noreferrer" style={{ whiteSpace: "pre-wrap" }}>
                             {plan ? plan.name : "Plan metadata unavailable"}
                           </a>{" "}
                           <code>{id}</code>

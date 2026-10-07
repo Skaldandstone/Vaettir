@@ -111,6 +111,92 @@ function descendantsOfType(element, type) {
   ];
 }
 
+// Use the current six-field comparison expression and its actual scalar/array
+// diff functions. No original procedure baseline or complete edit history is invented.
+function generationFieldComparison(tc, showDiff = false) {
+  const text = source("../components/TestCaseDetailContent.tsx");
+  const file = ts.createSourceFile("TestCaseDetailContent.tsx", text, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+  const expressions = [], helpers = [];
+  function visit(node) {
+    if (ts.isJsxExpression(node) && node.expression?.getText(file).startsWith("tc.aiSnapshot &&")) expressions.push(node.expression);
+    if (ts.isFunctionDeclaration(node) && ["arraysEqual", "DiffField"].includes(node.name?.text)) helpers.push(node);
+    ts.forEachChild(node, visit);
+  }
+  visit(file);
+  assert.equal(expressions.length, 1, "Compile exactly the actual AI snapshot comparison expression");
+  assert.equal(helpers.length, 2, "Keep both actual comparison helpers");
+  const compiled = ts.transpileModule(`${helpers.map(node => node.getText(file)).join("\n")}
+    exports.render = (tc, showDiff, setShowDiff) => (${expressions[0].getText(file)});`, {
+    compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.React },
+  }).outputText;
+  const exports = {}, toggles = [];
+  new Function("exports", "React", compiled)(exports, React);
+  const element = exports.render(tc, showDiff, next => toggles.push(typeof next === "function" ? next(showDiff) : next));
+  return { element, html: renderToStaticMarkup(element), toggles };
+}
+
+function assertGenerationComparisonScope(html) {
+  assert.match(html, /title, background, Given, When, Then and tags only/);
+  assert.match(html, /Structured steps, technical descriptors, media, priority and custom fields are not compared/);
+  assert.match(html, /Version history shows recorded snapshots where available, not complete edit provenance/);
+  assert.doesNotMatch(html, /no human edits|Matches what the AI originally generated|changes since AI generated this/);
+}
+
+test("actual matching generation fields never imply unedited procedures technical data media priority or metadata", () => {
+  const snapshot = { title: "Synthetic case", background: null, given: ["Given"], when: ["When"], then: ["Then"], tags: ["synthetic"] };
+  for (const outside of [
+    { steps: [{ action: "Manually authored action", expectedActionOrData: "GET /synthetic", expectedResult: "Visible result", expectedResponse: "200", mediaAttachmentIds: ["synthetic-media"] }] },
+    { priority: "CRITICAL" },
+    { customFields: { component: "Synthetic component" } },
+  ]) {
+    const tc = { ...snapshot, aiSnapshot: snapshot, ...outside }, before = JSON.stringify(tc);
+    const rendered = generationFieldComparison(tc);
+    assert.match(rendered.html, /No differences shown in the compared generation fields/);
+    assertGenerationComparisonScope(rendered.html);
+    assert.equal(descendantsOfType(rendered.element, "button").length, 0);
+    assert.deepEqual(rendered.toggles, []);
+    assert.equal(JSON.stringify(tc), before);
+  }
+});
+
+test("actual changed generation fields retain limited toggle exact legacy comparisons and escaped literal prose", () => {
+  const original = "Original <script>\n  literal & text";
+  const current = "Current <img>\n  literal & text";
+  const snapshot = { title: original, background: original, given: [original], when: [original], then: [original], tags: [original] };
+  for (const key of ["title", "background", "given", "when", "then", "tags"]) {
+    const tc = { ...snapshot, aiSnapshot: snapshot, [key]: ["title", "background"].includes(key) ? current : [current] }, before = JSON.stringify(tc);
+    const closed = generationFieldComparison(tc);
+    assertGenerationComparisonScope(closed.html);
+    assert.doesNotMatch(closed.html, /No differences shown/);
+    const toggle = descendantsOfType(closed.element, "button")[0];
+    assert.match(renderToStaticMarkup(toggle), /Show.*compared generation-field changes/);
+    assert.deepEqual(closed.toggles, []);
+    toggle.props.onClick();
+    assert.deepEqual(closed.toggles, [true]);
+    const opened = generationFieldComparison(tc, true);
+    assertGenerationComparisonScope(opened.html);
+    assert.match(opened.html, /Hide.*compared generation-field changes/);
+    assert.match(opened.html, /AI original compared fields/);
+    assert.match(opened.html, /current compared fields/);
+    assert.ok(opened.html.includes("Original &lt;script&gt;\n  literal &amp; text"));
+    assert.ok(opened.html.includes("Current &lt;img&gt;\n  literal &amp; text"));
+    assert.doesNotMatch(opened.html, /<script>|<img>/);
+    descendantsOfType(opened.element, "button")[0].props.onClick();
+    assert.deepEqual(opened.toggles, [false]);
+    assert.equal(JSON.stringify(tc), before);
+  }
+});
+
+test("actual missing generation snapshot remains absent without inventing comparisons or history", () => {
+  for (const aiSnapshot of [null, undefined]) {
+    const tc = { aiSnapshot, steps: [{ action: "Synthetic authored action" }], priority: "HIGH" }, before = JSON.stringify(tc);
+    const rendered = generationFieldComparison(tc);
+    assert.equal(rendered.html, "");
+    assert.deepEqual(rendered.toggles, []);
+    assert.equal(JSON.stringify(tc), before);
+  }
+});
+
 test("actual priority-advice failed reads withhold cached advice and editors without recommending reassessment", () => {
   for (const data of [undefined, { suggestedPriority: "HIGH", currentPriority: "MEDIUM", canEdit: true, latestDecision: { mode: "BUSINESS_OVERRIDE", rationale: "Private cached rationale" } }]) {
     for (const readOnly of [false, true]) {
