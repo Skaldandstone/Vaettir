@@ -34,7 +34,11 @@ const stages = [
   ["platform-identity", f => { f.deps.platform = () => "win32"; }],
   ["deadline", f => { f.options.deadlineMs = 0; }],
   ["memory-read", f => { f.deps.memory = () => { throw f.marker; }; }, true],
-  ["memory-admission", f => { f.deps.memory = () => ({ limit: 14 * 1024 ** 3, used: 13 * 1024 ** 3 }); }],
+  ["memory-admission", f => { f.deps.memory = () => ({ limit: 14 * 1024 ** 3, used: 0, extra: true }); }],
+  ["memory-limit-range", f => { f.deps.memory = () => ({ limit: 15 * 1024 ** 3, used: 0 }); }],
+  ["memory-used-range", f => { f.deps.memory = () => ({ limit: 14 * 1024 ** 3, used: -1 }); }],
+  ["memory-configured-limit", f => { f.deps.memory = () => ({ limit: 12 * 1024 ** 3, used: 0 }); }],
+  ["memory-headroom", f => { f.deps.memory = () => ({ limit: 14 * 1024 ** 3, used: 13 * 1024 ** 3 }); }],
   ["final-log-hash", f => { f.options.finalLogSha256 = "f".repeat(64); }],
   ["filesystem-capability", f => { f.io.constants.O_NOFOLLOW = 0; }],
 ];
@@ -58,6 +62,43 @@ test("successful construction retains exact API/provenance without a diagnostic 
   const f = fixture(), adapter = await createNativeFreshFinalAdapter(f.options, f.deps);
   assert.deepEqual(Object.keys(adapter).sort(), ["cleanupOwnedExtraction", "ops", "provenance"]);
   assert.ok(Object.isFrozen(adapter)); assert.equal(adapter.provenance.memoryLimitBytes, 14 * 1024 ** 3); assert.equal(adapter.provenance.runtimeAcceptance, false); assert.equal(Object.hasOwn(adapter, "nativeFinalAdapterCheck"), false); assert.equal(f.fds.size, 0);
+});
+
+test("memory admission keeps the exact two-GiB boundary and rejects before imports", async () => {
+  const gb = 1024 ** 3;
+  for (const used of [12 * gb, 12 * gb + 1]) {
+    const f = fixture(); let imports = 0;
+    const original = f.deps.importExact;
+    f.deps.importExact = async url => { imports++; return original(url); };
+    f.deps.memory = () => ({limit: 14 * gb, used});
+    if (used === 12 * gb) {
+      await createNativeFreshFinalAdapter(f.options, f.deps);
+      assert.equal(imports, 2);
+    } else {
+      await assert.rejects(createNativeFreshFinalAdapter(f.options, f.deps), error => {
+        assert.equal(error.nativeFinalAdapterCheck, "memory-headroom");
+        const descriptor = Object.getOwnPropertyDescriptor(error, "nativeFinalMemoryObservation");
+        assert.deepEqual(descriptor.value, {limitBytes: 14 * gb, usedBytes: used, configuredLimitBytes: 14 * gb});
+        assert.equal(descriptor.enumerable, false); assert.equal(descriptor.writable, false);
+        assert.ok(Object.isFrozen(descriptor.value));
+        return true;
+      });
+      assert.equal(imports, 0);
+    }
+    assert.equal(f.fds.size, 0);
+  }
+});
+
+test("configured memory mismatch preserves actual numeric observation, not invented headroom", async () => {
+  const f = fixture(), gb = 1024 ** 3;
+  f.deps.memory = () => ({limit: 12 * gb, used: 0});
+  await assert.rejects(createNativeFreshFinalAdapter(f.options, f.deps), error => {
+    assert.equal(error.nativeFinalAdapterCheck, "memory-configured-limit");
+    assert.deepEqual(error.nativeFinalMemoryObservation, {limitBytes: 12 * gb, usedBytes: 0, configuredLimitBytes: 14 * gb});
+    return true;
+  });
+  const other = fixture(); other.options.finalLogSha256 = "f".repeat(64);
+  await assert.rejects(createNativeFreshFinalAdapter(other.options, other.deps), error => !Object.hasOwn(error, "nativeFinalMemoryObservation"));
 });
 test("native stack/diagnostic accessors are not invoked, original exception is retained", async () => {
   const f = fixture(); let getterCalls = 0;

@@ -18,6 +18,27 @@ function error(code="ERR_ASSERTION",script="native-builder-fresh-final-verifier.
   return e;
 }
 for(const[name,module]of [["original",original],["packaging-v2",v2]]) {
+ test(name+": memory diagnostics retain only validated own numeric observations at memory refusals",()=>{
+  const gb=1024**3, observation={limitBytes:14*gb,usedBytes:13*gb,configuredLimitBytes:14*gb};
+  for(const check of ["memory-limit-range","memory-used-range","memory-configured-limit","memory-headroom"]) {
+   const e=error(); Object.defineProperty(e,"nativeFinalAdapterCheck",{value:check});
+   Object.defineProperty(e,"nativeFinalMemoryObservation",{value:observation});
+   const result=module.nativeFinalPublicFailure("runtime-adapter",e);
+   assert.equal(result.adapterCheck,check);
+   if(check==="memory-configured-limit"||check==="memory-headroom") assert.deepEqual(result.memoryObservation,observation);
+   else assert.equal(Object.hasOwn(result,"memoryObservation"),false);
+   assert.equal(Object.hasOwn(module.nativeFinalPublicFailure("runtime-verifier",e),"memoryObservation"),false);
+  }
+  let getters=0;const accessor={...observation};Object.defineProperty(accessor,"usedBytes",{enumerable:true,get(){getters++;return 0;}});
+  const inherited=Object.create(observation);
+  for(const observed of [accessor,inherited,{...observation,extra:sensitive},{...observation,usedBytes:-1},{...observation,usedBytes:15*gb},{...observation,limitBytes:15*gb},{...observation,configuredLimitBytes:3*gb},{...observation,usedBytes:NaN},{...observation,usedBytes:"PRIVATE"}]) {
+   const e=error();Object.defineProperty(e,"nativeFinalAdapterCheck",{value:"memory-headroom"});
+   Object.defineProperty(e,"nativeFinalMemoryObservation",{value:observed});
+   const result=module.nativeFinalPublicFailure("runtime-adapter",e);
+   assert.equal(Object.hasOwn(result,"memoryObservation"),false);assert.doesNotMatch(JSON.stringify(result),/PRIVATE/);
+  }
+  assert.equal(getters,0);
+ });
  test(name+": constructor check labels are own-data, stage-scoped and bounded",()=>{
   for(const check of ["options","platform-identity","deadline","memory-read","memory-admission","final-log-hash","filesystem-capability","checkpoint-read","checkpoint-hash","checkpoint-import-scope","checkpoint-import","checkpoint-rehash","checkpoint-exports","abi-read","abi-hash","abi-import-scope","abi-import","abi-rehash","abi-exports"]) {
    const e=new Error(sensitive);e.code="ERR_ASSERTION";

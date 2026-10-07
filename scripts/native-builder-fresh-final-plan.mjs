@@ -28,7 +28,7 @@ export const FINAL_CAPSULE_PINS = Object.freeze({
   "native-builder-fresh-final-verifier.mjs":
     "3485c951647c08da77994f73389ccc48654e6148dd539d49fca06269e607a2ff",
   "native-builder-fresh-final-adapter.mjs":
-    "bbb313210d6826fc64fa57f1c85b5466c40075f05d88c46d6ed88a1316bae092",
+    "666a502ca862578bd6c9f49768f8df2107bd113db542637304c4a871a15426a5",
 });
 const sha = (bytes) => createHash("sha256").update(bytes).digest("hex");
 const quote = (text) => "'" + text.replaceAll("'", "'\\''") + "'";
@@ -235,12 +235,13 @@ export function nativeFinalPublicFailure(stage, error) {
   const adapterChecks = [
     "options", "platform-identity", "deadline", "memory-read",
     "memory-admission", "final-log-hash", "filesystem-capability",
+    "memory-limit-range", "memory-used-range", "memory-configured-limit", "memory-headroom",
     "checkpoint-read", "checkpoint-hash", "checkpoint-import-scope",
     "checkpoint-import", "checkpoint-rehash", "checkpoint-exports",
     "abi-read", "abi-hash", "abi-import-scope", "abi-import",
     "abi-rehash", "abi-exports",
   ];
-  let errorCode = "UNCLASSIFIED", adapterCheck;
+  let errorCode = "UNCLASSIFIED", adapterCheck, memoryObservation;
   const frames = [];
   try {
     const code = Object.getOwnPropertyDescriptor(error, "code")?.value;
@@ -248,6 +249,20 @@ export function nativeFinalPublicFailure(stage, error) {
     const check = Object.getOwnPropertyDescriptor(error, "nativeFinalAdapterCheck")?.value;
     if ((stage === "runtime-adapter" || stage === "bootstrap-runtime") &&
         typeof check === "string" && adapterChecks.includes(check)) adapterCheck = check;
+    if (adapterCheck === "memory-configured-limit" || adapterCheck === "memory-headroom") {
+      const observed = Object.getOwnPropertyDescriptor(error, "nativeFinalMemoryObservation")?.value;
+      if (observed && typeof observed === "object" && !Array.isArray(observed) &&
+          Object.keys(observed).sort().join(",") === "configuredLimitBytes,limitBytes,usedBytes") {
+        const limit = Object.getOwnPropertyDescriptor(observed, "limitBytes")?.value;
+        const used = Object.getOwnPropertyDescriptor(observed, "usedBytes")?.value;
+        const configured = Object.getOwnPropertyDescriptor(observed, "configuredLimitBytes")?.value;
+        const gb = 1024 ** 3;
+        if (Number.isSafeInteger(limit) && limit >= 4 * gb && limit <= 14 * gb &&
+            Number.isSafeInteger(used) && used >= 0 && used <= limit &&
+            Number.isSafeInteger(configured) && configured >= 4 * gb && configured <= 14 * gb)
+          memoryObservation = {limitBytes: limit, usedBytes: used, configuredLimitBytes: configured};
+      }
+    }
     const stack = Object.getOwnPropertyDescriptor(error, "stack")?.value;
     if (typeof stack === "string") {
       for (const line of stack.slice(-8192).split("\n").slice(-16)) {
@@ -270,6 +285,7 @@ export function nativeFinalPublicFailure(stage, error) {
     errorCode,
     frames,
     ...(adapterCheck === undefined ? {} : {adapterCheck}),
+    ...(memoryObservation === undefined ? {} : {memoryObservation}),
   };
 }
 

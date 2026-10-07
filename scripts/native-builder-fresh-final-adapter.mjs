@@ -290,6 +290,7 @@ export async function createNativeFreshFinalAdapter(
   injected = defaults,
 ) {
   let adapterCheck = "options";
+  let memoryObservation;
   try {
   exact(options, [
     "verificationId",
@@ -351,9 +352,18 @@ export async function createNativeFreshFinalAdapter(
   const memory = injected.memory();
   adapterCheck = "memory-admission";
   exact(memory, ["limit", "used"]);
+  adapterCheck = "memory-limit-range";
   safeInteger(memory.limit, 4 * GB, 14 * GB);
+  adapterCheck = "memory-used-range";
   safeInteger(memory.used, 0, memory.limit);
+  memoryObservation = Object.freeze({
+    limitBytes: memory.limit,
+    usedBytes: memory.used,
+    configuredLimitBytes: options.memoryLimitBytes,
+  });
+  adapterCheck = "memory-configured-limit";
   assert.equal(memory.limit, options.memoryLimitBytes);
+  adapterCheck = "memory-headroom";
   assert.ok(
     memory.limit - memory.used >= 2 * GB,
     "Insufficient package/ELF memory admission",
@@ -1162,6 +1172,15 @@ export async function createNativeFreshFinalAdapter(
         enumerable: false,
         writable: false,
       });
+      if (memoryObservation &&
+          (adapterCheck === "memory-configured-limit" || adapterCheck === "memory-headroom")) {
+        Object.defineProperty(error, "nativeFinalMemoryObservation", {
+          value: memoryObservation,
+          configurable: true,
+          enumerable: false,
+          writable: false,
+        });
+      }
     } catch {}
     throw error;
   }
