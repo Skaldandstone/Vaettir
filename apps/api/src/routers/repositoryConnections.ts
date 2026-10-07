@@ -4,11 +4,13 @@ import { Prisma } from "@vaettir/db";
 import { router,protectedProcedure,requireProjectAccess,requireOrgRole,type Context } from "../trpc.js";
 import { encryptToken,decryptToken,type EncryptedToken } from "../services/tokenEncryption.js";
 import { repositoryProviderOrigin } from "../services/repositoryProviderHttp.js";
-import { GitlabOAuthRevocationPendingError,createGitlabAuthorization,hashOAuthState,listGitlabRepositories,repositoryOAuthRedirect,repositorySelectionSchema,revokeGitlabAuthorization,verifyGitlabAuthorization } from "../services/gitlabRepositoryOAuth.js";
+import { GitlabOAuthRevocationPendingError,createGitlabAuthorization,hashOAuthState,listGitlabRepositories,repositoryOAuthRedirect,repositorySelectionSchema,revokeGitlabAuthorization,verifyGitlabAuthorization,verifyGitlabAccessToken } from "../services/gitlabRepositoryOAuth.js";
 import { GITHUB_ORIGIN, GithubOAuthRevocationPendingError, createGithubAuthorization, listGithubRepositories, revokeGithubAuthorization, verifyGithubAuthorization } from "../services/githubRepositoryOAuth.js";
 import { verifyBitbucketAuthorization, listBitbucketRepositories } from "../services/bitbucketRepositoryConnection.js";
 import { azureOrganizationUrl, listAzureRepositories } from "../services/azureRepositoryConnection.js";
 import {availablePlatformRepositoryConfigurations,platformRepositoryApplication,platformRepositoryProvider} from "../services/platformRepositoryOAuth.js";
+import { lockCaseFieldProject } from "../services/caseFields.js";
+import { lockCurrentCaseFieldActor } from "../services/caseFieldReadScope.js";
 
 const projectInput=z.object({projectId:z.string()});
 const jsonToken=(value:ReturnType<typeof encryptToken>)=>({...value});
@@ -32,7 +34,24 @@ async function liveEditor(tx:Prisma.TransactionClient,organizationId:string,user
   const member=await tx.membership.findUnique({where:{organizationId_userId:{organizationId,userId}}});
   if(!rows[0] || rows[0].suspendedAt || !member || member.seatType!=="FULL" || !(admin?["OWNER","ADMIN"]:["OWNER","ADMIN","EDITOR"]).includes(member.role))throw new TRPCError({code:"FORBIDDEN",message:"Your workspace permissions changed. Refresh and try again."});
 }
+/** New GitLab token writes use the existing project/actor lock order. The
+ * project helper already checks current FULL-editor membership/suspension;
+ * never upgrade its organization SHARE lock through liveEditor afterward. */
+async function liveGitlabTokenEditor(tx:Prisma.TransactionClient,userId:string,projectId:string,organizationId:string,clerkActorId:string){
+  await lockCaseFieldProject(tx,userId,projectId);
+  await lockCurrentCaseFieldActor(tx,userId,{clerkActorId});
+  const current=await tx.project.findUniqueOrThrow({where:{id:projectId},select:{organizationId:true}});
+  if(current.organizationId!==organizationId)throw new TRPCError({code:"FORBIDDEN",message:"Restore the original workspace before verifying GitLab access. No credential was saved."});
+}
 const clearCredentials={encryptedToken:Prisma.DbNull,encryptedVerifier:Prisma.DbNull,catalog:Prisma.DbNull,catalogAt:null,tokenExpiresAt:null,verifiedAt:null};
+const gitlabAccessTokenMarker=z.object({accessMethod:z.literal("gitlab-token/v1"),requestHash:z.string().regex(/^[a-f0-9]{64}$/)}).strict();
+function connectionAccessMethod(row:{provider:string;configurationId:string|null;encryptedVerifier:unknown}):"token"|"oauth"|"unavailable"{
+  if(["bitbucket","azure-devops"].includes(row.provider))return "token";
+  if(row.provider!=="gitlab")return row.provider==="github"&&!!row.configurationId?"oauth":"unavailable";
+  if(gitlabAccessTokenMarker.safeParse(row.encryptedVerifier).success)return row.configurationId===null?"token":"unavailable";
+  if(row.encryptedVerifier && typeof row.encryptedVerifier==="object" && Object.hasOwn(row.encryptedVerifier,"accessMethod"))return "unavailable";
+  return row.configurationId?"oauth":"unavailable";
+}
 // PostgreSQL JSONB reorders object keys. Hash a canonical field tuple, not raw JSON.
 const catalogVersion=(catalog:unknown,connectionId:string,catalogAt:Date)=>hashOAuthState(JSON.stringify([
   connectionId,catalogAt.toISOString(),z.array(repositorySelectionSchema).parse(catalog).map(repo=>[repo.id,repo.name,repo.url,repo.defaultBranch]),
@@ -59,9 +78,10 @@ async function disconnectableConnection(ctx:Context,id:string){
   }catch{throw new TRPCError({code:"NOT_FOUND"});}
   return row;
 }
-function requireVerified(row:{status:string;tokenExpiresAt:Date|null;encryptedToken:unknown}){
+function requireVerified(row:{status:string;tokenExpiresAt:Date|null;encryptedToken:unknown;provider:string;configurationId:string|null;encryptedVerifier:unknown}){
   if(row.status!=="VERIFIED" || !row.encryptedToken || !row.tokenExpiresAt || row.tokenExpiresAt.getTime()<=Date.now()+30000)
     throw new TRPCError({code:"PRECONDITION_FAILED",message:"Reconnect to verify current repository access."});
+  if(row.provider==="gitlab" && connectionAccessMethod(row)==="unavailable")throw new TRPCError({code:"PRECONDITION_FAILED",message:"This GitLab access method is unavailable. No credential was used or removed."});
 }
 function publicStatus(row:{status:string;authorizationExpiresAt:Date;tokenExpiresAt:Date|null}){
   const expired=(row.status==="VERIFIED" && (!row.tokenExpiresAt || row.tokenExpiresAt.getTime()<=Date.now()+30000)) || (["PENDING","VERIFYING"].includes(row.status) && row.authorizationExpiresAt.getTime()<=Date.now());
@@ -71,32 +91,39 @@ const tokenCredentials=z.object({token:z.string().min(1).max(10000),email:z.stri
 async function tokenRepositories(provider:string,origin:string,credentials:z.infer<typeof tokenCredentials>,page:number,search:string){
   if(provider==="bitbucket")return listBitbucketRepositories({...credentials,page,search});
   if(provider==="azure-devops")return listAzureRepositories(origin,credentials.token,page,search);
+  if(provider==="gitlab"){const repositories=await listGitlabRepositories(origin,credentials.token,page,search);return{repositories,hasMore:repositories.length===100};}
   throw new Error("This provider has no token adapter");
 }
 export const repositoryConnectionsRouter=router({
   connectToken:protectedProcedure.input(projectInput.extend({
-    provider:z.enum(["bitbucket","azure-devops"]),requestId:z.string().uuid(),
+    provider:z.enum(["bitbucket","azure-devops","gitlab"]),requestId:z.string().uuid(),
     token:z.string().min(1).max(10000),email:z.string().trim().max(320).default(""),
     workspace:z.string().trim().max(100).default(""),organizationUrl:z.string().max(300).default(""),
+    instanceUrl:z.string().max(300).default(""),originalOrganizationId:z.string().min(1).max(200).optional(),expectedClerkActorId:z.string().min(1).max(200).optional(),
     approveMetadataAccess:z.literal(true),
   })).mutation(async({ctx,input})=>{
     const {project}=await editor(ctx,input.projectId);
+    if(input.provider==="gitlab" && (input.originalOrganizationId!==project.organizationId || !ctx.authenticatedClerkSubject || input.expectedClerkActorId!==ctx.authenticatedClerkSubject || ctx.user.clerkUserId!==ctx.authenticatedClerkSubject))throw new TRPCError({code:"FORBIDDEN",message:"Restore the original workspace and signed-in actor before verifying GitLab access."});
+    const acknowledge=(connection:{id:string;accountLabel:string|null})=>({id:connection.id,accountLabel:connection.accountLabel,...(input.provider==="gitlab"?{requestId:input.requestId,projectId:input.projectId,originalOrganizationId:project.organizationId,expectedClerkActorId:ctx.user.clerkUserId}:{})});
     if(!credentialStorageReady())throw unavailable();
     let origin:string;
     try{
       if(input.provider==="bitbucket"){
         z.string().email().parse(input.email);z.string().regex(/^[a-zA-Z0-9][a-zA-Z0-9_-]{0,99}$/).parse(input.workspace);
         origin="https://bitbucket.org";
-      }else origin=azureOrganizationUrl(input.organizationUrl).url;
-    }catch{throw new TRPCError({code:"BAD_REQUEST",message:"Check the workspace, account email or Azure organization URL."});}
-    const requestHash=hashOAuthState(JSON.stringify([input.provider,origin,input.token,input.email,input.workspace]));
+      }else if(input.provider==="gitlab")origin=repositoryProviderOrigin(input.instanceUrl);
+      else origin=azureOrganizationUrl(input.organizationUrl).url;
+    }catch{throw new TRPCError({code:"BAD_REQUEST",message:"Check the workspace, account email or provider HTTPS instance URL."});}
+    const requestHash=hashOAuthState(JSON.stringify([input.provider,origin,input.token,input.email,input.workspace,...(input.provider==="gitlab"?[input.originalOrganizationId,input.expectedClerkActorId]:[])]));
     const stateHash=hashOAuthState(JSON.stringify([ctx.user.id,input.projectId,input.requestId]));
     const row=await ctx.prisma.$transaction(async tx=>{
-      await liveEditor(tx,project.organizationId,ctx.user.id);
+      if(input.provider==="gitlab")await liveGitlabTokenEditor(tx,ctx.user.id,input.projectId,input.originalOrganizationId!,ctx.authenticatedClerkSubject!);
+      else await liveEditor(tx,project.organizationId,ctx.user.id);
       const prior=await tx.repositoryConnection.findUnique({where:{stateHash}});
       if(prior){
         if(z.object({requestHash:z.string()}).safeParse(prior.encryptedVerifier).data?.requestHash!==requestHash)
           throw new TRPCError({code:"CONFLICT",message:"This verification request changed. Start a new attempt."});
+        if(input.provider==="gitlab" && (connectionAccessMethod(prior)!=="token" || prior.provider!=="gitlab" || prior.origin!==origin || prior.projectId!==input.projectId || prior.organizationId!==project.organizationId || prior.actorId!==ctx.user.id))throw new TRPCError({code:"CONFLICT",message:"This GitLab verification request has a different original scope or access method."});
         if(prior.status==="VERIFIED")return prior;
         throw new TRPCError({code:"PRECONDITION_FAILED",message:prior.status==="VERIFYING"?"Verification is still running. Retry this request shortly.":"Start a new verification attempt."});
       }
@@ -104,42 +131,44 @@ export const repositoryConnectionsRouter=router({
       if(recent>=20)throw new TRPCError({code:"TOO_MANY_REQUESTS",message:"Too many connection attempts. Try again later."});
       const active=await tx.repositoryConnection.count({where:{projectId:input.projectId,actorId:ctx.user.id,provider:input.provider,origin,status:{in:["VERIFYING","VERIFIED"]},tokenExpiresAt:{gt:new Date()}}});
       if(active)throw new TRPCError({code:"CONFLICT",message:"Resume or remove your existing saved access before reconnecting."});
-      return tx.repositoryConnection.create({data:{projectId:input.projectId,organizationId:project.organizationId,actorId:ctx.user.id,provider:input.provider,origin,stateHash,status:"VERIFYING",encryptedVerifier:{requestHash},authorizationExpiresAt:new Date(Date.now()+600000),tokenExpiresAt:new Date(Date.now()+28800000)}});
+      return tx.repositoryConnection.create({data:{projectId:input.projectId,organizationId:project.organizationId,actorId:ctx.user.id,provider:input.provider,origin,stateHash,status:"VERIFYING",encryptedVerifier:input.provider==="gitlab"?{accessMethod:"gitlab-token/v1",requestHash}:{requestHash},authorizationExpiresAt:new Date(Date.now()+600000),tokenExpiresAt:new Date(Date.now()+28800000)}});
     });
-    if(row.status==="VERIFIED")return{id:row.id,accountLabel:row.accountLabel};
+    if(row.status==="VERIFIED")return acknowledge(row);
     try{
       const credentials={token:input.token,email:input.email,workspace:input.workspace};
-      const accountLabel=input.provider==="bitbucket"?(await verifyBitbucketAuthorization(credentials)).accountLabel:azureOrganizationUrl(origin).organization;
+      const accountLabel=input.provider==="bitbucket"?(await verifyBitbucketAuthorization(credentials)).accountLabel:input.provider==="gitlab"?(await verifyGitlabAccessToken({origin,token:input.token})).accountLabel:azureOrganizationUrl(origin).organization;
       const listing=await tokenRepositories(input.provider,origin,credentials,1,"");
       const catalog=z.array(repositorySelectionSchema).max(100).parse(listing.repositories);
       await ctx.prisma.$transaction(async tx=>{
-        await liveEditor(tx,project.organizationId,ctx.user.id);
-        const saved=await tx.repositoryConnection.updateMany({where:{id:row.id,status:"VERIFYING",authorizationExpiresAt:{gt:new Date()}},data:{status:"VERIFIED",encryptedToken:jsonToken(encryptToken(JSON.stringify(credentials))),accountLabel,verifiedAt:new Date(),catalog,catalogAt:new Date()}});
+        if(input.provider==="gitlab")await liveGitlabTokenEditor(tx,ctx.user.id,input.projectId,input.originalOrganizationId!,ctx.authenticatedClerkSubject!);
+        else await liveEditor(tx,project.organizationId,ctx.user.id);
+        const saved=await tx.repositoryConnection.updateMany({where:{id:row.id,status:"VERIFYING",authorizationExpiresAt:{gt:new Date()}},data:{status:"VERIFIED",encryptedToken:jsonToken(encryptToken(input.provider==="gitlab"?input.token:JSON.stringify(credentials))),accountLabel,verifiedAt:new Date(),catalog,catalogAt:new Date()}});
         if(saved.count!==1)throw new Error("Connection changed");
       });
-      return{id:row.id,accountLabel};
+      return acknowledge({id:row.id,accountLabel});
     }catch{
-      await ctx.prisma.repositoryConnection.updateMany({where:{id:row.id,status:"VERIFYING"},data:{...clearCredentials,status:"FAILED"}});
+      await ctx.prisma.repositoryConnection.updateMany({where:{id:row.id,status:"VERIFYING"},data:{...clearCredentials,...(input.provider==="gitlab"?{encryptedVerifier:gitlabAccessTokenMarker.parse(row.encryptedVerifier)}:{}),status:"FAILED"}});
       throw new TRPCError({code:"BAD_REQUEST",message:"Provider access could not be verified. Check the read-only token, workspace and account permissions."});
     }
   }),
   forgetToken:protectedProcedure.input(z.object({id:z.string(),confirmed:z.literal(true)})).mutation(async({ctx,input})=>{
     const row=await disconnectableConnection(ctx,input.id);
-    if(!["bitbucket","azure-devops"].includes(row.provider))throw new TRPCError({code:"BAD_REQUEST",message:"Use provider revocation for this authorization."});
+    if(!["bitbucket","azure-devops"].includes(row.provider) && !(row.provider==="gitlab"&&connectionAccessMethod(row)==="token"))throw new TRPCError({code:"BAD_REQUEST",message:"Use provider revocation for this authorization. Unmarked GitLab access cannot be removed as a token."});
     await ctx.prisma.$transaction(async tx=>{
       await liveEditor(tx,row.organizationId,ctx.user.id,row.actorId!==ctx.user.id);
       await tx.$queryRaw`SELECT id FROM "RepositoryConnection" WHERE id = ${row.id} FOR UPDATE`;
       const current=await tx.repositoryConnection.findUniqueOrThrow({where:{id:row.id}});
+      if(row.provider==="gitlab" && (current.provider!=="gitlab" || connectionAccessMethod(current)!=="token"))throw new TRPCError({code:"CONFLICT",message:"The GitLab access method changed. No credential was removed."});
       if(current.status==="VERIFYING"&&current.authorizationExpiresAt.getTime()>Date.now())throw new TRPCError({code:"PRECONDITION_FAILED",message:"Wait for verification to finish before removing saved access."});
-      await tx.repositoryConnection.update({where:{id:row.id},data:{...clearCredentials,status:"DISCONNECTED"}});
+      await tx.repositoryConnection.update({where:{id:row.id},data:{...clearCredentials,...(row.provider==="gitlab"?{encryptedVerifier:gitlabAccessTokenMarker.parse(current.encryptedVerifier)}:{}),status:"DISCONNECTED"}});
       await tx.projectRepository.updateMany({where:{connectionId:row.id},data:{connectionId:null,verifiedAt:null}});
     });
     return{removed:true,providerRevocationRequired:true};
   }),
   mine:protectedProcedure.input(projectInput).query(async({ctx,input})=>{
     await editor(ctx,input.projectId);
-    const rows=await ctx.prisma.repositoryConnection.findMany({where:{projectId:input.projectId,actorId:ctx.user.id,status:{in:["PENDING","VERIFYING","VERIFIED","REVOCATION_PENDING"]}},orderBy:{createdAt:"desc"},take:20,select:{id:true,provider:true,origin:true,status:true,accountLabel:true,authorizationExpiresAt:true,tokenExpiresAt:true}});
-    return rows.map(row=>({id:row.id,provider:row.provider,origin:row.origin,status:publicStatus(row),accountLabel:row.accountLabel}));
+    const rows=await ctx.prisma.repositoryConnection.findMany({where:{projectId:input.projectId,actorId:ctx.user.id,status:{in:["PENDING","VERIFYING","VERIFIED","REVOCATION_PENDING"]}},orderBy:{createdAt:"desc"},take:20,select:{id:true,provider:true,origin:true,status:true,accountLabel:true,authorizationExpiresAt:true,tokenExpiresAt:true,configurationId:true,encryptedVerifier:true}});
+    return rows.map(row=>({id:row.id,provider:row.provider,origin:row.origin,status:publicStatus(row),accountLabel:row.accountLabel,accessMethod:connectionAccessMethod(row)}));
   }),
   configurations:protectedProcedure.input(projectInput).query(async({ctx,input})=>{
     const {project,membership}=await requireProjectAccess(ctx,input.projectId);
@@ -147,12 +176,12 @@ export const repositoryConnectionsRouter=router({
     const storageReady=credentialStorageReady();
     const redirectReady=callbackReady();
     const visibleConfigurations=[...configurations,...availablePlatformRepositoryConfigurations(configurations,storageReady&&redirectReady)];
-    return{configurations:visibleConfigurations,storageReady:storageReady && redirectReady,credentialStorageReady:storageReady,callbackReady:redirectReady,canConnect:membership.seatType==="FULL" && ["OWNER","ADMIN","EDITOR"].includes(membership.role),canConfigure:membership.seatType==="FULL" && ["OWNER","ADMIN"].includes(membership.role),redirectUri:redirectUri(),githubRedirectUri:redirectUri("github")};
+    return{organizationId:project.organizationId,configurations:visibleConfigurations,storageReady:storageReady && redirectReady,credentialStorageReady:storageReady,callbackReady:redirectReady,canConnect:membership.seatType==="FULL" && ["OWNER","ADMIN","EDITOR"].includes(membership.role),canConfigure:membership.seatType==="FULL" && ["OWNER","ADMIN"].includes(membership.role),redirectUri:redirectUri(),githubRedirectUri:redirectUri("github")};
   }),
   revocableGrants:protectedProcedure.input(projectInput.extend({provider:z.enum(["github","gitlab"])})).query(async({ctx,input})=>{
     const {project}=await editor(ctx,input.projectId);requireOrgRole(ctx,project.organizationId,"ADMIN");
-    const rows=await ctx.prisma.repositoryConnection.findMany({where:{organizationId:project.organizationId,provider:input.provider,OR:[{encryptedToken:{not:Prisma.DbNull}},{status:{in:["PENDING","VERIFYING"]}}]},orderBy:{createdAt:"desc"},take:100,select:{id:true,projectId:true,project:{select:{name:true}},accountLabel:true,status:true,origin:true}});
-    return rows.map(row=>({id:row.id,projectId:row.projectId,projectName:row.project.name,accountLabel:row.accountLabel,status:row.status,origin:row.origin}));
+    const rows=await ctx.prisma.repositoryConnection.findMany({where:{organizationId:project.organizationId,provider:input.provider,configurationId:{not:null},OR:[{encryptedToken:{not:Prisma.DbNull}},{status:{in:["PENDING","VERIFYING"]}}]},orderBy:{createdAt:"desc"},take:100,select:{id:true,projectId:true,project:{select:{name:true}},accountLabel:true,status:true,origin:true,provider:true,configurationId:true,encryptedVerifier:true}});
+    return rows.filter(row=>connectionAccessMethod(row)==="oauth").map(row=>({id:row.id,projectId:row.projectId,projectName:row.project.name,accountLabel:row.accountLabel,status:row.status,origin:row.origin}));
   }),
   configureGitlab:protectedProcedure.input(projectInput.extend({origin:z.string().max(300),clientId:z.string().trim().min(1).max(300),clientSecret:z.string().min(1).max(2000)})).mutation(async({ctx,input})=>{
     const {project}=await editor(ctx,input.projectId);
@@ -280,6 +309,8 @@ export const repositoryConnectionsRouter=router({
   }),
   disconnect:protectedProcedure.input(z.object({id:z.string()})).mutation(async({ctx,input})=>{
     const row=await disconnectableConnection(ctx,input.id);
+    if(row.provider==="gitlab" && connectionAccessMethod(row)==="token")throw new TRPCError({code:"BAD_REQUEST",message:"Remove saved GitLab token access, then revoke the token in GitLab. Vaettir cannot confirm provider revocation for access tokens."});
+    if(row.provider==="gitlab" && connectionAccessMethod(row)==="unavailable")throw new TRPCError({code:"PRECONDITION_FAILED",message:"This GitLab access method is unavailable. No credential was used or removed."});
     const adminDisconnect=row.actorId!==ctx.user.id;
     if(row.status==="VERIFYING")throw new TRPCError({code:"PRECONDITION_FAILED",message:"Authorization is still being verified. Retry disconnect after it finishes."});
     if(["bitbucket","azure-devops"].includes(row.provider))throw new TRPCError({code:"BAD_REQUEST",message:"Remove saved token access, then revoke the token in your provider."});

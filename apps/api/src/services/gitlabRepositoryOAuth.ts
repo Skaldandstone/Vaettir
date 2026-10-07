@@ -30,6 +30,18 @@ export function createGitlabAuthorization(origin:string,clientId:string,redirect
   url.search=new URLSearchParams({client_id:clientId,redirect_uri:redirectUri,response_type:"code",scope:"read_api",state,code_challenge:createHash("sha256").update(verifier).digest("base64url"),code_challenge_method:"S256"}).toString();
   return {state,verifier,url:url.href};
 }
+/** PATs use the same Bearer transport; this verifies metadata access, not token scope. */
+export async function verifyGitlabAccessToken(input:{origin:string;token:string}) {
+  const origin=repositoryProviderOrigin(input.origin);
+  if(!input.token || input.token.length>10000 || /[^\x21-\x7e]/.test(input.token))
+    throw new Error("Enter a valid GitLab access token for the selected instance.");
+  try {
+    const account=z.object({id:z.number().int().positive(),username:z.string().min(1).max(200)}).parse(await repositoryProviderJson(origin,"/api/v4/user",{token:input.token}));
+    return {accountLabel:account.username};
+  } catch {
+    throw new Error("GitLab account access could not be verified for this instance.");
+  }
+}
 export async function verifyGitlabAuthorization(input:{origin:string;clientId:string;clientSecret:string;redirectUri:string;code:string;verifier:string}) {
   const response=await repositoryProviderJson(input.origin,"/oauth/token",{form:new URLSearchParams({client_id:input.clientId,client_secret:input.clientSecret,redirect_uri:input.redirectUri,code:input.code,code_verifier:input.verifier,grant_type:"authorization_code"})});
   const issued=z.object({access_token:z.string().min(1).max(10000)}).parse(response);

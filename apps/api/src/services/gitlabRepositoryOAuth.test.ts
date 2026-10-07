@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { repositoryProviderJson, repositoryProviderRevokeGitlabToken } from "./repositoryProviderHttp.js";
-import { createGitlabAuthorization, GitlabOAuthRevocationPendingError, listGitlabRepositories, revokeGitlabAuthorization, verifyGitlabAuthorization } from "./gitlabRepositoryOAuth.js";
+import { createGitlabAuthorization, GitlabOAuthRevocationPendingError, listGitlabRepositories, revokeGitlabAuthorization, verifyGitlabAuthorization, verifyGitlabAccessToken } from "./gitlabRepositoryOAuth.js";
 
 vi.mock("./repositoryProviderHttp.js", async importOriginal => ({
   ...await importOriginal<typeof import("./repositoryProviderHttp.js")>(), repositoryProviderJson: vi.fn(), repositoryProviderRevokeGitlabToken: vi.fn(),
@@ -11,6 +11,28 @@ const token = { access_token: "synthetic-token", token_type: "Bearer", expires_i
 beforeEach(() => { vi.resetAllMocks(); });
 
 describe("GitLab repository OAuth contract", () => {
+  it("verifies an access token using existing bounded Bearer user metadata without OAuth app credentials", async () => {
+    vi.mocked(repositoryProviderJson).mockResolvedValue({id:17,username:"fixture-user"});
+    await expect(verifyGitlabAccessToken({origin:input.origin,token:token.access_token})).resolves.toEqual({accountLabel:"fixture-user"});
+    expect(repositoryProviderJson).toHaveBeenCalledExactlyOnceWith(input.origin,"/api/v4/user",{token:token.access_token});
+    expect(repositoryProviderRevokeGitlabToken).not.toHaveBeenCalled();
+  });
+  it.each(["", "sensitive\nvalue", " token", "bad\u0000token"])("invalid access token %j refuses before transport without reflecting it", async candidate => {
+    await expect(verifyGitlabAccessToken({origin:input.origin,token:candidate})).rejects.toThrow("valid GitLab access token");
+    expect(repositoryProviderJson).not.toHaveBeenCalled();
+  });
+  it.each([{}, {id:0,username:"user"}, {id:1,username:""}])("unsupported access-token account %j never declares verification or attempts OAuth revocation", async account => {
+    vi.mocked(repositoryProviderJson).mockResolvedValue(account);
+    await expect(verifyGitlabAccessToken({origin:input.origin,token:token.access_token})).rejects.toThrow("account access could not be verified");
+    expect(repositoryProviderRevokeGitlabToken).not.toHaveBeenCalled();
+  });
+  it("access-token transport errors are generic and cannot reflect provider diagnostics or token text", async () => {
+    vi.mocked(repositoryProviderJson).mockRejectedValue(Error(token.access_token));
+    const failure=verifyGitlabAccessToken({origin:input.origin,token:token.access_token});
+    await expect(failure).rejects.toThrow("account access could not be verified");
+    await expect(failure).rejects.not.toThrow(token.access_token);
+    expect(repositoryProviderRevokeGitlabToken).not.toHaveBeenCalled();
+  });
   it("uses random actor state and S256 PKCE with the configured callback", () => {
     const authorization = createGitlabAuthorization(input.origin, input.clientId, input.redirectUri);
     const url = new URL(authorization.url);

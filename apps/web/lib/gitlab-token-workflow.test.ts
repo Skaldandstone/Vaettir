@@ -1,0 +1,414 @@
+import { readFileSync } from "node:fs";
+import vm from "node:vm";
+import ts from "typescript";
+import React from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+import { describe, expect, it, vi } from "vitest";
+import { connectionAccessState } from "./connection-access";
+import { gitlabInstanceOrigin } from "./gitlab-instance-selection";
+import { retainAnalysisRequest } from "./analysis-request-recovery";
+import { currentSessionScope, sameAuthScope } from "./auth-query-cache";
+import type { RouterInputs, RouterOutputs } from "./trpcReact";
+
+type VerifyInput = RouterInputs["repositoryConnections"]["connectToken"];
+type VerifyResult = RouterOutputs["repositoryConnections"]["connectToken"];
+type Listing = RouterOutputs["repositoryConnections"]["list"];
+type SelectInput = RouterInputs["repositoryConnections"]["connectSelected"];
+type Connection = RouterOutputs["repositoryConnections"]["mine"][number];
+type Props = { projectId: string; providerId?: string; provider?: string; active: boolean; onConnected: () => void; onClose: () => void };
+type Event = { preventDefault: () => void; target: { value: string; checked: boolean } };
+type Element = React.ReactElement<{ children?: React.ReactNode; type?: string; value?: string; checked?: boolean; disabled?: boolean; "aria-pressed"?: boolean; "aria-label"?: string; onChange?: (event: Event) => void; onSubmit?: (event: Event) => unknown; onClick?: () => unknown }>;
+type Slot = { value?: unknown; deps?: readonly unknown[]; cleanup?: () => void };
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (cause: unknown) => void;
+  const promise = new Promise<T>((yes, no) => { resolve = yes; reject = no; });
+  return { promise, resolve, reject };
+}
+function event(value = "", checked = false): Event { return { preventDefault: vi.fn(), target: { value, checked } }; }
+function at<T>(values: readonly T[], index: number): T {
+  const value = values[index];
+  if (value === undefined) throw Error(`Missing required synthetic evidence at position ${index}`);
+  return value;
+}
+function elements(node: React.ReactNode): Element[] {
+  if (Array.isArray(node)) return node.flatMap(elements);
+  if (!React.isValidElement<{ children?: React.ReactNode }>(node)) return [];
+  return [node as Element, ...elements(node.props.children)];
+}
+function text(node: React.ReactNode): string {
+  if (typeof node === "string" || typeof node === "number") return String(node);
+  if (React.isValidElement<{ children?: React.ReactNode }>(node)) return text(node.props.children);
+  return React.Children.toArray(node).map(text).join("");
+}
+function compile(name: string, context: vm.Context) {
+  const source = readFileSync(new URL(`../components/${name}.tsx`, import.meta.url), "utf8");
+  const ast = ts.createSourceFile(`${name}.tsx`, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX), printer = ts.createPrinter();
+  const body = ast.statements.filter(node => !ts.isImportDeclaration(node)).map(node => printer.printNode(ts.EmitHint.Unspecified, node, ast).replace(/^export\s+(?:default\s+)?/gm, "")).join("\n");
+  vm.runInContext(ts.transpileModule(`${body}\nthis.actual=${name};`, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.None, jsx: ts.JsxEmit.React } }).outputText, context);
+}
+const repository = (id: string): Listing["repositories"][number] => ({ id, name: `Synthetic ${id}`, url: `https://gitlab.example.com/synthetic/${encodeURIComponent(id)}`, defaultBranch: "main" });
+const listing = (ids: string[], hasMore = false, catalogReset = false): Listing => ({ repositories: ids.map(repository), hasMore, catalogReset, catalogVersion: "c".repeat(64) });
+
+/** Complete current component JSX and handlers, with synthetic hook commit
+ * cycles/RPC boundaries only. No browser, Clerk/provider access or native proof. */
+function harness(component = "TokenRepositoryConnection") {
+  const slots: Slot[] = [];
+  let cursor = 0, dirty = false, current: React.ReactElement;
+  const effects: Array<() => void> = [];
+  const auth = { isLoaded: true, isSignedIn: true, userId: "synthetic-clerk", sessionId: "synthetic-session" };
+  const sdk = { loaded: true, session: { id: auth.sessionId, user: { id: auth.userId } } };
+  const props: Props = { projectId: "synthetic-project", providerId: "gitlab", provider: "gitlab", active: true, onConnected: vi.fn(), onClose: vi.fn() };
+  const forbidden = vi.fn(() => { throw Error("Browser, storage, source and unrelated actions forbidden in fixture"); });
+  const capabilities = { isSuccess: true, isLoading: false, isFetching: false, error: null as unknown, data: { organizationId: "synthetic-org", canConnect: true, canConfigure: true, credentialStorageReady: true, storageReady: false, configurations: [] }, refetch: vi.fn(async () => capabilities) };
+  const recent = { isSuccess: true, isFetching: false, error: null as unknown, data: [] as Connection[], refetch: vi.fn(async () => recent) };
+  const verify = { isPending: false, mutateAsync: vi.fn<(input: VerifyInput) => Promise<VerifyResult>>(async input => ({ id: "synthetic-connection", accountLabel: "Synthetic account", requestId: input.requestId, projectId: input.projectId, originalOrganizationId: input.originalOrganizationId, expectedClerkActorId: input.expectedClerkActorId })) };
+  const connect = { isPending: false, mutateAsync: vi.fn<(input: SelectInput) => Promise<{ connected: number }>>(async input => ({ connected: input.repositoryIds.length })) };
+  const fetchList = vi.fn<(input: RouterInputs["repositoryConnections"]["list"]) => Promise<Listing>>(async () => listing(["repo-1", "repo-2"]));
+  function slot() { const index = cursor++; return slots[index] ?? (slots[index] = {}); }
+  function sameDeps(prior: readonly unknown[] | undefined, next: readonly unknown[] | undefined) { return !!prior && !!next && prior.length === next.length && prior.every((value, index) => Object.is(value, next[index])); }
+  function effect(make: () => unknown, deps?: readonly unknown[]) {
+    const held = slot();
+    if (!sameDeps(held.deps, deps)) {
+      held.deps = deps;
+      effects.push(() => { held.cleanup?.(); const cleanup = make(); held.cleanup = typeof cleanup === "function" ? cleanup as () => void : undefined; });
+    }
+  }
+  const oauth = vi.fn(() => React.createElement("div", null, "Synthetic OAuth boundary"));
+  const tokenBoundary = vi.fn(() => React.createElement("div", null, "Synthetic token boundary"));
+  const choicesBoundary = vi.fn(() => React.createElement("div", null, "Synthetic connection method boundary"));
+  const context = vm.createContext({
+    React, URL, Object, Error, connectionAccessState, gitlabInstanceOrigin, retainAnalysisRequest, currentSessionScope, sameAuthScope,
+    useAuth: () => auth,
+    useState: (initial: unknown) => { const held = slot(); if (!Object.hasOwn(held, "value")) held.value = typeof initial === "function" ? initial() : initial; return [held.value, (next: unknown) => { const value = typeof next === "function" ? next(held.value) : next; if (!Object.is(value, held.value)) { held.value = value; dirty = true; } }]; },
+    useRef: (initial: unknown) => { const held = slot(); if (!Object.hasOwn(held, "value")) held.value = { current: initial }; return held.value; },
+    useEffect: effect, useLayoutEffect: effect,
+    useMemo: (make: () => unknown, deps?: readonly unknown[]) => { const held = slot(); if (!sameDeps(held.deps, deps)) { held.deps = deps; held.value = make(); } return held.value; },
+    useCallback: (callback: unknown) => callback,
+    crypto: { randomUUID: (() => { let value = 0; return () => `00000000-0000-4000-8000-${String(++value).padStart(12, "0")}`; })() },
+    window: { Clerk: sdk, open: forbidden, localStorage: { setItem: forbidden }, sessionStorage: { setItem: forbidden } }, localStorage: { setItem: forbidden }, sessionStorage: { setItem: forbidden }, fetch: forbidden,
+    ProviderMark: () => React.createElement("span", null, "GitLab"),
+    ConnectionAccessGate: ({ state }: { state: string }) => React.createElement("p", { role: "status" }, state),
+    RepositoryOAuthConnection: oauth, TokenRepositoryConnection: tokenBoundary, GitlabConnectionChoices: choicesBoundary,
+    trpcReact: { useUtils: () => ({ repositoryConnections: { list: { fetch: fetchList } } }), repositoryConnections: {
+      configurations: { useQuery: () => capabilities }, mine: { useQuery: () => recent },
+      connectToken: { useMutation: () => verify }, forgetToken: { useMutation: () => ({ isPending: false, mutateAsync: forbidden }) }, connectSelected: { useMutation: () => connect },
+    } },
+  });
+  compile(component, context);
+  function render() {
+    let turns = 0;
+    do {
+      if (++turns > 40) throw Error("Synthetic hook commits did not settle");
+      dirty = false; cursor = 0;
+      current = (context as unknown as { actual: (props: Props) => React.ReactElement }).actual(props);
+      while (effects.length) effects.shift()!();
+    } while (dirty);
+    return current;
+  }
+  render();
+  function button(label: string | RegExp) {
+    const value = elements(current).find(node => node.type === "button" && (typeof label === "string" ? text(node) === label : label.test(text(node))));
+    if (!value) throw Error(`Missing actual button ${String(label)}`);
+    return value;
+  }
+  function input(label: string) {
+    const value = elements(current).filter(node => node.type === "label").find(node => text(node).startsWith(label));
+    const control = value && elements(value).find(node => node.type === "input");
+    if (!control) throw Error(`Missing actual input ${label}`);
+    return control;
+  }
+  async function settle() { for (let index = 0; index < 8; index++) { await Promise.resolve(); render(); } }
+  return { auth, sdk, props, capabilities, recent, verify, connect, fetchList, forbidden, oauth, tokenBoundary, choicesBoundary, render, button, input, settle,
+    tree: () => current, html: () => renderToStaticMarkup(current),
+    unmount: () => { for (const held of slots) held.cleanup?.(); },
+    submit: () => { const form = elements(current).find(node => node.type === "form"); if (!form?.props.onSubmit) throw Error("Missing actual form submit"); return form.props.onSubmit(event()); },
+    change: (label: string, value: string) => { input(label).props.onChange!(event(value)); render(); },
+    consent: () => { const control = elements(current).find(node => node.type === "input" && node.props.type === "checkbox"); if (!control?.props.onChange) throw Error("Missing metadata consent"); control.props.onChange(event("", true)); render(); },
+  };
+}
+
+function fillVerification(h: ReturnType<typeof harness>, url = "https://gitlab.revyrie.co/dashboard/projects") {
+  h.change("GitLab instance or project URL", url);
+  h.change("API token", "synthetic-read-only-token");
+  h.consent();
+}
+function acknowledgement(input: VerifyInput): VerifyResult {
+  return { id: "synthetic-connection", accountLabel: "Synthetic account", requestId: input.requestId, projectId: input.projectId, originalOrganizationId: input.originalOrganizationId, expectedClerkActorId: input.expectedClerkActorId };
+}
+
+describe("GitLab token connection actual component workflow (synthetic)", () => {
+  it("routes the actual repository chooser to GitLab method selection instead of implicit OAuth", () => {
+    const h = harness("RepositoryConnectionContent");
+    expect(h.tree().type).toBe(h.choicesBoundary);
+    expect((h.tree().props as Props).projectId).toBe("synthetic-project");
+    expect(h.oauth).not.toHaveBeenCalled();
+    expect(h.forbidden).not.toHaveBeenCalled();
+  });
+  it("starts with an explicit method choice and never launches OAuth automatically", () => {
+    const h = harness("GitlabConnectionChoices");
+    expect(h.html()).toContain("No OAuth application registration is needed");
+    expect(h.forbidden).not.toHaveBeenCalled();
+    expect(h.verify.mutateAsync).not.toHaveBeenCalled();
+    h.button("Use a read-only access token").props.onClick!(); h.render();
+    expect(h.tree().type).toBe(h.tokenBoundary);
+    expect((h.tree().props as Props).providerId).toBe("gitlab");
+    expect(h.oauth).not.toHaveBeenCalled();
+    const oauth = harness("GitlabConnectionChoices");
+    oauth.button("Use workspace-configured OAuth").props.onClick!(); oauth.render();
+    expect(oauth.tree().type).toBe(oauth.oauth);
+    expect(oauth.forbidden).not.toHaveBeenCalled();
+  });
+
+  it("uses a password input and explicit metadata consent without browser storage or source reads", () => {
+    const h = harness();
+    expect(h.input("API token").props.type).toBe("password");
+    expect(h.button("Verify and choose repositories").props.disabled).toBe(true);
+    expect(h.html()).toContain("read_api");
+    expect(h.html()).toContain("broader repository read access than metadata");
+    expect(h.html()).toContain("Source files are not read");
+    fillVerification(h);
+    expect(h.button("Verify and choose repositories").props.disabled).toBe(false);
+    expect(h.forbidden).not.toHaveBeenCalled();
+    expect(h.verify.mutateAsync).not.toHaveBeenCalled();
+  });
+
+  it("validates an HTTPS public instance and refuses invalid hosts before metadata verification", async () => {
+    for (const url of ["http://gitlab.example.com", "https://localhost", "https://127.0.0.1", "https://gitlab.internal", "https://user:password@gitlab.example.com", "https://gitlab.example.com:8443", "https://gitlab.example.com/?secret=x", "https://gitlab.example.com/#fragment"]) {
+      const h = harness(); fillVerification(h, url);
+      expect(h.button("Verify and choose repositories").props.disabled).toBe(true);
+      await h.submit();
+      expect(h.verify.mutateAsync).not.toHaveBeenCalled();
+      expect(h.fetchList).not.toHaveBeenCalled();
+      expect(h.forbidden).not.toHaveBeenCalled();
+    }
+    const h = harness(); fillVerification(h);
+    await h.submit(); h.render();
+    const input = at(h.verify.mutateAsync.mock.calls, 0)[0];
+    expect(input.instanceUrl).toBe("https://gitlab.revyrie.co");
+    expect(input.originalOrganizationId).toBe("synthetic-org");
+    expect(input.expectedClerkActorId).toBe("synthetic-clerk");
+    expect(input.provider).toBe("gitlab");
+    expect(input.approveMetadataAccess).toBe(true);
+    expect(h.fetchList).toHaveBeenCalledWith({ id: "synthetic-connection", page: 1, search: "" });
+    expect(h.forbidden).not.toHaveBeenCalled();
+  });
+
+  it("freezes token verification before awaiting and blocks duplicate submits and draft edits", async () => {
+    const h = harness(), held = deferred<VerifyResult>(); fillVerification(h);
+    const staleTokenChange = h.input("API token").props.onChange!;
+    h.verify.mutateAsync.mockReturnValueOnce(held.promise);
+    const first = h.submit(), duplicate = h.submit();
+    expect(h.verify.mutateAsync).toHaveBeenCalledTimes(1);
+    const input = at(h.verify.mutateAsync.mock.calls, 0)[0], bytes = JSON.stringify(input);
+    expect(Object.isFrozen(input)).toBe(true);
+    staleTokenChange(event("synthetic-replacement-token")); h.render();
+    expect(h.input("API token").props.disabled).toBe(true);
+    expect(h.input("API token").props.value).toBe("synthetic-read-only-token");
+    expect(h.button("Cancel").props.disabled).toBe(true);
+    held.resolve(acknowledgement(input)); await first; await duplicate; h.render();
+    expect(JSON.stringify(input)).toBe(bytes);
+    expect(h.html()).toContain("Choose repositories");
+    expect(h.forbidden).not.toHaveBeenCalled();
+  });
+
+  it("a completed captured verification callback cannot mint another request after ACK or initial definitive refusal", async () => {
+    for (const outcome of ["acknowledged", "refused"]) {
+      const h = harness(); fillVerification(h);
+      const submit = elements(h.tree()).find(node => node.type === "form")!.props.onSubmit!;
+      if (outcome === "refused") h.verify.mutateAsync.mockRejectedValueOnce({ data: { code: "BAD_REQUEST" } });
+      await submit(event()); h.render();
+      const original = at(h.verify.mutateAsync.mock.calls, 0)[0], bytes = JSON.stringify(original);
+      await submit(event()); h.render();
+      expect(h.verify.mutateAsync).toHaveBeenCalledTimes(1);
+      expect(JSON.stringify(original)).toBe(bytes);
+      if (outcome === "refused") {
+        h.change("API token", "synthetic-deliberate-new-token");
+        await h.submit(); h.render();
+        const fresh = at(h.verify.mutateAsync.mock.calls, 1)[0];
+        expect(fresh.requestId).not.toBe(original.requestId);
+        expect(fresh.token).toBe("synthetic-deliberate-new-token");
+      }
+      expect(h.forbidden).not.toHaveBeenCalled();
+    }
+  });
+
+  it("retains the same exact UUID and body after UNKNOWN and a later refusal until matching acknowledgement", async () => {
+    const h = harness(); fillVerification(h);
+    h.verify.mutateAsync.mockRejectedValueOnce(new Error("Synthetic lost acknowledgement"));
+    await h.submit(); h.render();
+    const original = at(h.verify.mutateAsync.mock.calls, 0)[0], bytes = JSON.stringify(original);
+    expect(h.button("Retry original verification").props.disabled).toBe(false);
+    expect(h.input("API token").props.disabled).toBe(true);
+    expect(h.button("Cancel").props.disabled).toBe(true);
+    h.verify.mutateAsync.mockRejectedValueOnce({ data: { code: "BAD_REQUEST" } });
+    await h.submit(); h.render();
+    expect(at(h.verify.mutateAsync.mock.calls, 1)[0]).toBe(original);
+    expect(h.input("API token").props.disabled).toBe(true);
+    await h.submit(); h.render();
+    expect(at(h.verify.mutateAsync.mock.calls, 2)[0]).toBe(original);
+    expect(JSON.stringify(original)).toBe(bytes);
+    expect(h.html()).toContain("Choose repositories");
+    expect(h.forbidden).not.toHaveBeenCalled();
+  });
+
+  it("a wrong acknowledgement retains original body and does not browse repositories", async () => {
+    const h = harness(); fillVerification(h);
+    h.verify.mutateAsync.mockImplementationOnce(async input => ({ ...acknowledgement(input), requestId: "00000000-0000-4000-8000-999999999999" }));
+    await h.submit(); h.render();
+    expect(h.fetchList).not.toHaveBeenCalled();
+    expect(h.input("API token").props.disabled).toBe(true);
+    expect(h.button("Retry original verification")).toBeDefined();
+    expect(h.props.onConnected).not.toHaveBeenCalled();
+  });
+
+  it("rejects sends after live SDK mismatch inactive view or unmount even through captured submit", async () => {
+    for (const state of ["sdk", "inactive", "unmount"]) {
+      const h = harness(); fillVerification(h);
+      const submit = elements(h.tree()).find(node => node.type === "form")!.props.onSubmit!;
+      if (state === "sdk") h.sdk.session = { id: "other-session", user: { id: "other-clerk" } };
+      if (state === "inactive") { h.props.active = false; h.render(); }
+      if (state === "unmount") h.unmount();
+      await submit(event());
+      expect(h.verify.mutateAsync).not.toHaveBeenCalled();
+      expect(h.fetchList).not.toHaveBeenCalled();
+      expect(h.forbidden).not.toHaveBeenCalled();
+    }
+  });
+
+  it("withholds a retained original token from another actor and never rebinds its verification", async () => {
+    const h = harness(); fillVerification(h);
+    h.verify.mutateAsync.mockRejectedValueOnce(new Error("Synthetic lost acknowledgement"));
+    await h.submit(); h.render();
+    const original = at(h.verify.mutateAsync.mock.calls, 0)[0], bytes = JSON.stringify(original);
+    const submit = elements(h.tree()).find(node => node.type === "form")!.props.onSubmit!;
+    h.auth.userId = "other-clerk"; h.auth.sessionId = "other-session";
+    h.sdk.session = { id: h.auth.sessionId, user: { id: h.auth.userId } }; h.render();
+    expect(h.html()).not.toContain("synthetic-read-only-token");
+    await submit(event());
+    expect(h.verify.mutateAsync).toHaveBeenCalledTimes(1);
+    expect(JSON.stringify(original)).toBe(bytes);
+    expect(h.fetchList).not.toHaveBeenCalled();
+  });
+
+  it("an unsent token draft is private after actor workspace project provider or SDK changes", () => {
+    for (const changed of ["actor", "organization", "project", "provider", "sdk"]) {
+      const h = harness(); fillVerification(h);
+      if (changed === "actor") { h.auth.userId = "other-clerk"; h.sdk.session.user.id = "other-clerk"; }
+      if (changed === "organization") h.capabilities.data.organizationId = "other-org";
+      if (changed === "project") h.props.projectId = "other-project";
+      if (changed === "provider") h.props.providerId = "bitbucket";
+      if (changed === "sdk") h.sdk.session.user.id = "other-clerk";
+      h.render();
+      expect(h.html()).not.toContain("synthetic-read-only-token");
+      expect(elements(h.tree()).filter(node => node.type === "input" || node.type === "form")).toHaveLength(0);
+      expect(h.verify.mutateAsync).not.toHaveBeenCalled();
+      expect(h.forbidden).not.toHaveBeenCalled();
+    }
+  });
+
+  it("late verification acknowledgement after actor change does not browse or expose the original account", async () => {
+    const h = harness(), held = deferred<VerifyResult>(); fillVerification(h);
+    h.verify.mutateAsync.mockReturnValueOnce(held.promise);
+    const first = h.submit();
+    const original = at(h.verify.mutateAsync.mock.calls, 0)[0], bytes = JSON.stringify(original);
+    h.auth.userId = "other-clerk"; h.auth.sessionId = "other-session";
+    h.sdk.session = { id: h.auth.sessionId, user: { id: h.auth.userId } }; h.render();
+    held.resolve(acknowledgement(original)); await first; h.render();
+    expect(h.fetchList).not.toHaveBeenCalled();
+    expect(h.html()).not.toContain("Synthetic account");
+    expect(h.html()).not.toContain("synthetic-read-only-token");
+    h.auth.userId = "synthetic-clerk"; h.auth.sessionId = "synthetic-session";
+    h.sdk.session = { id: h.auth.sessionId, user: { id: h.auth.userId } }; h.render();
+    await h.submit(); h.render();
+    expect(at(h.verify.mutateAsync.mock.calls, 1)[0]).toBe(original);
+    expect(JSON.stringify(original)).toBe(bytes);
+    expect(h.html()).toContain("Choose repositories");
+  });
+
+  it("late repository metadata after view deactivation is not published into a hidden connection", async () => {
+    const h = harness(), held = deferred<Listing>(); fillVerification(h);
+    h.fetchList.mockReturnValueOnce(held.promise);
+    const first = h.submit(); await h.settle();
+    expect(h.fetchList).toHaveBeenCalledTimes(1);
+    h.props.active = false; h.render();
+    held.resolve(listing(["synthetic-late-private-repository"])); await first; h.render();
+    expect(h.html()).not.toContain("synthetic-late-private-repository");
+    expect(h.props.onConnected).not.toHaveBeenCalled();
+    expect(h.connect.mutateAsync).not.toHaveBeenCalled();
+  });
+
+  it("saved GitLab token access does not show or remove an OAuth grant as a token", () => {
+    const h = harness();
+    h.recent.data = [
+      { id: "token", provider: "gitlab", origin: "https://gitlab.example.com", status: "VERIFIED", accountLabel: "Synthetic token account", accessMethod: "token" },
+      { id: "oauth", provider: "gitlab", origin: "https://gitlab.example.com", status: "VERIFIED", accountLabel: "Synthetic OAuth account", accessMethod: "oauth" },
+    ]; h.render();
+    expect(h.html()).toContain("Synthetic token account");
+    expect(h.html()).not.toContain("Synthetic OAuth account");
+    expect(elements(h.tree()).filter(node => node.type === "button" && text(node) === "Remove saved access")).toHaveLength(1);
+    expect(h.forbidden).not.toHaveBeenCalled();
+  });
+
+  it("selects raw metadata across pages and connects only explicitly reviewed exact IDs", async () => {
+    const h = harness(); fillVerification(h);
+    h.fetchList.mockImplementation(async input => listing(input.page === 1 ? ["repo-1", "repo-2"] : ["repo-3", "repo-4"], input.page === 1));
+    await h.submit(); h.render();
+    h.button("Select this page (up to 100 total)").props.onClick!(); h.render();
+    h.button("Next page").props.onClick!(); await h.settle();
+    h.button("Select this page (up to 100 total)").props.onClick!(); h.render();
+    expect(h.html()).toContain("4 selected across visited pages");
+    h.button("Review 4 selected").props.onClick!(); h.render();
+    expect(h.connect.mutateAsync).not.toHaveBeenCalled();
+    await h.button("Approve and connect").props.onClick!(); h.render();
+    expect(h.connect.mutateAsync).toHaveBeenCalledWith({ id: "synthetic-connection", repositoryIds: ["repo-1", "repo-2", "repo-3", "repo-4"], catalogVersion: "c".repeat(64), approved: true });
+    expect(h.props.onConnected).toHaveBeenCalledTimes(1);
+    expect(h.html()).toContain("Source files have not been read");
+    expect(h.forbidden).not.toHaveBeenCalled();
+  });
+
+  it("verified account selections stay private and captured approval refuses after actor loss", async () => {
+    const h = harness(); fillVerification(h);
+    await h.submit(); h.render();
+    h.button("Select this page (up to 100 total)").props.onClick!(); h.render();
+    h.button("Review 2 selected").props.onClick!(); h.render();
+    const approve = h.button("Approve and connect").props.onClick!;
+    h.auth.userId = "other-clerk"; h.auth.sessionId = "other-session";
+    h.sdk.session = { id: h.auth.sessionId, user: { id: h.auth.userId } }; h.render();
+    expect(h.html()).not.toContain("Synthetic account");
+    expect(h.html()).not.toContain("Synthetic repo-1");
+    await approve();
+    expect(h.connect.mutateAsync).not.toHaveBeenCalled();
+    expect(h.props.onConnected).not.toHaveBeenCalled();
+    expect(h.forbidden).not.toHaveBeenCalled();
+  });
+
+  it("page selection and captured individual clicks preserve the 100-repository cap", async () => {
+    const h = harness(); fillVerification(h);
+    const first = Array.from({ length: 99 }, (_, index) => `first-${index}`), second = ["second-0", "second-1"];
+    h.fetchList.mockImplementation(async input => listing(input.page === 1 ? first : second, input.page === 1));
+    await h.submit(); h.render();
+    h.button("Select this page (up to 100 total)").props.onClick!(); h.render();
+    h.button("Next page").props.onClick!(); await h.settle();
+    const choices = elements(h.tree()).filter(node => node.type === "button" && node.props["aria-pressed"] !== undefined);
+    at(choices, 0).props.onClick!(); at(choices, 1).props.onClick!(); h.render();
+    expect(h.html()).toContain("100 selected across visited pages");
+    h.button("Select this page (up to 100 total)").props.onClick!(); h.render();
+    h.button("Review 100 selected").props.onClick!(); h.render();
+    await h.button("Approve and connect").props.onClick!();
+    expect(at(h.connect.mutateAsync.mock.calls, 0)[0].repositoryIds).toEqual([...first, "second-0"]);
+    expect(h.forbidden).not.toHaveBeenCalled();
+  });
+
+  it("catalog reset explicitly clears prior selected metadata instead of approving a stale union", async () => {
+    const h = harness(); fillVerification(h);
+    h.fetchList.mockImplementation(async input => listing(input.page === 1 ? ["old"] : ["new"], input.page === 1, input.page === 2));
+    await h.submit(); h.render();
+    h.button("Select this page (up to 100 total)").props.onClick!(); h.render();
+    h.button("Next page").props.onClick!(); await h.settle();
+    expect(h.html()).toContain("0 selected across visited pages");
+    expect(h.connect.mutateAsync).not.toHaveBeenCalled();
+    expect(h.forbidden).not.toHaveBeenCalled();
+  });
+});

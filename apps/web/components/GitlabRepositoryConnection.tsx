@@ -163,8 +163,8 @@ export function RepositoryOAuthConnection({ projectId, providerId, onConnected, 
           <p className="text-muted">{providerId === "github" ? "GitHub grants broad repository read/write and some organization management permissions." : "GitLab’s read_api permission is broader than repository listing."} Review the provider’s authorization screen. By connecting, you approve account verification and repository metadata listing only. No source files are read or sent to AI.</p>
           <button type="button" disabled={!provider || busy} onClick={() => void authorize()}>{begin.isPending ? "Opening authorization…" : `Connect ${providerName}`}</button>
         </>}
-        {!!recent.data?.some(connection => connection.provider === providerId) && <details><summary>Resume saved access</summary><div style={{ display: "grid", gap: 8, marginTop: 8 }}>
-          {recent.data.filter(connection => connection.provider === providerId).map(connection => <button type="button" className="btn-secondary" key={connection.id} disabled={busy || !connectionReady} onClick={() => {
+        {!!recent.data?.some(connection => connection.provider === providerId && (providerId !== "gitlab" || connection.accessMethod === "oauth")) && <details><summary>Resume saved access</summary><div style={{ display: "grid", gap: 8, marginTop: 8 }}>
+          {recent.data.filter(connection => connection.provider === providerId && (providerId !== "gitlab" || connection.accessMethod === "oauth")).map(connection => <button type="button" className="btn-secondary" key={connection.id} disabled={busy || !connectionReady} onClick={() => {
             const config = configurations.data?.configurations.find(c => c.provider === providerId && c.origin === connection.origin);
             setConfigurationId(config?.id ?? ""); setConnectionId(connection.id); setStep("authorize");
           }}><strong>{new URL(connection.origin).hostname}</strong> · {connection.accountLabel ?? "Your authorization"} · {statusLabel(connection.status)}</button>)}
