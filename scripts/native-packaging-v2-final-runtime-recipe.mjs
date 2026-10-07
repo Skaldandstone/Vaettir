@@ -4,7 +4,10 @@ import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { TextDecoder } from "node:util";
 import { planNativeFreshPrepare } from "./native-packaging-v2-builder-fresh-prepare.mjs";
-import { validateFreshNativeFinalCompleted } from "./native-packaging-v2-final-runtime-recipe-validation.mjs";
+import {
+  validateFreshNativeFinalCompleted,
+  validateFreshNativeCompactFinalCompleted,
+} from "./native-packaging-v2-final-runtime-recipe-validation.mjs";
 import {
   parseFinalJson,
   FINAL_LIMITS,
@@ -83,6 +86,18 @@ function validateArtifacts(artifacts) {
  * inventory. Missing such an envelope refuses, even for consistent fixtures.
  */
 export function generateNativeFinalRuntimeRecipe(input) {
+  return generateRuntimeRecipe(input, false);
+}
+
+/** Separate compact transport, never an implicit fallback for a failed full
+ * builder publication. Full native reviews and compact registry/byte evidence
+ * must be independently admitted by the distinct validator before generation.
+ */
+export function generateNativeCompactFinalRuntimeRecipe(input) {
+  return generateRuntimeRecipe(input, true);
+}
+
+function generateRuntimeRecipe(input, compact) {
   exact(input, ["native", "application"]);
   const n = input.native,
     app = input.application;
@@ -101,7 +116,9 @@ export function generateNativeFinalRuntimeRecipe(input) {
     "expectedApplicationCommit",
     "expectedApplicationArchiveSha256",
   ]);
-  const validated = validateFreshNativeFinalCompleted(
+  const validated = (compact
+    ? validateFreshNativeCompactFinalCompleted
+    : validateFreshNativeFinalCompleted)(
     n.completed,
     n.expected,
     n.plan,
@@ -114,13 +131,19 @@ export function generateNativeFinalRuntimeRecipe(input) {
   const review = parseFinalJson(raw);
   exact(review, ["schemaVersion", "purpose", "final", "artifacts"]);
   assert.equal(review.schemaVersion, 1);
-  assert.equal(review.purpose, "root-reviewed-native-final-runtime-donor");
+  assert.equal(review.purpose, compact
+    ? "root-reviewed-native-compact-final-runtime-donor"
+    : "root-reviewed-native-final-runtime-donor");
   exact(review.final, [...Object.keys(n.expected), "completedSha256"]);
   assert.deepEqual(review.final, {
     ...n.expected,
     completedSha256: sha(JSON.stringify(n.completed)),
   });
   validateArtifacts(review.artifacts);
+  if (compact) {
+    assert.equal(sha(JSON.stringify(review.artifacts)), validated.artifactInventorySha256);
+    assert.deepEqual(review.artifacts, validated.artifacts);
+  }
   const receipt = JSON.parse(
     Buffer.from(n.completed.receiptChain.at(-1).base64, "base64"),
   );
@@ -190,8 +213,17 @@ export function generateNativeFinalRuntimeRecipe(input) {
   const donor = imageRepository + "@" + validated.imageDigest;
   const program = nativeFinalRuntimeArtifactProgram(review.artifacts);
   const added = [
-    "# Separate reviewed full-final donor. Default Dockerfile.api remains unchanged.",
-    `FROM ${donor} AS vaettir-accepted-native-final`,
+    compact
+      ? "# Separate reviewed compact donor. Full native proof is retained independently."
+      : "# Separate reviewed full-final donor. Default Dockerfile.api remains unchanged.",
+    ...(compact ? [
+      `FROM ${donor} AS vaettir-accepted-native-compact`,
+      // Scratch contains no Node executable. Reuse the exact already-bound
+      // runtime base, not a new tag/base or the unpublished builder image.
+      lines[runtimeIndex].replace(/ AS runtime$/, " AS vaettir-accepted-native-final"),
+      ...review.artifacts.map(({ path }) =>
+        `COPY --from=vaettir-accepted-native-compact ${path} ${path}`),
+    ] : [`FROM ${donor} AS vaettir-accepted-native-final`]),
     `RUN --network=none node -e ${shell(program)}`,
     "",
   ];
@@ -201,6 +233,9 @@ export function generateNativeFinalRuntimeRecipe(input) {
   const applicationAdded = [
     `RUN test "$VAETTIR_RELEASE_COMMIT" = "${app.expectedApplicationCommit}"`,
     `LABEL vaettir.application-source-commit="${app.expectedApplicationCommit}" vaettir.application-source-sha256="${app.expectedApplicationArchiveSha256}" vaettir.native-source-commit="${n.plan.identity.sourceCommit}" vaettir.native-final-image="${validated.imageDigest}" vaettir.native-final-config="${validated.imageConfigDigest}" vaettir.native-final-review="${sha(raw)}"`,
+    ...(compact ? [
+      `LABEL vaettir.native-transport-kind="compact-fixed15-v1" vaettir.native-full-local-config="${validated.fullLocalImageConfigDigest}" vaettir.native-compact-inventory="${validated.artifactInventorySha256}"`,
+    ] : []),
   ];
   lines.splice(lines.indexOf(arg) + 1, 0, ...applicationAdded);
   const recipe = lines
@@ -225,7 +260,9 @@ export function generateNativeFinalRuntimeRecipe(input) {
   assert.equal(restored, original);
   const identity = {
     schemaVersion: 1,
-    purpose: "native-final-runtime-recipe-not-runtime-acceptance",
+    purpose: compact
+      ? "native-compact-final-runtime-recipe-not-runtime-acceptance"
+      : "native-final-runtime-recipe-not-runtime-acceptance",
     applicationCommit: app.expectedApplicationCommit,
     applicationArchiveSha256: app.expectedApplicationArchiveSha256,
     originalDockerfileSha256: sha(source),
@@ -236,6 +273,10 @@ export function generateNativeFinalRuntimeRecipe(input) {
     nativeFinalReceiptSha256: validated.finalReceiptSha256,
     rootReviewSha256: sha(raw),
     artifactInventorySha256: sha(JSON.stringify(review.artifacts)),
+    ...(compact ? {
+      nativeTransportKind: "compact-fixed15-v1",
+      fullLocalImageConfigDigest: validated.fullLocalImageConfigDigest,
+    } : {}),
     recipeSha256: sha(recipe),
     runtimeAcceptance: false,
     authenticatedAcceptance: false,

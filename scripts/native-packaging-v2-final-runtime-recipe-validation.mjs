@@ -5,6 +5,7 @@ import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import {
   planNativeFreshFinal,
+  planNativeFreshCompactFinal,
   reassembleNativeFreshFinalLog,
 } from "./native-packaging-v2-builder-fresh-final-plan.mjs";
 import {
@@ -396,5 +397,259 @@ export function validateFreshNativeFinalCompleted(
     actualNativeReviewMetadataConsistent: true,
     actualCloudEvidenceStillRequired: true,
     ...outerFalse,
+  };
+}
+
+
+// Distinct transport only: the full original native reviews still precede
+// export. This donor cannot be relabeled as a full builder checkpoint.
+export const NATIVE_COMPACT_ARTIFACT_PATHS = Object.freeze([
+  "/build/libllvm19_19.1.7-3+vaettir1_amd64.deb",
+  "/build/llvm-cpu-jit",
+  "/build/llvm-arm-policy",
+  "/build/llvm-stripped-abi.json",
+  "/build/llvm-abi.json",
+  "/build/llvm-final-unit-gates.json",
+  "/build/llvm-release-configuration.json",
+  "/build/llvm-assertions-configuration.json",
+  ...["prepare","release-core","release-units","assertion-compile-1",
+    "assertion-compile-2","assertion-compile-3","final"]
+    .map(phase => "/build/llvm-phase-receipts/" + phase + ".json"),
+]);
+
+/** Pure compact evidence consistency, NOT authority inferred from booleans.
+ * Root additionally binds actual effective build, all paginated marker order,
+ * SUCCESS, owned cleanup and independent raw ECR readbacks. No failed build,
+ * partial layer upload, synthetic fixture or local image can authorize a donor.
+ */
+export function validateFreshNativeCompactFinalCompleted(
+  completed, expected, plan, input, transport,
+) {
+  exact(expected, ["buildId","planSha256","requestSha256","buildspecSha256",
+    "imageDigest","imageConfigDigest","receiptSha256","phaseLogSha256",
+    "transportKind","fullLocalImageConfigDigest"]);
+  assert.match(expected.buildId,
+    /^vaettir-api-build:[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/);
+  for (const key of ["planSha256","requestSha256","buildspecSha256","receiptSha256","phaseLogSha256"])
+    assert.match(expected[key], hex);
+  for (const key of ["imageDigest","imageConfigDigest","fullLocalImageConfigDigest"])
+    assert.match(expected[key], digest);
+  assert.equal(expected.transportKind, "compact-fixed15-v1");
+  assert.notEqual(expected.fullLocalImageConfigDigest, expected.imageConfigDigest,
+    "Full local builder and compact donor config identities must remain separate");
+  assert.deepEqual(planNativeFreshCompactFinal(input), plan);
+  assert.equal(plan.identity.transportKind, expected.transportKind);
+  assert.equal(plan.planSha256, expected.planSha256);
+  assert.equal(plan.requestSha256, expected.requestSha256);
+  assert.equal(plan.buildspecSha256, expected.buildspecSha256);
+  exact(completed, ["schemaVersion","purpose","status",...Object.keys(expected),
+    "sourceCommit","sourceSha256","capsuleSha256","verified","receiptChain",
+    "registryManifest","registryConfigBase64","compactArtifacts",...Object.keys(outerFalse)]);
+  assert.ok(Buffer.byteLength(JSON.stringify(completed)) <= 2 * 1024 ** 2);
+  assert.equal(completed.schemaVersion, 2);
+  assert.equal(completed.purpose, "completed-fresh-native-compact-final");
+  assert.equal(completed.status, "SUCCEEDED");
+  for (const key of Object.keys(expected)) assert.equal(completed[key], expected[key]);
+  for (const key of Object.keys(outerFalse)) assert.equal(completed[key], false);
+  assert.equal(completed.sourceCommit, plan.identity.sourceCommit);
+  assert.equal(completed.sourceSha256, plan.identity.sourceSha256);
+  assert.equal(completed.capsuleSha256, plan.identity.capsule.sha256);
+  exact(transport, ["phaseLogBytes","phaseLogChunks","cleanupMarker"]);
+  assert.equal(transport.cleanupMarker, "NATIVE_FRESH_COMPACT_FINAL_CLEANED=" + plan.planSha256,
+    "Independent terminal/owned cleanup collection remains required");
+  assert.ok(Buffer.isBuffer(transport.phaseLogBytes) &&
+    transport.phaseLogBytes.length > 0 && transport.phaseLogBytes.length <= 16777216);
+  assert.equal(sha(transport.phaseLogBytes), expected.phaseLogSha256);
+  const stream = reassembleNativeFreshFinalLog(transport.phaseLogChunks, {
+    phase:"final",planSha256:expected.planSha256,phaseLogSha256:expected.phaseLogSha256,
+  });
+  assert.deepEqual(stream.bytes, transport.phaseLogBytes);
+  const units = readFinalUnitStreams(stream.bytes);
+  const v = completed.verified;
+  exact(v, ["planSha256","pre","image","imageDigest","imageConfigDigest",
+    "registryRawConfigSha256","actualPrecommitAndCommittedImageVerified",
+    "digestPullEvidence",...Object.keys(outerFalse),"schemaVersion","purpose",
+    "transportKind","fullLocalImageConfigDigest","compactArtifacts",
+    "committedCompactFilesVerified","compactRootFsLayers"]);
+  assert.equal(v.schemaVersion, 2);
+  assert.equal(v.purpose, "verified-fresh-native-compact-final");
+  assert.equal(v.transportKind, expected.transportKind);
+  assert.equal(v.fullLocalImageConfigDigest, expected.fullLocalImageConfigDigest);
+  assert.equal(v.planSha256, plan.planSha256);
+  assert.equal(v.imageDigest, expected.imageDigest);
+  assert.equal(v.imageConfigDigest, expected.imageConfigDigest);
+  assert.equal(v.registryRawConfigSha256, expected.imageConfigDigest.slice(7));
+  assert.equal(v.actualPrecommitAndCommittedImageVerified, true);
+  assert.equal(v.committedCompactFilesVerified, true);
+  assert.equal(v.compactRootFsLayers, 1);
+  assert.equal(v.digestPullEvidence, false,
+    "Local compact verification is not independent digest-pull evidence");
+  for (const key of Object.keys(outerFalse)) assert.equal(v[key], false);
+  const raw = base64(v.pre.finalReceiptBase64, 32768);
+  assert.equal(sha(raw), expected.receiptSha256);
+  const receipt = parseFinalJson(raw);
+  exact(receipt, [
+    "schemaVersion",
+    "purpose",
+    "phase",
+    "predecessorSha256",
+    "inputs",
+    "inputsSha256",
+    "state",
+    "proof",
+    ...Object.keys(outerFalse),
+  ]);
+  assert.equal(receipt.schemaVersion, 1);
+  assert.equal(receipt.purpose, "llvm-builder-checkpoint-not-runtime");
+  assert.equal(receipt.phase, "final");
+  assert.equal(
+    receipt.predecessorSha256,
+    plan.identity.expectedParent.receiptSha256,
+  );
+  assert.deepEqual(receipt.inputs, plan.identity.inputs);
+  assert.equal(receipt.inputsSha256, plan.identity.inputsSha256);
+  assert.equal(receipt.inputsSha256, sha(JSON.stringify(receipt.inputs)));
+  assert.equal(
+    receipt.unitAcceptance,
+    true,
+    "Actual original dual unit gates required",
+  );
+  assert.equal(
+    receipt.packageAcceptance,
+    true,
+    "Actual original package gates required",
+  );
+  for (const key of [
+    "runtimeAcceptance",
+    "authenticatedAcceptance",
+    "deploymentAcceptance",
+  ])
+    assert.equal(receipt[key], false);
+  exact(receipt.proof, [
+    "abiReceiptSha256",
+    "packageSha256",
+    "unitReceiptSha256",
+    "llvm-abi.json",
+    "llvm-cpu-jit",
+    "llvm-arm-policy",
+    "llvm-release-configuration.json",
+    "llvm-assertions-configuration.json",
+  ]);
+  for (const value of Object.values(receipt.proof)) assert.match(value, hex);
+  const pre = stage(v.pre, "pre", plan, expected, raw, units),
+    image = stage(v.image, "image", plan, expected, raw, units);
+  assert.deepEqual(
+    pre,
+    image,
+    "Two independent actual native reviews must agree",
+  );
+  assert.deepEqual(receipt.state, pre.state);
+  assert.equal(receipt.proof.packageSha256, pre.packageSha256);
+  assert.ok(
+    Array.isArray(completed.receiptChain) &&
+      completed.receiptChain.length === 7,
+  );
+  const parentRecords = input.completedPhases.at(-1).completed.receiptChain;
+  assert.deepEqual(completed.receiptChain.slice(0, 6), parentRecords);
+  const last = completed.receiptChain.at(-1);
+  exact(last, ["phase", "sha256", "base64"]);
+  assert.equal(last.phase, "final");
+  assert.equal(last.sha256, expected.receiptSha256);
+  assert.deepEqual(base64(last.base64, 32768), raw);
+  const artifacts = completed.compactArtifacts;
+  exact(artifacts, ["inventory","inventorySha256"]);
+  assert.deepEqual(v.compactArtifacts, artifacts);
+  assert.match(artifacts.inventorySha256, hex);
+  assert.equal(artifacts.inventorySha256, sha(JSON.stringify(artifacts.inventory)));
+  assert.ok(Array.isArray(artifacts.inventory) && artifacts.inventory.length === 15);
+  assert.ok(Buffer.byteLength(JSON.stringify(artifacts.inventory)) <= 16384);
+  const hashes = [receipt.proof.packageSha256,receipt.proof["llvm-cpu-jit"],
+    receipt.proof["llvm-arm-policy"],receipt.proof.abiReceiptSha256,
+    receipt.proof["llvm-abi.json"],receipt.proof.unitReceiptSha256,
+    receipt.proof["llvm-release-configuration.json"],
+    receipt.proof["llvm-assertions-configuration.json"],
+    ...completed.receiptChain.map(item => item.sha256)];
+  let total = 0;
+  artifacts.inventory.forEach((item, index) => {
+    exact(item, ["path","sha256","bytes","mode"]);
+    assert.equal(item.path, NATIVE_COMPACT_ARTIFACT_PATHS[index]);
+    assert.equal(item.sha256, hashes[index]);
+    const limit = index === 0 ? 512 * 1024 ** 2 : index <= 2 ? 128 * 1024 ** 2 : 32768;
+    assert.ok(Number.isSafeInteger(item.bytes) && item.bytes > 0 && item.bytes <= limit);
+    if (index === 1 || index === 2) assert.equal(item.mode, 493);
+    else if (index >= 8) assert.equal(item.mode, 384);
+    else assert.ok(item.mode === 384 || item.mode === 420);
+    if (index >= 8)
+      assert.equal(item.bytes, base64(completed.receiptChain[index - 8].base64, 32768).length);
+    total += item.bytes;
+  });
+  assert.ok(total <= 805699584);
+  const configRaw = base64(completed.registryConfigBase64, 262144);
+  assert.equal("sha256:" + sha(configRaw), expected.imageConfigDigest);
+  const config = parseFinalJson(configRaw, 262144);
+  assert.equal(config.os, "linux");
+  assert.equal(config.architecture, "amd64");
+  exact(config.rootfs, ["type","diff_ids"]);
+  assert.equal(config.rootfs.type, "layers");
+  assert.ok(Array.isArray(config.rootfs.diff_ids) && config.rootfs.diff_ids.length === 1);
+  assert.match(config.rootfs.diff_ids[0], digest);
+  for (const key of ["Env","Cmd","Entrypoint","OnBuild","Shell"])
+    assert.ok(config.config[key] == null ||
+      Array.isArray(config.config[key]) && config.config[key].length === 0,
+      "Compact artifact donor cannot carry process/environment configuration");
+  for (const key of ["Volumes","ExposedPorts"])
+    assert.ok(config.config[key] == null ||
+      typeof config.config[key] === "object" && !Array.isArray(config.config[key]) &&
+      Object.keys(config.config[key]).length === 0);
+  for (const key of ["User","WorkingDir"])
+    assert.ok(config.config[key] == null || config.config[key] === "");
+  assert.ok(config.config.Healthcheck == null);
+  assert.ok(config.config.StopSignal == null || config.config.StopSignal === "");
+  const labels = {
+    "vaettir.source-commit":plan.identity.sourceCommit,
+    "vaettir.source-sha256":plan.identity.sourceSha256,
+    "vaettir.prepare-plan":plan.identity.preparePlanSha256,
+    "vaettir.continuation-plan":plan.planSha256,
+    "vaettir.continuation-phase":"final-compact",
+    "vaettir.runtime-eligible":"false",
+    "vaettir.artifact-purpose":"llvm-final-artifact-donor",
+    "vaettir.final-owner":plan.planSha256,
+    "vaettir.transport-kind":expected.transportKind,
+    "vaettir.full-local-image-config":expected.fullLocalImageConfigDigest,
+    "vaettir.artifact-inventory-sha256":artifacts.inventorySha256,
+    "vaettir.final-receipt-sha256":expected.receiptSha256,
+  };
+  assert.deepEqual(config.config.Labels, labels);
+  const registry = completed.registryManifest;
+  exact(registry, ["images","failures"]);
+  assert.deepEqual(registry.failures, []);
+  assert.ok(Array.isArray(registry.images) && registry.images.length === 1);
+  const record = registry.images[0];
+  exact(record.imageId, ["imageDigest","imageTag"]);
+  assert.equal(record.imageId.imageDigest, expected.imageDigest);
+  assert.equal(record.imageId.imageTag, plan.candidateImage.split(":").at(-1));
+  assert.ok(typeof record.imageManifest === "string" && Buffer.byteLength(record.imageManifest) <= 2097152);
+  assert.equal("sha256:" + sha(record.imageManifest), expected.imageDigest);
+  const manifest = parseFinalJson(Buffer.from(record.imageManifest), 2097152);
+  exact(manifest, ["schemaVersion","mediaType","config","layers"]);
+  assert.equal(manifest.schemaVersion, 2);
+  assert.equal(manifest.mediaType, "application/vnd.docker.distribution.manifest.v2+json");
+  exact(manifest.config, ["mediaType","size","digest"]);
+  assert.equal(manifest.config.mediaType, "application/vnd.docker.container.image.v1+json");
+  assert.equal(manifest.config.digest, expected.imageConfigDigest);
+  assert.equal(manifest.config.size, configRaw.length);
+  assert.ok(Array.isArray(manifest.layers) && manifest.layers.length === 1);
+  const layer = manifest.layers[0];
+  exact(layer, ["mediaType","size","digest"]);
+  assert.equal(layer.mediaType, "application/vnd.docker.image.rootfs.diff.tar.gzip");
+  assert.match(layer.digest, digest);
+  assert.ok(Number.isSafeInteger(layer.size) && layer.size > 0 && layer.size <= 3 * 1024 ** 3);
+  return {
+    phase:"final",transportKind:expected.transportKind,
+    finalReceiptSha256:expected.receiptSha256,imageDigest:expected.imageDigest,
+    imageConfigDigest:expected.imageConfigDigest,fullLocalImageConfigDigest:expected.fullLocalImageConfigDigest,
+    artifactInventorySha256:artifacts.inventorySha256,artifacts:artifacts.inventory,
+    phaseLogSha256:expected.phaseLogSha256,units,
+    actualNativeReviewMetadataConsistent:true,actualCloudEvidenceStillRequired:true,...outerFalse,
   };
 }

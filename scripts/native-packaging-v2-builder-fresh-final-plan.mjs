@@ -7,6 +7,7 @@ import { validateNativeFreshCoreCompleted } from "./native-packaging-v2-builder-
 import { validateNativeFreshNextPhaseCompleted } from "./native-packaging-v2-builder-fresh-next-phase.mjs";
 import { nativeValidationShell } from "./native-builder-recovery.mjs";
 import { unpackFreshPrepareOperation } from "./native-packaging-v2-builder-fresh-prepare.mjs";
+import { assembleNativeCompactFinal, COMPACT_TRANSPORT_POLICY_SHA256 } from "./native-final-compact-transport.mjs";
 
 const HEX = /^[a-f0-9]{64}$/;
 const phases = [
@@ -931,4 +932,18 @@ function assemble(identity) {
     globalDeadlineMayRefuse: true,
     defaultRuntimeGraphChanged: false,
   };
+}
+
+/** Prospective transport only. The legacy planner/assembly remain unchanged;
+ * this distinct identity reruns the original full final recipe and both full
+ * reviews before exporting a compact donor. Failed runs are never inputs.
+ */
+export function planNativeFreshCompactFinal(input) {
+  const legacy = planNativeFreshFinal(input);
+  const identity = {
+    ...legacy.identity,
+    transportKind: "compact-fixed15-v1",
+    compactTransportPolicySha256: COMPACT_TRANSPORT_POLICY_SHA256,
+  };
+  return assembleNativeCompactFinal(assemble(identity));
 }

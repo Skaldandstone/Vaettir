@@ -9,6 +9,7 @@ import {historicalNativeV1RecipeFixture} from "./native-v1-recipe-test-fixture.m
 import {historicalNativeFinalPlanFixture,reviewedNativeFinalDiagnosticsTestOverlay} from "./native-final-plan-historical-test-fixture.mjs";
 import {historicalNativeFinalAdapterFixture} from "./native-final-adapter-historical-test-fixture.mjs";
 import {reviewedRecipeIsolationTestOverlay} from "./native-final-recipe-isolation-test-overlay.mjs";
+import {restoreReviewedCompactLegacyTestSource,COMPACT_LEGACY_TEST_SOURCE_PINS} from "./native-final-compact-derivation-test-overlay.mjs";
 const root=new URL("../",import.meta.url);
 const sha=b=>createHash("sha256").update(b).digest("hex");
 const fixtureName="native-final-runtime-recipe-fixture.mjs";
@@ -30,7 +31,7 @@ function fixtureLf(raw){
 function reviewedMemoryDiagnosticsOverlay(historicalDiagnostics){
   assert.ok(Buffer.isBuffer(historicalDiagnostics));
   assert.equal(sha(historicalDiagnostics),"939adbc2675d08eafca59b51b37d20dcc72246ee9a298244fc0032f7b475ed4f");
-  const current=fixtureLf(readFileSync(new URL("scripts/native-packaging-v2-builder-fresh-final-plan.mjs",root)));
+  const current=restoreReviewedCompactLegacyTestSource("native-packaging-v2-builder-fresh-final-plan.mjs",fixtureLf(readFileSync(new URL("scripts/native-packaging-v2-builder-fresh-final-plan.mjs",root))));
   const before=historicalDiagnostics.toString(),after=current.toString();
   const extract=text=>{
     const start=text.indexOf("export function nativeFinalPublicFailure(stage, error) {");
@@ -108,9 +109,11 @@ test("deterministic narrowly corrected recipe/derived import/pin/purpose bytes r
   assert.deepEqual(r,again);
   // Historical derivation remains exact. The CURRENT final planner has only
   // the explicit hash-admitted test diagnostics overlays; every other current
-  // V2 producer still equals the original derivation byte-for-byte.
+  // V2 producer still equals the original derivation byte-for-byte after the
+  // separately whole-hash-admitted compact TEST inverse, where applicable.
   for(const name of [...Object.values(V2_MODULE_NAMES),"native-builder-fresh-final-adapter.mjs"]){
-    const canonical=fixtureLf(readFileSync(new URL("scripts/"+name,root)));
+    const compactBytes=fixtureLf(readFileSync(new URL("scripts/"+name,root)));
+    const canonical=Object.hasOwn(COMPACT_LEGACY_TEST_SOURCE_PINS,name)?restoreReviewedCompactLegacyTestSource(name,compactBytes):compactBytes;
     if(name==="native-packaging-v2-builder-fresh-final-plan.mjs"){
       assert.notDeepEqual(canonical,r.modules[name],"Current diagnostics are not historical final bytes");
       assert.deepEqual(canonical,reviewedRecipeIsolationTestOverlay(reviewedMemoryDiagnosticsOverlay(reviewedNativeFinalDiagnosticsTestOverlay(r.modules[name]))));
@@ -128,6 +131,32 @@ test("deterministic narrowly corrected recipe/derived import/pin/purpose bytes r
   assert.equal(r.policy.freshNullParentRequired,true);
   assert.ok(Object.values(r.acceptance).every(x=>x===false));
   for(const name of ["native-builder-recovery.mjs","native-builder-continuation.mjs","native-builder-fresh-final-adapter.mjs","native-builder-fresh-final-verifier.mjs"])assert.deepEqual(r.modules[name],s.modules[name]);
+});
+
+test("strict compact TEST inverse restores all three complete legacy modules and refuses every other input",()=>{
+  assert.equal(Object.keys(COMPACT_LEGACY_TEST_SOURCE_PINS).length,3);
+  for(const [name,pins]of Object.entries(COMPACT_LEGACY_TEST_SOURCE_PINS)){
+    const compact=fixtureLf(readFileSync(new URL("scripts/"+name,root))),preserved=Buffer.from(compact);
+    assert.equal(sha(compact),pins.compactSha256);
+    const restored=restoreReviewedCompactLegacyTestSource(name,compact);
+    assert.equal(sha(restored),pins.legacySha256);
+    assert.deepEqual(compact,preserved,"Test inverse cannot mutate the complete reviewed producer");
+    const tampered=Buffer.from(compact);tampered[0]^=1;
+    for(const candidate of [tampered,compact.subarray(0,-1),Buffer.concat([compact,Buffer.from("\n")]),Buffer.from(compact.toString().replaceAll("\n","\r\n")),restored,Buffer.from("unknown"),Buffer.alloc(0),compact.toString(),[compact],null])
+      assert.throws(()=>restoreReviewedCompactLegacyTestSource(name,candidate));
+    assert.throws(()=>restoreReviewedCompactLegacyTestSource(name,compact,{replacement:restored}));
+    assert.throws(()=>restoreReviewedCompactLegacyTestSource(name,compact,restored));
+    assert.throws(()=>restoreReviewedCompactLegacyTestSource(name));
+    for(const other of Object.keys(COMPACT_LEGACY_TEST_SOURCE_PINS).filter(value=>value!==name))
+      assert.throws(()=>restoreReviewedCompactLegacyTestSource(other,compact));
+    restored[0]^=1;
+    assert.equal(sha(restoreReviewedCompactLegacyTestSource(name,compact)),pins.legacySha256);
+    assert.deepEqual(compact,preserved);
+  }
+  const first=Object.keys(COMPACT_LEGACY_TEST_SOURCE_PINS)[0],bytes=fixtureLf(readFileSync(new URL("scripts/"+first,root)));
+  for(const name of ["unknown.mjs","constructor","__proto__",null,[],{}])
+    assert.throws(()=>restoreReviewedCompactLegacyTestSource(name,bytes));
+  assert.throws(()=>restoreReviewedCompactLegacyTestSource());
 });
 test("constructor diagnostics TEST overlay admits only complete immutable historical v2 bytes",()=>{
   const historical=deriveNativePackagingV2(source()).modules["native-packaging-v2-builder-fresh-final-plan.mjs"];

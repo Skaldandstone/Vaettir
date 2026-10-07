@@ -14,6 +14,7 @@ import {unpackFreshPrepareOperation} from './native-packaging-v2-builder-fresh-p
 import {createNativeFreshFinalAdapter} from './native-builder-fresh-final-adapter.mjs';
 import {gzipSync} from 'node:zlib';
 import {reviewedRecipeIsolationTestOverlay,reviewedRecipeCommitBudgetTestOverlay,reviewedRegistryPushBudgetTestOverlay} from './native-final-recipe-isolation-test-overlay.mjs';
+import {restoreReviewedCompactLegacyTestSource} from './native-final-compact-derivation-test-overlay.mjs';
 const sha=b=>createHash('sha256').update(b).digest('hex');
 const quote=s=>"'"+s.replaceAll("'","'\\''")+"'";
 const gb=1024**3, prefix='native-fresh-final-proof/';
@@ -27,7 +28,7 @@ function planFor(module){
  // This does NOT claim accepted V2 parent/native lineage. Root's separate
  // complete derivation/fixture suites cover those independent contracts.
  const identity={...original.planNativeFreshFinal(input).identity,purpose:'native-packaging-v2-fresh-final-plan-not-runtime'};
- const source=readFileSync(new URL('./native-packaging-v2-builder-fresh-final-plan.mjs',import.meta.url),'utf8');
+ const source=restoreReviewedCompactLegacyTestSource('native-packaging-v2-builder-fresh-final-plan.mjs',Buffer.from(readFileSync(new URL('./native-packaging-v2-builder-fresh-final-plan.mjs',import.meta.url),'utf8').replaceAll('\r\n','\n'))).toString();
  const start=source.indexOf('function assemble(identity) {');assert.ok(start>=0);
  const sandbox={Buffer,TextDecoder,assert,gzipSync,sha,quote,nativeValidationShell,unpackFreshPrepareOperation,nativeFinalPublicFailure:module.nativeFinalPublicFailure,
   repository:'051722405355.dkr.ecr.us-east-2.amazonaws.com/vaettir-api',bucket:'vaettir-build-source-051722405355',flags:{unitAcceptance:false,packageAcceptance:false,runtimeAcceptance:false,authenticatedAcceptance:false,deploymentAcceptance:false}};
@@ -254,13 +255,13 @@ for(const [name,module]of [['original',original],['packaging-v2',v2]]){
   }
  });
 }
-test('whole current v1/v2 source differs only exact three import specifiers and purpose',()=>{
- const v1=readFileSync(new URL('./native-builder-fresh-final-plan.mjs',import.meta.url),'utf8'),current=readFileSync(new URL('./native-packaging-v2-builder-fresh-final-plan.mjs',import.meta.url),'utf8');let expected=v1;
+test('whole current v1/restored legacy v2 source differs only exact three import specifiers and purpose',()=>{
+ const v1=readFileSync(new URL('./native-builder-fresh-final-plan.mjs',import.meta.url),'utf8').replaceAll('\r\n','\n'),current=restoreReviewedCompactLegacyTestSource('native-packaging-v2-builder-fresh-final-plan.mjs',Buffer.from(readFileSync(new URL('./native-packaging-v2-builder-fresh-final-plan.mjs',import.meta.url),'utf8').replaceAll('\r\n','\n'))).toString();let expected=v1;
  for(const from of ['native-builder-fresh-core.mjs','native-builder-fresh-next-phase.mjs','native-builder-fresh-prepare.mjs']){const before='from "./'+from+'"',after='from "./native-packaging-v2-'+from.slice('native-'.length)+'"';assert.equal(expected.split(before).length,2);expected=expected.replace(before,after);}
  assert.equal(expected.split('purpose: "fresh-native-final-plan-not-runtime"').length,2);expected=expected.replace('purpose: "fresh-native-final-plan-not-runtime"','purpose: "native-packaging-v2-fresh-final-plan-not-runtime"');assert.equal(expected,current);
 });
 test('strict TEST isolation overlay rejects unknown, tampered, already-applied and caller replacements',()=>{
- const current=Buffer.from(readFileSync(new URL('./native-packaging-v2-builder-fresh-final-plan.mjs',import.meta.url),'utf8').replaceAll('\r\n','\n'));
+ const current=restoreReviewedCompactLegacyTestSource('native-packaging-v2-builder-fresh-final-plan.mjs',Buffer.from(readFileSync(new URL('./native-packaging-v2-builder-fresh-final-plan.mjs',import.meta.url),'utf8').replaceAll('\r\n','\n')));
  assert.equal(sha(current),'8515261b5dd66e239b9250885581b06e3ddb7d5c2d8df145c2762e6c26423293');
  const overlaySource=readFileSync(new URL('./native-final-recipe-isolation-test-overlay.mjs',import.meta.url),'utf8');const start=overlaySource.indexOf('const changes=['),end=overlaySource.indexOf('\nexport function reviewedRecipeCommitBudgetTestOverlay',start);assert.ok(start>=0&&end>start);
  const {changes,commitBudgetChanges,registryPushChanges}=new Script(overlaySource.slice(start,overlaySource.indexOf('\nexport function reviewedRegistryPushBudgetTestOverlay',start))+'\n({changes,commitBudgetChanges,registryPushChanges})').runInNewContext({},{timeout:2000});let historical=current.toString();
