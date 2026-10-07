@@ -77,6 +77,139 @@ function assertProcedureProseCell(cell) {
   assert.equal(cell.props.style.textAlign, "left");
 }
 
+// Compile the actual priority-advice section. These are synthetic query states;
+// native authorization, RPC delivery and browser/provider acceptance are separate.
+function priorityAdvice(prioritySuggestion, readOnly, businessRationale = " Original\n  business need ") {
+  const text = source("../components/TestCaseDetailContent.tsx");
+  const file = ts.createSourceFile("TestCaseDetailContent.tsx", text, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+  const sections = [];
+  function visit(node) {
+    if (ts.isJsxElement(node) && node.openingElement.tagName.getText(file) === "section" &&
+      node.openingElement.attributes.properties.some(attribute => ts.isJsxAttribute(attribute) &&
+        attribute.name.getText(file) === "aria-label" && attribute.initializer?.getText(file) === '"Risk-derived priority advice"')) sections.push(node);
+    ts.forEachChild(node, visit);
+  }
+  visit(file);
+  assert.equal(sections.length, 1, "Render exactly the actual priority-advice section");
+  const compiled = ts.transpileModule(`exports.render = (prioritySuggestion, readOnly, businessRationale, actions) => {
+    const priorityBusy = false, priorityError = "", businessPriority = "HIGH";
+    const decidePriority = actions.decide, setBusinessPriority = actions.priority, setBusinessRationale = actions.rationale;
+    return (${sections[0].getText(file)});
+  };`, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.React } }).outputText;
+  const exports = {}, changes = [];
+  const actions = { decide: value => changes.push(["decision", value]), priority: value => changes.push(["priority", value]), rationale: value => changes.push(["rationale", value]) };
+  new Function("exports", "React", compiled)(exports, React);
+  const element = exports.render(prioritySuggestion, readOnly, businessRationale, actions);
+  return { element, html: renderToStaticMarkup(element), changes };
+}
+
+function descendantsOfType(element, type) {
+  if (!React.isValidElement(element)) return [];
+  return [
+    ...(element.type === type ? [element] : []),
+    ...React.Children.toArray(element.props.children).flatMap(child => descendantsOfType(child, type)),
+  ];
+}
+
+test("actual priority-advice failed reads withhold cached advice and editors without recommending reassessment", () => {
+  for (const data of [undefined, { suggestedPriority: "HIGH", currentPriority: "MEDIUM", canEdit: true, latestDecision: { mode: "BUSINESS_OVERRIDE", rationale: "Private cached rationale" } }]) {
+    for (const readOnly of [false, true]) {
+      for (const isFetching of [false, true]) {
+        let refreshes = 0;
+        const query = { data, isFetching, error: new Error("Private failure token"), refetch: async () => { refreshes++; } };
+        const before = JSON.stringify(data);
+        const rendered = priorityAdvice(query, readOnly);
+        assert.match(rendered.html, /role="alert"/);
+        assert.match(rendered.html, /could not be refreshed/);
+        assert.match(rendered.html, /Existing priority and your local business rationale remain unchanged/);
+        assert.doesNotMatch(rendered.html, /Private failure token|Private cached rationale|Risk suggests|Assess this case|Use risk suggestion|Save business override/);
+        assert.equal(descendantsOfType(rendered.element, "textarea").length, 0);
+        assert.equal(descendantsOfType(rendered.element, "select").length, 0);
+        const buttons = descendantsOfType(rendered.element, "button");
+        assert.equal(buttons.length, 1);
+        assert.equal(buttons[0].props.children, "Retry priority advice");
+        assert.equal(buttons[0].props.disabled, isFetching);
+        assert.equal(refreshes, 0);
+        assert.deepEqual(rendered.changes, []);
+        assert.equal(JSON.stringify(data), before);
+      }
+    }
+  }
+});
+
+test("actual priority-advice retry refreshes only the original query without changing priority or rationale", () => {
+  for (const readOnly of [false, true]) {
+    let refreshes = 0;
+    const query = { data: { suggestedPriority: "HIGH", currentPriority: "MEDIUM", canEdit: true }, isFetching: false, error: new Error("Synthetic failure"), refetch: async () => { refreshes++; } };
+    const rendered = priorityAdvice(query, readOnly);
+    descendantsOfType(rendered.element, "button")[0].props.onClick();
+    assert.equal(refreshes, 1);
+    assert.deepEqual(rendered.changes, []);
+    assert.equal(query.data.currentPriority, "MEDIUM");
+  }
+});
+
+test("actual pending and refreshing priority reads withhold cached advice instead of claiming risk is missing", () => {
+  for (const flags of [{ isPending: true, isFetching: false }, { isPending: false, isFetching: true }]) {
+    for (const data of [undefined, { suggestedPriority: "HIGH", currentPriority: "MEDIUM", canEdit: true }]) {
+      for (const readOnly of [false, true]) {
+        let refreshes = 0;
+        const query = { ...flags, isPaused: false, error: null, data, refetch: async () => { refreshes++; } };
+        const rendered = priorityAdvice(query, readOnly);
+        assert.match(rendered.html, /role="status"/);
+        assert.match(rendered.html, /Loading current priority advice/);
+        assert.doesNotMatch(rendered.html, /Risk suggests|Assess this case|Use risk suggestion|Save business override/);
+        assert.equal(descendantsOfType(rendered.element, "button").length, 0);
+        assert.equal(descendantsOfType(rendered.element, "textarea").length, 0);
+        assert.equal(refreshes, 0);
+        assert.deepEqual(rendered.changes, []);
+      }
+    }
+  }
+});
+
+test("actual paused priority read keeps current drafts and offers only the original read retry", () => {
+  for (const readOnly of [false, true]) {
+    for (const isFetching of [false, true]) {
+      let refreshes = 0;
+      const query = { isPending: false, isFetching, isPaused: true, error: null, data: { suggestedPriority: "HIGH", currentPriority: "MEDIUM", canEdit: true }, refetch: async () => { refreshes++; } };
+      const rendered = priorityAdvice(query, readOnly);
+      assert.match(rendered.html, /role="status"/);
+      assert.match(rendered.html, /Priority advice is paused/);
+      assert.doesNotMatch(rendered.html, /Risk suggests|Assess this case|Use risk suggestion|Save business override/);
+      const buttons = descendantsOfType(rendered.element, "button");
+      assert.equal(buttons.length, 1);
+      assert.equal(buttons[0].props.disabled, isFetching);
+      assert.equal(refreshes, 0);
+      if (!isFetching) { buttons[0].props.onClick(); assert.equal(refreshes, 1); }
+      assert.deepEqual(rendered.changes, []);
+      assert.equal(query.data.currentPriority, "MEDIUM");
+    }
+  }
+});
+
+test("actual successful priority advice retains optional editor prose and distinguishes missing from stale risk", () => {
+  const query = { data: { suggestedPriority: "HIGH", currentPriority: "MEDIUM", canEdit: true, latestDecision: null }, isFetching: false, error: null, refetch: () => { throw Error("Rendering must not refresh"); } };
+  const rationale = " Original\n  business need <literal> ";
+  const editor = priorityAdvice(query, false, rationale);
+  assert.match(editor.html, /Current: medium/);
+  assert.match(editor.html, /Risk suggests.*high/);
+  assert.doesNotMatch(editor.html, /could not be refreshed|Retry priority advice/);
+  assert.equal(descendantsOfType(editor.element, "textarea")[0].props.value, rationale);
+  assert.equal(descendantsOfType(editor.element, "select")[0].props.value, "HIGH");
+  assert.deepEqual(editor.changes, []);
+  const reader = priorityAdvice(query, true, rationale);
+  assert.match(reader.html, /Risk suggests.*high/);
+  assert.equal(descendantsOfType(reader.element, "textarea").length, 0);
+  assert.equal(descendantsOfType(reader.element, "button").length, 0);
+  const missing = priorityAdvice({ ...query, data: undefined }, false);
+  assert.match(missing.html, /Assess this case/);
+  assert.doesNotMatch(missing.html, /could not be refreshed|Retry priority advice/);
+  const stale = priorityAdvice({ ...query, data: { riskNeedsReview: true } }, false);
+  assert.match(stale.html, /saved risk review no longer matches/);
+  assert.doesNotMatch(stale.html, /Assess this case|Use risk suggestion|could not be refreshed/);
+});
+
 test("actual structured procedure pairs complete multiline prose with unchanged order and media references", () => {
   const tc = {
     stepFieldLabels: { action: "Tester action", expectedActionOrData: "Technical behavior", expectedResult: "Visible result", expectedResponse: "API response" },

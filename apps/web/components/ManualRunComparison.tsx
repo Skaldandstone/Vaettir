@@ -89,8 +89,8 @@ function ComparisonView({ projectId }: { projectId: string }) {
           {(["baseline", "candidate"] as const).map(side => { const run = value[side], summary = side === "baseline" ? value.baselineSummary : value.candidateSummary; return <section className="panel run-card" key={side}>
             <h2>{side === "baseline" ? "Baseline" : "Candidate"} · {label(run.status)}</h2>
             <p><time dateTime={run.startedAt}>{new Date(run.startedAt).toLocaleString()}</time> · {run.finishedAt ? `Finished ${new Date(run.finishedAt).toLocaleString()}` : "No finish time recorded"}</p>
-            <div className="run-card-progress"><strong>{summary.percentComplete}% with recorded verdicts</strong><span>{summary.remaining} cases without a verdict</span></div>
-            <progress max={summary.total || 1} value={summary.recorded} aria-label={`${side} planned case verdict progress`} />
+            <div className="run-card-progress"><strong>{summary.total === 0 ? "No planned cases" : `${summary.percentComplete}% with recorded verdicts`}</strong><span>{summary.total === 0 ? "Recorded percentage not applicable" : `${summary.remaining} cases without a verdict`}</span></div>
+            {summary.total > 0 && <progress max={summary.total} value={summary.recorded} aria-label={`${side} planned case verdict progress`} />}
             <DistributionBar label={`${side} recorded verdicts`} segments={[{ label: "Passed", value: summary.pass, tone: "success" }, { label: "Failed", value: summary.fail, tone: "danger" }, { label: "Blocked", value: summary.blocked, tone: "warning" }, { label: "Skipped", value: summary.skip, tone: "neutral" }, { label: "Flaky", value: summary.flaky, tone: "info" }, { label: "No verdict", value: summary.remaining, tone: "neutral" }]} />
             <p>{summary.recorded}/{summary.total} planned cases have a recorded verdict. {summary.ignoredOutsideScopeResults} unmatched/out-of-scope observations excluded.</p>
             <a href={`/projects/${projectId}/test-runs/manual/${run.id}`}>Open this saved execution</a>

@@ -1681,7 +1681,21 @@ function TestCaseInspector({
           aria-label="Risk-derived priority advice"
         >
           <strong>Risk-derived priority advice</strong>
-          {prioritySuggestion.data?.suggestedPriority ? (
+          {prioritySuggestion.error ? (
+            <p role="alert">
+              Risk-derived priority advice could not be refreshed. Existing priority and your local business rationale remain unchanged.{" "}
+              <button type="button" disabled={prioritySuggestion.isFetching} onClick={() => void prioritySuggestion.refetch()}>
+                Retry priority advice
+              </button>
+            </p>
+          ) : prioritySuggestion.isPending || prioritySuggestion.isFetching || prioritySuggestion.isPaused ? (
+            <p role="status">
+              {prioritySuggestion.isPaused
+                ? "Priority advice is paused. Reconnect and retry this read; existing priority and your local business rationale remain unchanged."
+                : "Loading current priority advice. Existing priority and your local business rationale remain unchanged."}
+              {prioritySuggestion.isPaused && <>{" "}<button type="button" disabled={prioritySuggestion.isFetching} onClick={() => void prioritySuggestion.refetch()}>Retry priority advice</button></>}
+            </p>
+          ) : prioritySuggestion.data?.suggestedPriority ? (
             <>
               <p>
                 Current: {prioritySuggestion.data.currentPriority.toLowerCase()}

@@ -380,6 +380,18 @@ function StrategyLinkSection({
         </div>
       ) : readOnly ? (
         <p className="text-muted">Not linked to a strategy.</p>
+      ) : candidatesQuery.error ? (
+        <p role="alert">
+          Available strategies could not be refreshed. Retry before choosing a strategy.{" "}
+          <button type="button" className="btn-secondary" disabled={saving || candidatesQuery.isFetching} onClick={() => void candidatesQuery.refetch()}>Retry strategies</button>
+        </p>
+      ) : candidatesQuery.isPaused ? (
+        <p role="status">
+          Strategy listing is paused.{" "}
+          <button type="button" className="btn-secondary" disabled={saving} onClick={() => void candidatesQuery.refetch()}>Retry strategies</button>
+        </p>
+      ) : candidatesQuery.isPending || candidatesQuery.isLoading || candidatesQuery.isFetching ? (
+        <p role="status">Loading available strategies…</p>
       ) : candidates.length === 0 ? (
         <p className="text-muted">No QA strategy plans exist in this project yet.</p>
       ) : (
