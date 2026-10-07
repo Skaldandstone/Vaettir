@@ -3,6 +3,7 @@
 // Reads public source only when explicitly called, never at module import.
 import { readFileSync } from "node:fs";
 import { createHash } from "node:crypto";
+import { historicalRuntimeDockerfileFixture } from "./historical-runtime-dockerfile-test-fixture.mjs";
 import {
   createNativeFreshFinalCapsule,
   planNativeFreshFinal,
@@ -87,6 +88,8 @@ export function runtimeApplicationFixture(applicationCommit = commit) {
     // Current corrected V2 SYNTHETIC bytes, never a canonical Git export.
     const bytes = name === "build-llvm-runtime.sh"
       ? raw
+      : name === "Dockerfile.api"
+      ? historicalRuntimeDockerfileFixture(Buffer.from(raw.toString("utf8").replaceAll("\r\n", "\n"))).bytes
       : Buffer.from(raw.toString("utf8").replaceAll("\r\n", "\n"));
     gitBlobs[name] = bytes;
     gitModes[name] = "100644";

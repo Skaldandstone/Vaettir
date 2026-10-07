@@ -121,6 +121,8 @@ COPY --from=zlib-build /build/zlib-build/zlib-sanitizer-proof.txt /usr/share/vae
 COPY --from=zlib-build /build/zlib-build/zlib-runtime-regression /usr/share/vaettir/zlib-runtime-regression
 COPY --from=zlib-build /build/zlib-sources/source-manifest.json /usr/share/vaettir/zlib-source-manifest.json
 COPY --from=vendor-build /build/runtime-sources/source-manifest.json /usr/share/vaettir/runtime-source-manifest.json
+# Validate dpkg-query semantic absence for libxml2, including not-installed stubs.
+COPY scripts/check-runtime-package-absence.mjs /usr/local/lib/vaettir/check-runtime-package-absence.mjs
 RUN apt-get update --error-on=any \
     && apt-get install -y --no-install-recommends openssl ca-certificates git perl-base libpcre2-8-0 /tmp/vaettir-vendor/*.deb \
     && apt-get install -y --no-install-recommends -t trixie-backports libcurl3t64-gnutls libcurl4-gnutls \
@@ -132,7 +134,7 @@ RUN apt-get update --error-on=any \
     && test "$(dpkg-query -W -f='${Version}' libllvm19)" = '1:19.1.7-3+vaettir1' \
     && test "$(dpkg-query -W -f='${Version}' dash)" = '0.5.12-12+vaettir1' \
     && test "$(dpkg-query -W -f='${Version}' zlib1g)" = '1:1.3.dfsg+really1.3.2-3+vaettir1' \
-    && test -z "$(dpkg-query -W -f='${db:Status-Abbrev}' libxml2 2>/dev/null)" \
+    && node /usr/local/lib/vaettir/check-runtime-package-absence.mjs --image-build \
     && git --version \
     && rm /tmp/vaettir-vendor/libexpat1_2.8.5-2_*.deb \
     && rm /tmp/vaettir-vendor/libllvm19_19.1.7-3+vaettir1_amd64.deb \
