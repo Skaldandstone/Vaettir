@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import {createHash} from 'node:crypto';
 import {Script} from 'node:vm';
-import {execFileSync} from 'node:child_process';
+import {execFileSync,spawnSync} from 'node:child_process';
 import * as original from './native-builder-fresh-final-plan.mjs';
 import * as v2 from './native-packaging-v2-builder-fresh-final-plan.mjs';
 import {finalFixture} from './native-final-runtime-recipe-fixture.mjs';
@@ -13,7 +13,7 @@ import {nativeValidationShell} from './native-builder-recovery.mjs';
 import {unpackFreshPrepareOperation} from './native-packaging-v2-builder-fresh-prepare.mjs';
 import {createNativeFreshFinalAdapter} from './native-builder-fresh-final-adapter.mjs';
 import {gzipSync} from 'node:zlib';
-import {reviewedRecipeIsolationTestOverlay} from './native-final-recipe-isolation-test-overlay.mjs';
+import {reviewedRecipeIsolationTestOverlay,reviewedRecipeCommitBudgetTestOverlay} from './native-final-recipe-isolation-test-overlay.mjs';
 const sha=b=>createHash('sha256').update(b).digest('hex');
 const quote=s=>"'"+s.replaceAll("'","'\\''")+"'";
 const gb=1024**3, prefix='native-fresh-final-proof/';
@@ -153,11 +153,36 @@ for(const [name,module]of [['original',original],['packaging-v2',v2]]){
  });
  test(name+': resource/deadline/command/buildspec bounds and all generated Node/Bash syntax remain',()=>{
   const {plan}=planFor(module);assert.equal(plan.identity.resources.memoryBytes,14*gb);assert.equal(plan.identity.resources.cpus,8);assert.equal(plan.identity.resources.compilerJobs,5);assert.equal(plan.identity.resources.recipeSeconds,1200);assert.equal(plan.identity.resources.verificationReserveSeconds,900);assert.equal(plan.identity.resources.operationSeconds,2445);assert.equal(plan.identity.resources.cleanupGraceSeconds,75);assert.equal(plan.identity.resources.decoderWatchdogSeconds,2550);assert.equal(plan.identity.resources.minimumDiskAvailableBytes,72*gb);assert.equal(plan.request.timeoutInMinutesOverride,45);assert.equal(plan.request.autoRetryLimitOverride,0);assert.equal(plan.identity.receipts.length,6);
-  for(const code of Object.values(plan.generatedPrograms))new Script(code);assert.equal(Object.keys(plan.generatedPrograms).length,21);assert.ok(Buffer.byteLength(plan.request.buildspecOverride)<=25600);assert.ok(Buffer.byteLength(JSON.stringify(plan.request))+256<=30000);
+  assert.deepEqual(JSON.parse(JSON.stringify(plan.identity.resources.recipeCommit)),{timeoutSeconds:300,killAfterSeconds:20});
+  for(const code of Object.values(plan.generatedPrograms))new Script(code);assert.equal(Object.keys(plan.generatedPrograms).length,22);assert.ok(Buffer.byteLength(plan.request.buildspecOverride)<=25600);assert.ok(Buffer.byteLength(JSON.stringify(plan.request))+256<=30000);
   execFileSync(bashPath,['--noprofile','--norc','-n'],{input:plan.operation,windowsHide:true,timeout:10000,stdio:['pipe','pipe','pipe']});
   const remaining=guardHarness({[prefix+'clock.json']:JSON.stringify({deadlineNs:'901000000000'})});remaining.run(plan.generatedPrograms.verificationAdmission);remaining.files.set(prefix+'clock.json',Buffer.from(JSON.stringify({deadlineNs:'900999999999'})));assert.throws(()=>remaining.run(plan.generatedPrograms.verificationAdmission));
+  const commitRemaining=guardHarness({[prefix+'clock.json']:JSON.stringify({deadlineNs:'1221000000000'})});commitRemaining.run(plan.generatedPrograms.recipeCommitAdmission);commitRemaining.files.set(prefix+'clock.json',Buffer.from(JSON.stringify({deadlineNs:'1220999999999'})));assert.throws(()=>commitRemaining.run(plan.generatedPrograms.recipeCommitAdmission));
   const script=decodedShell(plan.operation);
   const commit=script.indexOf('>native-fresh-final-proof/recipe-image-id'),create=script.indexOf('--cidfile native-fresh-final-proof/pre-cid');assert.ok(commit>=0&&create>commit);assert.ok(script.slice(commit,create).includes('\ncleanup_native_validation\n'));assert.ok(script.slice(commit,create).includes(quote(plan.generatedPrograms.verificationAdmission)));assert.ok(script.includes('timeout 20s docker rm -f $native_final_ids'));assert.equal((script.match(/docker push /g)||[]).length,1);assert.equal(script.includes('docker push "$native_final_recipe_image"'),false);assert.equal(script.includes('drop_caches'),false);
+  assert.ok(script.indexOf(quote(plan.generatedPrograms.recipeCommitAdmission))<commit);assert.ok(script.includes('if timeout --signal=TERM --kill-after=20s 300s docker commit'));
+  assert.equal(script.split('timeout 60s docker commit').length,2,'Only the final VERIFIED commit retains60s');assert.ok(script.includes('vaettir.continuation-phase=final\''));
+ });
+ test(name+': actual recipe commit shell preserves modeled timeout/nonzero status and bounded non-acceptance breadcrumbs under errexit/cleanup',()=>{
+  const {plan}=planFor(module),script=decodedShell(plan.operation),start=script.indexOf('timeout 20s node -e '+quote(plan.generatedPrograms.recipeCommitAdmission)),end=script.indexOf('\nnative_final_recipe_image=',start);assert.ok(start>=0&&end>start);
+  const block=script.slice(start,end);assert.equal(block.split('>native-fresh-final-proof/recipe-image-id').length,2);const isolated=block.replace('>native-fresh-final-proof/recipe-image-id','>/dev/null');
+  const trap=script.split('\n').find(line=>line.startsWith("trap 'native_status=$?;"));assert.ok(trap);
+  // Only generated shell flow is executed. Timeout/Docker/Node are explicit
+  // Bash stubs; modeled elapsed90s is not real native commit timing evidence.
+  const model=(code,{status=0,elapsed=90,cleanupFails=false,printFails=false,admissionFails=false}={})=>{
+   const body=`native_final_recipe='${'a'.repeat(64)}'\nmodel_status=${status}\nmodel_elapsed=${elapsed}\nmodel_cleanup=${cleanupFails?1:0}\nmodel_print=${printFails?1:0}\nmodel_admission=${admissionFails?1:0}\nprintf(){ if [ "$model_print" = 1 ] && [[ "\${2-}" == *'"event":"result"'* ]]; then return 1; fi; builtin printf "$@"; }\ncleanup_native_validation(){ builtin printf '%s\\n' MODEL_CLEANUP; test "$model_cleanup" = 0; }\ntimeout(){ if [ "$1" = 20s ]; then test "$2" = node || return 99; return "$model_admission"; fi; test "$1" = --signal=TERM || return 99; test "$2" = --kill-after=20s || return 99; test "$4" = docker || return 99; test "$5" = commit || return 99; builtin printf '%s\\n' MODEL_COMMIT >&2; local bound=\${3%s}; if [ "$model_elapsed" -gt "$bound" ]; then return 124; fi; return "$model_status"; }\n${trap}\ntrap 'exit 124' TERM\n${code}\nbuiltin printf '%s\\n' MODEL_AFTER_COMMIT`;
+   return spawnSync(bashPath,['--noprofile','--norc','-eu','-o','pipefail','-c',body],{windowsHide:true,timeout:10000,encoding:'utf8',env:{SystemRoot:process.env.SystemRoot??'C:/Windows',PATH:process.platform==='win32'?'C:/Program Files/Git/bin':'/usr/bin:/bin',LC_ALL:'C'}});
+  };
+  for(const options of [{},{status:124},{status:137},{status:42},{status:124,cleanupFails:true},{cleanupFails:true},{status:124,printFails:true},{admissionFails:true}]){
+   const r=model(isolated,options);assert.equal(r.error,undefined);assert.equal(r.signal,null);const expected=options.admissionFails?1:options.status|| (options.cleanupFails?70:0);assert.equal(r.status,expected);
+   const logs=(r.stdout+'\n'+r.stderr).split(/\r?\n/),markers=logs.filter(s=>s.startsWith('NATIVE_FRESH_FINAL_RECIPE_COMMIT=')).map(s=>JSON.parse(s.slice('NATIVE_FRESH_FINAL_RECIPE_COMMIT='.length)));
+   assert.equal(markers.length,options.admissionFails?0:options.printFails?1:2);if(markers.length){assert.equal(markers[0].event,'begin');assert.equal('exitStatus' in markers[0],false);if(markers.length===2){assert.equal(markers[1].event,'result');assert.equal(markers[1].exitStatus,options.status??0);}}
+   for(const m of markers){assert.deepEqual(Object.keys(m).sort(),['schemaVersion','planSha256','stage','event','unitAcceptance','packageAcceptance','runtimeAcceptance','authenticatedAcceptance','deploymentAcceptance',...(m.event==='result'?['exitStatus']:[])].sort());assert.equal(m.schemaVersion,1);assert.equal(m.planSha256,plan.planSha256);assert.equal(m.stage,'recipe-commit');for(const f of ['unitAcceptance','packageAcceptance','runtimeAcceptance','authenticatedAcceptance','deploymentAcceptance'])assert.equal(m[f],false);}
+   assert.equal(logs.filter(s=>s==='MODEL_CLEANUP').length,1);assert.equal(logs.includes('MODEL_AFTER_COMMIT'),!options.admissionFails&&!options.status&&!options.printFails);assert.equal(logs.filter(s=>s==='MODEL_COMMIT').length,options.admissionFails?0:1);
+   assert.equal(logs.some(s=>/^NATIVE_FRESH_FINAL_(REVIEW|VERIFIED|CLEANED|LOG_CHUNK)=/.test(s)),false);
+  }
+  const oldBound=model(isolated.replace('20s 300s docker commit','20s 60s docker commit'));assert.equal(oldBound.status,124,'Modeled90s operation demonstrates old60s counterexample without native timing claims');
+  const tooLong=model(isolated,{elapsed:301});assert.equal(tooLong.status,124);assert.equal(tooLong.stdout.includes('MODEL_AFTER_COMMIT'),false);
  });
  test(name+': actual bootstrap materializes recipe capsule once; pre imports retained exact control/members without source injection',async()=>{
   const {plan,input}=planFor(module),mem=memoryFilesystem(),calls=[],logs=[],control=Buffer.from(JSON.stringify({planSha256:plan.planSha256,deadlineNs:'2445000000000'}));mem.setStdin(Buffer.from(JSON.stringify({capsuleBase64:input.capsule.bytes.toString('base64'),controlBase64:control.toString('base64')})));
@@ -190,8 +215,12 @@ test('whole current v1/v2 source differs only exact three import specifiers and 
 });
 test('strict TEST isolation overlay rejects unknown, tampered, already-applied and caller replacements',()=>{
  const current=Buffer.from(readFileSync(new URL('./native-packaging-v2-builder-fresh-final-plan.mjs',import.meta.url),'utf8').replaceAll('\r\n','\n'));
- assert.equal(sha(current),'50b83126cb75f29ae5269052e3719eb4ac3a2fef25e3304e3ea283e3acdd389f');
- const overlaySource=readFileSync(new URL('./native-final-recipe-isolation-test-overlay.mjs',import.meta.url),'utf8');const start=overlaySource.indexOf('const changes=['),end=overlaySource.indexOf('\nexport function reviewedRecipeIsolationTestOverlay',start);assert.ok(start>=0&&end>start);
- const changes=new Script(overlaySource.slice(start,end)+'\nchanges').runInNewContext({},{timeout:2000});let historical=current.toString();for(const[before,after]of [...changes].reverse()){assert.equal(historical.split(after).length,2);historical=historical.replace(after,before);}const originalBytes=Buffer.from(historical);assert.equal(sha(originalBytes),'3071479df0917cb68829480039e574a72c77bee82ccda2098dde390e1f9ca018');assert.deepEqual(reviewedRecipeIsolationTestOverlay(originalBytes),current);
+ assert.equal(sha(current),'da6687c1659f25dc6abae2b479304254fe0989ce64f1fbad0bee681c78fa6886');
+ const overlaySource=readFileSync(new URL('./native-final-recipe-isolation-test-overlay.mjs',import.meta.url),'utf8');const start=overlaySource.indexOf('const changes=['),end=overlaySource.indexOf('\nexport function reviewedRecipeCommitBudgetTestOverlay',start);assert.ok(start>=0&&end>start);
+ const {changes,commitBudgetChanges}=new Script(overlaySource.slice(start,end)+'\n({changes,commitBudgetChanges})').runInNewContext({},{timeout:2000});let historical=current.toString();
+ for(const[before,after]of [...commitBudgetChanges].reverse()){assert.equal(historical.split(after).length,2);historical=historical.replace(after,before);}const isolatedBytes=Buffer.from(historical);assert.equal(sha(isolatedBytes),'50b83126cb75f29ae5269052e3719eb4ac3a2fef25e3304e3ea283e3acdd389f');assert.deepEqual(reviewedRecipeCommitBudgetTestOverlay(isolatedBytes),current);
+ for(const[before,after]of [...changes].reverse()){assert.equal(historical.split(after).length,2);historical=historical.replace(after,before);}const originalBytes=Buffer.from(historical);assert.equal(sha(originalBytes),'3071479df0917cb68829480039e574a72c77bee82ccda2098dde390e1f9ca018');assert.deepEqual(reviewedRecipeIsolationTestOverlay(originalBytes),current);
  const tampered=Buffer.from(originalBytes);tampered[0]^=1;for(const b of [Buffer.from('unknown TEST source'),tampered,current])assert.throws(()=>reviewedRecipeIsolationTestOverlay(b));assert.throws(()=>reviewedRecipeIsolationTestOverlay(originalBytes,{replace:['guard','true']}));assert.throws(()=>reviewedRecipeIsolationTestOverlay(originalBytes,current));
+ const changedIsolated=Buffer.from(isolatedBytes);changedIsolated[0]^=1;for(const b of [originalBytes,Buffer.from('unknown TEST source'),changedIsolated,current])assert.throws(()=>reviewedRecipeCommitBudgetTestOverlay(b));assert.throws(()=>reviewedRecipeCommitBudgetTestOverlay(isolatedBytes,{replace:['guard','true']}));assert.throws(()=>reviewedRecipeCommitBudgetTestOverlay(isolatedBytes,current));
+ const {plan}=planFor(original);assert.equal(plan.planSha256,sha(JSON.stringify(plan.identity)));const altered=JSON.parse(JSON.stringify(plan.identity));delete altered.resources.recipeCommit;assert.notEqual(sha(JSON.stringify(altered)),plan.planSha256,'Recipe commit policy is part of original plan identity, not only command bytes');assert.throws(()=>original.planNativeFreshFinal({...planFor(original).input,budget:{...planFor(original).input.budget,recipeCommit:{timeoutSeconds:300,killAfterSeconds:20}}}));
 });

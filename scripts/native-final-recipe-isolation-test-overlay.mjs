@@ -69,6 +69,36 @@ const changes=[
     "      admission,\n      verificationAdmission,\n      imageGuard,\n      recipeImageGuard,"
   ]
 ];
+const commitBudgetChanges=[
+  [
+    "      decoderWatchdogSeconds: 2550,",
+    "      decoderWatchdogSeconds: 2550,\n      recipeCommit: { timeoutSeconds: 300, killAfterSeconds: 20 },"
+  ],
+  [
+    "  const verificationAdmission = `${common}const clock=JSON.parse(bounded('${prefix}clock.json',512));assert.ok(BigInt(clock.deadlineNs)-process.hrtime.bigint()>=${identity.resources.verificationReserveSeconds * 1000000000}n,'Global remaining budget cannot admit fresh verification');`;",
+    "  const verificationAdmission = `${common}const clock=JSON.parse(bounded('${prefix}clock.json',512));assert.ok(BigInt(clock.deadlineNs)-process.hrtime.bigint()>=${identity.resources.verificationReserveSeconds * 1000000000}n,'Global remaining budget cannot admit fresh verification');`;\n  const recipeCommitAdmission = `${common}const clock=JSON.parse(bounded('${prefix}clock.json',512));assert.ok(BigInt(clock.deadlineNs)-process.hrtime.bigint()>=${(identity.resources.recipeCommit.timeoutSeconds + identity.resources.recipeCommit.killAfterSeconds + identity.resources.verificationReserveSeconds) * 1000000000}n,'Global remaining budget cannot admit unverified recipe commit and fresh verification');`;\n  const recipeCommitBegin = \"NATIVE_FRESH_FINAL_RECIPE_COMMIT=\" + JSON.stringify({ schemaVersion: 1, planSha256, stage: \"recipe-commit\", event: \"begin\", ...flags });\n  const recipeCommitResult = \"NATIVE_FRESH_FINAL_RECIPE_COMMIT=\" + JSON.stringify({ schemaVersion: 1, planSha256, stage: \"recipe-commit\", event: \"result\", ...flags });"
+  ],
+  [
+    "    `timeout 60s docker commit --change ${quote(\"LABEL vaettir.continuation-plan=\" + planSha256 + \" vaettir.continuation-phase=final-recipe-unverified\")} \"$native_final_recipe\" >${prefix}recipe-image-id`,",
+    "    `timeout 20s node -e ${quote(recipeCommitAdmission)}`,\n    `printf '%s\\\\n' ${quote(recipeCommitBegin)}`,\n    `if timeout --signal=TERM --kill-after=${identity.resources.recipeCommit.killAfterSeconds}s ${identity.resources.recipeCommit.timeoutSeconds}s docker commit --change ${quote(\"LABEL vaettir.continuation-plan=\" + planSha256 + \" vaettir.continuation-phase=final-recipe-unverified\")} \"$native_final_recipe\" >${prefix}recipe-image-id; then`,\n    `  printf '%s\\\\n' ${quote(recipeCommitResult.slice(0, -1) + ',\"exitStatus\":0}')}`,\n    \"else\",\n    \"  native_final_recipe_commit_status=$?\",\n    `  printf '%s\\\\n' ${quote(recipeCommitResult.slice(0, -1) + ',\"exitStatus\":')}\"$native_final_recipe_commit_status\"'}' >&2 || :`,\n    '  exit \"$native_final_recipe_commit_status\"',\n    \"fi\","
+  ],
+  [
+    "      verificationAdmission,\n      imageGuard,",
+    "      verificationAdmission,\n      recipeCommitAdmission,\n      imageGuard,"
+  ]
+];
+export function reviewedRecipeCommitBudgetTestOverlay(original){
+  assert.equal(arguments.length,1);
+  assert.ok(Buffer.isBuffer(original));
+  assert.equal(sha(original),"50b83126cb75f29ae5269052e3719eb4ac3a2fef25e3304e3ea283e3acdd389f");
+  let text=original.toString();
+  for(const[before,after]of commitBudgetChanges){assert.equal(text.split(before).length,2);text=text.replace(before,after);}
+  const bytes=Buffer.from(text);
+  assert.equal(sha(bytes),"da6687c1659f25dc6abae2b479304254fe0989ce64f1fbad0bee681c78fa6886");
+  for(const[before,after]of [...commitBudgetChanges].reverse()){assert.equal(text.split(after).length,2);text=text.replace(after,before);}
+  assert.equal(text,original.toString());
+  return bytes;
+}
 export function reviewedRecipeIsolationTestOverlay(original){
   assert.equal(arguments.length,1);
   assert.ok(Buffer.isBuffer(original));
@@ -79,5 +109,5 @@ export function reviewedRecipeIsolationTestOverlay(original){
   assert.equal(sha(bytes),"50b83126cb75f29ae5269052e3719eb4ac3a2fef25e3304e3ea283e3acdd389f");
   for(const[before,after]of [...changes].reverse()){assert.equal(text.split(after).length,2);text=text.replace(after,before);}
   assert.equal(text,original.toString());
-  return bytes;
+  return reviewedRecipeCommitBudgetTestOverlay(bytes);
 }
