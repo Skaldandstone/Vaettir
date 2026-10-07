@@ -818,6 +818,9 @@ function ManualExecutionContent() {
                   const id = nextUntestedManualCase(
                     data.cases,
                     navigation.id ??
+                      (historySelection.kind === "SELECTED"
+                        ? historySelection.caseId
+                        : null) ??
                       (
                         data.cases.find(
                           (testCase) => !testCase.currentResult,

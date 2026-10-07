@@ -144,6 +144,7 @@ function syntheticSnapshot(
     writable?: boolean;
     title?: string;
     nativeActorId?: string;
+    frozen?: boolean;
   } = {},
 ) {
   const base = snapshotFactory({
@@ -164,6 +165,19 @@ function syntheticSnapshot(
   raw.view.canWrite = options.writable ?? true;
   if (options.untested)
     for (const row of raw.view.cases) row.currentResult = null;
+  if (options.frozen) {
+    raw.view.executionContext = {
+      version: 1, experience: null, profileHash: "a".repeat(64),
+      configuration: { configuration: "", platform: "", build: "", hardwareRevision: "", firmwareVersion: "", rig: "", batchOrLot: "", environment: "", calibrationReference: "", protocolReference: "" },
+      stepFieldLabels: { ...raw.view.stepFieldLabels },
+      caseDefinitions: raw.view.cases.map(row => ({ testCaseId: row.testCaseId, title: row.title, validationDomain: row.validationDomain,
+        reviewStatus: "APPROVED", background: row.background, given: row.given, when: row.when, then: row.then,
+        verificationProfile: row.verificationProfile, steps: row.steps })),
+    };
+    raw.view.scopeAvailability.procedureBasis = "FROZEN_RUN_DEFINITIONS";
+    raw.provenance.procedures = "FROZEN_RUN_DEFINITIONS";
+    for (const row of raw.view.cases) row.stepExecutionAvailable = true;
+  }
   const input = JSON.parse(
     raw.readContext.requestedKey,
   ) as ManualRunCurrentInput;
@@ -292,6 +306,7 @@ function harness() {
     pending: false,
     beforeConfirm: null as (() => void) | null,
     afterSerialize: null as (() => void) | null,
+    historyCaseIds: [] as string[],
   };
   state.held = state.candidate;
   const push = vi.fn(),
@@ -324,7 +339,7 @@ function harness() {
     fragment,
     useParams: () => ({ projectId: "p", testRunId: "run" }),
     useRouter: () => ({ push }),
-    useSearchParams: () => ({ getAll: () => [] }),
+    useSearchParams: () => ({ getAll: (key: string) => key === "caseId" ? state.historyCaseIds : [] }),
     useManualExecutionAccess: () => ({
       origin: { organizationId: "o", clerkActorId: "cl" },
       ready: true,
@@ -688,6 +703,55 @@ describe("actual manual page/CaseRow/summary synthetic boundaries; native/React 
     h.render();
     click(next);
     expect((summary.props.canExport as () => boolean)()).toBe(false);
+  });
+  it("Next untested advances from the verified history-selected second case and wraps inside the exact saved cohort", () => {
+    const h = harness(); h.state.candidate = syntheticSnapshot({ untested: true, frozen: true }); h.state.held = h.state.candidate; h.state.historyCaseIds = ["second"];
+    const before = h.render().tree, native = h.state.held, original = structuredClone(native!.data);
+    const rows = nodes(before).filter(node => node.type === h.types.CaseRow);
+    expect(rows.find(node => (node.props.testCase as { testCaseId: string }).testCaseId === "second")!.props.selectedFromHistory).toBe(true);
+    expect(rows.every(node => !node.props.navigationTarget)).toBe(true);
+    click(button(before, "Next untested case"));
+    const after = h.render().tree, targets = nodes(after).filter(node => node.type === h.types.CaseRow && node.props.navigationTarget);
+    expect(targets.map(node => (node.props.testCase as { testCaseId: string }).testCaseId)).toEqual(["first"]);
+    expect(text(after)).toContain("Opened the next untested case");
+    expect(h.state.held).toBe(native); expect(h.state.held!.data).toEqual(original);
+    expect(h.mutate).not.toHaveBeenCalled(); expect(h.refresh).not.toHaveBeenCalled(); expect(h.push).not.toHaveBeenCalled(); expect(h.download).not.toHaveBeenCalled();
+  });
+  it("an explicit navigation cursor takes priority over a verified history selection", () => {
+    const h = harness(); h.state.candidate = syntheticSnapshot({ untested: true, frozen: true }); h.state.held = h.state.candidate; h.state.historyCaseIds = ["first"];
+    const before = h.render().tree, second = nodes(before).find(node => node.type === h.types.CaseRow && (node.props.testCase as { testCaseId: string }).testCaseId === "second")!;
+    (second.props.onOpenCase as (id: string) => void)("second");
+    const explicit = h.render().tree;
+    expect(nodes(explicit).filter(node => node.type === h.types.CaseRow && node.props.navigationTarget).map(node => (node.props.testCase as { testCaseId: string }).testCaseId)).toEqual(["second"]);
+    click(button(explicit, "Next untested case"));
+    expect(nodes(h.render().tree).filter(node => node.type === h.types.CaseRow && node.props.navigationTarget).map(node => (node.props.testCase as { testCaseId: string }).testCaseId)).toEqual(["first"]);
+    expect(h.mutate).not.toHaveBeenCalled(); expect(h.refresh).not.toHaveBeenCalled();
+  });
+  it.each([
+    { label: "none", ids: [] },
+    { label: "unavailable", ids: ["missing"] },
+    { label: "duplicate", ids: ["second", "second"] },
+    { label: "competing", ids: ["first", "second"] },
+    { label: "unsupported", ids: ["bad\u0000identity"] },
+  ])("$label history intent never becomes a navigation cursor or substitutes another procedure", ({ ids }) => {
+    const h = harness(); h.state.candidate = syntheticSnapshot({ untested: true, frozen: true }); h.state.held = h.state.candidate; h.state.historyCaseIds = ids;
+    const before = h.render().tree;
+    expect(nodes(before).filter(node => node.type === h.types.CaseRow).every(node => node.props.selectedFromHistory === false)).toBe(true);
+    if (ids.length) expect(text(before)).toContain("exact requested case is not uniquely present");
+    click(button(before, "Next untested case"));
+    const targets = nodes(h.render().tree).filter(node => node.type === h.types.CaseRow && node.props.navigationTarget);
+    expect(targets.map(node => (node.props.testCase as { testCaseId: string }).testCaseId)).toEqual(["second"]);
+    expect(h.mutate).not.toHaveBeenCalled(); expect(h.refresh).not.toHaveBeenCalled(); expect(h.push).not.toHaveBeenCalled();
+  });
+  it("loss of current native scope retires an old history-based Next callback without changing retained rows", () => {
+    const h = harness(); h.state.candidate = syntheticSnapshot({ untested: true, frozen: true }); h.state.held = h.state.candidate; h.state.historyCaseIds = ["second"];
+    const before = h.render().tree, next = button(before, "Next untested case"), original = h.state.held;
+    h.state.candidate = null; h.state.held = null; const denied = h.render().tree;
+    click(next); const retained = h.render().tree;
+    expect(nodes(denied).filter(node => node.type === h.types.CaseRow).every(node => node.props.hidden === true)).toBe(true);
+    expect(nodes(retained).filter(node => node.type === h.types.CaseRow && node.props.navigationTarget)).toEqual([]);
+    expect(h.state.retained?.rows.map(row => row.testCaseId)).toEqual(original!.data.view.cases.map(row => row.testCaseId));
+    expect(h.mutate).not.toHaveBeenCalled(); expect(h.refresh).not.toHaveBeenCalled(); expect(h.push).not.toHaveBeenCalled(); expect(h.download).not.toHaveBeenCalled();
   });
   it("repeated identical step pending membership does not churn page activation or loop", () => {
     const h = harness(),

@@ -787,7 +787,9 @@ export default function ReleasesPage() {
                           disabled={editingCriterion !== null}
                           onClick={() =>
                             setNewCriteria((values) =>
-                              values.filter((_, i) => i !== index),
+                              values === newCriteria
+                                ? values.filter((_, i) => i !== index)
+                                : values,
                             )
                           }
                         >

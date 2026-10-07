@@ -24,7 +24,10 @@ function harness() {
     reads.push({ input, page });
     const error = page ? state.pageError : state.accessError;
     const data = { projectId: input.projectId, caseId: input.caseId, readRequestId: state.staleRead ? "old-read-uuid" : input.readRequestId, readScope: { ...scope, actorId: state.nativeActor, actorClerkUserId: auth.userId }, canEdit: state.canEdit };
-    if (page) Object.assign(data, { graphHash: state.graphHash, prerequisiteIds: ["old"], linked: [row], items: state.items, offset: input.cursor?.offset ?? 0, total: state.total, populationHash: "b".repeat(64), nextCursor: state.total > 20 ? { offset: 20, populationHash: "b".repeat(64), graphHash: state.graphHash } : null });
+    if (page) {
+      const offset = input.cursor?.offset ?? 0;
+      Object.assign(data, { graphHash: state.graphHash, prerequisiteIds: ["old"], linked: [row], items: state.items, offset, total: state.total, populationHash: "b".repeat(64), nextCursor: offset + 20 < state.total ? { offset: offset + 20, populationHash: "b".repeat(64), graphHash: state.graphHash } : null });
+    }
     return { data, isSuccess: !error, error, isFetching: state.fetching || (page && state.pageFetching), isPaused: state.paused };
   }
   const context = vm.createContext({ Error, ...helpers, manualStartDefinitivelyRejected,
@@ -47,6 +50,72 @@ function harness() {
 test("exact frozen native actor/org/link-set/UUID hash is SHA256-equivalent to server body with no session authorization claim", async () => {
   const h = harness(); h.ready(); await h.editor.submit(); h.render(); assert.equal(h.sent.length, 1); const input = h.sent[0]; assert.equal(Object.isFrozen(input), true); assert.equal(Object.isFrozen(input.prerequisiteIds), true); assert.equal(input.expectedActorId, scope.actorId); assert.equal(Object.hasOwn(input, "sessionId"), false); assert.equal(await helpers.prerequisiteInputHash(input), createHash("sha256").update(JSON.stringify(input)).digest("hex")); assert.equal(h.editor.draft, null); assert.equal(h.editor.pending, null); assert.equal(h.counts.invalidation, 1);
 });
+// Actual component callbacks delegate to the real current hook controller.
+// Hook/query/event boundaries remain synthetic; no native/browser claim.
+function prerequisiteButtons(h) {
+  const text = readFileSync(new URL("../components/TestCasePrerequisites.tsx", import.meta.url), "utf8"), file = ts.createSourceFile("prerequisites.tsx", text, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+  const component = file.statements.find(node => ts.isFunctionDeclaration(node) && node.name?.text === "TestCasePrerequisites");
+  assert.ok(component);
+  const compiled = ts.transpileModule(`${component.getText(file).replace(/\bexport\s+/, "")}\nthis.component=TestCasePrerequisites;`, { compilerOptions: { target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.React, module: ts.ModuleKind.None } }).outputText;
+  const control = h.editor, context = vm.createContext({ React, styles: {}, useCasePrerequisites: () => control });
+  vm.runInContext(compiled, context);
+  const tree = context.component({ projectId: h.params.projectId, caseId: h.params.caseId, canEdit: h.params.permitted, active: h.params.active });
+  function descendants(node) {
+    if (!React.isValidElement(node)) return [];
+    return [node, ...React.Children.toArray(node.props.children).flatMap(descendants)];
+  }
+  const nodes = descendants(tree);
+  return name => {
+    const button = nodes.find(node => node.type === "button" && node.props.children === name);
+    assert.ok(button, `Actual prerequisite button ${name} must exist`);
+    return button.props.onClick;
+  };
+}
+
+test("actual Next/Previous component callbacks consume one transition per rendered candidate page and retain the draft", () => {
+  const h = harness(); h.state.total = 851; h.ready(); const draft = h.editor.draft;
+  const firstNext = prerequisiteButtons(h)("Next"); firstNext(); firstNext(); h.render();
+  assert.deepEqual(Array.from(h.editor.cursors, cursor => cursor.offset), [20]); assert.equal(h.editor.freshPage.offset, 20); assert.equal(h.editor.draft, draft);
+  const secondNext = prerequisiteButtons(h)("Next"); secondNext(); secondNext(); h.render();
+  assert.deepEqual(Array.from(h.editor.cursors, cursor => cursor.offset), [20, 40]); assert.equal(h.editor.freshPage.offset, 40);
+  const previous = prerequisiteButtons(h)("Previous"); previous(); previous(); h.render();
+  assert.deepEqual(Array.from(h.editor.cursors, cursor => cursor.offset), [20]); assert.equal(h.editor.freshPage.offset, 20);
+  prerequisiteButtons(h)("Previous")(); h.render(); assert.equal(h.editor.cursors.length, 0); assert.equal(h.editor.freshPage.offset, 0);
+  assert.equal(h.editor.draft, draft); assert.deepEqual(h.sent, []); assert.equal(h.counts.invalidation, 0);
+});
+
+test("actual pager reaches all 43 native-offset pages and returns without duplicate cursor history or draft writes", () => {
+  const h = harness(); h.state.total = 851; h.ready(); const draft = h.editor.draft, offsets = [];
+  for (let index = 0; index < 43; index++) {
+    offsets.push(h.editor.freshPage.offset);
+    if (index < 42) { const next = prerequisiteButtons(h)("Next"); next(); next(); h.render(); }
+  }
+  assert.deepEqual(offsets, Array.from({ length: 43 }, (_, index) => index * 20)); assert.equal(h.editor.freshPage.nextCursor, null); assert.equal(h.editor.cursors.length, 42);
+  for (let index = 41; index >= 0; index--) {
+    const previous = prerequisiteButtons(h)("Previous"); previous(); previous(); h.render(); assert.equal(h.editor.freshPage.offset, index * 20);
+  }
+  assert.equal(h.editor.cursors.length, 0); assert.equal(h.editor.draft, draft); assert.deepEqual(h.sent, []);
+});
+
+for (const transition of ["new-page", "search", "session-A-B-A"]) test(`actual saved pager callbacks after ${transition} cannot navigate a newer page or replace the original draft`, () => {
+  const h = harness(); h.state.total = 851; h.ready(); prerequisiteButtons(h)("Next")(); h.render();
+  const draft = h.editor.draft, buttons = prerequisiteButtons(h), staleNext = buttons("Next"), stalePrevious = buttons("Previous");
+  if (transition === "new-page") { staleNext(); h.render(); }
+  else if (transition === "search") { h.editor.setSearch("New exact synthetic filter"); h.render(); }
+  else { h.auth.sessionId = "B"; h.render(); h.auth.sessionId = "synthetic-session-A"; h.render(); }
+  const currentCursors = h.editor.cursors, offset = h.editor.freshPage.offset;
+  staleNext(); stalePrevious(); h.render(); assert.equal(h.editor.cursors, currentCursors); assert.equal(h.editor.freshPage.offset, offset);
+  assert.equal(h.editor.draft, draft); assert.deepEqual(h.sent, []);
+});
+
+test("same-event search reset cannot be replaced by captured Next/Previous updaters", () => {
+  const h = harness(); h.state.total = 851; h.ready(); prerequisiteButtons(h)("Next")(); h.render();
+  const draft = h.editor.draft, buttons = prerequisiteButtons(h), next = buttons("Next"), previous = buttons("Previous");
+  h.editor.setSearch("Original narrowed synthetic search"); next(); previous(); h.render();
+  assert.equal(h.editor.search, "Original narrowed synthetic search"); assert.equal(h.editor.cursors.length, 0); assert.equal(h.editor.freshPage.offset, 0);
+  assert.equal(h.editor.draft, draft); assert.deepEqual(h.sent, []);
+});
+
 test("same-tick double submit and hash-preparation edit cannot allocate or alter another request", async () => {
   const h = harness(); h.ready(); h.state.onHash = () => h.editor.change([]); await Promise.all([h.editor.submit(), h.editor.submit()]); assert.equal(h.sent.length, 1); assert.equal(JSON.stringify(h.sent[0].prerequisiteIds), '["old","approved"]');
 });
