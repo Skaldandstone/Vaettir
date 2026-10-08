@@ -30,6 +30,11 @@ const nativeScopeFamilies = {
 } as const satisfies Record<keyof typeof nativeScopeColumns, keyof typeof nativeIdentityParents>;
 type NativeScopeModel = keyof typeof nativeScopeColumns;
 const MAX_NATIVE_SCOPE_IDS = 1000000, MAX_NATIVE_SCOPE_BYTES = 64 * 1024 * 1024;
+// Whole-organization erasure includes native FK checks across the complete
+// captured scope. Keep one atomic, constraint-checked transaction, but give this
+// bounded administrative operation its reviewed budget rather than Prisma's
+// five-second default. Other transactions retain their existing defaults.
+export const ORG_HARD_DELETE_TRANSACTION_TIMEOUT_MS = 30_000;
 const nativeScopeJson = new WeakMap<string[], string>();
 function encodedNativeScopeIds(ids: string[]) {
   const cached = nativeScopeJson.get(ids);
@@ -1107,7 +1112,7 @@ export async function hardDeleteOrganization(
 
     createdAttempt = { deletionLogId: log.id, rowCounts: { ...counts } };
     return { deletionLogId: log.id, rowCounts: counts };
-  }).catch(async (originalFailure: unknown) => {
+  }, { timeout: ORG_HARD_DELETE_TRANSACTION_TIMEOUT_MS }).catch(async (originalFailure: unknown) => {
     if (createdAttempt) {
       try {
         const entries = Object.entries(createdAttempt.rowCounts);
