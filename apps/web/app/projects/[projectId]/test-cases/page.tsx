@@ -901,39 +901,6 @@ export default function TestCasesPage() {
         <button className="btn-secondary" onClick={() => setFiltersOpen(true)}>
           Filters{filters.length ? ` (${filters.length})` : ""}
         </button>
-        <CaseQueryExplorer projectId={projectId} />
-        {project && (
-          <DurableCaseAnalysis
-            projectId={projectId}
-            selectedIds={visibleCases.map((testCase) => testCase.id)}
-            onCompleted={reload}
-            buttonLabel={`Analyze filtered suite (${visibleCases.length})`}
-          />
-        )}
-        {project && (
-          <DurableCaseAnalysis
-            key={`${projectId}:all-loaded-approved`}
-            projectId={projectId}
-            selectedIds={cases.filter(testCase => !testCase.archived && testCase.reviewStatus === "APPROVED").map(testCase => testCase.id)}
-            onCompleted={reload}
-            buttonLabel={`Analyze all loaded approved cases (${cases.filter(testCase => !testCase.archived && testCase.reviewStatus === "APPROVED").length})`}
-          />
-        )}
-        {!readOnly && (
-          <NewCaseFromAuthoringPreset
-            key={projectId}
-            projectId={projectId}
-            organizationId={project?.organizationId ?? "unavailable"}
-          />
-        )}
-        {project && (
-          <BulkCaseAnalysis
-            projectId={projectId}
-            organizationId={project.organizationId}
-            selectedIds={[...selected]}
-            onCompleted={reload}
-          />
-        )}
         {!readOnly && (
           <button className="btn-primary" onClick={() => setAddOpen(true)}>
             Add case
@@ -947,6 +914,44 @@ export default function TestCasesPage() {
           More
         </button>
       </div>
+      <details aria-label="Advanced case library tools">
+        <summary>Advanced query, presets &amp; risk analysis</summary>
+        <div className={styles.toolbar}>
+          <CaseQueryExplorer projectId={projectId} />
+          {project && (
+            <DurableCaseAnalysis
+              projectId={projectId}
+              selectedIds={visibleCases.map((testCase) => testCase.id)}
+              onCompleted={reload}
+              buttonLabel={`Analyze filtered suite (${visibleCases.length})`}
+            />
+          )}
+          {project && (
+            <DurableCaseAnalysis
+              key={`${projectId}:all-loaded-approved`}
+              projectId={projectId}
+              selectedIds={cases.filter(testCase => !testCase.archived && testCase.reviewStatus === "APPROVED").map(testCase => testCase.id)}
+              onCompleted={reload}
+              buttonLabel={`Analyze all loaded approved cases (${cases.filter(testCase => !testCase.archived && testCase.reviewStatus === "APPROVED").length})`}
+            />
+          )}
+          {!readOnly && (
+            <NewCaseFromAuthoringPreset
+              key={projectId}
+              projectId={projectId}
+              organizationId={project?.organizationId ?? "unavailable"}
+            />
+          )}
+          {project && (
+            <BulkCaseAnalysis
+              projectId={projectId}
+              organizationId={project.organizationId}
+              selectedIds={[...selected]}
+              onCompleted={reload}
+            />
+          )}
+        </div>
+      </details>
       {(filters.length > 0 || showArchived || search.trim()) && (
         <div className={styles.filterSummary} aria-label="Active filters">
           {search.trim() && (
@@ -1053,8 +1058,16 @@ export default function TestCasesPage() {
               classificationCases={cases}
               selectedPath={selectedPath}
               onSelect={setSelectedPath}
-              onFolderReview={readOnly ? undefined : intent => setFolderReviewIntent({ ...intent, id: crypto.randomUUID() })}
-              onDropRefused={message => setError(message)}
+              onFolderReview={
+                readOnly
+                  ? undefined
+                  : (intent) =>
+                      setFolderReviewIntent({
+                        ...intent,
+                        id: crypto.randomUUID(),
+                      })
+              }
+              onDropRefused={(message) => setError(message)}
               onDropCase={
                 readOnly || moveMutation.isPending
                   ? undefined
@@ -1150,11 +1163,24 @@ export default function TestCasesPage() {
                   ? "Manual suite order"
                   : `Sorted by ${sortBy}`}
               </span>
-              {!readOnly && sortBy !== "manual" && <button type="button" className="btn-secondary" onClick={() => setSortBy("manual")}>View manual order</button>}
+              {!readOnly && sortBy !== "manual" && (
+                <button
+                  type="button"
+                  className="btn-secondary"
+                  onClick={() => setSortBy("manual")}
+                >
+                  View manual order
+                </button>
+              )}
             </div>
-            {!readOnly && <p className="text-muted" style={{ fontSize: 12 }}>
-              Keyboard ordering: activate a case&apos;s drag handle to view manual order in its verified case suite, then use Up/Down. In All suites, source groups or Unassigned, select a persisted case suite first. Viewing an order does not move cases or create folders; source paths stay unchanged.
-            </p>}
+            {!readOnly && (
+              <details>
+                <summary>Help: keyboard ordering</summary>
+                <p className="text-muted" style={{ fontSize: 12 }}>
+                  Keyboard ordering: activate a case&apos;s drag handle to view manual order in its verified case suite, then use Up/Down. In All suites, source groups or Unassigned, select a persisted case suite first. Viewing an order does not move cases or create folders; source paths stay unchanged.
+                </p>
+              </details>
+            )}
             {visibleCases.length > 0 && (
               <label
                 style={{
@@ -1286,7 +1312,16 @@ export default function TestCasesPage() {
                                 title="Drag to reorder or move to a suite. Click or press Enter/Space to view manual order; keyboard Up/Down requires a verified case suite."
                                 onClick={() => {
                                   setSortBy("manual");
-                                  if (tc.suitePath !== null && supportedCaseFolderPath(tc.suitePath) && currentFolderCatalog?.paths.includes(tc.suitePath) && placements.get(tc.id)?.suitePath === tc.suitePath) setSelectedPath(tc.suitePath);
+                                  if (
+                                    tc.suitePath !== null &&
+                                    supportedCaseFolderPath(tc.suitePath) &&
+                                    currentFolderCatalog?.paths.includes(
+                                      tc.suitePath,
+                                    ) &&
+                                    placements.get(tc.id)?.suitePath ===
+                                      tc.suitePath
+                                  )
+                                    setSelectedPath(tc.suitePath);
                                 }}
                                 onDragStart={(event) => {
                                   event.dataTransfer.setData(
@@ -1418,21 +1453,36 @@ export default function TestCasesPage() {
                                 }}
                               >
                                 {tc.tags.map((tag, index) => (
-                                  <span key={`${index}:${tag}`} style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
-                                  <button
-                                    type="button"
-                                    className="btn-secondary"
+                                  <span
+                                    key={`${index}:${tag}`}
                                     style={{
-                                      padding: "1px 6px",
-                                      minHeight: 24,
-                                      fontSize: 12,
+                                      display: "inline-flex",
+                                      alignItems: "center",
+                                      gap: 4,
                                     }}
-                                    title={`Filter this lane by exact tag ${JSON.stringify(tag)}`}
-                                    onClick={() => setTagFilter(tag)}
                                   >
-                                    {projectTagLabel(tag)}
-                                  </button>
-                                  <a href={projectTagHref(projectId, tag)} target="_blank" rel="noopener noreferrer" title={`Open saved associations for exact tag ${JSON.stringify(tag)} (approved active cases by default)`} aria-label={`Open tag associations for ${projectTagLabel(tag)}`}>↗</a>
+                                    <button
+                                      type="button"
+                                      className="btn-secondary"
+                                      style={{
+                                        padding: "1px 6px",
+                                        minHeight: 24,
+                                        fontSize: 12,
+                                      }}
+                                      title={`Filter this lane by exact tag ${JSON.stringify(tag)}`}
+                                      onClick={() => setTagFilter(tag)}
+                                    >
+                                      {projectTagLabel(tag)}
+                                    </button>
+                                    <a
+                                      href={projectTagHref(projectId, tag)}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      title={`Open saved associations for exact tag ${JSON.stringify(tag)} (approved active cases by default)`}
+                                      aria-label={`Open tag associations for ${projectTagLabel(tag)}`}
+                                    >
+                                      ↗
+                                    </a>
                                   </span>
                                 ))}
                               </small>
@@ -1479,13 +1529,15 @@ export default function TestCasesPage() {
                                   ? "Not assessed"
                                   : `${tc.riskScore}/100`}
                               </span>
-                              {tc.riskScore != null && <i>
-                                <b
-                                  style={{
-                                    width: `${tc.riskScore}%`,
-                                  }}
-                                />
-                              </i>}
+                              {tc.riskScore != null && (
+                                <i>
+                                  <b
+                                    style={{
+                                      width: `${tc.riskScore}%`,
+                                    }}
+                                  />
+                                </i>
+                              )}
                             </div>
                           </td>
                           <td data-label="Priority">
@@ -1731,11 +1783,14 @@ export default function TestCasesPage() {
             after explicit conflict review; unknown case IDs are not recreated.
           </p>
           {!readOnly && <TestCaseProcedureReimport projectId={projectId} />}
-          <CaseAuthoringPresets
-            key={projectId}
-            projectId={projectId}
-            organizationId={project?.organizationId ?? "unavailable"}
-          />
+          <details>
+            <summary>Manage case authoring presets</summary>
+            <CaseAuthoringPresets
+              key={projectId}
+              projectId={projectId}
+              organizationId={project?.organizationId ?? "unavailable"}
+            />
+          </details>
           <details>
             <summary>Manage saved views</summary>
             <p className="text-muted">
