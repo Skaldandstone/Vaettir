@@ -16,6 +16,7 @@ const sdk = { trpcReact: {
   useUtils: () => ({}),
   repositoryConnections: {
     groups:{useQuery:()=>({data:{groups:[],hasMore:false,limitReached:false},error:null})},
+    installations:{useQuery:()=>({data:{installations:[],hasMore:false,limitReached:false},isFetchedAfterMount:false,isSuccess:false,error:null})},
     configurations: { useQuery: () => ({ isSuccess: true, data: { organizationId: "synthetic-org", configurations: mock.connections, canConnect: true, canConfigure: true, storageReady: true } }) },
     mine: { useQuery: () => ({ isSuccess: true, data: [] }) },
     status: { useQuery: () => ({ isSuccess: false }) },
@@ -88,7 +89,7 @@ function text(node: React.ReactNode): string {
 }
 function required<T>(value: T | undefined): T { if (value === undefined) throw Error("Missing actual synthetic evidence"); return value; }
 function deferred<T>() { let resolve!: (value: T) => void, reject!: (cause: unknown) => void; const promise = new Promise<T>((yes, no) => { resolve = yes; reject = no; }); return { promise, resolve, reject }; }
-function listing(ids: string[], reset = false, hasMore = true): Listing { return { repositories: ids.map(id => ({ id, name: `Synthetic ${id}`, url: `https://synthetic-gitlab.example.com/repositories/${id}`, defaultBranch: "main" })), catalogReset: reset, hasMore, catalogVersion: reset ? "b".repeat(64) : "a".repeat(64),limitReached:false,listingStatus:hasMore?"more-pages":"end-of-scope",scopeKey:null }; }
+function listing(ids: string[], reset = false, hasMore = true): Listing { return { repositories: ids.map(id => ({ id, name: `Synthetic ${id}`, url: `https://synthetic-gitlab.example.com/repositories/${id}`, defaultBranch: "main" })), catalogReset: reset, hasMore, catalogVersion: reset ? "b".repeat(64) : "a".repeat(64),limitReached:false,listingStatus:hasMore?"more-pages":"end-of-scope",scopeKey:null,githubInstallationRequired:false }; }
 
 /** Complete actual OAuth adapter JSX/hooks/events plus production scope helpers.
  * Synthetic metadata boundaries only, not authorization or native/provider proof. */
@@ -116,7 +117,7 @@ function workflow() {
     useState: (initial: unknown) => { const held = slot(); if (!Object.hasOwn(held, "value")) held.value = initial; return [held.value, (next: unknown) => { const value = typeof next === "function" ? next(held.value) : next; if (!Object.is(value, held.value)) { held.value = value; dirty = true; } }]; },
     useRef: (initial: unknown) => { const held = slot(); if (!Object.hasOwn(held, "value")) held.value = { current: initial }; return held.value; },
     useMemo: memo, useCallback: (callback: unknown, deps: readonly unknown[]) => memo(() => callback, deps), useEffect: effect, useLayoutEffect: effect,
-    trpcReact: { useUtils: () => utils, repositoryConnections: {groups:{useQuery:()=>({data:{groups:[{id:"1",path:"synthetic/team",name:"Synthetic team"}],hasMore:false},error:null})}, configurations: { useQuery: () => configurations }, mine: { useQuery: () => recent }, status: { useQuery: () => status }, begin: { useMutation: () => ({ isPending: false, mutateAsync: forbidden }) }, disconnect: { useMutation: () => ({ isPending: false, mutateAsync: forbidden }) }, connectSelected: { useMutation: () => connect } } },
+    trpcReact: { useUtils: () => utils, repositoryConnections: {installations:{useQuery:()=>({data:{installations:[],hasMore:false,limitReached:false},isFetchedAfterMount:false,isSuccess:false,error:null})},groups:{useQuery:()=>({data:{groups:[{id:"1",path:"synthetic/team",name:"Synthetic team"}],hasMore:false},error:null})}, configurations: { useQuery: () => configurations }, mine: { useQuery: () => recent }, status: { useQuery: () => status }, begin: { useMutation: () => ({ isPending: false, mutateAsync: forbidden }) }, disconnect: { useMutation: () => ({ isPending: false, mutateAsync: forbidden }) }, connectSelected: { useMutation: () => connect } } },
     ProviderMark: () => React.createElement("span", null, "GitLab"), Link: ({ children }: { children: React.ReactNode }) => React.createElement("span", null, children), ConnectionAccessGate: ({ state }: { state: string }) => React.createElement("p", null, state), authorizeRepositoryAccount: forbidden, cancelRepositoryAuthorization: forbidden,
   });
   const source = readFileSync(new URL("../components/GitlabRepositoryConnection.tsx", import.meta.url), "utf8"), ast = ts.createSourceFile("connection.tsx", source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX), printer = ts.createPrinter();

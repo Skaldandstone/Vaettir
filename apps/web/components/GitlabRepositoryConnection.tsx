@@ -50,6 +50,10 @@ export function RepositoryOAuthConnection({ projectId, providerId, onConnected, 
   const [includeShared,setIncludeShared]=useState(false);
   const [groupPage,setGroupPage]=useState(1);
   const [appliedScope,setAppliedScope]=useState<RouterInputs["repositoryConnections"]["list"]["gitlabScope"]>();
+  const [githubInstallationId,setGithubInstallationId]=useState("");
+  const [appliedInstallationId,setAppliedInstallationId]=useState("");
+  const [appliedInstallationPage,setAppliedInstallationPage]=useState(1);
+  const [installationPage,setInstallationPage]=useState(1);
   const [unconfirmedSave,setUnconfirmedSave]=useState(false);
   const saveOutcome=useRef({uncertain:false,inFlight:false});
   const privateScope = useRef<typeof privateOwner>(null);
@@ -75,7 +79,11 @@ export function RepositoryOAuthConnection({ projectId, providerId, onConnected, 
   const availableConfigurations = configurations.data?.configurations.filter(c => c.provider === providerId) ?? [];
   const instanceOrigin = gitlabInstanceOrigin(instanceUrl);
   const provider = availableConfigurations.find(c => c.id === configurationId)
+    ?? (providerId === "github" ? availableConfigurations.find(c => c.authorizationKind === "github-app") : undefined)
     ?? availableConfigurations.find(c => c.origin === (providerId === "gitlab" ? instanceOrigin : "https://github.com"));
+  const githubApp = providerId === "github" && (connectionId ? status.data?.authorizationKind : provider?.authorizationKind) === "github-app";
+  const configuredInstallationUrl = connectionId ? status.data?.installationUrl : provider?.installationUrl;
+  const installationUrl = githubApp && typeof configuredInstallationUrl === "string" && /^https:\/\/github\.com\/apps\/[a-z0-9-]+\/installations\/new$/.test(configuredInstallationUrl) ? configuredInstallationUrl : null;
   const applicationSettings = `/settings/integrations/repositories?projectId=${encodeURIComponent(projectId)}&provider=${providerId}${instanceOrigin ? `&origin=${encodeURIComponent(instanceOrigin)}` : ""}`;
   const connectionReady = configurations.data?.storageReady ?? false;
   const busy = begin.isPending || connect.isPending || disconnect.isPending || loading;
@@ -97,6 +105,7 @@ export function RepositoryOAuthConnection({ projectId, providerId, onConnected, 
   }), [projectId, providerId, connectionId, original, currentOrigin, auth.userId, auth.sessionId, auth.isLoaded, auth.isSignedIn,
     active, readable, canEdit, configurations.data?.organizationId, canConnect, recent.isSuccess,
     configurations.error, recent.error, configurations.isFetching, configurations.isPaused, recent.isFetching, recent.isPaused]);
+  const installationLinkReady=frame.eligible&&(!connectionId||status.isSuccess&&!status.error&&!status.isFetching&&!status.isPaused)&&!unconfirmedSave&&!connect.isPending;
   const committed = useRef<typeof frame | null>(null);
   const listingOwner = useRef({ generation: 0, inFlight: false });
   useLayoutEffect(() => { committed.current = frame; return () => { if (committed.current === frame) committed.current = null; }; }, [frame]);
@@ -108,6 +117,8 @@ export function RepositoryOAuthConnection({ projectId, providerId, onConnected, 
   function canEditSelection(){return current()&&!saveOutcome.current.uncertain&&!saveOutcome.current.inFlight;}
   const beginAuthorization=begin.mutateAsync;
   const groups=trpcReact.repositoryConnections.groups.useQuery({id:connectionId,page:groupPage},{enabled:providerId==="gitlab"&&step==="repositories"&&!!connectionId&&frame.eligible,retry:false});
+  const installations=trpcReact.repositoryConnections.installations.useQuery({id:connectionId,page:installationPage},{enabled:githubApp&&step==="repositories"&&!!connectionId&&frame.eligible&&status.isSuccess&&status.data.status==="VERIFIED"&&!status.error&&!status.isFetching&&!status.isPaused,retry:false,staleTime:0,refetchOnMount:"always"});
+  const installationsReady=githubApp&&installations.isFetchedAfterMount&&installations.isSuccess&&!installations.error&&!installations.isFetching&&!installations.isPaused;
   function authorize() {
     if (!canEditSelection() || !providerConfigurationId || !connectionReady || busy || !canConnect) return;
     setError("");
@@ -136,8 +147,9 @@ export function RepositoryOAuthConnection({ projectId, providerId, onConnected, 
     });
   },[initialAuthorization,active,accessState,busy,connectionReady,providerConfigurationId,connectionId,providerName,providerId,beginAuthorization,projectId]);
 
-  const load = useCallback(async (nextPage = 1, nextSearch = "", restartCatalogue = false, scope:RouterInputs["repositoryConnections"]["list"]["gitlabScope"]|null = appliedScope??null) => {
+  const load = useCallback(async (nextPage = 1, nextSearch = "", restartCatalogue = false, scope:RouterInputs["repositoryConnections"]["list"]["gitlabScope"]|null = appliedScope??null, installationId = appliedInstallationId, installationScopePage = appliedInstallationPage) => {
     if (!connectionId || !current() || listingOwner.current.inFlight || saveOutcome.current.uncertain||saveOutcome.current.inFlight) return;
+    if(githubApp&&installationId&&!/^[1-9][0-9]*$/.test(installationId))return;
     const owner = ++listingOwner.current.generation;
     listingOwner.current.inFlight = true;
     if (!privateScope.current && frame.original) {
@@ -146,12 +158,14 @@ export function RepositoryOAuthConnection({ projectId, providerId, onConnected, 
     }
     setLoading(true); setError("");
     try {
-      const result = await utils.repositoryConnections.list.fetch({ id: connectionId, page: nextPage, search: nextSearch, ...(scope ? {gitlabScope:scope}:{}), ...(restartCatalogue ? { restartCatalogue: true } : {}) });
+      const result = await utils.repositoryConnections.list.fetch({ id: connectionId, page: nextPage, search: nextSearch, ...(scope ? {gitlabScope:scope}:{}), ...(githubApp&&installationId ? {githubInstallationId:installationId,githubInstallationPage:installationScopePage}:{}), ...(restartCatalogue ? { restartCatalogue: true } : {}) });
       if (listingOwner.current.generation !== owner || !current()||saveOutcome.current.uncertain||saveOutcome.current.inFlight) return;
-      const expectedScope=scope?JSON.parse(result.scopeKey??"null") as unknown:null;
-      if(scope? !Array.isArray(expectedScope)||expectedScope.length!==5||JSON.stringify(expectedScope.slice(0,4))!==JSON.stringify(["gitlab-group/v1",scope.groupPath,scope.includeSubgroups,scope.includeShared])||typeof expectedScope[4]!=="string"||!/^[1-9][0-9]*$/.test(expectedScope[4]):result.scopeKey!==null)throw Error("Scope acknowledgement did not match");
+      const expectedScope=scope||githubApp&&installationId?JSON.parse(result.scopeKey??"null") as unknown:null;
+      if(githubApp ? installationId ? result.githubInstallationRequired!==false||JSON.stringify(expectedScope)!==JSON.stringify(["github-installation/v1",installationId]) : result.githubInstallationRequired!==true||result.scopeKey!==null||result.repositories.length!==0 : scope? !Array.isArray(expectedScope)||expectedScope.length!==5||JSON.stringify(expectedScope.slice(0,4))!==JSON.stringify(["gitlab-group/v1",scope.groupPath,scope.includeSubgroups,scope.includeShared])||typeof expectedScope[4]!=="string"||!/^[1-9][0-9]*$/.test(expectedScope[4]):result.scopeKey!==null)throw Error("Scope acknowledgement did not match");
+      if(!githubApp&&result.githubInstallationRequired!==false)throw Error("Unexpected installation scope requirement");
       if(result.repositories.some(repo=>(repo.scopeKey??null)!==(result.scopeKey??null)))throw Error("Repository scope acknowledgement did not match");
       if(JSON.stringify(scope??null)!==JSON.stringify(appliedScope??null)&&result.catalogReset!==true)throw Error("Changed scope reset acknowledgement required");
+      if(githubApp&&installationId!==appliedInstallationId&&result.catalogReset!==true)throw Error("Changed installation reset acknowledgement required");
       if (restartCatalogue && result.catalogReset !== true) throw Error("Fresh catalogue acknowledgement required");
       if (result.catalogReset) setSelection({ ids: [], details: {} });
       else setSelection(current => {
@@ -159,7 +173,7 @@ export function RepositoryOAuthConnection({ projectId, providerId, onConnected, 
         for (const repo of result.repositories) if (next[repo.id]) next[repo.id] = repo;
         return { ids: current.ids, details: next };
       });
-      setListing(result); setPage(nextPage); setActiveSearch(nextSearch); setAppliedScope(scope??undefined); setStep("repositories");
+      setListing(result); setPage(nextPage); setActiveSearch(nextSearch); setAppliedScope(scope??undefined); setAppliedInstallationId(githubApp?installationId:""); setAppliedInstallationPage(githubApp?installationScopePage:1); setStep("repositories");
       if (restartCatalogue) setSearch(nextSearch);
     } catch {
       if (listingOwner.current.generation === owner && current()) setError(restartCatalogue
@@ -171,12 +185,12 @@ export function RepositoryOAuthConnection({ projectId, providerId, onConnected, 
       // errors or step is published after original scope loss.
       if (listingOwner.current.generation === owner) { listingOwner.current.inFlight = false; setLoading(false); }
     }
-  }, [connectionId, utils, current, frame, appliedScope]);
+  }, [connectionId, utils, current, frame, appliedScope, appliedInstallationId, appliedInstallationPage, githubApp]);
 
   const continuationFrame = useMemo(() => ({ step, page, activeSearch, listing,
-    eligible: (step === "repositories" || step === "done") && providerId === "gitlab" && frame.eligible && !busy && listing?.hasMore === true && page >= 1 && page < 100 &&
+    eligible: (step === "repositories" || step === "done") && (providerId === "gitlab" || githubApp) && frame.eligible && !busy && listing?.hasMore === true && page >= 1 && page < 100 &&
       status.isSuccess && status.data?.status === "VERIFIED" && !status.error && !status.isFetching && !status.isPaused,
-  }), [step, page, activeSearch, listing, providerId, frame, busy, status.isSuccess, status.data?.status, status.error, status.isFetching, status.isPaused]);
+  }), [step, page, activeSearch, listing, providerId, githubApp, frame, busy, status.isSuccess, status.data?.status, status.error, status.isFetching, status.isPaused]);
   const continuation = useRef<typeof continuationFrame | null>(null);
   useLayoutEffect(() => {
     continuation.current = continuationFrame;
@@ -236,10 +250,11 @@ export function RepositoryOAuthConnection({ projectId, providerId, onConnected, 
           <button type="button" className="btn-secondary" onClick={() => void configurations.refetch()}>Check again</button>
         </section> : <>
           {providerId !== "gitlab" && availableConfigurations.length > 1 && <div role="group" aria-label={`Choose ${providerName} instance`} style={{ display: "grid", gap: 8 }}>
-            {availableConfigurations.map(c => <button type="button" key={c.id} className="btn-secondary" aria-pressed={provider?.id === c.id} disabled={busy} onClick={() => {if(canEditSelection())setConfigurationId(c.id);}}>{new URL(c.origin).hostname}</button>)}
+            {availableConfigurations.map(c => <button type="button" key={c.id} className="btn-secondary" aria-pressed={provider?.id === c.id} disabled={busy} onClick={() => {if(canEditSelection())setConfigurationId(c.id);}}>{new URL(c.origin).hostname} · {c.authorizationKind === "github-app" ? "GitHub App" : "Legacy OAuth"}</button>)}
           </div>}
           <p>{provider ? <>Connect to <strong>{new URL(provider.origin).hostname}</strong>.</> : "Choose your GitLab instance above."} {providerName} opens in a separate window and uses your existing sign-in, or asks you to sign in there.</p>
-          <p className="text-muted">{providerId === "github" ? "GitHub grants broad repository read/write and some organization management permissions." : "GitLab’s read_api permission is broader than repository listing."} Review the provider’s authorization screen. By connecting, you approve account verification and repository metadata listing only. No source files are read or sent to AI.</p>
+          <p className="text-muted">{githubApp ? "GitHub App access is limited to repositories admitted by its installed account. Review the app permissions and repository selection on GitHub." : providerId === "github" ? "GitHub grants broad repository read/write and some organization management permissions." : "GitLab’s read_api permission is broader than repository listing."} Review the provider’s authorization screen. By connecting, you approve account verification and repository metadata listing only. No source files are read or sent to AI.</p>
+          {installationUrl && installationLinkReady && <p><a href={installationUrl} target="_blank" rel="noopener noreferrer" onClick={event=>{if(!canEditSelection())event.preventDefault();}}>Install or manage the GitHub App on GitHub</a> · Choose the organization or account and allowed repositories there. Installation is a separate provider action; Vaettir does not install it automatically.</p>}
           <button type="button" disabled={!provider || busy} onClick={() => void authorize()}>{begin.isPending ? "Opening authorization…" : `Connect ${providerName}`}</button>
         </>}
         {!!recent.data?.some(connection => connection.provider === providerId && (providerId !== "gitlab" || connection.accessMethod === "oauth")) && <details><summary>Resume saved access</summary><div style={{ display: "grid", gap: 8, marginTop: 8 }}>
@@ -259,6 +274,17 @@ export function RepositoryOAuthConnection({ projectId, providerId, onConnected, 
       </>}
     </>}
     {step === "repositories" && <>
+      {githubApp&&<fieldset aria-label="GitHub installed account scope" disabled={busy||!frame.eligible} style={{display:"grid",gap:8}}><legend>Choose an installed GitHub account</legend>
+        <p className="text-muted">Choose a freshly verified installation, then browse only repositories allowed by that account’s app installation. Selecting an account does not connect repositories.</p>
+        {installationUrl&&installationLinkReady&&<a href={installationUrl} target="_blank" rel="noopener noreferrer" onClick={event=>{if(!canEditSelection())event.preventDefault();}}>Install or manage the GitHub App on GitHub</a>}
+        <label style={field}>Installed account<select style={inputStyle} value={githubInstallationId} disabled={!installationsReady} onChange={e=>{if(canEditSelection()&&installationsReady)setGithubInstallationId(e.target.value);}}><option value="">Choose an installed account</option>{installationsReady&&installations.data.installations.map(installation=><option key={installation.id} value={installation.id}>{installation.accountLabel} · {installation.repositorySelection === "selected" ? "Selected repositories" : "All repositories"}</option>)}</select></label>
+        {installations.error&&<p role="alert">Installed accounts could not be verified. Retained repository choices are unchanged.</p>}
+        {installationsReady&&!installations.data.installations.length&&<p role="status">No installed accounts were returned on this page. Install the app on GitHub if needed, then refresh; this is not proof that your account has no repositories.</p>}
+        <div style={actions}><button type="button" disabled={installationPage<=1} onClick={()=>{if(canEditSelection())setInstallationPage(value=>value-1);}}>Previous accounts</button><button type="button" disabled={!installationsReady||!installations.data.hasMore||installationPage>=100} onClick={()=>{if(canEditSelection())setInstallationPage(value=>value+1);}}>More accounts</button><button type="button" onClick={()=>{if(canEditSelection())void installations.refetch();}}>Refresh installed accounts</button></div>
+        {installationsReady&&installations.data.limitReached&&<p role="alert">Installation listing limit reached. This is not the complete account catalogue.</p>}
+        <button type="button" disabled={!installationsReady||!githubInstallationId||!installations.data.installations.some(installation=>installation.id===githubInstallationId)} onClick={()=>{const selectedInstallation=installationsReady?installations.data.installations.find(installation=>installation.id===githubInstallationId):undefined;if(canEditSelection()&&selectedInstallation)void load(1,search,false,null,selectedInstallation.id,selectedInstallation.page);}}>Browse this installed account</button>
+        <p className="text-muted">Account changes clear unsaved choices only after the new installation scope is acknowledged. Existing saved connections remain unchanged.</p>
+      </fieldset>}
       {providerId==="gitlab"&&<fieldset disabled={busy||!frame.eligible} style={{display:"grid",gap:8}}><legend>Repository scope</legend>
         <label style={field}>Group or subgroup<select style={inputStyle} value={groupPath} onChange={e=>{if(canEditSelection())setGroupPath(e.target.value);}}><option value="">All accessible memberships</option>{groups.data?.groups.map(group=><option key={group.id} value={group.path}>{group.path}</option>)}{groupPath&&!groups.data?.groups.some(group=>group.path===groupPath)&&<option value={groupPath}>{groupPath}</option>}</select></label>
         {groups.error&&<p role="alert">Groups could not be verified. Retry or enter a group path.</p>}
@@ -272,13 +298,13 @@ export function RepositoryOAuthConnection({ projectId, providerId, onConnected, 
       <p className="text-muted">Page {page}. {providerId === "github" ? "Search filters this page only. Browse other pages to find more repositories. " : ""}Selections stay in place as you browse pages or search. Review up to 100 repositories within this ten-minute verified listing session.</p>
       <p className="text-muted">Each selection batch can browse 500 repositories and connect up to 100. Starting a fresh batch clears unsaved choices after a successful refresh; saved connections stay in the project.</p>
       <button type="button" className="btn-secondary" disabled={busy || !frame.eligible} onClick={() => load(1, search, true)}>Start a new selection batch</button>
-      {providerId === "gitlab" && listing?.hasMore && page < 100 && <>
+      {(providerId === "gitlab" || githubApp) && listing?.hasMore && page < 100 && <>
         <p className="text-muted">Continue from page {page + 1} in a fresh batch to browse beyond this batch’s 500-repository limit. Unsaved choices clear only after a successful refresh; saved connections stay in the project.</p>
         <button type="button" className="btn-secondary" disabled={!continuationFrame.eligible} onClick={continueCatalogue}>Continue from next page in a fresh batch</button>
       </>}
       <div style={actions}><span role="status">{selected.length} selected across visited pages</span><button type="button" className="btn-secondary" disabled={busy||!listing?.repositories.length||!frame.eligible} onClick={()=>{if(!canEditSelection())return;setSelection(previous=>{const details={...previous.details};const ids=new Set(previous.ids);for(const repo of listing?.repositories??[]){if(ids.size>=100&&!ids.has(repo.id))break;ids.add(repo.id);details[repo.id]=repo;}return{ids:[...ids],details};});}}>Select this page (up to 100 total)</button><button type="button" className="btn-secondary" disabled={busy || !selected.length} onClick={() => {if(canEditSelection())setSelection({ ids: [], details: {} });}}>Clear selection</button></div>
       {listing?.limitReached&&<p role="alert">Provider listing limit reached. This is not the complete scope; narrow the group or search.</p>}
-      {listing?.listingStatus==="end-of-scope"&&<p role="status">{activeSearch?"End of matching results in this scope. This is not an unfiltered group catalogue.":"End of this scope’s pages."} Only repositories you selected will be connected.</p>}
+      {!listing?.githubInstallationRequired&&listing?.listingStatus==="end-of-scope"&&<p role="status">{activeSearch?"End of matching results in this scope. This is not an unfiltered group catalogue.":"End of this scope’s pages."} Only repositories you selected will be connected.</p>}
       <div className="source-chip-list" role="group" aria-label="Verified repositories" style={{ maxHeight: 300, overflowY: "auto" }}>
         {listing?.repositories.map(repo => <button type="button" key={repo.id} className="source-connection-chip" aria-pressed={selected.includes(repo.id)} disabled={busy || (selected.length >= 100 && !selected.includes(repo.id))} onClick={() => {
           if(!canEditSelection())return;
@@ -291,7 +317,7 @@ export function RepositoryOAuthConnection({ projectId, providerId, onConnected, 
           });
         }} style={{ maxWidth: "100%", textAlign: "left" }}><ProviderMark id={providerId}/><span style={{ minWidth: 0, overflowWrap: "anywhere" }}><strong>{repo.name}</strong><small>{repo.defaultBranch ?? "No default branch"} · Metadata only</small></span>{selected.includes(repo.id) && <span aria-hidden="true">✓</span>}</button>)}
       </div>
-      {listing && !listing.repositories.length && <p>{providerId === "github" ? "No repositories on this page matched. Change the filter or browse another page." : "No accessible repositories matched. Try a different search."}</p>}
+      {listing && !listing.repositories.length && <p>{listing.githubInstallationRequired ? "Choose an installed GitHub account above before browsing repositories." : providerId === "github" ? "No repositories on this page matched. Change the filter or browse another page." : "No accessible repositories matched. Try a different search."}</p>}
       <div style={actions}><button type="button" className="btn-secondary" disabled={busy || page <= 1} onClick={() => void load(page - 1, activeSearch)}>Previous page</button><button type="button" className="btn-secondary" disabled={busy || !listing?.hasMore || page >= 100} onClick={() => void load(page + 1, activeSearch)}>Next page</button></div>
       <div style={actions}><button type="button" className="btn-secondary" disabled={busy} onClick={() => {if(canEditSelection())setStep("authorize");}}>Back</button><button type="button" disabled={busy || !selected.length} onClick={() => {if(canEditSelection())setStep("review");}}>Review {selected.length} selected</button></div>
     </>}
@@ -307,7 +333,7 @@ export function RepositoryOAuthConnection({ projectId, providerId, onConnected, 
       }}>{connect.isPending ? "Connecting…" : "Approve and connect"}</button></div>
     </>}
     {step === "done" && <><p role="status">Repository connections saved. Access was verified; source discovery has not run.</p><p className="text-muted">Connect more starts a fresh 500-repository selection batch and clears unsaved choices only after a successful refresh. Existing saved connections stay in the project.</p>
-      {providerId === "gitlab" && listing?.hasMore && page < 100 && <>
+      {(providerId === "gitlab" || githubApp) && listing?.hasMore && page < 100 && <>
         <p className="text-muted">Continue from page {page + 1} in a fresh batch to browse beyond this batch’s 500-repository limit. Unsaved choices clear only after a successful refresh; saved connections stay in the project.</p>
         <button type="button" className="btn-secondary" disabled={!continuationFrame.eligible} onClick={continueCatalogue}>Continue from next page in a fresh batch</button>
       </>}

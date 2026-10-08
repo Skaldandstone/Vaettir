@@ -16,7 +16,7 @@ const actions={display:"flex",gap:8,flexWrap:"wrap"} as const;
 type Verification=RouterInputs["repositoryConnections"]["connectToken"];
 function liveSession(){return typeof window==="undefined"?null:currentSessionScope(window.Clerk?.loaded?window.Clerk.session:null);}
 
-export function TokenRepositoryConnection({projectId,providerId,onConnected,onClose,active=true}:{projectId:string;providerId:"bitbucket"|"azure-devops"|"gitlab";onConnected:()=>void;onClose:()=>void;active?:boolean}){
+export function TokenRepositoryConnection({projectId,providerId,onConnected,onClose,active=true,initialInstanceUrl}:{projectId:string;providerId:"bitbucket"|"azure-devops"|"gitlab";onConnected:()=>void;onClose:()=>void;active?:boolean;initialInstanceUrl?:string}){
   const name=providerId==="bitbucket"?"Bitbucket":providerId==="gitlab"?"GitLab":"Azure DevOps";
   const auth=useAuth();
   const utils=trpcReact.useUtils();
@@ -27,7 +27,7 @@ export function TokenRepositoryConnection({projectId,providerId,onConnected,onCl
   const connect=trpcReact.repositoryConnections.connectSelected.useMutation();
   const [step,setStep]=useState<"access"|"repositories"|"review"|"done">("access");
   const [email,setEmail]=useState("");const [workspace,setWorkspace]=useState("");
-  const [organizationUrl,setOrganizationUrl]=useState("");
+  const [organizationUrl,setOrganizationUrl]=useState(()=>providerId==="gitlab"?gitlabInstanceOrigin(initialInstanceUrl??"")??"":"");
   const [token,setToken]=useState("");const [consent,setConsent]=useState(false);
   const [requestId,setRequestId]=useState<string|null>(null);
   const [connectionId,setConnectionId]=useState("");const [accountLabel,setAccountLabel]=useState("");

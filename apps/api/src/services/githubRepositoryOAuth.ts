@@ -21,21 +21,21 @@ export async function revokeGithubAuthorization(input: { clientId: string; clien
   await repositoryProviderRevokeGithubToken(input.clientId, input.clientSecret, input.token);
 }
 
-export function createGithubAuthorization(clientId: string, redirectUri: string) {
+export function createGithubAuthorization(clientId: string, redirectUri: string, authorizationKind:"oauth"|"github-app"="oauth") {
   const state = randomBytes(32).toString("base64url");
   const verifier = randomBytes(48).toString("base64url");
   const url = new URL("/login/oauth/authorize", GITHUB_ORIGIN);
   // OAuth apps grant the repo scope broadly. Vaettir only lists metadata until
   // the user reviews and selects repositories; the UI must disclose this gap.
   url.search = new URLSearchParams({
-    client_id: clientId, redirect_uri: redirectUri, scope: "repo", state,
+    client_id: clientId, redirect_uri: redirectUri, ...(authorizationKind==="oauth"?{scope:"repo"}:{}), state,
     code_challenge: createHash("sha256").update(verifier).digest("base64url"),
     code_challenge_method: "S256",
   }).toString();
   return { state, verifier, url: url.href };
 }
 
-export async function verifyGithubAuthorization(input: { clientId: string; clientSecret: string; redirectUri: string; code: string; verifier: string }) {
+export async function verifyGithubAuthorization(input: { clientId: string; clientSecret: string; redirectUri: string; code: string; verifier: string; authorizationKind?:"github-app" }) {
   const response = await repositoryProviderJson(GITHUB_ORIGIN, "/login/oauth/access_token", {
     form: new URLSearchParams({
       client_id: input.clientId, client_secret: input.clientSecret,
@@ -51,10 +51,10 @@ export async function verifyGithubAuthorization(input: { clientId: string; clien
     const token = z.object({
       access_token: z.string().min(1).max(10000),
       token_type: z.string().refine(value => value.toLowerCase() === "bearer"),
-      scope: z.string(),
+      scope: input.authorizationKind==="github-app"?z.string().optional():z.string(),
       expires_in: z.number().int().positive().max(86400).optional(),
     }).parse(response);
-    if (!token.scope.split(",").map(value => value.trim()).includes("repo"))
+    if (input.authorizationKind==="github-app" ? !token.access_token.startsWith("ghu_")||!!token.scope : !token.scope?.split(",").map(value => value.trim()).includes("repo"))
       throw new Error("Repository scope was not granted");
     const account = z.object({ id: z.number().int().positive(), login: z.string().min(1).max(200) })
       .parse(await repositoryProviderJson(GITHUB_API_ORIGIN, "/user", { token: token.access_token }));

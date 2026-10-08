@@ -184,7 +184,7 @@ describe("actual GitLab token metadata connection callbacks",()=>{
   });
   it("secret-free mine distinguishes explicit token/configured OAuth/unavailable, and admin OAuth grants exclude PAT",async()=>{
     const f=fixture();await f.caller.connectToken(request);
-    expect(await f.caller.mine({projectId:"project"})).toEqual([{id:f.row.id,provider:"gitlab",origin,status:"VERIFIED",accountLabel:"synthetic-user",accessMethod:"token"}]);
+    expect(await f.caller.mine({projectId:"project"})).toEqual([{id:f.row.id,provider:"gitlab",origin,status:"VERIFIED",accountLabel:"synthetic-user",accessMethod:"token",authorizationKind:"token",installationUrl:null}]);
     expect(await f.caller.revocableGrants({projectId:"project",provider:"gitlab"})).toEqual([]);
     f.seed({configurationId:"oauth-app",encryptedVerifier:null});expect((await f.caller.mine({projectId:"project"}))[0]!.accessMethod).toBe("oauth");
     expect(await f.caller.revocableGrants({projectId:"project",provider:"gitlab"})).toHaveLength(1);

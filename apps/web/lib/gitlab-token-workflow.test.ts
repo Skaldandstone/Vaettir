@@ -49,7 +49,7 @@ function compile(name: string, context: vm.Context) {
   vm.runInContext(ts.transpileModule(`${body}\nthis.actual=${name};`, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.None, jsx: ts.JsxEmit.React } }).outputText, context);
 }
 const repository = (id: string): Listing["repositories"][number] => ({ id, name: `Synthetic ${id}`, url: `https://gitlab.example.com/synthetic/${encodeURIComponent(id)}`, defaultBranch: "main" });
-const listing = (ids: string[], hasMore = false, catalogReset = false): Listing => ({ repositories: ids.map(repository), hasMore, catalogReset, catalogVersion: "c".repeat(64),limitReached:false,listingStatus:hasMore?"more-pages":"end-of-scope",scopeKey:null });
+const listing = (ids: string[], hasMore = false, catalogReset = false): Listing => ({ repositories: ids.map(repository), hasMore, catalogReset, catalogVersion: "c".repeat(64),limitReached:false,listingStatus:hasMore?"more-pages":"end-of-scope",scopeKey:null,githubInstallationRequired:false });
 
 /** Complete current component JSX and handlers, with synthetic hook commit
  * cycles/RPC boundaries only. No browser, Clerk/provider access or native proof. */
@@ -361,8 +361,8 @@ describe("GitLab token connection actual component workflow (synthetic)", () => 
   it("saved GitLab token access does not show or remove an OAuth grant as a token", () => {
     const h = harness();
     h.recent.data = [
-      { id: "token", provider: "gitlab", origin: "https://gitlab.example.com", status: "VERIFIED", accountLabel: "Synthetic token account", accessMethod: "token" },
-      { id: "oauth", provider: "gitlab", origin: "https://gitlab.example.com", status: "VERIFIED", accountLabel: "Synthetic OAuth account", accessMethod: "oauth" },
+      { id: "token", provider: "gitlab", origin: "https://gitlab.example.com", status: "VERIFIED", accountLabel: "Synthetic token account", accessMethod: "token", authorizationKind: "token", installationUrl: null },
+      { id: "oauth", provider: "gitlab", origin: "https://gitlab.example.com", status: "VERIFIED", accountLabel: "Synthetic OAuth account", accessMethod: "oauth", authorizationKind: "oauth", installationUrl: null },
     ]; h.render();
     expect(h.html()).toContain("Synthetic token account");
     expect(h.html()).not.toContain("Synthetic OAuth account");

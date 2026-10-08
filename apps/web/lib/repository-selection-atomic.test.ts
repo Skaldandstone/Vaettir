@@ -27,7 +27,7 @@ const compiled = ts.transpileModule(declarations + "\nthis.actual=RepositoryOAut
   compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.None, jsx: ts.JsxEmit.React },
 }).outputText;
 const repository = (id: string, name = `synthetic/${id}`): Repository => ({ id, name, url: `https://synthetic.example/${id}`, defaultBranch: "main" });
-const listing = (repositories: Repository[], catalogReset = false): Listing => ({ repositories, catalogReset, hasMore: true, catalogVersion: "a".repeat(64),limitReached:false,listingStatus:"more-pages",scopeKey:null });
+const listing = (repositories: Repository[], catalogReset = false): Listing => ({ repositories, catalogReset, hasMore: true, catalogVersion: "a".repeat(64),limitReached:false,listingStatus:"more-pages",scopeKey:null,githubInstallationRequired:false });
 const selection = (count: number): Selection => {
   const repositories = Array.from({ length: count }, (_, index) => repository(`visited-${index}`));
   return { ids: repositories.map(repo => repo.id), details: Object.fromEntries(repositories.map(repo => [repo.id, repo])) };
@@ -86,6 +86,7 @@ function harness(initial: Selection, currentListing = listing([repository("new-a
       configurations: { useQuery: () => query({ organizationId: origin.organizationId, canConnect: true, canConfigure: false, storageReady: true, configurations: [] }) },
       mine: { useQuery: () => query([]) }, status: { useQuery: () => query({ status: "VERIFIED" }) },
       groups:{useQuery:()=>query({groups:[],hasMore:false,limitReached:false})},
+      installations:{useQuery:()=>({data:{installations:[],hasMore:false,limitReached:false},isFetchedAfterMount:false,isSuccess:false,error:null})},
       begin: { useMutation: () => ({ isPending: false, mutateAsync: writes }) },
       connectSelected: { useMutation: () => ({ isPending: false, mutateAsync: writes }) },
       disconnect: { useMutation: () => ({ isPending: false, mutateAsync: writes }) },
