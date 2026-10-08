@@ -151,6 +151,6 @@ export async function kickReverseEngineerQueue(): Promise<void> {
 
 export function startReverseEngineerJobPoller(): void {
   if (pollHandle) return;
-  pollHandle = setInterval(() => void pollOnce(), POLL_INTERVAL_MS);
+  pollHandle = setInterval(() => void pollOnce().catch((e) => Sentry.captureException(e)), POLL_INTERVAL_MS);
   pollHandle.unref();
 }
