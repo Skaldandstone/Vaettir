@@ -230,11 +230,24 @@ export function TestCaseFolders({
     () => (ready ? (list.data?.paths ?? []) : []),
     [ready, list.data],
   );
+  const publishedPaths = useRef<{ key: string; callback: typeof onFolderPaths } | null>(null);
   useEffect(() => {
+    const key = JSON.stringify(paths);
+    if (publishedPaths.current?.key === key && publishedPaths.current.callback === onFolderPaths) return;
+    publishedPaths.current = { key, callback: onFolderPaths };
     onFolderPaths(paths);
   }, [paths, onFolderPaths]); // Failed/paused cached data is not an approved tree.
+  const publishedCatalog = useRef<{ key: string; callback: typeof onFolderCatalog } | null>(null);
   useLayoutEffect(() => {
-    onFolderCatalog?.(ready && list.data ? { projectId: list.data.projectId, organizationId: list.data.organizationId, clerkActorId: list.data.clerkActorId, paths: list.data.paths, folders: list.data.folders, canEdit: list.data.canEdit } : null);
+    const catalog = ready && list.data ? { projectId: list.data.projectId, organizationId: list.data.organizationId, clerkActorId: list.data.clerkActorId, paths: list.data.paths, folders: list.data.folders, canEdit: list.data.canEdit } : null;
+    // Query wrappers may be replaced without changing this snapshot. Publishing
+    // a new object back into parent state on every such render creates a loop.
+    // Include the entire scope, access and folder identity payload; null still
+    // immediately withdraws the tree when current authorization is unavailable.
+    const key = JSON.stringify(catalog);
+    if (publishedCatalog.current?.key === key && publishedCatalog.current.callback === onFolderCatalog) return;
+    publishedCatalog.current = { key, callback: onFolderCatalog };
+    onFolderCatalog?.(catalog);
   }, [ready, list.data, onFolderCatalog]);
   useEffect(() => {
     if (!requestedIntent || consumedIntent.current === requestedIntent.id || !ready || !list.data) return;

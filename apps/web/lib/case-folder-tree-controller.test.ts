@@ -23,7 +23,7 @@ function treeHarness(scope: helpers.CaseFolderCatalog | null = catalog) {
   return { h, node, event, intents, moves, refusals, selections };
 }
 async function drain() { for (let i = 0; i < 10; i++) await Promise.resolve(); }
-function foldersHarness() {
+function foldersHarness(feedback = false) {
   const hooks: unknown[] = [], effects: Array<{ deps: unknown[]; cleanup?: () => void }> = [];
   let cursor = 0, dirty = false, reads = 0;
   const auth = { isLoaded: true, isSignedIn: true, userId: catalog.clerkActorId }, catalogUpdates: unknown[] = [], writes: unknown[] = [];
@@ -34,7 +34,8 @@ function foldersHarness() {
   let callbacks: { onError: (cause: unknown) => void };
   const mutation = { isPending: false, isError: false, reset() {}, mutate: (input: unknown) => { writes.push(input); mutation.isPending = true; } };
   function Modal(props: { open: boolean; children: React.ReactNode }) { return props.open ? React.createElement("div", { role: "dialog" }, props.children) : null; }
-  const props = { projectId: catalog.projectId, selectedPath: "Source", onFolderPaths: () => undefined, onSaved: () => undefined, onFolderCatalog: (value: unknown) => catalogUpdates.push(value), requestedIntent: null as helpers.FolderReviewIntent | null };
+  let parentCatalog: unknown;
+  const props = { projectId: catalog.projectId, selectedPath: "Source", onFolderPaths: () => undefined, onSaved: () => undefined, onFolderCatalog: (value: unknown) => { catalogUpdates.push(value); if (feedback && !Object.is(parentCatalog, value)) { parentCatalog = value; dirty = true; } }, requestedIntent: null as helpers.FolderReviewIntent | null };
   const h: Record<string, unknown> = { React, ...helpers, retainedTraceabilityReceipt, control: { display: "block" }, useAuth: () => auth, Modal, TestCaseFolderRecovery: () => null, TestCaseFolderCopy: () => null, crypto: { randomUUID: () => "c0987e9a-50e2-4b54-93b1-6e6cf2822b53" },
     trpcReact: { project: { byId: { useQuery: () => project } }, organization: { mine: { useQuery: () => organizations } }, caseFolders: { list: { useQuery: () => list }, preview: { useQuery: (input: { action: string; fromPath?: string; toPath: string }) => { preview.data = { projectId: catalog.projectId, organizationId: catalog.organizationId, clerkActorId: catalog.clerkActorId, action: input.action, fromPath: input.fromPath ?? null, toPath: input.toPath, expectedHash: "a".repeat(64), caseCount: 851, archivedCaseCount: 2, descendantCount: 1, cases: [{ id: "source", displayId: "SYN-1", fromSuitePath: null, toSuitePath: input.toPath }] }; return preview; } }, write: { useMutation: (value: typeof callbacks) => { callbacks = value; return mutation; } } } },
     useState: (initial: unknown) => { const index = cursor++; if (!Object.hasOwn(hooks, index)) hooks[index] = initial; return [hooks[index], (next: unknown) => { if (!Object.is(hooks[index], next)) { hooks[index] = next; dirty = true; } }]; },
@@ -43,7 +44,7 @@ function foldersHarness() {
   };
   const effect = (callback: () => (() => void) | undefined, deps: unknown[]) => { const index = cursor++, old = effects[index]; if (!old || deps.some((value, i) => !Object.is(value, old.deps[i]))) { old?.cleanup?.(); effects[index] = { deps, cleanup: callback() }; } };
   h.useEffect = effect; h.useLayoutEffect = effect; vm.createContext(h); vm.runInContext(ts.transpileModule(declarations("../components/TestCaseFolders.tsx", ["TestCaseFolders"]), { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.None, jsx: ts.JsxEmit.React } }).outputText, h);
-  function render() { for (let i = 0; i < 20; i++) { cursor = 0; dirty = false; const tree = (h.TestCaseFolders as (props: unknown) => React.ReactElement)(props); if (!dirty) return tree; } throw Error("Synthetic folders controller did not settle."); }
+  function render() { for (let i = 0; i < 20; i++) { cursor = 0; dirty = false; if (feedback) list.data = structuredClone(list.data); const tree = (h.TestCaseFolders as (props: unknown) => React.ReactElement)(props); if (!dirty) return tree; } throw Error("Synthetic folders controller did not settle."); }
   function button(text: string) { const match = elements(render()).find(node => node.type === "button" && React.Children.toArray(node.props.children as React.ReactNode).join("") === text); if (!match) throw Error(`Missing folder button ${text}`); return match.props; }
   const click = (text: string) => (button(text).onClick as () => unknown)();
   const html = () => renderToStaticMarkup(render());
@@ -58,6 +59,16 @@ function foldersHarness() {
   return { props, auth, list, writes, catalogUpdates, render, click, button, html, settled, intent, approveUnknown, reads: () => reads };
 }
 describe("actual tree and folder controller source", () => {
+  it("equal fresh query wrappers do not loop through parent catalog state; content and access changes still publish", async () => {
+    const host = foldersHarness(true); await host.settled();
+    const count = host.catalogUpdates.length; await host.settled();
+    expect(host.catalogUpdates).toHaveLength(count);
+    host.list.data = { ...host.list.data, canEdit: false }; await host.settled();
+    expect((host.catalogUpdates.at(-1) as helpers.CaseFolderCatalog).canEdit).toBe(false);
+    host.auth.userId = "other-actor"; await host.settled();
+    expect(host.catalogUpdates.at(-1)).toBeNull();
+    expect(host.writes).toHaveLength(0);
+  });
   it("source-only case drops refuse silent materialization while native-suite case drops retain their existing route", () => {
     const host = treeHarness(); const source = elements(host.node("Source")).find(node => typeof node.props.onDrop === "function")!;
     (source.props.onDrop as (event: unknown) => void)(host.event("application/x-vaettir-test-case", "native"));
