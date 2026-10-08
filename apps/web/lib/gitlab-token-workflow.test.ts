@@ -139,6 +139,11 @@ function acknowledgement(input: VerifyInput): VerifyResult {
 }
 
 describe("GitLab token connection actual component workflow (synthetic)", () => {
+  it.each(["Clear selection","Select this page (up to 100 total)","toggle"])("unknown token save retains exact retry input against pre-review %s callback",async action=>{
+    const h=harness();fillVerification(h);await h.submit();h.render();h.button(/Synthetic repo-1/).props.onClick!();h.render();const retained=h.button(action==="toggle"?/Synthetic repo-1/:action).props.onClick!;
+    h.button("Review 1 selected").props.onClick!();h.render();const pending=deferred<{connected:number}>();h.connect.mutateAsync.mockReturnValueOnce(pending.promise);const first=h.button("Approve and connect").props.onClick!();retained();h.render();pending.reject(Error("synthetic unknown network"));await first;h.render();const original=h.connect.mutateAsync.mock.calls[0]?.[0];expect(original).toMatchObject({repositoryIds:["repo-1"]});
+    retained();h.render();expect(h.button("Approve and connect").props.disabled).toBe(false);await h.button("Approve and connect").props.onClick!();h.render();expect(h.connect.mutateAsync.mock.calls[1]?.[0]).toEqual(original);
+  });
   it("group scope keeps old choices until exact reset ACK and carries reviewed scope across pages",async()=>{
     const h=harness();fillVerification(h);await h.submit();h.render();h.button("Select this page (up to 100 total)").props.onClick!();h.render();
     h.change("Exact group/subgroup path","synthetic/team");const held=deferred<Listing>();h.fetchList.mockReturnValueOnce(held.promise);h.button("Browse this scope").props.onClick!();h.render();

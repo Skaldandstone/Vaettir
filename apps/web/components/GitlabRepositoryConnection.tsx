@@ -51,7 +51,7 @@ export function RepositoryOAuthConnection({ projectId, providerId, onConnected, 
   const [groupPage,setGroupPage]=useState(1);
   const [appliedScope,setAppliedScope]=useState<RouterInputs["repositoryConnections"]["list"]["gitlabScope"]>();
   const [unconfirmedSave,setUnconfirmedSave]=useState(false);
-  const saveOutcome=useRef({uncertain:false});
+  const saveOutcome=useRef({uncertain:false,inFlight:false});
   const privateScope = useRef<typeof privateOwner>(null);
   const popup = useRef<Window | null>(null);
   const automaticallyLoaded = useRef("");
@@ -105,10 +105,11 @@ export function RepositoryOAuthConnection({ projectId, providerId, onConnected, 
     (!privateScope.current || privateScope.current.providerId === frame.providerId && sameCaseFieldOrigin(privateScope.current.origin, frame.original)) &&
     ownsOriginal(frame.original, "edit") && sameAuthScope({ userId: frame.userId, sessionId: frame.sessionId },
       typeof window === "undefined" ? null : currentSessionScope(window.Clerk?.loaded ? window.Clerk.session : null)), [frame, ownsOriginal]);
+  function canEditSelection(){return current()&&!saveOutcome.current.uncertain&&!saveOutcome.current.inFlight;}
   const beginAuthorization=begin.mutateAsync;
   const groups=trpcReact.repositoryConnections.groups.useQuery({id:connectionId,page:groupPage},{enabled:providerId==="gitlab"&&step==="repositories"&&!!connectionId&&frame.eligible,retry:false});
   function authorize() {
-    if (!providerConfigurationId || !connectionReady || busy || !canConnect) return;
+    if (!canEditSelection() || !providerConfigurationId || !connectionReady || busy || !canConnect) return;
     setError("");
     void authorizeRepositoryAccount({providerName,
       begin:()=>beginAuthorization({projectId,configurationId:providerConfigurationId,approveMetadataAccess:true}),
@@ -136,7 +137,7 @@ export function RepositoryOAuthConnection({ projectId, providerId, onConnected, 
   },[initialAuthorization,active,accessState,busy,connectionReady,providerConfigurationId,connectionId,providerName,providerId,beginAuthorization,projectId]);
 
   const load = useCallback(async (nextPage = 1, nextSearch = "", restartCatalogue = false, scope:RouterInputs["repositoryConnections"]["list"]["gitlabScope"]|null = appliedScope??null) => {
-    if (!connectionId || !current() || listingOwner.current.inFlight || saveOutcome.current.uncertain) return;
+    if (!connectionId || !current() || listingOwner.current.inFlight || saveOutcome.current.uncertain||saveOutcome.current.inFlight) return;
     const owner = ++listingOwner.current.generation;
     listingOwner.current.inFlight = true;
     if (!privateScope.current && frame.original) {
@@ -146,7 +147,7 @@ export function RepositoryOAuthConnection({ projectId, providerId, onConnected, 
     setLoading(true); setError("");
     try {
       const result = await utils.repositoryConnections.list.fetch({ id: connectionId, page: nextPage, search: nextSearch, ...(scope ? {gitlabScope:scope}:{}), ...(restartCatalogue ? { restartCatalogue: true } : {}) });
-      if (listingOwner.current.generation !== owner || !current()||saveOutcome.current.uncertain) return;
+      if (listingOwner.current.generation !== owner || !current()||saveOutcome.current.uncertain||saveOutcome.current.inFlight) return;
       const expectedScope=scope?JSON.parse(result.scopeKey??"null") as unknown:null;
       if(scope? !Array.isArray(expectedScope)||expectedScope.length!==5||JSON.stringify(expectedScope.slice(0,4))!==JSON.stringify(["gitlab-group/v1",scope.groupPath,scope.includeSubgroups,scope.includeShared])||typeof expectedScope[4]!=="string"||!/^[1-9][0-9]*$/.test(expectedScope[4]):result.scopeKey!==null)throw Error("Scope acknowledgement did not match");
       if(result.repositories.some(repo=>(repo.scopeKey??null)!==(result.scopeKey??null)))throw Error("Repository scope acknowledgement did not match");
@@ -198,6 +199,7 @@ export function RepositoryOAuthConnection({ projectId, providerId, onConnected, 
   }, [step, connectionId, configurations.isSuccess, configurations.data?.canConnect, recent.isSuccess, status.isSuccess, status.data?.status, load]);
 
   async function cancelConnection() {
+    if(!canEditSelection())return;
     setError("");
     try {
       await disconnect.mutateAsync({ id: connectionId });
@@ -218,11 +220,11 @@ export function RepositoryOAuthConnection({ projectId, providerId, onConnected, 
     {step === "authorize" && <>
       {!connectionId ? <>
         {providerId === "gitlab" && <>
-          <label style={field}>GitLab instance or project URL<input style={inputStyle} type="url" maxLength={300} value={instanceUrl} placeholder="https://your-gitlab.example.org/dashboard/projects" disabled={busy} onChange={e => { setInstanceUrl(e.target.value); setConfigurationId(""); setError(""); }}/></label>
+          <label style={field}>GitLab instance or project URL<input style={inputStyle} type="url" maxLength={300} value={instanceUrl} placeholder="https://your-gitlab.example.org/dashboard/projects" disabled={busy} onChange={e => {if(!canEditSelection())return;setInstanceUrl(e.target.value); setConfigurationId(""); setError(""); }}/></label>
           <p className="text-muted">Paste the page you already use, or choose a configured instance below. This only selects the host; it does not connect your account or read repositories.</p>
           {instanceUrl && !instanceOrigin && <p role="alert">Use a public HTTPS GitLab URL without credentials, a query, a fragment or a custom port.</p>}
           {instanceOrigin && !provider && <section role="status"><strong>This GitLab instance needs one-time setup</strong><p>An OAuth application must be configured for this exact host before account authorization. Your existing GitLab sign-in is not a Vaettir connection.</p>{configurations.data?.canConfigure ? <Link href={applicationSettings}>Set up this GitLab instance</Link> : <p>Ask a workspace Owner or Admin to configure this instance.</p>}</section>}
-          {!!availableConfigurations.length && <div role="group" aria-label="Choose GitLab instance" style={{display:"grid",gap:8}}>{availableConfigurations.map(c => <button type="button" key={c.id} className="btn-secondary" aria-pressed={provider?.id === c.id} disabled={busy} onClick={() => {setConfigurationId(c.id);setInstanceUrl(c.origin);}}>{new URL(c.origin).hostname}</button>)}</div>}
+          {!!availableConfigurations.length && <div role="group" aria-label="Choose GitLab instance" style={{display:"grid",gap:8}}>{availableConfigurations.map(c => <button type="button" key={c.id} className="btn-secondary" aria-pressed={provider?.id === c.id} disabled={busy} onClick={() => {if(!canEditSelection())return;setConfigurationId(c.id);setInstanceUrl(c.origin);}}>{new URL(c.origin).hostname}</button>)}</div>}
         </>}
         {!connectionReady ? <section role="alert">
           <strong>{providerName} authorization is unavailable</strong>
@@ -234,7 +236,7 @@ export function RepositoryOAuthConnection({ projectId, providerId, onConnected, 
           <button type="button" className="btn-secondary" onClick={() => void configurations.refetch()}>Check again</button>
         </section> : <>
           {providerId !== "gitlab" && availableConfigurations.length > 1 && <div role="group" aria-label={`Choose ${providerName} instance`} style={{ display: "grid", gap: 8 }}>
-            {availableConfigurations.map(c => <button type="button" key={c.id} className="btn-secondary" aria-pressed={provider?.id === c.id} disabled={busy} onClick={() => setConfigurationId(c.id)}>{new URL(c.origin).hostname}</button>)}
+            {availableConfigurations.map(c => <button type="button" key={c.id} className="btn-secondary" aria-pressed={provider?.id === c.id} disabled={busy} onClick={() => {if(canEditSelection())setConfigurationId(c.id);}}>{new URL(c.origin).hostname}</button>)}
           </div>}
           <p>{provider ? <>Connect to <strong>{new URL(provider.origin).hostname}</strong>.</> : "Choose your GitLab instance above."} {providerName} opens in a separate window and uses your existing sign-in, or asks you to sign in there.</p>
           <p className="text-muted">{providerId === "github" ? "GitHub grants broad repository read/write and some organization management permissions." : "GitLab’s read_api permission is broader than repository listing."} Review the provider’s authorization screen. By connecting, you approve account verification and repository metadata listing only. No source files are read or sent to AI.</p>
@@ -242,6 +244,7 @@ export function RepositoryOAuthConnection({ projectId, providerId, onConnected, 
         </>}
         {!!recent.data?.some(connection => connection.provider === providerId && (providerId !== "gitlab" || connection.accessMethod === "oauth")) && <details><summary>Resume saved access</summary><div style={{ display: "grid", gap: 8, marginTop: 8 }}>
           {recent.data.filter(connection => connection.provider === providerId && (providerId !== "gitlab" || connection.accessMethod === "oauth")).map(connection => <button type="button" className="btn-secondary" key={connection.id} disabled={busy || !connectionReady} onClick={() => {
+            if(!canEditSelection())return;
             const config = configurations.data?.configurations.find(c => c.provider === providerId && c.origin === connection.origin);
             setConfigurationId(config?.id ?? ""); setConnectionId(connection.id); setStep("authorize");
           }}><strong>{new URL(connection.origin).hostname}</strong> · {connection.accountLabel ?? "Your authorization"} · {statusLabel(connection.status)}</button>)}
@@ -257,15 +260,15 @@ export function RepositoryOAuthConnection({ projectId, providerId, onConnected, 
     </>}
     {step === "repositories" && <>
       {providerId==="gitlab"&&<fieldset disabled={busy||!frame.eligible} style={{display:"grid",gap:8}}><legend>Repository scope</legend>
-        <label style={field}>Group or subgroup<select style={inputStyle} value={groupPath} onChange={e=>setGroupPath(e.target.value)}><option value="">All accessible memberships</option>{groups.data?.groups.map(group=><option key={group.id} value={group.path}>{group.path}</option>)}{groupPath&&!groups.data?.groups.some(group=>group.path===groupPath)&&<option value={groupPath}>{groupPath}</option>}</select></label>
+        <label style={field}>Group or subgroup<select style={inputStyle} value={groupPath} onChange={e=>{if(canEditSelection())setGroupPath(e.target.value);}}><option value="">All accessible memberships</option>{groups.data?.groups.map(group=><option key={group.id} value={group.path}>{group.path}</option>)}{groupPath&&!groups.data?.groups.some(group=>group.path===groupPath)&&<option value={groupPath}>{groupPath}</option>}</select></label>
         {groups.error&&<p role="alert">Groups could not be verified. Retry or enter a group path.</p>}
-        <div style={actions}><button type="button" className="btn-secondary" disabled={groupPage<=1} onClick={()=>setGroupPage(page=>page-1)}>Previous groups</button><button type="button" className="btn-secondary" disabled={!groups.data?.hasMore} onClick={()=>setGroupPage(page=>page+1)}>More groups</button>{groups.error&&<button type="button" onClick={()=>void groups.refetch()}>Retry groups</button>}</div>
-        <details><summary>Enter a group path</summary><label style={field}>Exact group/subgroup path<input style={inputStyle} value={groupPath} onChange={e=>setGroupPath(e.target.value)} maxLength={400} placeholder="team/product"/></label></details>
-        <label><input type="checkbox" checked={includeSubgroups} onChange={e=>setIncludeSubgroups(e.target.checked)}/> Include subgroups</label><label><input type="checkbox" checked={includeShared} onChange={e=>setIncludeShared(e.target.checked)}/> Include projects shared with this group</label>
+        <div style={actions}><button type="button" className="btn-secondary" disabled={groupPage<=1} onClick={()=>{if(canEditSelection())setGroupPage(page=>page-1);}}>Previous groups</button><button type="button" className="btn-secondary" disabled={!groups.data?.hasMore} onClick={()=>{if(canEditSelection())setGroupPage(page=>page+1);}}>More groups</button>{groups.error&&<button type="button" onClick={()=>{if(canEditSelection())void groups.refetch();}}>Retry groups</button>}</div>
+        <details><summary>Enter a group path</summary><label style={field}>Exact group/subgroup path<input style={inputStyle} value={groupPath} onChange={e=>{if(canEditSelection())setGroupPath(e.target.value);}} maxLength={400} placeholder="team/product"/></label></details>
+        <label><input type="checkbox" checked={includeSubgroups} onChange={e=>{if(canEditSelection())setIncludeSubgroups(e.target.checked);}}/> Include subgroups</label><label><input type="checkbox" checked={includeShared} onChange={e=>{if(canEditSelection())setIncludeShared(e.target.checked);}}/> Include projects shared with this group</label>
         <p className="text-muted">Apply scope to refresh its verified repository list. Choices are cleared only after the new scope is acknowledged.</p>
         <button type="button" onClick={()=>void load(1,search,false,groupPath.trim()?{groupPath:groupPath.trim(),includeSubgroups,includeShared}:null)}>Browse this scope</button>
       </fieldset>}
-      <form style={actions} onSubmit={e => { e.preventDefault(); void load(1, search); }}><label style={{ ...field, flex: "1 1 180px" }}>{providerId === "github" ? "Filter this page" : "Find repositories"}<input style={inputStyle} value={search} onChange={e => setSearch(e.target.value)} maxLength={100}/></label><button type="submit" disabled={busy}>{providerId === "github" ? "Filter" : "Search"}</button></form>
+      <form style={actions} onSubmit={e => { e.preventDefault(); void load(1, search); }}><label style={{ ...field, flex: "1 1 180px" }}>{providerId === "github" ? "Filter this page" : "Find repositories"}<input style={inputStyle} value={search} onChange={e => {if(canEditSelection())setSearch(e.target.value);}} maxLength={100}/></label><button type="submit" disabled={busy}>{providerId === "github" ? "Filter" : "Search"}</button></form>
       <p className="text-muted">Page {page}. {providerId === "github" ? "Search filters this page only. Browse other pages to find more repositories. " : ""}Selections stay in place as you browse pages or search. Review up to 100 repositories within this ten-minute verified listing session.</p>
       <p className="text-muted">Each selection batch can browse 500 repositories and connect up to 100. Starting a fresh batch clears unsaved choices after a successful refresh; saved connections stay in the project.</p>
       <button type="button" className="btn-secondary" disabled={busy || !frame.eligible} onClick={() => load(1, search, true)}>Start a new selection batch</button>
@@ -273,11 +276,12 @@ export function RepositoryOAuthConnection({ projectId, providerId, onConnected, 
         <p className="text-muted">Continue from page {page + 1} in a fresh batch to browse beyond this batch’s 500-repository limit. Unsaved choices clear only after a successful refresh; saved connections stay in the project.</p>
         <button type="button" className="btn-secondary" disabled={!continuationFrame.eligible} onClick={continueCatalogue}>Continue from next page in a fresh batch</button>
       </>}
-      <div style={actions}><span role="status">{selected.length} selected across visited pages</span><button type="button" className="btn-secondary" disabled={busy||!listing?.repositories.length||!frame.eligible} onClick={()=>{if(!current())return;setSelection(previous=>{const details={...previous.details};const ids=new Set(previous.ids);for(const repo of listing?.repositories??[]){if(ids.size>=100&&!ids.has(repo.id))break;ids.add(repo.id);details[repo.id]=repo;}return{ids:[...ids],details};});}}>Select this page (up to 100 total)</button><button type="button" className="btn-secondary" disabled={busy || !selected.length} onClick={() => setSelection({ ids: [], details: {} })}>Clear selection</button></div>
+      <div style={actions}><span role="status">{selected.length} selected across visited pages</span><button type="button" className="btn-secondary" disabled={busy||!listing?.repositories.length||!frame.eligible} onClick={()=>{if(!canEditSelection())return;setSelection(previous=>{const details={...previous.details};const ids=new Set(previous.ids);for(const repo of listing?.repositories??[]){if(ids.size>=100&&!ids.has(repo.id))break;ids.add(repo.id);details[repo.id]=repo;}return{ids:[...ids],details};});}}>Select this page (up to 100 total)</button><button type="button" className="btn-secondary" disabled={busy || !selected.length} onClick={() => {if(canEditSelection())setSelection({ ids: [], details: {} });}}>Clear selection</button></div>
       {listing?.limitReached&&<p role="alert">Provider listing limit reached. This is not the complete scope; narrow the group or search.</p>}
       {listing?.listingStatus==="end-of-scope"&&<p role="status">{activeSearch?"End of matching results in this scope. This is not an unfiltered group catalogue.":"End of this scope’s pages."} Only repositories you selected will be connected.</p>}
       <div className="source-chip-list" role="group" aria-label="Verified repositories" style={{ maxHeight: 300, overflowY: "auto" }}>
         {listing?.repositories.map(repo => <button type="button" key={repo.id} className="source-connection-chip" aria-pressed={selected.includes(repo.id)} disabled={busy || (selected.length >= 100 && !selected.includes(repo.id))} onClick={() => {
+          if(!canEditSelection())return;
           setSelection(current => {
             const chosen = !current.ids.includes(repo.id);
             if (chosen && current.ids.length >= 100) return current;
@@ -289,16 +293,17 @@ export function RepositoryOAuthConnection({ projectId, providerId, onConnected, 
       </div>
       {listing && !listing.repositories.length && <p>{providerId === "github" ? "No repositories on this page matched. Change the filter or browse another page." : "No accessible repositories matched. Try a different search."}</p>}
       <div style={actions}><button type="button" className="btn-secondary" disabled={busy || page <= 1} onClick={() => void load(page - 1, activeSearch)}>Previous page</button><button type="button" className="btn-secondary" disabled={busy || !listing?.hasMore || page >= 100} onClick={() => void load(page + 1, activeSearch)}>Next page</button></div>
-      <div style={actions}><button type="button" className="btn-secondary" disabled={busy} onClick={() => setStep("authorize")}>Back</button><button type="button" disabled={busy || !selected.length} onClick={() => setStep("review")}>Review {selected.length} selected</button></div>
+      <div style={actions}><button type="button" className="btn-secondary" disabled={busy} onClick={() => {if(canEditSelection())setStep("authorize");}}>Back</button><button type="button" disabled={busy || !selected.length} onClick={() => {if(canEditSelection())setStep("review");}}>Review {selected.length} selected</button></div>
     </>}
     {step === "review" && <>
       <p>Connect {selectedRepos.length} {selectedRepos.length === 1 ? "repository" : "repositories"} to this project using your verified {providerName} account.</p>
       <ul style={{ overflowWrap: "anywhere", maxHeight: 250, overflowY: "auto" }}>{selectedRepos.map(repo => <li key={repo.id}>{repo.name}</li>)}</ul>
       <p>Existing manual revision references stay unchanged. No source is fetched, no test cases are generated, and no AI credits are used.</p>
-      <div style={actions}><button type="button" className="btn-secondary" disabled={busy||unconfirmedSave} onClick={() => {if(!saveOutcome.current.uncertain)setStep("repositories");}}>Back</button><button type="button" disabled={busy || !listing || !selected.length || !frame.eligible} onClick={async () => {
-        if (!listing||!current()) return; setError("");
+      <div style={actions}><button type="button" className="btn-secondary" disabled={busy||unconfirmedSave} onClick={() => {if(canEditSelection())setStep("repositories");}}>Back</button><button type="button" disabled={busy || !listing || !selected.length || !frame.eligible} onClick={async () => {
+        if (!listing||!current()||saveOutcome.current.inFlight) return; setError("");saveOutcome.current.inFlight=true;
         try { await connect.mutateAsync({ id: connectionId, repositoryIds: selected, catalogVersion: listing.catalogVersion, approved: true }); if(!current()){saveOutcome.current.uncertain=true;setUnconfirmedSave(true);return;}saveOutcome.current.uncertain=false;setUnconfirmedSave(false);setStep("done"); onConnected(); }
         catch(cause) { const code=(cause as {data?:{code?:string}})?.data?.code;const uncertain=saveOutcome.current.uncertain||!["BAD_REQUEST","CONFLICT","PRECONDITION_FAILED"].includes(code??"");saveOutcome.current.uncertain=uncertain;setUnconfirmedSave(uncertain);setError(uncertain?"Save was not acknowledged. Your original scope, choices and approval are retained. Retry the original approval before changing scope.":"Connection could not be saved. Your permissions or repository list may have changed. Go back and refresh the list before reviewing again."); }
+        finally{saveOutcome.current.inFlight=false;}
       }}>{connect.isPending ? "Connecting…" : "Approve and connect"}</button></div>
     </>}
     {step === "done" && <><p role="status">Repository connections saved. Access was verified; source discovery has not run.</p><p className="text-muted">Connect more starts a fresh 500-repository selection batch and clears unsaved choices only after a successful refresh. Existing saved connections stay in the project.</p>

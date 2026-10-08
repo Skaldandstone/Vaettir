@@ -29,7 +29,7 @@ test("blocked popup does not start OAuth; popup isolates opener before server-ap
   assert.ok(open > 0 && blocked > open && isolate > blocked && begin > isolate);
   assert.match(authorization.slice(blocked, isolate), /return;/);
   assert.match(customer, /configurationId:providerConfigurationId,approveMetadataAccess:true/);
-  assert.match(customer,/if \(!providerConfigurationId \|\| !connectionReady \|\| busy \|\| !canConnect\) return/);
+  assert.match(customer,/if \(!canEditSelection\(\) \|\| !providerConfigurationId \|\| !connectionReady \|\| busy \|\| !canConnect\) return/);
 });
 
 test("verified authorization automatically lists once, errors stay retryable and writes require review", () => {

@@ -133,6 +133,12 @@ function workflow() {
 }
 
 describe("OAuth metadata fresh selection batch actual workflow", () => {
+  it.each(["Clear selection","Select this page (up to 100 total)","toggle"])("unknown OAuth save retains exact retry input against pre-review %s callback",async action=>{
+    const h=workflow();h.fetchList.mockResolvedValueOnce(listing(["repo-1","repo-2"]));await h.resume();required(h.button("Synthetic repo-1main · Metadata only").props.onClick)();h.render();
+    const retained=required(h.button(action==="toggle"?/Synthetic repo-1/:action).props.onClick);required(h.button("Review 1 selected").props.onClick)();h.render();const pending=deferred<{connected:number}>();h.connect.mutateAsync.mockReturnValueOnce(pending.promise);const first=required(h.button("Approve and connect").props.onClick)();retained();h.render();pending.reject(Error("synthetic unknown network"));await first;h.render();
+    const original=h.connect.mutateAsync.mock.calls[0]?.[0];expect(original).toMatchObject({repositoryIds:["repo-1"]});retained();h.render();
+    expect(h.button("Approve and connect").props.disabled).toBe(false);await required(h.button("Approve and connect").props.onClick)();h.render();expect(h.connect.mutateAsync.mock.calls[1]?.[0]).toEqual(original);
+  });
   it("OAuth discovered group scope resets only after exact acknowledgement and selects current page without source processing",async()=>{
     const h=workflow();await h.resume();required(h.button("Synthetic repo-1main · Metadata only").props.onClick)();h.render();
     const label=required(elements(h.tree()).find(node=>node.type==="label"&&text(node).startsWith("Exact group/subgroup path")));const input=required(elements(label).find(node=>node.type==="input"));required(input.props.onChange)({preventDefault:vi.fn(),target:{value:"synthetic/team"}});h.render();
