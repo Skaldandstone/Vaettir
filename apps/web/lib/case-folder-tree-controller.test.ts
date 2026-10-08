@@ -59,6 +59,14 @@ function foldersHarness(feedback = false) {
   return { props, auth, list, writes, catalogUpdates, render, click, button, html, settled, intent, approveUnknown, reads: () => reads };
 }
 describe("actual tree and folder controller source", () => {
+  it("copy and recovery siblings have distinct stable project keys", async () => {
+    const host = foldersHarness(); await host.settled();
+    const children = (host.render().props as { children: React.ReactNode[] }).children;
+    const keys = children.filter(React.isValidElement).map(child => child.key).filter(key => key !== null);
+    expect(keys).toHaveLength(2);
+    expect(new Set(keys).size).toBe(2);
+    expect(keys).toEqual([`${catalog.projectId}:copy`, `${catalog.projectId}:recovery`]);
+  });
   it("equal fresh query wrappers do not loop through parent catalog state; content and access changes still publish", async () => {
     const host = foldersHarness(true); await host.settled();
     const count = host.catalogUpdates.length; await host.settled();

@@ -364,7 +364,7 @@ export function TestCaseFolders({
       <button onClick={begin}>Folders</button>
       {scopeReady && message && <p role="status">{message}</p>}
       <TestCaseFolderCopy
-        key={projectId}
+        key={`${projectId}:copy`}
         projectId={projectId}
         selectedPath={selectedPath}
         onSaved={(path) => {
@@ -373,7 +373,7 @@ export function TestCaseFolders({
         }}
       />
       <TestCaseFolderRecovery
-        key={projectId}
+        key={`${projectId}:recovery`}
         projectId={projectId}
         onSaved={(path) => {
           void list.refetch();
