@@ -2,6 +2,8 @@
 import { execFileSync } from "node:child_process";
 import { randomBytes, timingSafeEqual } from "node:crypto";
 import { createServer } from "node:http";
+import { existsSync } from "node:fs";
+import { join } from "node:path";
 
 const ROLE_BY_NATIVE_TYPE = [
   [/button|imagebutton/i, "button"],
@@ -35,9 +37,23 @@ function parseArguments(argv) {
   return values;
 }
 
+function resolveAdb() {
+  // Android Studio's standard SDK installation is not necessarily on PATH.
+  // Use an existing installation only; never install tools or change PATH.
+  const roots = [process.env.ANDROID_HOME, process.env.ANDROID_SDK_ROOT];
+  if (process.platform === "win32" && process.env.LOCALAPPDATA)
+    roots.push(join(process.env.LOCALAPPDATA, "Android", "Sdk"));
+  for (const root of roots) {
+    if (!root) continue;
+    const candidate = join(root, "platform-tools", process.platform === "win32" ? "adb.exe" : "adb");
+    if (existsSync(candidate)) return candidate;
+  }
+  return "adb";
+}
+
 function run(command, args) {
   try {
-    return execFileSync(command, args, {
+    return execFileSync(command === "adb" ? resolveAdb() : command, args, {
       encoding: "utf8",
       stdio: ["ignore", "pipe", "pipe"],
       maxBuffer: 1024 * 1024, timeout: 10000, windowsHide: true,
