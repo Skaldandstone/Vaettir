@@ -81,7 +81,7 @@ test("both callers use only loaded approved scopes; missing suite and navigation
   assert.match(runs, /if \(!manualSelectionWritable\(\) \|\| manualSelection\.size === 0\) return/);
   assert.match(runs, /ids\.some\(\(id\) => !eligibleCases\.some\(\(testCase\) => testCase\.id === id\)\)/);
   assert.match(runs, /Object\.freeze\(ids\); retainedSelection\.current = \{ projectId, ids \}; setConfigurationSelection\(ids\)/);
-  assert.match(runs, /<RunConfigurationModal key=\{projectId\} open=\{configurationOpen\}/);
+  assert.match(runs, /<RunConfigurationModal key=\{`\$\{projectId\}:run-configuration`\} open=\{configurationOpen\}/);
   assert.match(runs, /testCaseIds=\{configurationSelection \?\? \[\]\}/);
   assert.match(runs, /return startManualMutation\.mutateAsync\(envelope\)/);
   assert.match(runs, /const configuration = envelope\.request/);
