@@ -580,22 +580,47 @@ describe.skipIf(!isolated)(
         held = new Promise<void>((r) => {
           acquired = r;
         });
+      let holderPid = 0;
+      // Match the real organization -> membership -> advisory lock order.
+      // Holding advisory while revoking membership can deadlock against a
+      // restore already holding Membership SHARE; that is a fixture defect.
       const lock = prisma.$transaction(async (tx) => {
-        await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${projectId}))::text`;
+        await tx.$queryRaw`SELECT id FROM "Membership" WHERE "organizationId"=${organizationId} AND "userId"=${actorId} FOR UPDATE`;
+        const [backend] = await tx.$queryRaw<Array<{ pid: number }>>`SELECT pg_backend_pid()::int AS pid`;
+        holderPid = backend.pid;
         acquired();
         await gate;
-      });
-      await held;
-      const blocked = owner.caseVersionReview.restore(input);
-      await prisma.membership.update({
-        where: { organizationId_userId: { organizationId, userId: actorId } },
-        data: { seatType: "READ_ONLY" },
-      });
-      release();
-      await lock;
+        await tx.membership.update({
+          where: { organizationId_userId: { organizationId, userId: actorId } },
+          data: { seatType: "READ_ONLY" },
+        });
+      }, { timeout: 10000 }); // Only the deliberate fixture lock, not restore policy.
+      let blocked: ReturnType<typeof owner.caseVersionReview.restore> | undefined;
+      let blockedOutcome: Promise<unknown> | undefined;
+      // Observe early failures immediately; finally still joins this exact task.
+      const lockOutcome = lock.then(() => ({ ok: true as const }), error => ({ ok: false as const, error }));
       try {
+        await Promise.race([held, lock.then(() => { throw Error("Fixture lock ended before acquisition"); })]);
+        blocked = owner.caseVersionReview.restore(input);
+        blockedOutcome = blocked.then(() => undefined, () => undefined);
+        let waiting = false;
+        const waitDeadline = Date.now() + 2000;
+        do {
+          const [row] = await prisma.$queryRaw<Array<{ waiting: boolean }>>`
+            SELECT EXISTS(SELECT 1 FROM pg_stat_activity
+              WHERE datid=(SELECT oid FROM pg_database WHERE datname=current_database())
+              AND ${holderPid}::int = ANY(pg_blocking_pids(pid))) AS waiting`;
+          waiting = row.waiting;
+          if (!waiting) await new Promise(resolve => setTimeout(resolve, 10));
+        } while (!waiting && Date.now() < waitDeadline);
+        expect(waiting).toBe(true);
+        release();
+        await lock;
         await expect(blocked).rejects.toMatchObject({ code: "FORBIDDEN" });
       } finally {
+        release();
+        await lockOutcome;
+        await blockedOutcome;
         await prisma.membership.update({
           where: { organizationId_userId: { organizationId, userId: actorId } },
           data: { seatType: "FULL" },
@@ -605,7 +630,7 @@ describe.skipIf(!isolated)(
         (await prisma.testCase.findUniqueOrThrow({ where: { id: c.id } }))
           .title,
       ).toBe("Later title");
-    });
+    }, 15000);
     it("rolls back case, steps and new version if audit persistence fails", async () => {
       const c = await newCase();
       await change(c.id);
