@@ -49,7 +49,7 @@ function compile(name: string, context: vm.Context) {
   vm.runInContext(ts.transpileModule(`${body}\nthis.actual=${name};`, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.None, jsx: ts.JsxEmit.React } }).outputText, context);
 }
 const repository = (id: string): Listing["repositories"][number] => ({ id, name: `Synthetic ${id}`, url: `https://gitlab.example.com/synthetic/${encodeURIComponent(id)}`, defaultBranch: "main" });
-const listing = (ids: string[], hasMore = false, catalogReset = false): Listing => ({ repositories: ids.map(repository), hasMore, catalogReset, catalogVersion: "c".repeat(64) });
+const listing = (ids: string[], hasMore = false, catalogReset = false): Listing => ({ repositories: ids.map(repository), hasMore, catalogReset, catalogVersion: "c".repeat(64),limitReached:false,listingStatus:hasMore?"more-pages":"end-of-scope",scopeKey:null });
 
 /** Complete current component JSX and handlers, with synthetic hook commit
  * cycles/RPC boundaries only. No browser, Clerk/provider access or native proof. */
@@ -92,7 +92,7 @@ function harness(component = "TokenRepositoryConnection") {
     ConnectionAccessGate: ({ state }: { state: string }) => React.createElement("p", { role: "status" }, state),
     RepositoryOAuthConnection: oauth, TokenRepositoryConnection: tokenBoundary, GitlabConnectionChoices: choicesBoundary,
     trpcReact: { useUtils: () => ({ repositoryConnections: { list: { fetch: fetchList } } }), repositoryConnections: {
-      configurations: { useQuery: () => capabilities }, mine: { useQuery: () => recent },
+      configurations: { useQuery: () => capabilities }, mine: { useQuery: () => recent },groups:{useQuery:()=>({data:{groups:[{id:"1",path:"synthetic/team",name:"Synthetic team"}],hasMore:false,limitReached:false},error:null,refetch:vi.fn()})},
       connectToken: { useMutation: () => verify }, forgetToken: { useMutation: () => ({ isPending: false, mutateAsync: forbidden }) }, connectSelected: { useMutation: () => connect },
     } },
   });
@@ -139,6 +139,20 @@ function acknowledgement(input: VerifyInput): VerifyResult {
 }
 
 describe("GitLab token connection actual component workflow (synthetic)", () => {
+  it("group scope keeps old choices until exact reset ACK and carries reviewed scope across pages",async()=>{
+    const h=harness();fillVerification(h);await h.submit();h.render();h.button("Select this page (up to 100 total)").props.onClick!();h.render();
+    h.change("Exact group/subgroup path","synthetic/team");const held=deferred<Listing>();h.fetchList.mockReturnValueOnce(held.promise);h.button("Browse this scope").props.onClick!();h.render();
+    expect(h.html()).toContain("2 selected across visited pages");const scope={groupPath:"synthetic/team",includeSubgroups:true,includeShared:false};expect(h.fetchList).toHaveBeenLastCalledWith({id:"synthetic-connection",page:1,search:"",gitlabScope:scope});
+    const key=JSON.stringify(["gitlab-group/v1","synthetic/team",true,false,"44"]);const scoped=(ids:string[],reset:boolean)=>({...listing(ids,true,reset),scopeKey:key,repositories:ids.map(id=>({...repository(id),scopeKey:key}))});
+    held.resolve(scoped(["group-repo"],true));await h.settle();expect(h.html()).toContain("0 selected across visited pages");expect(h.html()).toContain("Synthetic group-repo");
+    h.fetchList.mockResolvedValueOnce(scoped(["group-page2"],false));h.button("Next page").props.onClick!();await h.settle();expect(h.fetchList).toHaveBeenLastCalledWith({id:"synthetic-connection",page:2,search:"",gitlabScope:scope});expect(h.connect.mutateAsync).not.toHaveBeenCalled();expect(h.verify.mutateAsync).toHaveBeenCalledOnce();
+  });
+  it("mismatched scope ACK and unconfirmed save cannot erase original selections",async()=>{
+    const h=harness();fillVerification(h);await h.submit();h.render();h.button("Select this page (up to 100 total)").props.onClick!();h.render();h.change("Exact group/subgroup path","synthetic/team");
+    h.fetchList.mockResolvedValueOnce(listing(["wrong-scope"],false,true));h.button("Browse this scope").props.onClick!();await h.settle();expect(h.html()).toContain("2 selected across visited pages");expect(h.html()).not.toContain("wrong-scope");
+    const staleBrowse=h.button("Browse this scope").props.onClick!;h.button("Review 2 selected").props.onClick!();h.render();const staleBack=h.button("Back").props.onClick!;h.connect.mutateAsync.mockRejectedValueOnce(Error("synthetic uncertain network"));await h.button("Approve and connect").props.onClick!();h.render();expect(h.html()).toContain("original scope, choices and approval are retained");expect(h.button("Back").props.disabled).toBe(true);const reads=h.fetchList.mock.calls.length;staleBrowse();staleBack();h.render();expect(h.fetchList.mock.calls.length).toBe(reads);expect(h.html()).toContain("Connect 2 GitLab repositories");
+    await h.button("Approve and connect").props.onClick!();h.render();expect(h.connect.mutateAsync.mock.calls[0]?.[0]).toEqual(h.connect.mutateAsync.mock.calls[1]?.[0]);expect(h.html()).toContain("Repository connections saved");
+  });
   it("routes the actual repository chooser to GitLab method selection instead of implicit OAuth", () => {
     const h = harness("RepositoryConnectionContent");
     expect(h.tree().type).toBe(h.choicesBoundary);

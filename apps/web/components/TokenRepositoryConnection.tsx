@@ -34,6 +34,10 @@ export function TokenRepositoryConnection({projectId,providerId,onConnected,onCl
   const [listing,setListing]=useState<Listing|null>(null);
   const [selected,setSelected]=useState<Record<string,Listing["repositories"][number]>>({});
   const [page,setPage]=useState(1);const [search,setSearch]=useState("");const [activeSearch,setActiveSearch]=useState("");
+  const [groupPath,setGroupPath]=useState("");const [includeSubgroups,setIncludeSubgroups]=useState(true);const [includeShared,setIncludeShared]=useState(false);const [groupPage,setGroupPage]=useState(1);
+  const [appliedScope,setAppliedScope]=useState<RouterInputs["repositoryConnections"]["list"]["gitlabScope"]>();
+  const [unconfirmedSave,setUnconfirmedSave]=useState(false);
+  const saveOutcome=useRef({uncertain:false});
   const [loading,setLoading]=useState(false);const [error,setError]=useState("");const [removing,setRemoving]=useState("");
   const busy=loading||verify.isPending||connect.isPending||forget.isPending;
   const choices=Object.values(selected);
@@ -59,13 +63,18 @@ export function TokenRepositoryConnection({projectId,providerId,onConnected,onCl
   function canEditDraft(){if(!current(frame)||verification.current||draftOrigin.current&&!sameOrigin(draftOrigin.current))return false;if(!draftOrigin.current){draftOrigin.current=frame;publishPrivateOrigin(frame);}return true;}
   const draftLocked=busy||!!requestId;
   const savedAccess=recent.data?.filter(c=>c.provider===providerId&&(providerId!=="gitlab"||c.accessMethod==="token"))??[];
-  async function load(id:string,nextPage=1,query=search,restartCatalogue=false){
-    if(!current(frame))return;
+  const groups=trpcReact.repositoryConnections.groups.useQuery({id:connectionId,page:groupPage},{enabled:providerId==="gitlab"&&step==="repositories"&&!!connectionId&&frame.eligible,retry:false});
+  async function load(id:string,nextPage=1,query=search,restartCatalogue=false,scope:RouterInputs["repositoryConnections"]["list"]["gitlabScope"]|null=appliedScope??null){
+    if(!current(frame)||saveOutcome.current.uncertain)return;
     const owner=++listingOwner.current;
     setLoading(true);setError("");
     try{
-      const result=await utils.repositoryConnections.list.fetch({id,page:nextPage,search:query,...(restartCatalogue?{restartCatalogue:true}:{})});
-      if(owner!==listingOwner.current||!current(frame))return;
+      const result=await utils.repositoryConnections.list.fetch({id,page:nextPage,search:query,...(scope?{gitlabScope:scope}:{}),...(restartCatalogue?{restartCatalogue:true}:{})});
+      if(owner!==listingOwner.current||!current(frame)||saveOutcome.current.uncertain)return;
+      const expectedScope=scope?JSON.parse(result.scopeKey??"null") as unknown:null;
+      if(scope? !Array.isArray(expectedScope)||expectedScope.length!==5||JSON.stringify(expectedScope.slice(0,4))!==JSON.stringify(["gitlab-group/v1",scope.groupPath,scope.includeSubgroups,scope.includeShared])||typeof expectedScope[4]!=="string"||!/^[1-9][0-9]*$/.test(expectedScope[4]):result.scopeKey!==null)throw Error("Scope acknowledgement did not match.");
+      if(result.repositories.some(repo=>(repo.scopeKey??null)!==(result.scopeKey??null)))throw Error("Repository scope acknowledgement did not match.");
+      if(JSON.stringify(scope??null)!==JSON.stringify(appliedScope??null)&&result.catalogReset!==true)throw Error("Changed scope reset acknowledgement required.");
       if(restartCatalogue&&!result.catalogReset)throw Error("Fresh selection was not acknowledged.");
       setSelected(previous=>{
         if(result.catalogReset)return {};
@@ -73,7 +82,7 @@ export function TokenRepositoryConnection({projectId,providerId,onConnected,onCl
         for(const repo of result.repositories)if(updated[repo.id])updated[repo.id]=repo;
         return updated;
       });
-      setListing(result);setConnectionId(id);setPage(nextPage);setActiveSearch(query);if(restartCatalogue)setSearch(query);setStep("repositories");
+      setListing(result);setConnectionId(id);setPage(nextPage);setActiveSearch(query);setAppliedScope(scope??undefined);if(restartCatalogue)setSearch(query);setStep("repositories");
     }catch{if(owner===listingOwner.current&&current(frame))setError(restartCatalogue?"Could not start a fresh selection batch. Your existing choices are retained; retry with the same saved connection.":"Could not refresh repository access. Check your saved connection or verify a new token.");}
     finally{if(owner===listingOwner.current)setLoading(false);}
   }
@@ -141,14 +150,25 @@ export function TokenRepositoryConnection({projectId,providerId,onConnected,onCl
       <button type="button" className="btn-secondary" disabled={draftLocked} onClick={()=>{if(!verification.current)onClose();}}>Cancel</button>
     </>}
     {step==="repositories" && <>
+      {providerId==="gitlab"&&<fieldset disabled={busy||!frame.eligible} style={{display:"grid",gap:8}}><legend>Repository scope</legend>
+        <label style={field}>Group or subgroup<select style={inputStyle} value={groupPath} onChange={e=>setGroupPath(e.target.value)}><option value="">All accessible memberships</option>{groups.data?.groups.map(group=><option key={group.id} value={group.path}>{group.path}</option>)}{groupPath&&!groups.data?.groups.some(group=>group.path===groupPath)&&<option value={groupPath}>{groupPath}</option>}</select></label>
+        {groups.error&&<p role="alert">Groups could not be verified. Retry or enter a group path.</p>}
+        <div style={actions}><button type="button" className="btn-secondary" disabled={groupPage<=1} onClick={()=>setGroupPage(page=>page-1)}>Previous groups</button><button type="button" className="btn-secondary" disabled={!groups.data?.hasMore} onClick={()=>setGroupPage(page=>page+1)}>More groups</button>{groups.error&&<button type="button" onClick={()=>void groups.refetch()}>Retry groups</button>}</div>
+        <details><summary>Enter a group path</summary><label style={field}>Exact group/subgroup path<input style={inputStyle} value={groupPath} onChange={e=>setGroupPath(e.target.value)} maxLength={400} placeholder="team/product"/></label></details>
+        <label><input type="checkbox" checked={includeSubgroups} onChange={e=>setIncludeSubgroups(e.target.checked)}/> Include subgroups</label><label><input type="checkbox" checked={includeShared} onChange={e=>setIncludeShared(e.target.checked)}/> Include projects shared with this group</label>
+        <p className="text-muted">Apply scope to refresh its verified repository list. Choices are cleared only after the new scope is acknowledged.</p>
+        <button type="button" onClick={()=>void load(connectionId,1,search,false,groupPath.trim()?{groupPath:groupPath.trim(),includeSubgroups,includeShared}:null)}>Browse this scope</button>
+      </fieldset>}
       <p>Repository metadata available for <strong>{accountLabel}</strong>. Choose what belongs to this project.</p>
       <form style={actions} onSubmit={e=>{e.preventDefault();void load(connectionId,1,search);}}><label style={{...field,flex:"1 1 160px"}}>Search repositories<input style={inputStyle} value={search} onChange={e=>setSearch(e.target.value)} maxLength={100}/></label><button type="submit" className="btn-secondary" disabled={busy}>Search</button></form>
       <span role="status">{choices.length} selected across visited pages</span>
+      {listing?.limitReached&&<p role="alert">Provider listing limit reached. This is not the complete scope; narrow the group or search.</p>}
+      {listing?.listingStatus==="end-of-scope"&&<p role="status">{activeSearch?"End of matching results in this scope. This is not an unfiltered group catalogue.":"End of this scope’s pages."} Only repositories you selected will be connected.</p>}
       <div style={actions}><button type="button" className="btn-secondary" disabled={busy||!listing?.repositories.length} onClick={()=>setSelected(previous=>{
         const next={...previous};for(const repo of listing?.repositories??[]){if(Object.keys(next).length>=100&&!next[repo.id])break;next[repo.id]=repo;}return next;
       })}>Select this page (up to 100 total)</button><button type="button" className="btn-secondary" disabled={busy||!choices.length} onClick={()=>setSelected({})}>Clear selection</button></div>
       <div className="source-chip-list" role="group" aria-label="Verified repository choices" style={{maxHeight:300,overflowY:"auto"}}>
-        {listing?.repositories.map(repo=><button type="button" key={repo.id} className="source-connection-chip" aria-pressed={!!selected[repo.id]} disabled={busy||choices.length>=100&&!selected[repo.id]} style={{maxWidth:"100%",textAlign:"left"}} onClick={()=>setSelected(previous=>{const next={...previous};if(next[repo.id])delete next[repo.id];else if(Object.keys(next).length<100)next[repo.id]=repo;return next;})}><ProviderMark id={providerId}/><span style={{minWidth:0,overflowWrap:"anywhere"}}><strong>{repo.name}</strong><small>{repo.defaultBranch??"No default branch"} · Metadata</small></span>{selected[repo.id]&&<span aria-hidden="true">✓</span>}</button>)}
+        {listing?.repositories.map(repo=><button type="button" key={repo.id} className="source-connection-chip" aria-pressed={!!selected[repo.id]} disabled={busy||choices.length>=100&&!selected[repo.id]} style={{maxWidth:"100%",textAlign:"left"}} onClick={()=>setSelected(previous=>{const next={...previous};if(next[repo.id])delete next[repo.id];else if(Object.keys(next).length<100)next[repo.id]=repo;return next;})}><ProviderMark id={providerId}/><span style={{minWidth:0,overflowWrap:"anywhere"}}><strong>{repo.name}</strong><small>{repo.projectName&&<>{repo.projectName} · </>}{repo.defaultBranch??"No default branch"} · Metadata</small></span>{selected[repo.id]&&<span aria-hidden="true">✓</span>}</button>)}
       </div>
       {!listing?.repositories.length&&<p>No accessible repositories match this search.</p>}
       {providerId==="bitbucket"&&page===10&&<p className="text-muted">This listing is limited to ten pages. Narrow the search to find other repositories.</p>}
@@ -157,7 +177,7 @@ export function TokenRepositoryConnection({projectId,providerId,onConnected,onCl
       {providerId==="gitlab"&&<div><p className="text-muted">Continue from the next page in a fresh selection batch to browse beyond the current 500-repository batch. This keeps the last applied search and clears unsaved choices only after a successful refresh; saved connections stay in the project.</p><button type="button" className="btn-secondary" disabled={busy||!!requestId||!frame.eligible||!listing?.hasMore||page>=100} onClick={()=>void continueGitlabBatch()}>Continue from page {page+1} in a fresh batch</button></div>}
       <div style={actions}><button type="button" className="btn-secondary" disabled={busy} onClick={()=>setStep("access")}>Back</button><button type="button" disabled={busy||!choices.length} onClick={()=>setStep("review")}>Review {choices.length} selected</button></div>
     </>}
-    {step==="review"&&<><p>Connect {choices.length} {name} repositories to this project?</p><ul style={{overflowWrap:"anywhere",maxHeight:250,overflowY:"auto"}}>{choices.map(repo=><li key={repo.id}>{repo.name}</li>)}</ul><p>Existing revision references stay in place. Source discovery can be approved after these connections are saved.</p><div style={actions}><button type="button" className="btn-secondary" disabled={busy} onClick={()=>setStep("repositories")}>Back</button><button type="button" disabled={busy||!listing||!frame.eligible} onClick={async()=>{if(!listing||!current(frame))return;try{await connect.mutateAsync({id:connectionId,repositoryIds:choices.map(c=>c.id),catalogVersion:listing.catalogVersion,approved:true});if(!current(frame))return;setStep("done");onConnected();}catch{if(current(frame))setError("Could not save. Refresh the repository list and review your choices again.");}}}>{connect.isPending?"Saving…":"Approve and connect"}</button></div></>}
+    {step==="review"&&<><p>Connect {choices.length} {name} repositories to this project?</p><ul style={{overflowWrap:"anywhere",maxHeight:250,overflowY:"auto"}}>{choices.map(repo=><li key={repo.id}>{repo.name}</li>)}</ul><p>Existing revision references stay in place. Source discovery can be approved after these connections are saved.</p><div style={actions}><button type="button" className="btn-secondary" disabled={busy||unconfirmedSave} onClick={()=>{if(!saveOutcome.current.uncertain)setStep("repositories");}}>Back</button><button type="button" disabled={busy||!listing||!frame.eligible} onClick={async()=>{if(!listing||!current(frame))return;try{await connect.mutateAsync({id:connectionId,repositoryIds:choices.map(c=>c.id),catalogVersion:listing.catalogVersion,approved:true});if(!current(frame)){saveOutcome.current.uncertain=true;setUnconfirmedSave(true);return;}saveOutcome.current.uncertain=false;setUnconfirmedSave(false);setStep("done");onConnected();}catch(cause){const uncertain=retainAnalysisRequest(saveOutcome.current.uncertain,cause);saveOutcome.current.uncertain=uncertain;setUnconfirmedSave(uncertain);if(current(frame))setError(uncertain?"Save was not acknowledged. Your original scope, choices and approval are retained. Retry the original approval before changing scope.":"Could not save. Refresh the repository list and review your choices again.");}}}>{connect.isPending?"Saving…":"Approve and connect"}</button></div></>}
     {step==="done"&&<><p role="status">Repository connections saved. Source files have not been read.</p>{providerId==="gitlab"&&<div><p className="text-muted">Continue from the next page in a fresh selection batch. This keeps the last applied search and clears unsaved choices only after a successful refresh; saved connections stay in the project.</p><button type="button" className="btn-secondary" disabled={busy||!!requestId||!frame.eligible||!listing?.hasMore||page>=100} onClick={()=>void continueGitlabBatch()}>Continue from page {page+1} in a fresh batch</button></div>}<div style={actions}><button type="button" className="btn-secondary" disabled={busy} onClick={()=>void load(connectionId,1,"",true)}>Connect more repositories</button><button type="button" disabled={busy} onClick={onClose}>Done</button></div></>}
   </div>;
 }

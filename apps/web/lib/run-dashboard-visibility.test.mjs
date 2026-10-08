@@ -56,7 +56,7 @@ test("inactive reader denies cached evidence, closes portalled export and invali
 
 test("run history pagination/refetch and empty pages do not unmount dashboard scope", () => {
   const page = source("../app/projects/[projectId]/test-runs/page.tsx");
-  assert.ok(sourceCodeIncludes(page, '<RunHistoryDashboard key={projectId} projectId={projectId} organizationId={organizationId} onView={setOpenRunId} /> <RunAllPagesDashboard key={projectId} projectId={projectId} />'));
+  assert.ok(sourceCodeIncludes(page, '<RunHistoryDashboard key={`${projectId}:run-history`} projectId={projectId} organizationId={organizationId} onView={setOpenRunId} /> <RunAllPagesDashboard key={`${projectId}:all-pages`} projectId={projectId} />'));
   assert.equal([...page.matchAll(/<RunAllPagesDashboard/g)].length, 1);
   assert.equal([...page.matchAll(/<RunHistoryDashboard/g)].length, 1);
   assert.doesNotMatch(page, /runsQuery|historyCursors|<RunOverview|testRuns\.list/);
@@ -64,4 +64,40 @@ test("run history pagination/refetch and empty pages do not unmount dashboard sc
   assert.match(dashboard, /useRunHistory\(projectId/);
   assert.match(dashboard, /Current run-history page/);
   assert.match(dashboard, /sameRenderedPage\(rendered, reader.current\(\)\)/);
+});
+
+test("root dashboard and configuration siblings have stable distinct project identities", async () => {
+  const ts = (await import("typescript")).default;
+  const page = source("../app/projects/[projectId]/test-runs/page.tsx");
+  const tree = ts.createSourceFile("page.tsx", page, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+  const roles = new Map([
+    ["RunHistoryDashboard", "run-history"],
+    ["RunAllPagesDashboard", "all-pages"],
+    ["RunConfigurationModal", "run-configuration"],
+  ]);
+  const nodes = [];
+  function visit(node) {
+    if (ts.isJsxSelfClosingElement(node) && roles.has(node.tagName.getText(tree))) nodes.push(node);
+    ts.forEachChild(node, visit);
+  }
+  visit(tree);
+  assert.equal(nodes.length, 3);
+  assert.ok(nodes.every(node => node.parent === nodes[0].parent));
+  assert.ok(ts.isJsxElement(nodes[0].parent));
+  assert.equal(nodes[0].parent.openingElement.tagName.getText(tree), "div");
+  const identities = nodes.map(node => {
+    const key = node.attributes.properties.find(attribute => ts.isJsxAttribute(attribute) && attribute.name.getText(tree) === "key");
+    assert.ok(key && ts.isJsxExpression(key.initializer));
+    const expression = key.initializer.expression;
+    assert.ok(expression && ts.isTemplateExpression(expression));
+    assert.equal(expression.head.text, "");
+    assert.equal(expression.templateSpans.length, 1);
+    assert.equal(expression.templateSpans[0].expression.getText(tree), "projectId");
+    assert.equal(expression.templateSpans[0].literal.text, `:${roles.get(node.tagName.getText(tree))}`);
+    return projectId => `${projectId}${expression.templateSpans[0].literal.text}`;
+  });
+  for (const projectId of ["project-a", "project-b", "project-a"]) {
+    assert.equal(new Set(identities.map(identity => identity(projectId))).size, 3);
+  }
+  assert.ok(identities.every(identity => identity("project-a") !== identity("project-b")));
 });

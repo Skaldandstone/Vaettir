@@ -43,6 +43,42 @@ function fixture(initialCount=500){
 }
 
 describe("explicit metadata-only repository catalogue restart",()=>{
+  it("group scope acknowledgement resets the prior catalogue and invalidates old CAS without widening save bounds",async()=>{
+    const f=fixture(0),old=await f.caller.list({id:f.row.id});
+    vi.mocked(repositoryProviderJson).mockResolvedValueOnce({id:44,full_path:"synthetic/team"}).mockResolvedValueOnce([native(500)]);
+    const group=await f.caller.list({id:f.row.id,gitlabScope:{groupPath:"synthetic/team",includeSubgroups:true,includeShared:false}});
+    expect(group.catalogReset).toBe(true);expect(group.scopeKey).toBe(JSON.stringify(["gitlab-group/v1","synthetic/team",true,false,"44"]));expect(group.repositories[0]?.scopeKey).toBe(group.scopeKey);
+    expect(group.listingStatus).toBe("end-of-scope");expect(group.limitReached).toBe(false);
+    await expect(f.caller.connectSelected({id:f.row.id,repositoryIds:["1"],catalogVersion:old.catalogVersion,approved:true})).rejects.toMatchObject({code:"CONFLICT"});
+    expect(await f.caller.connectSelected({id:f.row.id,repositoryIds:["501"],catalogVersion:group.catalogVersion,approved:true})).toEqual({connected:1});
+    const all=await f.caller.list({id:f.row.id});expect(all.catalogReset).toBe(true);expect(all.scopeKey).toBe(null);expect(all.repositories.every(repo=>!repo.scopeKey)).toBe(true);
+    await expect(f.caller.connectSelected({id:f.row.id,repositoryIds:["501"],catalogVersion:group.catalogVersion,approved:true})).rejects.toMatchObject({code:"CONFLICT"});
+  });
+  it("failed group verification retains prior catalogue and approval; caller scope keys cannot choose the server binding",async()=>{
+    const f=fixture(0);await f.caller.list({id:f.row.id});const before=structuredClone(f.row);
+    vi.mocked(repositoryProviderJson).mockRejectedValueOnce(Error("private provider error"));
+    await expect(f.caller.list({id:f.row.id,gitlabScope:{groupPath:"synthetic/team",includeSubgroups:true,includeShared:false}})).rejects.toMatchObject({code:"BAD_REQUEST"});expect(f.row).toEqual(before);
+    vi.mocked(repositoryProviderJson).mockResolvedValueOnce({id:44,full_path:"synthetic/team"}).mockResolvedValueOnce([native(500)]);
+    const result=await f.caller.list({id:f.row.id,gitlabScope:{groupPath:"synthetic/team",includeSubgroups:true,includeShared:false},scopeKey:"attacker"} as never);
+    expect(result.scopeKey).not.toBe("attacker");expect(result.repositories[0]?.scopeKey).toBe(result.scopeKey);
+  });
+  it("terminal bounded provider page reports truncation rather than all repositories",async()=>{
+    const f=fixture(0),last=await f.caller.list({id:f.row.id,page:100});expect(last.hasMore).toBe(false);expect(last.limitReached).toBe(true);expect(last.listingStatus).toBe("truncated");
+  });
+  it("recreated group at the same path has a different scope identity and refuses prior approval",async()=>{
+    const f=fixture(0),scope={groupPath:"synthetic/team",includeSubgroups:true,includeShared:false};
+    vi.mocked(repositoryProviderJson).mockResolvedValueOnce({id:44,full_path:scope.groupPath}).mockResolvedValueOnce([native(500)]);const first=await f.caller.list({id:f.row.id,gitlabScope:scope});
+    vi.mocked(repositoryProviderJson).mockResolvedValueOnce({id:45,full_path:scope.groupPath}).mockResolvedValueOnce([native(501)]);const next=await f.caller.list({id:f.row.id,gitlabScope:scope});
+    expect(next.catalogReset).toBe(true);expect(next.scopeKey).not.toBe(first.scopeKey);
+    await expect(f.caller.connectSelected({id:f.row.id,repositoryIds:["501"],catalogVersion:first.catalogVersion,approved:true})).rejects.toMatchObject({code:"CONFLICT"});expect(f.writes).not.toHaveBeenCalled();
+  });
+  it("mixed-scope stored catalogues cannot be saved and current actor loss withholds discovered groups",async()=>{
+    const f=fixture(0);const page=await f.caller.list({id:f.row.id});
+    f.row.catalog=[selection(0),{...selection(1),scopeKey:JSON.stringify(["gitlab-group/v1","synthetic/team",true,false])}];
+    await expect(f.caller.connectSelected({id:f.row.id,repositoryIds:["1"],catalogVersion:page.catalogVersion,approved:true})).rejects.toMatchObject({code:"PRECONDITION_FAILED"});expect(f.writes).not.toHaveBeenCalled();
+    vi.mocked(repositoryProviderJson).mockImplementationOnce(async()=>{f.member.seatType="READ_ONLY";return[{id:44,full_path:"synthetic/team",name:"Synthetic team"}];});
+    await expect(f.caller.groups({id:f.row.id})).rejects.toMatchObject({code:"BAD_REQUEST"});expect(f.writes).not.toHaveBeenCalled();
+  });
   it("default request still accumulates visited pages and refuses a 501+ catalogue without altering it",async()=>{
     const f=fixture(),before=structuredClone(f.row);
     await expect(f.caller.list({id:f.row.id,page:6})).rejects.toMatchObject({code:"PRECONDITION_FAILED"});

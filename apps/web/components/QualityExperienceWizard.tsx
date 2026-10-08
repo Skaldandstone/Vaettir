@@ -10,6 +10,7 @@ import {
   MULTIPLAYER_MODES,
   HARDWARE_KINDS,
   PROCESS_KINDS,
+  PROJECT_OPTIONAL_TOOLS,
   experienceProfileSchema,
   resolveQualityExperience,
   type ExperienceProfile,
@@ -120,6 +121,13 @@ function screensFor(profile: ExperienceProfile): Screen[] {
       choices: PROCESS_KINDS,
     });
   screens.push({
+    id: "tools",
+    title: "Which optional tools should appear in navigation?",
+    help: "Hide tools you do not use. Existing records and direct links remain readable. These choices do not grant access, connect services or authorize AI processing. Older projects show all tools until you explicitly change this selection.",
+    field: "enabledTools",
+    choices: PROJECT_OPTIONAL_TOOLS,
+  });
+  screens.push({
     id: "jurisdictions",
     title: "Where will this product or process operate?",
     help: "Optional context for regulatory review. These selections do not determine applicable regulations or certify compliance.",
@@ -206,11 +214,16 @@ export function QualityExperienceWizard({
   function select(field: ChoiceField, id: string) {
     if (!draft || busy || !canEdit) return;
     setSaved(false);
+    const values =
+      draft[field] ??
+      (field === "enabledTools"
+        ? PROJECT_OPTIONAL_TOOLS.map((tool) => tool.id)
+        : []);
     setDraft({
       ...draft,
-      [field]: draft[field].some((value) => value === id)
-        ? draft[field].filter((value) => value !== id)
-        : [...draft[field], id],
+      [field]: values.some((value) => value === id)
+        ? values.filter((value) => value !== id)
+        : [...values, id],
     } as ExperienceProfile);
   }
   function addJurisdiction() {
@@ -329,35 +342,35 @@ export function QualityExperienceWizard({
                 {screen.id !== "offerings" ? " (optional)" : ""}
               </legend>
               {(screen.field === "gamePlatforms"
-                ? GAME_PLATFORM_GROUPS.map(group => ({
+                ? GAME_PLATFORM_GROUPS.map((group) => ({
                     label: group.label,
-                    choices: screen.choices!.filter(choice =>
+                    choices: screen.choices!.filter((choice) =>
                       (group.ids as readonly string[]).includes(choice.id),
                     ),
                   }))
                 : [{ label: "", choices: screen.choices }]
-              ).map(group => (
+              ).map((group) => (
                 <div key={group.label} className="experience-checklist-section">
                   {group.label && <h4>{group.label}</h4>}
                   <div className="experience-checklist-options">
-                {group.choices.map(({ id, label }) => {
-                  const selected = draft[screen.field!].some(
-                    (value) => value === id,
-                  );
-                  return (
-                    <label
-                      key={id}
-                      className="experience-checklist-option"
-                    >
-                      <input
-                        type="checkbox"
-                        checked={selected}
-                        onChange={() => select(screen.field!, id)}
-                      />
-                      <span>{label}</span>
-                    </label>
-                  );
-                })}
+                    {group.choices.map(({ id, label }) => {
+                      const selected = (
+                        draft[screen.field!] ??
+                        (screen.field === "enabledTools"
+                          ? PROJECT_OPTIONAL_TOOLS.map((tool) => tool.id)
+                          : [])
+                      ).some((value) => value === id);
+                      return (
+                        <label key={id} className="experience-checklist-option">
+                          <input
+                            type="checkbox"
+                            checked={selected}
+                            onChange={() => select(screen.field!, id)}
+                          />
+                          <span>{label}</span>
+                        </label>
+                      );
+                    })}
                   </div>
                 </div>
               ))}
@@ -367,10 +380,7 @@ export function QualityExperienceWizard({
                     (value) => !JURISDICTIONS.some(({ id }) => id === value),
                   )
                   .map((value) => (
-                    <label
-                      key={value}
-                      className="experience-checklist-option"
-                    >
+                    <label key={value} className="experience-checklist-option">
                       <input
                         type="checkbox"
                         checked
@@ -380,7 +390,15 @@ export function QualityExperienceWizard({
                     </label>
                   ))}
               {screen.field === "jurisdictions" && (
-                <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 16, alignItems: "end" }}>
+                <div
+                  style={{
+                    display: "flex",
+                    flexWrap: "wrap",
+                    gap: 8,
+                    marginTop: 16,
+                    alignItems: "end",
+                  }}
+                >
                   <label style={{ flex: "1 1 180px" }}>
                     Another operating region
                     <input
@@ -443,6 +461,22 @@ export function QualityExperienceWizard({
                     </div>
                   ))}
               </dl>
+              <p>
+                Optional navigation tools:{" "}
+                {draft.enabledTools === undefined
+                  ? "All tools (legacy settings unchanged)"
+                  : draft.enabledTools.length === 0
+                    ? "Core workflow only"
+                    : draft.enabledTools
+                        .map(
+                          (id) =>
+                            PROJECT_OPTIONAL_TOOLS.find(
+                              (tool) => tool.id === id,
+                            )?.label ?? id,
+                        )
+                        .join(", ")}
+                . Existing evidence and direct links remain available.
+              </p>
               <details style={{ marginTop: 16 }}>
                 <summary>Preview case, plan and run guidance</summary>
                 <Guidance profile={draft} />

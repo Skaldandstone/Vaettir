@@ -424,13 +424,13 @@ export default function TestRunsPage() {
       </p>
 
       <RunHistoryDashboard
-        key={projectId}
+        key={`${projectId}:run-history`}
         projectId={projectId}
         organizationId={organizationId}
         onView={setOpenRunId}
       />
 
-      <RunAllPagesDashboard key={projectId} projectId={projectId} />
+      <RunAllPagesDashboard key={`${projectId}:all-pages`} projectId={projectId} />
 
       <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 16 }}>
         <a className="btn-secondary" href={`/projects/${projectId}/import`}>
@@ -733,7 +733,7 @@ export default function TestRunsPage() {
         </div>
       </Modal>
       <RunConfigurationModal
-        key={projectId}
+        key={`${projectId}:run-configuration`}
         open={configurationOpen}
         projectId={projectId}
         caseCount={configurationSelection?.length ?? 0}

@@ -91,6 +91,14 @@ describe.skipIf(!isolated)("repository authorization and reviewed selection", ()
   afterEach(() => vi.unstubAllEnvs());
 
   const tokenRequest=()=>({projectId,provider:"bitbucket" as const,requestId:randomUUID(),email:"fixture@example.com",workspace:"team",token:accessToken,approveMetadataAccess:true as const});
+  it("retains terminal Bitbucket truncation separately from an exhausted verified scope",async()=>{
+    const result=await owner.connectToken(tokenRequest());
+    vi.mocked(listBitbucketRepositories).mockResolvedValueOnce({repositories:[],hasMore:false,limitReached:true});
+    expect(await owner.list({id:result.id,page:10})).toMatchObject({hasMore:false,limitReached:true,listingStatus:"truncated"});
+    vi.mocked(listBitbucketRepositories).mockResolvedValueOnce({repositories:[],hasMore:false,limitReached:false});
+    expect(await owner.list({id:result.id,page:1})).toMatchObject({hasMore:false,limitReached:false,listingStatus:"end-of-scope"});
+    await expect(owner.list({id:result.id,gitlabScope:{groupPath:"team",includeSubgroups:true,includeShared:false}})).rejects.toMatchObject({code:"BAD_REQUEST"});
+  });
   it("reports connection authority separately from application administration and storage readiness",async()=>{
     expect(await owner.configurations({projectId})).toMatchObject({canConnect:true,canConfigure:true});
     expect(await editor.configurations({projectId})).toMatchObject({canConnect:true,canConfigure:false});
@@ -183,7 +191,7 @@ describe.skipIf(!isolated)("repository authorization and reviewed selection", ()
     }
     expect(listAzureRepositories).not.toHaveBeenCalled();
     const result=await owner.connectToken({projectId,provider:"azure-devops",organizationUrl:"https://dev.azure.com/team",requestId:randomUUID(),token:accessToken,approveMetadataAccess:true});
-    expect((await owner.list({id:result.id})).repositories[0]).toMatchObject({id:"azure-repo-fixture",defaultBranch:"refs/heads/main"});
+    expect((await owner.list({id:result.id})).repositories[0]).toMatchObject({id:"azure-repo-fixture",defaultBranch:"refs/heads/main",projectId:"azure-project-fixture",projectName:"Project"});
   });
   async function signalActor(role:OrgRole,seatType:SeatType="FULL"){
     const created=await actor(role,seatType);

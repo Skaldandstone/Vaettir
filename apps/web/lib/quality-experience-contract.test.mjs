@@ -15,6 +15,10 @@ test("experience wizard uses labelled multi-select checklists and retains drafts
   assert.match(wizard, /Your draft is retained/);
   assert.match(wizard, /Save testing context/);
   assert.match(wizard, /GAME_PLATFORMS/);
+  assert.match(wizard, /field: "enabledTools"/);
+  assert.match(wizard, /PROJECT_OPTIONAL_TOOLS/);
+  assert.match(wizard, /draft\.enabledTools === undefined/);
+  assert.match(wizard, /Existing evidence and direct links remain available/);
   assert.doesNotMatch(
     wizard,
     /aria-pressed|wizard-choice-chip|generateAutomationDraft|repoSource/,
@@ -35,7 +39,10 @@ test("manual runs open reviewed configuration and render frozen evidence", () =>
   assert.match(cases, /startRunMutation\.mutateAsync\(envelope\)/);
   assert.match(cases, /manualRunStartReviewed\.start\.useMutation/);
   assert.match(cases, /const context = envelope\.request/);
-  assert.match(cases, /envelope\.projectId !== projectId \|\| context\.projectId !== projectId/);
+  assert.match(
+    cases,
+    /envelope\.projectId !== projectId \|\| context\.projectId !== projectId/,
+  );
   assert.doesNotMatch(cases, /manualExecution\.start\.useMutation/);
   assert.match(cases, /caseCount=\{runSelection.length\}/);
   const execution = source(

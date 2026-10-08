@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useAuth } from "@clerk/nextjs";
 import Link from "next/link";
-import { trpcReact, type RouterOutputs } from "@/lib/trpcReact";
+import { trpcReact, type RouterInputs, type RouterOutputs } from "@/lib/trpcReact";
 import { ProviderMark } from "./SourceConnectionChips";
 import { connectionAccessState } from "@/lib/connection-access";
 import { ConnectionAccessGate } from "./ConnectionAccessGate";
@@ -45,6 +45,13 @@ export function RepositoryOAuthConnection({ projectId, providerId, onConnected, 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [privateOwner, publishPrivateOwner] = useState<{ origin: CaseFieldOrigin; providerId: "github" | "gitlab" } | null>(null);
+  const [groupPath,setGroupPath]=useState("");
+  const [includeSubgroups,setIncludeSubgroups]=useState(true);
+  const [includeShared,setIncludeShared]=useState(false);
+  const [groupPage,setGroupPage]=useState(1);
+  const [appliedScope,setAppliedScope]=useState<RouterInputs["repositoryConnections"]["list"]["gitlabScope"]>();
+  const [unconfirmedSave,setUnconfirmedSave]=useState(false);
+  const saveOutcome=useRef({uncertain:false});
   const privateScope = useRef<typeof privateOwner>(null);
   const popup = useRef<Window | null>(null);
   const automaticallyLoaded = useRef("");
@@ -99,6 +106,7 @@ export function RepositoryOAuthConnection({ projectId, providerId, onConnected, 
     ownsOriginal(frame.original, "edit") && sameAuthScope({ userId: frame.userId, sessionId: frame.sessionId },
       typeof window === "undefined" ? null : currentSessionScope(window.Clerk?.loaded ? window.Clerk.session : null)), [frame, ownsOriginal]);
   const beginAuthorization=begin.mutateAsync;
+  const groups=trpcReact.repositoryConnections.groups.useQuery({id:connectionId,page:groupPage},{enabled:providerId==="gitlab"&&step==="repositories"&&!!connectionId&&frame.eligible,retry:false});
   function authorize() {
     if (!providerConfigurationId || !connectionReady || busy || !canConnect) return;
     setError("");
@@ -127,8 +135,8 @@ export function RepositoryOAuthConnection({ projectId, providerId, onConnected, 
     });
   },[initialAuthorization,active,accessState,busy,connectionReady,providerConfigurationId,connectionId,providerName,providerId,beginAuthorization,projectId]);
 
-  const load = useCallback(async (nextPage = 1, nextSearch = "", restartCatalogue = false) => {
-    if (!connectionId || !current() || listingOwner.current.inFlight) return;
+  const load = useCallback(async (nextPage = 1, nextSearch = "", restartCatalogue = false, scope:RouterInputs["repositoryConnections"]["list"]["gitlabScope"]|null = appliedScope??null) => {
+    if (!connectionId || !current() || listingOwner.current.inFlight || saveOutcome.current.uncertain) return;
     const owner = ++listingOwner.current.generation;
     listingOwner.current.inFlight = true;
     if (!privateScope.current && frame.original) {
@@ -137,8 +145,12 @@ export function RepositoryOAuthConnection({ projectId, providerId, onConnected, 
     }
     setLoading(true); setError("");
     try {
-      const result = await utils.repositoryConnections.list.fetch({ id: connectionId, page: nextPage, search: nextSearch, ...(restartCatalogue ? { restartCatalogue: true } : {}) });
-      if (listingOwner.current.generation !== owner || !current()) return;
+      const result = await utils.repositoryConnections.list.fetch({ id: connectionId, page: nextPage, search: nextSearch, ...(scope ? {gitlabScope:scope}:{}), ...(restartCatalogue ? { restartCatalogue: true } : {}) });
+      if (listingOwner.current.generation !== owner || !current()||saveOutcome.current.uncertain) return;
+      const expectedScope=scope?JSON.parse(result.scopeKey??"null") as unknown:null;
+      if(scope? !Array.isArray(expectedScope)||expectedScope.length!==5||JSON.stringify(expectedScope.slice(0,4))!==JSON.stringify(["gitlab-group/v1",scope.groupPath,scope.includeSubgroups,scope.includeShared])||typeof expectedScope[4]!=="string"||!/^[1-9][0-9]*$/.test(expectedScope[4]):result.scopeKey!==null)throw Error("Scope acknowledgement did not match");
+      if(result.repositories.some(repo=>(repo.scopeKey??null)!==(result.scopeKey??null)))throw Error("Repository scope acknowledgement did not match");
+      if(JSON.stringify(scope??null)!==JSON.stringify(appliedScope??null)&&result.catalogReset!==true)throw Error("Changed scope reset acknowledgement required");
       if (restartCatalogue && result.catalogReset !== true) throw Error("Fresh catalogue acknowledgement required");
       if (result.catalogReset) setSelection({ ids: [], details: {} });
       else setSelection(current => {
@@ -146,7 +158,7 @@ export function RepositoryOAuthConnection({ projectId, providerId, onConnected, 
         for (const repo of result.repositories) if (next[repo.id]) next[repo.id] = repo;
         return { ids: current.ids, details: next };
       });
-      setListing(result); setPage(nextPage); setActiveSearch(nextSearch); setStep("repositories");
+      setListing(result); setPage(nextPage); setActiveSearch(nextSearch); setAppliedScope(scope??undefined); setStep("repositories");
       if (restartCatalogue) setSearch(nextSearch);
     } catch {
       if (listingOwner.current.generation === owner && current()) setError(restartCatalogue
@@ -158,7 +170,7 @@ export function RepositoryOAuthConnection({ projectId, providerId, onConnected, 
       // errors or step is published after original scope loss.
       if (listingOwner.current.generation === owner) { listingOwner.current.inFlight = false; setLoading(false); }
     }
-  }, [connectionId, utils, current, frame]);
+  }, [connectionId, utils, current, frame, appliedScope]);
 
   const continuationFrame = useMemo(() => ({ step, page, activeSearch, listing,
     eligible: (step === "repositories" || step === "done") && providerId === "gitlab" && frame.eligible && !busy && listing?.hasMore === true && page >= 1 && page < 100 &&
@@ -244,6 +256,15 @@ export function RepositoryOAuthConnection({ projectId, providerId, onConnected, 
       </>}
     </>}
     {step === "repositories" && <>
+      {providerId==="gitlab"&&<fieldset disabled={busy||!frame.eligible} style={{display:"grid",gap:8}}><legend>Repository scope</legend>
+        <label style={field}>Group or subgroup<select style={inputStyle} value={groupPath} onChange={e=>setGroupPath(e.target.value)}><option value="">All accessible memberships</option>{groups.data?.groups.map(group=><option key={group.id} value={group.path}>{group.path}</option>)}{groupPath&&!groups.data?.groups.some(group=>group.path===groupPath)&&<option value={groupPath}>{groupPath}</option>}</select></label>
+        {groups.error&&<p role="alert">Groups could not be verified. Retry or enter a group path.</p>}
+        <div style={actions}><button type="button" className="btn-secondary" disabled={groupPage<=1} onClick={()=>setGroupPage(page=>page-1)}>Previous groups</button><button type="button" className="btn-secondary" disabled={!groups.data?.hasMore} onClick={()=>setGroupPage(page=>page+1)}>More groups</button>{groups.error&&<button type="button" onClick={()=>void groups.refetch()}>Retry groups</button>}</div>
+        <details><summary>Enter a group path</summary><label style={field}>Exact group/subgroup path<input style={inputStyle} value={groupPath} onChange={e=>setGroupPath(e.target.value)} maxLength={400} placeholder="team/product"/></label></details>
+        <label><input type="checkbox" checked={includeSubgroups} onChange={e=>setIncludeSubgroups(e.target.checked)}/> Include subgroups</label><label><input type="checkbox" checked={includeShared} onChange={e=>setIncludeShared(e.target.checked)}/> Include projects shared with this group</label>
+        <p className="text-muted">Apply scope to refresh its verified repository list. Choices are cleared only after the new scope is acknowledged.</p>
+        <button type="button" onClick={()=>void load(1,search,false,groupPath.trim()?{groupPath:groupPath.trim(),includeSubgroups,includeShared}:null)}>Browse this scope</button>
+      </fieldset>}
       <form style={actions} onSubmit={e => { e.preventDefault(); void load(1, search); }}><label style={{ ...field, flex: "1 1 180px" }}>{providerId === "github" ? "Filter this page" : "Find repositories"}<input style={inputStyle} value={search} onChange={e => setSearch(e.target.value)} maxLength={100}/></label><button type="submit" disabled={busy}>{providerId === "github" ? "Filter" : "Search"}</button></form>
       <p className="text-muted">Page {page}. {providerId === "github" ? "Search filters this page only. Browse other pages to find more repositories. " : ""}Selections stay in place as you browse pages or search. Review up to 100 repositories within this ten-minute verified listing session.</p>
       <p className="text-muted">Each selection batch can browse 500 repositories and connect up to 100. Starting a fresh batch clears unsaved choices after a successful refresh; saved connections stay in the project.</p>
@@ -252,7 +273,9 @@ export function RepositoryOAuthConnection({ projectId, providerId, onConnected, 
         <p className="text-muted">Continue from page {page + 1} in a fresh batch to browse beyond this batch’s 500-repository limit. Unsaved choices clear only after a successful refresh; saved connections stay in the project.</p>
         <button type="button" className="btn-secondary" disabled={!continuationFrame.eligible} onClick={continueCatalogue}>Continue from next page in a fresh batch</button>
       </>}
-      <div style={actions}><span role="status">{selected.length} selected across visited pages</span><button type="button" className="btn-secondary" disabled={busy || !selected.length} onClick={() => setSelection({ ids: [], details: {} })}>Clear selection</button></div>
+      <div style={actions}><span role="status">{selected.length} selected across visited pages</span><button type="button" className="btn-secondary" disabled={busy||!listing?.repositories.length||!frame.eligible} onClick={()=>{if(!current())return;setSelection(previous=>{const details={...previous.details};const ids=new Set(previous.ids);for(const repo of listing?.repositories??[]){if(ids.size>=100&&!ids.has(repo.id))break;ids.add(repo.id);details[repo.id]=repo;}return{ids:[...ids],details};});}}>Select this page (up to 100 total)</button><button type="button" className="btn-secondary" disabled={busy || !selected.length} onClick={() => setSelection({ ids: [], details: {} })}>Clear selection</button></div>
+      {listing?.limitReached&&<p role="alert">Provider listing limit reached. This is not the complete scope; narrow the group or search.</p>}
+      {listing?.listingStatus==="end-of-scope"&&<p role="status">{activeSearch?"End of matching results in this scope. This is not an unfiltered group catalogue.":"End of this scope’s pages."} Only repositories you selected will be connected.</p>}
       <div className="source-chip-list" role="group" aria-label="Verified repositories" style={{ maxHeight: 300, overflowY: "auto" }}>
         {listing?.repositories.map(repo => <button type="button" key={repo.id} className="source-connection-chip" aria-pressed={selected.includes(repo.id)} disabled={busy || (selected.length >= 100 && !selected.includes(repo.id))} onClick={() => {
           setSelection(current => {
@@ -272,10 +295,10 @@ export function RepositoryOAuthConnection({ projectId, providerId, onConnected, 
       <p>Connect {selectedRepos.length} {selectedRepos.length === 1 ? "repository" : "repositories"} to this project using your verified {providerName} account.</p>
       <ul style={{ overflowWrap: "anywhere", maxHeight: 250, overflowY: "auto" }}>{selectedRepos.map(repo => <li key={repo.id}>{repo.name}</li>)}</ul>
       <p>Existing manual revision references stay unchanged. No source is fetched, no test cases are generated, and no AI credits are used.</p>
-      <div style={actions}><button type="button" className="btn-secondary" disabled={busy} onClick={() => setStep("repositories")}>Back</button><button type="button" disabled={busy || !listing || !selected.length} onClick={async () => {
-        if (!listing) return; setError("");
-        try { await connect.mutateAsync({ id: connectionId, repositoryIds: selected, catalogVersion: listing.catalogVersion, approved: true }); setStep("done"); onConnected(); }
-        catch { setError("Connection could not be saved. Your permissions or repository list may have changed. Go back and refresh the list before reviewing again."); }
+      <div style={actions}><button type="button" className="btn-secondary" disabled={busy||unconfirmedSave} onClick={() => {if(!saveOutcome.current.uncertain)setStep("repositories");}}>Back</button><button type="button" disabled={busy || !listing || !selected.length || !frame.eligible} onClick={async () => {
+        if (!listing||!current()) return; setError("");
+        try { await connect.mutateAsync({ id: connectionId, repositoryIds: selected, catalogVersion: listing.catalogVersion, approved: true }); if(!current()){saveOutcome.current.uncertain=true;setUnconfirmedSave(true);return;}saveOutcome.current.uncertain=false;setUnconfirmedSave(false);setStep("done"); onConnected(); }
+        catch(cause) { const code=(cause as {data?:{code?:string}})?.data?.code;const uncertain=saveOutcome.current.uncertain||!["BAD_REQUEST","CONFLICT","PRECONDITION_FAILED"].includes(code??"");saveOutcome.current.uncertain=uncertain;setUnconfirmedSave(uncertain);setError(uncertain?"Save was not acknowledged. Your original scope, choices and approval are retained. Retry the original approval before changing scope.":"Connection could not be saved. Your permissions or repository list may have changed. Go back and refresh the list before reviewing again."); }
       }}>{connect.isPending ? "Connecting…" : "Approve and connect"}</button></div>
     </>}
     {step === "done" && <><p role="status">Repository connections saved. Access was verified; source discovery has not run.</p><p className="text-muted">Connect more starts a fresh 500-repository selection batch and clears unsaved choices only after a successful refresh. Existing saved connections stay in the project.</p>

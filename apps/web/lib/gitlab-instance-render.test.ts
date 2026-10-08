@@ -15,6 +15,7 @@ const mock = { begin: vi.fn(), connections: [] as Array<{ id: string; provider: 
 const sdk = { trpcReact: {
   useUtils: () => ({}),
   repositoryConnections: {
+    groups:{useQuery:()=>({data:{groups:[],hasMore:false,limitReached:false},error:null})},
     configurations: { useQuery: () => ({ isSuccess: true, data: { organizationId: "synthetic-org", configurations: mock.connections, canConnect: true, canConfigure: true, storageReady: true } }) },
     mine: { useQuery: () => ({ isSuccess: true, data: [] }) },
     status: { useQuery: () => ({ isSuccess: false }) },
@@ -87,7 +88,7 @@ function text(node: React.ReactNode): string {
 }
 function required<T>(value: T | undefined): T { if (value === undefined) throw Error("Missing actual synthetic evidence"); return value; }
 function deferred<T>() { let resolve!: (value: T) => void, reject!: (cause: unknown) => void; const promise = new Promise<T>((yes, no) => { resolve = yes; reject = no; }); return { promise, resolve, reject }; }
-function listing(ids: string[], reset = false, hasMore = true): Listing { return { repositories: ids.map(id => ({ id, name: `Synthetic ${id}`, url: `https://synthetic-gitlab.example.com/repositories/${id}`, defaultBranch: "main" })), catalogReset: reset, hasMore, catalogVersion: reset ? "b".repeat(64) : "a".repeat(64) }; }
+function listing(ids: string[], reset = false, hasMore = true): Listing { return { repositories: ids.map(id => ({ id, name: `Synthetic ${id}`, url: `https://synthetic-gitlab.example.com/repositories/${id}`, defaultBranch: "main" })), catalogReset: reset, hasMore, catalogVersion: reset ? "b".repeat(64) : "a".repeat(64),limitReached:false,listingStatus:hasMore?"more-pages":"end-of-scope",scopeKey:null }; }
 
 /** Complete actual OAuth adapter JSX/hooks/events plus production scope helpers.
  * Synthetic metadata boundaries only, not authorization or native/provider proof. */
@@ -115,7 +116,7 @@ function workflow() {
     useState: (initial: unknown) => { const held = slot(); if (!Object.hasOwn(held, "value")) held.value = initial; return [held.value, (next: unknown) => { const value = typeof next === "function" ? next(held.value) : next; if (!Object.is(value, held.value)) { held.value = value; dirty = true; } }]; },
     useRef: (initial: unknown) => { const held = slot(); if (!Object.hasOwn(held, "value")) held.value = { current: initial }; return held.value; },
     useMemo: memo, useCallback: (callback: unknown, deps: readonly unknown[]) => memo(() => callback, deps), useEffect: effect, useLayoutEffect: effect,
-    trpcReact: { useUtils: () => utils, repositoryConnections: { configurations: { useQuery: () => configurations }, mine: { useQuery: () => recent }, status: { useQuery: () => status }, begin: { useMutation: () => ({ isPending: false, mutateAsync: forbidden }) }, disconnect: { useMutation: () => ({ isPending: false, mutateAsync: forbidden }) }, connectSelected: { useMutation: () => connect } } },
+    trpcReact: { useUtils: () => utils, repositoryConnections: {groups:{useQuery:()=>({data:{groups:[{id:"1",path:"synthetic/team",name:"Synthetic team"}],hasMore:false},error:null})}, configurations: { useQuery: () => configurations }, mine: { useQuery: () => recent }, status: { useQuery: () => status }, begin: { useMutation: () => ({ isPending: false, mutateAsync: forbidden }) }, disconnect: { useMutation: () => ({ isPending: false, mutateAsync: forbidden }) }, connectSelected: { useMutation: () => connect } } },
     ProviderMark: () => React.createElement("span", null, "GitLab"), Link: ({ children }: { children: React.ReactNode }) => React.createElement("span", null, children), ConnectionAccessGate: ({ state }: { state: string }) => React.createElement("p", null, state), authorizeRepositoryAccount: forbidden, cancelRepositoryAuthorization: forbidden,
   });
   const source = readFileSync(new URL("../components/GitlabRepositoryConnection.tsx", import.meta.url), "utf8"), ast = ts.createSourceFile("connection.tsx", source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX), printer = ts.createPrinter();
@@ -132,6 +133,13 @@ function workflow() {
 }
 
 describe("OAuth metadata fresh selection batch actual workflow", () => {
+  it("OAuth discovered group scope resets only after exact acknowledgement and selects current page without source processing",async()=>{
+    const h=workflow();await h.resume();required(h.button("Synthetic repo-1main · Metadata only").props.onClick)();h.render();
+    const label=required(elements(h.tree()).find(node=>node.type==="label"&&text(node).startsWith("Exact group/subgroup path")));const input=required(elements(label).find(node=>node.type==="input"));required(input.props.onChange)({preventDefault:vi.fn(),target:{value:"synthetic/team"}});h.render();
+    const held=deferred<Listing>();h.fetchList.mockReturnValueOnce(held.promise);required(h.button("Browse this scope").props.onClick)();h.render();expect(h.html()).toContain("1 selected across visited pages");
+    const scope={groupPath:"synthetic/team",includeSubgroups:true,includeShared:false};expect(h.fetchList).toHaveBeenLastCalledWith({id:"synthetic-connection",page:1,search:"",gitlabScope:scope});
+    const key=JSON.stringify(["gitlab-group/v1","synthetic/team",true,false,"44"]);held.resolve({...listing(["group-repo"],true,false),scopeKey:key,repositories:[{id:"group-repo",name:"Synthetic group-repo",url:"https://synthetic-gitlab.example.com/synthetic/team/repo",defaultBranch:"main",scopeKey:key}]});await h.settle();expect(h.html()).toContain("0 selected across visited pages");required(h.button("Select this page (up to 100 total)").props.onClick)();h.render();expect(h.html()).toContain("1 selected across visited pages");expect(h.connect.mutateAsync).not.toHaveBeenCalled();expect(h.forbidden).not.toHaveBeenCalled();
+  });
   it("Connect more uses explicit fresh batch with same saved access and clears only acknowledged choices", async () => {
     const h = workflow(); await h.done(); const held = deferred<Listing>(); h.fetchList.mockReturnValueOnce(held.promise);
     const click = required(h.button("Connect more repositories").props.onClick), first = click(), duplicate = click(); h.render();
@@ -148,13 +156,13 @@ describe("OAuth metadata fresh selection batch actual workflow", () => {
   it("ordinary pages and searches preserve selections and never implicitly request reset", async () => {
     const h = workflow(); await h.resume(); required(h.button("Synthetic repo-1main · Metadata only").props.onClick)(); h.render(); h.fetchList.mockResolvedValueOnce(listing(["page-2"]));
     required(h.button("Next page").props.onClick)(); await h.settle(); expect(h.fetchList).toHaveBeenLastCalledWith({ id: "synthetic-connection", page: 2, search: "" }); expect(h.html()).toContain("1 selected across visited pages");
-    const input = required(elements(h.tree()).find(node => node.type === "input")); required(input.props.onChange)({ preventDefault: vi.fn(), target: { value: "needle" } }); h.render();
+    const input = required(elements(required(elements(h.tree()).find(node=>node.type==="form"))).find(node => node.type === "input")); required(input.props.onChange)({ preventDefault: vi.fn(), target: { value: "needle" } }); h.render();
     const form = required(elements(h.tree()).find(node => node.type === "form")); required(form.props.onSubmit)({ preventDefault: vi.fn(), target: { value: "" } }); await h.settle();
     expect(h.fetchList).toHaveBeenLastCalledWith({ id: "synthetic-connection", page: 1, search: "needle" }); expect(h.html()).toContain("1 selected across visited pages"); expect(h.forbidden).not.toHaveBeenCalled();
   });
   it("explicit current-search batch discloses bounds and clears choices only after active reset ACK", async () => {
     const h = workflow(); await h.resume(); required(h.button("Synthetic repo-1main · Metadata only").props.onClick)(); h.render();
-    required(required(elements(h.tree()).find(node => node.type === "input")).props.onChange)({ preventDefault: vi.fn(), target: { value: "specific search" } }); h.render();
+    required(required(elements(required(elements(h.tree()).find(node=>node.type==="form"))).find(node => node.type === "input")).props.onChange)({ preventDefault: vi.fn(), target: { value: "specific search" } }); h.render();
     const held = deferred<Listing>(); h.fetchList.mockReturnValueOnce(held.promise); const promise = required(h.button("Start a new selection batch").props.onClick)(); h.render();
     expect(h.html()).toContain("1 selected across visited pages"); expect(h.html()).toContain("500 repositories and connect up to 100"); expect(h.html()).toContain("saved connections stay in the project"); expect(h.fetchList).toHaveBeenLastCalledWith({ id: "synthetic-connection", page: 1, search: "specific search", restartCatalogue: true });
     held.resolve(listing(["specific-result"], true)); await promise; h.render(); expect(h.html()).toContain("0 selected across visited pages"); expect(h.html()).toContain("Synthetic specific-result");
@@ -187,10 +195,10 @@ describe("OAuth metadata fresh selection batch actual workflow", () => {
 
   it("continues beyond the visited500 catalogue from page6 with active search and acknowledges reset before clearing choices", async () => {
     const h = workflow(); await h.resume();
-    const input = required(elements(h.tree()).find(node => node.type === "input")); required(input.props.onChange)({ preventDefault: vi.fn(), target: { value: "submitted search" } }); h.render();
+    const input = required(elements(required(elements(h.tree()).find(node=>node.type==="form"))).find(node => node.type === "input")); required(input.props.onChange)({ preventDefault: vi.fn(), target: { value: "submitted search" } }); h.render();
     required(required(elements(h.tree()).find(node => node.type === "form")).props.onSubmit)({ preventDefault: vi.fn(), target: { value: "" } }); await h.settle();
     required(h.button("Synthetic repo-1main · Metadata only").props.onClick)(); h.render(); await h.browseTo(5);
-    required(required(elements(h.tree()).find(node => node.type === "input")).props.onChange)({ preventDefault: vi.fn(), target: { value: "unsubmitted search" } }); h.render();
+    required(required(elements(required(elements(h.tree()).find(node=>node.type==="form"))).find(node => node.type === "input")).props.onChange)({ preventDefault: vi.fn(), target: { value: "unsubmitted search" } }); h.render();
     const held = deferred<Listing>(); h.fetchList.mockReturnValueOnce(held.promise);
     const continueClick = required(h.button("Continue from next page in a fresh batch").props.onClick), first = continueClick(), duplicate = continueClick(); h.render();
     expect(h.fetchList).toHaveBeenLastCalledWith({ id: "synthetic-connection", page: 6, search: "submitted search", restartCatalogue: true }); expect(h.fetchList).toHaveBeenCalledTimes(7);

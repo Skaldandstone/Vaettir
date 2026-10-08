@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { repositoryProviderJson, repositoryProviderRevokeGitlabToken } from "./repositoryProviderHttp.js";
-import { createGitlabAuthorization, GitlabOAuthRevocationPendingError, listGitlabRepositories, revokeGitlabAuthorization, verifyGitlabAuthorization, verifyGitlabAccessToken } from "./gitlabRepositoryOAuth.js";
+import { createGitlabAuthorization, GitlabOAuthRevocationPendingError, listGitlabGroups, listGitlabRepositories, repositorySelectionSchema, revokeGitlabAuthorization, verifyGitlabAuthorization, verifyGitlabAccessToken } from "./gitlabRepositoryOAuth.js";
 
 vi.mock("./repositoryProviderHttp.js", async importOriginal => ({
   ...await importOriginal<typeof import("./repositoryProviderHttp.js")>(), repositoryProviderJson: vi.fn(), repositoryProviderRevokeGitlabToken: vi.fn(),
@@ -11,6 +11,32 @@ const token = { access_token: "synthetic-token", token_type: "Bearer", expires_i
 beforeEach(() => { vi.resetAllMocks(); });
 
 describe("GitLab repository OAuth contract", () => {
+  it("discovers bounded authorized group paths without source bodies or redirects",async()=>{
+    vi.mocked(repositoryProviderJson).mockResolvedValue([{id:44,full_path:"team/product",name:"Product"}]);
+    await expect(listGitlabGroups(input.origin,token.access_token,2,"product & all_available=true")).resolves.toEqual([{id:"44",path:"team/product",name:"Product"}]);
+    const path=vi.mocked(repositoryProviderJson).mock.calls[0]![1];const url=new URL(path,input.origin);
+    expect(url.pathname).toBe("/api/v4/groups");expect(url.searchParams.get("page")).toBe("2");expect(url.searchParams.get("search")).toBe("product & all_available=true");
+  });
+  it("binds exact group identity, explicit subgroups and shared false by default",async()=>{
+    vi.mocked(repositoryProviderJson).mockResolvedValueOnce({id:44,full_path:"team/product"}).mockResolvedValueOnce([{id:19,path_with_namespace:"team/product/sub/repo",web_url:`${input.origin}/team/product/sub/repo`,default_branch:"main"}]);
+    await expect(listGitlabRepositories(input.origin,token.access_token,2,"repo",{groupPath:"team/product",includeSubgroups:true,includeShared:false})).resolves.toHaveLength(1);
+    expect(repositoryProviderJson).toHaveBeenNthCalledWith(1,input.origin,"/api/v4/groups/team%2Fproduct",{token:token.access_token});
+    const url=new URL(vi.mocked(repositoryProviderJson).mock.calls[1]![1],input.origin);expect(url.pathname).toBe("/api/v4/groups/44/projects");expect(url.searchParams.get("include_subgroups")).toBe("true");expect(url.searchParams.get("with_shared")).toBe("false");
+  });
+  it.each(["../team","team?x=1","https://other.example/team","team//sub"])("rejects unbound group path %s before transport",async groupPath=>{
+    await expect(listGitlabRepositories(input.origin,token.access_token,1,"",{groupPath,includeSubgroups:true,includeShared:false})).rejects.toThrow();expect(repositoryProviderJson).not.toHaveBeenCalled();
+  });
+  it("rejects group redirects and non-selected subgroup metadata, permitting shared projects only when explicit",async()=>{
+    vi.mocked(repositoryProviderJson).mockResolvedValueOnce({id:44,full_path:"renamed"});
+    await expect(listGitlabRepositories(input.origin,token.access_token,1,"",{groupPath:"team",includeSubgroups:true,includeShared:false})).rejects.toThrow("changed identity");expect(repositoryProviderJson).toHaveBeenCalledTimes(1);
+    vi.mocked(repositoryProviderJson).mockReset().mockResolvedValueOnce({id:44,full_path:"team"}).mockResolvedValueOnce([{id:19,path_with_namespace:"team/sub/repo",web_url:`${input.origin}/team/sub/repo`}]);
+    await expect(listGitlabRepositories(input.origin,token.access_token,1,"",{groupPath:"team",includeSubgroups:false,includeShared:false})).rejects.toThrow("outside the selected group");
+    vi.mocked(repositoryProviderJson).mockReset().mockResolvedValueOnce({id:44,full_path:"team"}).mockResolvedValueOnce([{id:19,path_with_namespace:"shared/repo",web_url:`${input.origin}/shared/repo`}]);
+    await expect(listGitlabRepositories(input.origin,token.access_token,1,"",{groupPath:"team",includeSubgroups:false,includeShared:true})).resolves.toHaveLength(1);
+  });
+  it("preserves native Azure grouping metadata in shared catalogue shape",()=>{
+    expect(repositorySelectionSchema.parse({id:"native",name:"Project/repo",url:"https://dev.azure.com/org/Project/_git/repo",defaultBranch:"main",projectId:"project-native",projectName:"Project"})).toMatchObject({projectId:"project-native",projectName:"Project"});
+  });
   it("verifies an access token using existing bounded Bearer user metadata without OAuth app credentials", async () => {
     vi.mocked(repositoryProviderJson).mockResolvedValue({id:17,username:"fixture-user"});
     await expect(verifyGitlabAccessToken({origin:input.origin,token:token.access_token})).resolves.toEqual({accountLabel:"fixture-user"});

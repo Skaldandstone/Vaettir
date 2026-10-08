@@ -8,6 +8,15 @@ export const EXPERIENCE_OFFERINGS = [
   { id: "CLINICAL", label: "Clinical protocols" }, { id: "LABORATORY", label: "Laboratory" },
   { id: "MANUFACTURING", label: "Machinery / manufacturing" },
 ] as const;
+// Explicit project presentation choices, never permissions or tool availability.
+export const PROJECT_OPTIONAL_TOOLS = [
+  { id: "Compliance", label: "Compliance" },
+  { id: "ProductionSignals", label: "Production signals" },
+  { id: "LiveAppGeneration", label: "Live app generation" },
+  { id: "ReverseEngineer", label: "Reverse engineer" },
+  { id: "AdvancedAnalytics", label: "Advanced analytics" },
+  { id: "TestStrategy", label: "Test strategy" },
+] as const;
 export const SOFTWARE_KINDS = [
   { id: "SAAS", label: "SaaS" }, { id: "B2B", label: "B2B workflows" },
   { id: "WEB", label: "Web application" }, { id: "MOBILE", label: "Mobile application" },
@@ -66,7 +75,23 @@ function choices(catalog: readonly { id: string }[]) {
 }
 export const experienceProfileSchema = z.object({
   version: z.literal(1),
-  offerings: z.array(z.enum(["SOFTWARE", "GAME", "HARDWARE", "HIL", "SYSTEM_INTEGRATION", "FOOD_SAFETY", "CLINICAL", "LABORATORY", "MANUFACTURING"]))
+  // Missing means legacy visibility. Do not materialize this in old profiles or
+    // frozen run snapshots; an explicit empty list is a deliberate presentation choice.
+    enabledTools: z
+      .array(
+        z.enum([
+          "Compliance",
+          "ProductionSignals",
+          "LiveAppGeneration",
+          "ReverseEngineer",
+          "AdvancedAnalytics",
+          "TestStrategy",
+        ]),
+      )
+      .max(6)
+      .refine((ids) => new Set(ids).size === ids.length, "Duplicate tools")
+      .optional(),
+    offerings: z.array(z.enum(["SOFTWARE", "GAME", "HARDWARE", "HIL", "SYSTEM_INTEGRATION", "FOOD_SAFETY", "CLINICAL", "LABORATORY", "MANUFACTURING"]))
     .min(1).max(9).refine(ids => new Set(ids).size === ids.length, "Duplicate offerings"),
   softwareKinds: choices(SOFTWARE_KINDS), gameGenres: choices(GAME_GENRES), gamePlatforms: choices(GAME_PLATFORMS),
   multiplayerModes: choices(MULTIPLAYER_MODES), hardwareKinds: choices(HARDWARE_KINDS), processKinds: choices(PROCESS_KINDS),

@@ -2,6 +2,42 @@ import { describe, expect, it } from "vitest";
 import { automationTargetForFramework, experienceProfileSchema, resolveQualityExperience, GAME_PLATFORMS, GAME_PLATFORM_GROUPS } from "./qualityExperience";
 
 describe("quality experience", () => {
+  it("keeps optional tool settings absent in legacy snapshots and admits explicit empty selections", () => {
+    const legacy = experienceProfileSchema.parse({
+      version: 1,
+      offerings: ["SOFTWARE"],
+    });
+    const frozen = JSON.stringify(legacy);
+    expect(legacy).not.toHaveProperty("enabledTools");
+    expect(JSON.stringify(experienceProfileSchema.parse(legacy))).toBe(frozen);
+    expect(
+      experienceProfileSchema.parse({ ...legacy, enabledTools: [] })
+        .enabledTools,
+    ).toEqual([]);
+    expect(
+      experienceProfileSchema.parse({
+        ...legacy,
+        enabledTools: ["Compliance", "AdvancedAnalytics"],
+      }).enabledTools,
+    ).toEqual(["Compliance", "AdvancedAnalytics"]);
+    for (const enabledTools of [
+      null,
+      ["Unknown"],
+      ["Compliance", "Compliance"],
+      [
+        "Compliance",
+        "ProductionSignals",
+        "LiveAppGeneration",
+        "ReverseEngineer",
+        "AdvancedAnalytics",
+        "TestStrategy",
+        "Unknown",
+      ],
+    ])
+      expect(
+        experienceProfileSchema.safeParse({ ...legacy, enabledTools }).success,
+      ).toBe(false);
+  });
   it("groups every exact platform once without replacing its stable identity", () => {
     const grouped = GAME_PLATFORM_GROUPS.flatMap(group => [...group.ids]);
     expect(new Set(grouped).size).toBe(grouped.length);

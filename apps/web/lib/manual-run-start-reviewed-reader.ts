@@ -179,21 +179,38 @@ function choices(
 function experience(v: unknown) {
   if (v === null) return true;
   if (
-    !fields(v, [
-      "version",
-      "offerings",
-      "softwareKinds",
-      "gameGenres",
-      "gamePlatforms",
-      "multiplayerModes",
-      "hardwareKinds",
-      "processKinds",
-      "jurisdictions",
-    ]) ||
+    !fields(
+      v,
+      [
+        "version",
+        "offerings",
+        "softwareKinds",
+        "gameGenres",
+        "gamePlatforms",
+        "multiplayerModes",
+        "hardwareKinds",
+        "processKinds",
+        "jurisdictions",
+      ],
+      ["enabledTools"],
+    ) ||
     v.version !== 1
   )
     return false;
   return (
+    (!Object.hasOwn(v, "enabledTools") ||
+      choices(
+        v.enabledTools,
+        [
+          "Compliance",
+          "ProductionSignals",
+          "LiveAppGeneration",
+          "ReverseEngineer",
+          "AdvancedAnalytics",
+          "TestStrategy",
+        ],
+        6,
+      )) &&
     choices(
       v.offerings,
       [

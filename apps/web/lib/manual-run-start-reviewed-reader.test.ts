@@ -165,6 +165,52 @@ it("all current core catalogs and exact UTF-16 jurisdiction boundary match canon
     server,
   );
 });
+it("optional tool choices round-trip exactly while legacy snapshots stay untouched and unsupported settings refuse", () => {
+  for (const enabledTools of [
+    undefined,
+    [],
+    ["Compliance", "AdvancedAnalytics"],
+    [
+      "Compliance",
+      "ProductionSignals",
+      "LiveAppGeneration",
+      "ReverseEngineer",
+      "AdvancedAnalytics",
+      "TestStrategy",
+    ],
+  ]) {
+    const raw = wire("PREVIEW");
+    if (!("profile" in raw) || !raw.profile) throw Error();
+    const legacy = experienceProfileSchema.parse({
+      version: 1,
+      offerings: ["SOFTWARE"],
+    });
+    raw.profile.experience = enabledTools === undefined ? legacy : experienceProfileSchema.parse({ ...legacy, enabledTools });
+    const server = manualRunStartReviewedPreviewOutput.parse(raw);
+    const actual = admitRunStartRead(
+      server,
+      input(true),
+      "PREVIEW",
+      "cl",
+    )!.data;
+    expect(actual).toEqual(server);
+    if (enabledTools === undefined)
+      expect(raw.profile.experience).not.toHaveProperty("enabledTools");
+  }
+  for (const enabledTools of [
+    null,
+    ["Unknown"],
+    ["Compliance", "Compliance"],
+  ]) {
+    const raw = wire("PREVIEW");
+    if (!("profile" in raw) || !raw.profile) throw Error();
+    raw.profile.experience = {
+      ...experienceProfileSchema.parse({ version: 1, offerings: ["SOFTWARE"] }),
+      enabledTools,
+    } as never;
+    expect(admitRunStartRead(raw, input(true), "PREVIEW", "cl")).toBeNull();
+  }
+});
 it("original pins are complete frozen primitive metadata and descriptor admission precedes every original getter", () => {
   let calls = 0;
   const unsafe = Object.freeze(

@@ -2,8 +2,17 @@ import { createHash, randomBytes } from "node:crypto";
 import { z } from "zod";
 import { repositoryProviderJson, repositoryProviderOrigin, repositoryProviderRevokeGitlabToken } from "./repositoryProviderHttp.js";
 
-export const repositorySelectionSchema=z.object({id:z.string().max(100),name:z.string().max(500),url:z.string().max(1000),defaultBranch:z.string().max(200).nullable()});
+export const repositorySelectionSchema=z.object({id:z.string().max(100),name:z.string().max(500),url:z.string().max(1000),defaultBranch:z.string().max(200).nullable(),projectId:z.string().max(100).optional(),projectName:z.string().max(200).optional(),scopeKey:z.string().max(700).optional()});
+export const gitlabRepositoryScopeSchema=z.object({groupPath:z.string().trim().min(1).max(400).regex(/^[A-Za-z0-9_][A-Za-z0-9_.-]*(?:\/[A-Za-z0-9_][A-Za-z0-9_.-]*)*$/),includeSubgroups:z.boolean().default(true),includeShared:z.boolean().default(false)}).strict();
+export type GitlabRepositoryScope=z.infer<typeof gitlabRepositoryScopeSchema>;
 export type RepositorySelection=z.infer<typeof repositorySelectionSchema>;
+export async function listGitlabGroups(origin:string,token:string,page:number,search:string){
+  origin=repositoryProviderOrigin(origin);z.number().int().min(1).max(100).parse(page);z.string().max(100).parse(search);
+  const params=new URLSearchParams({all_available:"false",per_page:"100",page:String(page),order_by:"path",sort:"asc",...(search?{search}:{})});
+  const groups=z.array(z.object({id:z.number().int().positive(),full_path:gitlabRepositoryScopeSchema.shape.groupPath,name:z.string().min(1).max(200)})).max(100).parse(await repositoryProviderJson(origin,`/api/v4/groups?${params}`,{token}));
+  if(new Set(groups.map(group=>group.id)).size!==groups.length)throw new Error("GitLab returned duplicate group identities.");
+  return groups.map(group=>({id:String(group.id),path:group.full_path,name:group.name}));
+}
 export const hashOAuthState=(state:string)=>createHash("sha256").update(state).digest("hex");
 /** The router must retain this issued token if upstream revocation cannot be confirmed. */
 export class GitlabOAuthRevocationPendingError extends Error {
@@ -56,12 +65,25 @@ export async function verifyGitlabAuthorization(input:{origin:string;clientId:st
     throw error;
   }
 }
-export async function listGitlabRepositories(origin:string,token:string,page:number,search:string):Promise<RepositorySelection[]> {
-  const params=new URLSearchParams({membership:"true",simple:"true",per_page:"100",page:String(page),order_by:"path",sort:"asc",...(search?{search}:{})});
-  const rows=z.array(z.object({id:z.number().int().positive(),path_with_namespace:z.string().max(500),web_url:z.string().url().max(1000),default_branch:z.string().max(200).nullable().optional()})).max(100).parse(await repositoryProviderJson(origin,`/api/v4/projects?${params}`,{token}));
+export async function listGitlabRepositories(origin:string,token:string,page:number,search:string,scope?:GitlabRepositoryScope,onVerifiedGroup?:(id:number)=>void):Promise<RepositorySelection[]> {
+  origin=repositoryProviderOrigin(origin);
+  z.number().int().min(1).max(100).parse(page);z.string().max(100).parse(search);
+  const scoped=scope?gitlabRepositoryScopeSchema.parse(scope):null;
+  let endpoint="/api/v4/projects";
+  if(scoped){
+    const group=z.object({id:z.number().int().positive(),full_path:z.string().min(1).max(400)}).parse(await repositoryProviderJson(origin,`/api/v4/groups/${encodeURIComponent(scoped.groupPath)}`,{token}));
+    if(group.full_path!==scoped.groupPath)throw new Error("The selected GitLab group changed identity. Review its current path.");
+    onVerifiedGroup?.(group.id);
+    endpoint=`/api/v4/groups/${group.id}/projects`;
+  }
+  const params=new URLSearchParams({...(scoped?{include_subgroups:String(scoped.includeSubgroups),with_shared:String(scoped.includeShared)}:{membership:"true"}),simple:"true",per_page:"100",page:String(page),order_by:"path",sort:"asc",...(search?{search}:{})});
+  const rows=z.array(z.object({id:z.number().int().positive(),path_with_namespace:z.string().min(1).max(500),web_url:z.string().url().max(1000),default_branch:z.string().max(200).nullable().optional()})).max(100).parse(await repositoryProviderJson(origin,`${endpoint}?${params}`,{token}));
+  if(new Set(rows.map(row=>row.id)).size!==rows.length)throw new Error("GitLab returned duplicate repository identities.");
   return rows.map(row=>{
     const url=new URL(row.web_url);
     if(url.origin!==origin || url.username || url.password || url.hash || url.search) throw new Error("Provider returned a repository outside this instance");
+    const namespace=row.path_with_namespace.slice(0,row.path_with_namespace.lastIndexOf("/"));
+    if(scoped&&!scoped.includeShared&&!(namespace===scoped.groupPath||scoped.includeSubgroups&&namespace.startsWith(scoped.groupPath+"/")))throw new Error("GitLab returned a repository outside the selected group.");
     return{id:String(row.id),name:row.path_with_namespace,url:url.href,defaultBranch:row.default_branch??null};
   });
 }

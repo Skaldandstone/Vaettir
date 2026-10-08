@@ -27,7 +27,7 @@ const compiled = ts.transpileModule(declarations + "\nthis.actual=RepositoryOAut
   compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.None, jsx: ts.JsxEmit.React },
 }).outputText;
 const repository = (id: string, name = `synthetic/${id}`): Repository => ({ id, name, url: `https://synthetic.example/${id}`, defaultBranch: "main" });
-const listing = (repositories: Repository[], catalogReset = false): Listing => ({ repositories, catalogReset, hasMore: true, catalogVersion: "a".repeat(64) });
+const listing = (repositories: Repository[], catalogReset = false): Listing => ({ repositories, catalogReset, hasMore: true, catalogVersion: "a".repeat(64),limitReached:false,listingStatus:"more-pages",scopeKey:null });
 const selection = (count: number): Selection => {
   const repositories = Array.from({ length: count }, (_, index) => repository(`visited-${index}`));
   return { ids: repositories.map(repo => repo.id), details: Object.fromEntries(repositories.map(repo => [repo.id, repo])) };
@@ -85,6 +85,7 @@ function harness(initial: Selection, currentListing = listing([repository("new-a
     trpcReact: { useUtils: () => utils, repositoryConnections: {
       configurations: { useQuery: () => query({ organizationId: origin.organizationId, canConnect: true, canConfigure: false, storageReady: true, configurations: [] }) },
       mine: { useQuery: () => query([]) }, status: { useQuery: () => query({ status: "VERIFIED" }) },
+      groups:{useQuery:()=>query({groups:[],hasMore:false,limitReached:false})},
       begin: { useMutation: () => ({ isPending: false, mutateAsync: writes }) },
       connectSelected: { useMutation: () => ({ isPending: false, mutateAsync: writes }) },
       disconnect: { useMutation: () => ({ isPending: false, mutateAsync: writes }) },
@@ -155,7 +156,7 @@ describe("actual repository selection transitions (synthetic hooks/metadata only
     const html = renderToStaticMarkup(h.render()); expect(html).toContain("Connect 2 repositories"); expect(html).toContain("synthetic/updated-name"); expect(html).toContain("synthetic/page-two");
   });
   it("search retains selected off-page metadata and sends only the actual local metadata filter", async () => {
-    const original = selection(2), h = harness(original), input = elements(h.render()).find(node => node.type === "input")!;
+    const original = selection(2), h = harness(original), input = elements(elements(h.render()).find(node=>node.type==="form")!).find(node => node.type === "input")!;
     input.props.onChange!({ target: { value: "needle" } });
     h.fetch.mockResolvedValueOnce(listing([repository("match")]));
     const prevented = vi.fn(); elements(h.render()).find(node => node.type === "form")!.props.onSubmit!({ preventDefault: prevented }); await h.flush();

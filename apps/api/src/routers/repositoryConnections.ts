@@ -4,7 +4,7 @@ import { Prisma } from "@vaettir/db";
 import { router,protectedProcedure,requireProjectAccess,requireOrgRole,type Context } from "../trpc.js";
 import { encryptToken,decryptToken,type EncryptedToken } from "../services/tokenEncryption.js";
 import { repositoryProviderOrigin } from "../services/repositoryProviderHttp.js";
-import { GitlabOAuthRevocationPendingError,createGitlabAuthorization,hashOAuthState,listGitlabRepositories,repositoryOAuthRedirect,repositorySelectionSchema,revokeGitlabAuthorization,verifyGitlabAuthorization,verifyGitlabAccessToken } from "../services/gitlabRepositoryOAuth.js";
+import { GitlabOAuthRevocationPendingError,createGitlabAuthorization,gitlabRepositoryScopeSchema,hashOAuthState,listGitlabGroups,listGitlabRepositories,repositoryOAuthRedirect,repositorySelectionSchema,revokeGitlabAuthorization,verifyGitlabAuthorization,verifyGitlabAccessToken } from "../services/gitlabRepositoryOAuth.js";
 import { GITHUB_ORIGIN, GithubOAuthRevocationPendingError, createGithubAuthorization, listGithubRepositories, revokeGithubAuthorization, verifyGithubAuthorization } from "../services/githubRepositoryOAuth.js";
 import { verifyBitbucketAuthorization, listBitbucketRepositories } from "../services/bitbucketRepositoryConnection.js";
 import { azureOrganizationUrl, listAzureRepositories } from "../services/azureRepositoryConnection.js";
@@ -54,7 +54,7 @@ function connectionAccessMethod(row:{provider:string;configurationId:string|null
 }
 // PostgreSQL JSONB reorders object keys. Hash a canonical field tuple, not raw JSON.
 const catalogVersion=(catalog:unknown,connectionId:string,catalogAt:Date)=>hashOAuthState(JSON.stringify([
-  connectionId,catalogAt.toISOString(),z.array(repositorySelectionSchema).parse(catalog).map(repo=>[repo.id,repo.name,repo.url,repo.defaultBranch]),
+  connectionId,catalogAt.toISOString(),z.array(repositorySelectionSchema).parse(catalog).map(repo=>[repo.id,repo.name,repo.url,repo.defaultBranch,...(repo.scopeKey||repo.projectId||repo.projectName?[repo.scopeKey??null,repo.projectId??null,repo.projectName??null]:[])]),
 ]));
 async function editor(ctx:Context,projectId:string){
   if(!ctx.user)throw new TRPCError({code:"UNAUTHORIZED"});
@@ -338,21 +338,33 @@ export const repositoryConnectionsRouter=router({
     });
     return{disconnected:true};
   }),
-  list:protectedProcedure.input(z.object({id:z.string(),page:z.number().int().min(1).max(100).default(1),search:z.string().trim().max(100).default(""),restartCatalogue:z.boolean().default(false)})).query(async({ctx,input})=>{
+  groups:protectedProcedure.input(z.object({id:z.string(),page:z.number().int().min(1).max(100).default(1),search:z.string().trim().max(100).default("")})).query(async({ctx,input})=>{
+    const row=await ownConnection(ctx,input.id);requireVerified(row);
+    if(row.provider!=="gitlab")throw new TRPCError({code:"BAD_REQUEST",message:"Groups are only available for GitLab."});
+    await ctx.prisma.$transaction(async tx=>{await liveEditor(tx,row.organizationId,ctx.user.id);const current=await tx.repositoryConnection.findUniqueOrThrow({where:{id:row.id}});requireVerified(current);if(JSON.stringify(current.encryptedToken)!==JSON.stringify(row.encryptedToken))throw new TRPCError({code:"CONFLICT",message:"Connection changed. Refresh before listing groups."});});
+    try{const groups=await listGitlabGroups(row.origin,decrypt(row.encryptedToken),input.page,input.search);await ctx.prisma.$transaction(async tx=>{await liveEditor(tx,row.organizationId,ctx.user.id);const current=await tx.repositoryConnection.findUniqueOrThrow({where:{id:row.id}});requireVerified(current);if(JSON.stringify(current.encryptedToken)!==JSON.stringify(row.encryptedToken))throw new TRPCError({code:"CONFLICT",message:"Connection changed. Refresh before listing groups."});});return{groups,hasMore:groups.length===100&&input.page<100,limitReached:groups.length===100&&input.page===100};}
+    catch{throw new TRPCError({code:"BAD_REQUEST",message:"Could not list GitLab groups. Check access to the selected instance."});}
+  }),
+  list:protectedProcedure.input(z.object({id:z.string(),page:z.number().int().min(1).max(100).default(1),search:z.string().trim().max(100).default(""),restartCatalogue:z.boolean().default(false),gitlabScope:gitlabRepositoryScopeSchema.optional()})).query(async({ctx,input})=>{
     const row=await ownConnection(ctx,input.id);requireVerified(row);
     await ctx.prisma.$transaction(async tx=>{await liveEditor(tx,row.organizationId,ctx.user.id);const current=await tx.repositoryConnection.findUniqueOrThrow({where:{id:row.id}});requireVerified(current);if(JSON.stringify(current.encryptedToken)!==JSON.stringify(row.encryptedToken))throw new TRPCError({code:"CONFLICT",message:"Connection changed. Refresh before listing."});});
     if(!["gitlab","github","bitbucket","azure-devops"].includes(row.provider))throw new TRPCError({code:"PRECONDITION_FAILED",message:"This provider does not support verified repository listing."});
-    let repositories;let hasMore;
+    if(input.gitlabScope&&row.provider!=="gitlab")throw new TRPCError({code:"BAD_REQUEST",message:"Group scope is only available for GitLab."});
+    let repositories;let hasMore;let limitReached:boolean;let groupNativeId:number|undefined;
     try{
       if(["bitbucket","azure-devops"].includes(row.provider)){
         const listing=await tokenRepositories(row.provider,row.origin,tokenCredentials.parse(JSON.parse(decrypt(row.encryptedToken))),input.page,input.search);
-        repositories=listing.repositories;hasMore=listing.hasMore;
+        repositories=listing.repositories;hasMore=listing.hasMore;limitReached="limitReached" in listing&&listing.limitReached===true;
       }else{
-        repositories=row.provider==="github"?await listGithubRepositories(decrypt(row.encryptedToken),input.page):await listGitlabRepositories(row.origin,decrypt(row.encryptedToken),input.page,input.search);
+        repositories=row.provider==="github"?await listGithubRepositories(decrypt(row.encryptedToken),input.page):input.gitlabScope?await listGitlabRepositories(row.origin,decrypt(row.encryptedToken),input.page,input.search,input.gitlabScope,id=>{groupNativeId=id;}):await listGitlabRepositories(row.origin,decrypt(row.encryptedToken),input.page,input.search);
+        if(input.gitlabScope&&!groupNativeId)throw new Error("Missing verified group identity");
         hasMore=repositories.length===100;
+        limitReached=hasMore&&input.page===100;
+        if(limitReached)hasMore=false;
       }
     }catch{throw new TRPCError({code:"BAD_REQUEST",message:"Could not list repositories. Reconnect or check your access to this instance."});}
-    const visible=row.provider==="github" && input.search?repositories.filter(repo=>repo.name.toLowerCase().includes(input.search.toLowerCase())):repositories;
+    const scopeKey=row.provider==="gitlab"&&input.gitlabScope?JSON.stringify(["gitlab-group/v1",input.gitlabScope.groupPath,input.gitlabScope.includeSubgroups,input.gitlabScope.includeShared,String(groupNativeId)]):undefined;
+    const visible=(row.provider==="github" && input.search?repositories.filter(repo=>repo.name.toLowerCase().includes(input.search.toLowerCase())):repositories).map(repo=>({...repo,...(scopeKey?{scopeKey}:{})}));
     // Keep a bounded, short-lived catalog of pages this actor actually visited.
     // This permits reviewed multi-selection across pages without treating an
     // unlisted repository ID as verified or retaining a stale catalog forever.
@@ -363,7 +375,9 @@ export const repositoryConnectionsRouter=router({
       requireVerified(current);
       if(JSON.stringify(current.encryptedToken)!==JSON.stringify(row.encryptedToken))
         throw new TRPCError({code:"CONFLICT",message:"Connection changed. Refresh before selecting repositories."});
-      const fresh=!input.restartCatalogue && current.catalogAt && current.catalogAt.getTime()>=Date.now()-600000;
+      const stored=current.catalog?z.array(repositorySelectionSchema).parse(current.catalog):[];
+      const sameScope=row.provider!=="gitlab"||stored.every(repo=>repo.scopeKey===scopeKey||!input.gitlabScope&&!repo.scopeKey);
+      const fresh=!input.restartCatalogue && sameScope && current.catalogAt && current.catalogAt.getTime()>=Date.now()-600000;
       const previous=fresh && current.catalog ? z.array(repositorySelectionSchema).parse(current.catalog) : [];
       const combined=new Map(previous.map(repo=>[repo.id,repo]));
       for(const repo of visible)combined.set(repo.id,repo);
@@ -374,12 +388,13 @@ export const repositoryConnectionsRouter=router({
       await tx.repositoryConnection.update({where:{id:row.id},data:{catalog,catalogAt}});
       return {catalog,catalogReset:!fresh,catalogAt};
     });
-    return{repositories:visible,hasMore,catalogVersion:catalogVersion(catalog,row.id,catalogAt),catalogReset};
+    return{repositories:visible,hasMore,limitReached,listingStatus:limitReached?"truncated" as const:hasMore?"more-pages" as const:"end-of-scope" as const,scopeKey:scopeKey??null,catalogVersion:catalogVersion(catalog,row.id,catalogAt),catalogReset};
   }),
   connectSelected:protectedProcedure.input(z.object({id:z.string(),repositoryIds:z.array(z.string()).min(1).max(100),catalogVersion:z.string().length(64),approved:z.literal(true)})).mutation(async({ctx,input})=>{
     const row=await ownConnection(ctx,input.id);requireVerified(row);
     if(!row.catalogAt || row.catalogAt.getTime()<Date.now()-600000)throw new TRPCError({code:"PRECONDITION_FAILED",message:"Refresh the repository list before confirming."});
     const catalog=z.array(repositorySelectionSchema).parse(row.catalog);
+    if(new Set(catalog.map(repo=>repo.scopeKey??null)).size>1)throw new TRPCError({code:"PRECONDITION_FAILED",message:"The catalogue contains different repository scopes. Refresh and review one scope before connecting."});
     if(catalogVersion(row.catalog,row.id,row.catalogAt)!==input.catalogVersion)throw new TRPCError({code:"CONFLICT",message:"Repository choices changed. Refresh the list and review again."});
     const ids=[...new Set(input.repositoryIds)];
     const selected=ids.map(id=>catalog.find(repo=>repo.id===id));

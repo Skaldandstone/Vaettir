@@ -164,4 +164,46 @@ describe.skipIf(!isolated)("saved experiences and immutable repeated run definit
     expect(otherScope.testRunId).not.toBe(first.testRunId);
     await expect(owner.manualExecution.start({ ...request, idempotencyKey: "not-a-uuid" })).rejects.toMatchObject({ code: "BAD_REQUEST" });
   });
+  it("tool visibility uses existing role/CAS guards, preserves siblings and frozen runs, and never disables server reads", async () => {
+    const before = await owner.project.experience({ projectId });
+    const original = before.experience ?? game;
+    const run = await owner.manualExecution.start({
+      projectId,
+      testCaseIds: [caseId],
+    });
+    const frozen = (await owner.manualExecution.getForExecution(run))
+      .executionContext;
+    for (const caller of [viewer, outsider, readOnlyEditor])
+      await expect(
+        caller.project.saveExperience({
+          projectId,
+          expectedProfileHash: before.profileHash,
+          experience: { ...original, enabledTools: [] },
+        }),
+      ).rejects.toMatchObject({ code: "FORBIDDEN" });
+    const changed = await owner.project.saveExperience({
+      projectId,
+      expectedProfileHash: before.profileHash,
+      experience: { ...original, enabledTools: [] },
+    });
+    expect(changed.experience?.enabledTools).toEqual([]);
+    expect(
+      (await owner.manualExecution.getForExecution(run)).executionContext,
+    ).toEqual(frozen);
+    expect(
+      (await viewer.project.experience({ projectId })).experience
+        ?.enabledTools,
+    ).toEqual([]);
+    expect(
+      (await prisma.project.findUniqueOrThrow({ where: { id: projectId } }))
+        .qualityProfile,
+    ).toMatchObject({ future: { retained: true, manualEdit: "new" } });
+    await expect(
+      owner.project.saveExperience({
+        projectId,
+        expectedProfileHash: before.profileHash,
+        experience: { ...original, enabledTools: ["Compliance"] },
+      }),
+    ).rejects.toMatchObject({ code: "CONFLICT" });
+  });
 });

@@ -5,6 +5,8 @@ import {
   PROJECT_NAVIGATION,
   navigationGroupIsActive,
   detailsPanelWidth,
+  projectNavigationForExperience,
+  hiddenActiveProjectLinks,
 } from "./workbench-navigation.ts";
 
 test("all twenty project destinations remain available exactly once", () => {
@@ -36,6 +38,140 @@ test("all twenty project destinations remain available exactly once", () => {
       "/import",
       "/releases",
     ].sort(),
+  );
+});
+test("explicit optional tools hide only selected navigation, while old and invalid settings retain legacy", () => {
+  const legacy = projectNavigationForExperience(["SOFTWARE"]);
+  const paths = (groups) =>
+    groups.flatMap((group) => group.links.map((link) => link.path));
+  assert.deepEqual(
+    projectNavigationForExperience(["SOFTWARE"], ["Unknown"]),
+    legacy,
+  );
+  assert.deepEqual(
+    projectNavigationForExperience(["SOFTWARE"], ["Compliance", "Compliance"]),
+    legacy,
+  );
+  const core = projectNavigationForExperience(["SOFTWARE"], []);
+  for (const path of [
+    "",
+    "/test-cases",
+    "/test-plans",
+    "/test-runs",
+    "/reports",
+    "/releases",
+    "/quality-risks",
+    "/requirements",
+    "/import",
+    "/audit-log",
+  ])
+    assert.ok(paths(core).includes(path));
+  for (const path of [
+    "/compliance",
+    "/production-signals",
+    "/reverse-engineer",
+    "/live-app-generation",
+    "/execution-trends",
+    "/recorded-run-comparison",
+    "/defect-map",
+    "/test-strategy",
+  ])
+    assert.ok(!paths(core).includes(path));
+  const some = projectNavigationForExperience(
+    ["GAME"],
+    ["Compliance", "AdvancedAnalytics"],
+  );
+  assert.ok(paths(some).includes("/compliance"));
+  assert.ok(paths(some).includes("/execution-trends"));
+  assert.deepEqual(
+    hiddenActiveProjectLinks(
+      "/projects/one/compliance/history",
+      "one",
+      core,
+    ).map((link) => link.path),
+    ["/compliance"],
+  );
+  assert.deepEqual(
+    hiddenActiveProjectLinks("/projects/two/compliance", "one", core),
+    [],
+  );
+  assert.deepEqual(
+    hiddenActiveProjectLinks("/projects/one/compliance-extra", "one", core),
+    [],
+  );
+});
+test("quality choices tailor disclosure but never remove destinations or grant capabilities", () => {
+  const generic = PROJECT_NAVIGATION.flatMap((group) =>
+    group.links.map((link) => link.path),
+  ).sort();
+  for (const offerings of [
+    null,
+    [],
+    ["SOFTWARE"],
+    ["GAME"],
+    ["HARDWARE"],
+    ["HIL"],
+    ["CLINICAL"],
+    ["FOOD_SAFETY", "SOFTWARE"],
+    ["UNKNOWN"],
+  ]) {
+    const groups = projectNavigationForExperience(offerings);
+    assert.deepEqual(
+      groups.flatMap((group) => group.links.map((link) => link.path)).sort(),
+      generic,
+    );
+    assert.equal(
+      new Set(groups.flatMap((group) => group.links.map((link) => link.path)))
+        .size,
+      20,
+    );
+    assert.ok(groups[0].links.some((link) => link.path === "/releases"));
+    assert.equal(groups[0].collapsible, false);
+    assert.equal(groups[2].collapsible, true);
+  }
+  assert.equal(
+    projectNavigationForExperience(["CLINICAL"])[1].label,
+    "Protocols & evidence",
+  );
+  assert.equal(
+    projectNavigationForExperience(["CLINICAL"])[1].collapsible,
+    false,
+  );
+  assert.equal(projectNavigationForExperience(["HIL"])[1].collapsible, false);
+  assert.equal(
+    projectNavigationForExperience(["SOFTWARE"])[1].collapsible,
+    true,
+  );
+  assert.deepEqual(
+    projectNavigationForExperience(["UNKNOWN"]),
+    projectNavigationForExperience(null),
+  );
+  assert.deepEqual(
+    projectNavigationForExperience(["HIL", "UNKNOWN"]),
+    projectNavigationForExperience(null),
+  );
+  assert.deepEqual(
+    projectNavigationForExperience(["HIL", "HIL"]),
+    projectNavigationForExperience(null),
+  );
+});
+test("sidebar uses authorized project experience and hides scoped tools when project access fails", () => {
+  const sidebar = readFileSync(
+    new URL("../components/Sidebar.tsx", import.meta.url),
+    "utf8",
+  );
+  assert.match(sidebar, /project\.experience\.useQuery/);
+  assert.match(
+    sidebar,
+    /enabled: projectQuery\.isSuccess && !projectQuery\.isError/,
+  );
+  assert.match(
+    sidebar,
+    /projectQuery\.isSuccess && !projectQuery\.isError \? \(?\s*<nav/,
+  );
+  assert.match(
+    sidebar,
+    /experienceQuery\.isSuccess && !experienceQuery\.isError/,
   );
 });
 test("secondary navigation reveals the group for direct or nested routes", () => {

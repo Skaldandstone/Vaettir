@@ -8,10 +8,12 @@ import { GlobalSearch } from "./GlobalSearch";
 import { Icon, type IconName } from "./ui/Workspace";
 import { isNavigationActive } from "../lib/usability";
 import {
-  PROJECT_NAVIGATION,
+  projectNavigationForExperience,
   navigationGroupIsActive,
+  hiddenActiveProjectLinks,
 } from "../lib/workbench-navigation";
 import styles from "./WorkbenchNavigation.module.css";
+import { QualityExperienceWizard } from "./QualityExperienceWizard";
 
 // Ported 2026-09-11 from codex/private-beta-readiness: functional icons per
 // link, exact matching for the overview links so "/projects/x" isn't
@@ -106,13 +108,35 @@ function ProjectSidebar({ projectId }: { projectId: string }) {
   // the react-query cache, so the sidebar no longer issues its own copy of
   // that request on every navigation.
   const projectQuery = trpcReact.project.byId.useQuery({ id: projectId });
-  const organizationId = projectQuery.data?.organizationId;
+  const projectAccessible = projectQuery.isSuccess && !projectQuery.isError;
+  const organizationId = projectAccessible
+    ? projectQuery.data.organizationId
+    : undefined;
   const listQuery = trpcReact.project.list.useQuery(
     { organizationId: organizationId ?? "" },
     { enabled: organizationId !== undefined },
   );
-  const projects = listQuery.data ?? [];
-  const currentName = projectQuery.data?.name ?? "";
+  const projects =
+    projectAccessible && !listQuery.isError ? (listQuery.data ?? []) : [];
+  const currentName = projectAccessible ? projectQuery.data.name : "";
+  const [toolsOpen, setToolsOpen] = useState(false);
+  const experienceQuery = trpcReact.project.experience.useQuery(
+    { projectId },
+    { enabled: projectQuery.isSuccess && !projectQuery.isError },
+  );
+  const navigation = projectNavigationForExperience(
+    experienceQuery.isSuccess && !experienceQuery.isError
+      ? experienceQuery.data.experience?.offerings
+      : null,
+    experienceQuery.isSuccess && !experienceQuery.isError
+      ? experienceQuery.data.experience?.enabledTools
+      : undefined,
+  );
+  const hiddenActive = hiddenActiveProjectLinks(
+    pathname,
+    projectId,
+    navigation,
+  );
 
   return (
     <SidebarFrame
@@ -126,6 +150,7 @@ function ProjectSidebar({ projectId }: { projectId: string }) {
         <select
           className="sidebar-project-switcher"
           aria-label="Switch project"
+          disabled={!projectAccessible || listQuery.isPending}
           value={projectId}
           onChange={(e) => router.push(`/projects/${e.target.value}`)}
         >
@@ -139,38 +164,78 @@ function ProjectSidebar({ projectId }: { projectId: string }) {
           ))}
         </select>
       </div>
-      <div className="sidebar-group">
-        <GlobalSearch projectId={projectId} />
-      </div>
-      <nav aria-label="Project">
-        {PROJECT_NAVIGATION.map((group) => {
-          const links = group.links.map((link) => (
-            <SidebarLink
-              key={link.path}
-              href={`/projects/${projectId}${link.path}`}
-              label={link.label}
-              exact={link.path === ""}
-            />
-          ));
-          return group.collapsible ? (
-            <details
-              key={group.label}
-              className={styles.group}
-              open={navigationGroupIsActive(pathname, projectId, group.links)}
-            >
-              <summary>{group.label}</summary>
-              <div className={styles.links}>{links}</div>
-            </details>
-          ) : (
-            <div key={group.label} className={styles.group}>
-              <div className={`eyebrow sidebar-group-label ${styles.label}`}>
-                {group.label}
-              </div>
-              {links}
+      {projectQuery.isSuccess && !projectQuery.isError && (
+        <div className="sidebar-group">
+          <GlobalSearch projectId={projectId} />
+        </div>
+      )}
+      {projectQuery.isSuccess && !projectQuery.isError ? (
+        <nav aria-label="Project">
+          {hiddenActive.length > 0 && (
+            <div className="sidebar-group" role="status">
+              <small>
+                This tool is hidden from navigation for this project. Existing
+                evidence remains available.
+              </small>
+              {hiddenActive.map((link) => (
+                <SidebarLink
+                  key={link.path}
+                  href={`/projects/${projectId}${link.path}`}
+                  label={link.label}
+                />
+              ))}
             </div>
-          );
-        })}
-      </nav>
+          )}
+          {navigation.map((group) => {
+            const links = group.links.map((link) => (
+              <SidebarLink
+                key={link.path}
+                href={`/projects/${projectId}${link.path}`}
+                label={link.label}
+                exact={link.path === ""}
+              />
+            ));
+            return group.collapsible ? (
+              <details
+                key={group.label}
+                className={styles.group}
+                open={navigationGroupIsActive(pathname, projectId, group.links)}
+              >
+                <summary>{group.label}</summary>
+                <div className={styles.links}>{links}</div>
+              </details>
+            ) : (
+              <div key={group.label} className={styles.group}>
+                <div className={`eyebrow sidebar-group-label ${styles.label}`}>
+                  {group.label}
+                </div>
+                {links}
+              </div>
+            );
+          })}
+          <button
+            type="button"
+            className="sidebar-link"
+            onClick={() => setToolsOpen(true)}
+          >
+            Customize project tools
+          </button>
+        </nav>
+      ) : (
+        <div
+          className="sidebar-group"
+          role={projectQuery.isError ? "alert" : "status"}
+        >
+          {projectQuery.isError
+            ? "Project navigation unavailable. Return to All projects to choose a project you can access."
+            : "Loading project navigation…"}
+        </div>
+      )}
+      <QualityExperienceWizard
+        projectId={projectId}
+        open={toolsOpen && projectAccessible}
+        onClose={() => setToolsOpen(false)}
+      />
     </SidebarFrame>
   );
 }
