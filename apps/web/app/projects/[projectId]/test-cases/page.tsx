@@ -92,6 +92,7 @@ const PRIORITY_RANK: Record<string, number> = {
   MEDIUM: 2,
   LOW: 1,
 };
+const ignoreFolderPaths = () => undefined;
 
 function AssignSuiteControl({
   caseId,
@@ -248,10 +249,17 @@ export default function TestCasesPage() {
   const plans = plansQuery.data ?? [];
 
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
-  const [folderPaths, setFolderPaths] = useState<string[]>([]);
-  const [folderCatalog, setFolderCatalog] = useState<CaseFolderCatalog | null>(null);
+  // Read the shared query directly rather than feeding child layout effects
+  // back into parent state. Two observers can replace/refetch the same result;
+  // that must not drive a circular parent/child commit loop.
+  const folderCatalogQuery = trpcReact.caseFolders.list.useQuery(
+    { projectId },
+    { enabled: folderActor.isLoaded && folderActor.isSignedIn && permissions.loaded && !permissions.accessError, retry: false, staleTime: 0, refetchOnMount: "always" },
+  );
+  const folderCatalog: CaseFolderCatalog | null = folderCatalogQuery.isFetchedAfterMount && !folderCatalogQuery.isError && folderCatalogQuery.fetchStatus === "idle" ? folderCatalogQuery.data ?? null : null;
   const [folderReviewIntent, setFolderReviewIntent] = useState<FolderReviewIntent | null>(null);
   const currentFolderCatalog = folderActor.isLoaded && folderActor.isSignedIn && permissions.loaded && !permissions.accessError && folderCatalog?.projectId === projectId && folderCatalog.organizationId === permissions.organizationId && folderCatalog.clerkActorId === folderActor.userId ? folderCatalog : null;
+  const folderPaths = currentFolderCatalog?.paths ?? [];
   useEffect(() => {
     setSelectedPath(new URLSearchParams(window.location.search).get("suite"));
   }, []);
@@ -1026,8 +1034,7 @@ export default function TestCasesPage() {
         key={projectId}
         projectId={projectId}
         selectedPath={selectedPath}
-        onFolderPaths={setFolderPaths}
-        onFolderCatalog={setFolderCatalog}
+        onFolderPaths={ignoreFolderPaths}
         requestedIntent={folderReviewIntent}
         onSaved={(path) => {
           setSelectedPath(path);
