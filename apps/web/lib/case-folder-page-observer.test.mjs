@@ -13,3 +13,7 @@ test("only the current exact actor and organization expose folder paths", () => 
   assert.match(page, /folderCatalog.clerkActorId === folderActor.userId/);
   assert.match(page, /folderPaths = currentFolderCatalog\?\.paths \?\? \[\]/);
 });
+test("folder controller and run dialog cannot collide in the root sibling set", () => {
+  assert.match(page, /<TestCaseFolders\s+key=\{`\$\{projectId\}:folders`\}/);
+  assert.match(page, /<RunConfigurationModal\s+key=\{`\$\{projectId\}:run-configuration`\}/);
+});

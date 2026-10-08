@@ -1031,7 +1031,7 @@ export default function TestCasesPage() {
         </div>
       )}
       <TestCaseFolders
-        key={projectId}
+        key={`${projectId}:folders`}
         projectId={projectId}
         selectedPath={selectedPath}
         onFolderPaths={ignoreFolderPaths}
@@ -1994,7 +1994,7 @@ export default function TestCasesPage() {
         )}
       </Drawer>
       <RunConfigurationModal
-        key={projectId}
+        key={`${projectId}:run-configuration`}
         open={runConfigurationOpen}
         projectId={projectId}
         caseCount={runSelection.length}
