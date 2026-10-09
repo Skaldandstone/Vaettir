@@ -22,17 +22,17 @@ gpgv --keyring /usr/share/keyrings/debian-keyring.gpg --keyring /usr/share/keyri
 grep -q '^\[GNUPG:\] VALIDSIG 3AFA757FAC6EA11D2FF45DF088D24287A2D898B1 ' "$checks/git-source-signature.status"
 cd "$source_dir/curl"
 sha256sum --check <<'CURL_PINS'
-d0f6459057c3a2ed349e219a5e44c10b77c6e40ecbccf7ec45b010eb3c4a2c34  curl_8.21.0-2~bpo13+1.dsc
-d9b327997999045a24cda50f3983e69e51c516bd8be6ef9842fc7f99135e33bb  curl_8.21.0.orig.tar.gz
-0f446cb09f584862ae541b79cea53149f1be0d25ef31f2c482c0e7160250fa27  curl_8.21.0.orig.tar.gz.asc
-d13ebcfd5824d545e139a5426fa403f8cce42c7ea7ef87325913c68a31133d73  curl_8.21.0-2~bpo13+1.debian.tar.xz
+b4872ef4875931c852f0a919db53481395fad36a9c39c0a20917b8abfae9f10a  curl_8.22.0-1.dsc
+d54dd598bf05927a726deb38df31c6a255ba83ff1de57c5d1464dac3ed8f44a1  curl_8.22.0.orig.tar.gz
+fcd906e7d7a370e5079206b365b229fffc54b8fe311f60179ff7412e2cf77d5c  curl_8.22.0.orig.tar.gz.asc
+5c20c1b4eab8a991d1a4a543d36c96c56291bf36337452756796765506b8821c  curl_8.22.0-1.debian.tar.xz
 CURL_PINS
-gpgv --keyring /usr/share/keyrings/debian-keyring.gpg --keyring /usr/share/keyrings/debian-maintainers.gpg --status-fd 1 curl_8.21.0-2~bpo13+1.dsc > "$checks/curl-source-signature.status"
+gpgv --keyring /usr/share/keyrings/debian-keyring.gpg --keyring /usr/share/keyrings/debian-maintainers.gpg --status-fd 1 curl_8.22.0-1.dsc > "$checks/curl-source-signature.status"
 grep -q '^\[GNUPG:\] VALIDSIG 05DB6A837E105F4B1D02C55FBBA9FAADCCFB4707 ' "$checks/curl-source-signature.status"
-dpkg-source -x "$source_dir/curl/curl_8.21.0-2~bpo13+1.dsc" "$build_root/curl-source"
+dpkg-source -x "$source_dir/curl/curl_8.22.0-1.dsc" "$build_root/curl-source"
 dpkg-source -x "$source_dir/git/git_2.47.3-0+deb13u1.dsc" "$build_root/git-source"
 cd "$build_root/curl-source"
-test "$(dpkg-parsechangelog --show-field Version)" = '8.21.0-2~bpo13+1'
+test "$(dpkg-parsechangelog --show-field Version)" = '8.22.0-1'
 timeout 120 autoreconf -fi > "$checks/curl-autoreconf.log" 2>&1
 curl_prefix="$build_root/curl-prefix"
 # Only HTTP/HTTPS, with dynamic system OpenSSL+nghttp2 and a static libcurl archive.
@@ -43,7 +43,7 @@ timeout 180 env CFLAGS="$(dpkg-buildflags --get CFLAGS)" CPPFLAGS="$(dpkg-buildf
   --without-gnutls --without-mbedtls --without-wolfssl --without-rustls \
   --without-gssapi --without-libgsasl --without-libssh --without-libssh2 --without-ngtcp2 --without-nghttp3 --without-quiche \
   --without-brotli --without-zstd --without-libpsl --without-libidn2 \
-  --disable-ldap --disable-ldaps --disable-negotiate-auth --disable-ntlm --disable-tls-srp \
+  --disable-ldap --disable-ldaps --disable-negotiate-auth --disable-ntlm \
   --disable-dict --disable-file --disable-ftp --disable-gopher --disable-imap --disable-mqtt --disable-pop3 --disable-rtsp --disable-smb --disable-smtp --disable-telnet --disable-tftp --disable-ipfs --disable-websockets --disable-docs \
   > "$checks/curl-configure.log" 2>&1
 if grep -q 'unrecognized options' "$checks/curl-configure.log"; then echo 'Unexpected curl configure option' >&2; exit 1; fi
@@ -113,7 +113,7 @@ cat > "$package_root/DEBIAN/control" <<'CONTROL'
 Package: vaettir-git-openssl
 Source: git (1:2.47.3-0+deb13u1)
 Version: 1:2.47.3-0+deb13u1+vaettir1
-Static-Built-Using: curl (= 8.21.0-2~bpo13+1)
+Static-Built-Using: curl (= 8.22.0-1)
 Architecture: amd64
 Maintainer: Vaettir Runtime Build <runtime-build@skaldandstone.com>
 Provides: git (= 1:2.47.3-0+deb13u1+vaettir1)
@@ -121,7 +121,7 @@ Conflicts: git
 Replaces: git
 Depends: libc6 (>= 2.38), libssl3t64 (>= 3.0.0), libnghttp2-14 (>= 1.50.0), libexpat1 (>= 2.0.1), libpcre2-8-0 (>= 10.34), zlib1g (>= 1:1.2.3.4), perl, liberror-perl
 Description: Vaettir Git with maintained Debian patches and isolated static OpenSSL curl
- Git 2.47.3 Debian security source with curl 8.21.0 backports patches.
+ Git 2.47.3 Debian security source with curl 8.22.0 maintained Debian patches.
  HTTP(S) only curl; system OpenSSL/nghttp2 remain dynamic. No global libcurl ABI.
 CONTROL
 artifact="$build_root/vaettir-git-openssl_2.47.3-0+deb13u1+vaettir1_amd64.deb"

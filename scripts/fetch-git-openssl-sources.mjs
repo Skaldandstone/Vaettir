@@ -2,7 +2,7 @@ import {createHash} from "node:crypto";
 import {mkdir,open,readFile} from "node:fs/promises";
 import {join,resolve} from "node:path";
 import {pathToFileURL} from "node:url";
-const identities={git:{version:"1:2.47.3-0+deb13u1",signer:"3AFA757FAC6EA11D2FF45DF088D24287A2D898B1",origin:"https://deb.debian.org/debian/pool/main/g/git/",files:[["git_2.47.3-0+deb13u1.dsc",10000],["git_2.47.3.orig.tar.xz",8000000],["git_2.47.3-0+deb13u1.debian.tar.xz",1000000]]},curl:{version:"8.21.0-2~bpo13+1",signer:"05DB6A837E105F4B1D02C55FBBA9FAADCCFB4707",origin:"https://deb.debian.org/debian/pool/main/c/curl/",files:[["curl_8.21.0-2~bpo13+1.dsc",10000],["curl_8.21.0.orig.tar.gz",5000000],["curl_8.21.0.orig.tar.gz.asc",2000],["curl_8.21.0-2~bpo13+1.debian.tar.xz",100000]]}};
+const identities={git:{version:"1:2.47.3-0+deb13u1",signer:"3AFA757FAC6EA11D2FF45DF088D24287A2D898B1",origin:"https://deb.debian.org/debian/pool/main/g/git/",files:[["git_2.47.3-0+deb13u1.dsc",10000],["git_2.47.3.orig.tar.xz",8000000],["git_2.47.3-0+deb13u1.debian.tar.xz",1000000]]},curl:{version:"8.22.0-1",signer:"05DB6A837E105F4B1D02C55FBBA9FAADCCFB4707",origin:"https://deb.debian.org/debian/pool/main/c/curl/",files:[["curl_8.22.0-1.dsc",10000],["curl_8.22.0.orig.tar.gz",5000000],["curl_8.22.0.orig.tar.gz.asc",2000],["curl_8.22.0-1.debian.tar.xz",100000]]}};
 function keys(value,expected){if(!value||typeof value!=="object"||Array.isArray(value)||Object.keys(value).sort().join(",")!==[...expected].sort().join(","))throw Error("Invalid source metadata fields");}
 export function validateSourcePins(value){
   keys(value,["git","curl"]);

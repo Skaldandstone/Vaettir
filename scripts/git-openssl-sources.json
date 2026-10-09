@@ -10,14 +10,14 @@
     ]
   },
   "curl": {
-    "version": "8.21.0-2~bpo13+1",
+    "version": "8.22.0-1",
     "signer": "05DB6A837E105F4B1D02C55FBBA9FAADCCFB4707",
     "origin": "https://deb.debian.org/debian/pool/main/c/curl/",
     "files": [
-      {"name":"curl_8.21.0-2~bpo13+1.dsc","sha256":"d0f6459057c3a2ed349e219a5e44c10b77c6e40ecbccf7ec45b010eb3c4a2c34","maxBytes":10000},
-      {"name":"curl_8.21.0.orig.tar.gz","sha256":"d9b327997999045a24cda50f3983e69e51c516bd8be6ef9842fc7f99135e33bb","maxBytes":5000000},
-      {"name":"curl_8.21.0.orig.tar.gz.asc","sha256":"0f446cb09f584862ae541b79cea53149f1be0d25ef31f2c482c0e7160250fa27","maxBytes":2000},
-      {"name":"curl_8.21.0-2~bpo13+1.debian.tar.xz","sha256":"d13ebcfd5824d545e139a5426fa403f8cce42c7ea7ef87325913c68a31133d73","maxBytes":100000}
+      {"name":"curl_8.22.0-1.dsc","sha256":"b4872ef4875931c852f0a919db53481395fad36a9c39c0a20917b8abfae9f10a","maxBytes":10000},
+      {"name":"curl_8.22.0.orig.tar.gz","sha256":"d54dd598bf05927a726deb38df31c6a255ba83ff1de57c5d1464dac3ed8f44a1","maxBytes":5000000},
+      {"name":"curl_8.22.0.orig.tar.gz.asc","sha256":"fcd906e7d7a370e5079206b365b229fffc54b8fe311f60179ff7412e2cf77d5c","maxBytes":2000},
+      {"name":"curl_8.22.0-1.debian.tar.xz","sha256":"5c20c1b4eab8a991d1a4a543d36c96c56291bf36337452756796765506b8821c","maxBytes":100000}
     ]
   }
 }

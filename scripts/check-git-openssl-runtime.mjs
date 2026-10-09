@@ -19,14 +19,14 @@ export function assertSignature(status,signer){
   assert.equal(lines.length,1);assert.equal(lines[0].split(" ")[2],signer);
 }
 export function assertCurlConfiguration(config){
-  assert.equal(config.version.trim(),"libcurl 8.21.0");
+  assert.equal(config.version.trim(),"libcurl 8.22.0");
   assert.equal(config.sslBackends.trim(),"OpenSSL");
   const protocols=config.protocols.trim().split(/\s+/).sort();assert.deepEqual(protocols,["HTTP","HTTPS"]);
   const features=config.features.trim().split(/\s+/);assert.ok(features.includes("SSL")&&features.includes("HTTP2"));
   assert.ok(!features.some(feature=>/GSS|Kerberos|SPNEGO|NTLM|HTTP3|TLS-SRP/i.test(feature)));
   assert.doesNotMatch(config.staticLibs,/gnutls|krb5|gssapi|ldap|lber|sasl|rtmp|ngtcp2|nghttp3/i);
   assert.match(config.staticLibs,/libcurl\.a|-lcurl/);
-  return{version:"8.21.0",tlsBackend:"OpenSSL",protocols,features,libraryStrategy:"static curl in Git HTTP helpers; system OpenSSL and nghttp2 remain dynamic"};
+  return{version:"8.22.0",tlsBackend:"OpenSSL",protocols,features,libraryStrategy:"static curl in Git HTTP helpers; system OpenSSL and nghttp2 remain dynamic"};
 }
 const allowedNeeded=new Set(["libssl.so.3","libcrypto.so.3","libnghttp2.so.14","libz.so.1","libexpat.so.1","libpcre2-8.so.0","libc.so.6","libm.so.6","libdl.so.2","libpthread.so.0","libresolv.so.2","ld-linux-x86-64.so.2","libgcc_s.so.1"]);
 export function assertPackageELF(rows){

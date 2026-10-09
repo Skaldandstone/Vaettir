@@ -1,11 +1,14 @@
 import test from 'node:test';import assert from 'node:assert/strict';import {readFileSync} from 'node:fs';
 import {assertSourceIdentity,assertSignature,assertCurlConfiguration,assertPackageELF,assertAbsentFamilies} from './check-git-openssl-runtime.mjs';
 import {sourcePins} from './fetch-git-openssl-sources.mjs';
-const config={version:'libcurl 8.21.0',sslBackends:'OpenSSL',protocols:'HTTP HTTPS',features:'SSL HTTP2',staticLibs:'/isolated/lib/libcurl.a -lssl -lcrypto -lnghttp2 -lz'};
+const config={version:'libcurl 8.22.0',sslBackends:'OpenSSL',protocols:'HTTP HTTPS',features:'SSL HTTP2',staticLibs:'/isolated/lib/libcurl.a -lssl -lcrypto -lnghttp2 -lz'};
 test('exact source signatures and closed OpenSSL protocol feature contract',()=>{
   assertSourceIdentity(structuredClone(sourcePins));assertSignature('[GNUPG:] VALIDSIG '+sourcePins.git.signer+' 2026',sourcePins.git.signer);assertCurlConfiguration(config);
   assert.throws(()=>assertSignature('[GNUPG:] VALIDSIG '+sourcePins.curl.signer,sourcePins.git.signer));assert.throws(()=>assertSignature('[GNUPG:] BADSIG x\n[GNUPG:] VALIDSIG '+sourcePins.git.signer,sourcePins.git.signer));
   for(const delta of [{sslBackends:'GnuTLS'},{protocols:'HTTP HTTPS FILE'},{features:'SSL HTTP2 GSS-API'},{staticLibs:'-lcurl -lkrb5'}])assert.throws(()=>assertCurlConfiguration({...config,...delta}));
+  assert.throws(()=>assertCurlConfiguration({...config,version:'libcurl 8.21.0'}));
+  assert.throws(()=>assertCurlConfiguration({...config,version:'libcurl 8.22.0-rc3'}));
+  assert.throws(()=>assertCurlConfiguration({...config,features:'SSL HTTP2 TLS-SRP'}));
 });
 test('package ELF closure and old-family dpkg states fail closed',()=>{
   const rows=[{path:'usr/lib/git-core/git-remote-http',needed:['libssl.so.3','libcrypto.so.3','libc.so.6']}];assertPackageELF(rows);
@@ -22,5 +25,6 @@ test('builder and installed checker retain mandatory provenance and real TLS gat
   assert.match(build, /curl-source\/debian\/copyright/);
   assert.ok(build.indexOf('source_bundle=') < build.indexOf('timeout 180 node "$checker"'));
   assert.match(build, /Source: git \(1:2.47.3-0\+deb13u1\)/);
-  assert.match(build, /Static-Built-Using: curl \(= 8.21.0-2~bpo13\+1\)/);
+  assert.match(build, /Static-Built-Using: curl \(= 8.22.0-1\)/);
+  assert.doesNotMatch(build,/--disable-tls-srp/);assert.match(build,/unrecognized options/);assert.match(build,/TFLAGS='-a 1 2 3 4 5'/);
 });
