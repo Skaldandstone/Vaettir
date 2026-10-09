@@ -207,6 +207,7 @@ test("all image stages pin the same Trixie base and install patched Perl/OpenSSL
         "llvm-build",
         ...checkpointParents.keys(),
         "zlib-build",
+        "git-openssl-build",
         "runtime",
       ],
     ],
@@ -248,6 +249,7 @@ test("derived LLVM stages reject unpinned, unrelated, forward and incompletely g
     "llvm-build",
     ...checkpointParents.keys(),
     "zlib-build",
+    "git-openssl-build",
     "runtime",
   ];
   assertPatchedPinnedStages(source, names, base);

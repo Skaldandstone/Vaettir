@@ -1,14 +1,14 @@
 // TEST FIXTURE ONLY. Never use this inverse to admit current runtime images.
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-export const GIT_OPENSSL_DOCKERFILE_SHA256 = "dd539496a77ec46ecc09aef8d051d3cca5839cbc3c2759777e19477502cdca70";
+export const GIT_OPENSSL_DOCKERFILE_SHA256 = "887c8d385e57e59eddef7386226cab25513309c26cb31e4f4efa219a5ee87160";
 const previous = "bdcc0fd1dff0b04962aaecbf9400d4aebdb7c9390ae1d47bb5a5aa5766e475a3";
 const hunks = [
   {
     "oldStart": 95,
     "oldCount": 0,
     "newStart": 96,
-    "newCount": 13,
+    "newCount": 15,
     "old": [],
     "next": [
       "# Signed maintained Git/curl source, narrowly configured HTTP(S) with OpenSSL.",
@@ -16,7 +16,9 @@ const hunks = [
       "# Existing certificate verification and all native checks remain mandatory.",
       "FROM public.ecr.aws/docker/library/node:22-trixie-slim@sha256:b26b04c123d9ff8ab646ceb18b9d75a1173acf64b9a401094b906d27b29338d4 AS git-openssl-build",
       "RUN apt-get update --error-on=any \\",
-      "    && apt-get install -y --no-install-recommends build-essential pkg-config autoconf automake libtool binutils dpkg-dev gpgv debian-keyring libssl-dev libnghttp2-dev libexpat1-dev libpcre2-dev zlib1g-dev perl python3 liberror-perl ca-certificates \\",
+      "    && apt-get install -y --no-install-recommends openssl ca-certificates perl-base libpcre2-8-0 build-essential pkg-config autoconf automake libtool binutils dpkg-dev gpgv debian-keyring libssl-dev libnghttp2-dev libexpat1-dev libpcre2-dev zlib1g-dev perl python3 liberror-perl \\",
+      "    && dpkg --compare-versions \"$(dpkg-query -W -f='${Version}' perl-base)\" ge '5.40.1-6+deb13u1' \\",
+      "    && dpkg --compare-versions \"$(dpkg-query -W -f='${Version}' libpcre2-8-0)\" ge '10.46-1~deb13u3' \\",
       "    && rm -rf /var/lib/apt/lists/*",
       "WORKDIR /build",
       "COPY scripts/fetch-git-openssl-sources.mjs scripts/git-openssl-sources.json scripts/build-git-openssl-runtime.sh scripts/check-git-openssl-runtime.mjs /build/scripts/",
@@ -29,7 +31,7 @@ const hunks = [
   {
     "oldStart": 110,
     "oldCount": 0,
-    "newStart": 124,
+    "newStart": 126,
     "newCount": 1,
     "old": [],
     "next": [
@@ -39,7 +41,7 @@ const hunks = [
   {
     "oldStart": 127,
     "oldCount": 2,
-    "newStart": 141,
+    "newStart": 143,
     "newCount": 1,
     "old": [
       "    && apt-get install -y --no-install-recommends openssl ca-certificates git perl-base libpcre2-8-0 /tmp/vaettir-vendor/*.deb \\",
@@ -52,7 +54,7 @@ const hunks = [
   {
     "oldStart": 132,
     "oldCount": 1,
-    "newStart": 145,
+    "newStart": 147,
     "newCount": 1,
     "old": [
       "    && dpkg --compare-versions \"$(dpkg-query -W -f='${Version}' libcurl4-gnutls)\" ge '8.21.0-2~bpo13+1' \\"
@@ -64,7 +66,7 @@ const hunks = [
   {
     "oldStart": 139,
     "oldCount": 0,
-    "newStart": 153,
+    "newStart": 155,
     "newCount": 1,
     "old": [],
     "next": [
@@ -74,7 +76,7 @@ const hunks = [
   {
     "oldStart": 163,
     "oldCount": 0,
-    "newStart": 178,
+    "newStart": 180,
     "newCount": 1,
     "old": [],
     "next": [
