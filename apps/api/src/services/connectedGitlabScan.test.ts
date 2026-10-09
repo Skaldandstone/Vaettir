@@ -41,6 +41,13 @@ describe("connected GitLab pinned reads (synthetic only)",()=>{
     const result=await scanConnectedGitlab(reader([fixture("tests/a.test.ts","a"),fixture("tests/b.test.ts","b")]),"47","main","TEST_CASES",["tests"],1);
     expect(result.eligibleFileCount).toBe(2);expect(result.inspectedFileCount).toBe(1);expect(result.truncated).toBe(true);
   });
+  it("preserves UTF-8 BOM bytes in content hashes and unchanged paid blob identities",async()=>{
+    const content="\uFEFFit('safe',()=>{});",file=fixture("tests/bom.test.ts",content),hash=createHash("sha256").update(Buffer.from(content)).digest("hex");
+    const result=await scanConnectedGitlab(reader([file]),"47","main","TEST_CASES",["tests"],1);
+    expect(result.files[0]!.content).toBe(content);expect(result.observedFiles[0]!.hash).toBe(hash);
+    const read=reader([file]);const unchanged=await scanConnectedGitlab(read,"47","main","TEST_CASES",["tests"],1,new Map([[file.entry.path,hash]]),new Map([[file.entry.path,file.entry.id]]));
+    expect(unchanged.files).toEqual([]);expect(unchanged.observedFiles).toEqual([{path:file.entry.path,hash}]);expect(read.mock.calls.filter(call=>call[0].includes("/blobs/"))).toHaveLength(0);
+  });
   it("unchanged paid blob identities do not consume the bounded read limit or starve a new test",async()=>{
     const previous=fixture("tests/a.test.ts","paid exact bytes");const changed=fixture("tests/b.test.ts","new exact bytes");const read=reader([previous,changed]);
     const result=await scanConnectedGitlab(read,"47","main","TEST_CASES",["tests"],1,new Map([[previous.entry.path,createHash("sha256").update("paid exact bytes").digest("hex")]]),new Map([[previous.entry.path,previous.entry.id]]));

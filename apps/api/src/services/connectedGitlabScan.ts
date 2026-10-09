@@ -55,7 +55,9 @@ export async function scanConnectedGitlab(read:GitlabJsonRead, externalId:string
     if(bytes.toString("base64")!==blob.content || bytes.length!==blob.size ||
       createHash("sha1").update(`blob ${bytes.length}\0`).update(bytes).digest("hex")!==blob.sha)
       throw Error("GitLab file bytes did not match the pinned blob.");
-    let content:string;try{content=new TextDecoder("utf-8",{fatal:true}).decode(bytes);}catch{continue;}
+    // Preserve a UTF-8 BOM just as the existing file reader does. Stripping it
+    // would change content hashes and falsely mark unchanged source links stale.
+    let content:string;try{content=new TextDecoder("utf-8",{fatal:true,ignoreBOM:true}).decode(bytes);}catch{continue;}
     if(!content || !safeRepositoryText(content))continue;
     const contentHash=createHash("sha256").update(content).digest("hex");
     observedFiles.push({path:entry.path,hash:contentHash});
