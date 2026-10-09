@@ -38,3 +38,6 @@ test('Debian static curl metadata remains accepted with isolated linker director
   const metadata={...config,staticLibs:'-Wl,-Bstatic -lcurl -Wl,-Bdynamic -lssl -lcrypto -lnghttp2 -lz'};assert.equal(assertCurlConfiguration(metadata).tlsBackend,'OpenSSL');
   const build=readFileSync(new URL('./build-git-openssl-runtime.sh',import.meta.url),'utf8');assert.match(build,/CURL_LDFLAGS="-L\$curl_prefix\/lib \$curl_libs"/);assert.match(build,/curl_libs=\$\("\$curl_prefix\/bin\/curl-config" --static-libs\)/);assert.doesNotMatch(build,/CURL_LDFLAGS="\$curl_libs"/);assert.doesNotMatch(build,/CURL_LDFLAGS=.*(?:\/usr\/lib|\/usr\/local\/lib)/);
 });
+test('Debian CPP hardening never overrides Git internal target-specific definitions',()=>{
+  const build=readFileSync(new URL('./build-git-openssl-runtime.sh',import.meta.url),'utf8');assert.match(build,/CFLAGS="\$git_cflags" CPPFLAGS="\$git_cppflags" LDFLAGS="\$git_ldflags"/);assert.doesNotMatch(build,/EXTRA_CPPFLAGS=/);assert.match(build,/git_cppflags=\$\(dpkg-buildflags --get CPPFLAGS\)/);
+});

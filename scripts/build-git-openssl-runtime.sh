@@ -88,9 +88,11 @@ curl_libs=$("$curl_prefix/bin/curl-config" --static-libs)
 git_cflags=$(dpkg-buildflags --get CFLAGS)
 git_cppflags=$(dpkg-buildflags --get CPPFLAGS)
 git_ldflags=$(dpkg-buildflags --get LDFLAGS)
+# EXTRA_CPPFLAGS carries Git's own target-specific path/version definitions.
+# Put Debian preprocessor hardening in conventional CPPFLAGS without overriding it.
 set -- prefix=/usr gitexecdir=/usr/lib/git-core GIT_VERSION=2.47.3.vaettir1 \
   CURL_CONFIG="$curl_prefix/bin/curl-config" CURL_CFLAGS="-I$curl_prefix/include" CURL_LDFLAGS="-L$curl_prefix/lib $curl_libs" \
-  CFLAGS="$git_cflags" EXTRA_CPPFLAGS="$git_cppflags" LDFLAGS="$git_ldflags" \
+  CFLAGS="$git_cflags" CPPFLAGS="$git_cppflags" LDFLAGS="$git_ldflags" \
   NO_TCLTK=YesPlease NO_GETTEXT=YesPlease NO_PYTHON=YesPlease NO_INSTALL_HARDLINKS=YesPlease USE_LIBPCRE2=YesPlease
 stage=GIT_BUILD
 timeout 600 make -j2 "$@" all > "$checks/git-build.log" 2>&1
