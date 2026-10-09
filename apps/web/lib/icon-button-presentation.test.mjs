@@ -13,8 +13,9 @@ function fixture(props={}) {
   return {render:()=>{cursor=0;return scope.IconButton({label:"Copy folder",icon:"copy",...props});}};
 }
 test("actual icon control preserves native attributes, accessible name and original action",()=>{
-  const action=()=>{},h=fixture({disabled:true,onClick:action,"aria-describedby":"original-help"}),node=h.render(),button=node.props.children[0],html=renderToStaticMarkup(node);
-  assert.equal(button.type,"button");assert.equal(button.props.type,"button");assert.equal(button.props.disabled,true);assert.equal(button.props.onClick,action);assert.equal(button.props["aria-label"],"Copy folder");assert.equal(button.props["aria-describedby"],"original-help");assert.match(html,/<svg/);assert.doesNotMatch(html,/role="tooltip"|title=/);
+  const events=[],action=event=>events.push(event),h=fixture({disabled:true,onClick:action,"aria-describedby":"original-help"}),node=h.render(),button=node.props.children[0],html=renderToStaticMarkup(node);
+  assert.equal(button.type,"button");assert.equal(button.props.type,"button");assert.equal(button.props.disabled,true);assert.equal(button.props["aria-label"],"Copy folder");assert.equal(button.props["aria-describedby"],"original-help");assert.match(html,/<svg/);assert.doesNotMatch(html,/role="tooltip"|title=/);
+  const event={type:"click"};button.props.onClick(event);assert.deepEqual(events,[event]);
 });
 test("actual tooltip opens on hover or focus, preserves the existing description and dismisses on Escape",()=>{
   const h=fixture({"aria-describedby":"original-help"});let node=h.render();node.props.onPointerEnter();node=h.render();assert.equal(node.props.children[1].props.role,"tooltip");assert.equal(node.props.children[0].props["aria-describedby"],"original-help synthetic-tooltip");
@@ -34,4 +35,10 @@ test("after dismissing the tooltip, a second Escape remains available to the nat
   assert.equal(node.props.children[1],false);
   node.props.children[0].props.onKeyDown(event());
   assert.equal(prevented,1);assert.equal(stopped,1);assert.equal(forwarded,2);
+});
+
+test("click hides its prior hover tooltip before opening tools while forwarding the original event once",()=>{
+  const events=[],h=fixture({onClick:e=>events.push(e)});let node=h.render();node.props.onPointerEnter();node=h.render();assert.equal(node.props.children[1].props.role,"tooltip");
+  const event={type:"click"};node.props.children[0].props.onClick(event);assert.deepEqual(events,[event]);assert.equal(h.render().props.children[1],false);
+  node=h.render();node.props.onPointerLeave();node.props.onPointerEnter();assert.equal(h.render().props.children[1].props.role,"tooltip");
 });

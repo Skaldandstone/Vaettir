@@ -89,7 +89,7 @@ function treeNode(receives: boolean, supported = true, bindings?: TreeBindings) 
   const functions = treeAst.statements.filter(ts.isFunctionDeclaration).map(node => ts.createPrinter().printNode(ts.EmitHint.Unspecified, node, treeAst).replace(/\bexport\s+/, "")).join("\n");
   const code = ts.transpileModule(functions + "\nthis.render=TreeNodeView;", { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.None, jsx: ts.JsxEmit.React } }).outputText;
   const states: unknown[] = [], onDropCase = bindings ? bindings.onDropCase : vi.fn(), onFolderReview = bindings ? bindings.onFolderReview : vi.fn(), onDropRefused = vi.fn();
-  const context = vm.createContext({ React, FOLDER_DRAG_TYPE, UNASSIGNED: "__unassigned__", useState: (initial: unknown) => [initial, (next: unknown) => states.push(next)], caseFolderKindLabel: () => receives ? "Case suite" : "Source group" });
+  const context = vm.createContext({ React, FOLDER_DRAG_TYPE, UNASSIGNED: "__unassigned__", useId: () => "synthetic-tree-actions", IconButton: () => null, useState: (initial: unknown) => [initial, (next: unknown) => states.push(next)], caseFolderKindLabel: () => receives ? "Case suite" : "Source group" });
   vm.runInContext(code, context);
   const props = { node: { path: "tests/source", name: "source", cases: [], children: new Map() }, depth: 0, selectedPath: null, onSelect: vi.fn(), onDropCase, onFolderReview, onDropRefused,
     catalog: { paths: ["tests/source"], canEdit: true }, metadata: new Map([["tests/source", { supported, canReceiveCase: receives, canOrganize: supported, kind: "SOURCE_GROUP" }]]) };

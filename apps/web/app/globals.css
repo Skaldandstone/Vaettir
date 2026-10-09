@@ -482,6 +482,12 @@ main.app-main {
   font-size: 11px;
   color: var(--muted-dim);
 }
+.tree-node-shell { display: flex; align-items: center; gap: 4px; padding-right: 6px; min-width: 0; }
+.tree-node-shell > .tree-row { flex: 1; min-width: 0; }
+.tree-node-shell .tree-label { min-width: 0; }
+.tree-node-shell .icon-action-tooltip { left: auto; right: 0; transform: none; text-align: left; }
+.tree-node-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding-top: 6px; padding-bottom: 8px; }
+.tree-node-actions .icon-action-tooltip { left: 0; transform: none; max-width: min(200px, 75vw); text-align: left; white-space: normal; overflow-wrap: anywhere; }
 
 @media (max-width: 900px) {
   .test-case-layout {

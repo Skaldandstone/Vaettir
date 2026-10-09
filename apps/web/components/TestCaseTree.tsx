@@ -1,7 +1,8 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useId, useMemo, useState, type KeyboardEvent } from "react";
 import { FOLDER_DRAG_TYPE, caseFolderNodeCatalog, caseFolderKindLabel, encodeFolderDrag, reviewedFolderDrop, supportedCaseFolderPath, type CaseFolderCatalog, type CaseFolderNode, type FolderReviewIntent } from "@/lib/case-folder-tree";
+import { IconButton } from "./ui/IconButton";
 
 // TestRail/Qase organize test cases into a manually-curated suite/section
 // tree. Every case here gets a location in that tree -- `suitePath` is a
@@ -84,6 +85,8 @@ function TreeNodeView({
 }) {
   const [open, setOpen] = useState(depth < 2);
   const [dropTarget, setDropTarget] = useState(false);
+  const [actionsOpen, setActionsOpen] = useState(false);
+  const actionsId = useId();
   const totalCases = node.cases.length + [...node.children.values()].reduce((sum, c) => sum + countCases(c), 0);
   const hasChildren = node.children.size > 0;
   const entry = metadata.get(node.path)!;
@@ -95,9 +98,17 @@ function TreeNodeView({
     if (!entry.supported && node.path === UNASSIGNED) { onDropRefused?.("This exact raw source path conflicts with the Unassigned navigation marker. It is retained in All test cases; no path was normalized or moved."); return; }
     onSelect(node.path);
   }
+  function closeFolderActions(event: KeyboardEvent<HTMLDivElement>) {
+    if (event.key !== "Escape" || !actionsOpen || event.defaultPrevented) return;
+    event.preventDefault();
+    event.stopPropagation();
+    setActionsOpen(false);
+    document.getElementById(`${actionsId}-toggle`)?.focus();
+  }
 
   return (
     <div>
+      <div className="tree-node-shell" onKeyDown={closeFolderActions}>
       <div
         className={`tree-row${selectedPath === node.path ? " active" : ""}${dropTarget ? " drop-target" : ""}`}
         style={{ paddingLeft: 8 + depth * 14 }}
@@ -145,14 +156,13 @@ function TreeNodeView({
         <span className="tree-label" style={{ overflowWrap: "anywhere" }}>{entry.supported ? node.name : <code>{JSON.stringify(node.path)}</code>}<small style={{ display: "block", fontSize: 11 }}>{caseFolderKindLabel(entry, !!catalog)}</small></span>
         <span className="tree-count">{totalCases}</span>
       </div>
-      {entry.canOrganize && onFolderReview && <details style={{ paddingLeft: 8 + depth * 14, fontSize: 12 }}>
-        <summary aria-label={`Folder actions for ${node.path}`} style={{ cursor: "pointer", color: "var(--frost)", padding: "3px 0" }}>Folder actions</summary>
-        <div style={{ display: "flex", flexWrap: "wrap", gap: 4, padding: "4px 0" }}>
-        <button type="button" className="btn-secondary" draggable aria-label={`Drag ${node.path} to review a folder move`} onDragStart={event => { if (!catalog) return; event.dataTransfer.setData(FOLDER_DRAG_TYPE, encodeFolderDrag(catalog, node.path)); event.dataTransfer.effectAllowed = "move"; }}>⠿</button>
-        <button type="button" className="btn-secondary" onClick={() => reviewFolder("MOVE")}>{entry.kind === "SOURCE_GROUP" ? "Organize source group…" : "Move…"}</button>
-        <button type="button" className="btn-secondary" onClick={() => reviewFolder("RENAME")}>Rename…</button>
-        </div>
-      </details>}
+      {entry.canOrganize && onFolderReview && <IconButton className="tree-node-actions-toggle" id={`${actionsId}-toggle`} icon="more" label={`Folder actions for ${node.path}`} aria-expanded={actionsOpen} aria-controls={actionsId} onClick={() => setActionsOpen(value => !value)} />}
+      </div>
+      {entry.canOrganize && onFolderReview && <div className="tree-node-actions" id={actionsId} role="group" aria-label={`Reviewed folder tools for ${node.path}`} hidden={!actionsOpen} style={{ display: actionsOpen ? "flex" : "none", paddingLeft: 8 + depth * 14 }} onKeyDown={closeFolderActions}>
+        <IconButton icon="drag" draggable label={`Drag ${node.path} to review a folder move`} onDragStart={event => { if (!catalog) return; event.dataTransfer.setData(FOLDER_DRAG_TYPE, encodeFolderDrag(catalog, node.path)); event.dataTransfer.effectAllowed = "move"; }} />
+        <IconButton icon="arrow" label={entry.kind === "SOURCE_GROUP" ? `Organize source group ${node.path}` : `Move folder ${node.path}`} onClick={() => reviewFolder("MOVE")} />
+        <IconButton icon="edit" label={`Rename folder ${node.path}`} onClick={() => reviewFolder("RENAME")} />
+      </div>}
       {!entry.supported && <p style={{ marginLeft: 8 + depth * 14, fontSize: 11 }}>Raw path retained. Move/rename is unsupported; no source path is normalized.</p>}
       {!entry.supported && node.path === UNASSIGNED && <button type="button" onClick={() => onSelect(null)}>View retained raw-path cases in All test cases</button>}
       {open && (

@@ -16,11 +16,13 @@ export type IconName =
   | "branch"
   | "clock"
   | "filter" | "more" | "copy" | "undo" | "help" | "close" | "back" | "external" | "plus"
-  | "up" | "down" | "delete";
+  | "up" | "down" | "delete" | "drag" | "edit";
 
 // Small functional UI glyphs. The product's canonical rune remains unchanged.
 export function Icon({ name, size = 18 }: { name: IconName; size?: number }) {
   const paths: Record<IconName, ReactNode> = {
+    drag: <><circle cx="9" cy="5" r="1"/><circle cx="15" cy="5" r="1"/><circle cx="9" cy="12" r="1"/><circle cx="15" cy="12" r="1"/><circle cx="9" cy="19" r="1"/><circle cx="15" cy="19" r="1"/></>,
+    edit: <><path d="m15 4 5 5M4 20l5-1L21 7a2.1 2.1 0 0 0-4-4L5 15l-1 5Z"/></>,
     up: <path d="M12 20V4m-6 6 6-6 6 6" />,
     down: <path d="M12 4v16m-6-6 6 6 6-6" />,
     delete: <path d="M4 7h16M9 7V3h6v4M6 7l1 14h10l1-14M10 11v6M14 11v6" />,

@@ -6,7 +6,8 @@ import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import * as helpers from "./case-folder-tree";
 import { retainedTraceabilityReceipt } from "./traceability-receipt";
-const iconScope = vm.createContext({React, useId: React.useId, useState: React.useState, Icon: () => React.createElement("svg", {"aria-hidden": true})});
+const iconScope = vm.createContext({React, useId: React.useId, useState: React.useState});
+vm.runInContext(ts.transpileModule(declarations("../components/ui/Workspace.tsx", ["Icon"]), {compilerOptions: {target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.None, jsx: ts.JsxEmit.React}}).outputText, iconScope);
 vm.runInContext(ts.transpileModule(declarations("../components/ui/IconButton.tsx", ["IconButton"]), {compilerOptions: {target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.None, jsx: ts.JsxEmit.React}}).outputText, iconScope);
 const IconButton = iconScope.IconButton;
 const catalog: helpers.CaseFolderCatalog = { projectId: "synthetic-project", organizationId: "synthetic-org", clerkActorId: "synthetic-actor", canEdit: true, paths: ["Source", "Native", "Destination", "Empty"], folders: [{ id: "stable-destination", path: "Destination" }, { id: "stable-empty", path: "Empty" }] };
@@ -18,7 +19,7 @@ function declarations(file: string, names: string[]) {
 function elements(node: React.ReactNode): React.ReactElement<Record<string, unknown>>[] { return !React.isValidElement<Record<string, unknown>>(node) ? [] : [node, ...React.Children.toArray(node.props.children as React.ReactNode).flatMap(elements)]; }
 function treeHarness(scope: helpers.CaseFolderCatalog | null = catalog) {
   const intents: unknown[] = [], moves: unknown[] = [], refusals: string[] = [], selections: unknown[] = [];
-  const h: Record<string, unknown> = { React, ...helpers, UNASSIGNED: "__unassigned__", useMemo: (factory: () => unknown) => factory(), useState: (value: unknown) => [value, () => undefined] };
+  const h: Record<string, unknown> = { React, IconButton, ...helpers, UNASSIGNED: "__unassigned__", useId: () => "synthetic-folder-tools", useMemo: (factory: () => unknown) => factory(), useState: (value: unknown) => [value, () => undefined] };
   vm.createContext(h); vm.runInContext(ts.transpileModule(declarations("../components/TestCaseTree.tsx", ["effectiveLocation", "buildTree", "TreeNodeView", "countCases", "TestCaseTree", "filterCasesByPath"]), { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.None, jsx: ts.JsxEmit.React } }).outputText, h);
   const metadata = helpers.caseFolderNodeCatalog(cases, scope);
   function node(path: string) { return (h.TreeNodeView as (props: unknown) => React.ReactElement)({ node: { name: path, path, children: new Map(), cases: cases.filter(item => (item.suitePath || item.sourceFilePath) === path) }, depth: 0, selectedPath: null, catalog: scope, metadata, onSelect: (path: unknown) => selections.push(path), onDropCase: (...args: unknown[]) => moves.push(args), onFolderReview: (value: unknown) => intents.push(value), onDropRefused: (value: string) => refusals.push(value) }); }
@@ -91,13 +92,13 @@ describe("actual tree and folder controller source", () => {
     const host = treeHarness(); const target = elements(host.node("Destination")).find(node => typeof node.props.onDrop === "function")!;
     (target.props.onDrop as (event: unknown) => void)(host.event(helpers.FOLDER_DRAG_TYPE, helpers.encodeFolderDrag(catalog, "Source")));
     expect(host.intents).toEqual([helpers.reviewedFolderDrop(helpers.encodeFolderDrag(catalog, "Source"), catalog, "Destination")]); expect(host.moves).toHaveLength(0);
-    const action = elements(host.node("Source")).find(node => node.type === "button" && node.props.children === "Organize source group…")!;
+    const action = elements(host.node("Source")).find(node => node.type === IconButton && node.props.label === "Organize source group Source")!;
     (action.props.onClick as () => void)(); expect((host.intents[1] as helpers.FolderReviewIntent).action).toBe("MOVE"); expect(host.moves).toHaveLength(0);
   });
   it("read-only tree keeps keyboard browsing but has no draggable or mutation action controls", () => {
     const host = treeHarness({ ...catalog, canEdit: false }), tree = host.node("Source");
     expect(renderToStaticMarkup(tree)).not.toContain("draggable"); expect(elements(tree).some(node => node.type === "button")).toBe(false);
-    const row = elements(tree).find(node => typeof node.props.onKeyDown === "function")!; (row.props.onKeyDown as (event: unknown) => void)({ key: "Enter", preventDefault() {} }); expect(host.selections).toEqual(["Source"]); expect(host.moves).toHaveLength(0);
+    const row = elements(tree).find(node => node.props.role === "button" && typeof node.props.onKeyDown === "function")!; (row.props.onKeyDown as (event: unknown) => void)({ key: "Enter", preventDefault() {} }); expect(host.selections).toEqual(["Source"]); expect(host.moves).toHaveLength(0);
   });
   it("unsupported raw tree paths remain exact flat groups with no normalization or editable gesture", () => {
     const host = treeHarness(), invalid = [{ id: "bad", title: "Synthetic raw case", suitePath: null, sourceFilePath: "a//b" }];
