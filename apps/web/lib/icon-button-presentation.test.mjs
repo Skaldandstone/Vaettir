@@ -18,9 +18,20 @@ test("actual icon control preserves native attributes, accessible name and origi
 });
 test("actual tooltip opens on hover or focus, preserves the existing description and dismisses on Escape",()=>{
   const h=fixture({"aria-describedby":"original-help"});let node=h.render();node.props.onPointerEnter();node=h.render();assert.equal(node.props.children[1].props.role,"tooltip");assert.equal(node.props.children[0].props["aria-describedby"],"original-help synthetic-tooltip");
-  let stopped=0;node.props.children[0].props.onKeyDown({key:"Escape",stopPropagation:()=>stopped++});assert.equal(stopped,1);assert.equal(h.render().props.children[1],false);
+  let stopped=0,prevented=0;node.props.children[0].props.onKeyDown({key:"Escape",preventDefault:()=>prevented++,stopPropagation:()=>stopped++});assert.equal(stopped,1);assert.equal(prevented,1);assert.equal(h.render().props.children[1],false);
   node=h.render();node.props.onPointerLeave();node.props.children[0].props.onFocus({});node=h.render();assert.equal(node.props.children[1].props.children,"Copy folder");node.props.children[0].props.onBlur({});assert.equal(h.render().props.children[1],false);
 });
 test("actual focus/blur/key callbacks remain forwarded without making a tooltip an approval",()=>{
   const events=[],h=fixture({onFocus:()=>events.push("focus"),onBlur:()=>events.push("blur"),onKeyDown:e=>events.push(e.key)});let node=h.render();node.props.children[0].props.onFocus({});node=h.render();node.props.children[0].props.onKeyDown({key:"Enter"});node.props.children[0].props.onBlur({});assert.deepEqual(events,["focus","Enter","blur"]);
+});
+
+test("after dismissing the tooltip, a second Escape remains available to the native dialog",()=>{
+  let stopped=0,prevented=0,forwarded=0;
+  const h=fixture({onKeyDown:e=>{if(e.key==="Escape")forwarded++;}});
+  let node=h.render();node.props.children[0].props.onFocus({});node=h.render();
+  const event=()=>({key:"Escape",preventDefault:()=>prevented++,stopPropagation:()=>stopped++});
+  node.props.children[0].props.onKeyDown(event());node=h.render();
+  assert.equal(node.props.children[1],false);
+  node.props.children[0].props.onKeyDown(event());
+  assert.equal(prevented,1);assert.equal(stopped,1);assert.equal(forwarded,2);
 });

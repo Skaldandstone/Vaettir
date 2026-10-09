@@ -14,7 +14,7 @@ export function IconButton({label, icon, className = "", onFocus, onBlur, onKeyD
     <button {...props} type={props.type ?? "button"} className={`ui-icon-button ${className}`} aria-label={label} aria-describedby={[props["aria-describedby"], visible ? id : undefined].filter(Boolean).join(" ") || undefined}
       onFocus={event => {setFocused(true); setDismissed(false); onFocus?.(event);}}
       onBlur={event => {setFocused(false); onBlur?.(event);}}
-      onKeyDown={event => {if (event.key === "Escape" && visible) {setDismissed(true); event.stopPropagation();} onKeyDown?.(event);}}>
+      onKeyDown={event => {if (event.key === "Escape" && visible) {setDismissed(true); event.preventDefault(); event.stopPropagation();} onKeyDown?.(event);}}>
       <Icon name={icon}/>
     </button>
     {visible && <span id={id} className="icon-action-tooltip" role="tooltip">{label}</span>}

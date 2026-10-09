@@ -10,6 +10,28 @@ import * as core from "@vaettir/core";
 import * as authoring from "./case-authoring-fields";
 import { freshCasePresentation } from "./case-presentation-read";
 import { moveListItem } from "./move-list-item";
+import vm from "node:vm";
+
+function actualUiDeclaration(file: string, name: string) {
+  const source = readFileSync(new URL(file, import.meta.url), "utf8");
+  const ast = ts.createSourceFile(file, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+  const declaration = ast.statements.find(node => ts.isFunctionDeclaration(node) && node.name?.text === name);
+  if (!declaration) throw Error(`Actual shared UI declaration missing: ${name}`);
+  return ts.createPrinter().printNode(ts.EmitHint.Unspecified, declaration, ast).replace(/\bexport (?=function)/g, "");
+}
+// No direct TSX imports: transpile the genuine Icon then IconButton declarations.
+// Installed React hooks run only when SSR renders the shared child. The form's
+// own synthetic controller slots remain separate from the child's hook state.
+const iconScope = vm.createContext({ React, useId: React.useId, useState: React.useState });
+for (const [file, name] of [
+  ["../components/ui/Workspace.tsx", "Icon"],
+  ["../components/ui/IconButton.tsx", "IconButton"],
+] as const) {
+  vm.runInContext(ts.transpileModule(actualUiDeclaration(file, name), {
+    compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.None, jsx: ts.JsxEmit.React },
+  }).outputText, iconScope);
+}
+const IconButton = (iconScope as unknown as { IconButton: React.ComponentType<Record<string, unknown>> }).IconButton;
 
 const source = readFileSync(new URL("../components/TestCaseForm.tsx", import.meta.url), "utf8");
 const compiled = ts.transpileModule(source, {
@@ -49,7 +71,7 @@ function render(options: { locked?: boolean; active?: boolean; hide?: boolean; s
     "./CaseDesignGuide": { CaseDesignGuide: () => React.createElement("div", { "data-synthetic-guide-boundary": true }) },
     "./CaseProcedureColumns": { CaseProcedureColumns: () => React.createElement("div", { "data-synthetic-procedure-boundary": true }) },
     "./CaseTagEditor": { CaseTagEditor: () => React.createElement("div", { "data-synthetic-tag-boundary": true }) },
-    "./CaseCustomFields": { CaseCustomFieldsForm: () => React.createElement("div", { "data-synthetic-fields-boundary": true }) },
+    "./ui/IconButton": { IconButton }, "./CaseCustomFields": { CaseCustomFieldsForm: () => React.createElement("div", { "data-synthetic-fields-boundary": true }) },
   };
   const exports: { default?: React.ComponentType<Record<string, unknown>> } = {};
   new Function("require", "exports", "React", compiled)((name: string) => {
@@ -101,7 +123,7 @@ it("retains explicit empty versus NULL labels, supplied hidden fields and unavai
 it("uses secondary reorder/remove controls and restrained theme-aware sections", () => {
   const html = render();
   for (const label of ["Move step 1 up", "Move step 1 down", "Remove step 1", "Move Given item 1 up", "Remove Given item 1"]) {
-    expect(html).toMatch(new RegExp(`<button[^>]*class="btn-secondary"[^>]*aria-label="${label}"`));
+    expect(html).toMatch(new RegExp(`<button[^>]*class="ui-icon-button [^"]*"[^>]*aria-label="${label}"`));
   }
   expect(html).toContain("font-size:16px;margin:24px 0 6px;padding-top:18px;border-top:1px solid var(--line)");
   expect(html).toContain("background:var(--panel)");
@@ -145,4 +167,32 @@ it("keeps multiline and quoted custom labels literal in numbered accessible name
   }
   expect(html).toContain(" OnclickFunction triggers API GET\n/apiURL ");
   expect(html).toContain("A previously linked file is unavailable");
+});
+
+it("renders named compact SVG tools with unchanged boundary refusal and visible Add/Save labels", () => {
+  const html = render();
+  const buttons = [...html.matchAll(/<button([^>]*)>([\s\S]*?)<\/button>/g)];
+  const tool = (name: string) => {
+    const button = buttons.find(match => match[1]!.includes(`aria-label="${name}"`));
+    expect(button).toBeDefined();
+    expect(button![1]).toContain('class="ui-icon-button ');
+    expect(button![2]).toContain('<svg');
+    expect(button![2]).toContain('aria-hidden="true"');
+    return button!;
+  };
+  expect(buttons.filter(match => match[1]!.includes('class="ui-icon-button '))).toHaveLength(18);
+  for (const name of ["Move step 1 up", "Move step 2 down", "Move Given item 1 up", "Move Given item 2 down", "Move When item 1 up", "Move When item 1 down"]) {
+    expect(tool(name)[1]).toContain('disabled=""');
+  }
+  for (const name of ["Move step 1 down", "Move step 2 up", "Remove step 1", "Move Given item 1 down", "Remove Given item 1"]) {
+    expect(tool(name)[1]).not.toContain('disabled=""');
+  }
+  expect(tool("Move step 1 up")[2]).toContain('d="M12 20V4m-6 6 6-6 6 6"');
+  expect(tool("Move step 1 down")[2]).toContain('d="M12 4v16m-6-6 6 6 6-6"');
+  expect(tool("Remove step 1")[2]).toContain('d="M4 7h16M9 7V3h6v4M6 7l1 14h10l1-14M10 11v6M14 11v6"');
+  expect(html).not.toMatch(/>Move up<|>Move down<|>Remove step</);
+  expect(html).not.toContain('role="tooltip"');
+  for (const label of ["+ Add Given item", "+ Add When item", "+ Add Then item", "+ Add step", "Save changes"]) {
+    expect(html).toContain(`>${label}</button>`);
+  }
 });

@@ -11,6 +11,28 @@ import * as core from "@vaettir/core";
 import * as fields from "./case-authoring-fields";
 import { freshCasePresentation } from "./case-presentation-read";
 import { moveListItem } from "./move-list-item";
+import vm from "node:vm";
+function actualUiDeclaration(file: string, name: string) {
+  const source = readFileSync(new URL(file, import.meta.url), "utf8");
+  const ast = ts.createSourceFile(file, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+  const declaration = ast.statements.find(node => ts.isFunctionDeclaration(node) && node.name?.text === name);
+  if (!declaration) throw Error(`Actual shared UI declaration missing: ${name}`);
+  return ts.createPrinter().printNode(ts.EmitHint.Unspecified, declaration, ast).replace(/\bexport (?=function)/g, "");
+}
+// No direct TSX imports: transpile the genuine Icon then IconButton declarations.
+// Installed React hooks run only when SSR renders the shared child. The form's
+// own synthetic controller slots remain separate from the child's hook state.
+const iconScope = vm.createContext({ React, useId: React.useId, useState: React.useState });
+for (const [file, name] of [
+  ["../components/ui/Workspace.tsx", "Icon"],
+  ["../components/ui/IconButton.tsx", "IconButton"],
+] as const) {
+  vm.runInContext(ts.transpileModule(actualUiDeclaration(file, name), {
+    compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.None, jsx: ts.JsxEmit.React },
+  }).outputText, iconScope);
+}
+const IconButton = (iconScope as unknown as { IconButton: React.ComponentType<Record<string, unknown>> }).IconButton;
+
 const source = readFileSync(new URL("../components/TestCaseForm.tsx", import.meta.url), "utf8");
 const compiled = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.React } }).outputText;
 type Element = React.ReactElement<Record<string, unknown>>;
@@ -42,12 +64,29 @@ function harness(initial = seed(), automatic = false, mode: "create" | "edit" = 
   const mediaMutation = () => ({ useMutation: () => ({ mutateAsync: (body: unknown) => { reads.push("synthetic-upload-request"); return upload(body); } }) });
   const api = { useUtils: () => ({ testCases: { list: { invalidate: async () => {} }, byId: { invalidate: async () => {} } }, caseFields: { get: { invalidate: async () => {} } }, testCaseAttachments: { list: { invalidate: async () => {} }, getViewUrl: { fetch: async () => { throw Error("No source/file operation allowed"); } } } }), project: { experience: query("project.experience", { experience: null }) }, casePresentation: { get: query("casePresentation.get", data), configure: { useMutation: () => ({ mutateAsync: (value: unknown) => { settingsWrites.push(value); throw Error("No settings write allowed"); } }) } }, testCases: { list: query("testCases.list", []), create: mutation(), update: mutation() }, sharedStepGroups: { list: query("sharedStepGroups.list", []) }, testCaseAttachments: { list: query("testCaseAttachments.list", []), requestUpload: mediaMutation(), confirmUpload: mediaMutation(), delete: mediaMutation() } };
   const FieldBoundary = () => React.createElement("div", { "data-synthetic-fields-readiness": true });
-  const modules: Record<string, unknown> = { react: hooks, "next/navigation": { useRouter: () => ({ push: (path: string) => navigation.push(path) }) }, "@vaettir/core": core, "@/lib/trpcReact": { trpcReact: api }, "@/components/TestCaseTree": { collectKnownSuitePaths: () => [] }, "@/lib/move-list-item": { moveListItem }, "@/lib/use-case-field-access": { useCaseFieldAccess: (_p: string, _id: string, active: boolean) => ({ origin: { projectId: "p", organizationId: "o", clerkActorId: "cl", caseId: "case" }, readable: active, current: active ? { projectId: "p", organizationId: "o", clerkActorId: "cl", caseId: "case" } : null }) }, "@/lib/case-presentation-read": { freshCasePresentation }, "@/lib/case-authoring-fields": fields, "./CaseDesignGuide": { CaseDesignGuide: () => null }, "./CaseProcedureColumns": { CaseProcedureColumns: () => null }, "./CaseTagEditor": { CaseTagEditor: (p: { tags: string[] }) => React.createElement("div", { "data-tag-chips": true }, p.tags.map((tag, i) => React.createElement("span", { key: i }, tag))) }, "./CaseCustomFields": { CaseCustomFieldsForm: FieldBoundary } };
+  const modules: Record<string, unknown> = { react: hooks, "next/navigation": { useRouter: () => ({ push: (path: string) => navigation.push(path) }) }, "@vaettir/core": core, "@/lib/trpcReact": { trpcReact: api }, "@/components/TestCaseTree": { collectKnownSuitePaths: () => [] }, "@/lib/move-list-item": { moveListItem }, "@/lib/use-case-field-access": { useCaseFieldAccess: (_p: string, _id: string, active: boolean) => ({ origin: { projectId: "p", organizationId: "o", clerkActorId: "cl", caseId: "case" }, readable: active, current: active ? { projectId: "p", organizationId: "o", clerkActorId: "cl", caseId: "case" } : null }) }, "@/lib/case-presentation-read": { freshCasePresentation }, "@/lib/case-authoring-fields": fields, "./CaseDesignGuide": { CaseDesignGuide: () => null }, "./CaseProcedureColumns": { CaseProcedureColumns: () => null }, "./CaseTagEditor": { CaseTagEditor: (p: { tags: string[] }) => React.createElement("div", { "data-tag-chips": true }, p.tags.map((tag, i) => React.createElement("span", { key: i }, tag))) }, "./ui/IconButton": { IconButton }, "./CaseCustomFields": { CaseCustomFieldsForm: FieldBoundary } };
   const exports: Record<string, (p: typeof props) => React.ReactNode> = {};
   new Function("require", "exports", "React", compiled)((name: string) => { if (!(name in modules)) throw Error("Unexpected form import: " + name); return modules[name]; }, exports, React);
   function render(commit = true) { cursor = 0; dirty = false; effects.length = 0; tree = exports.default!(props); if (commit) effects.splice(0).forEach(fn => fn()); }
   function settle() { for (let i = 0; i < 30; i++) { render(); if (!dirty) return; } throw Error("Actual form render loop"); }
-  function button(name: string) { const value = elements(tree).find(e => e.type === "button" && (e.props["aria-label"] === name || text(e.props.children) === name)); if (!value) throw Error(`Button absent: ${name}`); return value; }
+  // Execute the genuine nested scenario controller with its own stable hook
+  // slots, rather than pretending its unrendered React element has buttons.
+  // Parent callbacks still update the original form slots and save path.
+  const scenarioSlots = new Map<string, number>();
+  function controllerElements() {
+    const nodes = elements(tree);
+    for (const child of nodes.filter(e => typeof e.type === "function" && e.type.name === "StringListEditor")) {
+      const label = String(child.props.label);
+      if (!scenarioSlots.has(label)) scenarioSlots.set(label, 1000 + scenarioSlots.size * 10);
+      const parentCursor = cursor;
+      try {
+        cursor = scenarioSlots.get(label)!;
+        nodes.push(...elements((child.type as (props: Record<string, unknown>) => React.ReactNode)(child.props)));
+      } finally { cursor = parentCursor; }
+    }
+    return nodes;
+  }
+  function button(name: string) { const value = controllerElements().find(e => (e.type === "button" && (e.props["aria-label"] === name || text(e.props.children) === name) || e.type === IconButton && e.props.label === name)); if (!value) throw Error(`Button absent: ${name}`); return value; }
   function click(name: string) { const b = button(name); expect(b.props.disabled).not.toBe(true); (b.props.onClick as () => void)(); settle(); }
   function ready() { const child = elements(tree).find(e => e.type === FieldBoundary); if (!child) throw Error("Actual metadata readiness callback missing"); (child.props.onChange as (value: unknown) => void)({ ready: true, customFields: { untouched: false, zero: 0, empty: "" }, expectedFieldSchemaHash: "f".repeat(64), expectedCustomFieldRevision: "m".repeat(64) }); settle(); }
   function textarea(label: string, occurrence = 0) { const parent = elements(tree).filter(e => e.type === "label" && text(e.props.children).startsWith(label))[occurrence]; if (!parent) throw Error(`Label absent: ${label}`); const child = elements(parent).find(e => e.type === "textarea"); if (!child) throw Error(`Textarea absent: ${label}`); return child; }
@@ -134,4 +173,34 @@ it("numbered optional editor names follow current position after reorder while d
     { action: " Second action ", expectedActionOrData: null, expectedResult: " Expected\n exact ", expectedResponse: null, mediaAttachmentIds: [] },
     { action: " Click\n button ", expectedActionOrData: null, expectedResult: "", expectedResponse: null, mediaAttachmentIds: ["media-A", "media-B"] },
   ] });
+});
+
+it("actual compact scenario and step tools keep original callbacks, exact prose and saved media identities", async () => {
+  const initial = seed(), baseline = harness(initial), changed = harness(initial);
+  baseline.ready(); changed.ready();
+  const firstUp = changed.button("Move step 1 up");
+  expect(firstUp.type).toBe(IconButton);
+  expect(firstUp.props.icon).toBe("up");
+  expect(firstUp.props.disabled).toBe(true);
+  expect(changed.button("Move step 2 down").props.disabled).toBe(true);
+  const reads = changed.reads.length;
+  changed.click("Move step 2 up");
+  changed.click("Move Given item 2 up");
+  changed.click("Remove Given item 2");
+  expect(changed.reads).toHaveLength(reads);
+  expect(changed.sent).toEqual([]);
+  expect(changed.settingsWrites).toEqual([]);
+  expect(changed.button("Remove step 1").props.icon).toBe("delete");
+  expect(changed.button("Move step 1 down").props.icon).toBe("down");
+  await baseline.save(); await changed.save();
+  const original = baseline.sent[0] as { steps: unknown[]; given: string[] };
+  expect(changed.sent[0]).toEqual({ ...original, steps: [...original.steps].reverse(), given: [" Given\n raw "] });
+  expect(changed.sent[0]).toMatchObject({
+    expectedStepRevision: "s".repeat(64),
+    expectedCaseRevision: "c".repeat(64),
+    steps: [
+      { action: " Second action ", expectedActionOrData: null, expectedResult: " Expected\n exact ", expectedResponse: null, mediaAttachmentIds: [] },
+      { action: " Click\n button ", expectedActionOrData: null, expectedResult: "", expectedResponse: null, mediaAttachmentIds: ["media-A", "media-B"] },
+    ],
+  });
 });

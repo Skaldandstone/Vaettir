@@ -10,6 +10,7 @@ import { useCaseFieldAccess } from "@/lib/use-case-field-access";
 import { freshCasePresentation } from "@/lib/case-presentation-read";
 import { CaseDesignGuide } from "./CaseDesignGuide";
 import { CaseProcedureColumns } from "./CaseProcedureColumns";
+import { IconButton } from "./ui/IconButton";
 import { CaseTagEditor } from "./CaseTagEditor";
 import { appendCaseTag, initialCaseTags, initialCasePhaseRows, prepareCasePhaseForSave, prepareCaseStepsForSave, technicalBehaviorLabel, type CasePhaseName, type CasePhaseRow } from "@/lib/case-authoring-fields";
 import { CaseCustomFieldsForm, type CaseFieldFormDraft, type ReviewedCaseFieldDefaults } from "./CaseCustomFields";
@@ -147,17 +148,13 @@ function StringListEditor({
             rows={3}
             style={{ ...PROSE_EDITOR_STYLE, flex: "1 1 100%" }}
           />
-          <button type="button" className="btn-secondary" style={SECONDARY_ACTION_STYLE} aria-label={`Move ${label} item ${i + 1} up`} disabled={i === 0} onClick={() => move(i, i - 1)}>Move up</button>
-          <button type="button" className="btn-secondary" style={SECONDARY_ACTION_STYLE} aria-label={`Move ${label} item ${i + 1} down`} disabled={i === items.length - 1} onClick={() => move(i, i + 1)}>Move down</button>
-          <button
-            type="button"
-            className="btn-secondary"
-            style={SECONDARY_ACTION_STYLE}
-            aria-label={`Remove ${label} item ${i + 1}`}
+          <IconButton label={`Move ${label} item ${i + 1} up`} icon="up" disabled={i === 0} onClick={() => move(i, i - 1)} />
+          <IconButton label={`Move ${label} item ${i + 1} down`} icon="down" disabled={i === items.length - 1} onClick={() => move(i, i + 1)} />
+          <IconButton
+            icon="delete"
+            label={`Remove ${label} item ${i + 1}`}
             onClick={() => onChange(items.filter((_, j) => j !== i))}
-          >
-            Remove
-          </button>
+          />
           {item.text === "" && !item.editorPlaceholder && <span className="text-muted" style={{ flexBasis: "100%", fontSize: 12 }}>Retained empty entry. It stays in this phase unless you explicitly remove it.</span>}
         </div>
       ))}
@@ -629,22 +626,18 @@ export default function TestCaseForm({
               }}
             >
               <strong style={{ marginRight: "auto", fontSize: 14 }}>Step {i + 1}</strong>
-              <button type="button" className="btn-secondary" style={SECONDARY_ACTION_STYLE} aria-label={`Move step ${i + 1} up`} disabled={i === 0} onClick={() => { setValue(v => ({ ...v, steps: moveListItem(v.steps, i, i - 1) })); setStepAnnouncement(`Step ${i + 1} moved to position ${i}.`); }}>Move up</button>
-              <button type="button" className="btn-secondary" style={SECONDARY_ACTION_STYLE} aria-label={`Move step ${i + 1} down`} disabled={i === value.steps.length - 1} onClick={() => { setValue(v => ({ ...v, steps: moveListItem(v.steps, i, i + 1) })); setStepAnnouncement(`Step ${i + 1} moved to position ${i + 2}.`); }}>Move down</button>
-              <button
-                type="button"
-                className="btn-secondary"
-                style={SECONDARY_ACTION_STYLE}
-                aria-label={`Remove step ${i + 1}`}
+              <IconButton icon="up" label={`Move step ${i + 1} up`} disabled={i === 0} onClick={() => { setValue(v => ({ ...v, steps: moveListItem(v.steps, i, i - 1) })); setStepAnnouncement(`Step ${i + 1} moved to position ${i}.`); }} />
+              <IconButton icon="down" label={`Move step ${i + 1} down`} disabled={i === value.steps.length - 1} onClick={() => { setValue(v => ({ ...v, steps: moveListItem(v.steps, i, i + 1) })); setStepAnnouncement(`Step ${i + 1} moved to position ${i + 2}.`); }} />
+              <IconButton
+                icon="delete"
+                label={`Remove step ${i + 1}`}
                 onClick={() =>
                   setValue((v) => ({
                     ...v,
                     steps: v.steps.filter((_, j) => j !== i),
                   }))
                 }
-              >
-                Remove step
-              </button>
+              />
             </div>
             <div data-step-pair="action-technical" style={STEP_PAIR_STYLE}>
               <label style={FIELD_LABEL_STYLE}>

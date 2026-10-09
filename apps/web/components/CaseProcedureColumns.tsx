@@ -22,6 +22,11 @@ export function CaseProcedureColumns({
   >;
 }) {
   const hasMedia = steps.some((step) => step.mediaAttachmentIds?.length);
+  const headerStyle = {
+    whiteSpace: "pre-wrap" as const,
+    overflowWrap: "anywhere" as const,
+    verticalAlign: "top" as const,
+  };
   return (
     <div
       className="table-scroll"
@@ -32,32 +37,37 @@ export function CaseProcedureColumns({
     >
       <table
         className="workspace-table"
-        style={{ minWidth: 640, width: "100%", tableLayout: "fixed" }}
+        style={{ minWidth: hasMedia ? 1080 : 960, width: "100%", tableLayout: "fixed" }}
       >
         <caption>
           Steps in stored order. Explicit empty text is labeled separately;
           absent fields are shown as not supplied.
         </caption>
+        <colgroup>
+          <col style={{ width: 48 }} />
+          <col /><col /><col /><col />
+          {hasMedia && <col style={{ width: 180 }} />}
+        </colgroup>
         <thead>
           <tr>
-            <th scope="col" style={{ width: 48 }}>
+            <th scope="col" style={{ width: 48, padding: "10px 8px" }}>
               #
             </th>
-            <th scope="col">{labels?.action ?? "Action"}</th>
-            <th scope="col">
+            <th scope="col" style={headerStyle}>{labels?.action ?? "Action"}</th>
+            <th scope="col" style={headerStyle}>
               {technicalBehaviorLabel(labels?.expectedActionOrData)}
             </th>
-            <th scope="col">{labels?.expectedResult ?? "Expected result"}</th>
-            <th scope="col">
+            <th scope="col" style={headerStyle}>{labels?.expectedResult ?? "Expected result"}</th>
+            <th scope="col" style={headerStyle}>
               {labels?.expectedResponse ?? "Expected response"}
             </th>
-            {hasMedia && <th scope="col">Media references</th>}
+            {hasMedia && <th scope="col" style={headerStyle}>Media references</th>}
           </tr>
         </thead>
         <tbody>
           {steps.map((step, index) => (
             <tr key={index}>
-              <th scope="row">{index + 1}</th>
+              <th scope="row" style={{ padding: "12px 8px", verticalAlign: "top" }}>{index + 1}</th>
               {(
                 [
                   "action",
@@ -82,7 +92,7 @@ export function CaseProcedureColumns({
                 </td>
               ))}
               {hasMedia && (
-                <td>
+                <td style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere", verticalAlign: "top" }}>
                   {step.mediaAttachmentIds?.length ?? 0} linked references; this
                   preview does not fetch or verify media.
                 </td>

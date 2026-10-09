@@ -68,7 +68,7 @@ it("custom labels including empty labels stay exact while only the legacy techni
   const labels = { action: "Tester gesture", expectedActionOrData: "Engine event", expectedResult: "", expectedResponse: " Network\nresponse " };
   const html = render({ steps: [{ action: "Click" }], labels });
   for (const label of ["Tester gesture", "Engine event", " Network\nresponse "]) expect(html).toContain(label);
-  expect(html).toContain('<th scope="col"></th>');
+  expect(html).toMatch(/<th scope="col"[^>]*><\/th>/);
   expect(html).not.toContain("Technical behavior / data");
   expect(render({ steps: [], labels: { expectedActionOrData: "Expected Action / Data" } })).toContain("Technical behavior / data");
   expect(render({ steps: [], labels: { expectedActionOrData: "" } })).not.toContain("Technical behavior / data");
@@ -92,7 +92,7 @@ it("stored array order, duplicate rows, raw inputs and media reference counts re
   expect(html.match(/2 linked references/g)).toHaveLength(2);
   expect(html).toContain("0 linked references");
   expect(html).toContain("preview does not fetch or verify media");
-  for (const position of [1, 2, 3]) expect(html).toContain(`<th scope="row">${position}</th>`);
+  for (const position of [1, 2, 3]) expect(html).toMatch(new RegExp(`<th scope="row"[^>]*>${position}</th>`));
   expect(JSON.stringify(steps)).toBe(before);
 });
 
@@ -103,4 +103,34 @@ it("caption states the empty-versus-absent distinction without a readiness or me
   expect(html).not.toContain("Empty expected fields are shown as not");
   expect(html).not.toContain('scope="row"');
   expect(html).not.toContain("Media references");
+});
+
+it("keeps prose columns readable with local scrolling, compact number/media columns and literal wrapping headers", () => {
+  const labels = { action: " Tester\n action ", expectedActionOrData: " Engine/API\n behavior ", expectedResult: "", expectedResponse: " Network\n response " };
+  const step = { action: " Click\nbutton ", expectedActionOrData: "", expectedResult: null, expectedResponse: " HTTP 200\n{} ", mediaAttachmentIds: ["media-A", "media-A"] };
+  const original = JSON.stringify(step);
+  const html = render({ steps: [step], labels });
+  expect(html).toContain('role="region"');
+  expect(html).toContain('tabindex="0"');
+  expect(html).toContain('max-width:100%;overflow-x:auto');
+  expect(html).toContain('min-width:1080px;width:100%;table-layout:fixed');
+  expect(html).toContain('<colgroup><col style="width:48px"/><col/><col/><col/><col/><col style="width:180px"/></colgroup>');
+  const headers = [...html.matchAll(/<th scope="col"([^>]*)>([\s\S]*?)<\/th>/g)];
+  expect(headers).toHaveLength(6);
+  for (const header of headers.slice(1)) {
+    expect(header[1]).toContain("white-space:pre-wrap");
+    expect(header[1]).toContain("overflow-wrap:anywhere");
+  }
+  expect(headers.map(header => header[2])).toEqual(["#", labels.action, labels.expectedActionOrData, "", labels.expectedResponse, "Media references"]);
+  expect(cells(html)).toEqual([step.action, "<em>Empty text</em>", "Not supplied", step.expectedResponse, "2 linked references; this preview does not fetch or verify media."]);
+  expect(JSON.stringify(step)).toBe(original);
+});
+
+it("no-media preview gives all four authored prose columns space without inventing a media column", () => {
+  const html = render({ steps: [{ action: "Click", expectedActionOrData: null, expectedResult: "", expectedResponse: null }] });
+  expect(html).toContain('min-width:960px;width:100%;table-layout:fixed');
+  expect(html).toContain('<colgroup><col style="width:48px"/><col/><col/><col/><col/></colgroup>');
+  expect(html).not.toContain('width:180px');
+  expect(html).not.toContain("Media references");
+  expect(cells(html)).toEqual(["Click", "Not supplied", "<em>Empty text</em>", "Not supplied"]);
 });

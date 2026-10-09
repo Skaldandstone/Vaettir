@@ -15,11 +15,15 @@ export type IconName =
   | "book"
   | "branch"
   | "clock"
-  | "filter" | "more" | "copy" | "undo" | "help" | "close" | "back" | "external" | "plus";
+  | "filter" | "more" | "copy" | "undo" | "help" | "close" | "back" | "external" | "plus"
+  | "up" | "down" | "delete";
 
 // Small functional UI glyphs. The product's canonical rune remains unchanged.
 export function Icon({ name, size = 18 }: { name: IconName; size?: number }) {
   const paths: Record<IconName, ReactNode> = {
+    up: <path d="M12 20V4m-6 6 6-6 6 6" />,
+    down: <path d="M12 4v16m-6-6 6 6 6-6" />,
+    delete: <path d="M4 7h16M9 7V3h6v4M6 7l1 14h10l1-14M10 11v6M14 11v6" />,
     filter: <><path d="M4 6h16M7 12h10M10 18h4"/><circle cx="8" cy="6" r="2"/><circle cx="16" cy="12" r="2"/></>,
     more: <><circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/></>,
     copy: <><rect x="8" y="8" width="12" height="13" rx="2"/><path d="M15 8V3H3v13h5"/></>,
