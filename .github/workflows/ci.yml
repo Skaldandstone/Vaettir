@@ -88,6 +88,7 @@ jobs:
           pnpm test:native-source-diagnostic-plan
           node --test scripts/retain-sharp-version-receipt.test.mjs
           node --test scripts/native-build-concurrency.test.mjs
+          node --test scripts/fetch-git-openssl-sources.test.mjs scripts/git-openssl-runtime.test.mjs scripts/git-openssl-dockerfile-inverse-fixture.test.mjs
 
       - name: Verify installed native image-processing runtime
         run: node scripts/check-image-runtime.mjs

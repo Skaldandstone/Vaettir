@@ -1,0 +1,23 @@
+{
+  "git": {
+    "version": "1:2.47.3-0+deb13u1",
+    "signer": "3AFA757FAC6EA11D2FF45DF088D24287A2D898B1",
+    "origin": "https://deb.debian.org/debian/pool/main/g/git/",
+    "files": [
+      {"name":"git_2.47.3-0+deb13u1.dsc","sha256":"41ee783af84774dfab31ff6af54a07f70513dd09914e2d622626f4dfecae0a86","maxBytes":10000},
+      {"name":"git_2.47.3.orig.tar.xz","sha256":"9c2eb1250781b3e5bfef098572d07fdf132d67e6c065e4307332ade9819a1501","maxBytes":8000000},
+      {"name":"git_2.47.3-0+deb13u1.debian.tar.xz","sha256":"db44b90ab928d41959f5945a49fcaa101385a4bd085b118b5fd40162a0a84066","maxBytes":1000000}
+    ]
+  },
+  "curl": {
+    "version": "8.21.0-2~bpo13+1",
+    "signer": "05DB6A837E105F4B1D02C55FBBA9FAADCCFB4707",
+    "origin": "https://deb.debian.org/debian/pool/main/c/curl/",
+    "files": [
+      {"name":"curl_8.21.0-2~bpo13+1.dsc","sha256":"d0f6459057c3a2ed349e219a5e44c10b77c6e40ecbccf7ec45b010eb3c4a2c34","maxBytes":10000},
+      {"name":"curl_8.21.0.orig.tar.gz","sha256":"d9b327997999045a24cda50f3983e69e51c516bd8be6ef9842fc7f99135e33bb","maxBytes":5000000},
+      {"name":"curl_8.21.0.orig.tar.gz.asc","sha256":"0f446cb09f584862ae541b79cea53149f1be0d25ef31f2c482c0e7160250fa27","maxBytes":2000},
+      {"name":"curl_8.21.0-2~bpo13+1.debian.tar.xz","sha256":"d13ebcfd5824d545e139a5426fa403f8cce42c7ea7ef87325913c68a31133d73","maxBytes":100000}
+    ]
+  }
+}

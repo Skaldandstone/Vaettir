@@ -210,7 +210,10 @@ test("API vendor build verifies signature, preserves packaging and validates bot
     /COPY --from=vendor-build \/build\/libexpat1_2.8.5-2_\*.deb/,
   );
   assert.match(docker, /libexpat1\)" ge '2.8.5-2'/);
-  assert.match(docker, /libcurl4-gnutls\)" ge '8.21.0-2~bpo13\+1'/);
+  assert.match(docker, /vaettir-git-openssl\)" = '1:2.47.3-0\+deb13u1\+vaettir1'/);
+  assert.match(docker, /RUN --network=none node scripts\/check-git-runtime.mjs/);
+  assert.match(docker, /RUN --network=none node scripts\/check-git-openssl-runtime.mjs --installed/);
+  assert.doesNotMatch(docker.split(' AS runtime')[1], /libcurl[34].*gnutls|ca-certificates git perl-base/);
   assert.doesNotMatch(
     docker,
     /--allow-unauthenticated|trusted=yes|\bsid\b|\bunstable\b.*Suites:/,
