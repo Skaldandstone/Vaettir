@@ -34,3 +34,7 @@ test('bounded public build failure diagnostics preserve primary exit and suppres
   for(const [stage,status,logs]of [['UNKNOWN',2,[]],['CURL_BUILD',0,[]],['CURL_BUILD',2,[{name:'credentials',bytes:Buffer.from('x')}]],['CURL_BUILD',2,[{name:'curl-build.log',bytes:Buffer.alloc(16385)}]]])assert.throws(()=>publicBuildFailureDiagnostics(stage,status,logs));
   assert.ok(Object.isFrozen(PUBLIC_BUILD_STAGES)&&Object.isFrozen(PUBLIC_BUILD_LOGS));const build=readFileSync(new URL('./build-git-openssl-runtime.sh',import.meta.url),'utf8');assert.match(build,/original_status=\$\?/);assert.match(build,/exit "\$original_status"/);assert.match(build,/trap on_exit 0/);assert.match(build,/O_NOFOLLOW/);for(const stage of PUBLIC_BUILD_STAGES)assert.ok(build.includes('stage='+stage));
 });
+test('Debian static curl metadata remains accepted with isolated linker directory required',()=>{
+  const metadata={...config,staticLibs:'-Wl,-Bstatic -lcurl -Wl,-Bdynamic -lssl -lcrypto -lnghttp2 -lz'};assert.equal(assertCurlConfiguration(metadata).tlsBackend,'OpenSSL');
+  const build=readFileSync(new URL('./build-git-openssl-runtime.sh',import.meta.url),'utf8');assert.match(build,/CURL_LDFLAGS="-L\$curl_prefix\/lib \$curl_libs"/);assert.match(build,/curl_libs=\$\("\$curl_prefix\/bin\/curl-config" --static-libs\)/);assert.doesNotMatch(build,/CURL_LDFLAGS="\$curl_libs"/);assert.doesNotMatch(build,/CURL_LDFLAGS=.*(?:\/usr\/lib|\/usr\/local\/lib)/);
+});

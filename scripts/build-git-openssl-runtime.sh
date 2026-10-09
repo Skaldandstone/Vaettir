@@ -83,11 +83,13 @@ CURL_METADATA
 cd "$build_root/git-source"
 test "$(dpkg-parsechangelog --show-field Version)" = '1:2.47.3-0+deb13u1'
 curl_libs=$("$curl_prefix/bin/curl-config" --static-libs)
+# Maintained Debian curl-config deliberately omits library directories. Supply
+# only our isolated static archive directory; retain every reported dependency.
 git_cflags=$(dpkg-buildflags --get CFLAGS)
 git_cppflags=$(dpkg-buildflags --get CPPFLAGS)
 git_ldflags=$(dpkg-buildflags --get LDFLAGS)
 set -- prefix=/usr gitexecdir=/usr/lib/git-core GIT_VERSION=2.47.3.vaettir1 \
-  CURL_CONFIG="$curl_prefix/bin/curl-config" CURL_CFLAGS="-I$curl_prefix/include" CURL_LDFLAGS="$curl_libs" \
+  CURL_CONFIG="$curl_prefix/bin/curl-config" CURL_CFLAGS="-I$curl_prefix/include" CURL_LDFLAGS="-L$curl_prefix/lib $curl_libs" \
   CFLAGS="$git_cflags" EXTRA_CPPFLAGS="$git_cppflags" LDFLAGS="$git_ldflags" \
   NO_TCLTK=YesPlease NO_GETTEXT=YesPlease NO_PYTHON=YesPlease NO_INSTALL_HARDLINKS=YesPlease USE_LIBPCRE2=YesPlease
 stage=GIT_BUILD
