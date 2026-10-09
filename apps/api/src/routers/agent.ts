@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { createHash } from "node:crypto";
 import { TRPCError } from "@trpc/server";
 import {Prisma} from "@vaettir/db";
 import { reverseEngineerTestFile, inferCustomFrameworkHeuristic } from "@vaettir/ai-agent";
@@ -9,6 +10,8 @@ import { kickReverseEngineerQueue } from "../jobs/reverseEngineerWorker.js";
 import { scanRepoForTestFiles, hashFileContent } from "../services/repoScan.js";
 import { repositoryProcessingScope, repositoryProcessingConsent, repositoryProcessingPreview, beginRepositoryProcessing, assertRepositoryProcessingApproval, lockedProcessingEditor,lockedProcessingReader } from "../services/repositoryProcessingApproval.js";
 import {publicRepositoryProcessingError} from "../services/repositoryProcessingErrors.js";
+import { connectedSourceBinding, sourceBindingReceipt } from "../services/connectedRepositoryAccess.js";
+import { scanApprovedConnectedGitlab } from "../services/connectedGitlabScan.js";
 import { scanZipForTestFiles } from "../services/zipScan.js";
 import { assertReverseEngineerBudget, remainingReverseEngineerBudget } from "../services/rateLimit.js";
 import { getMostRecentHeuristic, recordHeuristicUsage } from "../services/customFrameworkHeuristic.js";
@@ -235,9 +238,15 @@ export const agentRouter = router({
         const tracked=await ctx.prisma.testCaseSource.findMany({where:{testCase:{projectId:input.projectId},repoUrl:input.scope.repoUrl},select:{filePath:true,contentHash:true}});
         const hashes=new Map(tracked.filter((s):s is {filePath:string;contentHash:string}=>s.contentHash!==null).map(s=>[s.filePath,s.contentHash]));
         const paidJobs=await ctx.prisma.reverseEngineerJob.findMany({where:{projectId:input.projectId,processingApproval:{repositoryUrl:input.scope.repoUrl,organizationId:approval.organizationId},paidProcessingResult:{not:Prisma.DbNull}},select:{inputRef:true,content:true},orderBy:{createdAt:"asc"}});
-        for(const prior of paidJobs)if(prior.content!==null)hashes.set(prior.inputRef,hashFileContent(prior.content));
+        const knownBlobs=new Map<string,string>();
+        for(const prior of paidJobs)if(prior.content!==null){
+          hashes.set(prior.inputRef,hashFileContent(prior.content));
+          const bytes=Buffer.from(prior.content,"utf8");knownBlobs.set(prior.inputRef,createHash("sha1").update(`blob ${bytes.length}\0`).update(bytes).digest("hex"));
+        }
         await ctx.prisma.$transaction(tx=>assertRepositoryProcessingApproval(tx,approval.id,input.projectId,"TEST_CASES"));
-        const {files,headSha}=await scanRepoForTestFiles(input.scope.repoUrl,input.scope.ref,hashes,input.scope.pathPrefixes,input.scope.maxItems);
+        const {files,headSha}=connectedSourceBinding(approval.results)
+          ? await scanApprovedConnectedGitlab(ctx,approval.id,input.projectId,"TEST_CASES",hashes,knownBlobs)
+          : await scanRepoForTestFiles(input.scope.repoUrl,input.scope.ref,hashes,input.scope.pathPrefixes,input.scope.maxItems);
         if(!/^[a-f0-9]{40}$/i.test(headSha))throw new TRPCError({code:"PRECONDITION_FAILED",message:"The repository revision could not be pinned."});
         const result=await ctx.prisma.$transaction(async tx=>{
           await assertRepositoryProcessingApproval(tx,approval.id,input.projectId,"TEST_CASES");
@@ -249,7 +258,7 @@ export const agentRouter = router({
             jobs.push(prior??await tx.reverseEngineerJob.create({data:{projectId:input.projectId,inputType:"REPO_SCAN",inputRef:file.relativePath,content:file.content,status:"PENDING",processingApprovalId:approval.id}}));
           }
           const value={scannedFileCount:files.length,queuedJobIds:jobs.map(job=>job.id),rateLimitedCount:Math.max(0,files.length-remaining),approvalId:approval.id,resolvedCommitSha:headSha};
-          await tx.repositoryProcessingApproval.update({where:{id:approval.id},data:{status:"QUEUED",resolvedCommitSha:headSha,results:value}});
+          await tx.repositoryProcessingApproval.update({where:{id:approval.id},data:{status:"QUEUED",resolvedCommitSha:headSha,results:{...value,...sourceBindingReceipt(approval.results)}}});
           return value;
         });
         void kickReverseEngineerQueue();return result;

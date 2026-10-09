@@ -1,16 +1,20 @@
 "use client";
 import {useState} from "react";
 import {trpcReact,type RouterInputs} from "@/lib/trpcReact";
+import { ConnectedRepositoryPicker } from "./ConnectedRepositoryPicker";
+import { useCaseFieldAccess } from "@/lib/use-case-field-access";
 
 type Scope=RouterInputs["agent"]["scanRepo"]["scope"];
 type Consent=RouterInputs["agent"]["scanRepo"]["consent"];
-export function RepositoryProcessingReview({projectId,purpose,initialUrl,initialRef="main",onApprove,onRecovered}:{
-  projectId:string;purpose:"TEST_CASES"|"REQUIREMENTS";initialUrl?:string;initialRef?:string;
+export function RepositoryProcessingReview({projectId,purpose,initialUrl,initialRef="main",initialRepositoryId,onApprove,onRecovered}:{
+  projectId:string;purpose:"TEST_CASES"|"REQUIREMENTS";initialUrl?:string;initialRef?:string;initialRepositoryId?:string;
   onApprove:(scope:Scope,consent:Consent)=>Promise<void>;onRecovered?:(results:unknown)=>void;
 }){
+  const access=useCaseFieldAccess(projectId);
   const repositories=trpcReact.project.repositories.useQuery({projectId});
   const runs=trpcReact.agent.repositoryProcessingRuns.useQuery({projectId,purpose});
   const [repoUrl,setUrl]=useState(initialUrl??"");const [ref,setRef]=useState(initialRef);
+  const [repositoryId,setRepositoryId]=useState(initialRepositoryId??"");
   const [paths,setPaths]=useState("");const [maxItems,setMaxItems]=useState(purpose==="REQUIREMENTS"?10:25);
   const [scope,setScope]=useState<Scope|null>(null);const [requestId,setRequestId]=useState(()=>crypto.randomUUID());
   const [source,setSource]=useState(false);const [ai,setAi]=useState(false);const [cost,setCost]=useState(false);
@@ -18,13 +22,19 @@ export function RepositoryProcessingReview({projectId,purpose,initialUrl,initial
   const preview=trpcReact.agent.previewRepoProcessing.useQuery({projectId,purpose,scope:scope??{repoUrl:"",ref:"",pathPrefixes:["."],maxItems}},{enabled:!!scope,retry:false});
   const status=trpcReact.agent.repositoryProcessingStatus.useQuery({projectId,requestId},{enabled:attempted,refetchInterval:busy?2000:false,retry:false});
   const cancel=trpcReact.agent.cancelRepositoryProcessing.useMutation({onSuccess:()=>void status.refetch()});
-  function review(){setError(null);setScope({repoUrl:repoUrl.trim(),ref:ref.trim(),pathPrefixes:paths.split(/[,\n]/).map(p=>p.trim()).filter(Boolean),maxItems});setRequestId(crypto.randomUUID());setAttempted(false);setSource(false);setAi(false);setCost(false);}
+  const selectedRepository=repositories.isSuccess&&!repositories.error&&!repositories.isFetching&&!repositories.isPaused?repositories.data.find(repo=>repo.id===repositoryId):undefined;
+  function review(){
+    if(repositoryId&&!selectedRepository){setError("Refresh the original project repository before reviewing source.");return;}
+    setError(null);setScope({repoUrl:selectedRepository?.url??repoUrl.trim(),ref:ref.trim(),pathPrefixes:paths.split(/[,\n]/).map(p=>p.trim()).filter(Boolean),maxItems,...(selectedRepository?.provider==="gitlab"?{repositoryId:selectedRepository.id}:{})});setRequestId(crypto.randomUUID());setAttempted(false);setSource(false);setAi(false);setCost(false);
+  }
   async function approve(){
-    if(!scope||!preview.isSuccess||!preview.data||busy||!source||!ai||!cost||!preview.data.canSpend||preview.data.balance<preview.data.estimatedCredits)return;setBusy(true);setError(null);setAttempted(true);
+    const original=access.origin;
+    if(!original||!access.owns(original,"edit")||!scope||!preview.isSuccess||preview.isFetching||preview.isPaused||!preview.data||busy||!source||!ai||!cost||!preview.data.canSpend||preview.data.balance<preview.data.estimatedCredits)return;setBusy(true);setError(null);setAttempted(true);
     try{await onApprove(scope,{requestId,expectedScopeHash:preview.data.scopeHash,approveSourceRead:true,approveAiProcessing:true,approveVariableCredits:true});}
     catch(e){setError(e instanceof Error?e.message:"Source processing failed. Paid results remain in the saved run.");}
     finally{setBusy(false);void status.refetch();}
   }
+  if(!access.readable)return <p role="status">Restore the original signed-in account and project access. Repository scope and saved attempts remain retained and withheld here.</p>;
   if(!scope)return <div style={{display:"grid",gap:12}}>
     <p>Choose a repository and the files to process. Connecting an account only verifies metadata access; it does not authorize reading source or using AI.</p>
     {runs.isSuccess&&runs.data.length>0&&<label>Previous approved runs<select value="" onChange={event=>{if(event.target.value){setRequestId(event.target.value);setAttempted(true);}}}><option value="">Select a saved run to recover or inspect</option>{runs.data.map(run=><option key={run.requestId} value={run.requestId}>{new Date(run.createdAt).toLocaleString()} · {run.status.toLowerCase()} · {run.repositoryUrl} · {run.ref}</option>)}</select></label>}
@@ -33,10 +43,10 @@ export function RepositoryProcessingReview({projectId,purpose,initialUrl,initial
     {attempted&&status.isSuccess&&status.data&&<p role="status">Saved run: {status.data.status.toLowerCase()}{status.data.resolvedCommitSha?` · Commit ${status.data.resolvedCommitSha}`:""}</p>}
     {attempted&&status.isSuccess&&Boolean(status.data?.results)&&onRecovered&&<button type="button" className="btn-secondary" onClick={()=>onRecovered(status.data!.results)}>Recover retained drafts without another AI charge</button>}
     {repositories.error&&<><p role="alert">Registered repositories could not be loaded. Retry before selecting a saved reference.</p><button type="button" className="btn-secondary" onClick={()=>void repositories.refetch()}>Retry registered repositories</button></>}
-    {repositories.isSuccess&&!!repositories.data?.length&&<label>Registered repository<select value={repositories.data.find(repo=>repo.url===repoUrl)?.id??""} onChange={event=>{const repo=repositories.data?.find(item=>item.id===event.target.value);if(repo){setUrl(repo.url);setRef(repo.revision??"main");}}}><option value="">Choose a registered repository</option>{repositories.data.map(repo=><option key={repo.id} value={repo.id}>{repo.provider} · {repo.url}{repo.revision?` · ${repo.revision}`:""}</option>)}</select></label>}
-    <label>Repository HTTPS URL<input value={repoUrl} onChange={event=>setUrl(event.target.value)} style={{width:"100%"}} placeholder="https://github.com/organization/repository"/></label>
+    <ConnectedRepositoryPicker projectId={projectId} selectedId={repositoryId} disabled={!access.canEdit} onSelect={repo=>{setRepositoryId(repo?.id??"");setUrl(repo?.url??"");setRef(repo?.revision??(repo?.provider==="gitlab"?"HEAD":"main"));}}/>
+    {!repositoryId&&<label>Public repository HTTPS URL<input value={repoUrl} onChange={event=>setUrl(event.target.value)} style={{width:"100%"}} placeholder="https://github.com/organization/repository"/></label>}
     <label>Branch, tag or exact commit<input value={ref} onChange={event=>setRef(event.target.value)} style={{width:"100%"}}/></label>
-    <p className="text-muted">This reader supports credential-free public repositories on GitHub.com, GitLab.com, Bitbucket.org and dev.azure.com only. OAuth or token verification does not enable private source discovery here. For self-hosted or private repositories, export selected documents or test files and use the upload flow instead.</p>
+    <p className="text-muted">Connected GitLab repositories use your existing verified grant after approval, including publicly reachable self-hosted instances. Other providers currently support public hosted source reads; private adapters must be available before scanning. No source is fetched when selecting a repository.</p>
     <label>Files or folder prefixes, one per line<textarea value={paths} onChange={event=>setPaths(event.target.value)} placeholder={purpose==="REQUIREMENTS"?"README.md\ndocs/requirements":"tests\nsrc/tests"} rows={3} style={{width:"100%"}}/></label>
     <p className="text-muted">Enter . only if you intend to allow all eligible paths. Secrets, binaries, generated dependencies and symlinks are excluded. No imported code is executed.</p>
     <label>Maximum {purpose==="REQUIREMENTS"?"documents":"test files"}<input type="number" min={1} max={purpose==="REQUIREMENTS"?10:25} value={maxItems} onChange={event=>setMaxItems(Number(event.target.value))}/></label>
@@ -44,7 +54,7 @@ export function RepositoryProcessingReview({projectId,purpose,initialUrl,initial
   </div>;
   return <div style={{display:"grid",gap:12}}>
     <h3>Approve source processing</h3><dl><dt>Repository</dt><dd style={{overflowWrap:"anywhere"}}>{scope.repoUrl}</dd><dt>Selected revision</dt><dd>{scope.ref}</dd><dt>Allowed file paths</dt><dd>{scope.pathPrefixes.join(", ")}</dd><dt>Purpose</dt><dd>{purpose==="REQUIREMENTS"?"Draft requirements for your review":"Draft test cases for review, preserving existing edits and approvals"}</dd></dl>
-    <p>Cloning downloads the selected repository revision. The path selection limits files read and sent to AI, not the Git network transfer. The exact resolved commit is retained with this run. A branch or tag does not establish what is deployed.</p>
+    <p>{scope.repositoryId?"GitLab resolves the selected revision, lists its pinned tree, and reads eligible files within your selected scope using the saved connection. No clone or imported code is executed.":"Cloning downloads the selected repository revision. The path selection limits files read and sent to AI, not the Git network transfer."} The exact resolved commit is retained with this run. A branch or tag does not establish what is deployed.</p>
     {preview.isLoading&&<p role="status">Checking current credit balance…</p>}
     {preview.error&&<><p role="alert">{preview.error.message}</p><button type="button" className="btn-secondary" onClick={()=>void preview.refetch()}>Retry credit preview</button></>}
     {preview.isSuccess&&preview.data&&<><p>Estimated {preview.data.estimatedCredits} credits for up to {scope.maxItems} files ({preview.data.unitCreditEstimate} per file). Current balance: {preview.data.balance} credits.</p><p className="text-muted">Actual token usage is reconciled per file and can cost more or less than this estimate. This is not a spending cap. Unchanged paid files are skipped, and paid outputs are retained if later steps fail.</p>

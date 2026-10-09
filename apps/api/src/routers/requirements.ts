@@ -6,6 +6,8 @@ import { randomBytes,createHash } from "node:crypto";
 import { router, protectedProcedure, publicProcedure, requireProjectAccess } from "../trpc.js";
 import { chargeAiCredits, InsufficientAiCreditsError, meterAiCall } from "../services/aiCredits.js";
 import { scanRepoForRequirementDocs } from "../services/repoDocScan.js";
+import { connectedSourceBinding, sourceBindingReceipt } from "../services/connectedRepositoryAccess.js";
+import { scanApprovedConnectedGitlab } from "../services/connectedGitlabScan.js";
 import { fetchLinearIssue, getOrgLinearApiKey, LinearApiError, LinearNotConfiguredError } from "../services/linearApi.js";
 import { fetchJiraIssue, getOrgJiraConnection, JiraApiError, JiraNotConfiguredError } from "../services/jiraApi.js";
 import { computeRequirementTestSummary } from "../services/requirementTestSummary.js";
@@ -431,7 +433,8 @@ export const requirementsRouter = router({
       const processedFileSchema=z.object({path:z.string(),hash:z.string(),drafts:z.array(draftRequirementOutput)});
       const receiptSchema=z.object({drafts:z.array(draftRequirementOutput),inFlightPath:z.string().nullable(),inFlightHash:z.string().nullable(),processedPaths:z.array(z.string()),processedFiles:z.array(processedFileSchema)});
       if(replayed){
-        if(approval.results)return receiptSchema.parse(approval.results).drafts;
+        const receipt=receiptSchema.safeParse(approval.results);
+        if(receipt.success)return receipt.data.drafts;
         throw new TRPCError({code:"PRECONDITION_FAILED",message:"This approved run is in progress or needs recovery. Review its saved status; retrying cannot reread or recharge it."});
       }
       const results: Array<{ title: string; description: string; sourceFile: string | null }> = [];
@@ -439,11 +442,13 @@ export const requirementsRouter = router({
       const processedFiles:Array<z.infer<typeof processedFileSchema>>=[];
       try{
         await ctx.prisma.$transaction(tx=>assertRepositoryProcessingApproval(tx,approval.id,input.projectId,"REQUIREMENTS"));
-        const {files:docs,headSha}=await scanRepoForRequirementDocs(input.scope.repoUrl,input.scope.ref,input.scope.pathPrefixes,input.scope.maxItems);
+        const {files:docs,headSha}=connectedSourceBinding(approval.results)
+          ? await scanApprovedConnectedGitlab(ctx,approval.id,input.projectId,"REQUIREMENTS")
+          : await scanRepoForRequirementDocs(input.scope.repoUrl,input.scope.ref,input.scope.pathPrefixes,input.scope.maxItems);
         if(!/^[a-f0-9]{40}$/i.test(headSha))throw new TRPCError({code:"PRECONDITION_FAILED",message:"The repository revision could not be pinned."});
         await ctx.prisma.$transaction(async tx=>{
           await assertRepositoryProcessingApproval(tx,approval.id,input.projectId,"REQUIREMENTS");
-          await tx.repositoryProcessingApproval.update({where:{id:approval.id},data:{resolvedCommitSha:headSha,results:{drafts:results,processedPaths,processedFiles,inFlightPath:null,inFlightHash:null}}});
+          await tx.repositoryProcessingApproval.update({where:{id:approval.id},data:{resolvedCommitSha:headSha,results:{...sourceBindingReceipt(approval.results),drafts:results,processedPaths,processedFiles,inFlightPath:null,inFlightHash:null}}});
         });
         for(const doc of docs){
           const hash=createHash("sha256").update(doc.content).digest("hex");
@@ -453,18 +458,18 @@ export const requirementsRouter = router({
             if(prior){const receipt=receiptSchema.parse(prior.results);const file=receipt.processedFiles.find(item=>item.path===doc.relativePath&&item.hash===hash);if(file)return {retained:file.drafts};}
             const pending=await tx.repositoryProcessingApproval.findFirst({where:{id:{not:approval.id},projectId:input.projectId,organizationId:approval.organizationId,purpose:"REQUIREMENTS",repositoryUrl:input.scope.repoUrl,AND:[{results:{path:["inFlightPath"],equals:doc.relativePath}},{results:{path:["inFlightHash"],equals:hash}}]}});
             if(pending)throw new TRPCError({code:"PRECONDITION_FAILED",message:"This document already has an approved paid attempt in progress or requiring recovery. Review the saved run; automatic repeated charges are blocked."});
-            await tx.repositoryProcessingApproval.update({where:{id:approval.id},data:{results:{drafts:results,processedPaths,processedFiles,inFlightPath:doc.relativePath,inFlightHash:hash}}});
+            await tx.repositoryProcessingApproval.update({where:{id:approval.id},data:{results:{...sourceBindingReceipt(approval.results),drafts:results,processedPaths,processedFiles,inFlightPath:doc.relativePath,inFlightHash:hash}}});
             const charge=await chargeAiCredits(tx as unknown as typeof ctx.prisma,approval.organizationId,"extractRequirementsFromMarkdown");
             return {charge};
           });
-          if("retained" in retained&&retained.retained){results.push(...retained.retained);processedPaths.push(doc.relativePath);processedFiles.push({path:doc.relativePath,hash,drafts:retained.retained});await ctx.prisma.repositoryProcessingApproval.update({where:{id:approval.id},data:{results:{drafts:results,processedPaths,processedFiles,inFlightPath:null,inFlightHash:null}}});continue;}
+          if("retained" in retained&&retained.retained){results.push(...retained.retained);processedPaths.push(doc.relativePath);processedFiles.push({path:doc.relativePath,hash,drafts:retained.retained});await ctx.prisma.repositoryProcessingApproval.update({where:{id:approval.id},data:{results:{...sourceBindingReceipt(approval.results),drafts:results,processedPaths,processedFiles,inFlightPath:null,inFlightHash:null}}});continue;}
           if(!("charge" in retained)||!retained.charge)throw new Error("Processing charge could not be reserved");
           const drafts=await meterAiCall(ctx.prisma,retained.charge,()=>extractRequirementsFromMarkdown(doc.content,doc.relativePath));
           const fileDrafts=drafts.map(draft=>({...draft,sourceFile:doc.relativePath}));
           results.push(...fileDrafts);processedPaths.push(doc.relativePath);processedFiles.push({path:doc.relativePath,hash,drafts:fileDrafts});
           // Retain paid outputs even if the actor loses access while AI is in
           // flight. Access is checked again before returning or continuing.
-          await ctx.prisma.repositoryProcessingApproval.update({where:{id:approval.id},data:{results:{drafts:results,processedPaths,processedFiles,inFlightPath:null,inFlightHash:null}}});
+          await ctx.prisma.repositoryProcessingApproval.update({where:{id:approval.id},data:{results:{...sourceBindingReceipt(approval.results),drafts:results,processedPaths,processedFiles,inFlightPath:null,inFlightHash:null}}});
           await ctx.prisma.$transaction(tx=>assertRepositoryProcessingApproval(tx,approval.id,input.projectId,"REQUIREMENTS"));
         }
         await ctx.prisma.$transaction(async tx=>{

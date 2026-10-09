@@ -48,6 +48,7 @@ function renderPage({ ids, plans, request = null, projectId = "synthetic-project
   const wrap = ({ children }: { children: React.ReactNode }) => React.createElement("section", null, children);
   const query = { data: [], isLoading: false, error: null };
   const context = vm.createContext({ React, currentSessionScope, sameAuthScope, RunHistoryRenderGuard, retainAnalysisRequest, ...planning,
+    RepositoryReleaseDiscovery: () => null,
     useParams: () => ({ projectId }), useAuth: () => ({ isLoaded: false, isSignedIn: false }), useProjectPermissions: () => ({ canEdit: true }),
     useManualExecutionAccess: () => ({ canWrite: false, ready: false, origin: null, refresh: forbidden }),
     useMemo: (make: () => unknown) => make(), useLayoutEffect: () => {},

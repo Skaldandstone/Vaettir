@@ -6,6 +6,9 @@ import { useParams } from "next/navigation";
 import { trpcReact, type RouterOutputs } from "@/lib/trpcReact";
 import { Modal } from "@/components/Modal";
 import { SourceConnectionChips } from "@/components/SourceConnectionChips";
+import { ConnectedRepositoryPicker } from "@/components/ConnectedRepositoryPicker";
+import { useCaseFieldAccess } from "@/lib/use-case-field-access";
+import Link from "next/link";
 import { CreationWizard, WizardChoices } from "@/components/CreationWizard";
 import { useProjectPermissions } from "@/lib/use-project-permissions";
 import { saveRequirementDrafts } from "@/lib/requirement-drafts";
@@ -715,31 +718,37 @@ function ExtractFromMarkdownModal({
 function ExtractFromRepoModal({
   projectId,
   repoUrl,
+  repositoryId,
+  repositoryRef,
   onClose,
   onCreated,
 }: {
   projectId: string;
   repoUrl: string | null;
+  repositoryId?: string;
+  repositoryRef?: string;
   onClose: () => void;
   onCreated: () => void;
 }) {
   const utils = trpcReact.useUtils();
+  const repositoryAccess=useCaseFieldAccess(projectId);
   const [drafts, setDrafts] = useState<DraftRequirement[] | null>(null);
   const [scanning, setScanning] = useState(false);
   const [savingDrafts, setSavingDrafts] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   async function scan(scope:Parameters<typeof utils.client.requirements.extractFromRepo.mutate>[0]["scope"],consent:Parameters<typeof utils.client.requirements.extractFromRepo.mutate>[0]["consent"]) {
+    const original=repositoryAccess.origin;
+    if(!original||!repositoryAccess.owns(original,"edit"))throw Error("Restore original project access before source processing.");
     if (scanning) return;
     setScanning(true);
     setError(null);
     try {
-      setDrafts(
-        await utils.client.requirements.extractFromRepo.mutate({
+      const result=await utils.client.requirements.extractFromRepo.mutate({
           projectId,
           scope,consent,
-        }),
-      );
+        });
+      if(repositoryAccess.owns(original,"edit"))setDrafts(result);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
       throw e;
@@ -755,10 +764,10 @@ function ExtractFromRepoModal({
       title="Review repository requirement extraction"
       dismissible={!scanning && !savingDrafts}
     >
-      {!drafts&&<RepositoryProcessingReview projectId={projectId} purpose="REQUIREMENTS" initialUrl={repoUrl??undefined} onApprove={scan} onRecovered={value=>{if(value&&typeof value==="object"&&"drafts" in value&&Array.isArray(value.drafts)){const valid=value.drafts.filter((draft):draft is DraftRequirement=>!!draft&&typeof draft==="object"&&typeof draft.title==="string"&&typeof draft.description==="string"&&(draft.sourceFile===null||typeof draft.sourceFile==="string"));setDrafts(valid);}}}/>}
+      {!drafts&&<RepositoryProcessingReview projectId={projectId} purpose="REQUIREMENTS" initialUrl={repoUrl??undefined} initialRepositoryId={repositoryId} initialRef={repositoryRef??"HEAD"} onApprove={scan} onRecovered={value=>{if(value&&typeof value==="object"&&"drafts" in value&&Array.isArray(value.drafts)){const valid=value.drafts.filter((draft):draft is DraftRequirement=>!!draft&&typeof draft==="object"&&typeof draft.title==="string"&&typeof draft.description==="string"&&(draft.sourceFile===null||typeof draft.sourceFile==="string"));setDrafts(valid);}}}/>}
       {scanning && <p>Scanning repo for requirements/spec docs…</p>}
       {error && <p style={{ color: "var(--ember)" }}>{error}</p>}
-      {drafts && (
+      {drafts && repositoryAccess.readable && (
         <DraftRequirementReview
           drafts={drafts}
           projectId={projectId}
@@ -795,6 +804,10 @@ export default function RequirementsPage() {
   const loading = listQuery.isPending;
   const projectQuery = trpcReact.project.byId.useQuery({ id: projectId });
   const repoUrl = projectQuery.data?.repoUrl ?? null;
+  const [selectedRepositoryId, setSelectedRepositoryId] = useState("");
+  const repositoriesQuery = trpcReact.project.repositories.useQuery({ projectId }, { staleTime: 0, retry: false });
+  const selectedRepository = repositoriesQuery.isSuccess && !repositoriesQuery.error && !repositoriesQuery.isFetching && !repositoriesQuery.isPaused
+    ? repositoriesQuery.data.find(repo => repo.id === selectedRepositoryId) : undefined;
 
   const updateMutation = trpcReact.requirements.update.useMutation();
   const createMutation = trpcReact.requirements.create.useMutation();
@@ -876,6 +889,10 @@ export default function RequirementsPage() {
   return (
     <div style={{ maxWidth: 640 }}>
       <h1>Requirements</h1>
+      <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"center",marginBottom:12}}>
+        {canEdit&&<button type="button" className="btn-secondary" onClick={()=>setRepoModalOpen(true)}>Check repository requirements</button>}
+        <Link href={`/projects/${encodeURIComponent(projectId)}/requirement-coverage`}>Requirement coverage and gaps</Link>
+      </div>
 
       {canEdit && (
         <div style={{ display: "flex", gap: 8, margin: "8px 0 16px" }}>
@@ -949,8 +966,8 @@ export default function RequirementsPage() {
                   draft from repository documents. Extracted rows can be edited
                   before saving.
                 </p>
-                {creationSource === "Connected repository" && !repoUrl && (
-                  <SourceConnectionChips projectId={projectId} only={["github", "gitlab", "bitbucket", "azure-devops", "git", "perforce", "svn"]} />
+                {creationSource === "Connected repository" && (
+                  <ConnectedRepositoryPicker projectId={projectId} selectedId={selectedRepositoryId} onSelect={repo=>setSelectedRepositoryId(repo?.id??"")}/>
                 )}
                 <SourceConnectionChips projectId={projectId} only={["drive", "jira", "linear"]} />
               </>
@@ -1129,7 +1146,9 @@ export default function RequirementsPage() {
       {canEdit && repoModalOpen && (
         <ExtractFromRepoModal
           projectId={projectId}
-          repoUrl={repoUrl}
+          repoUrl={selectedRepository?.url??repoUrl}
+          repositoryId={selectedRepository?.id}
+          repositoryRef={selectedRepository?.revision??(selectedRepository?.provider==="gitlab"?"HEAD":"main")}
           onClose={() => setRepoModalOpen(false)}
           onCreated={reload}
         />

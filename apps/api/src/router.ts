@@ -36,6 +36,8 @@ import {linearConnectionsRouter} from "./routers/linearConnections.js";
 import {jiraConnectionsRouter} from "./routers/jiraConnections.js";
 import {jiraIssueIntakeRouter} from "./routers/jiraIssueIntake.js";
 import { repositoryConnectionsRouter } from "./routers/repositoryConnections.js";
+import { repositoryIntelligenceRouter } from "./routers/repositoryIntelligence.js";
+import { repositoryCoverageChecksRouter } from "./routers/repositoryCoverageChecks.js";
 import { signalRoutingRouter } from "./routers/signalRouting.js";
 import { testDesignRouter } from "./routers/testDesign.js";
 import { creditUseRequestsRouter } from "./routers/creditUseRequests.js";
@@ -82,6 +84,8 @@ import { reportsRouter } from "./routers/reports.js";
 import { caseAnalysisQueueRouter } from "./routers/caseAnalysisQueue.js";
 
 export const appRouter = router({
+  repositoryIntelligence: repositoryIntelligenceRouter,
+  repositoryCoverageChecks: repositoryCoverageChecksRouter,
   caseComments: caseCommentsRouter,
   casePriority: casePriorityRouter,
   casePresentation: casePresentationRouter,

@@ -2,7 +2,9 @@
 
 import { useState } from "react";
 import { useParams } from "next/navigation";
-import { SourceConnectionChips } from "@/components/SourceConnectionChips";
+import { ConnectedRepositoryPicker } from "@/components/ConnectedRepositoryPicker";
+import { RepositoryCoverageReview } from "@/components/RepositoryCoverageReview";
+import { useCaseFieldAccess } from "@/lib/use-case-field-access";
 import { Modal } from "@/components/Modal";
 import { RepositoryProcessingReview } from "@/components/RepositoryProcessingReview";
 import {
@@ -169,6 +171,11 @@ export default function ReverseEngineerPage() {
   const [submittingJob, setSubmittingJob] = useState(false);
 
   const [repoReview,setRepoReview]=useState(false);
+  const repositoryAccess=useCaseFieldAccess(projectId);
+  const [selectedRepositoryId, setSelectedRepositoryId] = useState("");
+  const repositoriesQuery = trpcReact.project.repositories.useQuery({ projectId }, { staleTime: 0, retry: false });
+  const selectedRepository = repositoriesQuery.isSuccess && !repositoriesQuery.error && !repositoriesQuery.isFetching && !repositoriesQuery.isPaused
+    ? repositoriesQuery.data.find(repo => repo.id === selectedRepositoryId) : undefined;
   const [scanning, setScanning] = useState(false);
   const [scanResult, setScanResult] = useState<
     RouterOutputs["agent"]["scanRepo"] | null
@@ -400,6 +407,8 @@ export default function ReverseEngineerPage() {
   }
 
   async function scanRepo(scope:Parameters<typeof scanRepoMutation.mutateAsync>[0]["scope"],consent:Parameters<typeof scanRepoMutation.mutateAsync>[0]["consent"]) {
+    const original=repositoryAccess.origin;
+    if(!original||!repositoryAccess.owns(original,"edit"))throw Error("Restore original project access before source processing.");
     setScanning(true);
     setError(null);
     setScanResult(null);
@@ -408,6 +417,7 @@ export default function ReverseEngineerPage() {
         projectId,
         scope,consent,
       });
+      if(!repositoryAccess.owns(original,"edit"))return;
       setScanResult(res);
       setRepoReview(false);
       loadJobs();
@@ -422,7 +432,7 @@ export default function ReverseEngineerPage() {
   return (
     <div>
       <Modal open={repoReview} onClose={()=>setRepoReview(false)} title="Review repository processing" dismissible={!scanning}>
-        {repoReview&&<RepositoryProcessingReview projectId={projectId} purpose="TEST_CASES" initialUrl={projectRepoUrl??undefined} onApprove={scanRepo}/>}
+        {repoReview&&<RepositoryProcessingReview projectId={projectId} purpose="TEST_CASES" initialUrl={selectedRepository?.url??projectRepoUrl??undefined} initialRef={selectedRepository?.revision??(selectedRepository?.provider==="gitlab"?"HEAD":"main")} initialRepositoryId={selectedRepository?.id} onApprove={scanRepo}/>}
       </Modal>
       <h1>Turn automation into managed test cases</h1>
       <p>
@@ -509,8 +519,8 @@ export default function ReverseEngineerPage() {
               }}
             >
               <h2 style={{ margin: 0 }}>Scan the repository</h2>
-              {!projectRepoUrl && <SourceConnectionChips projectId={projectId} only={["github", "gitlab", "bitbucket", "azure-devops", "git", "perforce", "svn"]} />}
-              <p className="text-muted">Choose a registered or public hosted repository, review the exact file scope and credit estimate, then approve reading and AI processing. Private and self-hosted source discovery is not enabled by a metadata connection.</p>
+              <ConnectedRepositoryPicker projectId={projectId} selectedId={selectedRepositoryId} onSelect={repo=>setSelectedRepositoryId(repo?.id??"")} disabled={scanning}/>
+              <p className="text-muted">Use an existing project repository, review the file scope and credit estimate, then approve reading and AI processing. Connected GitLab source reads reuse your verified grant; connecting alone never starts a scan.</p>
               <button type="button" onClick={()=>setRepoReview(true)} disabled={scanning}>Choose repository and review processing</button>
               {scanResult && (
                 <p style={{ color: "var(--frost)" }}>
@@ -528,6 +538,7 @@ export default function ReverseEngineerPage() {
             </div>
           )}
 
+          {sourceMode === "repository" && <RepositoryCoverageReview projectId={projectId}/>}
           {sourceMode === "zip" && (
             <div style={{ maxWidth: 720 }}>
               <h2>Upload a ZIP of the test directory</h2>

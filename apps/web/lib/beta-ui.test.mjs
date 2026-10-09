@@ -41,7 +41,9 @@ test("source chips open modal actions and keep unsupported provider status hones
   for (const path of ["../app/projects/[projectId]/requirements/page.tsx", "../app/projects/[projectId]/reverse-engineer/page.tsx"]) {
     const page = readFileSync(new URL(path, import.meta.url), "utf8");
     assert.doesNotMatch(page, /#project-repositories/);
-    assert.match(page, /<SourceConnectionChips projectId=\{projectId\} only=\{\["github", "gitlab", "bitbucket", "azure-devops", "git", "perforce", "svn"\]\}/);
+    assert.match(page, /<ConnectedRepositoryPicker projectId=\{projectId\} selectedId=\{selectedRepositoryId\}/);
+    assert.match(page, /project\.repositories\.useQuery\(\{ projectId \}/);
+    assert.doesNotMatch(page, /!projectRepoUrl\s*&&\s*<SourceConnectionChips|creationSource === "Connected repository" && !repoUrl/);
   }
   const overview = readFileSync(new URL("../app/projects/[projectId]/page.tsx", import.meta.url), "utf8");
   assert.match(overview, /<ProjectRepositories/);

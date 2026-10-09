@@ -5,6 +5,7 @@ import { useAuth } from "@clerk/nextjs";
 import { useParams } from "next/navigation";
 import { trpcReact, type RouterInputs } from "@/lib/trpcReact";
 import { Modal } from "@/components/Modal";
+import { RepositoryReleaseDiscovery } from "@/components/RepositoryReleaseDiscovery";
 import { ReadinessBadge } from "@/components/ReadinessBadge";
 import { TrendChart } from "@/components/TrendChart";
 import { DistributionBar, ScoreRing } from "@/components/MetricVisuals";
@@ -286,6 +287,7 @@ export default function ReleasesPage() {
         acceptance criteria met, open risk flags, and overall readiness.
       </p>
 
+      <RepositoryReleaseDiscovery projectId={projectId}/>
       {loading && <p>Loading…</p>}
       {error && <p style={{ color: "var(--ember)" }}>{error}</p>}
 

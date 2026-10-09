@@ -53,7 +53,7 @@ function harness() {
     useParams: () => params, useAuth: () => auth, useProjectPermissions: () => ({ canEdit: true }), useManualExecutionAccess: () => access,
     currentSessionScope, sameAuthScope, RunHistoryRenderGuard, retainAnalysisRequest, ...planning,
     Modal, CreationWizard, ReleaseDraftEvidenceReview, WizardChoices,
-    ReadinessBadge: () => null, TrendChart: () => null, ScoreRing: () => null, DistributionBar: () => null,
+    ReadinessBadge: () => null, TrendChart: () => null, ScoreRing: () => null, DistributionBar: () => null, RepositoryReleaseDiscovery: () => null,
     trpcReact: { useUtils: () => ({ releases: { list: { invalidate: invalidated }, trend: { invalidate: invalidated } }, testPlans: { list: { invalidate: invalidated } } }),
       releases: { create: { useMutation: () => ({ mutateAsync, isPending: false }) }, list: { useQuery: () => ({ data: [], isLoading: false, error: null }) }, trend: { useQuery: () => ({ data: [] }) } },
       testPlans: { list: { useQuery: () => ({ data: [{ id: "plan", name: "Existing synthetic plan", releaseId: null, acceptanceCriteria: [] }], isLoading: false }) } } },

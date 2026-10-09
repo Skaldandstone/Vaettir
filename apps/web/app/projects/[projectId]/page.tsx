@@ -6,6 +6,7 @@ import { trpcReact } from "@/lib/trpcReact";
 import { useProjectPermissions } from "@/lib/use-project-permissions";
 import { useCaseReviewQueue } from "@/lib/use-case-review-queue";
 import { ConnectionLink } from "@/components/SourceConnectionChips";
+import { RepositoryReleaseDiscovery } from "@/components/RepositoryReleaseDiscovery";
 import { ProductionSignalChips } from "@/components/ProductionSignalChips";
 import { ProjectPopulationModal } from "@/components/ProjectPopulationModal";
 import { ProjectRepositories } from "@/components/ProjectRepositories";
@@ -81,6 +82,7 @@ export default function ProjectOverviewPage() {
       )}
       <QualityExperienceSummary projectId={projectId} />
       <ProjectRepositories projectId={projectId} canEdit={canEdit} />
+      <RepositoryReleaseDiscovery projectId={projectId}/>
       {project.repoUrl && (
         <p className="text-muted" style={{ marginBottom: 24 }}>
           Legacy repository reference: {project.repoUrl} · branch{" "}

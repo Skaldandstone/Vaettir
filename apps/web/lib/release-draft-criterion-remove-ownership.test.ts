@@ -38,6 +38,7 @@ function harness(initial: string[]) {
   const writes = vi.fn(() => { throw Error("External action forbidden in local draft model"); });
   const query = { data: [], isLoading: false, error: null };
   const context = vm.createContext({ React, currentSessionScope, sameAuthScope, RunHistoryRenderGuard, retainAnalysisRequest, ...planning,
+    RepositoryReleaseDiscovery: () => null,
     useParams: () => ({ projectId: "synthetic-project" }), useAuth: () => ({ isLoaded: false, isSignedIn: false }),
     useProjectPermissions: () => ({ canEdit: true }), useManualExecutionAccess: () => ({ canWrite: false, ready: false, origin: null, refresh: writes }),
     useMemo: (make: () => unknown) => make(), useLayoutEffect: () => {},
