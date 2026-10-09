@@ -8,6 +8,14 @@ import {resolve,join,dirname,basename,relative,sep} from "node:path";
 import {tmpdir} from "node:os";
 import {pathToFileURL} from "node:url";
 export const PACKAGE_VERSION="1:2.47.3-0+deb13u1+vaettir1";
+export const PUBLIC_BUILD_STAGES=Object.freeze(['SOURCE_SIGNATURES','SOURCE_EXTRACT','CURL_AUTORECONF','CURL_CONFIGURE','CURL_BUILD','CURL_UPSTREAM','CURL_INSTALL','CURL_METADATA','GIT_BUILD','GIT_UPSTREAM','GIT_INSTALL','PACKAGE_METADATA','PACKAGE_RUNTIME','PACKAGE_BUILD']);
+export const PUBLIC_BUILD_LOGS=Object.freeze(['curl-autoreconf.log','curl-configure.log','curl-build.log','curl-upstream.log','curl-install.log','git-build.log','t0001-init.sh.log','t1000-read-tree.sh.log','t5601-clone.sh.log','git-install.log','git-runtime-stderr.log']);
+export function publicBuildFailureDiagnostics(stage,exitCode,logs){
+  assert.ok(PUBLIC_BUILD_STAGES.includes(stage));assert.ok(Number.isInteger(exitCode)&&exitCode>0&&exitCode<=255);assert.ok(logs.length<=PUBLIC_BUILD_LOGS.length);
+  let budget=65536;const excerpts=[];
+  for(const row of logs){assert.ok(PUBLIC_BUILD_LOGS.includes(row.name));assert.ok(Buffer.isBuffer(row.bytes)&&row.bytes.length<=16384);const text=row.bytes.toString('utf8').split(/\r?\n/).slice(-80).map(line=>/authorization|bearer|password|secret|access[_ -]?key|token|set-cookie/i.test(line)?'[REDACTED SENSITIVE-LOOKING LINE]':line.replace(/https?:\/\/[^\s"'<>]+/gi,'[PUBLIC-OR-SYNTHETIC-URL]')).join('\n');const bounded=Buffer.from(text).subarray(0,Math.min(8192,budget)).toString();budget-=Buffer.byteLength(bounded);excerpts.push({name:row.name,excerpt:bounded});if(budget<=0)break;}
+  return {schema:'vaettir-public-source-build-failure/v1',stage,originalExitCode:exitCode,excerpts,scope:'Bounded public-source or selected synthetic-test logs only',failureRetained:true,nativeAcceptance:false,securityAcceptance:false};
+}
 const sha=data=>createHash("sha256").update(data).digest("hex");
 const execute=promisify(execFile);
 const expectedSources=JSON.parse(readFileSync(new URL("./git-openssl-sources.json",import.meta.url),"utf8"));
