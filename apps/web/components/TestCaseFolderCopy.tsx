@@ -2,6 +2,7 @@
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { Modal } from "@/components/Modal";
+import { IconButton } from "@/components/ui/IconButton";
 import { CaseProcedureColumns } from "@/components/CaseProcedureColumns";
 import {
   trpcReact,
@@ -248,7 +249,7 @@ export function TestCaseFolderCopy({
   }
   return (
     <>
-      <button
+      <IconButton label="Copy folder" icon="copy"
         onClick={() => {
           setAccessFresh(false);
           setReviewFresh(false);
@@ -278,9 +279,7 @@ export function TestCaseFolderCopy({
           setApprovedHash(null);
           setOpen(true);
         }}
-      >
-        Copy folder
-      </button>
+      />
       {scope.ready && message && <p role="status">{message}</p>}
       {completed && currentAccess && scope.matches(completed) && (
         <details style={{ marginTop: 8 }}>

@@ -29,7 +29,7 @@ export function RepositoryProviderPicker({value,onChange,onConnect,disabled=fals
       setError("The connection could not start. Your repository selections are unchanged.");
     }
   }
-  return <div style={{display:"grid",gap:12,minWidth:0}}>
+  return <div className="repository-connection-panel" style={{display:"grid",gap:16,minWidth:0}}>
     <label htmlFor={id} style={{display:"grid",gap:6}}>Repository source
       <select id={id} value={value} disabled={disabled} onChange={event=>{
         const provider=repositoryProviders.find(([key])=>key===event.target.value)?.[0];
@@ -39,8 +39,9 @@ export function RepositoryProviderPicker({value,onChange,onConnect,disabled=fals
         {repositoryProviders.map(([provider,label])=><option key={provider} value={provider}>{label}</option>)}
       </select>
     </label>
-    {oauth?<p className="text-muted">{value==="github"?"GitHub may grant repository read/write and organization permissions. Connect opens provider authorization.":"Choose your GitLab instance next, including self-hosted GitLab. Account authorization opens only after you select the host. GitLab uses read_api, which is broader than repository listing."} Authorization uses your existing sign-in, or asks you to sign in. Review its permissions. You approve account verification and repository metadata only; no source files or AI processing.</p>:value==="bitbucket"||value==="azure-devops"?<p className="text-muted">Connect opens token verification and repository selection. Native OAuth is not available for this provider yet.</p>:value?<p className="text-muted">Native account authorization is not available yet. Connect opens exported evidence and unverified reference options.</p>:null}
+    {oauth?<p className="repository-connection-notice">{value==="github"?"GitHub may grant repository read/write and organization permissions. Connect opens provider authorization.":"Choose your GitLab instance next, including self-hosted GitLab. GitLab uses read_api, which is broader than repository listing."} Review the provider’s permissions. You approve account verification and repository metadata only; no source files or AI processing.</p>:value==="bitbucket"||value==="azure-devops"?<p className="repository-connection-notice">Connect opens token verification and repository selection. Native OAuth is not available for this provider yet.</p>:value?<p className="repository-connection-notice">Native account authorization is not available yet. Connect opens exported evidence and unverified reference options.</p>:null}
+    {oauth&&<details className="connection-options"><summary>How authorization works</summary><p className="text-muted">Authorization uses your existing sign-in, or asks you to sign in. GitLab supports self-hosted instances. Account authorization opens only after you select the host. Connecting does not authorize source discovery or AI processing.</p></details>}
     {error&&<p role="alert">{error}</p>}
-    <div><button type="button" disabled={disabled||!value} onClick={connect}>Connect</button></div>
+    <footer className="connection-footer"><button type="button" className="btn-primary" disabled={disabled||!value} onClick={connect}>Connect</button></footer>
   </div>;
 }

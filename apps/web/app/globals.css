@@ -2458,6 +2458,40 @@ main.app-main {
   border-radius: 4px;
   font-size: 20px;
 }
+.icon-action { position: relative; display: inline-flex; flex: 0 0 auto; vertical-align: middle; }
+.ui-icon-button {
+  width: 36px; height: 36px; min-width: 36px; padding: 0;
+  display: inline-flex; align-items: center; justify-content: center;
+  border: 1px solid var(--line); border-radius: 6px;
+  background: transparent; color: var(--muted); cursor: pointer;
+}
+.ui-icon-button:hover:not(:disabled), .ui-icon-button:focus-visible { color: var(--fg); background: var(--panel-2); border-color: var(--muted-dim); }
+.ui-icon-button:focus-visible { outline: 2px solid var(--frost); outline-offset: 3px; }
+.ui-icon-button:disabled { opacity: .45; cursor: not-allowed; }
+.icon-action-tooltip {
+  position: absolute; top: calc(100% + 8px); left: 50%; transform: translateX(-50%);
+  z-index: 1100; width: max-content; max-width: min(240px, 75vw); padding: 7px 10px;
+  border: 1px solid var(--line); border-radius: 6px; background: var(--panel); color: var(--fg);
+  box-shadow: 0 4px 16px #0002; font-size: 12px; line-height: 1.4; text-align: center;
+}
+.icon-action-tooltip::before { content: ""; position: absolute; left: 0; right: 0; bottom: 100%; height: 9px; }
+.heading-actions .icon-action-tooltip, .connection-footer .icon-action-tooltip { left: auto; right: 0; transform: none; }
+@media (max-width: 700px) { .ui-icon-button { width: 40px; height: 40px; min-width: 40px; } }
+.case-folder-tools { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; padding: 8px 0 14px; }
+.case-folder-tools > [role="status"], .case-folder-tools > [role="alert"], .case-folder-tools > details { flex-basis: 100%; margin: 0; }
+.connection-footer { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 10px; border-top: 1px solid var(--line); padding-top: 18px; margin-top: 20px; }
+.connection-options { border: 1px solid var(--line); border-radius: 6px; padding: 12px; }
+.connection-options > summary { cursor: pointer; color: var(--muted); font-size: 13px; }
+.connection-options[open] > summary { margin-bottom: 12px; }
+.connection-options button { margin: 4px 8px 4px 0; }
+.repository-connection-panel { min-width: 0; font-size: 13px; line-height: 1.55; }
+.repository-connection-panel > header h3 { margin: 0 0 4px; font-size: 17px; }
+.repository-connection-panel > header p, .repository-connection-panel > p { margin: 0; }
+.repository-connection-panel label { font-size: 13px; font-weight: 500; }
+.repository-connection-panel input, .repository-connection-panel select { min-height: 40px; width: 100%; min-width: 0; box-sizing: border-box; }
+.repository-connection-notice { padding: 12px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel-2); font-size: 12px; line-height: 1.55; }
+.repository-connection-panel .connection-footer { margin-top: 4px; }
+.repository-connection-panel .connection-footer button { min-height: 38px; }
 .scenario {
   display: grid;
   grid-template-columns: 45px 1fr;

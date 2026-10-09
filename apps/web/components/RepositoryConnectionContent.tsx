@@ -6,6 +6,7 @@ import {TokenRepositoryConnection} from "./TokenRepositoryConnection";
 import {GitlabConnectionChoices} from "./GitlabConnectionChoices";
 import {PopulationDocuments} from "./PopulationDocuments";
 import {MigrationWizard} from "./MigrationWizard";
+import {IconButton} from "@/components/ui/IconButton";
 import type {RepositoryAuthorizationIntent} from "./RepositoryProviderPicker";
 export const repositoryProviders=[["github","GitHub"],["gitlab","GitLab"],["bitbucket","Bitbucket"],["azure-devops","Azure DevOps"],["git","Self-hosted Git"],["perforce","Perforce"],["svn","SVN"]] as const;
 export type RepositoryProvider=typeof repositoryProviders[number][0];
@@ -22,12 +23,11 @@ function RepositoryExportConnection({projectId,provider,onConnected,onClose}:{pr
   const add=trpcReact.project.addRepository.useMutation();
   const name=repositoryProviders.find(([key])=>key===provider)?.[1];
   const busy=add.isPending;
-  return <div style={{display:"grid",gap:16,minWidth:0}}>
+  return <div className="repository-connection-panel" style={{display:"grid",gap:16,minWidth:0}}>
     {step==="choose"&&<>
-      <p>{name} account verification and native repository browsing are not implemented yet. You can bring exported documents or test cases into this project now.</p>
-      <div style={{display:"grid",gap:8}}><button type="button" onClick={()=>setStep("documents")}>Add exported specifications or documentation</button><button type="button" className="btn-secondary" onClick={()=>setStep("tests")}>Import exported test cases</button></div>
-      <details><summary>Keep a repository reference for later</summary><p className="text-muted">Save the browser URL and {provider==="perforce"?"changelist":provider==="svn"?"revision":"commit"} you intend to review. This does not verify access.</p><button type="button" className="btn-secondary" onClick={()=>setStep("reference")}>Add reference</button></details>
-      <button type="button" className="btn-secondary" onClick={onClose}>Close</button>
+      <p className="repository-connection-notice">{name} account verification and native repository browsing are not implemented yet. Bring exported evidence instead.</p>
+      <details className="connection-options"><summary>Other export and reference options</summary><div style={{display:"grid",gap:12,paddingTop:12}}><button type="button" className="btn-secondary" onClick={()=>setStep("tests")}>Import exported test cases</button><p className="text-muted">Save a browser URL and {provider==="perforce"?"changelist":provider==="svn"?"revision":"commit"} for later review. This does not verify access.</p><button type="button" className="btn-secondary" onClick={()=>setStep("reference")}>Add reference</button></div></details>
+      <footer className="connection-footer"><button type="button" className="btn-secondary" onClick={onClose}>Close</button><button type="button" className="btn-primary" onClick={()=>setStep("documents")}>Add exported documents</button></footer>
     </>}
     {step==="documents"&&<><p>Include the export’s native {provider==="perforce"?"changelist":provider==="svn"?"revision":"commit"} in its evidence title or source key so approved evidence can be traced.</p><PopulationDocuments projectId={projectId}/></>}
     {step==="tests"&&<MigrationWizard projectId={projectId} onCommitted={onConnected}/>}
@@ -36,8 +36,8 @@ function RepositoryExportConnection({projectId,provider,onConnected,onClose}:{pr
       <label style={{display:"grid",gap:6}}>{provider==="perforce"?"Changelist":provider==="svn"?"Revision":"Commit"} to review<input value={revision} onChange={e=>{setRevision(e.target.value);setSaved(false);}} maxLength={200} style={{width:"100%",minWidth:0,boxSizing:"border-box"}}/></label>
       {add.error&&<p role="alert">{add.error.message}</p>}
       {saved&&<p role="status">Reference saved. Access has not been verified.</p>}
-      <button type="submit" disabled={busy||!url.trim()}>{busy?"Saving…":"Save reference"}</button>
+      <footer className="connection-footer"><IconButton label={`Back to ${name} options`} icon="back" disabled={busy} onClick={()=>setStep("choose")}/><button type="submit" className="btn-primary" disabled={busy||!url.trim()}>{busy?"Saving…":"Save reference"}</button></footer>
     </form>}
-    {step!=="choose"&&<button type="button" className="btn-secondary" disabled={busy} onClick={()=>setStep("choose")}>Back to {name} options</button>}
+    {step!=="choose"&&step!=="reference"&&<footer className="connection-footer"><IconButton label={`Back to ${name} options`} icon="back" disabled={busy} onClick={()=>setStep("choose")}/></footer>}
   </div>;
 }

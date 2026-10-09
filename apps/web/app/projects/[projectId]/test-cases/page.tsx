@@ -39,7 +39,8 @@ import {
 } from "@/components/RunConfigurationModal";
 import type { ReviewedRunStartEnvelope } from "@/lib/run-start-reviewed-write";
 import { Modal } from "@/components/Modal";
-import { PageHeading } from "@/components/ui/Workspace";
+import { PageHeading, Icon } from "@/components/ui/Workspace";
+import { IconButton } from "@/components/ui/IconButton";
 import { caseLabel, suiteChoices } from "@/lib/case-workbench";
 import {
   repositoryReviewStatus,
@@ -827,6 +828,10 @@ export default function TestCasesPage() {
       <PageHeading
         eyebrow={project?.name ?? "Project"}
         title={reviewFilter === "APPROVED" ? "Test cases" : "Review queue"}
+        actions={<>
+          {!readOnly && <button className="btn-primary" onClick={() => setAddOpen(true)}><Icon name="plus"/>Add case</button>}
+          <IconButton label="More library actions" icon="more" onClick={() => setMoreOpen(true)}/>
+        </>}
         description={
           loading
             ? "Loading case library…"
@@ -835,22 +840,20 @@ export default function TestCasesPage() {
       />
       <nav
         aria-label="Case repository and review queue"
-        style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 12 }}
+        className={styles.libraryTabs}
       >
         <button
           type="button"
-          className={
-            reviewFilter === "APPROVED" ? "btn-primary" : "btn-secondary"
-          }
+          className={styles.libraryTab}
+          aria-pressed={reviewFilter === "APPROVED"}
           onClick={() => setReviewFilter("APPROVED")}
         >
           Approved repository
         </button>
         <Link
           href={`/projects/${projectId}/test-cases/review`}
-          className={
-            reviewFilter !== "APPROVED" ? "btn-primary" : "btn-secondary"
-          }
+          className={styles.libraryTab}
+          aria-current={reviewFilter !== "APPROVED" ? "page" : undefined}
         >
           Review queue (
           {
@@ -898,21 +901,7 @@ export default function TestCasesPage() {
             </option>
           ))}
         </select>
-        <button className="btn-secondary" onClick={() => setFiltersOpen(true)}>
-          Filters{filters.length ? ` (${filters.length})` : ""}
-        </button>
-        {!readOnly && (
-          <button className="btn-primary" onClick={() => setAddOpen(true)}>
-            Add case
-          </button>
-        )}
-        <button
-          className="btn-secondary"
-          onClick={() => setMoreOpen(true)}
-          aria-label="More library actions"
-        >
-          More
-        </button>
+        <IconButton label={`Filters${filters.length ? ` (${filters.length})` : ""}`} icon="filter" onClick={() => setFiltersOpen(true)}/>
       </div>
       <details aria-label="Advanced case library tools">
         <summary>Advanced query, presets &amp; risk analysis</summary>

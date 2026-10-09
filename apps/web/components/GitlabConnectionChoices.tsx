@@ -13,13 +13,20 @@ export function GitlabConnectionChoices({ projectId, onConnected, onClose, activ
   if (method === "guided") return <GuidedGitlabTokenSetup projectId={projectId} onConnected={onConnected} onClose={onClose} active={active}/>;
   if (method === "token") return <TokenRepositoryConnection projectId={projectId} providerId="gitlab" onConnected={onConnected} onClose={onClose} active={active}/>;
   if (method === "oauth") return <RepositoryOAuthConnection projectId={projectId} providerId="gitlab" onConnected={onConnected} onClose={onClose} active={active}/>;
-  return <section aria-label="GitLab connection method" style={{ display: "grid", gap: 12 }}>
-    <p>Connect GitLab.com or your publicly reachable GitLab instance, then choose multiple repositories for this project.</p>
-    <button type="button" disabled={!active} onClick={() => setMethod("guided")}>Connect self-hosted GitLab</button>
-    <button type="button" disabled={!active} onClick={() => setMethod("token")}>Use a read-only access token</button>
-    <p className="text-muted">No OAuth application registration is needed. Use a short-lived personal or group access token with read_api. It can grant broader read access than metadata; Vaettir uses this connection flow only to verify your account and list repositories.</p>
-    <button type="button" className="btn-secondary" disabled={!active} onClick={() => setMethod("oauth")}>Use workspace-configured OAuth</button>
-    <p className="text-muted">Authorize through GitLab when your workspace has an application configured for that exact instance. No source files are read or sent to AI by either connection flow.</p>
-    <button type="button" className="btn-secondary" onClick={onClose}>Cancel</button>
+  return <section aria-label="GitLab connection method" className="repository-connection-panel" style={{ display: "grid", gap: 16 }}>
+    <header><h3>Connect GitLab</h3><p className="text-muted">GitLab.com or your own publicly reachable instance.</p></header>
+    <p className="repository-connection-notice">A short-lived token with <code>read_api</code> grants broader read access than repository metadata. Vaettir verifies your account and lists repositories only; no source files are read or sent to AI.</p>
+    <details className="connection-options"><summary>Other connection methods</summary>
+      <div style={{display:"grid",gap:12,paddingTop:12}}>
+        <button type="button" className="btn-secondary" disabled={!active} onClick={() => setMethod("token")}>Use a read-only access token</button>
+        <p className="text-muted">No OAuth application registration is needed. Verify an existing personal or group token.</p>
+        <button type="button" className="btn-secondary" disabled={!active} onClick={() => setMethod("oauth")}>Use workspace-configured OAuth</button>
+        <p className="text-muted">Your workspace must have an application configured for the exact GitLab instance. Review GitLab’s permissions before authorizing.</p>
+      </div>
+    </details>
+    <footer className="connection-footer">
+      <button type="button" className="btn-secondary" onClick={onClose}>Cancel</button>
+      <button type="button" className="btn-primary" disabled={!active} onClick={() => setMethod("guided")}>Connect self-hosted GitLab</button>
+    </footer>
   </section>;
 }

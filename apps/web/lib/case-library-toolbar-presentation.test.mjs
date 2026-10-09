@@ -36,15 +36,27 @@ function section(label) {
   assert.ok(found, label);
   return found.getText(ast);
 }
+function heading() {
+  let found;
+  function visit(node) {if (ts.isJsxSelfClosingElement(node) && node.tagName.getText(ast) === "PageHeading") found = node; ts.forEachChild(node, visit);}
+  visit(ast); assert.ok(found); return found.getText(ast);
+}
 function fixture(readOnly = false) {
   const events = [],
     analyses = [];
   const sandbox = {
     React,
+    useId: React.useId,
+    useState: React.useState,
+    Icon: () => React.createElement("svg", {"aria-hidden": true}),
+    PageHeading: ({actions}) => React.createElement("header", null, actions),
     styles: {},
     readOnly,
     projectId: "synthetic-project",
-    project: { organizationId: "synthetic-org" },
+    project: { organizationId: "synthetic-org", name: "Synthetic project" },
+    reviewFilter: "APPROVED",
+    loading: false,
+    repositoryReviewStatus: value => value,
     search: "",
     filters: [],
     activeViewId: "",
@@ -76,9 +88,13 @@ function fixture(readOnly = false) {
     },
   };
   vm.createContext(sandbox);
+  const iconSource = readFileSync(new URL("../components/ui/IconButton.tsx", import.meta.url), "utf8");
+  const iconAst = ts.createSourceFile("icon.tsx", iconSource, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+  const declaration = iconAst.statements.find(node => ts.isFunctionDeclaration(node));
+  vm.runInContext(ts.transpileModule(declaration.getText(iconAst).replace(/^export /, ""), {compilerOptions: {jsx: ts.JsxEmit.React, target: ts.ScriptTarget.ES2022}}).outputText, sandbox);
   const render = (label) => {
     const compiled = ts.transpileModule(
-      `function renderSection(){return (${section(label)});}`,
+      `function renderSection(){return (${label === "heading" ? heading() : section(label)});}`,
       {
         compilerOptions: {
           jsx: ts.JsxEmit.React,
@@ -92,26 +108,29 @@ function fixture(readOnly = false) {
   };
   return { render, events, analyses };
 }
-test("actual primary toolbar renders search, views and three actions without advanced controls", () => {
+test("actual query toolbar has search, saved view and a named filter icon; creation stays in header", () => {
   const h = fixture(),
     element = h.render("Case library tools");
   const html = renderToStaticMarkup(element);
   assert.match(html, /Search test cases/);
   assert.match(html, /Saved view/);
-  assert.equal((html.match(/<button/g) ?? []).length, 3);
+  assert.equal((html.match(/<button/g) ?? []).length, 1);
+  assert.match(html, /aria-label="Filters"/);
   assert.doesNotMatch(html, /Analyze|Advanced query|Add from preset/);
   const buttons = React.Children.toArray(element.props.children).filter(
-    (child) => child.type === "button",
+    (child) => typeof child.props.onClick === "function",
   );
   buttons.forEach((button) => button.props.onClick());
-  assert.deepEqual(h.events, [
-    ["filters", true],
-    ["add", true],
-    ["more", true],
-  ]);
+  assert.deepEqual(h.events, [["filters", true]]);
+  const header = h.render("heading");
+  const headerHtml = renderToStaticMarkup(header);
+  assert.match(headerHtml, /Add case/); assert.match(headerHtml, /aria-label="More library actions"/);
+  assert.equal((headerHtml.match(/<button/g) ?? []).length, 2);
+  React.Children.toArray(header.props.actions.props.children).forEach(button => button.props.onClick());
+  assert.deepEqual(h.events, [["filters", true], ["add", true], ["more", true]]);
   assert.doesNotMatch(
-    renderToStaticMarkup(fixture(true).render("Case library tools")),
-    />Add case</,
+    renderToStaticMarkup(fixture(true).render("heading")),
+    /Add case/,
   );
 });
 test("actual closed disclosure retains explicit analysis scopes and existing reviewed callers", () => {

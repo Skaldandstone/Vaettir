@@ -60,6 +60,7 @@ function render(props: NavigationProps) {
   const host = vm.createContext({
     React,
     Link,
+    styles: {libraryTabs: "synthetic-tabs", libraryTab: "synthetic-tab"},
     ...props,
     tagFilter: null,
     setReviewFilter,
@@ -77,6 +78,7 @@ function render(props: NavigationProps) {
     | React.ReactElement<{
         href: string;
         className: string;
+        "aria-current"?: string;
         onClick?: () => void;
         children: React.ReactNode;
       }>
@@ -121,9 +123,8 @@ describe("actual repository review navigation SSR, no native or browser action",
           reviewFilter,
           cases,
         });
-      expect(h.link.props.className).toBe(
-        reviewFilter === "APPROVED" ? "btn-secondary" : "btn-primary",
-      );
+      expect(h.link.props.className).toBe("synthetic-tab");
+      expect(h.link.props["aria-current"]).toBe(reviewFilter === "APPROVED" ? undefined : "page");
       expect(renderToStaticMarkup(h.link)).toMatch(/>Review queue \(2\)<\/a>/);
       expect(h.link.props.href).toBe(
         "/projects/another-synthetic-project/test-cases/review",

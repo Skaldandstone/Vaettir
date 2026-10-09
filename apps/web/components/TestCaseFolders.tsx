@@ -2,6 +2,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useAuth } from "@clerk/nextjs";
 import { Modal } from "@/components/Modal";
+import { IconButton } from "@/components/ui/IconButton";
 import { TestCaseFolderRecovery } from "@/components/TestCaseFolderRecovery";
 import { TestCaseFolderCopy } from "@/components/TestCaseFolderCopy";
 import { trpcReact, type RouterInputs } from "@/lib/trpcReact";
@@ -360,8 +361,9 @@ export function TestCaseFolders({
     setOpen(false);
   }
   return (
-    <>
-      <button onClick={begin}>Folders</button>
+    <div className="case-folder-tools" role="group" aria-label="Folder tools">
+      <span className="text-muted" style={{fontSize: 12, marginRight: 4}}>Suite tools</span>
+      <IconButton label="Folders" icon="folder" onClick={begin}/>
       {scopeReady && message && <p role="status">{message}</p>}
       <TestCaseFolderCopy
         key={`${projectId}:copy`}
@@ -732,6 +734,6 @@ export function TestCaseFolders({
           setMessage("Editable folder draft explicitly discarded. No saved folder, case placement or uncertain request was changed.");
         }}>Discard editable folder draft</button>}
       </Modal>
-    </>
+    </div>
   );
 }

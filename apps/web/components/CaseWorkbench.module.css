@@ -5,16 +5,23 @@
   display: flex;
   align-items: center;
   flex-wrap: wrap;
-  gap: 8px;
-  margin: 14px 0 10px;
+  gap: 12px;
+  margin: 16px 0;
 }
 .search {
-  flex: 1 1 250px;
+  flex: 0 1 480px;
   min-width: 140px;
+  min-height: 36px;
 }
 .toolbar select {
   max-width: 220px;
+  min-height: 36px;
 }
+.libraryTabs { display: flex; flex-wrap: wrap; align-items: center; gap: 20px; border-bottom: 1px solid var(--line); margin-bottom: 14px; }
+.libraryTab { display: inline-flex; align-items: center; min-height: 40px; padding: 8px 0; border: 0; border-bottom: 2px solid transparent; border-radius: 0; background: transparent; color: var(--muted); font-size: 13px; text-decoration: none; }
+.libraryTab[aria-pressed="true"], .libraryTab[aria-current="page"] { border-bottom-color: var(--frost); color: var(--fg); font-weight: 600; }
+.libraryTab:hover { color: var(--fg); }
+.libraryTab:focus-visible { outline: 2px solid var(--frost); outline-offset: 3px; }
 .layout {
   display: grid;
   grid-template-columns: 220px minmax(0, 1fr);
@@ -156,22 +163,18 @@
     margin-bottom: 6px;
   }
   .toolbar {
-    display: grid;
-    grid-template-columns: 1fr auto auto;
-    gap: 7px;
+    display: flex;
+    gap: 8px;
     margin: 10px 0;
   }
   .search {
-    grid-column: 1/-1;
+    flex: 1 1 100%;
     width: 100%;
   }
   .toolbar select {
     min-width: 0;
-    width: 100%;
+    flex: 1 1 160px;
     max-width: none;
-  }
-  .toolbar > :last-child {
-    grid-column: 3;
   }
   .layout {
     display: block;

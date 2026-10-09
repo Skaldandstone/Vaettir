@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
 import { Modal } from "@/components/Modal";
+import { IconButton } from "@/components/ui/IconButton";
 import { trpcReact, type RouterInputs } from "@/lib/trpcReact";
 import { useFolderActionScope } from "@/lib/use-folder-action-scope";
 import {
@@ -204,7 +205,7 @@ export function TestCaseFolderRecovery({
   }
   return (
     <>
-      <button
+      <IconButton label="Recover a folder move" icon="undo"
         onClick={() => {
           setFresh(false);
           setOptionsFresh(false);
@@ -220,9 +221,7 @@ export function TestCaseFolderRecovery({
           setApprovedHash(null);
           setOpen(true);
         }}
-      >
-        Recover a folder move
-      </button>
+      />
       {scope.ready && message && <p role="status">{message}</p>}
       <Modal
         open={open}

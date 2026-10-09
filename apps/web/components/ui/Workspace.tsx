@@ -14,11 +14,21 @@ export type IconName =
   | "settings"
   | "book"
   | "branch"
-  | "clock";
+  | "clock"
+  | "filter" | "more" | "copy" | "undo" | "help" | "close" | "back" | "external" | "plus";
 
 // Small functional UI glyphs. The product's canonical rune remains unchanged.
 export function Icon({ name, size = 18 }: { name: IconName; size?: number }) {
   const paths: Record<IconName, ReactNode> = {
+    filter: <><path d="M4 6h16M7 12h10M10 18h4"/><circle cx="8" cy="6" r="2"/><circle cx="16" cy="12" r="2"/></>,
+    more: <><circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/></>,
+    copy: <><rect x="8" y="8" width="12" height="13" rx="2"/><path d="M15 8V3H3v13h5"/></>,
+    undo: <><path d="M4 10h10a6 6 0 0 1 0 12M4 10l5-5M4 10l5 5"/></>,
+    help: <><circle cx="12" cy="12" r="9"/><path d="M9.5 9a2.5 2.5 0 1 1 4 2c-1 .5-1.5 1-1.5 2M12 17h.01"/></>,
+    close: <path d="m6 6 12 12M18 6 6 18"/>,
+    back: <path d="M20 12H4m6-6-6 6 6 6"/>,
+    external: <><path d="M14 3h7v7m0-7L10 14"/><path d="M11 3H3v18h18v-8"/></>,
+    plus: <path d="M12 4v16M4 12h16"/>,
     grid: (
       <>
         <rect x="3" y="3" width="7" height="7" rx="1.5" />
