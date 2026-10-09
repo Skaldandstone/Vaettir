@@ -21,4 +21,6 @@ test('builder and installed checker retain mandatory provenance and real TLS gat
   assert.match(build, /git-source\/debian\/copyright/);
   assert.match(build, /curl-source\/debian\/copyright/);
   assert.ok(build.indexOf('source_bundle=') < build.indexOf('timeout 180 node "$checker"'));
+  assert.match(build, /Source: git \(1:2.47.3-0\+deb13u1\)/);
+  assert.match(build, /Static-Built-Using: curl \(= 8.21.0-2~bpo13\+1\)/);
 });

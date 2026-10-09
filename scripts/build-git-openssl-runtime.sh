@@ -111,7 +111,9 @@ cp "$checks/git-openssl-runtime-proof.json" "$package_root/usr/share/vaettir/git
 mkdir "$package_root/DEBIAN"
 cat > "$package_root/DEBIAN/control" <<'CONTROL'
 Package: vaettir-git-openssl
+Source: git (1:2.47.3-0+deb13u1)
 Version: 1:2.47.3-0+deb13u1+vaettir1
+Static-Built-Using: curl (= 8.21.0-2~bpo13+1)
 Architecture: amd64
 Maintainer: Vaettir Runtime Build <runtime-build@skaldandstone.com>
 Provides: git (= 1:2.47.3-0+deb13u1+vaettir1)
