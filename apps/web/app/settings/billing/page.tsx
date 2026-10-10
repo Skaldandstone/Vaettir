@@ -217,7 +217,7 @@ export default function BillingPage() {
                 {seats.data.readOnlySeatsUsed === 1 ? "seat" : "seats"}
               </h3>
               <p>
-                Plan capacity: {seats.data.readOnlySeatsIncluded ?? "Unlimited"}
+                Plan capacity: {seats.data.readOnlySeatsMax ?? "Unlimited"}
               </p>
             </div>
             <div>
