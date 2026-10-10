@@ -8,8 +8,10 @@ import {resolve,join,dirname,basename,relative,sep} from "node:path";
 import {tmpdir} from "node:os";
 import {pathToFileURL} from "node:url";
 export const PACKAGE_VERSION="1:2.47.3-0+deb13u1+vaettir1";
+export const SELECTED_GIT_SUITES=Object.freeze(['t0001-init.sh','t1000-read-tree-m-3way.sh','t5601-clone.sh']);
+export function assertSelectedGitUpstream(rows){assert.deepEqual(rows.map(row=>row.name),SELECTED_GIT_SUITES);assert.ok(rows.every(row=>row.exitCode===0&&Number.isInteger(row.passed)&&row.passed>0&&Number.isInteger(row.skipped)&&row.skipped>=0&&/^[a-f0-9]{64}$/.test(row.logSha256)));}
 export const PUBLIC_BUILD_STAGES=Object.freeze(['SOURCE_SIGNATURES','SOURCE_EXTRACT','CURL_AUTORECONF','CURL_CONFIGURE','CURL_BUILD','CURL_UPSTREAM','CURL_INSTALL','CURL_METADATA','GIT_BUILD','GIT_UPSTREAM','GIT_INSTALL','PACKAGE_METADATA','PACKAGE_RUNTIME','PACKAGE_BUILD']);
-export const PUBLIC_BUILD_LOGS=Object.freeze(['curl-autoreconf.log','curl-configure.log','curl-build.log','curl-upstream.log','curl-install.log','git-build.log','t0001-init.sh.log','t1000-read-tree.sh.log','t5601-clone.sh.log','git-install.log','git-runtime-stderr.log']);
+export const PUBLIC_BUILD_LOGS=Object.freeze(['curl-autoreconf.log','curl-configure.log','curl-build.log','curl-upstream.log','curl-install.log','git-build.log','t0001-init.sh.log','t1000-read-tree-m-3way.sh.log','t5601-clone.sh.log','git-install.log','git-runtime-stderr.log']);
 export function publicBuildFailureDiagnostics(stage,exitCode,logs){
   assert.ok(PUBLIC_BUILD_STAGES.includes(stage));assert.ok(Number.isInteger(exitCode)&&exitCode>0&&exitCode<=255);assert.ok(logs.length<=PUBLIC_BUILD_LOGS.length);
   let budget=65536;const excerpts=[];
@@ -106,7 +108,7 @@ export async function inspectBuilt(root,sources,config,upstream){
   assert.ok(root.startsWith("/")&&root!=="/");assertSourceIdentity(sources);const features=assertCurlConfiguration(config);
   const files=packageFiles(root),elf=files.filter(row=>row.elf);assertPackageELF(elf);
   const git=join(root,"usr/bin/git"),gitExec=join(root,"usr/lib/git-core");assert.equal(command(git,["--version"]).trim(),"git version 2.47.3.vaettir1");
-  assert.ok(upstream.git.length===3&&upstream.curl.selected.length===5);assert.ok(upstream.git.every(row=>row.exitCode===0&&row.passed>0&&row.skipped>=0));assert.equal(upstream.curl.exitCode,0);assert.equal(upstream.curl.passed,5);assert.equal(upstream.curl.skipped,0);
+  assertSelectedGitUpstream(upstream.git);assert.ok(upstream.curl.selected.length===5);assert.equal(upstream.curl.exitCode,0);assert.equal(upstream.curl.passed,5);assert.equal(upstream.curl.skipped,0);
   const tls=await checkGitTLS(git,gitExec);
   return{schema:"vaettir-git-openssl-runtime/v1",package:"vaettir-git-openssl",packageVersion:PACKAGE_VERSION,sources,configuration:features,upstreamTests:upstream,files,tlsChecks:tls,networkScope:"disposable loopback only",wholeImageSecurityAcceptance:false};
 }

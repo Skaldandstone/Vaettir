@@ -1,5 +1,5 @@
 import test from 'node:test';import assert from 'node:assert/strict';import {readFileSync} from 'node:fs';
-import {assertSourceIdentity,assertSignature,assertCurlConfiguration,assertPackageELF,assertAbsentFamilies,publicBuildFailureDiagnostics,PUBLIC_BUILD_STAGES,PUBLIC_BUILD_LOGS} from './check-git-openssl-runtime.mjs';
+import {assertSourceIdentity,assertSignature,assertCurlConfiguration,assertPackageELF,assertAbsentFamilies,publicBuildFailureDiagnostics,PUBLIC_BUILD_STAGES,PUBLIC_BUILD_LOGS,SELECTED_GIT_SUITES,assertSelectedGitUpstream} from './check-git-openssl-runtime.mjs';
 import {sourcePins} from './fetch-git-openssl-sources.mjs';
 const config={version:'libcurl 8.22.0',sslBackends:'OpenSSL',protocols:'HTTP HTTPS',features:'SSL HTTP2',staticLibs:'/isolated/lib/libcurl.a -lssl -lcrypto -lnghttp2 -lz'};
 test('exact source signatures and closed OpenSSL protocol feature contract',()=>{
@@ -40,4 +40,11 @@ test('Debian static curl metadata remains accepted with isolated linker director
 });
 test('Debian CPP hardening never overrides Git internal target-specific definitions',()=>{
   const build=readFileSync(new URL('./build-git-openssl-runtime.sh',import.meta.url),'utf8');assert.match(build,/CFLAGS="\$git_cflags" CPPFLAGS="\$git_cppflags" LDFLAGS="\$git_ldflags"/);assert.doesNotMatch(build,/EXTRA_CPPFLAGS=/);assert.match(build,/git_cppflags=\$\(dpkg-buildflags --get CPPFLAGS\)/);
+});
+test('exact existing init/read-tree/clone suites are preflighted and consistently recorded',()=>{
+  const names=['t0001-init.sh','t1000-read-tree-m-3way.sh','t5601-clone.sh'];assert.deepEqual(SELECTED_GIT_SUITES,names);assert.ok(Object.isFrozen(SELECTED_GIT_SUITES));
+  const rows=names.map(name=>({name,exitCode:0,passed:1,skipped:2,logSha256:'a'.repeat(64)}));assertSelectedGitUpstream(rows);for(const mutate of [x=>x[1].name='t1000-read-tree.sh',x=>x.pop(),x=>x[1].exitCode=2,x=>x[1].logSha256='missing']){const copy=structuredClone(rows);mutate(copy);assert.throws(()=>assertSelectedGitUpstream(copy));}
+  const build=readFileSync(new URL('./build-git-openssl-runtime.sh',import.meta.url),'utf8'),checker=readFileSync(new URL('./check-git-openssl-runtime.mjs',import.meta.url),'utf8');assert.doesNotMatch(build+checker,/t1000-read-tree\.sh/);
+  const preflight='for suite in '+names.join(' ')+'; do\n  test -f "$build_root/git-source/t/$suite"\ndone';assert.ok(build.includes(preflight));assert.ok(build.indexOf(preflight)<build.indexOf('timeout 120 autoreconf'));assert.equal(build.split('for suite in '+names.join(' ')+'; do').length,3);
+  for(const name of names){assert.ok(build.includes("'"+name+"'"));assert.ok(PUBLIC_BUILD_LOGS.includes(name+'.log'));}
 });

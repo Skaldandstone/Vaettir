@@ -47,6 +47,10 @@ grep -q '^\[GNUPG:\] VALIDSIG 05DB6A837E105F4B1D02C55FBBA9FAADCCFB4707 ' "$check
 stage=SOURCE_EXTRACT
 dpkg-source -x "$source_dir/curl/curl_8.22.0-1.dsc" "$build_root/curl-source"
 dpkg-source -x "$source_dir/git/git_2.47.3-0+deb13u1.dsc" "$build_root/git-source"
+# Fail before any source compilation if a mandatory selected upstream suite is missing.
+for suite in t0001-init.sh t1000-read-tree-m-3way.sh t5601-clone.sh; do
+  test -f "$build_root/git-source/t/$suite"
+done
 cd "$build_root/curl-source"
 test "$(dpkg-parsechangelog --show-field Version)" = '8.22.0-1'
 stage=CURL_AUTORECONF
@@ -99,7 +103,7 @@ timeout 600 make -j2 "$@" all > "$checks/git-build.log" 2>&1
 # Selected local upstream suites only. All optional skips are retained and reported;
 # this is not the entire Git test suite or a provider/production test.
 stage=GIT_UPSTREAM
-for suite in t0001-init.sh t1000-read-tree.sh t5601-clone.sh; do
+for suite in t0001-init.sh t1000-read-tree-m-3way.sh t5601-clone.sh; do
   (cd t; timeout 180 sh "$suite") > "$checks/$suite.log" 2>&1
 done
 package_root="$build_root/package"
@@ -125,7 +129,7 @@ stage=PACKAGE_METADATA
 node --input-type=module - "$checks" <<'TEST_METADATA'
 import {readFileSync,writeFileSync} from 'node:fs';import {join} from 'node:path';import assert from 'node:assert/strict';import {createHash} from 'node:crypto';
 const hash=text=>createHash('sha256').update(text).digest('hex');
-const root=process.argv[2],git=['t0001-init.sh','t1000-read-tree.sh','t5601-clone.sh'].map(name=>{const log=readFileSync(join(root,name+'.log'),'utf8'),lines=log.split(/\r?\n/);assert.ok(!lines.some(line=>/^not ok\b/.test(line)));const passed=lines.filter(line=>/^ok \d+\b/.test(line)&&!/# SKIP/i.test(line)).length,skipped=lines.filter(line=>/^ok \d+\b.*# SKIP/i.test(line)).length;assert.ok(passed>0);return{name,exitCode:0,passed,skipped,logSha256:hash(log)};});
+const root=process.argv[2],git=['t0001-init.sh','t1000-read-tree-m-3way.sh','t5601-clone.sh'].map(name=>{const log=readFileSync(join(root,name+'.log'),'utf8'),lines=log.split(/\r?\n/);assert.ok(!lines.some(line=>/^not ok\b/.test(line)));const passed=lines.filter(line=>/^ok \d+\b/.test(line)&&!/# SKIP/i.test(line)).length,skipped=lines.filter(line=>/^ok \d+\b.*# SKIP/i.test(line)).length;assert.ok(passed>0);return{name,exitCode:0,passed,skipped,logSha256:hash(log)};});
 const curlLog=readFileSync(join(root,'curl-upstream.log'),'utf8');assert.match(curlLog,/TESTDONE: 5 tests out of 5 reported OK/);assert.doesNotMatch(curlLog,/TESTFAIL:|IGNORED:|[1-9]\d* tests were skipped/);
 writeFileSync(join(root,'upstream-tests.json'),JSON.stringify({git,curl:{selected:[1,2,3,4,5],exitCode:0,passed:5,skipped:0,logSha256:hash(curlLog)},scope:'Selected local upstream tests only; other protocol/features are not exercised.'},null,2)+'\n',{flag:'wx'});
 TEST_METADATA
