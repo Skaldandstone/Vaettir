@@ -32,7 +32,7 @@ function Review({projectId}:{projectId:string}) {
     {!access.readable&&<p role="status">Checking project access… The original repository selection and comparison draft remain retained and withheld.</p>}
     {/* Keep the picker mounted through fresh access reads. Remounting its
         staleTime:0 access observer would trigger another parent refresh. */}
-    <fieldset hidden={!access.readable||!!scope} disabled={!access.readable||!access.canEdit||!!scope} style={{border:0,padding:0,margin:0,minWidth:0}}>
+    <fieldset hidden={!access.readable||!!scope} disabled={!access.readable||!access.canEdit||!!scope} style={{border:0,padding:0,margin:0,marginBottom:12,minWidth:0}}>
       <ConnectedRepositoryPicker projectId={projectId} selectedId={repositoryId} disabled={!access.readable||!access.canEdit||!!scope} onSelect={repo=>{const original=access.origin;if(!original||!access.owns(original,"edit"))return;setRepositoryId(repo?.id??"");setProvider(repo?.provider??"");setRef(repo?.revision??"HEAD");}}/>
     </fieldset>
     {access.readable&&(!scope?<div style={{display:"grid",gridTemplateColumns:"minmax(0,1fr)",gap:12}}>

@@ -23,6 +23,7 @@ function declaration(file: string, name: string) {
   return node.getText(ast).replace(/^export /, "");
 }
 const currentReview = declaration("../components/RepositoryCoverageReview.tsx", "Review");
+const currentProcessing = declaration("../components/RepositoryProcessingReview.tsx", "RepositoryProcessingReview");
 function reviewCode(legacyMountFault: boolean) {
   if (!legacyMountFault) return currentReview;
   // Reproduce only the retired mounting structure, keeping actual current hooks
@@ -33,6 +34,14 @@ function reviewCode(legacyMountFault: boolean) {
   if (!conditional) throw Error("Actual scope branch absent");
   return currentReview.replace(fieldset, "{null}").replace(conditional, conditional + fieldset)
     .replace("return <section", 'if(!access.readable)return <p role="status">Checking project access…</p>;\n  return <section');
+}
+function processingCode(legacyMountFault: boolean) {
+  if (!legacyMountFault) return currentProcessing;
+  const fieldset = /<fieldset[\s\S]*?<\/fieldset>/.exec(currentProcessing)?.[0];
+  const conditional = /\{access\.readable&&\(!scope\?<div[^\n]*>/.exec(currentProcessing)?.[0];
+  if (!fieldset || !conditional) throw Error("Actual processing picker placement absent");
+  return currentProcessing.replace(fieldset, "{null}").replace(conditional, conditional + fieldset)
+    .replace('return <div role="region"', 'if(!access.readable)return <p role="status">Restore original access</p>;\n  return <div role="region"');
 }
 function elements(value: unknown): Element[] {
   if (React.isValidElement(value)) {
@@ -45,13 +54,17 @@ const repositories = Array.from({ length: 14 }, (_, index) => ({
   id: `synthetic-repo-${index}`, projectId: "synthetic-project", provider: "gitlab",
   url: `https://gitlab.synthetic.example/services/service-${index}`, revision: null, accessVerified: false,
 }));
-function harness(legacyMountFault = false) {
+function harness(legacyMountFault = false, purpose?: "TEST_CASES" | "REQUIREMENTS") {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: Infinity } } });
   client.mount();
   const instances = new Map<string, Mounted>(), mounts: string[] = [], unmounts: string[] = [], reads: Array<{ kind: string; input: Record<string, unknown> }> = [], writes: unknown[] = [];
+  const processingCalls: Array<{ scope: unknown; consent: unknown }> = [], recovered: unknown[] = [];
+  const savedResults = { synthetic: ["retained draft, no new processing"] };
+  const savedRuns = [{ requestId: "synthetic-saved-request", createdAt: "2026-10-10T00:00:00Z", status: "COMPLETED", repositoryUrl: repositories[2]!.url, ref: "saved-exact-ref" }];
   const pending: Array<() => void> = [], effects: Array<() => void> = [], layouts: Array<() => void> = [];
   const auth = { isLoaded: true, isSignedIn: true, userId: "synthetic-clerk" };
   let canEdit = true, organizationId = "synthetic-org", readFailure: Error | null = null, dirty = true, active: Mounted | null = null, uuid = 0;
+  let processingHold = false, processingFinish: (() => void) | null = null;
   let tree: React.ReactNode = null;
   const same = (a?: readonly unknown[], b?: readonly unknown[]) => !!a && !!b && a.length === b.length && a.every((value, index) => Object.is(value, b[index]));
   function slot(kind: string): Slot {
@@ -82,6 +95,9 @@ function harness(legacyMountFault = false) {
           resolve({ projectId: input.projectId, caseId: null, organizationId: org, canEdit: editor, canConfigure: false,
             readScope: { projectId: input.projectId, organizationId: org, actorId: "synthetic-native", actorClerkUserId: reader.userId } });
         } else if (kind === "repositories") resolve(repositories);
+        else if (kind === "processingRuns") resolve(savedRuns);
+        else if (kind === "processingStatus") resolve({ status: "COMPLETED", resolvedCommitSha: "a".repeat(40), results: savedResults });
+        else if (kind === "processingPreview") resolve({ estimatedCredits: 7, unitCreditEstimate: 1, balance: 20, canSpend: editor, scopeHash: "synthetic-processing-scope-hash" });
         else resolve({ scopeHash: "synthetic-scope-hash", repositoryUrl: repositories[2]!.url, aiProcessing: false, credits: 0 });
       });
     }));
@@ -99,7 +115,7 @@ function harness(legacyMountFault = false) {
   }
   const mutation = { isPending: false, error: null, reset() {}, mutateAsync: async (input: unknown) => { writes.push(input); throw Error("Synthetic source read prohibited"); } };
   const context = vm.createContext({
-    React, caseFieldReadOrigin, caseFieldReadPins, sameCaseFieldOrigin,
+    React, Error, caseFieldReadOrigin, caseFieldReadPins, sameCaseFieldOrigin,
     useAuth: () => auth, crypto: { randomUUID: () => `synthetic-request-${++uuid}` },
     useState: (initial: unknown) => {
       const value = slot("state");
@@ -119,12 +135,19 @@ function harness(legacyMountFault = false) {
       caseFields: { get: { useQuery: (input: Record<string, unknown>, options: Record<string, unknown>) => useQuery("caseFields", input, options) } },
       project: { repositories: { useQuery: (input: Record<string, unknown>, options: Record<string, unknown>) => useQuery("repositories", input, options) } },
       repositoryCoverageChecks: { preview: { useQuery: (input: Record<string, unknown>, options: Record<string, unknown>) => useQuery("preview", input, options) }, compare: { useMutation: () => mutation } },
+      agent: {
+        repositoryProcessingRuns: { useQuery: (input: Record<string, unknown>) => useQuery("processingRuns", input) },
+        previewRepoProcessing: { useQuery: (input: Record<string, unknown>, options: Record<string, unknown>) => useQuery("processingPreview", input, options) },
+        repositoryProcessingStatus: { useQuery: (input: Record<string, unknown>, options: Record<string, unknown>) => useQuery("processingStatus", input, options) },
+        cancelRepositoryProcessing: { useMutation: () => ({ isPending: false, mutate: (input: unknown) => writes.push(input) }) },
+      },
     },
   });
-  const code = [declaration("./use-case-field-access.ts", "useCaseFieldAccess"), declaration("../components/ConnectedRepositoryPicker.tsx", "ConnectedRepositoryPicker"), reviewCode(legacyMountFault)].join("\n");
+  const code = [declaration("./use-case-field-access.ts", "useCaseFieldAccess"), declaration("../components/ConnectedRepositoryPicker.tsx", "ConnectedRepositoryPicker"), purpose ? processingCode(legacyMountFault) : reviewCode(legacyMountFault)].join("\n");
   vm.runInContext(ts.transpileModule(code, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.None, jsx: ts.JsxEmit.React } }).outputText, context);
   const components = context as unknown as {
     Review: (props: { projectId: string }) => React.ReactNode;
+    RepositoryProcessingReview: (props: { projectId: string; purpose: "TEST_CASES" | "REQUIREMENTS"; onApprove: (scope: unknown, consent: unknown) => Promise<void>; onRecovered: (results: unknown) => void }) => React.ReactNode;
     ConnectedRepositoryPicker: (props: { projectId: string; selectedId: string; onSelect: (repository: unknown) => void }) => React.ReactNode;
   };
   function render() {
@@ -148,7 +171,11 @@ function harness(legacyMountFault = false) {
     }
     tree = mount(React.createElement("div", null,
       React.createElement(components.ConnectedRepositoryPicker, { projectId: "synthetic-project", selectedId: "", onSelect() {} }),
-      React.createElement(components.Review, { projectId: "synthetic-project" })), "root");
+      purpose ? React.createElement(components.RepositoryProcessingReview, {
+        projectId: "synthetic-project", purpose,
+        onApprove: async (scope: unknown, consent: unknown) => { processingCalls.push({ scope, consent }); if (processingHold) await new Promise<void>(resolve => { processingFinish = resolve; }); throw Error("Synthetic uncertain processing response"); },
+        onRecovered: (results: unknown) => recovered.push(results),
+      }) : React.createElement(components.Review, { projectId: "synthetic-project" })), "root");
     for (const [key, instance] of instances) if (!seen.has(key)) {
       for (const value of instance.slots) { value.cleanup?.(); value.unsubscribe?.(); }
       instances.delete(key); unmounts.push(instance.name);
@@ -167,17 +194,18 @@ function harness(legacyMountFault = false) {
     }
     if (dirty) render();
   }
-  function reviewNodes() { return elements(tree).find(node => node.props["aria-label"] === "Compare repository test files")!; }
+  function reviewNodes() { return elements(tree).find(node => node.props["aria-label"] === (purpose ? "Repository processing review" : "Compare repository test files"))!; }
   function button(label: string) {
     const found = elements(reviewNodes()).find(node => node.type === "button" && node.props.children === label);
     if (!found) throw Error("Actual comparison button missing: " + label);
     return found;
   }
   function close() { for (const instance of instances.values()) for (const value of instance.slots) { value.cleanup?.(); value.unsubscribe?.(); } instances.clear(); client.unmount(); client.clear(); }
-  return { auth, client, reads, writes, mounts, unmounts, render, pump, button, reviewNodes, mutation, close,
+  return { auth, client, reads, writes, processingCalls, recovered, savedResults, savedRuns, mounts, unmounts, render, pump, button, reviewNodes, mutation, close,
     get tree() { return tree; }, html: () => renderToStaticMarkup(tree),
     setEditor(value: boolean) { canEdit = value; }, setOrganization(value: string) { organizationId = value; },
     setReadFailure(value: Error | null) { readFailure = value; },
+    holdProcessing() { processingHold = true; }, releaseProcessing() { processingFinish?.(); },
     async refreshAccess() { void client.invalidateQueries({ queryKey: ["caseFields"] }); await pump(); },
     forceRender() { dirty = true; render(); },
   };
@@ -290,4 +318,153 @@ it.each(["error", "paused", "read-only"])("%s fresh access retains the picker an
     expect(elements(h.reviewNodes()).find(node => node.type === "select")!.props.value).toBe(repositories[2]!.id);
     expect(elements(h.reviewNodes()).find(node => node.type === "textarea")!.props.value).toBe(" tests\nraw-path ");
   } finally { onlineManager.setOnline(true); h.close(); }
+});
+
+function setProcessingDraft(h: ReturnType<typeof harness>, publicUrl = false) {
+  if (publicUrl) {
+    const input = elements(h.reviewNodes()).find(node => node.type === "input" && node.props.placeholder === "https://github.com/organization/repository")!;
+    (input.props.onChange as (event: unknown) => void)({ target: { value: "https://github.com/synthetic/public-repo" } });
+  } else {
+    const select = elements(h.reviewNodes()).find(node => node.type === "select" && node.props.value !== undefined && node.props.children && elements(node).some(option => option.props.value === repositories[2]!.id))!;
+    (select.props.onChange as (event: unknown) => void)({ target: { value: repositories[2]!.id } });
+  }
+  h.forceRender();
+  const paths = elements(h.reviewNodes()).find(node => node.type === "textarea")!;
+  (paths.props.onChange as (event: unknown) => void)({ target: { value: " docs/requirements\nREADME.md " } }); h.forceRender();
+}
+
+it.each(["TEST_CASES", "REQUIREMENTS"] as const)("actual %s processing parent avoids the legacy mount loop and retains scope/back without approvals", async purpose => {
+  const legacy = harness(true, purpose), fixed = harness(false, purpose);
+  try {
+    await legacy.pump(16); await fixed.pump(16);
+    expect(legacy.mounts.filter(name => name === "ConnectedRepositoryPicker").length).toBeGreaterThan(3);
+    expect(legacy.unmounts).toContain("ConnectedRepositoryPicker");
+    expect(legacy.reads.filter(read => read.kind === "caseFields").length).toBeGreaterThan(fixed.reads.filter(read => read.kind === "caseFields").length);
+    expect(fixed.mounts.filter(name => name === "ConnectedRepositoryPicker")).toHaveLength(2);
+    expect(fixed.unmounts.filter(name => name === "ConnectedRepositoryPicker")).toEqual([]);
+    expect(fixed.html().match(/Choose from 14 project repositories/g)).toHaveLength(2);
+    const count = fixed.reads.length; await fixed.pump(8); expect(fixed.reads).toHaveLength(count);
+    setProcessingDraft(fixed);
+    (fixed.button("Review scope and credits").props.onClick as () => void)(); await fixed.pump();
+    expect(fixed.html()).toContain("Approve source processing");
+    expect(fixed.html()).toContain("docs/requirements, README.md");
+    expect(fixed.html()).toContain("This is not a spending cap");
+    expect(fixed.button("Approve and process").props.disabled).toBe(true);
+    const inputs = elements(fixed.reviewNodes()).filter(node => node.type === "input" && node.props.type === "checkbox");
+    expect(inputs).toHaveLength(3); expect(inputs.map(node => node.props.checked)).toEqual([false, false, false]);
+    (fixed.button("Back to scope").props.onClick as () => void)(); await fixed.pump();
+    expect(elements(fixed.reviewNodes()).find(node => node.type === "textarea")!.props.value).toBe(" docs/requirements\nREADME.md ");
+    expect(elements(fixed.reviewNodes()).find(node => node.type === "select" && node.props.value === repositories[2]!.id)).toBeDefined();
+    expect(fixed.mounts.filter(name => name === "ConnectedRepositoryPicker")).toHaveLength(2);
+    expect(fixed.unmounts.filter(name => name === "ConnectedRepositoryPicker")).toEqual([]);
+    expect(fixed.processingCalls).toEqual([]); expect(legacy.processingCalls).toEqual([]); expect(fixed.writes).toEqual([]);
+    expect(fixed.reads.find(read => read.kind === "processingPreview")!.input).toMatchObject({ purpose, scope: { repositoryId: repositories[2]!.id, ref: "HEAD", maxItems: purpose === "REQUIREMENTS" ? 10 : 25 } });
+  } finally { legacy.close(); fixed.close(); }
+});
+
+it.each(["TEST_CASES", "REQUIREMENTS"] as const)("%s keeps request/three consent choices/attempted recovery intact through refresh, with no automatic processing retry", async purpose => {
+  const h = harness(false, purpose);
+  try {
+    await h.pump(); setProcessingDraft(h);
+    (h.button("Review scope and credits").props.onClick as () => void)(); await h.pump();
+    const approve = h.button("Approve and process").props.onClick as () => void;
+    approve(); await h.pump(); expect(h.processingCalls).toEqual([]);
+    for (let index = 0; index < 3; index++) {
+      const checkbox = elements(h.reviewNodes()).filter(node => node.type === "input" && node.props.type === "checkbox")[index]!;
+      (checkbox.props.onChange as (event: unknown) => void)({ target: { checked: true } }); h.forceRender();
+      if (index < 2) { (h.button("Approve and process").props.onClick as () => void)(); await h.pump(); expect(h.processingCalls).toEqual([]); }
+    }
+    expect(h.button("Approve and process").props.disabled).toBe(false);
+    const expectedScope = h.reads.find(read => read.kind === "processingPreview")!.input.scope;
+    (h.button("Approve and process").props.onClick as () => void)(); await h.pump();
+    expect(h.processingCalls).toHaveLength(1);
+    expect(h.processingCalls[0]!.scope).toEqual(expectedScope);
+    expect(h.processingCalls[0]!.consent).toMatchObject({ expectedScopeHash: "synthetic-processing-scope-hash", approveSourceRead: true, approveAiProcessing: true, approveVariableCredits: true });
+    const original = h.processingCalls[0];
+    expect(h.html()).toContain("Synthetic uncertain processing response");
+    expect(h.button("Approve and process").props.disabled).toBe(true);
+    await h.refreshAccess(); h.forceRender();
+    expect(elements(h.reviewNodes()).filter(node => node.type === "input" && node.props.type === "checkbox").map(node => [node.props.checked, node.props.disabled])).toEqual([[true, true], [true, true], [true, true]]);
+    expect(h.button("Approve and process").props.disabled).toBe(true);
+    expect(h.processingCalls).toEqual([original]);
+    const statusReads = h.reads.filter(read => read.kind === "processingStatus");
+    expect(statusReads.every(read => read.input.requestId === (original!.consent as { requestId: string }).requestId)).toBe(true);
+    (h.button("Recover retained drafts without another AI charge").props.onClick as () => void)();
+    expect(h.recovered).toEqual([h.savedResults]); expect(h.processingCalls).toEqual([original]); expect(h.writes).toEqual([]);
+  } finally { h.close(); }
+});
+
+it.each(["TEST_CASES", "REQUIREMENTS"] as const)("%s still recovers the selected saved attempt without reading source or obtaining new consent", async purpose => {
+  const h = harness(false, purpose);
+  try {
+    await h.pump();
+    const saved = elements(h.reviewNodes()).find(node => node.type === "select" && elements(node).some(option => option.props.value === h.savedRuns[0]!.requestId))!;
+    (saved.props.onChange as (event: unknown) => void)({ target: { value: h.savedRuns[0]!.requestId } }); await h.pump();
+    expect(h.html()).toContain("Saved run: completed");
+    (h.button("Recover retained drafts without another AI charge").props.onClick as () => void)();
+    expect(h.recovered).toEqual([h.savedResults]); expect(h.processingCalls).toEqual([]); expect(h.writes).toEqual([]);
+    expect(h.reads.filter(read => read.kind === "processingStatus").map(read => read.input.requestId)).toEqual([h.savedRuns[0]!.requestId]);
+    expect(h.reads.filter(read => read.kind === "processingPreview")).toEqual([]);
+  } finally { h.close(); }
+});
+
+it.each(["TEST_CASES", "REQUIREMENTS"] as const)("%s in-flight processing keeps busy/UUID/consent through withheld access without a second callback", async purpose => {
+  const h = harness(false, purpose);
+  try {
+    await h.pump(); setProcessingDraft(h);
+    (h.button("Review scope and credits").props.onClick as () => void)(); await h.pump();
+    for (let index = 0; index < 3; index++) {
+      const checkbox = elements(h.reviewNodes()).filter(node => node.type === "input" && node.props.type === "checkbox")[index]!;
+      (checkbox.props.onChange as (event: unknown) => void)({ target: { checked: true } }); h.forceRender();
+    }
+    h.holdProcessing(); (h.button("Approve and process").props.onClick as () => void)(); await h.pump();
+    const original = h.processingCalls[0]; expect(h.processingCalls).toHaveLength(1);
+    expect(h.button("Processing approved scope…").props.disabled).toBe(true);
+    expect(h.button("Back to scope").props.disabled).toBe(true);
+    void h.client.invalidateQueries({ queryKey: ["caseFields"] }); h.forceRender();
+    expect(h.html()).toContain("Repository scope and saved attempts remain retained and withheld");
+    expect(h.html()).not.toContain("Approve source processing");
+    await h.pump();
+    expect(h.button("Processing approved scope…").props.disabled).toBe(true);
+    expect(elements(h.reviewNodes()).filter(node => node.type === "input" && node.props.type === "checkbox").map(node => [node.props.checked, node.props.disabled])).toEqual([[true, true], [true, true], [true, true]]);
+    expect(h.processingCalls).toEqual([original]);
+    h.releaseProcessing(); await h.pump();
+    expect(h.button("Approve and process").props.disabled).toBe(true);
+    expect(h.processingCalls).toEqual([original]); expect(h.writes).toEqual([]);
+    expect(h.mounts.filter(name => name === "ConnectedRepositoryPicker")).toHaveLength(2);
+  } finally { h.releaseProcessing(); h.close(); }
+});
+
+it.each(["actor", "organization", "error", "paused", "read-only"] as const)("processing %s loss retains draft, disables picker and refuses captured registered/public review", async loss => {
+  for (const publicUrl of [false, true]) {
+    const h = harness(false, "REQUIREMENTS");
+    try {
+      await h.pump(); setProcessingDraft(h, publicUrl);
+      const oldReview = h.button("Review scope and credits").props.onClick as () => void;
+      if (loss === "actor") h.auth.userId = "foreign-clerk";
+      if (loss === "organization") h.setOrganization("foreign-org");
+      if (loss === "error") h.setReadFailure(Error("Synthetic private processing access error"));
+      if (loss === "paused") onlineManager.setOnline(false);
+      if (loss === "read-only") h.setEditor(false);
+      await h.refreshAccess(); h.forceRender(); oldReview(); h.forceRender();
+      const fieldset = elements(h.reviewNodes()).find(node => node.type === "fieldset")!;
+      expect(fieldset.props.disabled).toBe(true);
+      if (loss !== "read-only") {
+        expect(fieldset.props.hidden).toBe(true);
+        expect(h.html()).not.toContain("service-2");
+        expect(h.html()).not.toContain("public-repo");
+        expect(h.html()).not.toContain("README.md </textarea>");
+      }
+      expect(h.html()).not.toContain("Synthetic private processing access error");
+      expect(h.mounts.filter(name => name === "ConnectedRepositoryPicker")).toHaveLength(2);
+      expect(h.processingCalls).toEqual([]); expect(h.writes).toEqual([]);
+      expect(h.reads.filter(read => read.kind === "processingPreview")).toEqual([]);
+      h.auth.userId = "synthetic-clerk"; h.setOrganization("synthetic-org"); h.setReadFailure(null); onlineManager.setOnline(true); h.setEditor(true);
+      await h.refreshAccess(); h.forceRender();
+      expect(elements(h.reviewNodes()).find(node => node.type === "textarea")!.props.value).toBe(" docs/requirements\nREADME.md ");
+      if (!publicUrl) expect(elements(h.reviewNodes()).find(node => node.type === "select" && node.props.value === repositories[2]!.id)).toBeDefined();
+      else expect(elements(h.reviewNodes()).find(node => node.type === "input" && node.props.value === "https://github.com/synthetic/public-repo")).toBeDefined();
+      expect(h.unmounts.filter(name => name === "ConnectedRepositoryPicker")).toEqual([]);
+    } finally { onlineManager.setOnline(true); h.close(); }
+  }
 });

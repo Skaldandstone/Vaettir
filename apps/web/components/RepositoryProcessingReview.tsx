@@ -24,6 +24,7 @@ export function RepositoryProcessingReview({projectId,purpose,initialUrl,initial
   const cancel=trpcReact.agent.cancelRepositoryProcessing.useMutation({onSuccess:()=>void status.refetch()});
   const selectedRepository=repositories.isSuccess&&!repositories.error&&!repositories.isFetching&&!repositories.isPaused?repositories.data.find(repo=>repo.id===repositoryId):undefined;
   function review(){
+    const original=access.origin;if(!original||!access.owns(original,"edit"))return;
     if(repositoryId&&!selectedRepository){setError("Refresh the original project repository before reviewing source.");return;}
     setError(null);setScope({repoUrl:selectedRepository?.url??repoUrl.trim(),ref:ref.trim(),pathPrefixes:paths.split(/[,\n]/).map(p=>p.trim()).filter(Boolean),maxItems,...(selectedRepository?.provider==="gitlab"?{repositoryId:selectedRepository.id}:{})});setRequestId(crypto.randomUUID());setAttempted(false);setSource(false);setAi(false);setCost(false);
   }
@@ -34,8 +35,14 @@ export function RepositoryProcessingReview({projectId,purpose,initialUrl,initial
     catch(e){setError(e instanceof Error?e.message:"Source processing failed. Paid results remain in the saved run.");}
     finally{setBusy(false);void status.refetch();}
   }
-  if(!access.readable)return <p role="status">Restore the original signed-in account and project access. Repository scope and saved attempts remain retained and withheld here.</p>;
-  if(!scope)return <div style={{display:"grid",gap:12}}>
+  return <div role="region" aria-label="Repository processing review" style={{display:"grid",gap:12,minWidth:0}}>
+    {!access.readable&&<p role="status">Restore the original signed-in account and project access. Repository scope and saved attempts remain retained and withheld here.</p>}
+    {/* Keep the picker mounted while original access refreshes or the draft
+        switches stages; its staleTime:0 observer must not restart that refresh. */}
+    <fieldset hidden={!access.readable||!!scope} disabled={!access.readable||!access.canEdit||!!scope} style={{border:0,padding:0,margin:0,minWidth:0}}>
+      <ConnectedRepositoryPicker projectId={projectId} selectedId={repositoryId} disabled={!access.readable||!access.canEdit||!!scope} onSelect={repo=>{const original=access.origin;if(!original||!access.owns(original,"edit"))return;setRepositoryId(repo?.id??"");setUrl(repo?.url??"");setRef(repo?.revision??(repo?.provider==="gitlab"?"HEAD":"main"));}}/>
+    </fieldset>
+    {access.readable&&(!scope?<div style={{display:"grid",gap:12}}>
     <p>Choose a repository and the files to process. Connecting an account only verifies metadata access; it does not authorize reading source or using AI.</p>
     {runs.isSuccess&&runs.data.length>0&&<label>Previous approved runs<select value="" onChange={event=>{if(event.target.value){setRequestId(event.target.value);setAttempted(true);}}}><option value="">Select a saved run to recover or inspect</option>{runs.data.map(run=><option key={run.requestId} value={run.requestId}>{new Date(run.createdAt).toLocaleString()} · {run.status.toLowerCase()} · {run.repositoryUrl} · {run.ref}</option>)}</select></label>}
     {runs.error&&<><p role="alert">Saved runs could not be loaded.</p><button type="button" className="btn-secondary" onClick={()=>void runs.refetch()}>Retry saved runs</button></>}
@@ -43,16 +50,14 @@ export function RepositoryProcessingReview({projectId,purpose,initialUrl,initial
     {attempted&&status.isSuccess&&status.data&&<p role="status">Saved run: {status.data.status.toLowerCase()}{status.data.resolvedCommitSha?` · Commit ${status.data.resolvedCommitSha}`:""}</p>}
     {attempted&&status.isSuccess&&Boolean(status.data?.results)&&onRecovered&&<button type="button" className="btn-secondary" onClick={()=>onRecovered(status.data!.results)}>Recover retained drafts without another AI charge</button>}
     {repositories.error&&<><p role="alert">Registered repositories could not be loaded. Retry before selecting a saved reference.</p><button type="button" className="btn-secondary" onClick={()=>void repositories.refetch()}>Retry registered repositories</button></>}
-    <ConnectedRepositoryPicker projectId={projectId} selectedId={repositoryId} disabled={!access.canEdit} onSelect={repo=>{setRepositoryId(repo?.id??"");setUrl(repo?.url??"");setRef(repo?.revision??(repo?.provider==="gitlab"?"HEAD":"main"));}}/>
     {!repositoryId&&<label>Public repository HTTPS URL<input value={repoUrl} onChange={event=>setUrl(event.target.value)} style={{width:"100%"}} placeholder="https://github.com/organization/repository"/></label>}
     <label>Branch, tag or exact commit<input value={ref} onChange={event=>setRef(event.target.value)} style={{width:"100%"}}/></label>
     <p className="text-muted">Connected GitLab repositories use your existing verified grant after approval, including publicly reachable self-hosted instances. Other providers currently support public hosted source reads; private adapters must be available before scanning. No source is fetched when selecting a repository.</p>
     <label>Files or folder prefixes, one per line<textarea value={paths} onChange={event=>setPaths(event.target.value)} placeholder={purpose==="REQUIREMENTS"?"README.md\ndocs/requirements":"tests\nsrc/tests"} rows={3} style={{width:"100%"}}/></label>
     <p className="text-muted">Enter . only if you intend to allow all eligible paths. Secrets, binaries, generated dependencies and symlinks are excluded. No imported code is executed.</p>
     <label>Maximum {purpose==="REQUIREMENTS"?"documents":"test files"}<input type="number" min={1} max={purpose==="REQUIREMENTS"?10:25} value={maxItems} onChange={event=>setMaxItems(Number(event.target.value))}/></label>
-    <button type="button" className="btn-primary" disabled={!repoUrl.trim()||!ref.trim()||!paths.trim()||maxItems<1||maxItems>(purpose==="REQUIREMENTS"?10:25)} onClick={review}>Review scope and credits</button>
-  </div>;
-  return <div style={{display:"grid",gap:12}}>
+    <button type="button" className="btn-primary" disabled={!access.canEdit||!repoUrl.trim()||!ref.trim()||!paths.trim()||maxItems<1||maxItems>(purpose==="REQUIREMENTS"?10:25)} onClick={review}>Review scope and credits</button>
+  </div>:<div style={{display:"grid",gap:12}}>
     <h3>Approve source processing</h3><dl><dt>Repository</dt><dd style={{overflowWrap:"anywhere"}}>{scope.repoUrl}</dd><dt>Selected revision</dt><dd>{scope.ref}</dd><dt>Allowed file paths</dt><dd>{scope.pathPrefixes.join(", ")}</dd><dt>Purpose</dt><dd>{purpose==="REQUIREMENTS"?"Draft requirements for your review":"Draft test cases for review, preserving existing edits and approvals"}</dd></dl>
     <p>{scope.repositoryId?"GitLab resolves the selected revision, lists its pinned tree, and reads eligible files within your selected scope using the saved connection. No clone or imported code is executed.":"Cloning downloads the selected repository revision. The path selection limits files read and sent to AI, not the Git network transfer."} The exact resolved commit is retained with this run. A branch or tag does not establish what is deployed.</p>
     {preview.isLoading&&<p role="status">Checking current credit balance…</p>}
@@ -69,5 +74,6 @@ export function RepositoryProcessingReview({projectId,purpose,initialUrl,initial
     {status.isSuccess&&Boolean(status.data?.results)&&onRecovered&&<button type="button" className="btn-secondary" disabled={busy} onClick={()=>onRecovered(status.data!.results)}>Recover retained drafts without another AI charge</button>}
     {attempted&&<button type="button" className="btn-secondary" disabled={cancel.isPending} onClick={()=>cancel.mutate({projectId,requestId})}>Cancel remaining source processing</button>}
     <div style={{display:"flex",flexWrap:"wrap",gap:8}}><button type="button" className="btn-secondary" disabled={busy} onClick={()=>setScope(null)}>Back to scope</button><button type="button" className="btn-primary" disabled={busy||attempted||!source||!ai||!cost||!preview.isSuccess||!preview.data?.canSpend||preview.data.balance<preview.data.estimatedCredits} onClick={()=>void approve()}>{busy?"Processing approved scope…":"Approve and process"}</button></div>
+  </div>)}
   </div>;
 }
