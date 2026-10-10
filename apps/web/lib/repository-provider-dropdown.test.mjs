@@ -14,17 +14,26 @@ test('native provider dropdown always uses all seven providers, with a separate 
   const selection=picker.slice(picker.indexOf('onChange={event=>'),picker.indexOf('style={{width:',picker.indexOf('onChange={event=>')));
   assert.match(selection,/onChange\(provider\)/);assert.doesNotMatch(selection,/window.open|onConnect\(/);
 });
-test('explicit GitHub Connect opens one isolated popup; GitLab first selects its host without opening a blank window',()=>{
-  const open=picker.indexOf('window.open("about:blank"');
-  const block=picker.indexOf('if(!popup)');
-  const isolate=picker.indexOf('popup.opener=null');
-  const dispatch=picker.indexOf('onConnect(value,intent)');
-  assert.ok(open>0&&block>open&&isolate>block&&dispatch>isolate);
-  assert.match(picker.slice(block,isolate),/return;/);
-  assert.match(picker,/if\(authorize&&value==="github"\)/);
-  assert.doesNotMatch(picker,/if\(authorize&&oauth\)/);
+test('provider selection never flashes a premature popup; actual authorization is a later checked provider action',()=>{
+  assert.doesNotMatch(picker,/window.open|createRepositoryAuthorization/);
+  assert.match(picker,/onConnect\(value\)/);
+  assert.match(oauth,/onClick=\{\(\) => void authorize\(\)\}/);
+  assert.match(oauth,/if \(!canEditSelection\(\) \|\| !providerConfigurationId \|\| !connectionReady \|\| busy \|\| !canConnect\) return/);
   assert.match(picker,/Account authorization opens only after you select the host/);
   assert.match(picker,/repository metadata only; no source files or AI processing/);
+});
+
+test('configuration recheck is read-only, overlap guarded and publishes visible owner-bound feedback',()=>{
+  const handler=oauth.slice(oauth.indexOf('async function recheckConfiguration'),oauth.indexOf('const currentConfigurationCheck'));
+  assert.match(handler,/recheckingConfiguration.current\|\|busy\|\|!canEditSelection/);
+  assert.match(handler,/await configurations.refetch\(\)/);
+  assert.match(handler,/result.isSuccess&&!result.error&&!result.isFetching&&!result.isPaused/);
+  assert.match(handler,/result.data\?\.organizationId===owner.organizationId/);
+  assert.match(handler,/reader.owns\(owner,"edit"\)/);
+  assert.match(handler,/sameAuthScope/);
+  assert.doesNotMatch(handler,/mutateAsync|window.open|authorizeRepositoryAccount/);
+  assert.match(oauth,/role="status" aria-live="polite".*Checking \$\{providerName\} authorization setup/);
+  assert.match(oauth,/authorization is still not enabled/);
 });
 test('click receipt is one-use and fresh-access bound, inactive/denied/closed windows cannot authorize',()=>{
   assert.match(oauth,/if\(!initialAuthorization\)return/);

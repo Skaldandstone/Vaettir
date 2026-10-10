@@ -3553,7 +3553,9 @@ main.app-main {
   color: var(--muted);
   font-size: 12px;
 }
-.native-dialog.modal-panel:has(.creation-wizard) {
+/* Only a direct wizard can fill this flex shell. Wrapped project setup keeps
+   the dialog itself scrollable instead of clipping its unbounded content. */
+.native-dialog.modal-panel:has(> .creation-wizard) {
   display: flex;
   flex-direction: column;
   width: min(640px, calc(100vw - 32px));
@@ -3966,6 +3968,12 @@ main.app-main {
   padding-top: 14px;
 }
 .population-wizard { max-width: 760px; }
+.population-wizard .creation-wizard-body {
+  /* This wrapped wizard has no fixed-height body. Let wheel/touch scrolling
+     reach the bounded dialog rather than trapping it in a zero-range scroller. */
+  overflow: visible;
+  overscroll-behavior: auto;
+}
 .member-table-scroll { overflow-x: auto; }
 .member-table-scroll table { min-width: 600px; }
 .member-sort { color: inherit; background: transparent; padding: 4px 0; border: 0; text-align: left; font: inherit; }

@@ -36,3 +36,24 @@ test("actions and progress shrink within narrow dialogs without hiding content",
   assert.match(wizard,/repeat\(\$\{steps.length\}, minmax\(0, 1fr\)\)/);
   assert.doesNotMatch(rule(".creation-wizard"),/overflow(-x)?: hidden/);
 });
+
+test("only a direct wizard owns the bounded, non-scrolling modal shell", () => {
+  const shell = rule(".native-dialog.modal-panel:has(> .creation-wizard)");
+  assert.match(shell, /display: flex/);
+  assert.match(shell, /height: min\(720px, calc\(100dvh - 32px\)\)/);
+  assert.match(shell, /overflow: hidden/);
+  assert.doesNotMatch(css, /\.native-dialog\.modal-panel:has\(\.creation-wizard\)\s*\{/);
+});
+
+test("wrapped project setup retains the dialog scroll owner at short heights", () => {
+  const modal = rule(".modal-panel");
+  assert.match(modal, /overflow-y: auto/);
+  assert.match(rule(".native-dialog.modal-panel"), /max-height: calc\(100dvh - 32px\)/);
+  const population = rule(".modal-panel:has(.population-wizard)");
+  assert.doesNotMatch(population, /overflow[^;]*hidden/);
+  const body = rule(".population-wizard .creation-wizard-body");
+  assert.match(body, /overflow: visible/);
+  assert.match(body, /overscroll-behavior: auto/);
+  const source = readFileSync(new URL("../components/PopulationWizard.tsx", import.meta.url), "utf8");
+  assert.match(source, /<section className="population-wizard">[\s\S]*<fieldset[\s\S]*<CreationWizard/);
+});

@@ -134,6 +134,34 @@ function workflow() {
   return { props, auth, liveSdk, reader, configurations, recent, status, fetchList, connect, forbidden, render, button, settle, resume, done, browseTo, tree: () => current, html: () => renderToStaticMarkup(current), unmount: () => { for (const held of slots) held.cleanup?.(); } };
 }
 
+describe("actual configuration recheck without authorization",()=>{
+  function setup(){const h=workflow();h.props.providerId="github";h.configurations.data.configurations=[];h.recent.data=[];h.render();return h;}
+  const acknowledgement=(h:ReturnType<typeof workflow>)=>({...h.configurations,isSuccess:true,isFetching:false,isPaused:false,error:null});
+  it("shows in-flight feedback, admits one read and reports still-disabled configuration",async()=>{
+    const h=setup(),held=deferred<unknown>();h.configurations.refetch.mockReturnValueOnce(held.promise);
+    const click=required(h.button("Check again").props.onClick);click();click();h.render();
+    expect(h.configurations.refetch).toHaveBeenCalledTimes(1);expect(h.html()).toContain("Checking GitHub authorization setup");expect(h.button("Check again").props.disabled).toBe(true);
+    held.resolve(acknowledgement(h));await h.settle();expect(h.html()).toContain("Checked again. GitHub authorization is still not enabled");expect(h.button("Check again").props.disabled).toBe(false);expect(h.forbidden).not.toHaveBeenCalled();
+  });
+  it.each(["throw","returned-error","paused","foreign-org"])("refuses %s refresh as success and retains a retry",async failure=>{
+    const h=setup(),result=acknowledgement(h);
+    if(failure==="throw")h.configurations.refetch.mockRejectedValueOnce(Error("private secret diagnostic"));
+    else h.configurations.refetch.mockResolvedValueOnce({...result,...(failure==="returned-error"?{error:Error("private secret diagnostic")}:failure==="paused"?{isPaused:true}:{data:{...result.data,organizationId:"foreign-org"}})});
+    required(h.button("Check again").props.onClick)();await h.settle();expect(h.html()).toContain("Could not recheck GitHub authorization setup");expect(h.html()).not.toContain("private secret diagnostic");expect(h.html()).not.toContain("Checked again.");expect(h.button("Check again").props.disabled).toBe(false);expect(h.forbidden).not.toHaveBeenCalled();
+  });
+  it("lost SDK session withholds the late result and same-owner recovery remains retryable",async()=>{
+    const h=setup(),held=deferred<unknown>();h.configurations.refetch.mockReturnValueOnce(held.promise);required(h.button("Check again").props.onClick)();h.render();
+    h.liveSdk.session={id:"other-session",user:{id:"other-actor"}};h.render();held.resolve(acknowledgement(h));await h.settle();expect(h.html()).not.toContain("Checked again.");
+    h.liveSdk.session={id:h.auth.sessionId,user:{id:h.auth.userId}};h.render();expect(h.html()).toContain("Could not recheck GitHub");expect(h.button("Check again").props.disabled).toBe(false);expect(h.forbidden).not.toHaveBeenCalled();
+  });
+  it("fresh unavailable platform setup is disclosed without opening a provider popup",async()=>{
+    const h=setup();h.configurations.data.storageReady=false;h.render();h.configurations.refetch.mockResolvedValueOnce(acknowledgement(h));required(h.button("Check again").props.onClick)();await h.settle();expect(h.html()).toContain("GitHub platform setup is still unavailable");expect(h.forbidden).not.toHaveBeenCalled();
+  });
+  it("completed feedback is withheld when the provider changes",async()=>{
+    const h=setup();h.configurations.refetch.mockResolvedValueOnce(acknowledgement(h));required(h.button("Check again").props.onClick)();await h.settle();expect(h.html()).toContain("Checked again.");h.props.providerId="gitlab";h.render();expect(h.html()).not.toContain("Checked again.");expect(h.forbidden).not.toHaveBeenCalled();
+  });
+});
+
 describe("OAuth metadata fresh selection batch actual workflow", () => {
   it.each(["Clear selection","Select this page (up to 100 total)","toggle"])("unknown OAuth save retains exact retry input against pre-review %s callback",async action=>{
     const h=workflow();h.fetchList.mockResolvedValueOnce(listing(["repo-1","repo-2"]));await h.resume();required(h.button("Synthetic repo-1main · Metadata only").props.onClick)();h.render();

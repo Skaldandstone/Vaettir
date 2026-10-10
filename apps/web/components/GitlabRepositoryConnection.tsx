@@ -98,7 +98,7 @@ export function RepositoryOAuthConnection({ projectId, providerId, onConnected, 
   const canConnect=configurations.isSuccess&&configurations.data?.canConnect===true;
   const original = reader.origin, currentOrigin = reader.current;
   const readable = reader.readable, canEdit = reader.canEdit;
-  const frame = useMemo(() => ({ projectId, providerId, connectionId, original, currentOrigin,
+  const frame = useMemo(() => ({ projectId, providerId, connectionId, original, currentOrigin,active,
     userId: auth.userId ?? "", sessionId: auth.sessionId ?? "",
     eligible: active && !!(auth.isLoaded && auth.isSignedIn) && readable && canEdit &&
       original?.projectId === projectId && original.clerkActorId === auth.userId &&
@@ -215,6 +215,27 @@ export function RepositoryOAuthConnection({ projectId, providerId, onConnected, 
     void load(1, "");
   }, [step, connectionId, configurations.isSuccess, configurations.data?.canConnect, recent.isSuccess, status.isSuccess, status.data?.status, load]);
 
+  const [configurationCheck,setConfigurationCheck]=useState<{origin:CaseFieldOrigin;providerId:"github"|"gitlab";sessionId:string;phase:"checking"|"checked"|"failed"}|null>(null);
+  const recheckingConfiguration=useRef(false);
+  async function recheckConfiguration(){
+    if(recheckingConfiguration.current||busy||!canEditSelection()||!frame.original)return;
+    const owner=frame.original,sessionId=frame.sessionId;
+    recheckingConfiguration.current=true;
+    setConfigurationCheck({origin:owner,providerId,sessionId,phase:"checking"});
+    let succeeded=false;
+    try{const result=await configurations.refetch();succeeded=result.isSuccess&&!result.error&&!result.isFetching&&!result.isPaused&&result.data?.organizationId===owner.organizationId;}
+    catch{/* The query error gate and scoped status disclose failure, never cached success. */}
+    finally{
+      recheckingConfiguration.current=false;
+      const accepted=reader.owns(owner,"edit")&&committed.current?.active===true&&committed.current.projectId===projectId&&committed.current.providerId===providerId&&
+        sameAuthScope({userId:owner.clerkActorId,sessionId},typeof window==="undefined"?null:currentSessionScope(window.Clerk?.loaded?window.Clerk.session:null));
+      // A lost owner retains only a scoped failure, never a successful ACK.
+      // Recovery can explicitly recheck instead of retaining a stuck busy label.
+      setConfigurationCheck({origin:owner,providerId,sessionId,phase:accepted&&succeeded?"checked":"failed"});
+    }
+  }
+  const currentConfigurationCheck=configurationCheck&&original&&sameCaseFieldOrigin(configurationCheck.origin,original)&&configurationCheck.providerId===providerId&&configurationCheck.sessionId===auth.sessionId?configurationCheck:null;
+
   async function cancelConnection() {
     if(!canEditSelection())return;
     setError("");
@@ -245,6 +266,7 @@ export function RepositoryOAuthConnection({ projectId, providerId, onConnected, 
   return <div style={{ display: "grid", gap: 16, minWidth: 0 }}>
     <p ref={screenHeading} tabIndex={-1} className="text-muted" role="status" aria-live="polite">{({ authorize: "1. Connect your account", repositories: "2. Choose repositories", review: "3. Review connections", done: "Repositories connected" })[step]}</p>
     {failure && <p role="alert">{failure}</p>}
+    {currentConfigurationCheck&&<p role="status" aria-live="polite">{currentConfigurationCheck.phase==="checking"||configurations.isFetching?`Checking ${providerName} authorization setup…`:currentConfigurationCheck.phase==="failed"?`Could not recheck ${providerName} authorization setup. Try again; no authorization was started.`:!connectionReady?`Checked again. ${providerName} platform setup is still unavailable.`:!availableConfigurations.length?`Checked again. ${providerName} authorization is still not enabled. Ask a workspace administrator to enable the application.`:`Checked again. ${providerName} authorization setup is available. Review the connection options below.`}</p>}
     {step === "authorize" && <>
       {!connectionId ? <>
         {providerId === "gitlab" && <>
@@ -257,11 +279,11 @@ export function RepositoryOAuthConnection({ projectId, providerId, onConnected, 
         {!connectionReady ? <section role="alert">
           <strong>{providerName} authorization is unavailable</strong>
           <p>Vaettir platform setup is incomplete. No account or repository was connected.</p>
-          <button type="button" className="btn-secondary" onClick={() => void configurations.refetch()}>Check again</button>
+          <button type="button" className="btn-secondary" disabled={busy||configurations.isFetching||currentConfigurationCheck?.phase==="checking"} onClick={() => void recheckConfiguration()}>Check again</button>
         </section> : !availableConfigurations.length ? <section role="status">
           <strong>{providerName} authorization is not enabled yet</strong>
           <p>The application must be enabled once before users can connect. You do not need to enter application credentials here.</p>
-          <button type="button" className="btn-secondary" onClick={() => void configurations.refetch()}>Check again</button>
+          <button type="button" className="btn-secondary" disabled={busy||configurations.isFetching||currentConfigurationCheck?.phase==="checking"} onClick={() => void recheckConfiguration()}>Check again</button>
         </section> : <>
           {providerId !== "gitlab" && availableConfigurations.length > 1 && <div role="group" aria-label={`Choose ${providerName} instance`} style={{ display: "grid", gap: 8 }}>
             {availableConfigurations.map(c => <button type="button" key={c.id} className="btn-secondary" aria-pressed={provider?.id === c.id} disabled={busy} onClick={() => {if(canEditSelection())setConfigurationId(c.id);}}>{new URL(c.origin).hostname} · {c.authorizationKind === "github-app" ? "GitHub App" : "Legacy OAuth"}</button>)}

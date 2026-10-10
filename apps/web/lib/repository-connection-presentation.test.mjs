@@ -84,6 +84,12 @@ test("actual provider picker presents essential permission warning before single
   assert.equal(connects.length, 0);
   primary(element)[0].props.onClick(); assert.deepEqual(connects, ["github"]);
 });
+
+test("actual GitHub provider selection with legacy authorize flag dispatches without opening a blank popup",()=>{
+  const connects=[],h=harness("RepositoryProviderPicker","RepositoryProviderPicker",{value:"github",authorize:true,onChange:()=>{},onConnect:provider=>connects.push(provider)});
+  primary(h.render())[0].props.onClick();
+  assert.deepEqual(connects,["github"]);
+});
 test("actual export fallback retains honest unsupported boundary and secondary paths without writes", () => {
   const h = harness("RepositoryConnectionContent", "RepositoryExportConnection", { ...props(), provider: "git" });
   const element = h.render(), html = renderToStaticMarkup(element);
