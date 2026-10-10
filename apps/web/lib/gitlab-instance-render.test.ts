@@ -23,6 +23,7 @@ const sdk = { trpcReact: {
     begin: { useMutation: () => ({ mutateAsync: mock.begin, isPending: false }) },
     connectSelected: { useMutation: () => ({ isPending: false }) },
     disconnect: { useMutation: () => ({ isPending: false }) },
+    renewGitlab: { useMutation: () => ({ isPending: false, mutateAsync: () => {throw Error("No renewal in SSR fixture");} }) },
   },
 } };
 // Transpile the complete actual module, avoiding Vite's jsx:preserve limitation.
@@ -117,7 +118,7 @@ function workflow() {
     useState: (initial: unknown) => { const held = slot(); if (!Object.hasOwn(held, "value")) held.value = initial; return [held.value, (next: unknown) => { const value = typeof next === "function" ? next(held.value) : next; if (!Object.is(value, held.value)) { held.value = value; dirty = true; } }]; },
     useRef: (initial: unknown) => { const held = slot(); if (!Object.hasOwn(held, "value")) held.value = { current: initial }; return held.value; },
     useMemo: memo, useCallback: (callback: unknown, deps: readonly unknown[]) => memo(() => callback, deps), useEffect: effect, useLayoutEffect: effect,
-    trpcReact: { useUtils: () => utils, repositoryConnections: {installations:{useQuery:()=>({data:{installations:[],hasMore:false,limitReached:false},isFetchedAfterMount:false,isSuccess:false,error:null})},groups:{useQuery:()=>({data:{groups:[{id:"1",path:"synthetic/team",name:"Synthetic team"}],hasMore:false},error:null})}, configurations: { useQuery: () => configurations }, mine: { useQuery: () => recent }, status: { useQuery: () => status }, begin: { useMutation: () => ({ isPending: false, mutateAsync: forbidden }) }, disconnect: { useMutation: () => ({ isPending: false, mutateAsync: forbidden }) }, connectSelected: { useMutation: () => connect } } },
+    trpcReact: { useUtils: () => utils, repositoryConnections: {installations:{useQuery:()=>({data:{installations:[],hasMore:false,limitReached:false},isFetchedAfterMount:false,isSuccess:false,error:null})},groups:{useQuery:()=>({data:{groups:[{id:"1",path:"synthetic/team",name:"Synthetic team"}],hasMore:false},error:null})}, configurations: { useQuery: () => configurations }, mine: { useQuery: () => recent }, status: { useQuery: () => status }, begin: { useMutation: () => ({ isPending: false, mutateAsync: forbidden }) }, disconnect: { useMutation: () => ({ isPending: false, mutateAsync: forbidden }) }, renewGitlab:{useMutation:()=>({isPending:false,mutateAsync:forbidden})},connectSelected: { useMutation: () => connect } } },
     ProviderMark: () => React.createElement("span", null, "GitLab"), Link: ({ children }: { children: React.ReactNode }) => React.createElement("span", null, children), ConnectionAccessGate: ({ state }: { state: string }) => React.createElement("p", null, state), authorizeRepositoryAccount: forbidden, cancelRepositoryAuthorization: forbidden,
   });
   const source = readFileSync(new URL("../components/GitlabRepositoryConnection.tsx", import.meta.url), "utf8"), ast = ts.createSourceFile("connection.tsx", source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX), printer = ts.createPrinter();

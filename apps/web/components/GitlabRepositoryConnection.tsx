@@ -72,6 +72,9 @@ export function RepositoryOAuthConnection({ projectId, providerId, onConnected, 
   const begin = trpcReact.repositoryConnections.begin.useMutation();
   const connect = trpcReact.repositoryConnections.connectSelected.useMutation();
   const disconnect = trpcReact.repositoryConnections.disconnect.useMutation();
+  const renew = trpcReact.repositoryConnections.renewGitlab.useMutation({retry:false});
+  const renewalAttempt=useRef(new Set<string>());
+  const [renewalAttemptedId,setRenewalAttemptedId]=useState("");
   const status = trpcReact.repositoryConnections.status.useQuery({ id: connectionId }, {
     enabled: Boolean(connectionId) && configurations.isSuccess && configurations.data.canConnect, retry: false,
     refetchInterval: query => !query.state.error && (!query.state.data || ["PENDING", "VERIFYING"].includes(query.state.data.status)) ? 2000 : false,
@@ -86,7 +89,7 @@ export function RepositoryOAuthConnection({ projectId, providerId, onConnected, 
   const installationUrl = githubApp && typeof configuredInstallationUrl === "string" && /^https:\/\/github\.com\/apps\/[a-z0-9-]+\/installations\/new$/.test(configuredInstallationUrl) ? configuredInstallationUrl : null;
   const applicationSettings = `/settings/integrations/repositories?projectId=${encodeURIComponent(projectId)}&provider=${providerId}${instanceOrigin ? `&origin=${encodeURIComponent(instanceOrigin)}` : ""}`;
   const connectionReady = configurations.data?.storageReady ?? false;
-  const busy = begin.isPending || connect.isPending || disconnect.isPending || loading;
+  const busy = begin.isPending || connect.isPending || disconnect.isPending || renew.isPending || loading;
   const failure = error || configurations.error?.message || status.error?.message;
   const selectedRepos = Object.values(selectedDetails).filter(repo => selected.includes(repo.id));
 
@@ -221,6 +224,17 @@ export function RepositoryOAuthConnection({ projectId, providerId, onConnected, 
       await recent.refetch();
     } catch { setError("The connection could not be disconnected. Refresh its status before retrying."); }
   }
+  async function renewConnection(){
+    if(!canEditSelection()||busy||renewalAttempt.current.has(connectionId)||!frame.original||!status.isSuccess||!status.data.canRenew)return;
+    renewalAttempt.current.add(connectionId);setRenewalAttemptedId(connectionId);setError("");
+    try{
+      const result=await renew.mutateAsync({id:connectionId,originalOrganizationId:frame.original.organizationId,expectedClerkActorId:frame.original.clerkActorId});
+      if(!current()||result.id!==connectionId||result.originalOrganizationId!==frame.original.organizationId||result.expectedClerkActorId!==frame.original.clerkActorId)return;
+      await status.refetch();await recent.refetch();onConnected();
+    }catch{
+      if(current()){setError("Renewal was not confirmed. Refresh status; do not repeat an unconfirmed token exchange.");await status.refetch();}
+    }
+  }
 
   if (!active || !reader.readable || !auth.isLoaded || !auth.isSignedIn || original?.projectId !== projectId || original.clerkActorId !== auth.userId ||
     privateOwner && (privateOwner.providerId !== providerId || !sameCaseFieldOrigin(privateOwner.origin, currentOrigin)) ||
@@ -257,7 +271,7 @@ export function RepositoryOAuthConnection({ projectId, providerId, onConnected, 
           {installationUrl && installationLinkReady && <p><a href={installationUrl} target="_blank" rel="noopener noreferrer" onClick={event=>{if(!canEditSelection())event.preventDefault();}}>Install or manage the GitHub App on GitHub</a> · Choose the organization or account and allowed repositories there. Installation is a separate provider action; Vaettir does not install it automatically.</p>}
           <button type="button" disabled={!provider || busy} onClick={() => void authorize()}>{begin.isPending ? "Opening authorization…" : `Connect ${providerName}`}</button>
         </>}
-        {!!recent.data?.some(connection => connection.provider === providerId && (providerId !== "gitlab" || connection.accessMethod === "oauth")) && <details><summary>Resume saved access</summary><div style={{ display: "grid", gap: 8, marginTop: 8 }}>
+        {!!recent.data?.some(connection => connection.provider === providerId && (providerId !== "gitlab" || connection.accessMethod === "oauth")) && <details open><summary>Saved access</summary><div style={{ display: "grid", gap: 8, marginTop: 8 }}>
           {recent.data.filter(connection => connection.provider === providerId && (providerId !== "gitlab" || connection.accessMethod === "oauth")).map(connection => <button type="button" className="btn-secondary" key={connection.id} disabled={busy || !connectionReady} onClick={() => {
             if(!canEditSelection())return;
             const config = configurations.data?.configurations.find(c => c.provider === providerId && c.origin === connection.origin);
@@ -267,9 +281,11 @@ export function RepositoryOAuthConnection({ projectId, providerId, onConnected, 
         {configurations.data?.canConfigure && <Link className="text-muted" href={applicationSettings}>Manage workspace applications and saved grants</Link>}
         <div style={actions}><button type="button" className="btn-secondary" onClick={onClose}>Cancel</button></div>
       </> : <>
-        {!status.isSuccess ? <p role={status.error ? "alert" : "status"}>{status.error ? "Connection status could not be refreshed. Retry before loading repositories." : "Checking authorization status…"}</p> : <p role="status">{status.data.status === "VERIFIED" ? `Verified as ${status.data.accountLabel ?? `your ${providerName} account`}. ${loading ? "Loading repositories…" : "Choose repositories next."}` : ["PENDING", "VERIFYING"].includes(status.data.status) ? `Waiting for ${providerName} authorization. Complete it in the popup; this screen updates automatically.` : status.data.status === "EXPIRED" || status.data.status === "REVOCATION_PENDING" ? `This ${providerName} connection cannot be used. Revoke its grant before reconnecting; the encrypted credential is retained until cleanup is confirmed.` : `Connection ${status.data.status.toLowerCase()}. Start again to authorize.`}</p>}
+        {!status.isSuccess ? <p role={status.error ? "alert" : "status"}>{status.error ? "Connection status could not be refreshed. Retry before loading repositories." : "Checking authorization status…"}</p> : <p role="status">{status.data.status === "VERIFIED" ? `Verified as ${status.data.accountLabel ?? `your ${providerName} account`}. ${loading ? "Loading repositories…" : "Choose repositories next."}` : ["PENDING", "VERIFYING"].includes(status.data.status) ? `Waiting for ${providerName} authorization. Complete it in the popup; this screen updates automatically.` : status.data.status === "REFRESHING" ? "GitLab access renewal is in progress. No second renewal will be sent." : status.data.status === "REFRESH_UNKNOWN" ? "GitLab renewal could not be confirmed. Access remains unverified. Ask your workspace administrator to review the provider grant before reconnecting; no automatic retry or disconnect will be sent." : status.data.status === "EXPIRED" && status.data.canRenew ? "GitLab access has expired. Renew access below to verify it again; your registered repositories remain saved." : status.data.status === "EXPIRED" || status.data.status === "REVOCATION_PENDING" ? `This ${providerName} connection cannot be used. Revoke its grant before reconnecting; the encrypted credential is retained until cleanup is confirmed.` : `Connection ${status.data.status.toLowerCase()}. Start again to authorize.`}</p>}
         {status.isSuccess && status.data.status === "VERIFIED" && <button type="button" disabled={busy} onClick={() => void load(1, "")}>{listing ? "Choose repositories" : "Retry repository list"}</button>}
-        <div style={actions}><button type="button" className="btn-secondary" disabled={busy} onClick={() => void status.refetch()}>Refresh status</button><button type="button" className="btn-secondary" disabled={busy} onClick={() => void cancelConnection()}>Revoke token and disconnect</button><button type="button" className="btn-secondary" onClick={onClose}>Close</button></div>
+        {providerId==="gitlab"&&status.isSuccess&&status.data.status==="EXPIRED"&&status.data.canRenew&&<button type="button" className="btn-primary" disabled={busy||renewalAttemptedId===connectionId} onClick={()=>void renewConnection()}>{renew.isPending?"Renewing access…":"Renew GitLab access"}</button>}
+        {providerId==="gitlab"&&status.isSuccess&&status.data.status==="EXPIRED"&&!status.data.canRenew&&<p className="text-muted">This older connection has no saved renewal token. Authorize once more to enable future renewal; your registered repositories remain saved.</p>}
+        <div style={actions}><button type="button" className="btn-secondary" disabled={busy} onClick={() => void status.refetch()}>Refresh status</button><button type="button" className="btn-secondary" disabled={busy||!!status.data&&["REFRESHING","REFRESH_UNKNOWN"].includes(status.data.status)} onClick={() => void cancelConnection()}>Revoke token and disconnect</button><button type="button" className="btn-secondary" onClick={onClose}>Close</button></div>
         <p className="text-muted">Disconnect revokes the provider grant before removing saved access. If revocation fails, Vaettir retains it for retry.</p>
       </>}
     </>}

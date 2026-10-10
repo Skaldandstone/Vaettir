@@ -4,7 +4,7 @@ import { Prisma } from "@vaettir/db";
 import { router,protectedProcedure,requireProjectAccess,requireOrgRole,type Context } from "../trpc.js";
 import { encryptToken,decryptToken,type EncryptedToken } from "../services/tokenEncryption.js";
 import { repositoryProviderOrigin } from "../services/repositoryProviderHttp.js";
-import { GitlabOAuthRevocationPendingError,createGitlabAuthorization,gitlabRepositoryScopeSchema,hashOAuthState,listGitlabGroups,listGitlabRepositories,repositoryOAuthRedirect,repositorySelectionSchema,revokeGitlabAuthorization,verifyGitlabAuthorization,verifyGitlabAccessToken } from "../services/gitlabRepositoryOAuth.js";
+import { GitlabOAuthRevocationPendingError,createGitlabAuthorization,gitlabRepositoryScopeSchema,hashOAuthState,listGitlabGroups,listGitlabRepositories,repositoryOAuthRedirect,repositorySelectionSchema,revokeGitlabAuthorization,verifyGitlabAuthorization,verifyGitlabAccessToken,refreshGitlabAuthorization } from "../services/gitlabRepositoryOAuth.js";
 import { GITHUB_ORIGIN, GithubOAuthRevocationPendingError, createGithubAuthorization, listGithubRepositories, revokeGithubAuthorization, verifyGithubAuthorization } from "../services/githubRepositoryOAuth.js";
 import { verifyBitbucketAuthorization, listBitbucketRepositories } from "../services/bitbucketRepositoryConnection.js";
 import { azureOrganizationUrl, listAzureRepositories } from "../services/azureRepositoryConnection.js";
@@ -68,6 +68,9 @@ async function liveRepositoryAppEditor(tx:Prisma.TransactionClient,ctx:Context,r
 }
 const clearCredentials={encryptedToken:Prisma.DbNull,encryptedVerifier:Prisma.DbNull,catalog:Prisma.DbNull,catalogAt:null,tokenExpiresAt:null,verifiedAt:null};
 const gitlabAccessTokenMarker=z.object({accessMethod:z.literal("gitlab-token/v1"),requestHash:z.string().regex(/^[a-f0-9]{64}$/)}).strict();
+const gitlabRenewalSchema=z.object({version:z.literal("gitlab-refresh/v1"),refreshToken:z.string().min(1).max(10000),accountId:z.string().regex(/^[1-9][0-9]*$/),redirectUri:z.string().url().max(1000)}).strict();
+const encryptedCredential=z.object({ciphertext:z.string(),iv:z.string(),authTag:z.string()});
+const renewable=(row:{provider:string;status:string;configurationId:string|null;encryptedVerifier:unknown})=>row.provider==="gitlab"&&row.status==="VERIFIED"&&!!row.configurationId&&encryptedCredential.safeParse(row.encryptedVerifier).success;
 function connectionAccessMethod(row:{provider:string;configurationId:string|null;encryptedVerifier:unknown}):"token"|"oauth"|"unavailable"{
   if(["bitbucket","azure-devops"].includes(row.provider))return "token";
   if(row.provider!=="gitlab")return row.provider==="github"&&!!row.configurationId?"oauth":"unavailable";
@@ -190,7 +193,7 @@ export const repositoryConnectionsRouter=router({
   }),
   mine:protectedProcedure.input(projectInput).query(async({ctx,input})=>{
     await editor(ctx,input.projectId);
-    const rows=await ctx.prisma.repositoryConnection.findMany({where:{projectId:input.projectId,actorId:ctx.user.id,status:{in:["PENDING","VERIFYING","VERIFIED","REVOCATION_PENDING"]}},orderBy:{createdAt:"desc"},take:20,select:{id:true,provider:true,origin:true,status:true,accountLabel:true,authorizationExpiresAt:true,tokenExpiresAt:true,configurationId:true,encryptedVerifier:true,organizationId:true}});
+    const rows=await ctx.prisma.repositoryConnection.findMany({where:{projectId:input.projectId,actorId:ctx.user.id,status:{in:["PENDING","VERIFYING","VERIFIED","REVOCATION_PENDING","REFRESHING","REFRESH_UNKNOWN"]}},orderBy:{createdAt:"desc"},take:20,select:{id:true,provider:true,origin:true,status:true,accountLabel:true,authorizationExpiresAt:true,tokenExpiresAt:true,configurationId:true,encryptedVerifier:true,organizationId:true}});
     return Promise.all(rows.map(async row=>({id:row.id,provider:row.provider,origin:row.origin,status:publicStatus(row),accountLabel:row.accountLabel,accessMethod:connectionAccessMethod(row),...await connectionDescriptor(ctx,row)})));
   }),
   configurations:protectedProcedure.input(projectInput).query(async({ctx,input})=>{
@@ -322,7 +325,8 @@ export const repositoryConnectionsRouter=router({
       // Permissions may have changed while the provider was contacted.
       await ctx.prisma.$transaction(async tx=>{
         if(app)await liveRepositoryAppEditor(tx,ctx,row);else await liveEditor(tx,row.organizationId,ctx.user.id);
-        const saved=await tx.repositoryConnection.updateMany({where:{id:row.id,status:"VERIFYING"},data:{status:"VERIFIED",encryptedToken:jsonToken(encryptToken(verified.token)),tokenExpiresAt:verified.expiresAt,accountLabel:verified.accountLabel,verifiedAt:new Date()}});
+        const renewal=row.provider==="gitlab"&&"renewal" in verified&&verified.renewal?gitlabRenewalSchema.parse({version:"gitlab-refresh/v1",...verified.renewal}):null;
+        const saved=await tx.repositoryConnection.updateMany({where:{id:row.id,status:"VERIFYING"},data:{status:"VERIFIED",encryptedToken:jsonToken(encryptToken(verified.token)),encryptedVerifier:renewal?jsonToken(encryptToken(JSON.stringify(renewal))):Prisma.DbNull,tokenExpiresAt:verified.expiresAt,accountLabel:verified.accountLabel,verifiedAt:new Date()}});
         if(saved.count!==1)throw new Error("Connection canceled");
       });
       return{id:row.id,status:"VERIFIED" as const};
@@ -342,14 +346,56 @@ export const repositoryConnectionsRouter=router({
   }),
   status:protectedProcedure.input(z.object({id:z.string()})).query(async({ctx,input})=>{
     const row=await ownConnection(ctx,input.id);
-    return{id:row.id,status:publicStatus(row),accountLabel:row.accountLabel,origin:row.origin,...await connectionDescriptor(ctx,row)};
+    return{id:row.id,status:publicStatus(row),canRenew:renewable(row),accountLabel:row.accountLabel,origin:row.origin,...await connectionDescriptor(ctx,row)};
+  }),
+  renewGitlab:protectedProcedure.input(z.object({id:z.string(),originalOrganizationId:z.string(),expectedClerkActorId:z.string()})).mutation(async({ctx,input})=>{
+    const row=await ownConnection(ctx,input.id);
+    if(row.organizationId!==input.originalOrganizationId||ctx.authenticatedClerkSubject!==input.expectedClerkActorId||!renewable(row))
+      throw new TRPCError({code:"PRECONDITION_FAILED",message:"This saved grant cannot be renewed. Restore the original account or authorize GitLab again."});
+    const renewal=gitlabRenewalSchema.parse(JSON.parse(decrypt(row.encryptedVerifier)));
+    // Pin the original callback and immutable tenant application, not current env credentials.
+    if(renewal.redirectUri!==repositoryOAuthRedirect())throw unavailable();
+    const config=await ctx.prisma.$transaction(async tx=>{
+      await liveRepositoryAppEditor(tx,ctx,row);
+      await tx.$queryRaw`SELECT id FROM "RepositoryConnection" WHERE id=${row.id} FOR UPDATE`;
+      await tx.$queryRaw`SELECT id FROM "RepositoryProviderConfiguration" WHERE id=${row.configurationId} FOR SHARE`;
+      const current=await tx.repositoryConnection.findUniqueOrThrow({where:{id:row.id}});
+      const application=await tx.repositoryProviderConfiguration.findFirst({where:{id:row.configurationId!,organizationId:row.organizationId,provider:"gitlab",origin:row.origin}});
+      if(!application||!renewable(current)||current.projectId!==row.projectId||current.actorId!==row.actorId||current.organizationId!==row.organizationId||current.origin!==row.origin||current.configurationId!==row.configurationId||JSON.stringify(current.encryptedVerifier)!==JSON.stringify(row.encryptedVerifier)||JSON.stringify(current.encryptedToken)!==JSON.stringify(row.encryptedToken))
+        throw new TRPCError({code:"CONFLICT",message:"The saved grant changed. Refresh its status before renewing."});
+      if(current.tokenExpiresAt&&current.tokenExpiresAt.getTime()>Date.now()+30000)return null;
+      // Durable one-use claim: crashes and response loss cannot resubmit a rotating token.
+      await tx.repositoryConnection.update({where:{id:row.id},data:{status:"REFRESHING",catalog:Prisma.DbNull,catalogAt:null}});
+      return application;
+    });
+    if(!config)return{id:row.id,renewed:true,originalOrganizationId:row.organizationId,expectedClerkActorId:input.expectedClerkActorId};
+    let issuedGrant:RevocableGrant|null=null;
+    try{
+      const credentials=applicationCredentials(config);
+      const verified=await refreshGitlabAuthorization({origin:row.origin,...credentials,...renewal});
+      issuedGrant={provider:"gitlab",origin:row.origin,...credentials,token:verified.token};
+      const next=gitlabRenewalSchema.parse({version:"gitlab-refresh/v1",...verified.renewal});
+      await ctx.prisma.$transaction(async tx=>{
+        await liveRepositoryAppEditor(tx,ctx,row);
+        await tx.$queryRaw`SELECT id FROM "RepositoryConnection" WHERE id=${row.id} FOR UPDATE`;
+        const current=await tx.repositoryConnection.findUniqueOrThrow({where:{id:row.id}});
+        if(current.status!=="REFRESHING"||current.configurationId!==row.configurationId||JSON.stringify(current.encryptedVerifier)!==JSON.stringify(row.encryptedVerifier)||JSON.stringify(current.encryptedToken)!==JSON.stringify(row.encryptedToken))throw new TRPCError({code:"CONFLICT"});
+        await tx.repositoryConnection.update({where:{id:row.id},data:{status:"VERIFIED",encryptedToken:jsonToken(encryptToken(verified.token)),encryptedVerifier:jsonToken(encryptToken(JSON.stringify(next))),tokenExpiresAt:verified.expiresAt,accountLabel:verified.accountLabel,verifiedAt:new Date()}});
+      });
+      return{id:row.id,renewed:true,originalOrganizationId:row.organizationId,expectedClerkActorId:input.expectedClerkActorId};
+    }catch(error){
+      let unrevokedToken=error instanceof GitlabOAuthRevocationPendingError?error.token:null;
+      if(issuedGrant){try{await revokeGrant(issuedGrant);}catch{unrevokedToken=issuedGrant.token;}}
+      await ctx.prisma.repositoryConnection.updateMany({where:{id:row.id,status:"REFRESHING"},data:unrevokedToken?{status:"REVOCATION_PENDING",encryptedToken:jsonToken(encryptToken(unrevokedToken)),encryptedVerifier:Prisma.DbNull,tokenExpiresAt:null,verifiedAt:null}:issuedGrant?{...clearCredentials,status:"FAILED"}:{status:"REFRESH_UNKNOWN"}});
+      throw new TRPCError({code:"PRECONDITION_FAILED",message:unrevokedToken?"GitLab renewal could not be verified or revoked. The issued credential is retained for disconnect retry.":issuedGrant?"GitLab renewal was not admitted; its issued credential was revoked. Authorize again.":"GitLab renewal outcome is unconfirmed. No automatic retry is allowed. Revoke Vaettir access in GitLab before reconnecting."});
+    }
   }),
   disconnect:protectedProcedure.input(z.object({id:z.string()})).mutation(async({ctx,input})=>{
     const row=await disconnectableConnection(ctx,input.id);
     if(row.provider==="gitlab" && connectionAccessMethod(row)==="token")throw new TRPCError({code:"BAD_REQUEST",message:"Remove saved GitLab token access, then revoke the token in GitLab. Vaettir cannot confirm provider revocation for access tokens."});
     if(row.provider==="gitlab" && connectionAccessMethod(row)==="unavailable")throw new TRPCError({code:"PRECONDITION_FAILED",message:"This GitLab access method is unavailable. No credential was used or removed."});
     const adminDisconnect=row.actorId!==ctx.user.id;
-    if(row.status==="VERIFYING")throw new TRPCError({code:"PRECONDITION_FAILED",message:"Authorization is still being verified. Retry disconnect after it finishes."});
+    if(["VERIFYING","REFRESHING","REFRESH_UNKNOWN"].includes(row.status))throw new TRPCError({code:"PRECONDITION_FAILED",message:"Authorization or renewal is still being verified or has an unknown outcome. Revoke application access in the provider if the outcome cannot be recovered. Credentials remain retained."});
     if(["bitbucket","azure-devops"].includes(row.provider))throw new TRPCError({code:"BAD_REQUEST",message:"Remove saved token access, then revoke the token in your provider."});
     if(row.encryptedToken){
       if(!row.configurationId)throw unavailable();

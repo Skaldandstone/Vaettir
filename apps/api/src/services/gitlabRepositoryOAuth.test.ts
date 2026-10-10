@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { repositoryProviderJson, repositoryProviderRevokeGitlabToken } from "./repositoryProviderHttp.js";
-import { createGitlabAuthorization, GitlabOAuthRevocationPendingError, listGitlabGroups, listGitlabRepositories, repositorySelectionSchema, revokeGitlabAuthorization, verifyGitlabAuthorization, verifyGitlabAccessToken } from "./gitlabRepositoryOAuth.js";
+import { createGitlabAuthorization, GitlabOAuthRevocationPendingError, listGitlabGroups, listGitlabRepositories, repositorySelectionSchema, revokeGitlabAuthorization, verifyGitlabAuthorization, verifyGitlabAccessToken, refreshGitlabAuthorization } from "./gitlabRepositoryOAuth.js";
 
 vi.mock("./repositoryProviderHttp.js", async importOriginal => ({
   ...await importOriginal<typeof import("./repositoryProviderHttp.js")>(), repositoryProviderJson: vi.fn(), repositoryProviderRevokeGitlabToken: vi.fn(),
@@ -11,6 +11,26 @@ const token = { access_token: "synthetic-token", token_type: "Bearer", expires_i
 beforeEach(() => { vi.resetAllMocks(); });
 
 describe("GitLab repository OAuth contract", () => {
+  it("retains refresh credentials and immutable account/callback identity after account verification",async()=>{
+    vi.mocked(repositoryProviderJson).mockResolvedValueOnce({...token,refresh_token:"synthetic-refresh"}).mockResolvedValueOnce({id:17,username:"fixture-user"});
+    expect((await verifyGitlabAuthorization(input)).renewal).toEqual({refreshToken:"synthetic-refresh",accountId:"17",redirectUri:input.redirectUri});
+  });
+  it("renews with the pinned app and callback, and retains the rotated token",async()=>{
+    vi.mocked(repositoryProviderJson).mockResolvedValueOnce({...token,access_token:"next-access",refresh_token:"next-refresh"}).mockResolvedValueOnce({id:17,username:"renamed-user"});
+    const result=await refreshGitlabAuthorization({...input,refreshToken:"old-refresh",accountId:"17"});
+    expect(Object.fromEntries(vi.mocked(repositoryProviderJson).mock.calls[0]![2]!.form!)).toEqual({client_id:input.clientId,client_secret:input.clientSecret,redirect_uri:input.redirectUri,refresh_token:"old-refresh",grant_type:"refresh_token"});
+    expect(result).toMatchObject({token:"next-access",accountLabel:"renamed-user",renewal:{refreshToken:"next-refresh",accountId:"17"}});
+  });
+  it.each([{accountId:18,refresh_token:"next-refresh"},{accountId:17,refresh_token:undefined}])("revokes an inadmissible renewal without adopting its identity: %o",async value=>{
+    vi.mocked(repositoryProviderJson).mockResolvedValueOnce({...token,refresh_token:value.refresh_token}).mockResolvedValueOnce({id:value.accountId,username:"fixture-user"});
+    await expect(refreshGitlabAuthorization({...input,refreshToken:"old-refresh",accountId:"17"})).rejects.toThrow();
+    expect(repositoryProviderRevokeGitlabToken).toHaveBeenCalledExactlyOnceWith(input.origin,input.clientId,input.clientSecret,token.access_token);
+  });
+  it("does not automatically repeat a renewal after an ambiguous exchange",async()=>{
+    vi.mocked(repositoryProviderJson).mockRejectedValue(new Error("synthetic transport timeout"));
+    await expect(refreshGitlabAuthorization({...input,refreshToken:"old-refresh",accountId:"17"})).rejects.toThrow();
+    expect(repositoryProviderJson).toHaveBeenCalledTimes(1);expect(repositoryProviderRevokeGitlabToken).not.toHaveBeenCalled();
+  });
   it("discovers bounded authorized group paths without source bodies or redirects",async()=>{
     vi.mocked(repositoryProviderJson).mockResolvedValue([{id:44,full_path:"team/product",name:"Product"}]);
     await expect(listGitlabGroups(input.origin,token.access_token,2,"product & all_available=true")).resolves.toEqual([{id:"44",path:"team/product",name:"Product"}]);

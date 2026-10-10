@@ -4,12 +4,16 @@ import { useState } from "react";
 import { RepositoryOAuthConnection } from "./GitlabRepositoryConnection";
 import { TokenRepositoryConnection } from "./TokenRepositoryConnection";
 import { GuidedGitlabTokenSetup } from "./GuidedGitlabTokenSetup";
+import { trpcReact } from "@/lib/trpcReact";
 
 /** Choose a connection mechanism before submitting any account or secret. */
 export function GitlabConnectionChoices({ projectId, onConnected, onClose, active = true }: {
   projectId: string; onConnected: () => void; onClose: () => void; active?: boolean;
 }) {
   const [method, setMethod] = useState<"guided" | "token" | "oauth" | null>(null);
+  const configurations=trpcReact.repositoryConnections.configurations.useQuery({projectId},{enabled:active});
+  const recent=trpcReact.repositoryConnections.mine.useQuery({projectId},{enabled:active&&configurations.isSuccess&&configurations.data.canConnect});
+  const savedOAuth=active&&recent.isSuccess&&!recent.isFetching&&!recent.isPaused&&recent.data.some(connection=>connection.provider==="gitlab"&&connection.accessMethod==="oauth");
   if (method === "guided") return <GuidedGitlabTokenSetup projectId={projectId} onConnected={onConnected} onClose={onClose} active={active}/>;
   if (method === "token") return <TokenRepositoryConnection projectId={projectId} providerId="gitlab" onConnected={onConnected} onClose={onClose} active={active}/>;
   if (method === "oauth") return <RepositoryOAuthConnection projectId={projectId} providerId="gitlab" onConnected={onConnected} onClose={onClose} active={active}/>;
@@ -26,7 +30,7 @@ export function GitlabConnectionChoices({ projectId, onConnected, onClose, activ
     </details>
     <footer className="connection-footer">
       <button type="button" className="btn-secondary" onClick={onClose}>Cancel</button>
-      <button type="button" className="btn-primary" disabled={!active} onClick={() => setMethod("guided")}>Connect self-hosted GitLab</button>
+      <button type="button" className="btn-primary" disabled={!active} onClick={() => setMethod(savedOAuth?"oauth":"guided")}>{savedOAuth?"Manage existing GitLab access":"Connect self-hosted GitLab"}</button>
     </footer>
   </section>;
 }

@@ -51,19 +51,32 @@ export async function verifyGitlabAccessToken(input:{origin:string;token:string}
     throw new Error("GitLab account access could not be verified for this instance.");
   }
 }
-export async function verifyGitlabAuthorization(input:{origin:string;clientId:string;clientSecret:string;redirectUri:string;code:string;verifier:string}) {
-  const response=await repositoryProviderJson(input.origin,"/oauth/token",{form:new URLSearchParams({client_id:input.clientId,client_secret:input.clientSecret,redirect_uri:input.redirectUri,code:input.code,code_verifier:input.verifier,grant_type:"authorization_code"})});
+export type GitlabVerifiedAuthorization={token:string;expiresAt:Date;accountLabel:string;renewal?:{refreshToken:string;accountId:string;redirectUri:string}};
+async function verifyIssuedGitlabAuthorization(input:{origin:string;clientId:string;clientSecret:string;redirectUri:string},response:unknown,expectedAccountId?:string):Promise<GitlabVerifiedAuthorization> {
   const issued=z.object({access_token:z.string().min(1).max(10000)}).parse(response);
   try {
-    const result=z.object({access_token:z.string().min(1).max(10000),token_type:z.string().refine(value=>value.toLowerCase()==="bearer"),expires_in:z.number().positive().max(86400),scope:z.string()}).parse(response);
+    const result=z.object({access_token:z.string().min(1).max(10000),refresh_token:z.string().min(1).max(10000).optional(),token_type:z.string().refine(value=>value.toLowerCase()==="bearer"),expires_in:z.number().int().positive().max(86400),scope:z.string()}).parse(response);
     if(!result.scope.split(/\s+/).includes("read_api")) throw new Error("Read API permission was not granted");
     const account=z.object({id:z.number().int().positive(),username:z.string().min(1).max(200)}).parse(await repositoryProviderJson(input.origin,"/api/v4/user",{token:result.access_token}));
-    return {token:result.access_token,expiresAt:new Date(Date.now()+result.expires_in*1000),accountLabel:account.username};
+    if(expectedAccountId && String(account.id)!==expectedAccountId)throw new Error("GitLab account identity changed during renewal");
+    if(expectedAccountId && !result.refresh_token)throw new Error("GitLab did not return a rotated refresh token");
+    return {token:result.access_token,expiresAt:new Date(Date.now()+result.expires_in*1000),accountLabel:account.username,
+      ...(result.refresh_token?{renewal:{refreshToken:result.refresh_token,accountId:String(account.id),redirectUri:input.redirectUri}}:{})};
   } catch(error) {
     try { await revokeGitlabAuthorization({origin:input.origin,clientId:input.clientId,clientSecret:input.clientSecret,token:issued.access_token}); }
     catch { throw new GitlabOAuthRevocationPendingError(issued.access_token); }
     throw error;
   }
+}
+export async function verifyGitlabAuthorization(input:{origin:string;clientId:string;clientSecret:string;redirectUri:string;code:string;verifier:string}):Promise<GitlabVerifiedAuthorization> {
+  const response=await repositoryProviderJson(input.origin,"/oauth/token",{form:new URLSearchParams({client_id:input.clientId,client_secret:input.clientSecret,redirect_uri:input.redirectUri,code:input.code,code_verifier:input.verifier,grant_type:"authorization_code"})});
+  return verifyIssuedGitlabAuthorization(input,response);
+}
+/** GitLab rotates both tokens. Never retry an ambiguous exchange automatically. */
+export async function refreshGitlabAuthorization(input:{origin:string;clientId:string;clientSecret:string;redirectUri:string;refreshToken:string;accountId:string}):Promise<GitlabVerifiedAuthorization> {
+  z.string().min(1).max(10000).parse(input.refreshToken);z.string().regex(/^[1-9][0-9]*$/).parse(input.accountId);
+  const response=await repositoryProviderJson(input.origin,"/oauth/token",{form:new URLSearchParams({client_id:input.clientId,client_secret:input.clientSecret,redirect_uri:input.redirectUri,refresh_token:input.refreshToken,grant_type:"refresh_token"})});
+  return verifyIssuedGitlabAuthorization(input,response,input.accountId);
 }
 export async function listGitlabRepositories(origin:string,token:string,page:number,search:string,scope?:GitlabRepositoryScope,onVerifiedGroup?:(id:number)=>void):Promise<RepositorySelection[]> {
   origin=repositoryProviderOrigin(origin);

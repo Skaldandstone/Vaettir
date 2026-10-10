@@ -3,6 +3,7 @@ import { TRPCError } from "@trpc/server";
 import type { PrismaClient, User } from "@vaettir/db";
 
 export const PRIVATE_BETA_TIER = "private-beta";
+export const isPrivateBetaTier=(key:string)=>key===PRIVATE_BETA_TIER||key.startsWith("private-beta-unlimited:");
 export const BETA_TEAM_LIMIT = 3;
 
 export function normalizeBetaEmail(email: string) {

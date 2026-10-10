@@ -25,7 +25,7 @@ import { WEBHOOK_EVENT_TYPES } from "../services/webhookDelivery.js";
 import { assertPublicHttpUrl, UnsafeUrlError } from "../services/urlGuard.js";
 import {
   bootstrapBetaOrganization,
-  PRIVATE_BETA_TIER,
+  isPrivateBetaTier,
 } from "../services/privateBeta.js";
 import {
   createBillingCheckoutSession,
@@ -1107,7 +1107,7 @@ export const organizationRouter = router({
         ]);
 
         if (
-          organization.planTier.key === PRIVATE_BETA_TIER ||
+          isPrivateBetaTier(organization.planTier.key) ||
           !targetTier.isPublic
         ) {
           throw new TRPCError({
@@ -1265,7 +1265,7 @@ export const organizationRouter = router({
       ]);
 
       let nextTierNameForOneMoreFullSeat: string | null = null;
-      const privateBeta = org.planTier.key === PRIVATE_BETA_TIER;
+      const privateBeta = isPrivateBetaTier(org.planTier.key);
       if (
         !privateBeta &&
         org.planTier.maxFullSeats !== null &&

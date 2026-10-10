@@ -20,7 +20,7 @@ function harness(file, name, props, initial = []) {
     repositoryProviders: [["github", "GitHub"], ["gitlab", "GitLab"], ["git", "Self-hosted Git"]],
     GuidedGitlabTokenSetup: boundary("guided"), TokenRepositoryConnection: boundary("token"), RepositoryOAuthConnection: boundary("oauth"), PopulationDocuments: boundary("documents"), MigrationWizard: boundary("tests"),
     IconButton: props => React.createElement("button", { "aria-label": props.label, onClick: props.onClick, disabled: props.disabled }, "Back"),
-    trpcReact: { project: { addRepository: { useMutation: () => ({ isPending: false, mutateAsync: () => { throw Error("No mutation in presentation fixture"); } }) } } },
+    trpcReact: { repositoryConnections: {configurations:{useQuery:()=>({isSuccess:true,data:{canConnect:true}})},mine:{useQuery:()=>({isSuccess:true,isFetching:false,isPaused:false,data:[]})}},project: { addRepository: { useMutation: () => ({ isPending: false, mutateAsync: () => { throw Error("No mutation in presentation fixture"); } }) } } },
     createRepositoryAuthorization: () => { throw Error("No authorization in presentation fixture"); }, cancelRepositoryAuthorization: () => {},
     window: { open: () => { throw Error("No popup in presentation fixture"); } },
   };
@@ -44,6 +44,22 @@ test("actual GitLab choices retain one footer primary with alternatives disclose
   assert.match(html, /Other connection methods/);
   primary(element)[0].props.onClick();
   assert.match(renderToStaticMarkup(h.render()), /guided/);
+});
+test("existing GitLab OAuth replaces the primary action, without duplicating buttons or authorizing automatically",()=>{
+  const h=harness("GitlabConnectionChoices","GitlabConnectionChoices",props());
+  h.sandbox.trpcReact.repositoryConnections.mine.useQuery=()=>({isSuccess:true,isFetching:false,isPaused:false,data:[{provider:"gitlab",accessMethod:"oauth"}]});
+  const element=h.render();assert.equal(primary(element).length,1);assert.equal(primary(primary(element)[0]).length,1);
+  assert.equal(primary(element)[0].props.children,"Manage existing GitLab access");
+  primary(element)[0].props.onClick();assert.match(renderToStaticMarkup(h.render()),/oauth/);
+});
+test("fetching, paused or inactive saved access never substitutes an unverified connection action",()=>{
+  for(const state of [{isFetching:true},{isPaused:true},{isSuccess:false}]){
+    const h=harness("GitlabConnectionChoices","GitlabConnectionChoices",props());
+    h.sandbox.trpcReact.repositoryConnections.mine.useQuery=()=>({isSuccess:true,isFetching:false,isPaused:false,data:[{provider:"gitlab",accessMethod:"oauth"}],...state});
+    assert.equal(primary(h.render())[0].props.children,"Connect self-hosted GitLab");
+  }
+  const h=harness("GitlabConnectionChoices","GitlabConnectionChoices",{...props(),active:false});
+  assert.equal(primary(h.render())[0].props.disabled,true);
 });
 test("actual token guide validates host, keeps required permissions visible and has one verify primary", () => {
   const h = harness("GuidedGitlabTokenSetup", "GuidedGitlabTokenSetup", props());

@@ -3,6 +3,7 @@ import { roleLabel } from "@/lib/membership";
 
 import { useState } from "react";
 import { useParams } from "next/navigation";
+import { useAuth } from "@clerk/nextjs";
 import { trpcReact, type RouterOutputs } from "@/lib/trpcReact";
 
 // P1-15: the three reads are react-query hooks (retry: false so a
@@ -15,6 +16,7 @@ import { trpcReact, type RouterOutputs } from "@/lib/trpcReact";
 export default function AdminOrganizationDetailPage() {
   const params = useParams<{ id: string }>();
   const organizationId = params.id;
+  const auth=useAuth();
   const utils = trpcReact.useUtils();
 
   const orgQuery = trpcReact.admin.getOrganization.useQuery({ organizationId }, { retry: false });
@@ -29,6 +31,7 @@ export default function AdminOrganizationDetailPage() {
   const [error, setError] = useState<string | null>(null);
 
   const adjustPlanTierMutation = trpcReact.admin.adjustPlanTier.useMutation();
+  const unlimitedSeatsMutation=trpcReact.admin.unlimitedPrivateBetaSeats.useMutation({retry:false});
   const resendInviteMutation = trpcReact.admin.resendInvite.useMutation();
   const suspendMutation = trpcReact.admin.suspendOrganization.useMutation();
   const reactivateMutation = trpcReact.admin.reactivateOrganization.useMutation();
@@ -93,6 +96,14 @@ export default function AdminOrganizationDetailPage() {
     } finally {
       setBusy(false);
     }
+  }
+  async function enableUnlimitedSeats(){
+    const r=requireReason();
+    if(!r||!org||!auth.isLoaded||!auth.isSignedIn||!auth.userId||orgQuery.isFetching||orgQuery.isPaused||busy)return;
+    setBusy(true);setError(null);
+    try{await unlimitedSeatsMutation.mutateAsync({organizationId:org.id,expectedPlanTierId:org.planTierId,expectedClerkActorId:auth.userId,reason:r});await loadAll();}
+    catch(e){setError(e instanceof Error?e.message:"Seat exception was not confirmed. Refresh workspace state before retrying.");}
+    finally{setBusy(false);}
   }
 
   async function resendInvite(invitationId: string) {
@@ -288,6 +299,7 @@ export default function AdminOrganizationDetailPage() {
           </button>
           <span>currently {org.planTierName}</span>
         </div>
+        {planTiers.find(t=>t.id===org.planTierId)?.key==="private-beta"&&<details style={{marginTop:12}}><summary>Private workspace seat exception</summary><p>Only a current staff owner can remove this workspace’s full and read-only seat caps. Pricing, features, included credits and balances stay unchanged; no invitations are sent.</p><button type="button" onClick={()=>void enableUnlimitedSeats()} disabled={busy||!auth.isLoaded||!auth.isSignedIn||orgQuery.isFetching||orgQuery.isPaused}>Enable unlimited seats for this workspace</button></details>}
       </section>
 
       <section style={{ margin: "20px 0" }}>

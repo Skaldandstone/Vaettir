@@ -90,6 +90,7 @@ function harness(initial: Selection, currentListing = listing([repository("new-a
       begin: { useMutation: () => ({ isPending: false, mutateAsync: writes }) },
       connectSelected: { useMutation: () => ({ isPending: false, mutateAsync: writes }) },
       disconnect: { useMutation: () => ({ isPending: false, mutateAsync: writes }) },
+      renewGitlab: { useMutation: () => ({ isPending: false, mutateAsync: writes }) },
     } },
     ProviderMark: () => React.createElement("span", null, "GitLab"),
     Link: ({ children }: { children: React.ReactNode }) => React.createElement("span", null, children),
