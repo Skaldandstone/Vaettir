@@ -8,6 +8,25 @@ import {resolve,join,dirname,basename,relative,sep} from "node:path";
 import {tmpdir} from "node:os";
 import {pathToFileURL} from "node:url";
 export const PACKAGE_VERSION="1:2.47.3-0+deb13u1+vaettir1";
+export const CURL_PUBLIC_CERTIFICATE=Object.freeze({url:'https://keyring.debian.org/pks/lookup?op=get&search=0x05DB6A837E105F4B1D02C55FBBA9FAADCCFB4707',rawBytes:64986,rawSha256:'4451f938a540a2da428b68598422c49a4bc176ed1c9d91dd5ecd346303608618',keyringBytes:47569,keyringSha256:'96d7267ff6f1c1285a804d682afb1c3eb5efea85c920b4f93c2a0d2052983723',primaryFingerprint:'BFAE9E331A867A7C80D8EB78F4E4ACDBB8D08BE0',signerFingerprint:'05DB6A837E105F4B1D02C55FBBA9FAADCCFB4707',primaryExpiry:1868115570,signerExpiry:1868115646});
+export function dearmorPublicCertificate(bytes){
+  assert.ok(Buffer.isBuffer(bytes)&&bytes.length>0&&bytes.length<=65536);assert.ok(bytes.every(x=>x===10||(x>=32&&x<=126)),'Noncanonical ASCII armor');
+  const lines=bytes.toString('ascii').replace(/\n$/,'').split('\n');assert.equal(lines.shift(),'-----BEGIN PGP PUBLIC KEY BLOCK-----');assert.equal(lines.pop(),'-----END PGP PUBLIC KEY BLOCK-----');
+  if(lines[0]==='Comment: Key ID: 0xBBA9FAADCCFB4707')lines.shift();assert.equal(lines.shift(),'','Unknown public armor header');
+  const checksum=lines.pop();assert.match(checksum,/^=[A-Za-z0-9+/]{4}$/);assert.ok(lines.length>0);assert.ok(lines.every((line,index)=>index===lines.length-1?/^[A-Za-z0-9+/]{2,64}={0,2}$/.test(line):/^[A-Za-z0-9+/]{64}$/.test(line)));
+  const encoded=lines.join(''),binary=Buffer.from(encoded,'base64');assert.equal(binary.toString('base64'),encoded,'Noncanonical base64');let crc=0xb704ce;
+  for(const byte of binary){crc^=byte<<16;for(let bit=0;bit<8;bit++){crc<<=1;if(crc&0x1000000)crc^=0x1864cfb;}}crc&=0xffffff;const expected=Buffer.from([crc>>16,(crc>>8)&255,crc&255]).toString('base64');assert.equal(checksum,'='+expected,'Public armor CRC24 mismatch');return binary;
+}
+export function decodePinnedCurlCertificate(raw){
+  assert.ok(Buffer.isBuffer(raw));assert.equal(raw.length,CURL_PUBLIC_CERTIFICATE.rawBytes);assert.equal(createHash('sha256').update(raw).digest('hex'),CURL_PUBLIC_CERTIFICATE.rawSha256);
+  const prefix='<!DOCTYPE html\n\tPUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"\n\t "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">\n<html xmlns="http://www.w3.org/1999/xhtml" lang="en-US" xml:lang="en-US">\n<head>\n<title>Public Key Server -- Get ``0xBBA9FAADCCFB4707&#39;&#39;</title>\n<meta http-equiv="Content-Type" content="text/html; charset=iso-8859-1" />\n</head>\n<body>\n<h1>Public Key Server -- Get ``0xBBA9FAADCCFB4707\'\'</h1><pre>\n',suffix='\n</pre>\n</body>\n</html>';
+  const text=raw.toString('ascii');assert.ok(text.startsWith(prefix)&&text.endsWith(suffix),'Unreviewed certificate response wrapper');const ring=dearmorPublicCertificate(Buffer.from(text.slice(prefix.length,-suffix.length),'ascii'));assert.equal(ring.length,CURL_PUBLIC_CERTIFICATE.keyringBytes);assert.equal(createHash('sha256').update(ring).digest('hex'),CURL_PUBLIC_CERTIFICATE.keyringSha256);return ring;
+}
+export async function fetchPinnedCurlCertificate({fetchImpl=fetch}={}){
+  let response;try{response=await fetchImpl(CURL_PUBLIC_CERTIFICATE.url,{method:'GET',redirect:'error',signal:AbortSignal.timeout(20000)});}catch{throw Error('Pinned public certificate transport failed');}assert.equal(response.status,200);assert.ok(response.body);const chunks=[];let size=0;
+  try{for await(const bytes of response.body){size+=bytes.length;assert.ok(size<=65536,'Public certificate bound exceeded');chunks.push(bytes);}}catch{throw Error('Pinned public certificate body rejected');}const raw=Buffer.concat(chunks),keyring=decodePinnedCurlCertificate(raw),proof={schema:'vaettir-same-principal-public-certificate/v1',...CURL_PUBLIC_CERTIFICATE,newTrustedPrincipal:false,trustPolicyChanged:false};assertCurlCertificateArtifacts(raw,keyring,proof);return{raw,keyring,proof};
+}
+export function assertCurlCertificateArtifacts(raw,ring,proof,nowSeconds=Date.now()/1000){assert.ok(decodePinnedCurlCertificate(raw).equals(ring));assert.deepEqual(proof,{schema:'vaettir-same-principal-public-certificate/v1',...CURL_PUBLIC_CERTIFICATE,newTrustedPrincipal:false,trustPolicyChanged:false});assert.ok(Number.isFinite(nowSeconds)&&nowSeconds<CURL_PUBLIC_CERTIFICATE.primaryExpiry&&nowSeconds<CURL_PUBLIC_CERTIFICATE.signerExpiry,'Existing principal certificate expired');return proof;}
 export const SELECTED_GIT_SUITES=Object.freeze(['t0001-init.sh','t1000-read-tree-m-3way.sh','t5601-clone.sh']);
 export function assertSelectedGitUpstream(rows){assert.deepEqual(rows.map(row=>row.name),SELECTED_GIT_SUITES);assert.ok(rows.every(row=>row.exitCode===0&&Number.isInteger(row.passed)&&row.passed>0&&Number.isInteger(row.skipped)&&row.skipped>=0&&/^[a-f0-9]{64}$/.test(row.logSha256)));}
 export const PUBLIC_BUILD_STAGES=Object.freeze(['SOURCE_SIGNATURES','SOURCE_EXTRACT','CURL_AUTORECONF','CURL_CONFIGURE','CURL_BUILD','CURL_UPSTREAM','CURL_INSTALL','CURL_METADATA','GIT_BUILD','GIT_UPSTREAM','GIT_INSTALL','PACKAGE_METADATA','PACKAGE_RUNTIME','PACKAGE_BUILD']);
@@ -106,15 +125,17 @@ export async function checkGitTLS(git,gitExec){
 }
 export async function inspectBuilt(root,sources,config,upstream){
   assert.ok(root.startsWith("/")&&root!=="/");assertSourceIdentity(sources);const features=assertCurlConfiguration(config);
+  const certificatePath=join(root,'usr/share/doc/vaettir-git-openssl/sources'),publicCertificate=assertCurlCertificateArtifacts(readFileSync(join(certificatePath,'curl-public-key.response.html')),readFileSync(join(certificatePath,'curl-public-key.gpg')),JSON.parse(readFileSync(join(certificatePath,'curl-public-key-proof.json'))));
   const files=packageFiles(root),elf=files.filter(row=>row.elf);assertPackageELF(elf);
   const git=join(root,"usr/bin/git"),gitExec=join(root,"usr/lib/git-core");assert.equal(command(git,["--version"]).trim(),"git version 2.47.3.vaettir1");
   assertSelectedGitUpstream(upstream.git);assert.ok(upstream.curl.selected.length===5);assert.equal(upstream.curl.exitCode,0);assert.equal(upstream.curl.passed,5);assert.equal(upstream.curl.skipped,0);
   const tls=await checkGitTLS(git,gitExec);
-  return{schema:"vaettir-git-openssl-runtime/v1",package:"vaettir-git-openssl",packageVersion:PACKAGE_VERSION,sources,configuration:features,upstreamTests:upstream,files,tlsChecks:tls,networkScope:"disposable loopback only",wholeImageSecurityAcceptance:false};
+  return{schema:"vaettir-git-openssl-runtime/v1",package:"vaettir-git-openssl",packageVersion:PACKAGE_VERSION,sources,publicCertificate,configuration:features,upstreamTests:upstream,files,tlsChecks:tls,networkScope:"disposable loopback only",wholeImageSecurityAcceptance:false};
 }
 async function installed(){
   const root="/usr/share/vaettir",proof=JSON.parse(readFileSync(join(root,"git-openssl-runtime-proof.json"),"utf8"));assert.equal(proof.schema,"vaettir-git-openssl-runtime/v1");assert.equal(proof.packageVersion,PACKAGE_VERSION);assertSourceIdentity(proof.sources);assertCurlConfiguration(JSON.parse(readFileSync(join(root,"git-openssl-curl-config.json"),"utf8")));
   const packagedSources=JSON.parse(readFileSync(join(root,"git-openssl-source-manifest.json"),"utf8"));assertSourceIdentity(packagedSources);assert.deepEqual(packagedSources,proof.sources);
+  const certificatePath='/usr/share/doc/vaettir-git-openssl/sources',publicCertificate=assertCurlCertificateArtifacts(readFileSync(join(certificatePath,'curl-public-key.response.html')),readFileSync(join(certificatePath,'curl-public-key.gpg')),JSON.parse(readFileSync(join(certificatePath,'curl-public-key-proof.json'))));assert.deepEqual(proof.publicCertificate,publicCertificate);
   assert.deepEqual(JSON.parse(readFileSync(join(root,"git-openssl-upstream-tests.json"),"utf8")),proof.upstreamTests);
   for(const name of ["git","curl"])assertSignature(readFileSync(join(root,"git-openssl-"+name+"-signature.status"),"utf8"),expectedSources[name].signer);
   assertAbsentFamilies(readFileSync("/var/lib/dpkg/status","utf8"));assert.equal(command("dpkg-query",["-W","-f=${Version}","vaettir-git-openssl"]),PACKAGE_VERSION);

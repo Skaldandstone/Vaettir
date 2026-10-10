@@ -42,8 +42,18 @@ d54dd598bf05927a726deb38df31c6a255ba83ff1de57c5d1464dac3ed8f44a1  curl_8.22.0.or
 fcd906e7d7a370e5079206b365b229fffc54b8fe311f60179ff7412e2cf77d5c  curl_8.22.0.orig.tar.gz.asc
 5c20c1b4eab8a991d1a4a543d36c96c56291bf36337452756796765506b8821c  curl_8.22.0-1.debian.tar.xz
 CURL_PINS
-gpgv --keyring /usr/share/keyrings/debian-keyring.gpg --keyring /usr/share/keyrings/debian-maintainers.gpg --status-fd 1 curl_8.22.0-1.dsc > "$checks/curl-source-signature.status"
+node --input-type=module - "$checker" "$checks" <<'CURL_CERTIFICATE'
+import {openSync,writeFileSync,fsyncSync,closeSync} from 'node:fs';import {join} from 'node:path';import {pathToFileURL} from 'node:url';
+const [checker,checks]=process.argv.slice(2),{fetchPinnedCurlCertificate}=await import(pathToFileURL(checker)),certificate=await fetchPinnedCurlCertificate();
+for(const [name,bytes]of [['curl-public-key.response.html',certificate.raw],['curl-public-key.gpg',certificate.keyring],['curl-public-key-proof.json',Buffer.from(JSON.stringify(certificate.proof,null,2)+'\n')]]){const fd=openSync(join(checks,name),'wx',0o600);try{writeFileSync(fd,bytes);fsyncSync(fd);}finally{closeSync(fd);}}
+CURL_CERTIFICATE
+# Use only the refreshed byte-pinned certificate for the same existing signer;
+# a stale duplicate from the base keyring must not determine expiry validity.
+gpgv --keyring "$checks/curl-public-key.gpg" --status-fd 1 curl_8.22.0-1.dsc > "$checks/curl-source-signature.status"
 grep -q '^\[GNUPG:\] VALIDSIG 05DB6A837E105F4B1D02C55FBBA9FAADCCFB4707 ' "$checks/curl-source-signature.status"
+node --input-type=module - "$checker" "$checks/curl-source-signature.status" <<'CURL_EARLY_SIGNATURE'
+import {readFileSync} from 'node:fs';import {pathToFileURL} from 'node:url';const [checker,status]=process.argv.slice(2),{assertSignature,CURL_PUBLIC_CERTIFICATE}=await import(pathToFileURL(checker));assertSignature(readFileSync(status,'utf8'),CURL_PUBLIC_CERTIFICATE.signerFingerprint);
+CURL_EARLY_SIGNATURE
 stage=SOURCE_EXTRACT
 dpkg-source -x "$source_dir/curl/curl_8.22.0-1.dsc" "$build_root/curl-source"
 dpkg-source -x "$source_dir/git/git_2.47.3-0+deb13u1.dsc" "$build_root/git-source"
@@ -125,6 +135,7 @@ cp "$build_root/git-source/debian/copyright" "$source_bundle/git/debian-copyrigh
 cp "$build_root/curl-source/COPYING" "$source_bundle/curl/"
 cp "$build_root/curl-source/debian/copyright" "$source_bundle/curl/debian-copyright"
 cp "$0" "$checker" "$(dirname "$checker")/git-openssl-sources.json" "$(dirname "$checker")/fetch-git-openssl-sources.mjs" "$source_bundle/"
+cp "$checks/curl-public-key.response.html" "$checks/curl-public-key.gpg" "$checks/curl-public-key-proof.json" "$source_bundle/"
 stage=PACKAGE_METADATA
 node --input-type=module - "$checks" <<'TEST_METADATA'
 import {readFileSync,writeFileSync} from 'node:fs';import {join} from 'node:path';import assert from 'node:assert/strict';import {createHash} from 'node:crypto';
