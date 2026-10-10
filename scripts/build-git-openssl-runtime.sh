@@ -124,7 +124,9 @@ mkdir -p "$package_root/usr/lib/vaettir/git-openssl" "$package_root/usr/share/va
 cp "$curl_prefix/bin/curl" "$package_root/usr/lib/vaettir/git-openssl/curl"
 # Retain the exact signed corresponding source, build instructions and notices.
 # This package is an internal runtime artifact, not a public distribution action.
-source_bundle="$package_root/usr/share/doc/vaettir-git-openssl/sources"
+# Debian slim excludes /usr/share/doc during dpkg installation. This required
+# runtime provenance must live under the retained canonical Vaettir namespace.
+source_bundle="$package_root/usr/share/vaettir/git-openssl-sources"
 mkdir -p "$source_bundle/git" "$source_bundle/curl"
 cp "$source_dir/git"/git_* "$source_bundle/git/"
 cp "$source_dir/curl"/curl_* "$source_bundle/curl/"

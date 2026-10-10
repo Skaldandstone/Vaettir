@@ -125,7 +125,7 @@ export async function checkGitTLS(git,gitExec){
 }
 export async function inspectBuilt(root,sources,config,upstream){
   assert.ok(root.startsWith("/")&&root!=="/");assertSourceIdentity(sources);const features=assertCurlConfiguration(config);
-  const certificatePath=join(root,'usr/share/doc/vaettir-git-openssl/sources'),publicCertificate=assertCurlCertificateArtifacts(readFileSync(join(certificatePath,'curl-public-key.response.html')),readFileSync(join(certificatePath,'curl-public-key.gpg')),JSON.parse(readFileSync(join(certificatePath,'curl-public-key-proof.json'))));
+  const certificatePath=join(root,'usr/share/vaettir/git-openssl-sources'),publicCertificate=assertCurlCertificateArtifacts(readFileSync(join(certificatePath,'curl-public-key.response.html')),readFileSync(join(certificatePath,'curl-public-key.gpg')),JSON.parse(readFileSync(join(certificatePath,'curl-public-key-proof.json'))));
   const files=packageFiles(root),elf=files.filter(row=>row.elf);assertPackageELF(elf);
   const git=join(root,"usr/bin/git"),gitExec=join(root,"usr/lib/git-core");assert.equal(command(git,["--version"]).trim(),"git version 2.47.3.vaettir1");
   assertSelectedGitUpstream(upstream.git);assert.ok(upstream.curl.selected.length===5);assert.equal(upstream.curl.exitCode,0);assert.equal(upstream.curl.passed,5);assert.equal(upstream.curl.skipped,0);
@@ -135,7 +135,7 @@ export async function inspectBuilt(root,sources,config,upstream){
 async function installed(){
   const root="/usr/share/vaettir",proof=JSON.parse(readFileSync(join(root,"git-openssl-runtime-proof.json"),"utf8"));assert.equal(proof.schema,"vaettir-git-openssl-runtime/v1");assert.equal(proof.packageVersion,PACKAGE_VERSION);assertSourceIdentity(proof.sources);assertCurlConfiguration(JSON.parse(readFileSync(join(root,"git-openssl-curl-config.json"),"utf8")));
   const packagedSources=JSON.parse(readFileSync(join(root,"git-openssl-source-manifest.json"),"utf8"));assertSourceIdentity(packagedSources);assert.deepEqual(packagedSources,proof.sources);
-  const certificatePath='/usr/share/doc/vaettir-git-openssl/sources',publicCertificate=assertCurlCertificateArtifacts(readFileSync(join(certificatePath,'curl-public-key.response.html')),readFileSync(join(certificatePath,'curl-public-key.gpg')),JSON.parse(readFileSync(join(certificatePath,'curl-public-key-proof.json'))));assert.deepEqual(proof.publicCertificate,publicCertificate);
+  const certificatePath='/usr/share/vaettir/git-openssl-sources',publicCertificate=assertCurlCertificateArtifacts(readFileSync(join(certificatePath,'curl-public-key.response.html')),readFileSync(join(certificatePath,'curl-public-key.gpg')),JSON.parse(readFileSync(join(certificatePath,'curl-public-key-proof.json'))));assert.deepEqual(proof.publicCertificate,publicCertificate);
   assert.deepEqual(JSON.parse(readFileSync(join(root,"git-openssl-upstream-tests.json"),"utf8")),proof.upstreamTests);
   for(const name of ["git","curl"])assertSignature(readFileSync(join(root,"git-openssl-"+name+"-signature.status"),"utf8"),expectedSources[name].signer);
   assertAbsentFamilies(readFileSync("/var/lib/dpkg/status","utf8"));assert.equal(command("dpkg-query",["-W","-f=${Version}","vaettir-git-openssl"]),PACKAGE_VERSION);

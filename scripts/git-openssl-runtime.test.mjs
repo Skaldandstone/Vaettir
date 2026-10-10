@@ -21,13 +21,19 @@ test('builder and installed checker retain mandatory provenance and real TLS gat
   const build=readFileSync(new URL('./build-git-openssl-runtime.sh',import.meta.url),'utf8'),check=readFileSync(new URL('./check-git-openssl-runtime.mjs',import.meta.url),'utf8');
   assert.ok(build.indexOf('SOURCE_METADATA\nstage=PACKAGE_RUNTIME\ntimeout 180 node')>=0);assert.match(build,/dpkg-source -x/);assert.match(build,/--disable-shared --enable-static --with-openssl/);assert.match(build,/--without-gssapi/);assert.match(build,/--disable-ldap --disable-ldaps/);assert.match(build,/logSha256:hash\(log\)/);
   assert.match(check,/await execute\(git,args/);assert.match(check,/Untrusted CA must be rejected/);assert.match(check,/wrong-host/);assert.match(check,/invalid-extension/);assert.match(check,/assert\.deepEqual\(packagedSources,proof.sources\)/);assert.match(check,/proof.upstreamTests/);assert.match(check,/git-openssl-"\+name\+"-signature.status/);assert.match(check,/wholeImageSecurityAcceptance:false/);
-  assert.match(build, /source_bundle="\$package_root\/usr\/share\/doc\/vaettir-git-openssl\/sources"/);
+  assert.match(build, /source_bundle="\$package_root\/usr\/share\/vaettir\/git-openssl-sources"/);
   assert.match(build, /git-source\/debian\/copyright/);
   assert.match(build, /curl-source\/debian\/copyright/);
   assert.ok(build.indexOf('source_bundle=') < build.indexOf('timeout 180 node "$checker"'));
   assert.match(build, /Source: git \(1:2.47.3-0\+deb13u1\)/);
   assert.match(build, /Static-Built-Using: curl \(= 8.22.0-1\)/);
   assert.doesNotMatch(build,/--disable-tls-srp/);assert.match(build,/unrecognized options/);assert.match(build,/TFLAGS='-a 1 2 3 4 5'/);
+});
+test('required source/certificate bundle survives slim doc exclusions at one canonical runtime path',()=>{
+  const build=readFileSync(new URL('./build-git-openssl-runtime.sh',import.meta.url),'utf8'),checker=readFileSync(new URL('./check-git-openssl-runtime.mjs',import.meta.url),'utf8'),pruner=readFileSync(new URL('./prune-runtime-package-manager.mjs',import.meta.url),'utf8');
+  const path='/usr/share/vaettir/git-openssl-sources';assert.ok(!path.startsWith('/usr/share/doc/'));assert.match(build,/source_bundle="\$package_root\/usr\/share\/vaettir\/git-openssl-sources"/);assert.match(checker,/certificatePath=join\(root,'usr\/share\/vaettir\/git-openssl-sources'\)/);assert.match(checker,/certificatePath='\/usr\/share\/vaettir\/git-openssl-sources'/);assert.doesNotMatch(build+checker,/usr\/share\/doc\/vaettir-git-openssl\/sources/);
+  for(const source of ['git_*','curl_*','git-source/COPYING','curl-source/COPYING','git-source/debian/copyright','curl-source/debian/copyright','curl-public-key.response.html','curl-public-key.gpg','curl-public-key-proof.json'])assert.ok(build.includes(source));
+  assert.match(pruner,/const packages = \["apt", "libapt-pkg7\.0"\]/);assert.doesNotMatch(pruner,/\/usr\/share\/vaettir/);assert.match(pruner,/assert.deepEqual\(\s*removed.sort\(\), \[\.\.\.packages\].sort\(\)/);
 });
 test('bounded public build failure diagnostics preserve primary exit and suppress private-looking text',()=>{
   const raw=Buffer.from('make: public compile error\nhttps://example.invalid/?signature=private\nAuthorization: Bearer private\npassword=private\n'+('x'.repeat(9000)));
