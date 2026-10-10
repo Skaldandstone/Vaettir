@@ -7,6 +7,19 @@ import { expect, it, vi } from "vitest";
 import { FOLDER_DRAG_TYPE, supportedCaseFolderPath } from "./case-folder-tree";
 import { rowDropTarget } from "./case-repository";
 
+// Load the real shared controls without changing the web runner's JSX-preserve
+// configuration or substituting a fake control for this presentation contract.
+const iconScope = vm.createContext({ React, useId: React.useId, useState: React.useState });
+for (const [file, name] of [["../components/ui/Workspace.tsx", "Icon"], ["../components/ui/IconButton.tsx", "IconButton"]] as const) {
+  const content = readFileSync(new URL(file, import.meta.url), "utf8");
+  const ast = ts.createSourceFile(file, content, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+  const declaration = ast.statements.find(node => ts.isFunctionDeclaration(node) && node.name?.text === name)!;
+  vm.runInContext(ts.transpileModule(declaration.getText(ast).replace(/^export /, ""), {
+    compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.None, jsx: ts.JsxEmit.React },
+  }).outputText, iconScope);
+}
+const IconButton = (iconScope as unknown as { IconButton: React.ComponentType }).IconButton;
+
 const page = readFileSync(new URL("../app/projects/[projectId]/test-cases/page.tsx", import.meta.url), "utf8");
 const tree = readFileSync(new URL("../components/TestCaseTree.tsx", import.meta.url), "utf8");
 const pageAst = ts.createSourceFile("page.tsx", page, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
@@ -56,9 +69,11 @@ it("actual case drag payload remains the stable native ID and legacy drop/CAS/su
 it("actual manual-view guidance is discoverable without claiming a move or enabling keyboard arrows in source/All views", () => {
   const scope = find(pageAst, node => ts.isJsxElement(node) && node.openingElement.tagName.getText(pageAst) === "div" && node.openingElement.attributes.properties.some(attribute => attribute.getText(pageAst) === "className={styles.scope}"))!;
   const code = ts.transpileModule(`function render(){return ${scope.getText(pageAst)};}this.render=render;`, { compilerOptions: { jsx: ts.JsxEmit.React, module: ts.ModuleKind.None } }).outputText;
-  const setSortBy = vi.fn(), context = vm.createContext({ React, styles: { scope: "scope" }, visibleCases: [], selectedPath: null, UNASSIGNED: "__unassigned__", sortBy: "updated", readOnly: false, setSortBy });
+  const setSortBy = vi.fn(), context = vm.createContext({ React, IconButton, styles: { scope: "scope" }, visibleCases: [], selectedPath: null, UNASSIGNED: "__unassigned__", sortBy: "updated", readOnly: false, setSortBy });
   vm.runInContext(code, context); const rendered = (context as unknown as { render(): React.ReactElement }).render();
   expect(renderToStaticMarkup(rendered)).toContain("View manual order");
+  expect(renderToStaticMarkup(rendered)).toContain('aria-label="Keyboard ordering help"');
+  expect(renderToStaticMarkup(rendered)).not.toContain("<details");
   const button = descendants(rendered).find(node => node.type === "button") as React.ReactElement<{ onClick(): void }>;
   button.props.onClick(); expect(setSortBy).toHaveBeenCalledWith("manual");
   for (const text of ["In All suites, source groups or Unassigned", "select a persisted case suite first", "Viewing an order does not move cases or create folders"]) expect(page).toContain(text);

@@ -1,10 +1,10 @@
 "use client";
 
-import {useId, useState, type ButtonHTMLAttributes} from "react";
+import {useId, useState, type ButtonHTMLAttributes, type ReactNode} from "react";
 import {Icon, type IconName} from "./Workspace";
 
 /** Secondary tools stay compact without losing their name or keyboard help. */
-export function IconButton({label, icon, className = "", onClick, onFocus, onBlur, onKeyDown, ...props}: Omit<ButtonHTMLAttributes<HTMLButtonElement>, "children" | "aria-label" | "title"> & {label: string; icon: IconName}) {
+export function IconButton({label, icon, tooltip, className = "", onClick, onFocus, onBlur, onKeyDown, ...props}: Omit<ButtonHTMLAttributes<HTMLButtonElement>, "children" | "aria-label" | "title"> & {label: string; icon: IconName; tooltip?: ReactNode}) {
   const id = useId();
   const [hovered, setHovered] = useState(false);
   const [focused, setFocused] = useState(false);
@@ -18,6 +18,6 @@ export function IconButton({label, icon, className = "", onClick, onFocus, onBlu
       onKeyDown={event => {if (event.key === "Escape" && visible) {setDismissed(true); event.preventDefault(); event.stopPropagation();} onKeyDown?.(event);}}>
       <Icon name={icon}/>
     </button>
-    {visible && <span id={id} className="icon-action-tooltip" role="tooltip">{label}</span>}
+    {visible && <span id={id} className="icon-action-tooltip" role="tooltip">{tooltip ?? label}</span>}
   </span>;
 }

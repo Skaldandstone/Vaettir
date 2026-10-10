@@ -24,7 +24,9 @@ test("provider navigation keeps visited connector state mounted and gates stale 
 
 test("picker distinguishes OAuth, token verification and export-only adapters without changing saved status",()=>{
   const picker=readFileSync(new URL("../components/RepositoryProviderPicker.tsx",import.meta.url),"utf8");
-  assert.match(picker,/Connect opens provider authorization/);
+  assert.match(picker,/Connect opens setup; authorization starts from the next screen after access and configuration checks/);
+  assert.match(picker,/try\{onConnect\(value\);\}/);
+  assert.doesNotMatch(picker,/createRepositoryAuthorization\(|window\.open\(/);
   assert.match(picker,/Authorization uses your existing sign-in/);
   assert.match(picker,/Choose your GitLab instance next, including self-hosted GitLab/);
   assert.match(picker,/Account authorization opens only after you select the host/);

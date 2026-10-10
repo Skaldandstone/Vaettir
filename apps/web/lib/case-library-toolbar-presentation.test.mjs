@@ -156,8 +156,9 @@ test("actual closed disclosure retains explicit analysis scopes and existing rev
     ),
   );
 });
-test("help folds guidance only; immediate scope and uncertain-state notices remain", () => {
-  assert.match(source, /<summary>Help: keyboard ordering<\/summary>/);
+test("keyboard help is a named tooltip icon; immediate scope and uncertain-state notices remain", () => {
+  assert.match(source, /icon="help" label="Keyboard ordering help" tooltip="Activate a case's drag handle/);
+  assert.doesNotMatch(source, /<summary>Help: keyboard ordering<\/summary>/);
   assert.match(source, /<summary>Manage case authoring presets<\/summary>/);
   assert.match(
     source,

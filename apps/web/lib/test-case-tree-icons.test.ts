@@ -44,7 +44,7 @@ function treeHarness(path = "Native", reader: helpers.CaseFolderCatalog | null =
   const selections: unknown[] = [], reviews: unknown[] = [], moves: unknown[] = [], refusals: string[] = [], focused: string[] = [];
   const cases = [{ id: "stable-case", title: "Synthetic case", suitePath: path === "Native" ? path : null, sourceFilePath: path === "Native" ? null : path }];
   const props = {
-    node: { name: path, path, children: new Map(), cases }, depth: 0, selectedPath: null,
+    node: { name: path, path, children: new Map(), cases }, depth: 0, selectedPath: null as string | null,
     catalog: reader, metadata: helpers.caseFolderNodeCatalog(cases, reader),
     onSelect: (value: unknown) => selections.push(value),
     onFolderReview: hasReview ? (value: unknown) => reviews.push(value) : undefined,
@@ -99,39 +99,34 @@ function keyEvent(key = "Escape") {
   return event;
 }
 
-it("closed suite tools have an aligned named SVG toggle and no nested selection buttons or permanent text row", () => {
-  const h = treeHarness(), html = h.html(), toggle = h.tool("Folder actions for Native");
-  expect(toggle.props.icon).toBe("more");
-  expect(toggle.props.className).toBe("tree-node-actions-toggle");
-  expect(toggle.props["aria-expanded"]).toBe(false);
-  expect(toggle.props["aria-controls"]).toBe(h.group().props.id);
+it("unselected suite tools stay withheld without a more-menu or nested selection buttons", () => {
+  const h = treeHarness(), html = h.html();
   expect(h.group().props.hidden).toBe(true);
   expect(h.group().props.style).toMatchObject({ display: "none" });
   const shell = elements(h.render()).find(node => node.props.className === "tree-node-shell")!;
-  expect(elements(shell).filter(node => node.type === IconButton)).toHaveLength(1);
+  expect(elements(shell).filter(node => node.type === IconButton)).toHaveLength(0);
   expect(elements(h.row()).some(node => node.type === "button" || node.type === IconButton)).toBe(false);
-  expect(html.match(/<svg/g)).toHaveLength(4);
-  expect(html).toContain('aria-label="Folder actions for Native"');
+  expect(html.match(/<svg/g)).toHaveLength(3);
+  expect(html).not.toContain('aria-label="Folder actions for Native"');
   expect(html).not.toContain("<summary");
   expect(html).not.toMatch(/>Folder actions<|>Move…<|>Rename…<|>⠿</);
   expect(h.selections).toEqual([]); expect(h.reviews).toEqual([]); expect(h.moves).toEqual([]);
 });
 
-it("deliberate toggle shows only SVG tools and does not select a suite or submit a review", () => {
-  const h = treeHarness(); h.click("Folder actions for Native");
-  expect(h.tool("Folder actions for Native").props["aria-expanded"]).toBe(true);
+it("selecting a suite exposes its direct SVG tools with no extra menu click or review", () => {
+  const h = treeHarness(); (h.row().props.onClick as ()=>void)();h.props.selectedPath="Native";
   expect(h.group().props.hidden).toBe(false);
   expect(h.group().props.style).toMatchObject({ display: "flex" });
   expect(elements(h.group()).filter(node => node.type === IconButton).map(node => node.props.icon)).toEqual(["drag", "arrow", "edit"]);
   expect(h.html()).toContain('aria-label="Drag Native to review a folder move"');
   expect(h.html()).toContain('aria-label="Move folder Native"');
   expect(h.html()).toContain('aria-label="Rename folder Native"');
-  h.click("Folder actions for Native"); expect(h.group().props.hidden).toBe(true);
-  expect(h.selections).toEqual([]); expect(h.reviews).toEqual([]); expect(h.moves).toEqual([]);
+  h.props.selectedPath="Destination";expect(h.group().props.hidden).toBe(true);
+  expect(h.selections).toEqual(["Native"]); expect(h.reviews).toEqual([]); expect(h.moves).toEqual([]);
 });
 
 it.each(["Native", "Source"])("actual %s folder tools emit original scoped review intents, not mutation or selection", path => {
-  const h = treeHarness(path); h.click(`Folder actions for ${path}`);
+  const h = treeHarness(path); h.props.selectedPath=path;
   h.click(path === "Source" ? "Organize source group Source" : "Move folder Native");
   h.click(`Rename folder ${path}`);
   expect(h.reviews).toEqual(["MOVE", "RENAME"].map(action => ({ projectId: catalog.projectId, organizationId: catalog.organizationId, clerkActorId: catalog.clerkActorId, action, fromPath: path })));
@@ -139,7 +134,7 @@ it.each(["Native", "Source"])("actual %s folder tools emit original scoped revie
 });
 
 it("drag icon preserves exact folder MIME, native helper encoding and move effect", () => {
-  const h = treeHarness(); h.click("Folder actions for Native");
+  const h = treeHarness(); h.props.selectedPath="Native";
   const { value, written } = h.event(helpers.FOLDER_DRAG_TYPE);
   expect(h.tool("Drag Native to review a folder move").props.draggable).toBe(true);
   (h.tool("Drag Native to review a folder move").props.onDragStart as (event: unknown) => void)(value);
@@ -183,8 +178,8 @@ it("missing review capability withholds folder tools without removing selection"
   (h.row().props.onClick as () => void)(); expect(h.selections).toEqual(["Native"]);
 });
 
-it("actual shared tooltip dismisses before a later Escape collapses the folder group and restores toggle focus", () => {
-  const h = treeHarness(); h.click("Folder actions for Native");
+it("actual shared tooltip Escape dismisses help without hiding direct folder tools or moving focus", () => {
+  const h = treeHarness(); h.props.selectedPath="Native";
   const slots: unknown[] = []; let cursor = 0;
   const scope = vm.createContext({ React, useId: () => "synthetic-tooltip", useState: (initial: unknown) => {
     const index = cursor++; if (!(index in slots)) slots[index] = initial;
@@ -199,14 +194,23 @@ it("actual shared tooltip dismisses before a later Escape collapses the folder g
   expect(renderToStaticMarkup(node)).toContain("Rename folder Native");
   const first = keyEvent();
   ((node.props.children as Element[])[0]!.props.onKeyDown as (event: unknown) => void)(first);
-  (h.group().props.onKeyDown as (event: unknown) => void)(first);
   expect(first.defaultPrevented).toBe(true); expect(first.stopped).toBe(true);
   expect(h.group().props.hidden).toBe(false); expect(h.focused).toEqual([]);
   expect(renderToStaticMarkup(render())).not.toContain('role="tooltip"');
   const second = keyEvent();
   ((render().props.children as Element[])[0]!.props.onKeyDown as (event: unknown) => void)(second);
-  (h.group().props.onKeyDown as (event: unknown) => void)(second);
-  expect(h.group().props.hidden).toBe(true);
-  expect(h.focused).toEqual(["synthetic-folder-tools-toggle"]);
+  expect(second.defaultPrevented).toBe(false);
+  expect(h.group().props.hidden).toBe(false);
+  expect(h.focused).toEqual([]);
   expect(h.reviews).toEqual([]); expect(h.moves).toEqual([]); expect(h.selections).toEqual([]);
+});
+
+it("a help icon has a short accessible name and a distinct keyboard/focus tooltip description",()=>{
+  const slots:unknown[]=[];let cursor=0;
+  const scope=vm.createContext({React,useId:()=>"synthetic-help",useState:(initial:unknown)=>{const i=cursor++;if(!(i in slots))slots[i]=initial;return[slots[i],(value:unknown)=>{slots[i]=value;}];}});
+  const Help=installIcons(scope),props={icon:"help",label:"Keyboard ordering help",tooltip:"Select a verified suite, then use Up/Down."};
+  const render=()=>{cursor=0;return(Help as(props:unknown)=>Element)(props);};
+  let node=render();expect(renderToStaticMarkup(node)).not.toContain('role="tooltip"');
+  ((node.props.children as Element[])[0]!.props.onFocus as(event:unknown)=>void)({});node=render();const html=renderToStaticMarkup(node);
+  expect(html).toContain('aria-label="Keyboard ordering help"');expect(html).toContain('aria-describedby="synthetic-help"');expect(html).toContain('role="tooltip"');expect(html).toContain("Select a verified suite");
 });

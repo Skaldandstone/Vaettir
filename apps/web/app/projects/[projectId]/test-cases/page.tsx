@@ -1152,6 +1152,7 @@ export default function TestCasesPage() {
                   ? "Manual suite order"
                   : `Sorted by ${sortBy}`}
               </span>
+              <div style={{display:"flex",alignItems:"center",gap:8}}>
               {!readOnly && sortBy !== "manual" && (
                 <button
                   type="button"
@@ -1161,15 +1162,9 @@ export default function TestCasesPage() {
                   View manual order
                 </button>
               )}
+              {!readOnly && <span className="case-ordering-help"><IconButton icon="help" label="Keyboard ordering help" tooltip="Activate a case's drag handle in its verified case suite, then use Up/Down. In All suites, source groups or Unassigned, select a persisted case suite first. Viewing an order does not move cases or create folders; source paths stay unchanged."/></span>}
+              </div>
             </div>
-            {!readOnly && (
-              <details>
-                <summary>Help: keyboard ordering</summary>
-                <p className="text-muted" style={{ fontSize: 12 }}>
-                  Keyboard ordering: activate a case&apos;s drag handle to view manual order in its verified case suite, then use Up/Down. In All suites, source groups or Unassigned, select a persisted case suite first. Viewing an order does not move cases or create folders; source paths stay unchanged.
-                </p>
-              </details>
-            )}
             {visibleCases.length > 0 && (
               <label
                 style={{
