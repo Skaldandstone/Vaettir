@@ -14,6 +14,7 @@ import {
 } from "@/components/TestCaseTree";
 import { Drawer } from "@/components/Drawer";
 import { TestCaseDetailContent } from "@/components/TestCaseDetailContent";
+import { TestCaseBulkActionReview } from "@/components/TestCaseBulkActionReview";
 import { BulkCaseAnalysis } from "@/components/BulkCaseAnalysis";
 import { DurableCaseAnalysis } from "@/components/DurableCaseAnalysis";
 import { CaseQueryExplorer } from "@/components/CaseQueryExplorer";
@@ -1973,44 +1974,14 @@ export default function TestCasesPage() {
           dismissible={!bulkBusy}
         >
           {reviewAction && (
-            <>
-              <p>
-                {reviewAction.ids.length} cases will be{" "}
-                {reviewAction.kind === "delete"
-                  ? "permanently deleted where permitted. This cannot be undone"
-                  : reviewAction.kind === "archive"
-                    ? "archived, preserving history"
-                    : "restored to the active library"}
-                .
-              </p>
-              <ul className={styles.reviewList}>
-                {reviewAction.ids.map((id) => (
-                  <li key={id}>
-                    {cases.find((item) => item.id === id)?.title ?? id}
-                  </li>
-                ))}
-              </ul>
-              <p className="text-muted">
-                Selected scope only. Up to 200 cases per sequential batch; later
-                batches stop on an unconfirmed result.
-              </p>
-              <div className={styles.dialogActions}>
-                <button
-                  className="btn-secondary"
-                  disabled={bulkBusy}
-                  onClick={() => setReviewAction(null)}
-                >
-                  Cancel
-                </button>
-                <button
-                  className="btn-primary"
-                  disabled={bulkBusy || reviewAction.ids.length === 0}
-                  onClick={() => void confirmReviewedAction()}
-                >
-                  {bulkBusy ? "Applying…" : `Confirm ${reviewAction.kind}`}
-                </button>
-              </div>
-            </>
+            <TestCaseBulkActionReview
+              kind={reviewAction.kind}
+              ids={reviewAction.ids}
+              cases={cases}
+              busy={bulkBusy}
+              onCancel={() => setReviewAction(null)}
+              onConfirm={() => void confirmReviewedAction()}
+            />
           )}
         </Modal>
       )}
