@@ -27,6 +27,25 @@ function lf(value: string) {
   assert.ok(!value.includes("\r") || !value.replaceAll("\r\n", "").includes("\r"));
   return value.replaceAll("\r\n", "\n");
 }
+function schemaTokens(value: string) {
+  // Consume every byte except inter-token formatting whitespace. Maximal
+  // identifiers/numbers prevent whitespace removal from joining tokens;
+  // quoted values/escapes and comments remain exact, ordered token contents.
+  const text = lf(value), tokens: string[] = [];
+  let offset = 0;
+  while (offset < text.length) {
+    const rest = text.slice(offset);
+    const whitespace = /^[ \t\n]+/.exec(rest);
+    if (whitespace) { offset += whitespace[0].length; continue; }
+    const token = /^(?:\/\/[^\n]*|\/\*[\s\S]*?\*\/|"(?:[^"\\\n]|\\[^\n])*"|[A-Za-z_][A-Za-z0-9_]*|[0-9]+(?:\.[0-9]+)?|@@?|[{}()[\],.:=?+-])/.exec(rest);
+    assert.ok(token, "Unrecognized schema token at byte " + offset);
+    tokens.push(token[0]); offset += token[0].length;
+  }
+  return tokens;
+}
+function assertSchemaFormattingOnly(emitted: string, original: string) {
+  assert.deepEqual(schemaTokens(emitted), schemaTokens(original));
+}
 export function exactOldSchema(current: string) {
   const text = lf(current); assert.equal(sha(text), CURRENT_SCHEMA_SHA);
   const changed = "  // Live labels use this prefix plus immutable caseNumber. Historical prefixes\n  // remain reserved aliases; stored displayId and frozen evidence never change.";
@@ -110,6 +129,21 @@ describe("closed old97 upgrade source contracts", () => {
     expect(() => admitInstalledClient(store, join(ROOT, "node_modules/.pnpm-foreign/node_modules/@prisma/client"))).toThrow();
     expect(() => admitInstalledClient(store, join(store, "foreign/node_modules/@prisma/other"))).toThrow();
     expect(() => admitInstalledClient(store, store)).toThrow();
+  });
+  it("accepts formatting only, retaining every model, field, annotation, string, comment and token boundary", () => {
+    const schema = '// Exact comment\nmodel Example {\n  id String @id @default(cuid())\n  label String @default("literal  spaces \\" | value")\n  otherId String?\n  other Other? @relation(fields: [otherId], references: [id], onDelete: Restrict)\n  @@index([label, otherId])\n}\n';
+    const formatted = schema.replace("  id String", "  id      String").replace("  label String", "  label   String")
+      .replace("fields: [otherId], references:", "fields: [otherId],   references:").replaceAll("\n", "\r\n");
+    expect(() => assertSchemaFormattingOnly(formatted, schema)).not.toThrow();
+    for (const changed of [
+      schema.replace("model Example", "model OtherExample"), schema.replace("id String", "id Int"),
+      schema.replace("otherId String?", "differentId String?"), schema.replace("String?", "String"),
+      schema.replace("Restrict", "Cascade"), schema.replace("[label, otherId]", "[otherId, label]"),
+      schema.replace("literal  spaces", "literal spaces"), schema.replace("Exact comment", "Changed comment"),
+      schema.replace("id String", "idString"), schema + "model Extra { id String @id }\n",
+    ]) expect(() => assertSchemaFormattingOnly(changed, schema)).toThrow();
+    const old = exactOldSchema(readFileSync(join(ROOT, "packages/db/prisma/schema.prisma"), "utf8"));
+    expect(() => assertSchemaFormattingOnly(old.replace(/^ {2}([A-Za-z_][A-Za-z0-9_]*) +/gm, "    $1   "), old)).not.toThrow();
   });
 });
 
@@ -200,7 +234,8 @@ describe.skipIf(process.platform !== "linux" || (process.env.CI !== "true" && pr
       assert.equal(realpathSync(createRequire(join(staged, "schema.prisma")).resolve("@prisma/client/package.json")), installedPackageJson);
       run("pnpm", ["exec", "prisma", "generate", "--schema", join(staged, "schema.prisma")], cliEnv);
       assert.deepEqual(workspaceClientFiles.map(name => ({ name, sha256: sha(readFileSync(join(installedDirectory, name))) })), workspaceClientPins);
-      assert.equal(lf(readFileSync(join(oldOutput, "schema.prisma"), "utf8")), generatedSchema);
+      assert.equal(sha(oldSchema), OLD_SCHEMA_SHA);
+      assertSchemaFormattingOnly(readFileSync(join(oldOutput, "schema.prisma"), "utf8"), generatedSchema);
       const oldIndex = readFileSync(join(oldOutput, "index.js"), "utf8");
       assert.ok(oldIndex.includes("./runtime/library.js")); assert.ok(!/caseKeyRevision|ProjectCaseKeyAlias|ProjectCaseKeyWrite/.test(oldIndex));
       const oldRuntime = readFileSync(join(oldOutput, "runtime/library.js"));
