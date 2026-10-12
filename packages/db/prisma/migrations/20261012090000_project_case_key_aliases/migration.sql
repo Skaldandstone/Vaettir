@@ -9,8 +9,8 @@ CREATE TABLE "ProjectCaseKeyAlias" (
   "projectId" TEXT NOT NULL, "organizationId" TEXT NOT NULL,
   "caseKey" TEXT NOT NULL CHECK ("caseKey" ~ '^[a-z][a-z0-9-]{0,23}$'),
   "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  PRIMARY KEY ("projectId","caseKey"),
-  FOREIGN KEY ("projectId","organizationId") REFERENCES "Project"(id,"organizationId") ON DELETE CASCADE ON UPDATE RESTRICT
+  PRIMARY KEY ("projectId","organizationId","caseKey"),
+  FOREIGN KEY ("projectId") REFERENCES "Project"(id) ON DELETE CASCADE ON UPDATE RESTRICT
 );
 CREATE UNIQUE INDEX "ProjectCaseKeyAlias_organizationId_caseKey_key"
   ON "ProjectCaseKeyAlias" ("organizationId","caseKey");
@@ -26,7 +26,7 @@ CREATE TABLE "ProjectCaseKeyWrite" (
   "afterRevision" INTEGER NOT NULL CHECK ("afterRevision" = "beforeRevision" + CASE WHEN "beforeKey"="afterKey" THEN 0 ELSE 1 END),
   receipt JSONB NOT NULL CHECK (jsonb_typeof(receipt)='object'),
   "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  FOREIGN KEY ("projectId","organizationId") REFERENCES "Project"(id,"organizationId") ON DELETE CASCADE ON UPDATE RESTRICT
+  FOREIGN KEY ("projectId") REFERENCES "Project"(id) ON DELETE CASCADE ON UPDATE RESTRICT
 );
 CREATE INDEX "ProjectCaseKeyWrite_projectId_createdAt_idx" ON "ProjectCaseKeyWrite"("projectId","createdAt");
 INSERT INTO "ProjectCaseKeyAlias"("projectId","organizationId","caseKey")
@@ -36,11 +36,12 @@ INSERT INTO "ProjectCaseKeyAlias"("projectId","organizationId","caseKey")
 INSERT INTO "ProjectCaseKeyAlias"("projectId","organizationId","caseKey")
   SELECT DISTINCT c."projectId",p."organizationId",regexp_replace(c."displayId",'-[0-9]+$','')
   FROM "TestCase" c JOIN "Project" p ON p.id=c."projectId"
-  ON CONFLICT ("projectId","caseKey") DO NOTHING;
+  ON CONFLICT ("projectId","organizationId","caseKey") DO NOTHING;
 
 CREATE FUNCTION vaettir_case_key_record_immutable() RETURNS trigger LANGUAGE plpgsql AS $$
 BEGIN
-  IF TG_OP='UPDATE' OR EXISTS(SELECT 1 FROM "Project" WHERE id=OLD."projectId") THEN
+  IF TG_OP='UPDATE' OR (EXISTS(SELECT 1 FROM "Project" WHERE id=OLD."projectId")
+    AND current_setting('vaettir.project_case_key_erasure',true) IS DISTINCT FROM OLD."organizationId") THEN
     RAISE EXCEPTION 'Issued key aliases and original key receipts cannot be changed or deleted' USING ERRCODE='23514';
   END IF;
   RETURN OLD;
@@ -49,6 +50,21 @@ CREATE TRIGGER "ProjectCaseKeyAlias_immutable" BEFORE UPDATE OR DELETE ON "Proje
   FOR EACH ROW EXECUTE FUNCTION vaettir_case_key_record_immutable();
 CREATE TRIGGER "ProjectCaseKeyWrite_immutable" BEFORE UPDATE OR DELETE ON "ProjectCaseKeyWrite"
   FOR EACH ROW EXECUTE FUNCTION vaettir_case_key_record_immutable();
+
+-- A marker is not an erasure approval. Even an exact marker cannot commit
+-- standalone pruning while both original tenant and parent remain present.
+CREATE FUNCTION vaettir_case_key_erasure_committed() RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+  IF EXISTS(SELECT 1 FROM "Project" WHERE id=OLD."projectId")
+    AND EXISTS(SELECT 1 FROM "Organization" WHERE id=OLD."organizationId") THEN
+    RAISE EXCEPTION 'Key history erasure requires the original organization or parent deletion in this same transaction' USING ERRCODE='23514';
+  END IF;
+  RETURN OLD;
+END $$;
+CREATE CONSTRAINT TRIGGER "ProjectCaseKeyAlias_erasure_committed" AFTER DELETE ON "ProjectCaseKeyAlias"
+  DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION vaettir_case_key_erasure_committed();
+CREATE CONSTRAINT TRIGGER "ProjectCaseKeyWrite_erasure_committed" AFTER DELETE ON "ProjectCaseKeyWrite"
+  DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION vaettir_case_key_erasure_committed();
 
 CREATE OR REPLACE FUNCTION vaettir_project_case_key() RETURNS trigger LANGUAGE plpgsql AS $$
 DECLARE base_key TEXT; suffix INTEGER; request_id TEXT; write_row "ProjectCaseKeyWrite"%ROWTYPE;
@@ -94,9 +110,17 @@ BEGIN
 END $$;
 CREATE FUNCTION vaettir_register_project_case_key() RETURNS trigger LANGUAGE plpgsql AS $$
 BEGIN
-  IF TG_OP='INSERT' OR NEW."caseKey" IS DISTINCT FROM OLD."caseKey" THEN
+  IF TG_OP='UPDATE' AND NEW."organizationId" IS DISTINCT FROM OLD."organizationId" THEN
+    -- Add destination reservations; never UPDATE old tenant aliases or receipts.
+    -- Any destination prefix owned by another project aborts the entire move.
     INSERT INTO "ProjectCaseKeyAlias"("projectId","organizationId","caseKey")
-      VALUES(NEW.id,NEW."organizationId",NEW."caseKey") ON CONFLICT("projectId","caseKey") DO NOTHING;
+      SELECT NEW.id,NEW."organizationId",prefix FROM (
+        SELECT DISTINCT "caseKey" AS prefix FROM "ProjectCaseKeyAlias" WHERE "projectId"=NEW.id
+        UNION SELECT NEW."caseKey") known
+      ON CONFLICT("projectId","organizationId","caseKey") DO NOTHING;
+  ELSIF TG_OP='INSERT' OR NEW."caseKey" IS DISTINCT FROM OLD."caseKey" THEN
+    INSERT INTO "ProjectCaseKeyAlias"("projectId","organizationId","caseKey")
+      VALUES(NEW.id,NEW."organizationId",NEW."caseKey") ON CONFLICT("projectId","organizationId","caseKey") DO NOTHING;
   END IF;
   RETURN NEW;
 END $$;

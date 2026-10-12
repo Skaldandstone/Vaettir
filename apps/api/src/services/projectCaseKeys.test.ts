@@ -115,6 +115,7 @@ describe("project key aliases and original requests (synthetic service callbacks
     await expect(saveProjectCaseKey(db, "actor", input, { clerkActorId: "other" })).rejects.toMatchObject({ code: "FORBIDDEN" });
     await expect(saveProjectCaseKey(db, "replacement-native-user", input, authorized)).rejects.toMatchObject({ code: "FORBIDDEN" });
     expect(tx.$executeRaw).not.toHaveBeenCalled();
+    expect(tx.$queryRaw.mock.calls.some(call => Array.isArray(call[0]) && call[0].join("").includes('FROM "ProjectCaseKeyWrite"'))).toBe(false);
   });
   it("records unchanged-key requests without incrementing revision or touching cases", async () => {
     const { db, calls } = fixture(); const body = { ...input, caseKey: input.expectedCaseKey };
@@ -171,5 +172,25 @@ describe("project key aliases and original requests (synthetic service callbacks
     expect(sql).not.toContain("vaettir_allocate_case_identity");
     expect(sql).not.toMatch(/DISABLE TRIGGER|session_replication_role|DROP/);
     expect(sql).toContain('NEW."nextCaseNumber"<>OLD."nextCaseNumber"');
+    expect(sql).toContain('PRIMARY KEY ("projectId","organizationId","caseKey")');
+    expect(sql).toContain('FOREIGN KEY ("projectId") REFERENCES "Project"(id)');
+    expect(sql).not.toContain('FOREIGN KEY ("projectId","organizationId")');
+    expect(sql).toContain('SELECT DISTINCT "caseKey" AS prefix');
+    expect(sql).toContain('NEW."organizationId" IS DISTINCT FROM OLD."organizationId"');
+    expect(sql).toContain('DEFERRABLE INITIALLY DEFERRED');
+    expect(sql).toContain('current_setting(\'vaettir.project_case_key_erasure\',true) IS DISTINCT FROM OLD."organizationId"');
+    expect(sql).not.toMatch(/UPDATE\s+"ProjectCaseKey(?:Alias|Write)"/);
+  });
+  it("erasure locks original history parents and deletes only exact original tenant counts before parents", () => {
+    const source = readFileSync(new URL("./orgHardDelete.ts", import.meta.url), "utf8");
+    expect(source).toContain('UNION SELECT "projectId" FROM "ProjectCaseKeyAlias" WHERE "organizationId"=');
+    expect(source).toContain('UNION SELECT "projectId" FROM "ProjectCaseKeyWrite" WHERE "organizationId"=');
+    expect(source).toContain('foreignOriginalRecordsOnCurrentProjects: foreign');
+    expect(source).toContain('row.expected !== BigInt(expected[model]!)');
+    expect(source).toContain('row.count !== row.expected');
+    expect(source).toContain('keyEvidence.scope.blocked');
+    expect(source.indexOf("Object.assign(counts, await deleteOriginalProjectCaseKeys")).toBeLessThan(source.indexOf("counts.Project ="));
+    expect(source).toContain('LIMIT 100001 FOR UPDATE');
+    expect(source).toContain('limits: { aliases: 100000, writes: 100000 }');
   });
 });

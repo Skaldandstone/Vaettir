@@ -62,8 +62,13 @@ export default function AdminOrganizationDetailPage() {
     && deletePreview.manualCaseResultScope?.originalOrganizationId === organizationId
     && deletePreview.manualCaseResultScope.basis === "ORIGINAL_ORGANIZATION"
     ? deletePreview.manualCaseResultScope : null;
+  const projectKeyErasureScope = deletePreview?.organizationId === organizationId
+    && deletePreview.projectCaseKeyScope?.originalOrganizationId === organizationId
+    && deletePreview.projectCaseKeyScope.basis === "ORIGINAL_ORGANIZATION"
+    ? deletePreview.projectCaseKeyScope : null;
   const deletionReviewReady = !!reportErasureScope && !reportErasureScope.blocked
     && !!manualCaseErasureScope && !manualCaseErasureScope.blocked
+    && !!projectKeyErasureScope && !projectKeyErasureScope.blocked
     && org?.id === organizationId && !orgQuery.error && !orgQuery.isFetching && !orgQuery.isPaused;
 
   async function loadAll() {
@@ -196,7 +201,7 @@ export default function AdminOrganizationDetailPage() {
     const r = requireReason();
     if (!r || !org || !deletePreview) return;
     if (!deletionReviewReady) {
-      setError("Current organization and original report ownership must be verified and reconciled before deletion.");
+      setError("Current organization and original report, history and project-key ownership must be verified and reconciled before deletion.");
       return;
     }
     if (confirmSlug !== org.slug) {
@@ -473,6 +478,26 @@ export default function AdminOrganizationDetailPage() {
                   <p>Complete erasure limits: {manualCaseErasureScope.limits.heads} heads and {manualCaseErasureScope.limits.revisions} revisions. Counts are not truncated; exceeding either limit blocks deletion.</p>
                   {manualCaseErasureScope.blocked && <p role="alert">Deletion blocked: unsupported original history scope or inventory must be reconciled first. No records have been deleted by this preview. Unsupported native tuples: {manualCaseErasureScope.unsupportedOriginalScopeTuples}.</p>}
                   <ul>{manualCaseErasureScope.limitations.map(note => <li key={note}>{note}</li>)}</ul>
+                </>
+              )}
+            </section>
+            <section aria-label="Project-key history ownership in deletion preview">
+              <h4>Original project-key history</h4>
+              {!projectKeyErasureScope ? (
+                <p role="alert">Project-key ownership is unavailable. Refresh the preview; deletion is blocked.</p>
+              ) : (
+                <>
+                  <p>Key aliases: {deletePreview.rowCounts.ProjectCaseKeyAlias}. Immutable key-change receipts: {deletePreview.rowCounts.ProjectCaseKeyWrite}.</p>
+                  <p>Counts follow the original organization. Original history on moved projects is removed without deleting those projects or their current organization’s history.</p>
+                  <ul>{Object.entries(projectKeyErasureScope.originalRecordsOnReparentedProjects).map(([model, count]) => <li key={model}>{model} on moved projects: {count}</li>)}</ul>
+                  <p>Complete limits: {projectKeyErasureScope.limits.aliases} aliases and {projectKeyErasureScope.limits.writes} key-change receipts. Counts are not truncated; exceeding either limit blocks deletion.</p>
+                  {projectKeyErasureScope.blocked && (
+                    <div role="alert">
+                      <p>Deletion blocked: project-key history exceeds the bounded inventory or belongs to another organization and must be reconciled first.</p>
+                      <ul>{Object.entries(projectKeyErasureScope.foreignOriginalRecordsOnCurrentProjects).map(([model, count]) => <li key={model}>{model} owned elsewhere: {count}</li>)}</ul>
+                    </div>
+                  )}
+                  <ul>{projectKeyErasureScope.limitations.map(note => <li key={note}>{note}</li>)}</ul>
                 </>
               )}
             </section>

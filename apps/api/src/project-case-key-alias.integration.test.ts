@@ -72,7 +72,8 @@ describe.skipIf(!isolated)("durable project key aliases and immutable original c
     await owner.project.saveCaseKey(await proposal("alias-third"));
     await owner.project.saveCaseKey(await proposal("alias-old"));
     for (const prefix of ["alias-old", "alias-new", "alias-third"]) expect(await owner.testCases.byDisplayId({ projectId, displayId: prefix + "-01" })).toMatchObject({ displayId: "alias-old-01" });
-    for (const displayId of ["alias-old-001", "alias-old-1", "alias-third-999999"]) await expect(owner.testCases.byDisplayId({ projectId, displayId })).rejects.toMatchObject({ code: "NOT_FOUND" });
+    for (const displayId of ["alias-old-001", "alias-third-999999"]) await expect(owner.testCases.byDisplayId({ projectId, displayId })).rejects.toMatchObject({ code: "NOT_FOUND" });
+    await expect(owner.testCases.byDisplayId({ projectId, displayId: "alias-old-1" })).rejects.toMatchObject({ code: "BAD_REQUEST" });
   });
   it("cannot reuse another project's reserved historical key; old binaries fail safely", async () => {
     const second = await owner.project.create({ organizationId, name: run + "-second", caseKey: "alias-second" });
@@ -131,14 +132,14 @@ describe.skipIf(!isolated)("durable project key aliases and immutable original c
     const tier = await prisma.planTier.findFirstOrThrow();
     const foreignOrg = await prisma.organization.create({ data: { name: run + "-foreign", slug: run + "-foreign", planTierId: tier.id } });
     const outsider = await prisma.user.create({ data: { clerkUserId: run + "-foreign", email: run + "-foreign@example.com",
-      memberships: { create: { organizationId: foreignOrg.id, role: "OWNER", seatType: "FULL" } } } });
+      memberships: { create: { organizationId: foreignOrg.id, role: "OWNER", seatType: "FULL" } } }, include: { memberships: true } });
     const foreignCaller = appRouter.createCaller({ prisma, user: outsider, authenticatedClerkSubject: outsider.clerkUserId });
     await expect(foreignCaller.project.caseIdentity({ projectId })).rejects.toMatchObject({ code: "FORBIDDEN" });
     await expect(foreignCaller.project.saveCaseKey({ ...request, expectedNativeActorId: outsider.id, expectedClerkActorId: outsider.clerkUserId })).rejects.toMatchObject({ code: "FORBIDDEN" });
     // A stale caller carries the same Clerk subject, but its original native DB mapping is gone.
     await prisma.user.update({ where: { id: actorId }, data: { clerkUserId: run + "-retired" } });
     const replacement = await prisma.user.create({ data: { clerkUserId: run, email: run + "-replacement@example.com",
-      memberships: { create: { organizationId, role: "OWNER", seatType: "FULL" } } } });
+      memberships: { create: { organizationId, role: "OWNER", seatType: "FULL" } } }, include: { memberships: true } });
     const replacementCaller = appRouter.createCaller({ prisma, user: replacement, authenticatedClerkSubject: run });
     await expect(replacementCaller.project.saveCaseKey(request)).rejects.toMatchObject({ code: "FORBIDDEN" });
     await expect(owner.project.saveCaseKey(request)).rejects.toMatchObject({ code: "FORBIDDEN" });

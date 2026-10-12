@@ -17,6 +17,7 @@ import { snapshotTestCaseVersion } from "./testCaseVersion.js";
 import { verificationProfileSchema } from "./physicalValidation.js";
 import { readCaseFieldState, lockCaseFieldProject } from "./caseFields.js";
 import { lockCurrentCaseFieldActor, type CaseFieldReadAuthorization } from "./caseFieldReadScope.js";
+import { liveCaseDisplayId, parseCaseReference, projectCaseKeySchema } from "./projectCaseKeys.js";
 
 const MAX_BYTES = 2 * 1024 * 1024;
 const MAX_CASES = 50;
@@ -110,6 +111,10 @@ async function lockedScope(
   return { projectId: input.projectId, organizationId: project.organizationId, actorClerkUserId };
 }
 type Procedure = CaseProcedureExport["cases"][number];
+function canonicalReference(reference: string) {
+  const parsed = parseCaseReference(reference);
+  return parsed && liveCaseDisplayId(parsed.caseKey, parsed.caseNumber) === reference ? parsed : null;
+}
 const keys = [
   "title",
   "background",
@@ -215,12 +220,38 @@ async function review(
       caseFieldSchemaVersion: true,
     },
   });
-  if (project.caseKey !== bundle.project.caseKey)
+  const header = projectCaseKeySchema.safeParse(bundle.project.caseKey);
+  if (!header.success || header.data !== bundle.project.caseKey)
     throw new TRPCError({
       code: "CONFLICT",
       message:
-        "The file's project key does not match this project's stable identity.",
+        "The file's project key is not a canonical registered key for this project.",
     });
+  // Already inside the locked, currently authorized project transaction. Resolve
+  // only prefixes present in this bounded file, never another org's registry or
+  // a nested unrestricted reference lookup. Historical labels are evidence, not
+  // replacement immutable IDs or instructions to rewrite stored display IDs.
+  const prefixes = new Set([header.data]);
+  for (const incoming of bundle.cases) {
+    const own = canonicalReference(incoming.displayId);
+    if (own) prefixes.add(own.caseKey);
+    for (const prerequisite of incoming.prerequisites) {
+      const parsed = canonicalReference(prerequisite.displayId);
+      if (parsed) prefixes.add(parsed.caseKey);
+    }
+  }
+  if (prefixes.size > MAX_CASES + 500 + 1)
+    throw new TRPCError({ code: "BAD_REQUEST", message: "The bounded procedure identity scope changed. Nothing was restored." });
+  const aliases = await tx.$queryRaw<Array<{ projectId: string; organizationId: string; caseKey: string }>>`
+    SELECT "projectId","organizationId","caseKey" FROM "ProjectCaseKeyAlias"
+    WHERE "projectId"=${input.projectId} AND "organizationId"=${project.organizationId}
+      AND "caseKey" IN (${Prisma.join([...prefixes])}) LIMIT ${prefixes.size + 1}`;
+  const registered = new Set<string>();
+  if (aliases.length > prefixes.size || aliases.some(alias => {
+    if (alias.projectId !== input.projectId || alias.organizationId !== project.organizationId || !prefixes.has(alias.caseKey) || registered.has(alias.caseKey)) return true;
+    registered.add(alias.caseKey); return false;
+  }) || !registered.has(header.data))
+    throw new TRPCError({ code: "CONFLICT", message: "The file's key aliases could not be verified in this current project. Nothing was restored." });
   const entries: z.infer<typeof procedureReimportPreviewOutput>["entries"] = [];
   const current = new Map<string, Procedure>();
   let currentBytes = 0;
@@ -253,8 +284,9 @@ async function review(
       );
       continue;
     }
+    const incomingIdentity = canonicalReference(incoming.displayId);
     if (
-      identityRow.displayId !== incoming.displayId ||
+      !incomingIdentity || !registered.has(incomingIdentity.caseKey) || incomingIdentity.caseNumber !== identityRow.caseNumber ||
       identityRow.caseNumber !== incoming.caseNumber ||
       identityRow.archived
     ) {
@@ -345,16 +377,16 @@ async function review(
         "The shared-library relationship or live resolved definition differs. Use the library's independent reviewed history, not snapshot overwrite.",
       );
     for (const reference of incoming.prerequisites) {
+      const referenceIdentity = canonicalReference(reference.displayId);
       const available = await tx.testCase.findFirst({
         where: {
           id: reference.id,
           projectId: input.projectId,
-          displayId: reference.displayId,
           archived: false,
         },
-        select: { id: true },
+        select: { id: true, caseNumber: true },
       });
-      if (!available)
+      if (!available || !referenceIdentity || !registered.has(referenceIdentity.caseKey) || referenceIdentity.caseNumber !== available.caseNumber)
         entry.missingRelationships.push(
           `Prerequisite ${reference.displayId} is unavailable in this project.`,
         );

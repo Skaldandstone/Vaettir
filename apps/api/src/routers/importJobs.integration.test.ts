@@ -105,11 +105,12 @@ describe("importJobs (real DB, real router)", () => {
     expect(preview.previewRows[0]).toMatchObject({
       title: "Login succeeds",
       given: ["User on login page"],
-      when: ["Enter creds", "Click login"],
+      when: ["Enter creds|Click login"],
       then: ["Redirected to dashboard"],
       priority: "HIGH",
       tags: ["auth", "smoke"],
     });
+    expect(preview.previewRows[1]).toMatchObject({ when: ["Enter wrong creds|Click login"], then: ["Error shown"] });
     expect(preview.previewSkipped).toEqual([
       { rowNumber: 4, reason: "missing title" },
     ]);
@@ -152,6 +153,8 @@ describe("importJobs (real DB, real router)", () => {
       "Login succeeds",
       "Recovered title",
     ]);
+    expect(cases.find(tc => tc.title === "Login succeeds")).toMatchObject({ when: ["Enter creds|Click login"], then: ["Redirected to dashboard"] });
+    expect(cases.find(tc => tc.title === "Login fails")).toMatchObject({ when: ["Enter wrong creds|Click login"], then: ["Error shown"] });
 
     const list = await c.importJobs.list({ projectId });
     expect(list[0]?.id).toBe(result.importJobId);
