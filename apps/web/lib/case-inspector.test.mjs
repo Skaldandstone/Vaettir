@@ -527,12 +527,12 @@ test("prerequisites are found by project case key, while retaining internal rela
   assert.equal(cases[0].id, "internal-login");
 });
 
-test("procedure comes before on-demand editing and all tab panels remain mounted", () => {
+test("prerequisites come before procedure steps and all tab panels remain mounted", () => {
   const detail = source("../components/TestCaseDetailContent.tsx");
   const versions = source("../components/TestCaseVersionReview.tsx");
   assert.ok(
-    detail.indexOf('aria-label="Scenario steps"') <
-      detail.indexOf("<TestCasePrerequisites"),
+    detail.indexOf("<TestCasePrerequisites") <
+      detail.indexOf('aria-label="Scenario steps"'),
   );
   for (const section of INSPECTOR_SECTIONS) {
     assert.ok(detail.includes(`hidden={section !== "${section}"}`));

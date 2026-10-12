@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { inferTestCaseType, inspectCsv, mapCsvRows } from "./csvFieldMapping.js";
+import { inferTestCaseType, inspectCsv, mapCsvRows, suggestCsvMapping } from "./csvFieldMapping.js";
 
 const CSV = `Id,Title,Preconditions,Steps,Expected,Priority,Tags
 TC-1,Login succeeds,Account exists,Open login|Choose OAuth,Dashboard opens,High,auth|smoke
@@ -17,6 +17,52 @@ const MAPPING = {
 };
 
 describe("mapped CSV row repair", () => {
+  it("maps explicit case names, actions, expected behavior, and tags to distinct roles", () => {
+    const mapping = suggestCsvMapping(["Test_Case_Name", "Step Action", "Expected Behavior", "Tags"]);
+    expect(mapping).toEqual({ title: "Test_Case_Name", when: "Step Action", then: "Expected Behavior", tags: "Tags" });
+    const row = mapCsvRows('Test_Case_Name,Step Action,Expected Behavior,Tags\nPurchase restoration,Reinstall then check balance,Consumed coins are not restored,purchases\n', mapping).rows[0];
+    expect(row).toMatchObject({ title: "Purchase restoration", given: [], when: ["Reinstall then check balance"], then: ["Consumed coins are not restored"], tags: ["purchases"] });
+  });
+
+  it("leaves ambiguous vendor prose and combined module/scenario columns for explicit review", () => {
+    for (const header of ["Description", "Scenario Description", "Scenario Description/Test Case", "Test Case Description", "Test Scenario", "Test Module/Scenario", "Test Module/Scenerio"]) {
+      const mapping = suggestCsvMapping([header, "Steps", "Expected Result"]);
+      expect(mapping.title).toBeUndefined();
+      expect(mapping.tags).toBeUndefined();
+      expect(mapping).toMatchObject({ when: "Steps", then: "Expected Result" });
+    }
+    expect(suggestCsvMapping(["Title", "Test Case Name", "Steps"]).title).toBeUndefined();
+    expect(suggestCsvMapping(["Title", "Steps", " Actions "]).when).toBeUndefined();
+    expect(suggestCsvMapping(["Title", "Given", " Given "]).given).toBeUndefined();
+  });
+
+  it("rejects cross-mapping recognized fields and reused source columns before preview or commit", () => {
+    const csv = 'Title,Steps,Expected Result,Tags,Preconditions\nRestore purchases,Check balance,Coins unchanged,purchase,Installed\n';
+    for (const mapping of [
+      { title: "Steps", when: "Title" },
+      { title: "Title", given: "Expected Result" },
+      { title: "Title", when: "Tags" },
+      { title: "Title", tags: "Expected Result" },
+      { title: "Title", then: "Preconditions" },
+    ]) expect(() => mapCsvRows(csv, mapping)).toThrow("review the column mapping");
+    expect(() => mapCsvRows(csv, { title: "Title", tags: "Title" })).toThrow("already mapped");
+    expect(() => mapCsvRows(csv, { title: "Steps" }, undefined, [{ rowNumber: 2, title: "Reviewed title" }])).toThrow("recognized as");
+  });
+
+  it("allows an explicitly reviewed custom title header without guessing actions or tags from content", () => {
+    const csv = 'Reviewed purpose,Steps,Expected Result\nVerify purchase restoration,Check balance,Coins unchanged\n';
+    const row = mapCsvRows(csv, { title: "Reviewed purpose", when: "Steps", then: "Expected Result" }).rows[0];
+    expect(row).toMatchObject({ title: "Verify purchase restoration", given: [], when: ["Check balance"], then: ["Coins unchanged"], tags: [] });
+  });
+  it("retains exact multiline procedure prose, numbering, indentation, pipes, and non-Gherkin text", () => {
+    const actions = '1. After reinstall, open the app.\r\n\r\n  2. Check the coin balance.\nPayload: a|b';
+    const expected = 'Coins remain consumed.2. Server does not restore consumables.\n  Balance = 0';
+    const setup = 'Signed in\n\n  Original purchase consumed';
+    const quote = (value: string) => `"${value.replaceAll('"', '""')}"`;
+    const csv = `Test Case Name,Preconditions,Actions,Expected Result,Tags\n${["Purchase restoration", setup, actions, expected, "purchase|coins"].map(quote).join(",")}\n`;
+    const row = mapCsvRows(csv, inspectCsv(csv).suggestedMapping).rows[0];
+    expect(row).toMatchObject({ title: "Purchase restoration", given: [setup], when: [actions], then: [expected], tags: ["purchase", "coins"] });
+  });
   it("uses the same trimmed header identity in inspection and commit, preserving all BDD phases", () => {
     const csv = 'Title, Given ,"When\n",Then\nDelete own comment,Signed in as comment owner,Choose Delete,Comment removed\n';
     const mapping = inspectCsv(csv).suggestedMapping;

@@ -11,7 +11,7 @@ const pins = { projectId: scope.projectId, caseId, originalOrganizationId: scope
 const edges = [{ dependentId: caseId, prerequisiteId: "old-pending" }, { dependentId: "archived", prerequisiteId: "unavailable" }];
 const request = () => ({ ...pins, requestId: randomUUID(), expectedGraphHash: prerequisiteGraphHash(scope.projectId, edges), expectedPrerequisiteIds: ["old-pending"], prerequisiteIds: ["old-pending", "approved"], confirmed: true as const });
 function fixture() {
-  const state = { organizationId: scope.organizationId, role: "EDITOR", seatType: "FULL", edges: [...edges], count: 2n, bytes: 100n, unsupported: false, metadataBytes: 100n, populationBytes: 100n, populationCount: 1n, receipts: [] as { organizationId: string | null; requestHash: string | null }[], rows: [{ id: caseId, displayId: "SYN-1", title: "Synthetic main", archived: false, reviewStatus: "APPROVED" }, { id: "old-pending", displayId: "SYN-2", title: "Exact retained pending", archived: false, reviewStatus: "PENDING_REVIEW" }, { id: "approved", displayId: "SYN-3", title: "Synthetic approved", archived: false, reviewStatus: "APPROVED" }] };
+  const state = { organizationId: scope.organizationId, role: "EDITOR", seatType: "FULL", edges: [...edges], count: 2n, bytes: 100n, unsupported: false, metadataBytes: 100n, populationBytes: 100n, populationCount: 1n, receipts: [] as { organizationId: string | null; requestHash: string | null }[], rows: [{ id: caseId, caseNumber: 1, displayId: "SYN-1", title: "Synthetic main", archived: false, reviewStatus: "APPROVED" }, { id: "old-pending", caseNumber: 2, displayId: "SYN-2", title: "Exact retained pending", archived: false, reviewStatus: "PENDING_REVIEW" }, { id: "approved", caseNumber: 3, displayId: "SYN-3", title: "Synthetic approved", archived: false, reviewStatus: "APPROVED" }] };
   const events: string[] = [];
   const tx = {
     $executeRaw: vi.fn(async () => 0), $queryRaw: vi.fn(async (raw: TemplateStringsArray | { sql: string }) => {
@@ -26,7 +26,7 @@ function fixture() {
       if (sql.includes('FROM "TestCase" c')) { events.push("metadata-preflight"); return [{ bytes: state.metadataBytes, unsupported: false }]; }
       throw Error(`Unexpected synthetic SQL: ${sql}`);
     }),
-    project: { findUniqueOrThrow: vi.fn(async () => ({ organizationId: state.organizationId })) },
+    project: { findUniqueOrThrow: vi.fn(async () => ({ organizationId: state.organizationId, caseKey: "syn" })) },
     membership: { findUniqueOrThrow: vi.fn(async () => ({ role: state.role, seatType: state.seatType })) },
     testCasePrerequisite: { findMany: vi.fn(async () => { events.push("graph-ids"); return state.edges; }), deleteMany: vi.fn(async () => { events.push("edge-remove"); return { count: 1 }; }), createMany: vi.fn(async () => { events.push("edge-add"); return { count: 1 }; }) },
     testCase: { findMany: vi.fn(async (args: { where: { id: { in: string[] } }; select: Record<string, boolean> }) => { events.push(args.select.title ? "metadata-rows" : "case-states"); return state.rows.filter(row => args.where.id.in.includes(row.id)); }) },
@@ -48,7 +48,7 @@ describe("bounded current native prerequisite service, mocked source proof only"
   });
   it("page preflights graph and all candidate native metadata before identifiers/bodies; retains pending edges exactly", async () => {
     const f = fixture(), id = randomUUID(), value = await readPrerequisitePage(f.db as never, scope.actorId, { ...pins, readRequestId: id, search: "", sort: "case-id" }, auth);
-    expect(value.prerequisiteIds).toEqual(["old-pending"]); expect(value.linked[0]).toMatchObject({ reviewStatus: "PENDING_REVIEW", unavailable: false }); expect(value.items.map(item => item.id)).toEqual(["approved"]); expect(value.readRequestId).toBe(id);
+    expect(value.prerequisiteIds).toEqual(["old-pending"]); expect(value.linked[0]?.displayId).toBe("syn-02"); expect(value.items[0]?.displayId).toBe("syn-03"); expect(value.linked[0]).toMatchObject({ reviewStatus: "PENDING_REVIEW", unavailable: false }); expect(value.items.map(item => item.id)).toEqual(["approved"]); expect(value.readRequestId).toBe(id);
     expect(f.events.indexOf("graph-preflight")).toBeLessThan(f.events.indexOf("graph-ids")); expect(f.events.indexOf("candidate-preflight")).toBeLessThan(f.events.indexOf("candidate-digest")); expect(f.events.indexOf("metadata-preflight")).toBeLessThan(f.events.indexOf("metadata-rows")); expect(value).not.toHaveProperty("edges"); expect(value).not.toHaveProperty("procedures");
   });
   it("unavailable retained ID is visible without exposing any foreign case body", async () => {

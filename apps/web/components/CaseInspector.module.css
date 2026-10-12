@@ -57,15 +57,16 @@
   font-size: 11px;
 }
 .metadata {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px 14px;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(130px, 100%), 1fr));
+  gap: 12px 20px;
   margin: 0 0 14px;
 }
 .metadata > div {
-  display: inline-flex;
-  align-items: baseline;
-  gap: 5px;
+  display: grid;
+  align-content: start;
+  gap: 4px;
+  min-width: 0;
 }
 .metadata dt {
   color: var(--muted);
@@ -75,6 +76,8 @@
   margin: 0;
   font-size: 12px;
 }
+.priorityControl { display: grid; gap: 6px; border-top: 1px solid var(--line); padding-top: 12px; margin-bottom: 14px; }
+.priorityControl > span { color: var(--muted); font-size: 11px; }
 .tabs {
   display: flex;
   gap: 2px;

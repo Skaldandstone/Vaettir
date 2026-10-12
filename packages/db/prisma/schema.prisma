@@ -254,9 +254,12 @@ model Project {
   name                         String
   slug                         String
   // Human-readable case identity prefix, independent of the project name.
-  // Database allocation covers imports and older clients too. Once a number
-  // has been allocated the prefix cannot change, so references stay stable.
+  // Live labels use this prefix plus immutable caseNumber. Historical prefixes
+  // remain reserved aliases; stored displayId and frozen evidence never change.
   caseKey                      String                   @default("")
+  caseKeyRevision              Int                      @default(0)
+  caseKeyAliases               ProjectCaseKeyAlias[]
+  caseKeyWrites                ProjectCaseKeyWrite[]
   nextCaseNumber               Int                      @default(0)
   // Project-defined typed case metadata, separate from test-plan fields.
   caseFieldSchema              Json                     @default("{\"version\":1,\"fields\":[]}")
@@ -344,7 +347,41 @@ model Project {
 
   @@unique([organizationId, slug])
   @@unique([organizationId, caseKey])
+  @@unique([id, organizationId])
   @@unique([organizationId, datadogProjectTag])
+}
+
+// Prefix reservation is project/organization-scoped and append-only while the
+// project exists. A key rename needs no per-case or frozen-evidence rewrite.
+model ProjectCaseKeyAlias {
+  projectId      String
+  organizationId String
+  caseKey        String
+  createdAt      DateTime @default(now())
+  project        Project  @relation(fields: [projectId, organizationId], references: [id, organizationId], onDelete: Cascade, onUpdate: Restrict)
+
+  @@id([projectId, caseKey])
+  @@unique([organizationId, caseKey])
+}
+
+// Original UUID/body receipt. Actor IDs are retained scalar audit identities;
+// they never grant permission and cannot rebind to a replacement account.
+model ProjectCaseKeyWrite {
+  id             String   @id
+  projectId      String
+  organizationId String
+  actorId        String
+  clerkActorId   String
+  requestHash    String
+  beforeKey      String
+  afterKey       String
+  beforeRevision Int
+  afterRevision  Int
+  receipt        Json
+  createdAt      DateTime @default(now())
+  project        Project  @relation(fields: [projectId, organizationId], references: [id, organizationId], onDelete: Cascade, onUpdate: Restrict)
+
+  @@index([projectId, createdAt])
 }
 
 // Requirement wording/direct-link baselines are private immutable human records,

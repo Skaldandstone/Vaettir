@@ -646,6 +646,7 @@ function DatasetSection({
   const editing = editingState;
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [parameterDraft, setParameterDraft] = useState("");
 
   function setEditing(next: boolean) {
     if (!next) setDraft(null);
@@ -676,15 +677,20 @@ function DatasetSection({
   }
 
   function addParameter() {
-    const name = prompt("Parameter name (used in steps as <name>)");
-    if (!name?.trim()) return;
-    setParameterNames((p) => [...p, name.trim()]);
+    const name = parameterDraft.trim();
+    if (!name || saving || readOnly) return;
+    if (parameterNames.includes(name)) { setError("That parameter already exists. Choose a unique name."); return; }
+    if (name.includes("<") || name.includes(">")) { setError("Enter the parameter name without angle brackets."); return; }
+    setError(null);
+    setParameterNames((p) => [...p, name]);
     setRows((rs) =>
-      rs.map((r) => ({ ...r, values: { ...r.values, [name.trim()]: "" } })),
+      rs.length ? rs.map((r) => ({ ...r, values: { ...r.values, [name]: "" } })) : [{ name: "Row 1", values: Object.fromEntries([...parameterNames, name].map(p => [p, ""])) }],
     );
+    setParameterDraft("");
   }
 
   function addRow() {
+    if (saving || readOnly || parameterNames.length === 0) return;
     setRows((rs) => [
       ...rs,
       {
@@ -695,7 +701,7 @@ function DatasetSection({
   }
 
   async function save() {
-    if (parameterNames.length === 0 || rows.length === 0) return;
+    if (saving || readOnly || parameterNames.length === 0 || rows.length === 0) return;
     setSaving(true);
     setError(null);
     try {
@@ -792,7 +798,12 @@ function DatasetSection({
       )}
 
       {editing && (
-        <div style={{ marginTop: 8 }}>
+        <fieldset disabled={saving || Boolean(readOnly)} style={{ marginTop: 8, border: 0, padding: 0, minWidth: 0 }}>
+          <p className="text-muted">Add parameters as columns, then enter one set of values per row. For example, use &lt;username&gt; in an action and supply different usernames below. This edits data only; it does not start a run.</p>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "end", marginBottom: 12 }}>
+            <label style={{ display: "grid", gap: 4 }}>Parameter name<input value={parameterDraft} onChange={event => setParameterDraft(event.target.value)} placeholder="e.g. username" maxLength={120}/></label>
+            <button type="button" className="btn-secondary" disabled={!parameterDraft.trim()} onClick={addParameter}>Add parameter</button>
+          </div>
           <div style={{ marginBottom: 6 }}>
             {parameterNames.map((p) => (
               <span
@@ -803,25 +814,11 @@ function DatasetSection({
                 &lt;{p}&gt;
               </span>
             ))}
-            <button
-              className="btn-secondary"
-              style={{ fontSize: 11 }}
-              onClick={addParameter}
-            >
-              + Parameter
-            </button>
           </div>
-          {rows.map((row, i) => (
-            <div
-              key={i}
-              style={{
-                border: "1px solid var(--line)",
-                borderRadius: 6,
-                padding: 8,
-                marginBottom: 6,
-              }}
-            >
+          {parameterNames.length > 0 && <div style={{ overflowX: "auto" }} tabIndex={0} aria-label="Dataset values grid"><table style={{ width: "100%", borderCollapse: "collapse" }}><thead><tr><th scope="col">Row name</th>{parameterNames.map(name => <th scope="col" key={name}>{name}</th>)}<th scope="col">Actions</th></tr></thead><tbody>{rows.map((row, i) => (
+            <tr key={i}><td>
               <input
+                aria-label={`Dataset row ${i + 1} name`}
                 value={row.name}
                 onChange={(e) =>
                   setRows((rs) =>
@@ -830,26 +827,14 @@ function DatasetSection({
                     ),
                   )
                 }
-                style={{ fontWeight: 600, marginBottom: 4 }}
+                style={{ fontWeight: 600, minWidth: 120 }}
               />
-              <button
-                style={{ float: "right", fontSize: 11 }}
-                onClick={() => setRows((rs) => rs.filter((_, j) => j !== i))}
-              >
-                Remove row
-              </button>
+              </td>
               {parameterNames.map((p) => (
-                <div
-                  key={p}
-                  style={{
-                    display: "flex",
-                    gap: 6,
-                    alignItems: "center",
-                    marginTop: 4,
-                  }}
-                >
-                  <span style={{ fontSize: 12, width: 100 }}>{p}</span>
-                  <input
+                <td key={p}>
+                  <textarea
+                    aria-label={`Row ${i + 1}: ${p}`}
+                    rows={2}
                     value={row.values[p] ?? ""}
                     onChange={(e) =>
                       setRows((rs) =>
@@ -863,12 +848,13 @@ function DatasetSection({
                         ),
                       )
                     }
-                    style={{ flex: 1 }}
+                    style={{ minWidth: 160, width: "100%" }}
                   />
-                </div>
+                </td>
               ))}
-            </div>
-          ))}
+              <td><button type="button" aria-label={`Remove dataset row ${i + 1}`} onClick={() => setRows((rs) => rs.filter((_, j) => j !== i))}>Remove row</button></td>
+            </tr>
+          ))}</tbody></table></div>}
           <button onClick={addRow} disabled={parameterNames.length === 0}>
             + Row
           </button>
@@ -883,10 +869,10 @@ function DatasetSection({
                 saving || parameterNames.length === 0 || rows.length === 0
               }
             >
-              {saving ? "Saving…" : "Save"}
+              {saving ? "Saving…" : "Save data set"}
             </button>
           </div>
-        </div>
+        </fieldset>
       )}
     </div>
   );
@@ -1312,10 +1298,6 @@ function TestCaseInspector({
           </div>
         ))}
         <div>
-          <dt>Priority</dt>
-          <dd><CasePriorityField key={tc.id} projectId={projectId} caseId={tc.id} priority={tc.priority} caseRevision={tc.caseRevision} readOnly={readOnly} onChanged={onChanged} /></dd>
-        </div>
-        <div>
           <dt>Risk</dt>
           <dd>
             {tc.riskScore == null
@@ -1328,6 +1310,10 @@ function TestCaseInspector({
           <dd>{inspectorLabel(tc.reviewStatus)}</dd>
         </div>
       </dl>
+      <div className={styles.priorityControl}>
+        <span>Priority</span>
+        <CasePriorityField key={tc.id} projectId={projectId} caseId={tc.id} priority={tc.priority} caseRevision={tc.caseRevision} readOnly={readOnly} onChanged={onChanged} />
+      </div>
       {(tc.reviewStatus === "PENDING_REVIEW" || savedAutomation.data) && (
         <div className={styles.row} style={{ marginBottom: 10 }}>
           {tc.reviewStatus === "PENDING_REVIEW" && (
@@ -1387,6 +1373,12 @@ function TestCaseInspector({
         aria-labelledby={`${sectionId}-tab-Procedure`}
         hidden={section !== "Procedure"}
       >
+        <TestCasePrerequisites
+          projectId={projectId}
+          caseId={tc.id}
+          canEdit={!readOnly}
+          active={section === "Procedure"}
+        />
         {(tc.given.length > 0 || tc.when.length > 0 || tc.then.length > 0) && (
           <section className="case-step-table" aria-label="Scenario steps">
             <h3>Steps · Given / When / Then</h3>
@@ -1534,12 +1526,6 @@ function TestCaseInspector({
             <p style={{ whiteSpace: "pre-wrap" }}>{tc.background}</p>
           </details>
         )}
-        <TestCasePrerequisites
-          projectId={projectId}
-          caseId={tc.id}
-          canEdit={!readOnly}
-          active={section === "Procedure"}
-        />
         <CaseCustomFields projectId={projectId} caseId={tc.id} />
         <DatasetSection
           testCaseId={tc.id}

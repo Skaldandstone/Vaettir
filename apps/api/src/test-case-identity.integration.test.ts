@@ -4,10 +4,9 @@ import { prisma } from "@vaettir/db";
 import { appRouter } from "./router.js";
 import { commitImportedTestCases } from "./services/importCommit.js";
 import { prerequisiteRequestHash } from "./services/casePrerequisiteSchema.js";
+import { assertOwnedTestDatabase } from "./testOnlyDatabaseSafety.js";
 
-const url = process.env.DATABASE_URL ? new URL(process.env.DATABASE_URL) : null;
-const isolated = url && ["localhost", "127.0.0.1"].includes(url.hostname)
-  && /test/i.test(url.pathname) && !url.searchParams.has("host");
+const isolated = (() => { try { assertOwnedTestDatabase(process.env.DATABASE_URL); return true; } catch { return false; } })();
 
 describe.skipIf(!isolated)("stable human-readable test case identities", () => {
   const run = `case-id-${randomUUID()}`;
@@ -20,6 +19,10 @@ describe.skipIf(!isolated)("stable human-readable test case identities", () => {
   let actorId: string;
   let projectId: string;
   let otherProjectId: string;
+  const keyInput = (current: Awaited<ReturnType<typeof owner.project.caseIdentity>>, caseKey: string, subject = ownerSubject) => ({
+    projectId: current.projectId, originalOrganizationId: current.organizationId, expectedClerkActorId: subject, expectedNativeActorId: current.actorId,
+    requestId: randomUUID(), expectedCaseKey: current.caseKey, expectedRevision: current.revision, caseKey,
+  });
 
   beforeAll(async () => {
     const tier = await prisma.planTier.findFirstOrThrow();
@@ -46,7 +49,7 @@ describe.skipIf(!isolated)("stable human-readable test case identities", () => {
     expect(cases.map(c => c.caseNumber).sort((a, b) => a - b)).toEqual(Array.from({ length: 24 }, (_, i) => i + 1));
     expect(new Set(cases.map(c => c.displayId)).size).toBe(24);
     for (const c of cases) expect(c.displayId).toBe(`atwist-${String(c.caseNumber).padStart(2, "0")}`);
-    expect(await owner.project.caseIdentity({ projectId })).toEqual({ caseKey: "atwist", allocatedCount: 24, keyLocked: true });
+    expect(await owner.project.caseIdentity({ projectId })).toMatchObject({ caseKey: "atwist", allocatedCount: 24, keyLocked: false, revision: 0 });
   });
 
   it("retains identity through titles, suite moves, archiving and project renames", async () => {
@@ -75,7 +78,7 @@ describe.skipIf(!isolated)("stable human-readable test case identities", () => {
     await expect(prisma.testCase.update({ where: { id: tc.id }, data: { displayId: "atwist-999" } })).rejects.toThrow("identity cannot be changed");
     await expect(prisma.testCase.update({ where: { id: tc.id }, data: { projectId: otherProjectId } })).rejects.toThrow("identity cannot be changed");
     await expect(prisma.project.update({ where: { id: projectId }, data: { nextCaseNumber: 0 } })).rejects.toThrow("cannot be reused");
-    await expect(prisma.project.update({ where: { id: projectId }, data: { caseKey: "renamed" } })).rejects.toThrow("fixed after the first");
+    await expect(prisma.project.update({ where: { id: projectId }, data: { caseKey: "renamed" } })).rejects.toThrow("original reviewed key change");
     expect((await prisma.project.findUniqueOrThrow({ where: { id: projectId } })).nextCaseNumber).toBe(counter);
   });
 
@@ -132,32 +135,38 @@ describe.skipIf(!isolated)("stable human-readable test case identities", () => {
     expect((await viewer.testCases.byDisplayId({ projectId, displayId: "atwist-01" })).id).toBe(ours.id);
   });
 
-  it("allows a reviewed empty-project key configuration but prevents stale, duplicate or unauthorized changes", async () => {
+  it("allows reviewed keys before and after allocation but prevents stale, duplicate or unauthorized changes", async () => {
     const empty = await owner.project.create({ organizationId, name: "New workspace flow" });
     const current = await owner.project.caseIdentity({ projectId: empty.id });
-    await expect(viewer.project.saveCaseKey({ projectId: empty.id, expectedCaseKey: current.caseKey, caseKey: "custom" })).rejects.toMatchObject({ code: "FORBIDDEN" });
-    await expect(owner.project.saveCaseKey({ projectId: empty.id, expectedCaseKey: "wrong", caseKey: "custom" })).rejects.toMatchObject({ code: "CONFLICT" });
-    await expect(owner.project.saveCaseKey({ projectId: empty.id, expectedCaseKey: current.caseKey, caseKey: "atwist" })).rejects.toMatchObject({ code: "CONFLICT" });
-    expect(await owner.project.saveCaseKey({ projectId: empty.id, expectedCaseKey: current.caseKey, caseKey: "CUSTOM" })).toEqual({ caseKey: "custom", keyLocked: false });
+    await expect(viewer.project.saveCaseKey(keyInput(await viewer.project.caseIdentity({ projectId: empty.id }), "custom", viewerSubject))).rejects.toMatchObject({ code: "FORBIDDEN" });
+    await expect(owner.project.saveCaseKey({ ...keyInput(current, "custom"), expectedCaseKey: "wrong" })).rejects.toMatchObject({ code: "CONFLICT" });
+    await expect(owner.project.saveCaseKey(keyInput(current, "atwist"))).rejects.toMatchObject({ code: "CONFLICT" });
+    expect(await owner.project.saveCaseKey(keyInput(current, "CUSTOM"))).toMatchObject({ caseKey: "custom", keyLocked: false, aliasesPreserved: true, revision: 1 });
     const tc = await prisma.testCase.create({ data: { projectId: empty.id, title: "First", testType: "FUNCTIONAL" } });
     expect(tc.displayId).toBe("custom-01");
-    await expect(owner.project.saveCaseKey({ projectId: empty.id, expectedCaseKey: "custom", caseKey: "newkey" })).rejects.toMatchObject({ code: "CONFLICT" });
-    expect(await prisma.auditLog.count({ where: { projectId: empty.id, summary: "Configured test case project key" } })).toBe(1);
+    const request = keyInput(await owner.project.caseIdentity({ projectId: empty.id }), "newkey");
+    expect(await owner.project.saveCaseKey(request)).toMatchObject({ caseKey: "newkey", revision: 2, replayed: false });
+    expect(await owner.project.saveCaseKey(request)).toMatchObject({ caseKey: "newkey", revision: 2, replayed: true });
+    expect((await prisma.testCase.findUniqueOrThrow({ where: { id: tc.id } })).displayId).toBe("custom-01");
+    expect(await owner.testCases.byDisplayId({ projectId: empty.id, displayId: "custom-01" })).toMatchObject({ id: tc.id, displayId: "newkey-01" });
+    expect(await owner.testCases.byDisplayId({ projectId: empty.id, displayId: "newkey-01" })).toMatchObject({ id: tc.id, displayId: "newkey-01" });
+    expect(await prisma.auditLog.count({ where: { projectId: empty.id, entityType: "ProjectCaseKeyWrite" } })).toBe(2);
   });
 
   it("serializes first-case allocation against a concurrent key configuration", async () => {
     const empty = await owner.project.create({ organizationId, name: "Racing prefix" });
     const original = await owner.project.caseIdentity({ projectId: empty.id });
     const [configuration, creation] = await Promise.allSettled([
-      owner.project.saveCaseKey({ projectId: empty.id, expectedCaseKey: original.caseKey, caseKey: "race" }),
+      owner.project.saveCaseKey(keyInput(original, "race")),
       prisma.testCase.create({ data: { projectId: empty.id, title: "Concurrent first", testType: "FUNCTIONAL" } }),
     ]);
     expect(creation.status).toBe("fulfilled");
     const identity = await owner.project.caseIdentity({ projectId: empty.id });
     const tc = await prisma.testCase.findFirstOrThrow({ where: { projectId: empty.id } });
-    expect(tc.displayId).toBe(`${identity.caseKey}-01`);
-    if (configuration.status === "fulfilled") expect(identity.caseKey).toBe("race");
-    else { expect(identity.caseKey).toBe(original.caseKey); expect(configuration.reason).toMatchObject({ code: "CONFLICT" }); }
+    expect(configuration.status).toBe("fulfilled");
+    expect(identity.caseKey).toBe("race");
+    expect([original.caseKey + "-01", "race-01"]).toContain(tc.displayId);
+    expect(await owner.testCases.byDisplayId({ projectId: empty.id, displayId: tc.displayId })).toMatchObject({ id: tc.id, displayId: "race-01" });
   });
 
   it("generates collision-safe default keys for old project inserts", async () => {
@@ -196,11 +205,11 @@ describe.skipIf(!isolated)("stable human-readable test case identities", () => {
 
   it("rechecks current authorization rather than accepting a stale full-editor snapshot", async () => {
     const editor = await prisma.user.create({ data: { email: `${run}-stale@example.com`, clerkUserId: `${run}-stale`, memberships: { create: { organizationId, role: "EDITOR", seatType: "FULL" } } }, include: { memberships: true } });
-    const caller = appRouter.createCaller({ prisma, user: editor });
+    const caller = appRouter.createCaller({ prisma, user: editor, authenticatedClerkSubject: editor.clerkUserId });
     const empty = await owner.project.create({ organizationId, name: "Authorization changed" });
     const current = await owner.project.caseIdentity({ projectId: empty.id });
     await prisma.membership.update({ where: { organizationId_userId: { organizationId, userId: editor.id } }, data: { role: "VIEWER" } });
-    await expect(caller.project.saveCaseKey({ projectId: empty.id, expectedCaseKey: current.caseKey, caseKey: "revoked" })).rejects.toMatchObject({ code: "FORBIDDEN" });
+    await expect(caller.project.saveCaseKey({ ...keyInput(current, "revoked", editor.clerkUserId), expectedNativeActorId: editor.id })).rejects.toMatchObject({ code: "FORBIDDEN" });
     expect((await owner.project.caseIdentity({ projectId: empty.id })).caseKey).toBe(current.caseKey);
   });
 

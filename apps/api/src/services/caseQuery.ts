@@ -135,7 +135,10 @@ function ruleWhere(rule: CaseQueryRule): Prisma.TestCaseWhereInput {
               },
       };
     case "displayId":
-      return { displayId: { equals: rule.value, mode: "insensitive" } };
+      throw new TRPCError({
+        code: "PRECONDITION_FAILED",
+        message: "Case references require the project-scoped historical alias query path.",
+      });
     case "tag":
       return { tags: { has: rule.value } };
     case "suite":
@@ -212,7 +215,7 @@ export async function queryCasePage(
   const pageCursor = encodeCaseQueryCursor(body, env);
   await assertCustomQueryCompatibility(tx, input.projectId, input.query);
   const hasCustomRules = input.query.groups.some((group) =>
-    group.rules.some((rule) => rule.field === "custom"),
+    group.rules.some((rule) => rule.field === "custom" || rule.field === "displayId"),
   );
   const where = hasCustomRules
     ? null
@@ -301,7 +304,7 @@ export async function queryCasePage(
           customValues: Record<string, CaseCustomCell>;
         }>
       >(
-        Prisma.sql`SELECT id,"displayId","caseNumber",left(title,1000) AS title,length(title)>1000 AS "titleClipped",left("suitePath",240) AS "suitePath",COALESCE(length("suitePath")>240,false) AS "suiteClipped","testType"::text AS "testType",priority::text AS priority,"riskScore","automationStatus"::text AS "automationStatus","reviewStatus"::text AS "reviewStatus",archived,"updatedAt",${customProjectionSql(input.query.customColumns ?? [])} AS "customValues" FROM "TestCase" WHERE "projectId"=${input.projectId} AND id IN (${Prisma.join(ids)})`,
+        Prisma.sql`SELECT id,vaettir_case_display_label("projectId","caseNumber") AS "displayId","caseNumber",left(title,1000) AS title,length(title)>1000 AS "titleClipped",left("suitePath",240) AS "suitePath",COALESCE(length("suitePath")>240,false) AS "suiteClipped","testType"::text AS "testType",priority::text AS priority,"riskScore","automationStatus"::text AS "automationStatus","reviewStatus"::text AS "reviewStatus",archived,"updatedAt",${customProjectionSql(input.query.customColumns ?? [])} AS "customValues" FROM "TestCase" WHERE "projectId"=${input.projectId} AND id IN (${Prisma.join(ids)})`,
       )
     : [];
   const rows = new Map(metadata.map((r) => [r.id, r]));

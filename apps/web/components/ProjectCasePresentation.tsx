@@ -1,6 +1,6 @@
 "use client";
 import { useState } from "react";
-import { CASE_PRESENTATION_FIELDS, CASE_PRESENTATION_TYPES, CASE_PRESENTATION_DOMAINS, CASE_PRESENTATION_PRESETS, casePresentationSchema, casePresentationPreset, type CasePresentation } from "@vaettir/core";
+import { CASE_PRESENTATION_FIELDS, CASE_PRESENTATION_TYPES, CASE_PRESENTATION_DOMAINS, CASE_PRESENTATION_PRESETS, CASE_PROCEDURE_FORMATS, casePresentationSchema, casePresentationPreset, type CasePresentation } from "@vaettir/core";
 import { trpcReact, type RouterInputs, type RouterOutputs } from "@/lib/trpcReact";
 import { useCaseFieldAccess } from "@/lib/use-case-field-access";
 import { type CaseFieldOrigin } from "@/lib/case-field-origin";
@@ -9,6 +9,7 @@ import { manualStartDefinitivelyRejected as definitivelyRejected } from "@/lib/m
 import { Modal } from "./Modal";
 
 const fieldLabels = { background: "Background / description", tags: "Tag chips", technicalBehavior: "Per-step technical behavior", expectedResponse: "Per-step expected response", hardwareFixture: "Fixture setup, instruments and measurement criteria", safety: "Safety prerequisites / stop conditions", compliance: "Compliance controls" };
+const formatLabels = { STEPS: "Action / expected-result steps", GHERKIN: "Given / When / Then", CHECKLIST: "Checklist", NARRATIVE: "Narrative procedure", MIXED: "Scenario and detailed steps" };
 type State = RouterOutputs["casePresentation"]["get"];
 export function ProjectCasePresentation({ projectId }: { projectId: string }) {
   const access = useCaseFieldAccess(projectId), utils = trpcReact.useUtils();
@@ -59,6 +60,8 @@ export function ProjectCasePresentation({ projectId }: { projectId: string }) {
         <p>Choose the fields and choices useful to this project. Hiding a field never clears it: supplied values and mapped controls stay discoverable. This is presentation only, not an approval, processing permission or a change to supported case types.</p>
         {baseline?.profileHash !== fresh?.profileHash && <p role="alert">Project context changed after this draft opened. Preferences and rationale remain retained. Explicitly load current settings before a new save; pending requests must retry unchanged.</p>}
         <fieldset disabled={save.isPending || Boolean(pending)} style={{ border: 0, padding: 0, minWidth: 0 }}>
+          <label style={{ display: "grid", gap: 6, marginBottom: 16 }}>Preferred procedure layout<select value={draft.procedureFormat ?? "STEPS"} onChange={event => change({ ...draft, procedureFormat: event.target.value as NonNullable<CasePresentation["procedureFormat"]> })}>{CASE_PROCEDURE_FORMATS.map(format => <option key={format} value={format}>{formatLabels[format]}</option>)}</select></label>
+          <p className="text-muted">Given/When/Then is optional. Layout preferences never convert or erase existing scenario text, steps, technical descriptors or media. Narrative procedures use full prose in the action field; checklists use one check per row.</p>
           <p>Use a reviewed starting point (it does not change existing cases):</p>
           <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>{CASE_PRESENTATION_PRESETS.map(preset => <button key={preset} type="button" className="btn-secondary" onClick={() => change(casePresentationPreset(preset))}>{preset === "REGULATORY" ? "Regulatory / protocol" : preset.charAt(0) + preset.slice(1).toLowerCase()}</button>)}</div>
           <div style={{ display: "grid", gap: 12, marginBlock: 16 }}>{CASE_PRESENTATION_FIELDS.map(field => <label key={field} style={{ display: "grid", gap: 4 }}>{fieldLabels[field]}<select value={draft.fields[field]} onChange={event => change({ ...draft, fields: { ...draft.fields, [field]: event.target.value as CasePresentation["fields"][typeof field] } })}><option value="AUTO">Automatic by case context</option><option value="SHOW">Show for this project</option><option value="HIDE">Hide when empty; retain supplied values</option></select></label>)}</div>

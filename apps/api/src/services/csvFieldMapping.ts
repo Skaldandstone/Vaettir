@@ -30,11 +30,11 @@ const HEADER_ALIASES: Record<TargetField, string[]> = {
     "test case",
     "testcase",
     "test title",
-    "test scenario",
+    "case title",
+    "case name",
+    "test case title",
+    "test case name",
     "summary",
-    "scenario description",
-    "scenario description/test case",
-    "test case description",
   ],
   given: [
     "given",
@@ -48,6 +48,10 @@ const HEADER_ALIASES: Record<TargetField, string[]> = {
     "when",
     "action",
     "actions",
+    "test action",
+    "test actions",
+    "step action",
+    "step actions",
     "step",
     "steps",
     "test step",
@@ -60,6 +64,9 @@ const HEADER_ALIASES: Record<TargetField, string[]> = {
     "expected result",
     "expected results",
     "expected outcome",
+    "expected behavior",
+    "expected behaviour",
+    "expected response",
   ],
   priority: ["priority", "severity"],
   tags: [
@@ -67,8 +74,6 @@ const HEADER_ALIASES: Record<TargetField, string[]> = {
     "labels",
     "categories",
     "module",
-    "test module/scenario",
-    "test module/scenerio",
   ],
   testType: ["type", "test type", "test category", "category"],
   automationStatus: [
@@ -242,18 +247,32 @@ function splitMultiValue(cell: string | undefined): string[] {
     .filter(Boolean);
 }
 
+function preserveProcedureCell(cell: string | undefined): string[] {
+  // A source cell is prose, not a grammar for inventing steps. Keep numbering,
+  // multiline layout, indentation, and literal pipes exactly as supplied.
+  return cell?.trim() ? [cell] : [];
+}
+
 export function suggestCsvMapping(
   headers: string[],
 ): Partial<Record<TargetField, string>> {
-  const lowerHeaders = headers.map((h) => h.trim().toLowerCase());
+  const lowerHeaders = headers.map(normalizeHeader);
   const suggestedMapping: Partial<Record<TargetField, string>> = {};
   for (const field of TARGET_FIELDS) {
-    const alias = HEADER_ALIASES[field].find((candidate) =>
-      lowerHeaders.includes(candidate),
+    // A combined vendor scenario/description header is not a title or a tag.
+    // Multiple plausible columns (including duplicate normalized labels) need
+    // explicit review rather than silently choosing the first alias.
+    const matches = lowerHeaders.flatMap((header, index) =>
+      HEADER_ALIASES[field].some(alias => normalizeHeader(alias) === header)
+        ? [index] : [],
     );
-    if (alias) suggestedMapping[field] = headers[lowerHeaders.indexOf(alias)];
+    if (matches.length === 1) suggestedMapping[field] = headers[matches[0]!];
   }
   return suggestedMapping;
+}
+
+function normalizeHeader(header: string): string {
+  return header.trim().toLowerCase().replace(/[\s_-]+/g, " ");
 }
 
 export interface CsvHeaders {
@@ -330,6 +349,23 @@ export function mapCsvRows(
     automationStatus: colIndex("automationStatus"),
     externalId: colIndex("externalId"),
   };
+  const usedColumns = new Set<number>();
+  for (const field of TARGET_FIELDS) {
+    const index = idx[field];
+    if (index < 0) continue;
+    if (usedColumns.has(index)) {
+      throw new Error(`The mapped "${field}" column is already mapped to another field; review the column mapping before importing.`);
+    }
+    usedColumns.add(index);
+    const recognizedFields = TARGET_FIELDS.filter(target =>
+      HEADER_ALIASES[target].some(alias =>
+        normalizeHeader(alias) === normalizeHeader(header[index]!),
+      ),
+    );
+    if (recognizedFields.length && !recognizedFields.includes(field)) {
+      throw new Error(`The mapped "${field}" column is recognized as "${recognizedFields.join(" or ")}"; review the column mapping before importing.`);
+    }
+  }
   if (idx.title === -1) {
     throw new Error('The "title" field must be mapped to a CSV column');
   }
@@ -344,9 +380,9 @@ export function mapCsvRows(
     const rowNumber = i + 2;
     const override = overrideByRow.get(rowNumber);
     const title = (override?.title ?? r[idx.title] ?? "").trim();
-    const given = idx.given >= 0 ? splitMultiValue(r[idx.given]) : [];
-    const when = idx.when >= 0 ? splitMultiValue(r[idx.when]) : [];
-    const then = idx.then >= 0 ? splitMultiValue(r[idx.then]) : [];
+    const given = idx.given >= 0 ? preserveProcedureCell(r[idx.given]) : [];
+    const when = idx.when >= 0 ? preserveProcedureCell(r[idx.when]) : [];
+    const then = idx.then >= 0 ? preserveProcedureCell(r[idx.then]) : [];
     const rawPriority = (idx.priority >= 0 ? r[idx.priority] : "")
       ?.trim()
       .toUpperCase();

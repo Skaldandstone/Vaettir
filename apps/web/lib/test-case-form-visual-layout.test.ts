@@ -47,8 +47,9 @@ const initial = {
   ],
 };
 
-function render(options: { locked?: boolean; active?: boolean; hide?: boolean; shared?: boolean; stepLabels?: typeof labels } = {}) {
+function render(options: { locked?: boolean; active?: boolean; hide?: boolean; shared?: boolean; stepLabels?: typeof labels; format?: core.CasePresentation["procedureFormat"]; emptyScenario?: boolean; mode?: "create" | "edit" } = {}) {
   const presentation = core.defaultCasePresentation(null);
+  if (options.format) presentation.procedureFormat = options.format;
   for (const key of core.CASE_PRESENTATION_FIELDS) presentation.fields[key] = options.hide ? "HIDE" : "SHOW";
   const data = { projectId: "synthetic-p", organizationId: "synthetic-o", caseId: null,
     readScope: { projectId: "synthetic-p", organizationId: "synthetic-o", actorId: "synthetic-N", actorClerkUserId: "synthetic-C" },
@@ -80,7 +81,7 @@ function render(options: { locked?: boolean; active?: boolean; hide?: boolean; s
   }, exports, React);
   if (!exports.default) throw Error("Actual form export missing");
   return renderToStaticMarkup(React.createElement(exports.default, {
-    mode: "edit", projectId: "synthetic-p", testCaseId: "synthetic-case", initial: { ...initial, sharedStepGroupId: options.shared ? "synthetic-shared" : "" },
+    mode: options.mode ?? "edit", projectId: "synthetic-p", testCaseId: options.mode === "create" ? undefined : "synthetic-case", initial: { ...initial, ...(options.emptyScenario ? { given: [], when: [], then: [] } : {}), sharedStepGroupId: options.shared ? "synthetic-shared" : "" },
     stepFieldLabels: options.stepLabels ?? labels, locked: options.locked ?? false, active: options.active ?? true,
   }));
 }
@@ -116,9 +117,36 @@ it("retains explicit empty versus NULL labels, supplied hidden fields and unavai
   expect(paired[3]!.body.match(/Not supplied/g)).toHaveLength(2);
   expect(html).toContain(" Context\nkept as prose ");
   expect(html).toContain("Retained empty entry.");
-  expect(html).toContain("Step images and video (2)");
+  expect(html).toContain("Images and video for step 1 (2 linked)");
   expect(html.match(/A previously linked file is unavailable/g)).toHaveLength(2);
   expect(html).toContain("Fields hidden for empty cases remain visible here");
+});
+it.each([undefined, ...core.CASE_PROCEDURE_FORMATS])("keeps scenario phrasing optional and paired procedure prose/media discoverable for %s", format => {
+  const html = render({ format, emptyScenario: true });
+  const scenario = /<details([^>]*)><summary>Optional Given \/ When \/ Then<\/summary>/.exec(html);
+  expect(scenario).not.toBeNull();
+  expect(scenario![1]!.includes('open=""')).toBe(format === "GHERKIN" || format === "MIXED");
+  expect(html).toContain("Given/When/Then is not required");
+  expect(html).toContain(format === "CHECKLIST" ? "Procedure checklist" : format === "NARRATIVE" ? "Narrative procedure" : "Structured steps");
+  expect(pairs(html).map(pair => pair.kind)).toEqual(["action-technical", "result-response", "action-technical", "result-response"]);
+  expect(html).toContain('aria-label="Step 1 images and video"');
+  expect(html).toContain('aria-label="Step 2 images and video"');
+  expect(html).toContain("Images and video for step 1 (2 linked)");
+  expect(html).toContain("Upload image or video for step 1");
+  expect(html).toContain("Upload image or video for step 2");
+  expect(html.match(/type="file" accept="image\/\*,video\/\*"/g)).toHaveLength(2);
+  expect(html.match(/A previously linked file is unavailable/g)).toHaveLength(2);
+  const retained = render({ format, hide: true });
+  expect(retained).toMatch(/<details open=""[^>]*><summary>Optional Given \/ When \/ Then/);
+  expect(retained).toContain(" Exact\nprecondition ");
+  expect(retained).toContain("Retained empty entry.");
+});
+it("new-case media sections explicitly defer uploading until the case is saved", () => {
+  const html = render({ mode: "create", format: "NARRATIVE", emptyScenario: true });
+  expect(html.match(/Save the case first, then return to attach media to individual steps/g)).toHaveLength(2);
+  expect(html).not.toContain('type="file"');
+  expect(html).toContain("Images and video for step 1 (2 linked)");
+  expect(html).toContain(" Click this button\nthen wait ");
 });
 it("uses secondary reorder/remove controls and restrained theme-aware sections", () => {
   const html = render();

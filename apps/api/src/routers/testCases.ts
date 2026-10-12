@@ -38,6 +38,7 @@ import { testCaseContentRevision } from "../services/testCaseContentRevision.js"
 import { snapshotTestCaseVersion } from "../services/testCaseVersion.js";
 import { ensureCaseEvidenceNotRetained } from "../services/caseEvidenceRetention.js";
 import { requireCurrentPlanAccess } from "../services/testPlanExecution.js";
+import { liveCaseDisplayId, resolveProjectCaseReference } from "../services/projectCaseKeys.js";
 import {
   validationDomainSchema,
   verificationProfileSchema,
@@ -180,12 +181,12 @@ export const testCasesRouter = router({
           projectId: input.projectId,
           ...(input.includeArchived ? {} : { archived: false }),
         },
-        include: { source: true, testPlan: true },
+        include: { source: true, testPlan: true, project: { select: { caseKey: true } } },
         orderBy: { updatedAt: "desc" },
       });
       return cases.map((tc) => ({
         id: tc.id,
-        displayId: tc.displayId,
+        displayId: liveCaseDisplayId(tc.project.caseKey, tc.caseNumber),
         caseNumber: tc.caseNumber,
         title: tc.title,
         testType: tc.testType,
@@ -236,6 +237,7 @@ export const testCasesRouter = router({
     )
     .query(async ({ ctx, input }) => {
       await requireProjectAccess(ctx, input.projectId);
+      const project = await ctx.prisma.project.findUniqueOrThrow({ where: { id: input.projectId }, select: { caseKey: true } });
       const cases = await ctx.prisma.testCase.findMany({
         where: {
           projectId: input.projectId,
@@ -260,7 +262,7 @@ export const testCasesRouter = router({
           tags: true,
         },
       });
-      return cases;
+      return cases.map(tc => ({ ...tc, displayId: liveCaseDisplayId(project.caseKey, tc.caseNumber) }));
     }),
 
   exportProcedure: protectedProcedure
@@ -394,7 +396,7 @@ export const testCasesRouter = router({
           }));
       return {
         id: tc.id,
-        displayId: tc.displayId,
+        displayId: liveCaseDisplayId(tc.project.caseKey, tc.caseNumber),
         caseNumber: tc.caseNumber,
         title: tc.title,
         background: tc.background,
@@ -469,15 +471,8 @@ export const testCasesRouter = router({
     )
     .query(async ({ ctx, input }) => {
       await requireProjectAccess(ctx, input.projectId);
-      const found = await ctx.prisma.testCase.findUnique({
-        where: {
-          projectId_displayId: {
-            projectId: input.projectId,
-            displayId: input.displayId,
-          },
-        },
-        select: { id: true, displayId: true, title: true, archived: true },
-      });
+      if (!ctx.authenticatedClerkSubject) throw new TRPCError({ code: "FORBIDDEN", message: "Current signed-in account access is required." });
+      const found = await resolveProjectCaseReference(ctx.prisma, ctx.user.id, input.projectId, input.displayId, { clerkActorId: ctx.authenticatedClerkSubject });
       if (!found)
         throw new TRPCError({
           code: "NOT_FOUND",

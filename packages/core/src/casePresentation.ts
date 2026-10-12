@@ -6,10 +6,12 @@ export const CASE_PRESENTATION_TYPES = ["UNIT", "FUNCTIONAL", "CONTRACT", "INSTR
 export const CASE_PRESENTATION_DOMAINS = ["SOFTWARE", "HARDWARE", "SYSTEM_INTEGRATION", "HIL", "MANUFACTURING", "MEDICAL_DEVICE", "PHARMA_LAB", "OTHER"] as const;
 export const CASE_PRESENTATION_FIELDS = ["background", "tags", "technicalBehavior", "expectedResponse", "hardwareFixture", "safety", "compliance"] as const;
 export const CASE_PRESENTATION_PRESETS = ["SOFTWARE", "HARDWARE", "GAME", "REGULATORY"] as const;
+export const CASE_PROCEDURE_FORMATS = ["STEPS", "GHERKIN", "CHECKLIST", "NARRATIVE", "MIXED"] as const;
 export type CasePresentationField = typeof CASE_PRESENTATION_FIELDS[number];
 const mode = z.enum(["AUTO", "SHOW", "HIDE"]);
 export const casePresentationSchema = z.object({
   version: z.literal(1),
+  procedureFormat: z.enum(CASE_PROCEDURE_FORMATS).optional(),
   fields: z.object({ background: mode, tags: mode, technicalBehavior: mode, expectedResponse: mode, hardwareFixture: mode, safety: mode, compliance: mode }).strict(),
   testTypes: z.array(z.enum(CASE_PRESENTATION_TYPES)).min(1).max(CASE_PRESENTATION_TYPES.length).refine(values => new Set(values).size === values.length, "Choose each type once."),
   domains: z.array(z.enum(CASE_PRESENTATION_DOMAINS)).min(1).max(CASE_PRESENTATION_DOMAINS.length).refine(values => new Set(values).size === values.length, "Choose each domain once."),

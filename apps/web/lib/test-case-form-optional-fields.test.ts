@@ -40,12 +40,13 @@ function elements(value: unknown, all: Element[] = []): Element[] { if (React.is
 function text(value: unknown): string { return typeof value === "string" || typeof value === "number" ? String(value) : React.isValidElement(value) ? text((value as Element).props.children) : Array.isArray(value) ? value.map(text).join("") : ""; }
 function seed() { return { title: "Case\nExact", priority: "MEDIUM", testType: "FUNCTIONAL", validationDomain: "SOFTWARE", background: "", tags: [] as string[], suitePath: "suite/exact", testPlanId: "", sharedStepGroupId: "", stepRevision: "s".repeat(64), caseRevision: "c".repeat(64), given: ["", " Given\n raw "], when: [" When "], then: [" Then "], verificationProfile: { setup: "", safety: "", instruments: "", acceptanceCriteria: "" }, steps: [{ action: " Click\n button ", expectedActionOrData: null as string | null, expectedResult: "" as string | null, expectedResponse: null as string | null, mediaAttachmentIds: ["media-A", "media-B"] }, { action: " Second action ", expectedActionOrData: null as string | null, expectedResult: " Expected\n exact " as string | null, expectedResponse: null as string | null, mediaAttachmentIds: [] as string[] }] }; }
 const labels = { action: "Human\n action", expectedActionOrData: "Engine / API\n behavior", expectedResult: "Visible outcome", expectedResponse: " Wire\n response " };
-function harness(initial = seed(), automatic = false, mode: "create" | "edit" = "edit") {
+function harness(initial = seed(), automatic = false, mode: "create" | "edit" = "edit", procedureFormat?: core.CasePresentation["procedureFormat"]) {
   type Slot = { value?: unknown; deps?: readonly unknown[]; cleanup?: () => void; memo?: unknown };
   const slots: Slot[] = [], effects: Array<() => void> = [], sent: unknown[] = [], reads: string[] = [], settingsWrites: unknown[] = [], navigation: string[] = [];
   let cursor = 0, dirty = true, tree: React.ReactNode = null;
   const props = { mode, projectId: "p", testCaseId: mode === "edit" ? "case" : undefined, initial, stepFieldLabels: labels, active: true, locked: false };
   const presentation = core.defaultCasePresentation(null);
+  if (procedureFormat) presentation.procedureFormat = procedureFormat;
   if (!automatic) for (const key of core.CASE_PRESENTATION_FIELDS) presentation.fields[key] = "HIDE";
   const data = { projectId: "p", organizationId: "o", caseId: null, readScope: { projectId: "p", organizationId: "o", actorId: "N", actorClerkUserId: "cl" }, configuration: presentation, defaults: presentation };
   const same = (a: readonly unknown[] | undefined, b: readonly unknown[] | undefined) => !!a && !!b && a.length === b.length && a.every((v, i) => Object.is(v, b[i]));
@@ -93,6 +94,39 @@ function harness(initial = seed(), automatic = false, mode: "create" | "edit" = 
   settle();
   return { props, sent, reads, settingsWrites, navigation, button, click, ready, render, settle, textarea, get tree() { return tree; }, html: () => { settle(); return renderToStaticMarkup(tree); }, change: (label: string, value: string, occurrence = 0) => { (textarea(label, occurrence).props.onChange as (event: { target: { value: string } }) => void)({ target: { value } }); settle(); }, save: async () => { const b = button(mode === "create" ? "Create test case" : "Save changes"); expect(b.props.disabled).not.toBe(true); await (b.props.onClick as () => Promise<void>)(); settle(); }, holdSave: () => { mutate = () => new Promise(() => {}); }, holdUpload: () => { upload = () => new Promise(() => {}); const input = elements(tree).find(e => e.type === "input" && e.props.type === "file"); if (!input) throw Error("Actual upload input missing"); (input.props.onChange as (event: { target: { files: File[]; value: string } }) => void)({ target: { files: [new File(["synthetic"], "synthetic.png", { type: "image/png" })], value: "synthetic" } }); settle(); } };
 }
+it.each(core.CASE_PROCEDURE_FORMATS)("%s permits step-only authoring without adding scenario text or changing exact descriptors/media/CAS", async format => {
+  const initial = seed(); initial.given = []; initial.when = []; initial.then = [];
+  initial.steps[0]!.expectedActionOrData = ' onClick\nGET /apiURL & <literal> ';
+  initial.steps[0]!.expectedResponse = ' 200\n{"ok":true} ';
+  const baseline = harness(initial), preferred = harness(initial, false, "edit", format);
+  baseline.ready(); preferred.ready();
+  await baseline.save(); await preferred.save();
+  expect(preferred.sent).toEqual(baseline.sent);
+  expect(preferred.sent[0]).toMatchObject({ given: [], when: [], then: [], steps: initial.steps, expectedCaseRevision: initial.caseRevision, expectedStepRevision: initial.stepRevision, expectedPriority: "MEDIUM" });
+  expect(preferred.sent[0]).not.toHaveProperty("procedureFormat");
+  expect(preferred.settingsWrites).toEqual([]);
+  expect(initial.given).toEqual([]);
+});
+it.each(core.CASE_PROCEDURE_FORMATS)("%s does not clear supplied scenario text or hidden technical fields when saving", async format => {
+  const initial = seed(), baseline = harness(initial), preferred = harness(initial, false, "edit", format);
+  baseline.ready(); preferred.ready(); await baseline.save(); await preferred.save();
+  expect(preferred.sent).toEqual(baseline.sent);
+  expect(preferred.sent[0]).toMatchObject({ given: ["", " Given\n raw "], when: [" When "], then: [" Then "], steps: initial.steps });
+  expect(preferred.html()).toContain("Optional Given / When / Then");
+  expect(preferred.html()).toContain("Images and video for step 1 (2 linked)");
+  expect(preferred.settingsWrites).toEqual([]);
+});
+it.each(["CHECKLIST", "NARRATIVE"] as const)("a new %s procedure submits exact steps with no Gherkin phase requirement", async format => {
+  const initial = seed(); initial.given = []; initial.when = []; initial.then = [];
+  const h = harness(initial, false, "create", format); h.ready(); await h.save();
+  expect(h.sent).toHaveLength(1);
+  expect(h.sent[0]).toMatchObject({ projectId: "p", given: [], when: [], then: [], steps: initial.steps });
+  expect(h.sent[0]).not.toHaveProperty("expectedCaseRevision");
+  expect(h.sent[0]).not.toHaveProperty("procedureFormat");
+  expect(h.html()).not.toContain('type="file"');
+  expect(h.html()).toContain("Save the case first");
+  expect(h.settingsWrites).toEqual([]);
+});
 it.each(["Original background\nUseful prose", " \n\t "])("clearing saved Background %j sends explicit empty text and preserves every other save field", async background => {
   const initial = seed(); initial.background = background;
   const untouched = harness(initial), cleared = harness(initial);

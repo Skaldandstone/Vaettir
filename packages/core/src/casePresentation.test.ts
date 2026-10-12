@@ -1,7 +1,30 @@
 import { describe, expect, it } from "vitest";
-import { CASE_PRESENTATION_DOMAINS, CASE_PRESENTATION_TYPES, CASE_PRESENTATION_PRESETS, casePresentationSchema, casePresentationPreset, defaultCasePresentation, casePresentationVisible, retainedCaseChoices } from "./casePresentation.js";
+import { CASE_PRESENTATION_DOMAINS, CASE_PRESENTATION_TYPES, CASE_PRESENTATION_PRESETS, CASE_PROCEDURE_FORMATS, casePresentationSchema, casePresentationPreset, defaultCasePresentation, casePresentationVisible, retainedCaseChoices } from "./casePresentation.js";
 import { experienceProfileSchema } from "./qualityExperience.js";
 describe("built-in case presentation is lossless guidance", () => {
+  it("accepts each explicit layout while leaving legacy omitted preferences byte-equivalent", () => {
+    const legacy = casePresentationPreset("SOFTWARE");
+    expect(legacy).not.toHaveProperty("procedureFormat");
+    expect(JSON.stringify(casePresentationSchema.parse(legacy))).toBe(JSON.stringify(legacy));
+    expect(defaultCasePresentation(null)).not.toHaveProperty("procedureFormat");
+    expect(CASE_PROCEDURE_FORMATS).toEqual(["STEPS", "GHERKIN", "CHECKLIST", "NARRATIVE", "MIXED"]);
+    for (const procedureFormat of CASE_PROCEDURE_FORMATS) {
+      expect(casePresentationSchema.parse({ ...legacy, procedureFormat })).toEqual({ ...legacy, procedureFormat });
+    }
+    for (const procedureFormat of [null, "", "steps", "AUTOMATION", 0]) {
+      expect(casePresentationSchema.safeParse({ ...legacy, procedureFormat }).success).toBe(false);
+    }
+  });
+  it("layout choices do not change field visibility or coerce retained case choices", () => {
+    const configuration = casePresentationPreset("SOFTWARE");
+    configuration.fields.technicalBehavior = "HIDE";
+    for (const procedureFormat of CASE_PROCEDURE_FORMATS) {
+      const preferred = casePresentationSchema.parse({ ...configuration, procedureFormat });
+      expect(casePresentationVisible(preferred, "technicalBehavior", true, { validationDomain: "SOFTWARE" })).toBe(true);
+      expect(retainedCaseChoices(preferred.testTypes, "COMPLIANCE").at(-1)).toEqual({ value: "COMPLIANCE", retained: true });
+    }
+    expect(configuration).not.toHaveProperty("procedureFormat");
+  });
   it("presets contain only supported fields, domains and case types", () => {
     for (const preset of CASE_PRESENTATION_PRESETS) {
       const configuration = casePresentationSchema.parse(casePresentationPreset(preset));

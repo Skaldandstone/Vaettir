@@ -11,6 +11,7 @@ import { ProductionSignalChips } from "@/components/ProductionSignalChips";
 import { ProjectPopulationModal } from "@/components/ProjectPopulationModal";
 import { ProjectRepositories } from "@/components/ProjectRepositories";
 import { ProjectCaseKey } from "@/components/ProjectCaseKey";
+import { TestTypeDistribution } from "@/components/TestTypeDistribution";
 import {
   QualityExperienceSummary,
   QualityExperienceWizard,
@@ -120,26 +121,7 @@ export default function ProjectOverviewPage() {
               Test type distribution across {testCaseCount} cases. This
               describes your inventory, not release readiness.
             </p>
-            {Object.entries(
-              (testCasesQuery.data ?? []).reduce<Record<string, number>>(
-                (counts, test) => {
-                  counts[test.testType] = (counts[test.testType] ?? 0) + 1;
-                  return counts;
-                },
-                {},
-              ),
-            ).map(([type, count]) => (
-              <div className="overview-distribution" key={type}>
-                <span>{type.replace(/_/g, " ").toLowerCase()}</span>
-                <meter
-                  min={0}
-                  max={testCaseCount}
-                  value={count}
-                  aria-label={`${type}: ${count} of ${testCaseCount} cases`}
-                />
-                <span>{count}</span>
-              </div>
-            ))}
+            <TestTypeDistribution cases={testCasesQuery.data ?? []} />
           </>
         ) : (
           <p>

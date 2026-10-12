@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import {
   EXPERIENCE_OFFERINGS,
   SOFTWARE_KINDS,
@@ -145,7 +145,7 @@ function screensFor(profile: ExperienceProfile): Screen[] {
 function Guidance({ profile }: { profile: ExperienceProfile }) {
   const experience = resolveQualityExperience(profile);
   return (
-    <div>
+    <div className="experience-guidance-preview">
       {(
         [
           ["Test cases", experience.caseGuidance],
@@ -154,15 +154,15 @@ function Guidance({ profile }: { profile: ExperienceProfile }) {
           ["Review boundaries", experience.reviewNotes],
         ] as const
       ).map(([title, guidance]) => (
-        <section key={title} style={{ marginTop: 18 }}>
-          <h4 style={{ marginBottom: 8 }}>{title}</h4>
-          <ul style={{ paddingLeft: 20, margin: 0 }}>
+        <section key={title} className="experience-guidance-card">
+          <h4>{title}</h4>
+          <div>
             {guidance.map((text) => (
-              <li key={text} style={{ marginBottom: 6 }}>
+              <p key={text}>
                 {text}
-              </li>
+              </p>
             ))}
-          </ul>
+          </div>
         </section>
       ))}
     </div>
@@ -195,6 +195,9 @@ export function QualityExperienceWizard({
   const [reloadConfirm, setReloadConfirm] = useState(false);
   const [jurisdictionInput, setJurisdictionInput] = useState("");
   const headingRef = useRef<HTMLHeadingElement>(null);
+  const saveInFlight = useRef(false);
+  const closeFrame = useRef({ projectId, open, canEdit, onClose });
+  useLayoutEffect(() => { closeFrame.current = { projectId, open, canEdit, onClose }; }, [projectId, open, canEdit, onClose]);
   // Capture the first loaded baseline once. Background refetches must not replace
   // unsaved choices or silently change the hash that protects this draft.
   if (query.data && draft === null) {
@@ -233,7 +236,8 @@ export function QualityExperienceWizard({
     setJurisdictionInput("");
   }
   async function saveProfile() {
-    if (!draft || baselineHash === null || !canEdit || busy) return;
+    if (!draft || baselineHash === null || !canEdit || busy || saveInFlight.current) return;
+    if (saved) { onClose(); return; }
     const parsed = experienceProfileSchema.safeParse(draft);
     if (!parsed.success) {
       setError(
@@ -242,15 +246,23 @@ export function QualityExperienceWizard({
       return;
     }
     setError(null);
+    saveInFlight.current = true;
+    const originalProjectId = projectId;
     try {
       const result = await save.mutateAsync({
         projectId,
         expectedProfileHash: baselineHash,
         experience: parsed.data,
       });
+      const confirmed = experienceProfileSchema.safeParse(result.experience);
+      if (!confirmed.success || JSON.stringify(confirmed.data) !== JSON.stringify(parsed.data) || !/^[a-f0-9]{64}$/.test(result.profileHash))
+        throw new Error("The save response could not be confirmed.");
       setDraft(result.experience);
       setBaselineHash(result.profileHash);
       setSaved(true);
+      // The save ACK, not an independent cache refresh, decides whether to close.
+      if (closeFrame.current.projectId === originalProjectId && closeFrame.current.open && closeFrame.current.canEdit)
+        closeFrame.current.onClose();
       await utils.project.experience
         .invalidate({ projectId })
         .catch(() =>
@@ -262,6 +274,8 @@ export function QualityExperienceWizard({
       setError(
         `${cause instanceof Error ? cause.message : "The settings could not be saved."} Your draft is retained. Retry, or explicitly reload the saved profile.`,
       );
+    } finally {
+      saveInFlight.current = false;
     }
   }
   async function reloadSaved() {
@@ -477,10 +491,11 @@ export function QualityExperienceWizard({
                         .join(", ")}
                 . Existing evidence and direct links remain available.
               </p>
-              <details style={{ marginTop: 16 }}>
-                <summary>Preview case, plan and run guidance</summary>
+              <section aria-label="Testing workflow preview" style={{ marginTop: 16 }}>
+                <h4>Testing workflow preview</h4>
+                <p className="text-muted">Guidance for this project’s selected context. These cards are not saved test cases or executed runs.</p>
                 <Guidance profile={draft} />
-              </details>
+              </section>
               <p className="text-muted" style={{ marginTop: 16 }}>
                 This saves context and guidance only. It does not create cases,
                 run tests, connect repositories, spend credits or establish
@@ -546,16 +561,16 @@ export function QualityExperienceWizard({
                 disabled={busy}
                 onClick={onClose}
               >
-                Close and keep draft
+                {saved ? "Close" : "Cancel"}
               </button>
             </div>
             {screen.id === "review" ? (
               <button
                 className="btn-primary"
-                disabled={busy || saved}
+                disabled={busy}
                 onClick={() => void saveProfile()}
               >
-                {busy ? "Saving…" : saved ? "Saved" : "Save testing context"}
+                {busy ? "Saving…" : saved ? "Close" : "Save and close"}
               </button>
             ) : (
               <div style={{ display: "flex", gap: 8 }}>
@@ -579,7 +594,7 @@ export function QualityExperienceWizard({
             )}
           </footer>
           <p className="text-muted" style={{ fontSize: 12, marginTop: 12 }}>
-            Draft stays in this open page. Save before leaving or reloading.
+            {saved ? "Your testing context is saved." : "Cancel keeps your draft on this page; Save and close persists it to the project."}
           </p>
           <button
             className="btn-secondary"

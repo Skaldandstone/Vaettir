@@ -6,6 +6,7 @@ import {
   type CaseCustomBinding,
 } from "./caseCustomQuerySchema.js";
 import type { CaseQuery, CaseQueryRule } from "./caseQuerySchema.js";
+import { parseCaseReference } from "./projectCaseKeys.js";
 export function queryCustomBindings(query: CaseQuery): CaseCustomBinding[] {
   return [
     ...(query.customColumns ?? []),
@@ -109,8 +110,12 @@ function ruleSql(rule: CaseQueryRule): Prisma.Sql {
       return rule.operator === "equals"
         ? Prisma.sql`lower(title)=lower(${rule.value})`
         : Prisma.sql`title ILIKE ${`%${rule.value.replace(/[\\%_]/g, "\\$&")}%`}`;
-    case "displayId":
-      return Prisma.sql`lower("displayId")=lower(${rule.value})`;
+    case "displayId": {
+      const reference = parseCaseReference(rule.value);
+      return reference
+        ? Prisma.sql`"caseNumber"=${reference.caseNumber} AND EXISTS (SELECT 1 FROM "ProjectCaseKeyAlias" a JOIN "Project" p ON p.id=a."projectId" AND p."organizationId"=a."organizationId" WHERE a."projectId"="TestCase"."projectId" AND a."caseKey"=${reference.caseKey})`
+        : Prisma.sql`false`;
+    }
     case "tag":
       return Prisma.sql`${rule.value}=ANY(tags)`;
     case "suite":

@@ -60,7 +60,7 @@ function entityRows(input: ProjectTagPageInput) {
   const matched = matchingCases(input);
   if (input.section === "CASES")
     return Prisma.sql`WITH matched AS (${matched})
-    SELECT c.id,c.title,c."displayId",c."caseNumber",c."reviewStatus"::text AS "reviewStatus",c.archived,NULL::text AS status,1::int AS "matchingCaseCount",md5(c.id) AS "memberHash"
+    SELECT c.id,c.title,vaettir_case_display_label(c."projectId",c."caseNumber") AS "displayId",c."caseNumber",c."reviewStatus"::text AS "reviewStatus",c.archived,NULL::text AS status,1::int AS "matchingCaseCount",md5(c.id) AS "memberHash"
     FROM matched m JOIN "TestCase" c ON c.id=m.id AND c."projectId"=${input.projectId}`;
   if (input.section === "PLANS")
     return Prisma.sql`WITH matched AS (${matched})

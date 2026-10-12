@@ -159,7 +159,14 @@ function findHeaderRow(rows: CellValue[][]): number | null {
       Object.keys(mapping).length +
       (mapping.title ? 4 : 0) +
       (mapping.externalId ? 1 : 0);
-    if (mapping.title && (!best || score > best.score)) best = { index, score };
+    // A vendor description/scenario label still requires a deliberate title
+    // choice. Recognize the surrounding explicit procedure/identity headers so
+    // the worksheet remains available for mapping without guessing that title.
+    const hasProcedureHeader = Boolean(
+      mapping.when && mapping.then && (mapping.externalId || mapping.given),
+    );
+    if ((mapping.title || hasProcedureHeader) && (!best || score > best.score))
+      best = { index, score };
   }
   return best?.index ?? null;
 }

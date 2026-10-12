@@ -13,7 +13,9 @@ test("experience wizard uses labelled multi-select checklists and retains drafts
   assert.match(wizard, /GAME_PLATFORM_GROUPS.map/);
   assert.match(wizard, /expectedProfileHash: baselineHash/);
   assert.match(wizard, /Your draft is retained/);
-  assert.match(wizard, /Save testing context/);
+  assert.match(wizard, /Save and close/);
+  assert.match(wizard, /aria-label="Testing workflow preview"/);
+  assert.doesNotMatch(wizard, /<summary>Preview case, plan and run guidance/);
   assert.match(wizard, /GAME_PLATFORMS/);
   assert.match(wizard, /field: "enabledTools"/);
   assert.match(wizard, /PROJECT_OPTIONAL_TOOLS/);

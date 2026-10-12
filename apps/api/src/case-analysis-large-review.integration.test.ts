@@ -83,7 +83,7 @@ describe.skipIf(!optIn)("owned 851-case native risk REVIEW (AUTHORED NOT RUN)", 
     const source = await db.testCase.findMany({ where: { projectId, id: { in: ids } }, orderBy: { id: "asc" }, include: { steps: { orderBy: { order: "asc" } }, sharedStepGroup: { select: { projectId: true, steps: true, archivedAt: true } }, source: { select: { filePath: true, framework: true, lastSyncedCommitSha: true } } } });
     expect(source.map(row => row.id)).toEqual(ids);
     const identity = await caller.project.caseIdentity({ projectId });
-    expect(identity).toMatchObject({ allocatedCount: 851, keyLocked: true });
+    expect(identity).toMatchObject({ allocatedCount: 851, keyLocked: false });
     expect(identity.caseKey).toMatch(/^[a-z][a-z0-9-]{0,23}$/);
     expect(new Set(source.map(row => row.displayId)).size).toBe(851);
     expect(new Set(source.map(row => row.caseNumber)).size).toBe(851);

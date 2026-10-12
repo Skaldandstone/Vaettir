@@ -34,9 +34,9 @@ const TARGET_FIELDS = [
 type TargetField = (typeof TARGET_FIELDS)[number];
 const FIELD_LABELS: Record<TargetField, string> = {
   title: "Title",
-  given: "Given (preconditions)",
-  when: "When (steps)",
-  then: "Then (expected result)",
+  given: "Preconditions",
+  when: "Actions / procedure",
+  then: "Expected results",
   priority: "Priority",
   tags: "Tags",
   testType: "Test type",
@@ -135,11 +135,9 @@ function rowRecord(rows: EditableImportRow[]) {
       row.rowNumber,
       {
         ...row,
-        title:
-          row.title.trim() ||
-          row.externalId?.trim() ||
-          row.tags[0]?.trim() ||
-          "",
+        // Tags and external IDs are not case names. Missing names require
+        // explicit review rather than a silent cross-field substitution.
+        title: row.title,
       },
     ]),
   );
@@ -157,10 +155,7 @@ function reconcileRowOverrides(
 }
 
 function splitEditedLines(value: string) {
-  return value
-    .split(/\r?\n/)
-    .map((part) => part.trim())
-    .filter(Boolean);
+  return value.trim() ? [value] : [];
 }
 
 function RowRepairEditor({
@@ -190,7 +185,7 @@ function RowRepairEditor({
           rows={3}
           value={row.given.join("\n")}
           onChange={(event) => updateLines("given", event.target.value)}
-          placeholder="One item per line"
+          placeholder="Keep the source preconditions and formatting"
         />
       </label>
       <label>
@@ -199,7 +194,7 @@ function RowRepairEditor({
           rows={3}
           value={row.when.join("\n")}
           onChange={(event) => updateLines("when", event.target.value)}
-          placeholder="One step per line"
+          placeholder="Actions or procedure, in your preferred format"
         />
       </label>
       <label>
@@ -208,7 +203,7 @@ function RowRepairEditor({
           rows={3}
           value={row.then.join("\n")}
           onChange={(event) => updateLines("then", event.target.value)}
-          placeholder="One result per line"
+          placeholder="Expected results, preserving source formatting"
         />
       </label>
       <label>
@@ -567,8 +562,8 @@ export function MigrationWizard({
   async function updateMapping(field: TargetField, column: string) {
     const next = { ...mapping, [field]: column || undefined };
     setMapping(next);
+    setCsvPreviewRows([]);
     if (!next.title) {
-      setCsvPreviewRows([]);
       return;
     }
     setLoading(true);
@@ -601,6 +596,8 @@ export function MigrationWizard({
       [field]: column || undefined,
     };
     setXlsxMappings((current) => ({ ...current, [sheetName]: nextMapping }));
+    setXlsxPreview(current => current ? { sheets: current.sheets.map(sheet => sheet.name === sheetName ? { ...sheet, previewRows: [] } : sheet) } : current);
+    if (!nextMapping.title) setSelectedSheets(current => { const next = new Set(current); next.delete(sheetName); return next; });
     if (!nextMapping.title) return;
     setLoading(true);
     setError(null);
@@ -1053,6 +1050,7 @@ export function MigrationWizard({
                               <span className="text-error"> *</span>
                             )}
                             <select
+                              disabled={loading}
                               value={sheetMapping[field] ?? ""}
                               onChange={(event) =>
                                 void updateXlsxMapping(
@@ -1079,8 +1077,10 @@ export function MigrationWizard({
                               <tr>
                                 <th>Row</th>
                                 <th>Title</th>
-                                <th>Steps</th>
+                                <th>Preconditions</th>
+                                <th>Actions / procedure</th>
                                 <th>Expected</th>
+                                <th>Tags</th>
                                 <th>Type</th>
                                 <th>Automation</th>
                                 <th>Priority</th>
@@ -1091,8 +1091,10 @@ export function MigrationWizard({
                                 <tr key={row.rowNumber}>
                                   <td>{row.rowNumber}</td>
                                   <td>{row.title}</td>
-                                  <td>{row.when.join(" · ") || "—"}</td>
-                                  <td>{row.then.join(" · ") || "—"}</td>
+                                  <td style={{ whiteSpace: "pre-wrap" }}>{row.given.join("\n") || "—"}</td>
+                                  <td style={{ whiteSpace: "pre-wrap" }}>{row.when.join("\n") || "—"}</td>
+                                  <td style={{ whiteSpace: "pre-wrap" }}>{row.then.join("\n") || "—"}</td>
+                                  <td>{row.tags.join(", ") || "—"}</td>
                                   <td>{row.testType}</td>
                                   <td>{row.automationStatus}</td>
                                   <td>{row.priority}</td>
@@ -1111,8 +1113,8 @@ export function MigrationWizard({
                             Review {repairRows.length} incomplete source row(s)
                           </summary>
                           <p className="text-muted">
-                            Vaettir retained these rows and suggested titles
-                            from stable IDs or section tags when possible.
+                            These rows have missing titles. Enter the case name
+                            explicitly; tags and external IDs remain separate.
                             Review or edit any field before continuing.
                           </p>
                           {repairRows.map((row) => (
@@ -1136,6 +1138,7 @@ export function MigrationWizard({
             onClick={() => setStep("review")}
             disabled={
               loading ||
+              Boolean(error) ||
               selectedSheets.size === 0 ||
               unresolvedXlsxRows.length > 0
             }
@@ -1183,6 +1186,7 @@ export function MigrationWizard({
                   <span style={{ color: "var(--ember)" }}> *</span>
                 )}
                 <select
+                  disabled={loading}
                   value={mapping[field] ?? ""}
                   onChange={(e) => void updateMapping(field, e.target.value)}
                   style={{ width: "100%" }}
@@ -1219,9 +1223,9 @@ export function MigrationWizard({
                   <tr>
                     <th style={{ textAlign: "left" }}>Row</th>
                     <th style={{ textAlign: "left" }}>Title</th>
-                    <th style={{ textAlign: "left" }}>Given</th>
-                    <th style={{ textAlign: "left" }}>When</th>
-                    <th style={{ textAlign: "left" }}>Then</th>
+                    <th style={{ textAlign: "left" }}>Preconditions</th>
+                    <th style={{ textAlign: "left" }}>Actions / procedure</th>
+                    <th style={{ textAlign: "left" }}>Expected results</th>
                     <th style={{ textAlign: "left" }}>Type</th>
                     <th style={{ textAlign: "left" }}>Automation</th>
                     <th style={{ textAlign: "left" }}>Priority</th>
@@ -1236,9 +1240,9 @@ export function MigrationWizard({
                     >
                       <td className="text-muted">{r.rowNumber}</td>
                       <td>{r.title}</td>
-                      <td>{r.given.join(" | ")}</td>
-                      <td>{r.when.join(" | ")}</td>
-                      <td>{r.then.join(" | ")}</td>
+                      <td style={{ whiteSpace: "pre-wrap" }}>{r.given.join("\n")}</td>
+                      <td style={{ whiteSpace: "pre-wrap" }}>{r.when.join("\n")}</td>
+                      <td style={{ whiteSpace: "pre-wrap" }}>{r.then.join("\n")}</td>
                       <td>{r.testType}</td>
                       <td>{r.automationStatus}</td>
                       <td>{r.priority}</td>
@@ -1259,9 +1263,9 @@ export function MigrationWizard({
                 row(s)
               </summary>
               <p className="text-muted">
-                Vaettir retained these rows and suggested titles from stable IDs
-                or section tags when possible. Review or edit any field before
-                continuing.
+                These rows have missing titles. Enter the case name explicitly;
+                tags and external IDs remain separate. Review or edit any field
+                before continuing.
               </p>
               {Object.values(csvRowOverrides).map((row) => (
                 <RowRepairEditor
@@ -1276,7 +1280,7 @@ export function MigrationWizard({
           <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
             <button
               onClick={() => setStep("review")}
-              disabled={!mapping.title || unresolvedCsvRows.length > 0}
+              disabled={loading || Boolean(error) || !mapping.title || unresolvedCsvRows.length > 0}
             >
               Review scope
             </button>

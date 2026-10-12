@@ -16,7 +16,7 @@ import {
   qualityProfileRecord,
   readQualityExperience,
 } from "../services/qualityExperienceProfile.js";
-import { requireCurrentPlanAccess } from "../services/testPlanExecution.js";
+import { projectCaseKeySchema, projectCaseKeySave, readProjectCaseIdentity, saveProjectCaseKey } from "../services/projectCaseKeys.js";
 
 function slugify(name: string): string {
   return (
@@ -50,118 +50,28 @@ const qualityProfileUpdateSchema = qualityProfileSchema
   .omit({ experience: true })
   .partial()
   .strict();
-const caseKeySchema = z
-  .string()
-  .trim()
-  .toLowerCase()
-  .regex(
-    /^[a-z][a-z0-9-]{0,23}$/,
-    "Use 1–24 letters, numbers or hyphens, starting with a letter.",
-  );
+const caseKeySchema = projectCaseKeySchema;
+function caseKeyActor(ctx: { authenticatedClerkSubject?: string | null }) {
+  if (!ctx.authenticatedClerkSubject) throw new TRPCError({ code: "FORBIDDEN", message: "A current signed-in actor is required for case identity." });
+  return { clerkActorId: ctx.authenticatedClerkSubject };
+}
 
 export const projectRouter = router({
   caseIdentity: protectedProcedure
-    .input(z.object({ projectId: z.string() }))
+    .input(z.object({ projectId: z.string(), expectedClerkActorId: z.string().min(1).max(200).optional() }).strict())
     .query(async ({ ctx, input }) => {
       await requireProjectAccess(ctx, input.projectId);
-      const row = await ctx.prisma.project.findUnique({
-        where: { id: input.projectId },
-        select: { caseKey: true, nextCaseNumber: true },
-      });
-      if (!row)
-        throw new TRPCError({
-          code: "NOT_FOUND",
-          message: "Project not found",
-        });
-      return {
-        caseKey: row.caseKey,
-        allocatedCount: row.nextCaseNumber,
-        keyLocked: row.nextCaseNumber > 0,
-      };
+      const authorized = caseKeyActor(ctx);
+      if (input.expectedClerkActorId !== undefined && input.expectedClerkActorId !== authorized.clerkActorId)
+        throw new TRPCError({ code: "FORBIDDEN", message: "Restore the original account before reading its case identity." });
+      return readProjectCaseIdentity(ctx.prisma, ctx.user.id, input.projectId, authorized);
     }),
   saveCaseKey: protectedProcedure
-    .input(
-      z
-        .object({
-          projectId: z.string(),
-          expectedCaseKey: caseKeySchema,
-          caseKey: caseKeySchema,
-        })
-        .strict(),
-    )
+    .input(projectCaseKeySave)
     .mutation(async ({ ctx, input }) => {
-      const { project, membership } = await requireProjectAccess(
-        ctx,
-        input.projectId,
-        "EDITOR",
-      );
-      if (membership.seatType !== "FULL")
-        throw new TRPCError({
-          code: "FORBIDDEN",
-          message: "A full editor seat is required.",
-        });
-      try {
-        return await ctx.prisma.$transaction(async (tx) => {
-          // Shares the exact project row lock used by case allocation, so a
-          // concurrent first case and key change cannot receive mixed prefixes.
-          await tx.$queryRaw`SELECT id FROM "Project" WHERE id = ${input.projectId} AND "organizationId" = ${project.organizationId} FOR UPDATE`;
-          await requireCurrentPlanAccess(
-            tx,
-            ctx.user.id,
-            input.projectId,
-            true,
-          );
-          const row = await tx.project.findUnique({
-            where: { id: input.projectId },
-            select: { caseKey: true, nextCaseNumber: true },
-          });
-          if (!row)
-            throw new TRPCError({
-              code: "NOT_FOUND",
-              message: "Project not found",
-            });
-          if (row.caseKey !== input.expectedCaseKey)
-            throw new TRPCError({
-              code: "CONFLICT",
-              message: "Project key changed. Refresh before saving.",
-            });
-          if (row.caseKey === input.caseKey)
-            return { caseKey: row.caseKey, keyLocked: row.nextCaseNumber > 0 };
-          if (row.nextCaseNumber > 0)
-            throw new TRPCError({
-              code: "CONFLICT",
-              message:
-                "Project key is fixed after the first case ID is assigned. Existing case references will not be renamed.",
-            });
-          await tx.project.update({
-            where: { id: input.projectId },
-            data: { caseKey: input.caseKey },
-          });
-          await tx.auditLog.create({
-            data: {
-              organizationId: project.organizationId,
-              projectId: input.projectId,
-              actorId: ctx.user.id,
-              entityType: "Project",
-              entityId: input.projectId,
-              action: "UPDATE",
-              summary: "Configured test case project key",
-              metadata: { from: row.caseKey, to: input.caseKey },
-            },
-          });
-          return { caseKey: input.caseKey, keyLocked: false };
-        });
-      } catch (error) {
-        if (
-          error instanceof Prisma.PrismaClientKnownRequestError &&
-          error.code === "P2002"
-        )
-          throw new TRPCError({
-            code: "CONFLICT",
-            message: "This project key is already used in your workspace.",
-          });
-        throw error;
-      }
+      // No fallback from the old bare-key writer: original UUID/revision/org/
+      // independently authenticated actor pins are mandatory, including recovery.
+      return saveProjectCaseKey(ctx.prisma, ctx.user.id, input, caseKeyActor(ctx));
     }),
   experience: protectedProcedure
     .input(z.object({ projectId: z.string() }))

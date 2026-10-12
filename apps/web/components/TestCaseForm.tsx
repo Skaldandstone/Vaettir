@@ -540,18 +540,19 @@ export default function TestCaseForm({
         </label>
       </div>
 
-      <h2 style={SECTION_HEADING_STYLE}>Given / When / Then</h2>
+      <details open={presentation.procedureFormat === "GHERKIN" || presentation.procedureFormat === "MIXED" || value.given.length > 0 || value.when.length > 0 || value.then.length > 0} style={{ marginTop: 24 }}>
+      <summary>Optional Given / When / Then</summary>
       <p style={{ color: "var(--muted)", fontSize: 13, margin: "0 0 14px" }}>
-        Fill this in, or the structured step table below, or both — at least one
-        is required.
+        Use scenario phrasing if it suits this project, or write a procedure below. Given/When/Then is not required. Existing scenario text is retained when you choose a different layout.
       </p>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(240px, 100%), 1fr))", gap: 16 }}>
         <StringListEditor label="Given" items={value.given} onChange={(given) => setValue((v) => ({ ...v, given }))} />
         <StringListEditor label="When" items={value.when} onChange={(when) => setValue((v) => ({ ...v, when }))} />
         <StringListEditor label="Then" items={value.then} onChange={(then) => setValue((v) => ({ ...v, then }))} />
       </div>
+      </details>
 
-      <h2 style={SECTION_HEADING_STYLE}>Structured steps</h2>
+      <h2 style={SECTION_HEADING_STYLE}>{presentation.procedureFormat === "CHECKLIST" ? "Procedure checklist" : presentation.procedureFormat === "NARRATIVE" ? "Narrative procedure" : "Structured steps"}</h2>
       <p className="text-muted" style={{ fontSize: 13, margin: "0 0 14px" }}>Each numbered row keeps the tester action beside its technical behavior, expected visible result and expected response. Parameter datasets are separate. Use as much prose as the procedure needs.</p>
       {sharedGroups.length > 0 && (
         <label style={{ display: "block", marginBottom: 10 }}>
@@ -696,8 +697,8 @@ export default function TestCaseForm({
                 {step.expectedResponse === null ? <span id={`${stepInputPrefix}-response-state`} className="text-muted">Not supplied</span> : step.expectedResponse === "" ? <span id={`${stepInputPrefix}-response-state`} className="text-muted">Explicit empty text</span> : null}
               </label>}
             </div>
-            <details open={step.mediaAttachmentIds.length > 0} style={{ marginTop: 10 }}>
-              <summary>Step images and video ({step.mediaAttachmentIds.length})</summary>
+            <section aria-label={`Step ${i + 1} images and video`} style={{ marginTop: 10, borderTop: "1px solid var(--line)", paddingTop: 10 }}>
+              <h4 style={{ margin: "0 0 8px" }}>Images and video for step {i + 1} ({step.mediaAttachmentIds.length} linked)</h4>
               {mode === "create" || !testCaseId ? (
                 <p className="text-muted" style={{ fontSize: 12 }}>Save the case first, then return to attach media to individual steps.</p>
               ) : (
@@ -723,13 +724,13 @@ export default function TestCaseForm({
                       </div>
                     ))}
                   </div>
-                  <label style={{ fontSize: 12 }}>Upload image or video for this step
+                  <label style={{ fontSize: 12 }}>Upload image or video for step {i + 1}
                     <input type="file" accept="image/*,video/*" style={{ display: "block", width: "100%", minWidth: 0 }} disabled={uploadingStepKey !== null} onChange={event => void uploadStepMedia(step.editorKey!, event)} />
                   </label>
                   {uploadingStepKey === step.editorKey && <span role="status">Uploading media…</span>}
                 </div>
               )}
-            </details>
+            </section>
           </div>
           );
         })}</div>}

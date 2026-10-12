@@ -1,6 +1,7 @@
 import AdmZip from "adm-zip";
 import { describe, expect, it } from "vitest";
 import { parseXlsxWorkbook, previewXlsxSheet } from "./xlsxImport.js";
+import { mapCsvRows } from "./csvFieldMapping.js";
 
 function workbookFixture(sheetOverride?: string) {
   const zip = new AdmZip();
@@ -52,35 +53,47 @@ describe("XLSX smart import", () => {
     });
   });
 
-  it("detects a non-first header row and maps common vendor columns", () => {
+  it("detects a non-first vendor header row without guessing ambiguous title or tags", () => {
     const [sheet] = parseXlsxWorkbook(workbookFixture());
     expect(sheet).toMatchObject({
       name: "Cases",
       headerRow: 2,
       rowCount: 1,
       suggestedMapping: {
-        title: "Test Scenario",
         given: "Preconditions",
         when: "Test Steps",
         then: "Expected Result",
-        tags: "Test Module/Scenario",
         externalId: "Test Case ID",
       },
     });
+    expect(sheet?.suggestedMapping.title).toBeUndefined();
+    expect(sheet?.suggestedMapping.tags).toBeUndefined();
+    expect(() => previewXlsxSheet(sheet!)).toThrow('"title" field must be mapped');
   });
 
-  it("previews stable IDs, suite tags, and concatenated numbered steps", () => {
+  it("previews explicitly reviewed vendor title/tags and exact numbered procedure text", () => {
     const [sheet] = parseXlsxWorkbook(workbookFixture());
-    const preview = previewXlsxSheet(sheet!);
+    const mapping = { ...sheet!.suggestedMapping, title: "Test Scenario", tags: "Test Module/Scenario" };
+    const preview = previewXlsxSheet(sheet!, mapping);
     expect(preview.skipped).toEqual([]);
     expect(preview.rows[0]).toMatchObject({
       title: "OAuth login succeeds",
       externalId: "QT-42",
       tags: ["Authentication"],
       given: ["A Google account exists"],
-      when: ["Open sign in.", "Choose Google.", "Approve access."],
+      when: ["1. Open sign in.2. Choose Google.3. Approve access."],
       then: ["The dashboard opens"],
     });
+    // Commit uses this same mapper and explicit mapping; preview cannot infer
+    // a different procedure or title from the source text.
+    expect(preview.rows).toEqual(mapCsvRows(sheet!.csvText!, mapping).rows);
+  });
+  it("retains multiline expected/action cells without interpreting numbering or literal pipes", () => {
+    const xml = '<worksheet><sheetData><row><c r="A1" t="inlineStr"><is><t>Case Name</t></is></c><c r="B1" t="inlineStr"><is><t>Actions</t></is></c><c r="C1" t="inlineStr"><is><t>Expected Result</t></is></c></row><row><c r="A2" t="inlineStr"><is><t>Restore purchases</t></is></c><c r="B2" t="inlineStr"><is><t>1. Reinstall.2. Open the app.&#10;&#10;  3. Check a|b.</t></is></c><c r="C2" t="inlineStr"><is><t>Consumables remain consumed.&#10;  Balance = 0.</t></is></c></row></sheetData></worksheet>';
+    const sheet = parseXlsxWorkbook(workbookFixture(xml))[0]!;
+    const preview = previewXlsxSheet(sheet);
+    expect(preview.rows[0]).toMatchObject({ title: "Restore purchases", given: [], when: ["1. Reinstall.2. Open the app.\n\n  3. Check a|b."], then: ["Consumables remain consumed.\n  Balance = 0."], tags: [] });
+    expect(preview.rows).toEqual(mapCsvRows(sheet.csvText!, sheet.suggestedMapping).rows);
   });
 
   it("rejects non-XLSX input", () => {

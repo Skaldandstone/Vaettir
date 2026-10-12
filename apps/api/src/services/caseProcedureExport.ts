@@ -1,5 +1,6 @@
 import { TRPCError } from "@trpc/server";
 import type { Prisma } from "@vaettir/db";
+import { liveCaseDisplayId } from "./projectCaseKeys.js";
 import {
   caseProcedureExportSchema,
   encodeCaseProcedureExport,
@@ -70,6 +71,7 @@ export async function captureCaseProcedureExport(
             select: {
               id: true,
               displayId: true,
+              caseNumber: true,
               title: true,
               archived: true,
               projectId: true,
@@ -163,7 +165,7 @@ export async function captureCaseProcedureExport(
           : row.steps;
         return {
           id: row.id,
-          displayId: row.displayId,
+          displayId: liveCaseDisplayId(project.caseKey, row.caseNumber),
           caseNumber: row.caseNumber,
           title: row.title,
           background: row.background,
@@ -185,7 +187,7 @@ export async function captureCaseProcedureExport(
           tags: row.tags,
           prerequisites: row.prerequisites.map((link) => ({
             id: link.prerequisite.id,
-            displayId: link.prerequisite.displayId,
+            displayId: liveCaseDisplayId(project.caseKey, link.prerequisite.caseNumber),
             title: link.prerequisite.title,
             archived: link.prerequisite.archived,
           })),

@@ -32,7 +32,7 @@ function ProjectReleaseBatch({projectId}:{projectId:string}) {
           {!repo.releases.length&&<p className="text-muted">No provider releases returned on the first page.</p>}
           {repo.releases.map(release=><div key={release.tag}><a href={release.url} target="_blank" rel="noopener noreferrer">{release.name||release.tag}</a> · {release.tag}<small style={{display:"block"}}>Commit {release.commitSha} · {new Date(release.releasedAt).toLocaleString()}</small></div>)}
           {repo.hasMore&&<small>More releases exist. Browse this repository for later pages.</small>}
-        </>:<p role="status">{repo.status==="UNSUPPORTED"?"Native release discovery for this provider is not enabled yet.":repo.status==="NOT_INSPECTED"?"Batch time limit reached. This repository was not inspected.":"Release access could not be verified. Review its saved connection."}</p>}
+        </>:<p role="status">{repo.status==="UNSUPPORTED"?"Native release discovery for this provider is not enabled yet.":repo.status==="NOT_INSPECTED"?"Batch time limit reached. This repository was not inspected.":<>Release access could not be verified. <a href={`/projects/${encodeURIComponent(projectId)}#project-repositories`}>Review its saved connection</a>.</>}</p>}
       </div>)}
       <div style={{display:"flex",flexWrap:"wrap",gap:8}}><button type="button" className="btn-secondary" disabled={offset===0} onClick={()=>setOffset(Math.max(0,offset-5))}>Previous repositories</button><button type="button" className="btn-secondary" disabled={query.data.nextOffset===null} onClick={()=>query.data.nextOffset!==null&&setOffset(query.data.nextOffset)}>Next repositories</button></div>
     </>}

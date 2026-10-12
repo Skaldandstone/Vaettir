@@ -37,6 +37,7 @@ function row(id = "case-1") {
       prerequisite: {
         id: string;
         displayId: string;
+        caseNumber: number;
         title: string;
         archived: boolean;
         projectId: string;
@@ -199,6 +200,7 @@ describe("case procedure export capture", () => {
         prerequisite: {
           id: "prior-case",
           displayId: "demo-03",
+          caseNumber: 3,
           title: "Required state",
           archived: true,
           projectId: "project-1",
@@ -220,5 +222,16 @@ describe("case procedure export capture", () => {
     await expect(captureCaseProcedureExport(db, input)).rejects.toMatchObject({
       code: "PRECONDITION_FAILED",
     });
+  });
+  it("projects the current key for complete procedures and prerequisites without rewriting original rows", async () => {
+    const item = row(); item.prerequisites = [{ prerequisite: {
+      id: "prior", displayId: "old-key-03", caseNumber: 3, title: "Exact prerequisite", archived: true, projectId: "project-1",
+    } }];
+    const before = structuredClone(item), { db, query } = database([item]);
+    query.project.findUniqueOrThrow.mockResolvedValue({ id: "project-1", name: "Synthetic", caseKey: "new-key" });
+    const output = await captureCaseProcedureExport(db, input);
+    expect(output.cases[0]).toMatchObject({ id: item.id, displayId: "new-key-01", caseNumber: 1, authoredSteps: item.steps,
+      given: item.given, when: item.when, then: item.then, prerequisites: [{ id: "prior", displayId: "new-key-03", title: "Exact prerequisite", archived: true }] });
+    expect(item).toEqual(before);
   });
 });

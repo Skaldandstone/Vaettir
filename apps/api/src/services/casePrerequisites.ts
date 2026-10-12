@@ -1,3 +1,4 @@
+import { liveCaseDisplayId } from "./projectCaseKeys.js";
 import { Prisma, type PrismaClient } from "@vaettir/db";
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
@@ -33,17 +34,23 @@ async function graph(tx: Prisma.TransactionClient, projectId: string) {
 async function metadata(tx: Prisma.TransactionClient, projectId: string, ids: readonly string[]) {
   if (!ids.length) return [] as Metadata[];
   const [size] = await tx.$queryRaw<Array<{ bytes: bigint; unsupported: boolean }>>(Prisma.sql`
-    SELECT coalesce(sum(octet_length(c.id)+octet_length(c."displayId")+octet_length(c.title)+octet_length(c."reviewStatus"::text)),0)::bigint AS bytes,
-      coalesce(bool_or(length(c.id) NOT BETWEEN 1 AND 200 OR length(c."displayId")>200 OR length(c.title)>2000 OR octet_length(c.id)>800 OR octet_length(c."displayId")>800 OR octet_length(c.title)>8000),false) AS unsupported
+    SELECT coalesce(sum(octet_length(c.id)+octet_length(vaettir_case_display_label(c."projectId",c."caseNumber"))+octet_length(c.title)+octet_length(c."reviewStatus"::text)),0)::bigint AS bytes,
+      coalesce(bool_or(length(c.id) NOT BETWEEN 1 AND 200 OR length(vaettir_case_display_label(c."projectId",c."caseNumber"))>200 OR length(c.title)>2000 OR octet_length(c.id)>800 OR octet_length(vaettir_case_display_label(c."projectId",c."caseNumber"))>800 OR octet_length(c.title)>8000),false) AS unsupported
     FROM "TestCase" c WHERE c."projectId"=${projectId} AND c.id IN (${Prisma.join([...ids])})`);
   if (!size || size.bytes > 1048576n || size.unsupported) throw refuse();
-  const rows = await tx.testCase.findMany({ where: { projectId, id: { in: [...ids] } }, select: { id: true, displayId: true, title: true, reviewStatus: true, archived: true }, take: ids.length + 1 });
+  const project = await tx.project.findUniqueOrThrow({ where: { id: projectId }, select: { caseKey: true } });
+  const rows = await tx.testCase.findMany({ where: { projectId, id: { in: [...ids] } }, select: { id: true, displayId: true, caseNumber: true, title: true, reviewStatus: true, archived: true }, take: ids.length + 1 });
   if (rows.length > ids.length) throw refuse();
   const byId = new Map(rows.map(row => [row.id, row]));
   // PostgreSQL length counts Unicode code points; JS/Zod counts UTF-16 units.
   // Decode-time admission is also required. Never return Zod issues containing
   // retained text or substitute a clipped/empty value after native admission.
-  try { return ids.map(id => { const row = byId.get(id); return prerequisiteCaseMetadata.parse(row ? { ...row, unavailable: false } : { id, displayId: null, title: null, reviewStatus: null, archived: null, unavailable: true }); }); }
+  try { return ids.map(id => {
+    const row = byId.get(id);
+    if (!row) return prerequisiteCaseMetadata.parse({ id, displayId: null, title: null, reviewStatus: null, archived: null, unavailable: true });
+    const stored = prerequisiteCaseMetadata.parse({ id: row.id, title: row.title, reviewStatus: row.reviewStatus, archived: row.archived, displayId: row.displayId, unavailable: false });
+    return prerequisiteCaseMetadata.parse({ ...stored, displayId: liveCaseDisplayId(project.caseKey, row.caseNumber) });
+  }); }
   catch { throw refuse(); }
 }
 export async function readPrerequisitePage(db: PrismaClient, userId: string, raw: z.input<typeof prerequisitePageInput>, authorized: CaseFieldReadAuthorization) {
@@ -52,12 +59,12 @@ export async function readPrerequisitePage(db: PrismaClient, userId: string, raw
     const admitted = await access(tx, userId, input, authorized), stored = await graph(tx, input.projectId);
     const prerequisiteIds = stored.edges.filter(edge => edge.dependentId === input.caseId).map(edge => edge.prerequisiteId);
     if (prerequisiteIds.length > 50) throw refuse("This retained case has more than 50 direct prerequisites. Its complete saved links require an owned recovery review; no empty list was substituted.");
-    const filter = Prisma.sql`c."projectId"=${input.projectId} AND c.id<>${input.caseId} AND c.archived=false AND c."reviewStatus"='APPROVED' AND NOT EXISTS (SELECT 1 FROM "TestCasePrerequisite" e WHERE e."projectId"=${input.projectId} AND e."dependentId"=${input.caseId} AND e."prerequisiteId"=c.id) AND position(lower(${input.search}) in lower(c.title||' '||c."displayId"||' '||c.id))>0`;
+    const filter = Prisma.sql`c."projectId"=${input.projectId} AND c.id<>${input.caseId} AND c.archived=false AND c."reviewStatus"='APPROVED' AND NOT EXISTS (SELECT 1 FROM "TestCasePrerequisite" e WHERE e."projectId"=${input.projectId} AND e."dependentId"=${input.caseId} AND e."prerequisiteId"=c.id) AND (position(lower(${input.search}) in lower(c.title||' '||vaettir_case_display_label(c."projectId",c."caseNumber")||' '||c.id))>0 OR EXISTS (SELECT 1 FROM "ProjectCaseKeyAlias" a WHERE a."projectId"=c."projectId" AND lower(a."caseKey"||'-'||lpad(c."caseNumber"::text,greatest(2,length(c."caseNumber"::text)),'0'))=lower(${input.search})))`;
     // Only a digest/count of native matching metadata reaches this projection.
     // Native row text is admitted separately for the selected page below.
-    const [populationSize] = await tx.$queryRaw<Array<{ count: bigint; bytes: bigint; unsupported: boolean }>>(Prisma.sql`SELECT count(*)::bigint AS count,coalesce(sum(octet_length(c.id)+octet_length(c."displayId")+octet_length(c.title)),0)::bigint AS bytes,coalesce(bool_or(length(c.id) NOT BETWEEN 1 AND 200 OR length(c."displayId")>200 OR length(c.title)>2000 OR octet_length(c.id)>800 OR octet_length(c."displayId")>800 OR octet_length(c.title)>8000),false) AS unsupported FROM "TestCase" c WHERE ${filter}`);
+    const [populationSize] = await tx.$queryRaw<Array<{ count: bigint; bytes: bigint; unsupported: boolean }>>(Prisma.sql`SELECT count(*)::bigint AS count,coalesce(sum(octet_length(c.id)+octet_length(vaettir_case_display_label(c."projectId",c."caseNumber"))+octet_length(c.title)),0)::bigint AS bytes,coalesce(bool_or(length(c.id) NOT BETWEEN 1 AND 200 OR length(vaettir_case_display_label(c."projectId",c."caseNumber"))>200 OR length(c.title)>2000 OR octet_length(c.id)>800 OR octet_length(vaettir_case_display_label(c."projectId",c."caseNumber"))>800 OR octet_length(c.title)>8000),false) AS unsupported FROM "TestCase" c WHERE ${filter}`);
     if (!populationSize || populationSize.count > 1000000n || populationSize.bytes > 16777216n || populationSize.unsupported) throw refuse("The approved candidate population exceeds supported metadata bounds.");
-    const [population] = await tx.$queryRaw<Array<{ digest: string }>>(Prisma.sql`SELECT md5(coalesce(string_agg(md5(jsonb_build_array(c.id,c."displayId",c.title,c."updatedAt",c."caseNumber")::text),'' ORDER BY c.id),'')) AS digest FROM "TestCase" c WHERE ${filter}`);
+    const [population] = await tx.$queryRaw<Array<{ digest: string }>>(Prisma.sql`SELECT md5(coalesce(string_agg(md5(jsonb_build_array(c.id,vaettir_case_display_label(c."projectId",c."caseNumber"),c.title,c."updatedAt",c."caseNumber")::text),'' ORDER BY c.id),'')) AS digest FROM "TestCase" c WHERE ${filter}`);
     if (!population) throw refuse();
     const populationHash = prerequisiteDigest([admitted.readScope, input.caseId, input.search, input.sort, population.digest, populationSize.count.toString()]);
     const offset = input.cursor?.offset ?? 0;
