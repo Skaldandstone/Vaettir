@@ -2,8 +2,8 @@ import assert from "node:assert/strict";
 import { createHash, randomUUID } from "node:crypto";
 import { execFileSync } from "node:child_process";
 import { createRequire } from "node:module";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, symlinkSync, writeFileSync } from "node:fs";
+import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { PrismaClient, Prisma } from "@vaettir/db";
@@ -17,6 +17,12 @@ const OLD_MIGRATIONS_SHA = "3d85e91fddfa359cf3d4ab0e149be51c306d6bc288f89ab44064
 const NEW_MIGRATION = "20261012090000_project_case_key_aliases";
 const NEW_MIGRATION_SHA = "4bf9422e94fb21186567317301ce515b416b1a1c1df2d0c74c4fa83ac5e287c6";
 const sha = (value: string | Buffer) => createHash("sha256").update(value).digest("hex");
+function admitInstalledClient(store: string, packageDirectory: string) {
+  const within = relative(store, packageDirectory);
+  assert.ok(within && !isAbsolute(within) && within !== ".." && !within.startsWith(".." + sep));
+  assert.ok(packageDirectory.endsWith(join("node_modules", "@prisma", "client")));
+  return packageDirectory;
+}
 function lf(value: string) {
   assert.ok(!value.includes("\r") || !value.replaceAll("\r\n", "").includes("\r"));
   return value.replaceAll("\r\n", "\n");
@@ -96,6 +102,15 @@ describe("closed old97 upgrade source contracts", () => {
     expect(() => exactOldSchema(source.replace("model User", "model ChangedUser"))).toThrow();
     expect(migrationInputs().manifest).toHaveLength(97);
   });
+  it("admits only the installed pnpm client package, never a foreign dependency or adjacent store", () => {
+    const store = join(ROOT, "node_modules/.pnpm");
+    const installed = join(store, "@prisma+client@6", "node_modules/@prisma/client");
+    expect(admitInstalledClient(store, installed)).toBe(installed);
+    expect(() => admitInstalledClient(store, join(ROOT, "foreign/node_modules/@prisma/client"))).toThrow();
+    expect(() => admitInstalledClient(store, join(ROOT, "node_modules/.pnpm-foreign/node_modules/@prisma/client"))).toThrow();
+    expect(() => admitInstalledClient(store, join(store, "foreign/node_modules/@prisma/other"))).toThrow();
+    expect(() => admitInstalledClient(store, store)).toThrow();
+  });
 });
 
 describe.skipIf(process.platform !== "linux" || (process.env.CI !== "true" && process.env.GITHUB_ACTIONS !== "true"))("genuine old97 client, 97→98 upgrade and separate database restore (CI synthetic only)", () => {
@@ -167,11 +182,22 @@ describe.skipIf(process.platform !== "linux" || (process.env.CI !== "true" && pr
       for (const file of files.slice(0, 97)) { mkdirSync(join(staged, "migrations", file.name)); writeFileSync(join(staged, "migrations", file.name, "migration.sql"), file.sql); }
       const cliEnv = { ...process.env, DATABASE_URL: urls[0]!, PRISMA_GENERATE_SKIP_AUTOINSTALL: "1", NODE_PATH: join(ROOT, "packages/db/node_modules") };
       const dbRequire = createRequire(join(ROOT, "packages/db/package.json"));
-      const installedRequire = createRequire(dbRequire.resolve("@prisma/client/package.json"));
+      const installedPackageJson = realpathSync(dbRequire.resolve("@prisma/client/package.json"));
+      const installedPackageDirectory = admitInstalledClient(realpathSync(join(ROOT, "node_modules/.pnpm")), dirname(installedPackageJson));
+      const installedRequire = createRequire(installedPackageJson);
       const installedIndex = installedRequire.resolve(".prisma/client/index.js");
       const installedDirectory = dirname(installedIndex);
       const workspaceClientFiles = readdirSync(installedDirectory).filter(name => name.endsWith(".js") || name === "schema.prisma" || name.endsWith(".node"));
       const workspaceClientPins = workspaceClientFiles.map(name => ({ name, sha256: sha(readFileSync(join(installedDirectory, name))) }));
+      // Prisma resolves this dependency beside its schema, not through NODE_PATH.
+      // Link only the exact existing package into this fresh temporary schema;
+      // never install a package or change the workspace generated client.
+      const stagedClient = join(staged, "node_modules/@prisma/client");
+      mkdirSync(dirname(stagedClient), { recursive: true });
+      assert.equal(existsSync(stagedClient), false);
+      symlinkSync(installedPackageDirectory, stagedClient, "dir");
+      assert.equal(realpathSync(stagedClient), installedPackageDirectory);
+      assert.equal(realpathSync(createRequire(join(staged, "schema.prisma")).resolve("@prisma/client/package.json")), installedPackageJson);
       run("pnpm", ["exec", "prisma", "generate", "--schema", join(staged, "schema.prisma")], cliEnv);
       assert.deepEqual(workspaceClientFiles.map(name => ({ name, sha256: sha(readFileSync(join(installedDirectory, name))) })), workspaceClientPins);
       assert.equal(lf(readFileSync(join(oldOutput, "schema.prisma"), "utf8")), generatedSchema);
