@@ -488,13 +488,14 @@ export default function AdminOrganizationDetailPage() {
               ) : (
                 <>
                   <p>Key aliases: {deletePreview.rowCounts.ProjectCaseKeyAlias}. Immutable key-change receipts: {deletePreview.rowCounts.ProjectCaseKeyWrite}.</p>
-                  <p>Counts follow the original organization. Original history on moved projects is removed without deleting those projects or their current organization’s history.</p>
+                  <p>Counts follow the original organization, including key history on moved or removed projects. History owned elsewhere stays reserved even when a current project is removed; its original organization must erase it.</p>
                   <ul>{Object.entries(projectKeyErasureScope.originalRecordsOnReparentedProjects).map(([model, count]) => <li key={model}>{model} on moved projects: {count}</li>)}</ul>
+                  <ul>{Object.entries(projectKeyErasureScope.originalRecordsOnRemovedProjects).map(([model, count]) => <li key={model}>{model} on removed projects: {count}</li>)}</ul>
+                  <ul>{Object.entries(projectKeyErasureScope.foreignOriginalRecordsOnCurrentProjects).map(([model, count]) => <li key={model}>{model} owned elsewhere and retained: {count}</li>)}</ul>
                   <p>Complete limits: {projectKeyErasureScope.limits.aliases} aliases and {projectKeyErasureScope.limits.writes} key-change receipts. Counts are not truncated; exceeding either limit blocks deletion.</p>
                   {projectKeyErasureScope.blocked && (
                     <div role="alert">
-                      <p>Deletion blocked: project-key history exceeds the bounded inventory or belongs to another organization and must be reconciled first.</p>
-                      <ul>{Object.entries(projectKeyErasureScope.foreignOriginalRecordsOnCurrentProjects).map(([model, count]) => <li key={model}>{model} owned elsewhere: {count}</li>)}</ul>
+                      <p>Deletion blocked: the complete original project-key inventory is unavailable or exceeds its bound. Nothing has been deleted by this preview.</p>
                     </div>
                   )}
                   <ul>{projectKeyErasureScope.limitations.map(note => <li key={note}>{note}</li>)}</ul>

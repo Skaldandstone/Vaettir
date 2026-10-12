@@ -285,6 +285,7 @@ export interface OrgDeletionPreview {
     basis: "ORIGINAL_ORGANIZATION";
     originalOrganizationId: string;
     originalRecordsOnReparentedProjects: Record<string, number>;
+    originalRecordsOnRemovedProjects: Record<string, number>;
     foreignOriginalRecordsOnCurrentProjects: Record<string, number>;
     blocked: boolean;
     overBound: false;
@@ -312,33 +313,35 @@ type ReportErasureScope = {
   limitations: string[];
 };
 async function projectCaseKeyErasureCounts(db: PrismaClient | Prisma.TransactionClient, organizationId: string) {
-  const rows = await db.$queryRaw<Array<{ model: string; original: bigint; moved: bigint; foreign: bigint }>>`
+  const rows = await db.$queryRaw<Array<{ model: string; original: bigint; moved: bigint; removed: bigint; foreign: bigint }>>`
     SELECT 'ProjectCaseKeyAlias'::text AS model,
       count(*) FILTER(WHERE k."organizationId"=${organizationId})::bigint AS original,
       count(*) FILTER(WHERE k."organizationId"=${organizationId} AND p."organizationId"<>${organizationId})::bigint AS moved,
+      count(*) FILTER(WHERE k."organizationId"=${organizationId} AND p.id IS NULL)::bigint AS removed,
       count(*) FILTER(WHERE k."organizationId"<>${organizationId} AND p."organizationId"=${organizationId})::bigint AS foreign
-    FROM "ProjectCaseKeyAlias" k JOIN "Project" p ON p.id=k."projectId"
+    FROM "ProjectCaseKeyAlias" k LEFT JOIN "Project" p ON p.id=k."projectId"
     WHERE k."organizationId"=${organizationId} OR p."organizationId"=${organizationId}
     UNION ALL
     SELECT 'ProjectCaseKeyWrite'::text AS model,
       count(*) FILTER(WHERE k."organizationId"=${organizationId})::bigint AS original,
       count(*) FILTER(WHERE k."organizationId"=${organizationId} AND p."organizationId"<>${organizationId})::bigint AS moved,
+      count(*) FILTER(WHERE k."organizationId"=${organizationId} AND p.id IS NULL)::bigint AS removed,
       count(*) FILTER(WHERE k."organizationId"<>${organizationId} AND p."organizationId"=${organizationId})::bigint AS foreign
-    FROM "ProjectCaseKeyWrite" k JOIN "Project" p ON p.id=k."projectId"
+    FROM "ProjectCaseKeyWrite" k LEFT JOIN "Project" p ON p.id=k."projectId"
     WHERE k."organizationId"=${organizationId} OR p."organizationId"=${organizationId}`;
   const models = ["ProjectCaseKeyAlias", "ProjectCaseKeyWrite"] as const;
   if (rows.length !== 2 || new Set(rows.map(row => row.model)).size !== 2 ||
     models.some(model => !rows.some(row => row.model === model)) ||
-    rows.some(row => [row.original, row.moved, row.foreign].some(n => typeof n !== "bigint" || n < 0n || n > 100000n) || row.moved > row.original))
+    rows.some(row => [row.original, row.moved, row.removed, row.foreign].some(n => typeof n !== "bigint" || n < 0n || n > 100000n) || row.moved + row.removed > row.original))
     throw new TRPCError({ code: "PRECONDITION_FAILED", message: "The complete original key history inventory is unavailable or exceeds its bound. No records were deleted." });
-  const rowCounts: Record<string, number> = {}, moved: Record<string, number> = {}, foreign: Record<string, number> = {};
-  for (const row of rows) { rowCounts[row.model] = Number(row.original); moved[row.model] = Number(row.moved); foreign[row.model] = Number(row.foreign); }
+  const rowCounts: Record<string, number> = {}, moved: Record<string, number> = {}, removed: Record<string, number> = {}, foreign: Record<string, number> = {};
+  for (const row of rows) { rowCounts[row.model] = Number(row.original); moved[row.model] = Number(row.moved); removed[row.model] = Number(row.removed); foreign[row.model] = Number(row.foreign); }
   return { rowCounts, scope: { basis: "ORIGINAL_ORGANIZATION" as const, originalOrganizationId: organizationId, originalRecordsOnReparentedProjects: moved,
-    foreignOriginalRecordsOnCurrentProjects: foreign, blocked: rows.some(row => row.foreign > 0n), overBound: false as const,
+    originalRecordsOnRemovedProjects: removed, foreignOriginalRecordsOnCurrentProjects: foreign, blocked: false, overBound: false as const,
     limits: { aliases: 100000, writes: 100000 },
     limitations: [
-      "Key history counts use each row's original organization, including history retained on reparented projects. Current foreign projects and destination aliases are not erased.",
-      "Foreign-original key aliases or receipts under current projects require reconciliation before erasure; they are never reassigned or silently deleted.",
+      "Key history counts use each row's original organization, including separate moved-parent and removed-parent tombstone counts. Current foreign projects and other tenants' aliases are not erased.",
+      "Foreign-original key aliases and receipts survive current parent removal as inaccessible tombstones. Their namespace stays reserved until their own original organization is erased; no receipt or alias is reassigned.",
       "This read-time preview grants no erasure authority. The destructive transaction locks and rechecks the whole scope; more than 100,000 rows per key model refuses rather than truncating.",
     ] } };
 }
@@ -347,15 +350,12 @@ async function deleteOriginalProjectCaseKeys(tx: Prisma.TransactionClient, organ
   const counts: Record<string, number> = {};
   for (const model of ["ProjectCaseKeyWrite", "ProjectCaseKeyAlias"] as const) {
     const table = Prisma.raw('"' + model + '"');
-    const [row] = await tx.$queryRaw<Array<{ expected: bigint; count: bigint }>>(Prisma.sql`
-      WITH expected AS MATERIALIZED (SELECT count(*)::bigint AS count FROM ${table} WHERE "organizationId"=${organizationId}),
-        deleted AS (DELETE FROM ${table} WHERE "organizationId"=${organizationId}
-          AND (SELECT count FROM expected) BETWEEN 0 AND 100000 RETURNING 1)
-      SELECT (SELECT count FROM expected) AS expected,count(*)::bigint AS count FROM deleted`);
-    if (!row || typeof row.expected !== "bigint" || typeof row.count !== "bigint" ||
-      row.expected !== BigInt(expected[model]!) || row.count !== row.expected)
+    // Separate key-only contract, never the staged native-selector CTE. The
+    // complete original count was admitted under Org/parent/row locks first.
+    const count = await tx.$executeRaw(Prisma.sql`DELETE FROM ${table} WHERE "organizationId"=${organizationId}`);
+    if (!Number.isSafeInteger(count) || count < 0 || count > 100000 || count !== expected[model])
       throw new TRPCError({ code: "CONFLICT", message: "Original key history changed. The entire erasure must roll back." });
-    counts[model] = Number(row.count);
+    counts[model] = count;
   }
   return counts;
 }
@@ -872,8 +872,6 @@ export async function hardDeleteOrganization(
     // produce precisely those complete IDs before ANY child record is removed.
     await reconcileNativeIdentityScopes(tx, organizationId, scope);
     const keyEvidence = await projectCaseKeyErasureCounts(tx, organizationId);
-    if (keyEvidence.scope.blocked) throw new TRPCError({ code: "PRECONDITION_FAILED",
-      message: "Foreign-original key history under current projects requires reconciliation before erasure. No records were deleted." });
     const [foreignComments] = await tx.$queryRaw<Array<{ count: bigint }>>`
       SELECT count(*)::bigint AS count FROM "CaseComment" c WHERE c."caseId" IN ${stagedNativeScopeValues("TestCase")} AND c."organizationId"<>${organizationId}`;
     if (!foreignComments || foreignComments.count !== 0n) throw new TRPCError({

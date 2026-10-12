@@ -24,6 +24,7 @@ function harness() {
   const scope = { basis: "ORIGINAL_ORGANIZATION", originalOrganizationId: "synthetic-org", blocked: false };
   const keyScope = { ...scope, limits: { aliases: 100000, writes: 100000 }, limitations: ["Synthetic bounded original scope"],
     originalRecordsOnReparentedProjects: { ProjectCaseKeyAlias: 3, ProjectCaseKeyWrite: 2 },
+    originalRecordsOnRemovedProjects: { ProjectCaseKeyAlias: 2, ProjectCaseKeyWrite: 1 },
     foreignOriginalRecordsOnCurrentProjects: { ProjectCaseKeyAlias: 0, ProjectCaseKeyWrite: 0 } };
   const preview: Record<string, unknown> = { organizationId: "synthetic-org", projectCount: 0,
     rowCounts: { ProjectCaseKeyAlias: 5, ProjectCaseKeyWrite: 4, ManualCaseResultHead: 0, ManualCaseResultRevision: 0 },
@@ -69,6 +70,7 @@ it("shows complete original key/receipt and moved-project counts before admittin
   const h = await reviewed(); expect(h.html()).toContain("Key aliases: 5");
   expect(h.html()).toContain("Immutable key-change receipts: 4"); expect(h.html()).toContain("ProjectCaseKeyAlias on moved projects: 3");
   expect(h.html()).toContain("ProjectCaseKeyWrite on moved projects: 2"); expect(h.html()).toContain("100000 aliases and 100000 key-change receipts");
+  expect(h.html()).toContain("ProjectCaseKeyAlias on removed projects: 2");
   expect(h.html()).toContain("Counts are not truncated"); expect(h.sent).toEqual([]);
   await h.click("Permanently delete"); expect(h.sent).toEqual([{ organizationId: "synthetic-org", confirmSlug: "synthetic-slug", reason: "Synthetic erasure review" }]);
   expect(h.confirmations).toBe(1);
@@ -88,6 +90,13 @@ it.each(["absent", "foreign", "basis", "blocked", "report-blocked", "history-blo
   await (button.props.onClick as () => Promise<void>)(); h.render();
   expect(h.sent).toEqual([]); expect(h.confirmations).toBe(0);
   expect(h.html()).toContain("must be verified and reconciled before deletion");
-  if (mode === "blocked") expect(h.html()).toContain("ProjectCaseKeyWrite owned elsewhere: 7");
+  if (mode === "blocked") expect(h.html()).toContain("ProjectCaseKeyWrite owned elsewhere and retained: 7");
   if (["absent", "foreign", "basis"].includes(mode)) expect(h.html()).toContain("Project-key ownership is unavailable");
+});
+it("discloses foreign-original key metadata as retained, not erasure authority or an automatic foreign deletion", async () => {
+  const h = await reviewed(); h.keyScope.foreignOriginalRecordsOnCurrentProjects.ProjectCaseKeyWrite = 7; h.render();
+  expect(h.keyScope.blocked).toBe(false); expect(h.html()).toContain("ProjectCaseKeyWrite owned elsewhere and retained: 7");
+  expect(h.html()).toContain("its original organization must erase it"); expect(h.button("Permanently delete").props.disabled).toBe(false);
+  expect(h.sent).toEqual([]); await h.click("Permanently delete");
+  expect(h.sent).toEqual([{ organizationId: "synthetic-org", confirmSlug: "synthetic-slug", reason: "Synthetic erasure review" }]);
 });

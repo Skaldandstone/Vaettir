@@ -147,17 +147,28 @@ describe.skipIf(!isolated)("durable project key aliases and immutable original c
     await prisma.user.update({ where: { id: actorId }, data: { clerkUserId: run } });
     expect(await owner.project.saveCaseKey(request)).toMatchObject({ replayed: true });
   });
-  it("alias/write rows cannot be edited/deleted directly but parent erasure remains compatible", async () => {
+  it("alias/write rows cannot be edited/deleted directly and parent removal retains immutable key tombstones", async () => {
     await expect(prisma.$executeRaw`DELETE FROM "ProjectCaseKeyAlias" WHERE "projectId"=${projectId}`).rejects.toThrow("cannot be changed or deleted");
     await expect(prisma.$executeRaw`UPDATE "ProjectCaseKeyWrite" SET "requestHash"=${"0".repeat(64)} WHERE "projectId"=${projectId}`).rejects.toThrow("cannot be changed or deleted");
     await expect(prisma.$executeRaw`UPDATE "ProjectCaseKeyAlias" SET "caseKey"=${"tampered"} WHERE "projectId"=${projectId}`).rejects.toThrow("cannot be changed or deleted");
     await expect(prisma.$executeRaw`DELETE FROM "ProjectCaseKeyWrite" WHERE "projectId"=${projectId}`).rejects.toThrow("cannot be changed or deleted");
     const empty = await owner.project.create({ organizationId, name: run + "-erasure", caseKey: "alias-erasure" });
     await owner.project.saveCaseKey(await proposal("alias-erasure-two", empty.id));
+    const beforeAliases = await prisma.$queryRaw`SELECT * FROM "ProjectCaseKeyAlias" WHERE "projectId"=${empty.id} ORDER BY "caseKey"`;
+    const beforeWrites = await prisma.$queryRaw`SELECT * FROM "ProjectCaseKeyWrite" WHERE "projectId"=${empty.id} ORDER BY id`;
     await prisma.project.delete({ where: { id: empty.id } });
     const aliases = await prisma.$queryRaw<Array<{ count: bigint }>>`SELECT count(*)::bigint AS count FROM "ProjectCaseKeyAlias" WHERE "projectId"=${empty.id}`;
-    expect(aliases[0]?.count).toBe(0n);
+    expect(aliases[0]?.count).toBe(2n);
     const writes = await prisma.$queryRaw<Array<{ count: bigint }>>`SELECT count(*)::bigint AS count FROM "ProjectCaseKeyWrite" WHERE "projectId"=${empty.id}`;
-    expect(writes[0]?.count).toBe(0n);
+    expect(writes[0]?.count).toBe(1n);
+    expect(await prisma.$queryRaw`SELECT * FROM "ProjectCaseKeyAlias" WHERE "projectId"=${empty.id} ORDER BY "caseKey"`).toEqual(beforeAliases);
+    expect(await prisma.$queryRaw`SELECT * FROM "ProjectCaseKeyWrite" WHERE "projectId"=${empty.id} ORDER BY id`).toEqual(beforeWrites);
+    await expect(owner.project.caseIdentity({ projectId: empty.id })).rejects.toMatchObject({ code: "NOT_FOUND" });
+    await expect(prisma.project.create({ data: { id: empty.id, organizationId, name: "Reused", slug: run + "-reused", caseKey: "different-key" } })).rejects.toThrow("cannot be reused");
+    const unrelated = await owner.project.create({ organizationId, name: run + "-id-rebound", caseKey: "alias-rebound" });
+    await expect(prisma.project.update({ where: { id: unrelated.id }, data: { id: empty.id } })).rejects.toThrow("Project identity cannot be changed");
+    expect(await prisma.project.findUnique({ where: { id: empty.id } })).toBeNull();
+    expect((await prisma.project.findUniqueOrThrow({ where: { id: unrelated.id } })).caseKey).toBe("alias-rebound");
+    expect(await prisma.$queryRaw`SELECT * FROM "ProjectCaseKeyWrite" WHERE "projectId"=${empty.id} ORDER BY id`).toEqual(beforeWrites);
   });
 });

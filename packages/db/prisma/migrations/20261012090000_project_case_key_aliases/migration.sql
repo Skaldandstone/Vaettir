@@ -9,8 +9,7 @@ CREATE TABLE "ProjectCaseKeyAlias" (
   "projectId" TEXT NOT NULL, "organizationId" TEXT NOT NULL,
   "caseKey" TEXT NOT NULL CHECK ("caseKey" ~ '^[a-z][a-z0-9-]{0,23}$'),
   "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  PRIMARY KEY ("projectId","organizationId","caseKey"),
-  FOREIGN KEY ("projectId") REFERENCES "Project"(id) ON DELETE CASCADE ON UPDATE RESTRICT
+  PRIMARY KEY ("projectId","organizationId","caseKey")
 );
 CREATE UNIQUE INDEX "ProjectCaseKeyAlias_organizationId_caseKey_key"
   ON "ProjectCaseKeyAlias" ("organizationId","caseKey");
@@ -25,8 +24,7 @@ CREATE TABLE "ProjectCaseKeyWrite" (
   "beforeRevision" INTEGER NOT NULL CHECK ("beforeRevision" >= 0),
   "afterRevision" INTEGER NOT NULL CHECK ("afterRevision" = "beforeRevision" + CASE WHEN "beforeKey"="afterKey" THEN 0 ELSE 1 END),
   receipt JSONB NOT NULL CHECK (jsonb_typeof(receipt)='object'),
-  "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  FOREIGN KEY ("projectId") REFERENCES "Project"(id) ON DELETE CASCADE ON UPDATE RESTRICT
+  "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 CREATE INDEX "ProjectCaseKeyWrite_projectId_createdAt_idx" ON "ProjectCaseKeyWrite"("projectId","createdAt");
 INSERT INTO "ProjectCaseKeyAlias"("projectId","organizationId","caseKey")
@@ -40,8 +38,7 @@ INSERT INTO "ProjectCaseKeyAlias"("projectId","organizationId","caseKey")
 
 CREATE FUNCTION vaettir_case_key_record_immutable() RETURNS trigger LANGUAGE plpgsql AS $$
 BEGIN
-  IF TG_OP='UPDATE' OR (EXISTS(SELECT 1 FROM "Project" WHERE id=OLD."projectId")
-    AND current_setting('vaettir.project_case_key_erasure',true) IS DISTINCT FROM OLD."organizationId") THEN
+  IF TG_OP='UPDATE' OR current_setting('vaettir.project_case_key_erasure',true) IS DISTINCT FROM OLD."organizationId" THEN
     RAISE EXCEPTION 'Issued key aliases and original key receipts cannot be changed or deleted' USING ERRCODE='23514';
   END IF;
   RETURN OLD;
@@ -52,12 +49,13 @@ CREATE TRIGGER "ProjectCaseKeyWrite_immutable" BEFORE UPDATE OR DELETE ON "Proje
   FOR EACH ROW EXECUTE FUNCTION vaettir_case_key_record_immutable();
 
 -- A marker is not an erasure approval. Even an exact marker cannot commit
--- standalone pruning while both original tenant and parent remain present.
+-- standalone pruning while the ORIGINAL tenant remains, even if the parent
+-- has been removed. These scalars are inaccessible retained tombstones, not
+-- cascading current-parent records.
 CREATE FUNCTION vaettir_case_key_erasure_committed() RETURNS trigger LANGUAGE plpgsql AS $$
 BEGIN
-  IF EXISTS(SELECT 1 FROM "Project" WHERE id=OLD."projectId")
-    AND EXISTS(SELECT 1 FROM "Organization" WHERE id=OLD."organizationId") THEN
-    RAISE EXCEPTION 'Key history erasure requires the original organization or parent deletion in this same transaction' USING ERRCODE='23514';
+  IF EXISTS(SELECT 1 FROM "Organization" WHERE id=OLD."organizationId") THEN
+    RAISE EXCEPTION 'Key history erasure requires the original organization deletion in this same transaction' USING ERRCODE='23514';
   END IF;
   RETURN OLD;
 END $$;
@@ -66,10 +64,28 @@ CREATE CONSTRAINT TRIGGER "ProjectCaseKeyAlias_erasure_committed" AFTER DELETE O
 CREATE CONSTRAINT TRIGGER "ProjectCaseKeyWrite_erasure_committed" AFTER DELETE ON "ProjectCaseKeyWrite"
   DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION vaettir_case_key_erasure_committed();
 
+-- No parent FK/cascade: genuine new rows still require a locked current
+-- original organization and its exact live project. Retained rows never rebind.
+CREATE FUNCTION vaettir_case_key_insert_scope() RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+  PERFORM id FROM "Organization" WHERE id=NEW."organizationId" FOR SHARE;
+  IF NOT FOUND THEN RAISE EXCEPTION 'Current original key organization required' USING ERRCODE='23514'; END IF;
+  PERFORM id FROM "Project" WHERE id=NEW."projectId" AND "organizationId"=NEW."organizationId" FOR SHARE;
+  IF NOT FOUND THEN RAISE EXCEPTION 'Current original key project required' USING ERRCODE='23514'; END IF;
+  RETURN NEW;
+END $$;
+CREATE TRIGGER "ProjectCaseKeyAlias_insert_scope" BEFORE INSERT ON "ProjectCaseKeyAlias"
+  FOR EACH ROW EXECUTE FUNCTION vaettir_case_key_insert_scope();
+CREATE TRIGGER "ProjectCaseKeyWrite_insert_scope" BEFORE INSERT ON "ProjectCaseKeyWrite"
+  FOR EACH ROW EXECUTE FUNCTION vaettir_case_key_insert_scope();
+
 CREATE OR REPLACE FUNCTION vaettir_project_case_key() RETURNS trigger LANGUAGE plpgsql AS $$
 DECLARE base_key TEXT; suffix INTEGER; request_id TEXT; write_row "ProjectCaseKeyWrite"%ROWTYPE;
 BEGIN
   IF TG_OP='UPDATE' THEN
+    IF NEW.id IS DISTINCT FROM OLD.id THEN
+      RAISE EXCEPTION 'Project identity cannot be changed or rebound to retained key history' USING ERRCODE='23514';
+    END IF;
     IF NEW."nextCaseNumber" < OLD."nextCaseNumber" THEN
       RAISE EXCEPTION 'Allocated case numbers cannot be reused' USING ERRCODE='23514';
     END IF;
@@ -92,6 +108,10 @@ BEGIN
   END IF;
   IF NEW."nextCaseNumber"<>0 OR NEW."caseKeyRevision"<>0 THEN
     RAISE EXCEPTION 'Case counters and key revisions are assigned by the database' USING ERRCODE='23514';
+  END IF;
+  IF EXISTS(SELECT 1 FROM "ProjectCaseKeyAlias" WHERE "projectId"=NEW.id)
+    OR EXISTS(SELECT 1 FROM "ProjectCaseKeyWrite" WHERE "projectId"=NEW.id) THEN
+    RAISE EXCEPTION 'Project identity has retained original key history and cannot be reused' USING ERRCODE='23514';
   END IF;
   PERFORM pg_advisory_xact_lock(hashtext('vaettir-case-key:'||NEW."organizationId"));
   IF NEW."caseKey"='' THEN
