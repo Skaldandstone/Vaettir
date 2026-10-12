@@ -94,7 +94,12 @@ describe.skipIf(!isolated)("original tenant key history through project moves an
     expect(await prisma.project.findUnique({ where: { id: projectId } })).toBeNull();
     for (const prefix of ["move-old", "move-new"]) await expect(caller.testCases.byDisplayId({ projectId, displayId: prefix + "-01" })).rejects.toMatchObject({ code: "NOT_FOUND" });
     await expect(caller.project.caseIdentity({ projectId })).rejects.toMatchObject({ code: "NOT_FOUND" });
-    await expect(prisma.project.create({ data: { organizationId: oldOrg, name: "Reused prefix", slug: tag + "-prefix-reuse", caseKey: "move-new" } })).rejects.toThrow("already reserved");
+    // Prisma maps PostgreSQL23505 to its structured unique-constraint error;
+    // the driver's human-readable trigger text is not the invariant.
+    await expect(prisma.project.create({ data: { organizationId: oldOrg, name: "Reused prefix", slug: tag + "-prefix-reuse", caseKey: "move-new" } })).rejects.toMatchObject({ code: "P2002" });
+    expect(await prisma.project.count({ where: { organizationId: oldOrg, slug: tag + "-prefix-reuse" } })).toBe(0);
+    expect(await prisma.$queryRaw`SELECT * FROM "ProjectCaseKeyAlias" WHERE "projectId"=${projectId} AND "organizationId"=${oldOrg} ORDER BY "caseKey"`).toEqual(before);
+    expect(await prisma.$queryRaw`SELECT * FROM "ProjectCaseKeyWrite" WHERE id=${acceptedRequest.requestId}`).toEqual(originalWrite);
     await expect(prisma.project.create({ data: { id: projectId, organizationId: oldOrg, name: "Reused ID", slug: tag + "-id-reuse", caseKey: "move-reborn" } })).rejects.toThrow("cannot be reused");
   });
   it("erases exact original tenant tombstones after parent removal with a durable original-scope count receipt", async () => {
