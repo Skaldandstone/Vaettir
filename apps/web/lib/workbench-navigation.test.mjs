@@ -9,11 +9,11 @@ import {
   hiddenActiveProjectLinks,
 } from "./workbench-navigation.ts";
 
-test("all twenty project destinations remain available exactly once", () => {
+test("all twenty-one project destinations remain available exactly once", () => {
   const paths = PROJECT_NAVIGATION.flatMap((group) =>
     group.links.map((link) => link.path),
   );
-  assert.equal(new Set(paths).size, 20);
+  assert.equal(new Set(paths).size, 21);
   assert.deepEqual(
     [...paths].sort(),
     [
@@ -37,6 +37,7 @@ test("all twenty project destinations remain available exactly once", () => {
       "/production-signals",
       "/import",
       "/releases",
+      "/settings/integrations",
     ].sort(),
   );
 });
@@ -123,7 +124,7 @@ test("quality choices tailor disclosure but never remove destinations or grant c
     assert.equal(
       new Set(groups.flatMap((group) => group.links.map((link) => link.path)))
         .size,
-      20,
+      21,
     );
     assert.ok(groups[0].links.some((link) => link.path === "/releases"));
     assert.equal(groups[0].collapsible, false);

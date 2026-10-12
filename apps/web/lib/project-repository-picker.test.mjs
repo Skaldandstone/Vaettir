@@ -4,7 +4,7 @@ import {readFileSync} from "node:fs";
 
 const source=readFileSync(new URL("../components/ProjectRepositories.tsx",import.meta.url),"utf8");
 
-test("project overview offers one Connect repo entry; provider choices live inside its modal",()=>{
+test("project integrations offers one Connect repo entry; provider choices live inside its modal",()=>{
   assert.match(source,/<strong>Connect repo<\/strong>/);
   assert.equal(source.split("<strong>Connect repo</strong>").length-1,1);
   assert.ok(source.indexOf("<RepositoryProviderPicker")>source.indexOf('<Modal open={open}'));
@@ -15,8 +15,9 @@ test("project overview offers one Connect repo entry; provider choices live insi
 
 test("provider navigation keeps visited connector state mounted and gates stale access",()=>{
   assert.match(source,/visited\.map\(id=><div key={id} hidden=\{provider!==id\}><RepositoryConnectionContent/);
-  assert.match(source,/if\(busy\|\|!canEdit\|\|!query\.isSuccess\)\{cancelRepositoryAuthorization\(intent\);return/);
-  assert.match(source,/hidden=\{!canEdit\|\|!query\.isSuccess\}/);
+  assert.match(source,/if\(busy\|\|!canEdit\|\|!ready\)\{cancelRepositoryAuthorization\(intent\);return/);
+  assert.match(source,/ready=query\.isSuccess&&!query.error&&!query.isFetching&&!query.isPaused/);
+  assert.match(source,/hidden=\{!canEdit\|\|!ready\}/);
   assert.match(source,/dismissible=\{!busy\}/);
   assert.match(source,/isConnectionMutation\(key\)\|\|\(Array\.isArray\(route\)&&route\[0\]==="project"&&route\[1\]==="addRepository"\)/);
   assert.match(source,/if\(dialog\?\.open\)screenHeading\.current\?\.focus\(\)/);
@@ -34,5 +35,6 @@ test("picker distinguishes OAuth, token verification and export-only adapters wi
   assert.match(picker,/Native account authorization is not available yet/);
   assert.match(source,/initialAuthorization=\{authorizations\[id\]\}/);
   assert.match(source,/repo\.accessVerified\?"Registered · Access verified":"Registered · Access unverified"/);
-  assert.match(source,/Review \$\{repo\.url\} connection options/);
+  assert.match(source,/Review \$\{name\} connection options/);
+  assert.match(source,/repositoryDisplayName\(repo.url\)/);
 });

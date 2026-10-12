@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { repositoryDisplayName } from "@/lib/repository-display";
 import { trpcReact, type RouterOutputs } from "@/lib/trpcReact";
 import { SourceConnectionChips } from "./SourceConnectionChips";
 import { useCaseFieldAccess } from "@/lib/use-case-field-access";
@@ -31,10 +32,10 @@ export function ConnectedRepositoryPicker({ projectId, selectedId, onSelect, dis
         onSelect(query.data.find(repo => repo.id === event.target.value) ?? null);
       }}>
         <option value="">Choose from {query.data.length} project repositories</option>
-        {query.data.map(repo => <option key={repo.id} value={repo.id}>{repo.url.replace(/^https:\/\//, "")} · {repo.accessVerified ? "connected" : "access needs review"}</option>)}
+        {query.data.map(repo => <option key={repo.id} value={repo.id}>{repositoryDisplayName(repo.url)} · {repo.accessVerified ? "connected" : "access needs review"}</option>)}
       </select>
     </label>
     {selected && <p className="text-muted" style={{margin:0,overflowWrap:"anywhere"}}>{selected.accessVerified ? "Existing project connection. No reconnect required." : "The saved repository is retained, but provider access needs renewal before private reads."}</p>}
-    <Link className="text-muted" href={`/projects/${encodeURIComponent(projectId)}#project-repositories`}>Manage project repositories</Link>
+    <Link className="text-muted" href={`/projects/${encodeURIComponent(projectId)}/settings/integrations`}>Manage project repositories</Link>
   </section>;
 }

@@ -1,4 +1,4 @@
-/** Existing destinations grouped by the user's working cycle, not new routes. */
+/** Project destinations grouped by the user's working cycle. */
 export const PROJECT_NAVIGATION = [
   {
     label: "Work",
@@ -37,6 +37,11 @@ export const PROJECT_NAVIGATION = [
       { path: "/import", label: "Import" },
       { path: "/audit-log", label: "Audit Log" },
     ],
+  },
+  {
+    label: "Settings",
+    collapsible: false,
+    links: [{ path: "/settings/integrations", label: "Integrations" }],
   },
 ] as const;
 

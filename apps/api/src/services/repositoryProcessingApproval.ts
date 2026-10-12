@@ -7,6 +7,7 @@ import { assertScannableRepoUrl,canonicalProcessingRepositoryUrl } from "./repos
 import { AI_OPERATION_COSTS, getAiCreditBalance } from "./aiCredits.js";
 import {safeSourcePath} from "./repositorySourceSafety.js";
 import { admitConnectedGitlab, connectedSourceBinding } from "./connectedRepositoryAccess.js";
+import { ensureSavedGitlabAccess } from "./savedGitlabAccess.js";
 export {safeSourcePath,sourcePathInScope} from "./repositorySourceSafety.js";
 export const repositoryProcessingScope=z.object({
   repositoryId:z.string().min(1).max(100).optional(),
@@ -39,7 +40,15 @@ function validateScope(purpose:ProcessingPurpose,scope:z.infer<typeof repository
 }
 export async function repositoryProcessingPreview(ctx:ActorContext,projectId:string,purpose:ProcessingPurpose,scope:z.infer<typeof repositoryProcessingScope>){
   scope=repositoryProcessingScope.parse(scope);
-  const {project}=await requireProjectAccess(ctx,projectId);validateScope(purpose,scope);
+  const {project,membership}=await requireProjectAccess(ctx,projectId);validateScope(purpose,scope);
+  // Only a NEW preview may renew metadata access before scopeHash capture.
+  // Read-only previews retain their existing no-renewal/canSpend:false behavior;
+  // retained begin/assert/replay paths never repair or replace their binding.
+  if(scope.repositoryId && membership.seatType==="FULL" && ["OWNER","ADMIN","EDITOR"].includes(membership.role)) {
+    if(!ctx.authenticatedClerkSubject || ctx.authenticatedClerkSubject!==ctx.user.clerkUserId)throw new TRPCError({code:"FORBIDDEN"});
+    await ensureSavedGitlabAccess(ctx,{projectId,repositoryId:scope.repositoryId,originalOrganizationId:project.organizationId,
+      expectedNativeActorId:ctx.user.id,expectedClerkActorId:ctx.authenticatedClerkSubject});
+  }
   return ctx.prisma.$transaction(async tx=>{
     await lockedProcessingReader(tx,project.organizationId,ctx.user.id,projectId);
     const sourceBinding=scope.repositoryId?(await admitConnectedGitlab(tx,{projectId,organizationId:project.organizationId,actorId:ctx.user.id,clerkSubject:ctx.authenticatedClerkSubject??"",repositoryId:scope.repositoryId})).binding:undefined;

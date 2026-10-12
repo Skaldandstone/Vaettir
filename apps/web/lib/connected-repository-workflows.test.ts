@@ -4,12 +4,13 @@ import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import ts from "typescript";
 import { it, expect } from "vitest";
+import { repositoryDisplayName } from "./repository-display";
 
 function fixture(state:{isSuccess:boolean;isFetching?:boolean;isPaused?:boolean;error?:unknown;data?:unknown[]},readable=true) {
   const file=readFileSync(new URL("../components/ConnectedRepositoryPicker.tsx",import.meta.url),"utf8");
   const ast=ts.createSourceFile("picker.tsx",file,ts.ScriptTarget.Latest,true,ts.ScriptKind.TSX),printer=ts.createPrinter();
   const changes:unknown[]=[];const reads:unknown[]=[];
-  const sandbox={React,Link:({children,...props}:{children:React.ReactNode})=>React.createElement("a",props,children),
+  const sandbox={React,repositoryDisplayName,Link:({children,...props}:{children:React.ReactNode})=>React.createElement("a",props,children),
     SourceConnectionChips:()=>React.createElement("button",null,"Connect repo"),useCaseFieldAccess:()=>({readable,origin:{projectId:"synthetic"},owns:()=>readable}),
     trpcReact:{project:{repositories:{useQuery:(input:unknown)=>{reads.push(input);return state;}}}},
   };
@@ -50,9 +51,9 @@ it("release discovery checks project references automatically in bounded batches
   const declarations=ast.statements.filter(ts.isFunctionDeclaration).map(node=>printer.printNode(ts.EmitHint.Unspecified,node,ast).replace("export function","function")).join("\n");
   const data={projectId:"synthetic",offset:0,nextOffset:5,repositories:[{repositoryId:"repo-1",url:repositories[1]!.url,status:"CHECKED",releases:[{tag:"v1",name:"Synthetic release",url:repositories[1]!.url+"/-/releases/v1",commitSha:"a".repeat(40),releasedAt:"2026-10-09T12:00:00Z"}],hasMore:true}]};
   function render(overrides:Record<string,unknown>={},readable=true){
-    const reads:unknown[]=[];const sandbox={React,useState:()=>[0,()=>{}],useCaseFieldAccess:()=>({readable,canEdit:readable,origin:null}),trpcReact:{repositoryIntelligence:{projectReleases:{useQuery:(input:unknown)=>{reads.push(input);return {data,isSuccess:true,isFetching:false,isPaused:false,error:null,...overrides};}}}}};
+    const reads:unknown[]=[];const sandbox={React,repositoryDisplayName,useState:()=>[0,()=>{}],useCaseFieldAccess:()=>({readable,canEdit:readable,origin:null}),trpcReact:{repositoryIntelligence:{projectReleases:{useQuery:(input:unknown)=>{reads.push(input);return {data,isSuccess:true,isFetching:false,isPaused:false,error:null,...overrides};}}}}};
     vm.createContext(sandbox);vm.runInContext(ts.transpileModule(declarations+"\nthis.actual=ProjectReleaseBatch;",{compilerOptions:{jsx:ts.JsxEmit.React,target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.None}}).outputText,sandbox);
-    const element=(sandbox as typeof sandbox&{actual:(props:unknown)=>React.ReactElement}).actual({projectId:"synthetic"});return{html:renderToStaticMarkup(element),reads};
+    const element=(sandbox as typeof sandbox&{actual:(props:unknown)=>React.ReactElement}).actual({projectId:"synthetic",offset:0,onOffsetChange:()=>{},onBrowse:()=>{}});return{html:renderToStaticMarkup(element),reads};
   }
   expect(render().reads).toEqual([{projectId:"synthetic",offset:0}]);expect(render().html).toContain("Synthetic release");expect(render().html).toContain("Next repositories");
   for(const state of [{isFetching:true},{isPaused:true},{error:Error("stale")},{data:{...data,projectId:"other"}},{data:{...data,offset:5}}])expect(render(state).html).not.toContain("Synthetic release");

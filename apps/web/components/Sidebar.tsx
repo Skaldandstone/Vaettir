@@ -40,6 +40,7 @@ const LINK_ICONS: Record<string, IconName> = {
   Import: "folder",
   "Test Strategy": "branch",
   "Release Readiness": "release",
+  Integrations: "settings",
 };
 
 const ORG_LINKS = [

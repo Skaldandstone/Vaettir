@@ -46,7 +46,10 @@ test("source chips open modal actions and keep unsupported provider status hones
     assert.doesNotMatch(page, /!projectRepoUrl\s*&&\s*<SourceConnectionChips|creationSource === "Connected repository" && !repoUrl/);
   }
   const overview = readFileSync(new URL("../app/projects/[projectId]/page.tsx", import.meta.url), "utf8");
-  assert.match(overview, /<ProjectRepositories/);
+  assert.match(overview, /<ProjectRepositorySummary/);
+  assert.doesNotMatch(overview, /<ProjectRepositories/);
+  const projectIntegrations = readFileSync(new URL("../app/projects/[projectId]/settings/integrations/page.tsx", import.meta.url), "utf8");
+  assert.match(projectIntegrations, /<ProjectRepositories key=\{projectId\} projectId=\{projectId\}/);
   assert.doesNotMatch(overview, /Connect a GitHub repo|Connect repository/);
   const projects = readFileSync(new URL("../app/projects/page.tsx", import.meta.url), "utf8");
   assert.match(projects, /\?setup=1/);

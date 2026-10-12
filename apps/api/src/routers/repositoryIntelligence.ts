@@ -5,12 +5,18 @@ import { lockedProcessingEditor } from "../services/repositoryProcessingApproval
 import { admitConnectedGitlab, assertGitlabProjectIdentity } from "../services/connectedRepositoryAccess.js";
 import { repositoryProviderJson } from "../services/repositoryProviderHttp.js";
 import { gitlabRepositoryReleases } from "../services/gitlabRepositoryReleases.js";
+import { ensureSavedGitlabAccess, savedGitlabAccessCheckInput } from "../services/savedGitlabAccess.js";
 
 type ActorContext=Context&{user:NonNullable<Context["user"]>};
 async function readReleasePage(ctx:ActorContext,input:{projectId:string;repositoryId:string;page:number}) {
     const {project,membership}=await requireProjectAccess(ctx,input.projectId,"EDITOR");
     if(membership.seatType!=="FULL"||!ctx.authenticatedClerkSubject||ctx.authenticatedClerkSubject!==ctx.user.clerkUserId)
       throw new TRPCError({code:"FORBIDDEN",message:"Current full editor access is required to read provider releases."});
+    // Refresh the existing saved metadata grant before capturing a read binding,
+    // never inside the original before/after read or source-approval checks.
+    await ensureSavedGitlabAccess(ctx,{projectId:input.projectId,repositoryId:input.repositoryId,
+      originalOrganizationId:project.organizationId,expectedNativeActorId:ctx.user.id,
+      expectedClerkActorId:ctx.authenticatedClerkSubject});
     const access=()=>ctx.prisma.$transaction(async tx=>{
       await lockedProcessingEditor(tx,project.organizationId,ctx.user.id,input.projectId);
       return admitConnectedGitlab(tx,{projectId:input.projectId,organizationId:project.organizationId,actorId:ctx.user.id,clerkSubject:ctx.authenticatedClerkSubject!,repositoryId:input.repositoryId});
@@ -34,6 +40,7 @@ async function readReleasePage(ctx:ActorContext,input:{projectId:string;reposito
 }
 type ReleaseBatchRow={repositoryId:string;url:string;status:"CHECKED"|"UNAVAILABLE"|"UNSUPPORTED"|"NOT_INSPECTED";releases:Awaited<ReturnType<typeof readReleasePage>>["result"]["releases"];hasMore:boolean;observedAt:string|null};
 export const repositoryIntelligenceRouter=router({
+  savedAccess:protectedProcedure.input(savedGitlabAccessCheckInput).mutation(({ctx,input})=>ensureSavedGitlabAccess(ctx,input)),
   releases:protectedProcedure.input(z.object({projectId:z.string(),repositoryId:z.string(),page:z.number().int().min(1).max(10).default(1)})).query(async({ctx,input})=>(await readReleasePage(ctx,input)).result),
   projectReleases:protectedProcedure.input(z.object({projectId:z.string(),offset:z.number().int().min(0).max(1000).default(0)})).query(async({ctx,input})=>{
     const {project,membership}=await requireProjectAccess(ctx,input.projectId,"EDITOR");

@@ -5,11 +5,10 @@ import { useParams } from "next/navigation";
 import { trpcReact } from "@/lib/trpcReact";
 import { useProjectPermissions } from "@/lib/use-project-permissions";
 import { useCaseReviewQueue } from "@/lib/use-case-review-queue";
-import { ConnectionLink } from "@/components/SourceConnectionChips";
 import { RepositoryReleaseDiscovery } from "@/components/RepositoryReleaseDiscovery";
 import { ProductionSignalChips } from "@/components/ProductionSignalChips";
 import { ProjectPopulationModal } from "@/components/ProjectPopulationModal";
-import { ProjectRepositories } from "@/components/ProjectRepositories";
+import { ProjectRepositorySummary } from "@/components/ProjectRepositorySummary";
 import { ProjectCaseKey } from "@/components/ProjectCaseKey";
 import { TestTypeDistribution } from "@/components/TestTypeDistribution";
 import {
@@ -82,28 +81,15 @@ export default function ProjectOverviewPage() {
         />
       )}
       <QualityExperienceSummary projectId={projectId} />
-      <ProjectRepositories projectId={projectId} canEdit={canEdit} />
+      <ProjectRepositorySummary projectId={projectId} />
       <RepositoryReleaseDiscovery projectId={projectId}/>
-      {project.repoUrl && (
-        <p className="text-muted" style={{ marginBottom: 24 }}>
-          Legacy repository reference: {project.repoUrl} · branch{" "}
-          {project.defaultBranch}. Access is not verified here.
-        </p>
-      )}
+
 
       <div
         className="project-connection-chips"
         id="project-connections"
         aria-label="Production signal routing"
       >
-        {project.repoUrl && (
-          <ConnectionLink
-            href={`/projects/${projectId}/reverse-engineer`}
-            provider="git"
-            label="Repository"
-            status="Legacy reference · Review scope"
-          />
-        )}
         <ProductionSignalChips projectId={projectId} />
       </div>
 
@@ -214,11 +200,11 @@ export default function ProjectOverviewPage() {
               className="btn-primary"
               href={`/projects/${projectId}/reverse-engineer`}
             >
-              Scan {project.repoUrl}
+              Review legacy repository source
             </a>
           ) : (
             <p className="text-muted" style={{ fontSize: 13 }}>
-              Connect a repo above and scan it, or{" "}
+              <a href={`/projects/${encodeURIComponent(projectId)}/settings/integrations`}>Connect a repository in project integrations</a>, then review its source scope, or{" "}
               <a href={`/projects/${projectId}/test-cases/new`}>
                 author a test case manually
               </a>

@@ -9,6 +9,7 @@ import { QueryClient, QueryObserver, onlineManager, type QueryObserverOptions } 
 import ts from "typescript";
 import { expect, it } from "vitest";
 import { caseFieldReadOrigin, caseFieldReadPins, sameCaseFieldOrigin } from "./case-field-origin";
+import { repositoryDisplayName } from "./repository-display";
 
 type Element = React.ReactElement<Record<string, unknown>>;
 type Observer = QueryObserver<unknown, Error, unknown, unknown, readonly unknown[]>;
@@ -115,7 +116,7 @@ function harness(legacyMountFault = false, purpose?: "TEST_CASES" | "REQUIREMENT
   }
   const mutation = { isPending: false, error: null, reset() {}, mutateAsync: async (input: unknown) => { writes.push(input); throw Error("Synthetic source read prohibited"); } };
   const context = vm.createContext({
-    React, Error, caseFieldReadOrigin, caseFieldReadPins, sameCaseFieldOrigin,
+    React, Error, caseFieldReadOrigin, caseFieldReadPins, sameCaseFieldOrigin, repositoryDisplayName,
     useAuth: () => auth, crypto: { randomUUID: () => `synthetic-request-${++uuid}` },
     useState: (initial: unknown) => {
       const value = slot("state");

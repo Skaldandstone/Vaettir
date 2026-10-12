@@ -7,6 +7,7 @@ import { admitConnectedGitlab, assertGitlabProjectIdentity, connectedSourceBindi
 import { repositoryProviderJson } from "../services/repositoryProviderHttp.js";
 import { scanConnectedGitlab } from "../services/connectedGitlabScan.js";
 import { repositoryFileCoverageScope,repositoryFileCoverageConsent,repositoryFileCoverageHash,repositoryFileCoverageResult,compareRepositoryFiles } from "../services/repositoryFileCoverage.js";
+import { ensureSavedGitlabAccess } from "../services/savedGitlabAccess.js";
 
 const request=z.object({projectId:z.string(),scope:repositoryFileCoverageScope});
 const receipt=z.object({protocol:z.literal("repository-file-coverage/v1"),scope:repositoryFileCoverageScope,scopeHash:z.string(),binding:connectedSourceBindingSchema,expiresAt:z.string().datetime()});
@@ -23,6 +24,13 @@ async function access(ctx:Context,projectId:string,repositoryId:string) {
  * never silently reread source. No AI call, credits or case/requirement edits. */
 export const repositoryCoverageChecksRouter=router({
   preview:protectedProcedure.input(request).query(async({ctx,input})=>{
+    if(!ctx.authenticatedClerkSubject||ctx.authenticatedClerkSubject!==ctx.user.clerkUserId)throw new TRPCError({code:"FORBIDDEN"});
+    const {project,membership}=await requireProjectAccess(ctx,input.projectId,"EDITOR");
+    if(membership.seatType!=="FULL")throw new TRPCError({code:"FORBIDDEN"});
+    // Fresh discovery only; compare/access/retained receipt paths below remain
+    // exact original-binding checks and never renew credentials or rereview.
+    await ensureSavedGitlabAccess(ctx,{projectId:input.projectId,repositoryId:input.scope.repositoryId,originalOrganizationId:project.organizationId,
+      expectedNativeActorId:ctx.user.id,expectedClerkActorId:ctx.authenticatedClerkSubject});
     const current=await access(ctx,input.projectId,input.scope.repositoryId);
     return {scopeHash:repositoryFileCoverageHash(input.projectId,ctx.user.id,input.scope,current.binding),repositoryUrl:current.binding.repositoryUrl,aiProcessing:false as const,credits:0 as const};
   }),
