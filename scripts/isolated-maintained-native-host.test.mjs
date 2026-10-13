@@ -17,10 +17,22 @@ test('pure extracted Bash lexical guard accepts finite paths and refuses escape/
 test('complete wrapper Bash syntax only, never an operational mode',()=>{
  const r=spawnSync(bash,['--noprofile','--norc','-n'],{input:text,encoding:'utf8',timeout:10000,maxBuffer:4096});assert.equal(r.status,0,r.stderr);
 });
-test('review, full rootfs byte inventory and fresh once-only admission precede sudo',()=>{
+test('review, full rootfs byte inventory and fresh once-only admission precede native namespace setup',()=>{
  for(const literal of ["sha(raw)==pin","r['rootfsCopyProcedureReviewed'] is True","actual==expected","s.st_nlink==1","total<=8*1024**3","root+'/build/runtime-security'","with open(intent,'x')","os.fsync(f.fileno())","os.environ['GITHUB_SHA']==r['commit']","all(ns[k]!=previous['originalNamespaces'][k] for k in ns)"])assert.ok(text.includes(literal),literal);
  assert.ok(text.indexOf("with open(intent,'x')")<text.indexOf('exec /usr/bin/sudo'));
  assert.match(text,/os\.path\.realpath\(root\)==root/);assert.match(text,/stat\.S_IMODE\(s\.st_mode\)==0o700/);assert.match(text,/time\.time\(\)-r\['createdAt'\]<=3600/);
+});
+test('protected original compiler files get fixed passive root verification, never permission relaxation or native root execution',()=>{
+ assert.ok(text.includes('reader_command=(/usr/bin/sudo --non-interactive /usr/bin/env -i'));
+ assert.ok(text.includes('VAETTIR_NATIVE_OWNER_UID="$EUID"'));
+ assert.ok(text.includes("os.getuid()==0 and os.environ['VAETTIR_NATIVE_OWNER_UID']==str(r['ownerUid'])"));
+ assert.ok(text.includes("os.chown(intent,r['ownerUid'],r['ownerUid'])"));
+ assert.ok(text.includes('GITHUB_SHA="$GITHUB_SHA" GITHUB_RUN_ID="$GITHUB_RUN_ID" GITHUB_RUN_ATTEMPT="$GITHUB_RUN_ATTEMPT"'));
+ assert.ok(text.includes('"${reader_command[@]}" <<\'ADMIT\''));
+ assert.ok(text.indexOf('"${reader_command[@]}"')<text.indexOf('/usr/bin/mount --make-rprivate /'));
+ assert.ok(text.includes('chroot --userspec=1000:1000 --groups=1000'));
+ const commands=text.split('\n').filter(line=>!line.trimStart().startsWith('#')).join('\n');
+ assert.doesNotMatch(commands,/chmod[^\n]*(?:["']\$rootfs|shadow|passwd)|sudo[^\n]*(?:\/node\b|\/build\/scripts)/);
 });
 test('exact original build/watch/manifest/proof/corpus Git LF bytes pinned; none rewritten',()=>{
  for(const name of ['build-maintained-runtime.sh','runtime-build-proof.mjs','watch-native-build-logs.mjs','runtime-security-sources.json','fetch-freetype-test-corpus.mjs']){

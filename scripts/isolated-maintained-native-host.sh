@@ -20,7 +20,17 @@ else
 fi
 # Host Python is ONLY fixed validation code; no Root/corpus/package code import.
 # All failures are generic; do not expose environment/config/credential values.
-/usr/bin/python3 -I - "$mode" "$release" "$review" "$review_sha" <<'ADMIT'
+reader_command=(/usr/bin/python3 -I - "$mode" "$release" "$review" "$review_sha")
+if [[ $mode == --parent ]]; then
+  # Whole-image hashing must read original protected distribution files. Use
+  # existing sudo for THIS fixed read-only validator, never chmod those files
+  # or execute/import image code. Preserve the actual non-root caller identity.
+  reader_command=(/usr/bin/sudo --non-interactive /usr/bin/env -i PATH="$PATH" LANG=C LC_ALL=C
+    VAETTIR_NATIVE_OWNER_UID="$EUID" RUNNER_TEMP="$RUNNER_TEMP"
+    GITHUB_SHA="$GITHUB_SHA" GITHUB_RUN_ID="$GITHUB_RUN_ID" GITHUB_RUN_ATTEMPT="$GITHUB_RUN_ATTEMPT"
+    /usr/bin/python3 -I - "$mode" "$release" "$review" "$review_sha")
+fi
+"${reader_command[@]}" <<'ADMIT'
 import hashlib,json,os,re,stat,sys,time,traceback
 def sha(b): return hashlib.sha256(b).hexdigest()
 def regular(path,max_bytes):
@@ -103,11 +113,12 @@ def admission():
  intent=release+'/host-once-intent.json'
  ns={k:os.readlink('/proc/self/ns/'+k) for k in ['mnt','pid','net']}
  if mode=='--parent':
-  assert os.getuid()==r['ownerUid']
+  assert os.getuid()==0 and os.environ['VAETTIR_NATIVE_OWNER_UID']==str(r['ownerUid'])
   rt=os.environ['RUNNER_TEMP']; assert os.path.realpath(rt)==rt and os.path.dirname(release)==rt
   assert os.environ['GITHUB_SHA']==r['commit'] and os.environ['GITHUB_RUN_ID']==r['runId'] and os.environ['GITHUB_RUN_ATTEMPT']==str(r['attempt'])
   with open(intent,'x') as f:
    os.chmod(intent,0o600); json.dump(dict(reviewSha256=sha(raw),rootfsDev=r['rootfsDev'],originalNamespaces=ns,nativeAccepted=False),f); f.flush(); os.fsync(f.fileno())
+  os.chown(intent,r['ownerUid'],r['ownerUid'])
  else:
   previous=json.loads(regular(intent,4096)); assert previous['reviewSha256']==sha(raw) and previous['nativeAccepted'] is False
   assert all(ns[k]!=previous['originalNamespaces'][k] for k in ns)
