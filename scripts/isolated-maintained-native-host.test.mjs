@@ -53,20 +53,30 @@ test('temporary mount/PID/net isolation with loopback only; no host bind exposur
  assert.doesNotMatch(text,/\/etc\/subuid|\/etc\/subgid|--map-auto|--map-users=auto|--map-groups=auto/);
  assert.match(text,/setpriv --reuid=1000 --regid=1000 --groups=1000[\s\S]*?unshare --user --map-root-user --mount --fork/);
  assert.ok(text.includes('mount --make-rprivate /'));assert.ok(text.includes('ip -o link show | /usr/bin/wc -l) == 1'));assert.ok(text.includes("'^[0-9]+: lo:'"));
- const binds=text.split('\n').filter(line=>line.includes('mount --bind')).map(line=>line.trim());assert.deepEqual(binds,['/usr/bin/mount --bind "$rootfs" "$rootfs"','/usr/bin/mount --bind "$release/virtual-devices/$name" "$rootfs/dev/$name"']);
+ const binds=text.split('\n').filter(line=>line.includes('mount --bind')).map(line=>line.trim());assert.deepEqual(binds,['/usr/bin/mount --bind "$rootfs" "$rootfs"','/usr/bin/mount --bind "$release/virtual-devices" "$rootfs/dev"']);
  assert.match(text,/mount -t proc -o nosuid,nodev,noexec proc "\$rootfs\/proc"/);assert.match(text,/devpts -o newinstance/);
  assert.match(text,/tmpfs "\$rootfs\/sys"/);assert.match(text,/tmpfs "\$rootfs\/run"/);
- assert.match(text,/mount -t tmpfs -o mode=1777,nodev,size=128m tmpfs "\$rootfs\/tmp"/);
+ assert.match(text,/mount -t tmpfs -o mode=1777,nodev,size=2g tmpfs "\$rootfs\/tmp"/);
  const privateTmp=text.split('\n').find(line=>line.startsWith('/usr/bin/mount ')&&line.endsWith('"$rootfs/tmp"'));
  assert.ok(privateTmp);assert.doesNotMatch(privateTmp,/nosuid|noexec/);
 });
 test('fixed ordinary devices only, isolated devpts, no sockets or host devices',()=>{
- assert.ok(text.includes("'null 1 3' 'zero 1 5' 'random 1 8' 'urandom 1 9' 'full 1 7' 'tty 5 0'"));assert.ok(text.includes('ln -s pts/ptmx'));assert.ok(text.includes('ln -s /proc/self/fd'));
+ assert.ok(text.includes("('null',1,3),('zero',1,5),('random',1,8),('urandom',1,9),('full',1,7),('tty',5,0)"));assert.ok(text.includes('ln -s pts/ptmx'));assert.ok(text.includes('ln -s /proc/self/fd'));
  for(const fd of [0,1,2])assert.ok(text.includes('ln -s /proc/self/fd/'+fd));
  assert.match(text,/mount -t tmpfs -o mode=1777,nosuid,nodev,noexec,size=64m tmpfs "\$rootfs\/dev\/shm"/);
  assert.ok(text.includes('stat.S_ISCHR(s.st_mode) and s.st_nlink==1'));
  assert.ok(text.includes("s.st_rdev==os.makedev(major,minor)"));
  assert.doesNotMatch(text,/\/dev\/(?:kvm|fuse|mem|dri|nvidia|docker)|docker\.sock|--rbind/);
+});
+
+test('owned virtual directory preserves normal descriptor filesystem identity and bounded full-suite scratch space',()=>{
+ assert.ok(text.includes('chmod 755 "$release/virtual-devices"'));
+ assert.ok(text.includes('mount -o remount,bind,nosuid,noexec "$rootfs/dev"'));
+ assert.ok(text.includes('for name in null zero random urandom full tty; do'));
+ assert.ok(text.includes('stat -c %d "$rootfs/dev/$name") == "$device_fs"'));
+ assert.ok(text.includes("df -Pk \"$rootfs/tmp\" | /usr/bin/awk 'NR == 2 {print $4}') -ge 1048576"));
+ assert.ok(text.indexOf('stat -c %d "$rootfs/dev/$name"')<text.indexOf('/usr/bin/setpriv --reuid=1000'));
+ assert.doesNotMatch(text,/mount --bind \/dev|mount --rbind|size=128m/);
 });
 test('native UID1000, clean env, combined timeout3500/four workers and original stderr/status',()=>{
  assert.ok(text.includes('setpriv --reuid=1000 --regid=1000 --groups=1000'));assert.ok(text.includes('test "$(id -u)" = 1000'));assert.ok(text.includes('cd /build && exec'));

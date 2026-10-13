@@ -159,11 +159,15 @@ fi
 options=$(/usr/bin/findmnt -n -o OPTIONS --target "$rootfs")
 [[ ,$options, != *,nosuid,* && ,$options, != *,noexec,* ]] || fail
 /usr/bin/mount -t proc -o nosuid,nodev,noexec proc "$rootfs/proc"
-/usr/bin/mount -t tmpfs -o mode=755,nosuid,noexec,size=16m tmpfs "$rootfs/dev"
-for spec in 'null 1 3' 'zero 1 5' 'random 1 8' 'urandom 1 9' 'full 1 7' 'tty 5 0'; do
-  read -r name major minor <<< "$spec"
-  /usr/bin/touch "$rootfs/dev/$name"
-  /usr/bin/mount --bind "$release/virtual-devices/$name" "$rootfs/dev/$name"
+# Bind only our new, fully verified six-node directory, not host /dev. The
+# unchanged descriptor test expects /dev and /dev/null on the same filesystem;
+# individual node binds over a different tmpfs violate that ordinary layout.
+/usr/bin/chmod 755 "$release/virtual-devices"
+/usr/bin/mount --bind "$release/virtual-devices" "$rootfs/dev"
+/usr/bin/mount -o remount,bind,nosuid,noexec "$rootfs/dev"
+device_fs=$(/usr/bin/stat -c %d "$rootfs/dev")
+for name in null zero random urandom full tty; do
+  [[ $(/usr/bin/stat -c %d "$rootfs/dev/$name") == "$device_fs" ]] || fail
 done
 /usr/bin/mkdir "$rootfs/dev/pts"
 /usr/bin/mount -t devpts -o newinstance,ptmxmode=0666,mode=0620,gid=5,nosuid,noexec devpts "$rootfs/dev/pts"
@@ -179,7 +183,11 @@ done
 /usr/bin/mount -t tmpfs -o mode=755,nosuid,nodev,noexec,size=4m tmpfs "$rootfs/run"
 # Original tst-origin-secure creates its normal suid helper under /tmp.
 # Preserve that PRIVATE mount's ordinary suid/executable semantics too.
-/usr/bin/mount -t tmpfs -o mode=1777,nodev,size=128m tmpfs "$rootfs/tmp"
+# Full parallel vendor tests need more than 128MiB: the original iconv buffer
+# tests actually exhausted it. Keep a finite 2GiB limit within the runner's
+# existing memory budget, never filter tests or rewrite their temporary paths.
+/usr/bin/mount -t tmpfs -o mode=1777,nodev,size=2g tmpfs "$rootfs/tmp"
+[[ $(/usr/bin/df -Pk "$rootfs/tmp" | /usr/bin/awk 'NR == 2 {print $4}') -ge 1048576 ]] || fail
 # chroot deliberately prevents CLONE_NEWUSER; original test-container tests
 # need a normal namespace root. Pivot ONLY this private mount namespace onto
 # the verified rootfs, detach its old host root, never expose it to the driver.
