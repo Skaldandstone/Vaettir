@@ -5,7 +5,7 @@ import {tmpdir} from 'node:os';
 import {join,resolve,dirname,basename} from 'node:path';
 import {spawnSync} from 'node:child_process';
 import {createHash} from 'node:crypto';
-import {requireSourceManifest,requireSignature,requireTestSummary,nativeFailureEvidence,nativeFailureFrames,emitNativeFailureEvidence,requiredPassExpectations,nativeRequiredPassMakeFlags,parseDynSymbols,requireAbiPreservation,requireFreeTypeStandardResult} from './runtime-build-proof.mjs';
+import {requireSourceManifest,requireSignature,requireTestSummary,requiredExtendedTest,requireExtendedTestResult,nativeFailureEvidence,nativeFailureFrames,emitNativeFailureEvidence,requiredPassExpectations,nativeRequiredPassMakeFlags,parseDynSymbols,requireAbiPreservation,requireFreeTypeStandardResult} from './runtime-build-proof.mjs';
 const manifest=readFileSync(new URL('./runtime-security-sources.json',import.meta.url));
 test('exact reviewed maintained source manifest admits 10 sources/23 ordered official patches and refuses changed custody',()=>{
   const value=requireSourceManifest(manifest);assert.equal(value.components.glibc.patches.length,22);assert.equal(value.components.freetype.patches.length,1);assert.throws(()=>requireSourceManifest(Buffer.concat([manifest,Buffer.from(' ')])));
@@ -15,12 +15,31 @@ test('exact original signer/primary only, no expired/revoked or additional signa
   const line=`[GNUPG:] VALIDSIG ${component.signer} 2026-10-12 1 0 4 0 1 10 00 ${component.primarySigner}\n`;
   requireSignature(line,component);for(const bad of ['EXPKEYSIG','EXPSIG','KEYEXPIRED','REVKEYSIG','BADSIG','ERRSIG','NO_PUBKEY'])assert.throws(()=>requireSignature(line+`[GNUPG:] ${bad} key\n`,component));assert.throws(()=>requireSignature(line+line,component));assert.throws(()=>requireSignature(line.replace(component.primarySigner,'A'.repeat(40)),component));
 });
-const names=['resolv/tst-ns_sprintrr','posix/tst-wordexp-tilde','posix/tst-wordexp-append','stdlib/tst-strfmon-bug34510','iconvdata/tst-jisx0213-progress','libio/tst-fopen-ccs-empty','elf/tst-dl-path-normalize','elf/tst-origin-secure','string/test-strncasecmp-nonarray'];
+const names=['resolv/tst-ns_sprintrr','posix/tst-wordexp-tilde','posix/tst-wordexp-append','stdlib/tst-strfmon-bug34510','iconvdata/tst-jisx0213-progress','libio/tst-fopen-ccs-empty','elf/tst-dl-path-normalize','elf/tst-origin-secure'];
 const summary='\t\t=== glibc tests ===\n'+['.','elf','nptl','stdlib','string','math','iconvdata','posix','resolv','libio','conform'].map(name=>'Running '+name+' ...\n').join('')+[...names,...requiredPassExpectations].map(name=>'PASS: '+name+'\n').join('');
 test('exact ten recorded expected-failure allowances are removed, not replaced by skips or relabeled results',()=>{
  assert.equal(requiredPassExpectations.length,10);assert.equal(new Set(requiredPassExpectations).size,10);assert.equal(nativeRequiredPassMakeFlags(),requiredPassExpectations.map(name=>'test-xfail-'+name.split('/')[1]+'=').join(' '));assert.doesNotMatch(nativeRequiredPassMakeFlags(),/yes|no|skip|nocheck/);
  for(const name of requiredPassExpectations){assert.throws(()=>requireTestSummary(summary.replace('PASS: '+name+'\n','XFAIL: '+name+'\n')));assert.throws(()=>requireTestSummary(summary.replace('PASS: '+name+'\n','')));}
- const shell=readFileSync(new URL('./build-maintained-runtime.sh',import.meta.url),'utf8');assert.equal(shell.match(/MAKEFLAGS="\$required_pass_flags"/g).length,2);assert.match(shell,/dpkg-buildpackage -b -us -uc/);assert.match(shell,/check-abi/);
+ const shell=readFileSync(new URL('./build-maintained-runtime.sh',import.meta.url),'utf8');assert.equal(shell.match(/MAKEFLAGS="\$required_pass_flags"/g).length,3);assert.match(shell,/dpkg-buildpackage -b -us -uc/);assert.match(shell,/check-abi/);
+});
+
+test('official xtest requires its separate genuine PASS bytes, never a forged standard-summary row or a skipped status',()=>{
+ assert.equal(requiredExtendedTest,'string/test-strncasecmp-nonarray');
+ assert.ok(!requireTestSummary(summary).records.some(row=>row.name===requiredExtendedTest));
+ const output=Buffer.from('info: testing strncasecmp\n'),result='PASS: '+requiredExtendedTest+'\noriginal exit status 0\n';
+ const proof=requireExtendedTestResult(result,output);assert.equal(proof.status,'PASS');assert.equal(proof.name,requiredExtendedTest);assert.equal(proof.outputBytes,output.length);
+ for(const status of ['FAIL','XPASS','XFAIL','UNSUPPORTED','ERROR','UNRESOLVED'])assert.throws(()=>requireExtendedTestResult(result.replace('PASS:',status+':'),output));
+ for(const text of ['',result.replace(requiredExtendedTest,'string/other'),result+'FAIL: string/other\n',result.replace('status 0','status 1'),result.replace('status 0','status 77')])assert.throws(()=>requireExtendedTestResult(text,output));
+ for(const bytes of [Buffer.alloc(0),Buffer.alloc(128*1024+1)])assert.throws(()=>requireExtendedTestResult(result,bytes));
+ const shell=readFileSync(new URL('./build-maintained-runtime.sh',import.meta.url),'utf8'),validator=readFileSync(new URL('./runtime-build-proof.mjs',import.meta.url),'utf8');
+ assert.ok(shell.includes('test ! -e "$build_dir/string/test-strncasecmp-nonarray.out"'));
+ assert.ok(shell.includes('test ! -e "$build_dir/string/test-strncasecmp-nonarray.test-result"'));
+ assert.ok(shell.includes('test t=string/test-strncasecmp-nonarray > "$root/extended-regression.log"'));
+ assert.ok(validator.includes('requiredExtendedTests:[extended]'));
+ assert.ok(validator.includes('readFileSync(copiedResult).equals(rawExtendedResult)'));
+ assert.ok(validator.includes('readFileSync(copiedOutput).equals(rawExtendedOutput)'));
+ assert.ok(validator.includes('for(const file of [extendedResult,extendedOutput,extendedBinary])regular(file)'));
+ assert.doesNotMatch(shell,/echo.*PASS:|printf.*PASS:|>>.*tests\.sum/);
 });
 test('real GNU make propagates empty required-PASS overrides through maintained-style parent and submake',t=>{
  const version=spawnSync('make',['--version'],{encoding:'utf8',timeout:10000});if(version.error?.code==='ENOENT'&&process.platform==='win32'){t.skip('GNU make is not installed on Windows; the required actual propagation check runs on Linux CI');return;}assert.equal(version.status,0);assert.match(version.stdout,/GNU Make/);

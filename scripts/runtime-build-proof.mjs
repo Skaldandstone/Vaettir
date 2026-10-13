@@ -13,6 +13,18 @@ const sha=value=>createHash('sha256').update(value).digest('hex');
 // make overrides remove expected-failure allowance; every one MUST now PASS.
 export const requiredPassExpectations=Object.freeze(['elf/tst-ifunc-isa-1','elf/tst-ifunc-isa-1-static','elf/tst-ifunc-isa-2','elf/tst-ifunc-isa-2-static','nptl/tst-create-detached','nptl/tst-robust8','rt/tst-cpuclock2','rt/tst-cputimer1','rt/tst-timer','support/tst-support_descriptors']);
 export function nativeRequiredPassMakeFlags(){return requiredPassExpectations.map(name=>'test-xfail-'+name.split('/')[1]+'=').join(' ');}
+// The pinned official patch declares this regression as an xtest. Standard
+// `check` deliberately does not run xtests; retain its original summary and
+// require the separate, genuinely executed result in every native test proof.
+export const requiredExtendedTest='string/test-strncasecmp-nonarray';
+export function requireExtendedTestResult(result,output){
+  assert.ok(typeof result==='string'&&result.length>0&&Buffer.byteLength(result)<=4096);
+  assert.equal(result.split(/\r?\n/)[0],'PASS: '+requiredExtendedTest,'Official extended regression missing/not PASS');
+  assert.equal(result.replaceAll('\r\n','\n'),'PASS: '+requiredExtendedTest+'\noriginal exit status 0\n','Original extended test exit status must be zero');
+  assert.doesNotMatch(result,/^(?:FAIL|XPASS|XFAIL|UNSUPPORTED|ERROR|UNRESOLVED):/m);
+  assert.ok(Buffer.isBuffer(output)&&output.length>0&&output.length<=128*1024);
+  return {name:requiredExtendedTest,status:'PASS',resultSha256:sha(Buffer.from(result)),outputBytes:output.length,outputSha256:sha(output)};
+}
 export function requireSourceManifest(bytes){
   assert.equal(sha(bytes),MANIFEST_SHA256,'Reviewed security manifest changed');
   const manifest=JSON.parse(bytes);
@@ -43,7 +55,7 @@ export function requireTestSummary(text){
     else assert.ok(!/^[A-Z]+:/.test(line),'Unrecognized test status: '+line);
   }
   assert.ok(records.length>0);assert.equal(new Set(records.map(row=>row.name)).size,records.length,'Duplicate native test identity');
-  for(const name of ['resolv/tst-ns_sprintrr','posix/tst-wordexp-tilde','posix/tst-wordexp-append','stdlib/tst-strfmon-bug34510','iconvdata/tst-jisx0213-progress','libio/tst-fopen-ccs-empty','elf/tst-dl-path-normalize','elf/tst-origin-secure','string/test-strncasecmp-nonarray'])assert.equal(records.find(row=>row.name===name)?.status,'PASS','Official maintained patch regression missing/not PASS: '+name);
+  for(const name of ['resolv/tst-ns_sprintrr','posix/tst-wordexp-tilde','posix/tst-wordexp-append','stdlib/tst-strfmon-bug34510','iconvdata/tst-jisx0213-progress','libio/tst-fopen-ccs-empty','elf/tst-dl-path-normalize','elf/tst-origin-secure'])assert.equal(records.find(row=>row.name===name)?.status,'PASS','Official maintained patch regression missing/not PASS: '+name);
   for(const name of requiredPassExpectations)assert.equal(records.find(row=>row.name===name)?.status,'PASS','Previously expected-failure test must genuinely PASS: '+name);
   return {summarySha256:sha(text),records,counts:Object.fromEntries(['PASS','XFAIL','UNSUPPORTED'].map(status=>[status,records.filter(row=>row.status===status).length])),FAIL:0,XPASS:0};
 }
@@ -135,7 +147,15 @@ async function testProof(buildDir,output){
     throw original;
   }
   for(const row of result.records){const file=resolve(buildDir,row.name+'.test-result');assert.ok(file.startsWith(resolve(buildDir)+'/'));const first=readFileSync(file,'utf8').split(/\r?\n/)[0];assert.equal(first,row.status+': '+row.name,'Summary does not match individual native result');}
-  writeFileSync(output,JSON.stringify({...result,standardNativeCheck:true,nativeAbiCheckRequired:true},null,2)+'\n',{flag:'wx'});
+  const extendedResult=resolve(buildDir,requiredExtendedTest+'.test-result'),extendedOutput=resolve(buildDir,requiredExtendedTest+'.out'),extendedBinary=resolve(buildDir,requiredExtendedTest);
+  for(const file of [extendedResult,extendedOutput,extendedBinary])regular(file);
+  const rawExtendedResult=readFileSync(extendedResult),rawExtendedOutput=readFileSync(extendedOutput);
+  const copiedResult=join(dirname(output),'extended-test-result.log'),copiedOutput=join(dirname(output),'extended-test-output.log');
+  regular(copiedResult);regular(copiedOutput);
+  assert.ok(readFileSync(copiedResult).equals(rawExtendedResult));assert.ok(readFileSync(copiedOutput).equals(rawExtendedOutput));
+  const extended=requireExtendedTestResult(rawExtendedResult.toString('utf8'),rawExtendedOutput);
+  extended.executableSha256=sha(readFileSync(extendedBinary));
+  writeFileSync(output,JSON.stringify({...result,requiredExtendedTests:[extended],standardNativeCheck:true,nativeAbiCheckRequired:true},null,2)+'\n',{flag:'wx'});
 }
 function abiProof(base,candidate,output){
   regular(base);regular(candidate);

@@ -5,7 +5,7 @@ import {spawn} from 'node:child_process';
 import {openSync,closeSync,readSync,fstatSync,lstatSync} from 'node:fs';
 import {pathToFileURL} from 'node:url';
 const root='/build/runtime-security';
-export const logs=Object.freeze(['glibc/extract.log','glibc/package-build.log','glibc/upstream-check.log','glibc/upstream-abi.log','freetype/extract.log','freetype/package-build.log','freetype/meson-setup.log','freetype/meson-compile.log','freetype/meson-test.log']);
+export const logs=Object.freeze(['glibc/extract.log','glibc/package-build.log','glibc/upstream-check.log','glibc/upstream-abi.log','freetype/extract.log','freetype/package-build.log','freetype/meson-setup.log','freetype/meson-compile.log','freetype/meson-test.log','glibc/extended-regression.log','glibc/extended-test-result.log','glibc/extended-test-output.log']);
 export function requireLogState(before,next){
  assert.ok(next.regular&&!next.symlink);assert.ok(Number.isSafeInteger(next.bytes)&&next.bytes>=0&&next.bytes<=64*1024**2);
  if(before){assert.equal(next.dev,before.dev);assert.equal(next.ino,before.ino);assert.ok(next.bytes>=before.bytes,'Vendor log truncated/replaced');}

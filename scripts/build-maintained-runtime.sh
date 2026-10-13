@@ -80,6 +80,16 @@ PATCH_NAMES
     test -f "$build_dir/tests.sum"
     # Preserve the package phase's original ignored failures BEFORE a rerun.
     cp "$build_dir/tests.sum" "$root/package-tests.sum"
+    # This exact official regression is an upstream xtest, not part of check.
+    # Execute it ADDITIONALLY through the vendor's documented single-test
+    # target; never append/relabel its result in the original standard summary.
+    # The convenience target removes .out: require it absent before this sole
+    # execution so no previous failed evidence can be erased or rerun.
+    test ! -e "$build_dir/string/test-strncasecmp-nonarray.out"
+    test ! -e "$build_dir/string/test-strncasecmp-nonarray.test-result"
+    run env MAKEFLAGS="$required_pass_flags" LD_PRELOAD= LANG= LANGUAGE= make -C "$build_dir" -j"$native_jobs" test t=string/test-strncasecmp-nonarray > "$root/extended-regression.log" 2>&1
+    cp "$build_dir/string/test-strncasecmp-nonarray.test-result" "$root/extended-test-result.log"
+    cp "$build_dir/string/test-strncasecmp-nonarray.out" "$root/extended-test-output.log"
     run node "$proof_script" tests "$build_dir" "$root/package-tests-proof.json"
     # Exact maintained, complete native check; no subdirs/tests filter, no
     # cross-compilation, no stop-on-first-failure or new test exemptions.

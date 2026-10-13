@@ -34,7 +34,7 @@ test('protected original compiler files get fixed passive root verification, nev
  const commands=text.split('\n').filter(line=>!line.trimStart().startsWith('#')).join('\n');
  assert.doesNotMatch(commands,/chmod[^\n]*(?:["']\$rootfs|shadow|passwd)|sudo[^\n]*(?:\/node\b|\/build\/scripts)/);
 });
-test('exact original build/watch/manifest/proof/corpus Git LF bytes pinned; none rewritten',()=>{
+test('exact reviewed build/watch/manifest/proof/corpus Git LF bytes pinned; no runtime rewrites',()=>{
  for(const name of ['build-maintained-runtime.sh','runtime-build-proof.mjs','watch-native-build-logs.mjs','runtime-security-sources.json','fetch-freetype-test-corpus.mjs']){
   const raw=readFileSync(new URL('./'+name,import.meta.url));const lf=Buffer.from(raw.toString().replaceAll('\r\n','\n'));const hash=createHash('sha256').update(lf).digest('hex');assert.ok(text.includes("'"+name+"':'"+hash+"'"));
  }
