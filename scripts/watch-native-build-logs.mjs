@@ -11,6 +11,10 @@ export function requireLogState(before,next){
  if(before){assert.equal(next.dev,before.dev);assert.equal(next.ino,before.ino);assert.ok(next.bytes>=before.bytes,'Vendor log truncated/replaced');}
  return next;
 }
+export function requireAggregateLogBytes(before,added){
+ assert.ok(Number.isSafeInteger(before)&&before>=0&&Number.isSafeInteger(added)&&added>=0);
+ const next=before+added;assert.ok(Number.isSafeInteger(next)&&next<=128*1024**2,'Aggregate vendor log bound exceeded');return next;
+}
 export function streamLogRange(fd,start,end,write){
  assert.ok(Number.isSafeInteger(start)&&start>=0);
  assert.ok(Number.isSafeInteger(end)&&end>=start&&end<=64*1024**2);
@@ -32,7 +36,7 @@ async function main(){
  const drain=()=>{
   for(const name of logs){const path=root+'/'+name;let stat;try{stat=lstatSync(path);}catch(error){if(error.code==='ENOENT')continue;throw error;}
    const before=states.get(name),next=requireLogState(before,{regular:stat.isFile(),symlink:stat.isSymbolicLink(),bytes:stat.size,dev:stat.dev,ino:stat.ino});
-   if(next.bytes>(before?.bytes??0)){const fd=openSync(path,'r');try{const actual=fstatSync(fd);assert.equal(actual.dev,next.dev);assert.equal(actual.ino,next.ino);const position=before?.bytes??0;assert.ok(total+next.bytes-position<=64*1024**2,'Aggregate vendor log bound exceeded');process.stderr.write('\nNATIVE_VENDOR_LOG '+name+' '+position+'..'+next.bytes+'\n');total+=streamLogRange(fd,position,next.bytes,chunk=>process.stdout.write(chunk));}finally{closeSync(fd);}}
+   if(next.bytes>(before?.bytes??0)){const fd=openSync(path,'r');try{const actual=fstatSync(fd);assert.equal(actual.dev,next.dev);assert.equal(actual.ino,next.ino);const position=before?.bytes??0;requireAggregateLogBytes(total,next.bytes-position);process.stderr.write('\nNATIVE_VENDOR_LOG '+name+' '+position+'..'+next.bytes+'\n');total+=streamLogRange(fd,position,next.bytes,chunk=>process.stdout.write(chunk));}finally{closeSync(fd);}}
    states.set(name,next);
   }
  };
