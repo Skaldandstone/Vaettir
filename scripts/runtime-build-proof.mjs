@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict';
 import {createHash} from 'node:crypto';
 import {execFileSync} from 'node:child_process';
-import {readFileSync,writeFileSync,lstatSync,realpathSync,readdirSync} from 'node:fs';
+import {readFileSync,writeFileSync,writeSync,lstatSync,realpathSync,readdirSync} from 'node:fs';
 import {join,resolve,relative,dirname} from 'node:path';
 import {pathToFileURL} from 'node:url';
 import {corpus,requireCorpusBytes} from './fetch-freetype-test-corpus.mjs';
@@ -58,6 +58,22 @@ export function nativeFailureEvidence(summary,readOptional=()=>undefined){
   }
   return {purpose:'original-native-test-failure-evidence/v1',summary:original,issues,files,withheld,payloadBytes:total,nativeTestsAccepted:false};
 }
+// A fatal assertion can discard queued console output. Keep every frame below
+// PIPE_BUF and synchronously finish it BEFORE rethrowing the original failure.
+export function nativeFailureFrames(evidence){
+  assert.equal(evidence.purpose,'original-native-test-failure-evidence/v1');assert.equal(evidence.nativeTestsAccepted,false);
+  const bytes=Buffer.from(JSON.stringify(evidence));assert.ok(bytes.length>0&&bytes.length<=2*1024**2);
+  const chunkBytes=2048,chunks=Math.ceil(bytes.length/chunkBytes),sha256=sha(bytes),frames=[];
+  const frame=(prefix,value)=>{const b=Buffer.from(prefix+JSON.stringify(value)+'\n');assert.ok(b.length<=4096);frames.push(b);};
+  frame('NATIVE_TEST_FAILURE_MANIFEST=',{purpose:'original-native-test-failure-chunks/v1',bytes:bytes.length,sha256,chunks,chunkBytes,issueCount:evidence.issues.length,summarySha256:evidence.summary.sha256,nativeTestsAccepted:false});
+  // Issue identities come first so loss of a later chunk cannot hide the cause.
+  for(const[index,text]of evidence.issues.entries()){const b=Buffer.from(text);frame('NATIVE_TEST_FAILURE_ISSUE=',{index,bytes:b.length,sha256:sha(b),...(b.length<=2048?{base64:b.toString('base64')}:{withheld:'Issue exceeds individual display bound'})});}
+  for(let index=0;index<chunks;index++){const b=bytes.subarray(index*chunkBytes,(index+1)*chunkBytes);frame('NATIVE_TEST_FAILURE_CHUNK=',{index,bytes:b.length,sha256:sha(b),base64:b.toString('base64')});}
+  return frames;
+}
+export function emitNativeFailureEvidence(evidence,write=bytes=>writeSync(2,bytes)){
+  for(const frame of nativeFailureFrames(evidence)){let position=0;while(position<frame.length){const n=write(frame.subarray(position));assert.ok(Number.isSafeInteger(n)&&n>0&&n<=frame.length-position,'Diagnostic write must advance exact bytes');position+=n;}}
+}
 export function parseDynSymbols(text){
   assert.ok(text.length<=32*1024*1024);const symbols=[];
   for(const line of text.split(/\r?\n/)){
@@ -110,7 +126,7 @@ function prepare(manifest,component,sourceDir,tree,proofRoot){
 function testProof(buildDir,output){
   const summaryBytes=readFileSync(join(buildDir,'tests.sum')),summary=summaryBytes.toString('utf8');let result;
   try{result=requireTestSummary(summary);}catch(original){
-    try{const evidence=nativeFailureEvidence(summaryBytes,path=>{const file=resolve(buildDir,path);assert.ok(file.startsWith(resolve(buildDir)+'/'));const stat=regular(file);if(stat.size>128*1024)return undefined;return readFileSync(file);});console.error('NATIVE_TEST_FAILURE_EVIDENCE='+JSON.stringify(evidence));}catch{console.error('Native failure evidence capture could not complete; original summary validation still fails.');}
+    try{const evidence=nativeFailureEvidence(summaryBytes,path=>{const file=resolve(buildDir,path);assert.ok(file.startsWith(resolve(buildDir)+'/'));const stat=regular(file);if(stat.size>128*1024)return undefined;return readFileSync(file);});emitNativeFailureEvidence(evidence);}catch{console.error('Native failure evidence capture could not complete; original summary validation still fails.');}
     throw original;
   }
   for(const row of result.records){const file=resolve(buildDir,row.name+'.test-result');assert.ok(file.startsWith(resolve(buildDir)+'/'));const first=readFileSync(file,'utf8').split(/\r?\n/)[0];assert.equal(first,row.status+': '+row.name,'Summary does not match individual native result');}

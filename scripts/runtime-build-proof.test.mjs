@@ -1,7 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
-import {requireSourceManifest,requireSignature,requireTestSummary,nativeFailureEvidence,parseDynSymbols,requireAbiPreservation,requireFreeTypeStandardResult} from './runtime-build-proof.mjs';
+import {spawnSync} from 'node:child_process';
+import {createHash} from 'node:crypto';
+import {requireSourceManifest,requireSignature,requireTestSummary,nativeFailureEvidence,nativeFailureFrames,emitNativeFailureEvidence,parseDynSymbols,requireAbiPreservation,requireFreeTypeStandardResult} from './runtime-build-proof.mjs';
 const manifest=readFileSync(new URL('./runtime-security-sources.json',import.meta.url));
 test('exact reviewed maintained source manifest admits 10 sources/23 ordered official patches and refuses changed custody',()=>{
   const value=requireSourceManifest(manifest);assert.equal(value.components.glibc.patches.length,22);assert.equal(value.components.freetype.patches.length,1);assert.throws(()=>requireSourceManifest(Buffer.concat([manifest,Buffer.from(' ')])));
@@ -25,6 +27,22 @@ test('failure diagnostics never read traversal paths and keep finite original by
  const requested=[],unsafe=Buffer.from('FAIL: ../private\nFAIL: a//b\nFAIL: /absolute\nFAIL: a/./b\n');const result=nativeFailureEvidence(unsafe,path=>{requested.push(path);return Buffer.from('x');});assert.equal(requested.length,0);assert.equal(result.issues.length,4);
  const large=Buffer.alloc(512*1024+1,32);const withheld=nativeFailureEvidence(large);assert.equal(withheld.summary.base64,undefined);assert.equal(withheld.summary.bytes,large.length);assert.match(withheld.summary.withheld,/exceeds/);
  const many=Buffer.from(Array.from({length:10},(_,i)=>'FAIL: elf/failure-'+i+'\n').join(''));const bounded=nativeFailureEvidence(many,()=>Buffer.alloc(128*1024));assert.ok(bounded.payloadBytes<=1024**2);assert.ok(bounded.withheld.length>0);assert.equal(bounded.nativeTestsAccepted,false);assert.throws(()=>requireTestSummary(many.toString('utf8')));
+});
+const hash=b=>createHash('sha256').update(b).digest('hex');
+function decodeFrames(raw){
+ const lines=raw.toString('utf8').split('\n'),manifest=JSON.parse(lines.find(x=>x.startsWith('NATIVE_TEST_FAILURE_MANIFEST=')).slice('NATIVE_TEST_FAILURE_MANIFEST='.length));
+ const frames=lines.filter(x=>x.startsWith('NATIVE_TEST_FAILURE_CHUNK=')).map(x=>JSON.parse(x.slice('NATIVE_TEST_FAILURE_CHUNK='.length)));assert.equal(frames.length,manifest.chunks);
+ const chunks=frames.map((frame,index)=>{assert.equal(frame.index,index);const b=Buffer.from(frame.base64,'base64');assert.equal(b.length,frame.bytes);assert.equal(hash(b),frame.sha256);return b;});const bytes=Buffer.concat(chunks);assert.equal(bytes.length,manifest.bytes);assert.equal(hash(bytes),manifest.sha256);return JSON.parse(bytes);
+}
+test('bounded synchronous failure frames survive partial writes and retain exact original rejection',()=>{
+ const evidence=nativeFailureEvidence(Buffer.from(summary+'FAIL: elf/actual\n'),()=>Buffer.alloc(128*1024,65)),frames=nativeFailureFrames(evidence),saved=[];
+ assert.ok(frames.every(b=>b.length<=4096));assert.ok(frames[1].toString().startsWith('NATIVE_TEST_FAILURE_ISSUE='));
+ emitNativeFailureEvidence(evidence,b=>{const n=Math.min(19,b.length);saved.push(Buffer.from(b.subarray(0,n)));return n;});assert.deepEqual(decodeFrames(Buffer.concat(saved)),evidence);assert.throws(()=>emitNativeFailureEvidence(evidence,()=>0));assert.throws(()=>requireTestSummary(Buffer.from(evidence.summary.base64,'base64').toString('utf8')));
+});
+test('real piped child retains more than 64KiB of exact diagnostics before its original fatal exception',()=>{
+ const program=`import {nativeFailureEvidence,emitNativeFailureEvidence} from ${JSON.stringify(new URL('./runtime-build-proof.mjs',import.meta.url).href)};const summary=Buffer.from('PASS: elf/retained\\n'.repeat(18000)+'FAIL: elf/actual\\n');emitNativeFailureEvidence(nativeFailureEvidence(summary,()=>Buffer.alloc(128*1024,65)));throw Error('ORIGINAL_NATIVE_FAILURE_REMAINS');`;
+ const child=spawnSync(process.execPath,['--input-type=module','-e',program],{encoding:null,maxBuffer:4*1024**2,timeout:10000});assert.equal(child.status,1);assert.equal(child.signal,null);assert.match(child.stderr.toString('utf8'),/ORIGINAL_NATIVE_FAILURE_REMAINS/);assert.ok(child.stderr.length>64*1024);
+ const evidence=decodeFrames(child.stderr);assert.equal(evidence.nativeTestsAccepted,false);assert.deepEqual(evidence.issues,['FAIL: elf/actual']);assert.equal(Buffer.from(evidence.summary.base64,'base64').length,18000*'PASS: elf/retained\n'.length+'FAIL: elf/actual\n'.length);assert.equal(evidence.files.length,2);assert.ok(evidence.files.every(x=>Buffer.from(x.base64,'base64').equals(Buffer.alloc(128*1024,65))));
 });
 const symbols='Symbol table .dynsym:\n 1: 00000010 8 OBJECT GLOBAL DEFAULT 12 exported@@GLIBC_2.2.5\n 2: 00000000 4 TLS GLOBAL DEFAULT 14 tls@GLIBC_2.34\n 3: 00000030 42 FUNC WEAK DEFAULT 12 function@@GLIBC_2.41\n 4: 00000000 0 FUNC GLOBAL DEFAULT UND dependency@GLIBC_2.2.5 (1)\n';
 test('exact versioned exports include default/nondefault ABI and OBJECT/TLS sizes, not code addresses or FUNC sizes',()=>{
