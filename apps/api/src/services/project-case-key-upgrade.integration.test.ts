@@ -8,6 +8,7 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { PrismaClient, Prisma } from "@vaettir/db";
 import { assertOwnedTestDatabase } from "../testOnlyDatabaseSafety.js";
+import { waitForOwnedEmptyFixtureDatabase,type OwnedFixtureDatabase } from "../testOnlyFixtureDatabaseCleanup.js";
 import { saveProjectCaseKey, resolveProjectCaseReference } from "./projectCaseKeys.js";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../../../..");
@@ -310,12 +311,16 @@ describe.skipIf(process.platform !== "linux" || (process.env.CI !== "true" && pr
       console.log("VAETTIR_PROJECT_KEY_UPGRADE_PROOF=" + JSON.stringify(evidence));
     } finally {
       for (const c of clients) await c.$disconnect();
+      const cleanupDeadline=Date.now()+2000; // One shared drain budget, not per database.
       // Never terminate sessions/reuse/reset an existing database. Exact fresh
       // owner+purpose marker and no other session are required even for cleanup.
       for (const name of created) {
-        const [owned] = await bootstrap.$queryRaw<Array<{ owner: string; role: string; marker: string | null; sessions: bigint }>>`
+        const owned=await waitForOwnedEmptyFixtureDatabase(async()=>{
+        const [row] = await bootstrap.$queryRaw<Array<OwnedFixtureDatabase>>`
           SELECT pg_get_userbyid(d.datdba)::text AS owner,current_user::text AS role,shobj_description(d.oid,'pg_database') AS marker,
             (SELECT count(*) FROM pg_stat_activity WHERE datname=d.datname)::bigint AS sessions FROM pg_database d WHERE datname=${name}`;
+        return row;
+        },marker,cleanupDeadline);
         assert.ok(owned && owned.owner === owned.role && owned.marker === marker && owned.sessions === 0n);
         await bootstrap.$executeRawUnsafe("DROP DATABASE " + q(name));
       }
