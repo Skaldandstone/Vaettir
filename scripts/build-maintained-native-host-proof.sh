@@ -73,11 +73,17 @@ fs.writeFileSync(p+'/root-review.json',JSON.stringify(record)+'\n',{flag:'wx',mo
 PROCEDURE
 review_sha=$(sha256sum "$release/root-review.json" | cut -d' ' -f1)
 bounded /bin/bash --noprofile --norc "$release/host-check.sh" --parent "$release" "$release/root-review.json" "$review_sha"
+# Fixed passive reader copies ONLY the unchanged fourteen-export data inputs.
+# Never feed the whole compiler rootfs (including protected old-root/OS/private
+# test directories) into the unprivileged BuildKit sender or relax their modes.
+bounded sudo --non-interactive env -i PATH=/usr/bin:/bin \
+  /usr/bin/python3 -I scripts/prepare-maintained-native-proof-context.py \
+  "$release" "$(id -u)" "$GITHUB_SHA" "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT"
 # Named-context priority deliberately replaces ONLY the maintained-native stage
-# with the actual tested rootfs. The original 14 COPY proof recipe stays intact.
+# with an exact byte copy of its proof data. Original 14 COPY recipe stays intact.
 # No native test or application image is rebuilt or published by this step.
 bounded docker build --progress=plain --no-cache --target runtime-security-proof \
-  --build-context "maintained-native=$release/rootfs" -f Dockerfile.runtime-security \
+  --build-context "maintained-native=$release/proof-context" -f Dockerfile.runtime-security \
   --build-arg VAETTIR_RELEASE_COMMIT="$GITHUB_SHA" -t "$image" .
 docker image inspect "$image" > "$proof_dir/image.json"
 node - "$proof_dir/image.json" <<'CONFIG'

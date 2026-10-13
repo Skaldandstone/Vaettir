@@ -109,6 +109,7 @@ jobs:
           node --test scripts/runtime-build-proof.test.mjs scripts/fetch-freetype-test-corpus.test.mjs scripts/install-runtime-security-family.test.mjs scripts/runtime-security-build-contract.test.mjs
           node --test scripts/isolated-maintained-native-host.test.mjs scripts/maintained-native-host-proof.test.mjs
           node --test scripts/launch-maintained-native-namespace.test.mjs
+            node --test scripts/prepare-maintained-native-proof-context.test.mjs
 
       - name: Verify installed native image-processing runtime
         run: node scripts/check-image-runtime.mjs
@@ -234,6 +235,13 @@ jobs:
             ${{ runner.temp }}/vaettir-native-host.*/rootfs/build/runtime-security/*/*.sum
             ${{ runner.temp }}/vaettir-native-host.*/rootfs/build/runtime-security/glibc/source/build-tree/amd64-libc/posix/tst-wordexp-tilde.out
             ${{ runner.temp }}/vaettir-native-host.*/rootfs/build/runtime-security/glibc/source/build-tree/amd64-libc/elf/tst-origin-secure.out
+              ${{ runner.temp }}/vaettir-native-host.*/proof-context/build/runtime-security/*/*.json
+              ${{ runner.temp }}/vaettir-native-host.*/proof-context/build/runtime-security/*/*.deb
+              ${{ runner.temp }}/vaettir-native-host.*/proof-context/build/runtime-security/*/*.status
+              ${{ runner.temp }}/vaettir-native-host.*/proof-context/build/runtime-security/freetype/freetype-acceptance-gap.txt
+              ${{ runner.temp }}/vaettir-native-host.*/proof-context/build/glibc-sources/*
+              ${{ runner.temp }}/vaettir-native-host.*/proof-context/build/freetype-sources/*
+              ${{ runner.temp }}/vaettir-native-host.*/proof-context/build/freetype-standard-corpus/*
           if-no-files-found: error
           compression-level: 0
           retention-days: 1

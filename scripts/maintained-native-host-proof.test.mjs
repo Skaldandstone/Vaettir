@@ -11,7 +11,7 @@ test('host operator syntax, whole combined3500 budget and unchanged scratch reci
   assert.match(shell, /deadline=\$\(\(started \+ 3500\)\)/);
   assert.match(shell, /remaining=\$\(\(deadline - \$\(date \+%s\)\)\)/);
   assert.match(shell, /--target maintained-native-environment/);
-  assert.match(shell, /--build-context "maintained-native=\$release\/rootfs"/);
+  assert.match(shell, /--build-context "maintained-native=\$release\/proof-context"/);
   assert.match(shell, /--target runtime-security-proof/);
   assert.match(shell, /268435456/);
   assert.doesNotMatch(shell, /docker (?:push|run|start)|--privileged|--security-opt|\baws\b|\bsysctl\b|rm -|migrate deploy/);
