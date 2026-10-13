@@ -58,4 +58,3 @@ test('no host/account/security mutation, cleanup, acceptance, filtering or Root 
  assert.ok(text.includes("dict(native=False,installedFamily=False,cid=False,security=False,deployment=False)"));assert.ok(text.includes('nativeAccepted=false deploymentAccepted=false'));
  assert.ok(text.includes(',$options, != *,nosuid,*'));assert.ok(text.includes(',$options, != *,noexec,*'));
 });
-

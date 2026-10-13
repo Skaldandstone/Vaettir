@@ -164,4 +164,3 @@ set -e
 # Namespace teardown is automatic at init exit; no recursive removal/cleanup.
 printf 'NATIVE_HOST_PROCEDURE_RESULT status=%s nativeAccepted=false deploymentAccepted=false\n' "$status" >&2
 exit "$status"
-
