@@ -127,6 +127,13 @@ def admission():
   # including protected root files, node1000 and the existing runner1001.
   for kind in ['uid','gid']:
    with open('/proc/self/'+kind+'_map','r') as f: assert f.read().split()==['0','0','65536']
+  virtual=release+'/virtual-devices'; s=os.lstat(virtual)
+  assert stat.S_ISDIR(s.st_mode) and os.path.realpath(virtual)==virtual and s.st_uid==0 and stat.S_IMODE(s.st_mode)==0o700
+  specs=[('null',1,3),('zero',1,5),('random',1,8),('urandom',1,9),('full',1,7),('tty',5,0)]
+  assert set(os.listdir(virtual))==set(name for name,major,minor in specs)
+  for name,major,minor in specs:
+   s=os.lstat(virtual+'/'+name)
+   assert stat.S_ISCHR(s.st_mode) and s.st_nlink==1 and s.st_uid==0 and s.st_gid==0 and stat.S_IMODE(s.st_mode)==0o666 and s.st_rdev==os.makedev(major,minor)
 try: admission()
 except Exception as error:
  location=traceback.extract_tb(error.__traceback__)[-1]
@@ -142,7 +149,7 @@ if [[ $mode == --parent ]]; then
     /usr/bin/timeout --signal=TERM --kill-after=10 3500 \
     /usr/bin/python3 -I "$release/host-namespace-launcher.py" "$release" "$review_sha"
 fi
-# PRIVATE namespaces only. No host bind mounts, /sys or whole /dev exposure.
+# PRIVATE namespaces only. No host /dev nodes, /sys or whole /dev exposure.
 /usr/bin/mount --make-rprivate /
 [[ $(/usr/sbin/ip -o link show | /usr/bin/wc -l) == 1 ]] || fail
 /usr/sbin/ip -o link show | /usr/bin/grep -Eq '^[0-9]+: lo:' || fail
@@ -154,7 +161,8 @@ options=$(/usr/bin/findmnt -n -o OPTIONS --target "$rootfs")
 /usr/bin/mount -t tmpfs -o mode=755,nosuid,noexec,size=16m tmpfs "$rootfs/dev"
 for spec in 'null 1 3' 'zero 1 5' 'random 1 8' 'urandom 1 9' 'full 1 7' 'tty 5 0'; do
   read -r name major minor <<< "$spec"
-  /usr/bin/mknod -m 666 "$rootfs/dev/$name" c "$major" "$minor"
+  /usr/bin/touch "$rootfs/dev/$name"
+  /usr/bin/mount --bind "$release/virtual-devices/$name" "$rootfs/dev/$name"
 done
 /usr/bin/mkdir "$rootfs/dev/pts"
 /usr/bin/mount -t devpts -o newinstance,ptmxmode=0666,mode=0620,gid=5,nosuid,noexec devpts "$rootfs/dev/pts"

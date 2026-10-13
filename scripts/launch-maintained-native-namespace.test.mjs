@@ -27,5 +27,8 @@ test('fixed clean host commands, exact launcher/wrapper identity and no untruste
  for(const token of ["os.getuid() == 0",'review_sha',"review['launcherSha256']","review['wrapperSha256']","env=dict(PATH='/usr/bin:/bin:/usr/sbin:/sbin', LANG='C', LC_ALL='C')",'"$1/host-check.sh" --inside','child.terminate()','child.kill()','nativeAccepted=False, deploymentAccepted=False'])assert.ok(text.includes(token),token);
  assert.doesNotMatch(text,/GH_TOKEN|GITHUB_TOKEN|LD_PRELOAD|MAKEFLAGS|\bkill\(\s*(?:int\(|sys\.argv)/);
  assert.ok(text.includes("os.chmod(f.fileno(), 0o600)"));assert.ok(text.includes('os.fsync(f.fileno())'));
+ assert.ok(text.includes("VIRTUAL_DEVICES = [('null', 1, 3), ('zero', 1, 5), ('random', 1, 8), ('urandom', 1, 9), ('full', 1, 7), ('tty', 5, 0)]"));
+ assert.ok(text.includes("virtual = release+'/virtual-devices'"));assert.ok(text.includes('os.mknod(path, stat.S_IFCHR | 0o666, os.makedev(major, minor))'));
+ assert.doesNotMatch(text,/\/dev\/(?:null|zero|random|urandom|tty|mem|dri|kvm|nvidia)|docker\.sock/);
  const operator=readFileSync(new URL('./build-maintained-native-host-proof.sh',import.meta.url),'utf8');assert.ok(operator.includes('cp scripts/launch-maintained-native-namespace.py "$release/host-namespace-launcher.py"'));assert.ok(operator.includes('launcherSha256:sha(fs.readFileSync(p+\'/host-namespace-launcher.py\'))'));
 });

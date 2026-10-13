@@ -16,6 +16,7 @@ import time
 
 READY = b'VAETTIR_NATIVE_NAMESPACE_MAP_READY\n'
 UID_GID_MAP = b'0 0 65536\n'
+VIRTUAL_DEVICES = [('null', 1, 3), ('zero', 1, 5), ('random', 1, 8), ('urandom', 1, 9), ('full', 1, 7), ('tty', 5, 0)]
 
 
 def require_identity_map(value):
@@ -46,6 +47,19 @@ def launch():
     assert hashlib.sha256(regular(release+'/host-check.sh', 65536)).hexdigest() == review['wrapperSha256']
     intent = json.loads(regular(release+'/host-once-intent.json', 4096))
     assert intent['reviewSha256'] == review_sha and intent['nativeAccepted'] is False
+    # Only these standard kernel virtual nodes, in a NEW OWNED directory.
+    # No host /dev path is opened/bound, no physical device or arbitrary rdev.
+    virtual = release+'/virtual-devices'
+    os.mkdir(virtual, 0o700)
+    devices = []
+    for name, major, minor in VIRTUAL_DEVICES:
+        path = virtual+'/'+name
+        os.mknod(path, stat.S_IFCHR | 0o666, os.makedev(major, minor))
+        os.chmod(path, 0o666)
+        s = os.lstat(path)
+        assert stat.S_ISCHR(s.st_mode) and s.st_nlink == 1 and s.st_uid == 0 and s.st_gid == 0
+        assert stat.S_IMODE(s.st_mode) == 0o666 and s.st_rdev == os.makedev(major, minor)
+        devices.append(dict(name=name, major=major, minor=minor, mode=0o666, uid=0, gid=0))
     # Fixed host shell waits on a private pipe, not source/corpus/native code.
     # Positional parameters are data, never interpolated into the shell program.
     program = 'IFS= read -r ready; test "$ready" = VAETTIR_NATIVE_NAMESPACE_MAP_READY; exec /bin/bash --noprofile --norc "$1/host-check.sh" --inside "$1" "$1/root-review.json" "$2"'
@@ -92,6 +106,7 @@ def launch():
             maps[kind] = value.decode('ascii')
         record = dict(purpose='owned-temporary-native-namespace-map/v1', childPid=child.pid,
                       reviewSha256=review_sha, userNamespace=user_ns, maps=maps,
+                      ownedVirtualDevices=devices,
                       existingNumericIdsPreserved=True, accountOrPolicyChanged=False,
                       nativeAccepted=False, deploymentAccepted=False)
         with open(release+'/namespace-map-custody.json', 'x') as f:
