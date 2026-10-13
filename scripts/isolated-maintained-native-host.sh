@@ -111,6 +111,7 @@ def admission():
   path=root+'/'+p; assert os.path.realpath(path)==path and stat.S_ISDIR(os.lstat(path).st_mode)
  assert os.stat(root+'/build').st_uid==1000 and os.stat(root+'/build/scripts').st_uid==1000
  assert all(os.path.isfile(root+p) for p in ['/usr/bin/env','/usr/local/bin/node'])
+ assert all(os.path.isfile(root+p) for p in ['/usr/bin/setpriv','/usr/bin/umount'])
  intent=release+'/host-once-intent.json'
  ns={k:os.readlink('/proc/self/ns/'+k) for k in ['mnt','pid','net','user']}
  if mode=='--parent':
@@ -179,9 +180,19 @@ done
 # Original tst-origin-secure creates its normal suid helper under /tmp.
 # Preserve that PRIVATE mount's ordinary suid/executable semantics too.
 /usr/bin/mount -t tmpfs -o mode=1777,nodev,size=128m tmpfs "$rootfs/tmp"
+# chroot deliberately prevents CLONE_NEWUSER; original test-container tests
+# need a normal namespace root. Pivot ONLY this private mount namespace onto
+# the verified rootfs, detach its old host root, never expose it to the driver.
+[[ ! -e "$rootfs/.old-native-root" && ! -L "$rootfs/.old-native-root" ]] || fail
+/usr/bin/mkdir -m 700 "$rootfs/.old-native-root"
+cd "$rootfs"
+/usr/sbin/pivot_root . .old-native-root
+cd /
+/usr/bin/umount -l /.old-native-root
+[[ ! -e /.old-native-root/etc/passwd ]] || fail
 # Check the actual pinned rootfs, original driver UID and ordinary nested user /
 # mount namespaces BEFORE spending the full native compilation budget.
-/usr/sbin/chroot --userspec=1000:1000 --groups=1000 "$rootfs" \
+/usr/bin/setpriv --reuid=1000 --regid=1000 --groups=1000 --inh-caps=-all --ambient-caps=-all \
   /usr/bin/env -i PATH=/usr/local/bin:/usr/bin:/bin HOME=/home/node LANG=C LC_ALL=C \
   /usr/bin/timeout 10 /bin/sh -eu -c '
     test "$(id -u)" = 1000 && test "$(id -g)" = 1000
@@ -193,7 +204,7 @@ printf '%s\n' 'NATIVE_HOST_PREREQUISITE nestedUserMountNamespacesPassed=true dri
 # tests require ordinary isolated-host semantics. Driver UID1000 is preserved;
 # original secure tests may become root INSIDE their own nested user namespace.
 set +e
-/usr/sbin/chroot --userspec=1000:1000 --groups=1000 "$rootfs" \
+/usr/bin/setpriv --reuid=1000 --regid=1000 --groups=1000 --inh-caps=-all --ambient-caps=-all \
   /usr/bin/env -i PATH=/usr/local/bin:/usr/bin:/bin HOME=/home/node USER=node LOGNAME=node LANG=C LC_ALL=C VAETTIR_NATIVE_JOBS=4 \
   /bin/sh -eu -c 'test "$(id -u)" = 1000 && test "$(id -g)" = 1000
     awk '\''/^Cap(Eff|Prm|Amb):/ { if ($2 != "0000000000000000") exit 1; seen++ } END { if (seen != 3) exit 1 }'\'' /proc/self/status

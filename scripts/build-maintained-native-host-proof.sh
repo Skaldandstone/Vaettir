@@ -11,7 +11,7 @@ test "$(id -u)" -ne 0
 test "$(nproc)" -ge 4
 test "$(awk '/^MemTotal:/ {print $2}' /proc/meminfo)" -ge 8388608
 test "$(df -Pk "$RUNNER_TEMP" | awk 'NR == 2 {print $4}')" -ge 12582912
-for tool in /usr/bin/sudo /usr/bin/unshare /usr/sbin/chroot /usr/bin/mount /usr/sbin/ip /usr/bin/findmnt /usr/bin/python3; do test -x "$tool"; done
+for tool in /usr/bin/sudo /usr/bin/unshare /usr/sbin/pivot_root /usr/bin/mount /usr/sbin/ip /usr/bin/findmnt /usr/bin/python3; do test -x "$tool"; done
 unset GH_TOKEN GITHUB_TOKEN
 started=$(date +%s)
 deadline=$((started + 3500))

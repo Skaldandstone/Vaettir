@@ -30,7 +30,7 @@ test('protected original compiler files get fixed passive root verification, nev
  assert.ok(text.includes('GITHUB_SHA="$GITHUB_SHA" GITHUB_RUN_ID="$GITHUB_RUN_ID" GITHUB_RUN_ATTEMPT="$GITHUB_RUN_ATTEMPT"'));
  assert.ok(text.includes('"${reader_command[@]}" <<\'ADMIT\''));
  assert.ok(text.indexOf('"${reader_command[@]}"')<text.indexOf('/usr/bin/mount --make-rprivate /'));
- assert.ok(text.includes('chroot --userspec=1000:1000 --groups=1000'));
+ assert.ok(text.includes('setpriv --reuid=1000 --regid=1000 --groups=1000 --inh-caps=-all --ambient-caps=-all'));
  const commands=text.split('\n').filter(line=>!line.trimStart().startsWith('#')).join('\n');
  assert.doesNotMatch(commands,/chmod[^\n]*(?:["']\$rootfs|shadow|passwd)|sudo[^\n]*(?:\/node\b|\/build\/scripts)/);
 });
@@ -51,7 +51,7 @@ test('temporary mount/PID/net isolation with loopback only; no host bind exposur
  assert.ok(text.includes("['mnt','pid','net','user']"));
  assert.ok(text.includes("f.read().split()==['0','0','65536']"));
  assert.doesNotMatch(text,/\/etc\/subuid|\/etc\/subgid|--map-auto|--map-users=auto|--map-groups=auto/);
- assert.match(text,/--userspec=1000:1000[\s\S]*?unshare --user --map-root-user --mount --fork/);
+ assert.match(text,/setpriv --reuid=1000 --regid=1000 --groups=1000[\s\S]*?unshare --user --map-root-user --mount --fork/);
  assert.ok(text.includes('mount --make-rprivate /'));assert.ok(text.includes('ip -o link show | /usr/bin/wc -l) == 1'));assert.ok(text.includes("'^[0-9]+: lo:'"));
  const binds=text.split('\n').filter(line=>line.includes('mount --bind')).map(line=>line.trim());assert.deepEqual(binds,['/usr/bin/mount --bind "$rootfs" "$rootfs"','/usr/bin/mount --bind "$release/virtual-devices/$name" "$rootfs/dev/$name"']);
  assert.match(text,/mount -t proc -o nosuid,nodev,noexec proc "\$rootfs\/proc"/);assert.match(text,/devpts -o newinstance/);
@@ -69,12 +69,20 @@ test('fixed ordinary devices only, isolated devpts, no sockets or host devices',
  assert.doesNotMatch(text,/\/dev\/(?:kvm|fuse|mem|dri|nvidia|docker)|docker\.sock|--rbind/);
 });
 test('native UID1000, clean env, combined timeout3500/four workers and original stderr/status',()=>{
- assert.ok(text.includes('chroot --userspec=1000:1000 --groups=1000'));assert.ok(text.includes('test "$(id -u)" = 1000'));assert.ok(text.includes('cd /build && exec'));
+ assert.ok(text.includes('setpriv --reuid=1000 --regid=1000 --groups=1000'));assert.ok(text.includes('test "$(id -u)" = 1000'));assert.ok(text.includes('cd /build && exec'));
  assert.ok(text.includes('/usr/bin/env -i PATH=/usr/local/bin:/usr/bin:/bin HOME=/home/node'));assert.ok(text.includes('VAETTIR_NATIVE_JOBS=4'));
  assert.ok(text.includes('/usr/bin/timeout --signal=TERM --kill-after=10 3500'));assert.ok(text.includes('> /dev/null\nstatus=$?'));
  assert.ok(text.includes('exit "$status"'));assert.doesNotMatch(text,/2>\s*\/dev\/null|2>&1/);
  assert.equal(text.split('/^Cap(Eff|Prm|Amb):/').length-1,2);
  assert.equal(text.split('if ($2 != "0000000000000000") exit 1; seen++').length-1,2);
+});
+test('private namespace root replaces chroot and detaches host root before driver or nested namespace tests',()=>{
+ assert.ok(text.includes('/usr/sbin/pivot_root . .old-native-root'));
+ assert.ok(text.includes('/usr/bin/umount -l /.old-native-root'));
+ assert.ok(text.includes('[[ ! -e /.old-native-root/etc/passwd ]] || fail'));
+ assert.ok(text.indexOf('/usr/bin/umount -l /.old-native-root')<text.indexOf('/usr/bin/setpriv --reuid=1000'));
+ assert.doesNotMatch(text,/\/usr\/sbin\/chroot|chroot --userspec|--bounding-set/);
+ assert.equal(text.split('--inh-caps=-all --ambient-caps=-all').length-1,2);
 });
 test('no host/account/security mutation, cleanup, acceptance, filtering or Root namespace privilege bypass',()=>{
  const commands=text.split('\n').filter(line=>!line.trimStart().startsWith('#')).join('\n');
