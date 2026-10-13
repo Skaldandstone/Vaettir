@@ -61,3 +61,8 @@ test('no host/account/security mutation, cleanup, acceptance, filtering or Root 
  assert.ok(text.includes("dict(native=False,installedFamily=False,cid=False,security=False,deployment=False)"));assert.ok(text.includes('nativeAccepted=false deploymentAccepted=false'));
  assert.ok(text.includes(',$options, != *,nosuid,*'));assert.ok(text.includes(',$options, != *,noexec,*'));
 });
+test('admission failure location exposes only fixed source position, never inspected values',()=>{
+ assert.ok(text.includes('traceback.extract_tb(error.__traceback__)[-1]'));
+ assert.ok(text.includes("'NATIVE_HOST_ADMISSION_REFUSED function='+location.name+' line='+str(location.lineno)+' errorClass='+type(error).__name__"));
+ assert.doesNotMatch(text,/print\([^\n]*(?:str\(error\)|repr\(error\)|traceback\.format|os\.environ|passwd|group|json\.dumps)/);
+});

@@ -21,7 +21,7 @@ fi
 # Host Python is ONLY fixed validation code; no Root/corpus/package code import.
 # All failures are generic; do not expose environment/config/credential values.
 /usr/bin/python3 -I - "$mode" "$release" "$review" "$review_sha" <<'ADMIT'
-import hashlib,json,os,re,stat,sys,time
+import hashlib,json,os,re,stat,sys,time,traceback
 def sha(b): return hashlib.sha256(b).hexdigest()
 def regular(path,max_bytes):
  s=os.lstat(path); assert stat.S_ISREG(s.st_mode) and s.st_nlink==1 and 0<s.st_size<=max_bytes
@@ -112,7 +112,11 @@ def admission():
   previous=json.loads(regular(intent,4096)); assert previous['reviewSha256']==sha(raw) and previous['nativeAccepted'] is False
   assert all(ns[k]!=previous['originalNamespaces'][k] for k in ns)
 try: admission()
-except Exception:
+except Exception as error:
+ location=traceback.extract_tb(error.__traceback__)[-1]
+ # Fixed source function/line/class only; never values, configuration, passwd,
+ # environment, archive contents or an exception message that could echo them.
+ print('NATIVE_HOST_ADMISSION_REFUSED function='+location.name+' line='+str(location.lineno)+' errorClass='+type(error).__name__,file=sys.stderr)
  print('Native host source/identity admission refused',file=sys.stderr); sys.exit(1)
 ADMIT
 rootfs=$release/rootfs
