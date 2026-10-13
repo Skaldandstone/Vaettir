@@ -46,6 +46,8 @@ r=parse(archive(base));assert len(r)==3 and r[-1]['size']==3
 assert m.path_name('usr/bin/[')=='usr/bin/['
 assert m.path_name('usr/lib/python3/dist-packages/setuptools/_vendor/jaraco/text/Lorem ipsum.txt').endswith('Lorem ipsum.txt')
 parse(archive(base+[('usr/bin/ordinary data.txt',tarfile.REGTYPE,b'plain synthetic data','')]))
+assert m.path_name('usr/lib/python3/dist-packages/setuptools/script (dev).tmpl').endswith('script (dev).tmpl')
+parse(archive(base+[('usr/bin/ordinary (dev).txt',tarfile.REGTYPE,b'plain synthetic data','')]))
 parse(archive(base+[('usr/bin/[',tarfile.REGTYPE,b'owned coreutils fixture','')]))
 refused(archive(base+[('usr/bin/[',tarfile.DIRTYPE,b'','')]))
 refused(archive(base+[('usr/bin/[',tarfile.SYMTYPE,b'','usr/bin/tool')]))
@@ -58,6 +60,10 @@ parse(archive(base+[('bin',tarfile.SYMTYPE,b'','usr/bin')]))
 for extra in [[('../escape',tarfile.REGTYPE,b'a','')],[('/outside',tarfile.REGTYPE,b'a','')],[('usr/bin/tool',tarfile.REGTYPE,b'a','')],[('usr/bin/fifo',tarfile.FIFOTYPE,b'','')],[('usr/bin/device',tarfile.CHRTYPE,b'','')],[('usr/bin/hard',tarfile.LNKTYPE,b'','../escape')],[('usr/bin/alias',tarfile.SYMTYPE,b'','usr/bin'),('usr/bin/alias/child',tarfile.REGTYPE,b'a','')],[('missing/parent',tarfile.REGTYPE,b'a','')],[('usr/bin/self',tarfile.LNKTYPE,b'','usr/bin/self')]]:
  refused(archive(base+extra))
 b=archive(base);refused(b[:-9000]);refused(b[:148]+b'0000000\0'+b[156:]);refused(b[:-512]+b'X'+bytes(511))
+refused(archive(base+[('usr/bin/unsafe*one',tarfile.REGTYPE,b'a',''),('usr/bin/unsafe;two',tarfile.REGTYPE,b'b','')]))
+assert len(m.FAILURE_CONTEXT['rejectedPathHeaders'])==2
+assert [x['pathPrefix'] for x in m.FAILURE_CONTEXT['rejectedPathHeaders']]==['usr/bin/unsafe*one','usr/bin/unsafe;two']
+parse(archive(base));assert 'rejectedPathHeaders' not in m.FAILURE_CONTEXT
 long='usr/bin/'+('x'*110);parse(archive(base+[(long,tarfile.REGTYPE,b'ok','')],tarfile.PAX_FORMAT))
 try: m.pax_records(b'31 SCHILY.xattr.security.cap=x\n')
 except AssertionError: pass

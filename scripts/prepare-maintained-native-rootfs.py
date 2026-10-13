@@ -64,7 +64,8 @@ def path_name(value, directory=False):
     # Actual170 also contains setuptools' ordinary "Lorem ipsum.txt" data file.
     # Internal literal spaces are data passed to filesystem APIs, never shell
     # interpolation. Controls, shell/glob syntax and path escapes still refuse.
-    assert value == 'usr/bin/[' or re.fullmatch('[A-Za-z0-9_ ./+@,=:-]+', value)
+    # The same verified export also has the ordinary "script (dev).tmpl" file.
+    assert value == 'usr/bin/[' or re.fullmatch('[A-Za-z0-9_ ./+@,=:()-]+', value)
     assert not value.startswith('/') and all(p not in ('', '.', '..') and p == p.strip() for p in value.split('/'))
     return value
 
@@ -90,7 +91,8 @@ def pax_records(data):
 
 def read_entries(f, archive_size):
     """Validate the complete raw archive before creating any output rootfs."""
-    rows, seen, pax, total = [], set(), {}, 0
+    rows, seen, pax, total, rejected_paths = [], set(), {}, 0, []
+    FAILURE_CONTEXT.pop('rejectedPathHeaders', None)
     while True:
         block = f.read(512)
         FAILURE_CONTEXT['lastHeader'] = dict(offset=f.tell()-len(block), bytes=len(block),
@@ -127,7 +129,17 @@ def read_entries(f, archive_size):
         if name in ('.', './') and kind == b'5':
             assert size == 0
             continue
-        name = path_name(name, kind == b'5')
+        try:
+            name = path_name(name, kind == b'5')
+        except AssertionError:
+            # Observe remaining finite headers only, NEVER admit/extract paths.
+            # This avoids repeated builds to discover one ordinary name at a
+            # time. Every lexical rejection remains fatal before any extraction.
+            assert len(rejected_paths) < 128 and len(name) <= 4096
+            rejected_paths.append(dict(pathPrefix=name[:512], completePathBytes=len(name),
+                pathSha256=hashlib.sha256(name.encode('ascii')).hexdigest(),
+                header=dict(FAILURE_CONTEXT['lastHeader'])))
+            FAILURE_CONTEXT['rejectedPathHeaders'] = rejected_paths
         assert name not in seen and len(rows) < MAX_ENTRIES
         seen.add(name)
         mode, uid, gid = number(block[100:108]), number(block[108:116]), number(block[116:124])
@@ -149,6 +161,7 @@ def read_entries(f, archive_size):
         total += size
         assert total <= MAX_TOTAL
         f.seek(((size+511)//512)*512, 1)
+    assert not rejected_paths
     by_name = {r['path']: r for r in rows}
     for row in rows:
         parents = row['path'].split('/')[:-1]
