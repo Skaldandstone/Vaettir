@@ -65,7 +65,9 @@ def path_name(value, directory=False):
     # Internal literal spaces are data passed to filesystem APIs, never shell
     # interpolation. Controls, shell/glob syntax and path escapes still refuse.
     # The same verified export also has the ordinary "script (dev).tmpl" file.
-    assert value == 'usr/bin/[' or re.fullmatch('[A-Za-z0-9_ ./+@,=:()-]+', value)
+    # Complete ec0 diagnostics found only libtool's literal lt~obsolete.m4.
+    # Tilde here is filename data; no home or shell expansion is performed.
+    assert value == 'usr/bin/[' or re.fullmatch('[A-Za-z0-9_ ./+@,=:()~-]+', value)
     assert not value.startswith('/') and all(p not in ('', '.', '..') and p == p.strip() for p in value.split('/'))
     return value
 

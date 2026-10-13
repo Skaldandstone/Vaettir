@@ -48,6 +48,8 @@ assert m.path_name('usr/lib/python3/dist-packages/setuptools/_vendor/jaraco/text
 parse(archive(base+[('usr/bin/ordinary data.txt',tarfile.REGTYPE,b'plain synthetic data','')]))
 assert m.path_name('usr/lib/python3/dist-packages/setuptools/script (dev).tmpl').endswith('script (dev).tmpl')
 parse(archive(base+[('usr/bin/ordinary (dev).txt',tarfile.REGTYPE,b'plain synthetic data','')]))
+assert m.path_name('usr/share/aclocal/lt~obsolete.m4')=='usr/share/aclocal/lt~obsolete.m4'
+parse(archive(base+[('usr/bin/ordinary~literal.txt',tarfile.REGTYPE,b'plain synthetic data','')]))
 parse(archive(base+[('usr/bin/[',tarfile.REGTYPE,b'owned coreutils fixture','')]))
 refused(archive(base+[('usr/bin/[',tarfile.DIRTYPE,b'','')]))
 refused(archive(base+[('usr/bin/[',tarfile.SYMTYPE,b'','usr/bin/tool')]))
