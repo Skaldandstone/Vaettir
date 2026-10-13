@@ -42,7 +42,9 @@ const parser = new XMLParser({
   entityDecoder: {
     decode: decodeXmlEscapes,
     reset() {},
-    setXmlVersion(version) { if (version !== "1.0") throw new Error("Excel XML version is not supported"); },
+    // The library types say string, but its declaration reader sends Number(ver).
+    // Accept precisely XML 1.0 in either representation, never other versions.
+    setXmlVersion(version) { if (version !== "1.0" && (version as unknown) !== 1) throw new Error("Excel XML version is not supported"); },
     setExternalEntities(entities) { if (Object.keys(entities).length) throw new Error("Excel XML declarations are not supported"); },
     addInputEntities() { throw new Error("Excel XML declarations are not supported"); },
   },

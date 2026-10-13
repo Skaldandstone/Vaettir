@@ -10,6 +10,7 @@ import {
 } from "../services/productionSignalOAuth.js";
 import { encryptToken, TokenEncryptionNotConfiguredError } from "../services/tokenEncryption.js";
 import { productionSignalAdmin } from "../services/productionSignalAccess.js";
+import { productionSignalCapabilities } from "../services/productionSignalCapabilities.js";
 
 // SSE-180: production-signal linkage. Gated behind P12-07's tierHasFeature
 // plumbing (Business/Corp only, see seed.ts) AND project ADMIN - a heavier
@@ -41,6 +42,10 @@ async function requireProductionSignalAccess(
 }
 
 export const productionSignalsRouter = router({
+  connectionCapabilities: protectedProcedure.input(z.object({projectId:z.string()})).query(async({ctx,input})=>{
+    await requireProductionSignalAccess(ctx,input.projectId);
+    return productionSignalCapabilities();
+  }),
   // GOOGLE_PLAY only - Apple has no equivalent redirect flow, see
   // connectAppleAppStore below and services/productionSignalOAuth.ts's
   // file-level comment on why the two providers differ this much.

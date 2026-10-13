@@ -10,6 +10,8 @@ import { admitConnectedGitlab, connectedSourceBinding } from "./connectedReposit
 import { ensureSavedGitlabAccess } from "./savedGitlabAccess.js";
 export {safeSourcePath,sourcePathInScope} from "./repositorySourceSafety.js";
 export const repositoryProcessingScope=z.object({
+  // A new, explicitly reviewed intake mode. Omission retains historical docs-only behavior.
+  requirementsDiscovery:z.literal("DOCUMENTS_THEN_CODE").optional(),
   repositoryId:z.string().min(1).max(100).optional(),
   repoUrl:z.string().trim().min(1).max(2000).transform(value=>{try{assertScannableRepoUrl(value);return canonicalProcessingRepositoryUrl(value);}catch{return value;}}),ref:z.string().trim().min(1).max(200).refine(value=>!value.startsWith("-")&&!/\s/.test(value)&&!Array.from(value).some(char=>char.charCodeAt(0)<32||char.charCodeAt(0)===127)),
   pathPrefixes:z.array(z.string().trim().min(1).max(500).refine(safeSourcePath)).min(1).max(20).refine(values=>new Set(values).size===values.length),
@@ -20,7 +22,7 @@ export type ProcessingPurpose="TEST_CASES"|"REQUIREMENTS";
 type ActorContext=Pick<Context,"prisma"|"authenticatedClerkSubject">&{user:NonNullable<Context["user"]>};
 const price=(purpose:ProcessingPurpose)=>purpose==="TEST_CASES"?AI_OPERATION_COSTS.reverseEngineerTestFile:AI_OPERATION_COSTS.extractRequirementsFromMarkdown;
 export function processingScopeHash(projectId:string,purpose:ProcessingPurpose,scope:z.infer<typeof repositoryProcessingScope>,binding?:unknown){
-  return createHash("sha256").update(JSON.stringify([projectId,purpose,canonicalProcessingRepositoryUrl(scope.repoUrl),scope.ref,[...scope.pathPrefixes].sort(),scope.maxItems,price(purpose),...(scope.repositoryId?[scope.repositoryId,binding]:[])])).digest("hex");
+  return createHash("sha256").update(JSON.stringify([projectId,purpose,canonicalProcessingRepositoryUrl(scope.repoUrl),scope.ref,[...scope.pathPrefixes].sort(),scope.maxItems,price(purpose),...(scope.repositoryId?[scope.repositoryId,binding]:[]),...(scope.requirementsDiscovery?[{requirementsDiscovery:scope.requirementsDiscovery}]:[])])).digest("hex");
 }
 export async function lockedProcessingEditor(tx:Prisma.TransactionClient,organizationId:string,actorId:string,projectId:string){
   const orgs=await tx.$queryRaw<Array<{suspendedAt:Date|null}>>`SELECT "suspendedAt" FROM "Organization" WHERE id=${organizationId} FOR UPDATE`;
@@ -35,6 +37,7 @@ export async function lockedProcessingReader(tx:Prisma.TransactionClient,organiz
   if(!orgs[0]||orgs[0].suspendedAt||!members[0]||projects[0]?.organizationId!==organizationId)throw new TRPCError({code:"FORBIDDEN"});
 }
 function validateScope(purpose:ProcessingPurpose,scope:z.infer<typeof repositoryProcessingScope>){
+  if(scope.requirementsDiscovery && (purpose!=="REQUIREMENTS" || !scope.repositoryId))throw new TRPCError({code:"BAD_REQUEST",message:"Code-based requirement inference requires an existing supported project repository connection."});
   if(!scope.repositoryId)try{assertScannableRepoUrl(scope.repoUrl);}catch{throw new TRPCError({code:"BAD_REQUEST",message:"Only credential-free hosted HTTPS repositories can be scanned without a verified project connection."});}
   if(purpose==="REQUIREMENTS"&&scope.maxItems>10)throw new TRPCError({code:"BAD_REQUEST",message:"Choose at most ten documents."});
 }
@@ -77,7 +80,7 @@ export async function beginRepositoryProcessing(ctx:ActorContext,projectId:strin
     const balance=await getAiCreditBalance(tx as unknown as PrismaClient,project.organizationId);
     if(balance<price(purpose)*scope.maxItems)throw new TRPCError({code:"PRECONDITION_FAILED",message:"Credit balance is below the reviewed estimate. Reduce the file limit or ask your administrator."});
     const now=new Date();
-    const approval=await tx.repositoryProcessingApproval.create({data:{projectId,organizationId:project.organizationId,actorId:ctx.user.id,requestId:consent.requestId,purpose,repositoryUrl:scope.repoUrl,ref:scope.ref,pathPrefixes:scope.pathPrefixes,scopeHash,unitCreditEstimate:price(purpose),maxItems:scope.maxItems,sourceApprovedAt:now,aiApprovedAt:now,costApprovedAt:now,expiresAt:new Date(now.getTime()+3600000),...(sourceBinding?{results:{sourceBinding}}:{})}});
+    const approval=await tx.repositoryProcessingApproval.create({data:{projectId,organizationId:project.organizationId,actorId:ctx.user.id,requestId:consent.requestId,purpose,repositoryUrl:scope.repoUrl,ref:scope.ref,pathPrefixes:scope.pathPrefixes,scopeHash,unitCreditEstimate:price(purpose),maxItems:scope.maxItems,sourceApprovedAt:now,aiApprovedAt:now,costApprovedAt:now,expiresAt:new Date(now.getTime()+3600000),...((sourceBinding||scope.requirementsDiscovery)?{results:{...(sourceBinding?{sourceBinding}:{}),...(scope.requirementsDiscovery?{requirementsDiscovery:scope.requirementsDiscovery}:{})}}:{})}});
     return{approval,replayed:false};
   });
 }

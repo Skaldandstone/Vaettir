@@ -18,6 +18,8 @@ export default function ProductionSignalsPage() {
   const utils = trpcReact.useUtils();
 
   const connectionsQuery = trpcReact.productionSignals.listConnections.useQuery({ projectId });
+  const capabilitiesQuery=trpcReact.productionSignals.connectionCapabilities.useQuery({projectId},{retry:false,staleTime:0});
+  const capabilities=capabilitiesQuery.isSuccess&&!capabilitiesQuery.error&&!capabilitiesQuery.isFetching&&!capabilitiesQuery.isPaused?capabilitiesQuery.data:null;
   const signalsQuery = trpcReact.productionSignals.listSignals.useQuery({ projectId, limit: 20 });
   const connections = connectionsQuery.data ?? [];
   const googlePlayConnection = connections.find((c) => c.provider === "GOOGLE_PLAY");
@@ -53,6 +55,7 @@ export default function ProductionSignalsPage() {
   }
 
   async function connectGooglePlay() {
+    if(!capabilities?.googlePlayConnectAvailable||connectingGoogle)return;
     setConnectingGoogle(true);
     setError(null);
     try {
@@ -65,6 +68,7 @@ export default function ProductionSignalsPage() {
   }
 
   async function connectApple() {
+    if(!capabilities?.appleConnectAvailable||connectingApple)return;
     setConnectingApple(true);
     setError(null);
     try {
@@ -81,7 +85,7 @@ export default function ProductionSignalsPage() {
   }
 
   async function disconnect(provider: "GOOGLE_PLAY" | "APPLE_APP_STORE") {
-    if (!confirm("Disconnect this app-store account? Vaettir will stop pulling new crash reports and reviews.")) return;
+    if (!confirm("Disconnect this saved app-store account?")) return;
     await disconnectMutation.mutateAsync({ projectId, provider });
     reloadConnections();
   }
@@ -91,28 +95,8 @@ export default function ProductionSignalsPage() {
   return (
     <div>
       <h1>Production signals</h1>
-      <div
-        style={{
-          display: "inline-block",
-          fontSize: 11,
-          fontWeight: 600,
-          letterSpacing: 0.5,
-          textTransform: "uppercase",
-          color: "var(--ember)",
-          border: "1px dashed var(--ember)",
-          borderRadius: 999,
-          padding: "2px 10px",
-          marginBottom: 12,
-        }}
-      >
-        Experimental connection layer
-      </div>
-      <p>
-        Connect your own app-store account so crash reports and store reviews can feed test-gap detection directly,
-        instead of someone manually pasting them in. Nothing is fetched from a connected account today - this is the
-        connection layer built ahead of the actual signal-ingestion sync, which needs real Apple/Google developer
-        credentials to finish.
-      </p>
+      <p>Manage app-store connections. Automatic import of crash reports and reviews is not available yet.</p>
+      {capabilitiesQuery.error&&<p role="alert">Connection availability could not be checked. <button type="button" className="btn-secondary" onClick={()=>void capabilitiesQuery.refetch()}>Check availability</button></p>}
 
       {googlePlayResult === "connected" && (
         <p style={{ color: "var(--frost)" }}>Google Play connected.</p>
@@ -142,7 +126,8 @@ export default function ProductionSignalsPage() {
               <p className="text-muted" style={{ fontSize: 13 }}>
                 Redirects to Google to grant read access to your Play Console app.
               </p>
-              <button onClick={connectGooglePlay} disabled={connectingGoogle}>
+              {!capabilities?.googlePlayConnectAvailable&&<p role="status">{capabilities?"Google Play connection is unavailable until deployment setup is complete.":"Checking connection availability…"}</p>}
+              <button onClick={connectGooglePlay} disabled={connectingGoogle||!capabilities?.googlePlayConnectAvailable}>
                 {connectingGoogle ? "Redirecting…" : "Connect Google Play"}
               </button>
             </>
@@ -152,10 +137,13 @@ export default function ProductionSignalsPage() {
         <div style={{ border: "1px solid var(--line)", borderRadius: 8, padding: 16 }}>
           <h2 style={{ marginTop: 0 }}>Apple App Store Connect</h2>
           <p className="text-muted" style={{ fontSize: 13 }}>
+            Apple uses an App Store Connect API key rather than account sign-in. Setup is only needed once.
+          </p>
+          <details><summary>Apple connection setup</summary><p className="text-muted" style={{ fontSize: 13 }}>
             App Store Connect has no OAuth login for this - generate an API key yourself in App Store Connect
             (Users and Access → Integrations → App Store Connect API) and paste its Issuer ID, Key ID, and .p8
             private key content below. The key is encrypted before it&apos;s stored and is never shown again.
-          </p>
+          </p></details>
           {appleConnection && appleConnection.status !== "DISCONNECTED" ? (
             <>
               <p>
@@ -167,7 +155,9 @@ export default function ProductionSignalsPage() {
               </button>
             </>
           ) : (
-            <div style={{ display: "grid", gap: 8 }}>
+            <details><summary>Add App Store Connect key</summary>
+            {!capabilities?.appleConnectAvailable&&<p role="status">{capabilities?"Secure connection storage is not available on this deployment.":"Checking connection availability…"}</p>}
+            <fieldset disabled={connectingApple||!capabilities?.appleConnectAvailable} style={{display:"grid",gap:8,border:0,padding:0,minWidth:0}}>
               <label>
                 Issuer ID
                 <input value={issuerId} onChange={(e) => setIssuerId(e.target.value)} style={{ width: "100%" }} />
@@ -186,10 +176,10 @@ export default function ProductionSignalsPage() {
                   placeholder="-----BEGIN PRIVATE KEY-----&#10;...&#10;-----END PRIVATE KEY-----"
                 />
               </label>
-              <button onClick={connectApple} disabled={connectingApple || !issuerId || !keyId || !privateKeyPem}>
+              <button onClick={connectApple} disabled={connectingApple || !capabilities?.appleConnectAvailable || !issuerId || !keyId || !privateKeyPem}>
                 {connectingApple ? "Connecting…" : "Connect App Store Connect"}
               </button>
-            </div>
+            </fieldset></details>
           )}
         </div>
       </div>

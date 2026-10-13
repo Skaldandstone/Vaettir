@@ -377,8 +377,8 @@ export const testPlansRouter = router({
     .input(
       z.object({
         projectId: z.string(),
-        testPlanTypeId: z.string(),
-        name: z.string(),
+        testPlanTypeId: z.string().min(1).optional(),
+        name: z.string().trim().min(1).max(200),
         description: z.string().optional(),
         customFields: z.record(z.unknown()).default({}),
       }),
@@ -393,10 +393,29 @@ export const testPlansRouter = router({
         "EDITOR",
       );
       const created = await ctx.prisma.$transaction(async (tx) => {
+        await lockCaseFieldProject(tx, ctx.user.id, input.projectId);
+        await requireCurrentPlanAccess(tx, ctx.user.id, input.projectId, true);
+        const currentProject = await tx.project.findUniqueOrThrow({
+          where: { id: input.projectId }, select: { organizationId: true },
+        });
+        if (currentProject.organizationId !== project.organizationId)
+          throw new TRPCError({ code: "CONFLICT", message: "Project ownership changed. Refresh before creating a plan." });
+        // Ordinary manual plans must not depend on an out-of-band global seed.
+        // Never overwrite an existing type's schema or custom definition.
+        const planType = input.testPlanTypeId
+          ? await tx.testPlanType.findUnique({ where: { id: input.testPlanTypeId } })
+          : await tx.testPlanType.upsert({
+              where: { key: "functional" }, update: {},
+              create: { key: "functional", name: "Functional", category: "FUNCTIONAL", description: "Feature-level behavior verification.", fieldSchema: { type: "object", properties: {} }, isBuiltIn: true },
+            });
+        if (!planType)
+          throw new TRPCError({ code: "NOT_FOUND", message: "Plan type is unavailable. Refresh and choose another type." });
+        if (!input.testPlanTypeId && (!planType.isBuiltIn || planType.category !== "FUNCTIONAL"))
+          throw new TRPCError({ code: "PRECONDITION_FAILED", message: "The default plan type needs administrator review. Select an existing plan type instead." });
         const plan = await tx.testPlan.create({
           data: {
             projectId: input.projectId,
-            testPlanTypeId: input.testPlanTypeId,
+            testPlanTypeId: planType.id,
             name: input.name,
             description: input.description,
             customFields: input.customFields as never,
@@ -413,16 +432,12 @@ export const testPlansRouter = router({
           executionTemplate: plan.executionTemplate,
           actorId: ctx.user.id,
         });
+        await tx.auditLog.create({ data: {
+          organizationId: project.organizationId, projectId: input.projectId,
+          actorId: ctx.user.id, entityType: "TestPlan", entityId: plan.id,
+          action: "CREATE", summary: `Created test plan "${plan.name}"`,
+        } });
         return plan;
-      });
-      await recordAudit(ctx.prisma, {
-        organizationId: project.organizationId,
-        projectId: input.projectId,
-        actorId: ctx.user.id,
-        entityType: "TestPlan",
-        entityId: created.id,
-        action: "CREATE",
-        summary: `Created test plan "${created.name}"`,
       });
       return created;
     }),

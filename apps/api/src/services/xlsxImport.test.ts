@@ -45,6 +45,24 @@ function workbookFixture(sheetOverride?: string) {
 }
 
 describe("XLSX smart import", () => {
+  it("accepts ordinary XML 1.0 declarations in every workbook part", () => {
+    const zip = new AdmZip(workbookFixture());
+    for (const entry of zip.getEntries()) {
+      zip.updateFile(entry.entryName, Buffer.concat([
+        Buffer.from('<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'),
+        entry.getData(),
+      ]));
+    }
+    expect(parseXlsxWorkbook(zip.toBuffer())[0]).toMatchObject({ rowCount: 1, headerRow: 2 });
+  });
+
+  it("continues to reject XML 1.1 declarations", () => {
+    const zip = new AdmZip(workbookFixture());
+    const entry = zip.getEntry("xl/workbook.xml")!;
+    zip.updateFile(entry.entryName, Buffer.concat([Buffer.from('<?xml version="1.1"?>'), entry.getData()]));
+    expect(() => parseXlsxWorkbook(zip.toBuffer())).toThrow("XML version is not supported");
+  });
+
   it("preserves Given and When with whitespace-padded workbook headers", () => {
     const xml = '<worksheet><sheetData><row><c r="A1" t="inlineStr"><is><t>Title</t></is></c><c r="B1" t="inlineStr"><is><t> Given </t></is></c><c r="C1" t="inlineStr"><is><t>When&#10;</t></is></c><c r="D1" t="inlineStr"><is><t>Then</t></is></c></row><row><c r="A2" t="inlineStr"><is><t>Delete own comment</t></is></c><c r="B2" t="inlineStr"><is><t>Signed in as comment owner</t></is></c><c r="C2" t="inlineStr"><is><t>Choose Delete</t></is></c><c r="D2" t="inlineStr"><is><t>Comment removed</t></is></c></row></sheetData></worksheet>';
     const sheet = parseXlsxWorkbook(workbookFixture(xml))[0]!;

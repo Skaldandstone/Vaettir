@@ -14,6 +14,7 @@ import { useProjectPermissions } from "@/lib/use-project-permissions";
 import { saveRequirementDrafts } from "@/lib/requirement-drafts";
 import { CoveredTestCasesPanel } from "@/components/CaseTraceabilityPanel";
 import { RepositoryProcessingReview } from "@/components/RepositoryProcessingReview";
+import { readRepositoryRequirementsDocument, verifiedRequirementsDocumentBytes, type RepositoryRequirementsDocument } from "@/lib/repository-requirements-document";
 
 // 2026-08-27 competitor parity audit: draft-and-review, same shape as
 // P4-02's strategy generation - nothing here creates a real TestCase
@@ -736,6 +737,17 @@ function ExtractFromRepoModal({
   const [scanning, setScanning] = useState(false);
   const [savingDrafts, setSavingDrafts] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [savedDocument,setSavedDocument]=useState<{document:RepositoryRequirementsDocument;origin:ReturnType<typeof useCaseFieldAccess>["origin"]}|null>(null);
+  const [documentNotice,setDocumentNotice]=useState("");
+  async function downloadDocument(){
+    if(!savedDocument?.origin||!repositoryAccess.owns(savedDocument.origin,"edit"))return;
+    try{
+      const bytes=await verifiedRequirementsDocumentBytes(savedDocument.document);
+      if(!repositoryAccess.owns(savedDocument.origin,"edit"))return;
+      const href=URL.createObjectURL(new Blob([bytes as BlobPart],{type:"text/markdown;charset=utf-8"}));
+      try{const link=document.createElement("a");link.href=href;link.download="requirements.md";link.click();}finally{URL.revokeObjectURL(href);}
+    }catch(cause){if(repositoryAccess.owns(savedDocument.origin,"edit"))setDocumentNotice(cause instanceof Error?cause.message:"The saved draft could not be downloaded.");}
+  }
 
   async function scan(scope:Parameters<typeof utils.client.requirements.extractFromRepo.mutate>[0]["scope"],consent:Parameters<typeof utils.client.requirements.extractFromRepo.mutate>[0]["consent"]) {
     const original=repositoryAccess.origin;
@@ -748,7 +760,14 @@ function ExtractFromRepoModal({
           projectId,
           scope,consent,
         });
-      if(repositoryAccess.owns(original,"edit"))setDrafts(result);
+      if(repositoryAccess.owns(original,"edit")){
+        setDrafts(result);
+        try{
+          const saved=await utils.client.agent.repositoryProcessingStatus.query({projectId,requestId:consent.requestId});
+          const document=readRepositoryRequirementsDocument(saved?.results);
+          if(repositoryAccess.owns(original,"edit")&&document)setSavedDocument({document,origin:original});
+        }catch{if(repositoryAccess.owns(original,"edit"))setDocumentNotice("Draft rows are retained. Reopen this approved run to retrieve requirements.md; do not process it again.");}
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
       throw e;
@@ -764,9 +783,11 @@ function ExtractFromRepoModal({
       title="Review repository requirement extraction"
       dismissible={!scanning && !savingDrafts}
     >
-      {!drafts&&<RepositoryProcessingReview projectId={projectId} purpose="REQUIREMENTS" initialUrl={repoUrl??undefined} initialRepositoryId={repositoryId} initialRef={repositoryRef??"HEAD"} onApprove={scan} onRecovered={value=>{if(value&&typeof value==="object"&&"drafts" in value&&Array.isArray(value.drafts)){const valid=value.drafts.filter((draft):draft is DraftRequirement=>!!draft&&typeof draft==="object"&&typeof draft.title==="string"&&typeof draft.description==="string"&&(draft.sourceFile===null||typeof draft.sourceFile==="string"));setDrafts(valid);}}}/>}
+      {!drafts&&<RepositoryProcessingReview projectId={projectId} purpose="REQUIREMENTS" initialUrl={repoUrl??undefined} initialRepositoryId={repositoryId} initialRef={repositoryRef??"HEAD"} onApprove={scan} onRecovered={value=>{const original=repositoryAccess.origin;if(!original||!repositoryAccess.owns(original,"edit"))return;if(value&&typeof value==="object"&&"drafts" in value&&Array.isArray(value.drafts)){const valid=value.drafts.filter((draft):draft is DraftRequirement=>!!draft&&typeof draft==="object"&&typeof draft.title==="string"&&typeof draft.description==="string"&&(draft.sourceFile===null||typeof draft.sourceFile==="string"));setDrafts(valid);const document=readRepositoryRequirementsDocument(value);if(document)setSavedDocument({document,origin:original});}}}/>}
       {scanning && <p>Scanning repo for requirements/spec docs…</p>}
       {error && <p style={{ color: "var(--ember)" }}>{error}</p>}
+      {savedDocument?.origin&&repositoryAccess.owns(savedDocument.origin,"edit")&&<section aria-label="Saved requirements draft" style={{marginBlock:12}}><h3>requirements.md draft</h3><p>{savedDocument.document.classification==="INFERRED_FROM_CODE"?"Inferred from code. Confirm product intent before approving these requirements.":"Extracted from documents. Review before approving."}</p><button type="button" className="btn-secondary" onClick={()=>void downloadDocument()}>Download requirements.md</button><details><summary>Preview requirements.md</summary><pre style={{whiteSpace:"pre-wrap",maxHeight:280,overflow:"auto"}}>{savedDocument.document.markdown}</pre></details></section>}
+      {documentNotice&&repositoryAccess.readable&&<p role="status">{documentNotice}</p>}
       {drafts && repositoryAccess.readable && (
         <DraftRequirementReview
           drafts={drafts}

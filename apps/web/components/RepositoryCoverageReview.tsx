@@ -12,7 +12,7 @@ export function RepositoryCoverageReview({projectId}:{projectId:string}) {
 function Review({projectId}:{projectId:string}) {
   const access=useCaseFieldAccess(projectId);
   const [repositoryId,setRepositoryId]=useState("");const [provider,setProvider]=useState("");
-  const [ref,setRef]=useState("HEAD");const [paths,setPaths]=useState("");const [maxItems,setMaxItems]=useState(25);
+  const [ref,setRef]=useState("HEAD");const [paths,setPaths]=useState(".");const [maxItems,setMaxItems]=useState(25);
   const [scope,setScope]=useState<Scope|null>(null);const [allowed,setAllowed]=useState(false);
   const [requestId,setRequestId]=useState(()=>crypto.randomUUID());const [attempted,setAttempted]=useState(false);
   const [result,setResult]=useState<RouterOutputs["repositoryCoverageChecks"]["compare"]|null>(null);
@@ -37,9 +37,12 @@ function Review({projectId}:{projectId:string}) {
     </fieldset>
     {access.readable&&(!scope?<div style={{display:"grid",gridTemplateColumns:"minmax(0,1fr)",gap:12}}>
       {repositoryId&&provider!=="gitlab"&&<p>Private file comparison for this provider is not enabled yet.</p>}
+      <p className="text-muted">Automatically find test files in the selected repository.</p>
+      <details><summary>Scan options</summary>
       <label>Branch, tag or commit<input style={{width:"100%"}} value={ref} onChange={e=>setRef(e.target.value)}/></label>
       <label>Test files or folders, one per line<textarea style={{width:"100%"}} value={paths} rows={3} onChange={e=>setPaths(e.target.value)} placeholder="tests\nsrc/tests"/></label>
       <label>Maximum test files<input type="number" min={1} max={25} value={maxItems} onChange={e=>setMaxItems(Number(e.target.value))}/></label>
+      </details>
       <button type="button" className="btn-primary" disabled={!access.canEdit||!repositoryId||provider!=="gitlab"||!ref.trim()||!paths.trim()||!Number.isInteger(maxItems)||maxItems<1||maxItems>25} onClick={()=>{
         const original=access.origin;if(!original||!access.owns(original,"edit"))return;
         setScope({repositoryId,ref:ref.trim(),pathPrefixes:paths.split(/[,\n]/).map(path=>path.trim()).filter(Boolean),maxItems});setRequestId(crypto.randomUUID());setAllowed(false);setAttempted(false);setResult(null);mutation.reset();
