@@ -167,7 +167,18 @@ function findHeaderRow(rows: CellValue[][]): number | null {
     const hasProcedureHeader = Boolean(
       mapping.when && mapping.then && (mapping.externalId || mapping.given),
     );
-    if ((mapping.title || hasProcedureHeader) && (!best || score > best.score))
+    // Checklists and prose/scenario layouts need not contain an action or ID
+    // column. Recognize their table without assigning an ambiguous case title.
+    const ambiguousTitleLabel = headers.some((header) =>
+      ["scenario", "test scenario", "description", "test description", "testcase description", "test case description"].includes(
+        header.toLowerCase().replace(/[_-]+/g, " ").replace(/\s+/g, " ").trim(),
+      ),
+    );
+    const hasManualMappingHeader = Boolean(
+      (mapping.given || mapping.when || mapping.then || mapping.externalId) &&
+      (Object.keys(mapping).length >= 2 || ambiguousTitleLabel),
+    );
+    if ((mapping.title || hasProcedureHeader || hasManualMappingHeader) && (!best || score > best.score))
       best = { index, score };
   }
   return best?.index ?? null;

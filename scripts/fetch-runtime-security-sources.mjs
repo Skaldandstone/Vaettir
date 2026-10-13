@@ -52,10 +52,15 @@ export async function fetchSecuritySource(pin, { fetchImpl = fetch, signal } = {
   assert.ok(original && JSON.stringify(pin) === JSON.stringify(original), "Source descriptor changed from reviewed manifest");
   const response = await fetchImpl(original.url, {
     redirect: "error",
+    // Content-Length must describe the pinned source bytes, not a compressed
+    // HTTP representation that fetch transparently decodes before streaming.
+    headers: { "accept-encoding": "identity" },
     signal: AbortSignal.any([AbortSignal.timeout(180000), ...(signal ? [signal] : [])]),
   });
   assert.equal(response.status, 200, "Public source transport failed");
   assert.ok(response.body, "Public source body absent");
+  const encoding = response.headers.get("content-encoding");
+  assert.ok(encoding === null || encoding === "identity", "Public source ignored identity encoding");
   const declared = response.headers.get("content-length");
   if (declared !== null) {
     assert.match(declared, /^[1-9][0-9]{0,8}$/);

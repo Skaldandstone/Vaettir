@@ -27,9 +27,29 @@ test("changed authority, descriptor, extra fields or source origin cannot send a
 test("bounded exact request rejects redirects, absent body, HTTP failure, length mismatch and truncation", async () => {
   for (const response of [new Response("", { status: 302 }), new Response(null), new Response("", { status: 500 }), new Response("x", { headers: { "content-length": "1" } }), new Response("x")]) {
     await assert.rejects(fetchSecuritySource(pins[0], { fetchImpl: async (url, options) => {
-      assert.equal(url, pins[0].url); assert.equal(options.redirect, "error"); assert.equal(options.headers, undefined); assert.ok(options.signal instanceof AbortSignal); return response;
+      assert.equal(url, pins[0].url); assert.equal(options.redirect, "error"); assert.deepEqual(options.headers, { "accept-encoding": "identity" }); assert.ok(options.signal instanceof AbortSignal); return response;
     } }));
   }
+});
+test("identity transport refuses transparent compression rather than changing source length or checksum pins", async () => {
+  for (const encoding of ["gzip", "br", "deflate", "gzip, identity"]) {
+    let streamed = false;
+    const body = new ReadableStream({ pull(controller) { streamed = true; controller.enqueue(new Uint8Array([1])); controller.close(); } }, { highWaterMark: 0 });
+    const response = new Response(body, { headers: { "content-encoding": encoding, "content-length": String(pins[0].bytes) } });
+    await assert.rejects(fetchSecuritySource(pins[0], { fetchImpl: async (_url, options) => {
+      assert.deepEqual(options.headers, { "accept-encoding": "identity" });
+      return response;
+    } }), /ignored identity encoding/);
+    assert.equal(streamed, false);
+  }
+});
+test("identity encoding still requires exact declared length, streamed length and source checksum", async () => {
+  const pin = pins[0];
+  for (const response of [
+    new Response("x", { headers: { "content-encoding": "identity", "content-length": "1" } }),
+    new Response("x", { headers: { "content-encoding": "identity", "content-length": String(pin.bytes) } }),
+    new Response(Buffer.alloc(pin.bytes), { headers: { "content-encoding": "identity", "content-length": String(pin.bytes) } }),
+  ]) await assert.rejects(fetchSecuritySource(pin, { fetchImpl: async () => response }));
 });
 test("oversize and same-length wrong-checksum responses never become source acceptance", async () => {
   for (const length of [pins[0].bytes, pins[0].bytes + 1]) {
