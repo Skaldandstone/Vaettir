@@ -128,7 +128,10 @@ jobs:
   maintained-native-proof:
     if: ${{ github.event_name == 'workflow_dispatch' && inputs.maintained_native_proof == true && inputs.llvm_configure_only != true }}
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    # The observed four-worker run reached conformance tests at the old 2400s
+    # cutoff. Retain the builder's combined 3500s budget and full native suite;
+    # allow bounded cleanup within one hour on the existing public free runner.
+    timeout-minutes: 60
     permissions:
       contents: read
     steps:
@@ -153,7 +156,7 @@ jobs:
           cid=
           cleanup() { rc=$?; trap - EXIT; if [[ "$cid" =~ ^[a-f0-9]{64}$ ]]; then timeout 20 docker rm "$cid" >/dev/null || exit 91; fi; exit "$rc"; }
           trap cleanup EXIT
-          DOCKER_BUILDKIT=1 timeout --signal=TERM --kill-after=20 2400 docker build --progress=plain --no-cache --target runtime-security-proof -f Dockerfile.runtime-security --build-arg VAETTIR_RELEASE_COMMIT="$GITHUB_SHA" --build-arg VAETTIR_NATIVE_JOBS=4 -t "$image" .
+          DOCKER_BUILDKIT=1 timeout --signal=TERM --kill-after=20 3500 docker build --progress=plain --no-cache --target runtime-security-proof -f Dockerfile.runtime-security --build-arg VAETTIR_RELEASE_COMMIT="$GITHUB_SHA" --build-arg VAETTIR_NATIVE_JOBS=4 -t "$image" .
           docker image inspect "$image" > "$proof_dir/image.json"
           node - "$proof_dir/image.json" <<'NODE'
           const a=require('node:assert/strict'),fs=require('node:fs');const x=JSON.parse(fs.readFileSync(process.argv[2]));a.equal(x.length,1);const c=x[0].Config;a.equal(c.Labels['vaettir.runtime-eligible'],'false');a.equal(c.Labels['vaettir.artifact-purpose'],'maintained-native-package-proof');a.equal(c.Labels['vaettir.source-commit'],process.env.GITHUB_SHA);a.ok(!c.Cmd||c.Cmd.length===0);a.ok(!c.Entrypoint||c.Entrypoint.length===0);

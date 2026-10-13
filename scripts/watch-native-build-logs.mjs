@@ -32,7 +32,7 @@ async function main(){
  const drain=()=>{
   for(const name of logs){const path=root+'/'+name;let stat;try{stat=lstatSync(path);}catch(error){if(error.code==='ENOENT')continue;throw error;}
    const before=states.get(name),next=requireLogState(before,{regular:stat.isFile(),symlink:stat.isSymbolicLink(),bytes:stat.size,dev:stat.dev,ino:stat.ino});
-   if(next.bytes>(before?.bytes??0)){const fd=openSync(path,'r');try{const actual=fstatSync(fd);assert.equal(actual.dev,next.dev);assert.equal(actual.ino,next.ino);const position=before?.bytes??0;assert.ok(total+next.bytes-position<=64*1024**2,'Aggregate vendor log bound exceeded');process.stdout.write('\nNATIVE_VENDOR_LOG '+name+' '+position+'..'+next.bytes+'\n');total+=streamLogRange(fd,position,next.bytes,chunk=>process.stdout.write(chunk));}finally{closeSync(fd);}}
+   if(next.bytes>(before?.bytes??0)){const fd=openSync(path,'r');try{const actual=fstatSync(fd);assert.equal(actual.dev,next.dev);assert.equal(actual.ino,next.ino);const position=before?.bytes??0;assert.ok(total+next.bytes-position<=64*1024**2,'Aggregate vendor log bound exceeded');process.stderr.write('\nNATIVE_VENDOR_LOG '+name+' '+position+'..'+next.bytes+'\n');total+=streamLogRange(fd,position,next.bytes,chunk=>process.stdout.write(chunk));}finally{closeSync(fd);}}
    states.set(name,next);
   }
  };
