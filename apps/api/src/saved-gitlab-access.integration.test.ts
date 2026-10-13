@@ -20,6 +20,7 @@ describe.skipIf(!isolated&&process.env.GITHUB_ACTIONS!=="true")("saved GitLab me
   let orgId:string,projectId:string,actorId:string,subject:string,connectionId:string,configId:string,ctx:Context&{user:NonNullable<Context["user"]>};
   let repoIds:string[];
   const cleanup=new Map<string,{slug:string;actorId:string}>();
+  const registeredFixtures=new Map<string,{projectId:string;projectSlug:string;connectionId:string;ids:string[]}>();
   const request=(index=0)=>({projectId,repositoryId:repoIds[index]!,originalOrganizationId:orgId,expectedNativeActorId:actorId,expectedClerkActorId:subject,expectedConnectionId:connectionId});
   const current=()=>prisma.repositoryConnection.findUniqueOrThrow({where:{id:connectionId}});
   const caller=()=>repositoryIntelligenceRouter.createCaller(ctx);
@@ -37,6 +38,7 @@ describe.skipIf(!isolated&&process.env.GITHUB_ACTIONS!=="true")("saved GitLab me
     connectionId=(await prisma.repositoryConnection.create({data:{organizationId:orgId,projectId,actorId,configurationId:configId,provider:"gitlab",origin,stateHash:randomUUID(),status:"VERIFIED",verifiedAt:new Date(),authorizationExpiresAt:new Date(0),tokenExpiresAt:new Date(0),
       encryptedToken:{...encryptToken("old-synthetic-access")},encryptedVerifier:{...encryptToken(JSON.stringify({version:"gitlab-refresh/v1",refreshToken:"old-synthetic-refresh",accountId:"17",redirectUri}))}}})).id;
     repoIds=[];for(let i=0;i<14;i++)repoIds.push((await prisma.projectRepository.create({data:{projectId,provider:"gitlab",url:`${origin}/team/repo-${47+i}`,externalId:String(47+i),connectionId,verifiedAt:new Date(),revision:"original-revision"}})).id);
+    registeredFixtures.set(orgId,{projectId,projectSlug:key,connectionId,ids:[...repoIds]});
     vi.mocked(refreshGitlabAuthorization).mockResolvedValue(refreshed());
     vi.mocked(repositoryProviderJson).mockImplementation(async(_origin,path)=>{
       if(path==="/api/v4/user")return{id:17,username:"synthetic-user"};
@@ -47,6 +49,18 @@ describe.skipIf(!isolated&&process.env.GITHUB_ACTIONS!=="true")("saved GitLab me
   });
   afterEach(()=>vi.unstubAllEnvs());
   afterAll(async()=>{
+    assertOwnedTestDatabase(process.env.DATABASE_URL);
+    // ProjectRepository has a deliberate RESTRICT parent FK. Remove ONLY the
+    // exact 14 synthetic registrations this fixture created before exercising
+    // the ordinary organization cleanup. This is not product erasure proof and
+    // must not alter its foreign-metadata/receipt guards or use a broad scope.
+    for(const owned of registeredFixtures.values())await prisma.$transaction(async tx=>{
+      await tx.$queryRaw`SELECT id FROM "Project" WHERE id=${owned.projectId} FOR UPDATE`;
+      const rows=await tx.projectRepository.findMany({where:{id:{in:owned.ids}},include:{project:{select:{slug:true,organizationId:true}}}});
+      expect(rows).toHaveLength(14);expect(new Set(owned.ids).size).toBe(14);
+      for(const row of rows){const index=owned.ids.indexOf(row.id);expect(row.projectId).toBe(owned.projectId);expect(row.project.slug).toBe(owned.projectSlug);expect(cleanup.has(row.project.organizationId)).toBe(true);expect(row.connectionId).toBe(owned.connectionId);expect(row.provider).toBe("gitlab");expect(row.url).toBe(`${origin}/team/repo-${47+index}`);expect(row.externalId).toBe(String(47+index));}
+      expect((await tx.projectRepository.deleteMany({where:{id:{in:owned.ids},projectId:owned.projectId,connectionId:owned.connectionId,provider:"gitlab"}})).count).toBe(14);
+    });
     // Exact fresh owned tenants only; retain permanent deletion receipts and
     // their dedicated actor. Never prune foreign metadata or disable guards.
     for(const[id,owned]of cleanup){const org=await prisma.organization.findUnique({where:{id}});if(!org)continue;expect(org.slug).toBe(owned.slug);await hardDeleteOrganization(prisma,id,owned.actorId,"Owned synthetic saved GitLab continuity fixture cleanup");}
