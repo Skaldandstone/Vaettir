@@ -18,6 +18,11 @@ on:
         type: boolean
         required: false
         default: false
+      maintained_native_host_proof:
+        description: "Full maintained native suite in isolated normal host namespaces; not deployment"
+        type: boolean
+        required: false
+        default: false
   push:
     branches: [main]
     paths-ignore:
@@ -102,6 +107,7 @@ jobs:
           node --test scripts/fetch-runtime-security-sources.test.mjs
           node --test scripts/watch-native-build-logs.test.mjs scripts/maintained-native-ci-contract.test.mjs
           node --test scripts/runtime-build-proof.test.mjs scripts/fetch-freetype-test-corpus.test.mjs scripts/install-runtime-security-family.test.mjs scripts/runtime-security-build-contract.test.mjs
+          node --test scripts/isolated-maintained-native-host.test.mjs scripts/maintained-native-host-proof.test.mjs
 
       - name: Verify installed native image-processing runtime
         run: node scripts/check-image-runtime.mjs
@@ -131,7 +137,7 @@ jobs:
         run: node scripts/retain-sharp-version-receipt.mjs
 
   maintained-native-proof:
-    if: ${{ github.event_name == 'workflow_dispatch' && inputs.maintained_native_proof == true && inputs.llvm_configure_only != true }}
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.maintained_native_proof == true && inputs.maintained_native_host_proof != true && inputs.llvm_configure_only != true }}
     runs-on: ubuntu-latest
     # The observed four-worker run reached conformance tests at the old 2400s
     # cutoff. Retain the builder's combined 3500s budget and full native suite;
@@ -186,6 +192,47 @@ jobs:
             ${{ runner.temp }}/vaettir-maintained-proof/proof.tar
             ${{ runner.temp }}/vaettir-maintained-proof/proof.json
             ${{ runner.temp }}/vaettir-maintained-proof/image.json
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 1
+
+  maintained-native-host-proof:
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.maintained_native_host_proof == true && inputs.maintained_native_proof != true && inputs.llvm_configure_only != true }}
+    runs-on: ubuntu-22.04
+    timeout-minutes: 60
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Build full maintained suite in isolated ordinary host namespaces
+        shell: bash
+        run: /bin/bash --noprofile --norc scripts/build-maintained-native-host-proof.sh
+        env:
+          GH_TOKEN: ${{ github.token }}
+      - uses: actions/upload-artifact@v6
+        if: success()
+        with:
+          name: maintained-native-proof-${{ github.sha }}-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/vaettir-maintained-proof/proof.tar
+            ${{ runner.temp }}/vaettir-maintained-proof/proof.json
+            ${{ runner.temp }}/vaettir-maintained-proof/image.json
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 1
+      - uses: actions/upload-artifact@v6
+        if: always()
+        with:
+          name: maintained-native-host-custody-${{ github.sha }}-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/vaettir-native-host.*/*.json
+            ${{ runner.temp }}/vaettir-native-host.*/environment-build.log
+            ${{ runner.temp }}/vaettir-native-host.*/rootfs/build/runtime-security/*/*.log
+            ${{ runner.temp }}/vaettir-native-host.*/rootfs/build/runtime-security/*/*.sum
+            ${{ runner.temp }}/vaettir-native-host.*/rootfs/build/runtime-security/glibc/source/build-tree/amd64-libc/posix/tst-wordexp-tilde.out
+            ${{ runner.temp }}/vaettir-native-host.*/rootfs/build/runtime-security/glibc/source/build-tree/amd64-libc/elf/tst-origin-secure.out
           if-no-files-found: error
           compression-level: 0
           retention-days: 1
@@ -266,7 +313,7 @@ jobs:
           NODE
 
   native-environment-probe:
-    if: ${{ github.event_name == 'workflow_dispatch' && inputs.native_environment_probe == true && inputs.maintained_native_proof != true && inputs.llvm_configure_only != true }}
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.native_environment_probe == true && inputs.maintained_native_proof != true && inputs.maintained_native_host_proof != true && inputs.llvm_configure_only != true }}
     runs-on: ubuntu-22.04
     timeout-minutes: 5
     permissions:

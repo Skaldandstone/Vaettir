@@ -1,0 +1,61 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {readFileSync,existsSync} from 'node:fs';
+import {spawnSync} from 'node:child_process';
+import {createHash} from 'node:crypto';
+const text=readFileSync(new URL('./isolated-maintained-native-host.sh',import.meta.url),'utf8');
+const guard=text.split('\n').find(line=>line.startsWith('safe_absolute()'));
+const bash=process.platform==='win32'&&existsSync('C:/Program Files/Git/bin/bash.exe')?'C:/Program Files/Git/bin/bash.exe':'/bin/bash';
+// These tests NEVER run host-check, sudo, namespace/native code or archived files.
+test('pure extracted Bash lexical guard accepts finite paths and refuses escape/injection',()=>{
+ const values=['/tmp/vaettir-native-host.abcdef','/tmp/owned/rootfs','/tmp/../escape','/tmp/..','/tmp//other','/tmp/./other','relative','/tmp/a b','/tmp/$(id)','/tmp/a;id','/tmp/a\nother'];
+ const literal=value=>"'"+value.replaceAll("'","'\"'\"'")+"'";
+ const program=guard+'\nfor value in '+values.map(literal).join(' ')+'; do if safe_absolute "$value"; then printf "yes\\n"; else printf "no\\n"; fi; done\n';
+ const r=spawnSync(bash,['--noprofile','--norc','-s'],{input:program,encoding:'utf8',timeout:10000,maxBuffer:4096});
+ assert.equal(r.status,0,r.stderr);assert.equal(r.stdout,'yes\nyes\n'+Array(9).fill('no\n').join(''));
+});
+test('complete wrapper Bash syntax only, never an operational mode',()=>{
+ const r=spawnSync(bash,['--noprofile','--norc','-n'],{input:text,encoding:'utf8',timeout:10000,maxBuffer:4096});assert.equal(r.status,0,r.stderr);
+});
+test('review, full rootfs byte inventory and fresh once-only admission precede sudo',()=>{
+ for(const literal of ["sha(raw)==pin","r['rootfsCopyProcedureReviewed'] is True","actual==expected","s.st_nlink==1","total<=8*1024**3","root+'/build/runtime-security'","with open(intent,'x')","os.fsync(f.fileno())","os.environ['GITHUB_SHA']==r['commit']","all(ns[k]!=previous['originalNamespaces'][k] for k in ns)"])assert.ok(text.includes(literal),literal);
+ assert.ok(text.indexOf("with open(intent,'x')")<text.indexOf('exec /usr/bin/sudo'));
+ assert.match(text,/os\.path\.realpath\(root\)==root/);assert.match(text,/stat\.S_IMODE\(s\.st_mode\)==0o700/);assert.match(text,/time\.time\(\)-r\['createdAt'\]<=3600/);
+});
+test('exact original build/watch/manifest/proof/corpus Git LF bytes pinned; none rewritten',()=>{
+ for(const name of ['build-maintained-runtime.sh','runtime-build-proof.mjs','watch-native-build-logs.mjs','runtime-security-sources.json','fetch-freetype-test-corpus.mjs']){
+  const raw=readFileSync(new URL('./'+name,import.meta.url));const lf=Buffer.from(raw.toString().replaceAll('\r\n','\n'));const hash=createHash('sha256').update(lf).digest('hex');assert.ok(text.includes("'"+name+"':'"+hash+"'"));
+ }
+ assert.match(text,/manifest\['version'\]=='runtime-security-sources\/v1'/);assert.match(text,/p\['bytes'\].*p\['sha256'\]/);
+ assert.ok(text.includes('09fceee7c335975a454500b000f75ee7f7b5c4f14b2dc241d6416f77967e9d1b'));assert.ok(text.includes('ef146bbc2673b38715afcc70dca484cc64457438da8627a27cf95680e982f0a6'));
+});
+test('temporary mount/PID/net isolation with loopback only; no host bind exposure',()=>{
+ assert.ok(text.includes('--mount --pid --fork --net --kill-child=TERM'));
+ // The outer setup has no user namespace; its existing UID1000 prerequisite
+ // check intentionally exercises ordinary nested user namespaces inside chroot.
+ assert.match(text,/\/usr\/bin\/unshare --mount --pid --fork --net --kill-child=TERM/);
+ assert.match(text,/--userspec=1000:1000[\s\S]*?unshare --user --map-root-user --mount --fork/);
+ assert.ok(text.includes('mount --make-rprivate /'));assert.ok(text.includes('ip -o link show | /usr/bin/wc -l) == 1'));assert.ok(text.includes("'^[0-9]+: lo:'"));
+ const binds=text.split('\n').filter(line=>line.includes('mount --bind'));assert.deepEqual(binds,['/usr/bin/mount --bind "$rootfs" "$rootfs"']);
+ assert.match(text,/mount -t proc -o nosuid,nodev,noexec proc "\$rootfs\/proc"/);assert.match(text,/devpts -o newinstance/);
+ assert.match(text,/tmpfs "\$rootfs\/sys"/);assert.match(text,/tmpfs "\$rootfs\/run"/);
+ assert.match(text,/mount -t tmpfs -o mode=1777,nodev,size=128m tmpfs "\$rootfs\/tmp"/);
+ assert.doesNotMatch(text,/mode=1777[^\n]*(?:nosuid|noexec)/);
+});
+test('fixed ordinary devices only, isolated devpts, no sockets or host devices',()=>{
+ assert.ok(text.includes("'null 1 3' 'zero 1 5' 'random 1 8' 'urandom 1 9' 'full 1 7'"));assert.ok(text.includes('ln -s pts/ptmx'));assert.ok(text.includes('ln -s /proc/self/fd'));
+ assert.doesNotMatch(text,/\/dev\/(?:kvm|fuse|mem|dri|nvidia|docker)|docker\.sock|--rbind/);
+});
+test('native UID1000, clean env, combined timeout3500/four workers and original stderr/status',()=>{
+ assert.ok(text.includes('chroot --userspec=1000:1000 --groups=1000'));assert.ok(text.includes('test "$(id -u)" = 1000'));assert.ok(text.includes('cd /build && exec'));
+ assert.ok(text.includes('/usr/bin/env -i PATH=/usr/local/bin:/usr/bin:/bin HOME=/home/node'));assert.ok(text.includes('VAETTIR_NATIVE_JOBS=4'));
+ assert.ok(text.includes('/usr/bin/timeout --signal=TERM --kill-after=10 3500'));assert.ok(text.includes('> /dev/null\nstatus=$?'));
+ assert.ok(text.includes('exit "$status"'));assert.doesNotMatch(text,/2>\s*\/dev\/null|2>&1/);
+});
+test('no host/account/security mutation, cleanup, acceptance, filtering or Root namespace privilege bypass',()=>{
+ const commands=text.split('\n').filter(line=>!line.trimStart().startsWith('#')).join('\n');
+ assert.doesNotMatch(commands,/\bsysctl\b|apparmor|seccomp|--privileged|useradd|groupadd|chmod\s+-R|chown\s+-R|rm\s+-|curl\s|wget\s|GH_TOKEN|GITHUB_TOKEN|LD_PRELOAD=|nocheck|stage2|tests=|subdirs=/);
+ assert.ok(text.includes("dict(native=False,installedFamily=False,cid=False,security=False,deployment=False)"));assert.ok(text.includes('nativeAccepted=false deploymentAccepted=false'));
+ assert.ok(text.includes(',$options, != *,nosuid,*'));assert.ok(text.includes(',$options, != *,noexec,*'));
+});
+
