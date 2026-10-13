@@ -111,7 +111,7 @@ def admission():
  assert os.stat(root+'/build').st_uid==1000 and os.stat(root+'/build/scripts').st_uid==1000
  assert all(os.path.isfile(root+p) for p in ['/usr/bin/env','/usr/local/bin/node'])
  intent=release+'/host-once-intent.json'
- ns={k:os.readlink('/proc/self/ns/'+k) for k in ['mnt','pid','net']}
+ ns={k:os.readlink('/proc/self/ns/'+k) for k in ['mnt','pid','net','user']}
  if mode=='--parent':
   assert os.getuid()==0 and os.environ['VAETTIR_NATIVE_OWNER_UID']==str(r['ownerUid'])
   rt=os.environ['RUNNER_TEMP']; assert os.path.realpath(rt)==rt and os.path.dirname(release)==rt
@@ -122,6 +122,10 @@ def admission():
  else:
   previous=json.loads(regular(intent,4096)); assert previous['reviewSha256']==sha(raw) and previous['nativeAccepted'] is False
   assert all(ns[k]!=previous['originalNamespaces'][k] for k in ns)
+  # Temporary pass-through maps keep every original file UID/GID unchanged,
+  # including protected root files, node1000 and the existing runner1001.
+  for kind in ['uid','gid']:
+   with open('/proc/self/'+kind+'_map','r') as f: assert f.read().split()==['0','0','65536']
 try: admission()
 except Exception as error:
  location=traceback.extract_tb(error.__traceback__)[-1]
@@ -135,7 +139,7 @@ if [[ $mode == --parent ]]; then
   # Exactly one bounded attempt. No GH_TOKEN or inherited loader/make settings.
   exec /usr/bin/sudo --non-interactive /usr/bin/env -i PATH="$PATH" LANG=C LC_ALL=C \
     /usr/bin/timeout --signal=TERM --kill-after=10 3500 \
-    /usr/bin/unshare --mount --pid --fork --net --kill-child=TERM \
+    /usr/bin/unshare --user --map-users=0,0,65536 --map-groups=0,0,65536 --mount --pid --fork --net --kill-child=TERM \
     /bin/bash --noprofile --norc "$release/host-check.sh" --inside "$release" "$review" "$review_sha"
 fi
 # PRIVATE namespaces only. No host bind mounts, /sys or whole /dev exposure.

@@ -43,9 +43,12 @@ test('exact original build/watch/manifest/proof/corpus Git LF bytes pinned; none
 });
 test('temporary mount/PID/net isolation with loopback only; no host bind exposure',()=>{
  assert.ok(text.includes('--mount --pid --fork --net --kill-child=TERM'));
- // The outer setup has no user namespace; its existing UID1000 prerequisite
- // check intentionally exercises ordinary nested user namespaces inside chroot.
- assert.match(text,/\/usr\/bin\/unshare --mount --pid --fork --net --kill-child=TERM/);
+ // Kernel-permitted temporary user namespace, existing numeric UID/GID maps;
+ // no new accounts/subordinate-ID policy and no native root execution.
+ assert.match(text,/\/usr\/bin\/unshare --user --map-users=0,0,65536 --map-groups=0,0,65536 --mount --pid --fork --net --kill-child=TERM/);
+ assert.ok(text.includes("['mnt','pid','net','user']"));
+ assert.ok(text.includes("f.read().split()==['0','0','65536']"));
+ assert.doesNotMatch(text,/\/etc\/subuid|\/etc\/subgid|--map-auto|--map-users=auto|--map-groups=auto/);
  assert.match(text,/--userspec=1000:1000[\s\S]*?unshare --user --map-root-user --mount --fork/);
  assert.ok(text.includes('mount --make-rprivate /'));assert.ok(text.includes('ip -o link show | /usr/bin/wc -l) == 1'));assert.ok(text.includes("'^[0-9]+: lo:'"));
  const binds=text.split('\n').filter(line=>line.includes('mount --bind'));assert.deepEqual(binds,['/usr/bin/mount --bind "$rootfs" "$rootfs"']);
