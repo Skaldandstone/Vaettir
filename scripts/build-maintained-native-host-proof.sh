@@ -63,11 +63,12 @@ cid=
 bounded sudo --non-interactive env -i PATH=/usr/bin:/bin \
   /usr/bin/python3 -I scripts/prepare-maintained-native-rootfs.py "$release" "$(id -u)"
 cp scripts/isolated-maintained-native-host.sh "$release/host-check.sh"
+cp scripts/launch-maintained-native-namespace.py "$release/host-namespace-launcher.py"
 node - "$release" <<'PROCEDURE'
 const fs=require('node:fs'),c=require('node:crypto'),a=require('node:assert/strict'),p=process.argv[2],sha=b=>c.createHash('sha256').update(b).digest('hex');
 const image=JSON.parse(fs.readFileSync(p+'/environment-image.json'))[0],root=fs.lstatSync(p+'/rootfs');
 for(const name of ['runtime-security-sources.json','fetch-runtime-security-sources.mjs','fetch-freetype-test-corpus.mjs','build-maintained-runtime.sh','runtime-build-proof.mjs','watch-native-build-logs.mjs'])a.deepEqual(fs.readFileSync(p+'/rootfs/build/scripts/'+name),fs.readFileSync('scripts/'+name));
-const record={purpose:'reviewed-isolated-native-host-procedure/v1',commit:process.env.GITHUB_SHA,runId:process.env.GITHUB_RUN_ID,attempt:Number(process.env.GITHUB_RUN_ATTEMPT),releaseDir:p,rootfsDev:root.dev,rootfsIno:root.ino,ownerUid:process.getuid(),createdAt:Math.floor(Date.now()/1000),rootfsImageDigest:image.Id,rootfsInventorySha256:sha(fs.readFileSync(p+'/rootfs.inventory.json')),wrapperSha256:sha(fs.readFileSync(p+'/host-check.sh')),jobs:4,rootfsCopyProcedureReviewed:true,acceptance:{native:false,installedFamily:false,cid:false,security:false,deployment:false}};
+const record={purpose:'reviewed-isolated-native-host-procedure/v1',commit:process.env.GITHUB_SHA,runId:process.env.GITHUB_RUN_ID,attempt:Number(process.env.GITHUB_RUN_ATTEMPT),releaseDir:p,rootfsDev:root.dev,rootfsIno:root.ino,ownerUid:process.getuid(),createdAt:Math.floor(Date.now()/1000),rootfsImageDigest:image.Id,rootfsInventorySha256:sha(fs.readFileSync(p+'/rootfs.inventory.json')),wrapperSha256:sha(fs.readFileSync(p+'/host-check.sh')),launcherSha256:sha(fs.readFileSync(p+'/host-namespace-launcher.py')),jobs:4,rootfsCopyProcedureReviewed:true,acceptance:{native:false,installedFamily:false,cid:false,security:false,deployment:false}};
 fs.writeFileSync(p+'/root-review.json',JSON.stringify(record)+'\n',{flag:'wx',mode:0o600});
 PROCEDURE
 review_sha=$(sha256sum "$release/root-review.json" | cut -d' ' -f1)

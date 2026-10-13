@@ -42,10 +42,12 @@ test('exact original build/watch/manifest/proof/corpus Git LF bytes pinned; none
  assert.ok(text.includes('09fceee7c335975a454500b000f75ee7f7b5c4f14b2dc241d6416f77967e9d1b'));assert.ok(text.includes('ef146bbc2673b38715afcc70dca484cc64457438da8627a27cf95680e982f0a6'));
 });
 test('temporary mount/PID/net isolation with loopback only; no host bind exposure',()=>{
- assert.ok(text.includes('--mount --pid --fork --net --kill-child=TERM'));
- // Kernel-permitted temporary user namespace, existing numeric UID/GID maps;
- // no new accounts/subordinate-ID policy and no native root execution.
- assert.match(text,/\/usr\/bin\/unshare --user --map-users=0,0,65536 --map-groups=0,0,65536 --mount --pid --fork --net --kill-child=TERM/);
+ const launcher=readFileSync(new URL('./launch-maintained-native-namespace.py',import.meta.url),'utf8');
+ // Ubuntu22's existing unshare lacks the newer multi-map CLI options. The
+ // fixed owned-child launcher writes only its new namespace's exact map once.
+ assert.ok(launcher.includes("['/usr/bin/unshare', '--user', '--keep-caps', '--mount', '--pid', '--fork', '--net', '--kill-child=KILL'"));
+ assert.ok(text.includes('/usr/bin/python3 -I "$release/host-namespace-launcher.py" "$release" "$review_sha"'));
+ assert.doesNotMatch(text,/--map-users=|--map-groups=/);
  assert.ok(text.includes("['mnt','pid','net','user']"));
  assert.ok(text.includes("f.read().split()==['0','0','65536']"));
  assert.doesNotMatch(text,/\/etc\/subuid|\/etc\/subgid|--map-auto|--map-users=auto|--map-groups=auto/);
@@ -69,6 +71,8 @@ test('native UID1000, clean env, combined timeout3500/four workers and original 
  assert.ok(text.includes('/usr/bin/env -i PATH=/usr/local/bin:/usr/bin:/bin HOME=/home/node'));assert.ok(text.includes('VAETTIR_NATIVE_JOBS=4'));
  assert.ok(text.includes('/usr/bin/timeout --signal=TERM --kill-after=10 3500'));assert.ok(text.includes('> /dev/null\nstatus=$?'));
  assert.ok(text.includes('exit "$status"'));assert.doesNotMatch(text,/2>\s*\/dev\/null|2>&1/);
+ assert.equal(text.split('/^Cap(Eff|Prm|Amb):/').length-1,2);
+ assert.equal(text.split('if ($2 != "0000000000000000") exit 1; seen++').length-1,2);
 });
 test('no host/account/security mutation, cleanup, acceptance, filtering or Root namespace privilege bypass',()=>{
  const commands=text.split('\n').filter(line=>!line.trimStart().startsWith('#')).join('\n');

@@ -42,7 +42,7 @@ def admission():
  mode,release,review,pin=sys.argv[1:]
  assert os.path.realpath(release)==release and os.path.realpath(review)==review
  raw=regular(review,65536); assert sha(raw)==pin
- r=json.loads(raw); assert set(r)==set(['purpose','commit','runId','attempt','releaseDir','rootfsDev','rootfsIno','ownerUid','createdAt','rootfsImageDigest','rootfsInventorySha256','wrapperSha256','jobs','rootfsCopyProcedureReviewed','acceptance'])
+ r=json.loads(raw); assert set(r)==set(['purpose','commit','runId','attempt','releaseDir','rootfsDev','rootfsIno','ownerUid','createdAt','rootfsImageDigest','rootfsInventorySha256','wrapperSha256','launcherSha256','jobs','rootfsCopyProcedureReviewed','acceptance'])
  assert r['purpose']=='reviewed-isolated-native-host-procedure/v1' and r['releaseDir']==release
  assert re.fullmatch('[a-f0-9]{40}',r['commit']) and re.fullmatch('[1-9][0-9]{0,19}',r['runId']) and type(r['attempt']) is int and 1<=r['attempt']<=100
  assert re.fullmatch('sha256:[a-f0-9]{64}',r['rootfsImageDigest']) and r['rootfsCopyProcedureReviewed'] is True
@@ -56,6 +56,7 @@ def admission():
  assert stat.S_ISDIR(s.st_mode) and os.path.realpath(root)==root and s.st_uid==r['ownerUid'] and stat.S_IMODE(s.st_mode)==0o755
  assert s.st_dev==r['rootfsDev'] and s.st_ino==r['rootfsIno']
  self_path=release+'/host-check.sh'; assert sha(regular(self_path,65536))==r['wrapperSha256']
+ assert sha(regular(release+'/host-namespace-launcher.py',32768))==r['launcherSha256']
  inventory_bytes=regular(release+'/rootfs.inventory.json',32*1024**2); assert sha(inventory_bytes)==r['rootfsInventorySha256']
  rows=json.loads(inventory_bytes); assert isinstance(rows,list) and 0<len(rows)<=100000
  expected={}; total=0
@@ -139,8 +140,7 @@ if [[ $mode == --parent ]]; then
   # Exactly one bounded attempt. No GH_TOKEN or inherited loader/make settings.
   exec /usr/bin/sudo --non-interactive /usr/bin/env -i PATH="$PATH" LANG=C LC_ALL=C \
     /usr/bin/timeout --signal=TERM --kill-after=10 3500 \
-    /usr/bin/unshare --user --map-users=0,0,65536 --map-groups=0,0,65536 --mount --pid --fork --net --kill-child=TERM \
-    /bin/bash --noprofile --norc "$release/host-check.sh" --inside "$release" "$review" "$review_sha"
+    /usr/bin/python3 -I "$release/host-namespace-launcher.py" "$release" "$review_sha"
 fi
 # PRIVATE namespaces only. No host bind mounts, /sys or whole /dev exposure.
 /usr/bin/mount --make-rprivate /
@@ -175,8 +175,11 @@ done
 # mount namespaces BEFORE spending the full native compilation budget.
 /usr/sbin/chroot --userspec=1000:1000 --groups=1000 "$rootfs" \
   /usr/bin/env -i PATH=/usr/local/bin:/usr/bin:/bin HOME=/home/node LANG=C LC_ALL=C \
-  /usr/bin/timeout 10 /usr/bin/unshare --user --map-root-user --mount --fork \
-  /usr/bin/unshare --user --map-root-user --mount --fork /bin/true
+  /usr/bin/timeout 10 /bin/sh -eu -c '
+    test "$(id -u)" = 1000 && test "$(id -g)" = 1000
+    awk '\''/^Cap(Eff|Prm|Amb):/ { if ($2 != "0000000000000000") exit 1; seen++ } END { if (seen != 3) exit 1 }'\'' /proc/self/status
+    exec /usr/bin/unshare --user --map-root-user --mount --fork /usr/bin/unshare --user --map-root-user --mount --fork /bin/true
+  '
 printf '%s\n' 'NATIVE_HOST_PREREQUISITE nestedUserMountNamespacesPassed=true driverUid=1000 nativeAccepted=false deploymentAccepted=false' >&2
 # Do not set no-new-privs/nosuid on the source root: original suid/nested-userns
 # tests require ordinary isolated-host semantics. Driver UID1000 is preserved;
@@ -184,7 +187,9 @@ printf '%s\n' 'NATIVE_HOST_PREREQUISITE nestedUserMountNamespacesPassed=true dri
 set +e
 /usr/sbin/chroot --userspec=1000:1000 --groups=1000 "$rootfs" \
   /usr/bin/env -i PATH=/usr/local/bin:/usr/bin:/bin HOME=/home/node USER=node LOGNAME=node LANG=C LC_ALL=C VAETTIR_NATIVE_JOBS=4 \
-  /bin/sh -c 'test "$(id -u)" = 1000 && test "$(id -g)" = 1000 && cd /build && exec /usr/local/bin/node /build/scripts/watch-native-build-logs.mjs /build/scripts/build-maintained-runtime.sh /build/scripts/runtime-security-sources.json /build/glibc-sources /build/freetype-sources /build/runtime-security /build/scripts/runtime-build-proof.mjs /build/freetype-standard-corpus' > /dev/null
+  /bin/sh -eu -c 'test "$(id -u)" = 1000 && test "$(id -g)" = 1000
+    awk '\''/^Cap(Eff|Prm|Amb):/ { if ($2 != "0000000000000000") exit 1; seen++ } END { if (seen != 3) exit 1 }'\'' /proc/self/status
+    cd /build && exec /usr/local/bin/node /build/scripts/watch-native-build-logs.mjs /build/scripts/build-maintained-runtime.sh /build/scripts/runtime-security-sources.json /build/glibc-sources /build/freetype-sources /build/runtime-security /build/scripts/runtime-build-proof.mjs /build/freetype-standard-corpus' > /dev/null
 status=$?
 set -e
 # Namespace teardown is automatic at init exit; no recursive removal/cleanup.

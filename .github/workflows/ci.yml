@@ -108,6 +108,7 @@ jobs:
           node --test scripts/watch-native-build-logs.test.mjs scripts/maintained-native-ci-contract.test.mjs
           node --test scripts/runtime-build-proof.test.mjs scripts/fetch-freetype-test-corpus.test.mjs scripts/install-runtime-security-family.test.mjs scripts/runtime-security-build-contract.test.mjs
           node --test scripts/isolated-maintained-native-host.test.mjs scripts/maintained-native-host-proof.test.mjs
+          node --test scripts/launch-maintained-native-namespace.test.mjs
 
       - name: Verify installed native image-processing runtime
         run: node scripts/check-image-runtime.mjs
