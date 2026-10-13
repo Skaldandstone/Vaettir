@@ -2827,6 +2827,46 @@ main.app-main {
     transform: rotate(360deg);
   }
 }
+.plan-generation-status {
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+  min-width: 0;
+}
+.plan-generation-status p {
+  margin: 4px 0 0;
+  color: var(--muted);
+  font-size: 13px;
+}
+.plan-generation-message {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.plan-generation-progress {
+  height: 6px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--line);
+  margin-top: 14px;
+}
+.plan-generation-progress span {
+  display: block;
+  width: 35%;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--frost);
+  animation: plan-generation-working 1.4s ease-in-out infinite;
+}
+@keyframes plan-generation-working {
+  from { transform: translateX(-100%); }
+  to { transform: translateX(290%); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .plan-generation-status .loading-indicator,
+  .plan-generation-progress span { animation: none; }
+}
 .readiness-table-heading {
   padding: 20px 22px;
   border-bottom: 1px solid var(--line);

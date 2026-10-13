@@ -175,7 +175,7 @@ function GenerateStrategyModal({
 
   return (
     <Modal open={open} onClose={onClose} title="Generate a QA strategy draft">
-      <div style={{ display: "grid", gap: 10, minWidth: 420 }}>
+      <div style={{ display: "grid", gap: 10, minWidth: 0 }}>
         <label>
           What's changing or shipping?
           <textarea
@@ -224,14 +224,30 @@ function GenerateStrategyModal({
         <button
           className="btn-secondary"
           onClick={generate}
+          aria-busy={generating}
           disabled={
-            generating || !prompt.trim() || (groundInBuild && !headRef.trim())
+            generating || creating || !prompt.trim() || (groundInBuild && !headRef.trim())
           }
         >
           {generating ? "Generating…" : "Generate draft"}
         </button>
 
-        {error && <p style={{ color: "var(--ember)" }}>{error}</p>}
+        {generating && (
+          <section className="plan-generation-status" role="status" aria-live="polite" aria-atomic="true">
+            <div className="plan-generation-message">
+              <span className="loading-indicator" aria-hidden="true" />
+              <div>
+                <strong>Building your plan draft…</strong>
+                <p>This may take up to three minutes.</p>
+              </div>
+            </div>
+            <div className="plan-generation-progress" role="progressbar" aria-label="Plan generation" aria-valuetext="Working; completion percentage is not available.">
+              <span aria-hidden="true" />
+            </div>
+          </section>
+        )}
+        {error && <p role="alert" style={{ color: "var(--ember)" }}>{error}</p>}
+        {draft && !generating && !error && <p role="status">Your plan draft is ready to review.</p>}
 
         {draft?.groundedInCommits && (
           <details style={{ fontSize: 12 }}>
@@ -299,7 +315,7 @@ function GenerateStrategyModal({
               <button
                 className="btn-primary"
                 onClick={createFromDraft}
-                disabled={creating || !planName.trim()}
+                disabled={generating || creating || !planName.trim()}
               >
                 {creating ? "Creating…" : "Create QA strategy plan"}
               </button>
