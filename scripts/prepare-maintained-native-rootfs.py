@@ -23,9 +23,9 @@ MAX_ENTRIES = 100000
 # Bounded original-byte failure custody, no reconstructed archive or acceptance.
 FAILURE_CONTEXT = {}
 PINS = {
-    'build-maintained-runtime.sh': '633e3c977eef9d808ede8f6c9ba5ee78b5f96890fcb66cd7d3aaaad84a6cd07f',
-    'runtime-build-proof.mjs': '49884a1626756a412f2920d232d0362d177a3383c2c0e1d286183ec0622069d1',
-    'watch-native-build-logs.mjs': 'edf3d3816f11d7b7fbbc66a3afdfee1975ee0205db657a1a8570d371e52b4695',
+    'build-maintained-runtime.sh': 'afa389431c0dc544c0c74e1629e12719f2b755e72db406734377aa3f39d0ddfd',
+    'runtime-build-proof.mjs': 'c1dd18e8156c0ea73ec143991d12922b5d5ca5b6d1dda34c3e876eda1e77b148',
+    'watch-native-build-logs.mjs': '7645b8968906837e2baec27ceac33390f69083e5392c68228ac8e732b18b645e',
     'runtime-security-sources.json': 'f1cc5c7ca0c1a2778a7933b4384bc626a8623e8ec32db567c6891b52db0ee5ec',
     'fetch-freetype-test-corpus.mjs': '1a3a851f6790b2dc12ef153cef32395e38046c9eea0ecec58505846be5532b30',
 }

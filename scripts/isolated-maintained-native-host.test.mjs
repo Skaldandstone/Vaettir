@@ -35,8 +35,10 @@ test('protected original compiler files get fixed passive root verification, nev
  assert.doesNotMatch(commands,/chmod[^\n]*(?:["']\$rootfs|shadow|passwd)|sudo[^\n]*(?:\/node\b|\/build\/scripts)/);
 });
 test('exact reviewed build/watch/manifest/proof/corpus Git LF bytes pinned; no runtime rewrites',()=>{
+ const extractor=readFileSync(new URL('./prepare-maintained-native-rootfs.py',import.meta.url),'utf8');
  for(const name of ['build-maintained-runtime.sh','runtime-build-proof.mjs','watch-native-build-logs.mjs','runtime-security-sources.json','fetch-freetype-test-corpus.mjs']){
   const raw=readFileSync(new URL('./'+name,import.meta.url));const lf=Buffer.from(raw.toString().replaceAll('\r\n','\n'));const hash=createHash('sha256').update(lf).digest('hex');assert.ok(text.includes("'"+name+"':'"+hash+"'"));
+  assert.ok(extractor.includes("'"+name+"': '"+hash+"'"),'Whole-export reader source pin must agree with namespace admission and Git LF bytes: '+name);
  }
  assert.match(text,/manifest\['version'\]=='runtime-security-sources\/v1'/);assert.match(text,/p\['bytes'\].*p\['sha256'\]/);
  assert.ok(text.includes('09fceee7c335975a454500b000f75ee7f7b5c4f14b2dc241d6416f77967e9d1b'));assert.ok(text.includes('ef146bbc2673b38715afcc70dca484cc64457438da8627a27cf95680e982f0a6'));
