@@ -2,13 +2,17 @@
 import assert from 'node:assert/strict';
 import {createHash} from 'node:crypto';
 import {execFileSync} from 'node:child_process';
-import {readFileSync,writeFileSync,writeSync,lstatSync,realpathSync,readdirSync} from 'node:fs';
+import {readFileSync,writeFileSync,lstatSync,realpathSync,readdirSync} from 'node:fs';
 import {join,resolve,relative,dirname} from 'node:path';
 import {pathToFileURL} from 'node:url';
 import {corpus,requireCorpusBytes} from './fetch-freetype-test-corpus.mjs';
 
 export const MANIFEST_SHA256='f1cc5c7ca0c1a2778a7933b4384bc626a8623e8ec32db567c6891b52db0ee5ec';
 const sha=value=>createHash('sha256').update(value).digest('hex');
+// Exact XPASS identities observed in the preserved c0b native run. Empty GNU
+// make overrides remove expected-failure allowance; every one MUST now PASS.
+export const requiredPassExpectations=Object.freeze(['elf/tst-ifunc-isa-1','elf/tst-ifunc-isa-1-static','elf/tst-ifunc-isa-2','elf/tst-ifunc-isa-2-static','nptl/tst-create-detached','nptl/tst-robust8','rt/tst-cpuclock2','rt/tst-cputimer1','rt/tst-timer','support/tst-support_descriptors']);
+export function nativeRequiredPassMakeFlags(){return requiredPassExpectations.map(name=>'test-xfail-'+name.split('/')[1]+'=').join(' ');}
 export function requireSourceManifest(bytes){
   assert.equal(sha(bytes),MANIFEST_SHA256,'Reviewed security manifest changed');
   const manifest=JSON.parse(bytes);
@@ -40,6 +44,7 @@ export function requireTestSummary(text){
   }
   assert.ok(records.length>0);assert.equal(new Set(records.map(row=>row.name)).size,records.length,'Duplicate native test identity');
   for(const name of ['resolv/tst-ns_sprintrr','posix/tst-wordexp-tilde','posix/tst-wordexp-append','stdlib/tst-strfmon-bug34510','iconvdata/tst-jisx0213-progress','libio/tst-fopen-ccs-empty','elf/tst-dl-path-normalize','elf/tst-origin-secure','string/test-strncasecmp-nonarray'])assert.equal(records.find(row=>row.name===name)?.status,'PASS','Official maintained patch regression missing/not PASS: '+name);
+  for(const name of requiredPassExpectations)assert.equal(records.find(row=>row.name===name)?.status,'PASS','Previously expected-failure test must genuinely PASS: '+name);
   return {summarySha256:sha(text),records,counts:Object.fromEntries(['PASS','XFAIL','UNSUPPORTED'].map(status=>[status,records.filter(row=>row.status===status).length])),FAIL:0,XPASS:0};
 }
 // Diagnostics only. Preserve exact failed bytes before Node's assertion display
@@ -58,8 +63,8 @@ export function nativeFailureEvidence(summary,readOptional=()=>undefined){
   }
   return {purpose:'original-native-test-failure-evidence/v1',summary:original,issues,files,withheld,payloadBytes:total,nativeTestsAccepted:false};
 }
-// A fatal assertion can discard queued console output. Keep every frame below
-// PIPE_BUF and synchronously finish it BEFORE rethrowing the original failure.
+// A fatal assertion can discard queued output; writeSync may hit EAGAIN on an
+// inherited nonblocking pipe. Await every bounded write BEFORE rethrowing.
 export function nativeFailureFrames(evidence){
   assert.equal(evidence.purpose,'original-native-test-failure-evidence/v1');assert.equal(evidence.nativeTestsAccepted,false);
   const bytes=Buffer.from(JSON.stringify(evidence));assert.ok(bytes.length>0&&bytes.length<=2*1024**2);
@@ -71,8 +76,8 @@ export function nativeFailureFrames(evidence){
   for(let index=0;index<chunks;index++){const b=bytes.subarray(index*chunkBytes,(index+1)*chunkBytes);frame('NATIVE_TEST_FAILURE_CHUNK=',{index,bytes:b.length,sha256:sha(b),base64:b.toString('base64')});}
   return frames;
 }
-export function emitNativeFailureEvidence(evidence,write=bytes=>writeSync(2,bytes)){
-  for(const frame of nativeFailureFrames(evidence)){let position=0;while(position<frame.length){const n=write(frame.subarray(position));assert.ok(Number.isSafeInteger(n)&&n>0&&n<=frame.length-position,'Diagnostic write must advance exact bytes');position+=n;}}
+export async function emitNativeFailureEvidence(evidence,write=bytes=>new Promise((resolve,reject)=>process.stderr.write(bytes,error=>error?reject(error):resolve(bytes.length)))){
+  for(const frame of nativeFailureFrames(evidence)){let position=0;while(position<frame.length){const n=await write(frame.subarray(position));assert.ok(Number.isSafeInteger(n)&&n>0&&n<=frame.length-position,'Diagnostic write must advance exact bytes');position+=n;}}
 }
 export function parseDynSymbols(text){
   assert.ok(text.length<=32*1024*1024);const symbols=[];
@@ -121,12 +126,12 @@ function prepare(manifest,component,sourceDir,tree,proofRoot){
   writeFileSync(join(tree,'debian/patches/series'),series+item.patches.map(p=>'vaettir-official-'+p.name+' -p1\n').join(''));
   const file=join(tree,'debian/changelog'),old=readFileSync(file,'utf8');
   writeFileSync(file,`${component} (${item.sourceVersion}+vaettir1) trixie; urgency=medium\n\n  * Local compatible rebuild from maintained signed Debian source and the\n    exact reviewed ordered official fixes. Retain package rules/ABI and\n    full native functional test evidence; do not claim provider or deployment\n    acceptance. FreeType CID-targeted acceptance remains separately required.\n\n -- Vaettir Runtime Build <runtime-build@skaldandstone.com>  Mon, 12 Oct 2026 00:00:00 +0000\n\n${old}`);
-  writeFileSync(join(proofRoot,component+'-source-proof.json'),JSON.stringify({component,manifestSha256:MANIFEST_SHA256,sourceVersion:item.sourceVersion,localVersion:item.sourceVersion+'+vaettir1',signer:item.signer,primarySigner:item.primarySigner,maintainedSeriesSha256:sha(series),orderedOfficialPatches:item.patches.map(p=>({commit:p.commit,sha256:p.sha256})),nativeTestsPassed:false},null,2)+'\n',{flag:'wx'});
+  writeFileSync(join(proofRoot,component+'-source-proof.json'),JSON.stringify({component,manifestSha256:MANIFEST_SHA256,sourceVersion:item.sourceVersion,localVersion:item.sourceVersion+'+vaettir1',signer:item.signer,primarySigner:item.primarySigner,maintainedSeriesSha256:sha(series),orderedOfficialPatches:item.patches.map(p=>({commit:p.commit,sha256:p.sha256})),...(component==='glibc'?{requiredPassExpectations:[...requiredPassExpectations],makeFlags:nativeRequiredPassMakeFlags(),expectationAllowanceRemoved:true,previousResultsNotRewritten:true}:{}),nativeTestsPassed:false},null,2)+'\n',{flag:'wx'});
 }
-function testProof(buildDir,output){
+async function testProof(buildDir,output){
   const summaryBytes=readFileSync(join(buildDir,'tests.sum')),summary=summaryBytes.toString('utf8');let result;
   try{result=requireTestSummary(summary);}catch(original){
-    try{const evidence=nativeFailureEvidence(summaryBytes,path=>{const file=resolve(buildDir,path);assert.ok(file.startsWith(resolve(buildDir)+'/'));const stat=regular(file);if(stat.size>128*1024)return undefined;return readFileSync(file);});emitNativeFailureEvidence(evidence);}catch{console.error('Native failure evidence capture could not complete; original summary validation still fails.');}
+    try{const evidence=nativeFailureEvidence(summaryBytes,path=>{const file=resolve(buildDir,path);assert.ok(file.startsWith(resolve(buildDir)+'/'));const stat=regular(file);if(stat.size>128*1024)return undefined;return readFileSync(file);});await emitNativeFailureEvidence(evidence);}catch{console.error('Native failure evidence capture could not complete; original summary validation still fails.');}
     throw original;
   }
   for(const row of result.records){const file=resolve(buildDir,row.name+'.test-result');assert.ok(file.startsWith(resolve(buildDir)+'/'));const first=readFileSync(file,'utf8').split(/\r?\n/)[0];assert.equal(first,row.status+': '+row.name,'Summary does not match individual native result');}
@@ -173,7 +178,8 @@ if(process.argv[1]&&import.meta.url===pathToFileURL(process.argv[1]).href){
   if(mode==='pins'){assert.equal(args.length,3);sourcePins(requireSourceManifest(readFileSync(args[0])),args[1],args[2]);}
   else if(mode==='signature'){assert.equal(args.length,3);assert.ok(['glibc','freetype'].includes(args[0]));requireSignature(readFileSync(args[2],'utf8'),requireSourceManifest(readFileSync(args[1])).components[args[0]]);}
   else if(mode==='prepare'){assert.equal(args.length,5);prepare(requireSourceManifest(readFileSync(args[1])),args[0],args[2],args[3],args[4]);}
-  else if(mode==='tests'){assert.equal(args.length,2);testProof(...args);}
+  else if(mode==='tests'){assert.equal(args.length,2);await testProof(...args);}
+  else if(mode==='required-pass-makeflags'){assert.equal(args.length,0);console.log(nativeRequiredPassMakeFlags());}
   else if(mode==='abi'){assert.equal(args.length,3);abiProof(...args);}
   else if(mode==='packages'){assert.equal(args.length,2);packageProof(...args);}
   else if(mode==='elf-family'){assert.equal(args.length,3);elfFamily(...args);}

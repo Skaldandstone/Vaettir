@@ -65,7 +65,15 @@ PATCH_NAMES
   # No nocheck/stage1/stage2/dependency bypass. nobiarch selects the unchanged
   # native amd64 pass; the runtime has no i386 or x32 glibc installation.
   run env DEB_BUILD_PROFILES="$profiles" dpkg-checkbuilddeps
-  run env DEB_BUILD_OPTIONS="parallel=$native_jobs" DEB_BUILD_PROFILES="$profiles" dpkg-buildpackage -b -us -uc > "$root/package-build.log" 2>&1
+  if test "$component" = glibc; then
+    # Remove ONLY the ten recorded XPASS expected-failure allowances. Empty
+    # command-line make variables propagate to every submake; no test is skipped,
+    # rewritten or weakened. Any future failure of these tests is now fatal.
+    required_pass_flags=$(run node "$proof_script" required-pass-makeflags)
+    run env MAKEFLAGS="$required_pass_flags" DEB_BUILD_OPTIONS="parallel=$native_jobs" DEB_BUILD_PROFILES="$profiles" dpkg-buildpackage -b -us -uc > "$root/package-build.log" 2>&1
+  else
+    run env DEB_BUILD_OPTIONS="parallel=$native_jobs" DEB_BUILD_PROFILES="$profiles" dpkg-buildpackage -b -us -uc > "$root/package-build.log" 2>&1
+  fi
   run dpkg-source --before-build .
   if test "$component" = glibc; then
     build_dir="$root/source/build-tree/amd64-libc"
@@ -75,7 +83,7 @@ PATCH_NAMES
     run node "$proof_script" tests "$build_dir" "$root/package-tests-proof.json"
     # Exact maintained, complete native check; no subdirs/tests filter, no
     # cross-compilation, no stop-on-first-failure or new test exemptions.
-    run env LD_PRELOAD= LANG= LANGUAGE= make -C "$build_dir" -j"$native_jobs" check > "$root/upstream-check.log" 2>&1
+    run env MAKEFLAGS="$required_pass_flags" LD_PRELOAD= LANG= LANGUAGE= make -C "$build_dir" -j"$native_jobs" check > "$root/upstream-check.log" 2>&1
     cp "$build_dir/tests.sum" "$root/upstream-tests.sum"
     run node "$proof_script" tests "$build_dir" "$root/upstream-tests-proof.json"
     run make -C "$build_dir" -j"$native_jobs" check-abi > "$root/upstream-abi.log" 2>&1
