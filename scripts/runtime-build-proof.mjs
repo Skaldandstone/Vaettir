@@ -42,6 +42,22 @@ export function requireTestSummary(text){
   for(const name of ['resolv/tst-ns_sprintrr','posix/tst-wordexp-tilde','posix/tst-wordexp-append','stdlib/tst-strfmon-bug34510','iconvdata/tst-jisx0213-progress','libio/tst-fopen-ccs-empty','elf/tst-dl-path-normalize','elf/tst-origin-secure','string/test-strncasecmp-nonarray'])assert.equal(records.find(row=>row.name===name)?.status,'PASS','Official maintained patch regression missing/not PASS: '+name);
   return {summarySha256:sha(text),records,counts:Object.fromEntries(['PASS','XFAIL','UNSUPPORTED'].map(status=>[status,records.filter(row=>row.status===status).length])),FAIL:0,XPASS:0};
 }
+// Diagnostics only. Preserve exact failed bytes before Node's assertion display
+// truncates them; this never changes a test status or admits a failed summary.
+export function nativeFailureEvidence(summary,readOptional=()=>undefined){
+  assert.ok(Buffer.isBuffer(summary)&&summary.length>0&&summary.length<=8*1024**2);
+  const text=new TextDecoder('utf-8',{fatal:true}).decode(summary),issues=text.split(/\r?\n/).filter(line=>/^[A-Z]+:/.test(line)&&!/^(PASS|XFAIL|UNSUPPORTED):/.test(line));
+  assert.ok(issues.length<=1000);const files=[],withheld=[];let total=summary.length<=512*1024?summary.length:0;
+  const original={path:'tests.sum',bytes:summary.length,sha256:sha(summary),...(total?{base64:summary.toString('base64')}:{withheld:'Summary exceeds bounded diagnostic payload'})};
+  const names=[...new Set(issues.flatMap(line=>{const m=/^[A-Z]+: ([A-Za-z0-9_./+-]+)$/.exec(line);return m&&!m[1].split('/').some(part=>part==='.'||part==='..'||part==='')?[m[1]]:[];}))];
+  for(const name of names)for(const extension of ['test-result','out']){
+    const path=name+'.'+extension;try{const bytes=readOptional(path);if(bytes===undefined){withheld.push({path,reason:'Unavailable or exceeds per-file bound'});continue;}
+      assert.ok(Buffer.isBuffer(bytes)&&bytes.length<=128*1024);if(total+bytes.length>1024**2){withheld.push({path,reason:'Aggregate diagnostic payload bound'});continue;}
+      total+=bytes.length;files.push({path,bytes:bytes.length,sha256:sha(bytes),base64:bytes.toString('base64')});
+    }catch{withheld.push({path,reason:'Exact regular diagnostic file could not be read'});}
+  }
+  return {purpose:'original-native-test-failure-evidence/v1',summary:original,issues,files,withheld,payloadBytes:total,nativeTestsAccepted:false};
+}
 export function parseDynSymbols(text){
   assert.ok(text.length<=32*1024*1024);const symbols=[];
   for(const line of text.split(/\r?\n/)){
@@ -92,7 +108,11 @@ function prepare(manifest,component,sourceDir,tree,proofRoot){
   writeFileSync(join(proofRoot,component+'-source-proof.json'),JSON.stringify({component,manifestSha256:MANIFEST_SHA256,sourceVersion:item.sourceVersion,localVersion:item.sourceVersion+'+vaettir1',signer:item.signer,primarySigner:item.primarySigner,maintainedSeriesSha256:sha(series),orderedOfficialPatches:item.patches.map(p=>({commit:p.commit,sha256:p.sha256})),nativeTestsPassed:false},null,2)+'\n',{flag:'wx'});
 }
 function testProof(buildDir,output){
-  const summary=readFileSync(join(buildDir,'tests.sum'),'utf8'),result=requireTestSummary(summary);
+  const summaryBytes=readFileSync(join(buildDir,'tests.sum')),summary=summaryBytes.toString('utf8');let result;
+  try{result=requireTestSummary(summary);}catch(original){
+    try{const evidence=nativeFailureEvidence(summaryBytes,path=>{const file=resolve(buildDir,path);assert.ok(file.startsWith(resolve(buildDir)+'/'));const stat=regular(file);if(stat.size>128*1024)return undefined;return readFileSync(file);});console.error('NATIVE_TEST_FAILURE_EVIDENCE='+JSON.stringify(evidence));}catch{console.error('Native failure evidence capture could not complete; original summary validation still fails.');}
+    throw original;
+  }
   for(const row of result.records){const file=resolve(buildDir,row.name+'.test-result');assert.ok(file.startsWith(resolve(buildDir)+'/'));const first=readFileSync(file,'utf8').split(/\r?\n/)[0];assert.equal(first,row.status+': '+row.name,'Summary does not match individual native result');}
   writeFileSync(output,JSON.stringify({...result,standardNativeCheck:true,nativeAbiCheckRequired:true},null,2)+'\n',{flag:'wx'});
 }

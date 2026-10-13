@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
-import {requireSourceManifest,requireSignature,requireTestSummary,parseDynSymbols,requireAbiPreservation,requireFreeTypeStandardResult} from './runtime-build-proof.mjs';
+import {requireSourceManifest,requireSignature,requireTestSummary,nativeFailureEvidence,parseDynSymbols,requireAbiPreservation,requireFreeTypeStandardResult} from './runtime-build-proof.mjs';
 const manifest=readFileSync(new URL('./runtime-security-sources.json',import.meta.url));
 test('exact reviewed maintained source manifest admits 10 sources/23 ordered official patches and refuses changed custody',()=>{
   const value=requireSourceManifest(manifest);assert.equal(value.components.glibc.patches.length,22);assert.equal(value.components.freetype.patches.length,1);assert.throws(()=>requireSourceManifest(Buffer.concat([manifest,Buffer.from(' ')])));
@@ -16,6 +16,15 @@ const summary='\t\t=== glibc tests ===\n'+['.','elf','nptl','stdlib','string','m
 test('full-suite model admits official regressions, preserves XFAIL/UNSUPPORTED, refuses FAIL/XPASS/ERROR/UNRESOLVED/missing directories',()=>{
   const proof=requireTestSummary(summary+'XFAIL: nptl/expected\nUNSUPPORTED: elf/privileged\n');assert.equal(proof.counts.XFAIL,1);assert.equal(proof.counts.UNSUPPORTED,1);
   for(const status of ['FAIL','XPASS','ERROR','UNRESOLVED','UNKNOWN'])assert.throws(()=>requireTestSummary(summary+status+': elf/failure\n'));assert.throws(()=>requireTestSummary(summary.replace('Running nptl ...\n','')));assert.throws(()=>requireTestSummary(summary.replace('PASS: '+names[0],'UNSUPPORTED: '+names[0])));assert.throws(()=>requireTestSummary(summary+'PASS: '+names[0]+'\n'));
+});
+test('failed native summary and exact output bytes survive diagnostic serialization without changing rejection',()=>{
+ const bytes=Buffer.from(summary+'FAIL: elf/real-failure\nXPASS: nptl/unexpected\nERROR: test results for directory missing\n'),binary=Buffer.from([0,255,10,13,65]),requested=[];
+ const evidence=nativeFailureEvidence(bytes,path=>{requested.push(path);return binary;});assert.equal(evidence.nativeTestsAccepted,false);assert.deepEqual(Buffer.from(evidence.summary.base64,'base64'),bytes);assert.equal(evidence.issues.length,3);assert.equal(evidence.files.length,4);for(const row of evidence.files)assert.deepEqual(Buffer.from(row.base64,'base64'),binary);assert.ok(!requested.some(path=>path.includes('directory')));assert.throws(()=>requireTestSummary(bytes.toString('utf8')));
+});
+test('failure diagnostics never read traversal paths and keep finite original byte bounds explicit',()=>{
+ const requested=[],unsafe=Buffer.from('FAIL: ../private\nFAIL: a//b\nFAIL: /absolute\nFAIL: a/./b\n');const result=nativeFailureEvidence(unsafe,path=>{requested.push(path);return Buffer.from('x');});assert.equal(requested.length,0);assert.equal(result.issues.length,4);
+ const large=Buffer.alloc(512*1024+1,32);const withheld=nativeFailureEvidence(large);assert.equal(withheld.summary.base64,undefined);assert.equal(withheld.summary.bytes,large.length);assert.match(withheld.summary.withheld,/exceeds/);
+ const many=Buffer.from(Array.from({length:10},(_,i)=>'FAIL: elf/failure-'+i+'\n').join(''));const bounded=nativeFailureEvidence(many,()=>Buffer.alloc(128*1024));assert.ok(bounded.payloadBytes<=1024**2);assert.ok(bounded.withheld.length>0);assert.equal(bounded.nativeTestsAccepted,false);assert.throws(()=>requireTestSummary(many.toString('utf8')));
 });
 const symbols='Symbol table .dynsym:\n 1: 00000010 8 OBJECT GLOBAL DEFAULT 12 exported@@GLIBC_2.2.5\n 2: 00000000 4 TLS GLOBAL DEFAULT 14 tls@GLIBC_2.34\n 3: 00000030 42 FUNC WEAK DEFAULT 12 function@@GLIBC_2.41\n 4: 00000000 0 FUNC GLOBAL DEFAULT UND dependency@GLIBC_2.2.5 (1)\n';
 test('exact versioned exports include default/nondefault ABI and OBJECT/TLS sizes, not code addresses or FUNC sizes',()=>{
