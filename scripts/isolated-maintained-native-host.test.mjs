@@ -40,10 +40,13 @@ test('temporary mount/PID/net isolation with loopback only; no host bind exposur
  assert.match(text,/mount -t proc -o nosuid,nodev,noexec proc "\$rootfs\/proc"/);assert.match(text,/devpts -o newinstance/);
  assert.match(text,/tmpfs "\$rootfs\/sys"/);assert.match(text,/tmpfs "\$rootfs\/run"/);
  assert.match(text,/mount -t tmpfs -o mode=1777,nodev,size=128m tmpfs "\$rootfs\/tmp"/);
- assert.doesNotMatch(text,/mode=1777[^\n]*(?:nosuid|noexec)/);
+ const privateTmp=text.split('\n').find(line=>line.startsWith('/usr/bin/mount ')&&line.endsWith('"$rootfs/tmp"'));
+ assert.ok(privateTmp);assert.doesNotMatch(privateTmp,/nosuid|noexec/);
 });
 test('fixed ordinary devices only, isolated devpts, no sockets or host devices',()=>{
- assert.ok(text.includes("'null 1 3' 'zero 1 5' 'random 1 8' 'urandom 1 9' 'full 1 7'"));assert.ok(text.includes('ln -s pts/ptmx'));assert.ok(text.includes('ln -s /proc/self/fd'));
+ assert.ok(text.includes("'null 1 3' 'zero 1 5' 'random 1 8' 'urandom 1 9' 'full 1 7' 'tty 5 0'"));assert.ok(text.includes('ln -s pts/ptmx'));assert.ok(text.includes('ln -s /proc/self/fd'));
+ for(const fd of [0,1,2])assert.ok(text.includes('ln -s /proc/self/fd/'+fd));
+ assert.match(text,/mount -t tmpfs -o mode=1777,nosuid,nodev,noexec,size=64m tmpfs "\$rootfs\/dev\/shm"/);
  assert.doesNotMatch(text,/\/dev\/(?:kvm|fuse|mem|dri|nvidia|docker)|docker\.sock|--rbind/);
 });
 test('native UID1000, clean env, combined timeout3500/four workers and original stderr/status',()=>{

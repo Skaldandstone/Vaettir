@@ -59,7 +59,9 @@ def path_name(value, directory=False):
         value = value[2:]
     if directory:
         value = value.rstrip('/')
-    assert re.fullmatch('[A-Za-z0-9_./+@,=:-]+', value)
+    # Actual673 export header bb445ec9 is the standard coreutils `[` executable.
+    # Admit that ONE literal path, not shell glob syntax or general brackets.
+    assert value == 'usr/bin/[' or re.fullmatch('[A-Za-z0-9_./+@,=:-]+', value)
     assert not value.startswith('/') and all(p not in ('', '.', '..') for p in value.split('/'))
     return value
 
@@ -127,6 +129,8 @@ def read_entries(f, archive_size):
         seen.add(name)
         mode, uid, gid = number(block[100:108]), number(block[108:116]), number(block[116:124])
         assert mode <= 0o7777 and uid <= 65535 and gid <= 65535
+        if name == 'usr/bin/[':
+            assert kind in (b'0', b'\0') and mode == 0o755 and uid == 0 and gid == 0
         if kind in (b'1', b'2', b'5'):
             assert size == 0
         if kind == b'1':

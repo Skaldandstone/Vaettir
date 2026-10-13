@@ -33,7 +33,7 @@ def archive(entries,format=tarfile.USTAR_FORMAT):
  b=io.BytesIO()
  with tarfile.open(fileobj=b,mode='w',format=format) as t:
   for name,kind,data,target in entries:
-   x=tarfile.TarInfo(name);x.mode=0o755 if kind==tarfile.DIRTYPE else 0o644;x.type=kind;x.linkname=target;x.size=len(data)
+   x=tarfile.TarInfo(name);x.mode=0o755 if kind==tarfile.DIRTYPE or name=='usr/bin/[' else 0o644;x.type=kind;x.linkname=target;x.size=len(data)
    t.addfile(x,io.BytesIO(data))
  return b.getvalue()
 def parse(b): return m.read_entries(io.BytesIO(b),len(b))
@@ -43,6 +43,14 @@ def refused(b):
  raise AssertionError('Unsafe archive admitted')
 base=[('usr',tarfile.DIRTYPE,b'',''),('usr/bin',tarfile.DIRTYPE,b'',''),('usr/bin/tool',tarfile.REGTYPE,b'abc','')]
 r=parse(archive(base));assert len(r)==3 and r[-1]['size']==3
+assert m.path_name('usr/bin/[')=='usr/bin/['
+parse(archive(base+[('usr/bin/[',tarfile.REGTYPE,b'owned coreutils fixture','')]))
+refused(archive(base+[('usr/bin/[',tarfile.DIRTYPE,b'','')]))
+refused(archive(base+[('usr/bin/[',tarfile.SYMTYPE,b'','usr/bin/tool')]))
+for value in ['usr/bin/[other]','usr/bin/*','usr/[bin]/tool','usr/bin/$(id)','usr/bin/[;id']:
+ try: m.path_name(value)
+ except AssertionError: pass
+ else: raise AssertionError('Bracket exception expanded beyond exact coreutils path')
 r=parse(archive(base+[('usr/bin/tool-link',tarfile.LNKTYPE,b'','usr/bin/tool')]));assert r[-1]['target']=='usr/bin/tool'
 parse(archive(base+[('bin',tarfile.SYMTYPE,b'','usr/bin')]))
 for extra in [[('../escape',tarfile.REGTYPE,b'a','')],[('/outside',tarfile.REGTYPE,b'a','')],[('usr/bin/tool',tarfile.REGTYPE,b'a','')],[('usr/bin/fifo',tarfile.FIFOTYPE,b'','')],[('usr/bin/device',tarfile.CHRTYPE,b'','')],[('usr/bin/hard',tarfile.LNKTYPE,b'','../escape')],[('usr/bin/alias',tarfile.SYMTYPE,b'','usr/bin'),('usr/bin/alias/child',tarfile.REGTYPE,b'a','')],[('missing/parent',tarfile.REGTYPE,b'a','')],[('usr/bin/self',tarfile.LNKTYPE,b'','usr/bin/self')]]:

@@ -51,7 +51,8 @@ def admission():
  expected={}; total=0
  for row in rows:
   assert set(row)==set(['path','type','mode','uid','gid','size','sha256','target'])
-  p=row['path']; assert re.fullmatch('[A-Za-z0-9_./+@,=:-]+',p) and not p.startswith('/') and all(x not in ('','.','..') for x in p.split('/')) and p not in expected
+  p=row['path']; assert (p=='usr/bin/[' or re.fullmatch('[A-Za-z0-9_./+@,=:-]+',p)) and not p.startswith('/') and all(x not in ('','.','..') for x in p.split('/')) and p not in expected
+  if p=='usr/bin/[': assert row['type']=='file' and row['mode']==0o755 and row['uid']==0 and row['gid']==0
   expected[p]=row
  actual={}
  for base,dirs,files in os.walk(root,followlinks=False):
@@ -132,7 +133,7 @@ options=$(/usr/bin/findmnt -n -o OPTIONS --target "$rootfs")
 [[ ,$options, != *,nosuid,* && ,$options, != *,noexec,* ]] || fail
 /usr/bin/mount -t proc -o nosuid,nodev,noexec proc "$rootfs/proc"
 /usr/bin/mount -t tmpfs -o mode=755,nosuid,noexec,size=16m tmpfs "$rootfs/dev"
-for spec in 'null 1 3' 'zero 1 5' 'random 1 8' 'urandom 1 9' 'full 1 7'; do
+for spec in 'null 1 3' 'zero 1 5' 'random 1 8' 'urandom 1 9' 'full 1 7' 'tty 5 0'; do
   read -r name major minor <<< "$spec"
   /usr/bin/mknod -m 666 "$rootfs/dev/$name" c "$major" "$minor"
 done
@@ -140,6 +141,12 @@ done
 /usr/bin/mount -t devpts -o newinstance,ptmxmode=0666,mode=0620,gid=5,nosuid,noexec devpts "$rootfs/dev/pts"
 /usr/bin/ln -s pts/ptmx "$rootfs/dev/ptmx"
 /usr/bin/ln -s /proc/self/fd "$rootfs/dev/fd"
+/usr/bin/ln -s /proc/self/fd/0 "$rootfs/dev/stdin"
+/usr/bin/ln -s /proc/self/fd/1 "$rootfs/dev/stdout"
+/usr/bin/ln -s /proc/self/fd/2 "$rootfs/dev/stderr"
+# Normal POSIX shared-memory mount, private to this namespace, as in Docker.
+/usr/bin/mkdir "$rootfs/dev/shm"
+/usr/bin/mount -t tmpfs -o mode=1777,nosuid,nodev,noexec,size=64m tmpfs "$rootfs/dev/shm"
 /usr/bin/mount -t tmpfs -o mode=755,nosuid,nodev,noexec,size=4m tmpfs "$rootfs/sys"
 /usr/bin/mount -t tmpfs -o mode=755,nosuid,nodev,noexec,size=4m tmpfs "$rootfs/run"
 # Original tst-origin-secure creates its normal suid helper under /tmp.
