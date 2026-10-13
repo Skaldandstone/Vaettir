@@ -129,6 +129,17 @@ describe.skipIf(!isolated&&process.env.GITHUB_ACTIONS!=="true")("saved GitLab me
   });
   it("preserves READ_ONLY source-preview semantics without provider renewal or spending authority",async()=>{
     await prisma.repositoryConnection.update({where:{id:connectionId},data:{tokenExpiresAt:new Date(Date.now()+3600000)}});await prisma.membership.update({where:{organizationId_userId:{organizationId:orgId,userId:actorId}},data:{seatType:"READ_ONLY"}});
+    // Model a new protected request, whose context loads the current native
+    // memberships. The previous FULL request snapshot must not be reused as
+    // proof of an ordinary current READ_ONLY preview.
+    ctx.user=await prisma.user.findUniqueOrThrow({where:{id:actorId},include:{memberships:true}});
     expect(await repositoryProcessingPreview(ctx,projectId,"TEST_CASES",{repositoryId:repoIds[0]!,repoUrl:origin+"/team/repo-47",ref:"main",pathPrefixes:["tests"],maxItems:1})).toMatchObject({canSpend:false});expect(refreshGitlabAuthorization).not.toHaveBeenCalled();expect(repositoryProviderJson).not.toHaveBeenCalled();
+  });
+  it("a retained FULL request context cannot renew after the native seat becomes READ_ONLY",async()=>{
+    await prisma.membership.update({where:{organizationId_userId:{organizationId:orgId,userId:actorId}},data:{seatType:"READ_ONLY"}});
+    const before=await current();
+    expect(ctx.user.memberships.find(member=>member.organizationId===orgId)?.seatType).toBe("FULL");
+    await expect(repositoryProcessingPreview(ctx,projectId,"TEST_CASES",{repositoryId:repoIds[0]!,repoUrl:origin+"/team/repo-47",ref:"main",pathPrefixes:["tests"],maxItems:1})).rejects.toMatchObject({code:"FORBIDDEN"});
+    expect(refreshGitlabAuthorization).not.toHaveBeenCalled();expect(repositoryProviderJson).not.toHaveBeenCalled();expect(await current()).toEqual(before);
   });
 });
