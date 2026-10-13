@@ -3,13 +3,13 @@ name: CI
 on:
   workflow_dispatch:
     inputs:
-      maintained_native_proof:
-        description: "Build maintained native package proof only alongside full CI; not deployment"
+      llvm_configure_only:
+        description: "Measure LLVM configurations only (no full compilation, package or deployment)"
         type: boolean
         required: false
         default: false
-      llvm_configure_only:
-        description: "Measure LLVM configurations only (no full compilation, package or deployment)"
+      maintained_native_proof:
+        description: "Build maintained native package proof only alongside full CI; not deployment"
         type: boolean
         required: false
         default: false
