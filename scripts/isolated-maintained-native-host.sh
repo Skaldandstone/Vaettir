@@ -51,7 +51,7 @@ def admission():
  expected={}; total=0
  for row in rows:
   assert set(row)==set(['path','type','mode','uid','gid','size','sha256','target'])
-  p=row['path']; assert (p=='usr/bin/[' or re.fullmatch('[A-Za-z0-9_./+@,=:-]+',p)) and not p.startswith('/') and all(x not in ('','.','..') for x in p.split('/')) and p not in expected
+  p=row['path']; assert (p=='usr/bin/[' or re.fullmatch('[A-Za-z0-9_ ./+@,=:-]+',p)) and not p.startswith('/') and all(x not in ('','.','..') and x==x.strip() for x in p.split('/')) and p not in expected
   if p=='usr/bin/[': assert row['type']=='file' and row['mode']==0o755 and row['uid']==0 and row['gid']==0
   expected[p]=row
  actual={}

@@ -44,10 +44,12 @@ def refused(b):
 base=[('usr',tarfile.DIRTYPE,b'',''),('usr/bin',tarfile.DIRTYPE,b'',''),('usr/bin/tool',tarfile.REGTYPE,b'abc','')]
 r=parse(archive(base));assert len(r)==3 and r[-1]['size']==3
 assert m.path_name('usr/bin/[')=='usr/bin/['
+assert m.path_name('usr/lib/python3/dist-packages/setuptools/_vendor/jaraco/text/Lorem ipsum.txt').endswith('Lorem ipsum.txt')
+parse(archive(base+[('usr/bin/ordinary data.txt',tarfile.REGTYPE,b'plain synthetic data','')]))
 parse(archive(base+[('usr/bin/[',tarfile.REGTYPE,b'owned coreutils fixture','')]))
 refused(archive(base+[('usr/bin/[',tarfile.DIRTYPE,b'','')]))
 refused(archive(base+[('usr/bin/[',tarfile.SYMTYPE,b'','usr/bin/tool')]))
-for value in ['usr/bin/[other]','usr/bin/*','usr/[bin]/tool','usr/bin/$(id)','usr/bin/[;id']:
+for value in ['usr/bin/[other]','usr/bin/*','usr/[bin]/tool','usr/bin/$(id)','usr/bin/[;id','usr/bin/ leading','usr/bin/trailing ','usr/bin/tab\tfile','usr/bin/new\nfile','usr/bin/../escape']:
  try: m.path_name(value)
  except AssertionError: pass
  else: raise AssertionError('Bracket exception expanded beyond exact coreutils path')

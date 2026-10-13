@@ -61,8 +61,11 @@ def path_name(value, directory=False):
         value = value.rstrip('/')
     # Actual673 export header bb445ec9 is the standard coreutils `[` executable.
     # Admit that ONE literal path, not shell glob syntax or general brackets.
-    assert value == 'usr/bin/[' or re.fullmatch('[A-Za-z0-9_./+@,=:-]+', value)
-    assert not value.startswith('/') and all(p not in ('', '.', '..') for p in value.split('/'))
+    # Actual170 also contains setuptools' ordinary "Lorem ipsum.txt" data file.
+    # Internal literal spaces are data passed to filesystem APIs, never shell
+    # interpolation. Controls, shell/glob syntax and path escapes still refuse.
+    assert value == 'usr/bin/[' or re.fullmatch('[A-Za-z0-9_ ./+@,=:-]+', value)
+    assert not value.startswith('/') and all(p not in ('', '.', '..') and p == p.strip() for p in value.split('/'))
     return value
 
 
