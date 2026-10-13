@@ -6,8 +6,10 @@ RUN apt-get update --error-on=any \
     && rm -rf /var/lib/apt/lists/*
 WORKDIR /build
 ARG VAETTIR_RELEASE_COMMIT
+ARG VAETTIR_NATIVE_JOBS=2
+ENV VAETTIR_NATIVE_JOBS=$VAETTIR_NATIVE_JOBS
 RUN node -e "if(!/^[a-f0-9]{40}$/.test(process.argv[1]))process.exit(1)" "$VAETTIR_RELEASE_COMMIT"
-COPY scripts/runtime-security-sources.json scripts/fetch-runtime-security-sources.mjs scripts/fetch-freetype-test-corpus.mjs scripts/build-maintained-runtime.sh scripts/runtime-build-proof.mjs /build/scripts/
+COPY scripts/runtime-security-sources.json scripts/fetch-runtime-security-sources.mjs scripts/fetch-freetype-test-corpus.mjs scripts/build-maintained-runtime.sh scripts/runtime-build-proof.mjs scripts/watch-native-build-logs.mjs /build/scripts/
 # Use the existing image build user, not a new account or a privileged test
 # exception. Inputs/evidence are owned by that same unprivileged user.
 RUN chown -R node:node /build
@@ -15,7 +17,7 @@ USER node
 RUN node /build/scripts/fetch-runtime-security-sources.mjs /build/glibc-sources glibc \
     && node /build/scripts/fetch-runtime-security-sources.mjs /build/freetype-sources freetype \
     && node /build/scripts/fetch-freetype-test-corpus.mjs /build/freetype-standard-corpus
-RUN --network=none sh /build/scripts/build-maintained-runtime.sh /build/scripts/runtime-security-sources.json /build/glibc-sources /build/freetype-sources /build/runtime-security /build/scripts/runtime-build-proof.mjs /build/freetype-standard-corpus
+RUN --network=none node /build/scripts/watch-native-build-logs.mjs /build/scripts/build-maintained-runtime.sh /build/scripts/runtime-security-sources.json /build/glibc-sources /build/freetype-sources /build/runtime-security /build/scripts/runtime-build-proof.mjs /build/freetype-standard-corpus
 
 FROM scratch AS runtime-security-proof
 ARG VAETTIR_RELEASE_COMMIT

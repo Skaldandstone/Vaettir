@@ -1,0 +1,7 @@
+import test from 'node:test';import assert from 'node:assert/strict';import{readFileSync}from'node:fs';
+test('optional native proof uses existing public standard CI and bounded scratch custody, never deploy credentials or services',()=>{
+ const ci=readFileSync(new URL('../.github/workflows/ci.yml',import.meta.url),'utf8'),start=ci.indexOf('  maintained-native-proof:'),end=ci.indexOf('  llvm-configure-diagnostic:',start),job=ci.slice(start,end);
+ assert.ok(start>0&&end>start);assert.match(ci,/maintained_native_proof:[\s\S]*?default: false/);assert.match(job,/runs-on: ubuntu-latest/);assert.match(job,/timeout-minutes: 45/);assert.match(job,/test "\$visibility" = public/);assert.match(job,/test "\$\(nproc\)" -ge 4/);assert.match(job,/8388608/);assert.match(job,/timeout --signal=TERM --kill-after=20 2400 docker build/);assert.match(job,/VAETTIR_NATIVE_JOBS=4/);assert.match(job,/docker create.*\/not-executed/);assert.match(job,/\.State.Status.*created/);assert.match(job,/268435456/);assert.match(job,/runtimeEligible:false/);assert.match(job,/retention-days: 1/);
+ assert.doesNotMatch(job,/id-token: write|secrets\.|aws |docker (?:push|run|start)|--privileged|--security-opt|cdk deploy|migrate deploy|--force/);
+ assert.match(ci,/  build:\n    runs-on: ubuntu-latest/);assert.match(ci,/name: Build production artifacts/);assert.match(ci,/name: Verify standalone native image receipt packaging/);
+});

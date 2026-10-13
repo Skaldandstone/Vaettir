@@ -3,6 +3,11 @@ name: CI
 on:
   workflow_dispatch:
     inputs:
+      maintained_native_proof:
+        description: "Build maintained native package proof only alongside full CI; not deployment"
+        type: boolean
+        required: false
+        default: false
       llvm_configure_only:
         description: "Measure LLVM configurations only (no full compilation, package or deployment)"
         type: boolean
@@ -90,6 +95,7 @@ jobs:
           node --test scripts/native-build-concurrency.test.mjs
           node --test scripts/fetch-git-openssl-sources.test.mjs scripts/git-openssl-runtime.test.mjs scripts/git-openssl-dockerfile-inverse-fixture.test.mjs
           node --test scripts/fetch-runtime-security-sources.test.mjs
+          node --test scripts/watch-native-build-logs.test.mjs scripts/maintained-native-ci-contract.test.mjs
           node --test scripts/runtime-build-proof.test.mjs scripts/fetch-freetype-test-corpus.test.mjs scripts/install-runtime-security-family.test.mjs scripts/runtime-security-build-contract.test.mjs
 
       - name: Verify installed native image-processing runtime
@@ -118,6 +124,63 @@ jobs:
 
       - name: Verify standalone native image receipt packaging
         run: node scripts/retain-sharp-version-receipt.mjs
+
+  maintained-native-proof:
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.maintained_native_proof == true && inputs.llvm_configure_only != true }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Build bounded maintained native package proof
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REPOSITORY" = Skaldandstone/Vaettir
+          visibility=$(gh api repos/Skaldandstone/Vaettir --jq .visibility)
+          test "$visibility" = public
+          [[ "$GITHUB_SHA" =~ ^[a-f0-9]{40}$ ]]
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$(nproc)" -ge 4
+          test "$(awk '/^MemTotal:/ {print $2}' /proc/meminfo)" -ge 8388608
+          test "$(df -Pk "$RUNNER_TEMP" | awk 'NR == 2 {print $4}')" -ge 8388608
+          proof_dir="$RUNNER_TEMP/vaettir-maintained-proof"
+          mkdir "$proof_dir"
+          image="vaettir-maintained-proof:$GITHUB_SHA-$GITHUB_RUN_ID"
+          cid=
+          cleanup() { rc=$?; trap - EXIT; if [[ "$cid" =~ ^[a-f0-9]{64}$ ]]; then timeout 20 docker rm "$cid" >/dev/null || exit 91; fi; exit "$rc"; }
+          trap cleanup EXIT
+          DOCKER_BUILDKIT=1 timeout --signal=TERM --kill-after=20 2400 docker build --progress=plain --no-cache --target runtime-security-proof -f Dockerfile.runtime-security --build-arg VAETTIR_RELEASE_COMMIT="$GITHUB_SHA" --build-arg VAETTIR_NATIVE_JOBS=4 -t "$image" .
+          docker image inspect "$image" > "$proof_dir/image.json"
+          node - "$proof_dir/image.json" <<'NODE'
+          const a=require('node:assert/strict'),fs=require('node:fs');const x=JSON.parse(fs.readFileSync(process.argv[2]));a.equal(x.length,1);const c=x[0].Config;a.equal(c.Labels['vaettir.runtime-eligible'],'false');a.equal(c.Labels['vaettir.artifact-purpose'],'maintained-native-package-proof');a.equal(c.Labels['vaettir.source-commit'],process.env.GITHUB_SHA);a.ok(!c.Cmd||c.Cmd.length===0);a.ok(!c.Entrypoint||c.Entrypoint.length===0);
+          NODE
+          cid=$(timeout 20 docker create --name "vaettir-proof-$GITHUB_RUN_ID" "$image" /not-executed)
+          [[ "$cid" =~ ^[a-f0-9]{64}$ ]]
+          test "$(docker inspect --format '{{.State.Status}}' "$cid")" = created
+          timeout 30 docker cp "$cid:/proof/." - > "$proof_dir/proof.tar"
+          test "$(stat -c %s "$proof_dir/proof.tar")" -gt 0
+          test "$(stat -c %s "$proof_dir/proof.tar")" -le 268435456
+          timeout 20 docker rm "$cid" >/dev/null
+          cid=
+          node - "$proof_dir" <<'NODE'
+          const fs=require('node:fs'),c=require('node:crypto'),a=require('node:assert/strict'),p=process.argv[2];const b=fs.readFileSync(p+'/proof.tar');for(const key of ['GITHUB_SHA','GITHUB_RUN_ID','GITHUB_RUN_ATTEMPT'])a.match(process.env[key],key==='GITHUB_SHA'?/^[a-f0-9]{40}$/:/^[0-9]+$/);fs.writeFileSync(p+'/proof.json',JSON.stringify({purpose:'github-maintained-native-proof-custody/v1',commit:process.env.GITHUB_SHA,runId:process.env.GITHUB_RUN_ID,attempt:process.env.GITHUB_RUN_ATTEMPT,archiveBytes:b.length,archiveSha256:c.createHash('sha256').update(b).digest('hex'),runtimeEligible:false,installedFamilyAcceptance:false,securityAcceptance:false,deploymentAcceptance:false})+'\n',{flag:'wx'});
+          NODE
+        env:
+          GH_TOKEN: ${{ github.token }}
+      - uses: actions/upload-artifact@v6
+        with:
+          name: maintained-native-proof-${{ github.sha }}-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/vaettir-maintained-proof/proof.tar
+            ${{ runner.temp }}/vaettir-maintained-proof/proof.json
+            ${{ runner.temp }}/vaettir-maintained-proof/image.json
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 1
 
   llvm-configure-diagnostic:
     if: ${{ github.event_name == 'workflow_dispatch' && inputs.llvm_configure_only == true }}

@@ -15,6 +15,16 @@ test "$(dpkg --print-architecture)" = amd64
 test ! -e "$build_root"
 mkdir "$build_root"
 export LC_ALL=C LANG=C
+native_jobs=${VAETTIR_NATIVE_JOBS:-2}
+case "$native_jobs" in 2|4) : ;; *) echo 'Only bounded two/four-worker native builds are admitted' >&2; exit 1 ;; esac
+test "$(getconf _NPROCESSORS_ONLN)" -ge "$native_jobs"
+if test "$native_jobs" = 4; then
+  test "$(awk '/^MemTotal:/ {print $2}' /proc/meminfo)" -ge 8388608
+  if test -f /sys/fs/cgroup/memory.max; then
+    memory_limit=$(cat /sys/fs/cgroup/memory.max)
+    if test "$memory_limit" != max; then test "$memory_limit" -ge 8589934592; fi
+  fi
+fi
 # ONE combined clock, not separate 3500s budgets per component. The surrounding
 # existing build still must complete inside its unchanged 60-minute deadline.
 started=$(date +%s)
@@ -55,7 +65,7 @@ PATCH_NAMES
   # No nocheck/stage1/stage2/dependency bypass. nobiarch selects the unchanged
   # native amd64 pass; the runtime has no i386 or x32 glibc installation.
   run env DEB_BUILD_PROFILES="$profiles" dpkg-checkbuilddeps
-  run env DEB_BUILD_OPTIONS=parallel=2 DEB_BUILD_PROFILES="$profiles" dpkg-buildpackage -b -us -uc > "$root/package-build.log" 2>&1
+  run env DEB_BUILD_OPTIONS="parallel=$native_jobs" DEB_BUILD_PROFILES="$profiles" dpkg-buildpackage -b -us -uc > "$root/package-build.log" 2>&1
   run dpkg-source --before-build .
   if test "$component" = glibc; then
     build_dir="$root/source/build-tree/amd64-libc"
@@ -65,10 +75,10 @@ PATCH_NAMES
     run node "$proof_script" tests "$build_dir" "$root/package-tests-proof.json"
     # Exact maintained, complete native check; no subdirs/tests filter, no
     # cross-compilation, no stop-on-first-failure or new test exemptions.
-    run env LD_PRELOAD= LANG= LANGUAGE= make -C "$build_dir" -j2 check > "$root/upstream-check.log" 2>&1
+    run env LD_PRELOAD= LANG= LANGUAGE= make -C "$build_dir" -j"$native_jobs" check > "$root/upstream-check.log" 2>&1
     cp "$build_dir/tests.sum" "$root/upstream-tests.sum"
     run node "$proof_script" tests "$build_dir" "$root/upstream-tests-proof.json"
-    run make -C "$build_dir" -j2 check-abi > "$root/upstream-abi.log" 2>&1
+    run make -C "$build_dir" -j"$native_jobs" check-abi > "$root/upstream-abi.log" 2>&1
   else
     # Run the maintained complete standard suite from the SAME patched source,
     # using its exact independently pinned upstream corpus; no network wraps.
@@ -77,8 +87,8 @@ PATCH_NAMES
     mkdir -p "$root/source/tests/data"
     cp "$freetype_corpus/As.I.Lay.Dying.ttf" "$root/source/tests/data/As.I.Lay.Dying.ttf"
     run meson setup "$root/meson-tests" "$root/source" -Dtests=enabled -Dharfbuzz=disabled --wrap-mode=nodownload > "$root/meson-setup.log" 2>&1
-    run meson compile -C "$root/meson-tests" -j2 > "$root/meson-compile.log" 2>&1
-    run meson test -C "$root/meson-tests" --no-rebuild --print-errorlogs --num-processes 2 > "$root/meson-test.log" 2>&1
+    run meson compile -C "$root/meson-tests" -j"$native_jobs" > "$root/meson-compile.log" 2>&1
+    run meson test -C "$root/meson-tests" --no-rebuild --print-errorlogs --num-processes "$native_jobs" > "$root/meson-test.log" 2>&1
     run node "$proof_script" freetype-standard-test "$root/meson-tests/meson-logs/testlog.json" "$root/freetype-standard-test-proof.json"
     printf '%s\n' 'FreeType maintained package/demos and complete standard tests passed; CID-targeted runtime acceptance NOT performed.' > "$root/freetype-acceptance-gap.txt"
   fi
