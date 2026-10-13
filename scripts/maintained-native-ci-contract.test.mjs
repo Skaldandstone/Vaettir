@@ -10,3 +10,11 @@ test('progress headers use a separate stderr stream without changing original ve
  assert.match(watcher,/process\.stderr\.write\('\\nNATIVE_VENDOR_LOG /);assert.match(watcher,/chunk=>process\.stdout\.write\(chunk\)/);assert.doesNotMatch(watcher,/\b(?:writeFile(?:Sync)?|appendFile(?:Sync)?|f?truncate(?:Sync)?)\b/);
  assert.match(builder,/deadline=\$\(\(started \+ 3500\)\)/);assert.match(builder,/make -C "\$build_dir" -j"\$native_jobs" check >/);assert.match(builder,/check-abi >/);assert.match(builder,/meson test .*--no-rebuild --print-errorlogs/);
 });
+test('optional namespace prerequisite probe uses normal existing host permissions and never changes policy or accepts a native build',()=>{
+ const ci=readFileSync(new URL('../.github/workflows/ci.yml',import.meta.url),'utf8'),job=ci.slice(ci.indexOf('  native-environment-probe:'));
+ assert.match(ci,/native_environment_probe:[\s\S]*?default: false/);assert.match(job,/runs-on: ubuntu-22\.04/);assert.match(job,/timeout-minutes: 5/);
+ assert.match(job,/test "\$\(id -u\)" -ne 0/);assert.match(job,/timeout 10 unshare --user --map-root-user --mount --fork/);assert.match(job,/unshare --user --map-root-user --mount --fork \/bin\/true/);
+ for(const key of ['securityPolicyChanged','nativeTestsExecuted','nativeAcceptance','securityAcceptance','deploymentAcceptance'])assert.match(job,new RegExp(key+':false'));
+ assert.doesNotMatch(job,/\bsudo\b|\bsysctl\s+-w|--privileged|--security-opt|\bsetcap\b|\b(?:useradd|usermod|groupadd)\b|id-token: write|secrets\.|\baws\b|docker (?:run|start|push)|migrate deploy/);
+ assert.match(job,/persist-credentials: false/);assert.match(job,/contents: read/);assert.match(ci,/  build:\n    runs-on: ubuntu-latest/);
+});

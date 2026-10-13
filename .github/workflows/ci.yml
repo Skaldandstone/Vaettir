@@ -13,6 +13,11 @@ on:
         type: boolean
         required: false
         default: false
+      native_environment_probe:
+        description: "Read-only ordinary Linux namespace prerequisite probe; no native build or acceptance"
+        type: boolean
+        required: false
+        default: false
   push:
     branches: [main]
     paths-ignore:
@@ -259,3 +264,41 @@ jobs:
           assert.ok(Buffer.byteLength(output) <= 12288, 'Bounded diagnostic log required');
           console.log('VAETTIR_GITHUB_LLVM_CONFIG_DIAGNOSTIC=' + output);
           NODE
+
+  native-environment-probe:
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.native_environment_probe == true && inputs.maintained_native_proof != true && inputs.llvm_configure_only != true }}
+    runs-on: ubuntu-22.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Check existing unprivileged namespace prerequisites
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REPOSITORY" = Skaldandstone/Vaettir
+          test "$(gh api repos/Skaldandstone/Vaettir --jq .visibility)" = public
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$(id -u)" -ne 0
+          test "$(nproc)" -ge 4
+          test "$(awk '/^MemTotal:/ {print $2}' /proc/meminfo)" -ge 8388608
+          uname -sr
+          for path in /proc/sys/kernel/unprivileged_userns_clone /proc/sys/kernel/apparmor_restrict_unprivileged_userns /proc/sys/user/max_user_namespaces /proc/sys/user/max_mnt_namespaces; do
+            if test -f "$path"; then printf '%s=' "$path"; cat "$path"; fi
+          done
+          # Ordinary prerequisite probes only. No policy writes, privileged
+          # container, native/vendor test, font, source intake or acceptance.
+          timeout 10 unshare --user --map-root-user --mount --fork /bin/sh -eu -c '
+            test "$(id -u)" -eq 0
+            unshare --user --map-root-user --mount --fork /bin/true
+          '
+          node - <<'NODE'
+          const assert=require('node:assert/strict');
+          for(const key of ['GITHUB_SHA','GITHUB_RUN_ID','GITHUB_RUN_ATTEMPT'])assert.match(process.env[key],key==='GITHUB_SHA'?/^[a-f0-9]{40}$/:/^[1-9][0-9]*$/);
+          console.log(JSON.stringify({purpose:'existing-linux-namespace-prerequisite-probe/v1',commit:process.env.GITHUB_SHA,runId:process.env.GITHUB_RUN_ID,attempt:process.env.GITHUB_RUN_ATTEMPT,ordinaryNestedNamespaceProbePassed:true,securityPolicyChanged:false,nativeTestsExecuted:false,nativeAcceptance:false,securityAcceptance:false,deploymentAcceptance:false}));
+          NODE
+        env:
+          GH_TOKEN: ${{ github.token }}
