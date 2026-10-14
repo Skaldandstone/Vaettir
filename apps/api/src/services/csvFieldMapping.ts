@@ -93,6 +93,13 @@ const HEADER_ALIASES: Record<TargetField, string[]> = {
   ],
 };
 
+// Normalize the fixed vocabulary once. Workbook header discovery considers
+// up to 25 rows per sheet; repeatedly normalizing every alias for every cell
+// wastes the isolated parser's bounded CPU budget without changing matches.
+const NORMALIZED_HEADER_ALIASES = Object.fromEntries(
+  TARGET_FIELDS.map(field => [field, new Set(HEADER_ALIASES[field].map(normalizeHeader))]),
+) as Record<TargetField, Set<string>>;
+
 const VALID_PRIORITIES = new Set(["CRITICAL", "HIGH", "MEDIUM", "LOW"]);
 export const TEST_CASE_TYPES = [
   "UNIT",
@@ -263,7 +270,7 @@ export function suggestCsvMapping(
     // Multiple plausible columns (including duplicate normalized labels) need
     // explicit review rather than silently choosing the first alias.
     const matches = lowerHeaders.flatMap((header, index) =>
-      HEADER_ALIASES[field].some(alias => normalizeHeader(alias) === header)
+      NORMALIZED_HEADER_ALIASES[field].has(header)
         ? [index] : [],
     );
     if (matches.length === 1) suggestedMapping[field] = headers[matches[0]!];

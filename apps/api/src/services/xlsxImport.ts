@@ -1,7 +1,6 @@
 import AdmZip from "adm-zip";
 import { XMLParser } from "fast-xml-parser";
 import {
-  inspectCsv,
   mapCsvRows,
   suggestCsvMapping,
   type MappedRowOverride,
@@ -36,6 +35,10 @@ const parser = new XMLParser({
   attributeNamePrefix: "@_",
   textNodeName: "#text",
   trimValues: false,
+  // Excel's cell type, not XML text inference, determines numeric values.
+  // Keeping XML text literal also avoids costly number coercion throughout
+  // shared strings and preserves zero-padded IDs and long numeric prose.
+  parseTagValue: false,
   // Preserve ordinary Excel XML escapes. zipText rejects custom declaration
   // syntax before parsing; only built-in/numeric XML escapes are supported.
   processEntities: true,
@@ -295,14 +298,20 @@ export function parseXlsxWorkbook(buffer: Buffer): ParsedWorkbookSheet[] {
         .join("\r\n");
       totalCsvBytes += Buffer.byteLength(csvText, "utf8");
       if (totalCsvBytes > MAX_CSV_BYTES) throw new Error("Excel workbook exceeds the 20 MB converted limit");
-      const inspected = inspectCsv(csvText);
+      // These are already decoded cells. Re-parsing the generated CSV adds
+      // another full string scan and allocation under the worker deadline.
+      // Keep inspectCsv's exact trimmed-header / nonblank-row semantics.
+      const headers = normalized[0]!.map(value => String(value ?? "").trim());
+      const rowCount = normalized.slice(1).filter(row =>
+        row.some(value => String(value ?? "").trim().length > 0),
+      ).length;
       return {
         name,
         headerRow: headerIndex + 1,
         csvText,
-        headers: inspected.headers,
-        rowCount: inspected.rowCount,
-        suggestedMapping: inspected.suggestedMapping,
+        headers,
+        rowCount,
+        suggestedMapping: suggestCsvMapping(headers),
       };
     });
 }

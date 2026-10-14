@@ -1,7 +1,7 @@
 import AdmZip from "adm-zip";
 import { describe, expect, it } from "vitest";
 import { parseXlsxWorkbook, previewXlsxSheet } from "./xlsxImport.js";
-import { mapCsvRows } from "./csvFieldMapping.js";
+import { mapCsvRows, inspectCsv } from "./csvFieldMapping.js";
 
 function workbookFixture(sheetOverride?: string) {
   const zip = new AdmZip();
@@ -45,6 +45,18 @@ function workbookFixture(sheetOverride?: string) {
 }
 
 describe("XLSX smart import", () => {
+  it("derives the same CSV metadata for blank, boolean, numeric and quoted multiline cells", () => {
+    const xml='<worksheet><sheetData><row><c r="A1" t="inlineStr"><is><t> Title </t></is></c><c r="B1" t="inlineStr"><is><t>When</t></is></c></row><row><c r="A2" t="inlineStr"><is><t>Quoted &quot;title&quot;, on&#10;two lines</t></is></c><c r="B2"><v>0</v></c></row><row><c r="A3" t="inlineStr"><is><t>   </t></is></c></row><row><c r="B4" t="b"><v>0</v></c></row><row/></sheetData></worksheet>';
+    const sheet=parseXlsxWorkbook(workbookFixture(xml))[0]!;
+    const metadata=inspectCsv(sheet.csvText!);
+    expect({headers:sheet.headers,rowCount:sheet.rowCount,suggestedMapping:sheet.suggestedMapping}).toEqual(metadata);
+    expect(sheet.rowCount).toBe(2);
+  });
+  it("preserves numeric-looking inline text while explicitly typing numeric cells", () => {
+    const xml = '<worksheet><sheetData><row><c r="A1" t="inlineStr"><is><t>Title</t></is></c><c r="B1" t="inlineStr"><is><t>Test Case ID</t></is></c><c r="C1" t="inlineStr"><is><t>When</t></is></c></row><row><c r="A2" t="inlineStr"><is><t>00042</t></is></c><c r="B2" t="inlineStr"><is><t>123456789012345678901234</t></is></c><c r="C2"><v>12.5</v></c></row></sheetData></worksheet>';
+    const sheet = parseXlsxWorkbook(workbookFixture(xml))[0]!;
+    expect(previewXlsxSheet(sheet).rows[0]).toMatchObject({title:"00042",externalId:"123456789012345678901234",when:["12.5"]});
+  });
   it("accepts ordinary XML 1.0 declarations in every workbook part", () => {
     const zip = new AdmZip(workbookFixture());
     for (const entry of zip.getEntries()) {
