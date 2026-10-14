@@ -14,7 +14,7 @@ import {
   requireOrgRole,
   isStaffEmail,
 } from "../trpc.js";
-import { Prisma,type PrismaClient } from "@vaettir/db";
+import { Prisma, type PrismaClient } from "@vaettir/db";
 import { sendReadinessDigestForOrg } from "../jobs/readinessDigestScheduler.js";
 import {
   AI_OPERATION_COSTS,
@@ -30,13 +30,22 @@ import {
 import {
   createBillingCheckoutSession,
   createBillingPortalSession as createStripePortalSession,
-  createCreditTopupCheckoutSession,
   CREDIT_TOPUP_PACKS,
-  type CreditTopupPackKey,
   syncBillingSeatQuantity,
   BillingNotConfiguredError,
 } from "../services/stripeBilling.js";
 import { getBillingAvailability } from "../services/stripeConfig.js";
+import {
+  creditCheckoutInput,
+  createReviewedCreditCheckout,
+  creditCheckoutStatusInput,
+  creditCheckoutStatusOutput,
+  reviewedCreditCheckoutStatus,
+} from "../services/creditCheckout.js";
+import {
+  creditPurchasesEnabled,
+  getCreditStripeRuntime,
+} from "../services/creditStripeConfig.js";
 import {
   encryptToken,
   TokenEncryptionNotConfiguredError,
@@ -246,7 +255,7 @@ export const organizationRouter = router({
           jiraEncryptedApiToken: true,
           jiraWebhookSecret: true,
           datadogWebhookSecret: true,
-          encryptedDatadogWebhookSecret:true,
+          encryptedDatadogWebhookSecret: true,
         },
       });
       const overrides =
@@ -278,7 +287,9 @@ export const organizationRouter = router({
         jiraWebhookConfigured: org.jiraWebhookSecret !== null,
         jiraBaseUrl: org.jiraBaseUrl,
         jiraEmail: org.jiraEmail,
-        datadogWebhookConfigured: Boolean(org.datadogWebhookSecret||org.encryptedDatadogWebhookSecret),
+        datadogWebhookConfigured: Boolean(
+          org.datadogWebhookSecret || org.encryptedDatadogWebhookSecret,
+        ),
       };
     }),
 
@@ -536,16 +547,47 @@ export const organizationRouter = router({
 
   // Datadog uses a shared header secret; new values are encrypted at rest.
   updateDatadogWebhookSecret: protectedProcedure
-    .input(z.object({ organizationId: z.string(), webhookSecret: z.string().max(2000) }))
+    .input(
+      z.object({
+        organizationId: z.string(),
+        webhookSecret: z.string().max(2000),
+      }),
+    )
     .mutation(async ({ ctx, input }) => {
       requireOrgRole(ctx, input.organizationId, "ADMIN");
       const trimmed = input.webhookSecret.trim();
-      await ctx.prisma.$transaction(async tx=>{
-        const rows=await tx.$queryRaw<Array<{suspendedAt:Date|null}>>`SELECT "suspendedAt" FROM "Organization" WHERE id=${input.organizationId} FOR UPDATE`;
+      await ctx.prisma.$transaction(async (tx) => {
+        const rows = await tx.$queryRaw<
+          Array<{ suspendedAt: Date | null }>
+        >`SELECT "suspendedAt" FROM "Organization" WHERE id=${input.organizationId} FOR UPDATE`;
         await tx.$queryRaw`SELECT id FROM "Membership" WHERE "organizationId"=${input.organizationId} AND "userId"=${ctx.user.id} FOR UPDATE`;
-        const member=await tx.membership.findUnique({where:{organizationId_userId:{organizationId:input.organizationId,userId:ctx.user.id}}});
-        if(!rows[0]||rows[0].suspendedAt||!member||member.seatType!=="FULL"||!["OWNER","ADMIN"].includes(member.role))throw new TRPCError({code:"FORBIDDEN",message:"A current full-seat workspace administrator is required."});
-        await tx.organization.update({where:{id:input.organizationId},data:{datadogWebhookSecret:null,encryptedDatadogWebhookSecret:trimmed.length>0?{...encryptToken(trimmed)}:Prisma.DbNull}});
+        const member = await tx.membership.findUnique({
+          where: {
+            organizationId_userId: {
+              organizationId: input.organizationId,
+              userId: ctx.user.id,
+            },
+          },
+        });
+        if (
+          !rows[0] ||
+          rows[0].suspendedAt ||
+          !member ||
+          member.seatType !== "FULL" ||
+          !["OWNER", "ADMIN"].includes(member.role)
+        )
+          throw new TRPCError({
+            code: "FORBIDDEN",
+            message: "A current full-seat workspace administrator is required.",
+          });
+        await tx.organization.update({
+          where: { id: input.organizationId },
+          data: {
+            datadogWebhookSecret: null,
+            encryptedDatadogWebhookSecret:
+              trimmed.length > 0 ? { ...encryptToken(trimmed) } : Prisma.DbNull,
+          },
+        });
       });
     }),
 
@@ -698,7 +740,12 @@ export const organizationRouter = router({
       }),
     )
     .output(
-      z.object({ id: z.string(), token: z.string(), expiresAt: z.date(), delivery: z.string() }),
+      z.object({
+        id: z.string(),
+        token: z.string(),
+        expiresAt: z.date(),
+        delivery: z.string(),
+      }),
     )
     .mutation(async ({ ctx, input }) => {
       requireOrgRole(ctx, input.organizationId, "ADMIN");
@@ -780,11 +827,17 @@ export const organizationRouter = router({
   sendPendingInvitation: protectedProcedure
     .input(z.object({ invitationId: z.string() }))
     .mutation(async ({ ctx, input }) => {
-      const invitation = await ctx.prisma.invitation.findUniqueOrThrow({ where: { id: input.invitationId } });
+      const invitation = await ctx.prisma.invitation.findUniqueOrThrow({
+        where: { id: input.invitationId },
+      });
       requireOrgRole(ctx, invitation.organizationId, "ADMIN");
-      await ctx.prisma.$transaction(async tx => {
+      await ctx.prisma.$transaction(async (tx) => {
         await lockActiveOrganization(tx, invitation.organizationId);
-        await requireTransactionAdmin(tx, invitation.organizationId, ctx.user.id);
+        await requireTransactionAdmin(
+          tx,
+          invitation.organizationId,
+          ctx.user.id,
+        );
       });
       return { delivery: await sendInvitationEmail(ctx.prisma, invitation.id) };
     }),
@@ -1203,33 +1256,51 @@ export const organizationRouter = router({
   // never-trust-the-client-side-redirect principle as the subscription
   // checkout above.
   createCreditTopup: protectedProcedure
-    .input(
-      z.object({
-        organizationId: z.string(),
-        packKey: z.enum(
-          Object.keys(CREDIT_TOPUP_PACKS) as [string, ...string[]],
-        ),
-      }),
-    )
+    .input(creditCheckoutInput)
     .mutation(async ({ ctx, input }) => {
       requireOrgRole(ctx, input.organizationId, "ADMIN");
       try {
-        // z.enum(Object.keys(...)) validates this is a real pack key at
-        // runtime, but its static type widens to plain `string` -- the cast
-        // is safe because the schema itself is built from the same const.
-        return await createCreditTopupCheckoutSession(
-          ctx.prisma,
-          input.organizationId,
-          input.packKey as CreditTopupPackKey,
-        );
-      } catch (err) {
-        if (err instanceof BillingNotConfiguredError) {
+        if (!ctx.authenticatedClerkSubject)
           throw new TRPCError({
-            code: "PRECONDITION_FAILED",
-            message: err.message,
+            code: "FORBIDDEN",
+            message: "Sign in again to review this purchase.",
           });
-        }
-        throw err;
+        return await createReviewedCreditCheckout(ctx.prisma, input, {
+          actorId: ctx.user!.id,
+          clerkSubject: ctx.authenticatedClerkSubject,
+        });
+      } catch (err) {
+        if (err instanceof TRPCError) throw err;
+        throw new TRPCError({
+          code: "INTERNAL_SERVER_ERROR",
+          message:
+            "Checkout could not be confirmed. Retry this same purchase request or contact support; no credits were granted.",
+        });
+      }
+    }),
+
+  creditPurchaseStatus: protectedProcedure
+    .input(creditCheckoutStatusInput)
+    .output(creditCheckoutStatusOutput)
+    .query(async ({ ctx, input }) => {
+      requireOrgRole(ctx, input.organizationId, "ADMIN");
+      if (!ctx.authenticatedClerkSubject)
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "Sign in again to review this purchase.",
+        });
+      try {
+        return await reviewedCreditCheckoutStatus(ctx.prisma, input, {
+          actorId: ctx.user!.id,
+          clerkSubject: ctx.authenticatedClerkSubject,
+        });
+      } catch (err) {
+        if (err instanceof TRPCError) throw err;
+        throw new TRPCError({
+          code: "INTERNAL_SERVER_ERROR",
+          message:
+            "Payment status could not be confirmed. Do not repeat a purchase until its status is reviewed.",
+        });
       }
     }),
 
@@ -1353,6 +1424,8 @@ export const organizationRouter = router({
     .output(
       z.object({
         purchasesEnabled: z.boolean(),
+        creditPurchasesEnabled: z.boolean(),
+        creditBillingMode: z.enum(["sandbox", "live", "unavailable"]),
         billingMode: z.enum(["sandbox", "unavailable"]),
         availabilityReason: z
           .enum([
@@ -1398,8 +1471,13 @@ export const organizationRouter = router({
         },
       });
       const availability = getBillingAvailability();
+      const creditsEnabled = creditPurchasesEnabled(input.organizationId);
       return {
         purchasesEnabled: availability.purchasesEnabled,
+        creditPurchasesEnabled: creditsEnabled,
+        creditBillingMode: creditsEnabled
+          ? getCreditStripeRuntime()!.mode
+          : "unavailable",
         billingMode: availability.mode,
         availabilityReason: availability.reason,
         hasBillingAccount: Boolean(organization.stripeCustomerId),

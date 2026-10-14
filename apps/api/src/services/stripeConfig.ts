@@ -8,7 +8,7 @@ import Stripe from "stripe";
 // so there is no code path here that can touch a real card or real money.
 // A future live-mode pass is a deliberate, separate decision, not a flag
 // flip on this file.
-export const STRIPE_API_VERSION = "2025-08-27.basil" as const;
+export const STRIPE_API_VERSION = "2026-09-30.endive" as const;
 
 const TEST_KEY_PATTERN = /^(?:rk|sk)_test_[A-Za-z0-9]+$/;
 const TEST_WEBHOOK_SECRET_PATTERN = /^whsec_[A-Za-z0-9]+$/;

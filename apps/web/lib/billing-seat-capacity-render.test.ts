@@ -16,6 +16,7 @@ const sdk = { trpcReact: { organization: {
   billingOverview: query({ currentPlan: { name: "Synthetic private plan", monthlyPricePerSeatCents: 0 }, purchasesEnabled: false, operationCosts: [], topupPacks: [], hasActiveSubscription: false }),
   seatUsage: query(seats), aiCreditStatus: query({ balance: 923, includedPerMonth: 500 }),
   listPlanTiers: query([]), createBillingCheckout: mutation, createBillingPortalSession: mutation, createCreditTopup: mutation,
+  creditPurchaseStatus:query({status:"NONE",credits:null}),
 }, creditUseRequests: { adminList: query([]), resolve: mutation } } };
 const code = ts.transpileModule(readFileSync(new URL("../app/settings/billing/page.tsx", import.meta.url), "utf8"), {
   compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS, jsx: ts.JsxEmit.React, esModuleInterop: true },
