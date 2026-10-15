@@ -5,16 +5,17 @@ import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import ts from "typescript";
 import { expect, it } from "vitest";
+import { remainingNonCaseRows } from "./reassign-import-column";
 
 const source = readFileSync(new URL("../components/MigrationWizard.tsx", import.meta.url), "utf8");
 const ast = ts.createSourceFile("Migration.tsx", source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
-const names = ["rowRecord", "reconcileRowOverrides", "splitEditedLines", "RowRepairEditor"];
+const names = ["rowRecord", "reconcileRowOverrides", "splitEditedLines", "RowRepairEditor", "NonCaseRowsReview"];
 const declarations = ast.statements.filter(node => ts.isFunctionDeclaration(node) && names.includes(node.name?.text ?? ""));
 if (declarations.length !== names.length) throw Error("Actual import repair declarations missing");
 const code = ts.transpileModule(declarations.map(node => ts.createPrinter().printNode(ts.EmitHint.Unspecified, node, ast)).join("\n"), { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.None, jsx: ts.JsxEmit.React } }).outputText;
-const actual = new Function("React", code + "\nreturn { rowRecord, reconcileRowOverrides, splitEditedLines, RowRepairEditor };")(React);
+const actual = new Function("React", "remainingNonCaseRows", code + "\nreturn { rowRecord, reconcileRowOverrides, splitEditedLines, RowRepairEditor, NonCaseRowsReview };")(React, remainingNonCaseRows);
 const row = { rowNumber: 2, title: "", externalId: "original-ID", tags: ["Not a case name"], given: [" Setup\n  kept "], when: ["1. Reinstall.\n\n  2. Check a|b."], then: [" Expected\nvalue "], priority: "MEDIUM", testType: "FUNCTIONAL", automationStatus: "MANUAL" };
-function elements(root: React.ReactNode): React.ReactElement<{ children?: React.ReactNode; onChange?: (event: { target: { value: string } }) => void }>[] {
+function elements(root: React.ReactNode): React.ReactElement<{ children?: React.ReactNode; onClick?: () => void; onChange?: (event: { target: { value: string } }) => void }>[] {
   if (Array.isArray(root)) return root.flatMap(elements);
   if (!React.isValidElement<{ children?: React.ReactNode }>(root)) return [];
   return [root, ...elements(root.props.children)];
@@ -53,4 +54,15 @@ it("CSV and XLSX previews expose the title, procedure and tag roles separately a
   expect(source).toContain('style={{ whiteSpace: "pre-wrap" }}>{r.when.join("\\n")}');
   expect(source).not.toContain("suggested titles from stable IDs");
   expect(source).toContain("disabled={loading || Boolean(error) || !mapping.title");
+});
+
+it("the actual excluded-row review lists source labels and lets the user include one deliberately", () => {
+  const heading = { ...row, externalId: "Section B", given: [], when: [], then: [] };
+  let included: typeof heading | undefined;
+  const tree = actual.NonCaseRowsReview({ rows: [heading], overrides: {}, onInclude: (next: typeof heading) => { included = next; } });
+  const markup = renderToStaticMarkup(tree);
+  expect(markup).toContain("not imported");expect(markup).toContain("Section B");expect(markup).toContain("<table");expect(markup).not.toContain("<ul");
+  elements(tree).find(node => node.type === "button")!.props.onClick!();
+  expect(included).toEqual(heading);
+  expect(actual.NonCaseRowsReview({ rows: [heading], overrides: { 2: { ...heading, title: "Owner supplied case" } }, onInclude: () => undefined })).toBeNull();
 });

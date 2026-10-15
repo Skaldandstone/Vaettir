@@ -24,19 +24,30 @@ describe("mapped CSV row repair", () => {
     expect(row).toMatchObject({ title: "Purchase restoration", given: [], when: ["Reinstall then check balance"], then: ["Consumed coins are not restored"], tags: ["purchases"] });
   });
 
-  it("leaves ambiguous vendor prose and combined module/scenario columns for explicit review", () => {
-    for (const header of ["Description", "Scenario Description", "Scenario Description/Test Case", "Test Case Description", "Test Scenario", "Test Module/Scenario", "Test Module/Scenerio"]) {
+  it("auto-maps vendor scenario descriptions while keeping modules and procedures separate", () => {
+    for (const header of ["Description", "Scenario Description", "Scenario Description/Test Case", "Test Case Description", "Test Scenario"]) {
       const mapping = suggestCsvMapping([header, "Steps", "Expected Result"]);
-      expect(mapping.title).toBeUndefined();
+      expect(mapping.title).toBe(header);
       expect(mapping.tags).toBeUndefined();
       expect(mapping).toMatchObject({ when: "Steps", then: "Expected Result" });
     }
+    for (const header of ["Test Module/Scenario", "Test Module/Scenerio"]) {
+      expect(suggestCsvMapping([header, "Steps", "Expected Result"]).title).toBeUndefined();
+      expect(suggestCsvMapping([header, "Scenario Description/Test Case", "Steps", "Expected Result"])).toMatchObject({ title: "Scenario Description/Test Case", tags: header, when: "Steps", then: "Expected Result" });
+    }
+  });
+
+  it("uses samples only to distinguish plausible headers and leaves genuine ties reviewable", () => {
     expect(suggestCsvMapping(["Title", "Test Case Name", "Steps"]).title).toBeUndefined();
     expect(suggestCsvMapping(["Title", "Steps", " Actions "]).when).toBeUndefined();
     expect(suggestCsvMapping(["Title", "Given", " Given "]).given).toBeUndefined();
+    expect(suggestCsvMapping(["Title", "Test Case Name", "Steps"], [["", "Restore purchases", "Check balance"]]).title).toBe("Test Case Name");
+    expect(suggestCsvMapping(["Title", "Test Scenario", "Steps"], [["Restore purchases", "Detailed scenario", "Check balance"]]).title).toBe("Title");
+    expect(suggestCsvMapping(["Steps", "Expected Result"], [["Verify restoration", "Coins unchanged"]]).title).toBeUndefined();
+    expect(suggestCsvMapping(["Description", "Owner", "Status"]).title).toBeUndefined();
   });
 
-  it("rejects cross-mapping recognized fields and reused source columns before preview or commit", () => {
+  it("honors human corrections to inferred roles while still rejecting reused source columns", () => {
     const csv = 'Title,Steps,Expected Result,Tags,Preconditions\nRestore purchases,Check balance,Coins unchanged,purchase,Installed\n';
     for (const mapping of [
       { title: "Steps", when: "Title" },
@@ -44,9 +55,14 @@ describe("mapped CSV row repair", () => {
       { title: "Title", when: "Tags" },
       { title: "Title", tags: "Expected Result" },
       { title: "Title", then: "Preconditions" },
-    ]) expect(() => mapCsvRows(csv, mapping)).toThrow("review the column mapping");
+    ]) expect(mapCsvRows(csv, mapping).rows).toHaveLength(1);
     expect(() => mapCsvRows(csv, { title: "Title", tags: "Title" })).toThrow("already mapped");
-    expect(() => mapCsvRows(csv, { title: "Steps" }, undefined, [{ rowNumber: 2, title: "Reviewed title" }])).toThrow("recognized as");
+    expect(mapCsvRows(csv, { title: "Steps" }, undefined, [{ rowNumber: 2, title: "Reviewed title" }]).rows[0]?.title).toBe("Reviewed title");
+    expect(mapCsvRows(csv, { title: "Steps", when: "Title" }).rows[0]).toMatchObject({ title: "Check balance", when: ["Restore purchases"] });
+  });
+
+  it("recognizes punctuation, camel-case vendor labels and optional field aliases", () => {
+    expect(suggestCsvMapping(["TestCaseName", "Pre-requisites", "Steps to Reproduce", "Expected Output", "Test Case Type", "Execution Mode", "TCID"])).toMatchObject({ title: "TestCaseName", given: "Pre-requisites", when: "Steps to Reproduce", then: "Expected Output", testType: "Test Case Type", automationStatus: "Execution Mode", externalId: "TCID" });
   });
 
   it("allows an explicitly reviewed custom title header without guessing actions or tags from content", () => {
@@ -102,6 +118,19 @@ describe("mapped CSV row repair", () => {
         externalId: "TC-2",
       },
     ]);
+  });
+
+  it("identifies label/ID-only rows separately without dropping actual incomplete procedures", () => {
+    const csv = 'ID,Title,Module,Steps,Expected,Other\nScenario 2: Renewal,,,,,\n,,Billing,,,\nTC-40,,,,,\nTC-41,,,Tap renew,,\nTC-42,,,,,Unmapped source detail\nTC-43,Renewal succeeds,Billing,Tap renew,Subscription renewed,\n';
+    const mapping = { externalId: "ID", title: "Title", tags: "Module", when: "Steps", then: "Expected" };
+    const result = mapCsvRows(csv, mapping);
+    expect(result.nonCaseRows?.map(row => row.rowNumber)).toEqual([2, 3, 4]);
+    expect(result.incompleteRows.map(row => row.rowNumber)).toEqual([5, 6]);
+    expect(result.rows[0]).toMatchObject({ title: "Renewal succeeds", when: ["Tap renew"] });
+    expect(result.skipped).toHaveLength(5);
+    const included = mapCsvRows(csv, mapping, undefined, [{ rowNumber: 4, title: "Manually added case" }]);
+    expect(included.rows.some(row => row.rowNumber === 4 && row.title === "Manually added case")).toBe(true);
+    expect(included.nonCaseRows?.map(row => row.rowNumber)).toEqual([2, 3]);
   });
 
   it("applies reviewed row edits instead of dropping the source row", () => {

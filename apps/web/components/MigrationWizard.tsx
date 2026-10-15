@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { trpcReact, type RouterOutputs } from "@/lib/trpcReact";
 import { readWorkbookPreview } from "@/lib/read-workbook-preview";
+import { reassignImportColumn, remainingNonCaseRows } from "@/lib/reassign-import-column";
 
 // P11-10: "Migration assistant" wizard. Every backend piece this orchestrates
 // already existed and worked (P11-01/02's CSV mapping+preview, P11-03's
@@ -157,6 +158,30 @@ function reconcileRowOverrides(
 
 function splitEditedLines(value: string) {
   return value.trim() ? [value] : [];
+}
+
+function NonCaseRowsReview({ rows, overrides, onInclude }: {
+  rows: EditableImportRow[] | undefined;
+  overrides: Record<number, EditableImportRow>;
+  onInclude: (row: EditableImportRow) => void;
+}) {
+  const excluded = remainingNonCaseRows(rows, overrides);
+  if (!excluded.length) return null;
+  return (
+    <details className="import-repair-panel">
+      <summary>{excluded.length} section labels or ID-only rows are not imported</summary>
+      <p className="text-muted">These rows contain no case name, setup, actions or expected result. Review them here, or add one as a case and enter its missing details.</p>
+      <div className="table-scroll" style={{ maxHeight: 240 }}><table className="workspace-table">
+        <thead><tr><th>Import row</th><th>Source label</th><th>Action</th></tr></thead>
+        <tbody>{excluded.map(row => <tr key={row.rowNumber}>
+          <td>{row.rowNumber}</td><td>{row.externalId || row.tags.join(", ")}</td>
+          <td><button className="btn-secondary" disabled={Boolean(overrides[row.rowNumber])} onClick={() => onInclude(row)}>
+            {overrides[row.rowNumber] ? "Editing below" : "Add as case"}
+          </button></td>
+        </tr>)}</tbody>
+      </table></div>
+    </details>
+  );
 }
 
 function RowRepairEditor({
@@ -579,9 +604,10 @@ export function MigrationWizard({
   }
 
   async function updateMapping(field: TargetField, column: string) {
-    const next = { ...mapping, [field]: column || undefined };
+    const next = reassignImportColumn(mapping, field, column);
     setMapping(next);
     setCsvPreviewRows([]);
+    setError(null);
     if (!next.title) {
       return;
     }
@@ -595,6 +621,7 @@ export function MigrationWizard({
         overrides: Object.values(csvRowOverrides),
       });
       setCsvPreviewRows(res.previewRows);
+      setCsvPreview(current => current ? { ...current, nonCaseRows: res.nonCaseRows, previewSkipped: res.previewSkipped } : current);
       setCsvRowOverrides((current) =>
         reconcileRowOverrides(current, res.incompleteRows),
       );
@@ -610,13 +637,13 @@ export function MigrationWizard({
     field: TargetField,
     column: string,
   ) {
-    const nextMapping = {
-      ...xlsxMappings[sheetName],
-      [field]: column || undefined,
-    };
+    const previousMapping = xlsxMappings[sheetName] ?? {};
+    const nextMapping = reassignImportColumn(previousMapping, field, column);
     setXlsxMappings((current) => ({ ...current, [sheetName]: nextMapping }));
     setXlsxPreview(current => current ? { sheets: current.sheets.map(sheet => sheet.name === sheetName ? { ...sheet, previewRows: [] } : sheet) } : current);
+    setError(null);
     if (!nextMapping.title) setSelectedSheets(current => { const next = new Set(current); next.delete(sheetName); return next; });
+    else if (!previousMapping.title) setSelectedSheets(current => new Set(current).add(sheetName));
     if (!nextMapping.title) return;
     setLoading(true);
     setError(null);
@@ -639,6 +666,7 @@ export function MigrationWizard({
                       previewRows: res.previewRows,
                       incompleteRows: res.incompleteRows,
                       skippedCount: res.skippedCount,
+                      nonCaseRows: res.nonCaseRows ?? [],
                     }
                   : sheet,
               ),
@@ -1009,8 +1037,8 @@ export function MigrationWizard({
             <div>
               <h3>Review workbook — {fileName}</h3>
               <p className="text-muted">
-                {xlsxPreview.sheets.length} worksheet(s) detected. Choose the
-                sheets to import and verify each suggested mapping.
+                {xlsxPreview.sheets.length} worksheets detected. Columns are matched automatically.
+                Change any mapping below to update the preview before importing.
               </p>
             </div>
             <span className="status-pill status-info">
@@ -1083,8 +1111,8 @@ export function MigrationWizard({
                                 )
                               }
                             >
-                              <option value="">— not mapped —</option>
-                              {sheet.headers.map((header) => (
+                              <option value="">{field === "title" ? "Choose a title column" : "Not imported"}</option>
+                              {[...new Set(sheet.headers.filter(header => header.trim()))].map((header) => (
                                 <option key={header} value={header}>
                                   {header}
                                 </option>
@@ -1151,6 +1179,11 @@ export function MigrationWizard({
                           ))}
                         </details>
                       )}
+                      <NonCaseRowsReview
+                        rows={sheet.nonCaseRows}
+                        overrides={xlsxRowOverrides[sheet.name] ?? {}}
+                        onInclude={row => updateXlsxRepair(sheet.name, row)}
+                      />
                     </>
                   )}
                 </section>
@@ -1171,7 +1204,7 @@ export function MigrationWizard({
           {unresolvedXlsxRows.length > 0 && (
             <p className="xlsx-sheet-note" role="status">
               Complete {unresolvedXlsxRows.length} required title field(s) to
-              continue. No rows will be dropped.
+              continue. Rows with test content are retained for repair.
             </p>
           )}
         </div>
@@ -1189,7 +1222,8 @@ export function MigrationWizard({
             <h3 style={{ margin: 0 }}>Map columns — {fileName}</h3>
           </div>
           <p className="text-muted" style={{ fontSize: 13 }}>
-            {csvPreview.rowCount} data row(s) found. &quot;Title&quot; is
+            {csvPreview.rowCount} data row(s) found. Columns are matched automatically;
+            change any mapping below to correct it. &quot;Title&quot; is
             required; leave any other field unmapped to skip it. Map
             &quot;External ID&quot; to a column with a stable per-row id to make
             this import re-runnable.
@@ -1214,8 +1248,8 @@ export function MigrationWizard({
                   onChange={(e) => void updateMapping(field, e.target.value)}
                   style={{ width: "100%" }}
                 >
-                  <option value="">— not mapped —</option>
-                  {csvPreview.headers.map((h) => (
+                  <option value="">{field === "title" ? "Choose a title column" : "Not imported"}</option>
+                  {[...new Set(csvPreview.headers.filter(header => header.trim()))].map((h) => (
                     <option key={h} value={h}>
                       {h}
                     </option>
@@ -1299,6 +1333,7 @@ export function MigrationWizard({
               ))}
             </details>
           )}
+          <NonCaseRowsReview rows={csvPreview.nonCaseRows} overrides={csvRowOverrides} onInclude={updateCsvRepair} />
 
           <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
             <button
@@ -1311,7 +1346,7 @@ export function MigrationWizard({
           {unresolvedCsvRows.length > 0 && (
             <p className="xlsx-sheet-note" role="status">
               Complete {unresolvedCsvRows.length} required title field(s) to
-              continue. No rows will be dropped.
+              continue. Rows with test content are retained for repair.
             </p>
           )}
         </div>
@@ -1324,8 +1359,9 @@ export function MigrationWizard({
             {selectedSheets.size} worksheet(s),{" "}
             {xlsxPreview.sheets
               .filter((sheet) => selectedSheets.has(sheet.name))
-              .reduce((sum, sheet) => sum + sheet.rowCount, 0)}{" "}
-            source row(s). Each worksheet becomes a suite. Stable source IDs are
+              .reduce((sum, sheet) => sum + sheet.rowCount - remainingNonCaseRows(sheet.nonCaseRows, xlsxRowOverrides[sheet.name] ?? {}).length, 0)}{" "}
+            test cases. {xlsxPreview.sheets.filter(sheet => selectedSheets.has(sheet.name)).reduce((sum, sheet) => sum + remainingNonCaseRows(sheet.nonCaseRows, xlsxRowOverrides[sheet.name] ?? {}).length, 0)} section labels or ID-only rows are excluded.
+            Each worksheet becomes a suite. Stable source IDs are
             preserved for safe re-imports. Nothing is written until you confirm.
           </p>
           <div className="xlsx-review-list">
@@ -1334,7 +1370,7 @@ export function MigrationWizard({
               .map((sheet) => (
                 <span key={sheet.name}>
                   <strong>{sheet.name}</strong>
-                  {sheet.rowCount} rows · {sheet.previewRows.length} previewed
+                  {sheet.rowCount - remainingNonCaseRows(sheet.nonCaseRows, xlsxRowOverrides[sheet.name] ?? {}).length} cases · {remainingNonCaseRows(sheet.nonCaseRows, xlsxRowOverrides[sheet.name] ?? {}).length} non-case rows excluded
                 </span>
               ))}
           </div>
@@ -1356,8 +1392,7 @@ export function MigrationWizard({
         <div>
           <h3 style={{ marginTop: 0 }}>Ready to import — {fileName}</h3>
           <p className="text-muted" style={{ fontSize: 13 }}>
-            {csvPreviewRows.length} row(s) shown of {csvPreview?.rowCount ?? 0}{" "}
-            total will be created. Any incomplete source rows were repaired
+            {(csvPreview?.rowCount ?? 0) - remainingNonCaseRows(csvPreview?.nonCaseRows, csvRowOverrides).length} test cases. {remainingNonCaseRows(csvPreview?.nonCaseRows, csvRowOverrides).length} section labels or ID-only rows are excluded. Any incomplete source rows were repaired
             before this step. Nothing is written until you confirm.
           </p>
           <div style={{ display: "flex", gap: 8 }}>
@@ -1367,7 +1402,7 @@ export function MigrationWizard({
             <button onClick={commit} disabled={committing}>
               {committing
                 ? "Importing…"
-                : `Import ${csvPreview?.rowCount ?? 0} row(s)`}
+                : `Import ${(csvPreview?.rowCount ?? 0) - remainingNonCaseRows(csvPreview?.nonCaseRows, csvRowOverrides).length} cases`}
             </button>
           </div>
         </div>

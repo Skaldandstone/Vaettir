@@ -38,6 +38,22 @@ function fixture() {
 beforeEach(() => { mocks.parse.mockReset(); mocks.commit.mockReset(); });
 
 describe("Excel post-parse access", () => {
+  it("commits only actual cases and passes the reviewed non-case exclusions to the audit service", async () => {
+    const f = fixture();
+    const csvText = 'ID,Title,Steps,Expected\r\nSection B,,,\r\nTC-1,Login works,Open login,Dashboard shown';
+    mocks.parse.mockResolvedValue([{ ...sheet, csvText, rowCount: 2 }]);
+    mocks.commit.mockImplementation(async (_db, input) => ({ importJobId: "synthetic-job", createdCount: input.rows.length, updatedCount: 0, skipped: input.skipped }));
+    const result = await f.caller.commitXlsx({ projectId: "synthetic-project", fileBase64: "dGVzdA==", sheets: [{ name: "Cases", mapping: { title: "Title", externalId: "ID", when: "Steps", then: "Expected" } }] });
+    expect(result.createdCount).toBe(1);
+    expect(result.skipped).toEqual([{ rowNumber: 2, reason: "Cases: section label or ID only; no test-case definition" }]);
+    expect(mocks.commit.mock.calls[0]![1].rows).toEqual([expect.objectContaining({ title: "Login works", when: ["Open login"], externalId: "Cases:TC-1" })]);
+  });
+  it("still blocks missing-title rows that contain actual test content before any commit", async () => {
+    const f = fixture();
+    mocks.parse.mockResolvedValue([{ ...sheet, csvText: 'ID,Title,Steps\r\nTC-2,,Open login', rowCount: 1 }]);
+    await expect(f.caller.commitXlsx({ projectId: "synthetic-project", fileBase64: "dGVzdA==", sheets: [{ name: "Cases", mapping: { title: "Title", externalId: "ID", when: "Steps" } }] })).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    expect(mocks.commit).not.toHaveBeenCalled();
+  });
   it("accepts a synthetic workbook upload larger than the old HTTP and schema caps", async () => {
     const f = fixture();
     f.afterParse({ id: "synthetic-user", memberships: [{ organizationId: "synthetic-org", role: "EDITOR", seatType: "FULL" }] });

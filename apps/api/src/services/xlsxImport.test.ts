@@ -97,34 +97,34 @@ describe("XLSX smart import", () => {
     });
   });
 
-  it("detects a non-first vendor header row without guessing ambiguous title or tags", () => {
+  it("auto-maps a non-first vendor header row to distinct title, grouping and procedure roles", () => {
     const [sheet] = parseXlsxWorkbook(workbookFixture());
     expect(sheet).toMatchObject({
       name: "Cases",
       headerRow: 2,
       rowCount: 1,
       suggestedMapping: {
+        title: "Test Scenario",
+        tags: "Test Module/Scenario",
         given: "Preconditions",
         when: "Test Steps",
         then: "Expected Result",
         externalId: "Test Case ID",
       },
     });
-    expect(sheet?.suggestedMapping.title).toBeUndefined();
-    expect(sheet?.suggestedMapping.tags).toBeUndefined();
-    expect(() => previewXlsxSheet(sheet!)).toThrow('"title" field must be mapped');
+    expect(previewXlsxSheet(sheet!).rows[0]).toMatchObject({ title: "OAuth login succeeds", tags: ["Authentication"], when: ["1. Open sign in.2. Choose Google.3. Approve access."] });
   });
-  it("offers a scenario checklist sheet without inventing a title/action or requiring Gherkin columns",()=>{
+  it("auto-maps a checklist's existing scenario name without inventing actions or requiring Gherkin columns",()=>{
     const xml='<worksheet><sheetData><row><c r="A1" t="inlineStr"><is><t>Module</t></is></c><c r="B1" t="inlineStr"><is><t>Test Scenario</t></is></c><c r="C1" t="inlineStr"><is><t>Expected Result</t></is></c></row><row><c r="A2" t="inlineStr"><is><t>Payments</t></is></c><c r="B2" t="inlineStr"><is><t>Check purchase restoration</t></is></c><c r="C2" t="inlineStr"><is><t>Balance is preserved</t></is></c></row></sheetData></worksheet>';
     const sheet=parseXlsxWorkbook(workbookFixture(xml))[0]!;
-    expect(sheet).toMatchObject({headerRow:1,rowCount:1});expect(sheet.suggestedMapping.title).toBeUndefined();expect(sheet.suggestedMapping.when).toBeUndefined();
-    expect(()=>previewXlsxSheet(sheet)).toThrow('"title" field must be mapped');
+    expect(sheet).toMatchObject({headerRow:1,rowCount:1});expect(sheet.suggestedMapping.title).toBe("Test Scenario");expect(sheet.suggestedMapping.when).toBeUndefined();
+    expect(previewXlsxSheet(sheet).rows[0]).toMatchObject({ title: "Check purchase restoration", when: [], then: ["Balance is preserved"] });
     expect(previewXlsxSheet(sheet,{...sheet.suggestedMapping,title:"Test Scenario"}).rows[0]).toMatchObject({title:"Check purchase restoration",when:[],then:["Balance is preserved"]});
   });
-  it("offers a later precondition/outcome table for deliberate title selection without guessing procedure text",()=>{
+  it("auto-maps a later description/precondition/outcome table without guessing procedure text",()=>{
     const xml='<worksheet><sheetData><row><c r="A1" t="inlineStr"><is><t>Checklist overview</t></is></c></row><row><c r="A2" t="inlineStr"><is><t>Review these cases</t></is></c></row><row><c r="A3" t="inlineStr"><is><t>Precondition</t></is></c><c r="B3" t="inlineStr"><is><t>Description</t></is></c><c r="C3" t="inlineStr"><is><t>Expected Result</t></is></c></row><row><c r="A4" t="inlineStr"><is><t>Account exists</t></is></c><c r="B4" t="inlineStr"><is><t>Purchase restoration</t></is></c><c r="C4" t="inlineStr"><is><t>Balance retained</t></is></c></row></sheetData></worksheet>';
     const sheet=parseXlsxWorkbook(workbookFixture(xml))[0]!;
-    expect(sheet).toMatchObject({headerRow:3,rowCount:1});expect(sheet.suggestedMapping.title).toBeUndefined();
+    expect(sheet).toMatchObject({headerRow:3,rowCount:1});expect(sheet.suggestedMapping.title).toBe("Description");
     expect(previewXlsxSheet(sheet,{...sheet.suggestedMapping,title:"Description"}).rows[0]).toMatchObject({title:"Purchase restoration",given:["Account exists"],when:[],then:["Balance retained"]});
   });
 

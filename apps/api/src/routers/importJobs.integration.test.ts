@@ -84,10 +84,10 @@ async function caller() {
 }
 
 describe("importJobs (real DB, real router)", () => {
-  it("previewCsv auto-suggests every column except title (no exact alias match)", async () => {
+  it("previewCsv auto-suggests the case name and every recognized procedure column", async () => {
     const c = await caller();
     const preview = await c.importJobs.previewCsv({ projectId, csvText: CSV });
-    expect(preview.suggestedMapping.title).toBeUndefined();
+    expect(preview.suggestedMapping.title).toBe("Test Name");
     expect(preview.suggestedMapping.given).toBe("Preconditions");
     expect(preview.suggestedMapping.when).toBe("Steps");
     expect(preview.suggestedMapping.then).toBe("Expected");

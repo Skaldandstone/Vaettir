@@ -167,9 +167,8 @@ function findHeaderRow(rows: CellValue[][]): number | null {
       Object.keys(mapping).length +
       (mapping.title ? 4 : 0) +
       (mapping.externalId ? 1 : 0);
-    // A vendor description/scenario label still requires a deliberate title
-    // choice. Recognize the surrounding explicit procedure/identity headers so
-    // the worksheet remains available for mapping without guessing that title.
+    // Recognize procedure-only layouts too. Header-role suggestions remain
+    // editable; they never manufacture a title from procedure cell contents.
     const hasProcedureHeader = Boolean(
       mapping.when && mapping.then && (mapping.externalId || mapping.given),
     );
@@ -319,7 +318,7 @@ export function parseXlsxWorkbook(buffer: Buffer, onProgress?: () => void): Pars
         csvText,
         headers,
         rowCount,
-        suggestedMapping: suggestCsvMapping(headers),
+        suggestedMapping: suggestCsvMapping(headers, normalized.slice(1, 26).map(row => row.map(value => String(value ?? "")))),
       };
     });
 }

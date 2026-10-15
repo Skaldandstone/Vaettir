@@ -34,6 +34,7 @@ const HEADER_ALIASES: Record<TargetField, string[]> = {
     "case name",
     "test case title",
     "test case name",
+    "test name",
     "summary",
   ],
   given: [
@@ -43,6 +44,11 @@ const HEADER_ALIASES: Record<TargetField, string[]> = {
     "pre-condition",
     "pre-conditions",
     "setup",
+    "test setup",
+    "prerequisites",
+    "pre requisites",
+    "prerequisite",
+    "initial conditions",
   ],
   when: [
     "when",
@@ -57,6 +63,12 @@ const HEADER_ALIASES: Record<TargetField, string[]> = {
     "test step",
     "test steps",
     "procedure",
+    "steps to reproduce",
+    "execution steps",
+    "step description",
+    "test step description",
+    "action description",
+    "test procedure",
   ],
   then: [
     "then",
@@ -67,6 +79,7 @@ const HEADER_ALIASES: Record<TargetField, string[]> = {
     "expected behavior",
     "expected behaviour",
     "expected response",
+    "expected output",
   ],
   priority: ["priority", "severity"],
   tags: [
@@ -74,13 +87,18 @@ const HEADER_ALIASES: Record<TargetField, string[]> = {
     "labels",
     "categories",
     "module",
+    "component",
+    "feature",
+    "test module",
   ],
-  testType: ["type", "test type", "test category", "category"],
+  testType: ["type", "test type", "case type", "test case type", "test category", "category", "classification"],
   automationStatus: [
     "automation",
     "automated",
     "automation status",
     "is automated",
+    "execution type",
+    "execution mode",
   ],
   externalId: [
     "id",
@@ -90,8 +108,22 @@ const HEADER_ALIASES: Record<TargetField, string[]> = {
     "tc id",
     "key",
     "qid",
+    "tcid",
+    "testcaseid",
   ],
 };
+
+// These labels describe a case in many vendor exports. Prefer an explicit
+// name/title when present, but propose the descriptive column rather than
+// requiring every ordinary scenario/checklist workbook to be mapped by hand.
+const DESCRIPTIVE_TITLE_ALIASES = new Set([
+  "scenario", "test scenario", "scenario description", "test scenario description",
+  "scenario description test case", "scenario description testcase",
+  "test case description", "testcase description", "case description", "test description",
+].map(normalizeHeader));
+const MODULE_SCENARIO_ALIASES = new Set([
+  "test module scenario", "test module scenerio", "module scenario", "module scenerio",
+].map(normalizeHeader));
 
 // Normalize the fixed vocabulary once. Workbook header discovery considers
 // up to 25 rows per sheet; repeatedly normalizing every alias for every cell
@@ -262,24 +294,42 @@ function preserveProcedureCell(cell: string | undefined): string[] {
 
 export function suggestCsvMapping(
   headers: string[],
+  sampleRows: string[][] = [],
 ): Partial<Record<TargetField, string>> {
   const lowerHeaders = headers.map(normalizeHeader);
   const suggestedMapping: Partial<Record<TargetField, string>> = {};
   for (const field of TARGET_FIELDS) {
-    // A combined vendor scenario/description header is not a title or a tag.
-    // Multiple plausible columns (including duplicate normalized labels) need
-    // explicit review rather than silently choosing the first alias.
-    const matches = lowerHeaders.flatMap((header, index) =>
-      NORMALIZED_HEADER_ALIASES[field].has(header)
-        ? [index] : [],
-    );
-    if (matches.length === 1) suggestedMapping[field] = headers[matches[0]!];
+    const candidates = lowerHeaders.flatMap((header, index) => {
+      let score = NORMALIZED_HEADER_ALIASES[field].has(header) ? 100 : 0;
+      if (field === "title" && DESCRIPTIVE_TITLE_ALIASES.has(header)) score = 80;
+      if (field === "title" && header === "description" && lowerHeaders.some(value =>
+        ["given", "when", "then", "externalId"].some(target =>
+          NORMALIZED_HEADER_ALIASES[target as TargetField].has(value),
+        ),
+      )) score = 60;
+      // Do not turn an action/expected/ID column into a title by looking at its
+      // contents. Samples only distinguish competing plausible header roles.
+      if (!score || lowerHeaders.filter(value => value === header).length !== 1) return [];
+      if (sampleRows.length) {
+        const populated = sampleRows.filter(row => row[index]?.trim()).length;
+        score += populated ? populated / sampleRows.length : -50;
+      }
+      return [{ index, score }];
+    }).sort((a, b) => b.score - a.score);
+    const best = candidates[0];
+    if (best && best.score !== candidates[1]?.score) suggestedMapping[field] = headers[best.index];
+  }
+  // A combined module/scenario column is grouping metadata only when another
+  // column has already been identified as the case name. Never use it for both.
+  if (suggestedMapping.title && !suggestedMapping.tags) {
+    const matches = lowerHeaders.flatMap((header, index) => MODULE_SCENARIO_ALIASES.has(header) ? [index] : []);
+    if (matches.length === 1) suggestedMapping.tags = headers[matches[0]!];
   }
   return suggestedMapping;
 }
 
 function normalizeHeader(header: string): string {
-  return header.trim().toLowerCase().replace(/[\s_-]+/g, " ");
+  return header.normalize("NFKC").replace(/([a-z])([A-Z])/g, "$1 $2").toLowerCase().replace(/[^\p{L}\p{N}]+/gu, " ").trim();
 }
 
 export interface CsvHeaders {
@@ -291,7 +341,7 @@ export interface CsvHeaders {
 export function inspectCsv(text: string): CsvHeaders {
   const rows = splitCsvRows(text);
   const headers = (rows[0] ?? []).map((h) => h.trim());
-  const suggestedMapping = suggestCsvMapping(headers);
+  const suggestedMapping = suggestCsvMapping(headers, rows.slice(1, 26));
 
   return { headers, suggestedMapping, rowCount: Math.max(0, rows.length - 1) };
 }
@@ -313,6 +363,7 @@ export interface MapCsvResult {
   rows: MappedRow[];
   skipped: { rowNumber: number; reason: string }[];
   incompleteRows: MappedRow[];
+  nonCaseRows?: MappedRow[];
 }
 
 export type MappedRowOverride = Partial<Omit<MappedRow, "rowNumber">> & {
@@ -364,14 +415,9 @@ export function mapCsvRows(
       throw new Error(`The mapped "${field}" column is already mapped to another field; review the column mapping before importing.`);
     }
     usedColumns.add(index);
-    const recognizedFields = TARGET_FIELDS.filter(target =>
-      HEADER_ALIASES[target].some(alias =>
-        normalizeHeader(alias) === normalizeHeader(header[index]!),
-      ),
-    );
-    if (recognizedFields.length && !recognizedFields.includes(field)) {
-      throw new Error(`The mapped "${field}" column is recognized as "${recognizedFields.join(" or ")}"; review the column mapping before importing.`);
-    }
+    // Header recognition proposes defaults; it must not override the human's
+    // confirmed correction. Existence and one-column/one-field checks remain
+    // binding, and preview/commit still use this exact same reviewed mapping.
   }
   if (idx.title === -1) {
     throw new Error('The "title" field must be mapped to a CSV column');
@@ -380,6 +426,7 @@ export function mapCsvRows(
   const mapped: MappedRow[] = [];
   const skipped: { rowNumber: number; reason: string }[] = [];
   const incompleteRows: MappedRow[] = [];
+  const nonCaseRows: MappedRow[] = [];
   const overrideByRow = new Map(overrides.map((row) => [row.rowNumber, row]));
   const dataRows = limit ? rows.slice(1, 1 + limit) : rows.slice(1);
 
@@ -422,6 +469,18 @@ export function mapCsvRows(
       externalId: override?.externalId ?? externalId,
     };
     if (!candidate.title) {
+      // Sheets often interleave grouping headings, prose notes in the ID
+      // column, and unused ID-only placeholders. Classify only when there is
+      // NO definition content in any other source column, including unmapped
+      // columns. Keep genuine missing-title procedures in the repair workflow.
+      const identityOnly = (candidate.tags.length > 0 || Boolean(candidate.externalId)) &&
+        candidate.given.length === 0 && candidate.when.length === 0 && candidate.then.length === 0 &&
+        r.every((cell, index) => !cell.trim() || index === idx.tags || index === idx.externalId);
+      if (identityOnly) {
+        skipped.push({ rowNumber, reason: "section label or ID only; no test-case definition" });
+        nonCaseRows.push(candidate);
+        return;
+      }
       skipped.push({ rowNumber, reason: "missing title" });
       incompleteRows.push(candidate);
       return;
@@ -429,5 +488,5 @@ export function mapCsvRows(
     mapped.push(candidate);
   });
 
-  return { rows: mapped, skipped, incompleteRows };
+  return { rows: mapped, skipped, incompleteRows, ...(nonCaseRows.length ? { nonCaseRows } : {}) };
 }

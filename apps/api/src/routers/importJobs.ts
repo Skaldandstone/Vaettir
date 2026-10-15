@@ -64,6 +64,7 @@ const xlsxPreviewSchema = z.object({ sheets: z.array(z.object({
   name: z.string(), headerRow: z.number().nullable(), headers: z.array(z.string()),
   rowCount: z.number(), suggestedMapping: z.record(z.string(), z.string()),
   previewRows: z.array(mappedRowSchema), incompleteRows: z.array(mappedRowSchema),
+  nonCaseRows: z.array(mappedRowSchema).optional(),
   skippedCount: z.number(), warning: z.string().optional(),
 })) });
 const xlsxReadIdentity = z.object({ projectId: z.string(), requestId: z.string().uuid() });
@@ -211,6 +212,7 @@ export const importJobsRouter = router({
         previewRows: z.array(mappedRowSchema),
         incompleteRows: z.array(mappedRowSchema),
         skippedCount: z.number(),
+        nonCaseRows: z.array(mappedRowSchema).optional(),
       }),
     )
     .mutation(async ({ ctx, input, signal }) => {
@@ -230,6 +232,7 @@ export const importJobsRouter = router({
           previewRows: preview.rows,
           incompleteRows: preview.incompleteRows,
           skippedCount: preview.skipped.length,
+          nonCaseRows: preview.nonCaseRows ?? [],
         };
       } catch (error) {
         if (error instanceof TRPCError) throw error;
@@ -297,9 +300,9 @@ export const importJobsRouter = router({
             undefined,
             selection.overrides,
           );
-          if (mapped.skipped.length > 0) {
+          if (mapped.incompleteRows.length > 0) {
             throw new Error(
-              `${sheet.name}: complete the required title for row(s) ${mapped.skipped.map((row) => row.rowNumber).join(", ")} before importing`,
+              `${sheet.name}: complete the required title for row(s) ${mapped.incompleteRows.map((row) => row.rowNumber).join(", ")} before importing`,
             );
           }
           rows.push(
@@ -312,6 +315,7 @@ export const importJobsRouter = router({
               suitePath: sheet.name.trim(),
             })),
           );
+          skipped.push(...mapped.skipped.map(row => ({ rowNumber: row.rowNumber + rowOffset, reason: `${sheet.name}: ${row.reason}` })));
           rowOffset += sheet.rowCount + 1;
         }
         if (rows.length === 0)
@@ -357,6 +361,7 @@ export const importJobsRouter = router({
         previewSkipped: z.array(
           z.object({ rowNumber: z.number(), reason: z.string() }),
         ),
+        nonCaseRows: z.array(mappedRowSchema).optional(),
       }),
     )
     .mutation(async ({ ctx, input }) => {
@@ -366,11 +371,13 @@ export const importJobsRouter = router({
       let previewRows: ReturnType<typeof mapCsvRows>["rows"] = [];
       let previewSkipped: ReturnType<typeof mapCsvRows>["skipped"] = [];
       let incompleteRows: ReturnType<typeof mapCsvRows>["incompleteRows"] = [];
+      let nonCaseRows: ReturnType<typeof mapCsvRows>["rows"] = [];
       if (suggestedMapping.title) {
         const preview = mapCsvRows(input.csvText, suggestedMapping);
         previewRows = preview.rows.slice(0, 10);
         previewSkipped = preview.skipped;
         incompleteRows = preview.incompleteRows;
+        nonCaseRows = preview.nonCaseRows ?? [];
       }
 
       return {
@@ -380,6 +387,7 @@ export const importJobsRouter = router({
         previewRows,
         previewSkipped,
         incompleteRows,
+        nonCaseRows,
       };
     }),
 
@@ -402,12 +410,13 @@ export const importJobsRouter = router({
         previewSkipped: z.array(
           z.object({ rowNumber: z.number(), reason: z.string() }),
         ),
+        nonCaseRows: z.array(mappedRowSchema).optional(),
       }),
     )
     .mutation(async ({ ctx, input }) => {
       await requireProjectAccess(ctx, input.projectId);
       try {
-        const { rows, skipped, incompleteRows } = mapCsvRows(
+        const { rows, skipped, incompleteRows, nonCaseRows } = mapCsvRows(
           input.csvText,
           input.mapping,
           undefined,
@@ -417,6 +426,7 @@ export const importJobsRouter = router({
           previewRows: rows.slice(0, 10),
           previewSkipped: skipped,
           incompleteRows,
+          nonCaseRows: nonCaseRows ?? [],
         };
       } catch (e) {
         throw new TRPCError({
@@ -462,9 +472,9 @@ export const importJobsRouter = router({
           undefined,
           input.overrides,
         );
-        if (mapped.skipped.length > 0) {
+        if (mapped.incompleteRows.length > 0) {
           throw new Error(
-            `Complete the required title for row(s) ${mapped.skipped.map((row) => row.rowNumber).join(", ")} before importing`,
+            `Complete the required title for row(s) ${mapped.incompleteRows.map((row) => row.rowNumber).join(", ")} before importing`,
           );
         }
       } catch (e) {
