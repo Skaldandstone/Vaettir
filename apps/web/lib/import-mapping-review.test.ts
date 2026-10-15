@@ -9,11 +9,11 @@ import { remainingNonCaseRows } from "./reassign-import-column";
 
 const source = readFileSync(new URL("../components/MigrationWizard.tsx", import.meta.url), "utf8");
 const ast = ts.createSourceFile("Migration.tsx", source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
-const names = ["rowRecord", "reconcileRowOverrides", "splitEditedLines", "RowRepairEditor", "NonCaseRowsReview"];
+const names = ["rowRecord", "reconcileRowOverrides", "splitEditedLines", "RowRepairEditor", "NonCaseRowsReview", "RowMappingReview"];
 const declarations = ast.statements.filter(node => ts.isFunctionDeclaration(node) && names.includes(node.name?.text ?? ""));
 if (declarations.length !== names.length) throw Error("Actual import repair declarations missing");
 const code = ts.transpileModule(declarations.map(node => ts.createPrinter().printNode(ts.EmitHint.Unspecified, node, ast)).join("\n"), { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.None, jsx: ts.JsxEmit.React } }).outputText;
-const actual = new Function("React", "remainingNonCaseRows", code + "\nreturn { rowRecord, reconcileRowOverrides, splitEditedLines, RowRepairEditor, NonCaseRowsReview };")(React, remainingNonCaseRows);
+const actual = new Function("React", "remainingNonCaseRows", code + "\nreturn { rowRecord, reconcileRowOverrides, splitEditedLines, RowRepairEditor, NonCaseRowsReview, RowMappingReview };")(React, remainingNonCaseRows);
 const row = { rowNumber: 2, title: "", externalId: "original-ID", tags: ["Not a case name"], given: [" Setup\n  kept "], when: ["1. Reinstall.\n\n  2. Check a|b."], then: [" Expected\nvalue "], priority: "MEDIUM", testType: "FUNCTIONAL", automationStatus: "MANUAL" };
 function elements(root: React.ReactNode): React.ReactElement<{ children?: React.ReactNode; onClick?: () => void; onChange?: (event: { target: { value: string } }) => void }>[] {
   if (Array.isArray(root)) return root.flatMap(elements);
@@ -65,4 +65,18 @@ it("the actual excluded-row review lists source labels and lets the user include
   elements(tree).find(node => node.type === "button")!.props.onClick!();
   expect(included).toEqual(heading);
   expect(actual.NonCaseRowsReview({ rows: [heading], overrides: { 2: { ...heading, title: "Owner supplied case" } }, onInclude: () => undefined })).toBeNull();
+});
+
+it("shows suggested row-layout changes and lets the reviewer edit or restore original roles", () => {
+  const original = {...row, title: "1. Reinstall. 2. Restore."};
+  const proposed = {...row, title: "Verify restoration", tags: [], given: [], when: [original.title], then: ["Purchase restored"]};
+  let changed: typeof row | undefined;
+  const tree = actual.RowMappingReview({suggestions: [{original, proposed}], overrides: {}, onChange: (next: typeof row) => {changed = next;}});
+  const markup = renderToStaticMarkup(tree);
+  expect(markup).toContain("suggested row-layout corrections");expect(markup).toContain("Verify restoration");expect(markup).toContain("Purchase restored");expect(markup).toContain("<table");
+  const buttons = elements(tree).filter(node => node.type === "button");
+  buttons[0]!.props.onClick!();expect(changed).toEqual(proposed);
+  buttons[1]!.props.onClick!();expect(changed).toEqual(original);
+  const restored = actual.RowMappingReview({suggestions: [{original, proposed}], overrides: {2: original}, onChange: () => undefined});
+  expect(renderToStaticMarkup(restored)).toContain("1. Reinstall. 2. Restore.");
 });

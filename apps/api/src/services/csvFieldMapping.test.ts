@@ -133,6 +133,31 @@ describe("mapped CSV row repair", () => {
     expect(included.nonCaseRows?.map(row => row.rowNumber)).toEqual([2, 3]);
   });
 
+  it("proposes reversible row-layout corrections without changing normally populated columns", () => {
+    const csv = 'Test Case ID,Test Module/Scenario,Scenario Description/Test Case,Pre-conditions,Test Steps,Expected\nTC-1,Verify purchase restoration,1. Reinstall. 2. Restore.,Entitlement is restored,,\nTC-2,Billing,Verify receipt,Logged in,Open receipt,Receipt shown\n';
+    const mapping = suggestCsvMapping(inspectCsv(csv).headers);
+    const result = mapCsvRows(csv, mapping);
+    expect(result.rows[0]).toMatchObject({title: "Verify purchase restoration", tags: [], given: [], when: ["1. Reinstall. 2. Restore."], then: ["Entitlement is restored"]});
+    expect(result.rows[1]).toMatchObject({title: "Verify receipt", tags: ["Billing"], given: ["Logged in"], when: ["Open receipt"], then: ["Receipt shown"]});
+    expect(result.rowMappingSuggestions).toHaveLength(1);
+    const original = result.rowMappingSuggestions![0]!.original;
+    expect(original).toMatchObject({title: "1. Reinstall. 2. Restore.", tags: ["Verify purchase restoration"], given: ["Entitlement is restored"]});
+    const kept = mapCsvRows(csv, mapping, undefined, [original]);
+    expect(kept.rows[0]).toEqual(original);expect(kept.rowMappingSuggestions).toBeUndefined();
+    const edited = mapCsvRows(csv, mapping, undefined, [{...result.rows[0]!, title: "Reviewed restore case"}]);
+    expect(edited.rows[0]).toMatchObject({title: "Reviewed restore case", when: ["1. Reinstall. 2. Restore."]});
+    expect(mapCsvRows(csv, {...mapping, tags: undefined}).rowMappingSuggestions).toBeUndefined();
+  });
+
+  it("uses corroborated alternate layouts for non-assertion titles, not isolated ambiguous categories", () => {
+    const header = 'Test Case ID,Test Module/Scenario,Scenario Description/Test Case,Pre-conditions,Test Steps,Expected\n';
+    const ambiguous = 'TC-4,Guest taps reward,Tap reward,Prompt appears,,\n';
+    const mapping = suggestCsvMapping(inspectCsv(header + ambiguous).headers);
+    expect(mapCsvRows(header + ambiguous, mapping).rowMappingSuggestions).toBeUndefined();
+    const support = [1,2,3,5].map(id => `TC-${id},Verify reward ${id},Tap reward,Prompt appears,,\n`).join('');
+    expect(mapCsvRows(header + support + ambiguous, mapping).rowMappingSuggestions).toHaveLength(5);
+  });
+
   it("applies reviewed row edits instead of dropping the source row", () => {
     const result = mapCsvRows(CSV, MAPPING, undefined, [
       {

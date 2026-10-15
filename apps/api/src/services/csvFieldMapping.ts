@@ -364,6 +364,7 @@ export interface MapCsvResult {
   skipped: { rowNumber: number; reason: string }[];
   incompleteRows: MappedRow[];
   nonCaseRows?: MappedRow[];
+  rowMappingSuggestions?: { original: MappedRow; proposed: MappedRow }[];
 }
 
 export type MappedRowOverride = Partial<Omit<MappedRow, "rowNumber">> & {
@@ -427,8 +428,22 @@ export function mapCsvRows(
   const skipped: { rowNumber: number; reason: string }[] = [];
   const incompleteRows: MappedRow[] = [];
   const nonCaseRows: MappedRow[] = [];
+  const rowMappingSuggestions: NonNullable<MapCsvResult["rowMappingSuggestions"]> = [];
   const overrideByRow = new Map(overrides.map((row) => [row.rowNumber, row]));
   const dataRows = limit ? rows.slice(1, 1 + limit) : rows.slice(1);
+  // Some exports change layout partway through a sheet without repeating the
+  // header. Only recognize this specific, otherwise empty, three-cell shape.
+  // Keep the original row beside every proposal so the reviewer can undo it.
+  const alternateHeaderRoles = MODULE_SCENARIO_ALIASES.has(normalizeHeader(mapping.tags ?? "")) &&
+    DESCRIPTIVE_TITLE_ALIASES.has(normalizeHeader(mapping.title ?? "")) &&
+    idx.given >= 0 && idx.when >= 0 && idx.then >= 0;
+  const alternateShape = (r: string[]) => alternateHeaderRoles &&
+    Boolean(r[idx.tags]?.trim() && r[idx.title]?.trim() && r[idx.given]?.trim()) &&
+    !r[idx.when]?.trim() && !r[idx.then]?.trim();
+  const titleLike = (value: string) => /^(verify\b|check\s+(?:whether|that)\b|ensure\b)/i.test(value.trim());
+  const alternateRows = dataRows.filter(alternateShape);
+  const supportedAlternateLayout = alternateRows.length >= 3 &&
+    alternateRows.filter(r => titleLike(r[idx.tags] ?? "")).length / alternateRows.length >= 0.8;
 
   dataRows.forEach((r, i) => {
     const rowNumber = i + 2;
@@ -456,7 +471,7 @@ export function mapCsvRows(
         ? (r[idx.externalId] ?? "").trim() || undefined
         : undefined;
 
-    const candidate: MappedRow = {
+    let candidate: MappedRow = {
       rowNumber,
       title,
       given: override?.given ?? given,
@@ -468,6 +483,13 @@ export function mapCsvRows(
       automationStatus: override?.automationStatus ?? automationStatus,
       externalId: override?.externalId ?? externalId,
     };
+    if (!override && alternateShape(r) &&
+      (titleLike(r[idx.tags] ?? "") || supportedAlternateLayout)) {
+      const original = candidate;
+      candidate = { ...candidate, title: r[idx.tags]!.trim(), tags: [], given: [],
+        when: preserveProcedureCell(r[idx.title]), then: preserveProcedureCell(r[idx.given]) };
+      rowMappingSuggestions.push({ original, proposed: candidate });
+    }
     if (!candidate.title) {
       // Sheets often interleave grouping headings, prose notes in the ID
       // column, and unused ID-only placeholders. Classify only when there is
@@ -488,5 +510,6 @@ export function mapCsvRows(
     mapped.push(candidate);
   });
 
-  return { rows: mapped, skipped, incompleteRows, ...(nonCaseRows.length ? { nonCaseRows } : {}) };
+  return { rows: mapped, skipped, incompleteRows, ...(nonCaseRows.length ? { nonCaseRows } : {}),
+    ...(rowMappingSuggestions.length ? { rowMappingSuggestions } : {}) };
 }

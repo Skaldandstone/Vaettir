@@ -7,7 +7,7 @@ export function workbookPreview(sheets: ParsedWorkbookSheet[]) {
     sheets: sheets.map((sheet) => {
       const preview = sheet.suggestedMapping.title
         ? previewXlsxSheet(sheet)
-        : { rows: [], skipped: [], incompleteRows: [], nonCaseRows: [] };
+        : { rows: [], skipped: [], incompleteRows: [], nonCaseRows: [], rowMappingSuggestions: [] };
       return {
         name: sheet.name,
         headerRow: sheet.headerRow,
@@ -17,6 +17,7 @@ export function workbookPreview(sheets: ParsedWorkbookSheet[]) {
         previewRows: preview.rows,
         incompleteRows: preview.incompleteRows,
         nonCaseRows: preview.nonCaseRows ?? [],
+        rowMappingSuggestions: preview.rowMappingSuggestions ?? [],
         skippedCount: preview.skipped.length,
         warning: sheet.warning,
       };

@@ -184,6 +184,32 @@ function NonCaseRowsReview({ rows, overrides, onInclude }: {
   );
 }
 
+function RowMappingReview({ suggestions, overrides, onChange }: {
+  suggestions: { original: EditableImportRow; proposed: EditableImportRow }[] | undefined;
+  overrides: Record<number, EditableImportRow>;
+  onChange: (row: EditableImportRow) => void;
+}) {
+  if (!suggestions?.length) return null;
+  return <details className="import-repair-panel" open>
+    <summary>Review {suggestions.length} suggested row-layout corrections</summary>
+    <p className="text-muted">These rows appear to use a different layout: module/scenario contains the case name, description contains the actions, and preconditions contains the expected result. Review the suggestions, edit a row, or keep its original column mapping. Nothing is written until you import.</p>
+    <div className="table-scroll" style={{ maxHeight: 320 }}><table className="workspace-table">
+      <thead><tr><th>Row</th><th>Suggested case name</th><th>Actions / procedure</th><th>Expected result</th><th>Review</th></tr></thead>
+      <tbody>{suggestions.map(({ original, proposed }) => {
+        const row = overrides[proposed.rowNumber] ?? proposed;
+        return <tr key={row.rowNumber}><td>{row.rowNumber}</td><td>{row.title}</td>
+          <td style={{ whiteSpace: "pre-wrap" }}>{row.when.join("\n") || "—"}</td>
+          <td style={{ whiteSpace: "pre-wrap" }}>{row.then.join("\n") || "—"}</td>
+          <td><div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            <button className="btn-secondary" onClick={() => onChange(row)}>Edit row</button>
+            <button className="btn-secondary" onClick={() => onChange(original)}>Keep column mapping</button>
+          </div></td>
+        </tr>;
+      })}</tbody>
+    </table></div>
+  </details>;
+}
+
 function RowRepairEditor({
   row,
   onChange,
@@ -621,7 +647,7 @@ export function MigrationWizard({
         overrides: Object.values(csvRowOverrides),
       });
       setCsvPreviewRows(res.previewRows);
-      setCsvPreview(current => current ? { ...current, nonCaseRows: res.nonCaseRows, previewSkipped: res.previewSkipped } : current);
+      setCsvPreview(current => current ? { ...current, nonCaseRows: res.nonCaseRows, previewSkipped: res.previewSkipped, rowMappingSuggestions: res.rowMappingSuggestions } : current);
       setCsvRowOverrides((current) =>
         reconcileRowOverrides(current, res.incompleteRows),
       );
@@ -667,6 +693,7 @@ export function MigrationWizard({
                       incompleteRows: res.incompleteRows,
                       skippedCount: res.skippedCount,
                       nonCaseRows: res.nonCaseRows ?? [],
+                      rowMappingSuggestions: res.rowMappingSuggestions ?? [],
                     }
                   : sheet,
               ),
@@ -1052,9 +1079,6 @@ export function MigrationWizard({
               const repairRows = Object.values(
                 xlsxRowOverrides[sheet.name] ?? {},
               );
-              const unresolvedRepairCount = repairRows.filter(
-                (row) => !row.title.trim(),
-              ).length;
               return (
                 <section
                   key={sheet.name}
@@ -1138,7 +1162,7 @@ export function MigrationWizard({
                               </tr>
                             </thead>
                             <tbody>
-                              {sheet.previewRows.slice(0, 5).map((row) => (
+                              {sheet.previewRows.slice(0, 5).map(row => xlsxRowOverrides[sheet.name]?.[row.rowNumber] ?? row).map((row) => (
                                 <tr key={row.rowNumber}>
                                   <td>{row.rowNumber}</td>
                                   <td>{row.title}</td>
@@ -1158,15 +1182,14 @@ export function MigrationWizard({
                       {repairRows.length > 0 && (
                         <details
                           className="import-repair-panel"
-                          open={unresolvedRepairCount > 0}
+                          open
                         >
                           <summary>
-                            Review {repairRows.length} incomplete source row(s)
+                            Review {repairRows.length} row edits
                           </summary>
                           <p className="text-muted">
-                            These rows have missing titles. Enter the case name
-                            explicitly; tags and external IDs remain separate.
-                            Review or edit any field before continuing.
+                            Review or edit any field before continuing. Empty case
+                            names must be completed; tags and external IDs remain separate.
                           </p>
                           {repairRows.map((row) => (
                             <RowRepairEditor
@@ -1179,6 +1202,7 @@ export function MigrationWizard({
                           ))}
                         </details>
                       )}
+                      <RowMappingReview suggestions={sheet.rowMappingSuggestions} overrides={xlsxRowOverrides[sheet.name] ?? {}} onChange={row => updateXlsxRepair(sheet.name, row)} />
                       <NonCaseRowsReview
                         rows={sheet.nonCaseRows}
                         overrides={xlsxRowOverrides[sheet.name] ?? {}}
@@ -1290,7 +1314,7 @@ export function MigrationWizard({
                   </tr>
                 </thead>
                 <tbody>
-                  {csvPreviewRows.map((r) => (
+                  {csvPreviewRows.map(row => csvRowOverrides[row.rowNumber] ?? row).map((r) => (
                     <tr
                       key={r.rowNumber}
                       style={{ borderTop: "1px solid var(--line)" }}
@@ -1313,16 +1337,14 @@ export function MigrationWizard({
           {Object.values(csvRowOverrides).length > 0 && (
             <details
               className="import-repair-panel"
-              open={unresolvedCsvRows.length > 0}
+              open
             >
               <summary>
-                Review {Object.values(csvRowOverrides).length} incomplete source
-                row(s)
+                Review {Object.values(csvRowOverrides).length} row edits
               </summary>
               <p className="text-muted">
-                These rows have missing titles. Enter the case name explicitly;
-                tags and external IDs remain separate. Review or edit any field
-                before continuing.
+                Review or edit any field before continuing. Empty case names must
+                be completed; tags and external IDs remain separate.
               </p>
               {Object.values(csvRowOverrides).map((row) => (
                 <RowRepairEditor
@@ -1333,6 +1355,7 @@ export function MigrationWizard({
               ))}
             </details>
           )}
+          <RowMappingReview suggestions={csvPreview.rowMappingSuggestions} overrides={csvRowOverrides} onChange={updateCsvRepair} />
           <NonCaseRowsReview rows={csvPreview.nonCaseRows} overrides={csvRowOverrides} onInclude={updateCsvRepair} />
 
           <div style={{ display: "flex", gap: 8, marginTop: 12 }}>

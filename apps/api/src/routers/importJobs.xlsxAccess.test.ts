@@ -38,6 +38,22 @@ function fixture() {
 beforeEach(() => { mocks.parse.mockReset(); mocks.commit.mockReset(); });
 
 describe("Excel post-parse access", () => {
+  it("keeps mixed-layout suggestions editable and uses the same reviewed roles at commit", async () => {
+    const f = fixture();
+    const mapping = { externalId: "Test Case ID", tags: "Test Module/Scenario", title: "Scenario Description/Test Case", given: "Pre-conditions", when: "Test Steps", then: "Expected" };
+    const csvText = 'Test Case ID,Test Module/Scenario,Scenario Description/Test Case,Pre-conditions,Test Steps,Expected\r\nTC-1,Verify restoration,1. Reinstall. 2. Restore.,Purchase restored,,';
+    mocks.parse.mockResolvedValue([{...sheet, csvText, suggestedMapping: mapping}]);
+    const preview = await f.caller.previewXlsxSheet({projectId: "synthetic-project", fileBase64: "dGVzdA==", sheetName: "Cases", mapping});
+    expect(preview.rowMappingSuggestions).toHaveLength(1);
+    expect(preview.previewRows[0]).toMatchObject({title: "Verify restoration", when: ["1. Reinstall. 2. Restore."], then: ["Purchase restored"]});
+    expect(mocks.commit).not.toHaveBeenCalled();
+    mocks.commit.mockImplementation(async (_db, input) => ({importJobId: "synthetic-job", createdCount: input.rows.length, updatedCount: 0, skipped: input.skipped}));
+    await f.caller.commitXlsx({projectId: "synthetic-project", fileBase64: "dGVzdA==", sheets: [{name: "Cases", mapping}]});
+    expect(mocks.commit.mock.calls[0]![1].rows[0]).toMatchObject({...preview.previewRows[0], externalId: "Cases:TC-1"});
+    const original = preview.rowMappingSuggestions![0]!.original;
+    await f.caller.commitXlsx({projectId: "synthetic-project", fileBase64: "dGVzdA==", sheets: [{name: "Cases", mapping, overrides: [original]}]});
+    expect(mocks.commit.mock.calls[1]![1].rows[0]).toMatchObject({...original, externalId: "Cases:TC-1"});
+  });
   it("commits only actual cases and passes the reviewed non-case exclusions to the audit service", async () => {
     const f = fixture();
     const csvText = 'ID,Title,Steps,Expected\r\nSection B,,,\r\nTC-1,Login works,Open login,Dashboard shown';

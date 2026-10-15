@@ -59,12 +59,14 @@ const mappedRowSchema = z.object({
 const rowOverrideSchema = mappedRowSchema.partial().extend({
   rowNumber: z.number().int().min(2),
 });
+const rowMappingSuggestionSchema = z.object({ original: mappedRowSchema, proposed: mappedRowSchema });
 
 const xlsxPreviewSchema = z.object({ sheets: z.array(z.object({
   name: z.string(), headerRow: z.number().nullable(), headers: z.array(z.string()),
   rowCount: z.number(), suggestedMapping: z.record(z.string(), z.string()),
   previewRows: z.array(mappedRowSchema), incompleteRows: z.array(mappedRowSchema),
   nonCaseRows: z.array(mappedRowSchema).optional(),
+  rowMappingSuggestions: z.array(rowMappingSuggestionSchema).optional(),
   skippedCount: z.number(), warning: z.string().optional(),
 })) });
 const xlsxReadIdentity = z.object({ projectId: z.string(), requestId: z.string().uuid() });
@@ -213,6 +215,7 @@ export const importJobsRouter = router({
         incompleteRows: z.array(mappedRowSchema),
         skippedCount: z.number(),
         nonCaseRows: z.array(mappedRowSchema).optional(),
+        rowMappingSuggestions: z.array(rowMappingSuggestionSchema).optional(),
       }),
     )
     .mutation(async ({ ctx, input, signal }) => {
@@ -233,6 +236,7 @@ export const importJobsRouter = router({
           incompleteRows: preview.incompleteRows,
           skippedCount: preview.skipped.length,
           nonCaseRows: preview.nonCaseRows ?? [],
+          rowMappingSuggestions: preview.rowMappingSuggestions ?? [],
         };
       } catch (error) {
         if (error instanceof TRPCError) throw error;
@@ -362,6 +366,7 @@ export const importJobsRouter = router({
           z.object({ rowNumber: z.number(), reason: z.string() }),
         ),
         nonCaseRows: z.array(mappedRowSchema).optional(),
+        rowMappingSuggestions: z.array(rowMappingSuggestionSchema).optional(),
       }),
     )
     .mutation(async ({ ctx, input }) => {
@@ -372,12 +377,14 @@ export const importJobsRouter = router({
       let previewSkipped: ReturnType<typeof mapCsvRows>["skipped"] = [];
       let incompleteRows: ReturnType<typeof mapCsvRows>["incompleteRows"] = [];
       let nonCaseRows: ReturnType<typeof mapCsvRows>["rows"] = [];
+      let rowMappingSuggestions: NonNullable<ReturnType<typeof mapCsvRows>["rowMappingSuggestions"]> = [];
       if (suggestedMapping.title) {
         const preview = mapCsvRows(input.csvText, suggestedMapping);
         previewRows = preview.rows.slice(0, 10);
         previewSkipped = preview.skipped;
         incompleteRows = preview.incompleteRows;
         nonCaseRows = preview.nonCaseRows ?? [];
+        rowMappingSuggestions = preview.rowMappingSuggestions ?? [];
       }
 
       return {
@@ -388,6 +395,7 @@ export const importJobsRouter = router({
         previewSkipped,
         incompleteRows,
         nonCaseRows,
+        rowMappingSuggestions,
       };
     }),
 
@@ -411,12 +419,13 @@ export const importJobsRouter = router({
           z.object({ rowNumber: z.number(), reason: z.string() }),
         ),
         nonCaseRows: z.array(mappedRowSchema).optional(),
+        rowMappingSuggestions: z.array(rowMappingSuggestionSchema).optional(),
       }),
     )
     .mutation(async ({ ctx, input }) => {
       await requireProjectAccess(ctx, input.projectId);
       try {
-        const { rows, skipped, incompleteRows, nonCaseRows } = mapCsvRows(
+        const { rows, skipped, incompleteRows, nonCaseRows, rowMappingSuggestions } = mapCsvRows(
           input.csvText,
           input.mapping,
           undefined,
@@ -427,6 +436,7 @@ export const importJobsRouter = router({
           previewSkipped: skipped,
           incompleteRows,
           nonCaseRows: nonCaseRows ?? [],
+          rowMappingSuggestions: rowMappingSuggestions ?? [],
         };
       } catch (e) {
         throw new TRPCError({
