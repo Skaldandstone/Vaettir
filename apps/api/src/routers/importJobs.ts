@@ -15,13 +15,15 @@ import { scanQTestProject } from "../services/qtestImport.js";
 import { scanZephyrProject } from "../services/zephyrImport.js";
 import { previewXlsxSheet } from "../services/xlsxImport.js";
 import { parseXlsxWorkbookIsolated } from "../services/xlsxImportIsolation.js";
+import { XLSX_MAX_BASE64_CHARACTERS } from "../services/xlsxImportLimits.js";
+import { workbookReads, workbookPreview } from "../services/xlsxWorkbookReads.js";
 
 const fieldMappingSchema = z
   .record(z.enum(TARGET_FIELDS), z.string())
   .refine((m) => Boolean(m.title), {
     message: 'The "title" field must be mapped to a CSV column',
   });
-const xlsxContentSchema = z.string().min(1).max(14_000_000);
+const xlsxContentSchema = z.string().min(1).max(XLSX_MAX_BASE64_CHARACTERS);
 const mappedRowSchema = z.object({
   rowNumber: z.number(),
   title: z.string(),
@@ -57,6 +59,14 @@ const mappedRowSchema = z.object({
 const rowOverrideSchema = mappedRowSchema.partial().extend({
   rowNumber: z.number().int().min(2),
 });
+
+const xlsxPreviewSchema = z.object({ sheets: z.array(z.object({
+  name: z.string(), headerRow: z.number().nullable(), headers: z.array(z.string()),
+  rowCount: z.number(), suggestedMapping: z.record(z.string(), z.string()),
+  previewRows: z.array(mappedRowSchema), incompleteRows: z.array(mappedRowSchema),
+  skippedCount: z.number(), warning: z.string().optional(),
+})) });
+const xlsxReadIdentity = z.object({ projectId: z.string(), requestId: z.string().uuid() });
 
 // P11-01/P11-02: the generic ImportJob pipeline. `previewCsv` never writes
 // anything - it's pure inspection/mapping-preview, so the user can adjust
@@ -131,51 +141,52 @@ function toFilePreviewRow(
 }
 
 export const importJobsRouter = router({
+  startXlsxRead: protectedProcedure
+    .input(xlsxReadIdentity.extend({ fileBase64: xlsxContentSchema }))
+    .output(z.object({ requestId: z.string().uuid() }))
+    .mutation(async ({ ctx, input }) => {
+      const { project } = await requireFreshXlsxAccess(ctx, input.projectId);
+      try {
+        return workbookReads.start({ actorId: ctx.user.id, clerkSubject: ctx.authenticatedClerkSubject ?? null, organizationId: project.organizationId, projectId: project.id }, input.requestId, Buffer.from(input.fileBase64, "base64"));
+      } catch (error) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: error instanceof Error ? error.message : "Excel preview could not start." });
+      }
+    }),
+  xlsxReadStatus: protectedProcedure
+    .input(xlsxReadIdentity)
+    .output(z.object({ status: z.enum(["READING", "READY", "FAILED", "CANCELLED"]), checkpoints: z.number().int().min(0).max(103), preview: xlsxPreviewSchema.optional(), error: z.string().optional() }))
+    .query(async ({ ctx, input }) => {
+      const { project } = await requireFreshXlsxAccess(ctx, input.projectId);
+      try {
+        return workbookReads.status({ actorId: ctx.user.id, clerkSubject: ctx.authenticatedClerkSubject ?? null, organizationId: project.organizationId, projectId: project.id }, input.requestId);
+      } catch {
+        throw new TRPCError({ code: "NOT_FOUND", message: "This workbook preview expired. Upload the same workbook again." });
+      }
+    }),
+  cancelXlsxRead: protectedProcedure
+    .input(xlsxReadIdentity)
+    .output(z.object({ cancelled: z.boolean() }))
+    .mutation(async ({ ctx, input }) => {
+      const { project } = await requireFreshXlsxAccess(ctx, input.projectId);
+      try {
+        return workbookReads.cancel({ actorId: ctx.user.id, clerkSubject: ctx.authenticatedClerkSubject ?? null, organizationId: project.organizationId, projectId: project.id }, input.requestId);
+      } catch {
+        throw new TRPCError({ code: "NOT_FOUND", message: "This workbook preview expired. Upload the same workbook again." });
+      }
+    }),
   previewXlsx: protectedProcedure
     .input(z.object({ projectId: z.string(), fileBase64: xlsxContentSchema }))
-    .output(
-      z.object({
-        sheets: z.array(
-          z.object({
-            name: z.string(),
-            headerRow: z.number().nullable(),
-            headers: z.array(z.string()),
-            rowCount: z.number(),
-            suggestedMapping: z.record(z.string(), z.string()),
-            previewRows: z.array(mappedRowSchema),
-            incompleteRows: z.array(mappedRowSchema),
-            skippedCount: z.number(),
-            warning: z.string().optional(),
-          }),
-        ),
-      }),
-    )
+    .output(xlsxPreviewSchema)
     .mutation(async ({ ctx, input, signal }) => {
-      await requireProjectAccess(ctx, input.projectId);
+      const { project } = await requireProjectAccess(ctx, input.projectId);
       try {
         const sheets = await parseXlsxWorkbookIsolated(
           Buffer.from(input.fileBase64, "base64"),
           signal,
+          JSON.stringify([ctx.authenticatedClerkSubject, ctx.user.id, project.organizationId, project.id]),
         );
         await requireFreshXlsxAccess(ctx, input.projectId);
-        return {
-          sheets: sheets.map((sheet) => {
-            const preview = sheet.suggestedMapping.title
-              ? previewXlsxSheet(sheet)
-              : { rows: [], skipped: [], incompleteRows: [] };
-            return {
-              name: sheet.name,
-              headerRow: sheet.headerRow,
-              headers: sheet.headers,
-              rowCount: sheet.rowCount,
-              suggestedMapping: sheet.suggestedMapping,
-              previewRows: preview.rows,
-              incompleteRows: preview.incompleteRows,
-              skippedCount: preview.skipped.length,
-              warning: sheet.warning,
-            };
-          }),
-        };
+        return workbookPreview(sheets);
       } catch (error) {
         if (error instanceof TRPCError) throw error;
         throw new TRPCError({
@@ -203,11 +214,12 @@ export const importJobsRouter = router({
       }),
     )
     .mutation(async ({ ctx, input, signal }) => {
-      await requireProjectAccess(ctx, input.projectId);
+      const { project } = await requireProjectAccess(ctx, input.projectId);
       try {
         const workbook = await parseXlsxWorkbookIsolated(
           Buffer.from(input.fileBase64, "base64"),
           signal,
+          JSON.stringify([ctx.authenticatedClerkSubject, ctx.user.id, project.organizationId, project.id]),
         );
         await requireFreshXlsxAccess(ctx, input.projectId);
         const sheet = workbook.find((candidate) => candidate.name === input.sheetName);
@@ -265,6 +277,7 @@ export const importJobsRouter = router({
         const workbook = await parseXlsxWorkbookIsolated(
           Buffer.from(input.fileBase64, "base64"),
           signal,
+          JSON.stringify([ctx.authenticatedClerkSubject, ctx.user.id, project.organizationId, project.id]),
         );
         const refreshed = await requireFreshXlsxAccess(ctx, input.projectId, "EDITOR");
         if (refreshed.project.organizationId !== project.organizationId)

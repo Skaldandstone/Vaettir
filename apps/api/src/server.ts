@@ -11,6 +11,7 @@ import rateLimit from "@fastify/rate-limit";
 import { fastifyTRPCPlugin } from "@trpc/server/adapters/fastify";
 import { prisma } from "@vaettir/db";
 import { appRouter } from "./router.js";
+import { XLSX_HTTP_BODY_BYTES } from "./services/xlsxImportLimits.js";
 import { createContext } from "./trpc.js";
 import {
   startReverseEngineerJobPoller,
@@ -478,13 +479,12 @@ async function registerProductionSignalOAuthRoute(instance: FastifyInstance) {
 // exceeds find-my-way's 100-char default per-param length as pages grow
 // past a handful of parallel queries.
 //
-// bodyLimit raised from Fastify's 1MB default: P2-11's zip upload sends a
-// base64-encoded archive (up to 10MB raw, ~33% larger base64-encoded) as a
-// single mutation input, well past the default.
+// Account for the complete supported Excel upload's base64 expansion and
+// JSON envelope. Each importer still applies its own expanded-memory bounds.
 const server = Fastify({
   logger: true,
   maxParamLength: 5000,
-  bodyLimit: 15 * 1024 * 1024,
+  bodyLimit: XLSX_HTTP_BODY_BYTES,
 });
 
 // P10-05: catches anything thrown by a raw (non-tRPC) route handler, e.g.

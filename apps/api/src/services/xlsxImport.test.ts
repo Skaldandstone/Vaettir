@@ -1,5 +1,6 @@
 import AdmZip from "adm-zip";
-import { describe, expect, it } from "vitest";
+import { randomBytes } from "node:crypto";
+import { describe, expect, it, vi } from "vitest";
 import { parseXlsxWorkbook, previewXlsxSheet } from "./xlsxImport.js";
 import { mapCsvRows, inspectCsv } from "./csvFieldMapping.js";
 
@@ -45,6 +46,19 @@ function workbookFixture(sheetOverride?: string) {
 }
 
 describe("XLSX smart import", () => {
+  it("accepts ordinary packages above the old upload limit without inflating unused media", () => {
+    const zip = new AdmZip(workbookFixture());
+    zip.addFile("xl/media/image1.png", randomBytes(11 * 1024 * 1024));
+    const bytes = zip.toBuffer();
+    expect(bytes.byteLength).toBeGreaterThan(10 * 1024 * 1024);
+    expect(parseXlsxWorkbook(bytes)[0]).toMatchObject({ name: "Cases", rowCount: 1 });
+  });
+  it("reports actual metadata and worksheet checkpoints without changing decoded output", () => {
+    const progress = vi.fn();
+    const bytes = workbookFixture();
+    expect(parseXlsxWorkbook(bytes, progress)).toEqual(parseXlsxWorkbook(bytes));
+    expect(progress).toHaveBeenCalledTimes(5);
+  });
   it("derives the same CSV metadata for blank, boolean, numeric and quoted multiline cells", () => {
     const xml='<worksheet><sheetData><row><c r="A1" t="inlineStr"><is><t> Title </t></is></c><c r="B1" t="inlineStr"><is><t>When</t></is></c></row><row><c r="A2" t="inlineStr"><is><t>Quoted &quot;title&quot;, on&#10;two lines</t></is></c><c r="B2"><v>0</v></c></row><row><c r="A3" t="inlineStr"><is><t>   </t></is></c></row><row><c r="B4" t="b"><v>0</v></c></row><row/></sheetData></worksheet>';
     const sheet=parseXlsxWorkbook(workbookFixture(xml))[0]!;

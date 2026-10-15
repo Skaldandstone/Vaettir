@@ -1,5 +1,6 @@
 import AdmZip from "adm-zip";
 import { XMLParser } from "fast-xml-parser";
+import { XLSX_MAX_UPLOAD_BYTES } from "./xlsxImportLimits.js";
 import {
   mapCsvRows,
   suggestCsvMapping,
@@ -7,9 +8,8 @@ import {
   type TargetField,
 } from "./csvFieldMapping.js";
 
-const MAX_XLSX_BYTES = 10 * 1024 * 1024;
 const MAX_XML_BYTES = 10 * 1024 * 1024;
-const MAX_WORKBOOK_XML_BYTES = 50 * 1024 * 1024;
+const MAX_WORKBOOK_ARCHIVE_BYTES = 256 * 1024 * 1024;
 const MAX_ARCHIVE_ENTRIES = 20_000;
 const MAX_SHEETS = 50;
 const MAX_ROWS_PER_SHEET = 10_000;
@@ -123,6 +123,9 @@ function csvField(value: CellValue): string {
 function zipText(zip: AdmZip, path: string): string {
   const entry = zip.getEntry(path);
   if (!entry) throw new Error(`Invalid XLSX workbook: missing ${path}`);
+  // Check before getData allocates or inflates, including falsified sizes.
+  if (entry.header.size > MAX_XML_BYTES)
+    throw new Error("Excel archive entry exceeds the 10 MB expanded limit");
   const data = entry.getData();
   if (data.byteLength > MAX_XML_BYTES) throw new Error("Excel archive entry exceeds the 10 MB expanded limit");
   const text = data.toString("utf8");
@@ -138,15 +141,15 @@ function validateWorkbookArchive(zip: AdmZip): void {
   for (const entry of entries) {
     if (entry.isDirectory) continue;
     const size = entry.header.size;
-    if (!Number.isSafeInteger(size) || size < 0 || size > MAX_XML_BYTES)
-      throw new Error("Excel archive entry exceeds the 10 MB expanded limit");
+    if (!Number.isSafeInteger(size) || size < 0)
+      throw new Error("Excel archive entry size is invalid");
     // Zero-size deflated entries cannot contain meaningful workbook XML.
     // Reject before decoding so a false zero never disables the inflate cap.
     if (size === 0 && entry.header.compressedSize > 0 && entry.header.method === 8)
       throw new Error("Excel archive has an invalid zero-size compressed entry");
     total += size;
-    if (total > MAX_WORKBOOK_XML_BYTES)
-      throw new Error("Excel archive exceeds the 50 MB expanded limit");
+    if (total > MAX_WORKBOOK_ARCHIVE_BYTES)
+      throw new Error("Excel archive exceeds the safe expanded capacity");
   }
 }
 
@@ -187,14 +190,15 @@ function findHeaderRow(rows: CellValue[][]): number | null {
   return best?.index ?? null;
 }
 
-export function parseXlsxWorkbook(buffer: Buffer): ParsedWorkbookSheet[] {
-  if (buffer.byteLength > MAX_XLSX_BYTES)
-    throw new Error("Excel file is too large (maximum 10 MB)");
+export function parseXlsxWorkbook(buffer: Buffer, onProgress?: () => void): ParsedWorkbookSheet[] {
+  if (buffer.byteLength > XLSX_MAX_UPLOAD_BYTES)
+    throw new Error("Excel file exceeds the current 32 MB upload capacity");
   if (buffer.subarray(0, 2).toString("hex") !== "504b")
     throw new Error("File is not a valid .xlsx workbook");
 
   const zip = new AdmZip(buffer);
   validateWorkbookArchive(zip);
+  onProgress?.();
   const workbook = recordOf(parser.parse(zipText(zip, "xl/workbook.xml")));
   const relationships = recordOf(
     parser.parse(zipText(zip, "xl/_rels/workbook.xml.rels")),
@@ -207,6 +211,7 @@ export function parseXlsxWorkbook(buffer: Buffer): ParsedWorkbookSheet[] {
     const target = textOf(relationship["@_Target"]);
     if (id && target) relById.set(id, normalizeTarget(target));
   }
+  onProgress?.();
 
   const sharedEntry = zip.getEntry("xl/sharedStrings.xml");
   const sharedRoot = sharedEntry
@@ -217,6 +222,7 @@ export function parseXlsxWorkbook(buffer: Buffer): ParsedWorkbookSheet[] {
   const sharedStrings = sharedEntry
     ? sharedValues.map(textOf)
     : [];
+  onProgress?.();
 
   const workbookRoot = recordOf(workbook.workbook);
   const sheetsRoot = recordOf(workbookRoot.sheets);
@@ -227,6 +233,7 @@ export function parseXlsxWorkbook(buffer: Buffer): ParsedWorkbookSheet[] {
   let totalCsvBytes = 0;
   return sourceSheets
     .map((sheetValue) => {
+      onProgress?.();
       const sheet = recordOf(sheetValue);
       const name = textOf(sheet["@_name"]) || "Sheet";
       const relationshipId = textOf(sheet["@_r:id"]);
@@ -243,6 +250,7 @@ export function parseXlsxWorkbook(buffer: Buffer): ParsedWorkbookSheet[] {
         };
 
       const document = recordOf(parser.parse(zipText(zip, target)));
+      onProgress?.();
       const worksheet = recordOf(document.worksheet);
       const sheetData = recordOf(worksheet.sheetData);
       const sourceRows = arrayOf(sheetData.row);

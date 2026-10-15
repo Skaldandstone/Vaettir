@@ -1,7 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { trpcReact, type RouterOutputs } from "@/lib/trpcReact";
+import { readWorkbookPreview } from "@/lib/read-workbook-preview";
 
 // P11-10: "Migration assistant" wizard. Every backend piece this orchestrates
 // already existed and worked (P11-01/02's CSV mapping+preview, P11-03's
@@ -308,6 +309,10 @@ export function MigrationWizard({
   const [rawContent, setRawContent] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [workbookCheckpoints, setWorkbookCheckpoints] = useState<number | null>(null);
+  const activeFileRead = useRef<AbortController | null>(null);
+  const utils = trpcReact.useUtils();
+  useEffect(() => () => { activeFileRead.current?.abort(); activeFileRead.current = null; }, []);
   const [result, setResult] = useState<FileCommitResult | null>(null);
 
   // CSV-only mapping state
@@ -362,7 +367,6 @@ export function MigrationWizard({
     trpcReact.importJobs.commitTestRail.useMutation();
   const commitQTestMutation = trpcReact.importJobs.commitQTest.useMutation();
   const commitZephyrMutation = trpcReact.importJobs.commitZephyr.useMutation();
-  const previewXlsxMutation = trpcReact.importJobs.previewXlsx.useMutation();
   const previewXlsxSheetMutation =
     trpcReact.importJobs.previewXlsxSheet.useMutation();
   const previewCsvMutation = trpcReact.importJobs.previewCsv.useMutation();
@@ -376,6 +380,10 @@ export function MigrationWizard({
     trpcReact.importJobs.previewZephyr.useMutation();
 
   function reset() {
+    activeFileRead.current?.abort();
+    activeFileRead.current = null;
+    setLoading(false);
+    setWorkbookCheckpoints(null);
     setStep("source");
     setImportMethod(null);
     setSource(null);
@@ -409,6 +417,10 @@ export function MigrationWizard({
 
   async function loadFile(file: File) {
     if (!source) return;
+    activeFileRead.current?.abort();
+    const controller = new AbortController();
+    activeFileRead.current = controller;
+    setWorkbookCheckpoints(null);
     setError(null);
     setFileName(file.name);
     setCsvPreview(null);
@@ -418,11 +430,14 @@ export function MigrationWizard({
     try {
       if (source === "csv") {
         if (file.name.toLowerCase().endsWith(".xlsx")) {
+          setWorkbookCheckpoints(0);
           const fileBase64 = await readFileAsBase64(file);
-          const res = await previewXlsxMutation.mutateAsync({
-            projectId,
-            fileBase64,
-          });
+          const res = await readWorkbookPreview<XlsxPreview>({
+            start: requestId => utils.client.importJobs.startXlsxRead.mutate({ projectId, requestId, fileBase64 }),
+            status: requestId => utils.client.importJobs.xlsxReadStatus.query({ projectId, requestId }),
+            cancel: requestId => utils.client.importJobs.cancelXlsxRead.mutate({ projectId, requestId }),
+          }, controller.signal, setWorkbookCheckpoints);
+          if (activeFileRead.current !== controller || controller.signal.aborted) return;
           const usableSheets = res.sheets.filter(
             (sheet) => sheet.suggestedMapping.title,
           );
@@ -490,9 +505,13 @@ export function MigrationWizard({
         setStep("review");
       }
     } catch (e) {
-      setError(importErrorMessage(e));
+      if (activeFileRead.current === controller) setError(importErrorMessage(e));
     } finally {
-      setLoading(false);
+      if (activeFileRead.current === controller) {
+        activeFileRead.current = null;
+        setLoading(false);
+        setWorkbookCheckpoints(null);
+      }
     }
   }
 
@@ -892,7 +911,11 @@ export function MigrationWizard({
                 e.target.value = "";
               }}
             />
-            {loading && <p className="text-muted">Reading export…</p>}
+            {loading && <div role="status" aria-live="polite" style={{ marginTop: 12 }}>
+              <progress aria-label="Reading export" style={{ width: "100%", maxWidth: 420 }} />
+              <p className="text-muted">{workbookCheckpoints === null ? "Reading export…" : workbookCheckpoints < 3 ? "Opening Excel workbook…" : "Reading worksheets and preparing your preview…"}</p>
+              {workbookCheckpoints !== null && <button className="btn-secondary" type="button" onClick={() => activeFileRead.current?.abort()}>Cancel reading</button>}
+            </div>}
           </>
         )}
 

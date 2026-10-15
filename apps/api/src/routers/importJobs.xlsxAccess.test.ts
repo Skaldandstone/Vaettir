@@ -1,5 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Context } from "../trpc.js";
+import { router } from "../trpc.js";
+import Fastify from "fastify";
+import { fastifyTRPCPlugin } from "@trpc/server/adapters/fastify";
+import { XLSX_HTTP_BODY_BYTES } from "../services/xlsxImportLimits.js";
 
 const mocks = vi.hoisted(() => ({ parse: vi.fn(), commit: vi.fn() }));
 vi.mock("../services/xlsxImportIsolation.js", () => ({ parseXlsxWorkbookIsolated: mocks.parse }));
@@ -24,7 +28,7 @@ function fixture() {
     },
   } as unknown as Context;
   return {
-    caller: importJobsRouter.createCaller(ctx), findUser,
+    caller: importJobsRouter.createCaller(ctx), findUser, ctx,
     afterParse(user: typeof original | null) {
       mocks.parse.mockImplementation(async () => { current = user; return [sheet]; });
     },
@@ -34,6 +38,40 @@ function fixture() {
 beforeEach(() => { mocks.parse.mockReset(); mocks.commit.mockReset(); });
 
 describe("Excel post-parse access", () => {
+  it("accepts a synthetic workbook upload larger than the old HTTP and schema caps", async () => {
+    const f = fixture();
+    f.afterParse({ id: "synthetic-user", memberships: [{ organizationId: "synthetic-org", role: "EDITOR", seatType: "FULL" }] });
+    const app = Fastify({ bodyLimit: XLSX_HTTP_BODY_BYTES });
+    await app.register(fastifyTRPCPlugin, { prefix: "/trpc", trpcOptions: { router: router({ importJobs: importJobsRouter }), createContext: async () => f.ctx } });
+    try {
+      const payload = { projectId: "synthetic-project", requestId: "10000000-0000-4000-8000-000000000040", fileBase64: Buffer.alloc(12 * 1024 * 1024).toString("base64") };
+      const response = await app.inject({ method: "POST", url: "/trpc/importJobs.startXlsxRead", payload });
+      expect(response.statusCode).toBe(200);
+      expect(response.json().result.data.requestId).toBe(payload.requestId);
+      expect(mocks.parse.mock.calls[0]![0].byteLength).toBe(12 * 1024 * 1024);
+      expect(mocks.commit).not.toHaveBeenCalled();
+    } finally { await app.close(); }
+  });
+  it("returns a background read identity promptly and rechecks access on every result poll", async () => {
+    const f = fixture();
+    f.afterParse({ id: "synthetic-user", memberships: [] });
+    const requestId = "10000000-0000-4000-8000-000000000041";
+    expect(await f.caller.startXlsxRead({ projectId: "synthetic-project", requestId, fileBase64: "dGVzdA==" })).toEqual({ requestId });
+    await expect(f.caller.xlsxReadStatus({ projectId: "synthetic-project", requestId })).rejects.toMatchObject({ code: "FORBIDDEN" });
+    await expect(f.caller.cancelXlsxRead({ projectId: "synthetic-project", requestId })).rejects.toMatchObject({ code: "FORBIDDEN" });
+    expect(mocks.commit).not.toHaveBeenCalled();
+  });
+  it("exposes a completed read-only preview only to the current project member", async () => {
+    const f = fixture();
+    f.afterParse({ id: "synthetic-user", memberships: [{ organizationId: "synthetic-org", role: "EDITOR", seatType: "FULL" }] });
+    const requestId = "10000000-0000-4000-8000-000000000042";
+    await f.caller.startXlsxRead({ projectId: "synthetic-project", requestId, fileBase64: "dGVzdA==" });
+    await vi.waitFor(async () => expect((await f.caller.xlsxReadStatus({ projectId: "synthetic-project", requestId })).status).toBe("READY"));
+    const result = await f.caller.xlsxReadStatus({ projectId: "synthetic-project", requestId });
+    expect(result.preview?.sheets[0]?.previewRows[0]?.title).toBe("Login works");
+    expect(mocks.commit).not.toHaveBeenCalled();
+    expect(f.findUser.mock.calls.length).toBeGreaterThanOrEqual(3);
+  });
   it.each(["previewXlsx", "previewXlsxSheet"] as const)("rejects %s if membership was revoked during parsing", async (procedure) => {
     const f = fixture();
     f.afterParse({ id: "synthetic-user", memberships: [] });

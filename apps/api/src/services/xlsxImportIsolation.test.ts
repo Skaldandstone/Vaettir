@@ -1,6 +1,7 @@
 import AdmZip from "adm-zip";
 import { describe, expect, it } from "vitest";
 import { parseXlsxWorkbookIsolated } from "./xlsxImportIsolation.js";
+import { XLSX_MAX_UPLOAD_BYTES } from "./xlsxImportLimits.js";
 
 function smallWorkbook(): Buffer {
   const zip = new AdmZip();
@@ -24,8 +25,8 @@ describe("isolated Excel parsing", () => {
   });
 
   it("rejects uploads above the compressed-byte cap before starting a worker", async () => {
-    await expect(parseXlsxWorkbookIsolated(Buffer.alloc(10 * 1024 * 1024 + 1)))
-      .rejects.toThrow("maximum 10 MB");
+    await expect(parseXlsxWorkbookIsolated(Buffer.alloc(XLSX_MAX_UPLOAD_BYTES + 1)))
+      .rejects.toThrow("32 MB upload capacity");
   });
 
   it("rejects an already-cancelled request without starting a worker", async () => {

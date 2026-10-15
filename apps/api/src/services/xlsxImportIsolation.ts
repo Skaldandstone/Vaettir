@@ -1,10 +1,16 @@
 import { Worker } from "node:worker_threads";
+import { createHash } from "node:crypto";
 import type { ParsedWorkbookSheet } from "./xlsxImport.js";
+import { XLSX_MAX_UPLOAD_BYTES } from "./xlsxImportLimits.js";
 
-export const XLSX_PARSE_TIMEOUT_MS = 8_000;
-const MAX_XLSX_BYTES = 10 * 1024 * 1024;
+// No eight-second (or other fixed total) workbook deadline. Only stop a parser
+// that makes no real progress for two minutes, or is explicitly cancelled.
+export const XLSX_PARSE_STALL_TIMEOUT_MS = 120_000;
+export const XLSX_CACHE_TTL_MS = 10 * 60_000;
 const MAX_ACTIVE_WORKERS = 1;
 let activeWorkers = 0;
+let cached: { key: string; expiresAt: number; sheets: ParsedWorkbookSheet[] } | undefined;
+let cacheExpiry: ReturnType<typeof setTimeout> | undefined;
 
 const FAILURE_MESSAGE = "Workbook could not be read safely. Check the file and supported import limits.";
 const BOOTSTRAP = `
@@ -21,15 +27,23 @@ const BOOTSTRAP = `
 
 /** No queue: busy requests fail closed instead of retaining more upload buffers.
  * Heap limits supplement (not replace) compressed/expanded parser limits: native
- * buffers are outside V8's heap. Termination bounds synchronous inflate/XML work.
+ * buffers are outside V8's heap. A progress watchdog bounds stuck inflate/XML
+ * work without charging ordinary workbooks for CPU contention or prior sheets.
+ * One actor/project-scoped parsed workbook is cached briefly, not its upload.
+ * Mapping and commit still perform their independent fresh access checks.
  */
 export async function parseXlsxWorkbookIsolated(
   buffer: Buffer,
   signal?: AbortSignal,
+  cacheScope?: string,
+  onProgress?: (sequence: number) => void,
 ): Promise<ParsedWorkbookSheet[]> {
-  if (buffer.byteLength > MAX_XLSX_BYTES)
-    throw new Error("Excel file is too large (maximum 10 MB)");
+  if (buffer.byteLength > XLSX_MAX_UPLOAD_BYTES)
+    throw new Error("Excel file exceeds the current 32 MB upload capacity");
   if (signal?.aborted) throw new Error("Excel processing was cancelled.");
+  const cacheKey = cacheScope ? createHash("sha256").update(JSON.stringify([cacheScope, createHash("sha256").update(buffer).digest("hex")])).digest("hex") : undefined;
+  if (cached && cached.expiresAt <= Date.now()) cached = undefined;
+  if (cacheKey && cached?.key === cacheKey) return structuredClone(cached.sheets);
   if (activeWorkers >= MAX_ACTIVE_WORKERS)
     throw new Error("Another Excel import is being processed. Try again shortly.");
 
@@ -72,14 +86,27 @@ export async function parseXlsxWorkbookIsolated(
       void worker.terminate().catch(() => undefined);
     };
     const onAbort = () => fail("Excel processing was cancelled.");
-    const timer = setTimeout(() => {
-      fail("Excel processing exceeded the time limit. Use a smaller workbook.");
-    }, XLSX_PARSE_TIMEOUT_MS);
+    const stalled = () => fail("Excel processing stopped responding. Retry the same workbook; you do not need to split it.");
+    let timer = setTimeout(stalled, XLSX_PARSE_STALL_TIMEOUT_MS);
+    let sequence = 0;
     signal?.addEventListener("abort", onAbort, { once: true });
 
-    worker.once("message", (message: unknown) => {
-      if (settled) return;
-      const response = message as { ok?: boolean; sheets?: ParsedWorkbookSheet[] };
+    worker.on("message", (message: unknown) => {
+      if (settled || result) return;
+      const response = message as { kind?: string; sequence?: number; ok?: boolean; sheets?: ParsedWorkbookSheet[] };
+      if (response?.kind === "progress") {
+        // At most three metadata checkpoints and two per supported worksheet.
+        // Duplicate/forged heartbeats cannot keep a failed worker alive.
+        if (response.sequence !== sequence + 1 || response.sequence > 103) {
+          fail(FAILURE_MESSAGE);
+          return;
+        }
+        sequence = response.sequence;
+        onProgress?.(sequence);
+        clearTimeout(timer);
+        timer = setTimeout(stalled, XLSX_PARSE_STALL_TIMEOUT_MS);
+        return;
+      }
       if (response?.ok !== true || !Array.isArray(response.sheets)) {
         fail(FAILURE_MESSAGE);
         return;
@@ -97,7 +124,17 @@ export async function parseXlsxWorkbookIsolated(
       if (settled) return;
       settled = true;
       if (failure || !result) reject(failure ?? new Error(FAILURE_MESSAGE));
-      else resolve(result);
+      else {
+        // Only successful, completely exited workers enter the single-slot
+        // cache. Clone both directions so a caller cannot mutate later reads.
+        if (cacheKey) {
+          cached = { key: cacheKey, expiresAt: Date.now() + XLSX_CACHE_TTL_MS, sheets: structuredClone(result) };
+          clearTimeout(cacheExpiry);
+          cacheExpiry = setTimeout(() => { cached = undefined; }, XLSX_CACHE_TTL_MS);
+          cacheExpiry.unref();
+        }
+        resolve(result);
+      }
     });
     // Abort may race worker construction/listener installation.
     if (signal?.aborted) onAbort();
