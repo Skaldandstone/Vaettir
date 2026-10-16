@@ -152,6 +152,10 @@ async function detailedHealthHandler() {
     pollers.every((p) => !p.stale);
   return {
     healthy,
+    // Public transport readiness only, never a grant to read project evidence.
+    capabilities: {
+      forgeQuality: Boolean(process.env.VAETTIR_FORGE_APP_ID && process.env.VAETTIR_FORGE_ENVIRONMENT_ID),
+    },
     db: { ok: dbOk },
     credentials,
     pollers,

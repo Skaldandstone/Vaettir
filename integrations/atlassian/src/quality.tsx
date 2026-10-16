@@ -19,6 +19,7 @@ import {
   useProductContext,
 } from "@forge/react";
 import { invokeRemote } from "@forge/bridge";
+import { createQualityTransport } from "./transport";
 
 type Connection = {
   key: string;
@@ -116,36 +117,7 @@ type Quality = {
     };
   };
 };
-async function remote(body: unknown) {
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  const request = invokeRemote({
-    path: "/api/integrations/forge/quality",
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body,
-  });
-  const response = await Promise.race([
-    request,
-    new Promise<never>((_, reject) => {
-      timer = setTimeout(
-        () =>
-          reject(
-            new Error(
-              "Quality Intelligence did not respond in time. Try again.",
-            ),
-          ),
-        30000,
-      );
-    }),
-  ]).finally(() => clearTimeout(timer));
-  if (response.status !== 200 || !response.body)
-    throw new Error(
-      typeof response.body?.error === "string"
-        ? response.body.error
-        : "Vaettir quality is unavailable. Check the approved connection in Vaettir.",
-    );
-  return response.body;
-}
+const remote = createQualityTransport(invokeRemote);
 const label = (value: string) =>
   value
     .split("_")
