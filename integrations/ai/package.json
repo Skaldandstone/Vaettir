@@ -9,6 +9,7 @@
   "scripts": {
     "build": "node scripts/build.mjs",
     "test": "node --test test/*.test.mjs",
+    "test:approval-ui": "node test/approval-ui.browser.mjs",
     "start": "node dist/server.mjs"
   },
   "dependencies": {

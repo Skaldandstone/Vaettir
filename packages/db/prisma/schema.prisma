@@ -20,6 +20,7 @@ datasource db {
 // ---------------------------------------------------------------------------
 
 model Organization {
+  aiDisclosurePolicies AiDisclosurePolicy[]
   driveSourceConnections DriveSourceConnection[]
   ticketSourceConnections  TicketSourceConnection[]
   repositoryConfigurations RepositoryProviderConfiguration[]
@@ -245,6 +246,7 @@ model WebhookDelivery {
 }
 
 model Project {
+  aiDisclosurePolicy AiDisclosurePolicy?
   driveSourceConnections       DriveSourceConnection[]
   ticketSourceConnections      TicketSourceConnection[]
   repositoryConnections        RepositoryConnection[]
@@ -1039,6 +1041,8 @@ model ProjectPopulationRequirement {
 // lazily on a new Clerk user's first authenticated request -- see
 // apps/api/src/trpc.ts.
 model User {
+  updatedAiDisclosurePolicies AiDisclosurePolicy[] @relation("AiDisclosurePolicyUpdater")
+  approvedAiDisclosureGrants AiDisclosureGrant[] @relation("AiDisclosureGrantApprover")
   driveSourceConnections DriveSourceConnection[]
   ticketSourceConnections TicketSourceConnection[]
   repositoryConnections RepositoryConnection[]
@@ -3144,4 +3148,78 @@ model ManualCaseResultHead {
 
   @@id([testRunId, testCaseId])
   @@index([organizationId, projectId])
+}
+
+// Separate from general API keys and human/project membership. Nothing here
+// grants access to test text, source, logs, attachments or the general API.
+model AiDisclosurePolicy {
+  projectId String @id
+  organizationId String
+  project Project @relation(fields: [projectId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  classification String @default("UNCLASSIFIED")
+  version Int @default(1)
+  updatedByUserId String
+  updatedBy User @relation("AiDisclosurePolicyUpdater", fields: [updatedByUserId], references: [id], onDelete: Restrict)
+  updatedAt DateTime @updatedAt
+  grants AiDisclosureGrant[]
+  audits AiDisclosureAudit[]
+  commands AiDisclosureCommand[]
+
+  @@unique([projectId, organizationId])
+}
+
+model AiDisclosureGrant {
+  id String @id @default(uuid())
+  organizationId String
+  projectId String
+  policy AiDisclosurePolicy @relation(fields: [projectId, organizationId], references: [projectId, organizationId], onDelete: Restrict)
+  approvedByUserId String
+  approvedBy User @relation("AiDisclosureGrantApprover", fields: [approvedByUserId], references: [id], onDelete: Restrict)
+  approvedClerkSubject String
+  recipient String @default("codex")
+  scope String @default("aggregate_counts")
+  role String @default("VIEWER")
+  policyVersion Int @default(1)
+  classificationVersion Int
+  version Int @default(1)
+  tokenHash String @unique
+  keyHint String
+  enabled Boolean @default(true)
+  createdAt DateTime @default(now())
+  expiresAt DateTime
+  revokedAt DateTime?
+  lastUsedAt DateTime?
+  readWindowStartedAt DateTime?
+  readWindowCount Int @default(0)
+
+  @@index([organizationId, projectId, createdAt])
+  @@index([approvedByUserId, organizationId])
+}
+
+model AiDisclosureAudit {
+  id String @id @default(uuid())
+  organizationId String
+  projectId String
+  policy AiDisclosurePolicy @relation(fields: [projectId, organizationId], references: [projectId, organizationId], onDelete: Restrict)
+  grantId String?
+  actorId String
+  event String
+  reason String
+  policyVersion Int
+  classificationVersion Int
+  createdAt DateTime @default(now())
+
+  @@index([organizationId, projectId, createdAt])
+}
+
+// Durable operation receipts contain only public IDs/state, never credentials.
+model AiDisclosureCommand {
+  id String @id
+  organizationId String
+  projectId String
+  policy AiDisclosurePolicy @relation(fields: [projectId, organizationId], references: [projectId, organizationId], onDelete: Restrict)
+  requestHash String
+  receipt Json
+  createdAt DateTime @default(now())
 }

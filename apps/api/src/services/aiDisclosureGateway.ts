@@ -104,12 +104,12 @@ export async function readAiProjectSummary(
   store: AiReadStore,
   token: string,
   projectId: string,
-  now = new Date(),
+  now?: Date,
 ): Promise<AiReadSummary> {
   if (
     !AI_READ_TOKEN.test(token) ||
     !AI_READ_PROJECT_ID.test(projectId) ||
-    !Number.isFinite(now.getTime())
+    (now !== undefined && !Number.isFinite(now.getTime()))
   )
     throw new AiDisclosureDenied();
   const tokenHash = createHash("sha256").update(token).digest("hex");
@@ -128,7 +128,7 @@ export async function readAiProjectSummary(
         recipient: "codex",
         policyVersion: AI_READ_POLICY_VERSION,
       });
-    if (!permitted(grant, projectId, now)) {
+    if (!permitted(grant, projectId, now ?? new Date())) {
       await audit("DENY", "POLICY_DENIED");
       return null;
     }
@@ -139,6 +139,10 @@ export async function readAiProjectSummary(
       testPlans: raw.testPlans,
       testRuns: raw.testRuns,
     };
+    if (!permitted(grant, projectId, now ?? new Date())) {
+      await audit("DENY", "POLICY_DENIED");
+      return null;
+    }
     if (Object.values(counts).some((n) => !Number.isSafeInteger(n) || n < 0)) {
       await audit("DENY", "INVALID_COUNTS");
       return null;

@@ -11,6 +11,34 @@ import type {
 } from "./aiDisclosureGateway.js";
 
 describe("AI read HTTP boundary (not production-registered)", () => {
+  it("does not log gateway credentials or request/query contents", async () => {
+    let logs = "";
+    const app = Fastify({
+      logger: {
+        level: "info",
+        stream: {
+          write: (text: string) => {
+            logs += text;
+          },
+        },
+      },
+    });
+    registerAiDisclosureRoute(app, {
+      transaction: async () => {
+        throw new Error("PRIVATE_EXCEPTION_CANARY");
+      },
+    });
+    try {
+      await app.inject({
+        url: AI_SUMMARY_PATH + "?projectId=QUERY_CANARY",
+        headers: { authorization: "Bearer vai_" + "a".repeat(64) },
+      });
+      expect(logs).toContain("ai_disclosure_unavailable");
+      expect(logs).not.toMatch(/CANARY|vai_|projectId|authorization/);
+    } finally {
+      await app.close();
+    }
+  });
   it("serializes only approved counts through the real HTTP handler", async () => {
     const grant: AiReadGrant = {
       id: "grant1",

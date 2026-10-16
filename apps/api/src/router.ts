@@ -1,4 +1,5 @@
 import { router } from "./trpc.js";
+import { aiDisclosureRouter } from "./routers/aiDisclosure.js";
 import { architectureRouter } from "./routers/architecture.js";
 import { atlassianQualityRouter } from "./routers/atlassianQuality.js";
 import { caseCommentsRouter } from "./routers/caseComments.js";
@@ -86,6 +87,7 @@ import { reportsRouter } from "./routers/reports.js";
 import { caseAnalysisQueueRouter } from "./routers/caseAnalysisQueue.js";
 
 export const appRouter = router({
+  aiDisclosure: aiDisclosureRouter,
   repositoryIntelligence: repositoryIntelligenceRouter,
   repositoryCoverageChecks: repositoryCoverageChecksRouter,
   caseComments: caseCommentsRouter,

@@ -48,42 +48,73 @@ Known-grant allow, deny, and suppression decisions require an awaited audit
 record. Audit records hold identifiers and fixed decision codes, not content,
 tokens, or returned values. Audit failure prevents disclosure. Authentication
 failures without a resolvable grant still need bounded, sanitized security-event
-logging in the production adapter; they cannot be assigned a fabricated tenant.
+logging uses fixed codes without request contents; unknown credentials are never
+assigned a fabricated tenant.
 
 ## Current implementation and activation gates
 
-- `apps/api/src/services/aiDisclosureGateway.ts`: tested server-side policy
-  boundary with a storage interface. Counts are projected explicitly.
-- `apps/api/src/services/aiDisclosureRoute.ts`: tested Fastify handler. It is
-  deliberately **not registered in `server.ts`** and returns unavailable without
-  a store. It does not expose test content or call existing test-list endpoints.
+- `apps/api/src/services/aiDisclosureGateway.ts`: server-side policy boundary.
+  Counts are projected explicitly; expiry is checked after locks are acquired.
+- `apps/api/src/services/aiDisclosureStore.ts`: durable PostgreSQL grant adapter,
+  scoped SQL aggregates, live authorization locks, awaited audit, and a persistent
+  thirty-read-per-minute grant limit. It never loads test text.
+- `apps/api/src/services/aiDisclosureAdmin.ts` and `routers/aiDisclosure.ts`:
+  independently verified human admin approval, classification, one-time
+  credential issuance, rotation, revocation, and durable idempotency receipts.
+- `apps/api/src/services/aiDisclosureRoute.ts`: Fastify handler registered under
+  `/api` only when `VAETTIR_AI_DISCLOSURE_ENABLED=1`. The default deployment has
+  no gateway route. Request logging is disabled on this route, and authentication
+  failures emit only fixed security codes. Sentry redacts gateway/admin request
+  contents and breadcrumbs.
+- `apps/web/components/AiDisclosureSettings.tsx`: customer controls in **Project
+  settings > Integrations > External AI access**, including disclosure preview,
+  classification attestation, expiry, masked one-time credentials, rotation,
+  revocation and recent decisions. Account/session/permission changes discard the
+  credential view. Credential responses bypass React Query's mutation cache.
 - `server/`: portable MCP adapter with strict response validation, bounded
   bodies, request timeout, no redirects, and generic errors.
 - `skills/vaettir-quality/`: Codex workflow that respects withheld data and
   refuses alternate access paths after a policy denial.
 
-There is no durable grant database, grant-management UI, token issuance,
-classification editor, OAuth flow, or production store adapter yet. Test stores
-are synthetic fixtures only. The interface does not itself prove transactional
-locking, tenant isolation in SQL, production audit persistence, or revocation
-under concurrency. These are required integration gates, not shipped controls.
+The additive `20261016222000_ai_disclosure_grants` migration creates tenant-bound
+policies, dedicated grants, append-only decision history and operation receipts.
+No existing project is classified or approved automatically. Only a SHA-256
+credential hash is stored. A response lost after issuance recovers its receipt,
+never its credential; the customer must deliberately rotate if it was lost.
+Approvals expire in one to thirty days, as chosen by the administrator in this
+preview. Saving classification revokes old approvals even when the label stays
+the same. A label is an administrator attestation, not a content scan.
 
-Before activation, implement and verify:
+Database triggers also revoke grants on approver removal/demotion, loss of a full
+admin seat, identity remapping, or organization suspension. Restoring access does
+not resurrect those credentials. Existing user/project hard-deletion paths are
+restricted while disclosure history exists; retention/deletion needs a separate
+reviewed workflow. Audit and command records cannot be updated or deleted by
+ordinary SQL mutations. No mutation API for history is exposed.
 
-1. Durable tenant/project classifications and separate external-AI grants;
-   customer administrators approve each exact connection and disclosure scope.
-   Revocation, expiration, policy changes, and admin removal must invalidate reads.
-2. Dedicated credentials stored hashed, connection lifecycle and rotation,
-   current authorization checks, and transaction locks that serialize disclosure
-   against grant/classification changes. Counts must be SQL aggregates scoped by
-   both organization and project, without loading customer test records.
-3. Durable audit decisions, safe auth-failure events, per-principal limits,
-   rate-limit/telemetry redaction (including headers and project query parameters),
-   and integration tests for cross-tenant requests and concurrent revocation.
-4. Register the gateway under `/api/integrations/ai/v1/project-summary` only
-   after those controls pass. Verify authenticated behavior with a synthetic
-   workspace and a fresh Codex installation. No live credential exists in this
-   package and no customer data was read during development.
+Transactions lock organization, approver identity, membership, project, policy,
+and grant. Revocation serializes against an authorized read; subsequent reads
+after revocation commits are denied. An earlier authorized response may finish
+delivery afterward, and data already delivered cannot be recalled.
+
+Local PostgreSQL, browser-control, and real bundled MCP-over-HTTPS tests exercise
+these controls with synthetic data. They do not establish a production rollout,
+customer approval, fresh Codex installation, provider identity, or regulatory
+acceptance. No customer credential or project was used.
+
+Before a live connection:
+
+1. Integrate and release this source through Vaettir's existing reviewed release
+   process, including the additive migration and recovery checks. No release is
+   performed by these local tests.
+2. Keep the gateway disabled until the source/migration is deployed. Enable
+   `VAETTIR_AI_DISCLOSURE_ENABLED=1` only through the normal deployment process.
+3. A current customer admin must review a clearly synthetic project, save its
+   classification, approve the precise Codex aggregate scope and expiry, and save
+   the one-time credential in local connection settings.
+4. Verify a fresh Codex installation and real authenticated read, then revoke
+   the grant and confirm the installed client is denied. No live credential
+   exists in this package; the production gateway was not enabled by this work.
 
 For later content access, add a customer-approved field disclosure policy and
 an explicitly reviewed output projection. Deny unknown fields and unrestricted
@@ -106,8 +137,19 @@ does not change Vaettir's production dependency graph.
 npm ci --prefix integrations/ai --ignore-scripts --workspaces=false
 npm run build --prefix integrations/ai
 npm test --prefix integrations/ai
+npm run test:approval-ui --prefix integrations/ai
 pnpm --filter @vaettir/api exec vitest run src/services/aiDisclosureGateway.test.ts src/services/aiDisclosureRoute.test.ts
 ```
+
+Database suites additionally require a disposable loopback PostgreSQL database
+whose name contains `test`, with migrations applied and reference data seeded.
+`src/ai-disclosure-grants.integration.test.ts` covers durable approval and
+concurrent revocation. To run the actual bundled MCP/HTTPS/database test, set
+`VAETTIR_AI_MCP_TEST=1` and run `src/ai-disclosure-mcp.integration.test.ts`; the
+standalone npm dependencies, built bundle, and OpenSSL must be present. Its
+generated one-day certificate is trusted only by that test's MCP child process.
+The browser-control suite uses actual ReactDOM/Chromium with synthetic auth and
+RPC boundaries and no external network requests.
 
 The built server is a single bundle at `dist/server.mjs`, containing runtime
 dependencies and no credentials. `plugin.json`, `mcp.json`, `skills/`, and this
