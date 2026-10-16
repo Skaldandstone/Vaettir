@@ -129,6 +129,18 @@ jobs:
       - name: Test
         run: pnpm test
 
+      - name: Verify standalone AI plugin preview
+        run: |
+          npm ci --prefix integrations/ai --ignore-scripts --workspaces=false
+          npm run build --prefix integrations/ai
+          npm test --prefix integrations/ai
+          node integrations/ai/scripts/prepare-preview.mjs "$RUNNER_TEMP/vaettir-ai-preview"
+
+      - name: Verify bundled AI plugin against synthetic PostgreSQL
+        env:
+          VAETTIR_AI_MCP_TEST: "1"
+        run: pnpm --filter @vaettir/api exec vitest run src/ai-disclosure-mcp.integration.test.ts
+
       # Exercise Next's production standalone output on Linux. Windows local
       # builds cannot create pnpm's traced symlinks without developer mode;
       # a small Docker Desktop VM can OOM during trace collection.

@@ -1,0 +1,12 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/mcp.schema.json",
+  "mcpServers": {
+    "vaettir": {
+      "type": "stdio",
+      "command": "node",
+      "args": ["${PLUGIN_ROOT}/dist/server.mjs"],
+      "env_vars": ["VAETTIR_AI_BASE_URL", "VAETTIR_AI_TOKEN"],
+      "cwd": "${PLUGIN_ROOT}"
+    }
+  }
+}
