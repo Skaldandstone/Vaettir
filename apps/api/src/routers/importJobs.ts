@@ -167,7 +167,7 @@ export const importJobsRouter = router({
       } catch (error) { throw new TRPCError({ code: "BAD_REQUEST", message: error instanceof Error ? error.message : "Type review could not start." }); }
     }),
   typeAnalysisStatus: protectedProcedure.input(xlsxReadIdentity)
-    .output(z.object({ status: z.enum(["READING", "READY", "CANCELLED"]), total: z.number(), completed: z.number(), failed: z.number(), results: z.array(importTypeRecommendationSchema.extend({ fingerprint: z.string() })) }))
+    .output(z.object({ status: z.enum(["READING", "READY", "CANCELLED"]), total: z.number(), completed: z.number(), failed: z.number(), results: z.array(importTypeRecommendationSchema.extend({ fingerprint: z.string(), modelAnalyzed: z.boolean() })) }))
     .query(async ({ ctx, input }) => {
       const { project } = await requireFreshXlsxAccess(ctx, input.projectId);
       try { return importTypeAnalysis.status({ actorId: ctx.user.id, clerkSubject: ctx.authenticatedClerkSubject ?? null, organizationId: project.organizationId, projectId: project.id }, input.requestId); }

@@ -82,9 +82,12 @@ describe("free import type preview lifecycle", () => {
     expect(analyze.mock.calls.flatMap(call => call[0]).sort((a, b) => Number(a.id) - Number(b.id))).toEqual(cases);
   });
   it("allows repeated manual-selection edits to reuse results without consuming provider-start quota or filling the cache", async () => {
-    const analyze = vi.fn(async (cases: typeof c[]) => cases.map(item => ({ ...result, id: item.id })));
+    const analyze = vi.fn(async (cases: typeof c[]) => cases.map(item => item.id === "0" ? {
+      ...result, id: item.id, testType: null, confidence: "LOW" as const, objective: "Definition lacks an assertion", reason: "No actions or outcome were supplied.", evidence: [],
+    } : { ...result, id: item.id }));
     const manager = createImportTypeAnalysis(analyze), cases = Array.from({ length: 8 }, (_, i) => ({ ...c, id: String(i) }));
     manager.start(scope, "base", cases, async () => {}); await ready(manager, "base");
+    expect(manager.status(scope, "base").results.find(r => r.id === "0")).toMatchObject({ modelAnalyzed: true, testType: null, evidence: [] });
     for (let mask = 1; mask <= 40; mask++) {
       const id = `edit-${mask}`;
       manager.start(scope, id, cases.filter((_, i) => Boolean(mask & (1 << i))), async () => {});

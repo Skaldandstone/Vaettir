@@ -12,7 +12,7 @@ export const importTypeFingerprint = (c: ImportTypeCase) => createHash("sha256")
   id: c.id, title: c.title, given: c.given, when: c.when, then: c.then, tags: c.tags,
   background: c.background || undefined, suitePath: c.suitePath || undefined,
 })).digest("hex");
-type Result = ImportTypeRecommendation & { fingerprint: string };
+type Result = ImportTypeRecommendation & { fingerprint: string; modelAnalyzed: boolean };
 type AnalysisState = { status: "READING" | "READY" | "CANCELLED"; total: number; completed: number; results: Result[]; failed: number };
 type Job = { digest: string; state: AnalysisState; controller: AbortController; finishedAt?: number; fingerprints: Map<string, string> };
 const RETENTION = 30 * 60_000;
@@ -46,7 +46,7 @@ export function createImportTypeAnalysis(analyze = recommendImportTypes) {
     return () => { const next = waiting.shift(); if (next) next(); else runningCalls--; };
   }
   function unresolved(c: ImportTypeCase, reason: string): Result {
-    return { id: c.id, fingerprint: importTypeFingerprint(c), testType: null, confidence: "LOW", objective: "Type not established", reason, evidence: [] };
+    return { id: c.id, fingerprint: importTypeFingerprint(c), modelAnalyzed: false, testType: null, confidence: "LOW", objective: "Type not established", reason, evidence: [] };
   }
   return {
     start(scope: WorkbookReadScope, requestId: string, cases: ImportTypeCase[], authorize: () => Promise<unknown>) {
@@ -59,7 +59,7 @@ export function createImportTypeAnalysis(analyze = recommendImportTypes) {
       const same = [...jobs.entries()].filter(([k]) => k.startsWith(JSON.stringify([scopeKey]).slice(0, -1)));
       const reused = same.find(([, j]) => j.digest === digest && j.state.status !== "CANCELLED");
       if (reused) return { requestId: JSON.parse(reused[0])[1] as string };
-      const cachedResults = new Map(same.flatMap(([, j]) => j.state.results).filter(r => r.evidence.length > 0).map(r => [r.fingerprint, r]));
+      const cachedResults = new Map(same.flatMap(([, j]) => j.state.results).filter(r => r.modelAnalyzed).map(r => [r.fingerprint, r]));
       const needsProvider = cases.some(c => !cachedResults.has(importTypeFingerprint(c)));
       const starts = recentStarts.get(scopeKey) ?? [];
       if ((needsProvider && starts.length >= 12) || [...jobs.values()].filter(j => !j.finishedAt).length >= 8)
@@ -99,7 +99,7 @@ export function createImportTypeAnalysis(analyze = recommendImportTypes) {
             await authorize();
             const { result } = await captureAiUsage(() => analyze(chunk, job.controller.signal));
             if (job.controller.signal.aborted) break;
-            job.state.results.push(...result.map(r => ({ ...r, fingerprint: job.fingerprints.get(r.id)! })));
+            job.state.results.push(...result.map(r => ({ ...r, modelAnalyzed: true, fingerprint: job.fingerprints.get(r.id)! })));
           } catch {
             if (!job.controller.signal.aborted) {
               job.state.failed += chunk.length;
