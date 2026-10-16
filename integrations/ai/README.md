@@ -9,6 +9,9 @@ read access first. Customer confidentiality changes the first release: this
 preview supports only explicitly approved **synthetic-project aggregate
 counts**. Customer content is unavailable. No production connection is enabled.
 
+For release conditions and the first installed Codex connection/revocation test,
+use [RELEASE-REVIEW.md](./RELEASE-REVIEW.md) and [CONNECTION-TEST.md](./CONNECTION-TEST.md).
+
 ## Disclosure contract
 
 Human access and external AI disclosure are separate permissions. Customer IP,
