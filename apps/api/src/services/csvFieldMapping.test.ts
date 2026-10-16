@@ -114,6 +114,7 @@ describe("mapped CSV row repair", () => {
         priority: "MEDIUM",
         tags: ["billing"],
         testType: "OTHER",
+        typeOrigin: "UNCLASSIFIED",
         automationStatus: "MANUAL",
         externalId: "TC-2",
       },

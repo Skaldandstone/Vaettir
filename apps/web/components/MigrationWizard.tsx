@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { trpcReact, type RouterOutputs } from "@/lib/trpcReact";
 import { readWorkbookPreview } from "@/lib/read-workbook-preview";
 import { reassignImportColumn, remainingNonCaseRows } from "@/lib/reassign-import-column";
-import { typeReviewCase, typeReviewLabel, type TypeReviewCase } from "@/lib/import-type-review";
+import { importReviewRows, typeReviewCase, typeReviewLabel, type TypeReviewCase } from "@/lib/import-type-review";
 
 // P11-10: "Migration assistant" wizard. Every backend piece this orchestrates
 // already existed and worked (P11-01/02's CSV mapping+preview, P11-03's
@@ -247,9 +247,11 @@ function ImportRecommendations({ rows, overrides, onChange, analysis }: {
 function RowRepairEditor({
   row,
   onChange,
+  recommendation,
 }: {
   row: EditableImportRow;
   onChange: (next: EditableImportRow) => void;
+  recommendation?: RouterOutputs["importJobs"]["typeAnalysisStatus"]["results"][number];
 }) {
   const updateLines = (field: "given" | "when" | "then", value: string) =>
     onChange({ ...row, [field]: splitEditedLines(value) });
@@ -320,7 +322,7 @@ function RowRepairEditor({
       <label>
         Test type
         <select
-          value={row.testType}
+          value={row.typeOrigin === "UNCLASSIFIED" ? recommendation?.testType ?? row.testType : row.testType}
           onChange={(event) =>
             onChange({
               ...row,
@@ -435,10 +437,9 @@ export function MigrationWizard({
   const typeJob = useRef<string | null>(null);
   const typeCases: TypeReviewCase[] = source !== "csv" || step === "done" ? [] : xlsxPreview ? xlsxPreview.sheets
     .filter(sheet => selectedSheets.has(sheet.name) && xlsxMappings[sheet.name]?.title)
-    .flatMap(sheet => (sheet.recommendations ?? []).map(row => xlsxRowOverrides[sheet.name]?.[row.rowNumber] ?? row)
+    .flatMap(sheet => importReviewRows(sheet.recommendations, xlsxRowOverrides[sheet.name] ?? {})
       .filter(row => row.title && row.typeOrigin !== "SOURCE" && row.typeOrigin !== "REVIEWER")
-      .map(row => typeReviewCase(sheet.name, row))) : (csvPreview?.recommendations ?? [])
-        .map(row => csvRowOverrides[row.rowNumber] ?? row)
+      .map(row => typeReviewCase(sheet.name, row))) : importReviewRows(csvPreview?.recommendations, csvRowOverrides)
         .filter(row => row.title && row.typeOrigin !== "SOURCE" && row.typeOrigin !== "REVIEWER")
         .map(row => typeReviewCase("", row));
   const typeInput = JSON.stringify(typeCases);
@@ -1305,6 +1306,7 @@ export function MigrationWizard({
                             <RowRepairEditor
                               key={row.rowNumber}
                               row={row}
+                              recommendation={sheetTypeResults(sheet.name)[row.rowNumber]}
                               onChange={(next) =>
                                 updateXlsxRepair(sheet.name, next)
                               }
@@ -1313,7 +1315,7 @@ export function MigrationWizard({
                         </details>
                       )}
                       <RowMappingReview suggestions={sheet.rowMappingSuggestions} overrides={xlsxRowOverrides[sheet.name] ?? {}} onChange={row => updateXlsxRepair(sheet.name, row)} />
-                      <ImportRecommendations rows={sheet.recommendations} overrides={xlsxRowOverrides[sheet.name] ?? {}} analysis={sheetTypeResults(sheet.name)} onChange={row => updateXlsxRepair(sheet.name, row)} />
+                      <ImportRecommendations rows={importReviewRows(sheet.recommendations, xlsxRowOverrides[sheet.name] ?? {})} overrides={xlsxRowOverrides[sheet.name] ?? {}} analysis={sheetTypeResults(sheet.name)} onChange={row => updateXlsxRepair(sheet.name, row)} />
                       <NonCaseRowsReview
                         rows={sheet.nonCaseRows}
                         overrides={xlsxRowOverrides[sheet.name] ?? {}}
@@ -1461,13 +1463,14 @@ export function MigrationWizard({
                 <RowRepairEditor
                   key={row.rowNumber}
                   row={row}
+                  recommendation={sheetTypeResults("")[row.rowNumber]}
                   onChange={updateCsvRepair}
                 />
               ))}
             </details>
           )}
           <RowMappingReview suggestions={csvPreview.rowMappingSuggestions} overrides={csvRowOverrides} onChange={updateCsvRepair} />
-          <ImportRecommendations rows={csvPreview.recommendations} overrides={csvRowOverrides} analysis={sheetTypeResults("")} onChange={updateCsvRepair} />
+          <ImportRecommendations rows={importReviewRows(csvPreview.recommendations, csvRowOverrides)} overrides={csvRowOverrides} analysis={sheetTypeResults("")} onChange={updateCsvRepair} />
           <NonCaseRowsReview rows={csvPreview.nonCaseRows} overrides={csvRowOverrides} onInclude={updateCsvRepair} />
 
           <div style={{ display: "flex", gap: 8, marginTop: 12 }}>

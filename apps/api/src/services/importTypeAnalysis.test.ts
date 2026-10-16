@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
 import { createImportTypeAnalysis, importCaseId, importTypeCase } from "./importTypeAnalysis.js";
 import { mapCsvRows } from "./csvFieldMapping.js";
+import { importTypeCaseSchema } from "@vaettir/ai-agent";
 const scope = { actorId: "owner", clerkSubject: "clerk", organizationId: "org", projectId: "project" };
 const mapping = { title: "Title", when: "Action", then: "Expected" };
 const row = mapCsvRows('Title,Action,Expected\nAnalytics dashboard,Open dashboard,Count equals backend\n', mapping).rows[0]!;
@@ -29,6 +30,13 @@ describe("free import type preview lifecycle", () => {
     const manager = createImportTypeAnalysis(vi.fn().mockResolvedValue([result])); manager.start(scope, "id", [c], async () => {}); await ready(manager);
     for (const typeOrigin of ["SOURCE", "REVIEWER"] as const)
       expect(manager.apply(scope, "id", "Sheet", [{ ...row, testType: "REGRESSION", typeOrigin }])[0]?.testType).toBe("REGRESSION");
+  });
+  it("binds contextual definitions canonically after the real API schema reorders JSON fields", async () => {
+    const contextual = { ...row, suitePath: "Workflow / Checkout", background: "Source note" };
+    const input = importTypeCaseSchema.parse(importTypeCase(importCaseId("Sheet", 2), contextual));
+    const manager = createImportTypeAnalysis(vi.fn().mockResolvedValue([result]));
+    manager.start(scope, "id", [input], async () => {}); await ready(manager);
+    expect(manager.apply(scope, "id", "Sheet", [contextual])[0]).toMatchObject({ suitePath: contextual.suitePath, background: contextual.background, testType: "FUNCTIONAL" });
   });
   it("does not call a provider after membership authorization fails or invent a fallback", async () => {
     const analyze = vi.fn(), manager = createImportTypeAnalysis(analyze);

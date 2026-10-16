@@ -8,7 +8,10 @@ export function importTypeCase(id: string, row: MappedRow): ImportTypeCase {
     ...(row.background ? { background: row.background } : {}), ...(row.suitePath ? { suitePath: row.suitePath } : {}) };
 }
 export const importCaseId = (sheet: string, rowNumber: number) => JSON.stringify([sheet, rowNumber]);
-export const importTypeFingerprint = (c: ImportTypeCase) => createHash("sha256").update(JSON.stringify(c)).digest("hex");
+export const importTypeFingerprint = (c: ImportTypeCase) => createHash("sha256").update(JSON.stringify({
+  id: c.id, title: c.title, given: c.given, when: c.when, then: c.then, tags: c.tags,
+  background: c.background || undefined, suitePath: c.suitePath || undefined,
+})).digest("hex");
 type Result = ImportTypeRecommendation & { fingerprint: string };
 type AnalysisState = { status: "READING" | "READY" | "CANCELLED"; total: number; completed: number; results: Result[]; failed: number };
 type Job = { digest: string; state: AnalysisState; controller: AbortController; finishedAt?: number; fingerprints: Map<string, string> };

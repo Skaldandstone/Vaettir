@@ -6,7 +6,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import ts from "typescript";
 import { expect, it } from "vitest";
 import { remainingNonCaseRows } from "./reassign-import-column";
-import { typeReviewLabel } from "./import-type-review";
+import { importReviewRows, typeReviewLabel } from "./import-type-review";
 
 const source = readFileSync(new URL("../components/MigrationWizard.tsx", import.meta.url), "utf8");
 const ast = ts.createSourceFile("Migration.tsx", source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
@@ -108,4 +108,13 @@ it("shows semantic objective, confidence and exact case evidence without overrid
   expect(manual).toContain('value="REGRESSION" selected'); expect(manual).not.toContain("Check dashboard count accuracy");
   const unknown = renderToStaticMarkup(actual.ImportRecommendations({ rows: [proposed], overrides: {}, analysis: { 2: { ...result, testType: null, confidence: "LOW", evidence: [] } }, onChange: () => {} }));
   expect(unknown).toContain("Unclassified"); expect(unknown).toContain("low confidence");
+});
+
+it("includes newly repaired incomplete rows and deliberately rescued cases in automatic semantic review", () => {
+  const existing = { ...row, title: "Original case" };
+  const repaired = { ...row, rowNumber: 3, title: "Repaired name", typeOrigin: "UNCLASSIFIED" };
+  const rescued = { ...row, rowNumber: 4, title: "Deliberately added case", typeOrigin: "UNCLASSIFIED" };
+  expect(importReviewRows([existing], { 3: repaired, 4: rescued })).toEqual([existing, repaired, rescued]);
+  expect(importReviewRows([existing], { 2: { ...existing, title: "Edited case" } })[0]?.title).toBe("Edited case");
+  expect(existing.title).toBe("Original case");
 });

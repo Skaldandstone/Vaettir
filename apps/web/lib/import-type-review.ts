@@ -9,3 +9,8 @@ export function typeReviewCase(sheet: string, row: Omit<TypeReviewCase, "id"> & 
 export function typeReviewLabel(type: string, origin?: string) {
   return type === "OTHER" && origin === "UNCLASSIFIED" ? "Unclassified · For review" : type.replaceAll("_", " ").toLowerCase().replace(/^./, c => c.toUpperCase());
 }
+export function importReviewRows<T extends { rowNumber: number }>(rows: T[] | undefined, overrides: Record<number, T>): T[] {
+  const merged = new Map((rows ?? []).map(row => [row.rowNumber, row]));
+  for (const row of Object.values(overrides)) merged.set(row.rowNumber, row);
+  return [...merged.values()].sort((a, b) => a.rowNumber - b.rowNumber);
+}

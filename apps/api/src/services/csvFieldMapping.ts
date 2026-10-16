@@ -471,6 +471,7 @@ export function mapCsvRows(
       priority: override?.priority ?? priority,
       tags: override?.tags ?? tags,
       testType: override?.testType ?? testType,
+      typeOrigin: override?.typeOrigin === "REVIEWER" ? "REVIEWER" : sourceType ? "SOURCE" : "UNCLASSIFIED",
       automationStatus: override?.automationStatus ?? automationStatus,
       externalId: override?.externalId ?? externalId,
       ...(override?.suitePath !== undefined ? { suitePath: override.suitePath } : {}),
@@ -516,6 +517,9 @@ export function mapCsvRows(
         }
       }
       if (!candidate.title) {
+        const incompletePath = [workflow, section].filter(Boolean).join(" / ");
+        if (incompletePath && override?.suitePath === undefined) candidate.suitePath = incompletePath;
+        if (sourceNotes.length && override?.background === undefined) candidate.background = sourceNotes.join("\n\n");
         skipped.push({ rowNumber, reason: "missing title" });
         incompleteRows.push(candidate);
         return;
@@ -538,7 +542,10 @@ export function mapCsvRows(
           `Unrecognized source type “${r[idx.testType]!.trim()}”; recommended from case text.` : "Test type recommended from case text; no source type was provided.");
     }
     if (reviewReasons.length) candidate.reviewReasons = reviewReasons;
-    if (originalLayout) rowMappingSuggestions.push({ original: originalLayout, proposed: candidate });
+    if (originalLayout) rowMappingSuggestions.push({ original: { ...originalLayout,
+      ...(candidate.suitePath ? { suitePath: candidate.suitePath } : {}),
+      ...(candidate.background ? { background: candidate.background } : {}),
+    }, proposed: candidate });
     if (reviewReasons.length) recommendations.push(candidate);
     mapped.push(candidate);
   });
