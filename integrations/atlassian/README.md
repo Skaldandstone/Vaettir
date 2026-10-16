@@ -7,10 +7,15 @@ and architecture-to-test mapping live in Vaettir, not this app.
 
 - Jira's collapsible **Vaettir tests** issue context shows cases explicitly
   linked to the exact ticket and their recorded verification outcomes.
-- The **Vaettir quality** project page shows explicitly approved quality
+- The **Quality Intelligence** project page shows explicitly approved quality
   captures and linked releases, validation runs, progress and release concerns.
-- The **Vaettir release quality** Confluence macro embeds approved report or
+- The **Vaettir Quality Intelligence** Confluence macro embeds approved report or
   historical closure captures. A space requires its own Vaettir approval.
+
+These are native Atlassian app surfaces. End users do not need a Chrome or
+other browser extension. The frontend Forge bridge serializes request objects
+as JSON; do not add a redundant custom content-type header to that bridge.
+The backend release consumer uses the separate `@forge/api` string-body API.
 
 The project page is a supported Jira extension point. This does not claim a
 custom chart inserted into Jira's built-in release page or Development

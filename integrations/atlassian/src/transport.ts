@@ -18,7 +18,10 @@ export function createQualityTransport(
       return invoke({
         path: "/api/integrations/forge/quality",
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        // The frontend bridge JSON-serializes this object. Let it supply the
+        // content type instead of adding a case-variant custom header alongside
+        // its own. The backend @forge/api contract is different (string body).
+        // https://developer.atlassian.com/platform/forge/apis-reference/ui-api-bridge/invokeRemote/
         body,
       });
     })();

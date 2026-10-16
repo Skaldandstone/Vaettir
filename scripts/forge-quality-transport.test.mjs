@@ -8,11 +8,22 @@ for (const action of ['LIST','IDENTITY']) test(`${action}: old API gives actiona
   await assert.rejects(remote({action}),/waiting for the Vaettir API update/);
   assert.deepEqual(calls,[{path:'/api/health/detailed',method:'GET'}]);
 });
-test('ready API receives JSON and returns approved evidence',async()=>{
+test('ready API receives a JSON object without a duplicate bridge content-type',async()=>{
   const calls=[], evidence={connections:[]};
   const remote=createQualityTransport(async request=>{calls.push(request);return request.method==='GET'?{status:200,body:{capabilities:{forgeQuality:true}}}:{status:200,body:evidence};});
   assert.deepEqual(await remote({action:'LIST'}),evidence);
-  assert.deepEqual(calls[1],{path:'/api/integrations/forge/quality',method:'POST',headers:{'Content-Type':'application/json'},body:{action:'LIST'}});
+  assert.deepEqual(calls[1],{path:'/api/integrations/forge/quality',method:'POST',body:{action:'LIST'}});
+  assert.equal(Object.hasOwn(calls[1],'headers'),false);
+});
+
+for (const action of ['IDENTITY','READ','RELEASES','READ_RELEASE','READ_CLOSURE']) test(`${action}: bridge owns JSON encoding and headers`,async()=>{
+  const calls=[],body={action,connectionKey:'synthetic-only'};
+  const remote=createQualityTransport(async request=>{calls.push(request);return request.method==='GET'?{status:200,body:{capabilities:{forgeQuality:true}}}:{status:200,body:{ok:true}};});
+  await remote(body);
+  const request=calls.at(-1);
+  assert.equal(request.method,'POST');
+  assert.equal(request.body,body);
+  assert.equal(Object.hasOwn(request,'headers'),false);
 });
 test('controlled access failure is surfaced',async()=>{
   const remote=createQualityTransport(async()=>({status:403,body:{error:'No approved connection'}}));
