@@ -22,7 +22,7 @@ modules:
       render: native
       resolver:
         endpoint: vaettir-quality
-      title: Vaettir quality
+      title: Quality Intelligence
   jira:issueContext:
     - key: vaettir-issue-quality
       resource: quality
@@ -38,7 +38,7 @@ modules:
       render: native
       resolver:
         endpoint: vaettir-quality
-      title: Vaettir release quality
+      title: Vaettir Quality Intelligence
       description: Approved, dated quality snapshots for release tracking.
         Architecture analysis stays in Vaettir.
       config: true

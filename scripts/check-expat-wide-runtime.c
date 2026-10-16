@@ -74,7 +74,7 @@ int main(void) {
            == XML_STATUS_ERROR
        && XML_GetErrorCode(parser) == XML_ERROR_INVALID_TOKEN;
   XML_ParserFree(parser);
-  if (!ok || strcmp(XML_ExpatVersion(), "expat_2.8.5") != 0)
+  if (!ok || strcmp(XML_ExpatVersion(), "expat_2.9.0") != 0)
     return 1;
   puts("Expat wide UTF-16 ABI and surrogate validation verified");
   return 0;

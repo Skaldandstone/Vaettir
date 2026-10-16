@@ -117,12 +117,27 @@ type Quality = {
   };
 };
 async function remote(body: unknown) {
-  const response = await invokeRemote({
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const request = invokeRemote({
     path: "/api/integrations/forge/quality",
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body,
   });
+  const response = await Promise.race([
+    request,
+    new Promise<never>((_, reject) => {
+      timer = setTimeout(
+        () =>
+          reject(
+            new Error(
+              "Quality Intelligence did not respond in time. Try again.",
+            ),
+          ),
+        30000,
+      );
+    }),
+  ]).finally(() => clearTimeout(timer));
   if (response.status !== 200 || !response.body)
     throw new Error(
       typeof response.body?.error === "string"
@@ -136,7 +151,11 @@ const label = (value: string) =>
     .split("_")
     .map((word) => word[0] + word.slice(1).toLowerCase())
     .join(" ");
-export function QualityApp({ macroConfig }: { macroConfig?: Record<string, unknown> }) {
+export function QualityApp({
+  macroConfig,
+}: {
+  macroConfig?: Record<string, unknown>;
+}) {
   const context = useProductContext();
   const rawConfig = macroConfig;
   const [contextUnavailable, setContextUnavailable] = useState(false);
@@ -229,7 +248,7 @@ export function QualityApp({ macroConfig }: { macroConfig?: Record<string, unkno
     return () => {
       active = false;
     };
-  }, [signature, configuredKey, configuredSnapshot]);
+  }, [signature, configuredKey, configuredSnapshot, reload]);
   useEffect(() => {
     if (!key || !signature) return;
     let active = true;
@@ -274,7 +293,7 @@ export function QualityApp({ macroConfig }: { macroConfig?: Record<string, unkno
     };
     // Catalog data is pinned to the exact current product context and target.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [catalogPin, configuredClosure, configuredSnapshot]);
+  }, [catalogPin, configuredClosure, configuredSnapshot, reload]);
   useEffect(() => {
     if (!key || !signature || details?.pin !== catalogPin || !selection) return;
     let active = true;
@@ -323,7 +342,20 @@ export function QualityApp({ macroConfig }: { macroConfig?: Record<string, unkno
   }, [key, snapshotId, signature, pin, reload, selection, details, catalogPin]);
   return (
     <Stack space="space.200">
-      {!context && (contextUnavailable ? <SectionMessage appearance="warning" title="Atlassian page context unavailable"><Text>Reload this page to try again. No Vaettir data has been requested or shared.</Text></SectionMessage> : <Spinner label="Loading Atlassian page context" />)}
+      {!context &&
+        (contextUnavailable ? (
+          <SectionMessage
+            appearance="warning"
+            title="Atlassian page context unavailable"
+          >
+            <Text>
+              Reload this page to try again. No Vaettir data has been requested
+              or shared.
+            </Text>
+          </SectionMessage>
+        ) : (
+          <Spinner label="Loading Atlassian page context" />
+        ))}
       {connections.length > 1 && (
         <>
           <Label labelFor="quality-connection">Vaettir project</Label>
@@ -391,6 +423,12 @@ export function QualityApp({ macroConfig }: { macroConfig?: Record<string, unkno
           title="Quality evidence unavailable"
         >
           <Text>{error}</Text>
+          <Button
+            onClick={() => setReload((value) => value + 1)}
+            isDisabled={busy}
+          >
+            Try again
+          </Button>
         </SectionMessage>
       )}
       {binding !== null && (

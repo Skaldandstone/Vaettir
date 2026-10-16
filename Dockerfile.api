@@ -2,8 +2,8 @@
 # Trixie carries Debian fixes unavailable in Bookworm for the release-blocking
 # Perl CVEs. Keep the package floor below and rescan each final image digest.
 FROM public.ecr.aws/docker/library/node:22-trixie-slim@sha256:b26b04c123d9ff8ab646ceb18b9d75a1173acf64b9a401094b906d27b29338d4 AS vendor-build
-# Build the maintained Debian Expat source (including CVE-2026-102633's
-# patch) against Trixie. No unstable binary packages or compiler reach runtime.
+# Build signed maintained Debian Expat 2.9.0, including the XML_ParseBuffer
+# bounds fix. No unstable binary packages or compiler reach runtime.
 RUN apt-get update --error-on=any \
     && apt-get install -y --no-install-recommends openssl ca-certificates perl-base libpcre2-8-0 build-essential debhelper po-debconf docbook-to-man docbook2x autoconf automake libtool pkg-config gpgv debian-keyring \
     && dpkg --compare-versions "$(dpkg-query -W -f='${Version}' perl-base)" ge '5.40.1-6+deb13u1' \
@@ -11,16 +11,22 @@ RUN apt-get update --error-on=any \
     && rm -rf /var/lib/apt/lists/*
 WORKDIR /build
 COPY scripts/fetch-runtime-vendor-sources.mjs scripts/runtime-vendor-sources.json /build/scripts/
-COPY scripts/check-expat-wide-runtime.c /build/scripts/
-RUN node /build/scripts/fetch-runtime-vendor-sources.mjs /build/runtime-sources \
+COPY scripts/fetch-expat-runtime-sources.mjs scripts/expat-runtime-sources.json /build/scripts/
+COPY scripts/check-expat-wide-runtime.c scripts/check-expat-buffer-runtime.c /build/scripts/
+RUN node /build/scripts/fetch-expat-runtime-sources.mjs /build/runtime-sources \
     && cd /build/runtime-sources \
-    && gpgv --keyring /usr/share/keyrings/debian-keyring.gpg expat_2.8.5-2.dsc \
-    && dpkg-source -x expat_2.8.5-2.dsc /build/expat \
+    && gpgv --keyring /usr/share/keyrings/debian-keyring.gpg --status-fd 1 expat_2.9.0-1.dsc > /build/expat-source-signature.status \
+    && grep -q '^\[GNUPG:\] VALIDSIG 7D887DC8BA7BBBA7B835E3BADCE310E7864CC8BF ' /build/expat-source-signature.status \
+    && dpkg-source -x expat_2.9.0-1.dsc /build/expat \
     && cd /build/expat \
     && timeout 900 env DEB_BUILD_OPTIONS=parallel=2 dpkg-buildpackage -b -us -uc \
     && timeout 600 make -C build check \
     && gcc -std=c11 -Wall -Wextra -Werror -I/build/expat/srcw/lib /build/scripts/check-expat-wide-runtime.c -L/build/expat/buildw/lib/.libs -Wl,-rpath,/build/expat/buildw/lib/.libs -lexpatw -o /build/check-expat-wide \
-    && timeout 10 /build/check-expat-wide
+    && timeout 10 /build/check-expat-wide \
+    && gcc -std=c11 -Wall -Wextra -Werror -I/build/expat/src/lib /build/scripts/check-expat-buffer-runtime.c -L/build/expat/build/lib/.libs -Wl,-rpath,/build/expat/build/lib/.libs -lexpat -o /build/check-expat-buffer \
+    && timeout 10 /build/check-expat-buffer \
+    && gcc -std=c11 -Wall -Wextra -Werror -DXML_UNICODE -I/build/expat/srcw/lib /build/scripts/check-expat-buffer-runtime.c -L/build/expat/buildw/lib/.libs -Wl,-rpath,/build/expat/buildw/lib/.libs -lexpatw -o /build/check-expat-buffer-wide \
+    && timeout 10 /build/check-expat-buffer-wide
 COPY scripts/build-dash-runtime.sh scripts/check-dash-runtime.mjs /build/scripts/
 RUN node /build/scripts/fetch-runtime-vendor-sources.mjs /build/dash-sources dash \
     && sh /build/scripts/build-dash-runtime.sh /build/dash-sources /build/dash-build /build/scripts/check-dash-runtime.mjs
@@ -122,7 +128,7 @@ RUN apt-get update --error-on=any \
     && apt-get install -y --no-install-recommends ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 COPY scripts/debian-backports.sources /etc/apt/sources.list.d/vaettir-backports.sources
-COPY --from=vendor-build /build/libexpat1_2.8.5-2_*.deb /tmp/vaettir-vendor/
+COPY --from=vendor-build /build/libexpat1_2.9.0-1_*.deb /tmp/vaettir-vendor/
 COPY --from=git-openssl-build /build/git-openssl-build/vaettir-git-openssl_2.47.3-0+deb13u1+vaettir1_amd64.deb /tmp/vaettir-vendor/
 COPY --from=vendor-build /build/dash-build/dash_0.5.12-12+vaettir1_amd64.deb /tmp/vaettir-vendor/
 COPY --from=vendor-build /build/dash-build/dash-source-signature.status /usr/share/vaettir/dash-source-signature.status
@@ -145,13 +151,13 @@ RUN apt-get update --error-on=any \
     && dpkg --compare-versions "$(dpkg-query -W -f='${Version}' perl-base)" ge '5.40.1-6+deb13u1' \
     && dpkg --compare-versions "$(dpkg-query -W -f='${Version}' libpcre2-8-0)" ge '10.46-1~deb13u3' \
     && test "$(dpkg-query -W -f='${Version}' vaettir-git-openssl)" = '1:2.47.3-0+deb13u1+vaettir1' \
-    && dpkg --compare-versions "$(dpkg-query -W -f='${Version}' libexpat1)" ge '2.8.5-2' \
+    && dpkg --compare-versions "$(dpkg-query -W -f='${Version}' libexpat1)" ge '2.9.0-1' \
     && test "$(dpkg-query -W -f='${Version}' libllvm19)" = '1:19.1.7-3+vaettir1' \
     && test "$(dpkg-query -W -f='${Version}' dash)" = '0.5.12-12+vaettir1' \
     && test "$(dpkg-query -W -f='${Version}' zlib1g)" = '1:1.3.dfsg+really1.3.2-3+vaettir1' \
     && node /usr/local/lib/vaettir/check-runtime-package-absence.mjs --image-build \
     && git --version \
-    && rm /tmp/vaettir-vendor/libexpat1_2.8.5-2_*.deb \
+    && rm /tmp/vaettir-vendor/libexpat1_2.9.0-1_*.deb \
     && rm /tmp/vaettir-vendor/vaettir-git-openssl_2.47.3-0+deb13u1+vaettir1_amd64.deb \
     && rm /tmp/vaettir-vendor/libllvm19_19.1.7-3+vaettir1_amd64.deb \
     && rm /tmp/vaettir-vendor/dash_0.5.12-12+vaettir1_amd64.deb \

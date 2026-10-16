@@ -104,6 +104,7 @@ jobs:
           node --test scripts/retain-sharp-version-receipt.test.mjs
           node --test scripts/native-build-concurrency.test.mjs
           node --test scripts/fetch-git-openssl-sources.test.mjs scripts/git-openssl-runtime.test.mjs scripts/git-openssl-dockerfile-inverse-fixture.test.mjs
+          node --test scripts/expat-security-proof.test.mjs
           node --test scripts/fetch-runtime-security-sources.test.mjs
           node --test scripts/watch-native-build-logs.test.mjs scripts/maintained-native-ci-contract.test.mjs
           node --test scripts/runtime-build-proof.test.mjs scripts/fetch-freetype-test-corpus.test.mjs scripts/install-runtime-security-family.test.mjs scripts/runtime-security-build-contract.test.mjs

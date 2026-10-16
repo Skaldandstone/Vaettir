@@ -185,15 +185,15 @@ test("API vendor build verifies signature, preserves packaging and validates bot
   );
   const manifest = JSON.parse(
     readFileSync(
-      new URL("./runtime-vendor-sources.json", import.meta.url),
+      new URL("./expat-runtime-sources.json", import.meta.url),
       "utf8",
     ),
   );
-  assert.equal(manifest.expat.version, "2.8.5-2");
+  assert.equal(manifest.expat.version, "2.9.0-1");
   assert.equal(manifest.expat.files.length, 3);
   assert.match(
     docker,
-    /gpgv --keyring \/usr\/share\/keyrings\/debian-keyring.gpg expat_2.8.5-2.dsc/,
+    /gpgv --keyring \/usr\/share\/keyrings\/debian-keyring.gpg --status-fd 1 expat_2.9.0-1.dsc/,
   );
   assert.match(docker, /timeout 600 make -C build check/);
   assert.match(docker, /gcc -std=c11 -Wall -Wextra -Werror[^\n]+-lexpatw/);
@@ -207,9 +207,17 @@ test("API vendor build verifies signature, preserves packaging and validates bot
   assert.match(wide, /0xd83d, 0xde00/);
   assert.match(
     docker,
-    /COPY --from=vendor-build \/build\/libexpat1_2.8.5-2_\*.deb/,
+    /COPY --from=vendor-build \/build\/libexpat1_2.9.0-1_\*.deb/,
   );
-  assert.match(docker, /libexpat1\)" ge '2.8.5-2'/);
+  assert.match(docker, /libexpat1\)" ge '2.9.0-1'/);
+  assert.match(docker, /VALIDSIG 7D887DC8BA7BBBA7B835E3BADCE310E7864CC8BF/);
+  assert.match(docker, /timeout 10 \/build\/check-expat-buffer \\/);
+  assert.match(docker, /timeout 10 \/build\/check-expat-buffer-wide/);
+  const bufferRegression = readFileSync(new URL('./check-expat-buffer-runtime.c', import.meta.url), 'utf8');
+  assert.match(bufferRegression, /XML_ParseBuffer\(parser, 10000, final\)/);
+  assert.match(bufferRegression, /XML_ERROR_INVALID_ARGUMENT/);
+  assert.match(bufferRegression, /XML_ERROR_NO_BUFFER/);
+  assert.match(bufferRegression, /XML_ParseBuffer\(parser, 7, XML_FALSE\)/);
   assert.match(docker, /vaettir-git-openssl\)" = '1:2.47.3-0\+deb13u1\+vaettir1'/);
   assert.match(docker, /RUN --network=none node scripts\/check-git-runtime.mjs/);
   assert.match(docker, /RUN --network=none node scripts\/check-git-openssl-runtime.mjs --installed/);
