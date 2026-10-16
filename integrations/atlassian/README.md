@@ -63,6 +63,10 @@ Lint action before deploying. Its ProseMirror override pins the fix for
 Vaettir's remote bridge is disabled unless `VAETTIR_FORGE_APP_ID` and
 `VAETTIR_FORGE_ENVIRONMENT_ID` explicitly identify this app and the intended
 environment ARI. Development and production environments are not interchangeable.
+Use Forge's canonical environment shape:
+`ari:cloud:ecosystem::environment/<app UUID>/<environment UUID>`.
+It is not just `environment/<environment UUID>`. Historical short-form sharing
+records stay readable, but are not silently converted into new approvals.
 Each installation/cloud/project-or-space requires its own administrator approval
 in Vaettir. Reinstalling requires reviewing a new installation identity.
 

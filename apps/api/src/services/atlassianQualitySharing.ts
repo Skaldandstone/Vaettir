@@ -12,13 +12,32 @@ export const forgeQualityBinding = z
       .regex(/^ari:cloud:ecosystem::installation\/[a-f0-9-]{36}$/),
     environmentId: z
       .string()
-      .regex(/^ari:cloud:ecosystem::environment\/[a-f0-9-]{36}$/),
+      // Forge's canonical ARI includes both app and environment UUIDs. Keep
+      // historical short records readable, but never equate them to a signed
+      // canonical identity or silently move an existing approval.
+      .regex(
+        /^ari:cloud:ecosystem::environment\/(?:[a-f0-9-]{36}\/)?[a-f0-9-]{36}$/,
+      ),
     cloudId: z.string().uuid(),
     siteOrigin: z.string().regex(/^https:\/\/[a-zA-Z0-9-]+\.atlassian\.net$/),
     product: z.enum(["jira", "confluence"]),
     targetId: z.string().regex(/^\d{1,40}$/),
   })
-  .strict();
+  .strict()
+  .superRefine((binding, context) => {
+    const parts = binding.environmentId
+      .slice("ari:cloud:ecosystem::environment/".length)
+      .split("/");
+    if (
+      parts.length === 2 &&
+      binding.appId !== `ari:cloud:ecosystem::app/${parts[0]}`
+    )
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["environmentId"],
+        message: "The environment must belong to the selected Forge app.",
+      });
+  });
 export const forgeSharingRecord = z.object({
   connectionId: z.string().uuid(),
   version: z.number().int().positive(),

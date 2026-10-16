@@ -5,6 +5,8 @@ import {
   authorizeForgeSharing,
   latestForgeSharing,
   readSharedQuality,
+  forgeQualityBinding,
+  sameForgeBinding,
 } from "./atlassianQualitySharing.js";
 import { ticketObservation } from "./jiraTicketVerification.js";
 
@@ -93,6 +95,28 @@ function db() {
   };
 }
 describe("opt-in Atlassian quality sharing", () => {
+  it("accepts canonical app/environment ARIs without silently changing legacy approvals", () => {
+    const canonical = {
+      ...binding,
+      environmentId:
+        "ari:cloud:ecosystem::environment/743bf96f-0f9f-4fed-981a-ea3fc318d15d/d2844601-7a1f-4e4e-9b77-e0d4d3682c50",
+    };
+    expect(forgeQualityBinding.parse(canonical)).toEqual(canonical);
+    expect(forgeQualityBinding.parse(binding)).toEqual(binding);
+    expect(sameForgeBinding(canonical, { ...identity, ...canonical })).toBe(true);
+    expect(sameForgeBinding(binding, { ...identity, ...canonical })).toBe(false);
+    expect(forgeQualityBinding.safeParse({
+      ...canonical,
+      environmentId: canonical.environmentId.replace(
+        "743bf96f-0f9f-4fed-981a-ea3fc318d15d",
+        "10000000-0000-4000-8000-000000000099",
+      ),
+    }).success).toBe(false);
+    expect(forgeQualityBinding.safeParse({
+      ...canonical,
+      environmentId: canonical.environmentId + "/extra",
+    }).success).toBe(false);
+  });
   it("requires the exact installation, environment, cloud, product and target", async () => {
     for (const change of [
       { installationId: "other" },

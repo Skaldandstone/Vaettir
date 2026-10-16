@@ -66,6 +66,41 @@ beforeEach(() => {
 });
 afterEach(() => vi.unstubAllEnvs());
 describe("Forge quality HTTP authorization boundary", () => {
+  it("returns setup identity after an empty LIST using Forge's canonical environment ARI", async () => {
+    const binding = {
+      appId: "ari:cloud:ecosystem::app/743bf96f-0f9f-4fed-981a-ea3fc318d15d",
+      environmentId:
+        "ari:cloud:ecosystem::environment/743bf96f-0f9f-4fed-981a-ea3fc318d15d/d2844601-7a1f-4e4e-9b77-e0d4d3682c50",
+      installationId:
+        "ari:cloud:ecosystem::installation/10000000-0000-4000-8000-000000000001",
+      cloudId: "10000000-0000-4000-8000-000000000002",
+      siteOrigin: "https://company.atlassian.net",
+      product: "jira",
+      targetId: "10",
+    };
+    const viewer = { ...identity, ...binding, principal: "synthetic-viewer" };
+    vi.stubEnv("VAETTIR_FORGE_APP_ID", binding.appId);
+    vi.stubEnv("VAETTIR_FORGE_ENVIRONMENT_ID", binding.environmentId);
+    mocks.invocation.mockResolvedValue(viewer);
+    mocks.viewer.mockResolvedValue(viewer);
+    const f = fixture();
+    for (const action of ["LIST", "IDENTITY"]) {
+      const response = await f.app.inject({
+        method: "POST",
+        url: "/api/integrations/forge/quality",
+        headers,
+        payload: { action },
+      });
+      expect(response.statusCode).toBe(200);
+      expect(response.headers["content-type"]).toContain("application/json");
+      expect(response.headers["cache-control"]).toBe("no-store, private");
+      if (action === "IDENTITY") expect(response.json().binding).toEqual(binding);
+    }
+    expect(mocks.invocation).toHaveBeenCalledWith("signed-fit", binding.appId, binding.environmentId);
+    expect(mocks.viewer).toHaveBeenCalledWith(viewer, "ephemeral-user");
+    expect(f.prisma.$transaction).toHaveBeenCalledTimes(1);
+    await f.app.close();
+  });
   it("mounts JSON routes outside raw Stripe byte parsing and outside the duplicated /api alias", () => {
     const source = readFileSync(
       new URL("../server.ts", import.meta.url),
