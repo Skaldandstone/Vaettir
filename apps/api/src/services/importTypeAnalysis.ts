@@ -59,11 +59,20 @@ export function createImportTypeAnalysis(analyze = recommendImportTypes) {
       const same = [...jobs.entries()].filter(([k]) => k.startsWith(JSON.stringify([scopeKey]).slice(0, -1)));
       const reused = same.find(([, j]) => j.digest === digest && j.state.status !== "CANCELLED");
       if (reused) return { requestId: JSON.parse(reused[0])[1] as string };
+      const cachedResults = new Map(same.flatMap(([, j]) => j.state.results).filter(r => r.evidence.length > 0).map(r => [r.fingerprint, r]));
+      const needsProvider = cases.some(c => !cachedResults.has(importTypeFingerprint(c)));
       const starts = recentStarts.get(scopeKey) ?? [];
-      if (starts.length >= 12 || [...jobs.values()].filter(j => !j.finishedAt).length >= 8 || jobs.size >= 32)
+      if ((needsProvider && starts.length >= 12) || [...jobs.values()].filter(j => !j.finishedAt).length >= 8)
         throw new Error("Import type review is busy. Your preview is preserved; retry shortly.");
       if (same.some(([, j]) => !j.finishedAt)) throw new Error("Another type review is still finishing for this project. Retry shortly.");
-      recentStarts.set(scopeKey, [...starts, Date.now()]);
+      // Bound retained definitions/results by row count as well as job count on
+      // the small API task. Discard only finished, oldest preview receipts.
+      while (jobs.size >= 32 || [...jobs.values()].reduce((n, j) => n + j.state.total, 0) + cases.length > 20_000) {
+        const finished = [...jobs.entries()].find(([, j]) => j.finishedAt !== undefined);
+        if (!finished) throw new Error("Import type review is busy. Your preview is preserved; retry shortly.");
+        jobs.delete(finished[0]);
+      }
+      if (needsProvider) recentStarts.set(scopeKey, [...starts, Date.now()]);
       const job: Job = { digest, controller: new AbortController(), fingerprints: new Map(cases.map(c => [c.id, importTypeFingerprint(c)])),
         state: { status: "READING", total: cases.length, completed: 0, results: [], failed: 0 } };
       jobs.set(id, job);
@@ -71,7 +80,6 @@ export function createImportTypeAnalysis(analyze = recommendImportTypes) {
         // Pack whole cases by both count and actual serialized length. Oversized
         // definitions remain explicitly unclassified; no partial-text analysis.
         const batches: ImportTypeCase[][] = []; let batch: ImportTypeCase[] = [], size = 0;
-        const cachedResults = new Map(same.flatMap(([, j]) => j.state.results).filter(r => r.evidence.length > 0).map(r => [r.fingerprint, r]));
         for (const c of cases) {
           const cached = cachedResults.get(importTypeFingerprint(c));
           if (cached) { job.state.results.push(cached); job.state.completed++; continue; }

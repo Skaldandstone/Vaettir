@@ -81,4 +81,15 @@ describe("free import type preview lifecycle", () => {
     expect(maximum).toBe(2); expect(analyze.mock.calls.map(call => call[0].length).sort()).toEqual([20, 20, 5].sort());
     expect(analyze.mock.calls.flatMap(call => call[0]).sort((a, b) => Number(a.id) - Number(b.id))).toEqual(cases);
   });
+  it("allows repeated manual-selection edits to reuse results without consuming provider-start quota or filling the cache", async () => {
+    const analyze = vi.fn(async (cases: typeof c[]) => cases.map(item => ({ ...result, id: item.id })));
+    const manager = createImportTypeAnalysis(analyze), cases = Array.from({ length: 8 }, (_, i) => ({ ...c, id: String(i) }));
+    manager.start(scope, "base", cases, async () => {}); await ready(manager, "base");
+    for (let mask = 1; mask <= 40; mask++) {
+      const id = `edit-${mask}`;
+      manager.start(scope, id, cases.filter((_, i) => Boolean(mask & (1 << i))), async () => {});
+      await ready(manager, id);
+    }
+    expect(analyze).toHaveBeenCalledTimes(1);
+  });
 });
