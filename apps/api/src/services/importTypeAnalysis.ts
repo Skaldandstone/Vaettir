@@ -68,8 +68,9 @@ export function createImportTypeAnalysis(analyze = recommendImportTypes) {
         // Pack whole cases by both count and actual serialized length. Oversized
         // definitions remain explicitly unclassified; no partial-text analysis.
         const batches: ImportTypeCase[][] = []; let batch: ImportTypeCase[] = [], size = 0;
+        const cachedResults = new Map(same.flatMap(([, j]) => j.state.results).filter(r => r.evidence.length > 0).map(r => [r.fingerprint, r]));
         for (const c of cases) {
-          const cached = same.flatMap(([, j]) => j.state.results).find(r => r.fingerprint === importTypeFingerprint(c) && r.evidence.length > 0);
+          const cached = cachedResults.get(importTypeFingerprint(c));
           if (cached) { job.state.results.push(cached); job.state.completed++; continue; }
           const length = JSON.stringify(c).length + 1;
           if (length > 85_000) { job.state.results.push(unresolved(c, "This complete definition exceeds the model batch capacity. No partial-text classification was attempted; review its type.")); job.state.failed++; job.state.completed++; continue; }
@@ -105,7 +106,11 @@ export function createImportTypeAnalysis(analyze = recommendImportTypes) {
           job.state.results.push(...remaining.map(c => unresolved(c, "Type review could not finish. No classification was guessed.")));
           job.state.failed += remaining.length; job.state.completed = cases.length; job.state.status = "READY";
         }
-      }).finally(() => { job.finishedAt = Date.now(); });
+      }).finally(() => {
+        job.finishedAt = Date.now();
+        const timer = setTimeout(() => { if (jobs.get(id) === job) jobs.delete(id); }, RETENTION);
+        timer.unref();
+      });
       return { requestId };
     },
     status(scope: WorkbookReadScope, requestId: string): AnalysisState { return structuredClone(find(scope, requestId).state); },
