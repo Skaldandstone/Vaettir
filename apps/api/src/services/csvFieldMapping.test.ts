@@ -113,7 +113,7 @@ describe("mapped CSV row repair", () => {
         then: ["Plans are shown"],
         priority: "MEDIUM",
         tags: ["billing"],
-        testType: "FUNCTIONAL",
+        testType: "OTHER",
         automationStatus: "MANUAL",
         externalId: "TC-2",
       },
@@ -180,22 +180,22 @@ describe("mapped CSV row repair", () => {
     });
   });
 
-  it("infers useful test types instead of flattening imports to functional", () => {
+  it("does not pretend parsing can infer a type from feature keywords", () => {
     expect(
       inferTestCaseType({
         title: "DAU matches Mixpanel event tracking",
         tags: ["Analytics"],
       }),
-    ).toBe("INSTRUMENTATION");
+    ).toBe("OTHER");
     expect(
       inferTestCaseType({ title: "API rejects unauthorized permissions" }),
-    ).toBe("SECURITY");
+    ).toBe("OTHER");
     expect(
       inferTestCaseType({ title: "Response time under concurrent load" }),
-    ).toBe("PERFORMANCE");
+    ).toBe("OTHER");
     expect(
       inferTestCaseType({ title: "Screen reader announces the dialog" }),
-    ).toBe("ACCESSIBILITY");
+    ).toBe("OTHER");
   });
 
   it("honors explicit type and automation columns over inference", () => {
@@ -218,7 +218,7 @@ describe("mapped CSV row repair", () => {
     expect(result.rows[0]).toMatchObject({ title: "Verify restoration", suitePath: "Workflow C: Reinstall / UC-S2.05: Restore purchase", background: "Based on the recommendation below", when: ["Reinstall then restore"], then: ["Balance unchanged"] });
     expect(result.nonCaseRows?.map(row => row.sourceRowKind)).toEqual(["SECTION", "SECTION", "NOTE", "PLACEHOLDER"]);
     expect(result.recommendations?.[0]?.reviewReasons).toContain("Section grouping was inferred from a preceding source heading.");
-    const edited = mapCsvRows(csv, { externalId: "ID", title: "Title", when: "Steps", then: "Expected" }, undefined, [{ ...result.rows[0]!, suitePath: "Restoration", testType: "REGRESSION" }]);
+    const edited = mapCsvRows(csv, { externalId: "ID", title: "Title", when: "Steps", then: "Expected" }, undefined, [{ ...result.rows[0]!, suitePath: "Restoration", testType: "REGRESSION", typeOrigin: "REVIEWER" }]);
     expect(edited.rows[0]).toMatchObject({ suitePath: "Restoration", testType: "REGRESSION" });
     expect(edited.rows[0]?.reviewReasons?.length).toBeGreaterThan(0);
   });
@@ -227,10 +227,10 @@ describe("mapped CSV row repair", () => {
     const csv = 'Test Case ID,Test Module/Scenario,Scenario Description/Test Case,Pre-conditions,Test Steps,Expected,Type\nTC-1,Verify keyboard navigation,Press Tab,Dialog focused,,,Unknown\n';
     const mapping = inspectCsv(csv).suggestedMapping;
     const result = mapCsvRows(csv, mapping);
-    expect(result.rows[0]).toMatchObject({ title: "Verify keyboard navigation", when: ["Press Tab"], testType: "ACCESSIBILITY" });
-    expect(result.rows[0]?.typeRecommendation).toContain("keyboard navigation");
+    expect(result.rows[0]).toMatchObject({ title: "Verify keyboard navigation", when: ["Press Tab"], testType: "OTHER", typeOrigin: "UNCLASSIFIED" });
+    expect(result.rows[0]?.typeRecommendation).toContain("full-definition AI review");
     expect(result.rows[0]?.reviewReasons?.join(" ")).toContain("Unrecognized source type");
-    const edited = mapCsvRows(csv, mapping, undefined, [{ ...result.rows[0]!, testType: "FUNCTIONAL" }]);
+    const edited = mapCsvRows(csv, mapping, undefined, [{ ...result.rows[0]!, testType: "FUNCTIONAL", typeOrigin: "REVIEWER" }]);
     expect(edited.rows[0]?.testType).toBe("FUNCTIONAL");
     expect(edited.recommendations).toHaveLength(1);
     const known = mapCsvRows('Title,Type\nVerify keyboard navigation,Smoke\n', { title: "Title", testType: "Type" });

@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { trpcReact, type RouterOutputs } from "@/lib/trpcReact";
 import { readWorkbookPreview } from "@/lib/read-workbook-preview";
 import { reassignImportColumn, remainingNonCaseRows } from "@/lib/reassign-import-column";
+import { typeReviewCase, typeReviewLabel, type TypeReviewCase } from "@/lib/import-type-review";
 
 // P11-10: "Migration assistant" wizard. Every backend piece this orchestrates
 // already existed and worked (P11-01/02's CSV mapping+preview, P11-03's
@@ -54,7 +55,7 @@ const SOURCE_INFO: Record<
     label: "Smart file import",
     mark: "CSV",
     blurb:
-      "CSV or Excel (.xlsx) from Qase, Tricentis, TestRail, qTest, or another test system. Vaettir detects sheets, headers, and likely fields before anything is written.",
+      "CSV or Excel (.xlsx) from Qase, Tricentis, TestRail, qTest, or another test system. Vaettir detects fields and automatically reviews mapped case definitions with its AI provider to recommend test types, included free. Nothing is imported until you confirm.",
     accept:
       ".csv,.xlsx,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
   },
@@ -212,26 +213,30 @@ function RowMappingReview({ suggestions, overrides, onChange }: {
   </details>;
 }
 
-function ImportRecommendations({ rows, overrides, onChange }: {
+function ImportRecommendations({ rows, overrides, onChange, analysis }: {
   rows: EditableImportRow[] | undefined;
   overrides: Record<number, EditableImportRow>;
   onChange: (row: EditableImportRow) => void;
+  analysis?: Record<number, RouterOutputs["importJobs"]["typeAnalysisStatus"]["results"][number]>;
 }) {
   if (!rows?.length) return null;
   return <details className="import-repair-panel" open>
     <summary>{rows.length} cases with automatic suggestions · For review</summary>
-    <p className="text-muted">Already applied, no detection button needed. Types are recommended from case text when the source is missing or unrecognized. You can change them here. Priority and automation use Medium and Manual defaults if unspecified; those defaults are not verified source facts. No missing steps are invented.</p>
+    <p className="text-muted">Already applied, no detection button needed. Free AI review reads each complete case definition and recommends its primary testing objective with supporting excerpts. Missing or uncertain classifications stay Unclassified and For review, not Functional by default. You can change any recommendation. Priority and automation use Medium and Manual defaults if unspecified; those defaults are not verified source facts. No missing steps are invented.</p>
     <div className="table-scroll" style={{ maxHeight: 320 }}><table className="workspace-table">
       <thead><tr><th>Row</th><th>Case name</th><th>Section within suite</th><th>Test type</th><th>Why / status</th><th>Details</th></tr></thead>
       <tbody>{rows.map(proposed => {
         const row = overrides[proposed.rowNumber] ?? proposed;
+        const recommendation = row.typeOrigin === "REVIEWER" || row.typeOrigin === "SOURCE" ? undefined : analysis?.[row.rowNumber];
+        const selectedType = recommendation?.testType ?? row.testType;
         return <tr key={row.rowNumber}>
           <td>{row.rowNumber}</td><td>{row.title}</td>
           <td><input aria-label={`Section for row ${row.rowNumber}`} value={row.suitePath ?? ""} onChange={event => onChange({ ...row, suitePath: event.target.value })} /></td>
-          <td><select aria-label={`Test type for row ${row.rowNumber}`} value={row.testType} onChange={event => onChange({ ...row, testType: event.target.value as EditableImportRow["testType"] })}>
-            {["UNIT", "FUNCTIONAL", "CONTRACT", "INSTRUMENTATION", "SMOKE", "SANITY", "REGRESSION", "E2E", "PERFORMANCE", "SECURITY", "ACCESSIBILITY", "EXPLORATORY", "COMPLIANCE", "OTHER"].map(type => <option key={type} value={type}>{type.replaceAll("_", " ").toLowerCase().replace(/^./, char => char.toUpperCase())}</option>)}
+          <td><select aria-label={`Test type for row ${row.rowNumber}`} value={selectedType} onChange={event => onChange({ ...row, testType: event.target.value as EditableImportRow["testType"], typeOrigin: "REVIEWER" })}>
+            {["UNIT", "FUNCTIONAL", "CONTRACT", "INSTRUMENTATION", "SMOKE", "SANITY", "REGRESSION", "E2E", "PERFORMANCE", "SECURITY", "ACCESSIBILITY", "EXPLORATORY", "COMPLIANCE", "OTHER"].map(type => <option key={type} value={type}>{type === "OTHER" && row.typeOrigin === "UNCLASSIFIED" && !recommendation?.testType ? "Unclassified · For review" : typeReviewLabel(type)}</option>)}
           </select></td>
-          <td><span className="status-pill status-warning">For review</span><p>{proposed.typeRecommendation || proposed.reviewReasons?.join(" ")}</p></td>
+          <td><span className="status-pill status-warning">For review{recommendation ? ` · ${recommendation.confidence.toLowerCase()} confidence` : ""}</span>
+            {recommendation ? <><p><strong>{recommendation.objective}</strong></p><p>{recommendation.reason}</p>{recommendation.evidence.map((quote, i) => <blockquote key={i} style={{ margin: "4px 0", fontSize: 12 }}>{quote}</blockquote>)}</> : <p>{row.typeOrigin === "REVIEWER" ? "Reviewer-selected type." : proposed.typeRecommendation || proposed.reviewReasons?.join(" ")}</p>}</td>
           <td><button className="btn-secondary" onClick={() => onChange(row)}>Edit details</button></td>
         </tr>;
       })}</tbody>
@@ -320,6 +325,7 @@ function RowRepairEditor({
             onChange({
               ...row,
               testType: event.target.value as EditableImportRow["testType"],
+              typeOrigin: "REVIEWER",
             })
           }
         >
@@ -423,6 +429,60 @@ export function MigrationWizard({
   const [xlsxRowOverrides, setXlsxRowOverrides] = useState<
     Record<string, Record<number, EditableImportRow>>
   >({});
+  type TypeAnalysis = RouterOutputs["importJobs"]["typeAnalysisStatus"];
+  const [typeReview, setTypeReview] = useState<{ input: string; requestId?: string; state?: TypeAnalysis; error?: string } | null>(null);
+  const [typeRetry, setTypeRetry] = useState(0);
+  const typeJob = useRef<string | null>(null);
+  const typeCases: TypeReviewCase[] = source !== "csv" || step === "done" ? [] : xlsxPreview ? xlsxPreview.sheets
+    .filter(sheet => selectedSheets.has(sheet.name) && xlsxMappings[sheet.name]?.title)
+    .flatMap(sheet => (sheet.recommendations ?? []).map(row => xlsxRowOverrides[sheet.name]?.[row.rowNumber] ?? row)
+      .filter(row => row.title && row.typeOrigin !== "SOURCE" && row.typeOrigin !== "REVIEWER")
+      .map(row => typeReviewCase(sheet.name, row))) : (csvPreview?.recommendations ?? [])
+        .map(row => csvRowOverrides[row.rowNumber] ?? row)
+        .filter(row => row.title && row.typeOrigin !== "SOURCE" && row.typeOrigin !== "REVIEWER")
+        .map(row => typeReviewCase("", row));
+  const typeInput = JSON.stringify(typeCases);
+  useEffect(() => {
+    const cases = JSON.parse(typeInput) as TypeReviewCase[];
+    if (!cases.length) return;
+    const controller = new AbortController();
+    let ownedRequest: string | undefined;
+    const timer = setTimeout(() => {
+      setTypeReview({ input: typeInput });
+      void (async () => {
+        const previous = typeJob.current;
+        if (previous) await utils.client.importJobs.cancelTypeAnalysis.mutate({ projectId, requestId: previous }).catch(() => undefined);
+        if (controller.signal.aborted) return;
+        const started = await utils.client.importJobs.startTypeAnalysis.mutate({ projectId, requestId: crypto.randomUUID(), cases });
+        ownedRequest = started.requestId;
+        if (controller.signal.aborted) { void utils.client.importJobs.cancelTypeAnalysis.mutate({ projectId, requestId: ownedRequest }).catch(() => undefined); return; }
+        typeJob.current = ownedRequest;
+        let failures = 0;
+        while (!controller.signal.aborted) {
+          let state: TypeAnalysis;
+          try { state = await utils.client.importJobs.typeAnalysisStatus.query({ projectId, requestId: ownedRequest }); failures = 0; }
+          catch (error) { if (++failures >= 3) throw error; await new Promise(resolve => setTimeout(resolve, 1500)); continue; }
+          if (controller.signal.aborted) return;
+          setTypeReview({ input: typeInput, requestId: ownedRequest, state });
+          if (state.status !== "READING") return;
+          await new Promise(resolve => setTimeout(resolve, 1500));
+        }
+      })().catch(error => { if (!controller.signal.aborted) setTypeReview({ input: typeInput, error: importErrorMessage(error) }); });
+    }, 600);
+    return () => { clearTimeout(timer); controller.abort(); if (ownedRequest) void utils.client.importJobs.cancelTypeAnalysis.mutate({ projectId, requestId: ownedRequest }).catch(() => undefined); };
+  }, [typeInput, projectId, typeRetry, utils.client]);
+  const currentTypeReview = typeReview?.input === typeInput ? typeReview : null;
+  const typeReviewPending = typeCases.length > 0 && !currentTypeReview?.error && currentTypeReview?.state?.status !== "READY";
+  const typeReviewBlocked = typeCases.length > 0 && currentTypeReview?.state?.status !== "READY";
+  function sheetTypeResults(sheet: string) {
+    return Object.fromEntries((currentTypeReview?.state?.results ?? []).flatMap(r => {
+      const [name, row] = JSON.parse(r.id) as [string, number]; return name === sheet ? [[row, r]] : [];
+    }));
+  }
+  function displayedType(sheet: string, row: EditableImportRow) {
+    const result = row.typeOrigin === "SOURCE" || row.typeOrigin === "REVIEWER" ? undefined : sheetTypeResults(sheet)[row.rowNumber];
+    return result ? result.testType ? typeReviewLabel(result.testType) : "Unclassified · For review" : typeReviewLabel(row.testType, row.typeOrigin);
+  }
 
   // TestRail/Xray preview state
   const [filePreview, setFilePreview] = useState<{
@@ -770,6 +830,7 @@ export function MigrationWizard({
   }
 
   async function commit() {
+    if (typeReviewBlocked) return;
     setError(null);
     try {
       let res: FileCommitResult;
@@ -795,6 +856,7 @@ export function MigrationWizard({
             projectId,
             fileBase64: xlsxBase64,
             sourceLabel: fileName,
+            typeAnalysisRequestId: currentTypeReview?.requestId,
             sheets,
           });
         } else {
@@ -805,6 +867,7 @@ export function MigrationWizard({
             mapping: mapping as Record<TargetField, string>,
             overrides: Object.values(csvRowOverrides),
             sourceLabel: fileName || undefined,
+            typeAnalysisRequestId: currentTypeReview?.requestId,
           });
         }
       } else if (source === "xray") {
@@ -1096,6 +1159,15 @@ export function MigrationWizard({
         </div>
       )}
 
+      {source === "csv" && typeCases.length > 0 && (step === "upload" || step === "review") && <section className="panel" aria-label="Automatic test type review" style={{ marginTop: 16 }}>
+        <strong>{typeReviewPending ? "Reading each case’s testing objective…" : currentTypeReview?.error ? "Type review needs attention" : "Test-type review complete"}</strong>
+        <p className="text-muted">Included free with import. No AI credits are deducted and no cases are imported. Recommendations read the complete mapped title, preconditions, actions, results and context. Uncertain cases stay For review.</p>
+        <progress aria-label="Cases reviewed for test type" max={typeCases.length} value={currentTypeReview?.state?.completed ?? 0} style={{ width: "100%" }} />
+        <p role="status">{currentTypeReview?.state?.completed ?? 0} of {typeCases.length} cases reviewed{currentTypeReview?.state?.failed ? ` · ${currentTypeReview.state.failed} could not be verified` : ""}</p>
+        {currentTypeReview?.error && <p role="alert">{currentTypeReview.error}</p>}
+        {(currentTypeReview?.error || currentTypeReview?.state?.failed) && <button className="btn-secondary" type="button" onClick={() => setTypeRetry(value => value + 1)}>Retry type review</button>}
+      </section>}
+
       {step === "upload" && source === "csv" && xlsxPreview && (
         <div className="xlsx-mapping-workspace">
           <div className="xlsx-workbook-heading">
@@ -1208,7 +1280,7 @@ export function MigrationWizard({
                                   <td style={{ whiteSpace: "pre-wrap" }}>{row.when.join("\n") || "—"}</td>
                                   <td style={{ whiteSpace: "pre-wrap" }}>{row.then.join("\n") || "—"}</td>
                                   <td>{row.tags.join(", ") || "—"}</td>
-                                  <td>{row.testType}</td>
+                                  <td>{displayedType(sheet.name, row)}</td>
                                   <td>{row.automationStatus}</td>
                                   <td>{row.priority}</td>
                                 </tr>
@@ -1241,7 +1313,7 @@ export function MigrationWizard({
                         </details>
                       )}
                       <RowMappingReview suggestions={sheet.rowMappingSuggestions} overrides={xlsxRowOverrides[sheet.name] ?? {}} onChange={row => updateXlsxRepair(sheet.name, row)} />
-                      <ImportRecommendations rows={sheet.recommendations} overrides={xlsxRowOverrides[sheet.name] ?? {}} onChange={row => updateXlsxRepair(sheet.name, row)} />
+                      <ImportRecommendations rows={sheet.recommendations} overrides={xlsxRowOverrides[sheet.name] ?? {}} analysis={sheetTypeResults(sheet.name)} onChange={row => updateXlsxRepair(sheet.name, row)} />
                       <NonCaseRowsReview
                         rows={sheet.nonCaseRows}
                         overrides={xlsxRowOverrides[sheet.name] ?? {}}
@@ -1363,7 +1435,7 @@ export function MigrationWizard({
                       <td style={{ whiteSpace: "pre-wrap" }}>{r.given.join("\n")}</td>
                       <td style={{ whiteSpace: "pre-wrap" }}>{r.when.join("\n")}</td>
                       <td style={{ whiteSpace: "pre-wrap" }}>{r.then.join("\n")}</td>
-                      <td>{r.testType}</td>
+                      <td>{displayedType("", r)}</td>
                       <td>{r.automationStatus}</td>
                       <td>{r.priority}</td>
                       <td>{r.tags.join(", ")}</td>
@@ -1395,7 +1467,7 @@ export function MigrationWizard({
             </details>
           )}
           <RowMappingReview suggestions={csvPreview.rowMappingSuggestions} overrides={csvRowOverrides} onChange={updateCsvRepair} />
-          <ImportRecommendations rows={csvPreview.recommendations} overrides={csvRowOverrides} onChange={updateCsvRepair} />
+          <ImportRecommendations rows={csvPreview.recommendations} overrides={csvRowOverrides} analysis={sheetTypeResults("")} onChange={updateCsvRepair} />
           <NonCaseRowsReview rows={csvPreview.nonCaseRows} overrides={csvRowOverrides} onInclude={updateCsvRepair} />
 
           <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
@@ -1443,7 +1515,7 @@ export function MigrationWizard({
             </button>
             <button
               onClick={commit}
-              disabled={committing || selectedSheets.size === 0}
+              disabled={committing || typeReviewBlocked || selectedSheets.size === 0}
             >
               {committing ? "Importing…" : "Import selected worksheets"}
             </button>
@@ -1462,7 +1534,7 @@ export function MigrationWizard({
             <button className="btn-secondary" onClick={() => setStep("upload")}>
               Back to mapping
             </button>
-            <button onClick={commit} disabled={committing}>
+            <button onClick={commit} disabled={committing || typeReviewBlocked}>
               {committing
                 ? "Importing…"
                 : `Import ${(csvPreview?.rowCount ?? 0) - remainingNonCaseRows(csvPreview?.nonCaseRows, csvRowOverrides).length} cases`}

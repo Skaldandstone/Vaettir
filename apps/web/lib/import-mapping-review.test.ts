@@ -6,6 +6,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import ts from "typescript";
 import { expect, it } from "vitest";
 import { remainingNonCaseRows } from "./reassign-import-column";
+import { typeReviewLabel } from "./import-type-review";
 
 const source = readFileSync(new URL("../components/MigrationWizard.tsx", import.meta.url), "utf8");
 const ast = ts.createSourceFile("Migration.tsx", source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
@@ -13,7 +14,7 @@ const names = ["rowRecord", "reconcileRowOverrides", "splitEditedLines", "RowRep
 const declarations = ast.statements.filter(node => ts.isFunctionDeclaration(node) && names.includes(node.name?.text ?? ""));
 if (declarations.length !== names.length) throw Error("Actual import repair declarations missing");
 const code = ts.transpileModule(declarations.map(node => ts.createPrinter().printNode(ts.EmitHint.Unspecified, node, ast)).join("\n"), { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.None, jsx: ts.JsxEmit.React } }).outputText;
-const actual = new Function("React", "remainingNonCaseRows", code + "\nreturn { rowRecord, reconcileRowOverrides, splitEditedLines, RowRepairEditor, NonCaseRowsReview, RowMappingReview, ImportRecommendations };")(React, remainingNonCaseRows);
+const actual = new Function("React", "remainingNonCaseRows", "typeReviewLabel", code + "\nreturn { rowRecord, reconcileRowOverrides, splitEditedLines, RowRepairEditor, NonCaseRowsReview, RowMappingReview, ImportRecommendations };")(React, remainingNonCaseRows, typeReviewLabel);
 const row = { rowNumber: 2, title: "", externalId: "original-ID", tags: ["Not a case name"], given: [" Setup\n  kept "], when: ["1. Reinstall.\n\n  2. Check a|b."], then: [" Expected\nvalue "], priority: "MEDIUM", testType: "FUNCTIONAL", automationStatus: "MANUAL" };
 function elements(root: React.ReactNode): React.ReactElement<{ children?: React.ReactNode; onClick?: () => void; onChange?: (event: { target: { value: string } }) => void }>[] {
   if (Array.isArray(root)) return root.flatMap(elements);
@@ -90,8 +91,21 @@ it("shows automatically applied type and section suggestions with editable field
   expect(markup).toContain("Functional is tentative"); expect(markup).toContain("not verified source facts");
   const nodes = elements(tree);
   nodes.find(node => node.type === "select")!.props.onChange!({ target: { value: "REGRESSION" } });
-  expect(changed).toEqual({ ...proposed, testType: "REGRESSION" });
+  expect(changed).toEqual({ ...proposed, testType: "REGRESSION", typeOrigin: "REVIEWER" });
   nodes.find(node => node.type === "input")!.props.onChange!({ target: { value: "Restore purchases" } });
   expect(changed).toEqual({ ...proposed, suitePath: "Restore purchases" });
   expect(actual.ImportRecommendations({ rows: [], overrides: {}, onChange: () => undefined })).toBeNull();
+});
+
+it("shows semantic objective, confidence and exact case evidence without overriding a human type", () => {
+  const proposed = { ...row, title: "Verify analytics dashboard", testType: "OTHER", typeOrigin: "UNCLASSIFIED" };
+  const result = { id: '["",2]', fingerprint: "receipt", testType: "FUNCTIONAL", confidence: "HIGH", objective: "Check dashboard count accuracy", reason: "Compares a displayed value with backend data, not telemetry emission.", evidence: ["Count equals backend"] };
+  const markup = renderToStaticMarkup(actual.ImportRecommendations({ rows: [proposed], overrides: {}, analysis: { 2: result }, onChange: () => {} }));
+  expect(markup).toContain("Check dashboard count accuracy"); expect(markup).toContain("high confidence");
+  expect(markup).toContain("<blockquote"); expect(markup).toContain("Count equals backend");
+  expect(markup).toContain('value="FUNCTIONAL" selected');
+  const manual = renderToStaticMarkup(actual.ImportRecommendations({ rows: [proposed], overrides: { 2: { ...proposed, testType: "REGRESSION", typeOrigin: "REVIEWER" } }, analysis: { 2: result }, onChange: () => {} }));
+  expect(manual).toContain('value="REGRESSION" selected'); expect(manual).not.toContain("Check dashboard count accuracy");
+  const unknown = renderToStaticMarkup(actual.ImportRecommendations({ rows: [proposed], overrides: {}, analysis: { 2: { ...result, testType: null, confidence: "LOW", evidence: [] } }, onChange: () => {} }));
+  expect(unknown).toContain("Unclassified"); expect(unknown).toContain("low confidence");
 });

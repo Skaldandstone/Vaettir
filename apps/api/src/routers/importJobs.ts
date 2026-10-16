@@ -17,6 +17,8 @@ import { previewXlsxSheet } from "../services/xlsxImport.js";
 import { parseXlsxWorkbookIsolated } from "../services/xlsxImportIsolation.js";
 import { XLSX_MAX_BASE64_CHARACTERS } from "../services/xlsxImportLimits.js";
 import { workbookReads, workbookPreview } from "../services/xlsxWorkbookReads.js";
+import { importTypeCaseSchema, importTypeRecommendationSchema } from "@vaettir/ai-agent";
+import { importTypeAnalysis } from "../services/importTypeAnalysis.js";
 
 const fieldMappingSchema = z
   .record(z.enum(TARGET_FIELDS), z.string())
@@ -60,6 +62,7 @@ const mappedRowSchema = z.object({
   sourceRowKind: z.enum(["SECTION", "NOTE", "PLACEHOLDER"]).optional(),
   reviewReasons: z.array(z.string()).optional(),
   typeRecommendation: z.string().optional(),
+  typeOrigin: z.enum(["SOURCE", "UNCLASSIFIED", "REVIEWER", "SEMANTIC"]).optional(),
 });
 const rowOverrideSchema = mappedRowSchema.partial().extend({
   rowNumber: z.number().int().min(2),
@@ -150,6 +153,31 @@ function toFilePreviewRow(
 }
 
 export const importJobsRouter = router({
+  startTypeAnalysis: protectedProcedure
+    .input(xlsxReadIdentity.extend({ cases: z.array(importTypeCaseSchema).min(1).max(15_000) }))
+    .output(z.object({ requestId: z.string().uuid() }))
+    .mutation(async ({ ctx, input }) => {
+      const { project } = await requireFreshXlsxAccess(ctx, input.projectId, "EDITOR");
+      try {
+        return importTypeAnalysis.start({ actorId: ctx.user.id, clerkSubject: ctx.authenticatedClerkSubject ?? null, organizationId: project.organizationId, projectId: project.id }, input.requestId, input.cases,
+          async () => {
+            const fresh = await requireFreshXlsxAccess(ctx, input.projectId, "EDITOR");
+            if (fresh.project.organizationId !== project.organizationId) throw new Error("Project access changed.");
+          });
+      } catch (error) { throw new TRPCError({ code: "BAD_REQUEST", message: error instanceof Error ? error.message : "Type review could not start." }); }
+    }),
+  typeAnalysisStatus: protectedProcedure.input(xlsxReadIdentity)
+    .output(z.object({ status: z.enum(["READING", "READY", "CANCELLED"]), total: z.number(), completed: z.number(), failed: z.number(), results: z.array(importTypeRecommendationSchema.extend({ fingerprint: z.string() })) }))
+    .query(async ({ ctx, input }) => {
+      const { project } = await requireFreshXlsxAccess(ctx, input.projectId);
+      try { return importTypeAnalysis.status({ actorId: ctx.user.id, clerkSubject: ctx.authenticatedClerkSubject ?? null, organizationId: project.organizationId, projectId: project.id }, input.requestId); }
+      catch { throw new TRPCError({ code: "NOT_FOUND", message: "Type review expired. Retry analysis; no cases were imported." }); }
+    }),
+  cancelTypeAnalysis: protectedProcedure.input(xlsxReadIdentity).mutation(async ({ ctx, input }) => {
+    const { project } = await requireFreshXlsxAccess(ctx, input.projectId);
+    try { return importTypeAnalysis.cancel({ actorId: ctx.user.id, clerkSubject: ctx.authenticatedClerkSubject ?? null, organizationId: project.organizationId, projectId: project.id }, input.requestId); }
+    catch { throw new TRPCError({ code: "NOT_FOUND", message: "Type review expired." }); }
+  }),
   startXlsxRead: protectedProcedure
     .input(xlsxReadIdentity.extend({ fileBase64: xlsxContentSchema }))
     .output(z.object({ requestId: z.string().uuid() }))
@@ -261,6 +289,7 @@ export const importJobsRouter = router({
         projectId: z.string(),
         fileBase64: xlsxContentSchema,
         sourceLabel: z.string().optional(),
+        typeAnalysisRequestId: z.string().uuid().optional(),
         sheets: z
           .array(
             z.object({
@@ -318,7 +347,7 @@ export const importJobsRouter = router({
             );
           }
           rows.push(
-            ...mapped.rows.map((row) => ({
+            ...importTypeAnalysis.apply({ actorId: ctx.user.id, clerkSubject: ctx.authenticatedClerkSubject ?? null, organizationId: project.organizationId, projectId: project.id }, input.typeAnalysisRequestId, sheet.name, mapped.rows).map((row) => ({
               ...row,
               rowNumber: row.rowNumber + rowOffset,
               externalId: row.externalId
@@ -470,6 +499,7 @@ export const importJobsRouter = router({
         overrides: z.array(rowOverrideSchema).default([]),
         testPlanId: z.string().optional(),
         sourceLabel: z.string().optional(),
+        typeAnalysisRequestId: z.string().uuid().optional(),
       }),
     )
     .output(
@@ -518,7 +548,7 @@ export const importJobsRouter = router({
         projectId: input.projectId,
         organizationId: project.organizationId,
         actorId: ctx.user.id,
-        rows: mapped.rows.map(row => ({ ...row, reviewRequired: Boolean(row.reviewReasons?.length) })),
+        rows: importTypeAnalysis.apply({ actorId: ctx.user.id, clerkSubject: ctx.authenticatedClerkSubject ?? null, organizationId: project.organizationId, projectId: project.id }, input.typeAnalysisRequestId, "", mapped.rows).map(row => ({ ...row, reviewRequired: Boolean(row.reviewReasons?.length) })),
         skipped: mapped.skipped,
         source: "CSV",
         sourceLabel: input.sourceLabel,

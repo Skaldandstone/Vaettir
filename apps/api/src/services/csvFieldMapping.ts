@@ -192,56 +192,10 @@ export function inferTestCaseType(input: {
 export function recommendTestCaseType(input: {
   title: string; given?: string[]; when?: string[]; then?: string[]; tags?: string[];
 }): { testType: InferredTestCaseType; reason: string } {
-  const text = [
-    input.title,
-    ...(input.given ?? []),
-    ...(input.when ?? []),
-    ...(input.then ?? []),
-    ...(input.tags ?? []),
-  ]
-    .join(" ")
-    .toLowerCase();
-
-  const rules: [InferredTestCaseType, RegExp][] = [
-    [
-      "ACCESSIBILITY",
-      /\b(accessibility|a11y|screen reader|voiceover|talkback|aria|keyboard navigation|color contrast)\b/,
-    ],
-    [
-      "PERFORMANCE",
-      /\b(performance|load test|stress test|latency|throughput|response time|requests per second|concurrent users|render time)\b/,
-    ],
-    [
-      "SECURITY",
-      /\b(security|authorization|permission|unauthori[sz]ed|forbidden|xss|csrf|sql injection|encryption|privilege escalation|vulnerability)\b/,
-    ],
-    [
-      "INSTRUMENTATION",
-      /\b(analytics|telemetry|instrumentation|event tracking|mixpanel|appsflyer|firebase analytics|datadog|metric|dau|wau|mau)\b/,
-    ],
-    [
-      "CONTRACT",
-      /\b(api contract|contract test|schema validation|endpoint|http status|status code|request payload|response payload|webhook)\b/,
-    ],
-    [
-      "COMPLIANCE",
-      /\b(compliance|regulatory|audit control|gdpr|hipaa|soc 2|pci[- ]dss|wcag)\b/,
-    ],
-    [
-      "SMOKE",
-      /\b(smoke|critical path|app launches?|service starts?|health check)\b/,
-    ],
-    ["SANITY", /\b(sanity check|sanity test)\b/],
-    ["REGRESSION", /\b(regression|previously fixed|does not regress)\b/],
-    ["E2E", /\b(e2e|end[- ]to[- ]end|full user journey|complete journey)\b/],
-    ["UNIT", /\b(unit test|pure function|method returns|function returns)\b/],
-    ["EXPLORATORY", /\b(exploratory|charter|time box)\b/],
-  ];
-  for (const [testType, pattern] of rules) {
-    const match = text.match(pattern);
-    if (match) return { testType, reason: `Case text mentions “${match[0]}”.` };
-  }
-  return { testType: "FUNCTIONAL", reason: "No specialist test-type signal found; Functional is a tentative recommendation." };
+  // Parsing is not semantic analysis. Keep the wire enum valid without
+  // inventing a type; the separate background review reads the full definition.
+  void input;
+  return { testType: "OTHER", reason: "Unclassified: awaiting a full-definition AI review. No type has been guessed." };
 }
 
 // Same RFC 4180 splitter as testCaseCsvImport.ts, duplicated rather than
@@ -372,6 +326,7 @@ export interface MappedRow {
   sourceRowKind?: "SECTION" | "NOTE" | "PLACEHOLDER";
   reviewReasons?: string[];
   typeRecommendation?: string;
+  typeOrigin?: "SOURCE" | "UNCLASSIFIED" | "REVIEWER" | "SEMANTIC";
 }
 
 export interface MapCsvResult {
@@ -570,13 +525,15 @@ export function mapCsvRows(
     if (path && override?.suitePath === undefined) candidate.suitePath = path;
     if (candidate.suitePath) reviewReasons.push("Section grouping was inferred from a preceding source heading.");
     if (sourceNotes.length && override?.background === undefined) candidate.background = sourceNotes.join("\n\n");
+    candidate.typeOrigin = override?.typeOrigin === "REVIEWER" ? "REVIEWER" : sourceType ? "SOURCE" : "UNCLASSIFIED";
     if (!sourceType) {
-      if (!override?.testType) {
+      const reviewerType = override?.testType && (override.typeOrigin === "REVIEWER" || override.typeOrigin === undefined);
+      if (!reviewerType) {
         const recommendation = recommendTestCaseType(candidate);
         candidate.testType = recommendation.testType;
         candidate.typeRecommendation = recommendation.reason;
-      } else candidate.typeRecommendation = "Reviewer-selected type; not provided by the source.";
-      reviewReasons.push(override?.testType ? "Test type selected by the reviewer; no recognized source type was provided." :
+      } else { candidate.typeOrigin = "REVIEWER"; candidate.typeRecommendation = "Reviewer-selected type; not provided by the source."; }
+      reviewReasons.push(reviewerType ? "Test type selected by the reviewer; no recognized source type was provided." :
         idx.testType >= 0 && r[idx.testType]?.trim() ?
           `Unrecognized source type “${r[idx.testType]!.trim()}”; recommended from case text.` : "Test type recommended from case text; no source type was provided.");
     }
