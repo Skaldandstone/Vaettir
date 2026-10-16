@@ -143,7 +143,7 @@ describe("mapped CSV row repair", () => {
     const original = result.rowMappingSuggestions![0]!.original;
     expect(original).toMatchObject({title: "1. Reinstall. 2. Restore.", tags: ["Verify purchase restoration"], given: ["Entitlement is restored"]});
     const kept = mapCsvRows(csv, mapping, undefined, [original]);
-    expect(kept.rows[0]).toEqual(original);expect(kept.rowMappingSuggestions).toBeUndefined();
+    expect(kept.rows[0]).toMatchObject(original);expect(kept.rowMappingSuggestions).toBeUndefined();
     const edited = mapCsvRows(csv, mapping, undefined, [{...result.rows[0]!, title: "Reviewed restore case"}]);
     expect(edited.rows[0]).toMatchObject({title: "Reviewed restore case", when: ["1. Reinstall. 2. Restore."]});
     expect(mapCsvRows(csv, {...mapping, tags: undefined}).rowMappingSuggestions).toBeUndefined();
@@ -209,5 +209,39 @@ describe("mapped CSV row repair", () => {
       testType: "SMOKE",
       automationStatus: "AUTOMATED",
     });
+  });
+
+  it("automatically preserves section hierarchy and source notes without inventing cases or steps", () => {
+    const csv = 'ID,Title,Steps,Expected\nWorkflow C: Reinstall,,,\nUC-S2.05: Restore purchase,,,\nBased on the recommendation below,,,\nTC-1,Verify restoration,Reinstall then restore,Balance unchanged\nTC_040,,,\n';
+    const result = mapCsvRows(csv, { externalId: "ID", title: "Title", when: "Steps", then: "Expected" });
+    expect(result.rows).toHaveLength(1);
+    expect(result.rows[0]).toMatchObject({ title: "Verify restoration", suitePath: "Workflow C: Reinstall / UC-S2.05: Restore purchase", background: "Based on the recommendation below", when: ["Reinstall then restore"], then: ["Balance unchanged"] });
+    expect(result.nonCaseRows?.map(row => row.sourceRowKind)).toEqual(["SECTION", "SECTION", "NOTE", "PLACEHOLDER"]);
+    expect(result.recommendations?.[0]?.reviewReasons).toContain("Section grouping was inferred from a preceding source heading.");
+    const edited = mapCsvRows(csv, { externalId: "ID", title: "Title", when: "Steps", then: "Expected" }, undefined, [{ ...result.rows[0]!, suitePath: "Restoration", testType: "REGRESSION" }]);
+    expect(edited.rows[0]).toMatchObject({ suitePath: "Restoration", testType: "REGRESSION" });
+    expect(edited.rows[0]?.reviewReasons?.length).toBeGreaterThan(0);
+  });
+
+  it("recommends types from effective corrected text, flags unrecognized values, and respects edits", () => {
+    const csv = 'Test Case ID,Test Module/Scenario,Scenario Description/Test Case,Pre-conditions,Test Steps,Expected,Type\nTC-1,Verify keyboard navigation,Press Tab,Dialog focused,,,Unknown\n';
+    const mapping = inspectCsv(csv).suggestedMapping;
+    const result = mapCsvRows(csv, mapping);
+    expect(result.rows[0]).toMatchObject({ title: "Verify keyboard navigation", when: ["Press Tab"], testType: "ACCESSIBILITY" });
+    expect(result.rows[0]?.typeRecommendation).toContain("keyboard navigation");
+    expect(result.rows[0]?.reviewReasons?.join(" ")).toContain("Unrecognized source type");
+    const edited = mapCsvRows(csv, mapping, undefined, [{ ...result.rows[0]!, testType: "FUNCTIONAL" }]);
+    expect(edited.rows[0]?.testType).toBe("FUNCTIONAL");
+    expect(edited.recommendations).toHaveLength(1);
+    const known = mapCsvRows('Title,Type\nVerify keyboard navigation,Smoke\n', { title: "Title", testType: "Type" });
+    expect(known.rows[0]?.testType).toBe("SMOKE");
+    expect(known.recommendations).toBeUndefined();
+  });
+
+  it("maps a descriptive assertion misplaced in an identity column as an incomplete-definition case for review", () => {
+    const result = mapCsvRows('ID,Title,Steps\nVerify purchase restoration,,\n', { externalId: "ID", title: "Title", when: "Steps" });
+    expect(result.rows[0]).toMatchObject({ title: "Verify purchase restoration", when: [], then: [] });
+    expect(result.nonCaseRows).toBeUndefined();
+    expect(result.rows[0]?.reviewReasons?.join(" ")).toContain("procedure is not recorded");
   });
 });

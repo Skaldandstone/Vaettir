@@ -72,6 +72,22 @@ const common = () => ({
 });
 
 describe("commitImportedTestCases (real DB)", () => {
+  it("persists inferred cases for review without approving them on re-import", async () => {
+    const row: ImportedTestCaseRow = { rowNumber: 2, title: "Suggested restoration", given: [], when: ["Restore"], then: ["Balance retained"], tags: [], priority: "MEDIUM", testType: "FUNCTIONAL", suitePath: "Guest / Reinstall", background: "Source note retained", externalId: "suggested-1", reviewRequired: true };
+    const first = await commitImportedTestCases(prisma, { ...common(), rows: [row], skipped: [] });
+    expect(first.createdCount).toBe(1);
+    const find = () => prisma.testCase.findFirstOrThrow({ where: { projectId, source: { externalTestId: `xray:${projectId}:suggested-1` } } });
+    const created = await find();
+    expect(created).toMatchObject({ reviewStatus: "PENDING_REVIEW", suitePath: "Guest / Reinstall", background: "Source note retained" });
+    await commitImportedTestCases(prisma, { ...common(), rows: [{ ...row, title: "Reviewer edited title", reviewRequired: false }], skipped: [] });
+    expect(await find()).toMatchObject({ title: "Reviewer edited title", reviewStatus: "PENDING_REVIEW" });
+    // This isolated fixture is removed here so existing whole-project counts
+    // in subsequent tests continue to exercise their original population.
+    await prisma.testCaseVersion.deleteMany({ where: { testCaseId: created.id } });
+    await prisma.testCaseSource.deleteMany({ where: { testCaseId: created.id } });
+    await prisma.testCase.delete({ where: { id: created.id } });
+    await prisma.auditLog.deleteMany({ where: { organizationId: orgId } });
+  });
   it("creates cases with structured steps, a source key, a version and an ImportJob", async () => {
     const r = await commitImportedTestCases(prisma, { ...common(), rows: rows(1), skipped: [{ rowNumber: 4, reason: "No steps" }] });
     expect(r).toMatchObject({ createdCount: 2, updatedCount: 0, skipped: [{ rowNumber: 4, reason: "No steps" }] });

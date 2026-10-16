@@ -186,6 +186,12 @@ export function inferTestCaseType(input: {
   then?: string[];
   tags?: string[];
 }): InferredTestCaseType {
+  return recommendTestCaseType(input).testType;
+}
+
+export function recommendTestCaseType(input: {
+  title: string; given?: string[]; when?: string[]; then?: string[]; tags?: string[];
+}): { testType: InferredTestCaseType; reason: string } {
   const text = [
     input.title,
     ...(input.given ?? []),
@@ -231,7 +237,11 @@ export function inferTestCaseType(input: {
     ["UNIT", /\b(unit test|pure function|method returns|function returns)\b/],
     ["EXPLORATORY", /\b(exploratory|charter|time box)\b/],
   ];
-  return rules.find(([, pattern]) => pattern.test(text))?.[0] ?? "FUNCTIONAL";
+  for (const [testType, pattern] of rules) {
+    const match = text.match(pattern);
+    if (match) return { testType, reason: `Case text mentions “${match[0]}”.` };
+  }
+  return { testType: "FUNCTIONAL", reason: "No specialist test-type signal found; Functional is a tentative recommendation." };
 }
 
 // Same RFC 4180 splitter as testCaseCsvImport.ts, duplicated rather than
@@ -357,6 +367,11 @@ export interface MappedRow {
   testType: InferredTestCaseType;
   automationStatus: InferredAutomationStatus;
   externalId?: string;
+  suitePath?: string;
+  background?: string;
+  sourceRowKind?: "SECTION" | "NOTE" | "PLACEHOLDER";
+  reviewReasons?: string[];
+  typeRecommendation?: string;
 }
 
 export interface MapCsvResult {
@@ -365,6 +380,7 @@ export interface MapCsvResult {
   incompleteRows: MappedRow[];
   nonCaseRows?: MappedRow[];
   rowMappingSuggestions?: { original: MappedRow; proposed: MappedRow }[];
+  recommendations?: MappedRow[];
 }
 
 export type MappedRowOverride = Partial<Omit<MappedRow, "rowNumber">> & {
@@ -429,6 +445,10 @@ export function mapCsvRows(
   const incompleteRows: MappedRow[] = [];
   const nonCaseRows: MappedRow[] = [];
   const rowMappingSuggestions: NonNullable<MapCsvResult["rowMappingSuggestions"]> = [];
+  const recommendations: MappedRow[] = [];
+  let workflow = "";
+  let section = "";
+  let sourceNotes: string[] = [];
   const overrideByRow = new Map(overrides.map((row) => [row.rowNumber, row]));
   const dataRows = limit ? rows.slice(1, 1 + limit) : rows.slice(1);
   // Some exports change layout partway through a sheet without repeating the
@@ -459,8 +479,8 @@ export function mapCsvRows(
       VALID_PRIORITIES.has(rawPriority ?? "") ? rawPriority : "MEDIUM"
     ) as MappedRow["priority"];
     const tags = idx.tags >= 0 ? splitMultiValue(r[idx.tags]) : [];
-    const testType =
-      normalizeTestType(idx.testType >= 0 ? r[idx.testType] : undefined) ??
+    const sourceType = normalizeTestType(idx.testType >= 0 ? r[idx.testType] : undefined);
+    const testType = sourceType ??
       inferTestCaseType({ title, given, when, then, tags });
     const automationStatus =
       normalizeAutomationStatus(
@@ -482,13 +502,19 @@ export function mapCsvRows(
       testType: override?.testType ?? testType,
       automationStatus: override?.automationStatus ?? automationStatus,
       externalId: override?.externalId ?? externalId,
+      ...(override?.suitePath !== undefined ? { suitePath: override.suitePath } : {}),
+      ...(override?.background !== undefined ? { background: override.background } : {}),
     };
-    if (!override && alternateShape(r) &&
+    const reviewReasons: string[] = [];
+    let originalLayout: MappedRow | undefined;
+    if (alternateShape(r) &&
       (titleLike(r[idx.tags] ?? "") || supportedAlternateLayout)) {
-      const original = candidate;
-      candidate = { ...candidate, title: r[idx.tags]!.trim(), tags: [], given: [],
-        when: preserveProcedureCell(r[idx.title]), then: preserveProcedureCell(r[idx.given]) };
-      rowMappingSuggestions.push({ original, proposed: candidate });
+      if (!override) {
+        originalLayout = candidate;
+        candidate = { ...candidate, title: r[idx.tags]!.trim(), tags: [], given: [],
+          when: preserveProcedureCell(r[idx.title]), then: preserveProcedureCell(r[idx.given]) };
+      }
+      reviewReasons.push("Alternate row layout detected; verify the case name, actions and expected result.");
     }
     if (!candidate.title) {
       // Sheets often interleave grouping headings, prose notes in the ID
@@ -499,17 +525,56 @@ export function mapCsvRows(
         candidate.given.length === 0 && candidate.when.length === 0 && candidate.then.length === 0 &&
         r.every((cell, index) => !cell.trim() || index === idx.tags || index === idx.externalId);
       if (identityOnly) {
-        skipped.push({ rowNumber, reason: "section label or ID only; no test-case definition" });
-        nonCaseRows.push(candidate);
+        const label = (r[idx.tags]?.trim() || r[idx.externalId]?.trim() || "");
+        // A descriptive assertion in a misplaced identity column is still a
+        // possible case, not a section. Do not invent its missing procedure.
+        if (titleLike(label)) {
+          candidate = { ...candidate, title: label, tags: [], externalId: undefined };
+          reviewReasons.push("Case name proposed from a misplaced label; procedure is not recorded.");
+        } else {
+          const kind = /^(?:tc|test[-_ ]?case)[-_ ]?\d+$/i.test(label) ? "PLACEHOLDER" :
+            /^(?:continuing\b|based on\b|note\s*:|the expected behavior\b)/i.test(label) ? "NOTE" : "SECTION";
+          if (kind === "SECTION") {
+            if (/^(?:workflow\b|edge cases\b)/i.test(label)) { workflow = label; section = ""; sourceNotes = []; }
+            else section = label;
+          } else if (kind === "NOTE") sourceNotes = [...sourceNotes, label];
+          const path = [workflow, section].filter(Boolean).join(" / ");
+          nonCaseRows.push({ ...candidate, sourceRowKind: kind,
+            ...(path ? { suitePath: path } : {}),
+            reviewReasons: [kind === "SECTION" ? "Proposed section for following cases; verify grouping." :
+              kind === "NOTE" ? "Preserved as source context, not a standalone case." : "ID only; no case name or definition was provided."] });
+          skipped.push({ rowNumber, reason: kind === "SECTION" ? "preserved as proposed section context; not a standalone case" :
+            kind === "NOTE" ? "preserved as source note; not a standalone case" : "ID-only placeholder; no test-case definition" });
+          return;
+        }
+      }
+      if (!candidate.title) {
+        skipped.push({ rowNumber, reason: "missing title" });
+        incompleteRows.push(candidate);
         return;
       }
-      skipped.push({ rowNumber, reason: "missing title" });
-      incompleteRows.push(candidate);
-      return;
     }
+    const path = [workflow, section].filter(Boolean).join(" / ");
+    if (path && override?.suitePath === undefined) candidate.suitePath = path;
+    if (candidate.suitePath) reviewReasons.push("Section grouping was inferred from a preceding source heading.");
+    if (sourceNotes.length && override?.background === undefined) candidate.background = sourceNotes.join("\n\n");
+    if (!sourceType) {
+      if (!override?.testType) {
+        const recommendation = recommendTestCaseType(candidate);
+        candidate.testType = recommendation.testType;
+        candidate.typeRecommendation = recommendation.reason;
+      } else candidate.typeRecommendation = "Reviewer-selected type; not provided by the source.";
+      reviewReasons.push(override?.testType ? "Test type selected by the reviewer; no recognized source type was provided." :
+        idx.testType >= 0 && r[idx.testType]?.trim() ?
+          `Unrecognized source type “${r[idx.testType]!.trim()}”; recommended from case text.` : "Test type recommended from case text; no source type was provided.");
+    }
+    if (reviewReasons.length) candidate.reviewReasons = reviewReasons;
+    if (originalLayout) rowMappingSuggestions.push({ original: originalLayout, proposed: candidate });
+    if (reviewReasons.length) recommendations.push(candidate);
     mapped.push(candidate);
   });
 
   return { rows: mapped, skipped, incompleteRows, ...(nonCaseRows.length ? { nonCaseRows } : {}),
-    ...(rowMappingSuggestions.length ? { rowMappingSuggestions } : {}) };
+    ...(rowMappingSuggestions.length ? { rowMappingSuggestions } : {}),
+    ...(recommendations.length ? { recommendations } : {}) };
 }

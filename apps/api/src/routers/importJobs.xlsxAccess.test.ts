@@ -61,8 +61,8 @@ describe("Excel post-parse access", () => {
     mocks.commit.mockImplementation(async (_db, input) => ({ importJobId: "synthetic-job", createdCount: input.rows.length, updatedCount: 0, skipped: input.skipped }));
     const result = await f.caller.commitXlsx({ projectId: "synthetic-project", fileBase64: "dGVzdA==", sheets: [{ name: "Cases", mapping: { title: "Title", externalId: "ID", when: "Steps", then: "Expected" } }] });
     expect(result.createdCount).toBe(1);
-    expect(result.skipped).toEqual([{ rowNumber: 2, reason: "Cases: section label or ID only; no test-case definition" }]);
-    expect(mocks.commit.mock.calls[0]![1].rows).toEqual([expect.objectContaining({ title: "Login works", when: ["Open login"], externalId: "Cases:TC-1" })]);
+    expect(result.skipped).toEqual([{ rowNumber: 2, reason: "Cases: preserved as proposed section context; not a standalone case" }]);
+    expect(mocks.commit.mock.calls[0]![1].rows).toEqual([expect.objectContaining({ title: "Login works", when: ["Open login"], externalId: "Cases:TC-1", suitePath: "Cases / Section B", reviewRequired: true })]);
   });
   it("still blocks missing-title rows that contain actual test content before any commit", async () => {
     const f = fixture();

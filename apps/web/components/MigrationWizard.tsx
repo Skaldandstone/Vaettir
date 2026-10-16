@@ -169,14 +169,16 @@ function NonCaseRowsReview({ rows, overrides, onInclude }: {
   if (!excluded.length) return null;
   return (
     <details className="import-repair-panel">
-      <summary>{excluded.length} section labels or ID-only rows are not imported</summary>
-      <p className="text-muted">These rows contain no case name, setup, actions or expected result. Review them here, or add one as a case and enter its missing details.</p>
+      <summary>{excluded.length} source context rows and placeholders · For review</summary>
+      <p className="text-muted">Sections and notes are automatically mapped to the following cases, not discarded or made into empty cases. ID-only placeholders have no definition. These are suggestions; inspect the proposed context below or edit a case’s section. Nothing is written until you import.</p>
       <div className="table-scroll" style={{ maxHeight: 240 }}><table className="workspace-table">
-        <thead><tr><th>Import row</th><th>Source label</th><th>Action</th></tr></thead>
+        <thead><tr><th>Import row</th><th>Source label</th><th>Proposed role</th><th>Context</th><th>Review</th></tr></thead>
         <tbody>{excluded.map(row => <tr key={row.rowNumber}>
           <td>{row.rowNumber}</td><td>{row.externalId || row.tags.join(", ")}</td>
+          <td>{row.sourceRowKind === "SECTION" ? "Section within suite" : row.sourceRowKind === "NOTE" ? "Source note" : "ID-only placeholder"}<small>For review</small></td>
+          <td>{row.suitePath || row.reviewReasons?.join(" ") || "No case definition"}</td>
           <td><button className="btn-secondary" disabled={Boolean(overrides[row.rowNumber])} onClick={() => onInclude(row)}>
-            {overrides[row.rowNumber] ? "Editing below" : "Add as case"}
+            {overrides[row.rowNumber] ? "Editing below" : "Change to case"}
           </button></td>
         </tr>)}</tbody>
       </table></div>
@@ -191,8 +193,8 @@ function RowMappingReview({ suggestions, overrides, onChange }: {
 }) {
   if (!suggestions?.length) return null;
   return <details className="import-repair-panel" open>
-    <summary>Review {suggestions.length} suggested row-layout corrections</summary>
-    <p className="text-muted">These rows appear to use a different layout: module/scenario contains the case name, description contains the actions, and preconditions contains the expected result. Review the suggestions, edit a row, or keep its original column mapping. Nothing is written until you import.</p>
+    <summary>{suggestions.length} automatically applied row-layout suggestions · For review</summary>
+    <p className="text-muted">These rows appear to use a different layout: module/scenario contains the case name, description contains the actions, and preconditions contains the expected result. Suggestions are already included in the preview and import scope. Edit a row or restore its original column mapping if incorrect. Suggested cases remain For review after import.</p>
     <div className="table-scroll" style={{ maxHeight: 320 }}><table className="workspace-table">
       <thead><tr><th>Row</th><th>Suggested case name</th><th>Actions / procedure</th><th>Expected result</th><th>Review</th></tr></thead>
       <tbody>{suggestions.map(({ original, proposed }) => {
@@ -204,6 +206,33 @@ function RowMappingReview({ suggestions, overrides, onChange }: {
             <button className="btn-secondary" onClick={() => onChange(row)}>Edit row</button>
             <button className="btn-secondary" onClick={() => onChange(original)}>Keep column mapping</button>
           </div></td>
+        </tr>;
+      })}</tbody>
+    </table></div>
+  </details>;
+}
+
+function ImportRecommendations({ rows, overrides, onChange }: {
+  rows: EditableImportRow[] | undefined;
+  overrides: Record<number, EditableImportRow>;
+  onChange: (row: EditableImportRow) => void;
+}) {
+  if (!rows?.length) return null;
+  return <details className="import-repair-panel" open>
+    <summary>{rows.length} cases with automatic suggestions · For review</summary>
+    <p className="text-muted">Already applied, no detection button needed. Types are recommended from case text when the source is missing or unrecognized. You can change them here. Priority and automation use Medium and Manual defaults if unspecified; those defaults are not verified source facts. No missing steps are invented.</p>
+    <div className="table-scroll" style={{ maxHeight: 320 }}><table className="workspace-table">
+      <thead><tr><th>Row</th><th>Case name</th><th>Section within suite</th><th>Test type</th><th>Why / status</th><th>Details</th></tr></thead>
+      <tbody>{rows.map(proposed => {
+        const row = overrides[proposed.rowNumber] ?? proposed;
+        return <tr key={row.rowNumber}>
+          <td>{row.rowNumber}</td><td>{row.title}</td>
+          <td><input aria-label={`Section for row ${row.rowNumber}`} value={row.suitePath ?? ""} onChange={event => onChange({ ...row, suitePath: event.target.value })} /></td>
+          <td><select aria-label={`Test type for row ${row.rowNumber}`} value={row.testType} onChange={event => onChange({ ...row, testType: event.target.value as EditableImportRow["testType"] })}>
+            {["UNIT", "FUNCTIONAL", "CONTRACT", "INSTRUMENTATION", "SMOKE", "SANITY", "REGRESSION", "E2E", "PERFORMANCE", "SECURITY", "ACCESSIBILITY", "EXPLORATORY", "COMPLIANCE", "OTHER"].map(type => <option key={type} value={type}>{type.replaceAll("_", " ").toLowerCase().replace(/^./, char => char.toUpperCase())}</option>)}
+          </select></td>
+          <td><span className="status-pill status-warning">For review</span><p>{proposed.typeRecommendation || proposed.reviewReasons?.join(" ")}</p></td>
+          <td><button className="btn-secondary" onClick={() => onChange(row)}>Edit details</button></td>
         </tr>;
       })}</tbody>
     </table></div>
@@ -230,6 +259,14 @@ function RowRepairEditor({
           onChange={(event) => onChange({ ...row, title: event.target.value })}
           placeholder="Add the missing test-case title"
         />
+      </label>
+      <label>
+        Section within suite
+        <input value={row.suitePath ?? ""} onChange={event => onChange({ ...row, suitePath: event.target.value })} />
+      </label>
+      <label>
+        Source notes / context
+        <textarea rows={3} value={row.background ?? ""} onChange={event => onChange({ ...row, background: event.target.value })} />
       </label>
       <label>
         Preconditions
@@ -647,7 +684,7 @@ export function MigrationWizard({
         overrides: Object.values(csvRowOverrides),
       });
       setCsvPreviewRows(res.previewRows);
-      setCsvPreview(current => current ? { ...current, nonCaseRows: res.nonCaseRows, previewSkipped: res.previewSkipped, rowMappingSuggestions: res.rowMappingSuggestions } : current);
+      setCsvPreview(current => current ? { ...current, nonCaseRows: res.nonCaseRows, previewSkipped: res.previewSkipped, rowMappingSuggestions: res.rowMappingSuggestions, recommendations: res.recommendations } : current);
       setCsvRowOverrides((current) =>
         reconcileRowOverrides(current, res.incompleteRows),
       );
@@ -694,6 +731,7 @@ export function MigrationWizard({
                       skippedCount: res.skippedCount,
                       nonCaseRows: res.nonCaseRows ?? [],
                       rowMappingSuggestions: res.rowMappingSuggestions ?? [],
+                      recommendations: res.recommendations ?? [],
                     }
                   : sheet,
               ),
@@ -1135,7 +1173,7 @@ export function MigrationWizard({
                                 )
                               }
                             >
-                              <option value="">{field === "title" ? "Choose a title column" : "Not imported"}</option>
+                              <option value="">{field === "title" ? "Choose a title column" : field === "testType" ? "Recommend from case text" : field === "priority" ? "Default: Medium" : field === "automationStatus" ? "Default: Manual" : "Not imported"}</option>
                               {[...new Set(sheet.headers.filter(header => header.trim()))].map((header) => (
                                 <option key={header} value={header}>
                                   {header}
@@ -1203,6 +1241,7 @@ export function MigrationWizard({
                         </details>
                       )}
                       <RowMappingReview suggestions={sheet.rowMappingSuggestions} overrides={xlsxRowOverrides[sheet.name] ?? {}} onChange={row => updateXlsxRepair(sheet.name, row)} />
+                      <ImportRecommendations rows={sheet.recommendations} overrides={xlsxRowOverrides[sheet.name] ?? {}} onChange={row => updateXlsxRepair(sheet.name, row)} />
                       <NonCaseRowsReview
                         rows={sheet.nonCaseRows}
                         overrides={xlsxRowOverrides[sheet.name] ?? {}}
@@ -1272,7 +1311,7 @@ export function MigrationWizard({
                   onChange={(e) => void updateMapping(field, e.target.value)}
                   style={{ width: "100%" }}
                 >
-                  <option value="">{field === "title" ? "Choose a title column" : "Not imported"}</option>
+                  <option value="">{field === "title" ? "Choose a title column" : field === "testType" ? "Recommend from case text" : field === "priority" ? "Default: Medium" : field === "automationStatus" ? "Default: Manual" : "Not imported"}</option>
                   {[...new Set(csvPreview.headers.filter(header => header.trim()))].map((h) => (
                     <option key={h} value={h}>
                       {h}
@@ -1356,6 +1395,7 @@ export function MigrationWizard({
             </details>
           )}
           <RowMappingReview suggestions={csvPreview.rowMappingSuggestions} overrides={csvRowOverrides} onChange={updateCsvRepair} />
+          <ImportRecommendations rows={csvPreview.recommendations} overrides={csvRowOverrides} onChange={updateCsvRepair} />
           <NonCaseRowsReview rows={csvPreview.nonCaseRows} overrides={csvRowOverrides} onInclude={updateCsvRepair} />
 
           <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
@@ -1383,8 +1423,8 @@ export function MigrationWizard({
             {xlsxPreview.sheets
               .filter((sheet) => selectedSheets.has(sheet.name))
               .reduce((sum, sheet) => sum + sheet.rowCount - remainingNonCaseRows(sheet.nonCaseRows, xlsxRowOverrides[sheet.name] ?? {}).length, 0)}{" "}
-            test cases. {xlsxPreview.sheets.filter(sheet => selectedSheets.has(sheet.name)).reduce((sum, sheet) => sum + remainingNonCaseRows(sheet.nonCaseRows, xlsxRowOverrides[sheet.name] ?? {}).length, 0)} section labels or ID-only rows are excluded.
-            Each worksheet becomes a suite. Stable source IDs are
+            test cases. {xlsxPreview.sheets.filter(sheet => selectedSheets.has(sheet.name)).reduce((sum, sheet) => sum + remainingNonCaseRows(sheet.nonCaseRows, xlsxRowOverrides[sheet.name] ?? {}).length, 0)} context rows or placeholders are not standalone cases.
+            Each worksheet becomes a suite; proposed sections and notes are preserved on its cases. Suggestions remain For review after import. Stable source IDs are
             preserved for safe re-imports. Nothing is written until you confirm.
           </p>
           <div className="xlsx-review-list">
@@ -1393,7 +1433,7 @@ export function MigrationWizard({
               .map((sheet) => (
                 <span key={sheet.name}>
                   <strong>{sheet.name}</strong>
-                  {sheet.rowCount - remainingNonCaseRows(sheet.nonCaseRows, xlsxRowOverrides[sheet.name] ?? {}).length} cases · {remainingNonCaseRows(sheet.nonCaseRows, xlsxRowOverrides[sheet.name] ?? {}).length} non-case rows excluded
+                  {sheet.rowCount - remainingNonCaseRows(sheet.nonCaseRows, xlsxRowOverrides[sheet.name] ?? {}).length} cases · {remainingNonCaseRows(sheet.nonCaseRows, xlsxRowOverrides[sheet.name] ?? {}).length} context / placeholder rows
                 </span>
               ))}
           </div>
@@ -1415,7 +1455,7 @@ export function MigrationWizard({
         <div>
           <h3 style={{ marginTop: 0 }}>Ready to import — {fileName}</h3>
           <p className="text-muted" style={{ fontSize: 13 }}>
-            {(csvPreview?.rowCount ?? 0) - remainingNonCaseRows(csvPreview?.nonCaseRows, csvRowOverrides).length} test cases. {remainingNonCaseRows(csvPreview?.nonCaseRows, csvRowOverrides).length} section labels or ID-only rows are excluded. Any incomplete source rows were repaired
+            {(csvPreview?.rowCount ?? 0) - remainingNonCaseRows(csvPreview?.nonCaseRows, csvRowOverrides).length} test cases. {remainingNonCaseRows(csvPreview?.nonCaseRows, csvRowOverrides).length} context rows or placeholders are not standalone cases. Sections and notes are preserved on cases; suggestions remain For review after import. Any incomplete source rows were repaired
             before this step. Nothing is written until you confirm.
           </p>
           <div style={{ display: "flex", gap: 8 }}>

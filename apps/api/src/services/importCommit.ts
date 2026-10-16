@@ -48,6 +48,8 @@ export interface ImportedTestCaseRow {
   automationStatus?: InferredAutomationStatus | string;
   suitePath?: string | null;
   externalId?: string;
+  reviewRequired?: boolean;
+  reviewReasons?: string[];
   steps?: {
     action: string;
     expectedActionOrData: string | null;
@@ -234,6 +236,8 @@ export async function commitImportedTestCasesInTransaction(
           testType: incoming.testType as never,
           automationStatus: incoming.automationStatus as never,
           suitePath: incoming.suitePath,
+          ...(row.reviewRequired ? { reviewStatus: "PENDING_REVIEW" as const, reviewedById: null, reviewedAt: null,
+            reviewNote: current.reviewNote ?? row.reviewReasons?.join("\n").slice(0, 4000) ?? "Automatic import suggestions require review." } : {}),
           updatedById: args.actorId,
           source: { update: { importSnapshot: incoming, lastSyncedAt: new Date() } },
           steps: { deleteMany: {}, create: incoming.steps },
@@ -262,6 +266,8 @@ export async function commitImportedTestCasesInTransaction(
           priority: r.priority,
           suitePath: r.suitePath ?? undefined,
           origin: "IMPORTED",
+          ...(r.reviewRequired ? { reviewStatus: "PENDING_REVIEW" as const,
+            reviewNote: r.reviewReasons?.join("\n").slice(0, 4000) ?? "Automatic import suggestions require review." } : {}),
           createdById: args.actorId,
           updatedById: args.actorId,
           steps: { create: stepsData(r) },
