@@ -7,6 +7,11 @@ import {createHash} from "node:crypto";
 import {pathToFileURL} from "node:url";
 import {assertReadOnlyBuildSource} from "./prune-runtime-package-manager.mjs";
 const sha=bytes=>createHash('sha256').update(bytes).digest('hex');
+export function expatPackageEnvironment() {
+  // dpkg needs ldconfig and start-stop-daemon from the system sbin paths.
+  // Do not inherit arbitrary developer/build-worker PATH entries.
+  return {PATH:'/usr/sbin:/usr/bin:/sbin:/bin',LANG:'C',LC_ALL:'C'};
+}
 export function planExpatReplacement(current,proof) {
   assert.ok(Array.isArray(current)&&current.length>0&&current.length<=1000);
   assert.equal(new Set(current.map(row=>row.name)).size,current.length);
@@ -31,7 +36,7 @@ if(process.argv[1]&&pathToFileURL(process.argv[1]).href===import.meta.url) {
   const file='/tmp/vaettir-expat/libexpat1_2.9.0-1_amd64.deb',proofPath='/usr/share/vaettir/expat-290/package-proof.json';
   for(const path of [file,proofPath]) {const stat=lstatSync(path);assert.ok(stat.isFile()&&!stat.isSymbolicLink());assert.ok(stat.size>0&&stat.size<2*1024**2);}
   const proof=JSON.parse(readFileSync(proofPath,'utf8'));
-  const run=args=>execFileSync(args[0],args.slice(1),{encoding:'utf8',timeout:90000,maxBuffer:2*1024**2,env:{PATH:'/usr/bin:/bin',LANG:'C',LC_ALL:'C'}});
+  const run=args=>execFileSync(args[0],args.slice(1),{encoding:'utf8',timeout:90000,maxBuffer:2*1024**2,env:expatPackageEnvironment()});
   const query=()=>run(['dpkg-query','-W','-f=${Package}\t${Version}\t${source:Package}\t${db:Status-Status}\n']);
   const parse=raw=>raw.trim().split('\n').map(line=>{const[name,version,source,status]=line.split('\t');return{name,version,source,status};});
   const beforeRaw=query(),before=parse(beforeRaw),plan=planExpatReplacement(before,proof);
