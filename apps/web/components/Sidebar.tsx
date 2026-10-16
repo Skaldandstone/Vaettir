@@ -28,6 +28,7 @@ const LINK_ICONS: Record<string, IconName> = {
   "Test Runs": "check",
   Reports: "grid",
   Requirements: "cases",
+  Architecture: "branch",
   "Requirement baselines": "clock",
   "Requirement coverage": "check",
   "Recorded run comparison": "branch",

@@ -17,6 +17,7 @@ export const PROJECT_NAVIGATION = [
     collapsible: true,
     links: [
       { path: "/requirements", label: "Requirements" },
+      { path: "/architecture", label: "Architecture" },
       { path: "/requirement-baselines", label: "Requirement baselines" },
       { path: "/requirement-coverage", label: "Requirement coverage" },
       { path: "/recorded-run-comparison", label: "Recorded run comparison" },

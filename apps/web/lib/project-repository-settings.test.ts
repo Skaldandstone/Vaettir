@@ -126,12 +126,15 @@ it("overview summary counts actual shared membership but never shows URL chips, 
 });
 it("project Settings retains one keyed manager through permission refresh, withholds controls and never grants read-only editing", () => {
   const query = { data: { id: "owned", organizationId: "org", repoUrl: null as string | null, defaultBranch: "main" }, isSuccess: true, isFetching: false, isPaused: false, error: null as unknown, refetch: vi.fn() };
-  const access = { readable: true, canEdit: true, authReady: true, origin: { actorId: "actor", organizationId: "org", projectId: "owned" }, query: { error: null as unknown, isFetching: false, refetch: vi.fn() } }, Manager = () => null;
-  const exports = controller("../app/projects/[projectId]/settings/integrations/page.tsx", { "next/navigation": { useParams: () => ({ projectId: "owned" }) }, "@/lib/trpcReact": { trpcReact: { project: { byId: { useQuery: () => query } } } }, "@/lib/use-case-field-access": { useCaseFieldAccess: () => access }, "@/components/ProjectRepositories": { ProjectRepositories: Manager }, "@/lib/repository-display": { repositoryDisplayName } });
+  const access = { readable: true, canEdit: true, canConfigure: true, authReady: true, origin: { actorId: "actor", clerkActorId: "clerk-owner", organizationId: "org", projectId: "owned" }, query: { error: null as unknown, isFetching: false, refetch: vi.fn() } }, Manager = () => null, Sharing = () => null;
+  const exports = controller("../app/projects/[projectId]/settings/integrations/page.tsx", { "next/navigation": { useParams: () => ({ projectId: "owned" }) }, "@/lib/trpcReact": { trpcReact: { project: { byId: { useQuery: () => query } } } }, "@/lib/use-case-field-access": { useCaseFieldAccess: () => access }, "@/components/ProjectRepositories": { ProjectRepositories: Manager }, "@/components/AtlassianQualitySettings": { AtlassianQualitySettings: Sharing }, "@/lib/repository-display": { repositoryDisplayName } });
   const render = exports.default as () => React.ReactNode;
   const original = elements(render()).find(node => node.type === Manager)!; expect(original.key).toBe("owned"); expect(original.props.projectId).toBe("owned"); expect(original.props.canEdit).toBe(true);
+  expect(elements(render()).find(node => node.type === Sharing)!.props).toMatchObject({ projectId: "owned", organizationId: "org", canConfigure: true });
+  expect(elements(render()).find(node => node.type === Sharing)!.key).toBe("owned:clerk-owner");
   query.isFetching = true; const refreshing = render(), retained = elements(refreshing).find(node => node.type === Manager)!;
   expect(retained.type).toBe(original.type); expect(retained.key).toBe(original.key); expect(retained.props.canEdit).toBe(false);
+  expect(elements(refreshing).find(node => node.type === Sharing)!.props.canConfigure).toBe(false);
   expect(elements(refreshing).find(node => node.type === "fieldset")!.props).toMatchObject({ hidden: true, disabled: true });
   query.isFetching = false; access.canEdit = false; expect(elements(render()).find(node => node.type === Manager)!.props.canEdit).toBe(false);
   query.data.repoUrl = "https://secret:token@host.example/private/repo.git?credential=hidden";

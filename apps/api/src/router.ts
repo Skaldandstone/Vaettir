@@ -1,4 +1,6 @@
 import { router } from "./trpc.js";
+import { architectureRouter } from "./routers/architecture.js";
+import { atlassianQualityRouter } from "./routers/atlassianQuality.js";
 import { caseCommentsRouter } from "./routers/caseComments.js";
 import { casePriorityRouter } from "./routers/casePriority.js";
 import { casePresentationRouter } from "./routers/casePresentation.js";
@@ -125,6 +127,8 @@ export const appRouter = router({
   repositoryConnections: repositoryConnectionsRouter,
   signalRouting: signalRoutingRouter,
   testDesign: testDesignRouter,
+  architecture: architectureRouter,
+  atlassianQuality: atlassianQualityRouter,
   caseAnalysisQueue: caseAnalysisQueueRouter,
   creditUseRequests: creditUseRequestsRouter,
   projectPopulation: projectPopulationRouter,

@@ -2,6 +2,7 @@
 import { useParams } from "next/navigation";
 import { trpcReact } from "@/lib/trpcReact";
 import { useCaseFieldAccess } from "@/lib/use-case-field-access";
+import { AtlassianQualitySettings } from "@/components/AtlassianQualitySettings";
 import { ProjectRepositories } from "@/components/ProjectRepositories";
 import { repositoryDisplayName } from "@/lib/repository-display";
 
@@ -25,6 +26,7 @@ export default function ProjectIntegrationsPage() {
     {/* Never unmount credential/UNKNOWN controllers during an access refresh. */}
     <fieldset disabled={!ready} hidden={!ready} style={{ border: 0, padding: 0, margin: 0, minWidth: 0 }}>
       <ProjectRepositories key={projectId} projectId={projectId} canEdit={ready && access.canEdit} />
+      {access.origin && <AtlassianQualitySettings key={`${projectId}:${access.origin.clerkActorId}`} projectId={projectId} organizationId={access.origin.organizationId} canConfigure={ready && access.canConfigure} />}
       {ready && query.data.repoUrl && <section className="panel" aria-label="Legacy primary repository reference">
         <h2>Legacy primary reference</h2>
         <p><code>{repositoryDisplayName(query.data.repoUrl)}</code>{" · branch "}{query.data.defaultBranch}</p>

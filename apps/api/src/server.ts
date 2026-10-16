@@ -47,6 +47,7 @@ import { getHeartbeatStatuses } from "./services/heartbeat.js";
 import { getStripeRuntime } from "./services/stripeConfig.js";
 import { handleStripeWebhookEvent } from "./services/stripeBilling.js";
 import { registerCreditWebhookRoute } from "./services/creditWebhookRoute.js";
+import { registerForgeQualityRoute } from "./services/forgeQualityRoute.js";
 import { handleGooglePlayOAuthCallback } from "./services/googlePlayOAuthCallback.js";
 import {
   verifyPagerDutySignature,
@@ -482,7 +483,7 @@ async function registerProductionSignalOAuthRoute(instance: FastifyInstance) {
 // Account for the complete supported Excel upload's base64 expansion and
 // JSON envelope. Each importer still applies its own expanded-memory bounds.
 const server = Fastify({
-  logger: true,
+  logger: { redact: ["req.headers.authorization", "req.headers['x-forge-oauth-user']", "req.headers['x-forge-oauth-system']"] },
   maxParamLength: 5000,
   bodyLimit: XLSX_HTTP_BODY_BYTES,
 });
@@ -570,6 +571,9 @@ server.get(
 await server.register(registerGithubWebhookRoute);
 await server.register(registerGitlabWebhookRoute);
 await server.register(registerStripeWebhookRoute);
+// Forge uses parsed JSON, never the Stripe scope's raw-byte parser. Its paths
+// already include /api and must not be registered again in the legacy alias.
+await server.register(async (instance) => registerForgeQualityRoute(instance, prisma));
 await server.register(registerProductionSignalOAuthRoute);
 await server.register(registerPagerDutyWebhookRoute);
 await server.register(registerLinearWebhookRoute);

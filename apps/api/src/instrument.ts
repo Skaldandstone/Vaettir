@@ -1,4 +1,5 @@
 import * as Sentry from "@sentry/node";
+import { withoutForgeCredentials } from "./services/forgeTelemetry.js";
 
 // P10-05: imported first (before any other module) in server.ts so
 // Sentry's instrumentation is active before anything else runs. Inert
@@ -14,13 +15,21 @@ import * as Sentry from "@sentry/node";
 // flag used to verify capture end-to-end) or by setting SENTRY_ENVIRONMENT.
 const dsn = process.env.SENTRY_DSN;
 const sentryWanted =
-  process.env.NODE_ENV === "production" || Boolean(process.env.SENTRY_ENVIRONMENT) || process.env.SENTRY_DEBUG === "1";
+  process.env.NODE_ENV === "production" ||
+  Boolean(process.env.SENTRY_ENVIRONMENT) ||
+  process.env.SENTRY_DEBUG === "1";
 if (dsn && sentryWanted) {
   Sentry.init({
     dsn,
-    environment: process.env.SENTRY_ENVIRONMENT ?? process.env.NODE_ENV ?? "development",
+    environment:
+      process.env.SENTRY_ENVIRONMENT ?? process.env.NODE_ENV ?? "development",
     tracesSampleRate: 0.1,
     debug: process.env.SENTRY_DEBUG === "1",
+    beforeSend(event) {
+      if (event.request?.headers)
+        event.request.headers = withoutForgeCredentials(event.request.headers);
+      return event;
+    },
   });
 
   process.on("unhandledRejection", (reason) => Sentry.captureException(reason));
