@@ -50,6 +50,7 @@ import { registerCreditWebhookRoute } from "./services/creditWebhookRoute.js";
 import { registerForgeQualityRoute } from "./services/forgeQualityRoute.js";
 import { registerAiDisclosureRoute } from "./services/aiDisclosureRoute.js";
 import { createAiDisclosureStore } from "./services/aiDisclosureStore.js";
+import { registerAiDisclosureResponsePrivacy } from "./services/aiDisclosureTelemetry.js";
 import { handleGooglePlayOAuthCallback } from "./services/googlePlayOAuthCallback.js";
 import {
   verifyPagerDutySignature,
@@ -493,6 +494,7 @@ const server = Fastify({
   maxParamLength: 5000,
   bodyLimit: XLSX_HTTP_BODY_BYTES,
 });
+registerAiDisclosureResponsePrivacy(server);
 
 // P10-05: catches anything thrown by a raw (non-tRPC) route handler, e.g.
 // the GitHub webhook route below - tRPC procedure errors are reported
