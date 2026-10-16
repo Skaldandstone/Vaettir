@@ -1,0 +1,48 @@
+import type { FastifyInstance } from "fastify";
+import { z } from "zod";
+import {
+  AiDisclosureDenied,
+  readAiProjectSummary,
+  type AiReadStore,
+} from "./aiDisclosureGateway.js";
+
+export const AI_SUMMARY_PATH = "/integrations/ai/v1/project-summary";
+const requestSchema = z
+  .object({ projectId: z.string().regex(/^[a-zA-Z0-9_-]{1,100}$/) })
+  .strict();
+
+// Deliberately NOT registered in server.ts. A durable grant/locking adapter and
+// customer approval controls are required before exposing this route.
+export function registerAiDisclosureRoute(
+  server: FastifyInstance,
+  store?: AiReadStore,
+) {
+  server.get(
+    AI_SUMMARY_PATH,
+    { config: { rateLimit: { max: 30, timeWindow: "1 minute" } } },
+    async (request, reply) => {
+      reply.header("Cache-Control", "no-store");
+      reply.header("Pragma", "no-cache");
+      if (!store)
+        return reply.code(503).send({ error: "AI disclosure is unavailable." });
+      const query = requestSchema.safeParse(request.query);
+      const auth = request.headers.authorization;
+      const token = auth?.match(/^Bearer (vai_[a-f0-9]{64})$/)?.[1];
+      if (!query.success || !token)
+        return reply
+          .code(403)
+          .send({ error: "AI disclosure is not permitted." });
+      try {
+        return await readAiProjectSummary(store, token, query.data.projectId);
+      } catch (error) {
+        // Never log underlying exceptions: a driver or auth adapter may include
+        // credentials, SQL parameters, or customer content in its error message.
+        if (error instanceof AiDisclosureDenied)
+          return reply
+            .code(403)
+            .send({ error: "AI disclosure is not permitted." });
+        return reply.code(503).send({ error: "AI disclosure is unavailable." });
+      }
+    },
+  );
+}
