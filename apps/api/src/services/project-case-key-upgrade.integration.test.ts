@@ -17,6 +17,9 @@ const CURRENT_SCHEMA_SHA = "a9aac0fb2b547921f83deb214d1fb6823877f346b75eab0d2273
 const OLD_MIGRATIONS_SHA = "3d85e91fddfa359cf3d4ab0e149be51c306d6bc288f89ab4406424b3e3e2c730";
 const NEW_MIGRATION = "20261012090000_project_case_key_aliases";
 const NEW_MIGRATION_SHA = "4bf9422e94fb21186567317301ce515b416b1a1c1df2d0c74c4fa83ac5e287c6";
+// This proof targets the historical 97->98 transition. Keep its genuine
+// whole-byte endpoint frozen when later additive migrations extend the product.
+const SCHEMA_98 = join(ROOT, "apps/api/src/services/fixtures/project-case-key/schema98.prisma");
 const sha = (value: string | Buffer) => createHash("sha256").update(value).digest("hex");
 function admitInstalledClient(store: string, packageDirectory: string) {
   const within = relative(store, packageDirectory);
@@ -63,7 +66,7 @@ export function exactOldSchema(current: string) {
 }
 function migrationInputs() {
   const base = join(ROOT, "packages/db/prisma/migrations");
-  const names = readdirSync(base).filter(name => existsSync(join(base, name, "migration.sql"))).sort();
+  const names = readdirSync(base).filter(name => name <= NEW_MIGRATION && existsSync(join(base, name, "migration.sql"))).sort();
   assert.equal(names.length, 98); assert.equal(names[97], NEW_MIGRATION);
   const files = names.map(name => ({ name, sql: lf(readFileSync(join(base, name, "migration.sql"), "utf8")) }));
   const manifest = files.slice(0, 97).map(({ name, sql }) => ({ name, sha256: sha(sql), bytes: Buffer.byteLength(sql) }));
@@ -116,7 +119,7 @@ async function schemaEvidence(client: PrismaClient) {
 }
 describe("closed old97 upgrade source contracts", () => {
   it("reconstructs genuine whole-byte 90341958 schema and rejects any other edit", () => {
-    const source = readFileSync(join(ROOT, "packages/db/prisma/schema.prisma"), "utf8");
+    const source = readFileSync(SCHEMA_98, "utf8");
     expect(sha(exactOldSchema(source))).toBe(OLD_SCHEMA_SHA);
     expect(() => exactOldSchema(source + "\n")).toThrow();
     expect(() => exactOldSchema(source.replace("model User", "model ChangedUser"))).toThrow();
@@ -143,7 +146,7 @@ describe("closed old97 upgrade source contracts", () => {
       schema.replace("literal  spaces", "literal spaces"), schema.replace("Exact comment", "Changed comment"),
       schema.replace("id String", "idString"), schema + "model Extra { id String @id }\n",
     ]) expect(() => assertSchemaFormattingOnly(changed, schema)).toThrow();
-    const old = exactOldSchema(readFileSync(join(ROOT, "packages/db/prisma/schema.prisma"), "utf8"));
+    const old = exactOldSchema(readFileSync(SCHEMA_98, "utf8"));
     expect(() => assertSchemaFormattingOnly(old.replace(/^ {2}([A-Za-z_][A-Za-z0-9_]*) +/gm, "    $1   "), old)).not.toThrow();
   });
 });
@@ -152,7 +155,7 @@ describe.skipIf(process.platform !== "linux" || (process.env.CI !== "true" && pr
   it("preserves original rows/history, accepts old allocation, refuses old key rewrites, restores both97 and98 without downmigration", async () => {
     assert.equal(assertOwnedTestDatabase(process.env.DATABASE_URL).route, "GITHUB_SERVICE");
     assert.equal(process.platform, "linux"); assert.ok(process.env.RUNNER_TEMP);
-    const currentSchema = lf(readFileSync(join(ROOT, "packages/db/prisma/schema.prisma"), "utf8"));
+    const currentSchema = lf(readFileSync(SCHEMA_98, "utf8"));
     const oldSchema = exactOldSchema(currentSchema), { files, manifest } = migrationInputs();
     const work = mkdtempSync(join(process.env.RUNNER_TEMP!, "vaettir-key-upgrade-"));
     const token = randomUUID(), marker = "vaettir-97-98-synthetic:" + token;
