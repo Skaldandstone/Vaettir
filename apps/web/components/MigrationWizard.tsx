@@ -178,7 +178,7 @@ function NonCaseRowsReview({ rows, overrides, onInclude }: {
           <td>{row.sourceRowKind === "SECTION" ? "Section within suite" : row.sourceRowKind === "NOTE" ? "Source note" : "ID-only placeholder"}<small>For review</small></td>
           <td>{row.suitePath || row.reviewReasons?.join(" ") || "No case definition"}</td>
           <td><button className="btn-secondary" disabled={Boolean(overrides[row.rowNumber])} onClick={() => onInclude(row)}>
-            {overrides[row.rowNumber] ? "Editing below" : "Change to case"}
+            {overrides[row.rowNumber] ? "Editing below" : "Also add as case"}
           </button></td>
         </tr>)}</tbody>
       </table></div>

@@ -244,4 +244,17 @@ describe("mapped CSV row repair", () => {
     expect(result.nonCaseRows).toBeUndefined();
     expect(result.rows[0]?.reviewReasons?.join(" ")).toContain("procedure is not recorded");
   });
+
+  it("adding a source heading or note as a case never silently changes context on following cases", () => {
+    const csv = 'ID,Title,Steps,Expected\nScenario 8: Restore purchase,,,\nNote: Account only,,,\nTC-1,Verify restoration,Restore,Coins retained\n';
+    const mapping = { externalId: "ID", title: "Title", when: "Steps", then: "Expected" };
+    const preview = mapCsvRows(csv, mapping);
+    const edited = mapCsvRows(csv, mapping, undefined, [
+      { ...preview.nonCaseRows![0]!, title: "Owner-added case" },
+      { ...preview.nonCaseRows![1]!, title: "Owner-added note case" },
+    ]);
+    expect(edited.rows).toHaveLength(3);
+    expect(edited.rows.find(row => row.externalId === "TC-1")).toEqual(preview.rows[0]);
+    expect(edited.rows[0]?.title).toBe("Owner-added case");
+  });
 });

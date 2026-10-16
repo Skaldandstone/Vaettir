@@ -491,6 +491,22 @@ export function mapCsvRows(
         ? (r[idx.externalId] ?? "").trim() || undefined
         : undefined;
 
+    // Context follows immutable source rows, not the state of the case editor.
+    // Adding a heading/note as a case must not silently regroup later cases
+    // whose displayed preview has not changed. Per-case path/note edits below
+    // still win over this proposal, and column remapping re-runs the analysis.
+    const sourceIdentityOnly = !(r[idx.title] ?? "").trim() &&
+      (tags.length > 0 || Boolean(externalId)) && !given.length && !when.length && !then.length &&
+      r.every((cell, index) => !cell.trim() || index === idx.tags || index === idx.externalId);
+    const sourceLabel = sourceIdentityOnly ? (r[idx.tags]?.trim() || r[idx.externalId]?.trim() || "") : "";
+    const sourceKind = !sourceLabel || titleLike(sourceLabel) ? undefined :
+      /^(?:tc|test[-_ ]?case)[-_ ]?\d+$/i.test(sourceLabel) ? "PLACEHOLDER" :
+        /^(?:continuing\b|based on\b|note\s*:|the expected behavior\b)/i.test(sourceLabel) ? "NOTE" : "SECTION";
+    if (sourceKind === "SECTION") {
+      if (/^(?:workflow\b|edge cases\b)/i.test(sourceLabel)) { workflow = sourceLabel; section = ""; sourceNotes = []; }
+      else section = sourceLabel;
+    } else if (sourceKind === "NOTE") sourceNotes = [...sourceNotes, sourceLabel];
+
     let candidate: MappedRow = {
       rowNumber,
       title,
@@ -532,12 +548,8 @@ export function mapCsvRows(
           candidate = { ...candidate, title: label, tags: [], externalId: undefined };
           reviewReasons.push("Case name proposed from a misplaced label; procedure is not recorded.");
         } else {
-          const kind = /^(?:tc|test[-_ ]?case)[-_ ]?\d+$/i.test(label) ? "PLACEHOLDER" :
-            /^(?:continuing\b|based on\b|note\s*:|the expected behavior\b)/i.test(label) ? "NOTE" : "SECTION";
-          if (kind === "SECTION") {
-            if (/^(?:workflow\b|edge cases\b)/i.test(label)) { workflow = label; section = ""; sourceNotes = []; }
-            else section = label;
-          } else if (kind === "NOTE") sourceNotes = [...sourceNotes, label];
+          const kind = sourceKind ?? (/^(?:tc|test[-_ ]?case)[-_ ]?\d+$/i.test(label) ? "PLACEHOLDER" :
+            /^(?:continuing\b|based on\b|note\s*:|the expected behavior\b)/i.test(label) ? "NOTE" : "SECTION");
           const path = [workflow, section].filter(Boolean).join(" / ");
           nonCaseRows.push({ ...candidate, sourceRowKind: kind,
             ...(path ? { suitePath: path } : {}),
