@@ -106,7 +106,7 @@ jobs:
           node --test scripts/fetch-git-openssl-sources.test.mjs scripts/git-openssl-runtime.test.mjs scripts/git-openssl-dockerfile-inverse-fixture.test.mjs
           node --test scripts/expat-security-proof.test.mjs
           node --test scripts/install-expat-runtime.test.mjs
-          node --experimental-strip-types --test scripts/forge-quality-transport.test.mjs
+          node --experimental-strip-types --test scripts/forge-quality-transport.test.mjs scripts/forge-quality-view.test.mjs
           node --test scripts/fetch-runtime-security-sources.test.mjs
           node --test scripts/watch-native-build-logs.test.mjs scripts/maintained-native-ci-contract.test.mjs
           node --test scripts/runtime-build-proof.test.mjs scripts/fetch-freetype-test-corpus.test.mjs scripts/install-runtime-security-family.test.mjs scripts/runtime-security-build-contract.test.mjs
@@ -128,6 +128,12 @@ jobs:
 
       - name: Test
         run: pnpm test
+
+      - name: Verify workflow layouts and project connection interactions
+        run: |
+          pnpm --filter @vaettir/web exec playwright install --with-deps chromium
+          node scripts/form-layout-ui.test.mjs
+          node scripts/forge-connection-ui.test.mjs
 
       # Exercise Next's production standalone output on Linux. Windows local
       # builds cannot create pnpm's traced symlinks without developer mode;

@@ -2,6 +2,7 @@
 import { useLayoutEffect, useRef, useState } from "react";
 import { useAuth } from "@clerk/nextjs";
 import { DialogFrame } from "./ui/DialogFrame";
+import { ReadableSelect } from "./ui/ReadableSelect";
 import { FrozenReport } from "./FrozenReport";
 import { ReportSnapshotCatalog } from "./ReportSnapshotCatalog";
 import { ReportDefinitionManager } from "./ReportDefinitionManager";
@@ -394,7 +395,7 @@ function ProjectReportBuilder({ projectId }: { projectId: string }) {
       </button>
       <label style={{ display: "grid", gap: 6, maxWidth: 420 }}>
         Saved report definition
-        <select
+        <ReadableSelect
           value=""
           disabled={
             readOnly || !availableDefinitions || !!request || !!saveRequest
@@ -415,7 +416,7 @@ function ProjectReportBuilder({ projectId }: { projectId: string }) {
               {row.name}
             </option>
           ))}
-        </select>
+        </ReadableSelect>
       </label>
       {availableDrafts && availableDrafts.length > 0 && !readOnly && (
         <details style={{ marginTop: 12 }}>
@@ -485,7 +486,7 @@ function ProjectReportBuilder({ projectId }: { projectId: string }) {
             </div>
           </section>
         )}
-        <div hidden={!!replacement}>
+        <div className="report-builder-content" hidden={!!replacement}>
         <p className="eyebrow">
           Step {step + 1} of 5 ·{" "}
           {["Purpose", "Audience", "Metrics", "Commentary", "Review"][step]}
@@ -494,7 +495,7 @@ function ProjectReportBuilder({ projectId }: { projectId: string }) {
           <div style={{ display: "grid", gap: 14 }}>
             <label>
               What do you want to review?
-              <select
+              <ReadableSelect
                 data-dialog-initial-focus
                 disabled={frozen}
                 value={definition.templateId ?? "custom"}
@@ -516,7 +517,7 @@ function ProjectReportBuilder({ projectId }: { projectId: string }) {
                   </option>
                 ))}
                 <option value="custom">Custom report</option>
-              </select>
+              </ReadableSelect>
             </label>
             <p className="text-muted">
               {definition.templateId
@@ -545,7 +546,7 @@ function ProjectReportBuilder({ projectId }: { projectId: string }) {
             </label>
             <label>
               Who is this for?
-              <select
+              <ReadableSelect
                 disabled={frozen}
                 value={definition.audience}
                 onChange={(event) => {
@@ -565,7 +566,7 @@ function ProjectReportBuilder({ projectId }: { projectId: string }) {
                 <option value="stakeholders">Stakeholders</option>
                 <option value="engineering">Engineering</option>
                 <option value="quality">Quality team</option>
-              </select>
+              </ReadableSelect>
             </label>
             <p className="text-muted">
               Project-wide scope by default. Choose report scope next. This
@@ -578,7 +579,7 @@ function ProjectReportBuilder({ projectId }: { projectId: string }) {
           <div>
             <label>
               Execution window
-              <select
+              <ReadableSelect
                 disabled={frozen}
                 value={
                   definition.dateInterval ? "custom" : definition.windowDays
@@ -604,7 +605,7 @@ function ProjectReportBuilder({ projectId }: { projectId: string }) {
                 <option value="30">Last 30 days</option>
                 <option value="90">Last 90 days</option>
                 <option value="custom">Custom UTC dates</option>
-              </select>
+              </ReadableSelect>
             </label>
             {definition.dateInterval && (
               <div
@@ -656,7 +657,7 @@ function ProjectReportBuilder({ projectId }: { projectId: string }) {
               <div style={{ display: "grid", gap: 12 }}>
                 <label>
                   Release (current linked plans)
-                  <select
+                  <ReadableSelect
                     disabled={frozen || !scopeChoices}
                     value={definition.executionScope?.releaseId ?? ""}
                     onChange={(event) =>
@@ -679,7 +680,7 @@ function ProjectReportBuilder({ projectId }: { projectId: string }) {
                         {release.nameExcerpt ? "… (excerpt)" : ""}
                       </option>
                     ))}
-                  </select>
+                  </ReadableSelect>
                 </label>
                 <p className="text-muted">
                   Release scope freezes the current linked plan membership at
@@ -695,7 +696,7 @@ function ProjectReportBuilder({ projectId }: { projectId: string }) {
                 )}
                 <label>
                   Plan
-                  <select
+                  <ReadableSelect
                     disabled={
                       frozen ||
                       scopeOptions.isFetching ||
@@ -720,11 +721,11 @@ function ProjectReportBuilder({ projectId }: { projectId: string }) {
                         {plan.nameExcerpt ? "… (excerpt)" : ""}
                       </option>
                     ))}
-                  </select>
+                  </ReadableSelect>
                 </label>
                 <label>
                   Recorded run
-                  <select
+                  <ReadableSelect
                     disabled={
                       frozen ||
                       scopeOptions.isFetching ||
@@ -750,7 +751,7 @@ function ProjectReportBuilder({ projectId }: { projectId: string }) {
                         {run.providerExcerpt ? "… (excerpt)" : ""} · {run.id}
                       </option>
                     ))}
-                  </select>
+                  </ReadableSelect>
                 </label>
                 {(["platform", "environment", "build"] as const).map((key) => (
                   <label key={key}>
@@ -852,9 +853,9 @@ function ProjectReportBuilder({ projectId }: { projectId: string }) {
           </div>
         )}
         {step === 3 && (
-          <div style={{ display: "grid", gap: 12 }}>
+          <div className="report-commentary">
             {definition.templateId && (
-              <details>
+              <details className="report-review-prompts">
                 <summary>Questions to help write this review</summary>
                 <ul>
                   {REPORT_TEMPLATES[definition.templateId].reviewPrompts.map(
@@ -932,15 +933,7 @@ function ProjectReportBuilder({ projectId }: { projectId: string }) {
             </button>
           </div>
         )}
-        <div
-          style={{
-            display: "flex",
-            flexWrap: "wrap",
-            gap: 8,
-            justifyContent: "space-between",
-            marginTop: 20,
-          }}
-        >
+        <div className="wizard-footer">
           <button
             className="btn-secondary"
             type="button"

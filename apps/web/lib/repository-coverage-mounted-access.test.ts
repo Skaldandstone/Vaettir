@@ -116,6 +116,9 @@ function harness(legacyMountFault = false, purpose?: "TEST_CASES" | "REQUIREMENT
   }
   const mutation = { isPending: false, error: null, reset() {}, mutateAsync: async (input: unknown) => { writes.push(input); throw Error("Synthetic source read prohibited"); } };
   const context = vm.createContext({
+    // Layout wrapper is exercised with real React/Chromium separately; these
+    // tests retain their native select shape to inspect access callbacks.
+    ReadableSelect: "select",
     React, Error, caseFieldReadOrigin, caseFieldReadPins, sameCaseFieldOrigin, repositoryDisplayName,
     useAuth: () => auth, crypto: { randomUUID: () => `synthetic-request-${++uuid}` },
     useState: (initial: unknown) => {

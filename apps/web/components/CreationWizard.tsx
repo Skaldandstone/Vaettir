@@ -58,7 +58,7 @@ export function CreationWizard({
             className={index <= step ? "complete" : ""}
             onClick={() => index < step && onStepChange(index)}
             disabled={busy || index > step}
-          />
+          ><span aria-hidden="true">{index + 1}</span><span className="wizard-step-label">{label}</span></button>
         ))}
       </div>
       <div>

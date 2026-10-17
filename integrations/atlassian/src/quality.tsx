@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
 import {
   Button,
+  Box,
   DonutChart,
   Heading,
   Inline,
@@ -16,6 +17,7 @@ import {
   Text,
   Textfield,
   useProductContext,
+  xcss,
 } from "@forge/react";
 import { invokeRemote } from "@forge/bridge";
 import { createQualityTransport } from "./transport";
@@ -342,7 +344,7 @@ export function QualityApp({
     };
   }, [key, snapshotId, signature, pin, reload, selection, details, catalogPin]);
   return (
-    <Stack space="space.200">
+    <Box xcss={xcss({ maxWidth: "1120px" })}><Stack space="space.200">
       {!context &&
         (contextUnavailable ? (
           <SectionMessage
@@ -468,13 +470,13 @@ export function QualityApp({
             </Text>
           )}
           {data.tests.map((test) => (
-            <Stack key={test.id} space="space.050">
+            <Box key={test.id} xcss={surface}><Stack space="space.100">
               <Text>
                 <Link href={test.href} openNewTab>
                   {test.displayId} · {test.title}
                 </Link>
               </Text>
-              <Inline space="space.050">
+              <Inline space="space.100" shouldWrap>
                 <Lozenge
                   appearance={
                     test.outcome === "PASS"
@@ -505,13 +507,63 @@ export function QualityApp({
               <HelperMessage>
                 Current definition match not verified.
               </HelperMessage>
-            </Stack>
+            </Stack></Box>
           ))}
           <HelperMessage>{data.notice}</HelperMessage>
         </>
       )}
-      {data?.protocol === "vaettir-quality/v1" && (
-        <>
+      {data?.protocol === "vaettir-quality/v1" && <QualitySnapshotView key={pin} data={data} configuredSnapshot={configuredSnapshot} setSnapshotId={setSnapshotId} />}
+      {data?.protocol === "vaettir-release-quality/v1" && (
+        <ReleaseView key={pin} data={data} />
+      )}
+      {key && (
+        <Inline><Button
+          isDisabled={busy}
+          onClick={() => setReload((value) => value + 1)}
+        >
+          Refresh evidence
+        </Button></Inline>
+      )}
+    </Stack></Box>
+  );
+}
+
+const surface = xcss({ padding: "space.250", borderRadius: "radius.medium", borderColor: "color.border", borderStyle: "solid", borderWidth: "border.width" });
+const metricSurface = xcss({ padding: "space.200", borderRadius: "radius.medium", minWidth: "150px", flexGrow: 1 });
+// Category-keyed colors stay stable when a capture omits an outcome. Counts
+// and labels remain visible, so meaning never depends on color alone.
+const outcomeColors = [
+  { key: "Pass", value: "#22A06B" },
+  { key: "Fail", value: "#F15B50" },
+  { key: "Blocked", value: "#CF9F02" },
+  { key: "Flaky", value: "#9F8FEF" },
+  { key: "Mixed", value: "#E774BB" },
+  { key: "Ambiguous", value: "#579DFF" },
+  { key: "Skip", value: "#8C9BAB" },
+  { key: "Skipped", value: "#8C9BAB" },
+  { key: "Not recorded", value: "#B6C2CF" },
+];
+function Metric({ title, value, tone = "neutral" }: { title: string; value: number; tone?: "neutral" | "success" | "danger" | "warning" }) {
+  return <Box xcss={metricSurface} backgroundColor={tone === "success" ? "color.background.success" : tone === "danger" ? "color.background.danger" : tone === "warning" ? "color.background.warning" : "color.background.neutral"}>
+    <Stack space="space.050"><Text>{title}</Text><Heading as="h2">{value.toLocaleString()}</Heading></Stack>
+  </Box>;
+}
+
+function EvidenceNotes({ limitations, notice }: { limitations: string[]; notice: string }) {
+  const [expanded, setExpanded] = useState(false);
+  return <Stack space="space.100"><Inline><Button appearance="subtle" aria-expanded={expanded} onClick={() => setExpanded(value => !value)}>{expanded ? "Hide metric definitions and limitations" : "About these metrics and limitations"}</Button></Inline>{expanded && <Box xcss={surface}><Stack space="space.100">{limitations.map((text, index) => <Text key={index}>{text}</Text>)}<Text>{notice}</Text></Stack></Box>}</Stack>;
+}
+
+export function QualitySnapshotView({ data, configuredSnapshot = "", setSnapshotId = () => {} }: { data: Quality; configuredSnapshot?: string; setSnapshotId?: (id: string) => void }) {
+  const execution = data.snapshot.execution;
+  const outcomeCount = (key: string) => execution.outcomes.filter(item => item.key === key).reduce((sum, item) => sum + item.count, 0);
+  const chartData = execution.outcomes.filter(item => item.count > 0).map(item => ({ outcome: label(item.key), count: item.count }));
+  const planned = execution.plannedCaseRunPairs;
+  // Absence is not zero: never claim completed planning without both counts.
+  const remaining = execution.notRecordedCaseRunPairs;
+  const hasPlanProgress = planned !== undefined && planned > 0 && remaining !== undefined && remaining >= 0 && remaining <= planned;
+  return <Stack space="space.300">
+        <Box xcss={surface}><Stack space="space.100">
           <Heading as="h2">{data.snapshot.title}</Heading>
           <Text>
             {data.snapshot.projectName}
@@ -531,6 +583,7 @@ export function QualityApp({
               Captured {new Date(data.snapshot.asOf).toLocaleString()}
             </Text>
           </Inline>
+        </Stack></Box>
           {data.available.length > 1 && !configuredSnapshot && (
             <>
               <Label labelFor="quality-snapshot">Approved capture</Label>
@@ -551,13 +604,19 @@ export function QualityApp({
               />
             </>
           )}
-          {data.snapshot.execution.results > 0 ? (
+          <Inline space="space.150" shouldWrap>
+            <Metric title="Recorded Pass" value={outcomeCount("PASS")} tone="success" />
+            <Metric title="Failed observations" value={outcomeCount("FAIL")} tone="danger" />
+            <Metric title="Blocked observations" value={outcomeCount("BLOCKED")} tone="warning" />
+            <Metric title="Validation runs" value={execution.runs} />
+          </Inline>
+          <Box xcss={surface}><Stack space="space.150">
+          <Heading as="h3">Execution overview</Heading>
+          {execution.results > 0 && chartData.length > 0 ? (
             <DonutChart
               title="Recorded test outcomes"
-              data={data.snapshot.execution.outcomes.map((o) => ({
-                outcome: label(o.key),
-                count: o.count,
-              }))}
+              data={chartData}
+              colorPalette={outcomeColors}
               colorAccessor="outcome"
               labelAccessor="outcome"
               valueAccessor="count"
@@ -565,35 +624,27 @@ export function QualityApp({
               showMarkLabels
             />
           ) : (
-            <Text>No recorded outcomes in this capture.</Text>
+            <SectionMessage title="No results yet"><Text>This approved capture contains no recorded test outcomes. Run tests in Vaettir and approve a new capture to see the outcome breakdown. Readiness has not been assessed.</Text></SectionMessage>
           )}
           <Text>
             {data.snapshot.execution.runs} runs ·{" "}
             {data.snapshot.execution.distinctCases} distinct cases with results
             · {data.snapshot.execution.results} recorded observations
           </Text>
-          {data.snapshot.execution.plannedCaseRunPairs !== undefined && (
+          {hasPlanProgress ? (
             <>
               <Text>
-                {data.snapshot.execution.notRecordedCaseRunPairs ?? 0} /{" "}
-                {data.snapshot.execution.plannedCaseRunPairs} planned case/run
-                pairs not recorded
+                {planned - remaining} of {planned} planned case/run pairs have recorded observations · {remaining} not recorded
               </Text>
               <ProgressBar
                 value={
-                  data.snapshot.execution.plannedCaseRunPairs
-                    ? Math.max(
-                        0,
-                        1 -
-                          (data.snapshot.execution.notRecordedCaseRunPairs ??
-                            0) /
-                            data.snapshot.execution.plannedCaseRunPairs,
-                      )
-                    : 0
+                  1 - remaining / planned
                 }
               />
             </>
-          )}
+          ) : <Text>{planned === 0 ? "No planned case/run pairs in this capture." : "Planned progress is unavailable in this capture."}</Text>}
+          </Stack></Box>
+          <Box xcss={surface}><Stack space="space.150">
           <Heading as="h3">Validation runs in this capture</Heading>
           {data.runLinks.map((run) => (
             <Text key={run.id}>
@@ -604,34 +655,18 @@ export function QualityApp({
           ))}
           {!data.runLinks.length && (
             <Text>
-              Run references were not retained in this capture. No replacement
-              run has been inferred.
+              {execution.runs === 0 ? "No validation runs in this capture." : "Run references were not retained in this capture. Open the private report for available evidence."}
             </Text>
           )}
-          {data.snapshot.limitations.map((limitation, i) => (
-            <HelperMessage key={i}>{limitation}</HelperMessage>
-          ))}
-          <HelperMessage>{data.notice}</HelperMessage>
+          </Stack></Box>
           <Text>
             <Link href={data.reportUrl} openNewTab>
               Open private report and evidence in Vaettir
             </Link>
           </Text>
-        </>
-      )}
-      {data?.protocol === "vaettir-release-quality/v1" && (
-        <ReleaseView key={pin} data={data} />
-      )}
-      {key && (
-        <Button
-          isDisabled={busy}
-          onClick={() => setReload((value) => value + 1)}
-        >
-          Refresh evidence
-        </Button>
-      )}
-    </Stack>
-  );
+          <Text>Approved snapshot · Not a live feed or issue-specific execution proof.</Text>
+          <EvidenceNotes limitations={data.snapshot.limitations} notice={data.notice} />
+    </Stack>;
 }
 function ReleaseView({ data }: { data: Release }) {
   const [showTests, setShowTests] = useState(false),
@@ -661,6 +696,12 @@ function ReleaseView({ data }: { data: Release }) {
         <Text>Jira · {data.jiraVersionName}</Text>
       </Inline>
       <Text>Captured {new Date(data.capturedAt).toLocaleString()}</Text>
+      <Inline space="space.150" shouldWrap>
+        <Metric title="Planned tests" value={data.counts.planned} />
+        <Metric title="Recorded Pass" value={data.counts.pass} tone="success" />
+        <Metric title="Failing tests" value={data.counts.fail} tone="danger" />
+        <Metric title="Not recorded" value={data.counts.notRecorded} tone="warning" />
+      </Inline>
       {data.mode === "RELEASED_CAPTURE_UNAVAILABLE" && (
         <SectionMessage
           appearance="warning"
@@ -679,14 +720,15 @@ function ReleaseView({ data }: { data: Release }) {
         recorded results · {data.counts.pass} recorded Pass ·{" "}
         {data.counts.notRecorded} not recorded
       </Text>
-      <ProgressBar
+      {data.counts.planned > 0 ? <ProgressBar
         value={
-          data.counts.planned ? data.counts.recorded / data.counts.planned : 0
+          Math.min(1, Math.max(0, data.counts.recorded / data.counts.planned))
         }
-      />
+      /> : <SectionMessage title="No planned tests yet"><Text>Link a test plan to this release in Vaettir to track its validation progress. No release-readiness conclusion is available.</Text></SectionMessage>}
       {data.counts.planned > 0 && (
         <DonutChart
           title="Latest validation outcomes"
+          colorPalette={outcomeColors}
           data={outcomes
             .filter((k) => data.counts[k] > 0)
             .map((k) => ({
@@ -783,7 +825,7 @@ function ReleaseView({ data }: { data: Release }) {
           </Inline>
         </Stack>
       )}
-      <HelperMessage>{data.notice}</HelperMessage>
+      <EvidenceNotes limitations={[]} notice={data.notice} />
     </Stack>
   );
 }

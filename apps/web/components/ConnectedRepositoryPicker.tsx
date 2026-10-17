@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { ReadableSelect } from "./ui/ReadableSelect";
 import { repositoryDisplayName } from "@/lib/repository-display";
 import { trpcReact, type RouterOutputs } from "@/lib/trpcReact";
 import { SourceConnectionChips } from "./SourceConnectionChips";
@@ -27,13 +28,13 @@ export function ConnectedRepositoryPicker({ projectId, selectedId, onSelect, dis
   const selected = query.data.find(repo => repo.id === selectedId);
   return <section aria-label="Connected project repositories" style={{display:"grid",gap:8,minWidth:0}}>
     <label style={{display:"grid",gap:6}}>Connected repository
-      <select value={selected?.id ?? ""} disabled={disabled} style={{width:"100%",minWidth:0}} onChange={event => {
+      <ReadableSelect value={selected?.id ?? ""} disabled={disabled} style={{width:"100%",minWidth:0}} onChange={event => {
         if (disabled || !access.origin || !access.owns(access.origin)) return;
         onSelect(query.data.find(repo => repo.id === event.target.value) ?? null);
       }}>
         <option value="">Choose from {query.data.length} project repositories</option>
         {query.data.map(repo => <option key={repo.id} value={repo.id}>{repositoryDisplayName(repo.url)} · {repo.accessVerified ? "connected" : "access needs review"}</option>)}
-      </select>
+      </ReadableSelect>
     </label>
     {selected && <p className="text-muted" style={{margin:0,overflowWrap:"anywhere"}}>{selected.accessVerified ? "Existing project connection. No reconnect required." : "The saved repository is retained, but provider access needs renewal before private reads."}</p>}
     <Link className="text-muted" href={`/projects/${encodeURIComponent(projectId)}/settings/integrations`}>Manage project repositories</Link>
