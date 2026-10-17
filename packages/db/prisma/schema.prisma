@@ -19,7 +19,16 @@ datasource db {
 // Tenancy
 // ---------------------------------------------------------------------------
 
+model WorkspaceDomain {
+  name String @id
+  organizationId String? @unique
+  organization Organization? @relation(fields: [organizationId], references: [id], onDelete: SetNull, onUpdate: Restrict)
+  claimedByUserId String
+  claimedAt DateTime @default(now())
+}
+
 model Organization {
+  workspaceDomain WorkspaceDomain?
   aiDisclosurePolicies AiDisclosurePolicy[]
   driveSourceConnections DriveSourceConnection[]
   ticketSourceConnections  TicketSourceConnection[]

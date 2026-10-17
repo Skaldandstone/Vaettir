@@ -79,6 +79,7 @@ import {
   safeInternalErrorDetails,
 } from "./publicErrors.js";
 import { createCorsOriginPolicy } from "./corsPolicy.js";
+import { registerWorkspaceIngress } from "./services/workspaceDomainIngress.js";
 import { registerClerkEmailWebhookRoute } from "./clerkEmailWebhook.js";
 import { resolveDatabaseUrlFromManagedSecret } from "./resolveDatabaseUrl.js";
 import {
@@ -528,6 +529,7 @@ function reportUnexpectedTrpcError({
 }
 
 await server.register(cors, { origin: createCorsOriginPolicy(process.env) });
+registerWorkspaceIngress(server, prisma);
 
 // P10-04: coarse per-IP flood protection at the HTTP layer, distinct from
 // (and a layer below) the AI reverse-engineering endpoint's existing

@@ -48,7 +48,7 @@ export const aiRotateInput = aiGrantChangeInput
   })
   .strict();
 
-type Actor = Pick<Context, "prisma" | "user" | "authenticatedClerkSubject">;
+type Actor = Pick<Context, "prisma" | "user" | "authenticatedClerkSubject" | "workspaceOrganizationId">;
 type Scope = z.infer<typeof aiAdminScope>;
 export type AiCommandReceipt = {
   operation: "CLASSIFY" | "ISSUE" | "ROTATE" | "REVOKE";
@@ -82,6 +82,8 @@ export async function lockAiAdmin(
   actor: Actor,
   scope: Scope,
 ) {
+  if (actor.workspaceOrganizationId && actor.workspaceOrganizationId !== scope.organizationId)
+    throw new TRPCError({ code: "FORBIDDEN" });
   if (!actor.user || !actor.authenticatedClerkSubject)
     throw new TRPCError({ code: "UNAUTHORIZED" });
   const org = await tx.$queryRaw<

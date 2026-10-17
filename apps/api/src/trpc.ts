@@ -4,6 +4,7 @@ import { prisma, type OrgRole } from "@vaettir/db";
 import { verifyClerkSessionToken, getOrCreateLocalUser } from "./clerk.js";
 import { hashApiKey, looksLikeApiKey } from "./services/apiKeyAuth.js";
 import { publicTrpcErrorShape } from "./publicErrors.js";
+import { requestWorkspaceOrganization } from "./services/workspaceDomainIngress.js";
 import { reportPrivilegedAccessDenied, type SecurityEventLogger } from "./services/securityEvents.js";
 
 function extractBearerToken(authHeader: string | undefined): string | null {
@@ -40,6 +41,7 @@ function resolveStaff(headers: CreateFastifyContextOptions["req"]["headers"]): {
 }
 
 export async function createContext({ req }: CreateFastifyContextOptions) {
+  const workspaceOrganizationId = requestWorkspaceOrganization(req);
   const token = extractBearerToken(req.headers.authorization);
   // Preserve the independently verified transport subject, not a native row's
   // current mapping. API keys deliberately do not acquire human-session proof.
@@ -64,7 +66,10 @@ export async function createContext({ req }: CreateFastifyContextOptions) {
 
   return {
     prisma,
-    user,
+    user: user && workspaceOrganizationId
+      ? { ...user, memberships: user.memberships.filter(m => m.organizationId === workspaceOrganizationId) }
+      : user,
+    workspaceOrganizationId,
     authenticatedClerkSubject,
     staff: resolveStaff(req.headers),
     securityLogger: req.log as SecurityEventLogger,
@@ -78,8 +83,9 @@ export async function createContext({ req }: CreateFastifyContextOptions) {
 
 // Existing internal callers/fixtures may omit transport provenance. New
 // human-session-only endpoints must refuse absence; never infer it from user.
-export type Context = Omit<Awaited<ReturnType<typeof createContext>>, "authenticatedClerkSubject"> & {
+export type Context = Omit<Awaited<ReturnType<typeof createContext>>, "authenticatedClerkSubject" | "workspaceOrganizationId"> & {
   authenticatedClerkSubject?: string | null;
+  workspaceOrganizationId?: string | null;
 };
 
 const t = initTRPC.context<Context>().create({
@@ -89,7 +95,10 @@ const t = initTRPC.context<Context>().create({
 });
 
 export const router = t.router;
-export const publicProcedure = t.procedure;
+export const publicProcedure = t.procedure.use(({ ctx, next }) => {
+  if (ctx.workspaceOrganizationId) throw new TRPCError({ code: "FORBIDDEN" });
+  return next({ ctx });
+});
 
 // Requires a valid Clerk session; does not by itself check org/project
 // membership -- see requireProjectAccess for that. Every router handling
@@ -98,6 +107,8 @@ export const protectedProcedure = t.procedure.use(({ ctx, next }) => {
   if (!ctx.user) {
     throw new TRPCError({ code: "UNAUTHORIZED" });
   }
+  if (ctx.workspaceOrganizationId && !ctx.user.memberships.some(m => m.organizationId === ctx.workspaceOrganizationId))
+    throw new TRPCError({ code: "FORBIDDEN", message: "Not a member of this workspace." });
   return next({ ctx: { ...ctx, user: ctx.user } });
 });
 
@@ -107,6 +118,7 @@ export const protectedProcedure = t.procedure.use(({ ctx, next }) => {
 // which serves staff humans signed into the product itself. Calls are audited
 // at the Adminhelper layer via the forwarded X-Staff-Actor.
 export const staffTokenProcedure = t.procedure.use(({ ctx, next }) => {
+  if (ctx.workspaceOrganizationId) throw new TRPCError({ code: "FORBIDDEN" });
   if (!ctx.staff) {
     reportPrivilegedAccessDenied(ctx.securityLogger, {
       surface: "staff_token",
@@ -133,10 +145,12 @@ const ROLE_RANK: Record<OrgRole, number> = {
  * org-level router (settings, seats, billing) should use.
  */
 export function requireOrgRole(
-  ctx: { user: NonNullable<Context["user"]> },
+  ctx: { user: NonNullable<Context["user"]>; workspaceOrganizationId?: string | null },
   organizationId: string,
   minRole: OrgRole = "VIEWER",
 ) {
+  if (ctx.workspaceOrganizationId && ctx.workspaceOrganizationId !== organizationId)
+    throw new TRPCError({ code: "FORBIDDEN", message: "This address belongs to a different workspace." });
   const membership = ctx.user.memberships.find((m) => m.organizationId === organizationId);
   if (!membership || ROLE_RANK[membership.role] < ROLE_RANK[minRole]) {
     throw new TRPCError({ code: "FORBIDDEN", message: "Not a member of this organization" });
@@ -209,6 +223,7 @@ export function isStaffEmail(email: string): boolean {
 }
 
 export const staffProcedure = protectedProcedure.use(({ ctx, next }) => {
+  if (ctx.workspaceOrganizationId) throw new TRPCError({ code: "FORBIDDEN" });
   if (!isStaffEmail(ctx.user.email)) {
     reportPrivilegedAccessDenied(ctx.securityLogger, {
       surface: "staff_email",

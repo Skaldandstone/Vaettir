@@ -14,7 +14,9 @@ import { AuthQueryClient, authQueryIdentity } from "./auth-query-cache";
 export type RouterOutputs = inferRouterOutputs<AppRouter>;
 export type RouterInputs = inferRouterInputs<AppRouter>;
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000";
+const API_URL = typeof window !== "undefined" && window.location.hostname.endsWith(".vaettir.app")
+  ? "/api"
+  : process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000";
 
 // P1-15: a second, hooks-based client living alongside the original
 // imperative `trpc` proxy client in trpc.ts (deliberately untouched - every
