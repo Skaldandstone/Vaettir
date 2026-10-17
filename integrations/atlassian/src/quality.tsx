@@ -320,12 +320,13 @@ export function QualityApp({
         if (
           ![
             "vaettir-quality/v1",
+            "vaettir-quality-empty/v1",
             "vaettir-ticket-verification/v1",
             "vaettir-release-quality/v1",
           ].includes(result.protocol)
         )
           throw new Error("Unsupported Vaettir quality response.");
-        setResponse({ pin, value: result as Ticket | Quality | Release });
+        setResponse({ pin, value: result as Ticket | Quality | Release | EmptyQuality });
       })
       .catch((e) => {
         if (active)
