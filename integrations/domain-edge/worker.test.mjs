@@ -27,7 +27,7 @@ test("strips spoofed forwarding/staff headers, signs the exact host/target and d
     const url = new URL(request.url);
     const message = ["vaettir-domain-v1", timestamp, "GET", "synthetic-team.vaettir.app", (url.pathname + url.search).replace(/^\/api(?=\/)/, "")].join("\n");
     assert.equal(request.headers.get("x-vaettir-signature"), createHmac("sha256", secret).update(message).digest("hex"));
-    return new Response(calls === 1 ? "healthy" : "workspace", { headers: { "Cache-Control": "public, max-age=86400" } });
+    return new Response(calls === 1 ? "healthy" : "workspace", { headers: { "Cache-Control": "public, max-age=86400", "X-Vaettir-Workspace-Verified": "tenant-v1" } });
   };
   const response = await handleRequest(new Request("https://synthetic-team.vaettir.app/projects", {
     headers: { "x-vaettir-host": "evil.vaettir.app", "x-staff-token": "spoof", forwarded: "host=evil.vaettir.app" },
@@ -40,10 +40,11 @@ test("denies unknown claims, unapproved hosts, origin spoofing and cross-origin 
   assert.equal((await handleRequest(new Request("https://synthetic-team.vaettir.app/"), { ...env, VAETTIR_APP_ORIGIN: "malformed" })).status, 503);
   assert.equal((await handleRequest(new Request("https://unknown-team.vaettir.app/"), env)).status, 404);
   assert.equal((await handleRequest(new Request("https://synthetic-team.vaettir.app/"), env, async () => new Response("", { status: 404 }))).status, 404);
+  assert.equal((await handleRequest(new Request("https://synthetic-team.vaettir.app/"), env, async () => new Response("old API healthy"))).status, 503);
   assert.equal((await handleRequest(new Request("https://synthetic-team.vaettir.app/api/trpc", { headers: { origin: "https://other-team.vaettir.app" } }), env)).status, 403);
   let call = 0;
   const response = await handleRequest(new Request("https://synthetic-team.vaettir.app/projects"), env, async () => {
-    call++; return call === 1 ? new Response("ok") : new Response(null, { status: 302, headers: { Location: "https://evil.test/" } });
+    call++; return call === 1 ? new Response("ok", { headers: { "X-Vaettir-Workspace-Verified": "tenant-v1" } }) : new Response(null, { status: 302, headers: { Location: "https://evil.test/" } });
   });
   assert.equal(response.status, 502);
 });

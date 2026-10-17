@@ -110,6 +110,7 @@ it("enforces the actual signed HTTP host for multi-org members, unknown hosts an
     expect((await server.inject({ url: staff, headers: headers(`${names[0]}.vaettir.app`, staff) })).statusCode).toBe(403);
     expect((await server.inject({ url: target, headers: { "x-forwarded-host": `${names[0]}.vaettir.app` } })).statusCode).toBe(403);
     expect(own.headers["cache-control"]).toBe("no-store");
+    expect(own.headers["x-vaettir-workspace-verified"]).toBe("tenant-v1");
   } finally { await server.close(); }
 });
 it("routes legacy project links only to their authenticated, explicitly activated claim and drops sensitive query values", async () => {

@@ -47,7 +47,11 @@ export function registerWorkspaceIngress(server: FastifyInstance, db: PrismaClie
       reply.header("Cache-Control", "no-store").header("Referrer-Policy", "no-referrer");
       if (request.headers.origin && request.headers.origin !== `https://${host}`)
         return reply.code(403).send({ error: "Workspace origin is not permitted." });
-      if (host === "app.vaettir.app") { bindings.set(request, null); return; }
+      if (host === "app.vaettir.app") {
+        bindings.set(request, null);
+        reply.header("X-Vaettir-Workspace-Verified", "entry-v1");
+        return;
+      }
       const name = host.slice(0, -".vaettir.app".length);
       const claim = await db.workspaceDomain.findUnique({
         where: { name }, select: { organizationId: true, organization: { select: { suspendedAt: true } } },
@@ -55,6 +59,7 @@ export function registerWorkspaceIngress(server: FastifyInstance, db: PrismaClie
       if (!claim?.organizationId || !claim.organization || claim.organization.suspendedAt)
         return reply.code(404).send({ error: "Workspace unavailable." });
       bindings.set(request, claim.organizationId);
+      reply.header("X-Vaettir-Workspace-Verified", "tenant-v1");
       // Every other public callback/webhook/REST surface stays on the entry
       // origin until it has an explicit tenant-aware contract and acceptance.
       const path = canonicalTarget(request.url).split("?")[0] ?? "";
