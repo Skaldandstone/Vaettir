@@ -58,6 +58,12 @@ An explicit `*` activation exists for a future coordinated general rollout in
 the API/Worker. Do not use it for the synthetic phase. The browser redirect
 allowlist requires exact names. DNS alone never grants organization access.
 
+The two `NEXT_PUBLIC_VAETTIR_*` settings are baked into the web image.
+`Dockerfile.web` and `buildspec.web.yml` forward them explicitly, defaulting to
+`0` and empty. A release operator using a buildspec override must forward the
+same arguments and bind their exact values to its release intent. ECS runtime
+variables cannot enable an image that was built with these settings disabled.
+
 The company Clerk primary domain remains in service during migration.
 Adding the prepared `vaettir.app` satellite currently shows a $10/month charge;
 obtain the owner's approval before submitting it. Follow Clerk's actual DNS
