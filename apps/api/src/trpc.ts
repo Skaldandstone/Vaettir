@@ -179,7 +179,7 @@ export async function requireNotSuspended(db: typeof prisma, organizationId: str
  * every router resolving a project must call this before touching data.
  */
 export async function requireProjectAccess(
-  ctx: { prisma: typeof prisma; user: NonNullable<Context["user"]> },
+  ctx: { prisma: typeof prisma; user: NonNullable<Context["user"]>; workspaceOrganizationId?: string | null },
   projectId: string,
   minRole: OrgRole = "VIEWER",
 ) {

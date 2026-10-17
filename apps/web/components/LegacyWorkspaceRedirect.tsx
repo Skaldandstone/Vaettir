@@ -10,12 +10,12 @@ export function LegacyWorkspaceRedirect() {
   const search = useSearchParams();
   const legacy = useSyncExternalStore(
     () => () => undefined,
-    () => window.location.hostname === "vaettir.skaldandstone.com",
+    () => ["vaettir.skaldandstone.com", "app.vaettir.app"].includes(window.location.hostname),
     () => false,
   );
   const path = pathname + (search.toString() ? "?" + search.toString() : "");
   const destination = trpcReact.organization.resolveLegacyLink.useQuery(
-    { path }, { enabled: Boolean(legacy && isLoaded && isSignedIn && /^\/projects\/[a-zA-Z0-9_-]+/.test(pathname)), retry: false },
+    { path }, { enabled: Boolean(legacy && isLoaded && isSignedIn && /^\/projects(?:\/|$)/.test(pathname)), retry: false },
   );
   useEffect(() => {
     const next = destination.data?.url;

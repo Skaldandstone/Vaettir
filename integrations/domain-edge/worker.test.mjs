@@ -41,6 +41,7 @@ test("denies unknown claims, unapproved hosts, origin spoofing and cross-origin 
   assert.equal((await handleRequest(new Request("https://unknown-team.vaettir.app/"), env)).status, 404);
   assert.equal((await handleRequest(new Request("https://synthetic-team.vaettir.app/"), env, async () => new Response("", { status: 404 }))).status, 404);
   assert.equal((await handleRequest(new Request("https://synthetic-team.vaettir.app/"), env, async () => new Response("old API healthy"))).status, 503);
+  assert.equal((await handleRequest(new Request("https://unknown-team.vaettir.app/"), { ...env, ENABLED_WORKSPACE_HOSTS: "*" }, async () => new Response("", { status: 404 }))).status, 404);
   assert.equal((await handleRequest(new Request("https://synthetic-team.vaettir.app/api/trpc", { headers: { origin: "https://other-team.vaettir.app" } }), env)).status, 403);
   let call = 0;
   const response = await handleRequest(new Request("https://synthetic-team.vaettir.app/projects"), env, async () => {

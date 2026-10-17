@@ -7,6 +7,9 @@ import { appRouter } from "../router.js";
 import { confirmExistingWorkspaceDomain } from "./workspaceDomains.js";
 import { registerWorkspaceIngress, requestWorkspaceOrganization, ingressMessage } from "./workspaceDomainIngress.js";
 import { resolveLegacyWorkspaceLink } from "./workspaceLegacyLinks.js";
+import { issueForgeConnectionRequest } from "./forgeConnectionRequest.js";
+import { readSharedQuality } from "./atlassianQualitySharing.js";
+import type { ForgeIdentity } from "./forgeInvocation.js";
 
 const suffix = randomUUID().replaceAll("-", "").slice(0, 14);
 const names = [`synthetic-${suffix}`, `other-${suffix}`, `race-${suffix}`];
@@ -14,6 +17,7 @@ const secret = "local-synthetic-ingress-secret-".repeat(3);
 let tierId: string;
 let owner: Awaited<ReturnType<typeof prisma.user.create>>;
 let outsider: Awaited<ReturnType<typeof prisma.user.create>>;
+let singleMember: Awaited<ReturnType<typeof prisma.user.create>>;
 const organizations: string[] = [];
 const projects: string[] = [];
 let second: PrismaClient;
@@ -35,6 +39,7 @@ beforeAll(async () => {
   tierId = tier.id;
   owner = await prisma.user.create({ data: { clerkUserId: `owner-${suffix}`, email: `owner-${suffix}@example.test` } });
   outsider = await prisma.user.create({ data: { clerkUserId: `outsider-${suffix}`, email: `outsider-${suffix}@example.test` } });
+  singleMember = await prisma.user.create({ data: { clerkUserId: `single-${suffix}`, email: `single-${suffix}@example.test` } });
   for (let i = 0; i < 3; i++) {
     const org = await prisma.organization.create({ data: { name: `Synthetic ${i}`, slug: `domain-${suffix}-${i}`, planTierId: tierId } });
     organizations.push(org.id);
@@ -42,6 +47,7 @@ beforeAll(async () => {
     const project = await prisma.project.create({ data: { organizationId: org.id, name: "Synthetic project", slug: "synthetic" } });
     projects.push(project.id);
   }
+  await prisma.membership.create({ data: { organizationId: organizations[0]!, userId: singleMember.id, role: "VIEWER", seatType: "READ_ONLY" } });
 });
 afterAll(async () => {
   vi.unstubAllEnvs();
@@ -50,7 +56,7 @@ afterAll(async () => {
     await prisma.membership.deleteMany({ where: { organizationId: { in: organizations } } });
     await prisma.organization.deleteMany({ where: { id: { in: organizations } } });
   }
-  if (owner) await prisma.user.deleteMany({ where: { id: { in: [owner.id, outsider.id] } } });
+  if (owner) await prisma.user.deleteMany({ where: { id: { in: [owner.id, outsider.id, singleMember.id] } } });
   if (tierId) await prisma.planTier.delete({ where: { id: tierId } });
   await second?.$disconnect();
 });
@@ -119,9 +125,79 @@ it("routes legacy project links only to their authenticated, explicitly activate
   expect(await resolveLegacyWorkspaceLink(ctx, `/projects/${projects[0]}/reports?tab=readiness&token=private&request=private`))
     .toEqual({ url: `https://${names[0]}.vaettir.app/projects/${projects[0]}/reports?tab=readiness` });
   expect(await resolveLegacyWorkspaceLink(ctx, `/projects/${projects[1]}`)).toEqual({ url: null });
+  expect(await resolveLegacyWorkspaceLink(ctx, "/projects")).toEqual({ url: null });
+  expect(await resolveLegacyWorkspaceLink(await actor(singleMember.id), "/projects")).toEqual({ url: `https://${names[0]}.vaettir.app/projects` });
   expect(await resolveLegacyWorkspaceLink(ctx, "/integrations/atlassian/connect?request=private")).toEqual({ url: null });
   expect(await resolveLegacyWorkspaceLink(ctx, "https://evil.test/projects/x")).toEqual({ url: null });
   await expect(resolveLegacyWorkspaceLink(await actor(outsider.id), `/projects/${projects[0]}`)).rejects.toMatchObject({ code: "FORBIDDEN" });
+});
+it("binds native options, explicit connection, sharing settings and revocation to the signed customer host", async () => {
+  const identity: ForgeIdentity = {
+    appId: "ari:cloud:ecosystem::app/743bf96f-0f9f-4fed-981a-ea3fc318d15d",
+    environmentId: "ari:cloud:ecosystem::environment/743bf96f-0f9f-4fed-981a-ea3fc318d15d/d2844601-7a1f-4e4e-9b77-e0d4d3682c50",
+    installationId: "ari:cloud:ecosystem::installation/10000000-0000-4000-8000-000000000001",
+    cloudId: "10000000-0000-4000-8000-000000000002", siteOrigin: "https://synthetic.atlassian.net",
+    product: "jira", targetId: "10", principal: "synthetic-viewer", moduleKey: "vaettir-project-quality",
+    apiBaseUrl: "https://api.atlassian.com/ex/jira/10000000-0000-4000-8000-000000000002",
+  };
+  vi.stubEnv("VAETTIR_FORGE_APP_ID", identity.appId);
+  vi.stubEnv("VAETTIR_FORGE_ENVIRONMENT_ID", identity.environmentId);
+  vi.stubEnv("PRODUCTION_SIGNAL_ENCRYPTION_KEY", Buffer.alloc(32, 7).toString("base64"));
+  vi.stubEnv("WEB_APP_URL", "https://vaettir.skaldandstone.com");
+  const issued = issueForgeConnectionRequest(identity, "Synthetic native target");
+  const setup = new URL(issued.connectionUrl);
+  expect(setup.origin).toBe("https://vaettir.skaldandstone.com");
+  expect(await resolveLegacyWorkspaceLink(await actor(owner.id), setup.pathname + setup.search)).toEqual({ url: null });
+  const requestToken = setup.searchParams.get("request")!;
+  const server = Fastify();
+  registerWorkspaceIngress(server, prisma);
+  const user = (await actor(owner.id)).user;
+  await server.register(fastifyTRPCPlugin, { prefix: "/trpc", trpcOptions: {
+    router: appRouter, createContext: async ({ req }) => ({
+      prisma, user, authenticatedClerkSubject: user.clerkUserId, staff: null,
+      workspaceOrganizationId: requestWorkspaceOrganization(req),
+    }),
+  } });
+  const host = `${names[0]}.vaettir.app`;
+  async function call(method: "GET" | "POST", procedure: string, input: unknown) {
+    const payload = JSON.stringify(input);
+    const target = `/trpc/atlassianQuality.${procedure}${method === "GET" ? `?input=${encodeURIComponent(payload)}` : ""}`;
+    const timestamp = String(Date.now());
+    return server.inject({ method, url: target, ...(method === "POST" ? { payload } : {}), headers: {
+      "content-type": "application/json", origin: `https://${host}`,
+      "x-vaettir-host": host, "x-vaettir-time": timestamp,
+      "x-vaettir-signature": createHmac("sha256", secret).update(ingressMessage(method, target, host, timestamp)).digest("hex"),
+    } });
+  }
+  const base = { requestToken, expectedClerkActorId: user.clerkUserId };
+  const own = { organizationId: organizations[0]!, projectId: projects[0]! };
+  const foreign = { organizationId: organizations[1]!, projectId: projects[1]! };
+  try {
+    const options = await call("POST", "connectionOptions", base);
+    expect(options.statusCode).toBe(200);
+    expect(options.json().result.data.organizations.map((o: { id: string }) => o.id)).toEqual([own.organizationId]);
+    expect(options.json().result.data.projects.map((p: { id: string }) => p.id)).toEqual([own.projectId]);
+    expect(options.body).not.toContain(foreign.organizationId);
+    expect(options.body).not.toContain(requestToken);
+    expect((await call("POST", "connectionOptions", { ...base, organizationId: foreign.organizationId })).statusCode).toBe(403);
+    expect((await call("POST", "connectProject", { ...base, ...foreign, approveConnection: true })).statusCode).toBe(403);
+    expect((await call("GET", "settings", foreign)).statusCode).toBe(403);
+    expect((await call("POST", "connectProject", { ...base, ...own, approveConnection: false })).statusCode).toBe(400);
+    const connected = await call("POST", "connectProject", { ...base, ...own, approveConnection: true });
+    expect(connected.statusCode).toBe(200);
+    const key = connected.json().result.data.connectionKey as string;
+    expect((await call("GET", "settings", own)).json().result.data.connections).toHaveLength(1);
+    await expect(prisma.$transaction(tx => readSharedQuality(tx, key, identity))).resolves.toMatchObject({ projectId: own.projectId });
+    expect((await call("POST", "revoke", { ...foreign, id: key, requestId: randomUUID() })).statusCode).toBe(403);
+    expect((await call("POST", "revoke", { ...own, id: key, requestId: randomUUID() })).statusCode).toBe(200);
+    await expect(second.$transaction(tx => readSharedQuality(tx, key, identity))).rejects.toThrow("Sharing unavailable");
+    expect((await call("POST", "connectProject", { ...base, ...own, approveConnection: true })).json().result.data.state).toBe("REVOKED");
+    expect(await prisma.auditLog.count({ where: { organizationId: foreign.organizationId } })).toBe(0);
+  } finally {
+    await server.close();
+    // These are disposable fixtures in the explicitly guarded local/CI database.
+    await prisma.auditLog.deleteMany({ where: { organizationId: own.organizationId } });
+  }
 });
 it("retains a retired name after organization erasure without preventing the erasure itself", async () => {
   const id = organizations[0]!;

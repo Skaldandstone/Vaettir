@@ -70,7 +70,7 @@ export async function handleRequest(request, env, upstreamFetch = fetch) {
   // A deployment starts with public marketing only. No app hostname becomes
   // active until the explicit sandbox allowlist and origin are reviewed.
   const allowed = new Set((env.ENABLED_WORKSPACE_HOSTS ?? "").split(",").map(s => s.trim()).filter(Boolean));
-  if (!allowed.has(url.hostname) || !env.VAETTIR_DOMAIN_INGRESS_SECRET || env.VAETTIR_DOMAIN_INGRESS_SECRET.length < 64)
+  if (!(allowed.has(url.hostname) || allowed.has("*")) || !env.VAETTIR_DOMAIN_INGRESS_SECRET || env.VAETTIR_DOMAIN_INGRESS_SECRET.length < 64)
     return denied();
   let origin;
   try { origin = new URL(env.VAETTIR_APP_ORIGIN ?? ""); } catch { return denied(503); }
