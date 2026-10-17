@@ -80,6 +80,9 @@ it("refuses non-owner, stale identity, cross-host scope and missing permanent co
   await expect(confirmExistingWorkspaceDomain(ctx, organizations[1]!, names[1]!)).rejects.toMatchObject({ code: "FORBIDDEN" });
   await expect(confirmExistingWorkspaceDomain({ ...ctx, authenticatedClerkSubject: "stale" }, organizations[0]!, names[0]!)).rejects.toMatchObject({ code: "FORBIDDEN" });
   await expect(appRouter.createCaller(ctx).organization.confirmDomain({ organizationId: organizations[0]!, name: names[0]!, confirmPermanentAddress: false as true })).rejects.toThrow();
+  vi.stubEnv("VAETTIR_WORKSPACE_DOMAIN_ORGANIZATION_IDS", organizations[0]!);
+  await expect(confirmExistingWorkspaceDomain(await actor(owner.id), organizations[1]!, names[1]!)).rejects.toMatchObject({ code: "FORBIDDEN" });
+  vi.stubEnv("VAETTIR_WORKSPACE_DOMAIN_ORGANIZATION_IDS", "");
 });
 it("enforces the actual signed HTTP host for multi-org members, unknown hosts and public/staff surfaces", async () => {
   const server = Fastify();

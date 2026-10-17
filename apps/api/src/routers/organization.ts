@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { requireDomainSelectionEnabled, validatedWorkspaceName, workspaceDomainAvailable, confirmExistingWorkspaceDomain } from "../services/workspaceDomains.js";
+import { domainSelectionEnabled, requireDomainSelectionEnabled, validatedWorkspaceName, workspaceDomainAvailable, confirmExistingWorkspaceDomain } from "../services/workspaceDomains.js";
 import { legacyWorkspaceLinkInput, resolveLegacyWorkspaceLink } from "../services/workspaceLegacyLinks.js";
 import { TRPCError } from "@trpc/server";
 import {
@@ -151,8 +151,8 @@ const stepFieldLabelsInputSchema = z.object(
 export const organizationRouter = router({
   resolveLegacyLink: protectedProcedure.input(legacyWorkspaceLinkInput)
     .query(({ ctx, input }) => resolveLegacyWorkspaceLink(ctx, input.path)),
-  domainOptions: protectedProcedure.query(() => ({
-    enabled: process.env.VAETTIR_WORKSPACE_DOMAINS_ENABLED === "1",
+  domainOptions: protectedProcedure.query(({ ctx }) => ({
+    enabled: domainSelectionEnabled(ctx.user.memberships.map(m => m.organizationId)),
   })),
   domainAvailability: protectedProcedure
     .input(z.object({ name: z.string().max(100) }).strict())
@@ -188,9 +188,11 @@ export const organizationRouter = router({
     // (P1-15) tried to fully resolve the unbounded type.
     .output(z.object({ id: z.string(), name: z.string(), slug: z.string() }))
     .mutation(({ ctx, input }) => {
-      const enabled = process.env.VAETTIR_WORKSPACE_DOMAINS_ENABLED === "1";
+      const sandboxOnly = Boolean(process.env.VAETTIR_WORKSPACE_DOMAIN_ORGANIZATION_IDS?.trim());
+      const enabled = process.env.VAETTIR_WORKSPACE_DOMAINS_ENABLED === "1" && !sandboxOnly;
       if (enabled || input.workspaceName !== undefined) {
         requireDomainSelectionEnabled();
+        if (sandboxOnly) throw new TRPCError({ code: "FORBIDDEN", message: "New workspace addresses are not enabled yet." });
         if (!ctx.authenticatedClerkSubject) throw new TRPCError({ code: "UNAUTHORIZED" });
         if (!input.workspaceName || input.confirmPermanentAddress !== true)
           throw new TRPCError({ code: "BAD_REQUEST", message: "Preview and confirm your permanent workspace address." });

@@ -3,9 +3,15 @@ import { Prisma, type PrismaClient } from "@vaettir/db";
 import { normalizeWorkspaceName, workspaceNameError, workspaceHostname } from "@vaettir/core";
 import type { Context } from "../trpc.js";
 
-export function requireDomainSelectionEnabled() {
+export function domainSelectionEnabled(organizationIds: string[]) {
+  const scoped = (process.env.VAETTIR_WORKSPACE_DOMAIN_ORGANIZATION_IDS ?? "").split(",").map(s => s.trim()).filter(Boolean);
+  return process.env.VAETTIR_WORKSPACE_DOMAINS_ENABLED === "1" && (!scoped.length || organizationIds.some(id => scoped.includes(id)));
+}
+export function requireDomainSelectionEnabled(organizationId?: string) {
   if (process.env.VAETTIR_WORKSPACE_DOMAINS_ENABLED !== "1")
     throw new TRPCError({ code: "FORBIDDEN", message: "Workspace address selection is not available yet." });
+  if (organizationId && !domainSelectionEnabled([organizationId]))
+    throw new TRPCError({ code: "FORBIDDEN", message: "Workspace address selection is not available for this workspace yet." });
 }
 export function validatedWorkspaceName(value: string) {
   const error = workspaceNameError(value);
@@ -33,7 +39,7 @@ export function domainConflict(error: unknown): never {
 export async function confirmExistingWorkspaceDomain(
   ctx: Context, organizationId: string, value: string,
 ) {
-  requireDomainSelectionEnabled();
+  requireDomainSelectionEnabled(organizationId);
   const name = validatedWorkspaceName(value);
   if (!ctx.user || !ctx.authenticatedClerkSubject)
     throw new TRPCError({ code: "UNAUTHORIZED" });

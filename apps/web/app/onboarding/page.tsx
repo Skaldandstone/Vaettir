@@ -173,7 +173,11 @@ function OnboardingWorkspace() {
 
   function retry() {
     setError(null);
-    void Promise.all([orgsQuery.refetch(), eligibilityQuery.refetch()]);
+    void Promise.all([
+      orgsQuery.refetch(), domainOptions.refetch(),
+      ...(needsAccessCheck ? [eligibilityQuery.refetch()] : []),
+      ...(existingOwner && domainOptions.data?.enabled ? [domainStatus.refetch()] : []),
+    ]);
   }
 
   const checking =
@@ -196,7 +200,7 @@ function OnboardingWorkspace() {
   if (!eligibilityQuery.data && !selectingExistingAddress) return null;
 
   const eligibility = eligibilityQuery.data ?? { email: "", status: "ELIGIBLE" as const, canManageEnrollments: false };
-  const status = eligibility.status;
+  const status = selectingExistingAddress ? "ELIGIBLE" : eligibility.status;
 
   return (
     <div className="auth-workspace onboarding-workspace">
@@ -241,8 +245,9 @@ function OnboardingWorkspace() {
           </p>
           <h2 id="onboarding-title">{selectingExistingAddress ? "Choose your workspace address" : "Name your workspace"}</h2>
           <p className="text-muted">
-            Use the company or team name people will recognize. You can refine
-            organization settings later.
+            {selectingExistingAddress
+              ? "Preview the complete address carefully. Your final confirmation locks it for this workspace."
+              : "Use the company or team name people will recognize. You can refine organization settings later."}
           </p>
           <form className="form-stack" onSubmit={submit}>
             {!selectingExistingAddress && <label>
