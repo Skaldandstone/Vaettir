@@ -52,7 +52,9 @@ export async function createContext({ req }: CreateFastifyContextOptions) {
     ? null
     : looksLikeApiKey(token)
       ? await resolveApiKeyUser(token)
-      : await verifyClerkSessionToken(token, workspaceHost ? [`https://${workspaceHost}`] : undefined).then((clerkUserId) =>
+      : await (workspaceHost
+          ? verifyClerkSessionToken(token, [`https://${workspaceHost}`])
+          : verifyClerkSessionToken(token)).then((clerkUserId) =>
           clerkUserId
             ? getOrCreateLocalUser(clerkUserId).then(async (u) => {
                 const current = await prisma.user.findUniqueOrThrow({ where: { id: u.id }, include: { memberships: true } });
