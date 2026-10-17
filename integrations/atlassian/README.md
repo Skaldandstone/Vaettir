@@ -43,6 +43,29 @@ blocked, skipped, flaky, mixed and ambiguous results remain distinct.
 
 ## Company isolation and setup
 
+In a Jira project's Quality Intelligence page or a Confluence space's macro,
+choose **Connect a Vaettir project**. The verified app opens Vaettir's protected
+connection workflow directly. Sign in with your existing Vaettir account,
+choose one project you administer, review the destination and select **Connect
+project**. The original Atlassian view checks for the connection automatically.
+No connection JSON, copied API token or browser extension is required.
+
+The short-lived encrypted handoff identifies only the verified installation
+and project/space. It contains no bearer credentials and grants no authority by
+itself. Current human sign-in, full-seat administrator access and explicit
+project selection are checked again at the atomic write. Its nonce can be
+consumed once; retrying the same save cannot switch projects or revive a revoked
+connection. Handoffs expire after 15 minutes and can be renewed from the app.
+
+The persistent project connection shares approved aggregate quality captures,
+including newly approved captures, and Jira verification explicitly linked to
+tickets in that Jira project. Drafts, raw procedures, source, attachments and
+architecture mappings are excluded. A connected project with no approved capture
+shows a connected empty state, not an authentication error. Stop or narrow
+sharing in that Vaettir project's Settings / Integrations. Older explicit
+capture-only approvals keep their original scope until an administrator changes
+it; this update does not expand existing grants.
+
 Registered company app ID:
 `ari:cloud:ecosystem::app/743bf96f-0f9f-4fed-981a-ea3fc318d15d`.
 The manifest belongs to the Skald and Stone Developer Space. Do not re-register

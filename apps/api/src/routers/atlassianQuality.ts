@@ -24,6 +24,7 @@ import {
   releaseClosureEntity,
   releaseClosureId,
 } from "../services/jiraReleaseEvidence.js";
+import { forgeConnectionOptions, forgeConnectionOptionsInput, connectForgeProject, forgeProjectConnectionInput } from "../services/forgeProjectConnection.js";
 
 const input = z
   .object({
@@ -56,6 +57,8 @@ async function access(ctx: Actor, value: z.infer<typeof input>) {
   return scope;
 }
 export const atlassianQualityRouter = router({
+  connectionOptions: protectedProcedure.input(forgeConnectionOptionsInput).mutation(({ ctx, input }) => forgeConnectionOptions(ctx, input)),
+  connectProject: protectedProcedure.input(forgeProjectConnectionInput).mutation(({ ctx, input }) => connectForgeProject(ctx, input)),
   settings: protectedProcedure.input(input).query(async ({ ctx, input }) => {
     await access(ctx, input);
     const rows = await ctx.prisma.auditLog.findMany({
@@ -158,6 +161,7 @@ export const atlassianQualityRouter = router({
             .max(50)
             .refine((ids) => new Set(ids).size === ids.length),
           shareTicketTests: z.boolean(),
+          shareApprovedProjectQuality: z.boolean().optional(),
           releaseLinks: z
             .array(forgeReleaseLink)
             .max(50)
@@ -175,6 +179,7 @@ export const atlassianQualityRouter = router({
         .refine(
           (v) =>
             v.snapshotIds.length > 0 ||
+            v.shareApprovedProjectQuality === true ||
             v.closureSnapshotIds.length > 0 ||
             ((v.shareTicketTests || v.releaseLinks.length > 0) &&
               v.binding.product === "jira"),
@@ -230,6 +235,8 @@ export const atlassianQualityRouter = router({
               "This connection identifier is already used by another project.",
           });
         const previous = latestForgeSharing(versions);
+        if (previous?.shareApprovedProjectQuality && input.shareApprovedProjectQuality === undefined)
+          throw new TRPCError({ code: "CONFLICT", message: "Refresh Vaettir before updating this project's automatic quality-sharing permission." });
         if (prior) {
           if ((prior.metadata as Prisma.JsonObject).payloadHash !== payloadHash)
             throw new TRPCError({ code: "CONFLICT" });
@@ -357,6 +364,7 @@ export const atlassianQualityRouter = router({
               closureSnapshotIds: input.closureSnapshotIds,
               shareTicketTests:
                 input.shareTicketTests && input.binding.product === "jira",
+              shareApprovedProjectQuality: input.shareApprovedProjectQuality ?? false,
               payloadHash,
             },
           },

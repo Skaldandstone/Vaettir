@@ -27,6 +27,7 @@ export function AtlassianQualitySettings({
   const [bindingText, setBindingText] = useState(""),
     [snapshots, setSnapshots] = useState<string[]>([]),
     [tickets, setTickets] = useState(false),
+    [projectQuality, setProjectQuality] = useState(false),
     [releaseLinks, setReleaseLinks] = useState<Publish["releaseLinks"]>([]),
     [closureIds, setClosureIds] = useState<string[]>([]),
     [approved, setApproved] = useState(false),
@@ -75,6 +76,7 @@ export function AtlassianQualitySettings({
       requestId: crypto.randomUUID(),
       snapshotIds: snapshots,
       shareTicketTests: tickets && binding.product === "jira",
+      shareApprovedProjectQuality: projectQuality,
       releaseLinks: binding.product === "jira" ? releaseLinks : [],
       closureSnapshotIds: closureIds,
       approveTargetSharing: true,
@@ -141,6 +143,7 @@ export function AtlassianQualitySettings({
   if (!canConfigure) return null;
   return (
     <section
+      id="atlassian-quality"
       className="panel"
       style={{ marginBlock: 24, padding: 24 }}
       aria-labelledby="atlassian-quality-settings"
@@ -149,10 +152,10 @@ export function AtlassianQualitySettings({
         Jira &amp; Confluence quality sharing
       </h2>
       <p>
-        Publish selected quality captures to a specific Jira project or
-        Confluence space. Jira ticket panels can separately show explicitly
-        linked tests and recorded results. Architecture analysis and mappings
-        stay in Vaettir.
+        Connect this project from Quality Intelligence in Jira or Confluence:
+        choose Connect a Vaettir project, sign in and select this project.
+        Manage its read-only sharing here. Architecture analysis and mappings
+        stay in Vaettir. No connection metadata needs to be copied.
       </p>
       {message && <p role="status">{message}</p>}
       {query.error && <p role="alert">{query.error.message}</p>}
@@ -200,6 +203,7 @@ export function AtlassianQualitySettings({
                       </td>
                       <td>
                         {c.snapshotIds.length} approved captures
+                        {c.shareApprovedProjectQuality ? " · Approved project quality summaries" : ""}
                         {c.shareTicketTests ? " · Linked ticket tests" : ""}
                         {c.releaseLinks.length
                           ? ` · ${c.releaseLinks.length} linked releases`
@@ -223,6 +227,7 @@ export function AtlassianQualitySettings({
                               );
                               setSnapshots(c.snapshotIds);
                               setTickets(c.shareTicketTests);
+                              setProjectQuality(c.shareApprovedProjectQuality);
                               setReleaseLinks(c.releaseLinks);
                               setClosureIds(c.closureSnapshotIds);
                               setApproved(false);
@@ -245,7 +250,8 @@ export function AtlassianQualitySettings({
               </table>
             </div>
           )}
-          <form
+          {!connectionId && <p>To add a connection, open Quality Intelligence in the Jira project or Confluence space you want to link.</p>}
+          {connectionId && <form
             onSubmit={(e) => {
               e.preventDefault();
               void save();
@@ -261,18 +267,6 @@ export function AtlassianQualitySettings({
                   ? "Update this connection"
                   : "Approve a connection"}
               </legend>
-              <label style={{ display: "grid", gap: 8, marginBlock: 12 }}>
-                Verified target metadata
-                <textarea
-                  rows={6}
-                  value={bindingText}
-                  onChange={(e) => {
-                    setBindingText(e.target.value);
-                    setApproved(false);
-                  }}
-                  placeholder="Paste the non-secret connection metadata shown by the Vaettir app in Jira or Confluence"
-                />
-              </label>
               {binding && (
                 <p>
                   Audience: people who can view{" "}
@@ -284,7 +278,11 @@ export function AtlassianQualitySettings({
                   source, architecture and attachments are excluded.
                 </p>
               )}
-              <h3>Approved captures to share</h3>
+              <label style={{ display: "flex", gap: 10, alignItems: "start", marginBlock: 16 }}>
+                <input type="checkbox" checked={projectQuality} onChange={event => { setProjectQuality(event.target.checked); setApproved(false); }} />
+                <span>Share this project’s approved quality summaries, including newly approved captures. Drafts, raw source, architecture and attachments are excluded.</span>
+              </label>
+              <h3>Individual frozen captures</h3>
               {!data.snapshots.length && (
                 <p>
                   Create and approve a report capture first, or enable linked
@@ -616,7 +614,7 @@ export function AtlassianQualitySettings({
                 </button>
               )}
             </div>
-          </form>
+          </form>}
         </>
       )}
     </section>

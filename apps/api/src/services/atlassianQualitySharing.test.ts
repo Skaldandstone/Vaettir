@@ -95,6 +95,25 @@ function db() {
   };
 }
 describe("opt-in Atlassian quality sharing", () => {
+  it("keeps project authorization persistent while selecting only approved captures in the exact project and organization", async () => {
+    const f = db();
+    Object.assign(f.rows[0]!.metadata, { shareApprovedProjectQuality: true, snapshotIds: [] });
+    const result = await readSharedQuality(f.tx, "key", identity);
+    expect(result.protocol).toBe("vaettir-quality/v1");
+    expect(f.spies.projectReportSnapshot.findMany).toHaveBeenLastCalledWith({
+      where: { projectId: "project", organizationId: "org", payload: { path: ["state"], equals: "approved" } },
+      orderBy: [{ asOf: "desc" }, { id: "desc" }], take: 50,
+    });
+    expect(JSON.stringify(result)).not.toMatch(/private-case|private-map|must not cross/);
+    f.spies.projectReportSnapshot.findMany.mockResolvedValue([]);
+    expect(await readSharedQuality(f.tx, "key", identity)).toMatchObject({ protocol: "vaettir-quality-empty/v1", projectId: "project" });
+    await expect(readSharedQuality(f.tx, "key", identity, "b".repeat(64))).rejects.toThrow();
+    expect(f.spies.projectReportSnapshot.findMany).toHaveBeenLastCalledWith(expect.objectContaining({
+      where: { projectId: "project", organizationId: "org", id: "b".repeat(64), payload: { path: ["state"], equals: "approved" } },
+    }));
+    f.rows.push({ ...share(2, "REVOKED"), metadata: { ...share(2, "REVOKED").metadata, shareApprovedProjectQuality: true } } as typeof f.rows[number]);
+    await expect(readSharedQuality(f.tx, "key", identity)).rejects.toThrow();
+  });
   it("accepts canonical app/environment ARIs without silently changing legacy approvals", () => {
     const canonical = {
       ...binding,

@@ -13,12 +13,14 @@ const mocks = vi.hoisted(() => ({
   ticket: vi.fn(),
   connections: vi.fn(),
   capture: vi.fn(),
+  product: vi.fn(),
 }));
 vi.mock("./forgeInvocation.js", () => ({
   verifyForgeInvocation: mocks.invocation,
   verifyForgeViewer: mocks.viewer,
   verifyForgeEventInvocation: mocks.event,
   readForgeJiraVersion: mocks.version,
+  productJson: mocks.product,
 }));
 vi.mock("./atlassianQualitySharing.js", async (original) => ({
   ...(await original<object>()),
@@ -66,6 +68,41 @@ beforeEach(() => {
 });
 afterEach(() => vi.unstubAllEnvs());
 describe("Forge quality HTTP authorization boundary", () => {
+  it("issues a direct opaque setup link only for the verified product destination, without a sharing write", async () => {
+    const viewer = {
+      ...identity,
+      appId: "ari:cloud:ecosystem::app/743bf96f-0f9f-4fed-981a-ea3fc318d15d",
+      environmentId: "ari:cloud:ecosystem::environment/743bf96f-0f9f-4fed-981a-ea3fc318d15d/d2844601-7a1f-4e4e-9b77-e0d4d3682c50",
+      installationId: "ari:cloud:ecosystem::installation/10000000-0000-4000-8000-000000000001",
+      cloudId: "10000000-0000-4000-8000-000000000002",
+      siteOrigin: "https://company.atlassian.net", principal: "private-viewer",
+      apiBaseUrl: "https://api.atlassian.com/ex/jira/10000000-0000-4000-8000-000000000002",
+    };
+    vi.stubEnv("VAETTIR_FORGE_APP_ID", viewer.appId);
+    vi.stubEnv("VAETTIR_FORGE_ENVIRONMENT_ID", viewer.environmentId);
+    vi.stubEnv("PRODUCTION_SIGNAL_ENCRYPTION_KEY", Buffer.alloc(32, 4).toString("base64"));
+    vi.stubEnv("WEB_APP_URL", "https://vaettir.example.test");
+    mocks.invocation.mockResolvedValue(viewer); mocks.viewer.mockResolvedValue(viewer);
+    mocks.product.mockResolvedValue({ id: "10", key: "TEST", name: "Company demo" });
+    const f = fixture(), send = (payload: object) => f.app.inject({ method: "POST", url: "/api/integrations/forge/quality", headers, payload });
+    const response = await send({ action: "CONNECT" });
+    expect(response.statusCode).toBe(200);
+    expect(response.headers["cache-control"]).toBe("no-store, private");
+    const url = new URL(response.json().connectionUrl);
+    expect(url.origin + url.pathname).toBe("https://vaettir.example.test/integrations/atlassian/connect");
+    expect(response.json().targetLabel).toBe("Company demo (TEST)");
+    expect(response.body).not.toMatch(/ephemeral-user|signed-fit|private-viewer|installationId|cloudId/);
+    expect(mocks.product).toHaveBeenCalledWith(viewer.apiBaseUrl + "/rest/api/3/project/10", "ephemeral-user", expect.any(Function));
+    expect(f.prisma.$transaction).not.toHaveBeenCalled();
+    expect((await send({ action: "CONNECT", redirect: "https://attacker.test" })).statusCode).toBe(400);
+    mocks.product.mockResolvedValue({ id: "20", key: "OTHER", name: "Other destination" });
+    expect((await send({ action: "CONNECT" })).statusCode).toBe(403);
+    mocks.viewer.mockRejectedValue(new Error("No current project access"));
+    mocks.product.mockClear();
+    expect((await send({ action: "CONNECT" })).statusCode).toBe(403);
+    expect(mocks.product).not.toHaveBeenCalled();
+    await f.app.close();
+  });
   it("returns setup identity after an empty LIST using Forge's canonical environment ARI", async () => {
     const binding = {
       appId: "ari:cloud:ecosystem::app/743bf96f-0f9f-4fed-981a-ea3fc318d15d",
