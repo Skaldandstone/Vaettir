@@ -45,6 +45,7 @@ export const forgeSharingRecord = z.object({
   binding: forgeQualityBinding,
   snapshotIds: z.array(z.string().length(64)).max(50),
   shareTicketTests: z.boolean().default(false),
+  shareApprovedProjectQuality: z.boolean().default(false),
   releaseLinks: z.array(forgeReleaseLink).max(50).default([]),
   closureSnapshotIds: z.array(z.string().length(64)).max(50).default([]),
 });
@@ -173,13 +174,15 @@ export async function readSharedQuality(
     connectionKey,
     identity,
   );
-  if (snapshotId && !sharing.snapshotIds.includes(snapshotId))
+  if (snapshotId && !sharing.shareApprovedProjectQuality && !sharing.snapshotIds.includes(snapshotId))
     throw new Error("Snapshot not approved for this target");
   const snapshots = await tx.projectReportSnapshot.findMany({
     where: {
       projectId,
       organizationId: orgId,
-      id: { in: snapshotId ? [snapshotId] : sharing.snapshotIds },
+      ...(sharing.shareApprovedProjectQuality
+        ? { payload: { path: ["state"], equals: "approved" }, ...(snapshotId ? { id: snapshotId } : {}) }
+        : { id: { in: snapshotId ? [snapshotId] : sharing.snapshotIds } }),
     },
     orderBy: [{ asOf: "desc" }, { id: "desc" }],
     take: 50,
@@ -188,6 +191,14 @@ export async function readSharedQuality(
     id: s.id,
     ...sharedQualitySnapshot.parse(s.payload),
   }));
+  if (snapshotId && !available.length) throw new Error("No approved shared snapshot available");
+  if (!available.length && sharing.shareApprovedProjectQuality)
+    return {
+      protocol: "vaettir-quality-empty/v1" as const,
+      projectId,
+      reportUrl: `https://vaettir.skaldandstone.com/projects/${encodeURIComponent(projectId)}/reports`,
+      notice: "Connected. This project has no approved quality captures yet. Create and approve a report in Vaettir; it will appear here without reconnecting.",
+    };
   if (!available.length)
     throw new Error("No approved shared snapshot available");
   return {
@@ -269,7 +280,7 @@ export async function listForgeSharing(
     if (
       identity.moduleKey === "vaettir-issue-quality"
         ? !sharing.shareTicketTests
-        : !sharing.snapshotIds.length &&
+        : !sharing.shareApprovedProjectQuality && !sharing.snapshotIds.length &&
           !sharing.releaseLinks.length &&
           !sharing.closureSnapshotIds.length
     )
@@ -282,7 +293,7 @@ export async function listForgeSharing(
       key,
       projectName: project.name,
       shareTicketTests: sharing.shareTicketTests,
-      hasSnapshots: !!sharing.snapshotIds.length,
+      hasSnapshots: sharing.shareApprovedProjectQuality || !!sharing.snapshotIds.length,
       hasReleases: !!sharing.releaseLinks.length,
       hasClosures: !!sharing.closureSnapshotIds.length,
     });

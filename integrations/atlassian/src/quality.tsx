@@ -1,7 +1,6 @@
 import React, { useEffect, useState } from "react";
 import {
   Button,
-  CodeBlock,
   DonutChart,
   Heading,
   Inline,
@@ -117,6 +116,7 @@ type Quality = {
     };
   };
 };
+type EmptyQuality = { protocol: "vaettir-quality-empty/v1"; projectId: string; reportUrl: string; notice: string };
 const remote = createQualityTransport(invokeRemote);
 const label = (value: string) =>
   value
@@ -160,11 +160,13 @@ export function QualityApp({
     [snapshotId, setSnapshotId] = useState("");
   const [response, setResponse] = useState<{
       pin: string;
-      value: Ticket | Quality | Release;
+      value: Ticket | Quality | Release | EmptyQuality;
     } | null>(null),
     [identity, setIdentity] = useState<{
       signature: string;
-      binding: unknown;
+      connectionUrl: string;
+      targetLabel: string;
+      expiresAt: string;
     } | null>(null),
     [busy, setBusy] = useState(false),
     [error, setError] = useState(""),
@@ -186,7 +188,7 @@ export function QualityApp({
   const data = response?.pin === pin ? response.value : null;
   const connections =
     catalog?.signature === signature ? catalog.connections : [];
-  const binding = identity?.signature === signature ? identity.binding : null;
+  const connectionRequest = identity?.signature === signature ? identity : null;
   useEffect(() => {
     if (!signature) return;
     let active = true;
@@ -204,8 +206,8 @@ export function QualityApp({
         );
         setSnapshotId(configuredSnapshot);
         if (!available.length) {
-          const identity = await remote({ action: "IDENTITY" });
-          if (active) setIdentity({ signature, binding: identity.binding });
+          const prepared = await remote({ action: "CONNECT" });
+          if (active) setIdentity({ signature, connectionUrl: prepared.connectionUrl, targetLabel: prepared.targetLabel, expiresAt: prepared.expiresAt });
         }
       })
       .catch((e) => {
@@ -221,6 +223,32 @@ export function QualityApp({
       active = false;
     };
   }, [signature, configuredKey, configuredSnapshot, reload]);
+  useEffect(() => {
+    if (!connectionRequest || connections.length) return;
+    let active = true, inFlight = false;
+    const timer = setInterval(() => {
+      if (Date.now() >= Date.parse(connectionRequest.expiresAt)) {
+        clearInterval(timer);
+        if (active) { setIdentity(null); setError("This setup link expired. Refresh the connection to create a new link."); }
+        return;
+      }
+      if (inFlight) return;
+      inFlight = true;
+      void remote({ action: "LIST" }).then((result) => {
+        if (!active) return;
+        const available = result.connections as Connection[];
+        if (available.length) {
+          setCatalog({ signature, connections: available });
+          setKey(configuredKey || (available.length === 1 ? available[0]!.key : ""));
+          setIdentity(null);
+        }
+      }).catch(() => {
+        if (active) setError("Connection access changed. Refresh the connection before continuing.");
+        clearInterval(timer);
+      }).finally(() => { inFlight = false; });
+    }, 15000);
+    return () => { active = false; clearInterval(timer); };
+  }, [connectionRequest, connections.length, signature, configuredKey]);
   useEffect(() => {
     if (!key || !signature) return;
     let active = true;
@@ -403,19 +431,25 @@ export function QualityApp({
           </Button>
         </SectionMessage>
       )}
-      {binding !== null && (
-        <SectionMessage title="Approve a Vaettir project connection">
+      {connectionRequest !== null && (
+        <SectionMessage title="Connect a Vaettir project">
           <Text>
-            In Vaettir, open your project’s Settings → Integrations and approve
-            sharing to this specific Jira project or Confluence space.
-            Architecture analysis and mappings stay in Vaettir.
+            Sign in to Vaettir, choose the project you want connected to {connectionRequest.targetLabel}, and confirm read-only access.
+            Source, attachments and architecture mappings remain private in Vaettir.
           </Text>
-          <CodeBlock language="json" text={JSON.stringify(binding, null, 2)} />
           <Text>
-            <Link href="https://vaettir.skaldandstone.com/projects" openNewTab>
-              Open Vaettir projects
+            <Link href={connectionRequest.connectionUrl} openNewTab>
+              Connect a Vaettir project
             </Link>
           </Text>
+          <Text>This page checks for the completed connection automatically.</Text>
+          <Button onClick={() => setReload(value => value + 1)} isDisabled={busy}>Refresh connection</Button>
+        </SectionMessage>
+      )}
+      {data?.protocol === "vaettir-quality-empty/v1" && (
+        <SectionMessage title="Project connected">
+          <Text>{data.notice}</Text>
+          <Text><Link href={data.reportUrl} openNewTab>Open project reports</Link></Text>
         </SectionMessage>
       )}
       {data?.protocol === "vaettir-ticket-verification/v1" && (

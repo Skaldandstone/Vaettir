@@ -1,5 +1,5 @@
 import * as Sentry from "@sentry/node";
-import { withoutForgeCredentials } from "./services/forgeTelemetry.js";
+import { withoutForgeCredentials, withoutForgeConnectionData } from "./services/forgeTelemetry.js";
 
 // P10-05: imported first (before any other module) in server.ts so
 // Sentry's instrumentation is active before anything else runs. Inert
@@ -28,7 +28,7 @@ if (dsn && sentryWanted) {
     beforeSend(event) {
       if (event.request?.headers)
         event.request.headers = withoutForgeCredentials(event.request.headers);
-      return event;
+      return withoutForgeConnectionData(event);
     },
   });
 

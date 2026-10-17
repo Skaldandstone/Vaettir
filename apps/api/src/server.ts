@@ -155,6 +155,7 @@ async function detailedHealthHandler() {
     // Public transport readiness only, never a grant to read project evidence.
     capabilities: {
       forgeQuality: Boolean(process.env.VAETTIR_FORGE_APP_ID && process.env.VAETTIR_FORGE_ENVIRONMENT_ID),
+      forgeProjectConnection: Boolean(process.env.VAETTIR_FORGE_APP_ID && process.env.VAETTIR_FORGE_ENVIRONMENT_ID && Buffer.from(process.env.PRODUCTION_SIGNAL_ENCRYPTION_KEY ?? "", "base64").length === 32),
     },
     db: { ok: dbOk },
     credentials,
@@ -533,6 +534,15 @@ await server.register(cors, { origin: createCorsOriginPolicy(process.env) });
 // tRPC's httpBatchLink can fire several batched requests in quick
 // succession as a page mounts several queries at once.
 await server.register(rateLimit, { max: 300, timeWindow: "1 minute" });
+
+// Connection handoffs and authenticated project choices must not enter shared
+// caches, including failed/batched requests and the legacy /api alias.
+server.addHook("onRequest", async (request, reply) => {
+  if (/atlassianQuality\.(?:connectionOptions|connectProject)/.test(request.url)) {
+    reply.header("cache-control", "no-store, private");
+    reply.header("referrer-policy", "no-referrer");
+  }
+});
 
 await server.register(fastifyTRPCPlugin, {
   prefix: "/trpc",

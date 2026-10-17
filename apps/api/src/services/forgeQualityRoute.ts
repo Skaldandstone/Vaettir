@@ -13,6 +13,7 @@ import {
   listForgeSharing,
 } from "./atlassianQualitySharing.js";
 import { readJiraTicketVerification } from "./jiraTicketVerification.js";
+import { issueForgeConnectionRequest, readForgeConnectionTarget } from "./forgeConnectionRequest.js";
 import { authorizeForgeSharing } from "./atlassianQualitySharing.js";
 import {
   captureJiraRelease,
@@ -24,6 +25,7 @@ import {
 
 const input = z.discriminatedUnion("action", [
   z.object({ action: z.literal("IDENTITY") }).strict(),
+  z.object({ action: z.literal("CONNECT") }).strict(),
   z.object({ action: z.literal("LIST") }).strict(),
   z
     .object({
@@ -92,6 +94,8 @@ export function registerForgeQualityRoute(
           ),
           userToken,
         );
+        if (parsed.data.action === "CONNECT")
+          return issueForgeConnectionRequest(identity, await readForgeConnectionTarget(identity, userToken));
         if (parsed.data.action === "IDENTITY") {
           const {
             appId,

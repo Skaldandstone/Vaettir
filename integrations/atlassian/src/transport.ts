@@ -10,9 +10,9 @@ export function createQualityTransport(
       // Public readiness improves rollout feedback. It is not authorization or
       // an atomic guarantee about a subsequent request during a rolling update.
       const action = (body as { action?: string })?.action;
-      if (action === "LIST" || action === "IDENTITY") {
+      if (action === "LIST" || action === "IDENTITY" || action === "CONNECT") {
         const health = await invoke({ path: "/api/health/detailed", method: "GET" });
-        if (health.status !== 200 || health.body?.capabilities?.forgeQuality !== true)
+        if (health.status !== 200 || health.body?.capabilities?.forgeQuality !== true || (action === "CONNECT" && health.body?.capabilities?.forgeProjectConnection !== true))
           throw new Error("Quality Intelligence is waiting for the Vaettir API update. Try again shortly.");
       }
       return invoke({
