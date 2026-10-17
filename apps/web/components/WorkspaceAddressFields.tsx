@@ -14,7 +14,7 @@ export function WorkspaceAddressFields({ name, onNameChange, confirmed, onConfir
   );
   const checked = availability.data?.name === normalized && !availability.isFetching;
   return (
-    <fieldset disabled={disabled} className="form-stack">
+    <fieldset disabled={disabled} className="form-stack workspace-address-fields">
       <legend>Your permanent workspace address</legend>
       <label>
         Workspace name
@@ -33,10 +33,10 @@ export function WorkspaceAddressFields({ name, onNameChange, confirmed, onConfir
       {checked && <p role="status">{availability.data?.available ? "This address is available. Review it before confirming." : "This address is unavailable. Choose another name."}</p>}
       {availability.error && <p role="alert">Availability could not be checked. Try again.</p>}
       <p id="workspace-address-policy">You can choose this address once. After confirmation, you cannot rename it in settings. You can change your company display name later.</p>
-      <label>
+      <label className="workspace-address-confirmation">
         <input type="checkbox" checked={confirmed} disabled={!checked || !availability.data?.available || Boolean(invalid) || Boolean(availability.error)}
           onChange={event => onConfirmedChange(event.target.checked)} required />
-        I confirm this permanent workspace address.
+        <span>I confirm this permanent workspace address.</span>
       </label>
     </fieldset>
   );
