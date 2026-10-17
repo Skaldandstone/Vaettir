@@ -3,6 +3,7 @@
 import { useState } from "react";
 import type { PopulationDraft } from "@vaettir/core";
 import { CreationWizard, WizardChoices } from "./CreationWizard";
+import { ReadableSelect } from "./ui/ReadableSelect";
 import { SourceConnectionChips } from "./SourceConnectionChips";
 import type { RepositoryProvider } from "./RepositoryConnectionContent";
 import type {RepositoryAuthorizationIntent} from "./RepositoryProviderPicker";
@@ -139,7 +140,7 @@ export function PopulationWizard({
             <>
               <label>
                 System type
-                <select
+                <ReadableSelect
                   value={draft.systemScope}
                   onChange={(event) =>
                     setDraft({
@@ -155,7 +156,7 @@ export function PopulationWizard({
                   <option value="PROCESS">
                     Process or laboratory validation
                   </option>
-                </select>
+                </ReadableSelect>
               </label>
               <label>
                 What should this project establish? (optional)

@@ -65,36 +65,45 @@ export function AtlassianConnectWorkflow() {
     }
   }
 
-  if (!/^[A-Za-z0-9_-]{80,4096}$/.test(requestToken)) return <section className="panel" role="alert"><h1>Start this connection in Jira or Confluence</h1><p>Open Quality Intelligence and choose Connect a Vaettir project. Its verified link brings you directly to this setup.</p></section>;
-  if (!ready) return <section className="panel" role="status"><h1>Connect a Vaettir project</h1><p>Verifying your Vaettir sign-in…</p></section>;
-  if (acknowledgement) return <section className="panel" style={{ maxWidth: 760 }}>
+  if (!/^[A-Za-z0-9_-]{80,4096}$/.test(requestToken)) return <section className="panel connection-workflow" role="alert"><h1>Start this connection in Jira or Confluence</h1><p>Open Quality Intelligence and choose Connect a Vaettir project. Its verified link brings you directly to this setup.</p></section>;
+  if (!ready) return <section className="panel connection-workflow" role="status"><h1>Connect a Vaettir project</h1><p>Verifying your Vaettir sign-in…</p></section>;
+  if (acknowledgement) return <section className="panel connection-workflow">
+    <div className="connection-symbol" aria-hidden="true">{acknowledgement.value.state === "APPROVED" ? "✓" : "—"}</div>
     <h1>{acknowledgement.value.state === "APPROVED" ? "Project connected" : "Connection is stopped"}</h1>
     <p>{acknowledgement.value.state === "APPROVED" ? `${acknowledgement.projectName} is connected. Return to your Jira or Confluence tab; it checks for the connection automatically.` : "The original connection was saved, then revoked. This retry has not restored its permissions."}</p>
     <a className="btn-secondary" href={`/projects/${encodeURIComponent(acknowledgement.value.projectId)}/settings/integrations#atlassian-quality`}>Manage this project’s connection</a>
   </section>;
-  return <section className="panel" style={{ maxWidth: 760, display: "grid", gap: 20 }}>
-    <header><p className="text-muted">PROJECT CONNECTION</p><h1>Connect a Vaettir project</h1><p>Choose the project you want linked. Nothing is connected until you confirm.</p></header>
+  return <section className="panel connection-workflow">
+    <header><p className="eyebrow">Quality Intelligence · Project connection</p><h1>Connect your project</h1><p className="text-muted">Choose a Vaettir project to share with Jira or Confluence. You stay in control of what is visible.</p></header>
     {loading && <p role="status">Checking the destination and your current project permissions…</p>}
     {message && <div role="alert"><p>{message}</p>{!retained && <button type="button" className="btn-secondary" onClick={() => setReload(value => value + 1)}>Check again</button>}</div>}
     {retained && !pendingMatches && <p role="alert">Sign back in with the account that started this request to confirm its outcome. No other account can adopt the pending connection.</p>}
     {metadata && <>
-      <div style={{ padding: 16, border: "1px solid var(--line)", borderRadius: 8 }}><h2>{metadata.targetLabel}</h2><p>{new URL(metadata.binding.siteOrigin).hostname} · {metadata.binding.product === "jira" ? "Jira project" : "Confluence space"}</p></div>
+      <div className="connection-destination"><div className="connection-symbol" aria-hidden="true">↗</div><div><p className="connection-caption">Connecting to {metadata.binding.product === "jira" ? "Jira project" : "Confluence space"}</p><h2>{metadata.targetLabel}</h2><p className="text-muted">{new URL(metadata.binding.siteOrigin).hostname}</p></div><span className="status-pill">Read-only</span></div>
       {!metadata.organizations.length && <p role="alert">A current workspace owner or administrator must connect the project. Ask one to open this setup link while signed in to Vaettir.</p>}
-      {!!metadata.organizations.length && <fieldset disabled={connect.isPending || retained} style={{ border: 0, padding: 0, display: "grid", gap: 16 }}>
-        <label style={{ display: "grid", gap: 8 }}>Workspace<select value={workspace} onChange={event => setWorkspace(event.target.value)}><option value="">All my administrator workspaces</option>{metadata.organizations.map(org => <option key={org.id} value={org.id}>{org.name}</option>)}</select></label>
-        <label style={{ display: "grid", gap: 8 }}>Find a project<input value={search} onChange={event => setSearch(event.target.value)} placeholder="Search project names" /></label>
-        <label style={{ display: "grid", gap: 8 }}>Vaettir project<select value={chosen?.id ?? ""} disabled={!current || loading} onChange={event => {
-          const project = current?.projects.find(p => p.id === event.target.value);
-          setSelected(project && current ? { ...project, actor: auth.userId!, digest: current.requestDigest } : null);
-        }}><option value="">Choose the project to connect</option>{current?.projects.map(project => <option key={project.id} value={project.id}>{project.name} · {current.organizations.find(org => org.id === project.organizationId)?.name}</option>)}</select></label>
+      {!!metadata.organizations.length && <div className="connection-layout"><fieldset disabled={connect.isPending || retained} className="connection-projects form-stack">
+        <legend>1. Choose your Vaettir project</legend>
+        <p className="text-muted">Only projects you can administer are listed.</p>
+        {metadata.organizations.length > 1 && <label>Workspace<select value={workspace} onChange={event => setWorkspace(event.target.value)}><option value="">All my administrator workspaces</option>{metadata.organizations.map(org => <option key={org.id} value={org.id}>{org.name}</option>)}</select></label>}
+        <label>Find a project<input type="search" value={search} onChange={event => setSearch(event.target.value)} placeholder="Search project names" /></label>
+        <div className="connection-project-list" role="group" aria-label="Vaettir project" aria-busy={loading}>
+          {metadata.projects.map(project => <label key={project.id} className={`connection-project${chosen?.id === project.id ? " is-selected" : ""}`}>
+            <input type="radio" name="vaettir-project" value={project.id} checked={chosen?.id === project.id} disabled={!current || loading} onChange={() => {
+              if (current?.projects.some(p => p.id === project.id && p.organizationId === project.organizationId)) setSelected({ ...project, actor: auth.userId!, digest: current.requestDigest });
+            }} />
+            <span><strong>{project.name}</strong><span>{metadata.organizations.find(org => org.id === project.organizationId)?.name}</span></span>
+          </label>)}
+          {current && !current.projects.length && <p className="connection-no-projects">No matching projects. Try another name or workspace.</p>}
+        </div>
         {current?.catalogLimited && <p>More projects are available. Choose a workspace or search to narrow this list.</p>}
-        {chosen && <div style={{ padding: 16, border: "1px solid var(--line)", borderRadius: 8 }}><h2>Read-only access for {chosen.name}</h2>
-          <p>People who can view {metadata.targetLabel} can see this Vaettir project’s approved quality summaries{metadata.binding.product === "jira" ? " and verification tests explicitly linked to its Jira tickets" : ""}. Newly approved quality captures appear without reconnecting.</p>
-          <p>Draft reports, test procedures, source code, attachments and architecture mappings stay private. This does not allow Jira or Confluence to edit tests, run them, import data or spend AI credits.</p>
-          <p>You can stop this connection in the project’s integration settings.</p>
-        </div>}
-        <button type="button" className="btn-primary" disabled={!chosen || loading} onClick={() => void confirm()}>Connect project</button>
-      </fieldset>}
+      </fieldset><aside className="connection-permissions" aria-label="Connection permissions">
+        <h2>2. Review access</h2>
+        <h3>{chosen ? `Read-only access for ${chosen.name}` : "Approved evidence only"}</h3>
+        <p>People who can view {metadata.targetLabel} will be able to see:</p>
+        <ul className="connection-scope-list"><li><span aria-hidden="true">✓</span> Approved quality summaries, including future approved captures</li>{metadata.binding.product === "jira" && <li><span aria-hidden="true">✓</span> Verification tests explicitly linked to its Jira tickets</li>}</ul>
+        <div className="connection-private"><strong>Stays private in Vaettir</strong><p>Draft reports, test procedures, source code, attachments and architecture mappings.</p></div>
+        <p className="connection-caption">No editing tests, running tests, importing data or spending AI credits. Stop sharing anytime in project settings.</p>
+      </aside><div className="connection-footer"><p>{chosen ? <>Ready to connect <strong>{chosen.name}</strong></> : "Select a project to continue. Nothing is connected yet."}</p><button type="button" className="btn-primary" disabled={!chosen || loading || connect.isPending || retained} onClick={() => void confirm()}>{connect.isPending ? "Connecting project…" : "Connect project"}</button></div></div>}
       {retained && pendingMatches && <button type="button" className="btn-primary" disabled={connect.isPending || loading || !current} onClick={() => void confirm()}>{connect.isPending ? "Connecting project…" : "Confirm connection status"}</button>}
     </>}
   </section>;

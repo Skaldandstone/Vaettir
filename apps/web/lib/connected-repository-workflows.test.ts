@@ -14,6 +14,8 @@ function fixture(state:{isSuccess:boolean;isFetching?:boolean;isPaused?:boolean;
     SourceConnectionChips:()=>React.createElement("button",null,"Connect repo"),useCaseFieldAccess:()=>({readable,origin:{projectId:"synthetic"},owns:()=>readable}),
     trpcReact:{project:{repositories:{useQuery:(input:unknown)=>{reads.push(input);return state;}}}},
   };
+  // These are access/selection contracts, not the wrapper's browser layout.
+  Object.assign(sandbox,{ReadableSelect:"select"});
   vm.createContext(sandbox);const declarations=ast.statements.filter(ts.isFunctionDeclaration).map(node=>printer.printNode(ts.EmitHint.Unspecified,node,ast).replace("export function","function")).join("\n");
   vm.runInContext(ts.transpileModule(declarations+"\nthis.actual=ConnectedRepositoryPicker;",{compilerOptions:{jsx:ts.JsxEmit.React,target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.None}}).outputText,sandbox);
   const render=(sandbox as typeof sandbox&{actual:(props:unknown)=>React.ReactElement}).actual;
