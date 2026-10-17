@@ -3,10 +3,7 @@
   if (!triggers.length) return;
 
   const products = [
-    ["", "Choose a product"],
     ["vaettir", "Vaettir"],
-    ["vordling", "Vordling"],
-    ["wispling", "Wispling"],
   ];
   const dialog = document.createElement("dialog");
   dialog.id = "request-access";

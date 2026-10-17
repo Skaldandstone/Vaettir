@@ -45,7 +45,9 @@ html = html.replace(/content="https:\/\/vaettir\.app\/([^"/]+\.(?:webp|png|svg))
 await writeFile(path.join(root, "index.html"), html);
 // Keep legal links and invitation processing with their existing data controller.
 const script = path.join(root, "assets/access-request.js");
-await writeFile(script, (await readFile(script, "utf8")).replaceAll('href="/privacy/"', 'href="https://skaldandstone.com/privacy/"'));
+await writeFile(script, (await readFile(script, "utf8"))
+  .replaceAll('href="/privacy/"', 'href="https://skaldandstone.com/privacy/"')
+  .replace(/const products = \[[\s\S]*?\n  \];/, 'const products = [["vaettir", "Vaettir"]];'));
 await writeFile(path.join(root, "robots.txt"), "User-agent: *\nAllow: /\nSitemap: https://vaettir.app/sitemap.xml\n");
 await writeFile(path.join(root, "sitemap.xml"), '<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"><url><loc>https://vaettir.app/</loc></url></urlset>\n');
 await writeFile(new URL("./marketing-source.json", import.meta.url), JSON.stringify({ capturedAt: new Date().toISOString(), source, assets: recorded,

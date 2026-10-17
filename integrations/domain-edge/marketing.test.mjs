@@ -44,6 +44,7 @@ for (const width of [1280, 390]) test("marketing assets, navigation and invitati
     await p.getByRole("link", { name: /Request an invitation/ }).click();
     await p.getByRole("dialog").waitFor();
     assert.equal(await p.getByRole("dialog").getByRole("combobox").inputValue(), "vaettir");
+    assert.equal(await p.getByRole("dialog").getByRole("option").count(), 1);
     assert.equal(await p.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true);
     assert.deepEqual(failed, []);
   } finally { await p.close(); }
