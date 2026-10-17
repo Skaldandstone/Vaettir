@@ -1,4 +1,6 @@
 import { z } from "zod";
+import { domainSelectionEnabled, requireDomainSelectionEnabled, validatedWorkspaceName, workspaceDomainAvailable, confirmExistingWorkspaceDomain } from "../services/workspaceDomains.js";
+import { legacyWorkspaceLinkInput, resolveLegacyWorkspaceLink } from "../services/workspaceLegacyLinks.js";
 import { TRPCError } from "@trpc/server";
 import {
   DEFAULT_STEP_FIELD_LABELS,
@@ -147,26 +149,65 @@ const stepFieldLabelsInputSchema = z.object(
 );
 
 export const organizationRouter = router({
+  resolveLegacyLink: protectedProcedure.input(legacyWorkspaceLinkInput)
+    .query(({ ctx, input }) => resolveLegacyWorkspaceLink(ctx, input.path)),
+  domainOptions: protectedProcedure.query(({ ctx }) => ({
+    enabled: domainSelectionEnabled(ctx.user.memberships.map(m => m.organizationId)),
+  })),
+  domainAvailability: protectedProcedure
+    .input(z.object({ name: z.string().max(100) }).strict())
+    .query(({ ctx, input }) => {
+      requireDomainSelectionEnabled();
+      if (!ctx.authenticatedClerkSubject) throw new TRPCError({ code: "UNAUTHORIZED" });
+      return workspaceDomainAvailable(ctx.prisma, input.name);
+    }),
+  domainStatus: protectedProcedure
+    .input(z.object({ organizationId: z.string() }).strict())
+    .query(async ({ ctx, input }) => {
+      requireOrgRole(ctx, input.organizationId);
+      const domain = await ctx.prisma.workspaceDomain.findUnique({ where: { organizationId: input.organizationId } });
+      return { enabled: process.env.VAETTIR_WORKSPACE_DOMAINS_ENABLED === "1", name: domain?.name ?? null };
+    }),
+  confirmDomain: protectedProcedure
+    .input(z.object({ organizationId: z.string(), name: z.string().max(100), confirmPermanentAddress: z.literal(true) }).strict())
+    .mutation(({ ctx, input }) => confirmExistingWorkspaceDomain(ctx, input.organizationId, input.name)),
   // Clerk only knows about the signed-in person, not our org/seat model.
   // A brand-new Clerk user has zero Memberships until they either create an
   // org (this) or accept an invite (P12-02, not yet built) -- the web app's
   // onboarding step calls this the first time someone signs in with no
   // memberships.
   bootstrap: protectedProcedure
-    .input(z.object({ organizationName: z.string().trim().min(1).max(120) }))
+    .input(z.object({
+      organizationName: z.string().trim().min(1).max(120),
+      workspaceName: z.string().max(100).optional(),
+      confirmPermanentAddress: z.literal(true).optional(),
+    }).strict())
     // .output() bounds the inferred type instead of letting it flow straight
     // from Prisma's Organization model -- same TS2589 fix `mine` below
     // already needed, tripped here once a react-query `useMutation` wrapper
     // (P1-15) tried to fully resolve the unbounded type.
     .output(z.object({ id: z.string(), name: z.string(), slug: z.string() }))
-    .mutation(({ ctx, input }) =>
-      bootstrapBetaOrganization(
+    .mutation(({ ctx, input }) => {
+      const sandboxOnly = Boolean(process.env.VAETTIR_WORKSPACE_DOMAIN_ORGANIZATION_IDS?.trim());
+      const enabled = process.env.VAETTIR_WORKSPACE_DOMAINS_ENABLED === "1" && !sandboxOnly;
+      if (enabled || input.workspaceName !== undefined) {
+        requireDomainSelectionEnabled();
+        if (sandboxOnly) throw new TRPCError({ code: "FORBIDDEN", message: "New workspace addresses are not enabled yet." });
+        if (!ctx.authenticatedClerkSubject) throw new TRPCError({ code: "UNAUTHORIZED" });
+        if (!input.workspaceName || input.confirmPermanentAddress !== true)
+          throw new TRPCError({ code: "BAD_REQUEST", message: "Preview and confirm your permanent workspace address." });
+        validatedWorkspaceName(input.workspaceName);
+      }
+      if (ctx.workspaceOrganizationId) throw new TRPCError({ code: "FORBIDDEN" });
+      return bootstrapBetaOrganization(
         ctx.prisma,
         ctx.user,
         input.organizationName,
         isStaffEmail(ctx.user.email),
-      ),
-    ),
+        input.workspaceName,
+        ctx.authenticatedClerkSubject,
+      );
+    }),
 
   // .output() bounds the inferred type instead of letting it flow straight
   // from Prisma's Organization model -- see testCases.ts's byId for why
@@ -190,7 +231,7 @@ export const organizationRouter = router({
     .query(({ ctx }) =>
       ctx.prisma.organization
         .findMany({
-          where: { memberships: { some: { userId: ctx.user.id } } },
+          where: { memberships: { some: { userId: ctx.user.id } }, ...(ctx.workspaceOrganizationId ? { id: ctx.workspaceOrganizationId } : {}) },
           select: { id: true, name: true, slug: true },
         })
         .then((orgs) =>

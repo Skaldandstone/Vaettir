@@ -34,11 +34,13 @@ test("only browser GET documents or iframes use explicit sign-in navigation", ()
 const source = readFileSync(new URL("../middleware.ts", import.meta.url), "utf8");
 const code = ts.transpileModule(source.replace(/^import .*;\r?\n/gm, ""), { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext } }).outputText
   .replace("export default ", "this.handler = ").replace("export const config", "const config");
-async function invoke({ signedIn = false, pending = false, method = "GET", path = "/integrations/atlassian/connect?request=opaque_-state", destination = "document" } = {}) {
+async function invoke({ signedIn = false, pending = false, method = "GET", path = "/integrations/atlassian/connect?request=opaque_-state", destination = "document", workspaceHost = null, invalidWorkspace = false } = {}) {
   const events = [];
   const session = { isAuthenticated: signedIn, sessionStatus: pending ? "pending" : signedIn ? "active" : null, redirectToSignIn: options => { events.push(["redirect", options]); return "redirected"; } };
   const auth = Object.assign(async () => session, { protect: async () => { events.push(["protect"]); } });
-  const sandbox = { authReturnUrl, isBrowserDocument, LEGACY_APPLICATION_ORIGIN, process: { env: { NODE_ENV: "production" } },
+  const sandbox = { authReturnUrl, isBrowserDocument, LEGACY_APPLICATION_ORIGIN,
+    verifiedWorkspaceWebHost: async () => { if (invalidWorkspace) throw new Error("Invalid workspace ingress"); return workspaceHost; },
+    process: { env: { NODE_ENV: "production", NEXT_PUBLIC_VAETTIR_WORKSPACE_AUTH_ENABLED: workspaceHost || invalidWorkspace ? "1" : undefined } },
     clerkMiddleware: handler => handler,
     createRouteMatcher: routes => { assert.deepEqual([...routes], ["/", "/sign-in(.*)", "/sign-up(.*)", "/share(.*)", "/beta-guide(.*)"]); return req => ["/", "/sign-in", "/sign-up", "/share", "/beta-guide"].some(route => req.nextUrl.pathname === route || (route !== "/" && req.nextUrl.pathname.startsWith(route + "/"))); },
   };
@@ -48,6 +50,11 @@ async function invoke({ signedIn = false, pending = false, method = "GET", path 
 }
 test("actual signed-out document handler chooses HTTPS without reflecting forwarded headers", async () => {
   const events = await invoke(); assert.equal(events.length, 1); assert.equal(events[0][0], "redirect"); assert.equal(events[0][1].returnBackUrl, LEGACY_APPLICATION_ORIGIN + "/integrations/atlassian/connect?request=opaque_-state");
+});
+test("actual handler preserves a verified customer return origin and fails closed on invalid ingress", async () => {
+  const events = await invoke({ workspaceHost: "synthetic.vaettir.app", path: "/projects/synthetic/reports?tab=readiness" });
+  assert.equal(events[0][1].returnBackUrl, "https://synthetic.vaettir.app/projects/synthetic/reports?tab=readiness");
+  await assert.rejects(invoke({ invalidWorkspace: true }), /Invalid workspace ingress/);
 });
 test("actual handler retains auth.protect for signed-in, pending tasks and APIs; public pages remain public", async () => {
   for (const options of [{ signedIn: true }, { pending: true }, { method: "POST" }, { destination: "empty" }, { path: "/api/private" }, { path: "/trpc/private" }]) assert.equal((await invoke(options))[0][0], "protect");

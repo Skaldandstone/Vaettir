@@ -2859,6 +2859,35 @@ main.app-main {
   display: grid;
   gap: 14px;
 }
+.workspace-address-fields {
+  min-width: 0;
+  margin: 0;
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+}
+.workspace-address-fields legend {
+  max-width: 100%;
+  padding: 0 4px;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.workspace-address-fields p {
+  min-width: 0;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.workspace-address-fields #workspace-address-preview {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 13px;
+}
+.workspace-address-fields .workspace-address-confirmation {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr);
+  align-items: start;
+  gap: 8px;
+}
+.workspace-address-confirmation input { margin-top: 5px; }
 .form-stack label {
   margin: 0;
   font-weight: 500;

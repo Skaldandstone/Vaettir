@@ -48,6 +48,9 @@ import { getStripeRuntime } from "./services/stripeConfig.js";
 import { handleStripeWebhookEvent } from "./services/stripeBilling.js";
 import { registerCreditWebhookRoute } from "./services/creditWebhookRoute.js";
 import { registerForgeQualityRoute } from "./services/forgeQualityRoute.js";
+import { registerAiDisclosureRoute } from "./services/aiDisclosureRoute.js";
+import { createAiDisclosureStore } from "./services/aiDisclosureStore.js";
+import { registerAiDisclosureResponsePrivacy } from "./services/aiDisclosureTelemetry.js";
 import { handleGooglePlayOAuthCallback } from "./services/googlePlayOAuthCallback.js";
 import {
   verifyPagerDutySignature,
@@ -76,6 +79,7 @@ import {
   safeInternalErrorDetails,
 } from "./publicErrors.js";
 import { createCorsOriginPolicy } from "./corsPolicy.js";
+import { registerWorkspaceIngress } from "./services/workspaceDomainIngress.js";
 import { registerClerkEmailWebhookRoute } from "./clerkEmailWebhook.js";
 import { resolveDatabaseUrlFromManagedSecret } from "./resolveDatabaseUrl.js";
 import {
@@ -492,6 +496,7 @@ const server = Fastify({
   maxParamLength: 5000,
   bodyLimit: XLSX_HTTP_BODY_BYTES,
 });
+registerAiDisclosureResponsePrivacy(server);
 
 // P10-05: catches anything thrown by a raw (non-tRPC) route handler, e.g.
 // the GitHub webhook route below - tRPC procedure errors are reported
@@ -525,6 +530,7 @@ function reportUnexpectedTrpcError({
 }
 
 await server.register(cors, { origin: createCorsOriginPolicy(process.env) });
+registerWorkspaceIngress(server, prisma);
 
 // P10-04: coarse per-IP flood protection at the HTTP layer, distinct from
 // (and a layer below) the AI reverse-engineering endpoint's existing
@@ -588,6 +594,11 @@ await server.register(registerStripeWebhookRoute);
 // Forge uses parsed JSON, never the Stripe scope's raw-byte parser. Its paths
 // already include /api and must not be registered again in the legacy alias.
 await server.register(async (instance) => registerForgeQualityRoute(instance, prisma));
+// Explicit deployment opt-in, independently of any customer's saved grant.
+// Register only the /api path consumed by the plugin, with request logging off.
+if (process.env.VAETTIR_AI_DISCLOSURE_ENABLED === "1") {
+  await server.register(async instance => registerAiDisclosureRoute(instance, createAiDisclosureStore(prisma)), { prefix: "/api" });
+}
 await server.register(registerProductionSignalOAuthRoute);
 await server.register(registerPagerDutyWebhookRoute);
 await server.register(registerLinearWebhookRoute);

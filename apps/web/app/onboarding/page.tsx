@@ -2,10 +2,12 @@
 
 import Link from "next/link";
 import { type FormEvent, useEffect, useState } from "react";
+import { useAuth } from "@clerk/nextjs";
 import { useRouter } from "next/navigation";
 import { RecoveryMessage } from "../../components/RecoveryMessage";
 import { Icon } from "../../components/ui/Workspace";
 import { trpcReact } from "../../lib/trpcReact";
+import { WorkspaceAddressFields } from "../../components/WorkspaceAddressFields";
 
 type AccessStatus = "NOT_ENROLLED" | "REVOKED" | "CLAIMED" | "ELIGIBLE";
 
@@ -115,6 +117,10 @@ function AccessPanel({
 }
 
 export default function OnboardingPage() {
+  const { userId, sessionId } = useAuth();
+  return <OnboardingWorkspace key={`${userId ?? ""}:${sessionId ?? ""}`} />;
+}
+function OnboardingWorkspace() {
   const router = useRouter();
   const orgsQuery = trpcReact.organization.mine.useQuery(undefined, {
     retry: false,
@@ -125,12 +131,26 @@ export default function OnboardingPage() {
     retry: false,
   });
   const [organizationName, setOrganizationName] = useState("");
+  const [workspaceName, setWorkspaceName] = useState("");
+  const [confirmAddress, setConfirmAddress] = useState(false);
+  const domainOptions = trpcReact.organization.domainOptions.useQuery();
+  const existingOrg = orgsQuery.data?.[0];
+  const existingOwner = existingOrg?.role === "OWNER" && existingOrg.seatType === "FULL";
+  const domainStatus = trpcReact.organization.domainStatus.useQuery(
+    { organizationId: existingOrg?.id ?? "" }, { enabled: Boolean(existingOwner && domainOptions.data?.enabled) },
+  );
+  const selectingExistingAddress = Boolean(existingOwner && domainOptions.data?.enabled && domainStatus.data && !domainStatus.data.name);
+  const confirmDomain = trpcReact.organization.confirmDomain.useMutation({
+    onSuccess: () => router.replace("/projects"),
+    onError: error => setError(error.message),
+  });
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (orgsQuery.data && orgsQuery.data.length > 0)
+    if (orgsQuery.data && orgsQuery.data.length > 0 && domainOptions.data
+        && (!existingOwner || !domainOptions.data.enabled || domainStatus.data?.name))
       router.replace("/projects");
-  }, [orgsQuery.data, router]);
+  }, [orgsQuery.data, router, existingOwner, domainOptions.data, domainStatus.data]);
 
   const bootstrapMutation = trpcReact.organization.bootstrap.useMutation({
     onSuccess: () => router.replace("/projects"),
@@ -139,19 +159,31 @@ export default function OnboardingPage() {
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const trimmedName = organizationName.trim();
-    if (!trimmedName) return;
+    if ((!trimmedName && !selectingExistingAddress) || (domainOptions.data?.enabled && !confirmAddress)) return;
     setError(null);
-    bootstrapMutation.mutate({ organizationName: trimmedName });
+    if (selectingExistingAddress && existingOrg) {
+      confirmDomain.mutate({ organizationId: existingOrg.id, name: workspaceName, confirmPermanentAddress: true });
+      return;
+    }
+    bootstrapMutation.mutate({
+      organizationName: trimmedName,
+      ...(domainOptions.data?.enabled ? { workspaceName, confirmPermanentAddress: true as const } : {}),
+    });
   }
 
   function retry() {
     setError(null);
-    void Promise.all([orgsQuery.refetch(), eligibilityQuery.refetch()]);
+    void Promise.all([
+      orgsQuery.refetch(), domainOptions.refetch(),
+      ...(needsAccessCheck ? [eligibilityQuery.refetch()] : []),
+      ...(existingOwner && domainOptions.data?.enabled ? [domainStatus.refetch()] : []),
+    ]);
   }
 
   const checking =
     orgsQuery.isLoading ||
-    Boolean(orgsQuery.data && orgsQuery.data.length > 0) ||
+    domainOptions.isLoading ||
+    Boolean(existingOrg && !selectingExistingAddress && !domainStatus.error && !domainOptions.error) ||
     (needsAccessCheck && eligibilityQuery.isLoading);
   if (checking) {
     return (
@@ -162,13 +194,13 @@ export default function OnboardingPage() {
     );
   }
 
-  const queryError = orgsQuery.error ?? eligibilityQuery.error;
+  const queryError = orgsQuery.error ?? domainOptions.error ?? domainStatus.error ?? eligibilityQuery.error;
   if (queryError)
     return <RecoveryMessage error={queryError.message} onRetry={retry} />;
-  if (!eligibilityQuery.data) return null;
+  if (!eligibilityQuery.data && !selectingExistingAddress) return null;
 
-  const eligibility = eligibilityQuery.data;
-  const status = eligibility.status;
+  const eligibility = eligibilityQuery.data ?? { email: "", status: "ELIGIBLE" as const, canManageEnrollments: false };
+  const status = selectingExistingAddress ? "ELIGIBLE" : eligibility.status;
 
   return (
     <div className="auth-workspace onboarding-workspace">
@@ -211,13 +243,14 @@ export default function OnboardingPage() {
             <span className="status-dot" /> Access verified for{" "}
             <strong>{eligibility.email}</strong>
           </p>
-          <h2 id="onboarding-title">Name your workspace</h2>
+          <h2 id="onboarding-title">{selectingExistingAddress ? "Choose your workspace address" : "Name your workspace"}</h2>
           <p className="text-muted">
-            Use the company or team name people will recognize. You can refine
-            organization settings later.
+            {selectingExistingAddress
+              ? "Preview the complete address carefully. Your final confirmation locks it for this workspace."
+              : "Use the company or team name people will recognize. You can refine organization settings later."}
           </p>
           <form className="form-stack" onSubmit={submit}>
-            <label>
+            {!selectingExistingAddress && <label>
               Organization name
               <input
                 value={organizationName}
@@ -228,15 +261,18 @@ export default function OnboardingPage() {
                 maxLength={120}
                 required
               />
-            </label>
+            </label>}
+            {domainOptions.data?.enabled && <WorkspaceAddressFields
+              name={workspaceName} onNameChange={setWorkspaceName} confirmed={confirmAddress} onConfirmedChange={setConfirmAddress}
+              disabled={bootstrapMutation.isPending || confirmDomain.isPending} />}
             <button
               className="btn-primary"
               type="submit"
-              disabled={bootstrapMutation.isPending || !organizationName.trim()}
+              disabled={bootstrapMutation.isPending || confirmDomain.isPending || (!selectingExistingAddress && !organizationName.trim()) || Boolean(domainOptions.data?.enabled && !confirmAddress)}
             >
-              {bootstrapMutation.isPending
-                ? "Creating workspace…"
-                : "Create workspace and continue"}
+              {bootstrapMutation.isPending || confirmDomain.isPending
+                ? "Saving workspace…"
+                : selectingExistingAddress ? "Confirm permanent address" : "Create workspace and continue"}
               {!bootstrapMutation.isPending && <Icon name="arrow" size={16} />}
             </button>
             {error && (
@@ -245,11 +281,11 @@ export default function OnboardingPage() {
               </p>
             )}
           </form>
-          <p className="onboarding-footnote">
+          {!selectingExistingAddress && <p className="onboarding-footnote">
             Creates one private-beta organization with 5 full seats, 2 read-only
             seats, and 500 non-rolling AI credits per month. No automatic
             overage.
-          </p>
+          </p>}
         </section>
       )}
     </div>

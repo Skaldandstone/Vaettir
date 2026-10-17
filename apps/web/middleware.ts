@@ -1,4 +1,5 @@
 import { clerkMiddleware, createRouteMatcher } from "@clerk/nextjs/server";
+import { verifiedWorkspaceWebHost } from "./lib/workspace-auth";
 import { authReturnUrl, isBrowserDocument, LEGACY_APPLICATION_ORIGIN } from "./lib/auth-return";
 
 // /share is a deliberately public, token-gated preview surface (see
@@ -18,13 +19,25 @@ export default clerkMiddleware(async (auth, req) => {
       const session = await auth();
       if (!session.isAuthenticated && session.sessionStatus !== "pending") {
         const production = process.env.NODE_ENV === "production";
-        const origin = process.env.VAETTIR_PUBLIC_ORIGIN ??
-          (production ? LEGACY_APPLICATION_ORIGIN : "http://localhost:3000");
+        const workspaceHost = process.env.NEXT_PUBLIC_VAETTIR_WORKSPACE_AUTH_ENABLED === "1"
+          ? await verifiedWorkspaceWebHost(req, process.env.VAETTIR_DOMAIN_INGRESS_SECRET) : null;
+        const origin = workspaceHost ? `https://${workspaceHost}` :
+          process.env.VAETTIR_PUBLIC_ORIGIN ?? (production ? LEGACY_APPLICATION_ORIGIN : "http://localhost:3000");
         return session.redirectToSignIn({ returnBackUrl: authReturnUrl(req.nextUrl, origin, !production) });
       }
     }
     await auth.protect();
   }
+}, async req => {
+  if (process.env.NEXT_PUBLIC_VAETTIR_WORKSPACE_AUTH_ENABLED !== "1") return {};
+  const host = await verifiedWorkspaceWebHost(req, process.env.VAETTIR_DOMAIN_INGRESS_SECRET);
+  if (!host) return {};
+  return {
+    isSatellite: true,
+    domain: "vaettir.app",
+    signInUrl: "https://vaettir.skaldandstone.com/sign-in",
+    signUpUrl: "https://vaettir.skaldandstone.com/sign-up",
+  };
 });
 
 export const config = {

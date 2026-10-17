@@ -1,5 +1,6 @@
 import * as Sentry from "@sentry/node";
 import { withoutForgeCredentials, withoutForgeConnectionData } from "./services/forgeTelemetry.js";
+import { redactAiDisclosureEvent } from "./services/aiDisclosureTelemetry.js";
 
 // P10-05: imported first (before any other module) in server.ts so
 // Sentry's instrumentation is active before anything else runs. Inert
@@ -28,7 +29,11 @@ if (dsn && sentryWanted) {
     beforeSend(event) {
       if (event.request?.headers)
         event.request.headers = withoutForgeCredentials(event.request.headers);
-      return withoutForgeConnectionData(event);
+      if (event.request?.headers) {
+        for (const name of Object.keys(event.request.headers))
+          if (name.toLowerCase().startsWith("x-vaettir-")) delete event.request.headers[name];
+      }
+      return redactAiDisclosureEvent(withoutForgeConnectionData(event));
     },
   });
 

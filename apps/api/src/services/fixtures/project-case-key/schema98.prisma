@@ -1,0 +1,3147 @@
+// Quality Intelligence Platform — core data model.
+//
+// Design principle: test PLAN TYPES and COMPLIANCE FRAMEWORKS are data, not
+// hardcoded enums. New plan shapes (a new compliance form, a new testing
+// discipline) are added by inserting rows + a JSON field schema, not by
+// shipping a migration. This is the fix for "shoehorning" that most test
+// case tools do.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ---------------------------------------------------------------------------
+// Tenancy
+// ---------------------------------------------------------------------------
+
+model Organization {
+  driveSourceConnections DriveSourceConnection[]
+  ticketSourceConnections  TicketSourceConnection[]
+  repositoryConfigurations RepositoryProviderConfiguration[]
+  repositoryConnections    RepositoryConnection[]
+  id                       String                            @id @default(cuid())
+  name                     String
+  slug                     String                            @unique
+  createdAt                DateTime                          @default(now())
+
+  planTierId String
+  planTier   PlanTier @relation(fields: [planTierId], references: [id])
+
+  // How long evidence/audit-log/test-result data is retained before it's
+  // eligible for deletion. Defaults to the 5-year baseline; orgs on
+  // compliance-heavy plans may configure this higher per P3-08.
+  dataRetentionYears Int @default(5)
+
+  // P7-08: whether attempting to move a Release to READY with unmet
+  // acceptance criteria or an open CRITICAL risk flag is a HARD_BLOCK
+  // (server refuses the status change outright) or just a SOFT_WARNING
+  // (the UI surfaces the gap and lets the user proceed anyway). Defaults to
+  // the non-breaking option so existing orgs' release workflows don't
+  // suddenly start rejecting a status change they were relying on.
+  releaseGatePolicy ReleaseGatePolicy @default(SOFT_WARNING)
+
+  // P7-09: readiness digest -- an incoming Slack webhook URL and an
+  // enable/hour toggle, kept minimal and org-scoped for this one purpose
+  // rather than building Phase 9's general integration-config framework
+  // (P9-00, queued, not started) early. digestHourUtc is a plain 0-23 UTC
+  // hour, not a per-org timezone -- picking one right now would be a
+  // half-built feature (stored but unused) since nothing else in the
+  // platform tracks org timezone yet.
+  slackWebhookUrl  String?
+  digestEnabled    Boolean   @default(false)
+  digestHourUtc    Int?
+  lastDigestSentAt DateTime?
+
+  // P9-03: real-time event notifications to the same Slack webhook the
+  // digest above already uses - one shared destination, not a second
+  // "which channel" config, since Slack incoming webhooks are already
+  // bound to one channel at creation on Slack's own side. Subset of
+  // WEBHOOK_EVENT_TYPES (services/webhookDelivery.ts); empty means
+  // subscribed to nothing, same convention as WebhookEndpoint.eventTypes.
+  slackEventTypes String[] @default([])
+
+  // P12-05: Stripe subscription billing. Both null until the org actually
+  // completes a real Stripe Checkout session (createBillingCheckout) --
+  // Free-tier orgs, and any org that never subscribed, have neither. Test
+  // mode only for now (see stripeConfig.ts) -- these IDs are real Stripe
+  // object IDs either way, just never live-mode ones in this pass.
+  stripeCustomerId     String?
+  stripeSubscriptionId String?
+
+  // Renames the display labels for TestCaseStep's four fields, e.g.
+  // {"expectedActionOrData": "Backend Call"}. Keys are the field names in
+  // TestCaseStep; any key not present falls back to
+  // @tci/core's DEFAULT_STEP_FIELD_LABELS. Exists because the field names
+  // themselves ("expected action or data" etc.) are acknowledged
+  // placeholders -- teams should be able to relabel them without a schema
+  // change or a migration.
+  stepFieldLabels Json?
+
+  // P13-05: Skald & Stone staff can suspend an org (e.g. a billing dispute,
+  // abuse investigation) without deleting anything - every requireOrgRole
+  // check rejects with FORBIDDEN while suspended, staffProcedure calls stay
+  // exempt so a suspension can actually be lifted. Reversible by design;
+  // the genuinely irreversible action is a separate hard-delete, not this.
+  suspendedAt     DateTime?
+  suspendedReason String?
+
+  // P9-02: Linear integration (requirement linking + status sync). One
+  // Linear workspace per org (matches how one Slack webhook already routes
+  // per-org above) - the personal API key is encrypted at rest the same
+  // way SSE-180's ProductionSignalConnection stores third-party tokens
+  // (services/tokenEncryption.ts), since this is the second feature in
+  // this codebase to hold a customer's own third-party credential.
+  // linearWebhookSecret is lower-sensitivity (a webhook signing secret,
+  // not a bearer credential that grants read/write access on its own) and
+  // stored plain, same posture as Organization.slackWebhookUrl above -
+  // each org gets its own inbound URL (/webhooks/linear/:organizationId)
+  // rather than one shared global secret, since Vaettir is multi-tenant
+  // and Linear's webhook model has no per-tenant routing field to key off.
+  linearEncryptedApiKey String?
+  linearApiKeyIv        String?
+  linearApiKeyAuthTag   String?
+  linearWebhookSecret   String?
+
+  // P9-01: Jira integration - same shape as P9-02's Linear one above (a
+  // per-org third-party credential, encrypted; a per-org inbound webhook
+  // secret, plain), but two real differences from Jira Cloud's own auth
+  // model: Basic auth needs an email alongside the API token (not just the
+  // token alone), and Jira Cloud has no built-in signed-webhook mechanism
+  // for a non-Connect-app integration - real-time sync relies on a
+  // customer's own Jira Automation rule ("Send web request" with a custom
+  // header) carrying a plain shared secret, not a computed HMAC signature,
+  // so jiraWebhookSecret is checked the same way GitLab's own plain-token
+  // webhook already is (services/gitlabApi.ts's verifyGitlabToken).
+  jiraBaseUrl           String? // e.g. https://acme.atlassian.net
+  jiraEmail             String?
+  jiraEncryptedApiToken String?
+  jiraApiTokenIv        String?
+  jiraApiTokenAuthTag   String?
+  jiraWebhookSecret     String?
+
+  // P9-04 (Datadog half): a monitor alert closing the loop to a coverage
+  // gap, same production-incident shape as PagerDuty's half of this
+  // ticket - not a per-Requirement link like Jira/Linear above. Datadog's
+  // webhook integration genuinely supports custom HTTP headers (confirmed
+  // against Datadog's own docs), so this is a plain shared secret exactly
+  // like jiraWebhookSecret, not a computed signature - Datadog has no
+  // built-in HMAC signing for a generic webhook integration either.
+  datadogWebhookSecret String?
+  encryptedDatadogWebhookSecret Json?
+
+  projects             Project[]
+  caseComments         CaseComment[]
+  memberships          Membership[]
+  invitations          Invitation[]
+  aiCreditTransactions AiCreditTransaction[]
+  aiCreditUseRequests  AiCreditUseRequest[]
+  caseAnalysisQueues   CaseAnalysisQueue[]
+  savedTypedCaseQueries SavedTypedCaseQuery[]
+  savedTypedCaseQueryWrites SavedTypedCaseQueryWrite[]
+  caseAuthoringPresets CaseAuthoringPreset[]
+  caseAuthoringPresetWrites CaseAuthoringPresetWrite[]
+  qualityRiskStates ProjectQualityRiskState[]
+  requirementBaselineStates ProjectRequirementBaselineState[]
+  manualCaseResultRevisions ManualCaseResultRevision[]
+  manualCaseResultHeads ManualCaseResultHead[]
+  apiKeys              ApiKey[]
+  auditLogs            AuditLog[]
+  webhookEndpoints     WebhookEndpoint[]
+  accessReviews        AccessReview[]
+  betaEnrollment       BetaEnrollment?
+}
+
+// A staff-controlled reservation for one private-beta owner. Team members
+// continue to use Invitation; this row only authorizes creation of a new
+// external organization and remains as the audit link after it is claimed.
+model BetaEnrollment {
+  id              String        @id @default(cuid())
+  email           String        @unique
+  studioRequestId String?       @unique
+  organizationId  String?       @unique
+  organization    Organization? @relation(fields: [organizationId], references: [id], onDelete: SetNull)
+  createdBy       String
+  createdAt       DateTime      @default(now())
+  claimedAt       DateTime?
+  revokedAt       DateTime?
+  reason          String
+}
+
+// P13-05: the permanent record that an org was hard-deleted - by whom,
+// when, why, and how much was removed. Deliberately NOT a relation to
+// Organization: by the time this row is written, the org it describes no
+// longer exists, and a live FK would either block the org's own deletion
+// (Restrict, the schema default) or get cascade-deleted right along with
+// it, destroying the one record whose entire purpose is to survive that.
+// organizationId/organizationName/organizationSlug are a plain snapshot,
+// not a foreign key.
+model OrganizationDeletionLog {
+  id               String   @id @default(cuid())
+  organizationId   String
+  organizationName String
+  organizationSlug String
+  deletedById      String
+  deletedBy        User     @relation(fields: [deletedById], references: [id])
+  reason           String
+  // Per-model row counts of everything removed, e.g. {"TestCase": 340,
+  // "TestRun": 12, ...} - the receipt proving what was actually deleted,
+  // not just that "a deletion happened."
+  rowCounts        Json
+  deletedAt        DateTime @default(now())
+
+  @@index([organizationId])
+}
+
+// P9-06: outbound webhooks -- lets an external system react to platform
+// events (a new risk flag, a review-queue item, a compliance sign-off)
+// without polling. Deliberately a flat per-org list rather than P9-00's
+// full integration-config framework (routing per project, field mapping) -
+// that's real scope for when a specific destination tool needs it; this is
+// the generic "give me a URL to POST to" version every specific integration
+// can build on later.
+model WebhookEndpoint {
+  id             String       @id @default(cuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  url            String
+  // HMAC signing secret, generated server-side and shown to the creator
+  // exactly once -- same "write-only from the client" reasoning as
+  // Organization.slackWebhookUrl, just inverted (here WE hold the secret
+  // and the receiver verifies us, rather than us holding theirs).
+  secret         String
+  eventTypes     String[] // subset of WEBHOOK_EVENT_TYPES (services/webhookDelivery.ts) -- empty means subscribed to nothing until explicitly set
+  enabled        Boolean      @default(true)
+
+  createdById String
+  createdBy   User     @relation(fields: [createdById], references: [id])
+  createdAt   DateTime @default(now())
+
+  deliveries WebhookDelivery[]
+
+  @@index([organizationId])
+}
+
+// Delivery attempt log -- lets an org admin see "is this actually working"
+// (last N attempts, status codes, errors) rather than a webhook silently
+// failing forever with no visibility, the single biggest complaint about
+// outbound-webhook systems in general.
+model WebhookDelivery {
+  id                String          @id @default(cuid())
+  webhookEndpointId String
+  webhookEndpoint   WebhookEndpoint @relation(fields: [webhookEndpointId], references: [id], onDelete: Cascade)
+  eventType         String
+  payload           Json
+  success           Boolean
+  responseStatus    Int?
+  error             String?
+  createdAt         DateTime        @default(now())
+
+  @@index([webhookEndpointId, createdAt])
+}
+
+model Project {
+  driveSourceConnections       DriveSourceConnection[]
+  ticketSourceConnections      TicketSourceConnection[]
+  repositoryConnections        RepositoryConnection[]
+  id                           String                   @id @default(cuid())
+  organizationId               String
+  organization                 Organization             @relation(fields: [organizationId], references: [id])
+  name                         String
+  slug                         String
+  // Human-readable case identity prefix, independent of the project name.
+  // Live labels use this prefix plus immutable caseNumber. Historical prefixes
+  // remain reserved aliases; stored displayId and frozen evidence never change.
+  caseKey                      String                   @default("")
+  caseKeyRevision              Int                      @default(0)
+  nextCaseNumber               Int                      @default(0)
+  // Project-defined typed case metadata, separate from test-plan fields.
+  caseFieldSchema              Json                     @default("{\"version\":1,\"fields\":[]}")
+  caseFieldSchemaVersion       Int                      @default(0)
+  repoUrl                      String?
+  defaultBranch                String                   @default("main")
+  createdAt                    DateTime                 @default(now())
+  // Captured by project setup so navigation, templates, dashboards and
+  // compliance suggestions can adapt to software, hardware, HIL,
+  // manufacturing, medical-device and laboratory work.
+  qualityProfile               Json                     @default("{}")
+  hiddenComplianceFrameworkIds String[]                 @default([])
+
+  // The commit SHA the most recent successful repo scan resolved `ref` to
+  // (P2-05). When set, the next scan diffs from here to HEAD instead of
+  // walking and hashing every test file in the repo -- one `git diff` call
+  // against just the changed paths, rather than a full-tree read+hash pass.
+  // Null until a project has been scanned at least once.
+  lastScannedCommitSha String?
+
+  // P9-04: routes an inbound PagerDuty incident.triggered webhook to this
+  // project - PagerDuty's webhook payload has no natural Vaettir-specific
+  // field to route by, so this mirrors how `repoUrl` already routes GitHub/
+  // GitLab webhooks: a value the customer looks up on the third-party side
+  // (their PagerDuty Service's id) and pastes in here. Unique since one
+  // PagerDuty service should only ever feed incidents into one project.
+  pagerdutyServiceId String? @unique
+
+  // P9-04 (Datadog half): unlike PagerDuty's service id (a real,
+  // platform-wide-unique third-party id, safe to route on alone), Datadog
+  // has no such fixed field for a monitor - so this is a customer-chosen
+  // tag *value* (e.g. tagging a monitor `vaettir_project:<this value>`,
+  // sent back in the webhook payload via Datadog's own `$TAGS[key]`
+  // template variable). Two different customers could easily pick the
+  // same tag value, so this is unique per-organization, not globally, and
+  // the inbound route is org-scoped (/webhooks/datadog/:organizationId)
+  // rather than PagerDuty's single shared route.
+  datadogProjectTag String?
+
+  testPlans                   TestPlan[]
+  testCases                   TestCase[]
+  sharedStepGroups            SharedStepGroup[]
+  exploratorySessions         ExploratorySession[]
+  requirements                Requirement[]
+  releases                    Release[]
+  testRuns                    TestRun[]
+  coverageReports             CoverageReport[]
+  reverseEngineerJobs         ReverseEngineerJob[]
+  importJobs                  ImportJob[]
+  testSelectionRuns           TestSelectionRun[]
+  auditLogs                   AuditLog[]
+  customFrameworkHeuristics   CustomFrameworkHeuristic[]
+  prScanPolicy                PrScanPolicy?
+  healingSuggestions          HealingSuggestion[]
+  complianceEvidence          ComplianceEvidence[]
+  complianceSignOffs          ComplianceSignOff[]
+  complianceSignOffRequests   ComplianceSignOffRequest[]
+  aiEditFeedback              AiEditFeedback[]
+  productionSignalConnections ProductionSignalConnection[]
+  productionSignals           ProductionSignal[]
+  populationDraft             ProjectPopulationDraft?
+  defectMap                   DefectMapState?
+  caseTraceability            CaseTraceabilityState?
+  reportDefinitions           ProjectReportDefinition[]
+  reportDefinitionWrites      ProjectReportDefinitionWrite[]
+  reportSnapshots             ProjectReportSnapshot[]
+  repositories                ProjectRepository[]
+  populationDraftWrites       ProjectPopulationDraftWrite[]
+  populationDocuments         ProjectPopulationDocument[]
+  populationDocumentRuns      ProjectPopulationDocumentRun[]
+  populationRequirements      ProjectPopulationRequirement[]
+  testCaseViews               TestCaseView[]
+  folderState                 CaseFolderState?
+  folderWrites                CaseFolderWrite[]
+  caseAnalysisQueues          CaseAnalysisQueue[]
+  savedTypedCaseQueries        SavedTypedCaseQuery[]
+  savedTypedCaseQueryWrites    SavedTypedCaseQueryWrite[]
+  caseAuthoringPresets         CaseAuthoringPreset[]
+  caseAuthoringPresetWrites    CaseAuthoringPresetWrite[]
+  qualityRiskState             ProjectQualityRiskState?
+  requirementBaselineState    ProjectRequirementBaselineState?
+  manualCaseResultRevisions    ManualCaseResultRevision[]
+  manualCaseResultHeads        ManualCaseResultHead[]
+  jiraIssueIdentities         JiraIssueIdentity[]
+
+  @@unique([organizationId, slug])
+  @@unique([organizationId, caseKey])
+  @@unique([id, organizationId])
+  @@unique([organizationId, datadogProjectTag])
+}
+
+// Prefix reservation is project/organization-scoped and append-only while the
+// project exists. A key rename needs no per-case or frozen-evidence rewrite.
+model ProjectCaseKeyAlias {
+  projectId      String
+  organizationId String
+  caseKey        String
+  createdAt      DateTime @default(now())
+
+  @@id([projectId, organizationId, caseKey])
+  @@unique([organizationId, caseKey])
+}
+
+// Original UUID/body receipt. Actor IDs are retained scalar audit identities;
+// they never grant permission and cannot rebind to a replacement account.
+model ProjectCaseKeyWrite {
+  id             String   @id
+  projectId      String
+  organizationId String
+  actorId        String
+  clerkActorId   String
+  requestHash    String
+  beforeKey      String
+  afterKey       String
+  beforeRevision Int
+  afterRevision  Int
+  receipt        Json
+  createdAt      DateTime @default(now())
+
+  @@index([projectId, createdAt])
+}
+
+// Requirement wording/direct-link baselines are private immutable human records,
+// not provider snapshots, qualified signatures or verified test coverage.
+model ProjectRequirementBaselineState {
+  projectId String @id
+  project Project @relation(fields: [projectId], references: [id])
+  organizationId String
+  organization Organization @relation(fields: [organizationId], references: [id])
+  nextNumber Int @default(0)
+  baselines RequirementBaseline[]
+  writes RequirementBaselineWrite[]
+}
+
+model RequirementBaseline {
+  id String @id @default(cuid())
+  projectId String
+  state ProjectRequirementBaselineState @relation(fields: [projectId], references: [projectId])
+  requirementId String
+  number Int
+  displayId String
+  version Int
+  snapshot Json
+  fingerprint String
+  rationale String
+  createdById String
+  createdAt DateTime @default(now())
+  @@unique([projectId, number])
+  @@unique([projectId, displayId])
+  @@unique([projectId, requirementId, version])
+}
+
+model RequirementBaselineWrite {
+  id String @id @default(cuid())
+  projectId String
+  state ProjectRequirementBaselineState @relation(fields: [projectId], references: [projectId])
+  actorId String
+  requestId String
+  requestHash String
+  receipt Json
+  createdAt DateTime @default(now())
+  @@unique([projectId, actorId, requestId])
+}
+
+// Manual project failure modes and immutable ordinary human residual decisions.
+// Neither this register nor linked passing results assert qualified approval.
+model ProjectQualityRiskState {
+  projectId String @id
+  project Project @relation(fields: [projectId], references: [id])
+  organizationId String
+  organization Organization @relation(fields: [organizationId], references: [id])
+  nextNumber Int @default(0)
+  entries QualityRiskEntry[]
+  writes QualityRiskWrite[]
+}
+
+model QualityRiskEntry {
+  id String @id @default(cuid())
+  projectId String
+  state ProjectQualityRiskState @relation(fields: [projectId], references: [projectId])
+  number Int
+  displayId String
+  title String
+  definition Json
+  version Int @default(1)
+  createdById String
+  updatedById String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  decisions QualityRiskDecision[]
+  @@unique([projectId, number])
+  @@unique([projectId, displayId])
+}
+
+model QualityRiskDecision {
+  id String @id @default(cuid())
+  entryId String
+  entry QualityRiskEntry @relation(fields: [entryId], references: [id])
+  assessedVersion Int
+  createdVersion Int
+  decision Json
+  baseline Json
+  evidence Json
+  createdById String
+  createdAt DateTime @default(now())
+  @@unique([entryId, createdVersion])
+}
+
+model QualityRiskWrite {
+  id String @id @default(cuid())
+  projectId String
+  state ProjectQualityRiskState @relation(fields: [projectId], references: [projectId])
+  actorId String
+  requestId String
+  requestHash String
+  receipt Json
+  createdAt DateTime @default(now())
+  @@unique([projectId, actorId, requestId])
+}
+
+// Typed explorer definitions are separate from legacy private case-table views.
+// Tombstones and actor-bound receipts preserve exact response-loss recovery.
+model SavedTypedCaseQuery {
+  id String @id @default(cuid())
+  organizationId String
+  organization Organization @relation(fields: [organizationId], references: [id], map: "SavedTypedCaseQuery_org_fkey")
+  projectId String
+  project Project @relation(fields: [projectId], references: [id], map: "SavedTypedCaseQuery_project_fkey")
+  createdById String
+  name String
+  visibility String @default("PRIVATE")
+  definition Json
+  columns Json
+  version Int @default(1)
+  deletedAt DateTime?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  writes SavedTypedCaseQueryWrite[]
+  @@index([projectId, organizationId, visibility, deletedAt, updatedAt], map: "SavedTypedCaseQuery_scope_idx")
+  @@index([projectId, createdById, deletedAt], map: "SavedTypedCaseQuery_owner_idx")
+}
+
+model SavedTypedCaseQueryWrite {
+  id String @id @default(cuid())
+  organizationId String
+  organization Organization @relation(fields: [organizationId], references: [id], map: "SavedTypedCaseQueryWrite_org_fkey")
+  projectId String
+  project Project @relation(fields: [projectId], references: [id], map: "SavedTypedCaseQueryWrite_project_fkey")
+  queryId String
+  query SavedTypedCaseQuery @relation(fields: [queryId], references: [id], map: "SavedTypedCaseQueryWrite_query_fkey")
+  actorId String
+  requestId String
+  requestHash String
+  response Json
+  createdAt DateTime @default(now())
+  @@unique([projectId, actorId, requestId], map: "SavedTypedCaseQueryWrite_request_key")
+  @@index([organizationId, projectId], map: "SavedTypedCaseQueryWrite_scope_idx")
+}
+
+// Controlled authoring scaffolds; no execution, approval or reference records.
+model CaseAuthoringPreset {
+  id String @id @default(cuid())
+  organizationId String
+  organization Organization @relation(fields:[organizationId], references:[id], onDelete:Restrict)
+  projectId String
+  project Project @relation(fields:[projectId], references:[id], onDelete:Restrict)
+  createdById String
+  name String
+  definition Json
+  version Int @default(1)
+  archivedAt DateTime?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  writes CaseAuthoringPresetWrite[]
+  @@unique([projectId,name])
+  @@index([organizationId,projectId,archivedAt,name], map:"CaseAuthoringPreset_scope_idx")
+}
+
+model CaseAuthoringPresetWrite {
+  id String @id @default(cuid())
+  organizationId String
+  organization Organization @relation(fields:[organizationId],references:[id],onDelete:Restrict)
+  projectId String
+  project Project @relation(fields:[projectId],references:[id],onDelete:Restrict)
+  presetId String
+  preset CaseAuthoringPreset @relation(fields:[presetId],references:[id],onDelete:Restrict)
+  actorId String
+  requestId String
+  requestHash String
+  receipt Json
+  createdAt DateTime @default(now())
+  @@unique([projectId,actorId,requestId])
+  @@index([organizationId,projectId,presetId,createdAt], map:"CaseAuthoringPresetWrite_scope_idx")
+}
+
+// Independent folders remain visible without inventing placeholder cases.
+model CaseFolderState {
+  projectId String @id
+  project Project @relation(fields: [projectId], references: [id], onDelete: Restrict)
+  revision Int @default(0)
+  folders Json @default("[]")
+  updatedAt DateTime @updatedAt
+}
+
+// Reviewed placement receipts, never a mutable substitute for case/run history.
+model CaseFolderWrite {
+  id String @id @default(cuid())
+  projectId String
+  project Project @relation(fields: [projectId], references: [id], onDelete: Restrict)
+  actorId String
+  requestId String
+  inputHash String
+  receipt Json
+  createdAt DateTime @default(now())
+  @@unique([projectId, actorId, requestId])
+  @@index([projectId, createdAt])
+}
+
+model CaseAnalysisQueue {
+  id String @id @default(cuid())
+  organizationId String
+  organization Organization @relation(fields: [organizationId], references: [id])
+  projectId String
+  project Project @relation(fields: [projectId], references: [id])
+  requestedById String
+  action String
+  requestId String
+  selectionHash String
+  scopeHash String
+  maximumCredits Int
+  caseCount Int
+  status String @default("REVIEW")
+  approvedAt DateTime?
+  cancelledAt DateTime?
+  leaseOwner String?
+  leaseExpiresAt DateTime?
+  activeItemId String?
+  reason String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  items CaseAnalysisQueueItem[]
+  @@unique([projectId, requestedById, requestId])
+  @@index([status, createdAt])
+  @@index([organizationId, projectId, requestedById, createdAt])
+}
+
+model CaseAnalysisQueueItem {
+  id String @id @default(cuid())
+  queueId String
+  queue CaseAnalysisQueue @relation(fields: [queueId], references: [id], onDelete: Cascade)
+  // Retained original identity, never a substitute for current case access.
+  caseId String
+  displayId String
+  position Int
+  inputHash String
+  contentRevision String
+  sourceRevision String
+  caseUpdatedAt DateTime
+  maximumCredits Int
+  status String
+  reason String?
+  chargeId String? @unique
+  actualCredits Int?
+  refund Int?
+  excessNotCharged Int?
+  meteredAt DateTime?
+  startedAt DateTime?
+  completedAt DateTime?
+  @@unique([queueId, caseId])
+  @@unique([queueId, position])
+  @@index([queueId, status, position])
+}
+
+model ProjectRepository {
+  id           String                @id @default(cuid())
+  projectId    String
+  project      Project               @relation(fields: [projectId], references: [id])
+  provider     String
+  url          String
+  revision     String?
+  connectionId String?
+  connection   RepositoryConnection? @relation(fields: [connectionId], references: [id], onDelete: SetNull)
+  externalId   String?
+  verifiedAt   DateTime?
+  createdAt    DateTime              @default(now())
+
+  @@unique([projectId, provider, url])
+}
+
+// A private, reusable case-list query. Membership is rechecked on every
+// request; a view never confers access to its project or to another user.
+model TestCaseView {
+  id        String   @id @default(cuid())
+  projectId String
+  project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name      String
+  filters   Json
+  version   Int      @default(1)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([projectId, userId, name])
+  @@index([userId, projectId, updatedAt])
+}
+
+// Explicit metadata references are distinct from imported-code provenance.
+// Tombstones and durable receipts preserve human decisions through retries.
+model CaseTraceabilityState {
+  projectId      String                  @id
+  project        Project                 @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  organizationId String
+  version        Int                     @default(0)
+  links          CaseTraceabilityLink[]
+  writes         CaseTraceabilityWrite[]
+}
+
+model CaseTraceabilityLink {
+  id             String                @id
+  projectId      String
+  state          CaseTraceabilityState @relation(fields: [projectId], references: [projectId], onDelete: Cascade)
+  caseId         String
+  testCase       TestCase              @relation(fields: [caseId, projectId], references: [id, projectId], onDelete: Restrict)
+  provider       String
+  providerOrigin String
+  nativeId       String
+  kind           String
+  title          String
+  url            String?
+  requirementId  String?
+  requirement    Requirement?          @relation(fields: [requirementId, projectId], references: [id, projectId], onDelete: Restrict)
+  createdById    String
+  updatedById    String
+  createdAt      DateTime              @default(now())
+  updatedAt      DateTime              @updatedAt
+  removedAt      DateTime?
+
+  @@index([projectId, caseId, removedAt])
+  @@index([projectId, requirementId, removedAt], map: "CaseTraceabilityLink_requirement_scope_idx")
+  @@index([projectId, provider, providerOrigin, nativeId])
+}
+
+model CaseTraceabilityWrite {
+  key            String                @id
+  projectId      String
+  state          CaseTraceabilityState @relation(fields: [projectId], references: [projectId], onDelete: Cascade)
+  actorId        String
+  requestHash    String
+  appliedVersion Int
+  createdAt      DateTime              @default(now())
+
+  @@index([projectId, createdAt])
+}
+
+model ProjectReportDefinition {
+  id             String                  @id @default(cuid())
+  organizationId String
+  projectId      String
+  project        Project                 @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  userId         String
+  name           String
+  definition     Json
+  visibility     String                  @default("private")
+  archivedAt     DateTime?
+  version        Int                     @default(1)
+  createdAt      DateTime                @default(now())
+  updatedAt      DateTime                @updatedAt
+  snapshots      ProjectReportSnapshot[]
+
+  @@index([projectId, updatedAt])
+  @@index([projectId, organizationId, visibility, archivedAt], map: "report_definition_scope_visibility_idx")
+}
+
+model ProjectReportDefinitionWrite {
+  key            String   @id
+  projectId      String
+  project        Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  organizationId String
+  actorId        String
+  requestHash    String
+  definitionId   String
+  appliedVersion Int
+  beforeState    Json?
+  afterState     Json?
+  createdAt      DateTime @default(now())
+
+  @@index([projectId, createdAt])
+  @@index([definitionId, projectId, organizationId, createdAt], map: "report_definition_write_history_idx")
+}
+
+model ProjectReportSnapshot {
+  id             String                   @id
+  projectId      String
+  project        Project                  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  definitionId   String?
+  definition     ProjectReportDefinition? @relation(fields: [definitionId], references: [id], onDelete: SetNull)
+  organizationId String
+  createdById    String
+  inputHash      String
+  title          String
+  payload        Json
+  asOf           DateTime
+  createdAt      DateTime                 @default(now())
+
+  @@index([projectId, createdAt])
+}
+
+// Per-organization provider instances, including separately registered self-hosted OAuth apps.
+model RepositoryProviderConfiguration {
+  id              String                 @id @default(cuid())
+  organizationId  String
+  organization    Organization           @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  connections     RepositoryConnection[]
+  provider        String
+  origin          String
+  clientId        String
+  encryptedSecret Json
+  createdById     String
+  createdAt       DateTime               @default(now())
+
+  @@unique([organizationId, provider, origin])
+}
+
+// One actor-bound authorization attempt becomes a verified, encrypted connection.
+// No source code is stored or fetched by this metadata-only flow.
+model RepositoryConnection {
+  id                     String                          @id @default(cuid())
+  projectId              String
+  organizationId         String
+  actorId                String
+  configurationId        String?
+  project                Project                         @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  organization           Organization                    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  actor                  User                            @relation(fields: [actorId], references: [id], onDelete: Cascade)
+  configuration          RepositoryProviderConfiguration? @relation(fields: [configurationId], references: [id], onDelete: Cascade)
+  repositories           ProjectRepository[]
+  provider               String
+  origin                 String
+  stateHash              String                          @unique
+  encryptedVerifier      Json?
+  encryptedToken         Json?
+  status                 String                          @default("PENDING")
+  accountLabel           String?
+  authorizationExpiresAt DateTime
+  tokenExpiresAt         DateTime?
+  verifiedAt             DateTime?
+  catalog                Json?
+  catalogAt              DateTime?
+  createdAt              DateTime                        @default(now())
+
+  @@index([projectId, actorId, createdAt])
+}
+
+// Actor-bound metadata-only Drive access. Approved file identities survive
+// cancellation/access expiry; no contents or refresh tokens are collected.
+model DriveSourceConnection {
+  id String @id @default(cuid())
+  projectId String
+  organizationId String
+  actorId String
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  actor User @relation(fields: [actorId], references: [id], onDelete: Cascade)
+  requestKey String @unique
+  stateHash String @unique
+  configurationHash String
+  encryptedVerifier Json?
+  encryptedAuthorization Json?
+  encryptedToken Json?
+  status String @default("PENDING")
+  authorizationExpiresAt DateTime
+  tokenExpiresAt DateTime?
+  account Json?
+  catalog Json?
+  catalogAt DateTime?
+  version Int @default(0)
+  readAttempts Int @default(0)
+  readLeaseRequestId String?
+  readLeaseUntil DateTime?
+  listReceipts Json @default("[]")
+  approvedFiles Json @default("[]")
+  approvalReceipts Json @default("[]")
+  approvedAt DateTime?
+  metadataApprovedAt DateTime @default(now())
+  verifiedAt DateTime?
+  createdAt DateTime @default(now())
+
+  @@index([projectId, actorId, createdAt])
+}
+
+// Metadata-only ticket access. Approved scope survives access loss and token removal.
+model TicketSourceConnection {
+  issueRuns              JiraIssueImportRun[]
+  id                     String       @id @default(cuid())
+  projectId              String
+  organizationId         String
+  actorId                String
+  project                Project      @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  organization           Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  actor                  User         @relation(fields: [actorId], references: [id], onDelete: Cascade)
+  provider               String
+  providerOrigin         String?
+  requestKey             String       @unique
+  requestHash            String
+  status                 String       @default("VERIFYING")
+  encryptedToken         Json?
+  authorizationExpiresAt DateTime
+  tokenExpiresAt         DateTime?
+  verifiedAt             DateTime?
+  catalog                Json?
+  catalogAt              DateTime?
+  version                Int          @default(0)
+  approvedProjects       Json         @default("[]")
+  approvalReceipts        Json         @default("[]")
+  approvedAt             DateTime?
+  createdAt              DateTime     @default(now())
+
+  @@index([projectId, actorId, provider, createdAt])
+}
+
+// Reviewed, bounded Jira summary intake. Page and import progress survives retries.
+model JiraIssueImportRun {
+  id                 String @id @default(cuid())
+  connectionId       String
+  connection         TicketSourceConnection @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+  projectId          String
+  organizationId     String
+  actorId            String
+  requestKey         String @unique
+  requestHash        String
+  status             String @default("PREVIEW")
+  selectedProjects   Json
+  issues             Json @default("[]")
+  nextCursor         String?
+  seenCursors        Json @default("[]")
+  pageCount          Int @default(0)
+  readAttempts       Int @default(0)
+  pageReceipts       Json @default("[]")
+  leaseRequestId     String?
+  leaseUntil         DateTime?
+  lastError          String?
+  approvedIssueIds   Json @default("[]")
+  approvalRequestId  String?
+  approvalHash       String?
+  results            Json @default("[]")
+  version            Int @default(1)
+  readApprovedAt     DateTime @default(now())
+  importApprovedAt   DateTime?
+  expiresAt          DateTime
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+  @@index([connectionId, actorId, createdAt])
+}
+
+// Site + native identity, not mutable issue key, prevents cross-run duplication.
+// A removed requirement leaves a tombstone; reruns never silently recreate it.
+model JiraIssueIdentity {
+  id              String @id @default(cuid())
+  projectId       String
+  project         Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  providerOrigin  String
+  externalId      String
+  requirementId   String?
+  requirement     Requirement? @relation(fields: [requirementId], references: [id], onDelete: SetNull)
+  importedSnapshot Json
+  importedRunId   String
+  createdAt      DateTime @default(now())
+  @@unique([projectId, providerOrigin, externalId])
+}
+
+// Saved wizard preferences only. Approved evidence and generated records have
+// separate lifecycles; saving or rerunning a draft must not overwrite them.
+model ProjectPopulationDraft {
+  projectId       String   @id
+  project         Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  version         Int      @default(1)
+  document        Json
+  updatedByUserId String
+  updatedAt       DateTime @updatedAt
+}
+
+// Bounded metadata map. Imports are reviewed, incremental and never delete absent evidence.
+model DefectMapState {
+  projectId      String           @id
+  project        Project          @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  organizationId String
+  version        Int              @default(0)
+  document       Json
+  updatedAt      DateTime         @updatedAt
+  writes         DefectMapWrite[]
+}
+
+// Actor/project-bound durable retry receipts; no raw payload or credentials.
+model DefectMapWrite {
+  key            String         @id
+  projectId      String
+  state          DefectMapState @relation(fields: [projectId], references: [projectId], onDelete: Cascade)
+  actorId        String
+  requestHash    String
+  operation      String
+  appliedVersion Int
+  createdAt      DateTime       @default(now())
+
+  @@index([projectId, createdAt])
+}
+
+// Durable receipts make a retried save safe even after another subsequent save.
+// Only request hashes/version/actor are retained, not copies of draft contents.
+model ProjectPopulationDraftWrite {
+  projectId      String
+  project        Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  requestId      String
+  payloadHash    String
+  actorId        String
+  appliedVersion Int
+  createdAt      DateTime @default(now())
+
+  @@id([projectId, requestId])
+}
+
+// Explicitly approved document evidence. No generated test/requirement is overwritten.
+model ProjectPopulationDocument {
+  projectId   String
+  project     Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  sourceKey   String
+  version     Int
+  title       String
+  content     String
+  contentHash String
+  approvedBy  String
+  approvedAt  DateTime @default(now())
+
+  @@id([projectId, sourceKey])
+}
+
+// Immutable preview input and durable approval receipt, retained for provenance.
+model ProjectPopulationDocumentRun {
+  projectId       String
+  project         Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  requestId       String
+  sourceKey       String
+  expectedVersion Int
+  title           String
+  content         String
+  contentHash     String
+  actorId         String
+  createdAt       DateTime  @default(now())
+  approvedAt      DateTime?
+  appliedVersion  Int?
+  cancelledAt     DateTime?
+
+  @@id([projectId, requestId])
+}
+
+model ProjectPopulationRequirement {
+  projectId     String
+  project       Project      @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  sourceKey     String
+  candidateKey  String
+  sourceVersion Int
+  sourceLine    Int
+  sourceQuote   String
+  approvedTitle String
+  approvedBy    String
+  approvedAt    DateTime     @default(now())
+  requirementId String?
+  requirement   Requirement? @relation(fields: [requirementId], references: [id], onDelete: SetNull)
+
+  @@id([projectId, sourceKey, candidateKey])
+}
+
+// ---------------------------------------------------------------------------
+// Identity & seat-based billing
+// ---------------------------------------------------------------------------
+
+// Identity lives in Clerk; this row is the local mirror everything else in
+// the schema (Membership, audit columns, etc.) actually references. Created
+// lazily on a new Clerk user's first authenticated request -- see
+// apps/api/src/trpc.ts.
+model User {
+  driveSourceConnections DriveSourceConnection[]
+  ticketSourceConnections TicketSourceConnection[]
+  repositoryConnections RepositoryConnection[]
+  id                    String                 @id @default(cuid())
+  clerkUserId           String                 @unique
+  email                 String                 @unique
+  name                  String?
+  createdAt             DateTime               @default(now())
+
+  memberships                 Membership[]
+  sentInvitations             Invitation[]
+  reviewedTestCases           TestCase[]           @relation("TestCaseReviewedBy")
+  createdWebhookEndpoints     WebhookEndpoint[]
+  testCaseVersions            TestCaseVersion[]
+  createdSharedStepGroups     SharedStepGroup[]
+  uploadedTestCaseAttachments TestCaseAttachment[]
+  exploratorySessions         ExploratorySession[]
+  startedTestRuns             TestRun[]
+  caseComments                CaseComment[]
+  manualStepResultRevisions   ManualStepResultRevision[]
+  manualCaseResultRevisions   ManualCaseResultRevision[]
+  testCaseViews               TestCaseView[]
+
+  // P1-07 audit columns: who created/last-updated each core record. Named
+  // relations (Prisma requires it once a model has more than one FK to the
+  // same target) -- see each model for the paired createdBy/updatedBy.
+  createdTestCases           TestCase[]                 @relation("TestCaseCreatedBy")
+  updatedTestCases           TestCase[]                 @relation("TestCaseUpdatedBy")
+  createdTestPlans           TestPlan[]                 @relation("TestPlanCreatedBy")
+  updatedTestPlans           TestPlan[]                 @relation("TestPlanUpdatedBy")
+  testPlanVersions           TestPlanVersion[]
+  customFrameworkHeuristics  CustomFrameworkHeuristic[]
+  createdReleases            Release[]                  @relation("ReleaseCreatedBy")
+  updatedReleases            Release[]                  @relation("ReleaseUpdatedBy")
+  createdRiskFlags           RiskFlag[]                 @relation("RiskFlagCreatedBy")
+  updatedRiskFlags           RiskFlag[]                 @relation("RiskFlagUpdatedBy")
+  reviewedHealingSuggestions HealingSuggestion[]        @relation("HealingSuggestionReviewedBy")
+  recordedComplianceEvidence ComplianceEvidence[]
+  signedComplianceSignOffs   ComplianceSignOff[]
+  aiEditFeedback             AiEditFeedback[]
+  importJobs                 ImportJob[]
+
+  // P1-05: a service token is backed by its own real User row (the
+  // "service user") so it flows through every existing requireOrgRole /
+  // requireProjectAccess / createdById check unmodified -- no separate
+  // API-key authz code path to keep in sync with the human one.
+  apiKeyIdentity ApiKey?  @relation("ApiKeyServiceUser")
+  createdApiKeys ApiKey[] @relation("ApiKeyCreatedBy")
+
+  auditLogs             AuditLog[]
+  orgDeletionsPerformed OrganizationDeletionLog[]
+
+  // P8-04
+  signOffRequestsReceived ComplianceSignOffRequest[] @relation("SignOffRequestsReceived")
+  signOffRequestsSent     ComplianceSignOffRequest[] @relation("SignOffRequestsSent")
+  pushTokens              PushToken[]
+
+  // P10-01
+  performedAccessReviews AccessReview[]
+
+  // SSE-180
+  connectedProductionSignalConnections ProductionSignalConnection[]
+}
+
+enum OrgRole {
+  OWNER
+  ADMIN
+  EDITOR
+  VIEWER
+  COMPLIANCE_AUDITOR
+}
+
+// A "seat" in the pricing model. FULL seats consume the plan's full-seat
+// allotment and can hold any OrgRole. READ_ONLY seats are cheaper/included
+// and are only ever a Membership with role: VIEWER -- enforced in
+// packages/core's seat-limit logic, not by a DB constraint, since the
+// membership row itself doesn't know the org's current plan.
+enum SeatType {
+  FULL
+  READ_ONLY
+}
+
+model Membership {
+  id             String       @id @default(cuid())
+  organizationId String
+  // Deleting an org takes its memberships with it (they have no meaning
+  // without it); a Membership row is never meaningful on its own.
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  userId         String
+  // Deliberately NOT cascade: a departing/deleted User's org memberships
+  // should be handled explicitly (revoke seat, reassign ownership), not
+  // silently vanish, since a Membership is also the audit trail of who had
+  // access to what. Restrict (the default) blocks User deletion while
+  // memberships exist -- that's correct until P12 builds an explicit
+  // "remove member" flow that revokes first.
+  user           User         @relation(fields: [userId], references: [id])
+  role           OrgRole
+  seatType       SeatType     @default(FULL)
+  createdAt      DateTime     @default(now())
+
+  @@unique([organizationId, userId])
+  @@index([organizationId, seatType])
+}
+
+// A pending seat offer. No email is sent by the platform yet (P9 territory)
+// -- the inviter is handed a shareable link to send however they like.
+// Deliberately NOT tied to Membership until accepted: an invitation is a
+// standing offer against a seat that hasn't been consumed, which is exactly
+// why seat-limit checks happen both at invite time AND at accept time (the
+// org's seat usage can change in between).
+model Invitation {
+  id               String                   @id @default(cuid())
+  organizationId   String
+  // An org's invitations are meaningless without the org -- cascade.
+  organization     Organization             @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  email            String
+  role             OrgRole
+  seatType         SeatType                 @default(FULL)
+  token            String                   @unique @default(cuid())
+  invitedById      String
+  // Deliberately NOT cascade: don't want the audit trail of "who invited
+  // whom" to vanish if the inviter's own account is later deleted.
+  invitedBy        User                     @relation(fields: [invitedById], references: [id])
+  status           InvitationStatus         @default(PENDING)
+  createdAt        DateTime                 @default(now())
+  expiresAt        DateTime
+  acceptedAt       DateTime?
+  // Existing invitations are not sent automatically on migration.
+  emailStatus      TransactionalEmailStatus @default(RECEIVED)
+  emailAttemptedAt DateTime?
+  emailSentAt      DateTime?
+  emailMessageId   String?
+
+  @@index([organizationId, status])
+  @@index([email])
+}
+
+enum InvitationStatus {
+  PENDING
+  ACCEPTED
+  REVOKED
+  EXPIRED
+}
+
+// A CI-friendly service token (P1-05): "test result ingestion, PR scanning,
+// that don't go through a human session." The full key is shown to the
+// caller exactly once at creation and never stored -- only its SHA-256
+// hash (for lookup) and a short prefix (for the UI to tell keys apart
+// without ever displaying the secret again). Auth resolves a presented key
+// to `serviceUser` and proceeds through the ordinary Clerk-session code
+// path from there, so every authz/audit-column rule applies unchanged.
+model ApiKey {
+  id             String       @id @default(cuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  name           String
+  keyPrefix      String
+  hashedKey      String       @unique
+  role           OrgRole      @default(EDITOR)
+
+  serviceUserId String @unique
+  serviceUser   User   @relation("ApiKeyServiceUser", fields: [serviceUserId], references: [id])
+
+  createdByUserId String?
+  createdByUser   User?   @relation("ApiKeyCreatedBy", fields: [createdByUserId], references: [id])
+
+  createdAt  DateTime  @default(now())
+  lastUsedAt DateTime?
+  revokedAt  DateTime?
+
+  @@index([organizationId])
+}
+
+// Plan tiers as data, matching this project's existing "don't hardcode what
+// might change" pattern (see TestPlanType/ComplianceFramework). Seeded with
+// the tier boundaries as specified; cost fields are left null until pricing
+// is finalized -- this table is where that lands, not a code change.
+model PlanTier {
+  id                       String  @id @default(cuid())
+  key                      String  @unique // "free" | "team" | "business" | "corp"
+  name                     String
+  sortOrder                Int
+  isPublic                 Boolean @default(true)
+  minFullSeats             Int // inclusive lower bound that qualifies for/requires this tier
+  maxFullSeats             Int? // inclusive upper bound; null = unlimited (top tier)
+  includedReadOnlySeats    Int     @default(0) // read-only seats bundled at this tier
+  maxReadOnlySeats         Int? // null = unlimited once on this tier
+  monthlyPricePerSeatCents Int? // null = not yet priced
+
+  // P12-05: the Stripe Price object (test mode) an org subscribes to for
+  // this tier's per-seat charge. Null on Free (nothing to subscribe to) and
+  // on any paid tier until a real Stripe test-mode price has actually been
+  // created for it -- createBillingCheckout refuses a tier with no price
+  // rather than guessing one.
+  stripePriceId String?
+
+  // AI credits granted to an org on this tier at the start of each calendar
+  // month (see AiCreditTransaction) -- covers the real, variable LLM cost
+  // of reverse-engineering, PR-scan recommendations, risk assessment, and
+  // strategy generation. 0 is a valid, meaningful value (Free tier), not
+  // "unset" -- unlike monthlyPricePerSeatCents this always has a value.
+  includedAiCreditsPerMonth Int @default(0)
+
+  // P12-07: plumbing only, deliberately empty for now -- a plain list of
+  // feature-flag keys enabled at this tier, so a specific tier can gate a
+  // specific feature set once those are actually mapped, as data rather
+  // than a scattered `if (org.planTier.key === "business")` check wherever
+  // that feature lives. No flag currently reads this array; every feature
+  // built so far is available on every tier.
+  enabledFeatures String[] @default([])
+
+  organizations Organization[]
+}
+
+// Append-only ledger, not a mutable balance column -- an org's AI credit
+// balance is the sum of its transactions, same reasoning as AuditLog:
+// auditable, and a support agent (Phase 13) can see exactly where credits
+// went rather than trusting a number that could have drifted from reality.
+model AiCreditTransaction {
+  id             String                  @id @default(cuid())
+  organizationId String
+  organization   Organization            @relation(fields: [organizationId], references: [id])
+  type           AiCreditTransactionType
+  // Positive for GRANT/TOPUP, negative for CONSUMPTION and a deduction
+  // ADJUSTMENT -- signed so balance is always a plain sum, never a
+  // type-dependent add-or-subtract branch at read time.
+  amount         Int
+  // Which AI operation consumed credits (see AI_OPERATION_COSTS in
+  // services/aiCredits.ts) -- null for GRANT/TOPUP/ADJUSTMENT rows.
+  operation      String?
+  description    String?
+  // P12-12: what the operation actually cost upstream, filled in after the
+  // AI call completes (the flat `amount` above is still charged before it
+  // runs). Null on GRANT/TOPUP/ADJUSTMENT rows and on CONSUMPTION rows
+  // whose AI call failed or predates metering. Recorded only - nothing
+  // reads these to change what's charged; that's the pricing decision
+  // this data exists to inform.
+  inputTokens    Int?
+  outputTokens   Int?
+  aiCalls        Int?
+  model          String?
+  createdAt      DateTime                @default(now())
+
+  @@index([organizationId, createdAt])
+}
+
+// A member's request to have an administrator authorize a bounded AI action.
+// Resolving this is a workflow decision, never an automatic seat change or
+// credit grant. Keeping it per-organization prevents cross-tenant inbox leaks.
+model AiCreditUseRequest {
+  id               String       @id @default(cuid())
+  organizationId   String
+  organization     Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  projectId        String
+  requestedById    String
+  action           String
+  caseIds          String[]
+  caseCount        Int
+  estimatedCredits Int
+  reason           String?
+  dedupeKey        String?      @unique
+  status           String       @default("PENDING")
+  resolvedById     String?
+  resolutionNote   String?
+  resolvedAt       DateTime?
+  createdAt        DateTime     @default(now())
+
+  @@index([organizationId, status, createdAt])
+  @@index([requestedById, createdAt])
+}
+
+enum AiCreditTransactionType {
+  GRANT
+  CONSUMPTION
+  TOPUP
+  ADJUSTMENT
+}
+
+// ---------------------------------------------------------------------------
+// Pluggable test plan typing
+// ---------------------------------------------------------------------------
+
+enum TestPlanCategory {
+  FUNCTIONAL // unit, functional, contract, instrumentation, e2e, ...
+  QUALITY_STRATEGY // holistic QA strategy plans (per testlio-style structured strategy)
+  COMPLIANCE // governance / compliance acceptance plans (SOC2, HIPAA, PCI-DSS, ...)
+  RELEASE_READINESS // release acceptance criteria plans
+  CUSTOM
+}
+
+// One row per plan "shape" an org can author against. `fieldSchema` is a
+// JSON Schema document describing the custom fields a TestPlan of this type
+// carries in `TestPlan.customFields`. This is how new compliance forms or
+// bespoke internal QA templates get added without a code change.
+model TestPlanType {
+  id          String           @id @default(cuid())
+  key         String           @unique // e.g. "unit", "contract", "soc2-cc", "release-readiness"
+  name        String
+  category    TestPlanCategory
+  description String?
+  fieldSchema Json // JSON Schema for TestPlan.customFields
+  isBuiltIn   Boolean          @default(false)
+  createdAt   DateTime         @default(now())
+
+  testPlans TestPlan[]
+  testCases TestCase[]
+}
+
+model TestPlan {
+  id             String       @id @default(cuid())
+  projectId      String
+  project        Project      @relation(fields: [projectId], references: [id])
+  testPlanTypeId String
+  testPlanType   TestPlanType @relation(fields: [testPlanTypeId], references: [id])
+  releaseId      String?
+  release        Release?     @relation(fields: [releaseId], references: [id])
+
+  name         String
+  description  String?
+  status       TestPlanStatus @default(DRAFT)
+  customFields Json           @default("{}") // validated against testPlanType.fieldSchema
+  executionTemplate Json      @default("{}") // bounded ordered scope and reusable reviewed configurations
+
+  // P4-04: lets a QUALITY_STRATEGY-category plan act as a real coordination
+  // hub instead of just a document -- a concrete plan (e.g. "regression
+  // plan for payments") can point back at the strategy it exists to
+  // support. Self-relation rather than a separate join table since it's a
+  // simple one-parent-strategy-per-plan link, not a many-to-many.
+  strategyId  String?
+  strategy    TestPlan?  @relation("StrategyLink", fields: [strategyId], references: [id])
+  linkedPlans TestPlan[] @relation("StrategyLink")
+
+  acceptanceCriteria AcceptanceCriterion[]
+  testCases          TestCase[]
+  versions           TestPlanVersion[]
+
+  createdById String?
+  createdBy   User?   @relation("TestPlanCreatedBy", fields: [createdById], references: [id])
+  updatedById String?
+  updatedBy   User?   @relation("TestPlanUpdatedBy", fields: [updatedById], references: [id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// P4-05: a full snapshot taken on every create/update, not just the
+// AuditLog's one-line summary (P3-06) -- a strategy evolving release to
+// release needs to see what the risk areas/entry criteria actually said at
+// a past point, not just that an update happened. versionNumber is
+// per-plan and sequential (1 at creation, incrementing on every update).
+model TestPlanVersion {
+  id            String         @id @default(cuid())
+  testPlanId    String
+  testPlan      TestPlan       @relation(fields: [testPlanId], references: [id])
+  versionNumber Int
+  name          String
+  description   String?
+  status        TestPlanStatus
+  customFields  Json
+  executionTemplate Json       @default("{}")
+  createdById   String?
+  createdBy     User?          @relation(fields: [createdById], references: [id])
+  createdAt     DateTime       @default(now())
+
+  @@unique([testPlanId, versionNumber])
+  @@index([testPlanId, versionNumber])
+}
+
+enum TestPlanStatus {
+  DRAFT
+  ACTIVE
+  IN_REVIEW
+  APPROVED
+  ARCHIVED
+}
+
+// ---------------------------------------------------------------------------
+// Requirements & acceptance criteria
+// ---------------------------------------------------------------------------
+
+model Requirement {
+  jiraImportIdentities JiraIssueIdentity[]
+  populationEvidence   ProjectPopulationRequirement[]
+  id                   String                         @id @default(cuid())
+  projectId            String
+  project              Project                        @relation(fields: [projectId], references: [id])
+  title                String
+  description          String?
+  externalRef          String? // e.g. Jira key, Linear issue id, doc URL
+  createdAt            DateTime                       @default(now())
+
+  // P9-02: unambiguous, Linear-specific fields rather than overloading the
+  // generic externalRef above - a bare "ABC-123" could be a Jira key OR a
+  // Linear identifier, and sync code needs to know which without guessing.
+  // linearStatusName/linearSyncedAt are set by either a real-time inbound
+  // webhook or a manual pull (organization.syncLinearRequirement) - null
+  // until the first successful sync.
+  linearIssueId    String? // Linear's human-facing identifier, e.g. "ENG-123"
+  linearStatusName String?
+  linearSyncedAt   DateTime?
+
+  // P9-01: same shape, for Jira - a separate field rather than reusing
+  // linearIssueId/externalRef, for the same disambiguation reason.
+  jiraIssueKey   String? // e.g. "PROJ-123"
+  jiraStatusName String?
+  jiraSyncedAt   DateTime?
+
+  // Direct request: make the Jira/Linear side of this integration
+  // genuinely informative about test status, not just a status-name sync -
+  // Zephyr's and TestRail's own ticket panels were named as the bar to
+  // clear (a bare "N test cases linked" link, no pass/fail, no risk
+  // context). A real Jira Forge app or Linear app-panel both need their
+  // own developer-account registration to ever run live (same category of
+  // gap as EAS/Apple/Google elsewhere) - what's genuinely deployable today
+  // with zero external app registration is a public link-preview
+  // ("unfurl"): Jira Smart Links and Linear's own link previews both
+  // render a rich Open Graph preview for any URL pasted into an issue,
+  // no app install required. shareToken is opt-in (null until a human
+  // explicitly generates one) and unguessable - nothing is exposed
+  // publicly by default, and generating a new one invalidates the old.
+  shareToken String? @unique
+
+  acceptanceCriteria    AcceptanceCriterion[]
+  caseTraceabilityLinks CaseTraceabilityLink[]
+
+  @@unique([id, projectId])
+}
+
+model AcceptanceCriterion {
+  id            String                    @id @default(cuid())
+  testPlanId    String
+  testPlan      TestPlan                  @relation(fields: [testPlanId], references: [id])
+  requirementId String?
+  requirement   Requirement?              @relation(fields: [requirementId], references: [id])
+  description   String
+  status        AcceptanceCriterionStatus @default(PENDING)
+  createdAt     DateTime                  @default(now())
+}
+
+enum AcceptanceCriterionStatus {
+  PENDING
+  MET
+  NOT_MET
+  AT_RISK
+}
+
+// ---------------------------------------------------------------------------
+// Test cases (BDD-normalized) + provenance back to automated test code
+// ---------------------------------------------------------------------------
+
+enum TestCaseType {
+  UNIT
+  FUNCTIONAL
+  CONTRACT
+  INSTRUMENTATION
+  SMOKE
+  SANITY
+  REGRESSION
+  E2E
+  PERFORMANCE
+  SECURITY
+  ACCESSIBILITY
+  EXPLORATORY
+  COMPLIANCE
+  OTHER
+}
+
+enum AutomationStatus {
+  MANUAL
+  AUTOMATED
+  PARTIALLY_AUTOMATED
+  NEEDS_AUTOMATION
+}
+
+enum ValidationDomain {
+  SOFTWARE
+  HARDWARE
+  SYSTEM_INTEGRATION
+  HIL
+  MANUFACTURING
+  MEDICAL_DEVICE
+  PHARMA_LAB
+  OTHER
+}
+
+// The canonical, human-readable test case. Whether it was authored by a
+// human or reverse-engineered from code by the AI agent, it lives here in
+// the same BDD-normalized shape.
+model TestCase {
+  id             String        @id @default(cuid())
+  // Database-assigned, never accepted from content edits or import IDs.
+  // Internal IDs remain the foreign keys; displayId is the user's reference.
+  caseNumber     Int           @default(0)
+  displayId      String        @default("")
+  projectId      String
+  project        Project       @relation(fields: [projectId], references: [id])
+  testPlanId     String?
+  testPlan       TestPlan?     @relation(fields: [testPlanId], references: [id])
+  testPlanTypeId String?
+  testPlanType   TestPlanType? @relation(fields: [testPlanTypeId], references: [id])
+
+  title               String
+  background          String? // BDD "Background:" (shared Given context), optional
+  given               String[] // Given steps
+  when                String[] // When steps
+  then                String[] // Then steps
+  tags                String[]
+  priority            TestCasePriority @default(MEDIUM)
+  testType            TestCaseType
+  automationStatus    AutomationStatus @default(MANUAL)
+  validationDomain    ValidationDomain @default(SOFTWARE)
+  // Domain-specific procedure definition. Hardware/HIL cases use this for
+  // unit-under-test metadata, rigs/instruments, safety controls, stimuli,
+  // expected measurement channels and visual evidence requirements.
+  verificationProfile Json             @default("{}")
+  // Unknown/retired values are retained; definitions are project-scoped.
+  customFields        Json             @default("{}")
+  caseFieldSchemaVersion Int           @default(0)
+
+  // Manual suite/folder assignment, independent of origin -- a "/"-delimited
+  // path like the tree UI's derived-from-source grouping (e.g.
+  // "auth/password-reset"), but settable on ANY case, not just ones with a
+  // source file. When set, this wins over the source-file-derived location
+  // for tree placement -- see components/TestCaseTree.tsx. Nullable: an
+  // unassigned case (common right after manual authoring) still needs
+  // somewhere to render, so it falls into a distinct "Unassigned" bucket
+  // rather than being forced into a guessed suite.
+  suitePath         String?
+  // Explicit order within a suite. Legacy cases start at zero and are
+  // normalized only when a person reorders a suite; no bulk migration of
+  // customer-authored cases is needed.
+  sortPosition      Int                    @default(0)
+  prerequisites     TestCasePrerequisite[] @relation("DependentPrerequisites")
+  requiredBy        TestCasePrerequisite[] @relation("RequiredByPrerequisites")
+  automationDrafts  AutomationDraft[]
+  designReviews     TestDesignReview[]
+  riskReviews       TestCaseRiskReview[]
+  traceabilityLinks CaseTraceabilityLink[]
+  comments          CaseComment[]
+
+  // Soft-hide, not soft-delete: an archived case stays fully intact (still
+  // linked from past TestSelectionRecommendations, compliance controls,
+  // etc.) but drops out of the default list/tree view. Distinct from
+  // `delete`, which is a real removal blocked by those same FK links.
+  archived Boolean @default(false)
+
+  origin     TestCaseOrigin @default(AUTHORED) // AUTHORED vs AI_REVERSE_ENGINEERED
+  confidence Float? // set when origin = AI_REVERSE_ENGINEERED; agent's self-rated confidence 0-1
+
+  // Frozen snapshot of exactly what the AI produced (title/background/
+  // given/when/then/tags), written once whenever AI-generated content lands
+  // here -- at first creation, and again on P2-04's update-in-place when the
+  // source file changed enough to re-run the agent. NEVER touched by a
+  // human edit (testCases.update leaves it alone), so it stays a stable
+  // "what the AI actually said" baseline to diff the live, possibly-edited
+  // content against (P2-06's review-queue diff view). Null for AUTHORED/
+  // IMPORTED cases, which have no AI output to compare against.
+  aiSnapshot Json?
+
+  // Human-authored and imported cases are trusted on arrival (APPROVED).
+  // AI-reverse-engineered cases start PENDING_REVIEW regardless of
+  // confidence -- confidence informs the reviewer's triage order, it doesn't
+  // bypass review. Set explicitly by the agent router at creation time; the
+  // schema default only covers the AUTHORED/IMPORTED paths.
+  reviewStatus TestCaseReviewStatus @default(APPROVED)
+  reviewedById String?
+  reviewedBy   User?                @relation("TestCaseReviewedBy", fields: [reviewedById], references: [id])
+  reviewedAt   DateTime?
+  reviewNote   String?
+
+  // How bad it is if a bug in this scenario ships undetected -- distinct
+  // from `priority`, which is authoring/backlog intent set by a human up
+  // front. riskSeverity/riskScore are the AI-assessed "if this breaks and
+  // nobody caught it, how much does it hurt" signal, read from the actual
+  // BDD content + testType + what area of the app it covers. Reuses
+  // RiskSeverity (already used by RiskFlag) rather than inventing a
+  // parallel enum for the same four-point scale. Nullable until assessed --
+  // most test cases won't have this until someone runs assessTestCaseRisk.
+  riskSeverity   RiskSeverity?
+  riskScore      Int? // 0-100, combines severity + likelihood-of-regression
+  riskRationale  String?
+  riskAssessedAt DateTime?
+
+  // P5-05: recomputed after every ingested TestRun that includes a result
+  // for this case (see detectFlaky in testRuns.ts) -- true when its recent
+  // results alternate PASS/FAIL on the same branch beyond a threshold.
+  // Deliberately NOT sticky: recomputed fresh each time rather than only
+  // ever flipped on, so a test that's stabilized clears its own flag
+  // instead of carrying a stale warning forever.
+  isFlaky         Boolean   @default(false)
+  flakyDetectedAt DateTime?
+
+  source                    TestCaseSource?
+  complianceControls        TestCaseComplianceControl[]
+  results                   TestResult[]
+  manualStepResultRevisions ManualStepResultRevision[]
+  manualStepResultHeads     ManualStepResultHead[]
+  manualCaseResultRevisions ManualCaseResultRevision[]
+  manualCaseResultHeads     ManualCaseResultHead[]
+  healingSuggestions        HealingSuggestion[]
+  complianceEvidence        ComplianceEvidence[]
+  aiEditFeedback            AiEditFeedback[]
+  // The structured step-table authoring format -- an alternative (or
+  // complement) to given/when/then above. A TestCase can carry either,
+  // both, or neither populated; the UI renders whichever has content. See
+  // TestCaseStep for why this exists alongside BDD rather than replacing it.
+  steps                     TestCaseStep[]
+  selectionRecommendations  TestSelectionRecommendation[]
+  versions                  TestCaseVersion[]
+
+  // 2026-08-27 competitor parity audit: TestRail/qTest/Zephyr/Xray all let
+  // a step sequence be authored once and reused across many cases,
+  // updated in one place. When set, this case's own structured `steps`
+  // (above) are irrelevant - the resolved step list comes from the
+  // referenced group instead (see testCases.ts's byId/list). A case
+  // either owns its steps or defers to a shared group, never both, same
+  // "one or the other" simplicity as given/when/then vs. structured
+  // steps already has.
+  sharedStepGroupId String?
+  sharedStepGroup   SharedStepGroup?     @relation(fields: [sharedStepGroupId], references: [id])
+  attachments       TestCaseAttachment[]
+  dataset           TestCaseDataset?
+
+  createdById String?
+  createdBy   User?   @relation("TestCaseCreatedBy", fields: [createdById], references: [id])
+  updatedById String?
+  updatedBy   User?   @relation("TestCaseUpdatedBy", fields: [updatedById], references: [id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Composite identity lets the prerequisite relation enforce same-project
+  // membership at the database layer as well as in the API.
+  @@unique([id, projectId])
+  @@unique([projectId, caseNumber])
+  @@unique([projectId, displayId])
+}
+
+// Collaboration is independent of case authoring and never changes procedure
+// revisions, approvals or frozen run evidence. User/case erasure removes text.
+model CaseComment {
+  id          String   @id
+  organizationId String
+  projectId   String
+  caseId      String
+  authorId    String
+  requestId   String
+  body        String
+  createdAt   DateTime @default(now())
+  testCase    TestCase @relation(fields: [caseId, projectId], references: [id, projectId], onDelete: Cascade)
+  author      User     @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([projectId, caseId, authorId, requestId])
+  @@index([projectId, caseId, createdAt, id])
+  @@index([authorId])
+  @@index([organizationId])
+}
+
+model TestCasePrerequisite {
+  projectId      String
+  dependentId    String
+  prerequisiteId String
+  dependent      TestCase @relation("DependentPrerequisites", fields: [dependentId, projectId], references: [id, projectId], onDelete: Restrict)
+  prerequisite   TestCase @relation("RequiredByPrerequisites", fields: [prerequisiteId, projectId], references: [id, projectId], onDelete: Restrict)
+  createdById    String
+  createdAt      DateTime @default(now())
+
+  @@id([dependentId, prerequisiteId])
+  @@index([projectId, prerequisiteId])
+}
+
+// One "what should we run for this change" analysis -- a diff between two
+// refs in a project's repo, mapped against known TestCase source files.
+// Persisted (not just computed and returned) so CI can reference a specific
+// run's recommendations later, and so there's an audit trail of what was
+// actually recommended for a given build, matching the ReverseEngineerJob
+// pattern rather than being fire-and-forget.
+model AutomationDraft {
+  id           String    @id @default(cuid())
+  testCaseId   String
+  testCase     TestCase  @relation(fields: [testCaseId], references: [id], onDelete: Cascade)
+  framework    String
+  status       String    @default("GENERATING")
+  content      Json?
+  createdById  String
+  rejectedById String?
+  rejectedAt   DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  @@index([testCaseId, createdAt])
+}
+
+model TestDesignReview {
+  id          String   @id @default(cuid())
+  testCaseId  String
+  testCase    TestCase @relation(fields: [testCaseId], references: [id], onDelete: Cascade)
+  inputHash   String
+  caseHash    String
+  evidenceRef String?
+  status      String   @default("GENERATING")
+  content     Json?
+  createdById String
+  createdAt   DateTime @default(now())
+
+  @@unique([testCaseId, inputHash])
+  @@index([testCaseId, createdAt])
+}
+
+// One charge reservation per immutable case-input hash. An identical retry
+// returns the saved result instead of spending again; ambiguous failures stay
+// visible for reconciliation and block another charge.
+model TestCaseRiskReview {
+  id          String   @id @default(cuid())
+  testCaseId  String
+  testCase    TestCase @relation(fields: [testCaseId], references: [id], onDelete: Cascade)
+  inputHash   String
+  status      String   @default("GENERATING")
+  content     Json?
+  createdById String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([testCaseId, inputHash])
+  @@index([testCaseId, createdAt])
+}
+
+model TestSelectionRun {
+  id           String   @id @default(cuid())
+  projectId    String
+  project      Project  @relation(fields: [projectId], references: [id])
+  baseRef      String
+  headRef      String
+  changedFiles String[]
+  createdAt    DateTime @default(now())
+
+
+  recommendations TestSelectionRecommendation[]
+}
+
+// One test case's inclusion/exclusion verdict within a TestSelectionRun.
+// `recommended=true` rows are the ones whose known source file was touched
+// by the diff (always run -- this isn't optional risk-based sampling, the
+// code under test literally changed); `recommended=false` rows are tracked
+// too so a UI can show "considered but not required" rather than only ever
+// showing the must-run list.
+model TestSelectionRecommendation {
+  id                 String           @id @default(cuid())
+  testSelectionRunId String
+  testSelectionRun   TestSelectionRun @relation(fields: [testSelectionRunId], references: [id], onDelete: Cascade)
+  testCaseId         String
+  testCase           TestCase         @relation(fields: [testCaseId], references: [id])
+  recommended        Boolean
+  matchReason        String
+  // Snapshot of the test case's risk score at the time of this run, not a
+  // live join -- so a past run's rationale stays interpretable even after
+  // the test case is reassessed later.
+  riskScoreSnapshot  Int?
+
+  @@index([testSelectionRunId])
+}
+
+// A more granular, technical alternative to a single BDD "When"/"Then" pair
+// -- separates what the tester DOES from three independently-useful
+// observations: what happens beneath the UI (a request fires, with what
+// payload), what the *user* sees, and what the *system* actually returned.
+// Teams testing both a UI and the API/service behind it want these three
+// tracked separately instead of collapsed into one "expected result" line.
+//
+// Field names are intentionally plain and their DISPLAY labels are
+// deliberately not hardcoded anywhere in the app -- see
+// Organization.stepFieldLabels. Only `action` is required; the other three
+// are independently optional; e.g. a pure-UI step might only need
+// expectedResult.
+model TestCaseStep {
+  id         String   @id @default(cuid())
+  testCaseId String
+  testCase   TestCase @relation(fields: [testCaseId], references: [id], onDelete: Cascade)
+  order      Int
+
+  action               String // the trigger/action, e.g. "When the login button is pushed"
+  expectedActionOrData String? // what should happen internally: an API call fires, with what data/payload
+  expectedResult       String? // the user-observable outcome, e.g. "The new page loads"
+  expectedResponse     String? // the technical/API response, e.g. "200 with { token, userId }"
+  mediaAttachmentIds   String[] @default([]) // case-scoped image/video attachment IDs, validated on write
+
+  @@unique([testCaseId, order])
+  @@index([testCaseId])
+}
+
+// P5-16-adjacent (2026-08-27 competitor parity audit): every competitor
+// researched versions the individual test case, not just the plan it
+// belongs to (P4-05's TestPlanVersion). A full snapshot, same reasoning
+// as TestPlanVersion - a one-line AuditLog summary answers "an edit
+// happened," not "what did the steps actually say two versions ago."
+// `steps` is a JSON snapshot (not a live relation) since the structured
+// steps themselves don't carry stable identity across an edit (see the
+// comment on testCases.ts's `update` mutation) - a version needs to
+// freeze exactly what existed, not point at rows that may since have
+// been replaced.
+model TestCaseVersion {
+  id                  String           @id @default(cuid())
+  testCaseId          String
+  testCase            TestCase         @relation(fields: [testCaseId], references: [id], onDelete: Cascade)
+  versionNumber       Int
+  title               String
+  background          String?
+  given               String[]
+  when                String[]
+  then                String[]
+  steps               Json
+  tags                String[]
+  priority            TestCasePriority
+  testType            TestCaseType
+  validationDomain    ValidationDomain @default(SOFTWARE)
+  verificationProfile Json             @default("{}")
+  createdById         String?
+  createdBy           User?            @relation(fields: [createdById], references: [id])
+  createdAt           DateTime         @default(now())
+
+  @@unique([testCaseId, versionNumber])
+  @@index([testCaseId, versionNumber])
+}
+
+// A named, reusable structured-step sequence, editable in one place and
+// referenced by any number of TestCases in the same project (see
+// TestCase.sharedStepGroupId). `steps` is a JSON array of the same
+// {order, action, expectedActionOrData, expectedResult, expectedResponse}
+// shape TestCaseStep uses - a real relation table isn't needed here since
+// nothing ever queries into an individual shared step on its own.
+model SharedStepGroup {
+  id          String   @id @default(cuid())
+  projectId   String
+  project     Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  name        String
+  description String?
+  steps       Json
+  createdById String?
+  createdBy   User?    @relation(fields: [createdById], references: [id])
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  revision    Int      @default(1)
+  archivedAt  DateTime?
+  revisions   SharedStepGroupRevision[]
+
+  testCases TestCase[]
+
+  @@index([projectId])
+}
+
+// Exact retained library snapshots. A restore appends rather than rewrites.
+// Actor identity is a historical scalar, not a cascading user relation.
+model SharedStepGroupRevision {
+  id             String @id @default(cuid())
+  groupId        String
+  group          SharedStepGroup @relation(fields: [groupId], references: [id], onDelete: Restrict)
+  revision       Int
+  kind           String
+  snapshot       Json
+  actorId        String?
+  actorName      String?
+  recordedAt     DateTime @default(now())
+  reason         String?
+  sourceRevision Int?
+  requestId      String?
+  requestHash    String?
+
+  @@unique([groupId, revision])
+  @@unique([groupId, actorId, requestId])
+  @@index([groupId, revision])
+}
+
+// 2026-08-27 competitor parity audit: session-based exploratory testing -
+// qTest and PractiTest both have this natively (charter + running notes,
+// convertible into a scripted test afterward). Deliberately NOT modeled
+// on TestRun/TestResult (P5-16's manual execution) - an exploratory
+// session has no predefined steps or pass/fail outcome to record against;
+// it's a charter plus a free-form, timestamped log of what the tester
+// found, which is a genuinely different shape of record.
+model ExploratorySession {
+  id        String                   @id @default(cuid())
+  projectId String
+  project   Project                  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  charter   String
+  status    ExploratorySessionStatus @default(IN_PROGRESS)
+  testerId  String
+  tester    User                     @relation(fields: [testerId], references: [id])
+  startedAt DateTime                 @default(now())
+  endedAt   DateTime?
+
+  notes ExploratorySessionNote[]
+
+  @@index([projectId, status])
+}
+
+enum ExploratorySessionStatus {
+  IN_PROGRESS
+  COMPLETED
+}
+
+model ExploratorySessionNote {
+  id        String             @id @default(cuid())
+  sessionId String
+  session   ExploratorySession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  text      String
+  // A finding is something worth following up on (a bug, a gap, a
+  // surprise) - distinct from a routine observation logged just to keep
+  // the session's narrative complete. Only findings feed the "convert to
+  // test case" summary (below), so the signal-to-noise of that summary
+  // depends on testers actually using this flag, not on every note being
+  // treated as equally important.
+  isFinding Boolean            @default(false)
+  createdAt DateTime           @default(now())
+
+  @@index([sessionId])
+}
+
+// 2026-08-27 competitor parity audit: data-driven / parameterized testing
+// for the structured step-table format. Gherkin already gets this for
+// free via Scenario Outline + Examples (packages/core/gherkinImport.ts,
+// P2-13) - this is the equivalent for P1-10's other authoring format.
+// `<placeholder>` syntax matches Gherkin's own Examples-table convention
+// exactly, so the same mental model applies across both formats. One
+// dataset per case (@unique testCaseId) - a case's structured steps carry
+// the placeholders, and this is what fills them in per row; the case
+// itself is unaffected by which/how many rows exist.
+model TestCaseDataset {
+  id             String   @id @default(cuid())
+  testCaseId     String   @unique
+  testCase       TestCase @relation(fields: [testCaseId], references: [id], onDelete: Cascade)
+  parameterNames String[]
+  // Array of { name: string, values: Record<parameterName, value> } -
+  // a real relation table isn't worth it for something only ever read/
+  // written as a whole set, same reasoning as SharedStepGroup.steps.
+  rows           Json
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+}
+
+// 2026-08-27 competitor parity audit: a reference file attached to the
+// test case's own authoring record (a mockup, a log, a spec doc) -
+// distinct from TestResultArtifact (P5-15), which captures evidence from
+// a specific FAILED execution, not the case's authoring content. Same
+// private-bucket, presigned-both-ways pattern.
+model TestCaseAttachment {
+  id           String   @id @default(cuid())
+  testCaseId   String
+  testCase     TestCase @relation(fields: [testCaseId], references: [id], onDelete: Cascade)
+  fileName     String
+  contentType  String
+  storageUrl   String
+  sizeBytes    Int
+  uploadedById String?
+  uploadedBy   User?    @relation(fields: [uploadedById], references: [id])
+  createdAt    DateTime @default(now())
+  // Null means not independently confirmed, including legacy rows.
+  uploadCompletedAt DateTime?
+  uploadVerification Json @default("{}")
+
+  @@index([testCaseId])
+}
+
+enum TestCasePriority {
+  CRITICAL
+  HIGH
+  MEDIUM
+  LOW
+}
+
+enum TestCaseOrigin {
+  AUTHORED
+  AI_REVERSE_ENGINEERED
+  IMPORTED
+  // SSE-181: generated from a live-app crawl rather than existing source
+  // code - kept distinct from AI_REVERSE_ENGINEERED per the reverse-
+  // engineering PRD's own "future integrations must keep source
+  // provenance" requirement, since a reviewer should be able to tell "this
+  // case has no prior test to compare against" from origin alone.
+  AI_LIVE_APP_GENERATED
+}
+
+enum TestCaseReviewStatus {
+  APPROVED
+  PENDING_REVIEW
+  REJECTED
+}
+
+// Links a TestCase back to the automated test that implements it, so the
+// platform can blend coverage/results from real test frameworks with the
+// human-readable BDD layer.
+model TestCaseSource {
+  id                  String          @id @default(cuid())
+  testCaseId          String          @unique
+  testCase            TestCase        @relation(fields: [testCaseId], references: [id], onDelete: Cascade)
+  repoUrl             String?
+  filePath            String
+  functionName        String?
+  framework           String // "jest" | "pytest" | "junit5" | "cypress" | "playwright" | "postman" | "custom:<name>" ...
+  frameworkFamily     FrameworkFamily @default(CUSTOM)
+  lastSyncedCommitSha String?
+  lastSyncedAt        DateTime?
+
+  // SHA-256 of the whole source file's raw content as of the last time this
+  // case was generated/refreshed from it (P2-04). A re-scan compares this
+  // against the file's current hash before re-running the LLM at all: an
+  // unchanged file is skipped outright (not just "already tracked, skip
+  // forever" -- the old behavior, which meant a changed file never got
+  // caught either), and a changed file's persist step updates this row's
+  // TestCase in place by (filePath, functionName) instead of creating a
+  // duplicate.
+  contentHash String?
+
+  // Last imported source fields, not the editable live case. Re-imports use
+  // this as a three-way baseline and refuse to replace later human edits.
+  // Null for older imports until explicitly reviewed/reconciled, and for
+  // reverse-engineered/CI-linked source records.
+  importSnapshot Json?
+
+  // The raw id the test framework/CI reports for this test (e.g.
+  // "CartTest::test_empty_checkout_throws"). Once set, incoming TestResults
+  // match to this TestCase by exact id instead of fuzzy file/function
+  // matching -- this is what P5-04/P5-14's CI listener key off of.
+  externalTestId String?
+
+  // CI names repeat across projects. Writers serialize mapping changes on
+  // the owning Project row; project-scoped lookup rejects ambiguity.
+  @@index([externalTestId])
+  @@index([framework])
+}
+
+// Known frameworks get first-class evaluators; anything else falls back to
+// the custom-framework evaluation path (heuristic + AI-assisted parsing).
+enum FrameworkFamily {
+  JEST
+  VITEST
+  MOCHA
+  PYTEST
+  JUNIT
+  TESTNG
+  RSPEC
+  GO_TEST
+  CYPRESS
+  PLAYWRIGHT
+  SELENIUM
+  APPIUM
+  MAESTRO
+  XCUITEST
+  XCTEST
+  SWIFT_TESTING
+  ESPRESSO
+  COMPOSE_UI
+  UI_AUTOMATOR
+  ROBOLECTRIC
+  DETOX
+  FLUTTER_TEST
+  NUNIT
+  XUNIT_DOTNET
+  MSTEST
+  UNITY_TEST
+  UNREAL_AUTOMATION
+  GODOT_TEST
+  POSTMAN
+  PACT
+  ROBOT_FRAMEWORK
+  CUSTOM
+}
+
+// P5-12: "teach the platform your framework" -- a per-project, per-
+// framework structural pattern inferred once from a few example files
+// (how are test names decided? assertions? setup/teardown?) and reused as
+// context on every later reverse-engineer call for that framework, instead
+// of the agent inferring the same pattern from scratch on every file. Only
+// meaningful for frameworks with no native evaluator (P5-07/08/09/10) --
+// a known framework already gets deterministic structure extraction, which
+// is strictly better than a learned-from-examples description.
+model CustomFrameworkHeuristic {
+  id          String  @id @default(cuid())
+  projectId   String
+  project     Project @relation(fields: [projectId], references: [id])
+  name        String // e.g. "Our internal e2e framework"
+  description String // the inferred pattern, in prose -- fed back to the agent as context on later files
+
+  exampleFilePaths String[] // labels of the files the pattern was learned from, for reference/audit only
+
+  // P5-13: confidence the inferred pattern actually generalizes (the
+  // agent's own self-rating at inference time, 0-1) and how many times
+  // it's actually been used since -- together, the signal for "graduate
+  // this into a real native evaluator" the UI prompts on past a threshold,
+  // rather than a heuristic nobody's actually leaned on yet.
+  confidence Float?
+  usageCount Int    @default(0)
+
+  createdById String?
+  createdBy   User?    @relation(fields: [createdById], references: [id])
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([projectId])
+}
+
+// A unit of work for the AI agent: "read this source and produce BDD test
+// cases." Tracks status so long repo scans can run async.
+// Explicit per-run permission. Metadata authorization alone never permits source
+// cloning or sending source to AI. Paid partial results remain available on retry.
+model RepositoryProcessingApproval {
+  id String @id @default(cuid())
+  projectId String
+  organizationId String
+  actorId String
+  requestId String
+  purpose String
+  repositoryUrl String
+  ref String
+  pathPrefixes String[]
+  scopeHash String
+  unitCreditEstimate Int
+  maxItems Int
+  sourceApprovedAt DateTime
+  aiApprovedAt DateTime
+  costApprovedAt DateTime
+  expiresAt DateTime
+  status String @default("READING")
+  resolvedCommitSha String?
+  results Json?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  jobs ReverseEngineerJob[]
+  @@unique([projectId,actorId,requestId])
+  @@index([organizationId,actorId,createdAt])
+}
+
+model ReverseEngineerJob {
+  id        String  @id @default(cuid())
+  projectId String
+  project   Project @relation(fields: [projectId], references: [id])
+  processingApprovalId String?
+  processingApproval RepositoryProcessingApproval? @relation(fields: [processingApprovalId], references: [id])
+  // Persistent marker: a reclaimed repo job cannot spend again after an
+  // ambiguous crash. Saved outcomes/charges require explicit reconciliation.
+  aiProcessingStartedAt DateTime?
+  paidProcessingResult Json?
+
+  inputType ReverseEngineerInputType
+  inputRef  String // file path, repo+glob, or opaque paste id
+  // Raw source for PASTE/FILE_UPLOAD jobs -- the worker needs the actual
+  // content to reverse-engineer, not just inputRef's path/label. REPO_SCAN
+  // and CI_UNMATCHED_RESULT jobs source content differently (repo clone,
+  // existing TestResult) once those pipelines exist, so this stays nullable.
+  content   String?
+  framework String?
+  status    JobStatus                @default(PENDING)
+  error     String?
+
+  // Set when inputType = CI_UNMATCHED_RESULT: the specific TestResult that
+  // triggered this job by arriving with no matching TestCaseSource. Lets the
+  // pipeline auto-link the produced TestCase's TestCaseSource.externalTestId
+  // back to it once the job succeeds, so the *next* run of that same test
+  // matches immediately instead of re-flagging.
+  triggeringResultId String?     @unique
+  triggeringResult   TestResult? @relation(fields: [triggeringResultId], references: [id])
+
+  resultTestCaseIds String[] // TestCase ids produced by this job
+
+  createdAt   DateTime  @default(now())
+  startedAt   DateTime?
+  completedAt DateTime?
+  @@unique([processingApprovalId,inputRef])
+}
+
+enum ReverseEngineerInputType {
+  PASTE
+  FILE_UPLOAD
+  REPO_SCAN
+  // Auto-triggered: a CI test result came in with no matching TestCaseSource.
+  CI_UNMATCHED_RESULT
+}
+
+enum JobStatus {
+  PENDING
+  RUNNING
+  SUCCEEDED
+  FAILED
+}
+
+// P11-01: the shared foundation every source-specific importer (CSV today;
+// TestRail/Zephyr/Xray/qTest later) plugs into, rather than each one
+// inventing its own ad-hoc result-tracking. `fieldMapping` is the
+// user-confirmed source-column -> TestCase-field mapping from P11-02's
+// preview step (never inferred again at commit time - what the user saw
+// and approved is exactly what ran). `externalIdColumn`/imported rows'
+// external ids aren't tracked per-row here (that's each TestCase's own
+// provenance, not the job's), but the mapping is kept so a future
+// `P11-11` re-run can reuse the same config for incremental sync.
+model ImportJob {
+  id        String  @id @default(cuid())
+  projectId String
+  project   Project @relation(fields: [projectId], references: [id])
+
+  source       ImportSource
+  sourceLabel  String? // filename or other human-readable label for this run
+  fieldMapping Json // { targetField: sourceColumnHeader }, as confirmed in the preview step
+  testPlanId   String? // optional destination plan for imported cases
+
+  status       JobStatus @default(PENDING)
+  createdCount Int       @default(0)
+  // P11-11: rows matched to a TestCase this same source already created
+  // (by external id) and updated in place instead of duplicated - only
+  // ever nonzero when the mapping includes an external-id column.
+  updatedCount Int       @default(0)
+  skippedCount Int       @default(0)
+  errors       Json      @default("[]") // { rowNumber, reason }[]
+
+  createdById String?
+  createdBy   User?   @relation(fields: [createdById], references: [id])
+
+  createdAt   DateTime  @default(now())
+  completedAt DateTime?
+}
+
+enum ImportSource {
+  CSV
+  TESTRAIL
+  ZEPHYR
+  XRAY
+  QTEST
+}
+
+// ---------------------------------------------------------------------------
+// Compliance & governance
+// ---------------------------------------------------------------------------
+
+model ComplianceFramework {
+  id          String  @id @default(cuid())
+  key         String  @unique // "soc2", "hipaa", "pci-dss", "gdpr", "iso27001", "fda-21-cfr-part-11", custom keys allowed
+  name        String
+  version     String?
+  description String?
+  isBuiltIn   Boolean @default(false)
+
+  controls ComplianceControl[]
+}
+
+model ComplianceControl {
+  id          String              @id @default(cuid())
+  frameworkId String
+  framework   ComplianceFramework @relation(fields: [frameworkId], references: [id])
+  code        String // e.g. "CC6.1"
+  title       String
+  description String?
+
+  testCases       TestCaseComplianceControl[]
+  evidence        ComplianceEvidence[]
+  signOffs        ComplianceSignOff[]
+  signOffRequests ComplianceSignOffRequest[]
+
+  @@unique([frameworkId, code])
+}
+
+// P3-05: "this test case is designed to verify this control" (the
+// TestCaseComplianceControl mapping above) is a structural claim. This is
+// the auditor-facing one: "this SPECIFIC execution actually passed, on
+// this date, as proof this control was operating." No update/delete
+// mutation exists anywhere in the API for this model on purpose --
+// immutable means immutable, not "immutable until someone needs to fix a
+// typo." A wrong record gets superseded by a new one, never edited.
+model ComplianceEvidence {
+  id           String            @id @default(cuid())
+  controlId    String
+  control      ComplianceControl @relation(fields: [controlId], references: [id])
+  testCaseId   String
+  testCase     TestCase          @relation(fields: [testCaseId], references: [id])
+  // Optional: a specific passing TestResult as the concrete proof (not
+  // just "this test case generally covers it") -- nullable because
+  // evidence can also be a manual attestation with no automated result
+  // behind it (e.g. a documented manual review).
+  testResultId String?
+  testResult   TestResult?       @relation(fields: [testResultId], references: [id])
+  projectId    String
+  project      Project           @relation(fields: [projectId], references: [id])
+  note         String?
+
+  recordedAt   DateTime @default(now())
+  recordedById String
+  recordedBy   User     @relation(fields: [recordedById], references: [id])
+
+  @@index([controlId, recordedAt])
+  @@index([projectId, recordedAt])
+  @@index([testResultId])
+}
+
+// P3-07: a ComplianceAuditor's formal, durable attestation that a control
+// was reviewed and is operating effectively for a given period/release --
+// distinct from evidence existing at all. Also immutable by design (no
+// update/delete mutation) -- a sign-off is a point-in-time legal-adjacent
+// record, not a status field to toggle.
+model ComplianceSignOff {
+  id        String            @id @default(cuid())
+  controlId String
+  control   ComplianceControl @relation(fields: [controlId], references: [id])
+  projectId String
+  project   Project           @relation(fields: [projectId], references: [id])
+  // Free text, not an enum -- an org's audit cadence might be "2026-Q3",
+  // a release name, or a fiscal period; there's no single universal shape.
+  period    String
+  statement String
+
+  signedById String
+  signedBy   User     @relation(fields: [signedById], references: [id])
+  signedAt   DateTime @default(now())
+
+  fulfilledRequest ComplianceSignOffRequest?
+
+  @@index([controlId, period])
+  @@index([projectId, signedAt])
+}
+
+// P8-04: unlike ComplianceSignOff (which only exists once someone has
+// actually signed), this models the "please sign off on this" ask itself -
+// no such concept existed before. Deliberately its own model rather than a
+// status field on ComplianceSignOff, since a request can exist with no
+// sign-off yet (fulfilledSignOffId null) and a sign-off can happen with no
+// request at all (someone just signs off unprompted, same as today) -
+// these are two independent, only-sometimes-linked events.
+model ComplianceSignOffRequest {
+  id        String            @id @default(cuid())
+  controlId String
+  control   ComplianceControl @relation(fields: [controlId], references: [id])
+  projectId String
+  project   Project           @relation(fields: [projectId], references: [id])
+  period    String
+
+  requestedForId String
+  requestedFor   User     @relation("SignOffRequestsReceived", fields: [requestedForId], references: [id])
+  requestedById  String
+  requestedBy    User     @relation("SignOffRequestsSent", fields: [requestedById], references: [id])
+  requestedAt    DateTime @default(now())
+
+  // Set when a matching signOffControl call (same control+project+period+
+  // signer) lands after this request was created - see the auto-fulfill
+  // logic in routers/compliance.ts's signOffControl. Never set retroactively
+  // for a sign-off that predates the request.
+  fulfilledAt        DateTime?
+  fulfilledSignOffId String?            @unique
+  fulfilledSignOff   ComplianceSignOff? @relation(fields: [fulfilledSignOffId], references: [id])
+
+  @@index([projectId])
+  @@index([requestedForId, fulfilledAt])
+}
+
+// P8-04: one row per device a user has registered for push. A user can have
+// several (phone + tablet); token is the unique identity, not userId, since
+// re-registering the same physical device just upserts in place.
+model PushToken {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  token     String   @unique
+  platform  String?
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+}
+
+// P10-01: a SOC 2 auditor wants proof that org access is periodically
+// reviewed, not just that RBAC exists - one row per completed review round.
+// Deliberately requires covering every current member in one go (enforced
+// in the router, not here) rather than allowing a partial/drip review, so
+// each row is genuinely "we reviewed everyone's access on this date."
+model AccessReview {
+  id             String       @id @default(cuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  period         String
+  performedById  String
+  performedBy    User         @relation(fields: [performedById], references: [id])
+  performedAt    DateTime     @default(now())
+
+  entries AccessReviewEntry[]
+
+  @@index([organizationId, performedAt])
+}
+
+enum AccessReviewDecision {
+  CONFIRMED
+  REVOKED
+}
+
+// Snapshot fields (not a Membership FK) - a member confirmed or revoked
+// today may have their Membership changed or removed entirely tomorrow
+// (a REVOKED decision does exactly that immediately), and this row must
+// stay an accurate historical record of what was actually reviewed and
+// decided regardless of what happens to the membership afterward.
+model AccessReviewEntry {
+  id             String               @id @default(cuid())
+  accessReviewId String
+  accessReview   AccessReview         @relation(fields: [accessReviewId], references: [id], onDelete: Cascade)
+  userId         String
+  userEmail      String
+  role           OrgRole
+  seatType       SeatType
+  decision       AccessReviewDecision
+  note           String?
+
+  @@index([accessReviewId])
+}
+
+model TestCaseComplianceControl {
+  testCaseId String
+  testCase   TestCase          @relation(fields: [testCaseId], references: [id])
+  controlId  String
+  control    ComplianceControl @relation(fields: [controlId], references: [id])
+
+  @@id([testCaseId, controlId])
+}
+
+// P3-06: who changed what test case/plan/control mapping, when. Most
+// compliance frameworks' own controls require this (change management),
+// so it's compliance infrastructure even though it isn't scoped to one
+// framework. Deliberately append-only from the API surface -- no update
+// or delete mutation is exposed, since an editable audit log defeats its
+// own purpose. Scoped for now to the mutations an auditor actually asks
+// about (test case CRUD + review decisions, test plan CRUD, compliance
+// framework/control/mapping changes) rather than every mutation in the
+// app -- can widen later if a real audit needs more.
+model AuditLog {
+  id             String       @id @default(cuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id])
+  projectId      String?
+  project        Project?     @relation(fields: [projectId], references: [id])
+  actorId        String
+  actor          User         @relation(fields: [actorId], references: [id])
+  entityType     String // "TestCase" | "TestPlan" | "ComplianceFramework" | "ComplianceControl" | "TestCaseComplianceControl"
+  entityId       String
+  action         AuditAction
+  summary        String // human-readable one-liner for the log view, e.g. "Updated test case \"Checkout throws on empty cart\""
+  metadata       Json? // optional structured detail, e.g. { before, after } for a field-level diff
+  createdAt      DateTime     @default(now())
+
+  @@index([organizationId, createdAt])
+  @@index([projectId, createdAt])
+  @@index([entityType, entityId])
+}
+
+enum AuditAction {
+  CREATE
+  UPDATE
+  DELETE
+  MAP
+  UNMAP
+}
+
+// ---------------------------------------------------------------------------
+// Execution results (blended across frameworks/CI providers)
+// ---------------------------------------------------------------------------
+
+model TestRun {
+  id         String        @id @default(cuid())
+  projectId  String
+  project    Project       @relation(fields: [projectId], references: [id])
+  ciProvider String // "github-actions" | "circleci" | "jenkins" | ...
+  ciRunUrl   String?
+  commitSha  String
+  branch     String
+  startedAt  DateTime
+  finishedAt DateTime?
+  status     TestRunStatus @default(RUNNING)
+
+  // Manual execution only (ciProvider "manual"): the test cases a tester
+  // planned to run in this session, decided at start time. A TestResult
+  // only exists once a case is actually recorded - a planned id with no
+  // matching TestResult yet is "not run yet", the same semantic every
+  // other part of this schema already uses for "never executed" (see
+  // P7-02's acceptance-criteria computation). Empty for every CI-ingested
+  // run; only meaningful alongside ciProvider = "manual".
+  manualTestCaseIds   String[] @default([])
+  // Frozen at manual-run start. Later dependency edits must not rewrite the
+  // conditions against which an in-progress or historical run was executed.
+  manualPrerequisites Json     @default("{}")
+  // Serial/lot/batch, hardware and firmware revisions, bench/site,
+  // environment and calibration context for physical or regulated runs.
+  executionContext    Json     @default("{}")
+
+  // Who ran a manual run (P5-16) - a CI run's "who" is the pipeline
+  // itself, but a manual run's tester is real, useful information the
+  // detail view should show instead of the branch/commit fields, which
+  // are meaningless for a manual run (both hold the literal sentinel
+  // "manual", not real git data).
+  startedById String?
+  startedBy   User?   @relation(fields: [startedById], references: [id])
+
+  results        TestResult[]
+  manualStepResultRevisions ManualStepResultRevision[]
+  manualStepResultHeads ManualStepResultHead[]
+  manualCaseResultRevisions ManualCaseResultRevision[]
+  manualCaseResultHeads ManualCaseResultHead[]
+  coverageReport CoverageReport?
+
+  @@index([projectId])
+}
+
+enum TestRunStatus {
+  RUNNING
+  PASSED
+  FAILED
+  PARTIAL
+}
+
+// P5-06: coverage data ingestion, separate from pass/fail TestResults --
+// feeds the release-readiness coverage-gap logic in Phase 7. `testRunId`
+// is optional since a coverage report can be uploaded standalone (a
+// separate CI step from whatever posted the JUnit results) but linked to
+// the same run when the caller has one, so a run's page can show both.
+model CoverageReport {
+  id        String       @id @default(cuid())
+  projectId String
+  project   Project      @relation(fields: [projectId], references: [id])
+  testRunId String?      @unique
+  testRun   TestRun?     @relation(fields: [testRunId], references: [id])
+  commitSha String
+  branch    String
+  tool      CoverageTool
+
+  linesCovered    Int
+  linesTotal      Int
+  branchesCovered Int?
+  branchesTotal   Int?
+
+  files     CoverageFileEntry[]
+  createdAt DateTime            @default(now())
+
+  @@index([projectId, createdAt])
+}
+
+// Per-file breakdown -- what the release-readiness coverage-gap check
+// (Phase 7) actually needs: not just "78% overall" but which specific
+// files are under-covered.
+model CoverageFileEntry {
+  id       String         @id @default(cuid())
+  reportId String
+  report   CoverageReport @relation(fields: [reportId], references: [id])
+
+  filePath        String
+  linesCovered    Int
+  linesTotal      Int
+  branchesCovered Int?
+  branchesTotal   Int?
+
+  @@index([reportId])
+  @@index([filePath])
+}
+
+enum CoverageTool {
+  ISTANBUL
+  COBERTURA
+  JACOCO
+}
+
+// Append-only revisions: the mutable head below is a pointer, never a rewritten
+// observation. This is justified edit history, not a qualified electronic signature.
+model ManualStepResultRevision {
+  id String @id @default(cuid())
+  testRunId String
+  testRun TestRun @relation(fields: [testRunId], references: [id])
+  testCaseId String
+  testCase TestCase @relation(fields: [testCaseId], references: [id])
+  stepIndex Int
+  revisionNumber Int
+  status TestResultStatus
+  caseStatusAtRecord TestResultStatus?
+  note String?
+  observations Json @default("{}")
+  evidenceAttachmentIds String[] @default([])
+  evidenceAttachments Json @default("[]")
+  actorId String
+  actor User @relation(fields: [actorId], references: [id])
+  actorName String
+  recordedAt DateTime @default(now())
+  correctionReason String?
+  previousRevisionId String? @unique
+  previousRevision ManualStepResultRevision? @relation("ManualStepPreviousRevision", fields: [previousRevisionId], references: [id])
+  nextRevision ManualStepResultRevision? @relation("ManualStepPreviousRevision")
+  idempotencyKey String
+  requestHash String
+  currentHead ManualStepResultHead?
+
+  @@unique([testRunId, testCaseId, stepIndex, revisionNumber], map: "ManualStepResultRevision_scope_revision_key")
+  @@unique([testRunId, actorId, idempotencyKey])
+  @@index([testRunId, testCaseId, stepIndex, revisionNumber], map: "ManualStepResultRevision_scope_revision_idx")
+  @@index([evidenceAttachmentIds], type: Gin)
+}
+
+model ManualStepResultHead {
+  testRunId String
+  testRun TestRun @relation(fields: [testRunId], references: [id])
+  testCaseId String
+  testCase TestCase @relation(fields: [testCaseId], references: [id])
+  stepIndex Int
+  currentRevisionId String @unique
+  currentRevision ManualStepResultRevision @relation(fields: [currentRevisionId], references: [id])
+  revisionCount Int
+  currentPayloadBytes Int
+
+  @@id([testRunId, testCaseId, stepIndex])
+}
+
+model TestResult {
+  id               String           @id @default(cuid())
+  testRunId        String
+  testRun          TestRun          @relation(fields: [testRunId], references: [id])
+  testCaseId       String?
+  testCase         TestCase?        @relation(fields: [testCaseId], references: [id])
+  externalTestId   String? // raw framework test id when not yet mapped to a TestCase
+  // File path as reported by the CI result (JUnit XML classname->file mapping,
+  // etc). Needed to fetch source when this result is unmatched and gets
+  // auto-enqueued for reverse-engineering (P5-14) -- without it we know a
+  // test ran but not where to go read it.
+  externalFilePath String?
+  status           TestResultStatus
+  durationMs       Int?
+  errorMessage     String?
+  // Manual execution: a free-text "what actually happened" note, distinct
+  // from errorMessage (which is specifically a captured failure message
+  // from automated ingestion) - a tester leaves this on any status, not
+  // just FAIL.
+  note             String?
+  // Measured values, units, timestamps, tolerance verdicts and deviations.
+  // Large traces/images remain artifacts; this keeps their summarized,
+  // searchable values beside the verdict.
+  observations     Json             @default("{}")
+
+  reverseEngineerJob ReverseEngineerJob?
+  manualCaseResultRevisions ManualCaseResultRevision[]
+  manualCaseResultHead ManualCaseResultHead?
+  artifacts          TestResultArtifact[]
+  healingSuggestion  HealingSuggestion?
+  complianceEvidence ComplianceEvidence[]
+
+  @@index([testRunId])
+  @@index([testCaseId])
+}
+
+// P2-07: when a human edits an AI-reverse-engineered test case, capture
+// the before/after as a labeled example -- the raw material for
+// periodically reviewing edit patterns to tighten the system prompt (a
+// human review process; this is just the capture mechanism). Only fires
+// for origin: AI_REVERSE_ENGINEERED cases whose title/given/when/then
+// actually changed -- an edit that only touches priority/tags/suite,
+// or an edit to an AUTHORED/IMPORTED case, isn't AI-quality feedback.
+model AiEditFeedback {
+  id         String   @id @default(cuid())
+  testCaseId String
+  testCase   TestCase @relation(fields: [testCaseId], references: [id])
+  projectId  String
+  project    Project  @relation(fields: [projectId], references: [id])
+
+  beforeTitle String
+  beforeGiven String[]
+  beforeWhen  String[]
+  beforeThen  String[]
+  afterTitle  String
+  afterGiven  String[]
+  afterWhen   String[]
+  afterThen   String[]
+
+  editedById String
+  editedBy   User     @relation(fields: [editedById], references: [id])
+  editedAt   DateTime @default(now())
+
+  @@index([projectId, editedAt])
+}
+
+// P6.5: suggest-only test self-healing -- classifies a failing TestResult
+// as likely-brittle (selector/locator/text drift, structural refactor) vs.
+// likely-real (behavior actually changed), and for brittle failures,
+// proposes a concrete fix as a diff-style suggestion. NEVER applied to the
+// repo automatically -- see ROADMAP.md's Phase 6.5 intro for why unsupervised
+// write access to someone's test source is a deliberately different, much
+// higher-risk feature than anything else this platform does. One row per
+// failing TestResult (only ever created for FAIL, not PASS/SKIP/FLAKY).
+model HealingSuggestion {
+  id           String     @id @default(cuid())
+  testResultId String     @unique
+  testResult   TestResult @relation(fields: [testResultId], references: [id])
+  testCaseId   String
+  testCase     TestCase   @relation(fields: [testCaseId], references: [id])
+  projectId    String
+  project      Project    @relation(fields: [projectId], references: [id])
+
+  classification          HealingClassification
+  classificationRationale String
+
+  // Only populated when classification is BRITTLE and the agent could
+  // confidently ground a fix in the actual diff -- a REAL_REGRESSION, or a
+  // brittle failure with no confident fix, leaves these null rather than
+  // guessing from the error message alone.
+  suggestedDiff       String?
+  suggestionRationale String?
+
+  status       HealingSuggestionStatus @default(PENDING)
+  reviewedById String?
+  reviewedBy   User?                   @relation("HealingSuggestionReviewedBy", fields: [reviewedById], references: [id])
+  reviewedAt   DateTime?
+
+  // P6.5-04: set when this test case's next real result (via normal CI
+  // ingestion, not a triggered re-run) comes back PASS -- closes the loop
+  // on "did this suggestion actually help" without needing repo access.
+  resolvedAt DateTime?
+
+  createdAt DateTime @default(now())
+
+  @@index([projectId, createdAt])
+  @@index([testCaseId])
+}
+
+enum HealingClassification {
+  BRITTLE
+  REAL_REGRESSION
+  UNCERTAIN
+}
+
+enum HealingSuggestionStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+// Screenshot/video evidence captured while a front-end automated test was
+// running. The runner captures on every run but only *uploads* on failure --
+// this row only ever exists for a failing TestResult, by design. Headless
+// runs without a display surface simply produce none; that's expected, not
+// an error state.
+model TestResultArtifact {
+  id           String                 @id @default(cuid())
+  testResultId String
+  testResult   TestResult             @relation(fields: [testResultId], references: [id])
+  type         TestResultArtifactType
+  storageUrl   String
+  capturedAt   DateTime               @default(now())
+  durationMs   Int? // set for VIDEO; the trailing window captured before failure
+
+  @@index([testResultId])
+}
+
+enum TestResultArtifactType {
+  SCREENSHOT
+  VIDEO
+}
+
+enum TestResultStatus {
+  PASS
+  FAIL
+  SKIP
+  FLAKY
+  // Manual-execution-only: the tester couldn't attempt this case at all
+  // (an environment/dependency issue, not a pass or a fail) - the same
+  // "Blocked" concept every competitor's manual execution UI has.
+  BLOCKED
+}
+
+// ---------------------------------------------------------------------------
+// Releases & readiness
+// ---------------------------------------------------------------------------
+
+model Release {
+  id         String        @id @default(cuid())
+  projectId  String
+  project    Project       @relation(fields: [projectId], references: [id])
+  name       String
+  targetDate DateTime?
+  goals      String[]      @default([])
+  status     ReleaseStatus @default(PLANNING)
+
+  testPlans          TestPlan[]
+  riskFlags          RiskFlag[]
+  readinessSnapshots ReleaseReadinessSnapshot[]
+
+  createdById String?
+  createdBy   User?   @relation("ReleaseCreatedBy", fields: [createdById], references: [id])
+  updatedById String?
+  updatedBy   User?   @relation("ReleaseUpdatedBy", fields: [updatedById], references: [id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// P8-04: readiness has always been computed live and never stored, so
+// "readiness changed" had nothing to compare against. One row is written
+// whenever a release's computed score or label differs from its previous
+// snapshot (services/releaseReadiness.ts, swept every 5 minutes by
+// jobs/readinessChangeScheduler.ts); a label change is what triggers the
+// webhook/Slack/push notifications. Snapshot fields, not FKs - the row is
+// what readiness *was*, and must survive later criteria/flag edits.
+model ReleaseReadinessSnapshot {
+  id            String   @id @default(cuid())
+  releaseId     String
+  release       Release  @relation(fields: [releaseId], references: [id], onDelete: Cascade)
+  score         Int
+  label         String // READY | AT_RISK | BLOCKED (computeReadiness's label)
+  previousLabel String? // null on the baseline row
+  criteriaMet   Int
+  criteriaTotal Int
+  openRiskFlags Int
+  computedAt    DateTime @default(now())
+
+  @@index([releaseId, computedAt])
+}
+
+enum ReleaseStatus {
+  PLANNING
+  IN_TESTING
+  READY
+  SHIPPED
+  BLOCKED
+}
+
+enum ReleaseGatePolicy {
+  SOFT_WARNING
+  HARD_BLOCK
+}
+
+// P6-06: per-project configuration for recommendForChange's coverage-gap
+// detection (P6-03) -- which branches a scan should even consider (forward-
+// looking: real branch-triggered scanning needs P6-01's webhook, but the
+// policy a scan would consult already needs somewhere to live), path-based
+// severity weighting (a gap in a payments/auth path is not the same risk
+// as one in a docs folder), and whether a scan should post visibly
+// (comment mode) or just flag silently. One row per project, created
+// lazily -- a project with no row yet gets this router's documented
+// defaults, not a required setup step before PR scanning works at all.
+model PrScanPolicy {
+  id        String  @id @default(cuid())
+  projectId String  @unique
+  project   Project @relation(fields: [projectId], references: [id])
+
+  triggerBranches String[]          @default(["main"])
+  commentMode     PrScanCommentMode @default(COMMENT)
+
+  // [{ pattern: "apps/api/src/payments/**", severity: "CRITICAL" }, ...] --
+  // matched in array order, first match wins, so a project can layer a
+  // narrow override ahead of a broad catch-all.
+  pathSeverityRules Json @default("[]")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+enum PrScanCommentMode {
+  COMMENT
+  SILENT_FLAG_ONLY
+}
+
+// A detected gap or risk feeding the release-readiness dashboard, e.g. from
+// PR scanning finding changed files with no mapped test coverage.
+// No customer payload is retained. A retry cannot recreate a deleted risk flag.
+model ProductionIncidentReceipt {
+  key String @id
+  provider String
+  organizationId String
+  projectId String
+  riskFlagId String
+  createdAt DateTime @default(now())
+  @@index([organizationId,projectId])
+}
+
+model RiskFlag {
+  id              String       @id @default(cuid())
+  releaseId       String
+  release         Release      @relation(fields: [releaseId], references: [id])
+  severity        RiskSeverity
+  source          RiskSource
+  description     String
+  relatedFilePath String?
+  relatedPrUrl    String?
+
+  createdById String?
+  createdBy   User?   @relation("RiskFlagCreatedBy", fields: [createdById], references: [id])
+  updatedById String?
+  updatedBy   User?   @relation("RiskFlagUpdatedBy", fields: [updatedById], references: [id])
+
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+  resolvedAt DateTime?
+}
+
+enum RiskSeverity {
+  CRITICAL
+  HIGH
+  MEDIUM
+  LOW
+}
+
+enum RiskSource {
+  PR_SCAN_COVERAGE_GAP
+  FAILING_TEST
+  FLAKY_TEST
+  MANUAL_FLAG
+  MISSING_COMPLIANCE_CONTROL
+  PRODUCTION_INCIDENT
+}
+
+// ---------------------------------------------------------------------------
+// SSE-180: production-signal linkage
+// ---------------------------------------------------------------------------
+// A per-project OAuth-style connection to a customer's own app-store
+// account (Apple App Store Connect / Google Play Console), so crash reports
+// and store reviews can feed test-gap detection without a manual upload.
+// Deliberately NOT modeled on P2-02's GitHub App pattern (one shared,
+// platform-level App credential + a bare repoUrl string, secrets in env
+// vars only, nothing per-customer in the DB) - a store-connected grant is
+// inherently per-customer, so this is the first feature in this codebase
+// that stores a third-party bearer/refresh token at all. Every token column
+// is ciphertext (see services/tokenEncryption.ts's AES-256-GCM helper) -
+// nothing here is ever stored, logged, or returned through the API in
+// plaintext.
+enum ProductionSignalProvider {
+  APPLE_APP_STORE
+  GOOGLE_PLAY
+}
+
+enum ProductionSignalConnectionStatus {
+  PENDING // authorize URL issued, callback not yet completed
+  CONNECTED
+  ERROR // last refresh/sync attempt failed; lastSyncError has the reason
+  DISCONNECTED
+}
+
+model ProductionSignalConnection {
+  id        String                           @id @default(cuid())
+  projectId String
+  project   Project                          @relation(fields: [projectId], references: [id])
+  provider  ProductionSignalProvider
+  status    ProductionSignalConnectionStatus @default(PENDING)
+
+  // CSRF guard for the OAuth redirect/callback round trip: generated at
+  // connect-start, checked on callback, cleared once CONNECTED (or once the
+  // attempt fails) so it can never be replayed.
+  oauthState String? @unique
+
+  // A single AES-256-GCM ciphertext of a JSON payload, plus the iv/authTag
+  // needed to decrypt it (GCM requires both, and each is tied to exactly
+  // one ciphertext - encrypting two independent secrets under one shared
+  // iv/authTag pair would silently corrupt whichever one isn't re-derived
+  // first, a real bug caught before it shipped). One encrypted blob per
+  // connection rather than one column per token, since the payload shape
+  // differs by provider:
+  //   GOOGLE_PLAY:     {"accessToken": "...", "refreshToken": "..."}
+  //   APPLE_APP_STORE: {"privateKeyPem": "..."}
+  //   (Apple has no per-user OAuth redirect flow at all - access is granted
+  //   via an API key the account holder generates themselves in App Store
+  //   Connect and enters directly, then used to mint short-lived signed
+  //   JWTs per request, the same JWT-signing shape this codebase's own
+  //   GitHub App integration already uses in services/githubApp.ts.)
+  // Null until a real callback/credential-entry completes.
+  encryptedCredentials String?
+  credentialsIv        String?
+  credentialsAuthTag   String?
+
+  // APPLE_APP_STORE only: the Issuer ID and Key ID that pair with the
+  // encrypted private key above to mint a valid JWT. Not secret on their
+  // own (Apple's own docs show them in plaintext in the dashboard UI), but
+  // meaningless without the encrypted key, so left unencrypted for the
+  // (real) operational need to display "connected as Issuer ABC / Key XYZ"
+  // without a decrypt round-trip.
+  appleIssuerId String?
+  appleKeyId    String?
+
+  scope             String? // GOOGLE_PLAY only: space-delimited OAuth scopes actually granted
+  externalAccountId String? // the connected Apple/Google account, for display only - never a token
+
+  connectedByUserId String?
+  connectedByUser   User?     @relation(fields: [connectedByUserId], references: [id])
+  connectedAt       DateTime?
+  lastSyncedAt      DateTime?
+  lastSyncError     String?
+  createdAt         DateTime  @default(now())
+
+  signals ProductionSignal[]
+
+  @@unique([projectId, provider])
+}
+
+enum ProductionSignalType {
+  CRASH_REPORT
+  STORE_REVIEW
+}
+
+model ProductionSignal {
+  id           String                     @id @default(cuid())
+  connectionId String
+  connection   ProductionSignalConnection @relation(fields: [connectionId], references: [id])
+  projectId    String
+  project      Project                    @relation(fields: [projectId], references: [id])
+  type         ProductionSignalType
+  externalId   String // the provider's own id for this crash group/review, used to dedupe on re-sync
+
+  // PII-minimized by design, pending real legal review (see SSE-180's
+  // ROADMAP.md entry): a short, redacted summary only - never a raw crash
+  // stack trace or the full review text verbatim, and never a reviewer's
+  // name, email, or device identifier. Built to a defensible
+  // privacy-engineering baseline; James should confirm with real counsel
+  // before this goes live for a real customer.
+  summary    String
+  occurredAt DateTime
+  createdAt  DateTime @default(now())
+
+  // Set once at ingest time from Organization.dataRetentionYears (P3-08) -
+  // not recomputed later, matching how P12-08's retention job already
+  // treats every other data type. A later retention-policy change applies
+  // only to newly-ingested signals.
+  expiresAt DateTime
+
+  @@unique([connectionId, externalId])
+  @@index([projectId, occurredAt])
+}
+
+// Delivery evidence for Clerk-managed transactional messages that Vaettir
+// sends through its own provider. Message bodies and recipient addresses are
+// deliberately not retained: invitation bodies contain expiring credentials,
+// and a one-way recipient hash plus domain is enough for idempotency and
+// operational evidence without creating another customer-PII store.
+model TransactionalEmailDelivery {
+  id                String                   @id @default(cuid())
+  clerkEmailId      String                   @unique
+  webhookId         String                   @unique
+  templateSlug      String
+  recipientHash     String
+  recipientDomain   String
+  status            TransactionalEmailStatus @default(RECEIVED)
+  attemptCount      Int                      @default(0)
+  providerMessageId String?                  @unique
+  lastErrorCode     String?
+  receivedAt        DateTime                 @default(now())
+  sentAt            DateTime?
+  updatedAt         DateTime                 @updatedAt
+
+  @@index([status, updatedAt])
+}
+
+enum TransactionalEmailStatus {
+  RECEIVED
+  SENDING
+  SENT
+  FAILED
+  UNKNOWN
+}
+
+// Source-only additive draft: native whole-case observations, never step-derived/CI revisions.
+model ManualCaseResultRevision {
+  id String @id @default(cuid())
+  organizationId String
+  organization Organization @relation(fields: [organizationId], references: [id])
+  projectId String
+  project Project @relation(fields: [projectId], references: [id])
+  testRunId String
+  testRun TestRun @relation(fields: [testRunId], references: [id])
+  testCaseId String
+  testCase TestCase @relation(fields: [testCaseId], references: [id])
+  testResultId String
+  testResult TestResult @relation(fields: [testResultId], references: [id])
+  revisionNumber Int
+  status TestResultStatus
+  note String?
+  observations Json @default("{}")
+  legacyPrior Json?
+  correctionReason String?
+  actorId String
+  actor User @relation(fields: [actorId], references: [id])
+  actorClerkUserId String
+  actorLabel String
+  recordedAt DateTime @default(now())
+  previousRevisionId String? @unique
+  previousRevision ManualCaseResultRevision? @relation("ManualCasePreviousRevision", fields: [previousRevisionId], references: [id])
+  nextRevision ManualCaseResultRevision? @relation("ManualCasePreviousRevision")
+  idempotencyKey String
+  requestHash String
+  payloadBytes Int
+  currentHead ManualCaseResultHead?
+
+  @@unique([testRunId, testCaseId, revisionNumber], map: "ManualCaseResultRevision_scope_revision_key")
+  @@unique([organizationId, actorId, idempotencyKey], map: "ManualCaseResultRevision_actor_uuid_key")
+  @@index([organizationId, projectId])
+  @@index([testRunId, testCaseId, revisionNumber], map: "ManualCaseResultRevision_scope_revision_idx")
+  @@index([testResultId])
+}
+
+model ManualCaseResultHead {
+  organizationId String
+  organization Organization @relation(fields: [organizationId], references: [id])
+  projectId String
+  project Project @relation(fields: [projectId], references: [id])
+  testRunId String
+  testRun TestRun @relation(fields: [testRunId], references: [id])
+  testCaseId String
+  testCase TestCase @relation(fields: [testCaseId], references: [id])
+  testResultId String @unique
+  testResult TestResult @relation(fields: [testResultId], references: [id])
+  currentRevisionId String @unique
+  currentRevision ManualCaseResultRevision @relation(fields: [currentRevisionId], references: [id])
+  revisionCount Int
+  currentPayloadBytes Int
+
+  @@id([testRunId, testCaseId])
+  @@index([organizationId, projectId])
+}

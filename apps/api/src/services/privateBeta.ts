@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { TRPCError } from "@trpc/server";
 import type { PrismaClient, User } from "@vaettir/db";
+import { claimWorkspaceDomain, domainConflict, validatedWorkspaceName } from "./workspaceDomains.js";
 
 export const PRIVATE_BETA_TIER = "private-beta";
 export const isPrivateBetaTier=(key:string)=>key===PRIVATE_BETA_TIER||key.startsWith("private-beta-unlimited:");
@@ -124,7 +125,10 @@ export async function bootstrapBetaOrganization(
   user: Pick<User, "id" | "email">,
   name: string,
   allowTrustedOwnerBootstrap = false,
+  requestedWorkspaceName?: string,
+  verifiedClerkSubject?: string | null,
 ) {
+  const selectedName = requestedWorkspaceName === undefined ? undefined : validatedWorkspaceName(requestedWorkspaceName);
   return db.$transaction(async (tx) => {
     // Keep the shared lock order PlanTier -> BetaEnrollment -> User across
     // enrollment, claim and revocation writers to avoid deadlocks.
@@ -132,6 +136,22 @@ export async function bootstrapBetaOrganization(
     const email = normalizeBetaEmail(user.email);
     await tx.$queryRaw`SELECT "id" FROM "BetaEnrollment" WHERE "email" = ${email} FOR UPDATE`;
     let enrollment = await tx.betaEnrollment.findUnique({ where: { email } });
+    if (selectedName) {
+      await tx.$queryRaw`SELECT "id" FROM "User" WHERE "id" = ${user.id} FOR UPDATE`;
+      const currentUser = await tx.user.findUnique({ where: { id: user.id }, select: { clerkUserId: true } });
+      if (!verifiedClerkSubject || currentUser?.clerkUserId !== verifiedClerkSubject)
+        throw new TRPCError({ code: "UNAUTHORIZED" });
+      const priorMembership = await tx.membership.findFirst({
+        where: { userId: user.id, role: "OWNER", seatType: "FULL" }, include: { organization: { include: { workspaceDomain: true } } },
+      });
+      if (priorMembership) {
+        const prior = priorMembership.organization;
+        if (enrollment?.organizationId === prior.id && !enrollment.revokedAt && !prior.suspendedAt
+            && prior.workspaceDomain?.claimedByUserId === user.id && prior.workspaceDomain.name === selectedName
+            && !(await tx.apiKey.count({ where: { serviceUserId: user.id } }))) return prior;
+        throw new TRPCError({ code: "CONFLICT", message: "This account already has a workspace. Its address cannot be changed by creating another." });
+      }
+    }
     if (!enrollment && allowTrustedOwnerBootstrap) {
       const reserved = await tx.betaEnrollment.count({
         where: { revokedAt: null },
@@ -204,6 +224,7 @@ export async function bootstrapBetaOrganization(
         seatType: "FULL",
       },
     });
+    if (selectedName) await claimWorkspaceDomain(tx, organization.id, user.id, selectedName);
     await tx.betaEnrollment.update({
       where: { id: enrollment.id },
       data: { claimedAt: new Date(), organizationId: organization.id },
@@ -230,5 +251,5 @@ export async function bootstrapBetaOrganization(
       },
     });
     return organization;
-  });
+  }).catch(domainConflict);
 }

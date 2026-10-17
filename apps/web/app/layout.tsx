@@ -1,11 +1,15 @@
 import type { ReactNode } from "react";
 import Link from "next/link";
 import { ClerkProvider } from "@clerk/nextjs";
+import { headers } from "next/headers";
+import { isWorkspaceAuthHost, workspaceRedirectOrigins } from "../lib/workspace-auth";
 import { RuneMark } from "../components/RuneMark";
 import { ThemeToggle } from "../components/ThemeToggle";
 import { Sidebar } from "../components/Sidebar";
 import { NavAuth } from "../components/NavAuth";
 import { TRPCReactProvider } from "../lib/trpcReact";
+import { Suspense } from "react";
+import { LegacyWorkspaceRedirect } from "../components/LegacyWorkspaceRedirect";
 import "./globals.css";
 
 export const metadata = {
@@ -18,9 +22,21 @@ export const metadata = {
 // theme with a graphite dark theme, Clerk styled from the same tokens, a
 // skip link, and the product label in the nav. NavAuth (Clerk v7) and the
 // react-query provider are main's and stay.
-export default function RootLayout({ children }: { children: ReactNode }) {
+export default async function RootLayout({ children }: { children: ReactNode }) {
+  const workspaceAuth = process.env.NEXT_PUBLIC_VAETTIR_WORKSPACE_AUTH_ENABLED === "1";
+  const host = workspaceAuth ? (await headers()).get("x-vaettir-host") : null;
+  const workspaceClerk = workspaceAuth ? {
+    allowedRedirectOrigins: workspaceRedirectOrigins(process.env.NEXT_PUBLIC_VAETTIR_ACTIVE_WORKSPACE_NAMES),
+    ...(host && isWorkspaceAuthHost(host) ? {
+      isSatellite: true,
+      domain: "vaettir.app",
+      signInUrl: "https://vaettir.skaldandstone.com/sign-in",
+      signUpUrl: "https://vaettir.skaldandstone.com/sign-up",
+    } : {}),
+  } : {};
   return (
     <ClerkProvider
+      {...workspaceClerk}
       appearance={{
         variables: {
           colorPrimary: "var(--frost)",
@@ -39,6 +55,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
       <html lang="en">
         <body>
           <TRPCReactProvider>
+            <Suspense><LegacyWorkspaceRedirect /></Suspense>
             <a className="skip-link" href="#main-content">
               Skip to content
             </a>

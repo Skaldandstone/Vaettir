@@ -26,7 +26,11 @@ async function human(ctx: Actor, expected: string) {
     throw new TRPCError({ code: "FORBIDDEN", message: "Restore the signed-in account that opened this connection." });
   const user = await ctx.prisma.user.findUnique({ where: { id: ctx.user.id }, include: { memberships: true } });
   if (!user || user.clerkUserId !== ctx.authenticatedClerkSubject) throw new TRPCError({ code: "FORBIDDEN" });
-  return user;
+  // This fresh database read must retain the trusted ingress scope. A human
+  // can administer several customers, but a customer host exposes only itself.
+  return ctx.workspaceOrganizationId
+    ? { ...user, memberships: user.memberships.filter(m => m.organizationId === ctx.workspaceOrganizationId) }
+    : user;
 }
 function request(token: string) {
   try { return readForgeConnectionRequest(token); }

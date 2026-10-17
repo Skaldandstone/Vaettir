@@ -1,0 +1,24 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "vaettir",
+  "version": "0.1.0",
+  "description": "Review approved synthetic-project quality counts from Vaettir. Customer test content is unavailable in this preview.",
+  "author": {
+    "name": "Skald and Stone LLC",
+    "url": "https://skaldandstone.com"
+  },
+  "homepage": "https://vaettir.skaldandstone.com",
+  "extensions": {
+    "com.openai": {
+      "requires_local_executor": true,
+      "interface": {
+        "displayName": "Vaettir",
+        "shortDescription": "Approved quality counts",
+        "longDescription": "Local Codex preview for explicitly approved synthetic projects. Reads aggregate counts through Vaettir's dedicated disclosure gateway. No test titles, procedures, source, artifacts, or failure messages are exposed. The production gateway is not yet activated.",
+        "developerName": "Skald and Stone LLC",
+        "category": "Developer Tools",
+        "capabilities": ["Read approved synthetic quality counts"]
+      }
+    }
+  }
+}

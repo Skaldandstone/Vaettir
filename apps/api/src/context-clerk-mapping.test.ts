@@ -3,7 +3,11 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   verify: vi.fn(), mirror: vi.fn(), reread: vi.fn(), apiKey: vi.fn(),
-  serviceUser: vi.fn(), touchKey: vi.fn(),
+  serviceUser: vi.fn(), touchKey: vi.fn(), workspaceHost: vi.fn(), workspaceOrganization: vi.fn(),
+}));
+vi.mock("./services/workspaceDomainIngress.js", () => ({
+  requestWorkspaceHost: mocks.workspaceHost,
+  requestWorkspaceOrganization: mocks.workspaceOrganization,
 }));
 vi.mock("./clerk.js", () => ({
   verifyClerkSessionToken: mocks.verify,
@@ -23,11 +27,26 @@ function request(token = "synthetic-session") {
 }
 beforeEach(() => {
   vi.resetAllMocks();
+  mocks.workspaceHost.mockReturnValue(null);
+  mocks.workspaceOrganization.mockReturnValue(null);
   mocks.verify.mockResolvedValue("clerk-original");
   mocks.mirror.mockResolvedValue({ id: user.id });
   mocks.reread.mockResolvedValue(user);
 });
 describe("verified Clerk identity survives native membership reread", () => {
+  it("uses only the verified tenant origin and retains that scope after the native membership reread", async () => {
+    mocks.workspaceHost.mockReturnValue("synthetic-team.vaettir.app");
+    mocks.workspaceOrganization.mockReturnValue("synthetic-org");
+    const own = { organizationId: "synthetic-org", role: "OWNER", seatType: "FULL" };
+    mocks.reread.mockResolvedValue({ ...user, memberships: [own, { ...own, organizationId: "foreign-org" }] });
+    const options = request();
+    options.req.headers["x-forwarded-host"] = "attacker.invalid";
+    const context = await createContext(options);
+    expect(mocks.verify).toHaveBeenCalledWith("synthetic-session", ["https://synthetic-team.vaettir.app"]);
+    expect(context.workspaceOrganizationId).toBe("synthetic-org");
+    expect(context.user?.memberships).toEqual([own]);
+    expect(context.authenticatedClerkSubject).toBe("clerk-original");
+  });
   it("admits the exact verified subject and current native user together", async () => {
     const context = await createContext(request());
     expect(context.user).toEqual(user);
