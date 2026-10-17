@@ -1,11 +1,13 @@
 import type { ReactNode } from "react";
 import Link from "next/link";
-import { ClerkProvider } from "@clerk/nextjs";
+import { WorkspaceClerkProvider as ClerkProvider } from "../components/WorkspaceClerkProvider";
 import { RuneMark } from "../components/RuneMark";
 import { ThemeToggle } from "../components/ThemeToggle";
 import { Sidebar } from "../components/Sidebar";
 import { NavAuth } from "../components/NavAuth";
 import { TRPCReactProvider } from "../lib/trpcReact";
+import { Suspense } from "react";
+import { LegacyWorkspaceRedirect } from "../components/LegacyWorkspaceRedirect";
 import "./globals.css";
 
 export const metadata = {
@@ -39,6 +41,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
       <html lang="en">
         <body>
           <TRPCReactProvider>
+            <Suspense><LegacyWorkspaceRedirect /></Suspense>
             <a className="skip-link" href="#main-content">
               Skip to content
             </a>

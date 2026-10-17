@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { requireDomainSelectionEnabled, validatedWorkspaceName, workspaceDomainAvailable, confirmExistingWorkspaceDomain } from "../services/workspaceDomains.js";
+import { legacyWorkspaceLinkInput, resolveLegacyWorkspaceLink } from "../services/workspaceLegacyLinks.js";
 import { TRPCError } from "@trpc/server";
 import {
   DEFAULT_STEP_FIELD_LABELS,
@@ -148,6 +149,8 @@ const stepFieldLabelsInputSchema = z.object(
 );
 
 export const organizationRouter = router({
+  resolveLegacyLink: protectedProcedure.input(legacyWorkspaceLinkInput)
+    .query(({ ctx, input }) => resolveLegacyWorkspaceLink(ctx, input.path)),
   domainOptions: protectedProcedure.query(() => ({
     enabled: process.env.VAETTIR_WORKSPACE_DOMAINS_ENABLED === "1",
   })),

@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { type FormEvent, useEffect, useState } from "react";
+import { useAuth } from "@clerk/nextjs";
 import { useRouter } from "next/navigation";
 import { RecoveryMessage } from "../../components/RecoveryMessage";
 import { Icon } from "../../components/ui/Workspace";
@@ -116,6 +117,10 @@ function AccessPanel({
 }
 
 export default function OnboardingPage() {
+  const { userId, sessionId } = useAuth();
+  return <OnboardingWorkspace key={`${userId ?? ""}:${sessionId ?? ""}`} />;
+}
+function OnboardingWorkspace() {
   const router = useRouter();
   const orgsQuery = trpcReact.organization.mine.useQuery(undefined, {
     retry: false,

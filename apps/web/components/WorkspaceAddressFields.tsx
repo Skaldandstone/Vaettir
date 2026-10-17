@@ -34,7 +34,7 @@ export function WorkspaceAddressFields({ name, onNameChange, confirmed, onConfir
       {availability.error && <p role="alert">Availability could not be checked. Try again.</p>}
       <p id="workspace-address-policy">You can choose this address once. After confirmation, you cannot rename it in settings. You can change your company display name later.</p>
       <label>
-        <input type="checkbox" checked={confirmed} disabled={!checked || !availability.data?.available || Boolean(invalid)}
+        <input type="checkbox" checked={confirmed} disabled={!checked || !availability.data?.available || Boolean(invalid) || Boolean(availability.error)}
           onChange={event => onConfirmedChange(event.target.checked)} required />
         I confirm this permanent workspace address.
       </label>

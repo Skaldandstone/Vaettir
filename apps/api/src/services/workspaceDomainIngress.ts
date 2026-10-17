@@ -4,7 +4,9 @@ import type { PrismaClient } from "@vaettir/db";
 import { workspaceNameError } from "@vaettir/core";
 
 const bindings = new WeakMap<FastifyRequest, string | null>();
+const hosts = new WeakMap<FastifyRequest, string>();
 export const requestWorkspaceOrganization = (request: FastifyRequest) => bindings.get(request) ?? null;
+export const requestWorkspaceHost = (request: FastifyRequest) => hosts.get(request) ?? null;
 const canonicalTarget = (target: string) => target.replace(/^\/api(?=\/)/, "");
 export function ingressMessage(method: string, target: string, hostname: string, timestamp: string) {
   return ["vaettir-domain-v1", timestamp, method.toUpperCase(), hostname, canonicalTarget(target)].join("\n");
@@ -20,7 +22,7 @@ export function verifyWorkspaceIngress(
   if (hostname === undefined && timestamp === undefined && signature === undefined) {
     // The legacy origin keeps its existing auth behavior. New customer hosts
     // require an attestation, even when forged directly at the public origin.
-    if (typeof forwarded === "string" && /(^|\.)vaettir\.app(?::\d+)?$/i.test(forwarded))
+    if ([forwarded, headers.host].some(value => typeof value === "string" && /(^|\.)vaettir\.app(?::\d+)?$/i.test(value)))
       throw new Error("DOMAIN_INGRESS_REQUIRED");
     return null;
   }
@@ -41,7 +43,10 @@ export function registerWorkspaceIngress(server: FastifyInstance, db: PrismaClie
     try {
       const host = verifyWorkspaceIngress(request.headers, request.method, request.url, process.env.VAETTIR_DOMAIN_INGRESS_SECRET);
       if (!host) return;
+      hosts.set(request, host);
       reply.header("Cache-Control", "no-store").header("Referrer-Policy", "no-referrer");
+      if (request.headers.origin && request.headers.origin !== `https://${host}`)
+        return reply.code(403).send({ error: "Workspace origin is not permitted." });
       if (host === "app.vaettir.app") { bindings.set(request, null); return; }
       const name = host.slice(0, -".vaettir.app".length);
       const claim = await db.workspaceDomain.findUnique({

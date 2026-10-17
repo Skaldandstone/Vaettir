@@ -4,7 +4,7 @@ import { prisma, type OrgRole } from "@vaettir/db";
 import { verifyClerkSessionToken, getOrCreateLocalUser } from "./clerk.js";
 import { hashApiKey, looksLikeApiKey } from "./services/apiKeyAuth.js";
 import { publicTrpcErrorShape } from "./publicErrors.js";
-import { requestWorkspaceOrganization } from "./services/workspaceDomainIngress.js";
+import { requestWorkspaceOrganization, requestWorkspaceHost } from "./services/workspaceDomainIngress.js";
 import { reportPrivilegedAccessDenied, type SecurityEventLogger } from "./services/securityEvents.js";
 
 function extractBearerToken(authHeader: string | undefined): string | null {
@@ -42,6 +42,7 @@ function resolveStaff(headers: CreateFastifyContextOptions["req"]["headers"]): {
 
 export async function createContext({ req }: CreateFastifyContextOptions) {
   const workspaceOrganizationId = requestWorkspaceOrganization(req);
+  const workspaceHost = requestWorkspaceHost(req);
   const token = extractBearerToken(req.headers.authorization);
   // Preserve the independently verified transport subject, not a native row's
   // current mapping. API keys deliberately do not acquire human-session proof.
@@ -51,7 +52,7 @@ export async function createContext({ req }: CreateFastifyContextOptions) {
     ? null
     : looksLikeApiKey(token)
       ? await resolveApiKeyUser(token)
-      : await verifyClerkSessionToken(token).then((clerkUserId) =>
+      : await verifyClerkSessionToken(token, workspaceHost ? [`https://${workspaceHost}`] : undefined).then((clerkUserId) =>
           clerkUserId
             ? getOrCreateLocalUser(clerkUserId).then(async (u) => {
                 const current = await prisma.user.findUniqueOrThrow({ where: { id: u.id }, include: { memberships: true } });

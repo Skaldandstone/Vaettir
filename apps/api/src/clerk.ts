@@ -19,9 +19,9 @@ type ClerkMirrorIdentity = {
   name: string | null;
 };
 
-export async function verifyClerkSessionToken(token: string): Promise<string | null> {
+export async function verifyClerkSessionToken(token: string, authorizedParties?: string[]): Promise<string | null> {
   try {
-    const payload = await verifyToken(token, { secretKey: getSecretKey() });
+    const payload = await verifyToken(token, { secretKey: getSecretKey(), ...(authorizedParties ? { authorizedParties } : {}) });
     return payload.sub;
   } catch (err) {
     // A failed verification is an expected, routine case (expired/absent

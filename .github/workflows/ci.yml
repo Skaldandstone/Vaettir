@@ -78,6 +78,12 @@ jobs:
       - name: Generate Prisma client
         run: pnpm db:generate
 
+      - name: Validate isolated domain edge package
+        run: |
+          npm ci --ignore-scripts --prefix integrations/domain-edge
+          npm test --prefix integrations/domain-edge
+          npm run check --prefix integrations/domain-edge
+
       # P10-11: the new router integration test suite (trpc.integration.test.ts)
       # hits a real Postgres connection and depends on the seeded PlanTier
       # rows existing, same as local dev's actual DB already has from past
