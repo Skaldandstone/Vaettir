@@ -1,6 +1,6 @@
 const ROOT = "vaettir.app";
 const ENTRY = "app.vaettir.app";
-const reserved = new Set(["www", "api", "auth", "admin", "support", "status", "mail", "cdn", "assets", "static", "docs", "billing", "login"]);
+const reserved = new Set(["www", "api", "auth", "clerk", "admin", "support", "status", "mail", "cdn", "assets", "static", "docs", "billing", "login"]);
 const privateHeaders = { "Cache-Control": "no-store", "Referrer-Policy": "no-referrer", "X-Content-Type-Options": "nosniff" };
 const denied = (status = 404) => new Response("Workspace unavailable.", { status, headers: privateHeaders });
 function customerName(host) {

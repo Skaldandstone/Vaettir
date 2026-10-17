@@ -1,7 +1,9 @@
 /** Customer addresses are one DNS label; display names remain independent. */
 export const WORKSPACE_DOMAIN_SUFFIX = "vaettir.app";
 export const RESERVED_WORKSPACE_NAMES = [
-  "www", "app", "api", "auth", "login", "logout", "sign-in", "sign-up",
+  // Provider hostnames are reserved by the API in addition to the immutable
+  // database migration's baseline list; policy additions need no SQL rewrite.
+  "www", "app", "api", "auth", "clerk", "login", "logout", "sign-in", "sign-up",
   "admin", "administrator", "support", "help", "status", "mail", "email",
   "smtp", "imap", "pop", "ftp", "cdn", "assets", "static", "media", "files",
   "billing", "payments", "checkout", "account", "accounts", "onboarding",

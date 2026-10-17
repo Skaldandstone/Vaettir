@@ -34,7 +34,7 @@ describe("workspace ingress attestation", () => {
     expect(verifyWorkspaceIngress(signed("app.vaettir.app"), "GET", "/trpc/organization.mine", secret, now)).toBe("app.vaettir.app");
   });
   it("rejects ambiguous labels and reserves service names", () => {
-    for (const name of ["api", "admin", "www", "x.y", "xn--team", "-team", "team-", "42team", "a".repeat(64)])
+    for (const name of ["api", "admin", "www", "clerk", "x.y", "xn--team", "-team", "team-", "42team", "a".repeat(64)])
       expect(workspaceNameError(name)).toBeTruthy();
     expect(workspaceNameError("Synthetic-Team")).toBeNull();
   });
