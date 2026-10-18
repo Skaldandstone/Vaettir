@@ -10,7 +10,8 @@ import {
 } from "@/lib/frozen-report";
 import { ReportSnapshotEvidence } from "./ReportSnapshotEvidence";
 import { REPORT_TEMPLATES } from "@/lib/report-templates";
-import { ReportOutcomeChart } from "./ReportOutcomeChart";
+import { QualityVisualReport } from "./QualityVisualReport";
+import { buildQualityVisualReport } from "@vaettir/core";
 import { renderFrozenReportCsv } from "@/lib/report-csv";
 
 export function FrozenReport({
@@ -204,6 +205,7 @@ export function FrozenReport({
           </section>
         )}
       </header>
+      <QualityVisualReport model={buildQualityVisualReport(report)} />
       {(
         [
           ["Summary", report.definition.summary],
@@ -223,7 +225,6 @@ export function FrozenReport({
       ).map((section) => (
         <section key={section} style={{ marginBlock: 20 }}>
           <h3>{readableMetric(section)}</h3>
-          {section === "execution" && <ReportOutcomeChart report={report} />}
           <div className="table-scroll">
             <table
               className="workspace-table"

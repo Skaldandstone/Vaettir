@@ -98,6 +98,17 @@ Vaettir remote. Registration, lint, deployment, installation, live event deliver
 and Marketplace publication are separate evidence gates. Do not equate one with
 another, or install on a customer site for company development.
 
+### Vaettir-owned visual reports
+
+Quality charts are defined by Vaettir's versioned `QualityVisualReport` model in
+`packages/core/src/qualityVisuals.ts`. Vaettir's frozen report uses the same
+definitions as the approved integration response. The native adapter renders
+the supplied chart kinds, rows, labels, colors and notes; it must not invent
+metrics or infer release readiness. Only selected report sections are projected.
+Missing data stays explicit and Jira Released captures use their retained counts.
+The old response renderer remains a rolling-deployment compatibility fallback.
+This does not widen sharing approval or expose authored notes or architecture.
+
 Official references:
 [issue context](https://developer.atlassian.com/platform/forge/manifest-reference/modules/jira-issue-context/),
 [remote security](https://developer.atlassian.com/platform/forge/remote/essentials/),

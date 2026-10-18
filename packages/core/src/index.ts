@@ -16,3 +16,4 @@ export * from "./caseProcedureExport.js";
 export * from "./caseExecutionHistory.js";
 export * from "./caseExecutionWholeCaseSummary.js";
 export * from "./spreadsheetCsv.js";
+export * from "./qualityVisuals.js";

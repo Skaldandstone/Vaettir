@@ -133,6 +133,7 @@ jobs:
         run: |
           pnpm --filter @vaettir/web exec playwright install --with-deps chromium
           node scripts/form-layout-ui.test.mjs
+          node scripts/quality-visuals-ui.test.mjs
           node scripts/forge-connection-ui.test.mjs
 
       # Exercise Next's production standalone output on Linux. Windows local

@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { Prisma } from "@vaettir/db";
+import { buildReleaseVisualReport } from "@vaettir/core";
 import { z } from "zod";
 import {
   authorizeForgeSharing,
@@ -26,6 +27,7 @@ export function publicReleaseEvidence(summary: ReleaseEvidenceSummary) {
   );
   return {
     ...summary,
+    visuals: buildReleaseVisualReport(summary),
     tests: attention.slice(0, 100),
     totalAttention: attention.length,
     testsLimited: attention.length > 100,
