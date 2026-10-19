@@ -12,6 +12,7 @@ import {
 import { trpcReact } from "@/lib/trpcReact";
 import { canAdministerOrganization, organizationAccessMessage } from "@/lib/membership";
 import { Icon, type IconName } from "./ui/Workspace";
+import { useExampleWorkspaceVisible, setExampleWorkspaceVisible } from "../lib/example-workspace-preference";
 
 const ORGANIZATION_ADMIN_LINKS: Array<{
   href: string;
@@ -37,6 +38,7 @@ function AccountMenu() {
   const canAdmin = !orgsQuery.isError && !orgsQuery.isPending && canAdministerOrganization(membership);
   const accessMessage = organizationAccessMessage(orgsQuery);
   const [open, setOpen] = useState(false);
+  const exampleVisible = useExampleWorkspaceVisible();
   const containerRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
 
@@ -168,6 +170,18 @@ function AccountMenu() {
             )}
           </div>
           <div className="account-menu-section">
+            {!exampleVisible && (
+              <button
+                type="button"
+                onClick={() => {
+                  setExampleWorkspaceVisible(true);
+                  setOpen(false);
+                }}
+              >
+                <Icon name="grid" size={16} />
+                <span><strong>Show example workspace</strong></span>
+              </button>
+            )}
             <button
               type="button"
               onClick={() => clerk.signOut({ redirectUrl: "/" })}

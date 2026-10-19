@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { trpcReact } from "../../lib/trpcReact";
 import { Modal } from "../../components/Modal";
-import { ConfirmAction } from "../../components/ConfirmAction";
+import { ProjectDeletionWizard } from "../../components/ProjectDeletionWizard";
 import { EmptyState, Icon, PageHeading } from "../../components/ui/Workspace";
 import {
   canAdministerOrganization,
@@ -124,7 +124,6 @@ export default function ProjectsPage() {
   const [editRepoUrl, setEditRepoUrl] = useState("");
   const [editDefaultBranch, setEditDefaultBranch] = useState("main");
   const [editError, setEditError] = useState<string | null>(null);
-  const [deleteError, setDeleteError] = useState<string | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<{
     id: string;
     name: string;
@@ -163,13 +162,6 @@ export default function ProjectsPage() {
     onError: (e) => setEditError(e.message),
   });
 
-  const deleteMutation = trpcReact.project.delete.useMutation({
-    onSuccess: () => {
-      setDeleteTarget(null);
-      void utils.project.list.invalidate();
-    },
-    onError: (e) => setDeleteError(e.message),
-  });
 
   function submit() {
     if (!orgId || !canEdit) return;
@@ -215,11 +207,6 @@ export default function ProjectsPage() {
     });
   }
 
-  function removeProject() {
-    if (!deleteTarget || !canDelete) return;
-    setDeleteError(null);
-    deleteMutation.mutate({ id: deleteTarget.id });
-  }
 
   const loading = orgsQuery.isLoading || (!!orgId && projectsQuery.isLoading);
   const pageError =
@@ -263,12 +250,6 @@ export default function ProjectsPage() {
           ) : undefined
         }
       />
-
-      {deleteError && (
-        <p className="text-error" role="alert">
-          {deleteError}
-        </p>
-      )}
 
       <ul className="project-grid">
         {projects.map((p) => (
@@ -640,22 +621,9 @@ export default function ProjectsPage() {
       </Modal>
 
       {canDelete && deleteTarget && (
-        <ConfirmAction
-          title={`Delete ${deleteTarget.name}?`}
-          requiredText={deleteTarget.name}
-          confirmLabel="Delete project"
-          busy={deleteMutation.isPending}
-          error={deleteError}
-          onClose={() => {
-            if (!deleteMutation.isPending) setDeleteTarget(null);
-          }}
-          onConfirm={removeProject}
-        >
-          <p>
-            This permanently removes the project and its Vaettir records. This
-            action cannot be undone.
-          </p>
-        </ConfirmAction>
+        <ProjectDeletionWizard key={deleteTarget.id} projectId={deleteTarget.id}
+          onClose={() => setDeleteTarget(null)}
+          onDeleted={() => { setDeleteTarget(null); void utils.project.list.invalidate(); }} />
       )}
     </div>
   );

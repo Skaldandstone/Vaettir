@@ -777,6 +777,17 @@ body:has(.native-dialog[open]) {
 .confirmation-label input {
   width: 100%;
 }
+.project-deletion-consent {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr);
+  align-items: start;
+  gap: 8px;
+  margin: 20px 0;
+}
+.project-deletion-consent input {
+  width: auto;
+  margin-top: 4px;
+}
 .btn-danger {
   display: inline-flex;
   align-items: center;

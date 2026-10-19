@@ -17,6 +17,7 @@ import {
   readQualityExperience,
 } from "../services/qualityExperienceProfile.js";
 import { projectCaseKeySchema, projectCaseKeySave, readProjectCaseIdentity, saveProjectCaseKey } from "../services/projectCaseKeys.js";
+import { authorizeProjectDeletion, deleteReviewedProject, previewProjectDeletion } from "../services/projectDeletion.js";
 
 function slugify(name: string): string {
   return (
@@ -434,7 +435,24 @@ export const projectRouter = router({
       }
     }),
 
-  // Deliberately ADMIN+ (not EDITOR, which can create). Every child relation
+  deletionPreview: protectedProcedure
+    .input(z.object({ id: z.string() }).strict())
+    .query(async ({ ctx, input }) => {
+      const { project } = await requireProjectAccess(ctx, input.id, "ADMIN");
+      if (!ctx.authenticatedClerkSubject) throw new TRPCError({ code: "FORBIDDEN", message: "Sign in to review project deletion." });
+      await authorizeProjectDeletion(ctx.prisma, { id: ctx.user.id, clerkSubject: ctx.authenticatedClerkSubject, workspaceOrganizationId: ctx.workspaceOrganizationId }, project.organizationId);
+      return previewProjectDeletion(ctx.prisma, input.id);
+    }),
+  deleteReviewed: protectedProcedure
+    .input(z.object({ id: z.string(), organizationId: z.string(), expectedName: z.string().min(1).max(500),
+      previewFingerprint: z.string().regex(/^[a-f0-9]{64}$/), includeContents: z.boolean(), requestId: z.string().uuid() }).strict())
+    .mutation(async ({ ctx, input }) => {
+      if (!ctx.authenticatedClerkSubject) throw new TRPCError({ code: "FORBIDDEN", message: "Sign in to confirm project deletion." });
+      return deleteReviewedProject(ctx.prisma, { id: ctx.user.id, clerkSubject: ctx.authenticatedClerkSubject, workspaceOrganizationId: ctx.workspaceOrganizationId }, input);
+    }),
+
+  // Legacy clients remain ADMIN+ and cannot silently cascade project contents.
+  // The reviewed workflow above owns explicit contents removal. Every child relation
   // (test cases, test plans, requirements, releases, test runs, reverse-
   // engineer jobs) is RESTRICT, not CASCADE -- deleting a project with any
   // content in it is a deliberate no-op with a clear message, not a silent

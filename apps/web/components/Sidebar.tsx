@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { useEffect, useState, type ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { trpcReact } from "@/lib/trpcReact";
 import { GlobalSearch } from "./GlobalSearch";
 import { Icon, type IconName } from "./ui/Workspace";
@@ -14,6 +14,7 @@ import {
 } from "../lib/workbench-navigation";
 import styles from "./WorkbenchNavigation.module.css";
 import { QualityExperienceWizard } from "./QualityExperienceWizard";
+import { useExampleWorkspaceVisible, setExampleWorkspaceVisible } from "../lib/example-workspace-preference";
 
 // Ported 2026-09-11 from codex/private-beta-readiness: functional icons per
 // link, exact matching for the overview links so "/projects/x" isn't
@@ -267,21 +268,7 @@ function SidebarLink({
 
 export function Sidebar() {
   const pathname = usePathname();
-  const [exampleVisible, setExampleVisible] = useState(true);
-
-  useEffect(() => {
-    // The server cannot read browser storage; reconcile this browser-only preference after hydration.
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    setExampleVisible(
-      localStorage.getItem("vaettir:hide-example-workspace") !== "1",
-    );
-  }, []);
-
-  function setExampleWorkspaceVisible(visible: boolean) {
-    setExampleVisible(visible);
-    if (visible) localStorage.removeItem("vaettir:hide-example-workspace");
-    else localStorage.setItem("vaettir:hide-example-workspace", "1");
-  }
+  const exampleVisible = useExampleWorkspaceVisible();
 
   // /share is a public, unauthenticated preview surface (see middleware.ts) -
   // an org-scoped sidebar would either render nothing useful or attempt
@@ -314,7 +301,7 @@ export function Sidebar() {
       </div>
       <div className="sidebar-group">
         <div className="eyebrow sidebar-group-label">Workspace</div>
-        {exampleVisible ? (
+        {exampleVisible && (
           <div
             style={{
               display: "grid",
@@ -334,21 +321,6 @@ export function Sidebar() {
               ×
             </button>
           </div>
-        ) : (
-          <button
-            type="button"
-            className="sidebar-link"
-            onClick={() => setExampleWorkspaceVisible(true)}
-            style={{
-              width: "100%",
-              border: 0,
-              background: "transparent",
-              cursor: "pointer",
-            }}
-          >
-            <Icon name="grid" size={17} />
-            Show example workspace
-          </button>
         )}
         {ORG_LINKS.map((link) => (
           <SidebarLink key={link.href} href={link.href} label={link.label} />
