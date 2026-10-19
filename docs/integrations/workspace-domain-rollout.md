@@ -15,9 +15,21 @@ The checked-in Worker allowlist is empty and contains no ingress secret.
 The first live acceptance uses only James's existing Skald and Stone sandbox
 and the **Codex Plugin Synthetic Sandbox** project
 `cmvbm3j0r0001uqg3xtxwszh4`. Resolve and independently verify that project's
-immutable organization ID before setting the rollout scope. Do not claim,
-reserve, redirect, reconfigure or test aTwist during this phase. Existing customer
-migration follows later, with the exact owner-confirmed organization/name mapping.
+immutable organization ID before setting the rollout scope. Complete sandbox
+acceptance before activating existing customers. On October 19 the owner
+authorized migration of all existing customer accounts and their database
+records, preserving their immutable IDs, content, memberships, billing,
+integrations and AI disclosure settings, and confirmed these permanent names:
+
+| Existing customer | Confirmed address |
+| --- | --- |
+| Skald and Stone | `https://skaldandstone.vaettir.app` |
+| aTwist | `https://atwist.vaettir.app` |
+
+These approved names are not proof of database claims or activated routes. First
+inventory every existing organization and bind each approved name to its exact
+immutable organization ID. Report any additional customers before choosing their
+permanent names. Do not infer names from slugs or create replacement accounts.
 
 ## Controls
 
@@ -65,9 +77,11 @@ same arguments and bind their exact values to its release intent. ECS runtime
 variables cannot enable an image that was built with these settings disabled.
 
 The company Clerk primary domain remains in service during migration.
-Adding the prepared `vaettir.app` satellite currently shows a $10/month charge;
-obtain the owner's approval before submitting it. Follow Clerk's actual DNS
-instructions and verify TLS and session behavior before enabling customer hosts.
+The owner approved the quoted $10/month `vaettir.app` satellite on October 19.
+The live production instance already contained the satellite when refreshed;
+reuse it instead of creating a duplicate. Its actual DNS requirement is a
+DNS-only `clerk.vaettir.app` CNAME to `frontend-api.clerk.services`. Verify the
+provider's DNS, TLS and session behavior before enabling customer hosts.
 Do not repoint the primary domain or broaden token audiences speculatively.
 
 The main release operator owns the combined API/web image rollout, migrations,
@@ -84,7 +98,7 @@ package; do not deploy Studio's unrelated dirty source.
    state without forwarding it to another customer.
 3. Enable selection only for the verified sandbox organization. Use onboarding
    to preview, confirm and retry the exact chosen name; a different-name retry
-   must fail. Keep aTwist out of scope.
+   must fail. Activate aTwist only after this sandbox acceptance succeeds.
 4. Configure the exact new hosts and signed ingress, then verify fresh sign-in,
    session renewal/sign-out, own project access, foreign-project denial and
    cache isolation through the actual deployed route.
@@ -93,6 +107,30 @@ package; do not deploy Studio's unrelated dirty source.
 6. Complete the installed Codex preview's synthetic counts read, revoke and
    fresh-client denial with matching retained audit evidence. Local tests or a
    healthy API do not establish this acceptance.
+
+## Existing customer cutover
+
+After sandbox acceptance, reconcile the live inventory against the two approved
+names above. The current application schema stores organizations in shared
+PostgreSQL tables, keyed by `organizationId`; a hostname change does not require
+copying a customer into a new database. Verify the actual deployed database
+topology before acting. Preserve the existing database and apply only reviewed
+schema migrations and authorized name bindings.
+
+Retain a recoverable backup and the release operator's before/after evidence for
+all customer records, membership roles, projects, imports, billing references,
+integration bindings and AI policies/grants. Separate expected migration and
+domain-claim additions from any unexpected changes. Confirm exact names through
+the normal current-owner claim path; do not invent a human actor or bypass its
+authority checks for a bulk update.
+
+Enable each accepted hostname explicitly in the Worker, API activation list and
+web build allowlist. Keep the legacy authenticated application available while
+checking fresh sign-in, session renewal/sign-out, existing project links, native
+callbacks and foreign-workspace denial for each migrated account. An old project
+link must resolve to that project's existing organization and its confirmed
+address after checking current access. Report each customer's actual cutover
+result separately from source, CI and DNS configuration.
 
 Rollback disables new-host activation and routes while retaining existing
 claims, audit history and the old authenticated application. A confirmed name
