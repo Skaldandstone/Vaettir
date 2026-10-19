@@ -95,23 +95,74 @@ function db() {
   };
 }
 describe("opt-in Atlassian quality sharing", () => {
+  it("compiles only selected approved visual sections without forwarding hidden source fields", async () => {
+    const f = db();
+    Object.assign(f.payload, {
+      definition: { sections: ["automation"], summary: "PRIVATE_NOTE" },
+      inventory: {
+        active: 5,
+        automation: [
+          { key: "AUTOMATED", count: 3 },
+          { key: "MANUAL", count: 2 },
+        ],
+        priority: [{ key: "PRIVATE_PRIORITY", count: 5 }],
+      },
+    });
+    const result = await readSharedQuality(f.tx, "key", identity);
+    if (result.protocol !== "vaettir-quality/v1")
+      throw new Error("Expected report");
+    expect(result.visuals.charts.map((c) => c.id)).toEqual(["automation"]);
+    expect(result.visuals.charts[0]?.rows.map((r) => r.value)).toEqual([3, 2]);
+    expect(JSON.stringify(result)).not.toMatch(
+      /PRIVATE_NOTE|PRIVATE_PRIORITY|private-case|private-map/,
+    );
+    expect(result.snapshot.inventory).toEqual({ active: 5 });
+  });
   it("keeps project authorization persistent while selecting only approved captures in the exact project and organization", async () => {
     const f = db();
-    Object.assign(f.rows[0]!.metadata, { shareApprovedProjectQuality: true, snapshotIds: [] });
+    Object.assign(f.rows[0]!.metadata, {
+      shareApprovedProjectQuality: true,
+      snapshotIds: [],
+    });
     const result = await readSharedQuality(f.tx, "key", identity);
     expect(result.protocol).toBe("vaettir-quality/v1");
     expect(f.spies.projectReportSnapshot.findMany).toHaveBeenLastCalledWith({
-      where: { projectId: "project", organizationId: "org", payload: { path: ["state"], equals: "approved" } },
-      orderBy: [{ asOf: "desc" }, { id: "desc" }], take: 50,
+      where: {
+        projectId: "project",
+        organizationId: "org",
+        payload: { path: ["state"], equals: "approved" },
+      },
+      orderBy: [{ asOf: "desc" }, { id: "desc" }],
+      take: 50,
     });
-    expect(JSON.stringify(result)).not.toMatch(/private-case|private-map|must not cross/);
+    expect(JSON.stringify(result)).not.toMatch(
+      /private-case|private-map|must not cross/,
+    );
     f.spies.projectReportSnapshot.findMany.mockResolvedValue([]);
-    expect(await readSharedQuality(f.tx, "key", identity)).toMatchObject({ protocol: "vaettir-quality-empty/v1", projectId: "project" });
-    await expect(readSharedQuality(f.tx, "key", identity, "b".repeat(64))).rejects.toThrow();
-    expect(f.spies.projectReportSnapshot.findMany).toHaveBeenLastCalledWith(expect.objectContaining({
-      where: { projectId: "project", organizationId: "org", id: "b".repeat(64), payload: { path: ["state"], equals: "approved" } },
-    }));
-    f.rows.push({ ...share(2, "REVOKED"), metadata: { ...share(2, "REVOKED").metadata, shareApprovedProjectQuality: true } } as typeof f.rows[number]);
+    expect(await readSharedQuality(f.tx, "key", identity)).toMatchObject({
+      protocol: "vaettir-quality-empty/v1",
+      projectId: "project",
+    });
+    await expect(
+      readSharedQuality(f.tx, "key", identity, "b".repeat(64)),
+    ).rejects.toThrow();
+    expect(f.spies.projectReportSnapshot.findMany).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        where: {
+          projectId: "project",
+          organizationId: "org",
+          id: "b".repeat(64),
+          payload: { path: ["state"], equals: "approved" },
+        },
+      }),
+    );
+    f.rows.push({
+      ...share(2, "REVOKED"),
+      metadata: {
+        ...share(2, "REVOKED").metadata,
+        shareApprovedProjectQuality: true,
+      },
+    } as (typeof f.rows)[number]);
     await expect(readSharedQuality(f.tx, "key", identity)).rejects.toThrow();
   });
   it("accepts canonical app/environment ARIs without silently changing legacy approvals", () => {
@@ -122,19 +173,27 @@ describe("opt-in Atlassian quality sharing", () => {
     };
     expect(forgeQualityBinding.parse(canonical)).toEqual(canonical);
     expect(forgeQualityBinding.parse(binding)).toEqual(binding);
-    expect(sameForgeBinding(canonical, { ...identity, ...canonical })).toBe(true);
-    expect(sameForgeBinding(binding, { ...identity, ...canonical })).toBe(false);
-    expect(forgeQualityBinding.safeParse({
-      ...canonical,
-      environmentId: canonical.environmentId.replace(
-        "743bf96f-0f9f-4fed-981a-ea3fc318d15d",
-        "10000000-0000-4000-8000-000000000099",
-      ),
-    }).success).toBe(false);
-    expect(forgeQualityBinding.safeParse({
-      ...canonical,
-      environmentId: canonical.environmentId + "/extra",
-    }).success).toBe(false);
+    expect(sameForgeBinding(canonical, { ...identity, ...canonical })).toBe(
+      true,
+    );
+    expect(sameForgeBinding(binding, { ...identity, ...canonical })).toBe(
+      false,
+    );
+    expect(
+      forgeQualityBinding.safeParse({
+        ...canonical,
+        environmentId: canonical.environmentId.replace(
+          "743bf96f-0f9f-4fed-981a-ea3fc318d15d",
+          "10000000-0000-4000-8000-000000000099",
+        ),
+      }).success,
+    ).toBe(false);
+    expect(
+      forgeQualityBinding.safeParse({
+        ...canonical,
+        environmentId: canonical.environmentId + "/extra",
+      }).success,
+    ).toBe(false);
   });
   it("requires the exact installation, environment, cloud, product and target", async () => {
     for (const change of [

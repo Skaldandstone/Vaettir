@@ -3,6 +3,7 @@ import { z } from "zod";
 import type { Prisma } from "@vaettir/db";
 import type { ForgeIdentity } from "./forgeInvocation.js";
 import { forgeReleaseLink } from "./forgeReleaseSchema.js";
+import { buildQualityVisualReport } from "@vaettir/core";
 
 export const forgeQualityBinding = z
   .object({
@@ -103,6 +104,37 @@ export const sharedQualitySnapshot = z.object({
     })
     .optional(),
 });
+// Only compiled visual rows leave this extra projection. Unselected sections,
+// authored notes, case identities and architecture are never forwarded here.
+const sharedVisualSource = sharedQualitySnapshot.extend({
+  definition: z
+    .object({
+      sections: z.array(
+        z.enum([
+          "inventory",
+          "execution",
+          "traceability",
+          "defects",
+          "automation",
+        ]),
+      ),
+    })
+    .optional(),
+  inventory: z.object({
+    active: count,
+    automation: z
+      .array(z.object({ key: z.string().max(100), count }))
+      .max(100)
+      .optional(),
+    priority: z
+      .array(z.object({ key: z.string().max(100), count }))
+      .max(100)
+      .optional(),
+  }),
+  traceability: z
+    .object({ requirements: count, coveredRequirements: count })
+    .optional(),
+});
 export function sameForgeBinding(
   binding: z.infer<typeof forgeQualityBinding>,
   identity: ForgeIdentity,
@@ -174,14 +206,21 @@ export async function readSharedQuality(
     connectionKey,
     identity,
   );
-  if (snapshotId && !sharing.shareApprovedProjectQuality && !sharing.snapshotIds.includes(snapshotId))
+  if (
+    snapshotId &&
+    !sharing.shareApprovedProjectQuality &&
+    !sharing.snapshotIds.includes(snapshotId)
+  )
     throw new Error("Snapshot not approved for this target");
   const snapshots = await tx.projectReportSnapshot.findMany({
     where: {
       projectId,
       organizationId: orgId,
       ...(sharing.shareApprovedProjectQuality
-        ? { payload: { path: ["state"], equals: "approved" }, ...(snapshotId ? { id: snapshotId } : {}) }
+        ? {
+            payload: { path: ["state"], equals: "approved" },
+            ...(snapshotId ? { id: snapshotId } : {}),
+          }
         : { id: { in: snapshotId ? [snapshotId] : sharing.snapshotIds } }),
     },
     orderBy: [{ asOf: "desc" }, { id: "desc" }],
@@ -191,13 +230,15 @@ export async function readSharedQuality(
     id: s.id,
     ...sharedQualitySnapshot.parse(s.payload),
   }));
-  if (snapshotId && !available.length) throw new Error("No approved shared snapshot available");
+  if (snapshotId && !available.length)
+    throw new Error("No approved shared snapshot available");
   if (!available.length && sharing.shareApprovedProjectQuality)
     return {
       protocol: "vaettir-quality-empty/v1" as const,
       projectId,
       reportUrl: `https://vaettir.skaldandstone.com/projects/${encodeURIComponent(projectId)}/reports`,
-      notice: "Connected. This project has no approved quality captures yet. Create and approve a report in Vaettir; it will appear here without reconnecting.",
+      notice:
+        "Connected. This project has no approved quality captures yet. Create and approve a report in Vaettir; it will appear here without reconnecting.",
     };
   if (!available.length)
     throw new Error("No approved shared snapshot available");
@@ -206,6 +247,9 @@ export async function readSharedQuality(
     mode: snapshotId ? ("FROZEN" as const) : ("LATEST_APPROVED" as const),
     projectId,
     snapshot: available[0]!,
+    visuals: buildQualityVisualReport(
+      sharedVisualSource.parse(snapshots[0]!.payload),
+    ),
     available: available.map((s) => ({
       id: s.id,
       title: s.title,
@@ -280,7 +324,8 @@ export async function listForgeSharing(
     if (
       identity.moduleKey === "vaettir-issue-quality"
         ? !sharing.shareTicketTests
-        : !sharing.shareApprovedProjectQuality && !sharing.snapshotIds.length &&
+        : !sharing.shareApprovedProjectQuality &&
+          !sharing.snapshotIds.length &&
           !sharing.releaseLinks.length &&
           !sharing.closureSnapshotIds.length
     )
@@ -293,7 +338,8 @@ export async function listForgeSharing(
       key,
       projectName: project.name,
       shareTicketTests: sharing.shareTicketTests,
-      hasSnapshots: sharing.shareApprovedProjectQuality || !!sharing.snapshotIds.length,
+      hasSnapshots:
+        sharing.shareApprovedProjectQuality || !!sharing.snapshotIds.length,
       hasReleases: !!sharing.releaseLinks.length,
       hasClosures: !!sharing.closureSnapshotIds.length,
     });

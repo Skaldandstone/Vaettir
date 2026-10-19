@@ -3,6 +3,7 @@ import {
   Button,
   Box,
   DonutChart,
+  HorizontalBarChart,
   Heading,
   Inline,
   HelperMessage,
@@ -21,6 +22,7 @@ import {
 } from "@forge/react";
 import { invokeRemote } from "@forge/bridge";
 import { createQualityTransport } from "./transport";
+import type { QualityVisualReport } from "../../../packages/core/src/qualityVisuals";
 
 type Connection = {
   key: string;
@@ -31,6 +33,7 @@ type Connection = {
   hasClosures: boolean;
 };
 type Release = {
+  visuals?: QualityVisualReport;
   protocol: "vaettir-release-quality/v1";
   mode: "LIVE" | "FROZEN" | "RELEASED_CAPTURE_UNAVAILABLE";
   projectId: string;
@@ -95,6 +98,7 @@ type Ticket = {
   }>;
 };
 type Quality = {
+  visuals?: QualityVisualReport;
   protocol: "vaettir-quality/v1";
   mode: "FROZEN" | "LATEST_APPROVED";
   notice: string;
@@ -554,6 +558,19 @@ function EvidenceNotes({ limitations, notice }: { limitations: string[]; notice:
   return <Stack space="space.100"><Inline><Button appearance="subtle" aria-expanded={expanded} onClick={() => setExpanded(value => !value)}>{expanded ? "Hide metric definitions and limitations" : "About these metrics and limitations"}</Button></Inline>{expanded && <Box xcss={surface}><Stack space="space.100">{limitations.map((text, index) => <Text key={index}>{text}</Text>)}<Text>{notice}</Text></Stack></Box>}</Stack>;
 }
 
+// Display only: Vaettir selects the charts, scope, labels, colors and values.
+export function NativeQualityVisuals({ model }: { model: QualityVisualReport }) {
+  return <Stack space="space.250">{model.charts.map(chart => <Box key={chart.id} xcss={surface}>
+    <Stack space="space.100">
+      {chart.rows.length ? chart.kind === "donut"
+        ? <DonutChart title={chart.title} data={chart.rows} labelAccessor="label" valueAccessor="value" colorAccessor="label" colorPalette={chart.rows.map(r => ({ key: r.label, value: r.color }))} height={300} showMarkLabels />
+        : <HorizontalBarChart title={chart.title} data={chart.rows} xAccessor="label" yAccessor="value" colorAccessor="label" colorPalette={chart.rows.map(r => ({ key: r.label, value: r.color }))} height={260} />
+        : <SectionMessage title={chart.title}><Text>{chart.empty}</Text></SectionMessage>}
+      <Text>{chart.note}</Text>
+    </Stack>
+  </Box>)}</Stack>;
+}
+
 export function QualitySnapshotView({ data, configuredSnapshot = "", setSnapshotId = () => {} }: { data: Quality; configuredSnapshot?: string; setSnapshotId?: (id: string) => void }) {
   const execution = data.snapshot.execution;
   const outcomeCount = (key: string) => execution.outcomes.filter(item => item.key === key).reduce((sum, item) => sum + item.count, 0);
@@ -604,6 +621,7 @@ export function QualitySnapshotView({ data, configuredSnapshot = "", setSnapshot
               />
             </>
           )}
+          {data.visuals ? <NativeQualityVisuals model={data.visuals} /> : <>
           <Inline space="space.150" shouldWrap>
             <Metric title="Recorded Pass" value={outcomeCount("PASS")} tone="success" />
             <Metric title="Failed observations" value={outcomeCount("FAIL")} tone="danger" />
@@ -644,6 +662,7 @@ export function QualitySnapshotView({ data, configuredSnapshot = "", setSnapshot
             </>
           ) : <Text>{planned === 0 ? "No planned case/run pairs in this capture." : "Planned progress is unavailable in this capture."}</Text>}
           </Stack></Box>
+          </>}
           <Box xcss={surface}><Stack space="space.150">
           <Heading as="h3">Validation runs in this capture</Heading>
           {data.runLinks.map((run) => (
@@ -696,12 +715,12 @@ function ReleaseView({ data }: { data: Release }) {
         <Text>Jira · {data.jiraVersionName}</Text>
       </Inline>
       <Text>Captured {new Date(data.capturedAt).toLocaleString()}</Text>
-      <Inline space="space.150" shouldWrap>
+      {!data.visuals && <Inline space="space.150" shouldWrap>
         <Metric title="Planned tests" value={data.counts.planned} />
         <Metric title="Recorded Pass" value={data.counts.pass} tone="success" />
         <Metric title="Failing tests" value={data.counts.fail} tone="danger" />
         <Metric title="Not recorded" value={data.counts.notRecorded} tone="warning" />
-      </Inline>
+      </Inline>}
       {data.mode === "RELEASED_CAPTURE_UNAVAILABLE" && (
         <SectionMessage
           appearance="warning"
@@ -714,6 +733,7 @@ function ReleaseView({ data }: { data: Release }) {
           </Text>
         </SectionMessage>
       )}
+      {data.visuals ? <NativeQualityVisuals model={data.visuals} /> : <>
       <Heading as="h3">Test progress</Heading>
       <Text>
         {data.counts.recorded} of {data.counts.planned} planned tests have
@@ -743,6 +763,7 @@ function ReleaseView({ data }: { data: Release }) {
           showMarkLabels
         />
       )}
+      </>}
       <Heading as="h3">Failures and release concerns</Heading>
       <Text>
         {data.recordedFailures} failure observations across selected runs ·{" "}
