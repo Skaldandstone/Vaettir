@@ -460,61 +460,7 @@ export function QualityApp({
         </SectionMessage>
       )}
       {data?.protocol === "vaettir-ticket-verification/v1" && (
-        <>
-          <Heading as="h3">Verification tests · {data.issueKey}</Heading>
-          <Text>
-            {data.tests.length} explicitly linked tests · Updated{" "}
-            {new Date(data.asOf).toLocaleString()}
-          </Text>
-          {!data.tests.length && (
-            <Text>
-              No tests are linked to this ticket yet. Add an exact Jira ticket
-              reference to a case in Vaettir; tests from a whole suite are not
-              automatically attributed to this ticket.
-            </Text>
-          )}
-          {data.tests.map((test) => (
-            <Box key={test.id} xcss={surface}><Stack space="space.100">
-              <Text>
-                <Link href={test.href} openNewTab>
-                  {test.displayId} · {test.title}
-                </Link>
-              </Text>
-              <Inline space="space.100" shouldWrap>
-                <Lozenge
-                  appearance={
-                    test.outcome === "PASS"
-                      ? "success"
-                      : test.outcome === "FAIL"
-                        ? "removed"
-                        : "inprogress"
-                  }
-                >
-                  {test.outcome === "PASS"
-                    ? "Recorded Pass"
-                    : label(test.outcome)}
-                </Lozenge>
-                <Text>
-                  {test.reviewStatus !== "APPROVED"
-                    ? ` · ${label(test.reviewStatus)}`
-                    : ""}
-                  {test.archived ? " · Archived" : ""}
-                </Text>
-              </Inline>
-              {test.runs.map((run) => (
-                <Text key={run.runId}>
-                  <Link href={run.href} openNewTab>
-                    Run · {new Date(run.startedAt).toLocaleString()}
-                  </Link>
-                </Text>
-              ))}
-              <HelperMessage>
-                Current definition match not verified.
-              </HelperMessage>
-            </Stack></Box>
-          ))}
-          <HelperMessage>{data.notice}</HelperMessage>
-        </>
+        <TicketVerificationView data={data} />
       )}
       {data?.protocol === "vaettir-quality/v1" && <QualitySnapshotView key={pin} data={data} configuredSnapshot={configuredSnapshot} setSnapshotId={setSnapshotId} />}
       {data?.protocol === "vaettir-release-quality/v1" && (
@@ -533,6 +479,42 @@ export function QualityApp({
 }
 
 const surface = xcss({ padding: "space.250", borderRadius: "radius.medium", borderColor: "color.border", borderStyle: "solid", borderWidth: "border.width" });
+
+// Jira's issueContext supplies the outer collapsible field. Keep its contents
+// compact: the test reference is the link, the summary is readable text.
+export function TicketVerificationView({ data }: { data: Ticket }) {
+  const [expanded, setExpanded] = useState<string[]>([]);
+  return <Stack space="space.150">
+    <Text>{data.tests.length} linked {data.tests.length === 1 ? "test" : "tests"} · {data.issueKey}</Text>
+    {!data.tests.length && <SectionMessage title="No linked tests yet">
+      <Text>No confirmed test coverage is recorded for this ticket.</Text>
+    </SectionMessage>}
+    {data.tests.map(test => {
+      const open = expanded.includes(test.id);
+      return <Box key={test.id} xcss={ticketRow}><Stack space="space.100">
+        <Inline space="space.100" shouldWrap alignBlock="center">
+          <Link href={test.href} openNewTab>{test.displayId || "Open test"}</Link>
+          <Lozenge appearance={test.outcome === "PASS" ? "success" : test.outcome === "FAIL" ? "removed" : "inprogress"}>
+            {test.outcome === "PASS" ? "Recorded Pass" : label(test.outcome)}
+          </Lozenge>
+          {test.archived && <Lozenge>Archived</Lozenge>}
+        </Inline>
+        <Text>{test.title}</Text>
+        <Inline><Button appearance="subtle" aria-expanded={open} onClick={() => setExpanded(current => open ? current.filter(id => id !== test.id) : [...current, test.id])}>
+          {open ? "Hide execution details" : "Execution details"}
+        </Button></Inline>
+        {open && <Stack space="space.100">
+          <Text>Case review: {label(test.reviewStatus)}</Text>
+          {!test.runs.length && <Text>No recorded run is available for this test.</Text>}
+          {test.runs.map(run => <Link key={run.runId ?? run.id} href={run.href} openNewTab>Run · {new Date(run.startedAt).toLocaleString()}</Link>)}
+          <HelperMessage>Recorded results do not verify this ticket revision or the current test definition.</HelperMessage>
+        </Stack>}
+      </Stack></Box>;
+    })}
+    <EvidenceNotes limitations={[data.notice]} notice={`Updated ${new Date(data.asOf).toLocaleString()}`} />
+  </Stack>;
+}
+const ticketRow = xcss({ padding: "space.150", borderRadius: "radius.small", borderColor: "color.border", borderStyle: "solid", borderWidth: "border.width" });
 const metricSurface = xcss({ padding: "space.200", borderRadius: "radius.medium", minWidth: "150px", flexGrow: 1 });
 // Category-keyed colors stay stable when a capture omits an outcome. Counts
 // and labels remain visible, so meaning never depends on color alone.

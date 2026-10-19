@@ -22,11 +22,24 @@ function render(kind,execution={},visuals){
   HorizontalBarChart:props=>{charts.push(props);return React.createElement('figure',{'aria-label':props.title})},
   ProgressBar:props=>{bars.push(props.value);return React.createElement('progress',{value:props.value,max:1})},
  });
- vm.runInContext(ts.transpileModule(code+'\nthis.views={QualitySnapshotView,ReleaseView};',{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.None,jsx:ts.JsxEmit.React}}).outputText,context);
+ vm.runInContext(ts.transpileModule(code+'\nthis.views={QualitySnapshotView,ReleaseView,TicketVerificationView};',{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.None,jsx:ts.JsxEmit.React}}).outputText,context);
  const quality={protocol:'vaettir-quality/v1',mode:'LATEST_APPROVED',reportUrl:'https://example.invalid/report',runLinks:[],available:[],notice:'Synthetic notice',snapshot:{title:'Synthetic review',projectName:'Synthetic project',asOf:'2026-10-16T00:00:00Z',limitations:['Detailed caveat should be behind disclosure'],execution:{runs:0,results:0,distinctCases:0,outcomes:[],...execution}}};
  const release={protocol:'vaettir-release-quality/v1',mode:'LIVE',releaseName:'Synthetic release',jiraVersionName:'1.0',capturedAt:'2026-10-16T00:00:00Z',notice:'Synthetic notice',counts:{planned:0,recorded:0,pass:0,fail:0,blocked:0,skipped:0,flaky:0,mixed:0,ambiguous:0,notRecorded:0},tests:[],runs:[],risks:[],recordedFailures:0,failedRuns:0,unmatchedObservations:0,outsideCohortObservations:0,totalAttention:0,...execution};
- return {html:renderToStaticMarkup(React.createElement(context.views[kind],{data:{...(kind==='ReleaseView'?release:quality),visuals}})),charts,bars,cards};
+ const ticket={protocol:'vaettir-ticket-verification/v1',issueKey:'SYN-1',asOf:'2026-10-19T00:00:00Z',notice:'Recorded results are not current-ticket verification.',tests:[],...execution};
+ return {html:renderToStaticMarkup(React.createElement(context.views[kind],{data:{...(kind==='TicketVerificationView'?ticket:kind==='ReleaseView'?release:quality),visuals}})),charts,bars,cards};
 }
+
+test('ticket context shows a linked test reference and separate readable summary, with details initially collapsed',()=>{
+ const view=render('TicketVerificationView',{tests:[{id:'case1',displayId:'SYN-12',title:'Restore consumed coin purchases without duplication',href:'https://example.invalid/test/case1',outcome:'PASS',reviewStatus:'APPROVED',archived:false,runs:[{runId:'run1',startedAt:'2026-10-19T00:00:00Z',href:'https://example.invalid/run/run1'}]}]});
+ assert.match(view.html,/<a href="https:\/\/example.invalid\/test\/case1">SYN-12<\/a>/);
+ assert.match(view.html,/<p>Restore consumed coin purchases without duplication<\/p>/);
+ assert.match(view.html,/Recorded Pass/);assert.match(view.html,/Execution details/);
+ assert.doesNotMatch(view.html,/href="https:\/\/example.invalid\/run\/run1"/);
+ assert.doesNotMatch(view.html,/Case review:/);
+});
+test('empty ticket does not falsely claim coverage or fabricate a match',()=>{
+ const view=render('TicketVerificationView');assert.match(view.html,/No linked tests yet/);assert.match(view.html,/No confirmed test coverage/);assert.doesNotMatch(view.html,/Recorded Pass/);
+});
 test('native views display Vaettir-owned chart rows without calculating replacement metrics',()=>{
  const rows=[{label:'Automated',value:7,color:'#337CB8'},{label:'Manual',value:3,color:'#8264CF'}];
  const visuals={version:1,charts:[{id:'automation',title:'Automation mix',kind:'donut',unit:'cases',note:'Recorded labels',empty:'No labels',rows},{id:'priority',title:'Test priority',kind:'bars',unit:'cases',note:'Captured priorities',empty:'No priorities',rows}]};

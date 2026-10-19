@@ -13,4 +13,5 @@ export * from "./generateAutomationDraft.js";
 export * from "./reviewTestDesign.js";
 export * from "./recommendImportTypes.js";
 export * from "./reviewArchitecture.js";
+export * from "./reviewTicketTests.js";
 export { captureAiUsage, type AiUsage } from "./tracing.js";
