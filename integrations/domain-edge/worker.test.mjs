@@ -66,3 +66,74 @@ test("only forwards bounded Vaettir invitation requests with a validated browser
   assert.equal((await handleRequest(request(JSON.stringify({ product: "vaettir", note: "x".repeat(9000) })), withStudio)).status, 413);
   assert.equal(calls, 1);
 });
+
+const workspace = "https://synthetic-team.vaettir.app";
+function handshake(back = workspace + "/projects?__clerk_synced=false") {
+  const url = new URL("https://clerk.vaettir.app/v1/client/handshake");
+  url.searchParams.set("redirect_url", back);
+  url.searchParams.set("format", "nonce");
+  return url;
+}
+async function redirectResponse(location, { method = "GET", path = "/projects?__clerk_synced=false", document = true } = {}) {
+  let calls = 0, canceled = false;
+  const response = await handleRequest(new Request(workspace + path, {
+    method, headers: document ? { "sec-fetch-dest": "document" } : {},
+  }), env, async () => {
+    if (++calls === 1) return new Response("ok", { headers: { "X-Vaettir-Workspace-Verified": "tenant-v1" } });
+    const headers = new Headers({ Location: String(location), "Cache-Control": "public, max-age=3600" });
+    headers.append("Set-Cookie", "fixture_a=synthetic; Secure; HttpOnly");
+    headers.append("Set-Cookie", "fixture_b=synthetic; Secure; HttpOnly");
+    return new Response(new ReadableStream({ cancel() { canceled = true; } }), { status: 307, headers });
+  });
+  return { response, canceled };
+}
+test("allows the exact Clerk satellite document handshake and preserves cookie directives without caching", async () => {
+  const location = handshake();
+  const { response } = await redirectResponse(location);
+  assert.equal(response.status, 307);
+  assert.equal(response.headers.get("location"), location.href);
+  assert.equal(response.headers.get("cache-control"), "no-store");
+  assert.equal(response.headers.get("referrer-policy"), "no-referrer");
+  assert.deepEqual(response.headers.getSetCookie(), ["fixture_a=synthetic; Secure; HttpOnly", "fixture_b=synthetic; Secure; HttpOnly"]);
+  await response.body.cancel();
+});
+test("denies handshake returns to HTTP, another workspace, another path, credentials, fragments or ambiguous values", async () => {
+  for (const back of [
+    "http://synthetic-team.vaettir.app/projects", "https://other-team.vaettir.app/projects",
+    "https://evil.test/projects", workspace + "/other", workspace + "/projects#fragment",
+    "https://user:synthetic@synthetic-team.vaettir.app/projects", "/projects", "",
+  ]) {
+    const { response, canceled } = await redirectResponse(handshake(back));
+    assert.equal(response.status, 502, back);
+    assert.equal(response.headers.get("location"), null);
+    assert.equal(response.headers.get("set-cookie"), null);
+    assert.equal(response.headers.get("cache-control"), "no-store");
+    assert.equal(canceled, true);
+  }
+  const duplicate = handshake();duplicate.searchParams.append("redirect_url", "https://evil.test/projects");
+  assert.equal((await redirectResponse(duplicate)).response.status, 502);
+  const missing = handshake();missing.searchParams.delete("redirect_url");
+  assert.equal((await redirectResponse(missing)).response.status, 502);
+});
+test("rejects other provider navigation and non-document, write or API handshake redirects", async () => {
+  for (const location of [
+    handshake().href.replace("clerk.vaettir.app", "clerk.evil.test"),
+    handshake().href.replace("/v1/client/handshake", "/v1/client/other"),
+    handshake().href.replace("https://", "http://"),
+    handshake().href.replace("https://", "https://user:synthetic@"),
+    handshake().href + "#fragment",
+  ]) assert.equal((await redirectResponse(location)).response.status, 502);
+  assert.equal((await redirectResponse(handshake(), { document: false })).response.status, 502);
+  assert.equal((await redirectResponse(handshake(), { method: "POST" })).response.status, 502);
+  for (const path of ["/api", "/api/trpc", "/trpc"]) {
+    assert.equal((await redirectResponse(handshake(workspace + path), { path })).response.status, 502);
+  }
+});
+test("keeps primary sign-in returns workspace-bound, including duplicate redirect parameters", async () => {
+  const location = new URL("https://vaettir.skaldandstone.com/sign-in");
+  location.searchParams.set("redirect_url", workspace + "/projects?__clerk_synced=false");
+  const accepted = (await redirectResponse(location)).response;
+  assert.equal(accepted.status, 307);await accepted.body.cancel();
+  location.searchParams.append("redirect_url", "https://other-team.vaettir.app/projects");
+  assert.equal((await redirectResponse(location)).response.status, 502);
+});

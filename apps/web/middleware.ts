@@ -1,5 +1,7 @@
 import { clerkMiddleware, createRouteMatcher } from "@clerk/nextjs/server";
+import type { NextFetchEvent, NextRequest } from "next/server";
 import { verifiedWorkspaceWebHost } from "./lib/workspace-auth";
+import { verifiedWorkspaceClerkRequest } from "./lib/workspace-clerk-request";
 import { authReturnUrl, isBrowserDocument, LEGACY_APPLICATION_ORIGIN } from "./lib/auth-return";
 
 // /share is a deliberately public, token-gated preview surface (see
@@ -10,7 +12,7 @@ import { authReturnUrl, isBrowserDocument, LEGACY_APPLICATION_ORIGIN } from "./l
 // being public.
 const isPublicRoute = createRouteMatcher(["/", "/sign-in(.*)", "/sign-up(.*)", "/share(.*)", "/beta-guide(.*)"]);
 
-export default clerkMiddleware(async (auth, req) => {
+const handleClerk = clerkMiddleware(async (auth, req) => {
   if (!isPublicRoute(req)) {
     // TLS terminates before Next. Clerk's inferred request URL may therefore
     // use HTTP. Pin only the browser return URL; do not trust forwarded hosts,
@@ -39,6 +41,15 @@ export default clerkMiddleware(async (auth, req) => {
     signUpUrl: "https://vaettir.skaldandstone.com/sign-up",
   };
 });
+
+export default async function middleware(request: NextRequest, event: NextFetchEvent) {
+  const clerkRequest = await verifiedWorkspaceClerkRequest(
+    request,
+    process.env.NEXT_PUBLIC_VAETTIR_WORKSPACE_AUTH_ENABLED === "1",
+    process.env.VAETTIR_DOMAIN_INGRESS_SECRET,
+  );
+  return handleClerk(clerkRequest, event);
+}
 
 export const config = {
   matcher: ["/((?!_next|.*\\..*).*)", "/(api|trpc)(.*)", "/__clerk/:path*"],

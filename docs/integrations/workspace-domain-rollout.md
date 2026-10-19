@@ -9,8 +9,11 @@ An organization display name and its existing slug are independent of this claim
 
 The public apex and `www` are deployed. The old Studio `/vaettir` and
 `/vaettir/` marketing paths redirect to the new homepage for GET/HEAD only.
-Customer hosts, satellite authentication and live domain claims remain disabled.
-The checked-in Worker allowlist is empty and contains no ingress secret.
+The shared entry is deployed with signed ingress. A read-only October 19
+inventory verified the existing Skald and Stone owner's `skaldandstone` claim;
+`atwist` remains unclaimed. Customer routes and legacy redirects remain off
+pending authenticated acceptance. The checked-in Worker allowlist is empty
+and contains no ingress secret; the reviewed live entry configuration is local.
 
 The first live acceptance uses only James's existing Skald and Stone sandbox
 and the **Codex Plugin Synthetic Sandbox** project
@@ -84,10 +87,21 @@ DNS-only `clerk.vaettir.app` CNAME to `frontend-api.clerk.services`. Verify the
 provider's DNS, TLS and session behavior before enabling customer hosts.
 Do not repoint the primary domain or broaden token audiences speculatively.
 
-The main release operator owns the combined API/web image rollout, migrations,
-native baseline and recovery gates. Preserve the currently deployed native
-application and scopes. This lane owns only the isolated public Cloudflare
-package; do not deploy Studio's unrelated dirty source.
+Clerk's satellite handshake runs before the middleware auth callback. Restore
+the HTTPS forwarded context only after verifying the edge signature on a
+bodyless workspace request. Do not rely on the primary sign-in return helper
+to repair this earlier handshake. The edge permits document GET redirects only
+to `https://clerk.vaettir.app/v1/client/handshake`, with exactly one absolute
+HTTPS return URL for the same workspace and path. Other provider paths, tenant
+returns, writes and API requests remain denied. Preserve the handshake cookie
+directives and `no-store` responses. A runtime diagnostic may record origins,
+paths and parameter names, never cookies, tokens or full authentication URLs.
+
+A single coordinated release operator owns the API/web image rollout,
+migrations, native baseline and recovery gates. Transfer that ownership
+explicitly before another chat operates AWS. Preserve the currently deployed
+native application and scopes. Deploy the Cloudflare package from its isolated
+reviewed source; do not deploy Studio's unrelated dirty source.
 
 ## Acceptance before activation
 
@@ -104,9 +118,10 @@ package; do not deploy Studio's unrelated dirty source.
    cache isolation through the actual deployed route.
 5. Verify the native picker/connect/sharing path under the sandbox hostname
    exposes only that workspace and still requires explicit human approval.
-6. Complete the installed Codex preview's synthetic counts read, revoke and
-   fresh-client denial with matching retained audit evidence. Local tests or a
-   healthy API do not establish this acceptance.
+6. Before activating the installed Codex preview, complete its synthetic counts
+   read, revoke and fresh-client denial with matching retained audit evidence.
+   Customer portal address acceptance does not activate AI disclosure grants.
+   Local tests or a healthy API do not establish installed-plugin acceptance.
 
 ## Existing customer cutover
 

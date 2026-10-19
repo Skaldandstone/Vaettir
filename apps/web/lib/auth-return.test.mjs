@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { readFileSync } from "node:fs";
+import { createRequire } from "node:module";
 import vm from "node:vm";
 import ts from "typescript";
 import { authReturnUrl, isBrowserDocument, LEGACY_APPLICATION_ORIGIN } from "./auth-return.ts";
@@ -30,7 +31,12 @@ test("only browser GET documents or iframes use explicit sign-in navigation", ()
   assert.equal(isBrowserDocument({ method: "GET", headers: new Headers({ "sec-fetch-dest": "empty", accept: "application/json" }) }), false);
 });
 
-// Exercise the actual middleware handler with only the Clerk boundary mocked.
+// Exercise the actual middleware and request normalizer with the Clerk and
+// cryptographic ingress boundaries mocked. The SDK/HMAC test runs separately.
+const { NextRequest } = createRequire(import.meta.url)("next/server");
+const normalizer = readFileSync(new URL("./workspace-clerk-request.ts", import.meta.url), "utf8");
+const normalizerCode = ts.transpileModule(normalizer.replace(/^import .*;\r?\n/gm, ""), { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext } }).outputText
+  .replace("export async function verifiedWorkspaceClerkRequest", "this.verifiedWorkspaceClerkRequest = async function verifiedWorkspaceClerkRequest");
 const source = readFileSync(new URL("../middleware.ts", import.meta.url), "utf8");
 const code = ts.transpileModule(source.replace(/^import .*;\r?\n/gm, ""), { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext } }).outputText
   .replace("export default ", "this.handler = ").replace("export const config", "const config");
@@ -38,14 +44,23 @@ async function invoke({ signedIn = false, pending = false, method = "GET", path 
   const events = [];
   const session = { isAuthenticated: signedIn, sessionStatus: pending ? "pending" : signedIn ? "active" : null, redirectToSignIn: options => { events.push(["redirect", options]); return "redirected"; } };
   const auth = Object.assign(async () => session, { protect: async () => { events.push(["protect"]); } });
-  const sandbox = { authReturnUrl, isBrowserDocument, LEGACY_APPLICATION_ORIGIN,
+  const sandbox = { authReturnUrl, isBrowserDocument, LEGACY_APPLICATION_ORIGIN, NextRequest, Headers,
     verifiedWorkspaceWebHost: async () => { if (invalidWorkspace) throw new Error("Invalid workspace ingress"); return workspaceHost; },
     process: { env: { NODE_ENV: "production", NEXT_PUBLIC_VAETTIR_WORKSPACE_AUTH_ENABLED: workspaceHost || invalidWorkspace ? "1" : undefined } },
-    clerkMiddleware: handler => handler,
+    clerkMiddleware: (handler, options) => async request => {
+      if (workspaceHost && ["GET", "HEAD"].includes(method)) {
+        assert.equal(request.headers.get("x-forwarded-host"), workspaceHost);
+        assert.equal(request.headers.get("x-forwarded-proto"), "https");
+      }
+      await options(request);
+      return handler(auth, request);
+    },
     createRouteMatcher: routes => { assert.deepEqual([...routes], ["/", "/sign-in(.*)", "/sign-up(.*)", "/share(.*)", "/beta-guide(.*)"]); return req => ["/", "/sign-in", "/sign-up", "/share", "/beta-guide"].some(route => req.nextUrl.pathname === route || (route !== "/" && req.nextUrl.pathname.startsWith(route + "/"))); },
   };
-  vm.createContext(sandbox); vm.runInContext(code, sandbox);
-  await sandbox.handler(auth, { method, headers: new Headers({ "sec-fetch-dest": destination, "x-forwarded-host": "attacker.invalid", "x-forwarded-proto": "http" }), nextUrl: new URL(path, "http://internal:3000") });
+  vm.createContext(sandbox); vm.runInContext(normalizerCode, sandbox); vm.runInContext(code, sandbox);
+  await sandbox.handler(new NextRequest(new URL(path, "http://internal:3000"), { method,
+    headers: new Headers({ "sec-fetch-dest": destination, "x-forwarded-host": "attacker.invalid", "x-forwarded-proto": "http" }),
+  }), {});
   return events;
 }
 test("actual signed-out document handler chooses HTTPS without reflecting forwarded headers", async () => {
