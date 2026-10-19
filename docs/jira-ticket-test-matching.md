@@ -24,6 +24,36 @@ Within a connected and explicitly approved Vaettir project:
 5. Only an authorized Vaettir editor can confirm a link or create reviewed
    drafts. Jira read access alone is not Vaettir write authority.
 
+## Funding and acceptance policy
+
+Owner decision, 2026-10-19, superseding the initial all-free response:
+
+- Treat integration matching as search and machine-learning-assisted retrieval.
+  Searching, ranking, explaining matches and linking existing tests are free.
+  Opening a ticket must never charge credits or require a positive balance.
+- New-test suggestions can be previewed, edited or dismissed without a charge.
+  Vaettir funds processing before acceptance, including discarded suggestions.
+- Accepting selected suggestions **and creating the corresponding new cases**
+  consumes purchased workspace AI credits. Show the exact selected-set cost
+  before the explicit acceptance action. Do not charge for rejected suggestions,
+  existing test links or background searches. No subscription or seat charge.
+- Persist a server-owned quote bound to the workspace, project, ticket revision,
+  retained suggestions and selected reviewed content. Never accept a client-sent
+  price or silently increase a quote after approval.
+- Current editor authorization, affordability, selected-case creation, links,
+  debit and the idempotent acceptance receipt must commit atomically. Failure
+  creates neither cases nor a charge. A retry recovers the same receipt without
+  charging again, even if the response to the first save was lost.
+- Changing the selected suggestions requires a refreshed visible quote. After
+  acceptance, editing a saved case or viewing its linked ticket is not another
+  generation charge. Replaying accepted suggestion identities under a new
+  request ID must not create duplicate cases or another charge.
+
+This is an acceptance-time billing flow, not the existing pre-charge-before-model
+flow in `aiCredits.ts`. Do not wrap matching or suggestion previews in
+`chargeAiCredits`/`meterAiCall`. The actual quote and atomic acceptance flow still
+need implementation; no new credit rate is established by this document.
+
 ## Source checkpoint, 2026-10-19
 
 Implemented locally:
@@ -47,9 +77,8 @@ Jira behavior. This is an incomplete implementation, not a releasable feature.
 
 ## Remaining release gates
 
-- Decide funding for matching and draft generation: platform-funded or explicitly
-  approved purchased AI credits. Free import-type recommendations are a different
-  product policy and do not settle this choice.
+- Implement the acceptance-time billing policy above. Funding is settled; do not
+  ask again whether matching should debit workspace credits.
 - Add a distinct project-admin discovery opt-in, default off. Existing
   `shareTicketTests` approval covers explicitly linked tests; it must not silently
   become permission to inspect and disclose the whole test inventory.
@@ -63,7 +92,8 @@ Jira behavior. This is an incomplete implementation, not a releasable feature.
   idempotency, audit, project isolation and access revocation.
 - Test misleading same-label cases, unlabeled relevant cases, partial coverage,
   missing descriptions, changed definitions and revoked approval end to end.
-  Run actual semantic evaluation only after funding authorization.
+  Keep provider evaluation synthetic and bounded; record Vaettir-funded usage
+  separately from customer acceptance charges.
 - Run current-source CI and coordinated deployment. Verify on the company
   synthetic Jira project only; do not import or mutate customer cases.
 
