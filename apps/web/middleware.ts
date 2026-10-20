@@ -3,7 +3,7 @@ import type { NextFetchEvent, NextRequest } from "next/server";
 import { verifiedWorkspaceWebHost } from "./lib/workspace-auth";
 import { verifiedWorkspaceClerkRequest } from "./lib/workspace-clerk-request";
 import { authReturnUrl, isBrowserDocument, LEGACY_APPLICATION_ORIGIN } from "./lib/auth-return";
-import { legacyAuthDocumentDestination, workspaceClerkConfiguration } from "./lib/clerk-auth-domain";
+import { legacyAuthDocumentDestination, PRIMARY_AUTH_ORIGIN, workspaceClerkConfiguration } from "./lib/clerk-auth-domain";
 
 // /share is a deliberately public, token-gated preview surface (see
 // requirements.getSharedSummary's own comment on why) - a Jira/Linear
@@ -25,7 +25,8 @@ const handleClerk = clerkMiddleware(async (auth, req) => {
         const workspaceHost = process.env.NEXT_PUBLIC_VAETTIR_WORKSPACE_AUTH_ENABLED === "1"
           ? await verifiedWorkspaceWebHost(req, process.env.VAETTIR_DOMAIN_INGRESS_SECRET) : null;
         const origin = workspaceHost ? `https://${workspaceHost}` :
-          process.env.VAETTIR_PUBLIC_ORIGIN ?? (production ? LEGACY_APPLICATION_ORIGIN : "http://localhost:3000");
+          process.env.NEXT_PUBLIC_VAETTIR_PRIMARY_AUTH_ENABLED === "1" ? PRIMARY_AUTH_ORIGIN :
+            process.env.VAETTIR_PUBLIC_ORIGIN ?? (production ? LEGACY_APPLICATION_ORIGIN : "http://localhost:3000");
         return session.redirectToSignIn({ returnBackUrl: authReturnUrl(req.nextUrl, origin, !production) });
       }
     }
@@ -34,8 +35,11 @@ const handleClerk = clerkMiddleware(async (auth, req) => {
 }, async req => {
   if (process.env.NEXT_PUBLIC_VAETTIR_WORKSPACE_AUTH_ENABLED !== "1") return {};
   const host = await verifiedWorkspaceWebHost(req, process.env.VAETTIR_DOMAIN_INGRESS_SECRET);
-  if (!host) return {};
-  return workspaceClerkConfiguration(host, process.env.NEXT_PUBLIC_VAETTIR_PRIMARY_AUTH_ENABLED === "1",
+  const primary = process.env.NEXT_PUBLIC_VAETTIR_PRIMARY_AUTH_ENABLED === "1";
+  // CloudFront replaces the retired viewer Host at the origin. Primary sign-in
+  // configuration is application-wide; only customer returns require attestation.
+  if (!host && !primary) return {};
+  return workspaceClerkConfiguration(host, primary,
     process.env.NEXT_PUBLIC_VAETTIR_ACTIVE_WORKSPACE_NAMES);
 });
 

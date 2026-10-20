@@ -36,6 +36,9 @@ function component(path) {
 }
 const compiled = [
   "apps/web/lib/example-workspace-preference.ts",
+  "apps/web/components/ui/useLayoutPreference.ts",
+  "apps/web/components/ui/FloatingTooltip.tsx",
+  "apps/web/components/ui/IconButton.tsx",
   "apps/web/components/Sidebar.tsx",
   "apps/web/components/NavAuth.tsx",
 ]
@@ -56,11 +59,12 @@ const scripts = {
   ),
 };
 const boot = `
-const {useSyncExternalStore,useState,useEffect,useRef}=React;
+const {useSyncExternalStore,useState,useEffect,useLayoutEffect,useRef,useId}=React;
+const createPortal=ReactDOM.createPortal;
 const Link=({href,children,...props})=>React.createElement("a",{href,...props},children);
 const Icon=()=>null, usePathname=()=>"/projects", useRouter=()=>({push(){}});
 const isNavigationActive=(path,href)=>path===href;
-const useAuth=()=>({isLoaded:true,isSignedIn:true});
+const useAuth=()=>({isLoaded:true,isSignedIn:true,userId:"synthetic-owner"});
 const useUser=()=>({user:{fullName:"Synthetic owner",primaryEmailAddress:{emailAddress:"synthetic@example.invalid"}}});
 const useClerk=()=>({openUserProfile(){},signOut(){}});
 const trpcReact={organization:{mine:{useQuery:()=>({data:[{name:"Synthetic workspace",role:"OWNER",seatType:"FULL"}]})}}};

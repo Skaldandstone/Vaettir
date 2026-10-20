@@ -43,7 +43,7 @@ const domainSource = readFileSync(new URL("./clerk-auth-domain.ts", import.meta.
 const domainCode = ts.transpileModule(domainSource.replace(/^import .*;\r?\n/gm, ""), { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext } }).outputText.replace(/^export /gm, "");
 const code = ts.transpileModule(source.replace(/^import .*;\r?\n/gm, ""), { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext } }).outputText
   .replace("export default ", "this.handler = ").replace("export const config", "const config");
-async function invoke({ signedIn = false, pending = false, method = "GET", path = "/integrations/atlassian/connect?request=opaque_-state", destination = "document", workspaceHost = null, invalidWorkspace = false, primary = false } = {}) {
+async function invoke({ signedIn = false, pending = false, method = "GET", path = "/integrations/atlassian/connect?request=opaque_-state", destination = "document", workspaceHost = null, invalidWorkspace = false, primary = false, originHost = "vaettir.skaldandstone.com" } = {}) {
   const events = [];
   const session = { isAuthenticated: signedIn, sessionStatus: pending ? "pending" : signedIn ? "active" : null, redirectToSignIn: options => { events.push(["redirect", options]); return "redirected"; } };
   const auth = Object.assign(async () => session, { protect: async () => { events.push(["protect"]); } });
@@ -57,7 +57,7 @@ async function invoke({ signedIn = false, pending = false, method = "GET", path 
         assert.equal(request.headers.get("x-forwarded-proto"), "https");
       }
       const configured = await options(request);
-      if (primary && workspaceHost) {
+      if (primary) {
         assert.equal(configured.isSatellite, false);
         assert.equal(configured.signInUrl, "https://app.vaettir.app/sign-in");
       }
@@ -67,7 +67,7 @@ async function invoke({ signedIn = false, pending = false, method = "GET", path 
   };
   vm.createContext(sandbox); vm.runInContext(domainCode, sandbox); vm.runInContext(normalizerCode, sandbox); vm.runInContext(code, sandbox);
   const response = await sandbox.handler(new NextRequest(new URL(path, "http://internal:3000"), { method,
-    headers: new Headers({ "sec-fetch-dest": destination, host: "vaettir.skaldandstone.com", "x-forwarded-host": "attacker.invalid", "x-forwarded-proto": "http" }),
+    headers: new Headers({ "sec-fetch-dest": destination, host: originHost, "x-forwarded-host": "attacker.invalid", "x-forwarded-proto": "http" }),
   }), {});
   if (response instanceof Response) events.push(["response", response.status, response.headers.get("location"), response.headers.get("cache-control")]);
   return events;
@@ -97,4 +97,15 @@ test("primary cutover keeps verified customer auth protection and HTTPS returns 
   assert.equal(events[0][1].returnBackUrl, "https://synthetic.vaettir.app/projects/synthetic");
   for (const options of [{ signedIn: true }, { pending: true }, { method: "POST" }, { path: "/api/private" }])
     assert.equal((await invoke({ primary: true, workspaceHost: "synthetic.vaettir.app", ...options }))[0][0], "protect");
+});
+
+test("primary sign-in behind a rewritten origin Host keeps the complete setup return on the new application", async () => {
+  const path = "/integrations/atlassian/connect?request=opaque_-state&next=%2Fprojects%2Fa%3Ftab%3Dx";
+  const events = await invoke({ primary: true, originHost: "internal-alb.example", path });
+  assert.equal(events[0][0], "redirect");
+  assert.equal(events[0][1].returnBackUrl, "https://app.vaettir.app" + path);
+  for (const options of [{ signedIn: true }, { pending: true }, { method: "POST" }, { path: "/api/private" }, { path: "/trpc/private" }])
+    assert.equal((await invoke({ primary: true, originHost: "internal-alb.example", ...options }))[0][0], "protect");
+  assert.deepEqual(await invoke({ primary: true, originHost: "internal-alb.example", path: "/" }), []);
+  await assert.rejects(invoke({ primary: true, originHost: "internal-alb.example", invalidWorkspace: true }), /Invalid workspace ingress/);
 });

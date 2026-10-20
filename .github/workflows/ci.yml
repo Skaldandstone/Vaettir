@@ -155,6 +155,7 @@ jobs:
           node scripts/forge-connection-ui.test.mjs
           node scripts/workspace-address-ui.test.mjs
           node --test scripts/example-workspace-ui.test.mjs scripts/project-deletion-ui.test.mjs
+          node apps/web/e2e/ui-workbench/run.mjs
           node --test integrations/domain-edge/marketing.test.mjs
 
       # Exercise Next's production standalone output on Linux. Windows local
