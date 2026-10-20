@@ -96,6 +96,25 @@ describe.skipIf(!isolated)(
       caller = appRouter.createCaller({ prisma, user: owner, authenticatedClerkSubject: ownerSubject });
       viewer = appRouter.createCaller({ prisma, user: read, authenticatedClerkSubject: viewerSubject });
     });
+    it("saves ordered cases/configurations in native JSONB and replays without a second version", async () => {
+      const original = await prisma.testPlan.findUniqueOrThrow({ where: { id: scope.testPlanId } });
+      const plan = await prisma.testPlan.create({ data: { projectId: scope.projectId, testPlanTypeId: original.testPlanTypeId, name: "Synthetic execution selection" } });
+      const testCase = await prisma.testCase.create({ data: { projectId: scope.projectId, title: "Synthetic checkout", testType: "FUNCTIONAL", given: [], when: [], then: [], tags: [] } });
+      const selected = { ...scope, testPlanId: plan.id };
+      const before = await caller.testPlanGovernance.preview(selected);
+      const template = { version: 1 as const, testCaseIds: [testCase.id], configurations: [{
+        id: randomUUID(), name: "Synthetic browser",
+        context: { configuration: "", platform: "Web", build: "", environment: "Synthetic", hardwareRevision: "", firmwareVersion: "", rig: "", batchOrLot: "", calibrationReference: "", protocolReference: "" },
+      }] };
+      const request = { ...selected, expectedPlanRevision: before.planRevision, template, requestId: randomUUID(), reason: "Synthetic template verification", confirmed: true as const };
+      const ack = await caller.testPlanGovernance.saveExecutionTemplate(request);
+      expect(await caller.testPlanGovernance.saveExecutionTemplate(request)).toEqual({ ...ack, replayed: true });
+      expect((await prisma.testPlan.findUniqueOrThrow({ where: { id: plan.id } })).executionTemplate).toEqual(template);
+      expect(await prisma.testPlanVersion.count({ where: { testPlanId: plan.id } })).toBe(1);
+      const history = await caller.testPlanGovernance.history({ ...selected, take: 5 });
+      expect(history.entries[0]!.receipt.after.executionTemplate).toEqual(template);
+      await expect(viewer.testPlanGovernance.saveExecutionTemplate(request)).rejects.toMatchObject({ code: "FORBIDDEN" });
+    });
     it("native edit and lost-ACK replay retain a single complete history/version and raw verdict", async () => {
       const baseline = await caller.testPlanGovernance.preview(scope);
       const nativeScope = { projectId: scope.projectId, organizationId: scope.originalOrganizationId, actorId: ownerId, actorClerkUserId: scope.expectedClerkActorId };

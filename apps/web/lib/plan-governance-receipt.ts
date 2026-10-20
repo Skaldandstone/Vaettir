@@ -72,7 +72,8 @@ export type GovernancePending<T> = {
     | "SET_CRITERION_REQUIREMENT"
     | "EDIT_PLAN_HEADER"
     | "SET_PLAN_STATUS"
-    | "EDIT_PLAN_CUSTOM_FIELDS";
+    | "EDIT_PLAN_CUSTOM_FIELDS"
+    | "SAVE_EXECUTION_TEMPLATE";
   requestHash: string;
   uncertain: boolean;
 };

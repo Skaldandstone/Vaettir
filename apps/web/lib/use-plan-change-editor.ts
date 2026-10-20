@@ -14,7 +14,7 @@ export const samePlanChangeReader = (scope: GovernanceScope | undefined, origin:
 
 export function usePlanChangeEditor<D, I extends BaseInput>({ projectId, testPlanId, organizationId, readOnly, operation, mutation, initialize, canChange, validate, makeInput, onChanged, savedNotice }: {
   projectId: string; testPlanId: string; organizationId: string; readOnly: boolean;
-  operation: "SET_PLAN_STATUS" | "EDIT_PLAN_CUSTOM_FIELDS";
+  operation: "SET_PLAN_STATUS" | "EDIT_PLAN_CUSTOM_FIELDS" | "SAVE_EXECUTION_TEMPLATE";
   mutation: { isPending: boolean; mutateAsync: (input: I) => Promise<Ack> };
   initialize: (preview: PlanChangePreview) => D;
   canChange: (preview: PlanChangePreview) => boolean;

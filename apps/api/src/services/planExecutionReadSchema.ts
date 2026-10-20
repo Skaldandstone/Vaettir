@@ -55,7 +55,7 @@ const configuration = z.object({
 }).strict();
 // This is the complete legacy INTERPRETED output, without new trim/default
 // transforms. Exact native JSONB text is returned separately and hash-bound.
-const template = z.object({
+export const planExecutionSavedTemplateSchema = z.object({
   version: z.literal(1),
   testCaseIds: z.array(id).max(PLAN_EXECUTION_READ_BOUNDS.cases),
   configurations: z.array(z.object({ id: z.string().uuid(), name: z.string().min(1).max(120), context: configuration }).strict()).max(PLAN_EXECUTION_READ_BOUNDS.configurations),
@@ -76,7 +76,7 @@ export const planExecutionPageOutput = z.object({
   hasFullEditorAccess: z.boolean(),
   plan: z.object({ id, projectId: id, name: z.string().max(10000), status: z.enum(["DRAFT", "ACTIVE", "IN_REVIEW", "APPROVED", "ARCHIVED"]) }).strict(),
   rawTemplate: z.object({ sqlNull: z.literal(false), jsonText: z.string().max(PLAN_EXECUTION_READ_BOUNDS.templateBytes) }).strict(),
-  template: z.union([template, planExecutionTemplateExactSchema]).nullable(),
+  template: z.union([planExecutionSavedTemplateSchema, planExecutionTemplateExactSchema]).nullable(),
   templateHash: hash,
   interpretation: z.enum(["UNCONFIGURED_EMPTY_OBJECT", "EXACT_SUPPORTED", "LEGACY_NORMALIZED", "EXACT_LITERAL_V2_READ_ONLY"]),
   selected: z.array(selected).max(PLAN_EXECUTION_READ_BOUNDS.cases),

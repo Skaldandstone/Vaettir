@@ -7,6 +7,7 @@ import { trpcReact } from "../../lib/trpcReact";
 import { Modal } from "../../components/Modal";
 import { ConfirmAction } from "../../components/ConfirmAction";
 import { EmptyState, Icon, PageHeading } from "../../components/ui/Workspace";
+import { IconButton } from "../../components/ui/IconButton";
 import {
   canAdministerOrganization,
   canEditProject,
@@ -102,6 +103,8 @@ export default function ProjectsPage() {
     { enabled: !!orgId },
   );
   const projects = projectsQuery.data ?? [];
+  const [projectSearch, setProjectSearch] = useState("");
+  const visibleProjects = projects.filter(project => project.name.toLocaleLowerCase().includes(projectSearch.toLocaleLowerCase()));
 
   const [createOpen, setCreateOpen] = useState(false);
   const [name, setName] = useState("");
@@ -254,7 +257,7 @@ export default function ProjectsPage() {
       <PageHeading
         eyebrow={`WORKSPACE / ${orgName.toUpperCase()}`}
         title="Projects"
-        description="Move from test design to release evidence in one traceable workspace."
+        description={`${projects.length} projects`}
         actions={
           canEdit ? (
             <button className="btn-primary" onClick={() => setCreateOpen(true)}>
@@ -270,57 +273,45 @@ export default function ProjectsPage() {
         </p>
       )}
 
-      <ul className="project-grid">
-        {projects.map((p) => (
+      <label className="project-search"><Icon name="search" size={16} /><input aria-label="Find a project" placeholder="Find a project…" value={projectSearch} onChange={event => setProjectSearch(event.target.value)} /></label>
+      <ul className="project-grid compact-project-grid">
+        {visibleProjects.map((p) => (
           <li key={p.id} className="project-card">
             <div className="project-card-heading">
               <span className="project-symbol">
                 <Icon name="folder" size={21} />
               </span>
-              <Link className="text-button" href={`/projects/${p.id}`}>
-                Open <Icon name="arrow" size={14} />
-              </Link>
+              <h2><Link href={`/projects/${p.id}`}>{p.name}</Link></h2>
+              <Link className="project-open-link" href={`/projects/${p.id}`} aria-label={`Open ${p.name}`} title={`Open ${p.name}`}><Icon name="arrow" size={16} /></Link>
             </div>
-            <h2>
-              <Link href={`/projects/${p.id}`}>{p.name}</Link>
-            </h2>
-            <p className="project-repository">
-              <Icon name="branch" size={14} />
-              {p.repoUrl
-                ? `Legacy reference: ${p.repoUrl}`
-                : "Manage repository access from project overview"}
-            </p>
             <nav
               className="project-card-links"
               aria-label={`${p.name} sections`}
             >
-              <Link href={`/projects/${p.id}/test-cases`}>Test cases</Link>
-              <Link href={`/projects/${p.id}/test-plans`}>Test plans</Link>
-              <Link href={`/projects/${p.id}/requirements`}>Requirements</Link>
+              <Link href={`/projects/${p.id}/test-cases`}><Icon name="cases" size={14} /> Cases</Link>
+              <Link href={`/projects/${p.id}/test-plans`}><Icon name="check" size={14} /> Plans</Link>
+              <Link href={`/projects/${p.id}/requirements`}><Icon name="book" size={14} /> Requirements</Link>
             </nav>
             {(canEdit || canDelete) && (
               <div className="project-card-admin">
                 {canEdit && (
-                  <button
-                    className="btn-secondary"
+                  <IconButton
+                    icon="edit" label={`Edit ${p.name}`}
                     onClick={() => void startEdit(p)}
-                  >
-                    Edit
-                  </button>
+                  />
                 )}
                 {canDelete && (
-                  <button
-                    className="btn-secondary"
+                  <IconButton
+                    icon="delete" label={`Delete ${p.name}`}
                     onClick={() => setDeleteTarget({ id: p.id, name: p.name })}
-                  >
-                    Delete
-                  </button>
+                  />
                 )}
               </div>
             )}
           </li>
         ))}
       </ul>
+      {projects.length > 0 && visibleProjects.length === 0 && <p className="muted">No projects match “{projectSearch}”.</p>}
       {projects.length === 0 && (
         <section className="workspace-panel">
           <EmptyState

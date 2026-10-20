@@ -19,6 +19,7 @@ import {
   editGovernedPlanHeader,
   setGovernedPlanStatus,
   editGovernedPlanCustomFields,
+  saveGovernedExecutionTemplate,
 } from "./testPlanGovernance.js";
 import {
   MAX_GOVERNANCE_SNAPSHOT_BYTES,
@@ -66,6 +67,7 @@ function fixture() {
     nativeAuditBytes: null as number | null,
     historyCount: null as number | null,
     hasPlanCases: false,
+    activeCaseIds: ["case"],
     requirements: [
       {
         id: "requirement",
@@ -164,6 +166,8 @@ function fixture() {
       ];
     if (text.includes('FROM "AcceptanceCriterion"'))
       return state.criteria.map((c) => ({ id: c.id }));
+    if (text.includes('FROM "TestCase"') && text.includes("ANY"))
+      return state.activeCaseIds.filter(id => (values[1] as string[]).includes(id)).map(id => ({ id }));
     if (text.includes('FROM "TestCase"'))
       return state.hasPlanCases ? [{ id: "case" }] : [];
     if (text.includes('FROM "Requirement"') && text.includes("octet_length"))
@@ -396,6 +400,63 @@ function fixture() {
   };
   return { db, tx, scope, calls, preview, edit, state: () => state };
 }
+describe("reviewed execution-template save", () => {
+  const template = () => ({
+    version: 1 as const, testCaseIds: ["case"], configurations: [{
+      id: "d11ff0da-a3e8-4d6c-af7e-b5fbdd271c3a", name: "Chrome",
+      context: { configuration: "", platform: "Web", build: "", environment: "Synthetic", hardwareRevision: "", firmwareVersion: "", rig: "", batchOrLot: "", calibrationReference: "", protocolReference: "" },
+    }],
+  });
+  async function inputFor(f: ReturnType<typeof fixture>) {
+    f.state().plan.executionTemplate = {};
+    return { ...f.scope, expectedPlanRevision: (await f.preview()).planRevision,
+      requestId: "50211660-1aca-4ceb-910b-6e30e585afde", reason: "Review synthetic case selection", confirmed: true as const, template: template() };
+  }
+  it("saves exact ordered cases/configurations, records a full receipt, and replays once", async () => {
+    const f = fixture(), input = await inputFor(f), before = (await f.preview()).snapshot;
+    const ack = await saveGovernedExecutionTemplate(f.db, "actor", input, { clerkActorId: "clerk" });
+    expect(ack.operation).toBe("SAVE_EXECUTION_TEMPLATE");
+    expect(f.state().plan.executionTemplate).toEqual(input.template);
+    const receipt = validatedGovernanceReceipt([...f.state().audits.values()][0]!.metadata);
+    expect(receipt.before).toEqual(before);
+    expect(receipt.after.executionTemplate).toEqual(input.template);
+    expect(receipt.after.customFields).toEqual(before.customFields);
+    expect(receipt.after.criteria).toEqual(before.criteria);
+    expect(await saveGovernedExecutionTemplate(f.db, "actor", input, { clerkActorId: "clerk" })).toMatchObject({ ...ack, replayed: true });
+    expect(f.tx.testPlanVersion.create).toHaveBeenCalledOnce();
+    expect(f.calls.some(sql => sql.includes('FROM "TestCase"') && sql.includes("FOR SHARE"))).toBe(true);
+  });
+  it.each(["APPROVED", "ARCHIVED"])("does not rewrite a %s plan", async status => {
+    const f = fixture(), input = await inputFor(f); f.state().plan.status = status;
+    input.expectedPlanRevision = (await f.preview()).planRevision;
+    await expect(saveGovernedExecutionTemplate(f.db, "actor", input, { clerkActorId: "clerk" })).rejects.toThrow();
+    expect(f.tx.testPlanVersion.create).not.toHaveBeenCalled();
+  });
+  it.each(["READY", "SHIPPED"])("does not rewrite a plan attached to a %s release", async status => {
+    const f = fixture(), input = await inputFor(f);
+    f.state().plan.releaseId = "release"; f.state().release.status = status;
+    input.expectedPlanRevision = (await f.preview()).planRevision;
+    await expect(saveGovernedExecutionTemplate(f.db, "actor", input, { clerkActorId: "clerk" })).rejects.toThrow();
+  });
+  it("rejects stale revision, missing cases, foreign actor, and unsupported existing values", async () => {
+    for (const mode of ["stale", "missing", "actor", "opaque"] as const) {
+      const f = fixture(), input = await inputFor(f);
+      if (mode === "stale") f.state().plan.name = "Changed elsewhere";
+      if (mode === "missing") f.state().activeCaseIds = [];
+      if (mode === "opaque") { f.state().plan.executionTemplate = { opaque: "preserve" }; input.expectedPlanRevision = (await f.preview()).planRevision; }
+      await expect(saveGovernedExecutionTemplate(f.db, "actor", input, { clerkActorId: mode === "actor" ? "different" : "clerk" })).rejects.toThrow();
+      expect(f.tx.testPlanVersion.create).not.toHaveBeenCalled();
+    }
+  });
+  it("rejects silently normalized and duplicate new values", async () => {
+    const f = fixture(), input = await inputFor(f);
+    input.template.configurations[0]!.name = " Chrome ";
+    expect(() => saveGovernedExecutionTemplate(f.db, "actor", input, { clerkActorId: "clerk" })).toThrow();
+    input.template = template(); input.template.testCaseIds = ["case", "case"];
+    expect(() => saveGovernedExecutionTemplate(f.db, "actor", input, { clerkActorId: "clerk" })).toThrow();
+    expect(f.tx.testPlanVersion.create).not.toHaveBeenCalled();
+  });
+});
 describe("reviewed attached-plan detach (actual service, mocked transactions only)", () => {
   async function inputFor(f: ReturnType<typeof fixture>) {
     f.state().plan.releaseId = "release";

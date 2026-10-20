@@ -265,7 +265,7 @@ export default function ReleasesPage() {
   }
 
   return (
-    <div style={{ maxWidth: 800 }}>
+    <div className="release-workbench">
       <div
         style={{
           display: "flex",
@@ -282,12 +282,11 @@ export default function ReleasesPage() {
         )}
       </div>
       <p className="text-muted" style={{ marginBottom: 20 }}>
-        How well each release held up against its{" "}
-        <a href={`/projects/${projectId}/test-strategy`}>test strategy</a>:
-        acceptance criteria met, open risk flags, and overall readiness.
+        Criteria, risks and evidence against your{" "}
+        <a href={`/projects/${projectId}/test-strategy`}>test strategy</a>.
       </p>
 
-      <RepositoryReleaseDiscovery projectId={projectId}/>
+      <details className="release-provider-discovery"><summary>Repository releases</summary><RepositoryReleaseDiscovery projectId={projectId}/></details>
       {loading && <p>Loading…</p>}
       {error && <p style={{ color: "var(--ember)" }}>{error}</p>}
 

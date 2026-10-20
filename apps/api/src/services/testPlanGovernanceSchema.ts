@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { caseFieldReadScopeSchema } from "./caseFieldReadScope.js";
 import { planMetadataChanges } from "./testPlanMetadataSchema.js";
+import { executablePlanTemplateSchema } from "./planTemplateSaveSchema.js";
 const id = z.string().min(1).max(200),
   hash = z.string().regex(/^[a-f0-9]{64}$/);
 export const MAX_GOVERNANCE_CRITERIA = 200;
@@ -23,6 +24,9 @@ const write = planGovernanceScopeInput.extend({
   reason: z.string().trim().min(1).max(1000),
   confirmed: z.literal(true),
 });
+export const savePlanExecutionTemplateInput = write.extend({
+  template: executablePlanTemplateSchema,
+}).strict();
 export const nativePlanStatus = z.enum([
   "DRAFT",
   "ACTIVE",
@@ -246,6 +250,7 @@ export const planGovernanceAck = z
       "EDIT_PLAN_HEADER",
       "SET_PLAN_STATUS",
       "EDIT_PLAN_CUSTOM_FIELDS",
+      "SAVE_EXECUTION_TEMPLATE",
     ]),
     testPlanId: id,
     criterionId: id.nullable(),

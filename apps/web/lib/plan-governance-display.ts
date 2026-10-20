@@ -11,6 +11,7 @@ export function governanceOperationLabel(operation: string): string {
     EDIT_PLAN_HEADER: "Plan name and description",
     SET_PLAN_STATUS: "Plan lifecycle status",
     EDIT_PLAN_CUSTOM_FIELDS: "Declared plan fields",
+    SAVE_EXECUTION_TEMPLATE: "Test selection and configurations",
   };
   return labels[operation] ?? "Unsupported governance operation";
 }

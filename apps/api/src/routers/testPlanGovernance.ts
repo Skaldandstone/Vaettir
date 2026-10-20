@@ -4,6 +4,7 @@ import { refreshReleaseReadiness } from "../services/releaseReadiness.js";
 import {
   planGovernanceScopeInput,
   editPlanHeaderInput,
+  savePlanExecutionTemplateInput,
   setPlanStatusInput,
   editPlanCustomFieldsInput,
   editCriterionDescriptionInput,
@@ -23,6 +24,7 @@ import {
 import {
   previewPlanGovernance,
   editGovernedPlanHeader,
+  saveGovernedExecutionTemplate,
   setGovernedPlanStatus,
   editGovernedPlanCustomFields,
   editGovernedCriterionDescription,
@@ -36,6 +38,17 @@ import {
   listPlanGovernanceHistory,
 } from "../services/testPlanGovernance.js";
 export const testPlanGovernanceRouter = router({
+  saveExecutionTemplate: protectedProcedure
+    .input(savePlanExecutionTemplateInput)
+    .output(planGovernanceAck)
+    .mutation(async ({ ctx, input }) => {
+      if (!ctx.authenticatedClerkSubject || ctx.authenticatedClerkSubject !== ctx.user.clerkUserId)
+        throw new TRPCError({ code: "FORBIDDEN", message: "Sign in again before saving this plan." });
+      await requireProjectAccess(ctx, input.projectId, "EDITOR");
+      return saveGovernedExecutionTemplate(ctx.prisma, ctx.user.id, input, {
+        clerkActorId: ctx.authenticatedClerkSubject,
+      });
+    }),
   setPlanStatus: protectedProcedure
     .input(setPlanStatusInput)
     .output(planGovernanceAck)

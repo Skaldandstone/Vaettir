@@ -4,6 +4,7 @@ import { trpcReact } from "@/lib/trpcReact";
 import { useCaseFieldAccess } from "@/lib/use-case-field-access";
 import { sameGovernanceReader } from "@/lib/plan-governance-receipt";
 import { governanceCriterionValue, governanceHeaderDescription, governanceOperationLabel, governanceMetadataValue } from "@/lib/plan-governance-display";
+import { editablePlanTemplate } from "@/lib/plan-template-draft";
 export function PlanGovernanceHistory({
   projectId,
   testPlanId,
@@ -52,13 +53,8 @@ export function PlanGovernanceHistory({
       : null;
   return (
     <details onToggle={(event) => setOpen(event.currentTarget.open)}>
-      <summary>Governed plan, fields, criteria and assignment history</summary>
-      <p className="text-muted">
-        These new governance entries retain complete plan scalar fields, native
-        criteria and release assignment, linked to a plan version. Legacy plan
-        versions did not include criteria or assignment. This is not a snapshot
-        of test case procedures or requirement bodies.
-      </p>
+      <summary>Plan change history</summary>
+      <p className="text-muted">Reviewed changes with before-and-after values. Test procedures retain their own history.</p>
       {!access.readable ? (
         <p>Checking current original project access…</p>
       ) : (
@@ -104,6 +100,15 @@ export function PlanGovernanceHistory({
                 </div>
               ) : entry.receipt.ack.operation === "SET_PLAN_STATUS" ? (
                 <p>Native lifecycle: {entry.receipt.before.status} → {entry.receipt.after.status}. This label is not a compliance sign-off or proof of passing evidence; reopening does not change any criterion verdict.</p>
+              ) : entry.receipt.ack.operation === "SAVE_EXECUTION_TEMPLATE" ? (
+                <div className="plan-history-comparison">
+                  {(["before", "after"] as const).map(phase => {
+                    const value = editablePlanTemplate(entry.receipt[phase].executionTemplate);
+                    return <section key={phase}><h4>{phase === "before" ? "Before" : "After"}</h4>
+                      {value ? <><p>{value.testCaseIds.length} tests · {value.configurations.length} configurations</p><ol>{value.testCaseIds.map(id => <li key={id}><code>{id}</code></li>)}</ol><p>{value.configurations.map(c => c.name).join(" · ")}</p></> : <p>No configured selection</p>}
+                    </section>;
+                  })}
+                </div>
               ) : entry.receipt.ack.operation === "EDIT_PLAN_CUSTOM_FIELDS" ? (
                 <section>
                   <p>Only the reviewed declared keys changed. Other native metadata and plan status stayed retained.</p>

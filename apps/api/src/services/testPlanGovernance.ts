@@ -16,6 +16,7 @@ import {
   MAX_GOVERNANCE_HISTORY_REVISIONS,
   editCriterionDescriptionInput,
   editPlanHeaderInput,
+  savePlanExecutionTemplateInput,
   setPlanStatusInput,
   editPlanCustomFieldsInput,
   setCriterionVerdictInput,
@@ -31,6 +32,7 @@ import {
   planGovernanceAck,
   type PlanGovernanceSnapshot,
 } from "./testPlanGovernanceSchema.js";
+import { canEditExecutionTemplate } from "./planTemplateSaveSchema.js";
 import {
   boundedGovernanceSnapshot,
   governancePlanRevision,
@@ -449,6 +451,7 @@ type Edit = z.infer<typeof editCriterionDescriptionInput>;
 type Header = z.infer<typeof editPlanHeaderInput>;
 type PlanStatus = z.infer<typeof setPlanStatusInput>;
 type Metadata = z.infer<typeof editPlanCustomFieldsInput>;
+type Template = z.infer<typeof savePlanExecutionTemplateInput>;
 type Verdict = z.infer<typeof setCriterionVerdictInput>;
 type Add = z.infer<typeof addGovernedCriterionInput>;
 type Delete = z.infer<typeof deleteGovernedCriterionInput>;
@@ -469,7 +472,8 @@ async function write(
     | Associate
     | Header
     | PlanStatus
-    | Metadata,
+    | Metadata
+    | Template,
   operation: Operation,
   authorized: CaseFieldReadAuthorization,
 ) {
@@ -514,10 +518,26 @@ async function write(
         let headerChanges: { name?: string; description?: string | null } = {};
         let statusChange: { status?: PlanGovernanceSnapshot["status"] } = {};
         let metadataChange: { customFields?: Prisma.InputJsonValue } = {};
+        let templateChange: { executionTemplate?: Prisma.InputJsonValue } = {};
         let metadataReview: z.infer<
           typeof planGovernanceReceipt
         >["metadataReview"];
-        if (operation === "SET_PLAN_STATUS") {
+        if (operation === "SAVE_EXECUTION_TEMPLATE") {
+          const edit = input as Template;
+          if (before.releaseId) await assertPlanningRelease(tx, input.projectId, before.releaseId);
+          if (!canEditExecutionTemplate(before.executionTemplate))
+            throw new TRPCError({ code: "PRECONDITION_FAILED", message: "This stored configuration needs a supported migration before editing. Its original values were preserved." });
+          if (governanceRequestHash(before.executionTemplate) === governanceRequestHash(edit.template))
+            throw new TRPCError({ code: "BAD_REQUEST", message: "No configuration changes to save." });
+          const cases = await tx.$queryRaw<Array<{ id: string }>>`
+            SELECT id FROM "TestCase"
+            WHERE "projectId"=${input.projectId} AND archived=false
+              AND id = ANY(${edit.template.testCaseIds}::text[])
+            ORDER BY id FOR SHARE`;
+          if (cases.length !== edit.template.testCaseIds.length)
+            throw new TRPCError({ code: "CONFLICT", message: "A selected case is missing, archived, or belongs to another project. Refresh the selection; nothing was saved." });
+          templateChange = { executionTemplate: edit.template };
+        } else if (operation === "SET_PLAN_STATUS") {
           const status = input as PlanStatus;
           if (status.expectedStatus !== before.status)
             throw new TRPCError({
@@ -733,6 +753,7 @@ async function write(
             ...headerChanges,
             ...statusChange,
             ...metadataChange,
+            ...templateChange,
             updatedById: actorId,
           },
         });
@@ -791,6 +812,7 @@ async function write(
                 "Changed explicitly reviewed plan lifecycle status",
               EDIT_PLAN_CUSTOM_FIELDS:
                 "Edited reviewed declared plan metadata fields",
+              SAVE_EXECUTION_TEMPLATE: "Saved reviewed ordered cases and execution configurations",
               ATTACH_UNASSIGNED_PLAN: "Attached an unassigned quality plan",
               DETACH_ATTACHED_PLAN: "Detached a reviewed quality plan from its planning release",
             }[operation],
@@ -832,6 +854,14 @@ async function write(
       throw cause;
     });
 }
+export function saveGovernedExecutionTemplate(
+  db: PrismaClient, actorId: string,
+  raw: z.infer<typeof savePlanExecutionTemplateInput>,
+  authorized: CaseFieldReadAuthorization,
+) {
+  return write(db, actorId, savePlanExecutionTemplateInput.parse(raw), "SAVE_EXECUTION_TEMPLATE", authorized);
+}
+
 export function editGovernedCriterionDescription(
   db: PrismaClient,
   actorId: string,
