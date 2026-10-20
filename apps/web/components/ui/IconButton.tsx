@@ -24,7 +24,15 @@ export function IconButton({label, icon, tooltip, className = "", onClick, onFoc
     <button {...props} type={props.type ?? "button"} className={`ui-icon-button ${className}`} aria-label={label} aria-describedby={[props["aria-describedby"], visible ? id : undefined].filter(Boolean).join(" ") || undefined}
       onFocus={event => {setAnchor(event.currentTarget ?? null); setFocused(true); setDismissed(false); onFocus?.(event);}}
       onBlur={event => {setFocused(false); onBlur?.(event);}}
-      onClick={event => {setDismissed(true); onClick?.(event);}}
+      onClick={event => {
+        if (onClick || (props.type && props.type !== "button")) {
+          setDismissed(true); onClick?.(event);
+        } else {
+          // Help-only controls need an explicit touch activation, not just hover.
+          event.currentTarget?.focus();
+          setAnchor(event.currentTarget ?? null); setFocused(true); setDismissed(false);
+        }
+      }}
       onKeyDown={event => {if (event.key === "Escape" && visible) {setDismissed(true); event.preventDefault(); event.stopPropagation();} onKeyDown?.(event);}}>
       <Icon name={icon}/>
     </button>
