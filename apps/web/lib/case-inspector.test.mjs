@@ -747,7 +747,7 @@ test("prerequisite edits retain expected native baseline, unavailable selections
   assert.match(prerequisites, /Execution prerequisites/);
   assert.match(
     prerequisites,
-    /never replaces Given, When, Then or procedure steps/,
+    /Linked tests must pass before this case runs\. They do not replace its steps\./,
   );
   assert.match(prerequisites, /\{item.displayId\}/);
   assert.match(prerequisites, /aria-label="Sort prerequisite cases"/);

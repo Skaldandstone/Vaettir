@@ -169,6 +169,13 @@ function dataset(saved: Dataset = { parameterNames: [], rows: [] }) {
   }
   return { render, change, ack, state, get writes() { return writes; }, get input() { return input; } };
 }
+it("dataset guidance is format-neutral and does not require Gherkin", () => {
+  const h = dataset(), html = renderToStaticMarkup(h.render());
+  expect(html).toContain("Add parameters and value rows for this test.");
+  expect(html).toContain("&lt;paramName&gt;");
+  expect(html).not.toContain("given/when/then");
+  expect(h.writes).toBe(0);
+});
 it("the real dataset editor uses inline named columns and creates the first editable value row", () => {
   const h = dataset(); button(h.render(), "Add data set")();
   h.change(h.render(), "Parameter name", " username "); button(h.render(), "Add parameter")();

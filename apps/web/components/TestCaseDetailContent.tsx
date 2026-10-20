@@ -791,8 +791,8 @@ function DatasetSection({
       )}
       {!editing && preview.length === 0 && (
         <p className="text-muted" style={{ fontSize: 13, margin: "4px 0" }}>
-          No data set. Use <code>&lt;paramName&gt;</code> in given/when/then
-          steps, then add parameters and rows here.
+          Add parameters and value rows for this test. Parameter placeholders use{" "}
+          <code>&lt;paramName&gt;</code>.
         </p>
       )}
 

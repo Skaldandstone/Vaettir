@@ -18,7 +18,7 @@ export function TestCasePrerequisites({ projectId, caseId, canEdit, active = tru
       <h3>Execution prerequisites{control.readable && (saved || held) && selected.length ? ` (${selected.length})` : ""}</h3>
       {control.readable && editable && !control.open && <button type="button" className="btn-secondary" disabled={control.busy} onClick={control.show}>Edit prerequisites</button>}
     </div>
-    <p className={styles.muted}>Conditions required before this case can run. A linked case requires a prior Pass; it never replaces Given, When, Then or procedure steps.</p>
+    <p className={styles.muted}>Linked tests must pass before this case runs. They do not replace its steps.</p>
     {!control.readable ? <div role="status">
       <p>Checking current access to the original account and workspace. Retained drafts and requests remain private and were not transferred to another account or session.</p>
       <button type="button" onClick={control.refresh}>Recheck prerequisite access</button>
@@ -72,7 +72,10 @@ export function TestCasePrerequisites({ projectId, caseId, canEdit, active = tru
         </div>
       </div>
       {control.notice && <p role="status">{control.notice} Your draft remains retained unless its exact request was confirmed or you discarded it.</p>}
-      <p className={styles.muted}>Drafts and receipts survive only while this inspector stays mounted. Reload recovery and adoption of a renewed session are separate, unsupported recovery paths here.</p>
+      <details>
+        <summary>About drafts and retries</summary>
+        <p className={styles.muted}>Drafts and pending save requests are kept only while this inspector stays open. Reloading or renewing your session does not restore them. Save before leaving.</p>
+      </details>
     </>}
   </section>;
 }
