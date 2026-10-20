@@ -15,20 +15,22 @@ test("legacy plan owner retains opaque state without legacy reads, save or start
   assert.doesNotMatch(modal, /mutateAsync\(|\.refetch\(|query\.data|profileQuery\.data|setRunAttempt\(|setStartedRunId\(/);
 });
 
-test("native plan browsing preserves complete identities and refuses unavailable template SAVE", () => {
+test("native run browsing preserves complete identities and leaves template writes to its governed editor", () => {
   const modal = source("../components/PlanExecutionReviewed.tsx");
   assert.match(modal, /originalNativeActorId: plan\.origin\?\.nativeActorId \?\? null/);
   assert.match(modal, /currentPlan === plan\.snapshot/);
   assert.match(modal, /currentProfile === profile\.snapshot/);
   assert.match(modal, /page\.selected\.map/);
   assert.match(modal, /item\.metadata\?\.displayId \|\| item\.testCaseId/);
-  assert.match(modal, /Missing, archived or unapproved selected cases/);
-  assert.match(modal, /Browsing candidates never changes this selection/);
+  assert.match(modal, /All selected tests must be available and approved before starting/);
   assert.match(modal, /previousCursors/);
   assert.match(modal, /maxLength=\{200\}/);
   assert.match(modal, /page\.rawTemplate\.sqlNull \? "SQL NULL" : page\.rawTemplate\.jsonText/);
-  assert.match(modal, /disabled>Save reusable template \(reviewed native-save protocol unavailable\)/);
-  assert.doesNotMatch(modal, /saveExecutionTemplate|manualExecution\.start/);
+  assert.match(modal, /Use Configure cases on the plan to save your selection first/);
+  assert.doesNotMatch(modal, /saveExecutionTemplate|manualExecution\.start|saveGovernedExecutionTemplate/);
+  const template = source("../components/PlanTemplateEditor.tsx");
+  assert.match(template, /usePlanChangeEditor/);
+  assert.match(template, /saveExecutionTemplate/);
 });
 
 test("plan starts retain original native-pinned body and privately settle exact ACK before visible callbacks", () => {
@@ -36,7 +38,7 @@ test("plan starts retain original native-pinned body and privately settle exact 
   const controller = source("./plan-execution-reviewed-controller.ts");
   assert.match(modal, /manualRunStartReviewed\.start\.useMutation/);
   assert.match(modal, /controller\.submit\(input => start\.mutateAsync\(input\), onSaved\)/);
-  assert.match(modal, /Retry exact held request/);
+  assert.match(modal, /recovery && view\.canRetry/);
   assert.match(modal, /controller\.view\(\)\.confirmedRunId !== view\.confirmedRunId/);
   assert.match(controller, /interpretation === "EXACT_SUPPORTED"/);
   assert.match(controller, /testCaseIds: \[\.\.\.page\.template!\.testCaseIds\]/);
@@ -58,10 +60,11 @@ test("plan detail keeps configuration modal mounted on the current page", () => 
   assert.match(detail, /open=\{executionOpen && !!plan && auth\.isLoaded && !!auth\.isSignedIn && !readOnly && !loadError\}/);
   assert.match(detail, /projectId=\{controlProjectId\}/);
   assert.match(detail, /organizationId=\{organizationId \|\| undefined\}/);
-  assert.match(detail, /if \(!plan\) return <div>\{executionControls\}\{reviewedControls\}/);
+  assert.match(detail, /if \(!plan\) return <div className="plan-workbench">\{executionControls\}\{templateControls\}\{reviewedControls\}/);
   assert.equal(detail.match(/<PlanExecutionModal\b/g)?.length, 1);
   assert.equal(detail.match(/\{executionControls\}/g)?.length, 2);
-  assert.match(detail, /Configure cases \/ repeat execution/);
+  assert.equal(detail.match(/<PlanTemplateEditor\b/g)?.length, 1);
+  assert.equal(detail.match(/\{templateControls\}/g)?.length, 2);
   const list = source("../app/projects/[projectId]/test-plans/page.tsx");
   assert.match(list, /save named configurations, then review each repeat execution/);
 });

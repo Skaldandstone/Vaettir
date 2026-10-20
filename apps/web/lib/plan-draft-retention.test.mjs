@@ -35,7 +35,7 @@ function render(options = {}) {
       project: { byId: { useQuery: () => ({ data: projectData }) } },
       requirements: { list: { useQuery: () => ({ data: [], error: null }) } },
     },
-    PlanExecutionModal: "plan-execution", PlanStatusEditor: "plan-status", PlanCustomFieldsEditor: "plan-fields",
+    PlanExecutionModal: "plan-execution", PlanTemplateEditor: "plan-template", PlanStatusEditor: "plan-status", PlanCustomFieldsEditor: "plan-fields",
     CriterionDescriptionEditor: "criterion-wording", CriterionVerdictEditor: "criterion-verdict", GovernedCriterionCollection: "criterion-collection", PlanHeaderEditor: "plan-header", PlanGovernanceHistory: "governance-history",
   };
   vm.createContext(sandbox); vm.runInContext(compiled, sandbox);
@@ -73,6 +73,28 @@ test("actual parent retains the same execution-owner element across unavailable 
     assert.equal(retained.props.open, false, "Retention is not permission to show stale execution metadata");
   }
 });
+test("template owner retains its identity but loses write authority with unavailable parent scope", () => {
+  const initial = render().nodes.find(node => node.type === "plan-template");
+  assert.ok(initial);
+  assert.equal(initial.props.readOnly, false);
+  for (const values of [
+    { loadError: "Synthetic access loss", data: undefined },
+    { data: undefined },
+    { data: { ...plan, projectId: "different-project" } },
+    { readOnly: true },
+    { signedIn: false },
+  ]) {
+    const { nodes, legacyAccesses } = render(values);
+    const retained = nodes.find(node => node.type === "plan-template");
+    assert.ok(retained, "Unavailable metadata must retain the pending template owner");
+    assert.equal(retained.key, initial.key);
+    assert.equal(retained.props.testPlanId, initial.props.testPlanId);
+    assert.equal(retained.props.projectId, "synthetic-project");
+    assert.equal(retained.props.readOnly, true, "Retention cannot preserve stale write authority");
+    assert.deepEqual(legacyAccesses, []);
+  }
+});
+
 test("actual parent role hiding preserves each independently guarded controller, not a shared legacy mutation", () => {
   const readonly = render({ readOnly: true }).nodes;
   assert.ok(readonly.some(node => node.type === "plan-header" && node.props.readOnly === true));
