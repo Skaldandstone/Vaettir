@@ -33,6 +33,7 @@ describe("workspace authentication origins", () => {
       "/integrations/atlassian/connect?request=synthetic-opaque&compat=primary%20domain",
       "/projects/synthetic?a=first&b=%2B%25%2F%7E&a=second&empty=&_rsc=synthetic",
       "/projects/synthetic?unicode=%E2%9C%93&blank&unicode=second",
+      "/projects/synthetic?request=opaque%2Btoken&2=two&1=first&2=second&__proto__=safe&_rsc=synthetic",
     ]) {
       const headers = new Headers({ "x-vaettir-host": host, "x-vaettir-time": time, "x-vaettir-target": target,
         "x-vaettir-signature": createHmac("sha256", secret).update(["vaettir-domain-v1", time, "GET", host, target].join("\n")).digest("hex") });

@@ -14,11 +14,12 @@ export function workspaceRedirectOrigins(names: string | undefined) {
 // verifying the HMAC over the edge's original, unmodified request target.
 function middlewareTarget(url: URL) {
   const query = new URLSearchParams();
-  const seen = new Set<string>();
-  for (const [name] of url.searchParams) {
-    if (seen.has(name) || name === "_rsc") continue;
-    seen.add(name);
-    for (const value of url.searchParams.getAll(name)) query.append(name, value);
+  const grouped: Record<string, string[]> = Object.create(null);
+  for (const [name, value] of url.searchParams) (grouped[name] ??= []).push(value);
+  // Match Object.entries(parsed.query), including numeric-key enumeration.
+  for (const name of Object.keys(grouped)) {
+    if (name === "_rsc") continue;
+    for (const value of grouped[name]) query.append(name, value);
   }
   const search = query.toString();
   return url.pathname + (search ? `?${search}` : "");
