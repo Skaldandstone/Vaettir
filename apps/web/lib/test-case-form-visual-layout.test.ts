@@ -10,6 +10,7 @@ import * as core from "@vaettir/core";
 import * as authoring from "./case-authoring-fields";
 import { freshCasePresentation } from "./case-presentation-read";
 import { moveListItem } from "./move-list-item";
+import { inspectorLabel } from "./case-inspector";
 import vm from "node:vm";
 
 function actualUiDeclaration(file: string, name: string) {
@@ -26,12 +27,14 @@ const iconScope = vm.createContext({ React, useId: React.useId, useState: React.
 for (const [file, name] of [
   ["../components/ui/Workspace.tsx", "Icon"],
   ["../components/ui/IconButton.tsx", "IconButton"],
+  ["../components/ui/ProcedureStep.tsx", "ProcedureStep"],
 ] as const) {
   vm.runInContext(ts.transpileModule(actualUiDeclaration(file, name), {
     compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.None, jsx: ts.JsxEmit.React },
   }).outputText, iconScope);
 }
 const IconButton = (iconScope as unknown as { IconButton: React.ComponentType<Record<string, unknown>> }).IconButton;
+const ProcedureStep = (iconScope as unknown as { ProcedureStep: React.ComponentType<Record<string, unknown>> }).ProcedureStep;
 
 const source = readFileSync(new URL("../components/TestCaseForm.tsx", import.meta.url), "utf8");
 const compiled = ts.transpileModule(source, {
@@ -69,10 +72,11 @@ function render(options: { locked?: boolean; active?: boolean; hide?: boolean; s
     "@/lib/use-case-field-access": { useCaseFieldAccess: () => ({ origin, readable: options.active !== false, current: options.active === false ? null : origin }) },
     "@/lib/case-presentation-read": { freshCasePresentation }, "@/lib/case-authoring-fields": authoring,
     "@/lib/move-list-item": { moveListItem },
+    "@/lib/case-inspector": { inspectorLabel },
     "./CaseDesignGuide": { CaseDesignGuide: () => React.createElement("div", { "data-synthetic-guide-boundary": true }) },
     "./CaseProcedureColumns": { CaseProcedureColumns: () => React.createElement("div", { "data-synthetic-procedure-boundary": true }) },
     "./CaseTagEditor": { CaseTagEditor: () => React.createElement("div", { "data-synthetic-tag-boundary": true }) },
-    "./ui/IconButton": { IconButton }, "./CaseCustomFields": { CaseCustomFieldsForm: () => React.createElement("div", { "data-synthetic-fields-boundary": true }) },
+    "./ui/IconButton": { IconButton }, "./ui/ProcedureStep": { ProcedureStep }, "./CaseCustomFields": { CaseCustomFieldsForm: () => React.createElement("div", { "data-synthetic-fields-boundary": true }) },
   };
   const exports: { default?: React.ComponentType<Record<string, unknown>> } = {};
   new Function("require", "exports", "React", compiled)((name: string) => {
@@ -91,7 +95,8 @@ function pairs(html: string) {
 
 it("gives the genuine editor a bounded full-width canvas and adaptive prose pairs", () => {
   const html = render();
-  expect(html).toContain("width:100%;max-width:1120px;min-width:0");
+  expect(html).toContain('class="test-case-editor"');
+  expect(html).toContain("width:100%;min-width:0");
   expect(html).toContain("minmax(min(280px, 100%), 1fr)");
   expect(html).toContain("minmax(min(180px, 100%), 1fr)");
   expect(html).toContain("minmax(min(240px, 100%), 1fr)");
@@ -127,7 +132,7 @@ it.each([undefined, ...core.CASE_PROCEDURE_FORMATS])("keeps scenario phrasing op
   expect(scenario).not.toBeNull();
   expect(scenario![1]!.includes('open=""')).toBe(format === "GHERKIN" || format === "MIXED");
   expect(html).toContain("Given/When/Then is not required");
-  expect(html).toContain(format === "CHECKLIST" ? "Procedure checklist" : format === "NARRATIVE" ? "Narrative procedure" : "Structured steps");
+  expect(html).toContain(format === "CHECKLIST" ? "Procedure checklist" : format === "NARRATIVE" ? "Narrative procedure" : "Procedure");
   expect(pairs(html).map(pair => pair.kind)).toEqual(["action-technical", "result-response", "action-technical", "result-response"]);
   expect(html).toContain('aria-label="Step 1 images and video"');
   expect(html).toContain('aria-label="Step 2 images and video"');
@@ -153,8 +158,8 @@ it("uses secondary reorder/remove controls and restrained theme-aware sections",
   for (const label of ["Move step 1 up", "Move step 1 down", "Remove step 1", "Move Given item 1 up", "Remove Given item 1"]) {
     expect(html).toMatch(new RegExp(`<button[^>]*class="ui-icon-button [^"]*"[^>]*aria-label="${label}"`));
   }
-  expect(html).toContain("font-size:16px;margin:24px 0 6px;padding-top:18px;border-top:1px solid var(--line)");
-  expect(html).toContain("background:var(--panel)");
+  expect(html).toContain('class="procedure-toolbar"');
+  expect(html).toContain('class="procedure-step"');
   expect(html).toContain("resize:vertical;line-height:1.55");
   expect(html).toContain("padding:6px 10px;min-height:36px;font-size:12px;border-radius:3px");
 });
@@ -162,7 +167,7 @@ it("does not conceal shared-procedure failure, bypass locked fields or make SSR 
   const shared = render({ shared: true });
   expect(shared).toContain("Its reference is retained; no empty or action-only replacement is shown.");
   expect(shared).not.toContain('data-step-pair="');
-  expect(render({ locked: true })).toMatch(/^<fieldset disabled=""/);
+  expect(render({ locked: true })).toMatch(/^<fieldset[^>]* disabled=""/);
   const inactive = render({ active: false });
   expect(inactive).not.toContain("data-synthetic-guide-boundary");
   expect(inactive).toContain("Show optional fields for this draft");
@@ -208,7 +213,7 @@ it("renders named compact SVG tools with unchanged boundary refusal and visible 
     expect(button![2]).toContain('aria-hidden="true"');
     return button!;
   };
-  expect(buttons.filter(match => match[1]!.includes('class="ui-icon-button '))).toHaveLength(18);
+  expect(buttons.filter(match => match[1]!.includes('class="ui-icon-button '))).toHaveLength(21);
   for (const name of ["Move step 1 up", "Move step 2 down", "Move Given item 1 up", "Move Given item 2 down", "Move When item 1 up", "Move When item 1 down"]) {
     expect(tool(name)[1]).toContain('disabled=""');
   }

@@ -1,5 +1,7 @@
 "use client";
 
+import { CompactSidebar } from "@/components/ui/CompactSidebar";
+
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useAuth } from "@clerk/nextjs";
@@ -1038,9 +1040,7 @@ export default function TestCasesPage() {
         }}
       />
       {!loading && (cases.length > 0 || folderPaths.length > 0) && (
-        <div className={styles.layout}>
-          <aside className={styles.suites} aria-label="Test suites">
-            <h2>Suites</h2>
+        <CompactSidebar scope={folderActor.userId ? `${folderActor.userId}:${projectId}` : null} title="Test suites" sidebar={
             <TestCaseTree
               cases={laneCases}
               folderPaths={currentFolderCatalog ? folderPaths : []}
@@ -1065,7 +1065,7 @@ export default function TestCasesPage() {
                       void moveCase(caseId, suitePath, null)
               }
             />
-          </aside>
+          }>
           <div className={styles.inventory}>
             <label className={styles.mobileSuite}>
               Suite
@@ -1580,7 +1580,7 @@ export default function TestCasesPage() {
               </div>
             )}
           </div>
-        </div>
+        </CompactSidebar>
       )}
 
       <Modal

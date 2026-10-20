@@ -2,6 +2,7 @@
 
 import {useId, useState, type ButtonHTMLAttributes, type ReactNode} from "react";
 import {Icon, type IconName} from "./Workspace";
+import { FloatingTooltip } from "./FloatingTooltip";
 
 /** Secondary tools stay compact without losing their name or keyboard help. */
 export function IconButton({label, icon, tooltip, className = "", onClick, onFocus, onBlur, onKeyDown, ...props}: Omit<ButtonHTMLAttributes<HTMLButtonElement>, "children" | "aria-label" | "title"> & {label: string; icon: IconName; tooltip?: ReactNode}) {
@@ -9,15 +10,16 @@ export function IconButton({label, icon, tooltip, className = "", onClick, onFoc
   const [hovered, setHovered] = useState(false);
   const [focused, setFocused] = useState(false);
   const [dismissed, setDismissed] = useState(false);
+  const [anchor, setAnchor] = useState<HTMLElement | null>(null);
   const visible = !dismissed && (hovered || focused);
-  return <span className="icon-action" onPointerEnter={() => {setHovered(true); setDismissed(false);}} onPointerLeave={() => setHovered(false)}>
+  return <span className="icon-action" onPointerEnter={event => {setAnchor(event.currentTarget); setHovered(true); setDismissed(false);}} onPointerLeave={() => setHovered(false)}>
     <button {...props} type={props.type ?? "button"} className={`ui-icon-button ${className}`} aria-label={label} aria-describedby={[props["aria-describedby"], visible ? id : undefined].filter(Boolean).join(" ") || undefined}
-      onFocus={event => {setFocused(true); setDismissed(false); onFocus?.(event);}}
+      onFocus={event => {setAnchor(event.currentTarget ?? null); setFocused(true); setDismissed(false); onFocus?.(event);}}
       onBlur={event => {setFocused(false); onBlur?.(event);}}
       onClick={event => {setDismissed(true); onClick?.(event);}}
       onKeyDown={event => {if (event.key === "Escape" && visible) {setDismissed(true); event.preventDefault(); event.stopPropagation();} onKeyDown?.(event);}}>
       <Icon name={icon}/>
     </button>
-    {visible && <span id={id} className="icon-action-tooltip" role="tooltip">{tooltip ?? label}</span>}
+    {visible && (anchor ? <FloatingTooltip id={id} anchor={anchor}>{tooltip ?? label}</FloatingTooltip> : <span id={id} className="icon-action-tooltip" role="tooltip">{tooltip ?? label}</span>)}
   </span>;
 }

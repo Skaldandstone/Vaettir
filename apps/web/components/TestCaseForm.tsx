@@ -11,6 +11,8 @@ import { freshCasePresentation } from "@/lib/case-presentation-read";
 import { CaseDesignGuide } from "./CaseDesignGuide";
 import { CaseProcedureColumns } from "./CaseProcedureColumns";
 import { IconButton } from "./ui/IconButton";
+import { ProcedureStep } from "./ui/ProcedureStep";
+import { inspectorLabel } from "@/lib/case-inspector";
 import { CaseTagEditor } from "./CaseTagEditor";
 import { appendCaseTag, initialCaseTags, initialCasePhaseRows, prepareCasePhaseForSave, prepareCaseStepsForSave, technicalBehaviorLabel, type CasePhaseName, type CasePhaseRow } from "@/lib/case-authoring-fields";
 import { CaseCustomFieldsForm, type CaseFieldFormDraft, type ReviewedCaseFieldDefaults } from "./CaseCustomFields";
@@ -21,7 +23,6 @@ type OptionalEditorField = typeof OPTIONAL_EDITOR_FIELDS[number];
 const FIELD_LABEL_STYLE: CSSProperties = { display: "grid", gap: 6, minWidth: 0, color: "var(--fg)" };
 const PROSE_EDITOR_STYLE: CSSProperties = { display: "block", width: "100%", minWidth: 0, resize: "vertical", lineHeight: 1.55, borderRadius: 6 };
 const SECONDARY_ACTION_STYLE: CSSProperties = { padding: "6px 10px", minHeight: 36, fontSize: 12, borderRadius: 3 };
-const SECTION_HEADING_STYLE: CSSProperties = { fontSize: 16, margin: "24px 0 6px", paddingTop: 18, borderTop: "1px solid var(--line)" };
 const STEP_PAIR_STYLE: CSSProperties = { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(280px, 100%), 1fr))", gap: 14, alignItems: "start" };
 /** Revocation-only display guard. This cannot authorize a save or private read;
  * it merely rejects an old reveal callback after the form becomes unavailable. */
@@ -182,6 +183,7 @@ export default function TestCaseForm({
   const stepKeyPrefix = useId();
   const nextStepKey = useRef(initial?.steps?.length ?? 0);
   const [stepAnnouncement, setStepAnnouncement] = useState("");
+  const [openSteps, setOpenSteps] = useState<Set<string>>(() => new Set());
   const [tagDraft, setTagDraft] = useState("");
   const [reopenedTag, setReopenedTag] = useState<string | undefined>();
   // Display-only choices for this mounted draft. Revealing a field must never
@@ -381,7 +383,7 @@ export default function TestCaseForm({
   }
 
   return (
-    <fieldset disabled={locked || saving || uploadingStepKey !== null} onChangeCapture={() => { interacted.current = true; }} aria-label={mode === "edit" ? "Edit test case draft" : "New test case draft"} style={{ border: 0, padding: 0, margin: 0, width: "100%", maxWidth: 1120, minWidth: 0, overflowWrap: "anywhere" }}>
+    <fieldset className="test-case-editor" disabled={locked || saving || uploadingStepKey !== null} onChangeCapture={() => { interacted.current = true; }} aria-label={mode === "edit" ? "Edit test case draft" : "New test case draft"} style={{ border: 0, padding: 0, margin: 0, width: "100%", minWidth: 0, overflowWrap: "anywhere" }}>
       <div style={{ display: "grid", gap: 12, marginBottom: 20 }}>
         {active && <CaseDesignGuide />}
         {presentationQuery.error && <p role="status">Current built-in field preferences could not be verified. The generic editor retains all fields and values. <button type="button" onClick={() => void presentationQuery.refetch()}>Refresh preferences</button></p>}
@@ -405,6 +407,9 @@ export default function TestCaseForm({
             style={{ width: "100%", minWidth: 0, borderRadius: 6, fontSize: 16 }}
           />
         </label>
+        <details className="case-details" open={mode === "create" || value.validationDomain !== "SOFTWARE" || revealedFields.length > 0}>
+          <summary>Case details <span>{inspectorLabel(value.testType)} · {inspectorLabel(value.priority)} · {value.suitePath || "Unassigned"}</span></summary>
+          <div className="case-details-body">
         {visible.background && <label style={FIELD_LABEL_STYLE}>
           Background{" "}
           <span style={{ color: "var(--muted-dim)" }}>
@@ -435,7 +440,7 @@ export default function TestCaseForm({
             >
               {retainedCaseChoices(presentation.domains, value.validationDomain).map(domain => (
                 <option key={domain.value} value={domain.value}>
-                  {domain.value.replace(/_/g, " ")}{domain.retained ? " (retained draft value)" : ""}
+                  {inspectorLabel(domain.value)}{domain.retained ? " (retained draft value)" : ""}
                 </option>
               ))}
             </select>
@@ -451,7 +456,7 @@ export default function TestCaseForm({
             >
               {retainedCaseChoices(presentation.testTypes, value.testType).map(type => (
                 <option key={type.value} value={type.value}>
-                  {type.value}{type.retained ? " (retained draft value)" : ""}
+                  {inspectorLabel(type.value)}{type.retained ? " (retained draft value)" : ""}
                 </option>
               ))}
             </select>
@@ -467,7 +472,7 @@ export default function TestCaseForm({
             >
               {PRIORITIES.map((p) => (
                 <option key={p} value={p}>
-                  {p}
+                  {inspectorLabel(p)}
                 </option>
               ))}
             </select>
@@ -538,6 +543,8 @@ export default function TestCaseForm({
             ))}
           </datalist>
         </label>
+          </div>
+        </details>
       </div>
 
       <details open={presentation.procedureFormat === "GHERKIN" || presentation.procedureFormat === "MIXED" || value.given.length > 0 || value.when.length > 0 || value.then.length > 0} style={{ marginTop: 24 }}>
@@ -552,8 +559,14 @@ export default function TestCaseForm({
       </div>
       </details>
 
-      <h2 style={SECTION_HEADING_STYLE}>{presentation.procedureFormat === "CHECKLIST" ? "Procedure checklist" : presentation.procedureFormat === "NARRATIVE" ? "Narrative procedure" : "Structured steps"}</h2>
-      <p className="text-muted" style={{ fontSize: 13, margin: "0 0 14px" }}>Each numbered row keeps the tester action beside its technical behavior, expected visible result and expected response. Parameter datasets are separate. Use as much prose as the procedure needs.</p>
+      <div className="procedure-toolbar">
+        <h2>{presentation.procedureFormat === "CHECKLIST" ? "Procedure checklist" : presentation.procedureFormat === "NARRATIVE" ? "Narrative procedure" : "Procedure"}</h2>
+        <IconButton icon="help" label="About procedure steps" tooltip="Expand an action to edit its expected result, technical context and media. Given / When / Then is optional. Parameter datasets are separate." />
+        {!value.sharedStepGroupId && <>
+          <IconButton icon="expand" label="Expand all steps" onClick={() => setOpenSteps(new Set(value.steps.map((step, index) => step.editorKey ?? `${stepKeyPrefix}-${index}`)))} />
+          <IconButton icon="collapse" label="Collapse all steps" onClick={() => setOpenSteps(new Set())} />
+        </>}
+      </div>
       {sharedGroups.length > 0 && (
         <label style={{ display: "block", marginBottom: 10 }}>
           Use a shared step library{" "}
@@ -605,28 +618,13 @@ export default function TestCaseForm({
         {value.steps.map((step, i) => {
           const stepInputPrefix = step.editorKey ?? `${stepKeyPrefix}-${i}`;
           return (
-          <div
+          <ProcedureStep
             key={step.editorKey}
-            role="listitem"
-            style={{
-              border: "1px solid var(--line)",
-              borderRadius: 7,
-              padding: 16,
-              marginBottom: 14,
-              minWidth: 0,
-              background: "var(--panel)",
-            }}
-          >
-            <div
-              style={{
-                display: "flex",
-                flexWrap: "wrap",
-                gap: 6,
-                alignItems: "center",
-                marginBottom: 14,
-              }}
-            >
-              <strong style={{ marginRight: "auto", fontSize: 14 }}>Step {i + 1}</strong>
+            number={i + 1}
+            title={step.action}
+            open={openSteps.has(stepInputPrefix)}
+            onToggle={() => setOpenSteps(previous => { const next = new Set(previous); if (next.has(stepInputPrefix)) next.delete(stepInputPrefix); else next.add(stepInputPrefix); return next; })}
+            tools={<>
               <IconButton icon="up" label={`Move step ${i + 1} up`} disabled={i === 0} onClick={() => { setValue(v => ({ ...v, steps: moveListItem(v.steps, i, i - 1) })); setStepAnnouncement(`Step ${i + 1} moved to position ${i}.`); }} />
               <IconButton icon="down" label={`Move step ${i + 1} down`} disabled={i === value.steps.length - 1} onClick={() => { setValue(v => ({ ...v, steps: moveListItem(v.steps, i, i + 1) })); setStepAnnouncement(`Step ${i + 1} moved to position ${i + 2}.`); }} />
               <IconButton
@@ -639,7 +637,8 @@ export default function TestCaseForm({
                   }))
                 }
               />
-            </div>
+            </>}
+          >
             <div data-step-pair="action-technical" style={STEP_PAIR_STYLE}>
               <label style={FIELD_LABEL_STYLE}>
                 {labels.action}
@@ -731,7 +730,7 @@ export default function TestCaseForm({
                 </div>
               )}
             </section>
-          </div>
+          </ProcedureStep>
           );
         })}</div>}
       {!value.sharedStepGroupId && (
@@ -742,6 +741,7 @@ export default function TestCaseForm({
           onClick={() => {
             const editorKey = `${stepKeyPrefix}-${nextStepKey.current++}`;
             setValue((v) => ({ ...v, steps: [...v.steps, { ...EMPTY_STEP, editorKey }] }));
+            setOpenSteps(previous => new Set([...previous, editorKey]));
           }}
         >
           + Add step
@@ -758,8 +758,8 @@ export default function TestCaseForm({
         onChange={setCaseFieldsDraft}
       />
 
-      <div style={{ marginTop: 24, paddingTop: 16, borderTop: "1px solid var(--line)" }}>
-        <button onClick={submit} disabled={saving || !value.title || !caseFieldsDraft?.ready}>
+      <div className="case-editor-footer">
+        <button className="btn-primary" onClick={submit} disabled={saving || !value.title || !caseFieldsDraft?.ready}>
           {saving
             ? "Saving…"
             : mode === "create"

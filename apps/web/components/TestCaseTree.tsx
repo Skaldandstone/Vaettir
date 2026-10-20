@@ -144,7 +144,7 @@ function TreeNodeView({
         }}
       >
         {hasChildren && <span className="tree-caret">{open ? "▾" : "▸"}</span>}
-        <span className="tree-label" style={{ overflowWrap: "anywhere" }}>{entry.supported ? node.name : <code>{JSON.stringify(node.path)}</code>}<small style={{ display: "block", fontSize: 11 }}>{caseFolderKindLabel(entry, !!catalog)}</small></span>
+        <span className="tree-label" title={`${node.path} · ${caseFolderKindLabel(entry, !!catalog)}`} style={{ overflowWrap: "anywhere" }}>{entry.supported ? node.name : <code>{JSON.stringify(node.path)}</code>}<small className={entry.kind === "PERSISTED_SUITE" || entry.kind === "SAVED_FOLDER" ? "sr-only" : undefined}>{caseFolderKindLabel(entry, !!catalog)}</small></span>
         <span className="tree-count">{totalCases}</span>
       </div>
       </div>

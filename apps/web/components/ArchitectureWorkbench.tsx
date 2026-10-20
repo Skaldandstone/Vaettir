@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
+import { ArchitectureMap } from "./ArchitectureMap";
 import type { inferRouterOutputs } from "@trpc/server";
 import type { AppRouter } from "@vaettir/api/src/router";
 import { trpcReact } from "@/lib/trpcReact";
@@ -12,8 +13,9 @@ import {
 type Preview = inferRouterOutputs<AppRouter>["architecture"]["preview"];
 const panel = {
   border: "1px solid var(--line)",
-  borderRadius: 12,
-  padding: 20,
+  borderRadius: 5,
+  padding: 16,
+  background: "var(--panel)",
   minWidth: 0,
 };
 const row = {
@@ -250,7 +252,7 @@ export function ArchitectureWorkbench({
       );
   return (
     <main
-      style={{ maxWidth: 1400, margin: "0 auto", display: "grid", gap: 24 }}
+      className="architecture-workbench" style={{ maxWidth: 1400, margin: "0 auto", display: "grid", gap: 16 }}
     >
       <header>
         <h1>Architecture &amp; test mapping</h1>
@@ -418,8 +420,9 @@ export function ArchitectureWorkbench({
           {view === "ELEMENTS" && (
             <section style={panel}>
               <h2>Components &amp; interactions</h2>
+              <ArchitectureMap elements={current.document.elements} reviewedLinks={confirmedByElement} />
               <div style={{ overflowX: "auto" }}>
-                <table style={{ width: "100%" }}>
+                <table className="workspace-table" style={{ width: "100%" }}>
                   <thead>
                     <tr>
                       <th>Element</th>

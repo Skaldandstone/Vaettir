@@ -11,6 +11,7 @@ import { TRPCReactProvider } from "../lib/trpcReact";
 import { Suspense } from "react";
 import { LegacyWorkspaceRedirect } from "../components/LegacyWorkspaceRedirect";
 import "./globals.css";
+import "./workbench.css";
 
 export const metadata = {
   title: "Vaettir™",
@@ -46,7 +47,7 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
         },
       }}
     >
-      <html lang="en">
+      <html lang="en" data-theme="dark" suppressHydrationWarning>
         <body>
           <TRPCReactProvider>
             <Suspense><LegacyWorkspaceRedirect /></Suspense>

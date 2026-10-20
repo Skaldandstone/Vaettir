@@ -17,6 +17,8 @@ import { useCaseFieldAccess } from "@/lib/use-case-field-access";
 import { currentSessionScope, sameAuthScope } from "@/lib/auth-query-cache";
 import { retainedTraceabilityReceipt } from "@/lib/traceability-receipt";
 import { IconButton } from "@/components/ui/IconButton";
+import { Icon, StatusPill } from "@/components/ui/Workspace";
+import { inspectorLabel } from "@/lib/case-inspector";
 
 const STATUSES = ["DRAFT", "ACTIVE", "IN_REVIEW", "APPROVED"];
 
@@ -393,29 +395,33 @@ export default function TestPlansPage() {
       {plans.length > 0 && (
         <div style={{ display: "flex", gap: 8, marginBottom: 10 }}>
           <input
+            aria-label="Search test plans"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Search plans…"
             style={{ flex: 1, maxWidth: 300 }}
           />
           <select
+            aria-label="Filter plans by status"
             value={statusFilter}
             onChange={(e) => setStatusFilter(e.target.value)}
           >
             <option value="">All statuses</option>
             {STATUSES.map((s) => (
               <option key={s} value={s}>
-                {s}
+                {inspectorLabel(s)}
               </option>
             ))}
           </select>
         </div>
       )}
 
-      <ul>
+      <ul className="record-list">
         {visiblePlans.map((p) => (
           <li key={p.id}>
+            <div className="record-list-header"><Icon name="book" />
             <a
+              className="record-list-title"
               href={`/projects/${projectId}/test-plans/${p.id}`}
               onClick={(e) => {
                 e.preventDefault();
@@ -423,11 +429,8 @@ export default function TestPlansPage() {
               }}
             >
               {p.name}
-            </a>{" "}
-            <small>
-              [{p.testPlanType.name}] {p.status} — {p.acceptanceCriteria.length}{" "}
-              acceptance criteria
-            </small>
+            </a><StatusPill tone={p.status === "APPROVED" ? "success" : "neutral"}>{inspectorLabel(p.status)}</StatusPill></div>
+            <div className="record-list-meta"><span>{p.testPlanType.name}</span><span>{p.acceptanceCriteria.length} acceptance criteria</span></div>
           </li>
         ))}
         {!loading && plans.length === 0 && (

@@ -16,11 +16,26 @@ export type IconName =
   | "branch"
   | "clock"
   | "filter" | "more" | "copy" | "undo" | "help" | "close" | "back" | "external" | "plus"
-  | "up" | "down" | "delete" | "drag" | "edit";
+  | "up" | "down" | "delete" | "drag" | "edit"
+  | "chevron" | "collapse" | "expand" | "sidebar" | "pin" | "reset"
+  | "sun" | "moon" | "image" | "video" | "link" | "refresh" | "save";
 
 // Small functional UI glyphs. The product's canonical rune remains unchanged.
 export function Icon({ name, size = 18 }: { name: IconName; size?: number }) {
   const paths: Record<IconName, ReactNode> = {
+    chevron: <path d="m9 5 7 7-7 7" />,
+    collapse: <><path d="m6 3 6 5 6-5M6 21l6-5 6 5M5 12h14" /></>,
+    expand: <><path d="m5 10 7-7 7 7M5 14l7 7 7-7" /></>,
+    sidebar: <><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9 4v16"/></>,
+    pin: <path d="m9 3 9 9-3 1-3 5-3-3-6 6 6-6-3-3 5-3 1-3Z" />,
+    reset: <><path d="M3 10a9 9 0 1 1 2 9M3 4v6h6"/></>,
+    sun: <><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M2 12h2M20 12h2M5 5l1.5 1.5M17.5 17.5 19 19M5 19l1.5-1.5M17.5 6.5 19 5"/></>,
+    moon: <path d="M20 15A9 9 0 0 1 9 4a9 9 0 1 0 11 11Z" />,
+    image: <><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8" cy="8" r="1.5"/><path d="m3 17 5-5 4 4 4-6 5 7"/></>,
+    video: <><rect x="3" y="5" width="13" height="14" rx="2"/><path d="m16 10 5-3v10l-5-3Z"/></>,
+    link: <><path d="m9 15 6-6M8 16l-1 1a4 4 0 0 1-6-6l5-5a4 4 0 0 1 6 0M16 8l1-1a4 4 0 0 1 6 6l-5 5a4 4 0 0 1-6 0"/></>,
+    refresh: <><path d="M20 9a8 8 0 0 0-14-4L3 8m0-5v5h5M4 15a8 8 0 0 0 14 4l3-3m0 5v-5h-5"/></>,
+    save: <><path d="M4 3h13l4 4v14H3V3ZM7 3v6h9V3M7 21v-8h10v8"/></>,
     drag: <><circle cx="9" cy="5" r="1"/><circle cx="15" cy="5" r="1"/><circle cx="9" cy="12" r="1"/><circle cx="15" cy="12" r="1"/><circle cx="9" cy="19" r="1"/><circle cx="15" cy="19" r="1"/></>,
     edit: <><path d="m15 4 5 5M4 20l5-1L21 7a2.1 2.1 0 0 0-4-4L5 15l-1 5Z"/></>,
     up: <path d="M12 20V4m-6 6 6-6 6 6" />,

@@ -1,6 +1,9 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useAuth } from "@clerk/nextjs";
+import { ModularWorkspace } from "@/components/ui/ModularWorkspace";
+import { IconButton } from "@/components/ui/IconButton";
 import { useParams } from "next/navigation";
 import { trpcReact } from "@/lib/trpcReact";
 import { useProjectPermissions } from "@/lib/use-project-permissions";
@@ -18,6 +21,7 @@ import {
 
 // P1-15
 export default function ProjectOverviewPage() {
+  const { userId } = useAuth();
   const [populationOpen, setPopulationOpen] = useState(false);
   const [experienceOpen, setExperienceOpen] = useState(false);
   useEffect(() => {
@@ -55,18 +59,17 @@ export default function ProjectOverviewPage() {
           className="btn-secondary"
           onClick={() => setPopulationOpen(true)}
         >
-          Update project understanding / Add sources
+          Add sources
         </button>
       )}
       {canEdit && (
-        <button
-          className="btn-secondary"
+        <IconButton
+          icon="settings"
+          label="Customize testing workflow"
           aria-haspopup="dialog"
           style={{ marginLeft: 8, marginTop: 8 }}
           onClick={() => setExperienceOpen(true)}
-        >
-          Customize testing workflow
-        </button>
+        />
       )}
       <QualityExperienceWizard
         key={projectId}
@@ -80,21 +83,8 @@ export default function ProjectOverviewPage() {
           onClose={() => setPopulationOpen(false)}
         />
       )}
-      <QualityExperienceSummary projectId={projectId} />
-      <ProjectRepositorySummary projectId={projectId} />
-      <RepositoryReleaseDiscovery projectId={projectId}/>
-
-
-      <div
-        className="project-connection-chips"
-        id="project-connections"
-        aria-label="Production signal routing"
-      >
-        <ProductionSignalChips projectId={projectId} />
-      </div>
-
-      <section className="panel" style={{ marginBottom: 20 }}>
-        <h2>Testing at a glance</h2>
+      <ModularWorkspace scope={userId ? `${userId}:${projectId}` : null} name="Project overview" panels={[
+      { id: "inventory", title: "Testing at a glance", content: <>
         <p>
           {project.qualityProfile.objective ||
             "Define your project’s objective, then connect requirements, tests and release evidence."}
@@ -103,10 +93,7 @@ export default function ProjectOverviewPage() {
           <p>Loading test inventory…</p>
         ) : testCaseCount ? (
           <>
-            <p>
-              Test type distribution across {testCaseCount} cases. This
-              describes your inventory, not release readiness.
-            </p>
+            <p className="text-muted">{testCaseCount} cases · Inventory, not release readiness</p>
             <TestTypeDistribution cases={testCasesQuery.data ?? []} />
           </>
         ) : (
@@ -123,9 +110,14 @@ export default function ProjectOverviewPage() {
               : "No cases currently awaiting review."}
         </p>
         <a href={`/projects/${projectId}/releases`}>
-          Open release readiness and blockers →
+          Release readiness →
         </a>
-      </section>
+      </> },
+      { id: "context", title: "Testing context", content: <QualityExperienceSummary projectId={projectId} /> },
+      { id: "repositories", title: "Repositories", content: <ProjectRepositorySummary projectId={projectId} /> },
+      { id: "signals", title: "Production signals", content: <div className="project-connection-chips" id="project-connections" aria-label="Production signal routing"><ProductionSignalChips projectId={projectId} /></div> },
+      { id: "releases", title: "Repository releases", wide: true, content: <RepositoryReleaseDiscovery projectId={projectId} /> },
+      ]} />
 
       <div
         style={{

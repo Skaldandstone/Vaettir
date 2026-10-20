@@ -13,6 +13,7 @@ import { DatasetExecutionWizard } from "@/components/DatasetExecutionWizard";
 import { CaseTraceabilityPanel } from "@/components/CaseTraceabilityPanel";
 import { CaseCustomFields } from "@/components/CaseCustomFields";
 import { CaseComments } from "@/components/CaseComments";
+import { CompactTabs } from "./ui/CompactTabs";
 import { CasePriorityField } from "@/components/CasePriorityField";
 import { CaseReviewDecision } from "@/components/CaseReviewDecision";
 import { Modal } from "@/components/Modal";
@@ -21,9 +22,7 @@ import { useCaseFieldAccess } from "@/lib/use-case-field-access";
 import { projectTagHref, projectTagLabel } from "@/lib/project-tag-navigation";
 import { freshCasePresentation } from "@/lib/case-presentation-read";
 import {
-  INSPECTOR_SECTIONS,
   inspectorLabel,
-  inspectorSectionForKey,
   type InspectorSection,
 } from "@/lib/case-inspector";
 import styles from "./CaseInspector.module.css";
@@ -1338,33 +1337,9 @@ function TestCaseInspector({
           )}
         </div>
       )}
-      <div
-        role="tablist"
-        aria-label="Test case sections"
-        className={styles.tabs}
-      >
-        {INSPECTOR_SECTIONS.map((name) => (
-          <button
-            key={name}
-            type="button"
-            role="tab"
-            id={`${sectionId}-tab-${name}`}
-            aria-controls={`${sectionId}-panel-${name}`}
-            aria-selected={section === name}
-            tabIndex={section === name ? 0 : -1}
-            onClick={() => setSection(name)}
-            onKeyDown={(event) => {
-              const next = inspectorSectionForKey(name, event.key);
-              if (!next) return;
-              event.preventDefault();
-              setSection(next);
-              document.getElementById(`${sectionId}-tab-${next}`)?.focus();
-            }}
-          >
-            {name}
-          </button>
-        ))}
-      </div>
+      <CompactTabs id={sectionId} label="Test case sections" tabs={["Procedure", "Intelligence", "Evidence", "Activity"] as const}
+        selected={section === "Comments" || section === "History" ? "Activity" : section}
+        onChange={next => setSection(next === "Activity" ? "Comments" : next)} />
       {/* Panels stay mounted: tab changes must not discard paid outputs or local drafts. */}
       <section
         className={styles.section}
@@ -1875,6 +1850,8 @@ function TestCaseInspector({
         />
         <AttachmentsSection testCaseId={tc.id} readOnly={readOnly} />
       </section>
+      <section role="tabpanel" id={`${sectionId}-panel-Activity`} aria-labelledby={`${sectionId}-tab-Activity`} hidden={section !== "Comments" && section !== "History"}>
+      <CompactTabs id={sectionId} label="Activity filters" tabs={["Comments", "History"] as const} selected={section === "History" ? "History" : "Comments"} onChange={setSection} />
       <section
         className={styles.section}
         role="tabpanel"
@@ -2061,6 +2038,7 @@ function TestCaseInspector({
               })()}
           </div>
         )}
+      </section>
       </section>
     </div>
   );

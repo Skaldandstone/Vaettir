@@ -1,12 +1,12 @@
 .group {
-  margin-bottom: 18px;
+  margin-bottom: 8px;
 }
 .group > summary {
   display: flex;
   justify-content: space-between;
   align-items: center;
   gap: 8px;
-  min-height: 36px;
+  min-height: 28px;
   padding: 4px 10px;
   color: var(--rail-muted);
   font-size: 11px;
