@@ -18,7 +18,7 @@ test("actual icon control preserves native attributes, accessible name and origi
   const event={type:"click"};button.props.onClick(event);assert.deepEqual(events,[event]);
 });
 test("actual tooltip opens on hover or focus, preserves the existing description and dismisses on Escape",()=>{
-  const h=fixture({"aria-describedby":"original-help"});let node=h.render();node.props.onPointerEnter();node=h.render();assert.equal(node.props.children[1].props.role,"tooltip");assert.equal(node.props.children[0].props["aria-describedby"],"original-help synthetic-tooltip");
+  const h=fixture({"aria-describedby":"original-help"});let node=h.render();node.props.onPointerEnter({currentTarget:null});node=h.render();assert.equal(node.props.children[1].props.role,"tooltip");assert.equal(node.props.children[0].props["aria-describedby"],"original-help synthetic-tooltip");
   let stopped=0,prevented=0;node.props.children[0].props.onKeyDown({key:"Escape",preventDefault:()=>prevented++,stopPropagation:()=>stopped++});assert.equal(stopped,1);assert.equal(prevented,1);assert.equal(h.render().props.children[1],false);
   node=h.render();node.props.onPointerLeave();node.props.children[0].props.onFocus({});node=h.render();assert.equal(node.props.children[1].props.children,"Copy folder");node.props.children[0].props.onBlur({});assert.equal(h.render().props.children[1],false);
 });
@@ -38,7 +38,7 @@ test("after dismissing the tooltip, a second Escape remains available to the nat
 });
 
 test("click hides its prior hover tooltip before opening tools while forwarding the original event once",()=>{
-  const events=[],h=fixture({onClick:e=>events.push(e)});let node=h.render();node.props.onPointerEnter();node=h.render();assert.equal(node.props.children[1].props.role,"tooltip");
+  const events=[],h=fixture({onClick:e=>events.push(e)});let node=h.render();node.props.onPointerEnter({currentTarget:null});node=h.render();assert.equal(node.props.children[1].props.role,"tooltip");
   const event={type:"click"};node.props.children[0].props.onClick(event);assert.deepEqual(events,[event]);assert.equal(h.render().props.children[1],false);
-  node=h.render();node.props.onPointerLeave();node.props.onPointerEnter();assert.equal(h.render().props.children[1].props.role,"tooltip");
+  node=h.render();node.props.onPointerLeave();node.props.onPointerEnter({currentTarget:null});assert.equal(h.render().props.children[1].props.role,"tooltip");
 });

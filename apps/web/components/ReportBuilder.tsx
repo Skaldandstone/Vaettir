@@ -491,6 +491,7 @@ function ProjectReportBuilder({ projectId }: { projectId: string }) {
           Step {step + 1} of 5 ·{" "}
           {["Purpose", "Audience", "Metrics", "Commentary", "Review"][step]}
         </p>
+        <div className="report-step-track" aria-hidden="true">{[0, 1, 2, 3, 4].map(index => <span key={index} data-complete={index <= step} />)}</div>
         {step === 0 && (
           <div style={{ display: "grid", gap: 14 }}>
             <label>
@@ -853,6 +854,7 @@ function ProjectReportBuilder({ projectId }: { projectId: string }) {
           </div>
         )}
         {step === 3 && (
+          <div className="report-commentary-layout">
           <div className="report-commentary">
             {definition.templateId && (
               <details className="report-review-prompts">
@@ -894,6 +896,16 @@ function ProjectReportBuilder({ projectId }: { projectId: string }) {
               Preview saves a private, resumable capture; sharing needs the next
               approval.
             </p>
+          </div>
+          <aside className="report-notes-preview" aria-label="Draft commentary preview">
+            <span className="eyebrow">Draft notes · Not captured</span>
+            <h2>{title || "Stakeholder report"}</h2>
+            {(["summary", "risks", "nextActions"] as const).map(key => <section key={key}>
+              <h3>{{ summary: "Summary", risks: "Risks and impediments", nextActions: "Next actions" }[key]}</h3>
+              <p className={definition[key] ? undefined : "text-muted"}>{definition[key] || "No notes yet."}</p>
+            </section>)}
+            <p className="text-muted">The next step captures metrics for your review. Nothing is shared yet.</p>
+          </aside>
           </div>
         )}
         {step === 4 &&

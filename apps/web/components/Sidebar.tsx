@@ -14,6 +14,9 @@ import {
 } from "../lib/workbench-navigation";
 import styles from "./WorkbenchNavigation.module.css";
 import { QualityExperienceWizard } from "./QualityExperienceWizard";
+import { IconButton } from "./ui/IconButton";
+import { useAuth } from "@clerk/nextjs";
+import { useLayoutPreference } from "./ui/useLayoutPreference";
 
 // Ported 2026-09-11 from codex/private-beta-readiness: functional icons per
 // link, exact matching for the overview links so "/projects/x" isn't
@@ -63,15 +66,21 @@ function SidebarFrame({
   label,
   detail,
   children,
+  rail,
 }: {
   label: string;
   detail: string;
   children: ReactNode;
+  rail?: ReactNode;
 }) {
   const [mobileOpen, setMobileOpen] = useState(false);
+  const { userId } = useAuth();
+  const [collapsed, setCollapsed] = useLayoutPreference(userId ?? null, "navigation", false, raw => raw === true);
 
   return (
-    <aside className={`app-sidebar${mobileOpen ? " mobile-open" : ""}`}>
+    <aside className={`app-sidebar${mobileOpen ? " mobile-open" : ""}${collapsed ? " sidebar-is-collapsed" : ""}`}>
+      <div className="sidebar-desktop-toggle"><IconButton icon="sidebar" label={`${collapsed ? "Expand" : "Collapse"} navigation`} aria-expanded={!collapsed} aria-controls="workspace-navigation" onClick={() => setCollapsed(!collapsed)} /></div>
+      <div className="sidebar-rail" hidden={!collapsed}>{rail}</div>
       <button
         className="sidebar-mobile-toggle"
         type="button"
@@ -144,6 +153,7 @@ function ProjectSidebar({ projectId }: { projectId: string }) {
     <SidebarFrame
       label={currentName || "Project workspace"}
       detail="Project navigation"
+      rail={<nav aria-label="Compact project navigation"><SidebarLink href="/projects" label="Projects" exact />{projectAccessible && navigation.flatMap(group => group.links).map(link => <SidebarLink key={link.path} href={`/projects/${projectId}${link.path}`} label={link.label} exact={link.path === ""} />)}</nav>}
     >
       <div className="sidebar-group">
         <Link href="/projects" className="sidebar-back">
@@ -215,13 +225,7 @@ function ProjectSidebar({ projectId }: { projectId: string }) {
               </div>
             );
           })}
-          <button
-            type="button"
-            className="sidebar-link"
-            onClick={() => setToolsOpen(true)}
-          >
-            Customize project tools
-          </button>
+          <div className="sidebar-tools"><IconButton icon="settings" label="Customize project tools" tooltip="Choose the tools shown in this project's navigation." onClick={() => setToolsOpen(true)} /><span>Project tools</span></div>
         </nav>
       ) : (
         <div
@@ -257,10 +261,12 @@ function SidebarLink({
     <Link
       href={href}
       aria-current={active ? "page" : undefined}
+      title={label}
+      aria-label={label}
       className={`sidebar-link${active ? " active" : ""}`}
     >
       <Icon name={LINK_ICONS[label] ?? "folder"} size={17} />
-      {label}
+      <span className="sidebar-link-label">{label}</span>
     </Link>
   );
 }
@@ -304,7 +310,7 @@ export function Sidebar() {
   }
 
   return (
-    <SidebarFrame label="Quality workspace" detail="Private beta">
+    <SidebarFrame label="Quality workspace" detail="Private beta" rail={<nav aria-label="Compact workspace navigation">{ORG_LINKS.map(link => <SidebarLink key={link.href} {...link} />)}</nav>}>
       <div className="sidebar-workspace">
         <span className="workspace-monogram">v</span>
         <div>

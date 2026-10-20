@@ -1,5 +1,7 @@
 # Vaettir - Brand & Style Guide
 
+**Application UI update (2026-10-19):** the approved blue-charcoal dark and cool-slate light workbench supersedes this landing-page palette and control sizing for the authenticated application. Use [Application UI](docs/application-ui.md) and its linked source components. Keep the established rune. The marketing identity below is not an instruction to revert application colors or density.
+
 Reference implementation: [design/vaettir-landing.html](design/vaettir-landing.html) (single-file HTML/CSS/JS prototype).
 Everything below is extracted directly from that file - treat it as the source of truth
 if the two ever drift.

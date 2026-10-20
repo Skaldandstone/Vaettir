@@ -29,6 +29,9 @@ function fixture(){
   // Header tooltip is outside this manual-controller fixture. Its component
   // behavior has separate icon-button tests; register only this unused import.
   modules["@/components/ui/IconButton"]={IconButton:noop};
+  // List presentation imports are not executed by this manual-create controller.
+  modules["@/components/ui/Workspace"]={Icon:noop,StatusPill:noop};
+  modules["@/lib/case-inspector"]={inspectorLabel:noop};
   const source=readFileSync(new URL("../app/projects/[projectId]/test-plans/page.tsx",import.meta.url),"utf8");
   const output=ts.transpileModule(source,{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.CommonJS,jsx:ts.JsxEmit.React}}).outputText;
   const exports:Record<string,unknown>={};new Function("require","exports","React","window",output+"\nexports.manual=ManualPlanCreate;")((name:string)=>{if(!(name in modules))throw Error("Unreviewed fixture dependency: "+name);return modules[name];},exports,React,browser);

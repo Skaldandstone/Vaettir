@@ -538,8 +538,9 @@ test("prerequisites come before procedure steps and all tab panels remain mounte
     assert.ok(detail.includes(`hidden={section !== "${section}"}`));
     assert.ok(detail.includes(`panel-${section}`));
   }
-  assert.match(detail, /role="tablist"/);
-  assert.match(detail, /inspectorSectionForKey\(name, event.key\)/);
+  assert.match(detail, /<CompactTabs id=\{sectionId\} label="Test case sections"/);
+  assert.match(detail, /<CompactTabs id=\{sectionId\} label="Activity filters"/);
+  assert.match(detail, /panel-Activity/);
   assert.match(detail, /onSuiteSelect\(tc.suitePath\)/);
   assert.match(detail, /Edit case/);
   assert.match(detail, /Show full title/);

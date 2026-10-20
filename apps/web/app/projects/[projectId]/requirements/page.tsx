@@ -10,6 +10,8 @@ import { ConnectedRepositoryPicker } from "@/components/ConnectedRepositoryPicke
 import { useCaseFieldAccess } from "@/lib/use-case-field-access";
 import Link from "next/link";
 import { CreationWizard, WizardChoices } from "@/components/CreationWizard";
+import { IconButton } from "@/components/ui/IconButton";
+import { Icon } from "@/components/ui/Workspace";
 import { useProjectPermissions } from "@/lib/use-project-permissions";
 import { saveRequirementDrafts } from "@/lib/requirement-drafts";
 import { CoveredTestCasesPanel } from "@/components/CaseTraceabilityPanel";
@@ -908,7 +910,7 @@ export default function RequirementsPage() {
     error ?? (listQuery.error ? String(listQuery.error.message) : null);
 
   return (
-    <div style={{ maxWidth: 640 }}>
+    <div className="requirements-workbench">
       <h1>Requirements</h1>
       <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"center",marginBottom:12}}>
         {canEdit&&<button type="button" className="btn-secondary" onClick={()=>setRepoModalOpen(true)}>Check repository requirements</button>}
@@ -1089,24 +1091,20 @@ export default function RequirementsPage() {
         />
       )}
 
-      <ul style={{ listStyle: "none", padding: 0 }}>
+      <ul className="record-list">
         {visibleRequirements.map((r) => (
           <li
             key={r.id}
             id={`requirement-${r.id}`}
-            style={{
-              marginBottom: 10,
-              borderBottom: "1px solid var(--line)",
-              paddingBottom: 8,
-            }}
           >
-            <strong>{r.title}</strong>{" "}
+            <div className="record-list-header"><Icon name="cases" /><strong className="record-list-title">{r.title}</strong>
             {r.externalRef && (
               <span style={{ color: "var(--muted-dim)" }}>
                 [{r.externalRef}]
               </span>
             )}
-            <div style={{ color: "var(--muted)", fontSize: 13 }}>
+            </div>
+            <div className="requirement-description">
               {r.description}
             </div>
             <div style={{ fontSize: 12, color: "var(--muted-dim)" }}>
@@ -1116,26 +1114,18 @@ export default function RequirementsPage() {
               {coverageId === r.id ? "Hide test coverage" : "View test coverage"}
             </button>
             {coverageId === r.id && <div id={`coverage-${r.id}`}><CoveredTestCasesPanel projectId={projectId} target={{ provider: "requirement", providerOrigin: "vaettir", nativeId: r.id, kind: "requirement" }} canEdit={canEdit} /></div>}
-            {canEdit && (
-              <LinearLinkControl requirement={r} onChanged={reload} />
-            )}
+            {canEdit && <details><summary>Source links</summary><LinearLinkControl requirement={r} onChanged={reload} />
             {canEdit && <JiraLinkControl requirement={r} onChanged={reload} />}
             {canEdit && <ShareLinkControl requirement={r} onChanged={reload} />}
+            </details>}
             {canEdit && (
-              <>
-                <button
-                  onClick={() => startEdit(r)}
-                  style={{ marginRight: 8, marginTop: 6 }}
-                >
-                  Edit
-                </button>
-                <button onClick={() => remove(r.id)} style={{ marginRight: 8 }}>
-                  Delete
-                </button>
-                <button onClick={() => setGeneratingForId(r.id)}>
+              <div className="record-list-actions">
+                <IconButton icon="edit" label={`Edit ${r.title}`} onClick={() => startEdit(r)} />
+                <IconButton icon="delete" label={`Delete ${r.title}`} onClick={() => remove(r.id)} />
+                <button className="btn-secondary" onClick={() => setGeneratingForId(r.id)}>
                   Generate test cases with AI
                 </button>
-              </>
+              </div>
             )}
           </li>
         ))}

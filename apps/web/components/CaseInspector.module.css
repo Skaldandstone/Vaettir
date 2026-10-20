@@ -96,11 +96,11 @@
   flex-shrink: 0;
 }
 .tabs button[aria-selected="true"] {
-  color: var(--frost);
-  border-bottom-color: var(--frost);
+  color: var(--fg);
+  border-bottom-color: var(--accent);
 }
 .tabs button:focus-visible {
-  outline: 2px solid var(--frost);
+  outline: 2px solid var(--focus);
   outline-offset: -3px;
 }
 .section[hidden] {

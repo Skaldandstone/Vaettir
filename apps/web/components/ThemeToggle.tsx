@@ -1,17 +1,20 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { IconButton } from "./ui/IconButton";
 
 type Theme = "light" | "dark";
 const STORAGE_KEY = "vaettir-theme";
 
 export function ThemeToggle() {
-  const [theme, setTheme] = useState<Theme>("light");
+  const [theme, setTheme] = useState<Theme>("dark");
 
   useEffect(() => {
     try {
       const stored = localStorage.getItem(STORAGE_KEY);
-      const preferred = stored === "dark" ? "dark" : "light";
+      const preferred = stored === "light" || stored === "warm" ? "light" : "dark";
+      // Reconcile browser-only preference after the matching server render.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setTheme(preferred);
       document.documentElement.setAttribute("data-theme", preferred);
     } catch {
@@ -31,14 +34,7 @@ export function ThemeToggle() {
   }
 
   return (
-    <button
-      className="theme-toggle"
-      onClick={toggle}
-      type="button"
-      aria-label="Switch theme"
-    >
-      <span className="theme-dot" style={{ background: "var(--frost)" }} />
-      <span>{theme}</span>
-    </button>
+    <IconButton icon={theme === "dark" ? "sun" : "moon"}
+      label={`Switch to ${theme === "dark" ? "light" : "dark"} mode`} onClick={toggle} />
   );
 }
