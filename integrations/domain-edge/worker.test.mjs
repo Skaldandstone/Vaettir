@@ -147,3 +147,22 @@ test("allows the new primary sign-in while retaining tenant return and write/API
   location.searchParams.append("redirect_url", "https://other-team.vaettir.app/projects");
   assert.equal((await redirectResponse(location)).response.status, 502);
 });
+test("customer home opens same-host projects only after a verified tenant probe", async () => {
+  for (const method of ["GET", "HEAD"]) {
+    let calls = 0;
+    const response = await handleRequest(new Request(workspace + "/?__clerk_synced=true&tab=readiness", { method }), env, async request => {
+      calls++;assert.equal(new URL(request.url).pathname, "/api/health");
+      return new Response("ok", { headers: { "X-Vaettir-Workspace-Verified": "tenant-v1" } });
+    });
+    assert.equal(response.status, 307);
+    assert.equal(response.headers.get("location"), workspace + "/projects?__clerk_synced=true&tab=readiness");
+    assert.equal(response.headers.get("cache-control"), "no-store");
+    assert.equal(calls, 1);
+  }
+  assert.equal((await handleRequest(new Request(workspace + "/"), env, async () => new Response("unknown", { status: 404 }))).status, 404);
+  assert.equal((await handleRequest(new Request(workspace + "/"), env, async () => new Response("old API"))).status, 503);
+  let calls = 0;
+  const response = await handleRequest(new Request(workspace + "/", { method: "POST" }), env, async () => ++calls === 1
+    ? new Response("ok", { headers: { "X-Vaettir-Workspace-Verified": "tenant-v1" } }) : new Response("write refused", { status: 405 }));
+  assert.equal(response.status, 405);assert.equal(response.headers.get("location"), null);
+});

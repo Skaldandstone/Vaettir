@@ -117,6 +117,13 @@ export async function handleRequest(request, env, upstreamFetch = fetch) {
       }
       await result.body?.cancel();
     }
+    // A confirmed, activated customer home opens its private workspace. Keep
+    // this after the signed tenant probe so unknown claims still fail closed.
+    if (url.hostname !== ENTRY && url.pathname === "/" && ["GET", "HEAD"].includes(request.method)) {
+      const destination = new URL(url);
+      destination.pathname = "/projects";
+      return new Response(null, { status: 307, headers: { Location: destination.href, ...privateHeaders } });
+    }
     const headers = await signatureHeaders(request, env.VAETTIR_DOMAIN_INGRESS_SECRET, url.hostname, url.pathname + url.search);
     const target = new URL(url.pathname + url.search, origin);
     const response = await upstreamFetch(new Request(target, { method: request.method, headers,
