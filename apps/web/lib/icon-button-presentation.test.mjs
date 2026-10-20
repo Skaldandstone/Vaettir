@@ -8,7 +8,7 @@ import ts from "typescript";
 function declaration(file,name) {const source=readFileSync(new URL(file,import.meta.url),"utf8"),ast=ts.createSourceFile(file,source,ts.ScriptTarget.Latest,true,ts.ScriptKind.TSX);return ast.statements.find(node=>ts.isFunctionDeclaration(node)&&node.name?.text===name).getText(ast).replace(/^export /,"");}
 function fixture(props={}) {
   const state=[];let cursor=0;
-  const scope=vm.createContext({React,useId:()=>"synthetic-tooltip",useState: initial=>{const index=cursor++;if(!(index in state))state[index]=initial;return [state[index],value=>state[index]=value];}});
+  const scope=vm.createContext({React,useId:()=>"synthetic-tooltip",useEffect:()=>{},useRef:initial=>{const index=cursor++;return state[index]??(state[index]={current:initial});},useState: initial=>{const index=cursor++;if(!(index in state))state[index]=initial;return [state[index],value=>state[index]=value];}});
   vm.runInContext(ts.transpileModule(declaration("../components/ui/Workspace.tsx","Icon")+declaration("../components/ui/IconButton.tsx","IconButton"),{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.None,jsx:ts.JsxEmit.React}}).outputText,scope);
   return {render:()=>{cursor=0;return scope.IconButton({label:"Copy folder",icon:"copy",...props});}};
 }

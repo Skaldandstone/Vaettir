@@ -23,7 +23,7 @@ function actualUiDeclaration(file: string, name: string) {
 // No direct TSX imports: transpile the genuine Icon then IconButton declarations.
 // Installed React hooks run only when SSR renders the shared child. The form's
 // own synthetic controller slots remain separate from the child's hook state.
-const iconScope = vm.createContext({ React, useId: React.useId, useState: React.useState });
+const iconScope = vm.createContext({ React, useId: React.useId, useState: React.useState, useRef: React.useRef, useEffect: React.useEffect });
 for (const [file, name] of [
   ["../components/ui/Workspace.tsx", "Icon"],
   ["../components/ui/IconButton.tsx", "IconButton"],
