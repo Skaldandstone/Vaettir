@@ -118,8 +118,26 @@ try {
   await touchPage.goto(`${origin}/?screen=editor`);
   const touchButton = await touchPage.getByRole("button", { name: "About procedure steps", exact: true }).boundingBox();
   assert.ok(touchButton.width >= 44 && touchButton.height >= 44);
+  await touchPage.setViewportSize({ width: 1024, height: 900 });
+  await touchPage.goto(`${origin}/?screen=library`);
+  await touchPage.getByRole("button", { name: "Collapse navigation", exact: true }).click();
+  const rail = await touchPage.locator(".app-sidebar").boundingBox();
+  const expandNavigation = await touchPage.getByRole("button", { name: "Expand navigation", exact: true }).boundingBox();
+  assert.ok(expandNavigation.x >= rail.x && expandNavigation.x + expandNavigation.width <= rail.x + rail.width, "Touch navigation toggle must fit its collapsed rail");
+  for (const link of await touchPage.locator(".sidebar-rail a").all()) {
+    const box = await link.boundingBox();
+    assert.ok(box.width >= 44 && box.height >= 44, "Collapsed navigation links need 44px touch targets");
+    assert.ok(box.x >= rail.x && box.x + box.width <= rail.x + rail.width, "Touch navigation links must fit their rail");
+  }
+  await touchPage.getByRole("button", { name: "Collapse test suites", exact: true }).click();
+  const expandSuites = await touchPage.getByRole("button", { name: "Expand test suites", exact: true }).boundingBox();
+  const caseTable = await touchPage.locator(".compact-sidebar-main").boundingBox();
+  assert.ok(expandSuites.x + expandSuites.width <= caseTable.x, "Collapsed suite touch control must not overlap the case workspace");
+  assert.ok(await touchPage.evaluate(() => innerWidth <= 1024), "Touch layout must not silently zoom out beyond its viewport");
+  assert.ok(await touchPage.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1), "Tablet rails must not create horizontal page overflow");
+  await touchPage.screenshot({ path: path.join(directory, "library-touch-collapsed.png"), fullPage: true });
   await touchPage.close();
-  checks.push("Coarse-pointer icon actions have 44px touch targets");
+  checks.push("Coarse-pointer controls have 44px targets and fit collapsed navigation/suite rails without overlap");
   const contrast = await page.evaluate(() => {
     const root = document.documentElement;
     const luminance = hex => { const rgb = hex.trim().replace('#', '').match(/../g).map(v => parseInt(v, 16) / 255).map(v => v <= .04045 ? v / 12.92 : ((v + .055) / 1.055) ** 2.4); return rgb[0] * .2126 + rgb[1] * .7152 + rgb[2] * .0722; };
