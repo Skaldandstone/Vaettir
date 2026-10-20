@@ -46,9 +46,10 @@ jobs:
     runs-on: ubuntu-latest
     services:
       postgres:
-        # Same Docker Official Postgres16 manifest, byte-verified against
-        # Docker Hub. Public ECR avoids shared-runner unauthenticated pull limits.
-        image: public.ecr.aws/docker/library/postgres@sha256:ca0bd484cb98bf4b24eb1010e73fb3fcbd6714d240fbc1a10eea5b7dbecb641d
+        # Same immutable Docker Official Postgres16 manifest, freshly
+        # byte-verified at Docker Hub after the ECR mirror hit its data quota.
+        # Registry failover must preserve this digest and every test gate.
+        image: docker.io/library/postgres@sha256:ca0bd484cb98bf4b24eb1010e73fb3fcbd6714d240fbc1a10eea5b7dbecb641d
         env:
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: postgres
