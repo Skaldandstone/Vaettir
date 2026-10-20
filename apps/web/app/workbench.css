@@ -142,7 +142,7 @@ select { padding-right: 28px; text-overflow: ellipsis; }
 .architecture-workbench label > select, .architecture-workbench label > input:not([type="checkbox"]) { display: block; margin-top: 6px; max-width: 100%; }
 .integration-tabs { margin-top: 20px; }
 .integration-tabs [role="tabpanel"][hidden] { display: none; }
-.report-commentary textarea { min-height: 88px; }
+.report-commentary textarea { min-height: 112px; }
 .report-review-prompts { padding: 10px 12px; }
 .connection-layout { gap: 18px; }
 .panel.connection-workflow { padding: 22px; gap: 16px; }

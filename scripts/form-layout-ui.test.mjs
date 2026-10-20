@@ -23,7 +23,7 @@ function visit(node){
 }
 visit(ast);assert.ok(commentary,'Actual commentary subtree exists');
 const fixture=compile(`function Scenario(){
- const [definition,setDefinition]=useState({templateId:'quality-status',summary:'',risks:'',nextActions:''});const frozen=false;
+ const [definition,setDefinition]=useState({templateId:'quality-status',summary:'',risks:'',nextActions:''});const frozen=false,title='Synthetic stakeholder report';
  const [value,setValue]=useState('long');
  return <DialogFrame open={true} onClose={()=>{}} className="modal-panel" label="Create stakeholder report" style={{width:'min(900px, calc(100vw - 32px))',maxWidth:'calc(100vw - 32px)'}}>
  <div className="modal-header"><h2>Create stakeholder report</h2><button className="btn-secondary modal-close" aria-label="Close report builder">×</button></div>
@@ -34,7 +34,7 @@ const fixture=compile(`function Scenario(){
 const scripts={
  '/react.js':readFileSync(join(dirname(require.resolve('react/package.json')),'umd/react.development.js')),
  '/react-dom.js':readFileSync(join(dirname(require.resolve('react-dom/package.json')),'umd/react-dom.development.js')),
- '/styles.css':read('apps/web/app/globals.css').replace(/^@import.*$/m,''),
+ '/styles.css':read('apps/web/app/globals.css').replace(/^@import.*$/m,'')+'\n'+read('apps/web/app/workbench.css'),
 };
 const html=`<!doctype html><html data-theme="dark"><head><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="/styles.css"></head><body><div id="root"></div><script src="/react.js"></script><script src="/react-dom.js"></script><script type="module">
 const {useState,useEffect,useLayoutEffect,useRef}=React;const createPortal=ReactDOM.createPortal;
