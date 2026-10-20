@@ -48,6 +48,8 @@ function fixture(readOnly = false) {
     React,
     useId: React.useId,
     useState: React.useState,
+    useRef: React.useRef,
+    useEffect: React.useEffect,
     Icon: () => React.createElement("svg", {"aria-hidden": true}),
     PageHeading: ({actions}) => React.createElement("header", null, actions),
     styles: {},
