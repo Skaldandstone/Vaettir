@@ -137,3 +137,13 @@ test("keeps primary sign-in returns workspace-bound, including duplicate redirec
   location.searchParams.append("redirect_url", "https://other-team.vaettir.app/projects");
   assert.equal((await redirectResponse(location)).response.status, 502);
 });
+test("allows the new primary sign-in while retaining tenant return and write/API restrictions", async () => {
+  const location = new URL("https://app.vaettir.app/sign-in");
+  location.searchParams.set("redirect_url", workspace + "/projects");
+  const accepted = (await redirectResponse(location)).response;
+  assert.equal(accepted.status, 307);await accepted.body.cancel();
+  assert.equal((await redirectResponse(location, { method: "POST" })).response.status, 502);
+  assert.equal((await redirectResponse(location, { path: "/api/trpc/private" })).response.status, 502);
+  location.searchParams.append("redirect_url", "https://other-team.vaettir.app/projects");
+  assert.equal((await redirectResponse(location)).response.status, 502);
+});

@@ -13,7 +13,7 @@ function allowedRedirect(request, current, destination) {
   if (destination.origin === current.origin) return true;
   const pageGet = request.method === "GET" && !/^\/(api|trpc)(\/|$)/.test(current.pathname);
   if (!pageGet) return false;
-  if (destination.origin === "https://vaettir.skaldandstone.com"
+  if (["https://vaettir.skaldandstone.com", "https://app.vaettir.app"].includes(destination.origin)
       && ["/sign-in", "/sign-up"].includes(destination.pathname)) {
     for (const key of ["redirect_url", "redirectUrl", "after_sign_in_url", "after_sign_up_url"]) {
       for (const value of destination.searchParams.getAll(key)) {

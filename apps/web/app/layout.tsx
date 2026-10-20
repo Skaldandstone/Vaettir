@@ -2,7 +2,7 @@ import type { ReactNode } from "react";
 import Link from "next/link";
 import { ClerkProvider } from "@clerk/nextjs";
 import { headers } from "next/headers";
-import { isWorkspaceAuthHost, workspaceRedirectOrigins } from "../lib/workspace-auth";
+import { workspaceClerkConfiguration } from "../lib/clerk-auth-domain";
 import { RuneMark } from "../components/RuneMark";
 import { ThemeToggle } from "../components/ThemeToggle";
 import { Sidebar } from "../components/Sidebar";
@@ -25,15 +25,9 @@ export const metadata = {
 export default async function RootLayout({ children }: { children: ReactNode }) {
   const workspaceAuth = process.env.NEXT_PUBLIC_VAETTIR_WORKSPACE_AUTH_ENABLED === "1";
   const host = workspaceAuth ? (await headers()).get("x-vaettir-host") : null;
-  const workspaceClerk = workspaceAuth ? {
-    allowedRedirectOrigins: workspaceRedirectOrigins(process.env.NEXT_PUBLIC_VAETTIR_ACTIVE_WORKSPACE_NAMES),
-    ...(host && isWorkspaceAuthHost(host) ? {
-      isSatellite: true,
-      domain: "vaettir.app",
-      signInUrl: "https://vaettir.skaldandstone.com/sign-in",
-      signUpUrl: "https://vaettir.skaldandstone.com/sign-up",
-    } : {}),
-  } : {};
+  const workspaceClerk = workspaceAuth ? workspaceClerkConfiguration(host,
+    process.env.NEXT_PUBLIC_VAETTIR_PRIMARY_AUTH_ENABLED === "1",
+    process.env.NEXT_PUBLIC_VAETTIR_ACTIVE_WORKSPACE_NAMES) : {};
   return (
     <ClerkProvider
       {...workspaceClerk}

@@ -3,6 +3,7 @@ import type { NextFetchEvent, NextRequest } from "next/server";
 import { verifiedWorkspaceWebHost } from "./lib/workspace-auth";
 import { verifiedWorkspaceClerkRequest } from "./lib/workspace-clerk-request";
 import { authReturnUrl, isBrowserDocument, LEGACY_APPLICATION_ORIGIN } from "./lib/auth-return";
+import { legacyAuthDocumentDestination, workspaceClerkConfiguration } from "./lib/clerk-auth-domain";
 
 // /share is a deliberately public, token-gated preview surface (see
 // requirements.getSharedSummary's own comment on why) - a Jira/Linear
@@ -34,12 +35,8 @@ const handleClerk = clerkMiddleware(async (auth, req) => {
   if (process.env.NEXT_PUBLIC_VAETTIR_WORKSPACE_AUTH_ENABLED !== "1") return {};
   const host = await verifiedWorkspaceWebHost(req, process.env.VAETTIR_DOMAIN_INGRESS_SECRET);
   if (!host) return {};
-  return {
-    isSatellite: true,
-    domain: "vaettir.app",
-    signInUrl: "https://vaettir.skaldandstone.com/sign-in",
-    signUpUrl: "https://vaettir.skaldandstone.com/sign-up",
-  };
+  return workspaceClerkConfiguration(host, process.env.NEXT_PUBLIC_VAETTIR_PRIMARY_AUTH_ENABLED === "1",
+    process.env.NEXT_PUBLIC_VAETTIR_ACTIVE_WORKSPACE_NAMES);
 });
 
 export default async function middleware(request: NextRequest, event: NextFetchEvent) {
@@ -48,6 +45,17 @@ export default async function middleware(request: NextRequest, event: NextFetchE
     process.env.NEXT_PUBLIC_VAETTIR_WORKSPACE_AUTH_ENABLED === "1",
     process.env.VAETTIR_DOMAIN_INGRESS_SECRET,
   );
+  if (process.env.NEXT_PUBLIC_VAETTIR_PRIMARY_AUTH_ENABLED === "1") {
+    const host = await verifiedWorkspaceWebHost(request, process.env.VAETTIR_DOMAIN_INGRESS_SECRET);
+    try {
+      const destination = legacyAuthDocumentDestination(request, host, process.env.NEXT_PUBLIC_VAETTIR_ACTIVE_WORKSPACE_NAMES);
+      if (destination) return new Response(null, { status: 307, headers: {
+        Location: destination, "Cache-Control": "no-store", "Referrer-Policy": "no-referrer",
+      } });
+    } catch {
+      return new Response("Invalid sign-in return.", { status: 400, headers: { "Cache-Control": "no-store" } });
+    }
+  }
   return handleClerk(clerkRequest, event);
 }
 

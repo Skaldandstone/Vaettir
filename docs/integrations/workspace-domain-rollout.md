@@ -150,3 +150,41 @@ result separately from source, CI and DNS configuration.
 Rollback disables new-host activation and routes while retaining existing
 claims, audit history and the old authenticated application. A confirmed name
 cannot be reassigned or deleted as a rollback shortcut.
+
+## Primary sign-in domain cutover preparation
+
+The satellite bridge deliberately signs in through the existing primary. It
+does not complete a move of the visible sign-in page to the Vaettir domain.
+The prepared web switch `NEXT_PUBLIC_VAETTIR_PRIMARY_AUTH_ENABLED=1`, together
+with workspace auth enabled, uses `https://app.vaettir.app/sign-in` and `/sign-up`
+as the primary. It is disabled by default and baked into the web artifact.
+Current owner sessions should finish at their confirmed customer address;
+`app.vaettir.app` remains the shared sign-in/onboarding entry.
+
+Do not enable this switch against the old provider setup. First prepare a
+same-instance Clerk primary-domain change, the matching publishable key and
+configured web image, verified DNS/TLS, Google callback, identity inventory and
+rollback. Clerk's confirmation invalidates active sessions and warns of
+downtime. Preserve all existing native and Clerk user IDs; verified-email
+remapping is not evidence of a successful identity-preserving migration.
+Resolve the existing satellite-name overlap through supported provider controls.
+Review automated verification-email delivery separately from the owner's
+unchanged Skald and Stone business email; do not silently create mailboxes,
+replace primary email DNS or loosen the existing restrictive mail policy.
+
+Legacy browser documents use a temporary, private redirect to the new entry,
+preserving native setup query bytes and validated sign-in returns. Bearer
+requests, APIs, writes, provider callbacks and webhooks do not enter this
+document redirect. Existing Forge app/environment/installation approvals,
+Atlassian issuer/JWKS, purpose-encryption key and direct legacy JSON endpoints
+remain unchanged. Keep repository OAuth's `WEB_APP_URL` until its registered
+callbacks and pending state have separate acceptance. Assess existing Expo
+publishable keys and shipped-build compatibility before a provider change.
+
+Customer root navigation is a separate exact-host Cloudflare redirect:
+`atwist.vaettir.app/` and `skaldandstone.vaettir.app/` use HTTPS GET/HEAD 307
+to their same-host `/projects`, preserving the query. The protected destination
+still checks the current tenant and membership. No wildcard, API, write,
+marketing apex or provider callback is included. Retain the rule ID, exact
+expression, before/after review and public verification in local release
+evidence; disable the rule for rollback rather than deleting customer claims.

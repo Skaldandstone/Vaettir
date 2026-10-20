@@ -3,6 +3,7 @@ import { createClerkClient } from "@clerk/nextjs/server";
 import { NextRequest } from "next/server";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { verifiedWorkspaceClerkRequest } from "./workspace-clerk-request";
+import { workspaceClerkConfiguration } from "./clerk-auth-domain";
 
 const secret = "synthetic-clerk-ingress-fixture-".repeat(3);
 const target = "/projects?__clerk_synced=false&tab=readiness";
@@ -27,6 +28,20 @@ const satellite = { isSatellite: true, domain: "vaettir.app", signInUrl: "https:
 afterEach(() => vi.restoreAllMocks());
 
 describe("verified workspace Clerk request context", () => {
+  it("uses the installed SDK as a primary on the new domain without a satellite detour or network", async () => {
+    const network = vi.spyOn(globalThis, "fetch").mockRejectedValue(new Error("Synthetic primary test forbids network access"));
+    const primary = createClerkClient({
+      publishableKey: "pk_live_" + Buffer.from("clerk.vaettir.app$").toString("base64"),
+      secretKey: "sk_live_synthetic_fixture_only",
+    });
+    const request = await verifiedWorkspaceClerkRequest(attested(), true, secret);
+    const configuration = workspaceClerkConfiguration("app.vaettir.app", true);
+    const state = await primary.authenticateRequest(request, configuration);
+    expect(state.status).toBe("signed-out");
+    expect(state.headers.get("location")).toBeNull();
+    expect(configuration.signInUrl).toBe("https://app.vaettir.app/sign-in");
+    expect(network).not.toHaveBeenCalled();
+  });
   it("makes the installed Clerk SDK return the handshake to the HTTPS workspace behind an HTTP ALB", async () => {
     const network = vi.spyOn(globalThis, "fetch").mockRejectedValue(new Error("Synthetic handshake test forbids network access"));
     const request = attested();
