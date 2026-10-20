@@ -6,7 +6,7 @@ import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import * as helpers from "./case-folder-tree";
 import { retainedTraceabilityReceipt } from "./traceability-receipt";
-const iconScope = vm.createContext({React, useId: React.useId, useState: React.useState});
+const iconScope = vm.createContext({React, useId: React.useId, useState: React.useState, useRef: React.useRef, useEffect: React.useEffect});
 vm.runInContext(ts.transpileModule(declarations("../components/ui/Workspace.tsx", ["Icon"]), {compilerOptions: {target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.None, jsx: ts.JsxEmit.React}}).outputText, iconScope);
 vm.runInContext(ts.transpileModule(declarations("../components/ui/IconButton.tsx", ["IconButton"]), {compilerOptions: {target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.None, jsx: ts.JsxEmit.React}}).outputText, iconScope);
 const IconButton = iconScope.IconButton;

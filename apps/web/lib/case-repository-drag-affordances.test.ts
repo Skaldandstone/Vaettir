@@ -9,7 +9,7 @@ import { rowDropTarget } from "./case-repository";
 
 // Load the real shared controls without changing the web runner's JSX-preserve
 // configuration or substituting a fake control for this presentation contract.
-const iconScope = vm.createContext({ React, useId: React.useId, useState: React.useState });
+const iconScope = vm.createContext({ React, useId: React.useId, useState: React.useState, useRef: React.useRef, useEffect: React.useEffect });
 for (const [file, name] of [["../components/ui/Workspace.tsx", "Icon"], ["../components/ui/IconButton.tsx", "IconButton"]] as const) {
   const content = readFileSync(new URL(file, import.meta.url), "utf8");
   const ast = ts.createSourceFile(file, content, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);

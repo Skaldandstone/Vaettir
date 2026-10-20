@@ -24,7 +24,7 @@ function installIcons(scope: vm.Context) {
   }
   return (scope as unknown as { IconButton: Control }).IconButton;
 }
-const iconScope = vm.createContext({ React, useId: React.useId, useState: React.useState });
+const iconScope = vm.createContext({ React, useId: React.useId, useState: React.useState, useRef: React.useRef, useEffect: React.useEffect });
 const IconButton = installIcons(iconScope);
 function elements(value: unknown): Element[] {
   if (React.isValidElement(value)) {
@@ -181,7 +181,10 @@ it("missing review capability withholds folder tools without removing selection"
 it("actual shared tooltip Escape dismisses help without hiding direct folder tools or moving focus", () => {
   const h = treeHarness(); h.props.selectedPath="Native";
   const slots: unknown[] = []; let cursor = 0;
-  const scope = vm.createContext({ React, useId: () => "synthetic-tooltip", useState: (initial: unknown) => {
+  const scope = vm.createContext({ React, useId: () => "synthetic-tooltip", useEffect: () => undefined, useRef: (initial: unknown) => {
+    const index = cursor++; if (!(index in slots)) slots[index] = { current: initial };
+    return slots[index];
+  }, useState: (initial: unknown) => {
     const index = cursor++; if (!(index in slots)) slots[index] = initial;
     return [slots[index], (value: unknown) => { slots[index] = value; }];
   } });
@@ -207,7 +210,7 @@ it("actual shared tooltip Escape dismisses help without hiding direct folder too
 
 it("a help icon has a short accessible name and a distinct keyboard/focus tooltip description",()=>{
   const slots:unknown[]=[];let cursor=0;
-  const scope=vm.createContext({React,useId:()=>"synthetic-help",useState:(initial:unknown)=>{const i=cursor++;if(!(i in slots))slots[i]=initial;return[slots[i],(value:unknown)=>{slots[i]=value;}];}});
+  const scope=vm.createContext({React,useId:()=>"synthetic-help",useEffect:()=>undefined,useRef:(initial:unknown)=>{const i=cursor++;if(!(i in slots))slots[i]={current:initial};return slots[i];},useState:(initial:unknown)=>{const i=cursor++;if(!(i in slots))slots[i]=initial;return[slots[i],(value:unknown)=>{slots[i]=value;}];}});
   const Help=installIcons(scope),props={icon:"help",label:"Keyboard ordering help",tooltip:"Select a verified suite, then use Up/Down."};
   const render=()=>{cursor=0;return(Help as(props:unknown)=>Element)(props);};
   let node=render();expect(renderToStaticMarkup(node)).not.toContain('role="tooltip"');
