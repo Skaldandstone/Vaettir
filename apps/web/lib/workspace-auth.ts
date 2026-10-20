@@ -17,9 +17,9 @@ function middlewareTarget(url: URL) {
   const grouped: Record<string, string[]> = Object.create(null);
   for (const [name, value] of url.searchParams) (grouped[name] ??= []).push(value);
   // Match Object.entries(parsed.query), including numeric-key enumeration.
-  for (const name of Object.keys(grouped)) {
+  for (const [name, values] of Object.entries(grouped)) {
     if (name === "_rsc") continue;
-    for (const value of grouped[name]) query.append(name, value);
+    for (const value of values) query.append(name, value);
   }
   const search = query.toString();
   return url.pathname + (search ? `?${search}` : "");
