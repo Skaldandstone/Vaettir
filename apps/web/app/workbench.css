@@ -29,7 +29,7 @@ select { padding-right: 28px; text-overflow: ellipsis; }
 .sidebar-workspace { padding: 4px 6px 12px; }
 .sidebar-group-label { margin-bottom: 4px; }
 .sidebar-back { font-size: 12px; }
-.sidebar-project-switcher { width: 100%; min-width: 0; font-size: 12px; }
+.sidebar-project-switcher { width: 100%; min-width: 0; margin-inline: 0; font-size: 12px; }
 .sidebar-footnote { display: none; }
 .sidebar-desktop-toggle { display: flex; justify-content: flex-end; padding-bottom: 6px; }
 .sidebar-is-collapsed { width: 48px; padding: 8px; }

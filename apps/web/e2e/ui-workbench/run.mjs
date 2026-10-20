@@ -82,6 +82,18 @@ try {
   checks.push("Tooltips stay hoverable above/below anchors and dismiss with Escape from keyboard or pointer");
   await page.reload();
   await visible(page.getByRole("button", { name: "Collapse navigation", exact: true }));
+  for (const width of [1024, 1440, 3200]) {
+    await page.setViewportSize({ width, height: 1000 });
+    const sidebarSize = await page.locator(".app-sidebar").evaluate(element => ({
+      client: element.clientWidth, scroll: element.scrollWidth,
+    }));
+    assert.ok(sidebarSize.scroll <= sidebarSize.client, `Expanded navigation must not scroll horizontally at ${width}px`);
+    const sidebarBounds = await page.locator(".app-sidebar").boundingBox();
+    const switcherBounds = await page.getByRole("combobox", { name: "Switch project", exact: true }).boundingBox();
+    assert.ok(switcherBounds.x >= sidebarBounds.x && switcherBounds.x + switcherBounds.width <= sidebarBounds.x + sidebarBounds.width, "Project switcher must fit within the navigation rail");
+  }
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  checks.push("Actual expanded sidebar and project switcher stay within the rail at 1024, 1440 and 3200px");
   await page.getByRole("button", { name: "Collapse navigation", exact: true }).click();
   await visible(page.getByRole("navigation", { name: "Compact project navigation" }));
   assert.ok((await page.locator('.app-sidebar').boundingBox()).width <= 48);
