@@ -4,7 +4,7 @@ import { readConfig, readSummary, projectIdSchema } from "./client.mjs";
 
 const config = readConfig();
 const server = new McpServer(
-  { name: "vaettir", version: "0.1.0" },
+  { name: "vaettir", version: "0.1.6" },
   {
     instructions:
       "Vaettir exposes only explicitly approved synthetic-project counts. Test content is unavailable. A denied or suppressed read must not be retried through generic APIs, browsers, exports, or alternate identities. Never request credentials in chat.",

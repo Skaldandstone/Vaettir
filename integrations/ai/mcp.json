@@ -4,8 +4,9 @@
     "vaettir": {
       "type": "stdio",
       "command": "node",
-      "args": ["${PLUGIN_ROOT}/dist/server.mjs"],
-      "env_vars": ["VAETTIR_AI_BASE_URL", "VAETTIR_AI_TOKEN"],
+      "args": [
+        "${PLUGIN_ROOT}/dist/server.mjs"
+      ],
       "cwd": "${PLUGIN_ROOT}"
     }
   }

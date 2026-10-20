@@ -20,6 +20,11 @@ codex plugin list --marketplace vaettir-synthetic-preview --json
 ```
 
 Use supported CLI commands; never manually edit Codex caches or session files.
+The Codex output contains `.codex-plugin/plugin.json` and `.mcp.json`; root
+portable files are excluded. The receipt records `format: "codex-native"`.
+When replacing an existing local marketplace source, use supported
+`codex plugin marketplace remove vaettir-synthetic-preview --json` before adding
+the new immutable output path. Keep the old package and receipt for recovery.
 Compare installed files to `package-receipt.json` source/SHA-256 inventory. Start
 a fresh conversation after installation. Without configuration, connection
 status must say `configured:false` and summary reads must deny without network.
@@ -44,8 +49,8 @@ an excluded customer's project to demonstrate isolation.
    access. Review disclosure, attest synthetic classification, save, and approve
    Codex aggregate counts for one day. Record non-secret grant ID/scope/expiry.
 4. Enter the one-time credential through a hidden prompt into the NEW Codex
-   process environment. The manifest forwards only `VAETTIR_AI_BASE_URL` and
-   `VAETTIR_AI_TOKEN`. An already-running desktop app does not inherit terminal
+   process environment. The Codex native adapter forwards only
+   `VAETTIR_AI_BASE_URL` and `VAETTIR_AI_TOKEN`. An already-running desktop app does not inherit terminal
    environment changes. Use a fresh local CLI for this first test; desktop
    credential persistence is separate. Never store the token in config.toml or
    use setx.
@@ -98,3 +103,10 @@ Save source, installed file hashes, deployed release/digest, synthetic project
 ID, grant ID/expiry, expected/observed counts, actual tool-call evidence, audit
 codes and revoke result locally without tokens. An automated MCP harness or
 package install does not substitute for authenticated installed-host acceptance.
+
+
+An official Codex app-server ephemeral thread may validate installed-host MCP
+discovery and direct `mcpServer/tool/call` without invoking a model. Record this
+as app-server transport acceptance. It does not prove desktop chat tool selection
+or model behavior. Both paths must use the installed plugin identity and bundle;
+a separately registered native server is not an installed-plugin substitute.

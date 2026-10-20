@@ -25,7 +25,8 @@ their own checks; this CI run does not cover later source.
 | Client | HTTPS origin only, no redirects, bounded strict projection and timeout; denied reads prohibit alternate paths |
 | Secrets | No-store replies bypass mutation cache; masked UI clears on identity/permission changes; no credentials in package |
 
-Release preparation fixes missing explicit forwarding of the two connection
+Release preparation separates schema-valid portable metadata from the Codex
+native adapter, which anchors the server path and forwards the two connection
 environment variables and supplies immutable allowlisted packaging and public
 preflight. A bearer cannot attest which executable holds it. Classification is
 an admin attestation, not a content scan. Delivered values cannot be recalled;

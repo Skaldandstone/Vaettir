@@ -1,7 +1,7 @@
 # Vaettir AI integration preview
 
 Codex is the first host. The portable plugin manifest and MCP server are the
-reusable core for later AI integrations. Version 0.1.0 is a local prototype,
+reusable core for later AI integrations. Version 0.1.6 is a local prototype,
 not an OpenAI-approved or published plugin.
 
 The owner requested reading and managing Vaettir tests, plans, and runs, with
@@ -161,8 +161,10 @@ The browser-control suite uses actual ReactDOM/Chromium with synthetic auth and
 RPC boundaries and no external network requests.
 
 The built server is a single bundle at `dist/server.mjs`, containing runtime
-dependencies and no credentials. `plugin.json`, `mcp.json`, `skills/`, and this
-bundle form the local package. Build output and dependencies stay ignored.
+dependencies and no credentials. The Codex package uses
+`.codex-plugin/plugin.json` and `.mcp.json`, with `skills/` and this bundle.
+`prepare-preview.mjs` maps the reviewed `codex-plugin.json` and `codex-mcp.json`
+adapters to those fixed paths. Build output and dependencies stay ignored.
 
 When the activation gates are complete, configure `VAETTIR_AI_BASE_URL` as an
 HTTPS origin and `VAETTIR_AI_TOKEN` through approved local connection settings.
@@ -172,6 +174,23 @@ The base URL is operator configuration, never an AI tool argument.
 Until then `node integrations/ai/dist/server.mjs` can initialize MCP and report
 that it is unconfigured. It cannot read production data. This repository is not
 installed automatically into any user's Codex profile.
+
+## Host adapters
+
+The portable `mcp.json` follows the Agent Plugins schema. That schema has no
+`env_vars` field or generic secret interpolation, so this file alone does not
+establish secure credential delivery on another host. An unconfigured server
+denies reads. Each future host needs an explicit reviewed credential adapter.
+
+The Codex native adapter forwards only the two dedicated connection variables.
+It uses `cwd: "."`, resolved by Codex against the installed plugin root, and a
+relative server path. Portable `${PLUGIN_ROOT}` placeholders are not used in
+Codex native MCP arguments. The Codex preview deliberately omits root portable
+metadata so that it cannot override the native adapter. No credentials are
+embedded, saved to Codex configuration, or inherited by an existing desktop app.
+
+Official implementation: [Codex plugin MCP normalization](https://github.com/openai/codex/blob/main/codex-rs/codex-mcp/src/plugin_config.rs).
+Packaging: [OpenAI plugin packages](https://developers.openai.com/plugins/build/plugins).
 
 ## Publication path
 

@@ -15,19 +15,26 @@ if (git("status", "--porcelain", "--", "."))
 const source = git("rev-parse", "HEAD");
 // Positive allowlist: dependencies, logs, local history and credentials cannot enter.
 const files = [
-  "plugin.json", "mcp.json", "README.md", "CONNECTION-TEST.md", "RELEASE-REVIEW.md",
+  "README.md", "CONNECTION-TEST.md", "RELEASE-REVIEW.md",
   "skills/vaettir-quality/SKILL.md", "dist/server.mjs", "dist/preflight.mjs", "dist/THIRD-PARTY-NOTICES.txt",
 ];
-for (const name of files) {
+// Codex's native adapter supports explicit process environment forwarding.
+// Root portable metadata would take priority and must not shadow this adapter.
+const inputs = [
+  ["codex-plugin.json", ".codex-plugin/plugin.json"],
+  ["codex-mcp.json", ".mcp.json"],
+  ...files.map((name) => [name, name]),
+];
+for (const [name] of inputs) {
   if (!(await lstat(resolve(root, name))).isFile()) throw new Error("Package input must be a regular file.");
 }
 await mkdir(destination); // Never overwrite a prior preview or receipt.
 const hashes = {};
-for (const name of files) {
-  const target = resolve(destination, "plugins/vaettir", name);
+for (const [name, output] of inputs) {
+  const target = resolve(destination, "plugins/vaettir", output);
   await mkdir(dirname(target), { recursive: true });
   await copyFile(resolve(root, name), target);
-  hashes[name] = createHash("sha256").update(await readFile(target)).digest("hex");
+  hashes[output] = createHash("sha256").update(await readFile(target)).digest("hex");
 }
 await mkdir(resolve(destination, ".agents/plugins"), { recursive: true });
 await writeFile(resolve(destination, ".agents/plugins/marketplace.json"), JSON.stringify({
@@ -37,7 +44,7 @@ await writeFile(resolve(destination, ".agents/plugins/marketplace.json"), JSON.s
     policy: { installation: "AVAILABLE", authentication: "ON_INSTALL" }, category: "Developer Tools" }],
 }, null, 2) + "\n");
 await writeFile(resolve(destination, "package-receipt.json"), JSON.stringify({
-  source, files: hashes, credentialsIncluded: false, productionActivated: false,
+  source, format: "codex-native", files: hashes, credentialsIncluded: false, productionActivated: false,
   installedCodexAcceptance: false,
 }, null, 2) + "\n");
-console.log(JSON.stringify({ source, marketplace: destination, files: files.length, credentialsIncluded: false }));
+console.log(JSON.stringify({ source, marketplace: destination, files: inputs.length, credentialsIncluded: false }));

@@ -40,7 +40,24 @@ test("preflight rejects credential-bearing configuration and excessive health bo
   await assert.rejects(preflight("https://vaettir.example", commit, async () => new Response("x".repeat(65537), { headers: { "content-type": "application/json" } })));
 });
 test("server forwards only dedicated connection variables without literal secrets", async () => {
-  const manifest = JSON.parse(await readFile(new URL("../mcp.json", import.meta.url), "utf8"));
+  const manifest = JSON.parse(await readFile(new URL("../codex-mcp.json", import.meta.url), "utf8"));
   assert.deepEqual(manifest.mcpServers.vaettir.env_vars, ["VAETTIR_AI_BASE_URL", "VAETTIR_AI_TOKEN"]);
   assert.equal(manifest.mcpServers.vaettir.env, undefined);
+});
+
+test("Codex adapter anchors relative args and declares its MCP file", async () => {
+  const manifest = JSON.parse(await readFile(new URL("../codex-plugin.json", import.meta.url), "utf8"));
+  const mcp = JSON.parse(await readFile(new URL("../codex-mcp.json", import.meta.url), "utf8"));
+  assert.equal(manifest.mcpServers, "./.mcp.json");
+  assert.equal(manifest.requires_local_executor, true);
+  assert.equal(mcp.mcpServers.vaettir.cwd, ".");
+  assert.deepEqual(mcp.mcpServers.vaettir.args, ["./dist/server.mjs"]);
+});
+
+test("portable transport has no unsupported credential forwarding or secrets", async () => {
+  const portable = JSON.parse(await readFile(new URL("../mcp.json", import.meta.url), "utf8"));
+  const server = portable.mcpServers.vaettir;
+  assert.deepEqual(Object.keys(server).sort(), ["args", "command", "cwd", "type"]);
+  assert.equal(server.cwd, "${PLUGIN_ROOT}");
+  assert.deepEqual(server.args, ["${PLUGIN_ROOT}/dist/server.mjs"]);
 });
