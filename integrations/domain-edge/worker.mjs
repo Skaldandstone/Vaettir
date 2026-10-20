@@ -49,6 +49,7 @@ async function signatureHeaders(request, secret, host, target) {
   const bytes = new Uint8Array(await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(value)));
   headers.set("x-vaettir-host", host);
   headers.set("x-vaettir-time", timestamp);
+  headers.set("x-vaettir-target", target);
   headers.set("x-vaettir-signature", [...bytes].map(b => b.toString(16).padStart(2, "0")).join(""));
   headers.set("x-forwarded-host", host);
   return headers;

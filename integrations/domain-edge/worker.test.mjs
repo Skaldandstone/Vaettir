@@ -25,12 +25,13 @@ test("strips spoofed forwarding/staff headers, signs the exact host/target and d
     assert.equal(request.headers.get("x-forwarded-host"), "synthetic-team.vaettir.app");
     const timestamp = request.headers.get("x-vaettir-time");
     const url = new URL(request.url);
+    assert.equal(request.headers.get("x-vaettir-target"), url.pathname + url.search);
     const message = ["vaettir-domain-v1", timestamp, "GET", "synthetic-team.vaettir.app", (url.pathname + url.search).replace(/^\/api(?=\/)/, "")].join("\n");
     assert.equal(request.headers.get("x-vaettir-signature"), createHmac("sha256", secret).update(message).digest("hex"));
     return new Response(calls === 1 ? "healthy" : "workspace", { headers: { "Cache-Control": "public, max-age=86400", "X-Vaettir-Workspace-Verified": "tenant-v1" } });
   };
-  const response = await handleRequest(new Request("https://synthetic-team.vaettir.app/projects", {
-    headers: { "x-vaettir-host": "evil.vaettir.app", "x-staff-token": "spoof", forwarded: "host=evil.vaettir.app" },
+  const response = await handleRequest(new Request("https://synthetic-team.vaettir.app/projects?compat=primary%20domain&a=first&b=%2B&a=second&_rsc=synthetic", {
+    headers: { "x-vaettir-host": "evil.vaettir.app", "x-vaettir-target": "/forged", "x-staff-token": "spoof", forwarded: "host=evil.vaettir.app" },
   }), env, upstream);
   assert.equal(calls, 2);
   assert.equal(await response.text(), "workspace");
