@@ -872,10 +872,12 @@ export default function CompliancePage() {
               display: "flex",
               justifyContent: "space-between",
               alignItems: "baseline",
+              flexWrap: "wrap",
+              gap: 8,
             }}
           >
             <h2 style={{ marginTop: 0 }}>{selectedFramework.name}</h2>
-            <div style={{ display: "flex", gap: 8 }}>
+            <div style={{ display: "flex", flexWrap: "wrap", maxWidth: "100%", gap: 8 }}>
               <button
                 className="btn-secondary"
                 style={{ fontSize: 13 }}
