@@ -41,7 +41,9 @@ another operator's source pin or replay a release intent.
 
 Apply the schema before exposing the new UI/API. Existing projects remain
 unclassified and unapproved. Keep the gateway flag off until the reviewed API
-is stable, then enable it through the normal deployment process. Run the
+is stable, then enable only a reviewed exact organization/project pilot pair
+using `VAETTIR_AI_DISCLOSURE_PROJECTS` through the normal deployment process.
+The enable flag alone is insufficient and never enables all tenants. Run the
 packaged preflight against the exact deployed release before issuing a grant.
 
 Rollback disables the gateway and revokes test grants first, then uses a

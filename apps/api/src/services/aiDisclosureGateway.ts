@@ -59,6 +59,8 @@ export interface AiReadTransaction {
 }
 
 export interface AiReadStore {
+  // Exact operator-approved tenant/project scope, in addition to a live grant.
+  deploymentAllows(organizationId: string, projectId: string): boolean;
   // Production adapter must serialize grant revocation/classification changes
   // with this read, recheck live membership, and enforce a transaction timeout.
   transaction<T>(work: (tx: AiReadTransaction) => Promise<T>): Promise<T>;
@@ -128,7 +130,10 @@ export async function readAiProjectSummary(
         recipient: "codex",
         policyVersion: AI_READ_POLICY_VERSION,
       });
-    if (!permitted(grant, projectId, now ?? new Date())) {
+    if (
+      !store.deploymentAllows(grant.organizationId, grant.projectId) ||
+      !permitted(grant, projectId, now ?? new Date())
+    ) {
       await audit("DENY", "POLICY_DENIED");
       return null;
     }
@@ -139,7 +144,10 @@ export async function readAiProjectSummary(
       testPlans: raw.testPlans,
       testRuns: raw.testRuns,
     };
-    if (!permitted(grant, projectId, now ?? new Date())) {
+    if (
+      !store.deploymentAllows(grant.organizationId, grant.projectId) ||
+      !permitted(grant, projectId, now ?? new Date())
+    ) {
       await audit("DENY", "POLICY_DENIED");
       return null;
     }

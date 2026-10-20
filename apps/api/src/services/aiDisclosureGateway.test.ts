@@ -40,11 +40,38 @@ function fixture(patch: Partial<AiReadGrant> = {}) {
     })),
     audit: vi.fn(async () => {}),
   };
-  const store: AiReadStore = { transaction: async (work) => work(tx) };
+  const store: AiReadStore = {
+    deploymentAllows: () => true,
+    transaction: async (work) => work(tx),
+  };
   return { tx, store };
 }
 
 describe("external AI disclosure boundary", () => {
+  it("audits a known grant outside the deployment pilot and never counts", async () => {
+    const { tx, store } = fixture();
+    store.deploymentAllows = () => false;
+    await expect(
+      readAiProjectSummary(store, token, "project1", now),
+    ).rejects.toBeInstanceOf(AiDisclosureDenied);
+    expect(tx.countProject).not.toHaveBeenCalled();
+    expect(tx.audit).toHaveBeenCalledWith(
+      expect.objectContaining({ decision: "DENY", reason: "POLICY_DENIED" }),
+    );
+  });
+  it("rechecks deployment scope after counting before releasing any values", async () => {
+    const { tx, store } = fixture();
+    store.deploymentAllows = vi
+      .fn()
+      .mockReturnValueOnce(true)
+      .mockReturnValue(false);
+    await expect(
+      readAiProjectSummary(store, token, "project1", now),
+    ).rejects.toBeInstanceOf(AiDisclosureDenied);
+    expect(tx.audit).toHaveBeenCalledWith(
+      expect.objectContaining({ decision: "DENY", reason: "POLICY_DENIED" }),
+    );
+  });
   it("releases only a positive aggregate projection after its audit succeeds", async () => {
     const { tx, store } = fixture();
     tx.countProject.mockResolvedValue({

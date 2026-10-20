@@ -24,6 +24,7 @@ describe("AI read HTTP boundary (not production-registered)", () => {
       },
     });
     registerAiDisclosureRoute(app, {
+      deploymentAllows: () => true,
       transaction: async () => {
         throw new Error("PRIVATE_EXCEPTION_CANARY");
       },
@@ -62,6 +63,7 @@ describe("AI read HTTP boundary (not production-registered)", () => {
     };
     const audit = vi.fn(async () => {});
     const store: AiReadStore = {
+      deploymentAllows: () => true,
       transaction: (work) =>
         work({
           resolveGrant: async () => grant,
@@ -128,7 +130,10 @@ describe("AI read HTTP boundary (not production-registered)", () => {
     async ({ headers, query }) => {
       const transaction = vi.fn();
       const app = Fastify();
-      registerAiDisclosureRoute(app, { transaction });
+      registerAiDisclosureRoute(app, {
+        transaction,
+        deploymentAllows: () => false,
+      });
       try {
         const reply = await app.inject({
           url: AI_SUMMARY_PATH + "?" + query,
@@ -144,6 +149,7 @@ describe("AI read HTTP boundary (not production-registered)", () => {
 
   it("never serializes driver/adapter errors", async () => {
     const store: AiReadStore = {
+      deploymentAllows: () => true,
       transaction: async <T>(
         _work: (tx: AiReadTransaction) => Promise<T>,
       ): Promise<T> => {

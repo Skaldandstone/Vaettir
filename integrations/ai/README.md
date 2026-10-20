@@ -110,8 +110,14 @@ Before a live connection:
 1. Integrate and release this source through Vaettir's existing reviewed release
    process, including the additive migration and recovery checks. No release is
    performed by these local tests.
-2. Keep the gateway disabled until the source/migration is deployed. Enable
-   `VAETTIR_AI_DISCLOSURE_ENABLED=1` only through the normal deployment process.
+2. Keep the gateway disabled until the source/migration is deployed. Through
+   the normal deployment process, set `VAETTIR_AI_DISCLOSURE_ENABLED=1` AND
+   `VAETTIR_AI_DISCLOSURE_PROJECTS` to a reviewed JSON array of exact
+   `{ "organizationId": "...", "projectId": "..." }` pairs. There is no
+   global or wildcard mode: absent, empty, malformed or duplicate scope denies
+   every project. A pair only admits that project to the deployment pilot;
+   it does not classify it or approve a customer grant. Out-of-pilot known
+   grants are denied and audited before any aggregate count is queried.
 3. A current customer admin must review a clearly synthetic project, save its
    classification, approve the precise Codex aggregate scope and expiry, and save
    the one-time credential in local connection settings.

@@ -5,11 +5,16 @@ import type {
   AiReadTransaction,
 } from "./aiDisclosureGateway.js";
 import { aiTransactionOptions } from "./aiDisclosureAdmin.js";
+import { aiDisclosureDeployment } from "./aiDisclosureDeployment.js";
 
 // Persistent policy store: no general API user or session is created for a
 // connection. The grant itself is a dedicated VIEWER-only principal.
-export function createAiDisclosureStore(prisma: PrismaClient): AiReadStore {
+export function createAiDisclosureStore(
+  prisma: PrismaClient,
+  env: NodeJS.ProcessEnv = process.env,
+): AiReadStore {
   return {
+    deploymentAllows: aiDisclosureDeployment(env),
     transaction: (work) =>
       prisma.$transaction(
         async (tx) => {

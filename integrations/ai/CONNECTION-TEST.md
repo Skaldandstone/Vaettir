@@ -26,6 +26,13 @@ status must say `configured:false` and summary reads must deny without network.
 
 ## Release and approve
 
+The deployment must explicitly admit only the reviewed synthetic organization's
+project pair using `VAETTIR_AI_DISCLOSURE_PROJECTS`, in addition to the enable
+flag. Never enable the flag alone, admit another customer, or use a wildcard.
+Verify the sandbox settings report it enabled while an offline negative-scope
+test denies other organization/project pairs. Do not make probe reads against
+an excluded customer's project to demonstrate isolation.
+
 1. Complete [the release conditions](./RELEASE-REVIEW.md). From the installed
    plugin directory run `node dist/preflight.mjs https://YOUR-VAETTIR-ORIGIN REVIEWED_DEPLOYED_COMMIT`.
    This credential-free check does not establish approval or a successful read.

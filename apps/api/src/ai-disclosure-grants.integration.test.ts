@@ -79,7 +79,10 @@ async function fixture(approved = true) {
     token = issued.token!;
     grantId = issued.grantId!;
   }
-  const store = createAiDisclosureStore(prisma);
+  const store = createAiDisclosureStore(prisma, {
+    VAETTIR_AI_DISCLOSURE_ENABLED: "1",
+    VAETTIR_AI_DISCLOSURE_PROJECTS: JSON.stringify([scope]),
+  });
   return {
     actor,
     scope,
@@ -140,6 +143,25 @@ describe.skipIf(!isolated)(
           f.scope,
         ),
       ).rejects.toMatchObject({ code: "FORBIDDEN" });
+    });
+
+    it("denies a durable approved grant outside the exact deployment scope and commits its audit", async () => {
+      const f = await fixture();
+      const excluded = createAiDisclosureStore(prisma, {
+        VAETTIR_AI_DISCLOSURE_ENABLED: "1",
+        VAETTIR_AI_DISCLOSURE_PROJECTS: JSON.stringify([
+          { organizationId: f.foreign.id, projectId: f.project.id },
+        ]),
+      });
+      await expect(
+        readAiProjectSummary(excluded, f.token, f.project.id),
+      ).rejects.toThrow("AI disclosure is not permitted.");
+      expect(
+        await prisma.aiDisclosureAudit.findFirst({
+          where: { grantId: f.grantId },
+          orderBy: { createdAt: "desc" },
+        }),
+      ).toMatchObject({ event: "DENY", reason: "POLICY_DENIED" });
     });
 
     it("returns a credential once, persists only its hash, and recovers the same receipt without reissuing", async () => {
@@ -492,7 +514,10 @@ describe.skipIf(!isolated)(
         ...revoked,
         replayed: true,
       });
-      const freshStore = createAiDisclosureStore(prisma);
+      const freshStore = createAiDisclosureStore(prisma, {
+        VAETTIR_AI_DISCLOSURE_ENABLED: "1",
+        VAETTIR_AI_DISCLOSURE_PROJECTS: JSON.stringify([f.scope]),
+      });
       await expect(
         readAiProjectSummary(freshStore, f.token, f.project.id),
       ).rejects.toThrow("not permitted");
@@ -553,6 +578,7 @@ describe.skipIf(!isolated)(
       const f = await fixture();
       const base = f.store;
       const delayed: AiReadStore = {
+        deploymentAllows: f.store.deploymentAllows,
         transaction: (work) =>
           base.transaction(async (tx) =>
             work({
@@ -663,6 +689,7 @@ describe.skipIf(!isolated)(
           locked = r;
         });
       const held: AiReadStore = {
+        deploymentAllows: f.store.deploymentAllows,
         transaction: (work) =>
           f.store.transaction((tx) =>
             work({

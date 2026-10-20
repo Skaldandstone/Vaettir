@@ -125,7 +125,13 @@ describe.skipIf(!enabled)(
       });
       await server.register(
         async (app) =>
-          registerAiDisclosureRoute(app, createAiDisclosureStore(prisma)),
+          registerAiDisclosureRoute(
+            app,
+            createAiDisclosureStore(prisma, {
+              VAETTIR_AI_DISCLOSURE_ENABLED: "1",
+              VAETTIR_AI_DISCLOSURE_PROJECTS: JSON.stringify([scope]),
+            }),
+          ),
         { prefix: "/api" },
       );
       const origin = await server.listen({ host: "127.0.0.1", port: 0 });

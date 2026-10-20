@@ -4,6 +4,7 @@ import { Prisma } from "@vaettir/db";
 import { z } from "zod";
 import type { Context } from "../trpc.js";
 import { AI_READ_POLICY_VERSION } from "./aiDisclosureGateway.js";
+import { aiDisclosureDeployment } from "./aiDisclosureDeployment.js";
 
 export const aiClassification = z.enum([
   "UNCLASSIFIED",
@@ -48,7 +49,10 @@ export const aiRotateInput = aiGrantChangeInput
   })
   .strict();
 
-type Actor = Pick<Context, "prisma" | "user" | "authenticatedClerkSubject" | "workspaceOrganizationId">;
+type Actor = Pick<
+  Context,
+  "prisma" | "user" | "authenticatedClerkSubject" | "workspaceOrganizationId"
+>;
 type Scope = z.infer<typeof aiAdminScope>;
 export type AiCommandReceipt = {
   operation: "CLASSIFY" | "ISSUE" | "ROTATE" | "REVOKE";
@@ -82,7 +86,10 @@ export async function lockAiAdmin(
   actor: Actor,
   scope: Scope,
 ) {
-  if (actor.workspaceOrganizationId && actor.workspaceOrganizationId !== scope.organizationId)
+  if (
+    actor.workspaceOrganizationId &&
+    actor.workspaceOrganizationId !== scope.organizationId
+  )
     throw new TRPCError({ code: "FORBIDDEN" });
   if (!actor.user || !actor.authenticatedClerkSubject)
     throw new TRPCError({ code: "UNAUTHORIZED" });
@@ -260,7 +267,7 @@ export async function readAiSettings(actor: Actor, input: Scope) {
         row?.classification ?? "UNCLASSIFIED",
       ),
       version: row?.version ?? 0,
-      enabled: process.env.VAETTIR_AI_DISCLOSURE_ENABLED === "1",
+      enabled: aiDisclosureDeployment()(scope.organizationId, scope.projectId),
       grants: grants.slice(0, 100),
       grantLimitReached:
         grants.filter(

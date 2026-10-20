@@ -195,8 +195,8 @@ function AiDisclosureControls({
         <>
           {!data.enabled && (
             <p role="status">
-              The plugin gateway is disabled for this deployment. Saved
-              approvals cannot connect until it is enabled.
+              This project is not enabled for plugin connections in this
+              deployment. Saved approvals cannot connect until it is enabled.
             </p>
           )}
           <p>
