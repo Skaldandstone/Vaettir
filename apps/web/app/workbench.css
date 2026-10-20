@@ -51,7 +51,9 @@ select { padding-right: 28px; text-overflow: ellipsis; }
 .workspace-table tr[aria-selected="true"] { background: var(--selection); }
 .status-pill { border-radius: 4px; font-size: 11px; }
 .icon-action-tooltip { border-color: var(--line); box-shadow: 0 4px 16px #0004; }
-.icon-action-tooltip.floating-tooltip { position: fixed; transform: none; right: auto; width: max-content; max-width: min(280px, calc(100vw - 16px)); max-height: min(240px, calc(100dvh - 16px)); overflow-y: auto; white-space: normal; overflow-wrap: anywhere; text-align: left; z-index: 3100; }
+.icon-action-tooltip.floating-tooltip { position: fixed; transform: none; right: auto; width: max-content; max-width: min(280px, calc(100vw - 16px)); overflow: visible; white-space: normal; overflow-wrap: anywhere; text-align: left; z-index: 3100; }
+.floating-tooltip-content { display: block; max-height: min(224px, calc(100dvh - 32px)); overflow-y: auto; }
+.floating-tooltip[data-above="true"]::before { top: 100%; bottom: auto; }
 .tree-node-shell .tree-row { min-height: 32px; padding-top: 5px; padding-bottom: 5px; }
 .tree-label { min-width: 0; font-size: 12px; line-height: 1.4; }
 .tree-label small { color: var(--muted); }

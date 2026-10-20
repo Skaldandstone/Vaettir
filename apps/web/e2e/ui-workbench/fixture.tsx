@@ -14,12 +14,14 @@ import { RuneMark } from "../../components/RuneMark";
 import { Sidebar } from "../../components/Sidebar";
 import { ReadableSelect } from "../../components/ui/ReadableSelect";
 import { ArchitectureMap } from "../../components/ArchitectureMap";
+import { Modal } from "../../components/Modal";
 
 const actions = ["Open the account settings", "Choose a new notification preference", "Save the preference", "Reload and verify the saved value", "Check another signed-in device"];
 function App() {
   const screen = new URLSearchParams(location.search).get("screen") ?? "editor";
   const [tab, setTab] = useState("Procedure");
   const [wizardStep, setWizardStep] = useState(0);
+  const [dialogOpen, setDialogOpen] = useState(false);
   const [scope, setScope] = useState("synthetic-actor:synthetic-project");
   return <><header className="app-nav"><div className="app-nav-inner"><a className="brand" href="/?screen=editor"><RuneMark size={24} /> Vaettir</a><span style={{ marginRight: "auto" }}>UI verification · Synthetic data</span><ThemeToggle /></div></header>
     <div className="app-shell"><Sidebar/><main className="app-main" style={{ padding: 24 }}>
@@ -46,6 +48,7 @@ function App() {
         <label>Configuration<ReadableSelect defaultValue="long"><option value="long">Production-like staging / mobile / English (United States)</option><option value="other">Development</option></ReadableSelect></label>
         <label>Notes<textarea defaultValue="Include the affected account and notification checks." /></label>
       </CreationWizard></div>}
+      {screen === "dialog" && <><button onClick={() => setDialogOpen(true)}>Open help dialog</button><Modal open={dialogOpen} onClose={() => setDialogOpen(false)} title="Local dialog check"><label>Dialog notes<input data-dialog-initial-focus defaultValue="Unsaved local note" /></label><IconButton icon="help" label="Dialog help" tooltip="Keep this help visible while reading it. Escape dismisses help before closing the dialog." /></Modal></>}
     </main></div></>;
 }
 createRoot(document.getElementById("root")!).render(<App/>);
