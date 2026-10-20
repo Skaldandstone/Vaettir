@@ -42,3 +42,13 @@ test("click hides its prior hover tooltip before opening tools while forwarding 
   const event={type:"click"};node.props.children[0].props.onClick(event);assert.deepEqual(events,[event]);assert.equal(h.render().props.children[1],false);
   node=h.render();node.props.onPointerLeave();node.props.onPointerEnter({currentTarget:null});assert.equal(h.render().props.children[1].props.role,"tooltip");
 });
+
+test("help-only activation opens help without an action, while native submit still dismisses it",()=>{
+  const h=fixture({label:"Keyboard ordering help",icon:"help",tooltip:"Choose a suite, then use Up/Down."});
+  let node=h.render();node.props.children[0].props.onClick({currentTarget:null});node=h.render();
+  assert.equal(node.props.children[1].props.role,"tooltip");
+  assert.equal(node.props.children[1].props.children,"Choose a suite, then use Up/Down.");
+  node.props.children[0].props.onBlur({});assert.equal(h.render().props.children[1],false);
+  const submit=fixture({type:"submit"});node=submit.render();node.props.children[0].props.onFocus({});node=submit.render();
+  assert.equal(node.props.children[1].props.role,"tooltip");node.props.children[0].props.onClick({});assert.equal(submit.render().props.children[1],false);
+});
