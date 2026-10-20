@@ -88,7 +88,7 @@ select { padding-right: 28px; text-overflow: ellipsis; }
 .compact-sidebar-main { min-width: 0; padding-left: 12px; }
 .sidebar-resizer { width: 8px; min-height: 180px; height: 100%; align-self: stretch; border: 0; background: transparent; cursor: col-resize; padding: 0; touch-action: none; }
 .sidebar-resizer:hover, .sidebar-resizer:focus-visible { background: var(--selection); }
-.compact-sidebar-layout[data-collapsed="true"] { grid-template-columns: 36px 0 minmax(0, 1fr); }
+.compact-sidebar-layout[data-collapsed="true"] { grid-template-columns: 44px 0 minmax(0, 1fr); }
 .compact-sidebar-layout[data-collapsed="true"] .sidebar-resizer { visibility: hidden; }
 .layout-panel { min-width: 0; border: 1px solid var(--line); border-radius: 5px; background: var(--panel); }
 .layout-panel-header { display: flex; align-items: center; gap: 6px; padding: 6px 10px; border-bottom: 1px solid var(--line); }
@@ -166,6 +166,9 @@ select { padding-right: 28px; text-overflow: ellipsis; }
 }
 @media (pointer: coarse) {
   .ui-icon-button, .btn, .btn-primary, .btn-secondary, button:not([class]), .compact-tab { min-height: 44px; }
-  .ui-icon-button { min-width: 44px; width: 44px; height: 44px; }
+  .ui-icon-button, .tree-node-actions .ui-icon-button { min-width: 44px; width: 44px; height: 44px; }
+  .sidebar-is-collapsed { padding-inline: 1px; }
+  .sidebar-rail .sidebar-link { min-width: 44px; width: 44px; min-height: 44px; }
+  .compact-sidebar-layout[data-collapsed="true"] { grid-template-columns: 52px 0 minmax(0, 1fr); }
 }
 @media (prefers-reduced-motion: reduce) { body, .procedure-step-toggle svg { transition: none; } }
