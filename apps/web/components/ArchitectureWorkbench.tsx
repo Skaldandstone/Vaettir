@@ -2,9 +2,11 @@
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { ArchitectureMap } from "./ArchitectureMap";
+import { ReadableSelect } from "./ui/ReadableSelect";
 import type { inferRouterOutputs } from "@trpc/server";
 import type { AppRouter } from "@vaettir/api/src/router";
 import { trpcReact } from "@/lib/trpcReact";
+import { retainedTraceabilityReceipt } from "@/lib/traceability-receipt";
 import {
   CaseCustomFieldsForm,
   type CaseFieldFormDraft,
@@ -51,6 +53,9 @@ export function ArchitectureWorkbench({
     [message, setMessage] = useState("");
   const [completed, setCompleted] = useState(0),
     [view, setView] = useState<"ELEMENTS" | "MAPPINGS" | "DRAFTS">("ELEMENTS");
+  const [analyzing, setAnalyzing] = useState(false);
+  const [manualCase, setManualCase] = useState(""), [manualElement, setManualElement] = useState("");
+  const [caseSearch, setCaseSearch] = useState("");
   const stop = useRef(false),
     mountedGeneration = useRef(0);
   useEffect(
@@ -65,6 +70,10 @@ export function ArchitectureWorkbench({
   const saveDocument = trpcReact.architecture.saveDocument.useMutation();
   const analyze = trpcReact.architecture.analyzeBatch.useMutation();
   const decision = trpcReact.architecture.decide.useMutation();
+  const [heldDecision, setHeldDecision] = useState<Parameters<typeof decision.mutateAsync>[0] | null>(null);
+  const heldDecisionActor = useRef<string | null>(null);
+  const heldDecisionUncertain = useRef(false);
+  const decisionBusy = useRef(false);
   const current =
     preview &&
     !project.error &&
@@ -165,6 +174,7 @@ export function ArchitectureWorkbench({
     const generation = mountedGeneration.current;
     stop.current = false;
     setBusy(true);
+    setAnalyzing(true);
     setMessage("");
     try {
       const finished = new Set(current.results.map((r) => r.batchIndex));
@@ -200,6 +210,7 @@ export function ArchitectureWorkbench({
       );
     } finally {
       setBusy(false);
+      setAnalyzing(false);
       setApproved(false);
     }
   }
@@ -208,22 +219,48 @@ export function ArchitectureWorkbench({
     elementId: string,
     value: "CONFIRMED" | "REJECTED",
   ) {
-    if (!input || !current) return;
+    if (!input || !current || decisionBusy.current || !current.canSpend) return;
+    if (heldDecision && heldDecisionActor.current !== actorClerkUserId) {
+      setMessage("Sign in with the original account to confirm the pending link save.");
+      return;
+    }
+    const generation = mountedGeneration.current;
+    const owns = () => generation === mountedGeneration.current;
+    const payload = heldDecision ?? {
+      ...input, expectedScopeHash: current.scopeHash,
+      caseId, elementId, decision: value, requestId: crypto.randomUUID(),
+    };
+    if (payload.projectId !== input.projectId || payload.organizationId !== input.organizationId ||
+        payload.expectedScopeHash !== current.scopeHash) {
+      setMessage("The diagram or tests changed. Inspect the current version before linking.");
+      return;
+    }
+    decisionBusy.current = true;
+    heldDecisionActor.current = actorClerkUserId;
+    setHeldDecision(payload);
     setMessage("");
     try {
-      await decision.mutateAsync({
-        ...input,
-        expectedScopeHash: current.scopeHash,
-        caseId,
-        elementId,
-        decision: value,
-        requestId: crypto.randomUUID(),
-      });
-      setPreview(await previewMutation.mutateAsync(input));
+      await decision.mutateAsync(payload);
+      setHeldDecision(null);
+      heldDecisionActor.current = null;
+      heldDecisionUncertain.current = false;
+      if (!owns()) return;
+      setMessage("Test link saved. No AI credits used.");
+      try { const refreshed = await previewMutation.mutateAsync(input); if (owns()) { setPreview(refreshed); void documents.refetch(); } }
+      catch { if (owns()) setMessage("Test link saved. Inspect the diagram again to refresh the view."); }
     } catch (e) {
-      setMessage(
+      const retained = retainedTraceabilityReceipt({ input: payload, uncertain: heldDecisionUncertain.current }, e);
+      if (retained) heldDecisionUncertain.current = retained.uncertain;
+      else {
+        setHeldDecision(null);
+        heldDecisionActor.current = null;
+        heldDecisionUncertain.current = false;
+      }
+      if (owns()) setMessage(
         e instanceof Error ? e.message : "The mapping could not be saved.",
       );
+    } finally {
+      decisionBusy.current = false;
     }
   }
   const mappings = current?.results.flatMap((r) => r.result.mappings) ?? [];
@@ -254,15 +291,11 @@ export function ArchitectureWorkbench({
     <main
       className="architecture-workbench" style={{ maxWidth: 1400, margin: "0 auto", display: "grid", gap: 16 }}
     >
-      <header>
+      <header className="architecture-heading">
         <h1>Architecture &amp; test mapping</h1>
-        <p>
-          Read a PlantUML or SVG diagram, relate existing tests to its
-          components and interactions, and draft tests for gaps.
-        </p>
       </header>
-      <section style={panel} aria-labelledby="architecture-source">
-        <h2 id="architecture-source">Architecture source</h2>
+      <details className="architecture-source-panel" style={panel} open={!current}>
+        <summary>Architecture source{current && <span className="muted"> · {current.document.fileName}</span>}</summary>
         <div style={row}>
           <label>
             Diagram{" "}
@@ -276,7 +309,8 @@ export function ArchitectureWorkbench({
           {!!documents.data?.length && !project.error && (
             <label>
               Saved architecture{" "}
-              <select
+              <ReadableSelect
+                aria-label="Saved architecture"
                 disabled={busy}
                 value=""
                 onChange={(e) => void openSaved(e.target.value)}
@@ -288,7 +322,7 @@ export function ArchitectureWorkbench({
                     {d.hash.slice(0, 8)}
                   </option>
                 ))}
-              </select>
+              </ReadableSelect>
             </label>
           )}
           <button
@@ -299,19 +333,13 @@ export function ArchitectureWorkbench({
             Inspect diagram
           </button>
         </div>
-        {source && <p>Selected: {source.fileName}</p>}
-        <p>
-          Inspection does not use AI or credits. Uploaded SVG is read as data,
-          never rendered or executed. Include directives and external resources
-          are not followed.
-        </p>
+        <small>PlantUML or SVG · Free inspection and manual links · No code execution</small>
         {project.error && <p role="alert">{project.error.message}</p>}
-      </section>
+      </details>
       {message && <p role="status">{message}</p>}
       {current && (
         <>
-          <section style={panel} aria-labelledby="architecture-scope">
-            <h2 id="architecture-scope">Review analysis scope</h2>
+          <div className="workspace-toolbar">
             <div style={row}>
               <span>{current.document.fileName}</span>
               <span>
@@ -328,11 +356,11 @@ export function ArchitectureWorkbench({
                 Save architecture version
               </button>
             )}
-            {current.document.warnings.map((w, i) => (
-              <p key={i} role="note">
-                {w}
-              </p>
-            ))}
+          </div>
+          {current.document.warnings.map((warning, index) => <p key={index} role="note">{warning}</p>)}
+          <details className="architecture-ai-options" style={panel}>
+            <summary>AI suggestions <span className="muted">Optional · up to {current.maximumCredits} credits</span></summary>
+            <h2 id="architecture-scope">Review AI analysis</h2>
             {current.unprocessed.map((item) => (
               <p key={item.caseId}>
                 For review:{" "}
@@ -377,7 +405,7 @@ export function ArchitectureWorkbench({
                   ? "Continue analysis"
                   : "Analyze architecture"}
               </button>
-              {busy && (
+              {analyzing && (
                 <button
                   type="button"
                   onClick={() => {
@@ -389,7 +417,7 @@ export function ArchitectureWorkbench({
               )}
               <span role="status">
                 {completed} / {current.batchCount} batches completed
-                {busy ? " · Analyzing…" : ""}
+                {analyzing ? " · Analyzing…" : ""}
               </span>
             </div>
             <progress
@@ -398,8 +426,8 @@ export function ArchitectureWorkbench({
               value={completed}
               style={{ width: "100%", marginTop: 12 }}
             />
-          </section>
-          <nav aria-label="Architecture review" style={row}>
+          </details>
+          <nav className="architecture-view-tabs" aria-label="Architecture review" style={row}>
             {(
               [
                 ["ELEMENTS", "Architecture"],
@@ -460,20 +488,38 @@ export function ArchitectureWorkbench({
           {view === "MAPPINGS" && (
             <section style={{ display: "grid", gap: 16 }}>
               <h2>Existing-test mappings</h2>
+              {current.canSpend && <section className="architecture-link-editor" style={panel}>
+                <header><h3>Link an existing test</h3><small>Manual traceability · No AI credits</small></header>
+                {heldDecision ? <div role="status">
+                  <p>A link save needs confirmation. Retry the same request before making another change.</p>
+                  <button type="button" disabled={decision.isPending || busy || heldDecision.expectedScopeHash !== current.scopeHash}
+                    onClick={() => void decide(heldDecision.caseId, heldDecision.elementId, heldDecision.decision)}>Retry link save</button>
+                </div> : <form className="manual-architecture-mapping" onSubmit={event => { event.preventDefault(); if (manualCase && manualElement) void decide(manualCase, manualElement, "CONFIRMED"); }}>
+                  <label>Find a test<input value={caseSearch} onChange={e => setCaseSearch(e.target.value)} placeholder="Search by ID or summary" /></label>
+                  <label>Test case<ReadableSelect aria-label="Test case" required value={manualCase} onChange={e => setManualCase(e.target.value)}>
+                    <option value="">Choose a test</option>
+                    {current.cases.filter(c => c.id === manualCase || `${c.displayId} ${c.title}`.toLocaleLowerCase().includes(caseSearch.toLocaleLowerCase())).map(c =>
+                      <option key={c.id} value={c.id}>{c.displayId} · {c.title}</option>)}
+                  </ReadableSelect></label>
+                  <label>Component or interaction<ReadableSelect aria-label="Component or interaction" required value={manualElement} onChange={e => setManualElement(e.target.value)}>
+                    <option value="">Choose an architecture element</option>
+                    {current.document.elements.map(e => <option key={e.id} value={e.id}>{e.label} · {e.kind.toLowerCase()}</option>)}
+                  </ReadableSelect></label>
+                  <button type="submit" disabled={busy || decision.isPending || !current.cases.some(c => c.id === manualCase) ||
+                    !current.document.elements.some(e => e.id === manualElement) ||
+                    decisionByLink.get(JSON.stringify([manualCase, manualElement]))?.decision === "CONFIRMED"}>Link test</button>
+                </form>}
+              </section>}
               {!!reviewedLinks.length && (
                 <article style={panel}>
-                  <h3>Retained review decisions</h3>
-                  <p>
-                    These links apply to this exact diagram and unchanged test
-                    definitions. Editing one case requires review of its links,
-                    not the rest of the project’s links.
-                  </p>
+                  <h3>Reviewed links</h3>
+                  <small>Links apply to this diagram version and the reviewed test definitions.</small>
                   {reviewedLinks.map((d) => (
                     <div
                       key={`${d.caseId}:${d.elementId}`}
                       style={{ ...row, paddingBlock: 8 }}
                     >
-                      <span>
+                      <Link href={`/projects/${projectId}/test-cases/${encodeURIComponent(d.caseId)}`}>
                         {
                           current.cases.find((c) => c.id === d.caseId)
                             ?.displayId
@@ -486,11 +532,11 @@ export function ArchitectureWorkbench({
                         }{" "}
                         ·{" "}
                         {d.decision === "CONFIRMED" ? "Confirmed" : "Rejected"}
-                      </span>
+                      </Link>
                       {current.canSpend && (
                         <button
                           type="button"
-                          disabled={busy || decision.isPending}
+                          disabled={busy || decision.isPending || !!heldDecision}
                           onClick={() =>
                             void decide(
                               d.caseId,
@@ -512,8 +558,7 @@ export function ArchitectureWorkbench({
               )}
               {!mappings.length && (
                 <p>
-                  No current AI mapping proposals. Run the reviewed analysis
-                  above.
+                  No AI proposals. You can link tests manually above, or request optional AI suggestions.
                 </p>
               )}
               {mappings.map((mapping) => {
@@ -588,6 +633,7 @@ export function ArchitectureWorkbench({
                                 type="button"
                                 disabled={
                                   busy ||
+                                  !!heldDecision ||
                                   decision.isPending ||
                                   latest?.decision === "CONFIRMED"
                                 }
@@ -605,6 +651,7 @@ export function ArchitectureWorkbench({
                                 type="button"
                                 disabled={
                                   busy ||
+                                  !!heldDecision ||
                                   decision.isPending ||
                                   latest?.decision === "REJECTED"
                                 }

@@ -12,6 +12,7 @@ import {
   applyReviewedPlanMetadata,
   planMetadataSchemaHash,
 } from "./testPlanMetadataSchema.js";
+import { canEditExecutionTemplate, executablePlanTemplateSchema } from "./planTemplateSaveSchema.js";
 export function boundedGovernanceSnapshot(
   value: unknown,
 ): PlanGovernanceSnapshot {
@@ -79,6 +80,7 @@ export function validatedGovernanceReceipt(value: unknown) {
   const isHeader = ack.operation === "EDIT_PLAN_HEADER";
   const isStatus = ack.operation === "SET_PLAN_STATUS";
   const isMetadata = ack.operation === "EDIT_PLAN_CUSTOM_FIELDS";
+  const isTemplate = ack.operation === "SAVE_EXECUTION_TEMPLATE";
   if (!isMetadata && receipt.metadataReview !== undefined) return invalid();
   if (
     ack.operation === "EDIT_CRITERION_DESCRIPTION" ||
@@ -193,6 +195,18 @@ export function validatedGovernanceReceipt(value: unknown) {
     } catch {
       return invalid();
     }
+  } else if (isTemplate) {
+    if (ack.criterionId !== null || before.releaseId !== after.releaseId ||
+        !canEditExecutionTemplate(before.executionTemplate) ||
+        !executablePlanTemplateSchema.safeParse(after.executionTemplate).success ||
+        governanceRequestHash(before.executionTemplate) === governanceRequestHash(after.executionTemplate) ||
+        governanceRequestHash({ operation: ack.operation, input: {
+          projectId: ack.scope.projectId, testPlanId: ack.testPlanId,
+          originalOrganizationId: ack.scope.organizationId,
+          expectedClerkActorId: ack.scope.actorClerkUserId,
+          expectedPlanRevision: ack.beforeRevision, requestId: ack.requestId,
+          reason: receipt.reason, confirmed: true, template: after.executionTemplate,
+        } }) !== ack.requestHash) return invalid();
   } else if (isHeader) {
     if (
       ack.criterionId !== null ||
@@ -232,6 +246,7 @@ export function validatedGovernanceReceipt(value: unknown) {
     ...(isHeader ? { name: after.name, description: after.description } : {}),
     ...(isStatus ? { status: after.status } : {}),
     ...(isMetadata ? { customFields: after.customFields } : {}),
+    ...(isTemplate ? { executionTemplate: after.executionTemplate } : {}),
     releaseId: after.releaseId,
     updatedAt: after.updatedAt,
     updatedById: after.updatedById,

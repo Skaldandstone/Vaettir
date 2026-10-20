@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useAuth } from "@clerk/nextjs";
 import { ModularWorkspace } from "@/components/ui/ModularWorkspace";
 import { IconButton } from "@/components/ui/IconButton";
+import { Icon } from "@/components/ui/Workspace";
 import { useParams } from "next/navigation";
 import { trpcReact } from "@/lib/trpcReact";
 import { useProjectPermissions } from "@/lib/use-project-permissions";
@@ -51,15 +52,16 @@ export default function ProjectOverviewPage() {
   if (!project) return <p>Loading…</p>;
 
   return (
-    <div>
-      <h1 style={{ marginBottom: 2 }}>{project.name}</h1>
+    <div className="project-overview-workbench">
+      <header className="overview-heading"><div><p className="workspace-eyebrow">Project overview</p><h1>{project.name}</h1>
       <ProjectCaseKey projectId={projectId} canEdit={canEdit} />
+      </div><div className="workspace-toolbar">
       {canEdit && (
         <button
           className="btn-secondary"
           onClick={() => setPopulationOpen(true)}
         >
-          Add sources
+          <Icon name="plus" size={16} /> Add sources
         </button>
       )}
       {canEdit && (
@@ -67,10 +69,10 @@ export default function ProjectOverviewPage() {
           icon="settings"
           label="Customize testing workflow"
           aria-haspopup="dialog"
-          style={{ marginLeft: 8, marginTop: 8 }}
           onClick={() => setExperienceOpen(true)}
         />
       )}
+      </div></header>
       <QualityExperienceWizard
         key={projectId}
         projectId={projectId}
@@ -83,17 +85,23 @@ export default function ProjectOverviewPage() {
           onClose={() => setPopulationOpen(false)}
         />
       )}
+      <nav className="overview-inventory" aria-label="Project inventory">
+        {([
+          ["cases", "Test cases", "test-cases", testCaseCount],
+          ["check", "Plans", "test-plans", testPlanCount],
+          ["book", "Requirements", "requirements", requirementCount],
+          ["clock", "For review", "test-cases/review", pendingReviewCount],
+        ] as const).map(([icon, label, path, count]) => <a key={path} href={`/projects/${projectId}/${path}`}>
+          <Icon name={icon} /><span>{label}</span><strong>{count ?? "—"}</strong><Icon name="arrow" size={14} />
+        </a>)}
+      </nav>
       <ModularWorkspace scope={userId ? `${userId}:${projectId}` : null} name="Project overview" panels={[
       { id: "inventory", title: "Testing at a glance", content: <>
-        <p>
-          {project.qualityProfile.objective ||
-            "Define your project’s objective, then connect requirements, tests and release evidence."}
-        </p>
+        {project.qualityProfile.objective && <p>{project.qualityProfile.objective}</p>}
         {testCasesQuery.isLoading ? (
           <p>Loading test inventory…</p>
         ) : testCaseCount ? (
           <>
-            <p className="text-muted">{testCaseCount} cases · Inventory, not release readiness</p>
             <TestTypeDistribution cases={testCasesQuery.data ?? []} />
           </>
         ) : (
@@ -118,65 +126,6 @@ export default function ProjectOverviewPage() {
       { id: "signals", title: "Production signals", content: <div className="project-connection-chips" id="project-connections" aria-label="Production signal routing"><ProductionSignalChips projectId={projectId} /></div> },
       { id: "releases", title: "Repository releases", wide: true, content: <RepositoryReleaseDiscovery projectId={projectId} /> },
       ]} />
-
-      <div
-        style={{
-          display: "grid",
-          gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))",
-          gap: 16,
-          marginBottom: 32,
-        }}
-      >
-        <a
-          href={`/projects/${projectId}/test-cases`}
-          className="panel"
-          style={{ display: "block" }}
-        >
-          <div className="eyebrow">Test Cases</div>
-          <div style={{ fontSize: 28, fontFamily: "Fraunces, serif" }}>
-            {testCaseCount}
-          </div>
-        </a>
-        <a
-          href={`/projects/${projectId}/test-plans`}
-          className="panel"
-          style={{ display: "block" }}
-        >
-          <div className="eyebrow">Test Plans</div>
-          <div style={{ fontSize: 28, fontFamily: "Fraunces, serif" }}>
-            {testPlanCount}
-          </div>
-        </a>
-        <a
-          href={`/projects/${projectId}/requirements`}
-          className="panel"
-          style={{ display: "block" }}
-        >
-          <div className="eyebrow">Requirements</div>
-          <div style={{ fontSize: 28, fontFamily: "Fraunces, serif" }}>
-            {requirementCount}
-          </div>
-        </a>
-        <a
-          href={`/projects/${projectId}/test-cases/review`}
-          className="panel"
-          style={{
-            display: "block",
-            borderColor: pendingReviewCount ? "var(--ember)" : undefined,
-          }}
-        >
-          <div className="eyebrow">Pending Review</div>
-          <div
-            style={{
-              fontSize: 28,
-              fontFamily: "Fraunces, serif",
-              color: pendingReviewCount ? "var(--ember)" : undefined,
-            }}
-          >
-            {pendingReviewCount ?? "Verifying…"}
-          </div>
-        </a>
-      </div>
 
       {testCaseCount === 0 && (
         <div className="panel">

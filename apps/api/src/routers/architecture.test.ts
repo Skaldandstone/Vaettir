@@ -330,16 +330,20 @@ describe("Vaettir-native architecture workflow (no Atlassian dependency)", () =>
         requestId: "10000000-0000-4000-8000-000000000001",
       };
     await f.caller.decide(value);
-    f.rows[0]!.metadata = Object.fromEntries(
-      Object.entries(f.rows[0]!.metadata).reverse(),
+    const receipt = f.rows.find(row => row.entityType === "ArchitectureMappingDecision")!;
+    receipt.metadata = Object.fromEntries(
+      Object.entries(receipt.metadata).reverse(),
     );
     await f.caller.decide(value);
-    expect(f.rows).toHaveLength(1);
+    expect(f.rows.filter(row => row.entityType === "ArchitectureMappingDecision")).toHaveLength(1);
+    expect(f.rows.filter(row => row.entityType === "ArchitectureDocument")).toHaveLength(1);
+    expect(f.rows.find(row => row.entityType === "ArchitectureDocument")!.metadata.content).toBe(input.content);
     await expect(
       f.caller.decide({ ...value, decision: "REJECTED" }),
     ).rejects.toMatchObject({ code: "CONFLICT" });
     expect(f.db.testCase.create).not.toHaveBeenCalled();
     expect(mocks.model).not.toHaveBeenCalled();
+    expect(mocks.debit).not.toHaveBeenCalled();
   });
   it("orders later review decisions by a locked revision, not colliding timestamps or random receipt IDs", async () => {
     const f = fixture();
@@ -357,7 +361,7 @@ describe("Vaettir-native architecture workflow (no Atlassian dependency)", () =>
       decision: "REJECTED",
       requestId: "10000000-0000-4000-8000-000000000012",
     });
-    expect(f.rows.map((r) => r.metadata.revision)).toEqual([1, 2]);
+    expect(f.rows.filter(r => r.entityType === "ArchitectureMappingDecision").map((r) => r.metadata.revision)).toEqual([1, 2]);
     expect((await f.caller.preview(input)).decisions).toMatchObject([
       { decision: "REJECTED", revision: 2 },
     ]);
@@ -379,7 +383,7 @@ describe("Vaettir-native architecture workflow (no Atlassian dependency)", () =>
       { ...definition.steps[0]!, action: "Different behavior" },
     ];
     expect((await f.caller.preview(input)).decisions).toEqual([]);
-    expect(f.rows).toHaveLength(1);
+    expect(f.rows.filter(r => r.entityType === "ArchitectureMappingDecision")).toHaveLength(1);
   });
   it("saves only an explicit reviewed draft with original AI evidence and a non-Gherkin procedure", async () => {
     const f = fixture();

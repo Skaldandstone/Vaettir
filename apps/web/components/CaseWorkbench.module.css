@@ -5,8 +5,8 @@
   display: flex;
   align-items: center;
   flex-wrap: wrap;
-  gap: 12px;
-  margin: 16px 0;
+  gap: 8px;
+  margin: 10px 0;
 }
 .search {
   flex: 0 1 480px;
@@ -14,10 +14,12 @@
   min-height: 36px;
 }
 .toolbar select {
-  max-width: 220px;
+  flex: 0 1 320px;
+  width: 24ch;
+  max-width: 100%;
   min-height: 36px;
 }
-.libraryTabs { display: flex; flex-wrap: wrap; align-items: center; gap: 20px; border-bottom: 1px solid var(--line); margin-bottom: 14px; }
+.libraryTabs { display: flex; flex-wrap: wrap; align-items: center; gap: 20px; border-bottom: 1px solid var(--line); margin-bottom: 8px; }
 .libraryTab { display: inline-flex; align-items: center; min-height: 40px; padding: 8px 0; border: 0; border-bottom: 2px solid transparent; border-radius: 0; background: transparent; color: var(--muted); font-size: 13px; text-decoration: none; }
 .libraryTab[aria-pressed="true"], .libraryTab[aria-current="page"] { border-bottom-color: var(--accent); color: var(--fg); font-weight: 600; }
 .libraryTab:hover { color: var(--fg); }

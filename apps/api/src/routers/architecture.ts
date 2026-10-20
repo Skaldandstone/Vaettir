@@ -843,6 +843,10 @@ export const architectureRouter = router({
             throw new TRPCError({ code: "CONFLICT" });
           return { saved: true };
         }
+        // A manual link must remain discoverable when the project is reopened,
+        // just like an AI-reviewed link. Retain the exact inspected source in
+        // the same authorized transaction; no provider call or case edit.
+        await retainDocument(tx, ctx, input, current.document);
         await tx.auditLog.create({
           data: {
             id,

@@ -173,6 +173,90 @@ select { padding-right: 28px; text-overflow: ellipsis; }
   .sidebar-rail .sidebar-link { min-width: 44px; width: 44px; min-height: 44px; }
   .compact-sidebar-layout[data-collapsed="true"] { grid-template-columns: 52px 0 minmax(0, 1fr); }
 }
+.plan-workbench { display: grid; gap: 16px; max-width: 1240px; }
+.project-search { display: flex; align-items: center; gap: 8px; max-width: 420px; margin-bottom: 18px; color: var(--muted); }
+.project-search input { width: 100%; }
+.compact-project-grid { grid-template-columns: repeat(auto-fill, minmax(min(100%, 300px), 1fr)); gap: 12px; }
+.compact-project-grid .project-card { position: relative; padding: 16px; }
+.compact-project-grid .project-card-heading { gap: 12px; margin-bottom: 16px; align-items: center; }
+.compact-project-grid .project-card h2 { flex: 1; min-width: 0; margin: 0; font: 600 15px/1.4 Inter, sans-serif; }
+.compact-project-grid .project-symbol { width: 34px; height: 34px; flex-shrink: 0; }
+.project-open-link { display: grid; place-items: center; width: 32px; height: 32px; flex-shrink: 0; border-radius: 4px; }
+.project-open-link:hover { background: var(--panel-raised, var(--line)); }
+.compact-project-grid .project-card-links { gap: 8px 14px; padding-top: 12px; padding-right: 0; }
+.compact-project-grid .project-card-links a { display: inline-flex; gap: 5px; align-items: center; min-height: 30px; }
+.compact-project-grid .project-card-admin { margin-top: 6px; gap: 2px; }
+.overview-heading { display: flex; justify-content: space-between; align-items: start; gap: 16px; margin-bottom: 20px; }
+.overview-heading h1 { margin: 4px 0 8px; font-size: clamp(24px, 2.5vw, 34px); }
+.overview-inventory { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); border: 1px solid var(--line); border-radius: 8px; margin-bottom: 24px; background: var(--panel); }
+.overview-inventory a { display: flex; align-items: center; gap: 10px; padding: 16px; border-right: 1px solid var(--line); color: var(--muted); font-size: 12px; min-width: 0; }
+.overview-inventory a:last-child { border-right: 0; }
+.overview-inventory a:hover { background: var(--selected, var(--line)); color: var(--fg); }
+.overview-inventory strong { margin-left: auto; color: var(--fg); font-size: 22px; font-variant-numeric: tabular-nums; }
+.release-workbench { max-width: 1240px; }
+.release-provider-discovery { margin: 12px 0 20px; padding: 12px 14px; border: 1px solid var(--line); border-radius: 6px; font-size: 13px; }
+.release-provider-discovery > summary { cursor: pointer; color: var(--muted); }
+.configuration-context { display: flex; gap: 12px 24px; flex-wrap: wrap; font-size: 12px; }
+.configuration-context dt { color: var(--muted); }.configuration-context dd { margin: 3px 0 0; }
+.plan-workbench-header { display: flex; gap: 16px; align-items: start; justify-content: space-between; }
+.plan-workbench-header h1 { margin: 4px 0 8px; font-size: clamp(22px, 2vw, 30px); }
+.plan-workbench-header p { margin: 0; max-width: 72ch; }
+.workspace-eyebrow { font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+.plan-workbench-section { border: 1px solid var(--line); border-radius: 8px; padding: 16px; background: var(--panel); min-width: 0; }
+.plan-workbench-section > summary { font-weight: 600; cursor: pointer; }
+.plan-workbench-section > h2 { margin: 0 0 12px; font-size: 16px; }
+.plan-edit-actions { display: flex; gap: 12px; flex-wrap: wrap; margin-block: 12px; }
+.plan-selection-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 20px; }
+.plan-selection-grid h3 { font-size: 14px; margin: 0 0 12px; }
+.plan-selection-grid > section { min-width: 0; }
+.plan-selection-grid .field-label { display: grid; gap: 5px; font-size: 12px; }
+.plan-case-options, .plan-selected-cases { padding: 0; list-style: none; max-height: 360px; overflow: auto; border: 1px solid var(--line); border-radius: 6px; }
+.plan-case-options > li, .plan-selected-cases > li { border-bottom: 1px solid var(--line); padding: 10px; font-size: 13px; }
+.plan-case-options > li:last-child, .plan-selected-cases > li:last-child { border-bottom: 0; }
+.plan-case-options label { display: flex; align-items: start; gap: 10px; cursor: pointer; }
+.plan-case-options label > span { display: grid; gap: 3px; overflow-wrap: anywhere; }
+.plan-case-options small, .plan-case-order { color: var(--muted); font-size: 11px; }
+.plan-selected-cases > li { display: grid; grid-template-columns: 20px minmax(0, 1fr) auto; gap: 8px; align-items: center; overflow-wrap: anywhere; }
+.plan-selected-cases .workspace-toolbar { gap: 2px; }
+.plan-configurations { margin-top: 16px; border-top: 1px solid var(--line); padding-top: 12px; }
+.plan-configurations > summary { font-size: 14px; font-weight: 600; }
+.plan-configuration { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; border: 1px solid var(--line); border-radius: 6px; padding: 12px; margin: 12px 0; }
+.plan-configuration label, .manual-architecture-mapping label { display: grid; gap: 5px; min-width: 0; font-size: 12px; }
+.plan-configuration legend { color: var(--muted); font-size: 12px; padding-inline: 5px; }
+.plan-configuration input { width: 100%; min-width: 0; box-sizing: border-box; }
+.plan-configuration details { grid-column: 1 / -1; }
+.plan-configuration details label { margin-top: 8px; }
+.plan-save-footer { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding-top: 16px; margin-top: 16px; border-top: 1px solid var(--line); }
+.plan-save-footer label { display: flex; align-items: start; gap: 8px; font-size: 12px; color: var(--muted); }
+.architecture-ai-options > summary { font-size: 13px; font-weight: 600; cursor: pointer; }
+.architecture-source-panel label { flex: 1 1 240px; min-width: 0; max-width: 100%; }
+.architecture-heading h1 { margin: 0; font-size: clamp(24px, 2.2vw, 32px); }
+.architecture-source-panel > summary { font-size: 13px; font-weight: 600; cursor: pointer; }
+.architecture-source-panel[open] > summary { margin-bottom: 14px; }
+.architecture-source-panel small { display: block; margin-top: 12px; color: var(--muted); }
+.architecture-view-tabs { border-bottom: 1px solid var(--line); gap: 16px !important; }
+.architecture-view-tabs button { border: 0; border-bottom: 2px solid transparent; border-radius: 0; background: transparent; padding: 8px 0; font-size: 13px; color: var(--muted); }
+.architecture-view-tabs button[aria-pressed="true"] { border-bottom-color: var(--accent); color: var(--fg); }
+.plan-history-comparison { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; }
+.architecture-source-panel input[type="file"] { width: 100%; min-width: 0; box-sizing: border-box; }
+.architecture-workbench .readable-select { width: 100%; min-width: 0; }
+.architecture-link-editor h3 { margin: 0 0 5px; }
+.architecture-link-editor header { margin-bottom: 16px; }
+.manual-architecture-mapping { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.manual-architecture-mapping > label:first-child { grid-column: 1 / -1; }
+.manual-architecture-mapping button { justify-self: start; }
+@media (max-width: 760px) {
+  .overview-heading { flex-direction: column; }
+  .overview-inventory { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .overview-inventory a { padding: 12px; border-bottom: 1px solid var(--line); }
+  .overview-inventory a:nth-child(even) { border-right: 0; }
+  .overview-inventory a:nth-last-child(-n+2) { border-bottom: 0; }
+  .plan-workbench-header, .plan-save-footer { flex-direction: column; align-items: stretch; }
+  .plan-selection-grid, .plan-configuration { grid-template-columns: minmax(0, 1fr); }
+  .manual-architecture-mapping { grid-template-columns: minmax(0, 1fr); }
+  .plan-selected-cases > li { grid-template-columns: 20px minmax(0, 1fr); }
+  .plan-selected-cases .workspace-toolbar { grid-column: 2; }
+}
 @media (prefers-reduced-motion: reduce) { body, .procedure-step-toggle svg { transition: none; } }
 
 /* Read-only reference guidance; wrapping keeps mapping actions usable on touch screens. */

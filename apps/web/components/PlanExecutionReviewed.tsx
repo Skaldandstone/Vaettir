@@ -1,5 +1,5 @@
 "use client";
-import { useLayoutEffect, useMemo, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { trpcReact } from "@/lib/trpcReact";
 import { usePlanExecutionReviewedAccess, type PlanExecutionReadAdapter } from "@/lib/use-plan-execution-reviewed-access";
@@ -58,6 +58,18 @@ export function PlanExecutionReviewed({ projectId, testPlanId, organizationId, o
   // independently checks installed SDK, cache and render epochs before layout.
   const exactFrame = () => active && controller.view().epoch === view.epoch && plan.current() === currentPlan && profile.current() === currentProfile;
   const fullPage = () => exactFrame() && !!page && plan.current() === currentPlan;
+  // Opening Run plan loads read-only details after each exact access proof.
+  // Never auto-start, auto-save, or retry a failed request.
+  const automaticReads = useRef(new WeakSet<object>());
+  useEffect(() => {
+    if (!active || !exactFrame() || view.pending || view.confirmed || view.hasReview) return;
+    if (currentPlan?.projection === "ACCESS" && !automaticReads.current.has(currentPlan)) {
+      if (plan.readPage({ search: "", limit: 50 })) automaticReads.current.add(currentPlan);
+    }
+    if (currentProfile?.projection === "ACCESS" && !automaticReads.current.has(currentProfile)) {
+      if (profile.readPreview()) automaticReads.current.add(currentProfile);
+    }
+  });
   function readPage(cursor?: PlanExecutionReadPageInput["cursor"], backwards = false) {
     if (!exactFrame() || !currentPlan || !page && cursor !== undefined) return;
     if (!backwards && cursor && previousCursors.length >= 100) { setPagingError("This browser visit reached its 100-page navigation bound. Apply a new search explicitly; no cases were truncated or selected."); return; }
@@ -71,52 +83,51 @@ export function PlanExecutionReviewed({ projectId, testPlanId, organizationId, o
   }
   const privateNotice = (page || recovery) && view.notice;
   return <Modal open={open} onClose={onClose} title="Execute a test plan" size="wide" keepMounted>
-    <p>Reuse a saved selection and configuration. New run creation still requires server admission of current approved procedures and prerequisites.</p>
+    <p className="muted">Choose a saved configuration, then review and start your run.</p>
     {(legacyBlocked || legacyHasDraft) && <p role="status">A legacy draft or request is retained privately in its original mounted owner. It is not migrated, resent or assigned a newly observed native identity. {legacyBlocked ? "A held legacy request blocks replacement here." : "The new flow starts separately; old draft contents are not adopted."}</p>}
     {!legacyBlocked && <>
-      <div className="flex gap-2" style={{ flexWrap: "wrap" }}>
+      <details><summary>Refresh access & run settings</summary><div className="workspace-toolbar">
         <button type="button" className="btn-secondary" disabled={view.busy} onClick={() => { if (exactFrame()) plan.refresh(); }}>Recheck original plan access</button>
         <button type="button" className="btn-secondary" disabled={view.busy || !plan.origin} onClick={() => { if (exactFrame()) profile.refresh(); }}>Recheck original run-profile access</button>
         <button type="button" className="btn-secondary" disabled={view.busy || !currentProfile} onClick={() => { if (exactFrame()) profile.readPreview(); }}>Read current run profile</button>
-      </div>
-      {!page && <p role="status">Private plan details are withheld until a completed current native PAGE read. ACCESS proves current membership only, not start/save permission or a receipt.</p>}
-      {active && (plan.error || profile.error) && <p role="status">Current metadata is unavailable. Explicitly recheck original access; no cached body or substitute scope is used.</p>}
+      </div></details>
+      {!page && <p role="status">Loading the current plan and run settings…</p>}
+      {active && (plan.error || profile.error) && <p role="alert">Unable to verify this plan. Use Refresh access & run settings to try again.</p>}
+      <details><summary>Browse available tests</summary>
       <form onSubmit={event => { event.preventDefault(); if (exactFrame()) readPage(); }}>
-        <label>Literal title or case-ID search <input value={currentPlan ? search : ""} disabled={!active || view.busy || !currentPlan} onChange={event => { if (exactFrame()) setSearch(event.target.value); }} maxLength={200} /></label>
-        <button className="btn-secondary" type="submit" disabled={!active || view.busy || !currentPlan}>Read saved template / apply search</button>
+        <label>Test ID or summary <input value={currentPlan ? search : ""} disabled={!active || view.busy || !currentPlan} onChange={event => { if (exactFrame()) setSearch(event.target.value); }} maxLength={200} /></label>
+        <button className="btn-secondary" type="submit" disabled={!active || view.busy || !currentPlan}>Search</button>
       </form>
+      {page && <><ul>{page.candidates.map(item => <li key={item.id}><code>{item.displayId || item.id}</code> {item.title} · {item.reviewStatus}</li>)}</ul>
+        <button type="button" disabled={view.busy || previousCursors.length === 0} onClick={() => { if (fullPage()) readPage(previousCursors.at(-1), true); }}>Previous</button>
+        <button type="button" disabled={view.busy || !page.nextCursor} onClick={() => { if (fullPage() && page.nextCursor) readPage(page.nextCursor); }}>Next</button>
+        {pagingError && <p role="status">{pagingError}</p>}</>}
+      </details>
       {page && <section>
         <h3 style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>{page.plan.name}</h3>
-        <p>Plan status: {page.plan.status}. {page.interpretation === "EXACT_LITERAL_V2_READ_ONLY" ? "Exact literal version-2 template, read-only. SAVE and START are unavailable for this version; viewing it does not approve an execution." : page.interpretation === "EXACT_SUPPORTED" ? "Exact supported saved-template interpretation." : "Legacy-normalized display only; it cannot approve a new execution."}</p>
-        <h4>Complete saved selection ({page.selected.length})</h4>
+        {page.interpretation !== "EXACT_SUPPORTED" && <p role="status">This saved format is read-only and cannot start a new run.</p>}
+        <h4>Selected tests · {page.selected.length}</h4>
         <ol>{page.selected.map(item => <li key={item.testCaseId} style={{ marginBottom: 8, overflowWrap: "anywhere" }}>
           <code>{item.metadata?.displayId || item.testCaseId}</code>{item.metadata?.displayId === "" && <small> (no display ID)</small>}
           <span style={{ whiteSpace: "pre-wrap" }}> {item.metadata ? item.metadata.title === "" ? "(explicit empty title)" : item.metadata.title : "Current case metadata unavailable"}</span>
           <strong style={{ color: item.state === "AVAILABLE" ? "var(--muted)" : "var(--warning)" }}> · {item.state}</strong>
           {item.metadata && <span> · {item.metadata.reviewStatus}{item.metadata.archived ? " · archived" : ""}</span>}
         </li>)}</ol>
-        <p>Missing, archived or unapproved selected cases are retained as identities and block a new start. Browsing candidates never changes this selection.</p>
-        <h4>Current candidate page ({page.candidates.length}; limit {page.limit})</h4>
-        <ul>{page.candidates.map(item => <li key={item.id} style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}><code>{item.displayId || item.id}</code> {item.title === "" ? "(explicit empty title)" : item.title} · {item.reviewStatus}</li>)}</ul>
-        <p>Pages use an ID cursor, not chronological order or a globally frozen count.</p>
-        <button type="button" className="btn-secondary" disabled={view.busy || previousCursors.length === 0} onClick={() => { if (fullPage()) readPage(previousCursors.at(-1), true); }}>Previous candidate page</button>
-        <button type="button" className="btn-secondary" disabled={view.busy || !page.nextCursor} onClick={() => { if (fullPage() && page.nextCursor) readPage(page.nextCursor); }}>Next candidate page</button>
-        {pagingError && <p role="status">{pagingError}</p>}
+        <p className="muted">All selected tests must be available and approved before starting.</p>
         <h4>Saved configurations</h4>
         {page.template?.configurations.map(item => <section key={item.id} style={{ border: "1px solid var(--border)", padding: 12, marginBottom: 12 }}>
           <label><input type="radio" name={`plan-configuration-${testPlanId}`} checked={view.selectedConfigurationId === item.id} disabled={view.busy || view.hasReview || view.pending || view.confirmed} onChange={() => { if (fullPage()) controller.select(item.id); }} /> <span style={{ whiteSpace: "pre-wrap" }}>{item.name}</span></label>
-          <dl>{Object.entries(item.context).map(([key, value]) => <div key={key}><dt>{contextLabels[key] ?? key}</dt><dd style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>{value === "" ? "(explicit empty text)" : value}</dd></div>)}</dl>
+          <dl className="configuration-context">{Object.entries(item.context).filter(([, value]) => value !== "").map(([key, value]) => <div key={key}><dt>{contextLabels[key] ?? key}</dt><dd style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>{value}</dd></div>)}</dl>
         </section>)}
-        {!page.template && <p>No supported saved configuration is available. Raw template contents are retained, not repaired.</p>}
-        <details><summary>Exact raw stored template JSONB (separate from display interpretation)</summary><pre style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>{page.rawTemplate.sqlNull ? "SQL NULL" : page.rawTemplate.jsonText}</pre></details>
-        <button type="button" className="btn-secondary" disabled>Save reusable template (reviewed native-save protocol unavailable)</button>
+        {!page.template && <p>Use Configure cases on the plan to save your selection first.</p>}
+        <details><summary>Stored configuration details</summary><pre style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>{page.rawTemplate.sqlNull ? "SQL NULL" : page.rawTemplate.jsonText}</pre></details>
       </section>}
       <div className="flex gap-2" style={{ flexWrap: "wrap", marginTop: 16 }}>
-        <button type="button" className="btn-secondary" disabled={!page || !view.canReview} onClick={() => { if (fullPage()) controller.review(); }}>Review this saved execution</button>
-        <button type="button" className="btn-primary" disabled={!page || !view.canSend} onClick={() => { if (fullPage()) void controller.submit(input => start.mutateAsync(input), onSaved); }}>Confirm and start reviewed execution</button>
-        <button type="button" className="btn-secondary" disabled={!recovery || !view.canRetry} onClick={() => { if (exactFrame()) void controller.submit(input => start.mutateAsync(input), onSaved); }}>Retry exact held request</button>
-        <button type="button" className="btn-secondary" disabled={!recovery || !view.canDiscard} onClick={() => { if (exactFrame()) controller.discard(); }}>Discard unsent / definitively refused review</button>
-        <button type="button" className="btn-secondary" disabled={!recovery || !view.canAnother} onClick={() => { if (exactFrame()) controller.another(); }}>Prepare a separate execution</button>
+        <button type="button" className="btn-secondary" disabled={!page || !view.canReview} onClick={() => { if (fullPage()) controller.review(); }}>Review run</button>
+        <button type="button" className="btn-primary" disabled={!page || !view.canSend} onClick={() => { if (fullPage()) void controller.submit(input => start.mutateAsync(input), onSaved); }}>Start run</button>
+        {recovery && view.canRetry && <button type="button" className="btn-secondary" onClick={() => { if (exactFrame()) void controller.submit(input => start.mutateAsync(input), onSaved); }}>Retry start</button>}
+        {recovery && view.canDiscard && <button type="button" className="btn-secondary" onClick={() => { if (exactFrame()) controller.discard(); }}>Cancel review</button>}
+        {recovery && view.canAnother && <button type="button" className="btn-secondary" onClick={() => { if (exactFrame()) controller.another(); }}>Prepare another run</button>}
       </div>
       {privateNotice && <p role="status">{view.notice}</p>}
       {view.pending && <p role="status">An original request is retained while this component stays mounted. Close or access loss does not reset its body or key. Reload/route replacement recovery is not provided here.</p>}

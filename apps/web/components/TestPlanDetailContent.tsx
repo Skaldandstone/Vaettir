@@ -4,6 +4,7 @@ import { useId, useLayoutEffect, useRef, useState } from "react";
 import { useAuth } from "@clerk/nextjs";
 import { trpcReact, type RouterOutputs } from "@/lib/trpcReact";
 import { PlanExecutionModal } from "./PlanExecutionModal";
+import { PlanTemplateEditor } from "./PlanTemplateEditor";
 import { CriterionDescriptionEditor } from "./CriterionDescriptionEditor";
 import { CriterionVerdictEditor } from "./CriterionVerdictEditor";
 import { PlanGovernanceHistory } from "./PlanGovernanceHistory";
@@ -552,7 +553,7 @@ export function TestPlanDetailContent({
 
   const fieldsRenderer = (plan?.testPlanType.key ?? (discovery?.id === id ? discovery.typeKey : null)) === "qa-strategy" && controlProjectId
     ? (values: Record<string, unknown>, onChange: (values: Record<string, unknown>) => void, context: { active: boolean; projectId: string; testPlanId: string }) => <QaStrategyForm projectId={context.projectId} active={context.active} values={values} onChange={onChange} /> : undefined;
-  const reviewedControls = controlProjectId ? <section key={`reviewed:${controlProjectId}:${id}`}>
+  const reviewedControls = controlProjectId ? <section className="plan-edit-actions" key={`reviewed:${controlProjectId}:${id}`}>
     <PlanHeaderEditor key={`${controlProjectId}:${id}`} projectId={controlProjectId} testPlanId={id} readOnly={readOnly} onChanged={() => { load(); onChanged?.(); }} />
     <PlanStatusEditor key={`status:${controlProjectId}:${id}`} projectId={controlProjectId} testPlanId={id} organizationId={organizationId} readOnly={readOnly} onChanged={() => { load(); onChanged?.(); }} />
     <PlanCustomFieldsEditor key={`fields:${controlProjectId}:${id}`} projectId={controlProjectId} testPlanId={id} organizationId={organizationId} readOnly={readOnly} renderFields={fieldsRenderer} onChanged={() => { load(); onChanged?.(); }} />
@@ -566,21 +567,27 @@ export function TestPlanDetailContent({
     onClose={() => setExecutionOpen(false)} id={id} projectId={controlProjectId}
     organizationId={organizationId || undefined}
     onSaved={() => { load(); onChanged?.(); }} /> : null;
-  if (!plan) return <div>{executionControls}{reviewedControls}<p role={loadError ? "alert" : undefined}>{loadError ?? "Loading saved plan…"}</p></div>;
+  const templateControls = controlProjectId ? <div className="workspace-toolbar plan-primary-actions">
+    <PlanTemplateEditor key={`template:${controlProjectId}:${id}`} projectId={controlProjectId} testPlanId={id} organizationId={organizationId} readOnly={readOnly || !plan || !!loadError || !auth.isSignedIn} onChanged={() => { load(); onChanged?.(); }} />
+    {!readOnly && !!plan && !loadError && <button className="btn-secondary" onClick={() => setExecutionOpen(true)}>Run plan</button>}
+  </div> : null;
+  if (!plan) return <div className="plan-workbench">{executionControls}{templateControls}{reviewedControls}<p role={loadError ? "alert" : undefined}>{loadError ?? "Loading saved plan…"}</p></div>;
 
   return (
-    <div>
+    <div className="plan-workbench">
       {executionControls}
+      {templateControls}
       {loadError && <div role="alert" style={{ color: "var(--ember)", marginBottom: 12 }}>
         <p>{loadError}</p>
         <p>Your mounted drafts remain here. A failed response is not proof that a save was rejected.</p>
         <button type="button" className="btn-secondary" onClick={load}>Refresh saved plan without clearing drafts</button>
       </div>}
-      <h1 style={{ marginBottom: 2 }}>{plan.name}</h1>
-      <p style={{ color: "var(--muted)" }}>{plan.testPlanType.name} plan</p>
-
-      {!readOnly && <button className="btn-secondary" style={{ marginBottom: 16 }} onClick={() => setExecutionOpen(true)}>Configure cases / repeat execution</button>}
-      {reviewedControls}
+      <header className="plan-workbench-header">
+        <div><p className="workspace-eyebrow">{plan.testPlanType.name} plan · {status}</p><h1>{plan.name}</h1>{description && <p className="muted">{description}</p>}</div>
+      </header>
+      <details className="plan-workbench-section"><summary>Plan settings</summary>{reviewedControls}
+        <details><summary>Additional fields</summary><pre style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>{describeRetainedPlanValue(plan.customFields, true)}</pre></details>
+      </details>
 
       {readOnly && (
         <div style={{ display: "grid", gap: 6, marginBottom: 24 }}>
@@ -590,17 +597,10 @@ export function TestPlanDetailContent({
           </p>
         </div>
       )}
-      <p>Status: <strong>{status}</strong>. This saved planning lifecycle does not prove passing evidence or release acceptance.</p>
-      <details><summary>Saved native plan fields (read-only)</summary><pre style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>{describeRetainedPlanValue(plan.customFields, true)}</pre></details>
-
       {plan.testPlanType.key === "qa-strategy" && <StrategySignalsSection projectId={plan.projectId} />}
 
       <StrategyLinkSection plan={plan} projectId={plan.projectId} onChanged={load} readOnly={readOnly} />
-
-      <VersionHistorySection testPlanId={id} />
-
-      <TestCaseQualityReviewSection testPlanId={id} projectId={plan.projectId} />
-
+      <section className="plan-workbench-section">
       <h2>Acceptance criteria</h2>
       <ul style={{ listStyle: "none", padding: 0 }}>
         {plan.acceptanceCriteria.map((c) => (
@@ -618,7 +618,12 @@ export function TestPlanDetailContent({
         {plan.acceptanceCriteria.length === 0 && <p style={{ color: "var(--muted)" }}>No acceptance criteria yet.</p>}
       </ul>
       <GovernedCriterionCollection key={`${plan.projectId}:${id}`} projectId={plan.projectId} testPlanId={id} readOnly={readOnly} onChanged={load} />
-      <PlanGovernanceHistory projectId={plan.projectId} testPlanId={id} />
+      </section>
+      <details className="plan-workbench-section"><summary>Quality review</summary><TestCaseQualityReviewSection testPlanId={id} projectId={plan.projectId} /></details>
+      <details className="plan-workbench-section"><summary>Activity & history</summary>
+        <VersionHistorySection testPlanId={id} />
+        <PlanGovernanceHistory projectId={plan.projectId} testPlanId={id} />
+      </details>
     </div>
   );
 }
