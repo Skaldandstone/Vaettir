@@ -39,6 +39,15 @@ import {
 } from "./testPlanGovernanceRevision.js";
 
 function fixture() {
+  // Model JSON-convertible Prisma inputs at the persistence boundary; functions
+  // in an input wrapper are not functions in a stored/read JSON column.
+  const storedJson = (value: unknown) => value && typeof value === "object" &&
+    typeof (value as { toJSON?: unknown }).toJSON === "function"
+    ? JSON.parse(JSON.stringify(value)) : value;
+  const storedFields = (data: Record<string, unknown>) => Object.fromEntries(
+    Object.entries(data).map(([key, value]) => [key,
+      ["customFields", "executionTemplate", "metadata"].includes(key) ? storedJson(value) : value]),
+  );
   let state = {
     role: "EDITOR",
     seatType: "FULL",
@@ -255,7 +264,7 @@ function fixture() {
         }),
       ),
       update: vi.fn(async ({ data }: { data: Record<string, unknown> }) => {
-        Object.assign(state.plan, data);
+        Object.assign(state.plan, storedFields(data));
         state.plan.updatedAt = new Date(state.plan.updatedAt.getTime() + 1);
         return structuredClone(state.plan);
       }),
@@ -343,7 +352,7 @@ function fixture() {
     testPlanVersion: {
       findFirst: vi.fn(async () => state.versions.at(-1)),
       create: vi.fn(async ({ data }: { data: { versionNumber: number } }) => {
-        const version = { ...data, id: `version-${data.versionNumber}` };
+        const version = { ...data, ...storedFields(data), id: `version-${data.versionNumber}` };
         state.versions.push(version);
         return version;
       }),
@@ -360,7 +369,7 @@ function fixture() {
       ),
       create: vi.fn(
         async ({ data }: { data: { id: string; metadata: unknown } }) => {
-          state.audits.set(data.id, structuredClone(data));
+          state.audits.set(data.id, structuredClone({ ...data, metadata: storedJson(data.metadata) }));
           return data;
         },
       ),

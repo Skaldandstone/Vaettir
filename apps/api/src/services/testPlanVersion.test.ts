@@ -48,6 +48,8 @@ describe("plan version JSON retention (mock capture, not native JSON-null accept
     { label: "numeric zero", value: 0 },
     { label: "boolean false", value: false },
     { label: "explicit JSON null", value: null },
+    { label: "reserved JSON keys at depth", value: JSON.parse('{"nested":[{"__proto__":{"retained":true}}],"__proto__":"literal"}') },
+    { label: "nested-only reserved JSON key", value: JSON.parse('{"nested":[{"__proto__":{"retained":true}}]}') },
   ])("preserves $label for both JSON fields", async ({ value }) => {
     const c = capture();
     const original = JSON.stringify(value);
@@ -58,8 +60,15 @@ describe("plan version JSON retention (mock capture, not native JSON-null accept
     });
     const data = c.create.mock.calls[0]![0].data;
     const expected = value === null ? Prisma.JsonNull : value;
-    expect(data.customFields).toBe(expected);
-    expect(data.executionTemplate).toBe(expected);
+    if (value !== null) {
+      expect(JSON.parse(JSON.stringify(data.customFields))).toEqual(value);
+      expect(JSON.parse(JSON.stringify(data.executionTemplate))).toEqual(value);
+      expect(JSON.stringify(data.customFields)).toBe(original);
+      expect(JSON.stringify(data.executionTemplate)).toBe(original);
+    } else {
+      expect(data.customFields).toBe(expected);
+      expect(data.executionTemplate).toBe(expected);
+    }
     expect(data).toMatchObject({
       testPlanId: base.testPlanId,
       name: base.name,

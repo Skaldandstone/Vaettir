@@ -8,6 +8,7 @@ import {
   type CaseFieldReadAuthorization,
 } from "./caseFieldReadScope.js";
 import { snapshotTestPlanVersion } from "./testPlanVersion.js";
+import { preservedPrismaJson } from "./prismaJsonInput.js";
 import {
   MAX_GOVERNANCE_CRITERIA,
   MAX_GOVERNANCE_SNAPSHOT_BYTES,
@@ -583,7 +584,7 @@ async function write(
               message:
                 "Complete native metadata or its reviewed patch exceeds the bounded write. No keys were omitted, repaired or truncated.",
             });
-          metadataChange = { customFields: result as Prisma.InputJsonValue };
+          metadataChange = { customFields: preservedPrismaJson(result) as Prisma.InputJsonValue };
           metadataReview = {
             testPlanTypeId: before.testPlanTypeId,
             fieldSchema: schema.fieldSchema,
@@ -816,7 +817,7 @@ async function write(
               ATTACH_UNASSIGNED_PLAN: "Attached an unassigned quality plan",
               DETACH_ATTACHED_PLAN: "Detached a reviewed quality plan from its planning release",
             }[operation],
-            metadata: metadata as Prisma.InputJsonValue,
+            metadata: preservedPrismaJson(metadata) as Prisma.InputJsonValue,
           },
         });
         // Check actual native JSONB bytes and aggregate while all scope locks are

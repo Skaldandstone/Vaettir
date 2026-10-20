@@ -344,7 +344,7 @@ describe.skipIf(!isolated)(
       expect(empty.snapshot.description).toBe("");
       expect(empty.snapshot.name).toBe(input.name);
     });
-    it("native JSONB precision canary refuses new snapshots/metadata without rewriting native numbers (AUTHORED NOT RUN)", async () => {
+    it("native JSONB precision canary refuses new snapshots/metadata without rewriting native numbers", async () => {
       const unique = `synthetic-json-codec-${randomUUID()}`;
       const type = await prisma.testPlanType.create({
         data: {
@@ -445,7 +445,7 @@ describe.skipIf(!isolated)(
     });
     it("native synthetic status/metadata revisions preserve unknown keys, explicit reopen and exact typed receipts", async () => {
       // Dedicated test-owned type/plan only. Never edit a built-in or customer
-      // schema to force fixture admission. This fixture is AUTHORED NOT RUN.
+      // schema to force fixture admission. Verify the native seed before use.
       const unique = `synthetic-governed-properties-${randomUUID()}`;
       const type = await prisma.testPlanType.create({
         data: {
@@ -469,10 +469,16 @@ describe.skipIf(!isolated)(
           projectId: scope.projectId,
           testPlanTypeId: type.id,
           name: unique,
-          customFields: raw,
+          customFields: {},
           description: null,
         },
       });
+      // Seed through typed native JSON text so Prisma argument serialization
+      // cannot silently remove the canary before the service sees it.
+      await prisma.$executeRaw`UPDATE "TestPlan" SET "customFields"=${JSON.stringify(raw)}::jsonb WHERE id=${plan.id}`;
+      const [nativeSeed] = await prisma.$queryRaw<Array<{ text: string }>>`SELECT "customFields"::text AS text FROM "TestPlan" WHERE id=${plan.id}`;
+      expect(JSON.parse(nativeSeed!.text)).toEqual(raw);
+      expect(Object.hasOwn(JSON.parse(nativeSeed!.text), "__proto__")).toBe(true);
       const selected = { ...scope, testPlanId: plan.id },
         before = await caller.testPlanGovernance.preview({
           ...selected,
@@ -575,6 +581,21 @@ describe.skipIf(!isolated)(
         fieldSchemaHash: metadata.expectedFieldSchemaHash,
         changes,
       });
+      const versions = await prisma.$queryRaw<Array<{ text: string }>>`SELECT "customFields"::text AS text FROM "TestPlanVersion" WHERE "testPlanId"=${plan.id}`;
+      expect(versions).toHaveLength(3);
+      for (const row of versions) {
+        expect(Object.hasOwn(JSON.parse(row.text), "__proto__")).toBe(true);
+        expect(JSON.parse(row.text).__proto__).toEqual(raw.__proto__);
+      }
+      const audits = await prisma.$queryRaw<Array<{ text: string }>>`SELECT metadata::text AS text FROM "AuditLog" WHERE "entityId"=${plan.id}`;
+      expect(audits).toHaveLength(3);
+      for (const row of audits) {
+        const nativeReceipt = JSON.parse(row.text);
+        for (const snapshot of [nativeReceipt.before, nativeReceipt.after]) {
+          expect(Object.hasOwn(snapshot.customFields, "__proto__")).toBe(true);
+          expect(snapshot.customFields.__proto__).toEqual(raw.__proto__);
+        }
+      }
       expect(
         await prisma.testPlanVersion.count({ where: { testPlanId: plan.id } }),
       ).toBe(3);

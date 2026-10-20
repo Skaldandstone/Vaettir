@@ -96,6 +96,11 @@ jobs:
       - name: Seed reference data
         run: pnpm --filter @vaettir/db run seed
 
+      - name: Verify native plan template governance
+        env:
+          VAETTIR_PLAN_GOVERNANCE_NATIVE_FIXTURE: "1"
+        run: pnpm --filter @vaettir/api exec vitest run src/test-plan-governance.integration.test.ts
+
       - name: Verify operations contracts
         run: |
           pnpm test:operations
@@ -147,10 +152,6 @@ jobs:
         env:
           VAETTIR_AI_MCP_TEST: "1"
         run: pnpm --filter @vaettir/api exec vitest run src/ai-disclosure-mcp.integration.test.ts
-      - name: Verify native plan template governance
-        env:
-          VAETTIR_PLAN_GOVERNANCE_NATIVE_FIXTURE: "1"
-        run: pnpm --filter @vaettir/api exec vitest run src/test-plan-governance.integration.test.ts
       - name: Verify workflow layouts and project connection interactions
         run: |
           pnpm --filter @vaettir/web exec playwright install --with-deps chromium
